@@ -26,18 +26,19 @@ Replace the dependency on Rust's `rust_eh_personality` with Ori's own `ori_eh_pe
   with invoke/        │      "ori_eh_personality" │  ← was "rust_eh_personality"
   landingpad          │    )                      │
                       │                           │
-                      │  runtime_decl/mod.rs      │
-                      │    RT_FUNCTIONS table:     │
+                      │  runtime_decl/             │
+                      │    runtime_functions.rs:    │
                       │    "ori_eh_personality"    │  ← declaration for LLVM
                       └───────────┬───────────────┘
                                   │
                     ┌─────────────┴─────────────┐
                     │                           │
               JIT path                    AOT path
-              (evaluator.rs)              (linker)
+              (evaluator/                 (linker)
+               runtime_mappings.rs)
                     │                           │
                     ▼                           ▼
-        JIT_MAPPED_RUNTIME_FUNCTIONS    libori_rt.a
+        jit_symbol_mappings()           libori_rt.a
         maps "ori_eh_personality"       contains ori_eh_personality()
         → address of C function         (compiled from eh_personality.c)
         in ori_rt rlib                  via cc crate in build.rs
@@ -76,14 +77,14 @@ Section 03 (Verification)
 Phase 1 — C Personality Function (Section 01)
   └─ 01.1: Write ori_eh_personality in C (LSDA parser + action dispatch)
   └─ 01.2: Add cc crate build.rs to compile C into libori_rt.a
-  └─ 01.3: Export symbol for JIT via #[no_mangle] extern "C" wrapper
+  └─ 01.3: Export address getter via extern "C" declaration + pub fn
   Gate: `nm libori_rt.a | grep ori_eh_personality` shows the symbol
 
 Phase 2 — Codegen Integration (Section 02)
-  └─ 02.1: Update RT_FUNCTIONS table (runtime_decl/mod.rs)
+  └─ 02.1: Update RT_FUNCTIONS table (runtime_decl/runtime_functions.rs)
   └─ 02.2: Update arc_emitter personality attachment (arc_emitter/mod.rs)
-  └─ 02.3: Update JIT symbol mapping (evaluator.rs)
-  └─ 02.4: Remove rust_eh_personality_addr() helper
+  └─ 02.3: Update JIT symbol mapping (evaluator/runtime_mappings.rs)
+  └─ 02.4: Remove rust_eh_personality_addr() + update verify/tests.rs
   Gate: `ORI_DEBUG_LLVM=1 ori build test.ori 2>&1 | grep personality`
          shows `@ori_eh_personality`, zero mentions of `rust_eh_personality`
 
@@ -91,7 +92,7 @@ Phase 3 — Verification (Section 03)
   └─ 03.1: Full test suite passes (./test-all.sh)
   └─ 03.2: Code journey re-run (J3 confirms no rust_eh_personality)
   └─ 03.3: Symbol audit (nm/objdump on AOT binary)
-  └─ 03.4: Valgrind clean (./scripts/valgrind-aot.sh)
+  └─ 03.4: Valgrind clean (diagnostics/valgrind-aot.sh)
   Gate: Zero references to rust_eh_personality in any generated IR or binary
 ```
 

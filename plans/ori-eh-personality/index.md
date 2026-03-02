@@ -32,7 +32,7 @@ ori_rt, build.rs, cc crate, staticlib
 ```
 rust_eh_personality, ori_eh_personality, symbol rename, codegen
 runtime_decl, RT_FUNCTIONS, arc_emitter, set_personality
-evaluator.rs, JIT_MAPPED_RUNTIME_FUNCTIONS, add_runtime_mappings
+evaluator/runtime_mappings.rs, jit_symbol_mappings, verify/tests.rs
 ir_builder, calls.rs, invoke, landingpad, resume
 nounwind, nounwind_functions, InvokeMode
 ```

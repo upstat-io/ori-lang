@@ -19,9 +19,7 @@ mod compile;
 mod runtime_mappings;
 
 #[cfg(test)]
-pub(crate) use runtime_mappings::AOT_ONLY_RUNTIME_FUNCTIONS;
-#[cfg(test)]
-pub(crate) use runtime_mappings::JIT_MAPPED_RUNTIME_FUNCTIONS;
+pub(crate) use runtime_mappings::jit_symbol_mappings;
 
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;

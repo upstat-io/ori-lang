@@ -80,7 +80,8 @@ pub const BUILTIN_TYPES: &[&TypeDef] = &[
     &STR,       // Tag::Str       = 3
     &CHAR,      // Tag::Char      = 4
     &BYTE,      // Tag::Byte      = 5
-    // Unit (6), Never (7), Error (8) have no methods -- excluded
+    // Unit (6), Never (7) have no methods -- excluded
+    &ERROR,     // Tag::Error     = 8  (8 methods: message, trace, etc.)
     &DURATION,  // Tag::Duration  = 9
     &SIZE,      // Tag::Size      = 10
     &ORDERING,  // Tag::Ordering  = 11
@@ -103,7 +104,7 @@ pub const BUILTIN_TYPES: &[&TypeDef] = &[
 - *Arbitrary/insertion order*: No advantages, harder to maintain.
 - *TypeTag discriminant*: Matches `Tag` repr(u8) ordering, which matches the type pool's pre-interned indices. If we ever need binary search, the array is already sorted by tag value.
 
-**Types without methods (Unit, Never, Error) are excluded.** They have no behavioral specification to declare. Including them would add empty `TypeDef` entries that every enforcement test must special-case. If a future change adds methods to Unit (unlikely), add the entry then.
+**Types without methods (Unit, Never) are excluded.** They have no behavioral specification to declare. Including them would add empty `TypeDef` entries that every enforcement test must special-case. **Error IS included** — it has 8 methods (`message`, `trace`, `trace_entries`, `has_trace`, `with_trace`, `to_str`, `debug`, `clone`) defined in Section 05. If a future change adds methods to Unit (unlikely), add the entry then.
 
 ### Implementation tasks
 
@@ -121,7 +122,7 @@ pub const BUILTIN_TYPES: &[&TypeDef] = &[
 /// Look up a builtin type definition by its type tag.
 ///
 /// Returns `None` for tags not in the registry (user-defined types,
-/// Unit, Never, Error, type variables, etc.). Consuming phases should
+/// Unit, Never, type variables, etc.). Consuming phases should
 /// fall through to trait dispatch or error reporting when this returns `None`.
 ///
 /// # Examples
@@ -189,7 +190,7 @@ A `HashMap<TypeTag, &TypeDef>` would add ~200 bytes of metadata, require `LazyLo
 /// use ori_registry::{find_method, TypeTag};
 ///
 /// let abs = find_method(TypeTag::Int, "abs").unwrap();
-/// assert_eq!(abs.returns, ReturnType::SelfType);
+/// assert_eq!(abs.returns, ReturnTag::SelfType);
 ///
 /// // "foo" is not a method on int
 /// assert!(find_method(TypeTag::Int, "foo").is_none());

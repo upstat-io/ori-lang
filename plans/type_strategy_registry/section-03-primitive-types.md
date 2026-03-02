@@ -65,7 +65,7 @@ This matches the current LLVM codegen in `traits.rs` where `emit_comparison_pred
 ## 03.1 INT TypeDef
 
 **Source of truth locations:**
-- Type checker: `compiler/ori_types/src/infer/expr/methods.rs` `resolve_int_method()` (lines 613-625)
+- Type checker: `compiler/ori_types/src/infer/expr/methods/resolve_by_type.rs` `resolve_int_method()` (lines 613-625)
 - IR registry: `compiler/ori_ir/src/builtin_methods/mod.rs` int section (lines 192-328)
 - LLVM primitives: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/primitives.rs` (lines 7-14)
 - LLVM traits: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/traits.rs` int entries
@@ -98,25 +98,25 @@ pub const INT: TypeDef = TypeDef {
         MethodDef::new("to_float", &[],                TypeTag::Float, None,                Ownership::Borrow),
         MethodDef::new("to_str",   &[],                TypeTag::Str,   Some("Printable"),   Ownership::Borrow),
         // === Trait methods ===
-        MethodDef::new("clone",    &[],                TypeTag::SelfType, Some("Clone"),     Ownership::Borrow),
+        MethodDef::new("clone",    &[],                ReturnTag::SelfType, Some("Clone"),     Ownership::Borrow),
         MethodDef::new("compare",  &[Param::SelfType], TypeTag::Ordering, Some("Comparable"), Ownership::Borrow),
         MethodDef::new("debug",    &[],                TypeTag::Str,   Some("Debug"),       Ownership::Borrow),
         MethodDef::new("equals",   &[Param::SelfType], TypeTag::Bool,  Some("Eq"),          Ownership::Borrow),
         MethodDef::new("hash",     &[],                TypeTag::Int,   Some("Hashable"),    Ownership::Borrow),
         // === Operator trait methods ===
-        MethodDef::new("add",      &[Param::SelfType], TypeTag::SelfType, Some("Add"),      Ownership::Borrow),
-        MethodDef::new("bit_and",  &[Param::SelfType], TypeTag::SelfType, Some("BitAnd"),   Ownership::Borrow),
-        MethodDef::new("bit_not",  &[],                TypeTag::SelfType, Some("BitNot"),    Ownership::Borrow),
-        MethodDef::new("bit_or",   &[Param::SelfType], TypeTag::SelfType, Some("BitOr"),    Ownership::Borrow),
-        MethodDef::new("bit_xor",  &[Param::SelfType], TypeTag::SelfType, Some("BitXor"),   Ownership::Borrow),
-        MethodDef::new("div",      &[Param::SelfType], TypeTag::SelfType, Some("Div"),      Ownership::Borrow),
-        MethodDef::new("floor_div",&[Param::SelfType], TypeTag::SelfType, Some("FloorDiv"), Ownership::Borrow),
-        MethodDef::new("mul",      &[Param::SelfType], TypeTag::SelfType, Some("Mul"),      Ownership::Borrow),
-        MethodDef::new("neg",      &[],                TypeTag::SelfType, Some("Neg"),       Ownership::Borrow),
-        MethodDef::new("rem",      &[Param::SelfType], TypeTag::SelfType, Some("Rem"),      Ownership::Borrow),
-        MethodDef::new("shl",      &[Param::SelfType], TypeTag::SelfType, Some("Shl"),      Ownership::Borrow),
-        MethodDef::new("shr",      &[Param::SelfType], TypeTag::SelfType, Some("Shr"),      Ownership::Borrow),
-        MethodDef::new("sub",      &[Param::SelfType], TypeTag::SelfType, Some("Sub"),      Ownership::Borrow),
+        MethodDef::new("add",      &[Param::SelfType], ReturnTag::SelfType, Some("Add"),      Ownership::Borrow),
+        MethodDef::new("bit_and",  &[Param::SelfType], ReturnTag::SelfType, Some("BitAnd"),   Ownership::Borrow),
+        MethodDef::new("bit_not",  &[],                ReturnTag::SelfType, Some("BitNot"),    Ownership::Borrow),
+        MethodDef::new("bit_or",   &[Param::SelfType], ReturnTag::SelfType, Some("BitOr"),    Ownership::Borrow),
+        MethodDef::new("bit_xor",  &[Param::SelfType], ReturnTag::SelfType, Some("BitXor"),   Ownership::Borrow),
+        MethodDef::new("div",      &[Param::SelfType], ReturnTag::SelfType, Some("Div"),      Ownership::Borrow),
+        MethodDef::new("floor_div",&[Param::SelfType], ReturnTag::SelfType, Some("FloorDiv"), Ownership::Borrow),
+        MethodDef::new("mul",      &[Param::SelfType], ReturnTag::SelfType, Some("Mul"),      Ownership::Borrow),
+        MethodDef::new("neg",      &[],                ReturnTag::SelfType, Some("Neg"),       Ownership::Borrow),
+        MethodDef::new("rem",      &[Param::SelfType], ReturnTag::SelfType, Some("Rem"),      Ownership::Borrow),
+        MethodDef::new("shl",      &[Param::SelfType], ReturnTag::SelfType, Some("Shl"),      Ownership::Borrow),
+        MethodDef::new("shr",      &[Param::SelfType], ReturnTag::SelfType, Some("Shr"),      Ownership::Borrow),
+        MethodDef::new("sub",      &[Param::SelfType], ReturnTag::SelfType, Some("Sub"),      Ownership::Borrow),
     ],
     operators: OpDefs {
         add:       OpStrategy::IntInstr,
@@ -156,7 +156,7 @@ pub const INT: TypeDef = TypeDef {
 ## 03.2 FLOAT TypeDef
 
 **Source of truth locations:**
-- Type checker: `compiler/ori_types/src/infer/expr/methods.rs` `resolve_float_method()` (lines 627-639)
+- Type checker: `compiler/ori_types/src/infer/expr/methods/resolve_by_type.rs` `resolve_float_method()` (lines 627-639)
 - IR registry: `compiler/ori_ir/src/builtin_methods/mod.rs` float section (lines 330-431)
 - LLVM primitives: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/primitives.rs` (lines 16-19)
 - LLVM traits: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/traits.rs` float entries
@@ -204,17 +204,17 @@ pub const FLOAT: TypeDef = TypeDef {
         MethodDef::new("to_str",    &[],                TypeTag::Str,   Some("Printable"),   Ownership::Borrow),
         MethodDef::new("trunc",     &[],                TypeTag::Int,   None,                Ownership::Borrow),
         // === Trait methods ===
-        MethodDef::new("clone",     &[],                TypeTag::SelfType, Some("Clone"),     Ownership::Borrow),
+        MethodDef::new("clone",     &[],                ReturnTag::SelfType, Some("Clone"),     Ownership::Borrow),
         MethodDef::new("compare",   &[Param::SelfType], TypeTag::Ordering, Some("Comparable"), Ownership::Borrow),
         MethodDef::new("debug",     &[],                TypeTag::Str,   Some("Debug"),       Ownership::Borrow),
         MethodDef::new("equals",    &[Param::SelfType], TypeTag::Bool,  Some("Eq"),          Ownership::Borrow),
         MethodDef::new("hash",      &[],                TypeTag::Int,   Some("Hashable"),    Ownership::Borrow),
         // === Operator trait methods ===
-        MethodDef::new("add",       &[Param::SelfType], TypeTag::SelfType, Some("Add"),      Ownership::Borrow),
-        MethodDef::new("div",       &[Param::SelfType], TypeTag::SelfType, Some("Div"),      Ownership::Borrow),
-        MethodDef::new("mul",       &[Param::SelfType], TypeTag::SelfType, Some("Mul"),      Ownership::Borrow),
-        MethodDef::new("neg",       &[],                TypeTag::SelfType, Some("Neg"),       Ownership::Borrow),
-        MethodDef::new("sub",       &[Param::SelfType], TypeTag::SelfType, Some("Sub"),      Ownership::Borrow),
+        MethodDef::new("add",       &[Param::SelfType], ReturnTag::SelfType, Some("Add"),      Ownership::Borrow),
+        MethodDef::new("div",       &[Param::SelfType], ReturnTag::SelfType, Some("Div"),      Ownership::Borrow),
+        MethodDef::new("mul",       &[Param::SelfType], ReturnTag::SelfType, Some("Mul"),      Ownership::Borrow),
+        MethodDef::new("neg",       &[],                ReturnTag::SelfType, Some("Neg"),       Ownership::Borrow),
+        MethodDef::new("sub",       &[Param::SelfType], ReturnTag::SelfType, Some("Sub"),      Ownership::Borrow),
     ],
     operators: OpDefs {
         add:       OpStrategy::FloatInstr,
@@ -259,7 +259,7 @@ The `ori_ir` `BUILTIN_METHODS` declares `floor`, `ceil`, `round` with `ReturnSpe
 ## 03.3 BOOL TypeDef
 
 **Source of truth locations:**
-- Type checker: `compiler/ori_types/src/infer/expr/methods.rs` `resolve_bool_method()` (lines 761-769)
+- Type checker: `compiler/ori_types/src/infer/expr/methods/resolve_by_type.rs` `resolve_bool_method()` (lines 761-769)
 - IR registry: `compiler/ori_ir/src/builtin_methods/mod.rs` bool section (lines 432-446)
 - LLVM primitives: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/primitives.rs` (lines 21-23)
 - LLVM traits: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/traits.rs` bool entries
@@ -277,7 +277,7 @@ pub const BOOL: TypeDef = TypeDef {
         MethodDef::new("to_int",   &[],                TypeTag::Int,   None,                Ownership::Borrow),
         MethodDef::new("to_str",   &[],                TypeTag::Str,   Some("Printable"),   Ownership::Borrow),
         // === Trait methods ===
-        MethodDef::new("clone",    &[],                TypeTag::SelfType, Some("Clone"),     Ownership::Borrow),
+        MethodDef::new("clone",    &[],                ReturnTag::SelfType, Some("Clone"),     Ownership::Borrow),
         MethodDef::new("compare",  &[Param::SelfType], TypeTag::Ordering, Some("Comparable"), Ownership::Borrow),
         MethodDef::new("debug",    &[],                TypeTag::Str,   Some("Debug"),       Ownership::Borrow),
         MethodDef::new("equals",   &[Param::SelfType], TypeTag::Bool,  Some("Eq"),          Ownership::Borrow),
@@ -292,8 +292,8 @@ pub const BOOL: TypeDef = TypeDef {
         div:       OpStrategy::Unsupported,
         rem:       OpStrategy::Unsupported,
         floor_div: OpStrategy::Unsupported,
-        eq:        OpStrategy::BoolInstr,     // icmp eq (i1)
-        neq:       OpStrategy::BoolInstr,     // icmp ne (i1)
+        eq:        OpStrategy::BoolLogic,     // icmp eq (i1)
+        neq:       OpStrategy::BoolLogic,     // icmp ne (i1)
         lt:        OpStrategy::UnsignedCmp,   // icmp ult (false < true)
         gt:        OpStrategy::UnsignedCmp,   // icmp ugt
         lt_eq:     OpStrategy::UnsignedCmp,   // icmp ule
@@ -316,7 +316,7 @@ pub const BOOL: TypeDef = TypeDef {
 - `not` operator trait method is present (logical negation of `i1`).
 - No arithmetic operators.
 - `compare` uses unsigned comparison (`false < true` maps to `0 < 1`), matching the LLVM codegen in `emit_compare` which dispatches Bool to unsigned.
-- Equality uses `BoolInstr` (direct `icmp eq` on `i1` values).
+- Equality uses `BoolLogic` (direct `icmp eq` on `i1` values).
 - Ordering comparisons use `UnsignedCmp` (`icmp ult`, `icmp ugt`, etc.), matching the LLVM `emit_unsigned_predicate` path.
 - `hash()` = `zext i1 to i64` (0 or 1).
 - `to_int()` is in `TYPECK_BUILTIN_METHODS` and LLVM primitives but listed in `TYPECK_METHODS_NOT_IN_IR`. The registry includes it.
@@ -326,7 +326,7 @@ pub const BOOL: TypeDef = TypeDef {
 ## 03.4 BYTE TypeDef
 
 **Source of truth locations:**
-- Type checker: `compiler/ori_types/src/infer/expr/methods.rs` `resolve_byte_method()` (lines 771-783)
+- Type checker: `compiler/ori_types/src/infer/expr/methods/resolve_by_type.rs` `resolve_byte_method()` (lines 771-783)
 - IR registry: `compiler/ori_ir/src/builtin_methods/mod.rs` byte section (lines 454-460)
 - LLVM primitives: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/primitives.rs` (lines 28-29)
 - LLVM traits: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/traits.rs` byte entries
@@ -349,7 +349,7 @@ pub const BYTE: TypeDef = TypeDef {
         MethodDef::new("to_int",   &[],                TypeTag::Int,   None,                Ownership::Borrow),
         MethodDef::new("to_str",   &[],                TypeTag::Str,   Some("Printable"),   Ownership::Borrow),
         // === Trait methods ===
-        MethodDef::new("clone",    &[],                TypeTag::SelfType, Some("Clone"),     Ownership::Borrow),
+        MethodDef::new("clone",    &[],                ReturnTag::SelfType, Some("Clone"),     Ownership::Borrow),
         MethodDef::new("compare",  &[Param::SelfType], TypeTag::Ordering, Some("Comparable"), Ownership::Borrow),
         MethodDef::new("debug",    &[],                TypeTag::Str,   Some("Debug"),       Ownership::Borrow),
         MethodDef::new("equals",   &[Param::SelfType], TypeTag::Bool,  Some("Eq"),          Ownership::Borrow),
@@ -396,7 +396,7 @@ pub const BYTE: TypeDef = TypeDef {
 ## 03.5 CHAR TypeDef
 
 **Source of truth locations:**
-- Type checker: `compiler/ori_types/src/infer/expr/methods.rs` `resolve_char_method()` (lines 785-795)
+- Type checker: `compiler/ori_types/src/infer/expr/methods/resolve_by_type.rs` `resolve_char_method()` (lines 785-795)
 - IR registry: `compiler/ori_ir/src/builtin_methods/mod.rs` char section (lines 447-453)
 - LLVM primitives: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/primitives.rs` (lines 25-26)
 - LLVM traits: `compiler/ori_llvm/src/codegen/arc_emitter/builtins/traits.rs` char entries
@@ -423,7 +423,7 @@ pub const CHAR: TypeDef = TypeDef {
         MethodDef::new("to_str",       &[], TypeTag::Str,  Some("Printable"), Ownership::Borrow),
         MethodDef::new("to_uppercase", &[], TypeTag::Char, None, Ownership::Borrow),
         // === Trait methods ===
-        MethodDef::new("clone",    &[],                TypeTag::SelfType, Some("Clone"),     Ownership::Borrow),
+        MethodDef::new("clone",    &[],                ReturnTag::SelfType, Some("Clone"),     Ownership::Borrow),
         MethodDef::new("compare",  &[Param::SelfType], TypeTag::Ordering, Some("Comparable"), Ownership::Borrow),
         MethodDef::new("debug",    &[],                TypeTag::Str,   Some("Debug"),       Ownership::Borrow),
         MethodDef::new("equals",   &[Param::SelfType], TypeTag::Bool,  Some("Eq"),          Ownership::Borrow),
@@ -661,7 +661,7 @@ The registry (108 entries) is the superset. It captures every method from every 
 ### 03.3 BOOL TypeDef
 - [ ] Create `ori_registry/src/defs/bool.rs`
 - [ ] Define `pub const BOOL: TypeDef` with all 8 methods
-- [ ] Define `OpDefs` with `BoolInstr` for eq/neq, `UnsignedCmp` for ordering, `Unsupported` for arithmetic
+- [ ] Define `OpDefs` with `BoolLogic` for eq/neq, `UnsignedCmp` for ordering, `Unsupported` for arithmetic
 - [ ] Verify all methods from `resolve_bool_method()` are present
 - [ ] Verify all bool entries from `TYPECK_BUILTIN_METHODS` are present
 
@@ -702,7 +702,7 @@ The registry (108 entries) is the superset. It captures every method from every 
 - [ ] Every method from `resolve_byte_method()` (11 methods) appears in `BYTE.methods`
 - [ ] Every method from `resolve_char_method()` (16 methods) appears in `CHAR.methods`
 - [ ] All `TYPECK_BUILTIN_METHODS` entries for these five types are accounted for in the registry
-- [ ] `OpDefs` correctly distinguishes `IntInstr` vs `FloatInstr` vs `UnsignedCmp` vs `BoolInstr` vs `Unsupported` for each operator on each type
+- [ ] `OpDefs` correctly distinguishes `IntInstr` vs `FloatInstr` vs `UnsignedCmp` vs `BoolLogic` vs `Unsupported` for each operator on each type
 - [ ] No duplicate method names within any `TypeDef`
 - [ ] All five types have `MemoryStrategy::Copy`
 - [ ] Validation tests pass in `cargo test -p ori_registry`

@@ -1688,12 +1688,7 @@ fn external_invoke_args_get_dec() {
         &mut func,
         &sigs,
         &interner,
-        &crate::BuiltinOwnershipSets {
-            borrowing: FxHashSet::default(),
-            consuming_receiver: FxHashSet::default(),
-            consuming_second_arg: FxHashSet::default(),
-            consuming_receiver_only: FxHashSet::default(),
-        },
+        &crate::BuiltinOwnershipSets::empty(),
         &pool,
     );
 
@@ -1759,12 +1754,7 @@ fn external_invoke_scalar_arg_no_dec() {
         &mut func,
         &sigs,
         &interner,
-        &crate::BuiltinOwnershipSets {
-            borrowing: FxHashSet::default(),
-            consuming_receiver: FxHashSet::default(),
-            consuming_second_arg: FxHashSet::default(),
-            consuming_receiver_only: FxHashSet::default(),
-        },
+        &crate::BuiltinOwnershipSets::empty(),
         &pool,
     );
     let ownership = infer_derived_ownership(&func, &sigs);
@@ -2610,6 +2600,7 @@ fn consuming_receiver_through_alias() {
         consuming_receiver: FxHashSet::default(),
         consuming_second_arg: FxHashSet::default(),
         consuming_receiver_only: FxHashSet::default(),
+        protocol: FxHashMap::default(),
     };
     builtins.consuming_receiver.insert(push_name);
 

@@ -24,7 +24,7 @@ This section defines the complete `STR` `TypeDef` constant with every method, op
 
 ### Complete method list from resolve_str_method (ori_types)
 
-Source: `compiler/ori_types/src/infer/expr/methods.rs`, lines 589-611.
+Source: `compiler/ori_types/src/infer/expr/methods/resolve_by_type.rs` (str methods section).
 
 | Method | Parameters | Return Type | Category |
 |--------|-----------|-------------|----------|
@@ -133,7 +133,7 @@ Note: `to_int` and `parse_int` are aliases; `to_float` and `parse_float` are ali
 |----------|-----------|------------|-----------------|-------|
 | `add` | `a + b` | `RuntimeCall("ori_str_concat")` | `ori_str_concat(ptr, ptr) -> OriStr` | Allocates new string; RC=1 |
 | `eq` | `a == b` | `RuntimeCall("ori_str_eq")` | `ori_str_eq(ptr, ptr) -> bool` | Byte-level comparison |
-| `not_eq` | `a != b` | `RuntimeCall("ori_str_ne")` | `ori_str_ne(ptr, ptr) -> bool` | Negation of `ori_str_eq` |
+| `neq` | `a != b` | `RuntimeCall("ori_str_ne")` | `ori_str_ne(ptr, ptr) -> bool` | Negation of `ori_str_eq` |
 | `lt` | `a < b` | `RuntimeCall("ori_str_compare")` + check | `ori_str_compare(ptr, ptr) -> i8` | Result == 0 (Less) |
 | `gt` | `a > b` | `RuntimeCall("ori_str_compare")` + check | `ori_str_compare(ptr, ptr) -> i8` | Result == 2 (Greater) |
 | `lt_eq` | `a <= b` | `RuntimeCall("ori_str_compare")` + check | `ori_str_compare(ptr, ptr) -> i8` | Result != 2 |
@@ -233,13 +233,18 @@ pub const STR: TypeDef = TypeDef {
         mul:       OpStrategy::Unsupported,
         div:       OpStrategy::Unsupported,
         rem:       OpStrategy::Unsupported,
-        neg:       OpStrategy::Unsupported,
+        floor_div: OpStrategy::Unsupported,
         eq:        OpStrategy::RuntimeCall { fn_name: "ori_str_eq" },
-        not_eq:    OpStrategy::RuntimeCall { fn_name: "ori_str_ne" },
-        cmp:       OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
+        neq:       OpStrategy::RuntimeCall { fn_name: "ori_str_ne" },
+        lt:        OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
+        gt:        OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
+        lt_eq:     OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
+        gt_eq:     OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
+        neg:       OpStrategy::Unsupported,
         bit_and:   OpStrategy::Unsupported,
         bit_or:    OpStrategy::Unsupported,
         bit_xor:   OpStrategy::Unsupported,
+        bit_not:   OpStrategy::Unsupported,
         shl:       OpStrategy::Unsupported,
         shr:       OpStrategy::Unsupported,
     },
@@ -248,21 +253,21 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "len",
             params: &[],
-            returns: ReturnType::Concrete(TypeTag::Int),
+            returns: ReturnTag::Concrete(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "length",
             params: &[],
-            returns: ReturnType::Concrete(TypeTag::Int),
+            returns: ReturnTag::Concrete(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "byte_len",
             params: &[],
-            returns: ReturnType::Concrete(TypeTag::Int),
+            returns: ReturnTag::Concrete(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -271,28 +276,28 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "is_empty",
             params: &[],
-            returns: ReturnType::Concrete(TypeTag::Bool),
+            returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "contains",
             params: &[ParamDef { name: "substr", type_tag: ParamType::Concrete(TypeTag::Str) }],
-            returns: ReturnType::Concrete(TypeTag::Bool),
+            returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "starts_with",
             params: &[ParamDef { name: "prefix", type_tag: ParamType::Concrete(TypeTag::Str) }],
-            returns: ReturnType::Concrete(TypeTag::Bool),
+            returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "ends_with",
             params: &[ParamDef { name: "suffix", type_tag: ParamType::Concrete(TypeTag::Str) }],
-            returns: ReturnType::Concrete(TypeTag::Bool),
+            returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -301,42 +306,42 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "to_uppercase",
             params: &[],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "to_lowercase",
             params: &[],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "trim",
             params: &[],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "trim_start",
             params: &[],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "trim_end",
             params: &[],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "escape",
             params: &[],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -346,7 +351,7 @@ pub const STR: TypeDef = TypeDef {
                 ParamDef { name: "pattern", type_tag: ParamType::Concrete(TypeTag::Str) },
                 ParamDef { name: "replacement", type_tag: ParamType::Concrete(TypeTag::Str) },
             ],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -356,7 +361,7 @@ pub const STR: TypeDef = TypeDef {
                 ParamDef { name: "width", type_tag: ParamType::Concrete(TypeTag::Int) },
                 ParamDef { name: "fill", type_tag: ParamType::Concrete(TypeTag::Str) },
             ],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -366,7 +371,7 @@ pub const STR: TypeDef = TypeDef {
                 ParamDef { name: "width", type_tag: ParamType::Concrete(TypeTag::Int) },
                 ParamDef { name: "fill", type_tag: ParamType::Concrete(TypeTag::Str) },
             ],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -375,21 +380,21 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "concat",
             params: &[ParamDef { name: "other", type_tag: ParamType::Concrete(TypeTag::Str) }],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "repeat",
             params: &[ParamDef { name: "count", type_tag: ParamType::Concrete(TypeTag::Int) }],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "add",
             params: &[ParamDef { name: "other", type_tag: ParamType::Concrete(TypeTag::Str) }],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: Some("Add"),
             receiver: Ownership::Borrow,
         },
@@ -401,7 +406,7 @@ pub const STR: TypeDef = TypeDef {
                 ParamDef { name: "start", type_tag: ParamType::Concrete(TypeTag::Int) },
                 ParamDef { name: "end", type_tag: ParamType::Concrete(TypeTag::Int) },
             ],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -411,7 +416,7 @@ pub const STR: TypeDef = TypeDef {
                 ParamDef { name: "start", type_tag: ParamType::Concrete(TypeTag::Int) },
                 ParamDef { name: "end", type_tag: ParamType::Concrete(TypeTag::Int) },
             ],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -420,28 +425,28 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "split",
             params: &[ParamDef { name: "sep", type_tag: ParamType::Concrete(TypeTag::Str) }],
-            returns: ReturnType::List(TypeTag::Str),
+            returns: ReturnTag::List(TypeTag::Str),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "lines",
             params: &[],
-            returns: ReturnType::List(TypeTag::Str),
+            returns: ReturnTag::List(TypeTag::Str),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "chars",
             params: &[],
-            returns: ReturnType::List(TypeTag::Char),
+            returns: ReturnTag::List(TypeTag::Char),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "bytes",
             params: &[],
-            returns: ReturnType::List(TypeTag::Byte),
+            returns: ReturnTag::List(TypeTag::Byte),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -450,7 +455,7 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "iter",
             params: &[],
-            returns: ReturnType::DoubleEndedIterator(TypeTag::Char),
+            returns: ReturnTag::DoubleEndedIterator(TypeTag::Char),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -459,14 +464,14 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "index_of",
             params: &[ParamDef { name: "substr", type_tag: ParamType::Concrete(TypeTag::Str) }],
-            returns: ReturnType::Option(TypeTag::Int),
+            returns: ReturnTag::Option(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "last_index_of",
             params: &[ParamDef { name: "substr", type_tag: ParamType::Concrete(TypeTag::Str) }],
-            returns: ReturnType::Option(TypeTag::Int),
+            returns: ReturnTag::Option(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -475,35 +480,35 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "to_int",
             params: &[],
-            returns: ReturnType::Option(TypeTag::Int),
+            returns: ReturnTag::Option(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "parse_int",
             params: &[],
-            returns: ReturnType::Option(TypeTag::Int),
+            returns: ReturnTag::Option(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "to_float",
             params: &[],
-            returns: ReturnType::Option(TypeTag::Float),
+            returns: ReturnTag::Option(TypeTag::Float),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "parse_float",
             params: &[],
-            returns: ReturnType::Option(TypeTag::Float),
+            returns: ReturnTag::Option(TypeTag::Float),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "into",
             params: &[],
-            returns: ReturnType::Concrete(TypeTag::Error),
+            returns: ReturnTag::Concrete(TypeTag::Error),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
@@ -512,7 +517,7 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "equals",
             params: &[ParamDef { name: "other", type_tag: ParamType::SelfType }],
-            returns: ReturnType::Concrete(TypeTag::Bool),
+            returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: Some("Eq"),
             receiver: Ownership::Borrow,
         },
@@ -521,7 +526,7 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "compare",
             params: &[ParamDef { name: "other", type_tag: ParamType::SelfType }],
-            returns: ReturnType::Concrete(TypeTag::Ordering),
+            returns: ReturnTag::Concrete(TypeTag::Ordering),
             trait_name: Some("Comparable"),
             receiver: Ownership::Borrow,
         },
@@ -530,7 +535,7 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "clone",
             params: &[],
-            returns: ReturnType::SelfType,
+            returns: ReturnTag::SelfType,
             trait_name: Some("Clone"),
             receiver: Ownership::Borrow,
         },
@@ -539,7 +544,7 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "hash",
             params: &[],
-            returns: ReturnType::Concrete(TypeTag::Int),
+            returns: ReturnTag::Concrete(TypeTag::Int),
             trait_name: Some("Hashable"),
             receiver: Ownership::Borrow,
         },
@@ -548,7 +553,7 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "to_str",
             params: &[],
-            returns: ReturnType::Concrete(TypeTag::Str),
+            returns: ReturnTag::Concrete(TypeTag::Str),
             trait_name: Some("Printable"),
             receiver: Ownership::Borrow,
         },
@@ -557,7 +562,7 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "debug",
             params: &[],
-            returns: ReturnType::Concrete(TypeTag::Str),
+            returns: ReturnTag::Concrete(TypeTag::Str),
             trait_name: Some("Debug"),
             receiver: Ownership::Borrow,
         },
@@ -585,13 +590,13 @@ pub const STR: TypeDef = TypeDef {
 
 The STR type definition requires the following `ReturnType` variants beyond what primitive types need:
 
-- `ReturnType::SelfType` -- for methods returning `str` (same as receiver type)
-- `ReturnType::Concrete(TypeTag)` -- for `int`, `bool`, `Ordering`, `Error`
-- `ReturnType::List(TypeTag)` -- for `split` -> `[str]`, `chars` -> `[char]`, `bytes` -> `[byte]`
-- `ReturnType::Option(TypeTag)` -- for `index_of` -> `Option<int>`, `to_float` -> `Option<float>`
-- `ReturnType::DoubleEndedIterator(TypeTag)` -- for `iter` -> `DoubleEndedIterator<char>`
+- `ReturnTag::SelfType` -- for methods returning `str` (same as receiver type)
+- `ReturnTag::Concrete(TypeTag)` -- for `int`, `bool`, `Ordering`, `Error`
+- `ReturnTag::List(TypeTag)` -- for `split` -> `[str]`, `chars` -> `[char]`, `bytes` -> `[byte]`
+- `ReturnTag::Option(TypeTag)` -- for `index_of` -> `Option<int>`, `to_float` -> `Option<float>`
+- `ReturnTag::DoubleEndedIterator(TypeTag)` -- for `iter` -> `DoubleEndedIterator<char>`
 
-These must be defined in Section 01's data model. If the data model uses a simpler enum without parameterized variants, the parameterized types (`List`, `Option`, `DoubleEndedIterator`) can be encoded as a `ReturnType::Generic { constructor: TypeTag, element: TypeTag }` variant or similar.
+These must be defined in Section 01's data model. If the data model uses a simpler enum without parameterized variants, the parameterized types (`List`, `Option`, `DoubleEndedIterator`) can be encoded as a `ReturnTag::Generic { constructor: TypeTag, element: TypeTag }` variant or similar.
 
 ---
 
@@ -601,17 +606,17 @@ These must be defined in Section 01's data model. If the data model uses a simpl
 
 Every arm in `resolve_str_method` (ori_types, lines 589-611) must have a corresponding `MethodDef` in the registry's `STR.methods` array.
 
-- [x] `into` -> `ReturnType::Concrete(TypeTag::Error)` -- matches `Some(Idx::ERROR)`
-- [x] `len` / `byte_len` / `hash` / `length` -> `ReturnType::Concrete(TypeTag::Int)` -- matches `Some(Idx::INT)`
-- [x] `iter` -> `ReturnType::DoubleEndedIterator(TypeTag::Char)` -- matches `engine.pool_mut().double_ended_iterator(Idx::CHAR)`
-- [x] `is_empty` / `starts_with` / `ends_with` / `contains` / `equals` -> `ReturnType::Concrete(TypeTag::Bool)` -- matches `Some(Idx::BOOL)`
-- [x] `to_uppercase` / `to_lowercase` / `trim` / `trim_start` / `trim_end` / `replace` / `repeat` / `pad_start` / `pad_end` / `slice` / `substring` / `clone` / `debug` / `escape` / `concat` / `to_str` -> `ReturnType::SelfType` or `ReturnType::Concrete(TypeTag::Str)` -- matches `Some(Idx::STR)`
-- [x] `chars` -> `ReturnType::List(TypeTag::Char)` -- matches `engine.pool_mut().list(Idx::CHAR)`
-- [x] `bytes` -> `ReturnType::List(TypeTag::Byte)` -- matches `engine.pool_mut().list(Idx::BYTE)`
-- [x] `split` / `lines` -> `ReturnType::List(TypeTag::Str)` -- matches `engine.pool_mut().list(Idx::STR)`
-- [x] `index_of` / `last_index_of` / `to_int` / `parse_int` -> `ReturnType::Option(TypeTag::Int)` -- matches `engine.pool_mut().option(Idx::INT)`
-- [x] `to_float` / `parse_float` -> `ReturnType::Option(TypeTag::Float)` -- matches `engine.pool_mut().option(Idx::FLOAT)`
-- [x] `compare` -> `ReturnType::Concrete(TypeTag::Ordering)` -- matches `Some(Idx::ORDERING)`
+- [x] `into` -> `ReturnTag::Concrete(TypeTag::Error)` -- matches `Some(Idx::ERROR)`
+- [x] `len` / `byte_len` / `hash` / `length` -> `ReturnTag::Concrete(TypeTag::Int)` -- matches `Some(Idx::INT)`
+- [x] `iter` -> `ReturnTag::DoubleEndedIterator(TypeTag::Char)` -- matches `engine.pool_mut().double_ended_iterator(Idx::CHAR)`
+- [x] `is_empty` / `starts_with` / `ends_with` / `contains` / `equals` -> `ReturnTag::Concrete(TypeTag::Bool)` -- matches `Some(Idx::BOOL)`
+- [x] `to_uppercase` / `to_lowercase` / `trim` / `trim_start` / `trim_end` / `replace` / `repeat` / `pad_start` / `pad_end` / `slice` / `substring` / `clone` / `debug` / `escape` / `concat` / `to_str` -> `ReturnTag::SelfType` or `ReturnTag::Concrete(TypeTag::Str)` -- matches `Some(Idx::STR)`
+- [x] `chars` -> `ReturnTag::List(TypeTag::Char)` -- matches `engine.pool_mut().list(Idx::CHAR)`
+- [x] `bytes` -> `ReturnTag::List(TypeTag::Byte)` -- matches `engine.pool_mut().list(Idx::BYTE)`
+- [x] `split` / `lines` -> `ReturnTag::List(TypeTag::Str)` -- matches `engine.pool_mut().list(Idx::STR)`
+- [x] `index_of` / `last_index_of` / `to_int` / `parse_int` -> `ReturnTag::Option(TypeTag::Int)` -- matches `engine.pool_mut().option(Idx::INT)`
+- [x] `to_float` / `parse_float` -> `ReturnTag::Option(TypeTag::Float)` -- matches `engine.pool_mut().option(Idx::FLOAT)`
+- [x] `compare` -> `ReturnTag::Concrete(TypeTag::Ordering)` -- matches `Some(Idx::ORDERING)`
 
 **Result: 38/38 methods covered. No gaps.**
 
@@ -665,8 +670,8 @@ All 19 are present in the registry. The registry adds 19 additional methods that
 |------------------------------|-----------------|-----------------|---------------------|
 | `add` operator | `ori_str_concat` | lib.rs:944 | runtime_decl/mod.rs:97 |
 | `eq` operator | `ori_str_eq` | lib.rs:961 | runtime_decl/mod.rs:98 |
-| `not_eq` operator | `ori_str_ne` | lib.rs:978 | runtime_decl/mod.rs:99 |
-| `cmp` operator | `ori_str_compare` | lib.rs:986 | runtime_decl/mod.rs:100 |
+| `neq` operator | `ori_str_ne` | lib.rs:978 | runtime_decl/mod.rs:99 |
+| `lt`/`gt`/`lt_eq`/`gt_eq` operators | `ori_str_compare` | lib.rs:986 | runtime_decl/mod.rs:100 |
 | `hash` method | `ori_str_hash` | lib.rs:1011 | runtime_decl/mod.rs:101 |
 | `iter` method (internal) | `ori_str_next_char` | lib.rs:1281 | runtime_decl/mod.rs:118 |
 | `to_str` (on int) | `ori_str_from_int` | lib.rs:1037 | runtime_decl/mod.rs:125 |
@@ -678,7 +683,7 @@ All 19 are present in the registry. The registry adds 19 additional methods that
 
 ## Implementation Checklist
 
-- [ ] Ensure Section 01 data model supports `ReturnType::List(TypeTag)`, `ReturnType::Option(TypeTag)`, `ReturnType::DoubleEndedIterator(TypeTag)` variants
+- [ ] Ensure Section 01 data model supports `ReturnTag::List(TypeTag)`, `ReturnTag::Option(TypeTag)`, `ReturnTag::DoubleEndedIterator(TypeTag)` variants
 - [ ] Define `STR` const in `ori_registry/src/defs/str.rs`
 - [ ] Include all 38 methods with exact parameter and return types
 - [ ] Include all 14 operator strategy entries

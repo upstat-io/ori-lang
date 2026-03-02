@@ -180,7 +180,9 @@ impl ArcLowerer<'_> {
         let idx_var = self.lower_expr(index);
         self.hash_length = old_hash;
 
-        let index_fn = self.interner.intern("__index");
+        let index_fn = self
+            .interner
+            .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
         self.builder
             .emit_apply(ty, index_fn, vec![recv, idx_var], Some(span))
     }

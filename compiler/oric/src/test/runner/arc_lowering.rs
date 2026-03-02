@@ -68,7 +68,7 @@ pub(crate) fn lower_and_infer_borrows(
     // Lower imported functions using the main pool. All Idx values in
     // imp_fn.sig and imp_fn.canon have been re-interned into the main pool
     // by the caller, so we can safely use the same pool and classifier.
-    let borrowing_builtins = ori_arc::borrowing_builtin_names(interner);
+    let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
     let mut imported_sigs: FxHashMap<Name, ori_arc::AnnotatedSig> = FxHashMap::default();
     for imp_fn in imported_functions {
         if imp_fn.sig.is_generic() {
@@ -90,8 +90,7 @@ pub(crate) fn lower_and_infer_borrows(
             .chain(lambdas.iter())
             .cloned()
             .collect();
-        let imp_borrow_sigs =
-            ori_arc::infer_borrows_scc(&imp_flat, &classifier, &borrowing_builtins);
+        let imp_borrow_sigs = ori_arc::infer_borrows_scc(&imp_flat, &classifier, &builtins);
         imported_sigs.extend(imp_borrow_sigs);
         imported_lowered.push((arc_fn, lambdas));
     }
@@ -159,8 +158,7 @@ pub(crate) fn lower_and_infer_borrows(
         .cloned()
         .collect();
 
-    let mut annotated_sigs =
-        ori_arc::infer_borrows_scc(&local_flat, &classifier, &borrowing_builtins);
+    let mut annotated_sigs = ori_arc::infer_borrows_scc(&local_flat, &classifier, &builtins);
     annotated_sigs.extend(imported_sigs);
 
     // Build cache: Name → (ArcFunction, Vec<ArcFunction>)

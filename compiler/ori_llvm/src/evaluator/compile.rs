@@ -103,7 +103,7 @@ impl super::OwnedLLVMEvaluator<'_> {
             let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
 
             // 3. IR builder
-            let mut builder = IrBuilder::new(scx_ref);
+            let mut builder = IrBuilder::new_jit(scx_ref);
 
             // 4. Runtime functions: declared lazily via builder.runtime_fn()
             // (no eager declare_runtime() call needed)

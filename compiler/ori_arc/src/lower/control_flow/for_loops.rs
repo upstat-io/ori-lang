@@ -96,7 +96,9 @@ impl ArcLowerer<'_> {
             self.scope.bind_mutable(name, param_var);
         }
 
-        let iter_next_name = self.interner.intern("__iter_next");
+        let iter_next_name = self
+            .interner
+            .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
         // Use INT for the result type to suppress ARC RC management on the
         // `{tag, elem}` wrapper struct.  The actual element (accessed via
         // Project at index 1) carries elem_ty and gets correct RC.

@@ -1,7 +1,7 @@
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
-use rustc_hash::FxHashSet;
 
+use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, CtorKind, LitValue};
 use crate::ownership::{AnnotatedSig, Ownership};
 use crate::test_helpers::{b, make_func_named as make_func, owned_param as param, v};
@@ -38,7 +38,7 @@ fn pure_function_all_borrowed() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig = &sigs[&Name::from_raw(1)];
     assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
@@ -66,7 +66,7 @@ fn return_param_becomes_owned() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig = &sigs[&Name::from_raw(1)];
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
@@ -99,7 +99,7 @@ fn construct_param_becomes_owned() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig = &sigs[&Name::from_raw(1)];
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
@@ -126,7 +126,7 @@ fn scalar_param_stays_owned() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     // Scalar params stay Owned (not Borrowed) since borrow inference
     // skips them — they have no RC regardless.
@@ -161,7 +161,7 @@ fn apply_indirect_all_args_owned() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig = &sigs[&Name::from_raw(1)];
     // Both closure and arg must be Owned (unknown callee).
@@ -196,7 +196,7 @@ fn partial_apply_captures_owned() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig = &sigs[&Name::from_raw(1)];
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
@@ -229,7 +229,7 @@ fn projection_propagates_ownership() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig = &sigs[&Name::from_raw(1)];
     // v1 is returned (owned), so pair (v0) must also be owned.
@@ -274,7 +274,7 @@ fn mixed_borrowed_and_owned() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig = &sigs[&Name::from_raw(1)];
     assert_eq!(sig.params[0].ownership, Ownership::Borrowed); // a: only read
@@ -332,7 +332,7 @@ fn mutual_recursion_converges() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[f, g], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[f, g], &classifier, &BuiltinOwnershipSets::empty());
 
     // Both just pass through to each other in tail position.
     // The Return { value: v(1) } makes v(1) owned (it's a local, always owned).
@@ -400,7 +400,7 @@ fn mutual_recursion_with_store_propagates() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[f, g], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[f, g], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig_g = &sigs[&Name::from_raw(2)];
     assert_eq!(sig_g.params[0].ownership, Ownership::Owned); // g stores y
@@ -432,7 +432,7 @@ fn empty_function_no_params() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     let sig = &sigs[&Name::from_raw(1)];
     assert!(sig.params.is_empty());
@@ -488,7 +488,7 @@ fn tail_call_promotes_borrowed_to_owned() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[f, g], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[f, g], &classifier, &BuiltinOwnershipSets::empty());
 
     // g stores y → Owned
     assert_eq!(
@@ -530,7 +530,7 @@ fn unknown_callee_marks_args_owned() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(&[func], &classifier, &FxHashSet::default());
+    let sigs = infer_borrows_scc(&[func], &classifier, &BuiltinOwnershipSets::empty());
 
     // Unknown callee → assume all args Owned (conservative).
     let sig = &sigs[&Name::from_raw(1)];
@@ -584,7 +584,7 @@ fn apply_borrows_updates_params() {
     let sigs = infer_borrows_scc(
         std::slice::from_ref(&func),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
 
     // Apply borrow results to a mutable copy.
@@ -628,7 +628,7 @@ fn derived_borrowed_param() {
     let sigs = infer_borrows_scc(
         std::slice::from_ref(&func),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
     let ownership = infer_derived_ownership(&func, &sigs);
 
@@ -677,7 +677,7 @@ fn derived_projection_borrows_from_source() {
     let sigs = infer_borrows_scc(
         std::slice::from_ref(&func),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
     let ownership = infer_derived_ownership(&func, &sigs);
 
@@ -733,7 +733,7 @@ fn derived_projection_chain() {
     let sigs = infer_borrows_scc(
         std::slice::from_ref(&func),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
     let ownership = infer_derived_ownership(&func, &sigs);
 
@@ -781,7 +781,7 @@ fn derived_construct_is_fresh() {
     let sigs = infer_borrows_scc(
         std::slice::from_ref(&func),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
     let ownership = infer_derived_ownership(&func, &sigs);
 
@@ -819,7 +819,7 @@ fn derived_apply_result_is_owned() {
     let sigs = infer_borrows_scc(
         std::slice::from_ref(&func),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
     let ownership = infer_derived_ownership(&func, &sigs);
 
@@ -862,7 +862,7 @@ fn derived_block_params_are_owned() {
     let sigs = infer_borrows_scc(
         std::slice::from_ref(&func),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
     let ownership = infer_derived_ownership(&func, &sigs);
 
@@ -904,7 +904,7 @@ fn single_leaf_function_all_borrowed() {
         &func,
         &FxHashMap::default(),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
 
     assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
@@ -938,7 +938,7 @@ fn single_with_construct_becomes_owned() {
         &func,
         &FxHashMap::default(),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
 
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
@@ -966,7 +966,7 @@ fn single_with_return_becomes_owned() {
         &func,
         &FxHashMap::default(),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
 
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
@@ -1009,7 +1009,12 @@ fn single_with_callee_owned_promotes() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sig = infer_borrow_single(&func, &external, &classifier, &FxHashSet::default());
+    let sig = infer_borrow_single(
+        &func,
+        &external,
+        &classifier,
+        &BuiltinOwnershipSets::empty(),
+    );
 
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
 }
@@ -1051,7 +1056,12 @@ fn single_with_callee_borrowed_stays_borrowed() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sig = infer_borrow_single(&func, &external, &classifier, &FxHashSet::default());
+    let sig = infer_borrow_single(
+        &func,
+        &external,
+        &classifier,
+        &BuiltinOwnershipSets::empty(),
+    );
 
     assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
 }
@@ -1107,7 +1117,7 @@ fn fixed_point_mutual_recursion() {
         &[&f, &g],
         &FxHashMap::default(),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
 
     assert_eq!(
@@ -1177,7 +1187,12 @@ fn fixed_point_with_external_callee() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrow_fixed_point(&[&f, &g], &external, &classifier, &FxHashSet::default());
+    let sigs = infer_borrow_fixed_point(
+        &[&f, &g],
+        &external,
+        &classifier,
+        &BuiltinOwnershipSets::empty(),
+    );
 
     // f passes to external Owned → f's param is Owned
     assert_eq!(
@@ -1333,7 +1348,7 @@ fn derived_let_alias_inherits() {
     let sigs = infer_borrows_scc(
         std::slice::from_ref(&func),
         &classifier,
-        &FxHashSet::default(),
+        &BuiltinOwnershipSets::empty(),
     );
     let ownership = infer_derived_ownership(&func, &sigs);
 

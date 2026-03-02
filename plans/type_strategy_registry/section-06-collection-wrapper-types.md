@@ -683,9 +683,9 @@ From the method tables above, the registry needs to express these return type pa
    `ParamSpec::Closure` without specifying `(T) -> U`. The type checker infers the
    closure type from context and uses `unify_higher_order_constraints`.
 
-### TypeTag::SelfType
+### ReturnTag::SelfType
 
-`SelfType` is already in `ReturnSpec` and means "the return type equals the receiver
+`SelfType` is on `ReturnTag` (not `TypeTag`) and means "the return type equals the receiver
 type." This is correct for `List.reverse()`, `Option.clone()`, etc. No new TypeTag
 needed.
 
@@ -734,14 +734,14 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 
 | File | Lines Affected | Change |
 |------|---------------|--------|
-| `ori_types/src/infer/expr/methods.rs` | `resolve_list_method` (465-500) | Replaced by registry lookup (Section 09) |
-| `ori_types/src/infer/expr/methods.rs` | `resolve_option_method` (502-525) | Replaced by registry lookup |
-| `ori_types/src/infer/expr/methods.rs` | `resolve_result_method` (527-549) | Replaced by registry lookup |
-| `ori_types/src/infer/expr/methods.rs` | `resolve_map_method` (551-572) | Replaced by registry lookup |
-| `ori_types/src/infer/expr/methods.rs` | `resolve_set_method` (574-587) | Replaced by registry lookup |
-| `ori_types/src/infer/expr/methods.rs` | `resolve_range_method` (689-707) | Replaced by registry lookup |
-| `ori_types/src/infer/expr/methods.rs` | `resolve_tuple_method` (868-877) | Replaced by registry lookup |
-| `ori_types/src/infer/expr/calls.rs` | `unify_higher_order_constraints` (700-764) | Stays in type checker (inference logic, not registry data) |
+| `ori_types/src/infer/expr/methods/resolve_by_type.rs` | `resolve_list_method` (465-500) | Replaced by registry lookup (Section 09) |
+| `ori_types/src/infer/expr/methods/resolve_by_type.rs` | `resolve_option_method` (502-525) | Replaced by registry lookup |
+| `ori_types/src/infer/expr/methods/resolve_by_type.rs` | `resolve_result_method` (527-549) | Replaced by registry lookup |
+| `ori_types/src/infer/expr/methods/resolve_by_type.rs` | `resolve_map_method` (551-572) | Replaced by registry lookup |
+| `ori_types/src/infer/expr/methods/resolve_by_type.rs` | `resolve_set_method` (574-587) | Replaced by registry lookup |
+| `ori_types/src/infer/expr/methods/resolve_by_type.rs` | `resolve_range_method` (689-707) | Replaced by registry lookup |
+| `ori_types/src/infer/expr/methods/resolve_by_type.rs` | `resolve_tuple_method` (868-877) | Replaced by registry lookup |
+| `ori_types/src/infer/expr/calls/mod.rs` | `unify_higher_order_constraints` (700-764) | Stays in type checker (inference logic, not registry data) |
 | `ori_eval/src/methods/helpers/mod.rs` | `EVAL_BUILTIN_METHODS` (collection entries) | Replaced by registry enumeration |
 | `oric/src/eval/tests/methods/consistency.rs` | `COLLECTION_TYPES` (13-25) | **Eliminated** |
 | `oric/src/eval/tests/methods/consistency.rs` | `TYPECK_METHODS_NOT_IN_EVAL` (374-633, collection portion) | **Eliminated** |

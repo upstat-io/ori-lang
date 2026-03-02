@@ -282,12 +282,24 @@ pub enum Ownership {
     /// `list.push(elem)` takes ownership of `elem`,
     /// `map.insert(key, value)` takes ownership of both.
     Owned,
+
+    /// Copy: trivially copied because it's a value type.
+    ///
+    /// No `rc_inc` or `rc_dec` needed. The value is bitwise-copied
+    /// at call sites. Semantically similar to `Borrow` (the callee
+    /// reads the value), but `Copy` captures the *reason*: the type
+    /// is a value type (`MemoryStrategy::Copy`), not a reference type
+    /// that happens to be borrowed.
+    ///
+    /// Used for receivers of primitive methods: `int.abs()`,
+    /// `bool.clone()`, `byte.to_int()`.
+    Copy,
 }
 ```
 
 ### Design Decisions
 
-1. **Matches `ori_arc::Ownership` exactly**: The existing `ori_arc::Ownership` enum has `Borrowed` and `Owned` variants. The registry's `Ownership` uses `Borrow` and `Owned` (dropping the `-ed` suffix for conciseness, matching the overview's naming). During wiring (Section 11), the ARC pass will either re-export the registry's enum or bridge to it.
+1. **Three variants, not two**: `Borrow` and `Owned` cover reference-counted types. `Copy` captures value types where neither `rc_inc` nor `rc_dec` is emitted. While `Borrow` and `Copy` behave identically at runtime for value types (no ARC ops), the semantic distinction matters for: (a) documentation — reading `Ownership::Copy` immediately signals "this is a value type", (b) future optimization — a phase could fast-path `Copy` receivers without consulting `MemoryStrategy`, (c) migration — `ori_ir::MethodDef.receiver_borrows: true` maps to `Borrow` for reference types and `Copy` for value types, making the mapping precise.
 
 2. **Bool replacement**: The existing `ori_ir::MethodDef` uses `receiver_borrows: bool`. This is exactly the kind of boolean flag the coding guidelines forbid for APIs with more than trivial semantics. `Ownership` replaces it with a self-documenting enum.
 
@@ -318,7 +330,7 @@ pub enum Ownership {
 - [ ] Define `Ownership` enum in `ori_registry/src/core.rs`
 - [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
 - [ ] Document each variant with concrete Ori method examples
-- [ ] Write unit tests: verify `Borrow != Owned`, basic equality checks
+- [ ] Write unit tests: verify `Borrow != Owned != Copy`, basic equality checks
 
 ---
 
@@ -437,7 +449,7 @@ pub enum OpStrategy {
 | `ori_llvm/arc_emitter/mod.rs` `emit_binary_op()` | `if is_float => self.builder.fadd(...)` | `match type_def.operators.add { FloatInstr => ... }` |
 | `ori_llvm/arc_emitter/mod.rs` `emit_binary_op()` | `if is_str => self.emit_str_runtime_call("ori_str_concat", ...)` | `match type_def.operators.add { RuntimeCall { fn_name, .. } => ... }` |
 | `ori_llvm/builtins/traits.rs` `emit_equals()` | `TypeInfo::Float => fcmp_oeq, TypeInfo::Int => icmp_eq` | `match type_def.operators.eq { FloatInstr \| IntInstr \| ... }` |
-| `ori_llvm/builtins/traits.rs` `emit_compare()` | `TypeInfo::Bool \| TypeInfo::Char \| TypeInfo::Byte => unsigned` | `match type_def.operators.cmp { UnsignedCmp => ... }` |
+| `ori_llvm/builtins/traits.rs` `emit_compare()` | `TypeInfo::Bool \| TypeInfo::Char \| TypeInfo::Byte => unsigned` | `match type_def.operators.lt { UnsignedCmp => ... }` |
 | `ori_llvm/builtins/traits.rs` `emit_str_trait_method()` | `"equals" => emit_str_runtime_call("ori_str_eq", ...)` | `match STR.operators.eq { RuntimeCall { fn_name: "ori_str_eq", .. } => ... }` |
 
 ### Consuming Phases
@@ -571,7 +583,15 @@ pub struct ParamDef {
 
 1. **`ReturnTag` instead of `TypeTag` for parameter types**: Method parameters can reference generic type relationships ("the element type of the receiver"), not just concrete types. `ReturnTag` captures this. The name `ReturnTag` is used for both parameters and returns because the same abstract type references apply to both contexts.
 
-2. **Separate from `TypeTag`**: `TypeTag` identifies builtin types. `ReturnTag` describes type *positions* in a method signature. These are fundamentally different -- `TypeTag::List` means "the list type itself", while `ReturnTag::ListElement` means "a list whose element type matches the receiver's element type". Conflating them would either bloat `TypeTag` with positional variants or lose expressiveness.
+2. **Separate from `TypeTag`**: `TypeTag` identifies builtin types. `ReturnTag` describes type *positions* in a method signature. These are fundamentally different -- `TypeTag::List` means "the list type itself", while `ReturnTag::ListElement` means "a list whose element type matches the receiver's element type". Conflating them would either bloat `TypeTag` with positional variants or lose expressiveness. **CRITICAL: No `SelfType`, `FreshVar`, or `Void` on `TypeTag`.** These are signature-level concepts that belong exclusively on `ReturnTag`. Sections that reference `TypeTag::SelfType` must use `ReturnTag::SelfType` instead. A convenience `From<TypeTag> for ReturnTag` impl wraps concrete types automatically: `TypeTag::Int.into()` produces `ReturnTag::Concrete(TypeTag::Int)`.
+
+    ```rust
+    impl From<TypeTag> for ReturnTag {
+        fn from(tag: TypeTag) -> Self {
+            ReturnTag::Concrete(tag)
+        }
+    }
+    ```
 
 3. **`Fresh` variant**: Higher-order methods like `list.map(f)` have return types that depend on the closure argument. The type checker handles this by creating fresh type variables. The registry can't specify the exact return type, so `Fresh` signals "the type checker must infer this via unification". This replaces the pattern `engine.pool_mut().fresh_var()` scattered across `resolve_*_method()` functions.
 
@@ -589,7 +609,7 @@ pub struct ParamDef {
 |---|---|---|
 | `ori_ir/builtin_methods/mod.rs` | `ParamSpec` enum (6 variants) | `ParamDef` struct with `ReturnTag` |
 | `ori_ir/builtin_methods/mod.rs` | `ReturnSpec` enum (7 variants) | `ReturnTag` enum (12 variants, superset) |
-| `ori_types/infer/expr/methods.rs` | Hard-coded return types in match arms | `method_def.returns: ReturnTag` |
+| `ori_types/infer/expr/methods/mod.rs` | Hard-coded return types in match arms | `method_def.returns: ReturnTag` |
 
 ### Consuming Phases
 
@@ -717,8 +737,8 @@ pub struct MethodDef {
 | Current Location | Current Form | Registry Form |
 |---|---|---|
 | `ori_ir/builtin_methods/mod.rs` | `MethodDef { receiver, name, params, returns, trait_name, receiver_borrows }` | `MethodDef { name, receiver, params, returns, trait_name, pure, backend_required }` |
-| `ori_types/infer/expr/methods.rs` | `"to_str" => Some(Idx::STR)` (per method, per type) | `method_def.returns` on the queried `MethodDef` |
-| `ori_types/infer/expr/methods.rs` | `TYPECK_BUILTIN_METHODS` (426 entries: `(type, method)` pairs) | `TypeDef.methods` iteration |
+| `ori_types/infer/expr/methods/mod.rs` | `"to_str" => Some(Idx::STR)` (per method, per type) | `method_def.returns` on the queried `MethodDef` |
+| `ori_types/infer/expr/methods/mod.rs` | `TYPECK_BUILTIN_METHODS` (426 entries: `(type, method)` pairs) | `TypeDef.methods` iteration |
 | `ori_eval/methods/helpers/mod.rs` | `EVAL_BUILTIN_METHODS` | `TypeDef.methods` iteration |
 | `ori_llvm/builtins/*.rs` | `declare_builtins!` entries with `borrow: true/false` | `method_def.receiver: Ownership` |
 
@@ -775,25 +795,22 @@ pub struct OpDefs {
     /// `%` (remainder/modulo).
     pub rem: OpStrategy,
 
-    // Comparison operators
-    /// `==` and `!=` (equality and inequality).
-    ///
-    /// A single strategy covers both: the backend emits the instruction
-    /// for `==` and inverts it for `!=`. For `RuntimeCall`, the `!=`
-    /// case calls the same function and negates the result (or calls
-    /// a separate `_ne` function if one exists).
-    pub eq: OpStrategy,
+    /// `div` (integer division via `sdiv`).
+    pub floor_div: OpStrategy,
 
-    /// `<`, `>`, `<=`, `>=` (ordering comparisons).
-    ///
-    /// A single strategy covers all four: the backend emits different
-    /// comparison predicates (slt/sgt/sle/sge for IntInstr,
-    /// olt/ogt/ole/oge for FloatInstr, ult/ugt/ule/uge for UnsignedCmp).
-    ///
-    /// For `RuntimeCall`, the backend calls the comparison function
-    /// (e.g., `ori_str_compare`) and then checks the Ordering result
-    /// against the expected predicate.
-    pub cmp: OpStrategy,
+    // Comparison operators (expanded — one field per operator)
+    /// `==` (equality).
+    pub eq: OpStrategy,
+    /// `!=` (inequality).
+    pub neq: OpStrategy,
+    /// `<` (less than).
+    pub lt: OpStrategy,
+    /// `>` (greater than).
+    pub gt: OpStrategy,
+    /// `<=` (less than or equal).
+    pub lt_eq: OpStrategy,
+    /// `>=` (greater than or equal).
+    pub gt_eq: OpStrategy,
 
     // Unary operators
     /// `-x` (unary negation).
@@ -806,6 +823,8 @@ pub struct OpDefs {
     pub bit_or: OpStrategy,
     /// `^` (bitwise XOR).
     pub bit_xor: OpStrategy,
+    /// `~` (bitwise NOT / complement).
+    pub bit_not: OpStrategy,
     /// `<<` (left shift).
     pub shl: OpStrategy,
     /// `>>` (right shift, arithmetic for signed types).
@@ -820,11 +839,11 @@ pub struct OpDefs {
    - If bitwise ops are ever extended to `byte` (common in other languages), the registry just changes the `byte` type's `OpDefs`
    - No separate mechanism needed to track "which types support bitwise ops"
 
-2. **Single `eq` field for both `==` and `!=`**: The instruction strategy is the same; `!=` is just the negation. Having separate fields would always mirror each other. A single field with the convention "this is the `==` strategy; `!=` inverts it" is simpler and less error-prone.
+2. **Expanded comparison fields (`eq`/`neq`/`lt`/`gt`/`lt_eq`/`gt_eq`)**: Each comparison operator gets its own field rather than compact `eq` + `cmp` groupings. This eliminates ambiguity for types where equality and ordering use different strategies (e.g., `str` uses `RuntimeCall("ori_str_eq")` for `eq` but `RuntimeCall("ori_str_compare")` for `lt`). The backend reads the exact field for the exact operator — no inversion or predicate selection logic needed at the `OpDefs` level.
 
-3. **Single `cmp` field for all ordering comparisons**: Similarly, `<`, `>`, `<=`, `>=` all use the same instruction family, differing only in the predicate. One field covers all four. The LLVM backend already handles predicate selection in `emit_int_predicate()`, `emit_float_predicate()`, etc.
+3. **`floor_div` separate from `div`**: `BinaryOp::FloorDiv` (`div` keyword in Ori) uses `sdiv` for integers but has different semantics than `/` for floats (floor-truncated vs true division). Keeping a separate field lets float define `div: FloatInstr` and `floor_div: Unsupported` (or vice versa) independently.
 
-4. **No `FloorDiv` or `MatMul` fields**: `BinaryOp::FloorDiv` maps to `sdiv` (same as `div` for integers). `BinaryOp::MatMul` is a future operator for matrix types, not relevant to current builtins. These don't need dedicated `OpDefs` fields. If `FloorDiv` needs a distinct strategy in the future, a field can be added.
+4. **`bit_not` separate from `neg`**: Unary `~` (bitwise complement) uses `xor -1` while unary `-` (negation) uses `sub 0, x`. Different LLVM instructions, different semantics. Separate fields.
 
 5. **No `and`/`or` logical operators**: Logical `&&` and `||` are short-circuiting control flow, not pure binary operations. They are handled by the compiler's control flow lowering, not by operator dispatch on types. They don't belong in `OpDefs`.
 
@@ -844,12 +863,18 @@ impl OpDefs {
         mul: OpStrategy::Unsupported,
         div: OpStrategy::Unsupported,
         rem: OpStrategy::Unsupported,
+        floor_div: OpStrategy::Unsupported,
         eq: OpStrategy::Unsupported,
-        cmp: OpStrategy::Unsupported,
+        neq: OpStrategy::Unsupported,
+        lt: OpStrategy::Unsupported,
+        gt: OpStrategy::Unsupported,
+        lt_eq: OpStrategy::Unsupported,
+        gt_eq: OpStrategy::Unsupported,
         neg: OpStrategy::Unsupported,
         bit_and: OpStrategy::Unsupported,
         bit_or: OpStrategy::Unsupported,
         bit_xor: OpStrategy::Unsupported,
+        bit_not: OpStrategy::Unsupported,
         shl: OpStrategy::Unsupported,
         shr: OpStrategy::Unsupported,
     };
@@ -865,12 +890,18 @@ pub const INT_OPS: OpDefs = OpDefs {
     mul: OpStrategy::IntInstr,
     div: OpStrategy::IntInstr,
     rem: OpStrategy::IntInstr,
+    floor_div: OpStrategy::IntInstr,
     eq: OpStrategy::IntInstr,
-    cmp: OpStrategy::IntInstr,
+    neq: OpStrategy::IntInstr,
+    lt: OpStrategy::IntInstr,
+    gt: OpStrategy::IntInstr,
+    lt_eq: OpStrategy::IntInstr,
+    gt_eq: OpStrategy::IntInstr,
     neg: OpStrategy::IntInstr,
     bit_and: OpStrategy::IntInstr,
     bit_or: OpStrategy::IntInstr,
     bit_xor: OpStrategy::IntInstr,
+    bit_not: OpStrategy::IntInstr,
     shl: OpStrategy::IntInstr,
     shr: OpStrategy::IntInstr,
 };
@@ -882,7 +913,7 @@ pub const INT_OPS: OpDefs = OpDefs {
 |---|---|---|
 | `ori_llvm/arc_emitter/mod.rs` `emit_binary_op()` | 40+ lines of `match op { BinaryOp::Add if is_float => ..., if is_str => ... }` | `match type_def.operators.add { IntInstr \| FloatInstr \| RuntimeCall { .. } \| ... }` |
 | `ori_llvm/builtins/traits.rs` `emit_equals()` | `match type_info { TypeInfo::Float => fcmp_oeq, ... }` | `match type_def.operators.eq { ... }` |
-| `ori_llvm/builtins/traits.rs` `emit_compare()` | Separate signed/unsigned/float dispatch | `match type_def.operators.cmp { IntInstr \| FloatInstr \| UnsignedCmp \| ... }` |
+| `ori_llvm/builtins/traits.rs` `emit_compare()` | Separate signed/unsigned/float dispatch | `match type_def.operators.lt { IntInstr \| FloatInstr \| UnsignedCmp \| ... }` |
 | `ori_types` (implicit) | Type checker knows `int + int` is valid but `bool + bool` is not | `type_def.operators.add != Unsupported` |
 
 ### Consuming Phases
@@ -959,7 +990,7 @@ pub struct TypeDef {
 
 1. **No `Copy` derive**: `TypeDef` contains two fat pointers (`&'static str` at 16 bytes, `&'static [MethodDef]` at 16 bytes) plus `TypeTag` (1 byte) + `MemoryStrategy` (1 byte) + `OpDefs` (13 bytes, 13 `OpStrategy` variants at 1 byte each... actually `OpStrategy::RuntimeCall` contains a `&'static str` (16 bytes) + `bool` (1 byte), so each `OpStrategy` is ~24 bytes, making `OpDefs` ~312 bytes). At this size, `TypeDef` should NOT be `Copy`. It is always accessed via `&'static TypeDef` references.
 
-    **Revised size analysis**: `OpStrategy` is an enum with 5 variants. The largest variant is `RuntimeCall { fn_name: &'static str, returns_bool: bool }` = 16 + 1 + padding = likely 24 bytes (due to alignment of the `&str` fat pointer). So each `OpStrategy` is 24 bytes, `OpDefs` is 13 * 24 = 312 bytes, and `TypeDef` is ~312 + 16 + 16 + 1 + 1 + padding = ~350 bytes. Too large for `Copy`. This is fine -- the data lives in static storage and is accessed by reference.
+    **Revised size analysis**: `OpStrategy` is an enum with 5 variants. The largest variant is `RuntimeCall { fn_name: &'static str, returns_bool: bool }` = 16 + 1 + padding = likely 24 bytes (due to alignment of the `&str` fat pointer). So each `OpStrategy` is 24 bytes, `OpDefs` is 19 * 24 = 456 bytes, and `TypeDef` is ~456 + 16 + 16 + 1 + 1 + padding = ~494 bytes. Too large for `Copy`. This is fine -- the data lives in static storage and is accessed by reference.
 
 2. **`methods: &'static [MethodDef]`**: A static slice pointing to a static array. This is the natural const-constructible collection. Each type's methods are defined as a `static` array in their section file (e.g., `static INT_METHODS: [MethodDef; N] = [...]`) and the `TypeDef` points to it.
 
@@ -973,7 +1004,7 @@ pub struct TypeDef {
 
 | Current Location | What It Replaces |
 |---|---|
-| All 18 `resolve_*_method()` functions in `ori_types/infer/expr/methods.rs` | `TypeDef.methods` lookup by name |
+| All 18 `resolve_*_method()` functions in `ori_types/infer/expr/methods/mod.rs` | `TypeDef.methods` lookup by name |
 | `TYPECK_BUILTIN_METHODS` (426 entries) | `BUILTIN_TYPES.flat_map(\|td\| td.methods.iter().map(\|m\| (td.name, m.name)))` |
 | `EVAL_BUILTIN_METHODS` | Same enumeration |
 | `ori_ir::BUILTIN_METHODS` (162 entries) | Consolidated `TypeDef.methods` |
@@ -1143,7 +1174,7 @@ Section 01 is complete when ALL of the following are true:
 
 3. **No LLVM/Pool/Arena dependency**: None of the types reference `inkwell`, `ori_types::Idx`, `ori_types::Pool`, `ori_ir::ExprId`, or any phase-specific type. They use only primitive Rust types, `&'static str`, `&'static [T]`, and other registry types.
 
-4. **Design decisions documented**: Every choice (why two `MemoryStrategy` variants not three, why `ReturnTag` is separate from `TypeTag`, why `OpDefs` has bitwise fields) is recorded with rationale.
+4. **Design decisions documented**: Every choice (why two `MemoryStrategy` variants not three, why three `Ownership` variants not two, why `ReturnTag` is separate from `TypeTag`, why `OpDefs` has 19 expanded fields) is recorded with rationale.
 
 5. **Replacement mapping complete**: Every type has a table showing what it replaces in the current codebase (file, current form, registry form).
 
