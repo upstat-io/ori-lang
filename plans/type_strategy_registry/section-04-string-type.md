@@ -226,20 +226,22 @@ This is the exact `const` Rust definition for the registry. It references the da
 ```rust
 pub const STR: TypeDef = TypeDef {
     tag: TypeTag::Str,
+    name: "str",
+    type_params: TypeParamArity::Fixed(0),
     memory: MemoryStrategy::Arc,
     operators: OpDefs {
-        add:       OpStrategy::RuntimeCall { fn_name: "ori_str_concat" },
+        add:       OpStrategy::RuntimeCall { fn_name: "ori_str_concat", returns_bool: false },
         sub:       OpStrategy::Unsupported,
         mul:       OpStrategy::Unsupported,
         div:       OpStrategy::Unsupported,
         rem:       OpStrategy::Unsupported,
         floor_div: OpStrategy::Unsupported,
-        eq:        OpStrategy::RuntimeCall { fn_name: "ori_str_eq" },
-        neq:       OpStrategy::RuntimeCall { fn_name: "ori_str_ne" },
-        lt:        OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
-        gt:        OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
-        lt_eq:     OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
-        gt_eq:     OpStrategy::RuntimeCall { fn_name: "ori_str_compare" },
+        eq:        OpStrategy::RuntimeCall { fn_name: "ori_str_eq", returns_bool: true },
+        neq:       OpStrategy::RuntimeCall { fn_name: "ori_str_ne", returns_bool: true },
+        lt:        OpStrategy::RuntimeCall { fn_name: "ori_str_compare", returns_bool: true },
+        gt:        OpStrategy::RuntimeCall { fn_name: "ori_str_compare", returns_bool: true },
+        lt_eq:     OpStrategy::RuntimeCall { fn_name: "ori_str_compare", returns_bool: true },
+        gt_eq:     OpStrategy::RuntimeCall { fn_name: "ori_str_compare", returns_bool: true },
         neg:       OpStrategy::Unsupported,
         bit_and:   OpStrategy::Unsupported,
         bit_or:    OpStrategy::Unsupported,
@@ -250,12 +252,26 @@ pub const STR: TypeDef = TypeDef {
     },
     methods: &[
         // ── Query ──────────────────────────────────────────────────────
+        //
+        // All str MethodDefs share these defaults (per frozen decision 13):
+        //   kind: MethodKind::Instance,
+        //   dei_only: false,
+        //   dei_propagation: DeiPropagation::NotApplicable,
+        // Only `pure` and `backend_required` vary per method.
+        // First entry shown in full; remaining entries abbreviate to
+        // the 5 fields that vary (name, params, returns, receiver, trait_name,
+        // pure, backend_required).
         MethodDef {
             name: "len",
             params: &[],
             returns: ReturnTag::Concrete(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
+            pure: true,
+            backend_required: true,
+            kind: MethodKind::Instance,
+            dei_only: false,
+            dei_propagation: DeiPropagation::NotApplicable,
         },
         MethodDef {
             name: "length",
@@ -263,7 +279,18 @@ pub const STR: TypeDef = TypeDef {
             returns: ReturnTag::Concrete(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
+            pure: true,
+            backend_required: true,
+            // kind, dei_only, dei_propagation: same defaults as above
         },
+        // ── Remaining entries abbreviate frozen-default fields ─────────
+        // All str methods below share these frozen defaults:
+        //   pure: true,              (all str methods are side-effect free)
+        //   backend_required: true,  (unless marked otherwise in coverage matrix)
+        //   kind: MethodKind::Instance,
+        //   dei_only: false,
+        //   dei_propagation: DeiPropagation::NotApplicable,
+        // Implementation MUST fill in all 10 MethodDef fields per frozen decision 13.
         MethodDef {
             name: "byte_len",
             params: &[],
@@ -282,21 +309,21 @@ pub const STR: TypeDef = TypeDef {
         },
         MethodDef {
             name: "contains",
-            params: &[ParamDef { name: "substr", type_tag: ParamType::Concrete(TypeTag::Str) }],
+            params: &[ParamDef { name: "substr", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }],
             returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "starts_with",
-            params: &[ParamDef { name: "prefix", type_tag: ParamType::Concrete(TypeTag::Str) }],
+            params: &[ParamDef { name: "prefix", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }],
             returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "ends_with",
-            params: &[ParamDef { name: "suffix", type_tag: ParamType::Concrete(TypeTag::Str) }],
+            params: &[ParamDef { name: "suffix", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }],
             returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: None,
             receiver: Ownership::Borrow,
@@ -348,8 +375,8 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "replace",
             params: &[
-                ParamDef { name: "pattern", type_tag: ParamType::Concrete(TypeTag::Str) },
-                ParamDef { name: "replacement", type_tag: ParamType::Concrete(TypeTag::Str) },
+                ParamDef { name: "pattern", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow },
+                ParamDef { name: "replacement", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow },
             ],
             returns: ReturnTag::SelfType,
             trait_name: None,
@@ -358,8 +385,8 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "pad_start",
             params: &[
-                ParamDef { name: "width", type_tag: ParamType::Concrete(TypeTag::Int) },
-                ParamDef { name: "fill", type_tag: ParamType::Concrete(TypeTag::Str) },
+                ParamDef { name: "width", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy },
+                ParamDef { name: "fill", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow },
             ],
             returns: ReturnTag::SelfType,
             trait_name: None,
@@ -368,8 +395,8 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "pad_end",
             params: &[
-                ParamDef { name: "width", type_tag: ParamType::Concrete(TypeTag::Int) },
-                ParamDef { name: "fill", type_tag: ParamType::Concrete(TypeTag::Str) },
+                ParamDef { name: "width", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy },
+                ParamDef { name: "fill", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow },
             ],
             returns: ReturnTag::SelfType,
             trait_name: None,
@@ -379,21 +406,21 @@ pub const STR: TypeDef = TypeDef {
         // ── Combine ────────────────────────────────────────────────────
         MethodDef {
             name: "concat",
-            params: &[ParamDef { name: "other", type_tag: ParamType::Concrete(TypeTag::Str) }],
+            params: &[ParamDef { name: "other", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }],
             returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "repeat",
-            params: &[ParamDef { name: "count", type_tag: ParamType::Concrete(TypeTag::Int) }],
+            params: &[ParamDef { name: "count", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy }],
             returns: ReturnTag::SelfType,
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "add",
-            params: &[ParamDef { name: "other", type_tag: ParamType::Concrete(TypeTag::Str) }],
+            params: &[ParamDef { name: "other", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }],
             returns: ReturnTag::SelfType,
             trait_name: Some("Add"),
             receiver: Ownership::Borrow,
@@ -403,8 +430,8 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "slice",
             params: &[
-                ParamDef { name: "start", type_tag: ParamType::Concrete(TypeTag::Int) },
-                ParamDef { name: "end", type_tag: ParamType::Concrete(TypeTag::Int) },
+                ParamDef { name: "start", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy },
+                ParamDef { name: "end", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy },
             ],
             returns: ReturnTag::SelfType,
             trait_name: None,
@@ -413,8 +440,8 @@ pub const STR: TypeDef = TypeDef {
         MethodDef {
             name: "substring",
             params: &[
-                ParamDef { name: "start", type_tag: ParamType::Concrete(TypeTag::Int) },
-                ParamDef { name: "end", type_tag: ParamType::Concrete(TypeTag::Int) },
+                ParamDef { name: "start", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy },
+                ParamDef { name: "end", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy },
             ],
             returns: ReturnTag::SelfType,
             trait_name: None,
@@ -424,7 +451,7 @@ pub const STR: TypeDef = TypeDef {
         // ── Decompose ──────────────────────────────────────────────────
         MethodDef {
             name: "split",
-            params: &[ParamDef { name: "sep", type_tag: ParamType::Concrete(TypeTag::Str) }],
+            params: &[ParamDef { name: "sep", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }],
             returns: ReturnTag::List(TypeTag::Str),
             trait_name: None,
             receiver: Ownership::Borrow,
@@ -463,14 +490,14 @@ pub const STR: TypeDef = TypeDef {
         // ── Search ─────────────────────────────────────────────────────
         MethodDef {
             name: "index_of",
-            params: &[ParamDef { name: "substr", type_tag: ParamType::Concrete(TypeTag::Str) }],
+            params: &[ParamDef { name: "substr", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }],
             returns: ReturnTag::Option(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
         },
         MethodDef {
             name: "last_index_of",
-            params: &[ParamDef { name: "substr", type_tag: ParamType::Concrete(TypeTag::Str) }],
+            params: &[ParamDef { name: "substr", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }],
             returns: ReturnTag::Option(TypeTag::Int),
             trait_name: None,
             receiver: Ownership::Borrow,
@@ -516,7 +543,7 @@ pub const STR: TypeDef = TypeDef {
         // ── Trait: Eq ──────────────────────────────────────────────────
         MethodDef {
             name: "equals",
-            params: &[ParamDef { name: "other", type_tag: ParamType::SelfType }],
+            params: &[ParamDef { name: "other", ty: ReturnTag::SelfType, ownership: Ownership::Borrow }],
             returns: ReturnTag::Concrete(TypeTag::Bool),
             trait_name: Some("Eq"),
             receiver: Ownership::Borrow,
@@ -525,7 +552,7 @@ pub const STR: TypeDef = TypeDef {
         // ── Trait: Comparable ──────────────────────────────────────────
         MethodDef {
             name: "compare",
-            params: &[ParamDef { name: "other", type_tag: ParamType::SelfType }],
+            params: &[ParamDef { name: "other", ty: ReturnTag::SelfType, ownership: Ownership::Borrow }],
             returns: ReturnTag::Concrete(TypeTag::Ordering),
             trait_name: Some("Comparable"),
             receiver: Ownership::Borrow,
@@ -586,9 +613,9 @@ pub const STR: TypeDef = TypeDef {
 | Trait | 6 | `equals`, `compare`, `clone`, `hash`, `to_str`, `debug` |
 | **Total** | **38** | |
 
-### Data Model Requirements for ReturnType
+### Data Model Requirements for ReturnTag
 
-The STR type definition requires the following `ReturnType` variants beyond what primitive types need:
+The STR type definition requires the following `ReturnTag` variants beyond what primitive types need:
 
 - `ReturnTag::SelfType` -- for methods returning `str` (same as receiver type)
 - `ReturnTag::Concrete(TypeTag)` -- for `int`, `bool`, `Ordering`, `Error`
@@ -683,7 +710,7 @@ All 19 are present in the registry. The registry adds 19 additional methods that
 
 ## Implementation Checklist
 
-- [ ] Ensure Section 01 data model supports `ReturnTag::List(TypeTag)`, `ReturnTag::Option(TypeTag)`, `ReturnTag::DoubleEndedIterator(TypeTag)` variants
+- [x] Ensure Section 01 data model supports `ReturnTag::List(TypeTag)`, `ReturnTag::Option(TypeTag)`, `ReturnTag::DoubleEndedIterator(TypeTag)` variants — **added to Section 01 ReturnTag enum**
 - [ ] Define `STR` const in `ori_registry/src/defs/str.rs`
 - [ ] Include all 38 methods with exact parameter and return types
 - [ ] Include all 14 operator strategy entries

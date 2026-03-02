@@ -1,0 +1,73 @@
+// Valgrind test: COW list insert and remove operations.
+// Exercises insert/remove at various positions on unique and shared lists,
+// with element shifting and RC management.
+
+@main () -> int = {
+    // Insert at beginning (unique)
+    let a = [2, 3, 4];
+    let a2 = a.insert(0, 1);
+    let insert_begin_ok = a2.length() == 4 && a2[0] == 1 && a2[1] == 2;
+
+    // Insert at end (unique)
+    let b = [1, 2, 3];
+    let b2 = b.insert(3, 4);
+    let insert_end_ok = b2.length() == 4 && b2[3] == 4;
+
+    // Insert in middle (unique)
+    let c = [1, 3, 5];
+    let c2 = c.insert(1, 2);
+    let insert_mid_ok = c2.length() == 4 && c2[1] == 2 && c2[2] == 3;
+
+    // Insert on shared owner (COW)
+    let base = [10, 20, 30];
+    let shared = base;
+    let inserted = shared.insert(1, 15);
+    let cow_insert_ok = base.length() == 3 && inserted.length() == 4
+        && base[1] == 20 && inserted[1] == 15;
+
+    // Remove from beginning (unique)
+    let d = [1, 2, 3, 4];
+    let d2 = d.remove(0);
+    let remove_begin_ok = d2.length() == 3 && d2[0] == 2;
+
+    // Remove from end
+    let e = [1, 2, 3, 4];
+    let e2 = e.remove(3);
+    let remove_end_ok = e2.length() == 3 && e2.last().unwrap() == 3;
+
+    // Remove from middle
+    let f = [1, 2, 3, 4, 5];
+    let f2 = f.remove(2);
+    let remove_mid_ok = f2.length() == 4 && f2[2] == 4;
+
+    // Remove on shared owner (COW)
+    let base2 = [10, 20, 30, 40];
+    let shared2 = base2;
+    let removed = shared2.remove(1);
+    let cow_remove_ok = base2.length() == 4 && removed.length() == 3
+        && base2[1] == 20 && removed[1] == 30;
+
+    // Insert + remove with string elements (RC management)
+    let strs = ["a", "c"];
+    let strs2 = strs.insert(1, "b");
+    let strs3 = strs2.remove(0);
+    let str_ok = strs2.length() == 3 && strs2[1] == "b"
+        && strs3.length() == 2 && strs3[0] == "b";
+
+    // Chained insert + remove
+    let g = [1, 2, 3];
+    let g2 = g.insert(0, 0).insert(4, 4).remove(2);
+    let chain_ok = g2.length() == 4;
+
+    // Loop insert at end
+    let xs: [int] = [];
+    for i in 0..100 do {
+        xs = xs.insert(i, i);
+    };
+    let loop_ok = xs.length() == 100 && xs[50] == 50;
+
+    if insert_begin_ok && insert_end_ok && insert_mid_ok && cow_insert_ok
+        && remove_begin_ok && remove_end_ok && remove_mid_ok && cow_remove_ok
+        && str_ok && chain_ok && loop_ok
+    then 0 else 1
+}

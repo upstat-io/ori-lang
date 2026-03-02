@@ -51,9 +51,10 @@ sections:
 pub const DURATION: TypeDef = TypeDef {
     tag: TypeTag::Duration,
     name: "Duration",
+    type_params: TypeParamArity::Fixed(0),
     memory: MemoryStrategy::Copy,
     methods: &DURATION_METHODS,
-    operators: &DURATION_OPS,
+    operators: DURATION_OPS,
 };
 ```
 
@@ -183,7 +184,7 @@ These return `float` representations:
 - [ ] Define `DURATION_METHODS: &[MethodDef]` with all 35+ methods
 - [ ] Define `DURATION_OPS: OpDefs` with IntInstr for all arithmetic operators
 - [ ] Mark associated functions (from_*, zero) with `MethodKind::Associated` or equivalent
-- [ ] Mark conversion aliases (as_*, to_*) returning `float` with appropriate `ReturnSpec`
+- [ ] Mark conversion aliases (as_*, to_*) returning `float` with appropriate `ReturnTag`
 - [ ] Document heterogeneous operators: mul/div take `int`, not `Self`
 - [ ] Unit test: method count matches expected
 - [ ] Unit test: all trait methods have correct trait_name
@@ -200,9 +201,10 @@ These return `float` representations:
 pub const SIZE: TypeDef = TypeDef {
     tag: TypeTag::Size,
     name: "Size",
+    type_params: TypeParamArity::Fixed(0),
     memory: MemoryStrategy::Copy,
     methods: &SIZE_METHODS,
-    operators: &SIZE_OPS,
+    operators: SIZE_OPS,
 };
 ```
 
@@ -335,15 +337,10 @@ Size is stored as `u64` bytes. It is a Copy type. Conversion constants live in `
 pub const ORDERING: TypeDef = TypeDef {
     tag: TypeTag::Ordering,
     name: "Ordering",
+    type_params: TypeParamArity::Fixed(0),
     memory: MemoryStrategy::Copy,
     methods: &ORDERING_METHODS,
-    operators: &ORDERING_OPS, // eq only
-    // Enum variants
-    variants: Some(&[
-        VariantSpec { name: "Less", fields: &[] },
-        VariantSpec { name: "Equal", fields: &[] },
-        VariantSpec { name: "Greater", fields: &[] },
-    ]),
+    operators: ORDERING_OPS, // eq only
 };
 ```
 
@@ -407,15 +404,23 @@ Ordering supports `==` and `!=` only (no `<`, `>` — that would be circular sin
 
 **Observations:**
 - Ordering has the best coverage of the compound types — nearly all methods are implemented across typeck, eval, and LLVM.
-- `then_with` takes a closure parameter. The IR `BUILTIN_METHODS` currently uses `ParamSpec` which has no `Closure` variant that captures return type. This is noted in `TYPECK_METHODS_NOT_IN_IR`: "Ordering — then_with takes closure, not expressible in IR ParamSpec." The registry needs a richer parameter spec to express this (e.g., `ParamDef::Closure` or a dedicated closure-aware variant).
+- `then_with` takes a closure parameter. The IR `BUILTIN_METHODS` currently uses `ParamSpec` which has no `Closure` variant that captures return type. This is noted in `TYPECK_METHODS_NOT_IN_IR`: "Ordering — then_with takes closure, not expressible in IR ParamSpec." The registry needs a richer `ParamDef` to express this (e.g., `ParamDef { ty: ReturnTag::Fresh, ownership: Ownership::Copy }` for the closure parameter, with the actual closure signature resolved by the type checker).
 - `then` is in eval and typeck but not LLVM.
 - The LLVM backend handles Ordering methods via `emit_ordering_method()` in `traits.rs`.
 
 ### Variant Registration
 
-Ordering is registered as an enum in `ori_types/check/registration/builtin_types.rs::register_ordering_type()`. The registry should declare variant structure so that wiring phases can validate against it:
+Ordering is registered as an enum in `ori_types/check/registration/builtin_types.rs::register_ordering_type()`. Variant structure is declared as a **standalone constant** (not a field on `TypeDef`, which is scoped to methods + operators). Wiring phases can validate against it:
 
 ```rust
+/// Ordering variant descriptors. Not part of TypeDef — variant structure
+/// is consumed by type checker registration, not by method/operator dispatch.
+pub struct VariantSpec {
+    pub name: &'static str,
+    pub tag: u8,
+    pub fields: &'static [(&'static str, ReturnTag)],
+}
+
 pub const ORDERING_VARIANTS: &[VariantSpec] = &[
     VariantSpec { name: "Less", tag: 0, fields: &[] },
     VariantSpec { name: "Equal", tag: 1, fields: &[] },
@@ -445,9 +450,10 @@ pub const ORDERING_VARIANTS: &[VariantSpec] = &[
 pub const ERROR: TypeDef = TypeDef {
     tag: TypeTag::Error,
     name: "error",
+    type_params: TypeParamArity::Fixed(0),
     memory: MemoryStrategy::Arc, // contains str message + trace Vec
     methods: &ERROR_METHODS,
-    operators: &OpDefs::NONE,
+    operators: OpDefs::UNSUPPORTED,
 };
 ```
 
@@ -491,7 +497,7 @@ Error is an Arc type (heap-allocated, reference-counted). It contains a message 
 - Error methods ARE fully implemented in both typeck (`resolve_error_method`) and eval (`dispatch_error_method`).
 - LLVM backend has zero Error method handlers — Error is not yet supported in AOT compilation.
 - `trace_entries` returns a list of `TraceEntry` structs, which is a complex return type. Typeck currently returns `fresh_var()` for this.
-- `with_trace` takes a `TraceEntry` struct parameter — needs `ParamSpec::Struct("TraceEntry")` or similar.
+- `with_trace` takes a `TraceEntry` struct parameter — needs a `ParamDef` with a struct-level `ReturnTag` (e.g., `ReturnTag::Concrete(TypeTag::TraceEntry)` if TraceEntry gets a TypeTag, or a `ReturnTag::Fresh` with type checker resolution).
 
 ### Open Design Questions
 
@@ -502,8 +508,8 @@ Error is an Arc type (heap-allocated, reference-counted). It contains a message 
 ### Tasks
 
 - [ ] Define `ERROR_METHODS: &[MethodDef]` with all 8 methods
-- [ ] Decide on `ParamSpec` extension for TraceEntry parameter (`with_trace`)
-- [ ] Decide on `ReturnSpec` for `trace_entries` (list of struct)
+- [ ] Decide on `ParamDef` representation for TraceEntry parameter (`with_trace`)
+- [ ] Decide on `ReturnTag` for `trace_entries` (list of struct)
 - [ ] Document Arc memory strategy implications
 - [ ] Note: no operators, no LLVM coverage (planned for AOT Error support phase)
 - [ ] Unit test: all methods borrow receiver
@@ -522,8 +528,8 @@ pub const CHANNEL: TypeDef = TypeDef {
     name: "Channel",
     memory: MemoryStrategy::Arc, // shared channel handle
     methods: &CHANNEL_METHODS,
-    operators: &OpDefs::NONE,
-    type_params: &["T"], // Channel<T>
+    operators: OpDefs::UNSUPPORTED,
+    type_params: TypeParamArity::Fixed(1), // Channel<T>
 };
 ```
 
@@ -567,14 +573,14 @@ Channel is a generic Arc type (`Channel<T>`). It is used for concurrency communi
 
 1. **Should Channel be in the registry now?** It has no eval or LLVM implementation. Including it would document the intended API surface and allow enforcement tests to track the gap, but the `TypeDef` would have zero consuming phases.
 2. **Generic type parameter:** Channel<T> needs `type_params` in the TypeDef. The data model (Section 01) must support generic `TypeDef`s before Channel can be fully expressed. This is shared with Section 06 (Collection types).
-3. **Return type complexity:** `recv`/`try_recv` return `Option<T>` where T is the channel's element type. This requires `ReturnSpec::OptionElement` or equivalent.
+3. **Return type complexity:** `recv`/`try_recv` return `Option<T>` where T is the channel's element type. This requires `ReturnTag::OptionOf(TypeProjection::Element)` (see Section 01).
 4. **Placement decision:** Should Channel move to Section 06 (Collection & Wrapper Types) since it's generic? It is listed here because it's a "special" type with a pre-interned tag, but its generic nature aligns more with collections.
 
 ### Tasks
 
 - [ ] Define `CHANNEL_METHODS: &[MethodDef]` with all 9 methods (plus aliases)
 - [ ] Handle generic type parameter T in method signatures
-- [ ] Handle `Option<T>` return types (ReturnSpec::OptionElement)
+- [ ] Handle `Option<T>` return types (`ReturnTag::OptionOf(TypeProjection::Element)`)
 - [ ] Document: eval, IR, and LLVM coverage is zero — this is a declaration-only TypeDef
 - [ ] Decide: keep in Section 05 or move to Section 06
 
@@ -664,7 +670,7 @@ When compound types are in the registry, the following allowlist entries become 
 
 ### Key Architectural Decisions Needed
 
-1. **Associated functions vs instance methods:** Duration and Size have static constructors (`from_seconds`, `from_bytes`, etc.). The `MethodDef` schema needs a `MethodKind` discriminant (Instance/Associated/Static) or a separate `AssociatedFnDef` type. This is a Section 01 data model concern that must be resolved before compound types can be fully expressed.
+1. **Associated functions vs instance methods:** ~~Resolved~~ — Frozen decision 9 (overview) defines `MethodKind` as `Instance | Associated`. Duration and Size factory methods (`from_seconds`, `from_bytes`, etc.) use `kind: MethodKind::Associated` with `receiver: Ownership::Copy` as a placeholder (no receiver).
 
 2. **Method aliases:** Both Duration and Size have multiple names for the same operation (e.g., `to_bytes`/`as_bytes`/`bytes`). Options:
    - A: Registry declares all names as separate methods (simplest, most explicit)
@@ -673,7 +679,7 @@ When compound types are in the registry, the following allowlist entries become 
 
 3. **Heterogeneous operators:** Duration.mul takes `int`, not `Duration`. Size.mul takes `int`, not `Size`. The `OpDefs` schema from Section 01 must support heterogeneous operand types, not just `Self`.
 
-4. **Closure parameters:** `Ordering.then_with` takes `() -> Ordering`. Error.trace_entries returns `[TraceEntry]`. The `ParamSpec`/`ReturnSpec` enums need extensions for closures and struct references. This may be deferred if these methods are rare enough to handle specially.
+4. **Closure parameters:** `Ordering.then_with` takes `() -> Ordering`. Error.trace_entries returns `[TraceEntry]`. The `ParamDef`/`ReturnTag` types need to express closures and struct references. Closures can use `ParamDef { ty: ReturnTag::Fresh, ... }` with type checker resolution; struct returns may need additional `TypeTag` variants or `ReturnTag::Fresh`. This may be deferred if these methods are rare enough to handle specially.
 
 ### Implementation Order
 

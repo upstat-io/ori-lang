@@ -1,0 +1,75 @@
+// Valgrind test: SSO (Small String Optimization) strings.
+// Exercises SSO strings (<=23 bytes inline), SSO → heap promotion,
+// SSO concatenation, SSO method operations, mixed SSO/heap lifecycle.
+// Note: .upper()/.lower() excluded — known LLVM codegen gap.
+
+@main () -> int = {
+    // Small strings stay inline (SSO)
+    let $a = "hello";
+    let $b = "world";
+    let sso_ok = a == "hello" && b == "world";
+
+    // SSO concatenation (result still SSO if small enough)
+    let $c = "hi" + " " + "go";
+    let sso_concat_ok = c == "hi go";
+
+    // SSO → heap promotion (>23 bytes)
+    let $long = "this is a string that is definitely longer than twenty three bytes";
+    let heap_ok = long == "this is a string that is definitely longer than twenty three bytes";
+
+    // Concatenation: SSO + SSO → heap (when result exceeds 23 bytes)
+    let $d = "abcdefghijklm";
+    let $e = "nopqrstuvwxyz";
+    let $f = d + e;
+    let promote_ok = f == "abcdefghijklmnopqrstuvwxyz";
+
+    // String methods on SSO strings
+    let $trimmed = "  hi  ".trim();
+    let trim_ok = trimmed == "hi";
+
+    // starts_with / ends_with / contains on SSO
+    let $test = "hello world";
+    let starts_ok = test.starts_with(prefix: "hello");
+    let ends_ok = test.ends_with(suffix: "world");
+    let contains_ok = test.contains(substr: "lo wo");
+
+    // Split on SSO string
+    let parts = "a,b,c".split(sep: ",");
+    let split_ok = parts.length() == 3 && parts[0] == "a" && parts[2] == "c";
+
+    // Empty string
+    let $empty = "";
+    let empty_ok = empty == "" && empty.length() == 0;
+
+    // Single char string
+    let $one = "x";
+    let one_ok = one == "x" && one.length() == 1;
+
+    // SSO string equality
+    let $g = "test";
+    let $h = "test";
+    let eq_ok = g == h;
+
+    // Many SSO strings in a list (RC management of SSO is no-op but should not crash)
+    let strs: [str] = [];
+    for i in 0..100 do {
+        strs = strs.push("hi");
+    };
+    let list_ok = strs.length() == 100;
+
+    // String length on various sizes
+    let $s1 = "a";
+    let $s2 = "abcdefghijklmnopqrstuvw";
+    let $s3 = "abcdefghijklmnopqrstuvwx";
+    let len_ok = s1.length() == 1 && s2.length() == 23 && s3.length() == 24;
+
+    // Template string with SSO
+    let $name = "hi";
+    let $greeting = `say {name}!`;
+    let template_ok = greeting == "say hi!";
+
+    if sso_ok && sso_concat_ok && heap_ok && promote_ok && trim_ok
+        && starts_ok && ends_ok && contains_ok && split_ok
+        && empty_ok && one_ok && eq_ok && list_ok && len_ok && template_ok
+    then 0 else 1
+}

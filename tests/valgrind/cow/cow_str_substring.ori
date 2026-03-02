@@ -1,0 +1,74 @@
+// Valgrind test: seamless string slices (substring).
+// Exercises substring creation, chained substrings,
+// drop ordering (substring before/after original), substring COW.
+
+@main () -> int = {
+    // Basic substring
+    let $msg = "hello world";
+    let $sub1 = msg.substring(start: 0, end: 5);
+    let basic_ok = sub1 == "hello";
+
+    // Substring from middle
+    let $sub2 = msg.substring(start: 6, end: 11);
+    let mid_ok = sub2 == "world";
+
+    // str.slice alias
+    let $sub3 = msg.slice(start: 0, end: 5);
+    let alias_ok = sub3 == "hello";
+
+    // Empty substring
+    let $empty = msg.substring(start: 3, end: 3);
+    let empty_ok = empty == "";
+
+    // Full-length substring
+    let $full = msg.substring(start: 0, end: 11);
+    let full_ok = full == "hello world";
+
+    // Trim (returns seamless slice)
+    let $padded = "   trimmed   ";
+    let $trimmed = padded.trim();
+    let trim_ok = trimmed == "trimmed";
+
+    // Substring of a heap string
+    let $long = "this is a string that is definitely longer than twenty three bytes for heap";
+    let $sub4 = long.substring(start: 0, end: 10);
+    let heap_sub_ok = sub4 == "this is a ";
+
+    // Substring + concat (materialization)
+    let $base = "hello world";
+    let $sub = base.substring(start: 0, end: 5);
+    let $combined = sub + " there";
+    let cow_concat_ok = combined == "hello there";
+
+    // Multiple substrings from same base
+    let $source = "abcdefghij";
+    let $s1 = source.substring(start: 0, end: 3);
+    let $s2 = source.substring(start: 3, end: 6);
+    let $s3 = source.substring(start: 6, end: 9);
+    let multi_ok = s1 == "abc" && s2 == "def" && s3 == "ghi";
+
+    // Substring survives original going out of scope
+    let sub_survives = {
+        let $orig = "temporary base string for testing";
+        let $sl = orig.substring(start: 0, end: 9);
+        sl == "temporary"
+    };
+
+    // Split (creates substrings internally)
+    let parts = "one::two::three".split(sep: "::");
+    let split_ok = parts.length() == 3 && parts[0] == "one"
+        && parts[1] == "two" && parts[2] == "three";
+
+    // Loop substring
+    let $repeated = "abcdefghij";
+    let results: [str] = [];
+    for i in 0..5 do {
+        results = results.push(repeated.substring(start: i * 2, end: i * 2 + 2));
+    };
+    let loop_ok = results.length() == 5 && results[0] == "ab" && results[4] == "ij";
+
+    if basic_ok && mid_ok && alias_ok && empty_ok && full_ok && trim_ok
+        && heap_sub_ok && cow_concat_ok && multi_ok && sub_survives
+        && split_ok && loop_ok
+    then 0 else 1
+}

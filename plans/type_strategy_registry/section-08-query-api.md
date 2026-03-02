@@ -133,8 +133,8 @@ pub const BUILTIN_TYPES: &[&TypeDef] = &[
 /// let int_def = find_type(TypeTag::Int).unwrap();
 /// assert_eq!(int_def.name, "int");
 ///
-/// // User-defined types are not in the registry
-/// assert!(find_type(TypeTag::Struct).is_none());
+/// // Non-builtin types are not in the registry
+/// assert!(find_type(TypeTag::Unit).is_none());
 /// ```
 pub const fn find_type(tag: TypeTag) -> Option<&'static TypeDef> {
     let mut i = 0;
@@ -160,13 +160,15 @@ pub const fn find_type(tag: TypeTag) -> Option<&'static TypeDef> {
 
 A `HashMap<TypeTag, &TypeDef>` would add ~200 bytes of metadata, require `LazyLock` or `phf`, and gain nothing measurable at this scale.
 
-**Returns `Option`, not panic.** The caller may pass any `TypeTag` variant -- including `Struct`, `Enum`, `Var`, etc. -- which are valid tags but not builtin types. Returning `None` lets the caller decide the fallback (trait dispatch, error, etc.).
+**Returns `Option`, not panic.** The caller may pass any `TypeTag` variant — including `Unit`, `Never`, `Function`, etc. — which are valid tags but not builtin types with method definitions. Returning `None` lets the caller decide the fallback (trait dispatch, error, etc.).
+
+**DEI aliasing via `base_type()`.** Callers looking up methods should use `find_method()` or `methods_for()` (which call `base_type()` internally) rather than `find_type()` directly. `find_type(TypeTag::DoubleEndedIterator)` returns `None` because no separate TypeDef exists — Section 07's single-TypeDef model stores all iterator methods on `TypeTag::Iterator`.
 
 ### Implementation tasks
 
 - [ ] Implement `find_type()` as `const fn` in `lib.rs`
 - [ ] Unit test: every `BUILTIN_TYPES` entry is findable by its tag
-- [ ] Unit test: non-registry tags (`TypeTag::Struct`, `TypeTag::Var`, `TypeTag::Unit`) return `None`
+- [ ] Unit test: non-registry tags (`TypeTag::Unit`, `TypeTag::Never`, `TypeTag::Function`) return `None`
 - [ ] Unit test: determinism -- calling twice returns same pointer
 
 ---
@@ -196,8 +198,10 @@ A `HashMap<TypeTag, &TypeDef>` would add ~200 bytes of metadata, require `LazyLo
 /// assert!(find_method(TypeTag::Int, "foo").is_none());
 /// ```
 pub fn find_method(tag: TypeTag, name: &str) -> Option<&'static MethodDef> {
-    let type_def = find_type(tag)?;
-    type_def.methods.iter().find(|m| m.name == name)
+    let type_def = find_type(tag.base_type())?;
+    type_def.methods.iter().find(|m| {
+        m.name == name && (tag != TypeTag::Iterator || !m.dei_only)
+    })
 }
 ```
 
@@ -206,6 +210,8 @@ pub fn find_method(tag: TypeTag, name: &str) -> Option<&'static MethodDef> {
 **Not const fn.** String comparison (`m.name == name` where both are `&str`) requires `PartialEq for str` which is not const-stable. This function must be a regular `fn`. This is acceptable -- it is never called in const contexts (always called from runtime type checker / codegen logic).
 
 **Two-step lookup (find type, then scan methods).** This is clearer than a single flat scan of all methods across all types. The two-step approach also naturally short-circuits when the type itself is not in the registry (returns `None` immediately without scanning any methods).
+
+**DEI-aware via `base_type()` + `dei_only` filter.** `TypeTag::DoubleEndedIterator.base_type()` returns `TypeTag::Iterator`, so both tags resolve to the same `TypeDef`. The `dei_only` filter then restricts plain `Iterator` lookups to non-DEI methods, while `DoubleEndedIterator` lookups see all methods. This implements Section 07's single-TypeDef decision — no separate `TypeDef` for DEI exists in `BUILTIN_TYPES`.
 
 **Returns `&'static MethodDef`.** All data is in `static` / `const` storage. The returned reference is valid for the entire program lifetime. This is crucial for Salsa compatibility -- no allocation, no lifetime management, no interior mutability.
 
@@ -224,8 +230,10 @@ pub fn find_method(tag: TypeTag, name: &str) -> Option<&'static MethodDef> {
 Three iterator functions used by diagnostics, enforcement tests, and the ARC pass.
 
 ```rust
-/// All methods defined on a builtin type.
+/// All methods available on a builtin type tag.
 ///
+/// DEI-aware: for `TypeTag::Iterator`, excludes `dei_only` methods.
+/// For `TypeTag::DoubleEndedIterator`, includes all methods.
 /// Returns an empty iterator for types not in the registry.
 /// Used by enforcement tests to verify phase coverage.
 ///
@@ -238,10 +246,11 @@ Three iterator functions used by diagnostics, enforcement tests, and the ARC pas
 /// assert!(int_methods.iter().any(|m| m.name == "abs"));
 /// ```
 pub fn methods_for(tag: TypeTag) -> impl Iterator<Item = &'static MethodDef> {
-    find_type(tag)
+    find_type(tag.base_type())
         .map(|td| td.methods.iter())
         .into_iter()
         .flatten()
+        .filter(move |m| tag != TypeTag::Iterator || !m.dei_only)
 }
 
 /// All method names defined on a builtin type.
@@ -347,9 +356,14 @@ let strategy = match op {
     BinOp::Sub => type_def.operators.sub,
     BinOp::Mul => type_def.operators.mul,
     BinOp::Div => type_def.operators.div,
-    BinOp::Mod => type_def.operators.modulo,
+    BinOp::Mod => type_def.operators.rem,
+    BinOp::FloorDiv => type_def.operators.floor_div,
     BinOp::Eq  => type_def.operators.eq,
-    BinOp::Cmp => type_def.operators.cmp,
+    BinOp::NotEq => type_def.operators.neq,
+    BinOp::Lt  => type_def.operators.lt,
+    BinOp::Gt  => type_def.operators.gt,
+    BinOp::LtEq => type_def.operators.lt_eq,
+    BinOp::GtEq => type_def.operators.gt_eq,
     // ...
 };
 ```
