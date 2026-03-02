@@ -53,7 +53,7 @@ If `@deep` returns `Err`, the trace contains:
 
 ### Trace Entry Structure
 
-See [Errors and Panics § TraceEntry Type](../../0.1-alpha/spec/20-errors-and-panics.md#traceentry-type) for the `TraceEntry` definition.
+See [Errors and Panics § TraceEntry Type](../../2026/spec/20-errors-and-panics.md#traceentry-type) for the `TraceEntry` definition.
 
 ### Trace Ordering
 

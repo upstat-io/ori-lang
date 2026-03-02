@@ -11,6 +11,16 @@
 
   const cfg: PlaygroundConfig = { ...DEFAULT_CONFIG, ...config };
 
+  // Scroll engagement: playground only captures scroll after user clicks on it
+  let playgroundEl: HTMLDivElement;
+  let engaged = $state(false);
+
+  function handleDocumentClick(e: MouseEvent) {
+    if (playgroundEl && !playgroundEl.contains(e.target as Node)) {
+      engaged = false;
+    }
+  }
+
   // Default to 'hello' example unless custom initialCode is provided
   let selectedExample = $state(cfg.initialCode ? '' : 'hello');
   let code = $state(cfg.initialCode ?? EXAMPLES.hello.code);
@@ -42,6 +52,8 @@
   }
 
   onMount(async () => {
+    document.addEventListener('click', handleDocumentClick, true);
+
     // Read URL hash if enabled
     if (cfg.readUrlHash && window.location.hash) {
       try {
@@ -65,6 +77,10 @@
       };
       console.log('Dev mode: Call reloadWasm() after rebuilding WASM');
     }
+
+    return () => {
+      document.removeEventListener('click', handleDocumentClick, true);
+    };
   });
 
   function handleFormat(): boolean {
@@ -134,9 +150,12 @@
       code = example.code;
     }
   }
+
 </script>
 
-<div class="playground" style="height: {cfg.height};" class:horizontal={cfg.layout === 'horizontal'} class:vertical={cfg.layout === 'vertical'}>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="playground" style="height: {cfg.height};" class:horizontal={cfg.layout === 'horizontal'} class:vertical={cfg.layout === 'vertical'} bind:this={playgroundEl} onclick={() => engaged = true}>
   {#if cfg.showToolbar}
     <PlaygroundToolbar
       enableShare={cfg.enableShare}
@@ -158,7 +177,7 @@
           <span>main.ori</span>
         </div>
       {/if}
-      <MonacoEditor bind:value={code} fontSize={cfg.fontSize} onrun={handleRun} />
+      <MonacoEditor bind:value={code} fontSize={cfg.fontSize} {engaged} onrun={handleRun} />
     </div>
 
     {#if cfg.showOutput}

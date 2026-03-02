@@ -37,7 +37,7 @@ sections:
 
 ## 03.1 Term Inventory
 
-**File(s):** All `docs/ori_lang/0.1-alpha/spec/*.md` files
+**File(s):** All `docs/ori_lang/v2026/spec/*.md` files
 
 Scan all spec files for terms that are:
 1. Italicized on first use (the current convention for defined terms)
@@ -121,7 +121,7 @@ bind components to variables (Clause 15)
 
 ## 03.3 Populate Clause 3
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/03-terms-and-definitions.md` (created in Section 01)
+**File(s):** `docs/ori_lang/v2026/spec/03-terms-and-definitions.md` (created in Section 01)
 
 - [ ] Add introductory text:
   ```markdown

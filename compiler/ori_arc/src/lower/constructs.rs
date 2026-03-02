@@ -35,7 +35,7 @@ impl ArcLowerer<'_> {
             FunctionExpKind::Recurse => self.lower_exp_recurse(props, span),
             FunctionExpKind::Cache => self.lower_exp_cache(props, span),
             FunctionExpKind::Catch => self.lower_exp_catch(props, ty, span),
-            // Post-0.1-alpha — rejected by type checker (E2040), never reaches lowerer
+            // Post-2026 — rejected by type checker (E2040), never reaches lowerer
             FunctionExpKind::Parallel
             | FunctionExpKind::Spawn
             | FunctionExpKind::Timeout

@@ -27,7 +27,7 @@ runtime_decl, declare_runtime_functions, LLVM declarations
 ---
 
 ### Section 02: List COW Operations
-**File:** `section-02-list-cow.md` | **Status:** Not Started
+**File:** `section-02-list-cow.md` | **Status:** Complete
 
 ```
 list, push, pop, append, prepend, insert, remove, set
@@ -42,7 +42,7 @@ arc_emitter, builtins/collections.rs, emit_list_push
 ---
 
 ### Section 03: String Optimization
-**File:** `section-03-string-optimization.md` | **Status:** Not Started
+**File:** `section-03-string-optimization.md` | **Status:** Complete
 
 ```
 string, str, SSO, small string optimization, inline string
@@ -56,7 +56,7 @@ fat pointer, len, data, cow, Cow<str>
 ---
 
 ### Section 04: Map & Set COW Operations
-**File:** `section-04-map-set-cow.md` | **Status:** Not Started
+**File:** `section-04-map-set-cow.md` | **Status:** Complete
 
 ```
 map, set, dictionary, hash map, hash set, hash table
@@ -86,7 +86,7 @@ offset, window, range, subrange
 ---
 
 ### Section 06: Interpreter COW Parity
-**File:** `section-06-interpreter-parity.md` | **Status:** Not Started
+**File:** `section-06-interpreter-parity.md` | **Status:** Complete
 
 ```
 interpreter, evaluator, ori_eval, Arc::make_mut
@@ -100,7 +100,7 @@ clone-on-modify, copy-on-write interpreter
 ---
 
 ### Section 07: Static Uniqueness Analysis
-**File:** `section-07-static-uniqueness.md` | **Status:** Not Started
+**File:** `section-07-static-uniqueness.md` | **Status:** Complete
 
 ```
 static analysis, uniqueness, ownership, linear, affine
@@ -115,7 +115,7 @@ Lean 4, Koka PARC, Roc morphic, Swift SIL
 ---
 
 ### Section 08: Collection Memory Recycling
-**File:** `section-08-collection-recycling.md` | **Status:** Not Started
+**File:** `section-08-collection-recycling.md` | **Status:** Complete
 
 ```
 reset/reuse, memory recycling, buffer reuse, allocation reuse

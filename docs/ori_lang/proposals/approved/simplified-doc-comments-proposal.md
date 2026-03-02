@@ -315,9 +315,9 @@ Per-param savings compound quickly in well-documented code.
 ### Files to Change
 
 #### Spec Updates
-- `docs/ori_lang/0.1-alpha/spec/03-lexical-elements.md` — Update comment syntax
-- `docs/ori_lang/0.1-alpha/spec/16-formatting.md` — Update doc comment ordering
-- `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` — Update grammar
+- `docs/ori_lang/v2026/spec/03-lexical-elements.md` — Update comment syntax
+- `docs/ori_lang/v2026/spec/16-formatting.md` — Update doc comment ordering
+- `docs/ori_lang/v2026/spec/grammar.ebnf` — Update grammar
 
 #### Compiler Changes
 - `compiler/ori_ir/src/comment.rs` — Update `CommentKind` enum

@@ -235,7 +235,7 @@ pub enum ArcTerminator {
         default: ArcBlockId,
     },
 
-    /// Call that may unwind (post-0.1-alpha, for panic/effect support).
+    /// Call that may unwind (post-2026, for panic/effect support).
     /// On success, jumps to `normal`; on unwind, jumps to `unwind`.
     Invoke {
         dst: ArcVarId,
@@ -250,7 +250,7 @@ pub enum ArcTerminator {
         unwind: ArcBlockId,
     },
 
-    /// Resume unwinding (post-0.1-alpha).
+    /// Resume unwinding (post-2026).
     Resume,
 
     /// Marks a block as unreachable (e.g., after exhaustive match).

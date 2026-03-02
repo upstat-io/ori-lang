@@ -371,7 +371,7 @@ When implementing these features, ensure they also work across module boundaries
         Currently `declare_all` skips all generics — this is the single biggest gap
         for LLVM test coverage (affects 2,472+ `assert_eq` call sites).
   - **Implementation plan**: `plans/monomorphization/` (4 sections: type checker, ARC lowering, LLVM pipeline, verification)
-  - **Architecture document**: `docs/ori_lang/0.1-alpha/design/monomorphization-architecture.md`
+  - **Architecture document**: `docs/ori_lang/v2026/design/monomorphization-architecture.md`
 
 - [ ] **Implement**: Basic function codegen
   - [ ] **Rust Tests**: `tests/function_tests.rs`, `tests/function_call_tests.rs`

@@ -593,9 +593,9 @@ None — this proposal covers tooling implementation, not language semantics.
 | Document | Relationship |
 |----------|--------------|
 | `plans/ori_lsp/` | Detailed implementation tasks |
-| `docs/ori_lang/0.1-alpha/archived-design/12-tooling/05-lsp.md` | Original design vision |
-| `docs/ori_lang/0.1-alpha/archived-design/12-tooling/01-semantic-addressing.md` | Navigation targets |
-| `docs/ori_lang/0.1-alpha/archived-design/12-tooling/03-structured-errors.md` | Diagnostic format |
+| `docs/ori_lang/v2026/archived-design/12-tooling/05-lsp.md` | Original design vision |
+| `docs/ori_lang/v2026/archived-design/12-tooling/01-semantic-addressing.md` | Navigation targets |
+| `docs/ori_lang/v2026/archived-design/12-tooling/03-structured-errors.md` | Diagnostic format |
 
 ---
 

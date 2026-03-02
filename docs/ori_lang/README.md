@@ -23,7 +23,7 @@ ori_lang/
 
 | Version | Status | Description |
 |---------|--------|-------------|
-| [0.1-alpha](0.1-alpha/) | Active | Initial development version |
+| [2026](2026/) | Active | Initial development version |
 
 ## Document Types
 
@@ -47,6 +47,8 @@ Language changes go through a proposal process:
 
 ## Versioning Policy
 
+See [versioning.md](versioning.md) for the full CalVer scheme.
+
 All documentation within a version is kept in sync:
 
 - **Spec** defines what the language IS
@@ -56,21 +58,12 @@ All documentation within a version is kept in sync:
 
 When the language changes, ALL parts update together in a new version.
 
-### Version Stages
-
-| Stage | Meaning |
-|-------|---------|
-| `alpha` | Unstable, breaking changes expected |
-| `beta` | Feature-complete, stabilizing |
-| `rc` | Release candidate, final review |
-| (none) | Stable release |
-
 ## Quick Links
 
-### Current Version (0.1-alpha)
+### Current Version (2026)
 
-- [Language Specification](0.1-alpha/spec/README.md)
-- [Standard Library](0.1-alpha/modules/std/)
+- [Language Specification](2026/spec/README.md)
+- [Standard Library](2026/modules/std/)
 
 ## Contributing
 

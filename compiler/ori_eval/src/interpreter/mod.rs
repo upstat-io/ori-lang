@@ -5,8 +5,8 @@
 //!
 //! # Specification
 //!
-//! - Eval rules: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
-//! - Prose: `docs/ori_lang/0.1-alpha/spec/09-expressions.md`
+//! - Eval rules: `docs/ori_lang/v2026/spec/operator-rules.md`
+//! - Prose: `docs/ori_lang/v2026/spec/09-expressions.md`
 //!
 //! Implementation must match the evaluation rules in operator-rules.md.
 //!

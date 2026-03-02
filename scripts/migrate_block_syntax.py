@@ -17,7 +17,7 @@ Transformations:
 
 Usage:
     python scripts/migrate_block_syntax.py [--dry-run] [--verbose] <path>...
-    python scripts/migrate_block_syntax.py --dry-run docs/ori_lang/0.1-alpha/spec/
+    python scripts/migrate_block_syntax.py --dry-run docs/ori_lang/v2026/spec/
     python scripts/migrate_block_syntax.py .claude/rules/ori-syntax.md
 """
 

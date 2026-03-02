@@ -21,7 +21,7 @@ Most production parsers organize by **syntactic category**: one module for expre
 
 [Rust's parser](https://github.com/rust-lang/rust) (`rustc_parse/src/parser/`) organizes into `expr.rs`, `item.rs`, `ty.rs`, `pat.rs`, `stmt.rs`, and `generics.rs`. [Zig](https://github.com/ziglang/zig) has a single large `Parser.zig` but with clearly delimited sections. [TypeScript](https://github.com/microsoft/TypeScript)'s `parser.ts` is a single 11,000-line file but with a clear section structure.
 
-Ori follows the module-per-construct approach, with further subdivision within large categories. The authoritative grammar is in [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf); each EBNF production maps to a parsing function in the module for its syntactic category.
+Ori follows the module-per-construct approach, with further subdivision within large categories. The authoritative grammar is in [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/v2026/spec/grammar.md); each EBNF production maps to a parsing function in the module for its syntactic category.
 
 ## Module Structure
 

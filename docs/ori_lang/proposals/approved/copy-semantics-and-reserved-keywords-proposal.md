@@ -239,8 +239,8 @@ impl ReservedFuture {
 ### Phase 3: Documentation
 
 Update:
-- `docs/ori_lang/0.1-alpha/spec/03-lexical-elements.md` — add keywords
-- `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` — update comment
+- `docs/ori_lang/v2026/spec/03-lexical-elements.md` — add keywords
+- `docs/ori_lang/v2026/spec/grammar.ebnf` — update comment
 - `/CLAUDE.md` — update keywords section
 
 ---

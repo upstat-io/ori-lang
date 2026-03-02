@@ -1,7 +1,7 @@
 ---
 plan: "design-docs-rewrite"
 title: "Design Documentation Rewrite: Compiler Book Treatment"
-status: in-progress
+status: complete
 ---
 
 # Design Documentation Rewrite
@@ -44,7 +44,7 @@ Every file receives this treatment where applicable:
 
 ## Scope
 
-76 files across 16 directories + root index.
+79 files across 16 directories + root index.
 
 ## Current Progress
 
@@ -59,11 +59,11 @@ Every file receives this treatment where applicable:
 | 06-pattern-system | **Done** | Full book treatment: all 5 files rewritten |
 | 07-canonicalization | **Done** | Full book treatment: all 4 files rewritten |
 | 08-evaluator | **Done** | Full book treatment: all 5 files rewritten |
-| 09-arc-system | Not started | |
-| 10-llvm-backend | Not started | |
-| 11-runtime | Not started | |
-| 12-formatter | Not started | |
-| 13-diagnostics | Not started | |
-| 14-testing | Not started | |
-| 15-platform-targets | Not started | |
-| appendices | Not started | |
+| 09-arc-system | **Done** | Full book treatment: all 10 files rewritten |
+| 10-llvm-backend | **Done** | Full book treatment: all 7 files rewritten |
+| 11-runtime | **Done** | Full book treatment: all 5 files rewritten |
+| 12-formatter | **Done** | Full book treatment: all 4 files rewritten |
+| 13-diagnostics | **Done** | Full book treatment: all 4 files rewritten |
+| 14-testing | **Done** | Full book treatment: all 3 files rewritten |
+| 15-platform-targets | **Done** | Full book treatment: all 4 files rewritten |
+| appendices | **Done** | Full book treatment: all 5 files rewritten |

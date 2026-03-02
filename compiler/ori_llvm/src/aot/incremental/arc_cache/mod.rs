@@ -4,7 +4,7 @@
 //! elimination, and constructor reuse) to avoid re-running ARC analysis
 //! for unchanged modules.
 //!
-//! # Cache Granularity (0.1-alpha)
+//! # Cache Granularity (2026)
 //!
 //! Per-module: all functions in a module are cached together, keyed by the
 //! combined hash of all function hashes. If ANY function changes, the entire

@@ -133,7 +133,7 @@ See [Tooling Integration](04-implementation/#tooling-integration) for architectu
 
 ## Relationship to Spec
 
-The normative formatting rules are defined in [spec/16-formatting.md](/docs/ori_lang/0.1-alpha/spec/16-formatting.md). This design documentation explains *how* to implement those rules, with detailed algorithms and edge cases.
+The normative formatting rules are defined in [spec/16-formatting.md](/docs/ori_lang/v2026/spec/16-formatting.md). This design documentation explains *how* to implement those rules, with detailed algorithms and edge cases.
 
 | Document | Purpose |
 |----------|---------|

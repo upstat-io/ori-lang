@@ -356,7 +356,7 @@ The formatter's style is:
 
 ## Normative Reference
 
-The authoritative formatting rules are defined in the [Formatting Specification](../../ori_lang/0.1-alpha/spec/16-formatting.md).
+The authoritative formatting rules are defined in the [Formatting Specification](../../ori_lang/v2026/spec/16-formatting.md).
 
 ## See Also
 

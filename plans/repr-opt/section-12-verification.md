@@ -234,7 +234,7 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
   - New runtime functions (`ori_rc_*_nonatomic`, SSO, SVO)
   - `--no-repr-opt` flag documentation
 
-- [ ] Update spec (`docs/ori_lang/0.1-alpha/spec/22-system-considerations.md`):
+- [ ] Update spec (`docs/ori_lang/v2026/spec/22-system-considerations.md`):
   - Mark implemented optimizations as "implemented" vs "future"
   - Add SSO/SVO to the built-in type representations table
 

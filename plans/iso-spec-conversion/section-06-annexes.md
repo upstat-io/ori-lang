@@ -45,7 +45,7 @@ sections:
 
 ## 06.1 Annex A — Formal Grammar (normative)
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/annex-a-grammar.md` (new wrapper), `grammar.ebnf` (unchanged)
+**File(s):** `docs/ori_lang/v2026/spec/annex-a-grammar.md` (new wrapper), `grammar.ebnf` (unchanged)
 
 The grammar.ebnf file stays as-is. The annex adds a wrapper with proper labeling and introductory text.
 
@@ -67,7 +67,7 @@ The grammar.ebnf file stays as-is. The annex adds a wrapper with proper labeling
   in Extended Backus-Naur Form (EBNF). The notation conventions are
   defined in Clause 5.
 
-  The grammar file is: [grammar.ebnf](grammar.ebnf)
+  The grammar file is: [grammar.ebnf](grammar.md)
 
   ## A.1 Lexical grammar
   ## A.2 Syntactic grammar
@@ -81,7 +81,7 @@ The grammar.ebnf file stays as-is. The annex adds a wrapper with proper labeling
 
 ## 06.2 Annex B — Operator Rules (normative)
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/annex-b-operator-rules.md` (rename/wrap `operator-rules.md`)
+**File(s):** `docs/ori_lang/v2026/spec/annex-b-operator-rules.md` (rename/wrap `operator-rules.md`)
 
 - [ ] Rename or wrap `operator-rules.md` to `annex-b-operator-rules.md`
 - [ ] Add annex heading:
@@ -155,7 +155,7 @@ System considerations (platform behavior, optimization notes) are informative.
 
 ## 06.6 Bibliography
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/bibliography.md` (new)
+**File(s):** `docs/ori_lang/v2026/spec/bibliography.md` (new)
 
 ISO standards end with a Bibliography listing informative (non-normative) references.
 
@@ -185,4 +185,4 @@ ISO standards end with a Bibliography listing informative (non-normative) refere
 - [ ] Old files (`11-built-in-functions.md`, `16-formatting.md`, `22-system-considerations.md`) removed
 - [ ] No cross-references point to removed files
 
-**Exit Criteria:** Six annex/bibliography files exist. Old files removed. `grep -rn '11-built-in\|16-formatting\|22-system' docs/ori_lang/0.1-alpha/spec/*.md` returns 0 (no stale references).
+**Exit Criteria:** Six annex/bibliography files exist. Old files removed. `grep -rn '11-built-in\|16-formatting\|22-system' docs/ori_lang/v2026/spec/*.md` returns 0 (no stale references).

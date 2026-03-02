@@ -244,6 +244,6 @@ This is a separate optimization pass, not an extension of reset/reuse.
 - [x] `./clippy-all.sh` — no warnings
 - [x] `diagnostics/dual-exec-verify.sh` — pre-existing mismatches only (LLVM warning banner)
 - [x] Runtime tests: `ori_list_reset_buffer`, `ori_buffer_drop_unique`, `ori_map_buffer_drop_unique`
-- [ ] `./scripts/perf-baseline.sh` — baseline not updated (optimization is additive, no regression expected)
+- [x] `./scripts/perf-baseline.sh` — baseline recorded (2026-03-01): bench_hello 154ms/15K, bench_small 254ms/4613K AOT 27x, bench_medium 366ms/6587K AOT 72x
 
 **Exit Criteria (met):** Drop of a provably unique list emits `ori_buffer_drop_unique` (no atomic RC dec). Collection literal replacement in same function reuses buffer when types match. Valgrind reports zero errors on all recycling test programs.

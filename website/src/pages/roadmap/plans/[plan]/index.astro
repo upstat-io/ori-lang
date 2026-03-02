@@ -1,0 +1,395 @@
+---
+import BaseLayout from '../../../../layouts/BaseLayout.astro';
+import SectionCard from '../../../../components/SectionCard.astro';
+import { join } from 'path';
+import { reroutes, loadAllSections, countTasks } from '../../../../lib/plan-data';
+
+export function getStaticPaths() {
+  return reroutes.map(reroute => ({
+    params: { plan: reroute.key },
+    props: { reroute },
+  }));
+}
+
+const { reroute } = Astro.props;
+
+const planDir = join(process.cwd(), '..', 'plans', reroute.dir);
+const allSections = loadAllSections(planDir);
+
+const completedSections = allSections.filter(s => s.status === 'complete');
+const inProgressSections = allSections.filter(s => s.status === 'partial');
+const plannedSections = allSections.filter(s => s.status === 'not-started');
+
+const totalProgress = allSections.reduce(
+  (acc, section) => {
+    const { done, total } = countTasks(section.subsections);
+    return { done: acc.done + done, total: acc.total + total };
+  },
+  { done: 0, total: 0 },
+);
+
+const statusLabel = reroute.status === 'active' ? 'Active' :
+                    reroute.status === 'resolved' ? 'Resolved' : 'Queued';
+---
+
+<BaseLayout
+  title={`${reroute.fullName} — Ori`}
+  description={`${reroute.fullName}: ${allSections.length} sections. Track progress on this parallel implementation plan.`}
+>
+  <main class="plan-page">
+    <nav class="plan-nav">
+      <a href="/roadmap/" class="back-link">
+        <span class="back-arrow" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="12" height="12" fill="currentColor" style="vertical-align: -0.125em"><path d="M9.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 288 480 288c17.7 0 32-14.3 32-32s-14.3-32-32-32l-370.7 0 105.4-105.4c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+        Roadmap
+      </a>
+      <span class={`plan-status-badge ${reroute.status}`}>{statusLabel}</span>
+    </nav>
+
+    <section class="plan-hero">
+      <h1>{reroute.fullName}</h1>
+      <p class="plan-subtitle">
+        {allSections.length} sections
+      </p>
+      {totalProgress.total > 0 && (
+        <div class="plan-progress">
+          <div class="plan-progress-bar">
+            <div class="plan-progress-fill" style={`width: ${(totalProgress.done / totalProgress.total) * 100}%`}></div>
+          </div>
+          <span class="plan-progress-text">{Math.round((totalProgress.done / totalProgress.total) * 100)}%</span>
+        </div>
+      )}
+    </section>
+
+    {inProgressSections.length > 0 && (
+      <section class="status-section in-progress-section">
+        <details open>
+          <summary class="status-header in-progress">
+            <span class="status-icon">&cir;</span>
+            <h2>In Progress</h2>
+            <span class="status-count">{inProgressSections.length} sections</span>
+            <span class="expand-icon"></span>
+          </summary>
+          <div class="status-sections">
+            {inProgressSections.map((section) => {
+              const { done, total } = countTasks(section.subsections);
+              return (
+                <SectionCard
+                  href={`/roadmap/plans/${reroute.key}/${section.slug}/`}
+                  num={section.num}
+                  name={section.name}
+                  status={section.status}
+                  note={section.note}
+                  goal={section.goal}
+                  done={done}
+                  total={total}
+                />
+              );
+            })}
+          </div>
+        </details>
+      </section>
+    )}
+
+    {plannedSections.length > 0 && (
+      <section class="status-section planned-section">
+        <details open>
+          <summary class="status-header planned">
+            <span class="status-icon">&cir;</span>
+            <h2>Planned</h2>
+            <span class="status-count">{plannedSections.length} sections</span>
+            <span class="expand-icon"></span>
+          </summary>
+          <div class="status-sections">
+            {plannedSections.map((section) => {
+              const { done, total } = countTasks(section.subsections);
+              return (
+                <SectionCard
+                  href={`/roadmap/plans/${reroute.key}/${section.slug}/`}
+                  num={section.num}
+                  name={section.name}
+                  status={section.status}
+                  note={section.note}
+                  goal={section.goal}
+                  done={done}
+                  total={total}
+                />
+              );
+            })}
+          </div>
+        </details>
+      </section>
+    )}
+
+    {completedSections.length > 0 && (
+      <section class="status-section completed-section">
+        <details open={inProgressSections.length === 0 && plannedSections.length === 0}>
+          <summary class="status-header completed">
+            <span class="status-icon">&check;</span>
+            <h2>Completed</h2>
+            <span class="status-count">{completedSections.length} sections</span>
+            <span class="expand-icon"></span>
+          </summary>
+          <div class="status-sections">
+            {completedSections.map((section) => {
+              const { done, total } = countTasks(section.subsections);
+              return (
+                <SectionCard
+                  href={`/roadmap/plans/${reroute.key}/${section.slug}/`}
+                  num={section.num}
+                  name={section.name}
+                  status={section.status}
+                  note={section.note}
+                  goal={section.goal}
+                  done={done}
+                  total={total}
+                />
+              );
+            })}
+          </div>
+        </details>
+      </section>
+    )}
+  </main>
+</BaseLayout>
+
+<style>
+  .plan-page {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: var(--space-8) var(--space-6) var(--space-16);
+  }
+
+  .plan-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-6);
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-text-muted);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    transition: color var(--transition-fast);
+  }
+
+  .back-link:hover {
+    color: var(--color-accent);
+  }
+
+  .back-arrow {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .plan-status-badge {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    margin-left: auto;
+  }
+
+  .plan-status-badge.active {
+    background: rgba(78, 201, 176, 0.15);
+    color: rgb(78, 201, 176);
+  }
+
+  .plan-status-badge.resolved {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+  }
+
+  .plan-status-badge.queued {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-muted);
+  }
+
+  .plan-hero {
+    text-align: center;
+    padding: var(--space-8) 0;
+  }
+
+  .plan-hero h1 {
+    font-size: var(--text-4xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-3);
+  }
+
+  .plan-subtitle {
+    font-size: var(--text-lg);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-6);
+  }
+
+  .plan-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .plan-progress-bar {
+    flex: 1;
+    height: 8px;
+    background: var(--color-bg-tertiary);
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+
+  .plan-progress-fill {
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: 9999px;
+    transition: width var(--transition-base);
+  }
+
+  .plan-progress-text {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
+  /* Status Sections — same visual style as roadmap */
+  .status-section {
+    margin-bottom: var(--space-4);
+  }
+
+  .status-section details {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .in-progress-section details {
+    background: rgba(251, 191, 36, 0.02);
+    border: 1px solid rgba(251, 191, 36, 0.15);
+  }
+
+  .in-progress-section details[open] {
+    background: rgba(251, 191, 36, 0.03);
+  }
+
+  .status-header.in-progress h2 {
+    color: var(--color-warning);
+  }
+
+  .status-header.in-progress .status-icon {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--color-warning);
+  }
+
+  .planned-section details {
+    background: rgba(148, 163, 184, 0.02);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+  }
+
+  .planned-section details[open] {
+    background: rgba(148, 163, 184, 0.03);
+  }
+
+  .status-header.planned h2 {
+    color: var(--color-text-secondary);
+  }
+
+  .status-header.planned .status-icon {
+    background: rgba(148, 163, 184, 0.15);
+    color: var(--color-text-secondary);
+  }
+
+  .completed-section details {
+    background: rgba(74, 222, 128, 0.02);
+    border: 1px solid rgba(74, 222, 128, 0.15);
+  }
+
+  .completed-section details[open] {
+    background: rgba(74, 222, 128, 0.03);
+  }
+
+  .status-header.completed h2 {
+    color: var(--color-success);
+  }
+
+  .status-header.completed .status-icon {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+  }
+
+  .status-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .status-header::-webkit-details-marker {
+    display: none;
+  }
+
+  .status-header h2 {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    margin: 0;
+    flex: 1;
+  }
+
+  .status-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+  }
+
+  .status-count {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    background: var(--color-bg-tertiary);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+  }
+
+  .expand-icon {
+    width: 20px;
+    height: 20px;
+    position: relative;
+    color: var(--color-text-muted);
+  }
+
+  .expand-icon::before {
+    content: "\25B8";
+    font-size: var(--text-sm);
+    transition: transform 0.2s ease;
+    display: inline-block;
+  }
+
+  details[open] .expand-icon::before {
+    transform: rotate(90deg);
+  }
+
+  .status-sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-3);
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  @media (max-width: 768px) {
+    .plan-hero h1 {
+      font-size: var(--text-3xl);
+    }
+
+    .status-sections {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

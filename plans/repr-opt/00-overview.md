@@ -5,7 +5,7 @@ status: not-started
 supersedes:
   - "docs/ori_lang/proposals/approved/representation-optimization-proposal.md (implements)"
 references:
-  - "docs/ori_lang/0.1-alpha/spec/22-system-considerations.md"
+  - "docs/ori_lang/v2026/spec/22-system-considerations.md"
   - "docs/ori_lang/proposals/approved/representation-optimization-proposal.md"
   - "plans/value-semantics-optimization/"
   - "compiler/ori_arc/src/lib.rs"
