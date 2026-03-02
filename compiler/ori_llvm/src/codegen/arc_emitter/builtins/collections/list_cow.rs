@@ -20,6 +20,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         elem: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_push_cow");
 
@@ -43,6 +44,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_size_val,
                 elem_align_val,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "push",
@@ -56,7 +58,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Fast path (unique): decrements len in place, O(1).
     /// Slow path (shared): copies to new buffer with len-1 elements.
     #[expect(dead_code, reason = "pop dispatch not yet wired — see task #3")]
-    pub(crate) fn emit_list_pop_cow(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
+    pub(crate) fn emit_list_pop_cow(
+        &mut self,
+        receiver: ValueId,
+        elem_ty: Idx,
+        cow_mode: ValueId,
+    ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_pop_cow");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver);
@@ -77,6 +84,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_size_val,
                 elem_align_val,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "pop",
@@ -95,6 +103,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         index: ValueId,
         elem: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_set_cow");
 
@@ -119,6 +128,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_size_val,
                 elem_align_val,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "set",
@@ -137,6 +147,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         index: ValueId,
         elem: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_insert_cow");
 
@@ -161,6 +172,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_size_val,
                 elem_align_val,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "insert",
@@ -178,6 +190,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         index: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_remove_cow");
 
@@ -200,6 +213,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_size_val,
                 elem_align_val,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "remove",
@@ -218,6 +232,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         other: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_concat_cow");
 
@@ -243,6 +258,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_size_val,
                 elem_align_val,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "concat",
@@ -259,6 +275,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         receiver: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_reverse_cow");
 
@@ -280,6 +297,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_size_val,
                 elem_align_val,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "reverse",
@@ -300,6 +318,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         receiver: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let compare_fn_ptr = self.get_or_create_compare_thunk(elem_ty)?;
 
@@ -324,6 +343,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 compare_fn_ptr,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "sort",
@@ -338,6 +358,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         receiver: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let compare_fn_ptr = self.get_or_create_compare_thunk(elem_ty)?;
 
@@ -362,6 +383,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 compare_fn_ptr,
                 inc_fn,
+                cow_mode,
                 out,
             ],
             "sort_stable",

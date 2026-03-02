@@ -24,11 +24,13 @@
 //! - Lean 4: `src/Lean/Compiler/IR/ExpandResetReuse.lean`
 //! - Koka: Perceus paper §4 (reuse analysis)
 
+mod analysis;
+mod paths;
+
 use rustc_hash::FxHashMap;
 
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind, RcStrategy,
-    ValueRepr,
 };
 use crate::ArcClassification;
 
@@ -72,6 +74,15 @@ type ProjMap = FxHashMap<(ArcVarId, u32), ArcVarId>;
 /// Fields whose `RcInc` was erased by projection-increment erasure.
 /// Maps `field_index` → `projected_var`.
 type ClaimedFields = FxHashMap<u32, ArcVarId>;
+
+/// Configuration for building fast/slow path blocks.
+struct ExpansionContext<'a> {
+    pair: &'a ResetReusePair,
+    proj_map: &'a ProjMap,
+    claimed: &'a ClaimedFields,
+    original_terminator: &'a ArcTerminator,
+    merge_id: Option<ArcBlockId>,
+}
 
 // Public API
 
@@ -133,7 +144,7 @@ fn try_expand_block(
     );
 
     // 1. Build projection map from instructions before the Reset.
-    let proj_map = build_proj_map(
+    let proj_map = analysis::build_proj_map(
         &func.blocks[block_idx].body[..pair.reset_idx],
         pair.reset_var,
     );
@@ -141,9 +152,9 @@ fn try_expand_block(
     // 2. Projection-increment erasure (§09.4): erase RcInc ops for projected
     //    fields, building a claimed-fields mask.
     let (erased_indices, claimed) =
-        erase_proj_increments(&func.blocks[block_idx].body[..pair.reset_idx], &proj_map);
+        analysis::erase_proj_increments(&func.blocks[block_idx].body[..pair.reset_idx], &proj_map);
 
-    apply_erasures(func, block_idx, &erased_indices);
+    analysis::apply_erasures(func, block_idx, &erased_indices);
 
     // Re-find the pair (indices shifted due to erasures).
     let Some(pair) = find_reset_reuse_pair(&func.blocks[block_idx]) else {
@@ -154,7 +165,7 @@ fn try_expand_block(
     // 3. Move "between" instructions (Reset..Reuse exclusive) to before
     //    the Reset. They don't use the reset_var (constraint from detection),
     //    so reordering is safe.
-    move_between_to_prefix(func, block_idx, &pair);
+    analysis::move_between_to_prefix(func, block_idx, pair.reset_idx, pair.reuse_idx);
 
     // Re-find pair again (indices shifted).
     let Some(pair) = find_reset_reuse_pair(&func.blocks[block_idx]) else {
@@ -194,14 +205,14 @@ fn try_expand_block(
     };
 
     // 6. Build fast-path block (§09.3 + §09.5 self-set elimination).
-    let fast_block = build_fast_path(func, fast_id, &ctx, classifier, pool);
+    let fast_block = paths::build_fast_path(func, fast_id, &ctx, classifier, pool);
 
     // 7. Build slow-path block (§09.3).
-    let slow_block = build_slow_path(slow_id, &ctx, &suffix, pool, func);
+    let slow_block = paths::build_slow_path(slow_id, &ctx, &suffix, pool, func);
 
     // 8. Build merge block if needed.
     let merge_block = merge_id.map(|mid| {
-        build_merge_block(
+        paths::build_merge_block(
             func,
             mid,
             &ctx,
@@ -230,7 +241,10 @@ fn try_expand_block(
     func.spans[block_idx].push(None); // IsShared span
 
     // 10. Propagate merge substitution to all existing blocks.
-    propagate_merge_substitution(func, merge_block.as_ref(), pair.reuse_dst);
+    if let Some(mb) = &merge_block {
+        let merge_param = mb.params[0].0;
+        analysis::propagate_merge_substitution(func, merge_param, pair.reuse_dst);
+    }
 
     // 11. Push new blocks.
     func.push_block(fast_block);
@@ -284,351 +298,6 @@ fn find_reset_reuse_pair(block: &ArcBlock) -> Option<ResetReusePair> {
         }
     }
     None
-}
-
-// Projection map
-
-/// Build a map from `(base_var, field_index)` → `projected_var` for all
-/// `Project` instructions in `instrs` that project from `base`.
-fn build_proj_map(instrs: &[ArcInstr], base: ArcVarId) -> ProjMap {
-    let mut map = ProjMap::default();
-    for instr in instrs {
-        if let ArcInstr::Project {
-            dst, value, field, ..
-        } = instr
-        {
-            if *value == base {
-                map.insert((base, *field), *dst);
-            }
-        }
-    }
-    map
-}
-
-// Projection-increment erasure (§09.4)
-
-/// Scan backwards for `Project`/`RcInc` patterns and identify which
-/// increments can be erased.
-///
-/// Returns:
-/// - Indices of `RcInc` instructions to erase (sorted ascending).
-/// - Map of claimed fields (`field_index` → `projected_var`).
-fn erase_proj_increments(instrs: &[ArcInstr], proj_map: &ProjMap) -> (Vec<usize>, ClaimedFields) {
-    let mut erased = Vec::new();
-    let mut claimed = ClaimedFields::default();
-
-    // For each projected field, scan for a matching RcInc.
-    for (&(_base, field), &proj_var) in proj_map {
-        // Find the RcInc for this projected variable (scan backwards).
-        for (idx, instr) in instrs.iter().enumerate().rev() {
-            if let ArcInstr::RcInc { var, count, .. } = instr {
-                if *var == proj_var {
-                    if *count == 1 {
-                        // Erase entirely.
-                        erased.push(idx);
-                    }
-                    // If count > 1, we'd reduce by 1 — but for 0.1-alpha,
-                    // single-count incs are the common case. Multi-count
-                    // would need an edit-in-place, handled in a future pass.
-                    claimed.insert(field, proj_var);
-                    break;
-                }
-            }
-        }
-    }
-
-    erased.sort_unstable();
-    (erased, claimed)
-}
-
-// Between-instruction reordering
-
-/// Move instructions between `Reset` and `Reuse` to before the `Reset`.
-///
-/// These instructions don't use the reset variable (guaranteed by the
-/// detection constraint in Section 07.6), so reordering is safe.
-fn move_between_to_prefix(func: &mut ArcFunction, block_idx: usize, pair: &ResetReusePair) {
-    if pair.reuse_idx <= pair.reset_idx + 1 {
-        return; // Nothing between Reset and Reuse.
-    }
-
-    let body = &mut func.blocks[block_idx].body;
-    let spans = &mut func.spans[block_idx];
-
-    // Collect between instructions and their spans.
-    let between_start = pair.reset_idx + 1;
-    let between_end = pair.reuse_idx;
-    let between_instrs: Vec<ArcInstr> = body[between_start..between_end].to_vec();
-    let between_spans: Vec<Option<ori_ir::Span>> = if between_end <= spans.len() {
-        spans[between_start..between_end.min(spans.len())].to_vec()
-    } else {
-        vec![None; between_instrs.len()]
-    };
-
-    // Remove between instructions (in reverse to preserve indices).
-    for idx in (between_start..between_end).rev() {
-        body.remove(idx);
-        if idx < spans.len() {
-            spans.remove(idx);
-        }
-    }
-
-    // Insert before the Reset (which is now at pair.reset_idx - removed count
-    // but we removed AFTER it, so reset_idx is unchanged).
-    // Actually, we removed indices > reset_idx, so reset_idx is still correct.
-    let insert_pos = pair.reset_idx;
-    for (i, instr) in between_instrs.into_iter().enumerate() {
-        body.insert(insert_pos + i, instr);
-    }
-    for (i, span) in between_spans.into_iter().enumerate() {
-        if insert_pos + i <= spans.len() {
-            spans.insert(insert_pos + i, span);
-        }
-    }
-}
-
-// Erasure and substitution helpers
-
-/// Remove erased instructions (and their spans) from a block.
-///
-/// Indices are removed in reverse order to preserve earlier indices.
-fn apply_erasures(func: &mut ArcFunction, block_idx: usize, erased_indices: &[usize]) {
-    let body = &mut func.blocks[block_idx].body;
-    for &idx in erased_indices.iter().rev() {
-        body.remove(idx);
-    }
-    let spans = &mut func.spans[block_idx];
-    for &idx in erased_indices.iter().rev() {
-        if idx < spans.len() {
-            spans.remove(idx);
-        }
-    }
-}
-
-/// Substitute `reuse_dst → merge_param` in all pre-existing blocks.
-///
-/// The merge block itself already uses `merge_param`, but successor blocks
-/// reachable from the merge block's terminator (e.g., Invoke destinations)
-/// still reference `reuse_dst`. This ensures consistency.
-fn propagate_merge_substitution(
-    func: &mut ArcFunction,
-    merge_block: Option<&ArcBlock>,
-    reuse_dst: ArcVarId,
-) {
-    let Some(mb) = merge_block else { return };
-    let merge_param = mb.params[0].0;
-    for block in &mut func.blocks {
-        for instr in &mut block.body {
-            instr.substitute_var(reuse_dst, merge_param);
-        }
-        block.terminator.substitute_var(reuse_dst, merge_param);
-    }
-}
-
-// Fast-path construction (§09.3 + §09.5)
-
-/// Configuration for building fast/slow path blocks.
-struct ExpansionContext<'a> {
-    pair: &'a ResetReusePair,
-    proj_map: &'a ProjMap,
-    claimed: &'a ClaimedFields,
-    original_terminator: &'a ArcTerminator,
-    merge_id: Option<ArcBlockId>,
-}
-
-/// Build the fast-path block: in-place field mutation via `Set`.
-///
-/// On the fast path, the value is uniquely owned (refcount == 1).
-/// We mutate fields in-place and return the original object.
-fn build_fast_path(
-    func: &mut ArcFunction,
-    block_id: ArcBlockId,
-    ctx: &ExpansionContext<'_>,
-    classifier: &dyn ArcClassification,
-    pool: Option<&ori_types::Pool>,
-) -> ArcBlock {
-    let mut body = Vec::new();
-
-    // For each field being replaced:
-    for (field_idx, arg) in ctx.pair.reuse_args.iter().enumerate() {
-        let field = u32::try_from(field_idx)
-            .unwrap_or_else(|_| panic!("field index {field_idx} exceeds u32::MAX"));
-
-        // §09.5 Self-set elimination: if the arg was projected from the same
-        // base at the same field index, the Set is a no-op.
-        if is_self_set(ctx.pair.reset_var, field, *arg, ctx.proj_map) {
-            continue;
-        }
-
-        // Dec the old field value if it's RC'd and not claimed.
-        if !ctx.claimed.contains_key(&field) {
-            if let Some(&old_val) = ctx.proj_map.get(&(ctx.pair.reset_var, field)) {
-                let old_ty = func.var_type(old_val);
-                if classifier.needs_rc(old_ty) {
-                    body.push(ArcInstr::RcDec {
-                        var: old_val,
-                        strategy: rc_strategy(func, pool, old_val),
-                    });
-                }
-            }
-        }
-
-        // Emit Set instruction.
-        body.push(ArcInstr::Set {
-            base: ctx.pair.reset_var,
-            field,
-            value: *arg,
-        });
-    }
-
-    // SetTag for enum variants (in case the variant changed).
-    if let CtorKind::EnumVariant { variant, .. } = ctx.pair.reuse_ctor {
-        body.push(ArcInstr::SetTag {
-            base: ctx.pair.reset_var,
-            tag: u64::from(variant),
-        });
-    }
-
-    // Terminator: merge or direct.
-    let terminator = if let Some(mid) = ctx.merge_id {
-        ArcTerminator::Jump {
-            target: mid,
-            args: vec![ctx.pair.reset_var], // result IS the original object
-        }
-    } else {
-        let mut term = ctx.original_terminator.clone();
-        term.substitute_var(ctx.pair.reuse_dst, ctx.pair.reset_var);
-        term
-    };
-
-    ArcBlock {
-        id: block_id,
-        params: vec![],
-        body,
-        terminator,
-    }
-}
-
-// Slow-path construction (§09.3)
-
-/// Build the slow-path block: `RcDec` + fresh `Construct`.
-///
-/// On the slow path, the value is shared (refcount > 1). We decrement
-/// the original (which won't reach zero) and allocate fresh memory.
-fn build_slow_path(
-    block_id: ArcBlockId,
-    ctx: &ExpansionContext<'_>,
-    suffix: &[ArcInstr],
-    pool: Option<&ori_types::Pool>,
-    func: &ArcFunction,
-) -> ArcBlock {
-    let mut body = Vec::new();
-
-    // Dec the shared original.
-    body.push(ArcInstr::RcDec {
-        var: ctx.pair.reset_var,
-        strategy: rc_strategy(func, pool, ctx.pair.reset_var),
-    });
-
-    // Restore erased incs for claimed fields (§09.4).
-    // Sort by field index for deterministic IR output — FxHashMap iteration
-    // order is not stable across runs.
-    let mut claimed_sorted: Vec<(u32, ArcVarId)> = ctx
-        .claimed
-        .iter()
-        .map(|(&field, &var)| (field, var))
-        .collect();
-    claimed_sorted.sort_unstable_by_key(|(field, _)| *field);
-    for (_, proj_var) in claimed_sorted {
-        body.push(ArcInstr::RcInc {
-            var: proj_var,
-            count: 1,
-            strategy: rc_strategy(func, pool, proj_var),
-        });
-    }
-
-    // Fresh allocation via Construct.
-    body.push(ArcInstr::Construct {
-        dst: ctx.pair.reuse_dst,
-        ty: ctx.pair.reuse_ty,
-        ctor: ctx.pair.reuse_ctor,
-        args: ctx.pair.reuse_args.clone(),
-    });
-
-    // Terminator: merge or direct.
-    let terminator = if let Some(mid) = ctx.merge_id {
-        ArcTerminator::Jump {
-            target: mid,
-            args: vec![ctx.pair.reuse_dst],
-        }
-    } else {
-        ctx.original_terminator.clone()
-    };
-
-    // If no merge block, append suffix instructions.
-    if ctx.merge_id.is_none() {
-        body.extend_from_slice(suffix);
-    }
-
-    ArcBlock {
-        id: block_id,
-        params: vec![],
-        body,
-        terminator,
-    }
-}
-
-// Merge block
-
-/// Build the merge block that receives the result from fast/slow paths.
-///
-/// Creates a fresh parameter variable and substitutes `reuse_dst` with
-/// it in the suffix instructions and terminator.
-fn build_merge_block(
-    func: &mut ArcFunction,
-    block_id: ArcBlockId,
-    ctx: &ExpansionContext<'_>,
-    suffix: &[ArcInstr],
-    original_terminator: &ArcTerminator,
-    classifier: &dyn ArcClassification,
-    pool: Option<&ori_types::Pool>,
-) -> ArcBlock {
-    let reuse_dst = ctx.pair.reuse_dst;
-    let reuse_ty = ctx.pair.reuse_ty;
-
-    // The merge parameter receives either reset_var (fast) or reuse_dst (slow).
-    // Compute its repr from the reused type so downstream passes see the correct
-    // representation (not a Scalar placeholder).
-    let repr = match pool {
-        Some(p) => ValueRepr::from_arc_class(classifier.arc_class(reuse_ty), p, reuse_ty),
-        None => ValueRepr::Scalar,
-    };
-    let merge_param = func.fresh_var_repr(reuse_ty, repr);
-
-    // Clone suffix and substitute reuse_dst → merge_param.
-    let mut body: Vec<ArcInstr> = suffix.to_vec();
-    for instr in &mut body {
-        instr.substitute_var(reuse_dst, merge_param);
-    }
-
-    let mut terminator = original_terminator.clone();
-    terminator.substitute_var(reuse_dst, merge_param);
-
-    ArcBlock {
-        id: block_id,
-        params: vec![(merge_param, reuse_ty)],
-        body,
-        terminator,
-    }
-}
-
-// Self-set detection (§09.5)
-
-/// Check whether writing `value` to `base.field` is a self-set (no-op).
-///
-/// A Set is a self-set if `value` was obtained via `Project { value: base, field }`.
-fn is_self_set(base: ArcVarId, field: u32, value: ArcVarId, proj_map: &ProjMap) -> bool {
-    proj_map.get(&(base, field)) == Some(&value)
 }
 
 // Tests

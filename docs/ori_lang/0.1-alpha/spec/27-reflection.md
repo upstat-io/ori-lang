@@ -1,15 +1,15 @@
 ---
 title: "Reflection"
-description: "Ori Language Specification — Reflection"
+description: "Clause 27: Ori Language Specification — Reflection"
 order: 27
-section: "Reflection"
+section: "Language"
 ---
 
-# Reflection
+# 27 Reflection
 
 Reflection enables runtime type introspection for types that opt in via the `Reflect` trait.
 
-## Overview
+## 27.1 Overview
 
 Ori provides read-only reflection with these key components:
 
@@ -19,9 +19,9 @@ Ori provides read-only reflection with these key components:
 | `TypeInfo` | Static type metadata |
 | `Unknown` | Type-erased container with safe downcasting |
 
-Reflection is opt-in. Types must explicitly derive `Reflect` to enable runtime introspection.
+Reflection is opt-in. Types shall explicitly derive `Reflect` to enable runtime introspection.
 
-## Reflect Trait
+## 27.2 Reflect trait
 
 ```ori
 trait Reflect {
@@ -33,7 +33,7 @@ trait Reflect {
 }
 ```
 
-### Derivation
+### 27.2.1 Derivation
 
 ```ori
 #derive(Reflect)
@@ -46,11 +46,11 @@ type Person = {
 
 **Constraints:**
 
-- All fields must implement `Reflect`
+- All fields shall implement `Reflect`
 - Private fields (`::`-prefixed) are excluded from reflection
 - Generic types derive conditionally: `Container<T>` reflects when `T: Reflect`
 
-## TypeInfo Structure
+## 27.3 TypeInfo structure
 
 ```ori
 type TypeInfo = {
@@ -88,7 +88,7 @@ type VariantInfo = {
 
 TypeInfo is generated at compile time and stored in static tables. Each reflecting type has exactly one TypeInfo instance.
 
-### Accessing Type Information
+### 27.3.1 Accessing type information
 
 ```ori
 let person = Person { name: "Alice", age: 30, email: None };
@@ -99,7 +99,7 @@ assert_eq(actual: info.kind, expected: Struct);
 assert_eq(actual: len(collection: info.fields), expected: 3)
 ```
 
-## Unknown Type
+## 27.4 Unknown type
 
 `Unknown` is a type-erased container with safe downcasting:
 
@@ -115,7 +115,7 @@ impl Unknown {
 }
 ```
 
-### Usage
+### 27.4.1 Usage
 
 ```ori
 let value: Unknown = Unknown.new(value: 42);
@@ -131,15 +131,15 @@ match value.downcast<int>() {
 
 Operations on `Unknown` values require explicit downcasting. Methods and fields cannot be accessed directly on `Unknown`.
 
-## Standard Implementations
+## 27.5 Standard implementations
 
-### Primitives
+### 27.5.1 Primitives
 
 All primitives implement `Reflect`:
 - `int`, `float`, `str`, `bool`, `char`, `byte`, `void`
 - `Duration`, `Size`
 
-### Collections
+### 27.5.2 Collections
 
 Collections implement `Reflect` when their element types implement `Reflect`:
 
@@ -152,7 +152,7 @@ Collections implement `Reflect` when their element types implement `Reflect`:
 | `Result<T, E>` | `T: Reflect, E: Reflect` |
 | `(A, B, ...)` | All elements: `Reflect` |
 
-## Derived Implementation
+## 27.6 Derived implementation
 
 For a struct:
 
@@ -185,7 +185,7 @@ impl Reflect for Point {
 }
 ```
 
-### Enum Reflection
+### 27.6.1 Enum reflection
 
 For sum types, `current_variant` returns the active variant:
 
@@ -206,7 +206,7 @@ impl Reflect for Shape {
 }
 ```
 
-## Generic Reflection
+## 27.7 Generic reflection
 
 Generic types derive `Reflect` conditionally:
 
@@ -224,7 +224,7 @@ impl<T: Reflect> Reflect for Container<T> {
 }
 ```
 
-## Field Iteration
+## 27.8 Field iteration
 
 ```ori
 extend<T: Reflect> T {
@@ -241,46 +241,46 @@ for (name, value) in person.fields() do
     print(msg: `{name}: {value.type_name()}`);
 ```
 
-## Constraints
+## 27.9 Constraints
 
-### Read-Only
+### 27.9.1 Read-only
 
 Reflection is read-only. Values cannot be modified through reflection.
 
-### Public Fields Only
+### 27.9.2 Public fields only
 
 Private fields (`::`-prefixed) are not visible to reflection.
 
-### No Method Reflection
+### 27.9.3 No method reflection
 
 Method reflection is not supported. Only field access is available.
 
-### Object Safety
+### 27.9.4 Object safety
 
 The `Reflect` trait methods return concrete types, making them individually object-safe. However, `Reflect` is not practically usable as a trait object because derivation requires the concrete type at compile time.
 
-## Performance
+## 27.10 Performance
 
-### Static Metadata
+### 27.10.1 Static metadata
 
 - TypeInfo generated at compile time
 - No per-instance overhead
 - O(1) access to type information
 
-### Field Access
+### 27.10.2 Field access
 
 - By index: O(1) via match dispatch
 - By name: O(1) via static hash map
 
-### Unknown Boxing
+### 27.10.3 Unknown boxing
 
 Creating `Unknown` requires one allocation for the erased value (reference counted).
 
-### Opt-Out
+### 27.10.4 Opt-out
 
 Types that do not derive `Reflect` have zero reflection cost.
 
-## Error Codes
+## 27.11 Error codes
 
 | Code | Description |
 |------|-------------|

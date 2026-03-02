@@ -1,7 +1,7 @@
 ---
 title: "Appendix E: Coding Guidelines"
 description: "Ori Compiler Design — Appendix E: Coding Guidelines"
-order: 1005
+order: 9005
 section: "Appendices"
 ---
 

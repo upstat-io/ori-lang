@@ -1,17 +1,17 @@
 ---
 title: "Conditional Compilation"
-description: "Ori Language Specification — Conditional Compilation"
+description: "Clause 25: Ori Language Specification — Conditional Compilation"
 order: 25
-section: "Conditional Compilation"
+section: "Language"
 ---
 
-# Conditional Compilation
+# 25 Conditional compilation
 
 Conditional compilation enables code to be included or excluded based on target platform, architecture, or build configuration.
 
-> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § ATTRIBUTES
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § ATTRIBUTES
 
-## Overview
+## 25.1 Overview
 
 Two attribute forms control conditional compilation:
 
@@ -22,9 +22,9 @@ Two attribute forms control conditional compilation:
 
 Code in false conditions is parsed but not type-checked. Code in true conditions is type-checked and compiled.
 
-## Target Conditions
+## 25.2 Target conditions
 
-### Operating System
+### 25.2.1 Operating system
 
 ```ori
 #target(os: "linux")
@@ -35,7 +35,7 @@ Code in false conditions is parsed but not type-checked. Code in true conditions
 #target(os: "ios")
 ```
 
-### Architecture
+### 25.2.2 Architecture
 
 ```ori
 #target(arch: "x86_64")
@@ -45,7 +45,7 @@ Code in false conditions is parsed but not type-checked. Code in true conditions
 #target(arch: "riscv64")
 ```
 
-### Target Families
+### 25.2.3 Target families
 
 Target families group related operating systems:
 
@@ -60,7 +60,7 @@ Target families group related operating systems:
 @get_home_dir () -> str = Env.get("HOME").unwrap_or("/home");
 ```
 
-### Combined Conditions (AND)
+### 25.2.4 Combined conditions (AND)
 
 Multiple conditions in one attribute require all to match:
 
@@ -77,7 +77,7 @@ Multiple attributes also combine with AND:
 @linux_x64_only () -> void = ...;
 ```
 
-### OR Conditions
+### 25.2.5 OR conditions
 
 The `any_*` variants match any value in a list:
 
@@ -89,7 +89,7 @@ The `any_*` variants match any value in a list:
 @desktop_arch () -> void = ...;
 ```
 
-### Negation
+### 25.2.6 Negation
 
 The `not_*` prefix negates a condition:
 
@@ -104,9 +104,9 @@ The `not_*` prefix negates a condition:
 @native_platform () -> void = ...;
 ```
 
-## Configuration Flags
+## 25.3 Configuration flags
 
-### Build Mode
+### 25.3.1 Build mode
 
 ```ori
 #cfg(debug)
@@ -119,7 +119,7 @@ The `not_*` prefix negates a condition:
 @optimized () -> void = ...;
 ```
 
-### Feature Flags
+### 25.3.2 Feature flags
 
 ```ori
 #cfg(feature: "ssl")
@@ -132,19 +132,19 @@ type AsyncRuntime = ...;
 @insecure_fallback () -> void = ...;
 ```
 
-Feature names must be valid Ori identifiers:
+Feature names shall be valid Ori identifiers:
 - Start with a letter or underscore
 - Contain only letters, digits, and underscores
 - Case-sensitive
 
-### OR for Features
+### 25.3.3 OR for features
 
 ```ori
 #cfg(any_feature: ["ssl", "tls"])
 @secure_connection () -> void = ...;
 ```
 
-## Applicable Items
+## 25.4 Applicable items
 
 Conditional compilation applies to:
 
@@ -156,7 +156,7 @@ Conditional compilation applies to:
 | Constants | `#cfg(debug) let $log_level = "debug"` |
 | Imports | `#target(os: "linux") use "./linux/io" { epoll_create }` |
 
-## File-Level Conditions
+## 25.5 File-level conditions
 
 The `#!` prefix applies a condition to the entire file:
 
@@ -168,9 +168,9 @@ The `#!` prefix applies a condition to the entire file:
 @epoll_wait (fd: int) -> [Event] = ...;
 ```
 
-File-level conditions must appear before any declarations (after comments and doc comments).
+File-level conditions shall appear before any declarations (after comments and doc comments).
 
-## Compile-Time Constants
+## 25.6 Compile-time constants
 
 Target information is available as compile-time constants:
 
@@ -182,7 +182,7 @@ Target information is available as compile-time constants:
 | `$debug` | `bool` | True in debug builds |
 | `$release` | `bool` | True in release builds |
 
-### Usage in Expressions
+### 25.6.1 Usage in expressions
 
 ```ori
 @get_path_separator () -> str =
@@ -199,9 +199,9 @@ Branches conditioned on compile-time constants are eliminated. The false branch 
         panic(msg: "Not supported");
 ```
 
-## Compilation Semantics
+## 25.7 Compilation semantics
 
-### Dead Code Elimination
+### 25.7.1 Dead code elimination
 
 Code in false conditions is completely eliminated from the binary:
 
@@ -213,7 +213,7 @@ Code in false conditions is completely eliminated from the binary:
 let $verbose = true;  // Not in release binary
 ```
 
-### Parse vs Type-Check
+### 25.7.2 Parse vs type-check
 
 Code in false conditions is:
 - **Parsed**: Syntax errors are reported regardless of condition
@@ -229,7 +229,7 @@ Code in false conditions is:
     WindowsApi.call();  // Only type-checked when targeting Windows
 ```
 
-## Command Line
+## 25.8 Command line
 
 ```bash
 # Target specification
@@ -248,7 +248,7 @@ ori build --release  # sets cfg(release)
 ori build --cfg experimental
 ```
 
-## Project Configuration
+## 25.9 Project configuration
 
 ```toml
 # ori.toml
@@ -269,7 +269,7 @@ dependencies = ["libc"]
 dependencies = ["winapi"]
 ```
 
-## Error Codes
+## 25.10 Error codes
 
 | Code | Description |
 |------|-------------|

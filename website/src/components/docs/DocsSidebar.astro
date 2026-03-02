@@ -2,18 +2,39 @@
 import { getCollection } from 'astro:content';
 import Sidebar from '../common/Sidebar.astro';
 
-const spec = await getCollection('spec');
-const compilerDesign = await getCollection('compiler-design');
-const formatter = await getCollection('formatter');
-const lsp = await getCollection('lsp');
+// All doc collections — add new ones here and they'll appear automatically
+// as long as their root index.md has sidebar_title, sidebar_order, sidebar_path
+const docCollections = [
+  await getCollection('spec'),
+  await getCollection('compiler-design'),
+  await getCollection('formatter'),
+  await getCollection('lsp'),
+];
 
-// Helper to transform collection items
+// Helper to transform collection items for the sidebar
 const toSidebarItems = (items: any[]) =>
   items.map(item => ({ id: item.id, title: item.data.title }));
 
-// Helper to group by section
-const groupBySection = (items: any[], sectionNames: string[]) =>
-  sectionNames
+// Derive section names from collection data, ordered by minimum order value
+const deriveSections = (items: any[]) => {
+  const sectionMap = new Map<string, number>();
+  for (const item of items) {
+    if (item.data.section) {
+      const existing = sectionMap.get(item.data.section);
+      if (existing === undefined || item.data.order < existing) {
+        sectionMap.set(item.data.section, item.data.order);
+      }
+    }
+  }
+  return [...sectionMap.entries()]
+    .sort((a, b) => a[1] - b[1])
+    .map(([name]) => name);
+};
+
+// Group items by their section field, ordered by the data itself
+const groupBySection = (items: any[]) => {
+  const sectionNames = deriveSections(items);
+  return sectionNames
     .map(name => ({
       name,
       items: toSidebarItems(
@@ -23,81 +44,32 @@ const groupBySection = (items: any[], sectionNames: string[]) =>
       ),
     }))
     .filter(g => g.items.length > 0);
+};
 
-// Build sections config
-const sections = [
-  {
-    title: 'Specification',
-    basePath: '/docs/spec',
-    items: toSidebarItems(
-      spec
-        .filter(d => !d.data.section)
-        .sort((a, b) => a.data.order - b.data.order)
-    ),
-    subsections: groupBySection(spec, [
-      'Foundations',
-      'Types & Values',
-      'Declarations',
-      'Expressions',
-      'Execution',
-      'Verification',
-      'Tooling',
-    ]),
-  },
-  {
-    title: 'Compiler Design',
-    basePath: '/docs/compiler-design',
-    items: toSidebarItems(
-      compilerDesign
-        .filter(d => !d.data.section)
-        .sort((a, b) => a.data.order - b.data.order)
-    ),
-    subsections: groupBySection(compilerDesign, [
-      'Architecture',
-      'Intermediate Representation',
-      'Lexer',
-      'Parser',
-      'Type System',
-      'Pattern System',
-      'Evaluator',
-      'Diagnostics',
-      'Testing',
-      'LLVM Backend',
-      'Appendices',
-    ]),
-  },
-  {
-    title: 'Formatter',
-    basePath: '/docs/formatter',
-    items: toSidebarItems(
-      formatter
-        .filter(d => !d.data.section)
-        .sort((a, b) => a.data.order - b.data.order)
-    ),
-    subsections: groupBySection(formatter, [
-      'Algorithm',
-      'Constructs',
-      'Comments',
-      'Implementation',
-      'Appendices',
-    ]),
-  },
-  {
-    title: 'LSP',
-    basePath: '/docs/lsp',
-    items: toSidebarItems(
-      lsp
-        .filter(d => !d.data.section)
-        .sort((a, b) => a.data.order - b.data.order)
-    ),
-    subsections: groupBySection(lsp, [
-      'Protocol',
-      'Architecture',
-      'Features',
-      'Integration',
-    ]),
-  },
-];
+// Build sidebar sections dynamically from each collection's root index.md
+const sections = docCollections
+  .map(collection => {
+    // Find the root index.md that declares sidebar metadata
+    const root = collection.find(
+      (item: any) => item.data.sidebar_title && item.data.sidebar_path
+    );
+    if (!root) return null;
+
+    return {
+      title: root.data.sidebar_title,
+      basePath: root.data.sidebar_path,
+      _order: root.data.sidebar_order ?? 0,
+      items: toSidebarItems(
+        collection
+          .filter((d: any) => !d.data.section)
+          .sort((a: any, b: any) => a.data.order - b.data.order)
+      ),
+      subsections: groupBySection(collection),
+    };
+  })
+  .filter((s): s is NonNullable<typeof s> => s !== null)
+  .sort((a, b) => a._order - b._order)
+  .map(({ _order, ...rest }) => rest);
 ---
 
 <Sidebar sections={sections} />

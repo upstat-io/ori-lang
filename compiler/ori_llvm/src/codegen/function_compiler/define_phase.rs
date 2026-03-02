@@ -270,6 +270,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.annotated_sigs,
             self.pool,
             self.interner,
+            &self.uniqueness_summaries,
         );
         for problem in &arc_problems {
             debug!(?problem, "ARC pipeline problem");
@@ -352,6 +353,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.annotated_sigs,
             self.pool,
             self.interner,
+            &self.uniqueness_summaries,
         );
         for problem in &arc_problems {
             debug!(?problem, "ARC pipeline problem (lambda)");

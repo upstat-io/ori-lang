@@ -1820,6 +1820,7 @@ fn cow_push_to_empty_sentinel() {
         std::mem::size_of::<i64>() as i64,
         std::mem::align_of::<i64>() as i64,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -1864,6 +1865,7 @@ fn cow_push_unique_with_capacity() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -1910,6 +1912,7 @@ fn cow_push_unique_needs_growth() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -1958,6 +1961,7 @@ fn cow_push_shared_list_copies() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2025,6 +2029,7 @@ fn cow_push_1000_sequential_amortized() {
             es as i64,
             8,
             None,
+            0,
             out.as_mut_ptr(),
         );
 
@@ -2080,7 +2085,7 @@ fn cow_pop_unique_decrements_len() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_pop_cow(data, 3, 4, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_pop_cow(data, 3, 4, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
@@ -2114,7 +2119,7 @@ fn cow_pop_shared_copies() {
     ori_rc_inc(data); // RC=2
 
     let mut out = [0u8; 24];
-    ori_list_pop_cow(data, 3, 4, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_pop_cow(data, 3, 4, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
@@ -2160,7 +2165,7 @@ fn cow_pop_to_empty_retains_buffer() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_pop_cow(data, 1, 4, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_pop_cow(data, 1, 4, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
@@ -2186,6 +2191,7 @@ fn cow_pop_empty_list_returns_empty() {
         std::mem::size_of::<i64>() as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2220,6 +2226,7 @@ fn cow_set_unique_overwrites_in_place() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2269,6 +2276,7 @@ fn cow_set_shared_copies() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2320,6 +2328,7 @@ fn cow_set_at_index_zero() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2360,6 +2369,7 @@ fn cow_insert_unique_at_beginning() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2402,6 +2412,7 @@ fn cow_insert_unique_at_middle() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2438,6 +2449,7 @@ fn cow_insert_unique_at_end() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2475,6 +2487,7 @@ fn cow_insert_unique_needs_growth() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2513,6 +2526,7 @@ fn cow_insert_shared_copies() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2558,6 +2572,7 @@ fn cow_insert_into_empty() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2594,6 +2609,7 @@ fn cow_remove_unique_at_beginning() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2623,7 +2639,7 @@ fn cow_remove_unique_at_middle() {
     let data = rc_alloc_i64_list(&[10, 20, 30], 4);
 
     let mut out = [0u8; 24];
-    ori_list_remove_cow(data, 3, 4, 1, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_remove_cow(data, 3, 4, 1, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
@@ -2650,7 +2666,7 @@ fn cow_remove_unique_at_end() {
     let data = rc_alloc_i64_list(&[10, 20, 30], 4);
 
     let mut out = [0u8; 24];
-    ori_list_remove_cow(data, 3, 4, 2, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_remove_cow(data, 3, 4, 2, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
@@ -2673,7 +2689,7 @@ fn cow_remove_unique_last_element_frees() {
     let data = rc_alloc_i64_list(&[42], 4);
 
     let mut out = [0u8; 24];
-    ori_list_remove_cow(data, 1, 4, 0, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_remove_cow(data, 1, 4, 0, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 0, "empty after removing last");
@@ -2693,7 +2709,7 @@ fn cow_remove_shared_copies() {
     ori_rc_inc(data);
 
     let mut out = [0u8; 24];
-    ori_list_remove_cow(data, 3, 4, 1, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_remove_cow(data, 3, 4, 1, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
@@ -2744,6 +2760,7 @@ fn cow_concat_unique_with_capacity() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2789,6 +2806,7 @@ fn cow_concat_unique_needs_growth() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2830,6 +2848,7 @@ fn cow_concat_shared_list1_unique_list2() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2876,6 +2895,7 @@ fn cow_concat_empty_lists() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2905,6 +2925,7 @@ fn cow_concat_empty_list1_unique_list2_takeover() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -2947,6 +2968,7 @@ fn cow_concat_empty_list1_shared_list2() {
         es as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3002,6 +3024,7 @@ fn cow_concat_both_unique_no_inc() {
         es as i64,
         8,
         Some(counting_inc_fn),
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3040,6 +3063,7 @@ fn cow_concat_list1_unique_list2_shared_inc_n2() {
         es as i64,
         8,
         Some(counting_inc_fn),
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3081,6 +3105,7 @@ fn cow_concat_list1_shared_list2_unique_inc_n1_only() {
         es as i64,
         8,
         Some(counting_inc_fn),
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3123,6 +3148,7 @@ fn cow_concat_both_shared_inc_n1_plus_n2() {
         es as i64,
         8,
         Some(counting_inc_fn),
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3165,6 +3191,7 @@ fn cow_concat_self_same_buffer() {
         es as i64,
         8,
         Some(counting_inc_fn),
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3202,7 +3229,7 @@ fn cow_reverse_unique_in_place() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_reverse_cow(data, 4, 4, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_reverse_cow(data, 4, 4, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -3232,7 +3259,7 @@ fn cow_reverse_unique_odd_count() {
     let data = rc_alloc_i64_list(&[10, 20, 30], 4);
 
     let mut out = [0u8; 24];
-    ori_list_reverse_cow(data, 3, 4, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_reverse_cow(data, 3, 4, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 3);
@@ -3257,7 +3284,7 @@ fn cow_reverse_shared_copies() {
     ori_rc_inc(data);
 
     let mut out = [0u8; 24];
-    ori_list_reverse_cow(data, 3, 4, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_reverse_cow(data, 3, 4, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 3);
@@ -3293,7 +3320,7 @@ fn cow_reverse_single_element_unchanged() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_reverse_cow(data, 1, 4, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_reverse_cow(data, 1, 4, es as i64, 8, None, 0, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 1);
@@ -3320,6 +3347,7 @@ fn cow_reverse_empty_unchanged() {
         std::mem::size_of::<i64>() as i64,
         8,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3359,6 +3387,7 @@ fn cow_sort_unique_in_place() {
         8,
         compare_i64_asc,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3399,6 +3428,7 @@ fn cow_sort_shared_copies() {
         8,
         compare_i64_asc,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3446,6 +3476,7 @@ fn cow_sort_already_sorted() {
         8,
         compare_i64_asc,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3480,6 +3511,7 @@ fn cow_sort_reverse_sorted() {
         8,
         compare_i64_asc,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3513,6 +3545,7 @@ fn cow_sort_with_duplicates() {
         8,
         compare_i64_asc,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3553,6 +3586,7 @@ fn cow_sort_single_element_unchanged() {
         8,
         compare_i64_asc,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3575,6 +3609,7 @@ fn cow_sort_empty_unchanged() {
         8,
         compare_i64_asc,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3630,6 +3665,7 @@ fn cow_sort_stable_preserves_equal_element_order() {
         8,
         compare_by_key,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3676,6 +3712,7 @@ fn cow_sort_unstable_may_not_preserve_order() {
         8,
         compare_by_key,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3715,6 +3752,7 @@ fn cow_sort_stable_shared_copies() {
         8,
         compare_i64_asc,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -3961,6 +3999,7 @@ fn cow_map_insert_into_empty() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4015,6 +4054,7 @@ fn cow_map_insert_unique_new_key_with_capacity() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4074,6 +4114,7 @@ fn cow_map_insert_unique_existing_key_overwrites() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4139,6 +4180,7 @@ fn cow_map_insert_shared_copies() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4214,6 +4256,7 @@ fn cow_map_insert_unique_needs_growth() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4277,6 +4320,7 @@ fn cow_map_insert_1000_sequential_amortized() {
             i64_key_eq,
             None,
             None,
+            0,
             out.as_mut_ptr(),
         );
 
@@ -4337,6 +4381,7 @@ fn cow_map_remove_key_not_found() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4383,6 +4428,7 @@ fn cow_map_remove_unique_middle() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4436,6 +4482,7 @@ fn cow_map_remove_unique_first() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4484,6 +4531,7 @@ fn cow_map_remove_unique_last() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4535,6 +4583,7 @@ fn cow_map_remove_unique_last_entry_frees() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4573,6 +4622,7 @@ fn cow_map_remove_shared_copies() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4648,6 +4698,7 @@ fn cow_map_remove_shared_last_entry_decs() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4691,6 +4742,7 @@ fn cow_map_remove_from_empty() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4729,6 +4781,7 @@ fn cow_map_update_key_not_found() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4782,6 +4835,7 @@ fn cow_map_update_unique_overwrites_in_place() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4840,6 +4894,7 @@ fn cow_map_update_shared_copies() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4906,6 +4961,7 @@ fn cow_map_update_on_empty() {
         i64_key_eq,
         None,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4959,6 +5015,7 @@ fn cow_set_insert_into_empty() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -4996,6 +5053,7 @@ fn cow_set_insert_unique_new_elem() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5036,6 +5094,7 @@ fn cow_set_insert_existing_elem_noop() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5074,6 +5133,7 @@ fn cow_set_insert_shared_copies() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5123,6 +5183,7 @@ fn cow_set_insert_unique_needs_growth() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5164,6 +5225,7 @@ fn cow_set_remove_not_found() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5201,6 +5263,7 @@ fn cow_set_remove_unique_middle() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5240,6 +5303,7 @@ fn cow_set_remove_unique_last_entry_frees() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5273,6 +5337,7 @@ fn cow_set_remove_shared_copies() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5319,6 +5384,7 @@ fn cow_set_remove_from_empty() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5349,6 +5415,7 @@ fn cow_set_union_both_empty() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5380,6 +5447,7 @@ fn cow_set_union_set2_empty_identity() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5412,6 +5480,7 @@ fn cow_set_union_set1_empty_copies_set2() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5453,6 +5522,7 @@ fn cow_set_union_unique_extends_in_place() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5494,6 +5564,7 @@ fn cow_set_union_unique_needs_growth() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5535,6 +5606,7 @@ fn cow_set_union_shared_copies() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5585,6 +5657,7 @@ fn cow_set_union_superset_noop() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5620,6 +5693,7 @@ fn cow_set_intersection_either_empty() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5652,6 +5726,7 @@ fn cow_set_intersection_unique_compacts() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5691,6 +5766,7 @@ fn cow_set_intersection_unique_all_removed() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5726,6 +5802,7 @@ fn cow_set_intersection_shared_copies() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5777,6 +5854,7 @@ fn cow_set_intersection_self_identity() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5809,6 +5887,7 @@ fn cow_set_difference_set1_empty() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5840,6 +5919,7 @@ fn cow_set_difference_set2_empty_identity() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5874,6 +5954,7 @@ fn cow_set_difference_unique_compacts() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5913,6 +5994,7 @@ fn cow_set_difference_self_yields_empty() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5948,6 +6030,7 @@ fn cow_set_difference_shared_copies() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 
@@ -5998,6 +6081,7 @@ fn cow_set_difference_disjoint_noop() {
         8,
         i64_key_eq,
         None,
+        0,
         out.as_mut_ptr(),
     );
 

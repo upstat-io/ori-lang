@@ -24,6 +24,7 @@ pub extern "C" fn ori_list_insert_cow(
     elem_size: i64,
     elem_align: i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || elem_ptr.is_null() {
@@ -49,7 +50,11 @@ pub extern "C" fn ori_list_insert_cow(
     let new_len = old_len + 1;
 
     // FAST PATH: unique owner, non-slice — shift in place
-    if !data.is_null() && !is_slice_cap(cap) && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique = !data.is_null()
+        && !is_slice_cap(cap)
+        && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         let old_cap = cap.max(0) as usize;
 
         // Ensure capacity (may realloc)
@@ -134,6 +139,7 @@ pub extern "C" fn ori_list_remove_cow(
     elem_size: i64,
     elem_align: i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -160,7 +166,10 @@ pub extern "C" fn ori_list_remove_cow(
     let tail_count = old_len - idx - 1; // Elements after the removed one
 
     // FAST PATH: unique owner, non-slice — shift left in place
-    if !is_slice_cap(cap) && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique =
+        !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         if new_len == 0 {
             // Removing last element — free buffer entirely, return empty
             let old_cap = cap.max(0) as usize;

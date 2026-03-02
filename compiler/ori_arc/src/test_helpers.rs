@@ -54,6 +54,8 @@ pub(crate) fn make_func_named(
         spans: span_vecs,
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
     }
 }
 
