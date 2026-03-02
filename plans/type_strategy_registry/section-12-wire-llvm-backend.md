@@ -177,13 +177,18 @@ fn emit_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId, lhs_ty: I
         OpStrategy::IntInstr => self.emit_int_binary_op(op, lhs, rhs),
         OpStrategy::FloatInstr => self.emit_float_binary_op(op, lhs, rhs),
         OpStrategy::UnsignedCmp => self.emit_unsigned_binary_op(op, lhs, rhs),
-        OpStrategy::BoolInstr => self.emit_bool_binary_op(op, lhs, rhs),
+        OpStrategy::BoolLogic => self.emit_bool_binary_op(op, lhs, rhs),
         OpStrategy::RuntimeCall { fn_name } => {
             self.emit_runtime_binary_op(fn_name, op, lhs, rhs, lhs_ty)
         }
         OpStrategy::Unsupported => {
-            tracing::warn!(?op, ?type_tag, "binary op on type with no OpStrategy");
-            self.builder.const_i64(0)
+            // ICE: the type checker should have rejected this operation.
+            // If we reach here, it's a compiler bug, not a user error.
+            unreachable!(
+                "binary op {:?} on type {:?} reached codegen with Unsupported strategy — \
+                 type checker should have rejected this",
+                op, type_tag
+            );
         }
     }
 }
@@ -922,7 +927,7 @@ fn registry_op_strategies_cover_all_operators() {
         OpStrategy::IntInstr,
         OpStrategy::FloatInstr,
         OpStrategy::UnsignedCmp,
-        OpStrategy::BoolInstr,
+        OpStrategy::BoolLogic,
         // RuntimeCall checked separately per fn_name
     ];
 

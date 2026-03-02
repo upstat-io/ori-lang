@@ -325,3 +325,33 @@ fn set_binary_ops_in_consuming_receiver_only() {
         );
     }
 }
+
+/// Protocol builtins with all-borrowed args must be in `BORROWING_METHOD_NAMES`,
+/// and protocol builtins with any Owned args must NOT be in `BORROWING_METHOD_NAMES`.
+///
+/// This is the cross-registry sync test between `ProtocolBuiltin::arg_ownership()`
+/// and the manual `BORROWING_METHOD_NAMES` list. If a new protocol is added with
+/// all-borrowed semantics but isn't in `BORROWING_METHOD_NAMES`, borrow inference
+/// would treat it as unknown (all-Owned), causing RC leaks — exactly the bug this
+/// plan was designed to prevent.
+#[test]
+fn protocol_builtins_borrowing_sync() {
+    use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
+    for &pb in ProtocolBuiltin::ALL {
+        let all_borrowed = pb
+            .arg_ownership()
+            .iter()
+            .all(|o| *o == ProtocolArgOwnership::Borrowed);
+        let in_borrowing = BORROWING_METHOD_NAMES.contains(&pb.name());
+        assert_eq!(
+            all_borrowed,
+            in_borrowing,
+            "ProtocolBuiltin::{:?} (name={}) has all_borrowed={} but \
+             in BORROWING_METHOD_NAMES={}",
+            pb,
+            pb.name(),
+            all_borrowed,
+            in_borrowing,
+        );
+    }
+}

@@ -354,8 +354,8 @@ pub fn infer_borrow_scc(
     };
     let classifier = ori_arc::ArcClassifier::new(&pool_arc);
 
-    // Get borrowing builtins.
-    let borrowing_builtins = ori_arc::borrowing_builtin_names(db.interner());
+    // Get builtin ownership sets (borrowing, consuming, protocol).
+    let builtins = ori_arc::BuiltinOwnershipSets::new(db.interner());
 
     // Dispatch based on recursion.
     if decomp.is_recursive(scc_index) {
@@ -366,12 +366,8 @@ pub fn infer_borrow_scc(
             .filter_map(|&name| module.get_function(db, name))
             .collect();
 
-        let result = ori_arc::infer_borrow_fixed_point(
-            &funcs,
-            &external_sigs,
-            &classifier,
-            &borrowing_builtins,
-        );
+        let result =
+            ori_arc::infer_borrow_fixed_point(&funcs, &external_sigs, &classifier, &builtins);
 
         tracing::debug!(sig_count = result.len(), "fixed-point complete");
         BorrowSigResult::from_map(result)
@@ -383,8 +379,7 @@ pub fn infer_borrow_scc(
             return BorrowSigResult::empty();
         };
 
-        let sig =
-            ori_arc::infer_borrow_single(func, &external_sigs, &classifier, &borrowing_builtins);
+        let sig = ori_arc::infer_borrow_single(func, &external_sigs, &classifier, &builtins);
 
         let mut map = FxHashMap::default();
         map.insert(name, sig);

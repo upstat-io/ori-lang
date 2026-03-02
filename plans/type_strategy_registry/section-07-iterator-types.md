@@ -10,8 +10,10 @@ files:
   # Registry (new)
   - ori_registry/src/defs/iterator.rs
   # Type checker (current — to be replaced)
-  - compiler/ori_types/src/infer/expr/methods.rs        # resolve_iterator_method(), DEI_ONLY_METHODS
-  - compiler/ori_types/src/infer/expr/calls.rs          # unify_higher_order_constraints()
+  - compiler/ori_types/src/infer/expr/methods/mod.rs     # resolve_iterator_method(), DEI_ONLY_METHODS
+  - compiler/ori_types/src/infer/expr/methods/resolve_by_type.rs  # per-type method resolution
+  - compiler/ori_types/src/infer/expr/calls/mod.rs      # unify_higher_order_constraints()
+  - compiler/ori_types/src/infer/expr/calls/constraints.rs  # constraint solving
   # Evaluator (current — to be consumed)
   - compiler/ori_eval/src/interpreter/resolvers/mod.rs   # CollectionMethod enum, ITERATOR_METHOD_NAMES
   - compiler/ori_eval/src/interpreter/resolvers/collection/mod.rs  # CollectionMethodResolver
@@ -109,9 +111,9 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
     MethodDef {
         name: "next",
         params: &[],
-        returns: ReturnType::TupleOf(&[
-            ReturnType::OptionOf(ReturnType::Element),
-            ReturnType::ReceiverType,
+        returns: ReturnTag::TupleOf(&[
+            ReturnTag::OptionOf(ReturnTag::Element),
+            ReturnTag::ReceiverType,
         ]),
         receiver: Ownership::Borrow,
         dei_propagation: DeiPropagation::NotApplicable,
@@ -122,7 +124,7 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
     MethodDef {
         name: "map",
         params: &[ParamDef::Closure],
-        returns: ReturnType::IteratorOf(ReturnType::FreshVar),
+        returns: ReturnTag::IteratorOf(ReturnTag::FreshVar),
         receiver: Ownership::Borrow,
         dei_propagation: DeiPropagation::Propagate,
         dei_only: false,
@@ -131,7 +133,7 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
     MethodDef {
         name: "filter",
         params: &[ParamDef::Closure],
-        returns: ReturnType::ReceiverType,
+        returns: ReturnTag::ReceiverType,
         receiver: Ownership::Borrow,
         dei_propagation: DeiPropagation::Propagate,
         dei_only: false,
@@ -140,7 +142,7 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
     MethodDef {
         name: "take",
         params: &[ParamDef::Type(TypeTag::Int)],
-        returns: ReturnType::IteratorOf(ReturnType::Element),
+        returns: ReturnTag::IteratorOf(ReturnTag::Element),
         receiver: Ownership::Borrow,
         dei_propagation: DeiPropagation::Downgrade,
         dei_only: false,

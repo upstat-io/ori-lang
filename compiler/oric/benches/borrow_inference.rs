@@ -340,7 +340,7 @@ fn bench_scc_standalone(c: &mut Criterion) {
                 let functions: Vec<ArcFunction> = funcs.into_iter().map(|(_, f)| f).collect();
                 let pool = Pool::new();
                 let classifier = ori_arc::ArcClassifier::new(&pool);
-                let builtins = ori_arc::borrowing_builtin_names(&interner);
+                let builtins = ori_arc::BuiltinOwnershipSets::new(&interner);
                 black_box(ori_arc::borrow::infer_borrows_scc(
                     &functions,
                     &classifier,
@@ -358,7 +358,7 @@ fn bench_scc_standalone(c: &mut Criterion) {
                 let functions: Vec<ArcFunction> = funcs.into_iter().map(|(_, f)| f).collect();
                 let pool = Pool::new();
                 let classifier = ori_arc::ArcClassifier::new(&pool);
-                let builtins = ori_arc::borrowing_builtin_names(&interner);
+                let builtins = ori_arc::BuiltinOwnershipSets::new(&interner);
                 black_box(ori_arc::borrow::infer_borrows_scc(
                     &functions,
                     &classifier,
@@ -564,7 +564,7 @@ fn bench_regression_summary(c: &mut Criterion) {
             let functions: Vec<ArcFunction> = funcs.iter().map(|(_, f)| f.clone()).collect();
             let pool = Pool::new();
             let classifier = ori_arc::ArcClassifier::new(&pool);
-            let builtins = ori_arc::borrowing_builtin_names(&interner);
+            let builtins = ori_arc::BuiltinOwnershipSets::new(&interner);
 
             let start = Instant::now();
             for _ in 0..iters {

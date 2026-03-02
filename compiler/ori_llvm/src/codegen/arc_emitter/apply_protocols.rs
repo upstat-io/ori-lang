@@ -5,6 +5,11 @@
 //! calling convention and result type that differs from the standard
 //! Apply emission path.
 //!
+//! Protocol builtins are dispatched via [`ProtocolBuiltin::from_name()`],
+//! ensuring an exhaustive match — adding a new variant to the enum forces
+//! a handler here. `ori_list_take` is NOT a protocol builtin (it's a real
+//! runtime function with special sret handling).
+//!
 //! | Protocol         | Purpose                                  | Result type      |
 //! |------------------|------------------------------------------|------------------|
 //! | `__iter_next`    | For-loop iteration protocol              | `{i64, T}`       |
@@ -13,6 +18,7 @@
 //! | `__index`        | `receiver[index]` desugaring             | `T` or `Option<V>`|
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
+use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
 
 use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
@@ -31,70 +37,73 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         args: &[ArcVarId],
         func: &ArcFunction,
     ) -> bool {
-        match callee_name {
-            // Internal protocol: __iter_next(iter, elem_ty_marker).
-            // args[0] = iterator pointer, args[1] = zero marker carrying elem_ty.
-            // Result type is INT (no RC management); actual element type comes
-            // from the marker argument.
-            "__iter_next" if args.len() >= 2 => {
-                let iter_ptr = self.var(args[0]);
-                let elem_ty = func.var_type(args[1]);
-                if let Some(val) = self.emit_iter_next(iter_ptr, elem_ty) {
-                    self.def_var_repr(dst, val, func);
+        // Central protocol dispatch — exhaustive match enforced by compiler.
+        // Adding a new ProtocolBuiltin variant will cause a compile error here.
+        if let Some(protocol) = ProtocolBuiltin::from_name(callee_name) {
+            let result = match protocol {
+                ProtocolBuiltin::IterNext => {
+                    // __iter_next(iter, elem_ty_marker).
+                    // args[0] = iterator pointer, args[1] = zero marker carrying elem_ty.
+                    assert!(
+                        args.len() >= 2,
+                        "__iter_next requires 2 args, got {}",
+                        args.len()
+                    );
+                    let iter_ptr = self.var(args[0]);
+                    let elem_ty = func.var_type(args[1]);
+                    self.emit_iter_next(iter_ptr, elem_ty)
                 }
-                true
-            }
-
-            // Internal protocol: __collect_set(iter).
-            // Type-directed rewrite from `collect()` when target type is Set<T>.
-            // Uses sret pattern like emit_iter_collect but calls ori_iter_collect_set.
-            "__collect_set" if !args.is_empty() => {
-                let iter_ptr = self.var(args[0]);
-                let iter_ty = func.var_type(args[0]);
-                let elem_ty = self.pool.iterator_elem(iter_ty);
-                if let Some(val) = self.emit_iter_collect_set(iter_ptr, elem_ty) {
-                    self.def_var_repr(dst, val, func);
+                ProtocolBuiltin::CollectSet => {
+                    // __collect_set(iter).
+                    // Type-directed rewrite from collect() when target type is Set<T>.
+                    assert!(!args.is_empty(), "__collect_set requires at least 1 arg");
+                    let iter_ptr = self.var(args[0]);
+                    let iter_ty = func.var_type(args[0]);
+                    let elem_ty = self.pool.iterator_elem(iter_ty);
+                    self.emit_iter_collect_set(iter_ptr, elem_ty)
                 }
-                true
-            }
-
-            // ori_list_take uses explicit sret pattern: void(list_ptr, out_ptr).
-            // The ARC IR emits Apply "ori_list_take"(list_ptr) expecting a struct return.
-            // We handle the sret plumbing here: alloca result struct, call, load.
-            "ori_list_take" if !args.is_empty() => {
-                if let Some(val) = self.emit_list_take(args[0], func) {
-                    self.def_var_repr(dst, val, func);
-                }
-                true
-            }
-
-            // Internal protocol: __index(receiver, index).
-            // Desugared from `receiver[index]` by ARC lowering.
-            // List: returns T directly (panics OOB). Map: returns Option<V>.
-            "__index" if args.len() >= 2 => {
-                let receiver_ty = func.var_type(args[0]);
-                let type_info = self.type_info.get(receiver_ty);
-                let recv = self.var(args[0]);
-                let idx = self.var(args[1]);
-                let result = match &type_info {
-                    TypeInfo::List { element } => self.emit_list_index(recv, idx, *element),
-                    TypeInfo::Map { key, value } => self.emit_map_get(recv, idx, *key, *value),
-                    _ => {
-                        tracing::warn!(
-                            ?type_info,
-                            "__index on unsupported type — type checker should prevent this"
-                        );
-                        None
+                ProtocolBuiltin::Index => {
+                    // __index(receiver, index).
+                    // Desugared from `receiver[index]` by ARC lowering.
+                    // List: returns T directly (panics OOB). Map: returns Option<V>.
+                    assert!(
+                        args.len() >= 2,
+                        "__index requires 2 args, got {}",
+                        args.len()
+                    );
+                    let receiver_ty = func.var_type(args[0]);
+                    let type_info = self.type_info.get(receiver_ty);
+                    let recv = self.var(args[0]);
+                    let idx = self.var(args[1]);
+                    match &type_info {
+                        TypeInfo::List { element } => self.emit_list_index(recv, idx, *element),
+                        TypeInfo::Map { key, value } => self.emit_map_get(recv, idx, *key, *value),
+                        _ => {
+                            tracing::warn!(
+                                ?type_info,
+                                "__index on unsupported type — type checker should prevent this"
+                            );
+                            None
+                        }
                     }
-                };
-                if let Some(val) = result {
-                    self.def_var_repr(dst, val, func);
                 }
-                true
+            };
+            if let Some(val) = result {
+                self.def_var_repr(dst, val, func);
             }
-
-            _ => false,
+            return true;
         }
+
+        // ori_list_take: NOT a protocol builtin — it's a real runtime function
+        // with special sret handling (has `ori_` prefix, exists in RT_FUNCTIONS).
+        if callee_name == "ori_list_take" && !args.is_empty() {
+            if let Some(val) = self.emit_list_take(args[0], func) {
+                self.def_var_repr(dst, val, func);
+            }
+            return true;
+        }
+
+        false
     }
 
     /// Emit `ori_list_take(list_ptr, out_ptr)` with manual sret handling.

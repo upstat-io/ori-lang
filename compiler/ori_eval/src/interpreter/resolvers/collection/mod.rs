@@ -67,7 +67,8 @@ impl MethodNames {
             rfind: interner.intern("rfind"),
             rfold: interner.intern("rfold"),
             join: interner.intern("join"),
-            collect_set: interner.intern(ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD),
+            collect_set: interner
+                .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name()),
             then_with: interner.intern("then_with"),
         }
     }

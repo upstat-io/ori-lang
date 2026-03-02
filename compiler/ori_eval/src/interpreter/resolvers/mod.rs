@@ -216,10 +216,12 @@ impl CollectionMethod {
             ("last", Self::IterLast),
             ("rfind", Self::IterRFind),
             ("rfold", Self::IterRFold),
-            (
-                ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD,
-                Self::IterCollectSet,
-            ),
+            {
+                // Use a const to enable static promotion of this array.
+                const COLLECT_SET: &str =
+                    ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name();
+                (COLLECT_SET, Self::IterCollectSet)
+            },
         ]
     }
 }

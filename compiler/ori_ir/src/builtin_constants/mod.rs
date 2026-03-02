@@ -66,16 +66,10 @@ pub mod size {
     pub const BYTES_PER_TB: u64 = 1_000_000_000_000;
 }
 
-/// Internal method names injected by canonicalization.
+/// Compiler-internal protocol functions emitted by ARC lowering.
 ///
-/// These names are rewritten by the canonicalizer during type-directed
-/// specialization and consumed by the evaluator's method resolver. They
-/// are not user-facing API — users write `collect()`, and the canonicalizer
-/// rewrites to `__collect_set` when the target type is `Set<T>`.
-pub mod iterator {
-    /// Internal method name for type-directed `collect()` → `Set<T>`.
-    pub const COLLECT_SET_METHOD: &str = "__collect_set";
-}
+/// See [`protocol::ProtocolBuiltin`] for the enum and per-argument ownership.
+pub mod protocol;
 
 /// Ordering variant tag constants.
 ///

@@ -2,7 +2,7 @@
 section: "03"
 title: "Verification"
 status: not-started
-goal: "Full test suite green, AOT binaries contain only ori_eh_personality, no behavioral regressions"
+goal: "Full test suite green, Ori-generated LLVM IR references only ori_eh_personality, no behavioral regressions"
 depends_on: ["01", "02"]
 sections:
   - id: "03.1"
@@ -25,7 +25,7 @@ sections:
 # Section 03: Verification
 
 **Status:** Not Started
-**Goal:** Complete confidence that the personality function swap is correct: all existing tests pass, AOT binaries contain only `ori_eh_personality`, no behavioral regressions in eval or AOT paths, and no memory safety issues.
+**Goal:** Complete confidence that the personality function swap is correct: all existing tests pass, Ori's generated LLVM IR references only `ori_eh_personality` (note: `rust_eh_personality` may still appear in `libori_rt.a` from embedded Rust std — this is expected), no behavioral regressions in eval or AOT paths, and no memory safety issues.
 
 **Context:** The personality function is on the critical path of exception handling. If it's implemented incorrectly, panics will crash instead of unwinding, ARC cleanup won't run (causing leaks or use-after-free), and `catch()` will stop working. Testing must cover both the happy path (no exceptions) and the unwind path (panic, catch, ARC cleanup).
 
@@ -75,10 +75,10 @@ Verify that the symbol swap is complete at every level.
 
 - [ ] **Static library audit** — symbol exists in libori_rt.a:
   ```bash
-  nm compiler/ori_rt/target/debug/libori_rt.a | grep "ori_eh_personality"
+  nm target/debug/libori_rt.a | grep "ori_eh_personality"
   # Expected: T ori_eh_personality (T = text/code section)
 
-  nm compiler/ori_rt/target/debug/libori_rt.a | grep "rust_eh_personality"
+  nm target/debug/libori_rt.a | grep "rust_eh_personality"
   # Expected: still present (from Rust std embedded in staticlib — this is OK)
   # The point is that OUR code references ori_eh_personality, not rust_eh_personality
   ```
@@ -123,7 +123,7 @@ Re-run the code journeys that exercise exception handling to verify behavioral e
 
 - [ ] **Valgrind verification** — no new memory errors from personality function:
   ```bash
-  ./scripts/valgrind-aot.sh
+  diagnostics/valgrind-aot.sh
   # Expected: same results as before (no new errors)
   ```
 
@@ -147,7 +147,7 @@ Re-run the code journeys that exercise exception handling to verify behavioral e
 - [ ] LLVM IR shows `@ori_eh_personality`
 - [ ] `nm libori_rt.a` shows `ori_eh_personality` symbol
 - [ ] Code journeys J3, J9, J10, J12 produce same results as before
-- [ ] `./scripts/valgrind-aot.sh` no new errors
+- [ ] `diagnostics/valgrind-aot.sh` no new errors
 - [ ] `ORI_CHECK_LEAKS=1` catch tests pass
 
-**Exit Criteria:** `./test-all.sh` passes (all existing tests green, zero regressions). `grep -r "rust_eh_personality" compiler/` returns 0 matches. `ORI_DEBUG_LLVM=1` on any invoke-bearing program shows `@ori_eh_personality`. Code journeys J3/J9/J10/J12 produce identical eval and AOT results as before this change. `./scripts/valgrind-aot.sh` shows no new memory errors.
+**Exit Criteria:** `./test-all.sh` passes (all existing tests green, zero regressions). `grep -r "rust_eh_personality" compiler/` returns 0 matches. `ORI_DEBUG_LLVM=1` on any invoke-bearing program shows `@ori_eh_personality`. Code journeys J3/J9/J10/J12 produce identical eval and AOT results as before this change. `diagnostics/valgrind-aot.sh` shows no new memory errors.
