@@ -543,7 +543,7 @@ The LSDA format (`.gcc_except_table` section) is identical on both architectures
   - Global flags (`catch_handler_entered`, `cleanup_handler_entered`) are read by the C harness to verify behavior.
   - The LSDA sections (`.gcc_except_table`) are byte-identical between architectures — DWARF encoding is architecture-independent.
 
-- [ ] Create `compiler/ori_rt/src/test_forced_unwind.c` (~50 lines):
+- [ ] Create `compiler/ori_rt/src/test_forced_unwind.c` (~80 lines):
 
   C harness that sets up the exception object, triggers forced unwind, and checks results.
 
@@ -551,6 +551,7 @@ The LSDA format (`.gcc_except_table` section) is identical on both architectures
   #include <unwind.h>
   #include <stdint.h>
   #include <string.h>
+  #include <setjmp.h>
 
   // Defined in test_frames_{x86_64,aarch64}.S
   extern int catch_handler_entered;
@@ -558,15 +559,11 @@ The LSDA format (`.gcc_except_table` section) is identical on both architectures
   extern int frame_with_catch_all(void (*trigger)(void));
   extern int frame_with_cleanup(void (*trigger)(void));
 
-  // Stop function: allows unwinding through all frames
-  static _Unwind_Reason_Code force_unwind_stop(
-      int version, _Unwind_Action actions, uint64_t exception_class,
-      struct _Unwind_Exception *exc, struct _Unwind_Context *ctx,
-      void *stop_parameter)
-  {
-      if (actions & _UA_END_OF_STACK) return _URC_NORMAL_STOP;
-      return _URC_NO_REASON;
-  }
+  // Non-local escape. The stop callback longjmps when the unwinder
+  // reaches the target frame (identified by CFA >= saved frame pointer),
+  // BEFORE that frame is unwound — so the setjmp context is still valid.
+  static jmp_buf escape_buf;
+  static uintptr_t escape_target_fp;
 
   static struct _Unwind_Exception test_exc;
 
@@ -577,28 +574,63 @@ The LSDA format (`.gcc_except_table` section) is identical on both architectures
       (void)reason; (void)exc;
   }
 
+  // Stop function: allows unwinding through inner frames. When the
+  // unwinder reaches the frame that called setjmp, longjmp escapes
+  // before that frame is destroyed.
+  //
+  // Frame detection: the stop function is called BEFORE each frame
+  // is unwound, with _Unwind_GetCFA(ctx) giving that frame's CFA.
+  // The stack grows downward, so CFA increases as we unwind outward.
+  // Inner frames (trigger, assembly) have CFA < test function's FP.
+  // The test function's CFA = FP + 2*sizeof(void*) on both x86-64
+  // and aarch64, so CFA >= FP fires exactly when the unwinder reaches
+  // the test function's frame — while it is still live.
+  static _Unwind_Reason_Code force_unwind_stop(
+      int version, _Unwind_Action actions, uint64_t exception_class,
+      struct _Unwind_Exception *exc, struct _Unwind_Context *ctx,
+      void *stop_parameter)
+  {
+      if (_Unwind_GetCFA(ctx) >= escape_target_fp) {
+          longjmp(escape_buf, 1);
+      }
+      return _URC_NO_REASON;
+  }
+
   static void trigger_forced_unwind(void) {
       memset(&test_exc, 0, sizeof(test_exc));
       test_exc.exception_cleanup = exc_cleanup;
       _Unwind_ForcedUnwind(&test_exc, force_unwind_stop, NULL);
+      __builtin_unreachable();  // _Unwind_ForcedUnwind does not return
   }
 
   // Returns 0 on success: catch-all handler was NOT entered
   int test_forced_unwind_skips_catch(void) {
       catch_handler_entered = 0;
-      frame_with_catch_all(trigger_forced_unwind);
+      escape_target_fp = (uintptr_t)__builtin_frame_address(0);
+      if (setjmp(escape_buf) == 0) {
+          frame_with_catch_all(trigger_forced_unwind);
+          __builtin_unreachable();
+      }
+      // Reached via longjmp — unwind stopped at our frame (still live)
       return catch_handler_entered;  // 0 = pass, 1 = fail
   }
 
   // Returns 0 on success: cleanup handler WAS entered
   int test_forced_unwind_runs_cleanup(void) {
       cleanup_handler_entered = 0;
-      frame_with_cleanup(trigger_forced_unwind);
+      escape_target_fp = (uintptr_t)__builtin_frame_address(0);
+      if (setjmp(escape_buf) == 0) {
+          frame_with_cleanup(trigger_forced_unwind);
+          __builtin_unreachable();
+      }
+      // Reached via longjmp — unwind stopped at our frame (still live)
       return cleanup_handler_entered ? 0 : 1;  // 0 = pass, 1 = fail
   }
   ```
 
   **Key details:**
+  - **CFA-based frame detection:** The stop callback must `longjmp` when the unwinder reaches the `setjmp` frame, not at `_UA_END_OF_STACK` (where the frame is already destroyed). Each test function saves its frame pointer via `__builtin_frame_address(0)` into `escape_target_fp`. The stop callback compares `_Unwind_GetCFA(ctx)` against this value — on both x86-64 and aarch64, the CFA of the target frame (`FP + 2*sizeof(void*)`) is always `>= FP`, while all inner frames have `CFA < FP` (stack grows down). The stop callback is called BEFORE each frame is unwound, so at the match point the `setjmp` context is still live and `longjmp` is well-defined.
+  - **Cleanup sequencing is preserved:** For the cleanup test, the stop callback returns `_URC_NO_REASON` for the assembly frame (allowing the personality to install the cleanup pad), the cleanup runs and sets the flag, `_Unwind_Resume` continues the forced unwind, and THEN the stop callback matches the test function's frame and longjmps — so the flag is already set when we check it.
   - `test_exc` is zero-initialized with `memset`, then `exception_cleanup` is set to a no-op callback. The `_Unwind_Exception` contract requires this field — without it, the unwinder may call through a null pointer when the exception is "caught" or the unwind completes.
   - `test_forced_unwind_skips_catch` returns 0 (pass) if the catch-all landing pad was never entered.
   - `test_forced_unwind_runs_cleanup` returns 0 (pass) if the cleanup landing pad was entered.

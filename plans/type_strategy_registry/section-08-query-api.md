@@ -133,7 +133,7 @@ pub const BUILTIN_TYPES: &[&TypeDef] = &[
 /// let int_def = find_type(TypeTag::Int).unwrap();
 /// assert_eq!(int_def.name, "int");
 ///
-/// // Non-builtin types are not in the registry
+/// // Types without methods/operators are not in BUILTIN_TYPES
 /// assert!(find_type(TypeTag::Unit).is_none());
 /// ```
 pub const fn find_type(tag: TypeTag) -> Option<&'static TypeDef> {

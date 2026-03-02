@@ -218,6 +218,10 @@ pub(super) fn run_borrow_inference(
     reason = "private pipeline helper — params match the data flow from both public compile functions"
 )]
 #[allow(unsafe_code, reason = "LLVM C API requires unsafe FFI calls")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "sequential pipeline — splitting would fragment the compilation flow"
+)]
 pub(super) fn run_codegen_pipeline<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,

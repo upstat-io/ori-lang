@@ -75,9 +75,9 @@ fn demangle_define(line: &str, pool: &Pool, interner: &StringInterner) -> Option
     let after_at = &line[at_pos + 1..];
 
     // Quoted names: @"_ori_foo$bar"(...)
-    let name = if after_at.starts_with('"') {
-        let end_quote = after_at[1..].find('"')?;
-        &after_at[1..1 + end_quote]
+    let name = if let Some(stripped) = after_at.strip_prefix('"') {
+        let end_quote = stripped.find('"')?;
+        &stripped[..end_quote]
     } else {
         // Unquoted: @_ori_main(...)
         let end = after_at.find('(')?;
@@ -133,7 +133,7 @@ fn extract_drop_type(line: &str, pool: &Pool, interner: &StringInterner) -> Opti
     let after = &line[pos + drop_marker.len()..];
 
     // Extract digits (the raw index)
-    let idx_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let idx_str: String = after.chars().take_while(char::is_ascii_digit).collect();
     let raw: u32 = idx_str.parse().ok()?;
 
     let idx = Idx::from_raw(raw);

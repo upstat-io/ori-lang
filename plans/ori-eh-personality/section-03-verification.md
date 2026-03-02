@@ -38,8 +38,8 @@ sections:
 **File(s):** N/A (running existing tests)
 
 - [ ] `cargo build -p ori_rt` — runtime builds cleanly (both rlib and staticlib)
-- [ ] `cargo bl` — compiler + runtime build succeeds (debug)
-- [ ] `cargo blr` — compiler + runtime build succeeds (release)
+- [ ] `cargo b` — compiler + runtime build succeeds (debug)
+- [ ] `cargo b --release` — compiler + runtime build succeeds (release)
 - [ ] `./test-all.sh` — full test suite passes
   - This covers: Rust unit tests, Ori spec tests (JIT), LLVM unit tests, AOT integration tests
   - Key test categories that exercise exception handling:
@@ -146,7 +146,7 @@ Re-run the code journeys that exercise exception handling to verify behavioral e
 ## 03.5 Completion Checklist
 
 - [ ] `cargo build -p ori_rt` succeeds
-- [ ] `cargo bl` and `cargo blr` succeed
+- [ ] `cargo b` and `cargo b --release` succeed
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] Zero `rust_eh_personality` references in `compiler/`, `library/`, `tests/`

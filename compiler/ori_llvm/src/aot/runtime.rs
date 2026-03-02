@@ -128,7 +128,7 @@ impl RuntimeConfig {
                 searched.push(exe_dir.to_path_buf());
 
                 // Sibling profile: target/debug/ori -> check target/release/ (and vice versa).
-                // Handles the common case where `cargo bl` (debug) builds the compiler but
+                // Handles the common case where `cargo build` (debug) builds the compiler but
                 // `libori_rt.a` was built in release (or vice versa).
                 if let Some(target_dir) = exe_dir.parent() {
                     for profile in &["release", "debug"] {

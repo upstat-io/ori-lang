@@ -110,11 +110,11 @@ Phase 3 — Verification (Section 03)
 |   ↳ 01.1 eh_personality.c | ~150 | Medium | — |
 |   ↳ 01.2 build.rs | ~25 | Low | 01.1 |
 |   ↳ 01.3 Rust FFI bridge | ~10 | Low | 01.1 |
-|   ↳ 01.4 Forced-unwind test harness | ~230 (2× asm + C + Rust) | Medium | 01.1 |
+|   ↳ 01.4 Forced-unwind test harness | ~260 (2× asm + C + Rust) | Medium | 01.1 |
 | 02 Codegen Integration | ~30 (changes) | Low | 01 |
 |   ↳ 02.1-02.4 Symbol swap | ~30 | Low | 01 |
 | 03 Verification | ~0 (testing) | Low | 02 |
-| **Total new** | **~450** | | |
+| **Total new** | **~480** | | |
 | **Total deleted** | **~15** | | |
 
 ## Known Bugs (Pre-existing)

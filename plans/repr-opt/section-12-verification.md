@@ -117,7 +117,7 @@ Build a comprehensive test matrix covering every optimization through the full p
 
 Verify that optimized code produces identical results to unoptimized code.
 
-- [ ] Extend `./scripts/dual-exec-verify.sh` to compare:
+- [ ] Extend `./diagnostics/dual-exec-verify.sh` to compare:
   - **(a) Interpreter (eval)** vs **AOT with all optimizations**
   - **(b) AOT without optimizations** vs **AOT with all optimizations**
   - Mode (b) requires a flag to disable representation optimization
@@ -129,15 +129,20 @@ Verify that optimized code produces identical results to unoptimized code.
 
 - [ ] Run comparison on ALL spec tests:
   ```bash
-  ./scripts/dual-exec-verify.sh --all --compare-repr-opt
+  ./diagnostics/dual-exec-verify.sh --all --compare-repr-opt
   ```
   - Every test must produce bit-identical output (same values, same ordering)
-  - Float comparisons use ULP (units in last place) tolerance for printing
+  - Float comparisons must also be bit-identical — no ULP tolerance. The §05
+    narrowing guarantee is "zero precision loss", so any output difference
+    indicates a narrowing bug or a printing bug, both of which must be caught.
+    (If a future optimization allows lossy narrowing via opt-in `#[repr(f32)]`,
+    those specific tests can use ULP tolerance, but the default must be exact.)
 
 - [ ] Run comparison on benchmark programs:
   - `tests/benchmarks/fibonacci.ori`
   - `tests/benchmarks/` (all)
-  - Results must match exactly (integer benchmarks) or within tolerance (float)
+  - Results must match exactly (bit-identical for both integer and float benchmarks,
+    consistent with the zero-precision-loss guarantee in §05)
 
 ---
 
@@ -145,7 +150,7 @@ Verify that optimized code produces identical results to unoptimized code.
 
 - [ ] **Valgrind (heap memory):**
   ```bash
-  ./scripts/valgrind-aot.sh tests/valgrind/
+  ./diagnostics/valgrind-aot.sh tests/valgrind/
   ```
   - All existing Valgrind tests must pass
   - Add new Valgrind tests for:
@@ -157,7 +162,9 @@ Verify that optimized code produces identical results to unoptimized code.
 
 - [ ] **AddressSanitizer (stack memory):**
   ```bash
-  ORI_ASAN=1 cargo bl && ./scripts/asan-test.sh
+  # NOTE: diagnostics/asan-test.sh must be created as part of this section.
+  # It should build with ASan flags and run the spec + valgrind test suites.
+  ORI_ASAN=1 cargo b && ./diagnostics/asan-test.sh
   ```
   - Stack-promoted values must not be accessed after function return
   - No buffer overflows in packed bool arrays
@@ -175,13 +182,18 @@ Verify that optimized code produces identical results to unoptimized code.
 
 - [ ] **Baseline (before optimizations):**
   ```bash
-  ./scripts/perf-baseline.sh --release > baseline.json
+  # NOTE: perf-baseline.sh currently emits a human-readable table, not JSON.
+  # Either add a --json flag to perf-baseline.sh, or create perf-compare.sh
+  # to parse the existing table format. Using .txt extension to match current output.
+  ./scripts/perf-baseline.sh --release > baseline.txt
   ```
 
 - [ ] **Post-optimization measurement:**
   ```bash
-  ./scripts/perf-baseline.sh --release > optimized.json
-  ./scripts/perf-compare.sh baseline.json optimized.json
+  ./scripts/perf-baseline.sh --release > optimized.txt
+  # NOTE: scripts/perf-compare.sh must be created as part of this section.
+  # It should parse two perf-baseline.sh outputs and report deltas.
+  ./scripts/perf-compare.sh baseline.txt optimized.txt
   ```
 
 - [ ] **Metrics to track:**
@@ -196,7 +208,7 @@ Verify that optimized code produces identical results to unoptimized code.
   | Memory (collection-heavy) | peak RSS | ≥ 30% reduction (SVO + SSO) |
   | RC operations | `grep ori_rc output.ll \| wc -l` | ≥ 40% fewer (triviality + escape) |
 
-- [ ] **Microbenchmarks** (add to `oric/benches/`):
+- [ ] **Microbenchmarks** (add to `compiler/oric/benches/`):
   - `repr_narrowing`: Measure ReprPlan computation time
   - `range_analysis`: Measure range analysis time per function
   - `escape_analysis`: Measure escape analysis time per function
@@ -263,7 +275,7 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 
-**Exit Criteria:** Running `./scripts/perf-compare.sh baseline.json optimized.json` shows:
+**Exit Criteria:** Running `./scripts/perf-compare.sh baseline.txt optimized.txt` shows:
 - Runtime: geometric mean ≥ 10% improvement across benchmark suite
 - Memory: geometric mean ≥ 20% reduction across benchmark suite
 - RC operations: ≥ 40% fewer in generated LLVM IR

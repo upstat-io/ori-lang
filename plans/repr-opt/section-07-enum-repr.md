@@ -172,12 +172,20 @@ On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits are
 - [ ] Implement tagged pointer optimization:
   ```rust
   pub fn can_use_tagged_pointer(enum_repr: &EnumRepr) -> bool {
-      // All variants must be pointer-sized or smaller
-      // At most 8 variants (3 bits)
-      // At least one variant is a pointer type with alignment ≥ 8
-      enum_repr.variants.len() <= 8
-          && enum_repr.variants.iter().all(|v| v.size <= 8)
-          && enum_repr.variants.iter().any(|v| v.is_pointer())
+      // At most 8 variants (3 bits for tag)
+      if enum_repr.variants.len() > 8 {
+          return false;
+      }
+      // Every non-unit variant must be a pointer type with alignment ≥ 8.
+      // The decode path uses `value & ~0x7` to recover the pointer, which
+      // would corrupt non-pointer payloads (e.g., masking int(5) gives 0).
+      // Unit variants (size == 0) are fine — they carry no payload, just a tag.
+      enum_repr.variants.iter().all(|v| {
+          v.size == 0 || (v.is_pointer() && v.alignment >= 8)
+      })
+      // At least one variant must actually be a pointer (otherwise
+      // there's no benefit — use discriminant narrowing instead)
+      && enum_repr.variants.iter().any(|v| v.is_pointer())
   }
   ```
 
@@ -185,11 +193,15 @@ On 64-bit systems, heap pointers have alignment ≥8, meaning the low 3 bits are
   ```
   [63:3] pointer value  [2:0] tag
   ```
-  - Store: `ptr | tag`
+  - Store pointer variant: `ptr | tag` (low 3 bits of ptr are 0 due to alignment)
   - Load tag: `value & 0x7`
-  - Load ptr: `value & ~0x7`
+  - Load pointer: `value & ~0x7`
+  - Unit variants: only the tag value matters, no payload to decode
 
-- [ ] Safety: only applicable when the runtime guarantees 8-byte aligned allocations (ori_rt already does: alignment is always ≥ 8)
+- [ ] Safety:
+  - Only applicable when the runtime guarantees 8-byte aligned allocations (ori_rt already does: alignment is always ≥ 8)
+  - Non-pointer scalar payloads (int, bool, float) are **excluded** — their low bits carry data that `& ~0x7` would destroy
+  - Future: could support scalar payloads by shifting them left 3 bits during encode and right 3 bits during decode, at the cost of reducing the usable range (61 bits instead of 64)
 
 ---
 
@@ -225,7 +237,7 @@ When variant payloads have different sizes, the current approach uses `max(sizeo
 - [ ] Single-variant enums → newtype erasure (no tag)
 - [ ] Discriminant uses minimum width (i8 for ≤256, i16 for ≤65536)
 - [ ] `./test-all.sh` green
-- [ ] `./scripts/valgrind-aot.sh` clean
+- [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Pattern matching codegen correctly reads niche-encoded variants
 
 **Exit Criteria:** `Option<bool>` compiles to a single `i8` in LLVM IR (no struct wrapper), with `None = 2`, `Some(false) = 0`, `Some(true) = 1`. Verified by inspecting LLVM IR and running all Option-related spec tests.

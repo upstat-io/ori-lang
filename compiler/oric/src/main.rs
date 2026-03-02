@@ -10,6 +10,12 @@ use oric::commands::{
 };
 use oric::test::TestRunnerConfig;
 
+#[cfg(not(feature = "llvm"))]
+compile_error!(
+    "oric requires the `llvm` feature (enabled by default). \
+     Build with: cargo build -p oric"
+);
+
 #[expect(
     clippy::too_many_lines,
     clippy::cognitive_complexity,
@@ -17,12 +23,6 @@ use oric::test::TestRunnerConfig;
 )]
 fn main() {
     oric::tracing_setup::init();
-
-    #[cfg(not(feature = "llvm"))]
-    {
-        eprintln!("warning: ori compiled without LLVM support. AOT compilation unavailable.");
-        eprintln!("         Rebuild with: cargo bl");
-    }
 
     let args: Vec<String> = std::env::args().collect();
 

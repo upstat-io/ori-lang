@@ -317,7 +317,7 @@ fn from_runtime_not_found() {
     assert_eq!(diag.code, ErrorCode::E5005);
     assert!(diag.message.contains("libori_rt.a"));
     assert!(diag.notes.iter().any(|n| n.contains("/usr/lib")));
-    assert!(diag.suggestions.iter().any(|s| s.contains("cargo bl")));
+    assert!(diag.suggestions.iter().any(|s| s.contains("cargo build")));
 }
 
 // ── CodegenDiagnostics accumulator ──────────────────────────────────
