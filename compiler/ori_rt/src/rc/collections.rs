@@ -221,11 +221,11 @@ fn slice_buffer_rc_dec(
     }
 }
 
-/// Decrement the refcount of a map's combined data buffer.
+/// Decrement the refcount of a map's hash table data buffer.
 ///
-/// Map data layout: `[key0..keyN | val0..valN]` where values start at
-/// `data + cap * key_size`. When RC reaches 0, calls `key_dec_fn` on each
-/// key and `val_dec_fn` on each value, then frees the buffer.
+/// Map data layout: `[metadata | keys | values]` (hash table with open
+/// addressing). When RC reaches 0, scans metadata for OCCUPIED buckets,
+/// calls `key_dec_fn`/`val_dec_fn` on each, then frees the buffer.
 #[no_mangle]
 pub extern "C" fn ori_map_buffer_rc_dec(
     data: *mut u8,
@@ -292,31 +292,41 @@ pub extern "C" fn ori_map_buffer_rc_dec(
 }
 
 /// Clean up and free a map data buffer. Called when RC reaches 0.
+///
+/// Scans metadata for OCCUPIED buckets and calls `key_dec_fn`/`val_dec_fn`
+/// on each occupied key/value. Frees the buffer using hash table layout size.
 fn map_buffer_cleanup(
     data: *mut u8,
     cap: usize,
-    len: usize,
+    _len: usize,
     key_size: usize,
     val_size: usize,
     key_dec_fn: Option<extern "C" fn(*mut u8)>,
     val_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) {
-    // Dec children: keys at offset 0, values at offset cap * key_size
-    if let Some(f) = key_dec_fn {
-        for i in 0..len {
-            call_drop_fn(f, unsafe { data.add(i * key_size) });
-        }
-    }
-    if let Some(f) = val_dec_fn {
-        let vals_start = unsafe { data.add(cap * key_size) };
-        for i in 0..len {
-            call_drop_fn(f, unsafe { vals_start.add(i * val_size) });
+    use crate::map::hash_table::{get_meta, HashTableLayout, META_OCCUPIED};
+
+    let layout = HashTableLayout::for_map(cap, key_size, val_size);
+
+    // Dec children: scan metadata for OCCUPIED buckets
+    if key_dec_fn.is_some() || val_dec_fn.is_some() {
+        for bucket in 0..cap {
+            if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+                if let Some(f) = key_dec_fn {
+                    call_drop_fn(f, unsafe {
+                        data.add(layout.keys_offset + bucket * key_size)
+                    });
+                }
+                if let Some(f) = val_dec_fn {
+                    call_drop_fn(f, unsafe {
+                        data.add(layout.vals_offset + bucket * val_size)
+                    });
+                }
+            }
         }
     }
 
-    // Free the combined buffer
-    let total = cap * key_size + cap * val_size;
-    ori_rc_free(data, total, 8);
+    ori_rc_free(data, layout.total_size, 8);
 }
 
 /// Drop a collection buffer that is known to be uniquely owned (RC == 1).
@@ -455,6 +465,124 @@ pub extern "C" fn ori_memcpy_elements(
     unsafe {
         std::ptr::copy_nonoverlapping(src, dst, count * elem_size);
     }
+}
+
+/// Decrement the refcount of a set's hash table data buffer.
+///
+/// Set data layout: `[metadata | elements]` (hash table with open addressing).
+/// When RC reaches 0, scans metadata for OCCUPIED buckets, calls `elem_dec_fn`
+/// on each, then frees the buffer.
+#[no_mangle]
+pub extern "C" fn ori_set_buffer_rc_dec(
+    data: *mut u8,
+    cap: i64,
+    _len: i64,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if data.is_null() {
+        return;
+    }
+
+    rt_debug_validate_rc(data.cast_const(), "ori_set_buffer_rc_dec");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data.cast_const(), "ori_set_buffer_rc_dec");
+
+    let es = elem_size.max(1) as usize;
+    let c = cap.max(0) as usize;
+
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        let prev = unsafe {
+            let rc_ptr = data.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).fetch_sub(1, Ordering::Release)
+        };
+
+        if prev <= 0 {
+            rc_underflow_abort(data);
+        }
+
+        if rc_trace_enabled() {
+            rc_trace_dec(data.cast_const(), prev - 1);
+        }
+
+        if prev <= 1 {
+            atomic::fence(Ordering::Acquire);
+            set_buffer_cleanup(data, c, es, elem_dec_fn);
+        }
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let (should_drop, new_rc) = unsafe {
+            let rc_ptr = data.sub(8).cast::<i64>();
+            if *rc_ptr <= 0 {
+                rc_underflow_abort(data);
+            }
+            *rc_ptr -= 1;
+            (*rc_ptr <= 0, *rc_ptr)
+        };
+
+        if rc_trace_enabled() {
+            rc_trace_dec(data.cast_const(), new_rc);
+        }
+
+        if should_drop {
+            set_buffer_cleanup(data, c, es, elem_dec_fn);
+        }
+    }
+}
+
+/// Drop a set buffer that is known to be uniquely owned (RC == 1).
+///
+/// Scans metadata for OCCUPIED buckets, calls `elem_dec_fn` on each,
+/// then frees the buffer. Skips atomic RC decrement.
+#[no_mangle]
+pub extern "C" fn ori_set_buffer_drop_unique(
+    data: *mut u8,
+    cap: i64,
+    _len: i64,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if data.is_null() {
+        return;
+    }
+
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data.cast_const(), "ori_set_buffer_drop_unique");
+
+    if rc_trace_enabled() {
+        rc_trace_dec(data.cast_const(), 0);
+    }
+
+    let es = elem_size.max(1) as usize;
+    let c = cap.max(0) as usize;
+    set_buffer_cleanup(data, c, es, elem_dec_fn);
+}
+
+/// Clean up and free a set data buffer. Called when RC reaches 0.
+fn set_buffer_cleanup(
+    data: *mut u8,
+    cap: usize,
+    elem_size: usize,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    use crate::map::hash_table::{get_meta, HashTableLayout, META_OCCUPIED};
+
+    let layout = HashTableLayout::for_set(cap, elem_size);
+
+    if let Some(f) = elem_dec_fn {
+        for bucket in 0..cap {
+            if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+                call_drop_fn(f, unsafe {
+                    data.add(layout.keys_offset + bucket * elem_size)
+                });
+            }
+        }
+    }
+
+    ori_rc_free(data, layout.total_size, 8);
 }
 
 /// Move `count * elem_size` bytes from `src` to `dst` (may overlap).

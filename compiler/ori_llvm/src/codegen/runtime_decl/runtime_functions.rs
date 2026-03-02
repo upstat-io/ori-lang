@@ -391,18 +391,49 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         ret: None,
         attrs: &[],
     },
-    // Map — single-buffer layout: data = [keys...|vals...]
+    // Map literal construction — hash table allocation + per-entry insert
+    RtFn {
+        name: "ori_map_literal_alloc",
+        // (count, key_size, val_size, out_cap) -> ptr
+        params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: Some(Ty::Ptr),
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_map_literal_put",
+        // (data, cap, key, val, key_size, val_size, key_hash)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[],
+    },
+    // Map — hash table layout: data = [metadata|keys|values]
     RtFn {
         name: "ori_map_contains_key",
-        // (data, len, needle, key_size, key_eq) -> i64
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
+        // (data, cap, len, needle, key_size, key_eq, key_hash) -> i64
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: Some(Ty::I64),
         attrs: &[],
     },
     RtFn {
         name: "ori_map_keys_to_list",
-        // (data, len, key_size, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
+        // (data, cap, len, key_size, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
         attrs: &[],
     },
@@ -415,7 +446,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_get",
-        // (data, cap, len, needle, key_size, val_size, key_eq, out_ptr)
+        // (data, cap, len, needle, key_size, val_size, key_eq, key_hash, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -423,6 +454,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
         ],
@@ -431,7 +463,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_insert_cow",
-        // (data, len, cap, key, value, key_size, val_size, key_eq, key_inc, val_inc, cow_mode, out_ptr)
+        // (data, len, cap, key, value, key_size, val_size, key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -440,6 +472,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
@@ -451,7 +484,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_remove_cow",
-        // (data, len, cap, key, key_size, val_size, key_eq, key_inc, val_inc, cow_mode, out_ptr)
+        // (data, len, cap, key, key_size, val_size, key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -459,6 +492,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
@@ -486,43 +520,22 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     // Set
     RtFn {
         name: "ori_set_contains",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64],
+        // (data, cap, len, needle, elem_size, elem_eq, elem_hash) -> i64
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: Some(Ty::I64),
         attrs: &[],
     },
     RtFn {
-        name: "ori_set_insert",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
-        ret: None,
-        attrs: &[],
-    },
-    RtFn {
-        name: "ori_set_remove",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
-        ret: None,
-        attrs: &[],
-    },
-    RtFn {
-        name: "ori_set_union",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
-        ret: None,
-        attrs: &[],
-    },
-    RtFn {
-        name: "ori_set_intersection",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
-        ret: None,
-        attrs: &[],
-    },
-    RtFn {
-        name: "ori_set_difference",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
-        ret: None,
-        attrs: &[],
-    },
-    RtFn {
         name: "ori_set_insert_cow",
-        // (data, len, cap, elem, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
+        // (data, len, cap, elem, elem_size, elem_align, elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -530,6 +543,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::I32,
@@ -540,7 +554,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_remove_cow",
-        // (data, len, cap, elem, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
+        // (data, len, cap, elem, elem_size, elem_align, elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -548,6 +562,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::I32,
@@ -558,7 +573,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_union_cow",
-        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
+        // (d1, l1, c1, d2, l2, c2, elem_size, elem_align, elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -567,6 +582,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::I32,
@@ -577,7 +594,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_intersection_cow",
-        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
+        // (d1, l1, c1, d2, l2, c2, elem_size, elem_align, elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -586,6 +603,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::I32,
@@ -596,7 +615,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_difference_cow",
-        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
+        // (d1, l1, c1, d2, l2, c2, elem_size, elem_align, elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -605,6 +624,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::I32,
@@ -615,9 +636,40 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_to_list",
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
+        // (data, cap, len, elem_size, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
         attrs: &[],
+    },
+    // Set literal construction — hash table allocation + per-entry insert
+    RtFn {
+        name: "ori_set_literal_alloc",
+        // (count, elem_size, out_cap) -> ptr
+        params: &[Ty::I64, Ty::I64, Ty::Ptr],
+        ret: Some(Ty::Ptr),
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_set_literal_put",
+        // (data, cap, elem, elem_size, elem_hash)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[],
+    },
+    // Set buffer RC cleanup (hash table layout — cap and len swapped vs list)
+    RtFn {
+        name: "ori_set_buffer_rc_dec",
+        // (data, cap, len, elem_size, elem_dec_fn)
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
+    },
+    RtFn {
+        name: "ori_set_buffer_drop_unique",
+        // (data, cap, len, elem_size, elem_dec_fn)
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
     },
     // String iteration
     RtFn {
@@ -1120,7 +1172,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_collect_set",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        // (iter, elem_size, elem_eq, elem_hash, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[],
     },
