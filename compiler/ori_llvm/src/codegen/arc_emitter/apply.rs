@@ -1,19 +1,23 @@
 //! Function call emission for ARC IR → LLVM IR.
 //!
-//! Handles direct calls (`Apply`), indirect calls (`ApplyIndirect`), method
-//! dispatch resolution, ABI parameter passing, sret protocol, and runtime
-//! function coercion. This is the call-site half of the emission pipeline;
+//! Handles direct calls (`Apply`), indirect calls (`ApplyIndirect`), and method
+//! dispatch resolution. This is the call-site half of the emission pipeline;
 //! the callee declarations live in `function_compiler`.
+//!
+//! # Submodules
+//!
+//! - [`apply_protocols`](super::apply_protocols) — internal protocol intercepts
+//!   (`__iter_next`, `__collect_set`, `ori_list_take`, `__index`)
+//! - [`apply_helpers`](super::apply_helpers) — ABI parameter passing, sret,
+//!   and aggregate-to-pointer coercion
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::Name;
-use ori_types::{Idx, Tag};
+use ori_types::Idx;
 
-use super::context::InvokeMode;
 use super::ArcIrEmitter;
 use crate::codegen::abi::{FunctionAbi, ReturnPassing};
-use crate::codegen::type_info::TypeInfo;
-use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
+use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit either LLVM `invoke` or `call` + `br` based on [`InvokeMode`].
@@ -24,16 +28,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         func_id: FunctionId,
         args: &[ValueId],
-        mode: InvokeMode,
+        mode: super::context::InvokeMode,
         name: &str,
     ) -> Option<ValueId> {
         match mode {
-            InvokeMode::Call { normal } => {
+            super::context::InvokeMode::Call { normal } => {
                 let result = self.builder.call(func_id, args, name);
                 self.builder.br(normal);
                 result
             }
-            InvokeMode::Invoke { normal, unwind } => {
+            super::context::InvokeMode::Invoke { normal, unwind } => {
                 self.builder.invoke(func_id, args, normal, unwind, name)
             }
         }
@@ -138,58 +142,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         let callee_name_str = self.interner.lookup(callee);
 
-        // Internal protocol: __iter_next(iter, elem_ty_marker).
-        // args[0] = iterator pointer, args[1] = zero marker carrying elem_ty.
-        // Result type is INT (no RC management); actual element type comes
-        // from the marker argument.
-        if callee_name_str == "__iter_next" && args.len() >= 2 {
-            let iter_ptr = self.var(args[0]);
-            let elem_ty = func.var_type(args[1]);
-            if let Some(val) = self.emit_iter_next(iter_ptr, elem_ty) {
-                self.def_var_repr(dst, val, func);
-            }
-            return;
-        }
-
-        // Internal protocol: __collect_set(iter).
-        // Type-directed rewrite from `collect()` when target type is Set<T>.
-        // Uses sret pattern like emit_iter_collect but calls ori_iter_collect_set.
-        if callee_name_str == "__collect_set" && !args.is_empty() {
-            let iter_ptr = self.var(args[0]);
-            let iter_ty = func.var_type(args[0]);
-            let elem_ty = self.pool.iterator_elem(iter_ty);
-            if let Some(val) = self.emit_iter_collect_set(iter_ptr, elem_ty) {
-                self.def_var_repr(dst, val, func);
-            }
-            return;
-        }
-
-        // ori_list_take uses explicit sret pattern: void(list_ptr, out_ptr).
-        // The ARC IR emits Apply "ori_list_take"(list_ptr) expecting a struct return.
-        // We handle the sret plumbing here: alloca result struct, call, load.
-        if callee_name_str == "ori_list_take" && !args.is_empty() {
-            if let Some(val) = self.emit_list_take(args[0], func) {
-                self.def_var_repr(dst, val, func);
-            }
-            return;
-        }
-
-        // Internal protocol: __index(receiver, index).
-        // Desugared from `receiver[index]` by ARC lowering.
-        // List: returns T directly (panics OOB). Map: returns Option<V>.
-        if callee_name_str == "__index" && args.len() >= 2 {
-            let receiver_ty = func.var_type(args[0]);
-            let type_info = self.type_info.get(receiver_ty);
-            let recv = self.var(args[0]);
-            let idx = self.var(args[1]);
-            let result = match &type_info {
-                TypeInfo::List { element } => self.emit_list_index(recv, idx, *element),
-                TypeInfo::Map { key, value } => self.emit_map_get(recv, idx, *key, *value),
-                _ => None,
-            };
-            if let Some(val) = result {
-                self.def_var_repr(dst, val, func);
-            }
+        // Internal protocol intercepts (__iter_next, __collect_set, etc.)
+        if self.try_emit_protocol(dst, callee_name_str, args, func) {
             return;
         }
 
@@ -346,162 +300,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 "emit_apply_indirect: extract_value failed — fn_ptr or env_ptr is None"
             );
         }
-    }
-
-    // -----------------------------------------------------------------------
-    // ABI helpers
-    // -----------------------------------------------------------------------
-
-    /// Apply parameter passing modes to argument values.
-    ///
-    /// Apply param passing: `Indirect`/`Reference` (alloca+store+pass ptr),
-    /// `Direct` (pass through), `Void` (skip).
-    pub(super) fn apply_param_passing(
-        &mut self,
-        args: &[ValueId],
-        params: &[crate::codegen::abi::ParamAbi],
-    ) -> Vec<ValueId> {
-        let mut result = Vec::with_capacity(args.len());
-        let mut arg_idx = 0;
-
-        for param_abi in params {
-            if arg_idx >= args.len() {
-                break;
-            }
-
-            match &param_abi.passing {
-                crate::codegen::abi::ParamPassing::Indirect { .. }
-                | crate::codegen::abi::ParamPassing::Reference => {
-                    let param_ty = self.resolve_type(param_abi.ty);
-                    let alloca = self.builder.create_entry_alloca(
-                        self.current_function,
-                        "ref_arg",
-                        param_ty,
-                    );
-                    self.builder.store(args[arg_idx], alloca);
-                    result.push(alloca);
-                    arg_idx += 1;
-                }
-                crate::codegen::abi::ParamPassing::Direct => {
-                    result.push(args[arg_idx]);
-                    arg_idx += 1;
-                }
-                crate::codegen::abi::ParamPassing::Void => {
-                    // Void params are not physically passed — skip
-                }
-            }
-        }
-
-        // Pass remaining args directly (shouldn't happen in well-typed code)
-        while arg_idx < args.len() {
-            result.push(args[arg_idx]);
-            arg_idx += 1;
-        }
-
-        result
-    }
-
-    /// Call a function with sret (struct return via hidden pointer).
-    ///
-    /// The sret alloca is placed in the entry block (via `create_entry_alloca`)
-    /// to ensure it dominates all uses, even in loop bodies or branch targets.
-    pub(super) fn call_with_sret(
-        &mut self,
-        func_id: FunctionId,
-        args: &[ValueId],
-        ret_ty: LLVMTypeId,
-        name: &str,
-    ) -> Option<ValueId> {
-        let sret_alloca =
-            self.builder
-                .create_entry_alloca(self.current_function, "sret.tmp", ret_ty);
-        let mut full_args = Vec::with_capacity(1 + args.len());
-        full_args.push(sret_alloca);
-        full_args.extend_from_slice(args);
-        self.builder.call(func_id, &full_args, name);
-        Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
-    }
-
-    // -----------------------------------------------------------------------
-    // List take (sret helper for for-yield finalization)
-    // -----------------------------------------------------------------------
-
-    /// Emit `ori_list_take(list_ptr, out_ptr)` with manual sret handling.
-    ///
-    /// `ori_list_take` uses an explicit sret pattern: `void(ptr list, ptr out)`.
-    /// We alloca a `{i64, i64, ptr}` result, call the function, then load.
-    fn emit_list_take(&mut self, list_var: ArcVarId, _func: &ArcFunction) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_take");
-        let list_ptr = self.var(list_var);
-
-        // Alloca {i64, i64, ptr} for the result
-        let list_struct_ty = self.builder.register_type(
-            self.builder
-                .scx()
-                .type_struct(
-                    &[
-                        self.builder.scx().type_i64().into(),
-                        self.builder.scx().type_i64().into(),
-                        self.builder.scx().type_ptr().into(),
-                    ],
-                    false,
-                )
-                .into(),
-        );
-        let out_alloca = self.builder.create_entry_alloca(
-            self.current_function,
-            "list_take.out",
-            list_struct_ty,
-        );
-
-        // Call ori_list_take(list_ptr, out_alloca) — void return
-        self.builder
-            .call(func_id, &[list_ptr, out_alloca], "list_take");
-
-        // Load the result struct from the alloca
-        Some(
-            self.builder
-                .load(list_struct_ty, out_alloca, "list_take.val"),
-        )
-    }
-
-    // -----------------------------------------------------------------------
-    // Aggregate-to-pointer coercion
-    // -----------------------------------------------------------------------
-
-    /// Coerce an aggregate value to a pointer for runtime function calls.
-    ///
-    /// Runtime functions like `ori_print` expect `ptr` arguments (pointers to
-    /// structs), but ARC IR passes aggregate values directly. When we detect
-    /// that a call arg is an aggregate but the callee expects `ptr`, we
-    /// alloca+store+pass the pointer.
-    pub(super) fn coerce_aggregate_to_ptr(&mut self, val: ValueId, ty: Idx) -> ValueId {
-        let tag = self.pool.tag(ty);
-        match tag {
-            Tag::Str | Tag::List | Tag::Set | Tag::Map => {
-                let llvm_ty = self.resolve_type(ty);
-                let alloca =
-                    self.builder
-                        .create_entry_alloca(self.current_function, "rt_arg", llvm_ty);
-                self.builder.store(val, alloca);
-                alloca
-            }
-            _ => val,
-        }
-    }
-
-    /// Coerce any value (including scalars) to a pointer via alloca+store.
-    ///
-    /// Unlike `coerce_aggregate_to_ptr` which only handles struct types,
-    /// this works for ALL types. Used by `ori_list_push` which needs a
-    /// `*const u8` pointer to any element's bytes.
-    pub(super) fn coerce_any_to_ptr(&mut self, val: ValueId, ty: Idx) -> ValueId {
-        let llvm_ty = self.resolve_type(ty);
-        let alloca = self
-            .builder
-            .create_entry_alloca(self.current_function, "elem_arg", llvm_ty);
-        self.builder.store(val, alloca);
-        alloca
     }
 
     // -----------------------------------------------------------------------

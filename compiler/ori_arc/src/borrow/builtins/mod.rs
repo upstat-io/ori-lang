@@ -109,6 +109,7 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "push",        // list.push (COW push)
     "remove",      // list.remove (COW remove)
     "reverse",     // list.reverse (COW reverse)
+    "set",         // list.set (COW set at index)
     "sort",        // list.sort (COW sort, unstable)
     "sort_stable", // list.sort_stable (COW sort, stable/TimSort)
 ];
