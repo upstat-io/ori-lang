@@ -25,9 +25,11 @@ pub(crate) type FoldFn = extern "C" fn(*mut u8, *const u8, *const u8, *mut u8);
 pub(crate) enum IterState {
     /// Iterates over a contiguous array of elements (list data buffer).
     ///
-    /// When `cap > 0`, the iterator owns a reference to the RC-managed data
-    /// buffer. `Drop` calls `ori_buffer_rc_dec` to release it. When `cap == 0`
-    /// (e.g., Rust unit tests with stack data), no cleanup is performed.
+    /// When `cap != 0`, the iterator owns a reference to the RC-managed data
+    /// buffer. `Drop` calls `ori_buffer_rc_dec` to release it. This handles
+    /// both regular lists (`cap > 0`) and seamless slices (`cap < 0`, where
+    /// the `SLICE_FLAG` is set). When `cap == 0` (e.g., Rust unit tests with
+    /// stack data), no cleanup is performed.
     List {
         data: *mut u8,
         len: i64,
@@ -143,9 +145,11 @@ impl Drop for IterState {
                 elem_dec_fn,
                 ..
             } => {
-                // cap > 0 indicates RC-managed data (from the compiler).
+                // cap != 0 indicates RC-managed data (from the compiler):
+                //   cap > 0 → regular list (cap is capacity)
+                //   cap < 0 → seamless slice (SLICE_FLAG set, ori_buffer_rc_dec handles it)
                 // cap == 0 indicates test data (stack-allocated, no cleanup).
-                if !data.is_null() && *cap > 0 {
+                if !data.is_null() && *cap != 0 {
                     crate::ori_buffer_rc_dec(*data, *len, *cap, *elem_size, *elem_dec_fn);
                 }
             }
