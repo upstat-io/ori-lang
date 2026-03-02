@@ -1,0 +1,16 @@
+// Benchmark: String concatenation (unique owner)
+// Exercises: COW fast path for string concat — in-place append when unique
+// Expected: O(n) with COW + capacity growth (was O(n^2) without COW)
+
+@main () -> int = {
+    let n = 100000;
+    let s = "";
+    let i = 0;
+    loop {
+        if i >= n then break;
+        s = s + "x";
+        i = i + 1;
+    };
+    // Verify length
+    if s.len() == n then 0 else 1
+}

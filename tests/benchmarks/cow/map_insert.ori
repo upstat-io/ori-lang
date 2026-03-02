@@ -1,0 +1,16 @@
+// Benchmark: Map insert (unique owner)
+// Exercises: COW fast path for map — in-place insert when unique
+// Expected: O(n) with COW (was O(n^2) without COW)
+
+@main () -> int = {
+    let n = 10000;
+    let map: {int: int} = {};
+    let i = 0;
+    loop {
+        if i >= n then break;
+        map = map.insert(i, i * 10);
+        i = i + 1;
+    };
+    // Verify
+    if map.len() == n then 0 else 1
+}
