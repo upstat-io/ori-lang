@@ -23,8 +23,9 @@
 //! flags for codegen dispatch. A sync test in `ori_llvm` asserts that table's
 //! effective borrowing set matches this canonical list.
 
+use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
 use ori_ir::{Name, StringInterner};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// All builtin method names that borrow their receiver, sorted alphabetically.
 ///
@@ -34,6 +35,7 @@ use rustc_hash::FxHashSet;
 /// When adding a new builtin method to the LLVM backend's `declare_builtins!`
 /// with `borrow: true`, also add its name here (if not already present).
 const BORROWING_METHOD_NAMES: &[&str] = &[
+    "__index", // arr[i] / map[k] — reads receiver + key, produces independent result
     "abs",
     "byte",
     "chars",
@@ -108,6 +110,7 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "push",        // list.push (COW push)
     "remove",      // list.remove (COW remove)
     "reverse",     // list.reverse (COW reverse)
+    "set",         // list.set (COW set at index)
     "sort",        // list.sort (COW sort, unstable)
     "sort_stable", // list.sort_stable (COW sort, stable/TimSort)
 ];
@@ -264,6 +267,12 @@ pub struct BuiltinOwnershipSets {
     /// receiver is consumed (COW handles its RC) but the key/other-set is
     /// only read for comparison — its RC must be decremented by the caller.
     pub consuming_receiver_only: FxHashSet<Name>,
+    /// Pre-interned protocol builtin lookup: `Name` → per-arg ownership.
+    ///
+    /// Used by borrow inference and RC annotation to handle protocol
+    /// builtins (`__index`, `__iter_next`, `__collect_set`) without
+    /// needing the `StringInterner` in the core loop.
+    pub protocol: FxHashMap<Name, &'static [ProtocolArgOwnership]>,
 }
 
 impl BuiltinOwnershipSets {
@@ -274,6 +283,21 @@ impl BuiltinOwnershipSets {
             consuming_receiver: consuming_receiver_builtin_names(interner),
             consuming_second_arg: consuming_second_arg_builtin_names(interner),
             consuming_receiver_only: consuming_receiver_only_builtin_names(interner),
+            protocol: ProtocolBuiltin::ALL
+                .iter()
+                .map(|pb| (interner.intern(pb.name()), pb.arg_ownership()))
+                .collect(),
+        }
+    }
+
+    /// Empty sets for unit tests that don't exercise builtin ownership.
+    pub fn empty() -> Self {
+        Self {
+            borrowing: FxHashSet::default(),
+            consuming_receiver: FxHashSet::default(),
+            consuming_second_arg: FxHashSet::default(),
+            consuming_receiver_only: FxHashSet::default(),
+            protocol: FxHashMap::default(),
         }
     }
 }

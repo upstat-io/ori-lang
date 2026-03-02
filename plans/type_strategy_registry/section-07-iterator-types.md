@@ -10,8 +10,10 @@ files:
   # Registry (new)
   - ori_registry/src/defs/iterator.rs
   # Type checker (current — to be replaced)
-  - compiler/ori_types/src/infer/expr/methods.rs        # resolve_iterator_method(), DEI_ONLY_METHODS
-  - compiler/ori_types/src/infer/expr/calls.rs          # unify_higher_order_constraints()
+  - compiler/ori_types/src/infer/expr/methods/mod.rs     # resolve_iterator_method(), DEI_ONLY_METHODS
+  - compiler/ori_types/src/infer/expr/methods/resolve_by_type.rs  # per-type method resolution
+  - compiler/ori_types/src/infer/expr/calls/mod.rs      # unify_higher_order_constraints()
+  - compiler/ori_types/src/infer/expr/calls/constraints.rs  # constraint solving
   # Evaluator (current — to be consumed)
   - compiler/ori_eval/src/interpreter/resolvers/mod.rs   # CollectionMethod enum, ITERATOR_METHOD_NAMES
   - compiler/ori_eval/src/interpreter/resolvers/collection/mod.rs  # CollectionMethodResolver
@@ -45,7 +47,7 @@ files:
 
 ### 07.1.1 Method Inventory
 
-The complete set of Iterator methods, derived from `resolve_iterator_method()` in `methods.rs` (lines 804-866), `TYPECK_BUILTIN_METHODS` (lines 79-97), `ITERATOR_METHOD_NAMES` in `resolvers/mod.rs` (lines 232-257), and `CollectionMethod` enum variants.
+The complete set of Iterator methods, derived from `resolve_iterator_method()` in `methods/mod.rs`, `TYPECK_BUILTIN_METHODS` in `methods/mod.rs`, `ITERATOR_METHOD_NAMES` in `resolvers/mod.rs`, and `CollectionMethod` enum variants.
 
 **Adapter methods** (return Iterator or DoubleEndedIterator):
 
@@ -90,17 +92,16 @@ The complete set of Iterator methods, derived from `resolve_iterator_method()` i
 
 use crate::{
     MethodDef, Ownership, ParamDef, TypeDef, TypeTag,
-    ReturnType, GenericParam, DeiPropagation,
+    ReturnTag, TypeProjection, TypeParamArity, DeiPropagation,
 };
 
 /// Iterator<T> — lazy sequence with adapter/consumer protocol.
 pub const ITERATOR: TypeDef = TypeDef {
     tag: TypeTag::Iterator,
     name: "Iterator",
-    display_name: "Iterator<T>",
-    generic_params: &[GenericParam::Element],  // T
+    type_params: TypeParamArity::Fixed(1),     // T
     memory: MemoryStrategy::Arc,               // Opaque heap-allocated handle
-    operators: OpDefs::NONE,                   // No operators on Iterator
+    operators: OpDefs::UNSUPPORTED,            // No operators on Iterator
     methods: &ITERATOR_METHODS,
 };
 
@@ -109,42 +110,53 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
     MethodDef {
         name: "next",
         params: &[],
-        returns: ReturnType::TupleOf(&[
-            ReturnType::OptionOf(ReturnType::Element),
-            ReturnType::ReceiverType,
-        ]),
+        // Returns (Option<T>, Self) — represented as Fresh since the
+        // tuple structure is constructed by the type checker, not the registry.
+        returns: ReturnTag::Fresh,
         receiver: Ownership::Borrow,
-        dei_propagation: DeiPropagation::NotApplicable,
-        dei_only: false,
         trait_name: None,
+        pure: true,
+        backend_required: true,
+        kind: MethodKind::Instance,
+        dei_only: false,
+        dei_propagation: DeiPropagation::NotApplicable,
     },
     // ── Adapters ──
     MethodDef {
         name: "map",
-        params: &[ParamDef::Closure],
-        returns: ReturnType::IteratorOf(ReturnType::FreshVar),
+        params: &[ParamDef { name: "transform", ty: ReturnTag::Fresh, ownership: Ownership::Copy }],
+        returns: ReturnTag::Fresh, // closure-driven: Iterator<U>
         receiver: Ownership::Borrow,
-        dei_propagation: DeiPropagation::Propagate,
-        dei_only: false,
         trait_name: None,
+        pure: true,
+        backend_required: false, // typeck + eval only (LLVM deferred)
+        kind: MethodKind::Instance,
+        dei_only: false,
+        dei_propagation: DeiPropagation::Propagate,
     },
     MethodDef {
         name: "filter",
-        params: &[ParamDef::Closure],
-        returns: ReturnType::ReceiverType,
+        params: &[ParamDef { name: "predicate", ty: ReturnTag::Fresh, ownership: Ownership::Copy }],
+        returns: ReturnTag::SelfType, // preserves receiver type
         receiver: Ownership::Borrow,
-        dei_propagation: DeiPropagation::Propagate,
-        dei_only: false,
         trait_name: None,
+        pure: true,
+        backend_required: false,
+        kind: MethodKind::Instance,
+        dei_only: false,
+        dei_propagation: DeiPropagation::Propagate,
     },
     MethodDef {
         name: "take",
-        params: &[ParamDef::Type(TypeTag::Int)],
-        returns: ReturnType::IteratorOf(ReturnType::Element),
+        params: &[ParamDef { name: "count", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy }],
+        returns: ReturnTag::IteratorOf(TypeProjection::Element),
         receiver: Ownership::Borrow,
-        dei_propagation: DeiPropagation::Downgrade,
-        dei_only: false,
         trait_name: None,
+        pure: true,
+        backend_required: false,
+        kind: MethodKind::Instance,
+        dei_only: false,
+        dei_propagation: DeiPropagation::Downgrade,
     },
     // ... (remaining methods follow same pattern)
 ];
@@ -502,15 +514,14 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 
 ### Step 2: Define return type specifications
 
-- [ ] Extend `ReturnType` enum (from Section 01) to handle:
-  - `IteratorOf(inner)` — constructs `Iterator<inner>` in the type pool
-  - `DeiOf(inner)` — constructs `DoubleEndedIterator<inner>` in the type pool
-  - `OptionOf(inner)` — constructs `Option<inner>`
-  - `ListOf(inner)` — constructs `[inner]`
-  - `TupleOf(&[ReturnType])` — constructs tuple
-  - `FreshVar` — creates a fresh type variable (for higher-order methods)
-  - `Element` — the T in Iterator<T>
-  - `ReceiverType` — same type as the receiver
+- [ ] Verify all 24 methods' return types are expressible in Section 01's `ReturnTag` enum:
+  - `IteratorOf(TypeProjection)` — constructs `Iterator<inner>` in the type pool
+  - `DoubleEndedIteratorOf(TypeProjection)` — constructs `DoubleEndedIterator<inner>` in the type pool
+  - `OptionOf(TypeProjection)` — constructs `Option<inner>`
+  - `ListOf(TypeProjection)` — constructs `[inner]`
+  - `Fresh` — creates a fresh type variable (for higher-order methods)
+  - `ElementType` — the T in Iterator<T>
+  - `SelfType` — same type as the receiver
 - [ ] Verify all 24 methods' return types are expressible
 
 ### Step 3: Verify const-constructibility
@@ -547,7 +558,7 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 
 ### Decision 2: DeiPropagation as explicit field, not derived from return type
 
-**Chosen over:** Inferring propagation from `ReturnType` variants.
+**Chosen over:** Inferring propagation from `ReturnTag` variants.
 **Rationale:** The return type alone is ambiguous: `IteratorOf(Element)` could be either propagated or downgraded. The propagation rule depends on the method's semantics (e.g., `take` downgrades because bounded iteration breaks reversibility). Making it an explicit field makes the semantics clear and auditable.
 
 ### Decision 3: Internal methods (__iter_next, __collect_set) NOT in registry
@@ -566,5 +577,5 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 - [ ] `iterator_method_names()` returns exactly 24 method names matching `ITERATOR_METHOD_NAMES` (including DEI methods)
 - [ ] All validation tests in Step 5 pass
 - [ ] No dependencies added to `ori_registry` (purity maintained)
-- [ ] Return types for all methods are expressible in the `ReturnType` enum without hacks
+- [ ] Return types for all methods are expressible in Section 01's `ReturnTag` enum without hacks
 - [ ] DeiPropagation assignments match the exact branching in current `resolve_iterator_method()`

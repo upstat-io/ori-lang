@@ -6,8 +6,8 @@ description = "LLVM backend for the Ori compiler"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/upstat-io/ori-lang"
 
-# Not in default-members (requires LLVM 17). Build with: cargo bl / cargo blr
-# LLVM tests: cargo test -p ori_llvm | CI: .github/workflows/ci.yml (llvm job)
+# Requires LLVM 17. Build with: cargo b / cargo b --release
+# LLVM tests: cargo test -p ori_llvm | CI: .github/workflows/ci.yml
 
 [dependencies]
 # Ori crates

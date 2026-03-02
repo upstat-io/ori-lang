@@ -6,6 +6,8 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use ori_ir::builtin_constants::protocol::ProtocolArgOwnership;
+
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
 use crate::ownership::Ownership;
 use ori_types::Pool;
@@ -33,6 +35,7 @@ fn compute_arg_ownership(
     interner: &ori_ir::StringInterner,
     borrowing_builtins: &FxHashSet<ori_ir::Name>,
     consuming_receiver_only: &FxHashSet<ori_ir::Name>,
+    protocol_builtins: &FxHashMap<ori_ir::Name, &'static [ProtocolArgOwnership]>,
 ) -> Vec<ArgOwnership> {
     // External C runtime: not in sigs, name starts with `ori_`.
     if !sigs.contains_key(&callee) {
@@ -52,6 +55,24 @@ fn compute_arg_ownership(
             let mut ownership = vec![ArgOwnership::Borrowed; arg_count];
             ownership[0] = ArgOwnership::Owned;
             return ownership;
+        }
+        // Protocol builtins with explicit per-arg ownership.
+        // Uses the ProtocolBuiltin::arg_ownership() table as source of truth.
+        if let Some(ownership) = protocol_builtins.get(&callee) {
+            assert_eq!(
+                ownership.len(),
+                arg_count,
+                "ProtocolBuiltin arity mismatch: expected {}, got {} args",
+                ownership.len(),
+                arg_count,
+            );
+            return ownership
+                .iter()
+                .map(|o| match o {
+                    ProtocolArgOwnership::Owned => ArgOwnership::Owned,
+                    ProtocolArgOwnership::Borrowed => ArgOwnership::Borrowed,
+                })
+                .collect();
         }
         // Unknown non-external: conservative owned.
         return vec![ArgOwnership::Owned; arg_count];
@@ -131,6 +152,7 @@ pub fn annotate_arg_ownership(
                     interner,
                     &builtins.borrowing,
                     &builtins.consuming_receiver_only,
+                    &builtins.protocol,
                 );
                 apply_consuming_overrides(
                     *callee,
@@ -159,6 +181,7 @@ pub fn annotate_arg_ownership(
                 interner,
                 &builtins.borrowing,
                 &builtins.consuming_receiver_only,
+                &builtins.protocol,
             );
             apply_consuming_overrides(
                 *callee,

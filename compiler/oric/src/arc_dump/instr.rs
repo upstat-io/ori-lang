@@ -20,6 +20,10 @@ use super::{fmt_strategy, fmt_var, fmt_var_typed};
 /// `%dst: type [repr] = ...` form. Side-effect instructions (RcInc/RcDec/Set)
 /// omit the `=` prefix.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "dispatch table over ArcInstr variants — each arm is self-contained"
+)]
 pub fn fmt_instr(
     out: &mut String,
     instr: &ArcInstr,

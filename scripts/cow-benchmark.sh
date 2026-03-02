@@ -25,7 +25,7 @@ if [[ "${1:-}" == "--release" ]]; then
 fi
 
 if [[ ! -x "$ORI" ]]; then
-    echo "ERROR: $ORI not found. Run 'cargo bl' (or 'cargo blr' for release) first."
+    echo "ERROR: $ORI not found. Run 'cargo b' (or 'cargo b --release' for release) first."
     exit 1
 fi
 

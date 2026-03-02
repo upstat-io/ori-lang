@@ -202,7 +202,7 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
 - [ ] SSO strings correctly handle concat, slice, and iteration
 - [ ] SVO lists correctly handle push, pop, and growth
 - [ ] `./test-all.sh` green
-- [ ] `./scripts/valgrind-aot.sh` clean
+- [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Performance: string-heavy benchmarks show measurable improvement from SSO
 
 **Exit Criteria:** Creating 10,000 short strings (≤ 10 chars each) results in ZERO heap allocations, verified by `ori_rc_alloc` call count = 0 in Valgrind output. `[bool]` with 1M elements uses ~125KB instead of ~1MB.

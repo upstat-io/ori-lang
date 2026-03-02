@@ -106,7 +106,9 @@ Extend escape analysis (§08) to track thread boundaries.
 
 ## 10.2 Non-Atomic RC Runtime
 
-**File(s):** `compiler/ori_rt/src/lib.rs`
+**File(s):** `compiler/ori_rt/src/rc/nonatomic.rs` (new file inside `rc/` module)
+
+**Module placement:** Must live inside `rc/` (e.g., `rc/nonatomic.rs` with `mod nonatomic;` in `rc/mod.rs`) to access `call_drop_fn` and `rc_underflow_abort` which are `pub(super)`.
 
 - [ ] Implement non-atomic RC operations:
   ```rust
@@ -124,16 +126,22 @@ Extend escape analysis (§08) to track thread boundaries.
   #[no_mangle]
   pub unsafe extern "C" fn ori_rc_dec_nonatomic(
       data_ptr: *mut u8,
-      drop_fn: Option<unsafe extern "C" fn(*mut u8)>,
+      drop_fn: Option<extern "C" fn(*mut u8)>,
   ) {
       if data_ptr.is_null() { return; }
       let rc_ptr = (data_ptr as *mut i64).sub(1);
       let count = *rc_ptr;  // plain load
+      // Underflow protection — matches ori_rc_dec (rc/mod.rs).
+      // Always-on, not debug-only. Catches double-free bugs.
+      if count <= 0 {
+          rc_underflow_abort(data_ptr);
+      }
       *rc_ptr = count - 1;  // plain store
       if count == 1 {
-          // Last reference — drop
-          if let Some(drop_fn) = drop_fn {
-              drop_fn(data_ptr);
+          // Last reference — drop via abort-on-panic guard.
+          // ori_rc_dec_nonatomic is nounwind; unwinding through it is UB.
+          if let Some(f) = drop_fn {
+              call_drop_fn(f, data_ptr);
           }
       }
   }
@@ -149,11 +157,13 @@ Extend escape analysis (§08) to track thread boundaries.
   match repr_plan.rc_strategy(type_idx) {
       RcStrategy::None => { /* skip RC */ }
       RcStrategy::Atomic { width } => {
-          // Call ori_rc_inc / ori_rc_dec (existing)
+          // Call ori_rc_inc_$width / ori_rc_dec_$width (§09 width-suffixed)
+          // ABI: inc(data_ptr), dec(data_ptr, drop_fn) — matches existing contract
           emit_atomic_rc(width);
       }
       RcStrategy::NonAtomic { width } => {
-          // Call ori_rc_inc_nonatomic / ori_rc_dec_nonatomic
+          // Call ori_rc_inc_nonatomic_$width / ori_rc_dec_nonatomic_$width
+          // Same 2-arg dec ABI: dec(data_ptr, drop_fn)
           emit_nonatomic_rc(width);
       }
   }
@@ -189,8 +199,8 @@ If a value transitions from thread-local to thread-shared (e.g., sent on a chann
 - [ ] Channel sends correctly mark values as thread-shared
 - [ ] Spawn captures correctly mark captured values as thread-shared
 - [ ] Non-atomic RC operations are measurably faster (benchmark)
-- [ ] No data races: `./scripts/valgrind-aot.sh` with `--tool=helgrind` clean
+- [ ] No data races: run `valgrind --tool=helgrind` directly on AOT binaries (NOTE: `valgrind-aot.sh` does not currently accept `--tool=` passthrough; either extend the script or invoke helgrind manually)
 - [ ] `./test-all.sh` green
-- [ ] `./scripts/dual-exec-verify.sh` passes
+- [ ] `./diagnostics/dual-exec-verify.sh` passes
 
 **Exit Criteria:** A single-threaded benchmark program shows 0 atomic RC operations in LLVM IR (all `ori_rc_*_nonatomic`). Performance benchmark shows ≥20% improvement in RC-heavy workloads vs. atomic-only baseline.

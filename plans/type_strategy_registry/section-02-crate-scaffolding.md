@@ -657,7 +657,7 @@ ori_types = { path = "../ori_types", features = ["cache"] }
 - [ ] `cargo check -p ori_registry` passes
 - [ ] `cargo test -p ori_registry` passes (6 purity tests)
 - [ ] `cargo check --workspace` passes (all workspace members)
-- [ ] `cargo bl` passes (LLVM build with ori_registry)
+- [ ] `cargo b` passes (LLVM build with ori_registry)
 - [ ] `./test-all.sh` passes (no regressions)
 
 ### Step 5: Verify dependency graph
@@ -679,7 +679,7 @@ ori_types = { path = "../ori_types", features = ["cache"] }
 - [ ] `cargo check -p ori_registry` passes
 - [ ] `cargo test -p ori_registry` passes
 - [ ] `cargo check --workspace` passes
-- [ ] `cargo bl` passes
+- [ ] `cargo b` passes
 - [ ] `./test-all.sh` passes
 - [ ] `cargo tree -p ori_registry` shows zero dependencies
 
@@ -721,7 +721,7 @@ All of the following must be true before this section is marked complete:
 4. **Purity tests pass:** `cargo test -p ori_registry` runs 6 tests, all green
 5. **Workspace integrated:** `cargo check --workspace` passes with ori_registry in members
 6. **Consuming crates wired:** `ori_types`, `ori_eval`, `ori_arc`, `ori_llvm`, `oric` all have ori_registry in `[dependencies]`
-7. **LLVM build works:** `cargo bl` passes with ori_registry available
+7. **LLVM build works:** `cargo b` passes with ori_registry available
 8. **No regressions:** `./test-all.sh` passes
 9. **Documented:** Every file and every `pub` item has doc comments
 10. **Types from Section 01 compile:** All enums and structs from Section 01 are defined in the appropriate module files and are const-constructible

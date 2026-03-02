@@ -28,6 +28,9 @@ sections:
   - id: "01.8"
     title: TypeDef Struct
     status: not-started
+  - id: "01.8c"
+    title: DeiPropagation Enum
+    status: not-started
   - id: "01.9"
     title: Extensibility Design
     status: not-started
@@ -126,6 +129,8 @@ pub enum TypeTag {
 
 6. **No `Borrowed` variant**: `Borrowed` is a type modifier in `ori_types` (wrapping another type), not a standalone builtin type. The registry doesn't need to describe it.
 
+7. **`base_type()` for DEI aliasing**: `DoubleEndedIterator.base_type()` returns `Iterator` because the single-TypeDef model (Section 07 Decision 1) stores all iterator methods on one `TypeDef` keyed by `TypeTag::Iterator`. The query API (Section 08) uses `base_type()` to resolve the alias before looking up the `TypeDef`, then applies `dei_only` filtering to include or exclude DEI-only methods. For all other variants, `base_type()` returns `self`. This is a `const fn` (simple match with no allocations).
+
 ### What It Replaces
 
 | Current Location | Current Form | Registry Form |
@@ -154,7 +159,8 @@ pub enum TypeTag {
 - [ ] Implement `TypeTag::all() -> &'static [TypeTag]` (slice of all variants, for enumeration)
 - [ ] Add `TypeTag::is_primitive(&self) -> bool` predicate
 - [ ] Add `TypeTag::is_generic(&self) -> bool` predicate (types that carry type parameters: List, Map, Set, etc.)
-- [ ] Write unit tests: `all()` returns correct count, `name()` round-trips, no duplicate discriminants
+- [ ] Implement `TypeTag::base_type(&self) -> TypeTag` (`DoubleEndedIterator` → `Iterator`, all others → `self`). Used by the query API (Section 08) for DEI aliasing: both tags resolve to the same `TypeDef`.
+- [ ] Write unit tests: `all()` returns correct count, `name()` round-trips, no duplicate discriminants, `base_type()` idempotent for non-DEI tags
 
 ---
 
@@ -282,12 +288,24 @@ pub enum Ownership {
     /// `list.push(elem)` takes ownership of `elem`,
     /// `map.insert(key, value)` takes ownership of both.
     Owned,
+
+    /// Copy: trivially copied because it's a value type.
+    ///
+    /// No `rc_inc` or `rc_dec` needed. The value is bitwise-copied
+    /// at call sites. Semantically similar to `Borrow` (the callee
+    /// reads the value), but `Copy` captures the *reason*: the type
+    /// is a value type (`MemoryStrategy::Copy`), not a reference type
+    /// that happens to be borrowed.
+    ///
+    /// Used for receivers of primitive methods: `int.abs()`,
+    /// `bool.clone()`, `byte.to_int()`.
+    Copy,
 }
 ```
 
 ### Design Decisions
 
-1. **Matches `ori_arc::Ownership` exactly**: The existing `ori_arc::Ownership` enum has `Borrowed` and `Owned` variants. The registry's `Ownership` uses `Borrow` and `Owned` (dropping the `-ed` suffix for conciseness, matching the overview's naming). During wiring (Section 11), the ARC pass will either re-export the registry's enum or bridge to it.
+1. **Three variants, not two**: `Borrow` and `Owned` cover reference-counted types. `Copy` captures value types where neither `rc_inc` nor `rc_dec` is emitted. While `Borrow` and `Copy` behave identically at runtime for value types (no ARC ops), the semantic distinction matters for: (a) documentation — reading `Ownership::Copy` immediately signals "this is a value type", (b) future optimization — a phase could fast-path `Copy` receivers without consulting `MemoryStrategy`, (c) migration — `ori_ir::MethodDef.receiver_borrows: true` maps to `Borrow` for reference types and `Copy` for value types, making the mapping precise.
 
 2. **Bool replacement**: The existing `ori_ir::MethodDef` uses `receiver_borrows: bool`. This is exactly the kind of boolean flag the coding guidelines forbid for APIs with more than trivial semantics. `Ownership` replaces it with a self-documenting enum.
 
@@ -318,7 +336,7 @@ pub enum Ownership {
 - [ ] Define `Ownership` enum in `ori_registry/src/core.rs`
 - [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
 - [ ] Document each variant with concrete Ori method examples
-- [ ] Write unit tests: verify `Borrow != Owned`, basic equality checks
+- [ ] Write unit tests: verify `Borrow != Owned != Copy`, basic equality checks
 
 ---
 
@@ -437,7 +455,7 @@ pub enum OpStrategy {
 | `ori_llvm/arc_emitter/mod.rs` `emit_binary_op()` | `if is_float => self.builder.fadd(...)` | `match type_def.operators.add { FloatInstr => ... }` |
 | `ori_llvm/arc_emitter/mod.rs` `emit_binary_op()` | `if is_str => self.emit_str_runtime_call("ori_str_concat", ...)` | `match type_def.operators.add { RuntimeCall { fn_name, .. } => ... }` |
 | `ori_llvm/builtins/traits.rs` `emit_equals()` | `TypeInfo::Float => fcmp_oeq, TypeInfo::Int => icmp_eq` | `match type_def.operators.eq { FloatInstr \| IntInstr \| ... }` |
-| `ori_llvm/builtins/traits.rs` `emit_compare()` | `TypeInfo::Bool \| TypeInfo::Char \| TypeInfo::Byte => unsigned` | `match type_def.operators.cmp { UnsignedCmp => ... }` |
+| `ori_llvm/builtins/traits.rs` `emit_compare()` | `TypeInfo::Bool \| TypeInfo::Char \| TypeInfo::Byte => unsigned` | `match type_def.operators.lt { UnsignedCmp => ... }` |
 | `ori_llvm/builtins/traits.rs` `emit_str_trait_method()` | `"equals" => emit_str_runtime_call("ori_str_eq", ...)` | `match STR.operators.eq { RuntimeCall { fn_name: "ori_str_eq", .. } => ... }` |
 
 ### Consuming Phases
@@ -473,9 +491,19 @@ pub enum OpStrategy {
 ///
 /// Most parameters have concrete types (TypeTag), but some are generic
 /// (e.g., the element type of a list method, or a closure parameter).
-/// `ReturnTag` handles both cases.
+/// `ReturnTag` handles both cases. Used for both parameter types
+/// (`ParamDef.ty`) and return types (`MethodDef.returns`).
+///
+/// ## Naming Convention
+///
+/// **Canonical name is `ReturnTag`** — not `ReturnSpec`, `ReturnType`,
+/// or `ParamType`. All sections MUST use `ReturnTag`. The name applies
+/// to both parameter and return positions because the same abstract
+/// type references work in both contexts.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ReturnTag {
+    // === Concrete types ===
+
     /// A concrete builtin type.
     Concrete(TypeTag),
 
@@ -485,69 +513,110 @@ pub enum ReturnTag {
     /// `int.clone()` returns int.
     SelfType,
 
-    /// The element type of the receiver (for container methods).
-    ///
-    /// Example: `list.first()` returns the element type,
-    /// `iterator.next()` yields the element type.
-    ElementType,
-
-    /// Option wrapping the element type.
-    ///
-    /// Example: `list.first()` returns `option[T]` where T is the element.
-    OptionElement,
-
-    /// List of the element type.
-    ///
-    /// Example: `set.to_list()` returns `[T]`.
-    ListElement,
-
-    /// Iterator over the element type.
-    ///
-    /// Example: `list.iter()` returns `Iterator<T>`.
-    IteratorElement,
-
-    /// Double-ended iterator over the element type.
-    ///
-    /// Example: `str.iter()` returns `DoubleEndedIterator<char>`.
-    DoubleEndedIteratorElement,
-
-    /// The inner/unwrapped type (for Option.unwrap, Result.unwrap).
-    InnerType,
-
-    /// The error type (for Result methods).
-    ErrorType,
-
-    /// The key type of a Map receiver.
-    ///
-    /// Example: `map.keys()` returns `[K]` — a list of the key type.
-    /// Distinct from `ElementType` because Map has two type parameters
-    /// and the key is semantically different from the value.
-    KeyType,
-
-    /// The value type of a Map receiver.
-    ///
-    /// Example: `map.values()` returns `[V]` — a list of the value type.
-    ValueType,
-
-    /// List of (key, value) tuples from a Map.
-    ///
-    /// Example: `map.entries()` returns `[(K, V)]`.
-    /// This is a composite return that references both type parameters.
-    ListKeyValue,
-
     /// Unit type (for void-returning methods like `for_each`).
     Unit,
 
-    /// Ordering type (for `compare` methods).
-    Ordering,
+    // === Direct type-parameter projections ===
 
-    /// A fresh type variable (for higher-order methods where the
-    /// return type depends on closure output).
+    /// The element type of the receiver (for container methods).
     ///
-    /// Example: `list.map(f)` — the return type depends on what `f` returns.
+    /// Example: `option.unwrap()` returns `T`,
+    /// `iterator.next()` yields the element type.
+    /// For Map: returns the primary element (K). Use `ValueType` for V.
+    ElementType,
+
+    /// The key type of a Map receiver (K in Map<K, V>).
+    KeyType,
+
+    /// The value type of a Map receiver (V in Map<K, V>).
+    ValueType,
+
+    /// The ok-type of Result<T, E> -> T.
+    OkType,
+
+    /// The err-type of Result<T, E> -> E.
+    ErrType,
+
+    // === Parameterized wrappers (fixed inner type) ===
+    //
+    // Used by primitive type methods where the return wraps a known
+    // concrete type (not relative to receiver type parameters).
+
+    /// `[T]` for a fixed `T`.
+    /// Example: `str.split(sep:) -> [str]`, `str.chars() -> [char]`.
+    List(TypeTag),
+
+    /// `Option<T>` for a fixed `T`.
+    /// Example: `str.to_int() -> Option<int>`.
+    Option(TypeTag),
+
+    /// `DoubleEndedIterator<T>` for a fixed `T`.
+    /// Example: `str.iter() -> DoubleEndedIterator<char>`.
+    DoubleEndedIterator(TypeTag),
+
+    // === Parameterized wrappers (projection-based) ===
+    //
+    // Used by generic container methods where the return wraps a
+    // type derived from the receiver's type parameters.
+
+    /// `Option<P>` where P is a type projection from the receiver.
+    /// Example: `list.first() -> Option<T>` = `OptionOf(Element)`.
+    /// Example: `map.get(k) -> Option<V>` = `OptionOf(Value)`.
+    /// Example: `result.ok() -> Option<T>` = `OptionOf(Ok)`.
+    OptionOf(TypeProjection),
+
+    /// `[P]` where P is a type projection.
+    /// Example: `set.to_list() -> [T]` = `ListOf(Element)`.
+    /// Example: `map.keys() -> [K]` = `ListOf(Key)`.
+    ListOf(TypeProjection),
+
+    /// `Iterator<P>` where P is a type projection.
+    /// Example: `set.iter() -> Iterator<T>` = `IteratorOf(Element)`.
+    IteratorOf(TypeProjection),
+
+    /// `DoubleEndedIterator<P>` where P is a type projection.
+    /// Example: `list.iter() -> DEI<T>` = `DoubleEndedIteratorOf(Element)`.
+    DoubleEndedIteratorOf(TypeProjection),
+
+    // === Composite returns ===
+
+    /// `[(K, V)]` from a Map. Example: `map.entries()`.
+    ListKeyValue,
+
+    /// `[(int, T)]` where T is the element type.
+    /// Example: `list.enumerate() -> [(int, T)]`.
+    ListOfTupleIntElement,
+
+    /// `Iterator<(K, V)>` from a Map. Example: `map.iter()`.
+    MapIterator,
+
+    // === Higher-order ===
+
+    /// A fresh type variable — return type depends on closure argument.
     /// The type checker creates a fresh variable and unifies it with
-    /// the closure's return type.
+    /// the closure's return type via `unify_higher_order_constraints`.
+    /// Example: `list.map(f)`, `iterator.fold(init, f)`.
     Fresh,
+}
+
+/// Which type parameter to project from the receiver.
+///
+/// Used by `ReturnTag::OptionOf`, `ListOf`, `IteratorOf`,
+/// `DoubleEndedIteratorOf` to express generic return types.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TypeProjection {
+    /// The single element type (T in List<T>, Option<T>, Iterator<T>, etc.)
+    Element,
+    /// The key type (K in Map<K, V>).
+    Key,
+    /// The value type (V in Map<K, V>).
+    Value,
+    /// The ok-type (T in Result<T, E>).
+    Ok,
+    /// The err-type (E in Result<T, E>).
+    Err,
+    /// A fixed concrete type (not a projection from receiver params).
+    Fixed(TypeTag),
 }
 
 /// Definition of a method parameter (excluding the receiver).
@@ -571,7 +640,15 @@ pub struct ParamDef {
 
 1. **`ReturnTag` instead of `TypeTag` for parameter types**: Method parameters can reference generic type relationships ("the element type of the receiver"), not just concrete types. `ReturnTag` captures this. The name `ReturnTag` is used for both parameters and returns because the same abstract type references apply to both contexts.
 
-2. **Separate from `TypeTag`**: `TypeTag` identifies builtin types. `ReturnTag` describes type *positions* in a method signature. These are fundamentally different -- `TypeTag::List` means "the list type itself", while `ReturnTag::ListElement` means "a list whose element type matches the receiver's element type". Conflating them would either bloat `TypeTag` with positional variants or lose expressiveness.
+2. **Separate from `TypeTag`**: `TypeTag` identifies builtin types. `ReturnTag` describes type *positions* in a method signature. These are fundamentally different -- `TypeTag::List` means "the list type itself", while `ReturnTag::ListOf(TypeProjection::Element)` means "a list whose element type matches the receiver's element type". Conflating them would either bloat `TypeTag` with positional variants or lose expressiveness. **CRITICAL: No `SelfType`, `Fresh`, or `Void` on `TypeTag`.** These are signature-level concepts that belong exclusively on `ReturnTag`. Sections that reference `TypeTag::SelfType` must use `ReturnTag::SelfType` instead. A convenience `From<TypeTag> for ReturnTag` impl wraps concrete types automatically: `TypeTag::Int.into()` produces `ReturnTag::Concrete(TypeTag::Int)`.
+
+    ```rust
+    impl From<TypeTag> for ReturnTag {
+        fn from(tag: TypeTag) -> Self {
+            ReturnTag::Concrete(tag)
+        }
+    }
+    ```
 
 3. **`Fresh` variant**: Higher-order methods like `list.map(f)` have return types that depend on the closure argument. The type checker handles this by creating fresh type variables. The registry can't specify the exact return type, so `Fresh` signals "the type checker must infer this via unification". This replaces the pattern `engine.pool_mut().fresh_var()` scattered across `resolve_*_method()` functions.
 
@@ -581,7 +658,7 @@ pub struct ParamDef {
 
 6. **`KeyType`, `ValueType`, `ListKeyValue` for Map methods**: Map has two type parameters (K, V), and its methods return types derived from either or both. `map.keys()` returns `[K]` (a list of the key type), `map.values()` returns `[V]`, and `map.entries()` returns `[(K, V)]`. These three variants are necessary because `ElementType` alone is ambiguous for two-parameter types. Named variants are preferred over a generic `Param(u8)` because they are self-documenting, exhaustive, and const-constructible without needing a separate type parameter index scheme.
 
-7. **Intrinsic vs derived boundary**: `ReturnTag` describes the *shape* of a return type (structural template), not the *resolved* type. The type checker interprets `OptionElement` as `pool.option(elem)` — constructing a real Pool `Idx` from the template. Context-dependent facts (generic substitution, closure return type unification, trait resolution) remain in the type checker / Salsa layer. `ReturnTag::Fresh` is the explicit boundary marker: "the registry cannot specify this; the type checker must infer it."
+7. **Intrinsic vs derived boundary**: `ReturnTag` describes the *shape* of a return type (structural template), not the *resolved* type. The type checker interprets `OptionOf(TypeProjection::Element)` as `pool.option(elem)` — constructing a real Pool `Idx` from the template. Context-dependent facts (generic substitution, closure return type unification, trait resolution) remain in the type checker / Salsa layer. `ReturnTag::Fresh` is the explicit boundary marker: "the registry cannot specify this; the type checker must infer it."
 
 ### What It Replaces
 
@@ -589,7 +666,7 @@ pub struct ParamDef {
 |---|---|---|
 | `ori_ir/builtin_methods/mod.rs` | `ParamSpec` enum (6 variants) | `ParamDef` struct with `ReturnTag` |
 | `ori_ir/builtin_methods/mod.rs` | `ReturnSpec` enum (7 variants) | `ReturnTag` enum (12 variants, superset) |
-| `ori_types/infer/expr/methods.rs` | Hard-coded return types in match arms | `method_def.returns: ReturnTag` |
+| `ori_types/infer/expr/methods/mod.rs` | Hard-coded return types in match arms | `method_def.returns: ReturnTag` |
 
 ### Consuming Phases
 
@@ -628,7 +705,7 @@ pub struct ParamDef {
 ///
 /// All fields are `const`-constructible. A `MethodDef` is a compile-time
 /// constant embedded in the binary's `.rodata` segment.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MethodDef {
     /// The method name (e.g., `"len"`, `"to_str"`, `"equals"`).
     pub name: &'static str,
@@ -689,6 +766,36 @@ pub struct MethodDef {
     /// Prior art: Rust's `must_be_overridden` flag on `IntrinsicDef`
     /// forces every codegen backend to implement the intrinsic.
     pub backend_required: bool,
+
+    /// Whether this is an instance method or associated function.
+    ///
+    /// `Instance` (default) = called as `value.method(args)`.
+    /// `Associated` = called as `Type.method(args)` (e.g.,
+    /// `Duration.from_seconds(ns:)`, `Size.from_bytes(b:)`).
+    ///
+    /// For associated functions, `receiver` is irrelevant (no self).
+    pub kind: MethodKind,
+
+    /// Whether this method is only available on `DoubleEndedIterator`.
+    ///
+    /// `true` = DEI-only (e.g., `next_back`, `rev`, `last`, `rfind`, `rfold`).
+    /// `false` = available on both `Iterator` and `DoubleEndedIterator`.
+    ///
+    /// Only meaningful for methods on the Iterator/DEI TypeDef. For all other
+    /// types, this is always `false`. The query API uses this to filter:
+    /// `methods_for(Iterator)` excludes `dei_only: true` methods;
+    /// `methods_for(DoubleEndedIterator)` includes all methods.
+    ///
+    /// See Section 07 Decision 1: single TypeDef with `dei_only` flag.
+    pub dei_only: bool,
+
+    /// How this method propagates DoubleEndedIterator capability.
+    ///
+    /// Only meaningful for iterator adapter methods. Consumers and
+    /// non-iterator methods use `NotApplicable`.
+    ///
+    /// See Section 07 Decision 2: explicit field, not derived from return type.
+    pub dei_propagation: DeiPropagation,
 }
 ```
 
@@ -706,19 +813,19 @@ pub struct MethodDef {
 
 6. **`params` is `&'static [ParamDef]`**: Method parameters are a fixed set known at compile time. Using a static slice avoids heap allocation and is const-constructible. The owning `static` arrays live next to the `MethodDef` const declarations (Sections 03-07).
 
-7. **No `MethodDef` derives `Copy`**: Because it contains `&'static [ParamDef]` (a fat pointer, 16 bytes) and `Option<&'static str>` (16 bytes), the struct is 56+ bytes. While technically `Copy`-eligible (all fields are `Copy`), we derive `Clone` only to avoid accidental large copies. The registry stores them in `&'static [MethodDef]` slices, so they're always accessed by reference.
+7. **`MethodDef` derives `Copy`**: The struct is ~56 bytes (two fat pointers + small enum fields), technically `Copy`-eligible since all fields are `Copy`. At this size it's within reasonable bounds (similar to `[u8; 64]`). Since the data lives in static storage and is always accessed by reference (`&MethodDef`), adding `Copy` avoids `.clone()` noise without risk of accidental large copies in hot paths.
 
-    **Update**: On reflection, `MethodDef` IS `Copy`-eligible and at 56 bytes is within reasonable bounds for a `Copy` type (similar to `[u8; 64]`). Since these are always accessed from static data and never moved/cloned in hot paths, adding `Copy` is acceptable and avoids `.clone()` noise. However, not deriving `Copy` also has merit as a lint against accidental copies. **Decision: derive `Copy`**. The struct is pure data, always in static storage, and the standard pattern for registry entries is to pass them by reference (`&MethodDef`) regardless.
+8. **`dei_only` and `dei_propagation` on every MethodDef**: These fields are only meaningful for iterator methods (~24 entries) but live on all MethodDefs (~200+ entries). The cost is 2 bytes per entry. Alternatives considered: (a) `Option<IteratorMetadata>` wrapper — adds 1 byte for `Option` discriminant + 16 bytes for the pointer/padding, actually MORE expensive; (b) separate `IteratorMethodDef` — breaks uniform `&[MethodDef]` slicing for all types. The 2-byte overhead with clear defaults (`false` / `NotApplicable`) is the simplest design. Section 07 Decision 1 chose the single-TypeDef model specifically because `dei_only: bool` is cheap and directly queryable.
 
-8. **Matches but improves on `ori_ir::MethodDef`**: The existing `ori_ir::MethodDef` has `receiver: BuiltinType`, `name`, `params: &'static [ParamSpec]`, `returns: ReturnSpec`, `trait_name: Option<&'static str>`, `receiver_borrows: bool`. The registry's `MethodDef` drops `receiver: BuiltinType` (the owning type is the `TypeDef` that contains this method), replaces `receiver_borrows: bool` with `receiver: Ownership`, and uses the richer `ReturnTag` instead of `ReturnSpec`.
+9. **Matches but improves on `ori_ir::MethodDef`**: The existing `ori_ir::MethodDef` has `receiver: BuiltinType`, `name`, `params: &'static [ParamSpec]`, `returns: ReturnSpec`, `trait_name: Option<&'static str>`, `receiver_borrows: bool`. The registry's `MethodDef` drops `receiver: BuiltinType` (the owning type is the `TypeDef` that contains this method), replaces `receiver_borrows: bool` with `receiver: Ownership`, and uses the richer `ReturnTag` instead of `ReturnSpec`.
 
 ### What It Replaces
 
 | Current Location | Current Form | Registry Form |
 |---|---|---|
-| `ori_ir/builtin_methods/mod.rs` | `MethodDef { receiver, name, params, returns, trait_name, receiver_borrows }` | `MethodDef { name, receiver, params, returns, trait_name, pure, backend_required }` |
-| `ori_types/infer/expr/methods.rs` | `"to_str" => Some(Idx::STR)` (per method, per type) | `method_def.returns` on the queried `MethodDef` |
-| `ori_types/infer/expr/methods.rs` | `TYPECK_BUILTIN_METHODS` (426 entries: `(type, method)` pairs) | `TypeDef.methods` iteration |
+| `ori_ir/builtin_methods/mod.rs` | `MethodDef { receiver, name, params, returns, trait_name, receiver_borrows }` | `MethodDef { name, receiver, params, returns, trait_name, pure, backend_required, kind, dei_only, dei_propagation }` |
+| `ori_types/infer/expr/methods/mod.rs` | `"to_str" => Some(Idx::STR)` (per method, per type) | `method_def.returns` on the queried `MethodDef` |
+| `ori_types/infer/expr/methods/mod.rs` | `TYPECK_BUILTIN_METHODS` (426 entries: `(type, method)` pairs) | `TypeDef.methods` iteration |
 | `ori_eval/methods/helpers/mod.rs` | `EVAL_BUILTIN_METHODS` | `TypeDef.methods` iteration |
 | `ori_llvm/builtins/*.rs` | `declare_builtins!` entries with `borrow: true/false` | `method_def.receiver: Ownership` |
 
@@ -775,25 +882,22 @@ pub struct OpDefs {
     /// `%` (remainder/modulo).
     pub rem: OpStrategy,
 
-    // Comparison operators
-    /// `==` and `!=` (equality and inequality).
-    ///
-    /// A single strategy covers both: the backend emits the instruction
-    /// for `==` and inverts it for `!=`. For `RuntimeCall`, the `!=`
-    /// case calls the same function and negates the result (or calls
-    /// a separate `_ne` function if one exists).
-    pub eq: OpStrategy,
+    /// `div` (integer division via `sdiv`).
+    pub floor_div: OpStrategy,
 
-    /// `<`, `>`, `<=`, `>=` (ordering comparisons).
-    ///
-    /// A single strategy covers all four: the backend emits different
-    /// comparison predicates (slt/sgt/sle/sge for IntInstr,
-    /// olt/ogt/ole/oge for FloatInstr, ult/ugt/ule/uge for UnsignedCmp).
-    ///
-    /// For `RuntimeCall`, the backend calls the comparison function
-    /// (e.g., `ori_str_compare`) and then checks the Ordering result
-    /// against the expected predicate.
-    pub cmp: OpStrategy,
+    // Comparison operators (expanded — one field per operator)
+    /// `==` (equality).
+    pub eq: OpStrategy,
+    /// `!=` (inequality).
+    pub neq: OpStrategy,
+    /// `<` (less than).
+    pub lt: OpStrategy,
+    /// `>` (greater than).
+    pub gt: OpStrategy,
+    /// `<=` (less than or equal).
+    pub lt_eq: OpStrategy,
+    /// `>=` (greater than or equal).
+    pub gt_eq: OpStrategy,
 
     // Unary operators
     /// `-x` (unary negation).
@@ -806,6 +910,8 @@ pub struct OpDefs {
     pub bit_or: OpStrategy,
     /// `^` (bitwise XOR).
     pub bit_xor: OpStrategy,
+    /// `~` (bitwise NOT / complement).
+    pub bit_not: OpStrategy,
     /// `<<` (left shift).
     pub shl: OpStrategy,
     /// `>>` (right shift, arithmetic for signed types).
@@ -820,11 +926,11 @@ pub struct OpDefs {
    - If bitwise ops are ever extended to `byte` (common in other languages), the registry just changes the `byte` type's `OpDefs`
    - No separate mechanism needed to track "which types support bitwise ops"
 
-2. **Single `eq` field for both `==` and `!=`**: The instruction strategy is the same; `!=` is just the negation. Having separate fields would always mirror each other. A single field with the convention "this is the `==` strategy; `!=` inverts it" is simpler and less error-prone.
+2. **Expanded comparison fields (`eq`/`neq`/`lt`/`gt`/`lt_eq`/`gt_eq`)**: Each comparison operator gets its own field rather than compact `eq` + `cmp` groupings. This eliminates ambiguity for types where equality and ordering use different strategies (e.g., `str` uses `RuntimeCall("ori_str_eq")` for `eq` but `RuntimeCall("ori_str_compare")` for `lt`). The backend reads the exact field for the exact operator — no inversion or predicate selection logic needed at the `OpDefs` level.
 
-3. **Single `cmp` field for all ordering comparisons**: Similarly, `<`, `>`, `<=`, `>=` all use the same instruction family, differing only in the predicate. One field covers all four. The LLVM backend already handles predicate selection in `emit_int_predicate()`, `emit_float_predicate()`, etc.
+3. **`floor_div` separate from `div`**: `BinaryOp::FloorDiv` (`div` keyword in Ori) uses `sdiv` for integers but has different semantics than `/` for floats (floor-truncated vs true division). Keeping a separate field lets float define `div: FloatInstr` and `floor_div: Unsupported` (or vice versa) independently.
 
-4. **No `FloorDiv` or `MatMul` fields**: `BinaryOp::FloorDiv` maps to `sdiv` (same as `div` for integers). `BinaryOp::MatMul` is a future operator for matrix types, not relevant to current builtins. These don't need dedicated `OpDefs` fields. If `FloorDiv` needs a distinct strategy in the future, a field can be added.
+4. **`bit_not` separate from `neg`**: Unary `~` (bitwise complement) uses `xor -1` while unary `-` (negation) uses `sub 0, x`. Different LLVM instructions, different semantics. Separate fields.
 
 5. **No `and`/`or` logical operators**: Logical `&&` and `||` are short-circuiting control flow, not pure binary operations. They are handled by the compiler's control flow lowering, not by operator dispatch on types. They don't belong in `OpDefs`.
 
@@ -844,12 +950,18 @@ impl OpDefs {
         mul: OpStrategy::Unsupported,
         div: OpStrategy::Unsupported,
         rem: OpStrategy::Unsupported,
+        floor_div: OpStrategy::Unsupported,
         eq: OpStrategy::Unsupported,
-        cmp: OpStrategy::Unsupported,
+        neq: OpStrategy::Unsupported,
+        lt: OpStrategy::Unsupported,
+        gt: OpStrategy::Unsupported,
+        lt_eq: OpStrategy::Unsupported,
+        gt_eq: OpStrategy::Unsupported,
         neg: OpStrategy::Unsupported,
         bit_and: OpStrategy::Unsupported,
         bit_or: OpStrategy::Unsupported,
         bit_xor: OpStrategy::Unsupported,
+        bit_not: OpStrategy::Unsupported,
         shl: OpStrategy::Unsupported,
         shr: OpStrategy::Unsupported,
     };
@@ -865,12 +977,18 @@ pub const INT_OPS: OpDefs = OpDefs {
     mul: OpStrategy::IntInstr,
     div: OpStrategy::IntInstr,
     rem: OpStrategy::IntInstr,
+    floor_div: OpStrategy::IntInstr,
     eq: OpStrategy::IntInstr,
-    cmp: OpStrategy::IntInstr,
+    neq: OpStrategy::IntInstr,
+    lt: OpStrategy::IntInstr,
+    gt: OpStrategy::IntInstr,
+    lt_eq: OpStrategy::IntInstr,
+    gt_eq: OpStrategy::IntInstr,
     neg: OpStrategy::IntInstr,
     bit_and: OpStrategy::IntInstr,
     bit_or: OpStrategy::IntInstr,
     bit_xor: OpStrategy::IntInstr,
+    bit_not: OpStrategy::IntInstr,
     shl: OpStrategy::IntInstr,
     shr: OpStrategy::IntInstr,
 };
@@ -882,7 +1000,7 @@ pub const INT_OPS: OpDefs = OpDefs {
 |---|---|---|
 | `ori_llvm/arc_emitter/mod.rs` `emit_binary_op()` | 40+ lines of `match op { BinaryOp::Add if is_float => ..., if is_str => ... }` | `match type_def.operators.add { IntInstr \| FloatInstr \| RuntimeCall { .. } \| ... }` |
 | `ori_llvm/builtins/traits.rs` `emit_equals()` | `match type_info { TypeInfo::Float => fcmp_oeq, ... }` | `match type_def.operators.eq { ... }` |
-| `ori_llvm/builtins/traits.rs` `emit_compare()` | Separate signed/unsigned/float dispatch | `match type_def.operators.cmp { IntInstr \| FloatInstr \| UnsignedCmp \| ... }` |
+| `ori_llvm/builtins/traits.rs` `emit_compare()` | Separate signed/unsigned/float dispatch | `match type_def.operators.lt { IntInstr \| FloatInstr \| UnsignedCmp \| ... }` |
 | `ori_types` (implicit) | Type checker knows `int + int` is valid but `bool + bool` is not | `type_def.operators.add != Unsupported` |
 
 ### Consuming Phases
@@ -943,11 +1061,22 @@ pub struct TypeDef {
     /// How values of this type are managed in memory.
     pub memory: MemoryStrategy,
 
+    /// Number of type parameters for generic types.
+    ///
+    /// `0` for primitives (int, str, bool, etc.) and non-generic compound
+    /// types (Duration, Size, Ordering, Error).
+    /// `1` for single-param generics (List<T>, Set<T>, Option<T>,
+    /// Iterator<T>, Range<T>, Channel<T>).
+    /// `2` for two-param generics (Map<K, V>, Result<T, E>).
+    /// `TypeParamArity::Variadic` for tuples (0-N elements).
+    pub type_params: TypeParamArity,
+
     /// All methods defined on this type.
     ///
-    /// Includes inherent methods and trait method implementations.
-    /// The full method set: every method the type checker accepts,
-    /// the evaluator dispatches, and the LLVM backend emits.
+    /// Includes inherent methods, trait method implementations, and
+    /// associated functions. The full method set: every method the type
+    /// checker accepts, the evaluator dispatches, and the LLVM backend
+    /// emits.
     pub methods: &'static [MethodDef],
 
     /// Operator lowering strategies for this type.
@@ -959,11 +1088,11 @@ pub struct TypeDef {
 
 1. **No `Copy` derive**: `TypeDef` contains two fat pointers (`&'static str` at 16 bytes, `&'static [MethodDef]` at 16 bytes) plus `TypeTag` (1 byte) + `MemoryStrategy` (1 byte) + `OpDefs` (13 bytes, 13 `OpStrategy` variants at 1 byte each... actually `OpStrategy::RuntimeCall` contains a `&'static str` (16 bytes) + `bool` (1 byte), so each `OpStrategy` is ~24 bytes, making `OpDefs` ~312 bytes). At this size, `TypeDef` should NOT be `Copy`. It is always accessed via `&'static TypeDef` references.
 
-    **Revised size analysis**: `OpStrategy` is an enum with 5 variants. The largest variant is `RuntimeCall { fn_name: &'static str, returns_bool: bool }` = 16 + 1 + padding = likely 24 bytes (due to alignment of the `&str` fat pointer). So each `OpStrategy` is 24 bytes, `OpDefs` is 13 * 24 = 312 bytes, and `TypeDef` is ~312 + 16 + 16 + 1 + 1 + padding = ~350 bytes. Too large for `Copy`. This is fine -- the data lives in static storage and is accessed by reference.
+    **Revised size analysis**: `OpStrategy` is an enum with 6 variants. The largest variant is `RuntimeCall { fn_name: &'static str, returns_bool: bool }` = 16 + 1 + padding = likely 24 bytes (due to alignment of the `&str` fat pointer). So each `OpStrategy` is 24 bytes, `OpDefs` is 19 * 24 = 456 bytes, and `TypeDef` is ~456 + 16 + 16 + 1 + 1 + padding = ~494 bytes. Too large for `Copy`. This is fine -- the data lives in static storage and is accessed by reference.
 
 2. **`methods: &'static [MethodDef]`**: A static slice pointing to a static array. This is the natural const-constructible collection. Each type's methods are defined as a `static` array in their section file (e.g., `static INT_METHODS: [MethodDef; N] = [...]`) and the `TypeDef` points to it.
 
-3. **No `type_params` field**: Generic types (List, Map, etc.) have type parameters, but those are a concern of the type pool (`ori_types::Pool`), not the registry. The registry describes what methods `List` has, what operators it supports, and how it's managed in memory. The specific `List<int>` vs `List<str>` distinction is a type checker / ARC classifier concern that composes the registry's base facts with instantiated type parameters.
+3. **`type_params: TypeParamArity`**: Generic types need their arity declared so downstream sections (05, 06, 07) can express type-parameter-relative return types (e.g., `List.first() -> Option<T>`). The registry does NOT resolve concrete instantiations (`List<int>` vs `List<str>`) — that remains in the type pool. It declares the *arity* so `ReturnTag` variants like `ElementType`, `KeyType`, `ValueType` are semantically grounded. `TypeParamArity` is `Fixed(u8)` for 0-2 params, `Variadic` for tuples.
 
 4. **No `llvm_layout` field**: LLVM representation (i64, f64, struct types) is a backend-specific concern. `TypeInfo` in `ori_llvm` continues to own this. The registry describes *semantic* behavior (operators, methods, memory strategy), not *physical* layout.
 
@@ -973,7 +1102,7 @@ pub struct TypeDef {
 
 | Current Location | What It Replaces |
 |---|---|
-| All 18 `resolve_*_method()` functions in `ori_types/infer/expr/methods.rs` | `TypeDef.methods` lookup by name |
+| All 18 `resolve_*_method()` functions in `ori_types/infer/expr/methods/mod.rs` | `TypeDef.methods` lookup by name |
 | `TYPECK_BUILTIN_METHODS` (426 entries) | `BUILTIN_TYPES.flat_map(\|td\| td.methods.iter().map(\|m\| (td.name, m.name)))` |
 | `EVAL_BUILTIN_METHODS` | Same enumeration |
 | `ori_ir::BUILTIN_METHODS` (162 entries) | Consolidated `TypeDef.methods` |
@@ -999,6 +1128,142 @@ pub struct TypeDef {
 - [ ] Write unit tests: construct a `TypeDef` in a `const` context, access all fields
 - [ ] Test: a `&'static TypeDef` pointing to static data compiles cleanly
 - [ ] Test: `TypeDef` in a `&'static [&'static TypeDef]` slice compiles as const
+
+---
+
+## 01.8a TypeParamArity Enum
+
+### Purpose
+
+`TypeParamArity` declares how many type parameters a builtin type has. This is needed by Sections 05-07 to validate that `ReturnTag` variants like `ElementType`, `KeyType` are used on types with the correct arity.
+
+### Rust Definition
+
+```rust
+/// How many type parameters a builtin type expects.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TypeParamArity {
+    /// Fixed number of type parameters (0, 1, or 2).
+    ///
+    /// `Fixed(0)` — primitives (int, str, bool, byte, char, float),
+    ///               non-generic compounds (Duration, Size, Ordering, Error).
+    /// `Fixed(1)` — List<T>, Set<T>, Option<T>, Iterator<T>, Range<T>, Channel<T>.
+    /// `Fixed(2)` — Map<K, V>, Result<T, E>.
+    Fixed(u8),
+
+    /// Variadic type parameters (Tuple: 0-N elements).
+    Variadic,
+}
+```
+
+### Design Notes
+
+- `Fixed(u8)` covers all current builtin types. No builtin has more than 2 type parameters.
+- `Variadic` is only needed for Tuple. If other variadic types are ever added, this enum already handles them.
+- `const`-constructible: `u8` and fieldless variants are trivially const.
+
+---
+
+## 01.8b MethodKind Enum
+
+### Purpose
+
+`MethodKind` distinguishes instance methods (which take `self`) from associated functions (which do not). Duration and Size have static constructors (`Duration.from_seconds(ns:)`, `Size.from_bytes(b:)`) that are associated functions, not instance methods. Without this field, the registry cannot express them.
+
+### Rust Definition
+
+```rust
+/// Whether a method is called on an instance or on the type itself.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum MethodKind {
+    /// Instance method: called as `value.method(args)`.
+    /// Has an implicit `self` receiver.
+    Instance,
+
+    /// Associated function: called as `Type.method(args)`.
+    /// No `self` receiver. Examples: `Duration.from_seconds(ns:)`,
+    /// `Size.from_bytes(b:)`.
+    Associated,
+}
+```
+
+### Impact on MethodDef
+
+The `MethodDef` struct (01.6) gains an optional `kind` field:
+
+```rust
+pub struct MethodDef {
+    // ... existing fields ...
+
+    /// Whether this is an instance method or associated function.
+    /// Default: `MethodKind::Instance` (the common case).
+    pub kind: MethodKind,
+}
+```
+
+For associated functions, `receiver: Ownership` is irrelevant (there is no receiver). By convention, associated functions use `receiver: Ownership::Copy` as a placeholder.
+
+### Design Notes
+
+- Only Duration and Size currently need `MethodKind::Associated` (for factory functions like `from_seconds`, `from_bytes`). All other builtin methods are `Instance`.
+- Adding `kind` to `MethodDef` is a required field, not optional. This ensures every method declaration is explicit about its calling convention.
+
+---
+
+## 01.8c DeiPropagation Enum
+
+### Purpose
+
+`DeiPropagation` describes how an iterator adapter method affects `DoubleEndedIterator` capability. This is used exclusively by the Iterator/DEI type's method definitions (Section 07) and consumed by the query API (Section 08) to determine whether a chained adapter preserves reversibility.
+
+### Rust Definition
+
+```rust
+/// How an iterator adapter method affects DoubleEndedIterator capability.
+///
+/// Only meaningful for iterator adapter methods (map, filter, take, etc.).
+/// Consumer methods (fold, count, collect, etc.) and non-iterator methods
+/// use `NotApplicable`.
+///
+/// The type checker uses this to determine whether `iter.map(f).rev()` is
+/// valid: if `map`'s propagation is `Propagate`, and the source iterator
+/// is DEI, then the result is also DEI.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DeiPropagation {
+    /// Adapter preserves DEI capability.
+    ///
+    /// If the input is DEI, the output is also DEI.
+    /// Examples: `map`, `filter`, `enumerate`, `chain` (if both inputs are DEI).
+    Propagate,
+
+    /// Adapter downgrades DEI to plain Iterator.
+    ///
+    /// Even if the input is DEI, the output is only Iterator.
+    /// Examples: `take`, `skip`, `flatten`, `flat_map`, `cycle`.
+    /// Rationale: bounded iteration, nested iteration, or infinite repetition
+    /// breaks the ability to efficiently iterate from the back.
+    Downgrade,
+
+    /// Not an adapter — this is a consumer or non-iterator method.
+    ///
+    /// Used for terminal operations (`fold`, `count`, `collect`, `for_each`)
+    /// and all non-iterator methods. The field is meaningless for these
+    /// methods; `NotApplicable` makes that explicit.
+    NotApplicable,
+}
+```
+
+### Design Notes
+
+- The enum has 3 variants, not 2, to distinguish "this method doesn't participate in DEI propagation" from "this method actively destroys DEI capability." Without `NotApplicable`, consumer methods would need an arbitrary choice between `Propagate` and `Downgrade`.
+- Prior art: Rust's `Iterator` and `DoubleEndedIterator` traits have separate impls for each adapter, making DEI propagation implicit in the type system. Ori's registry makes it explicit data because the single-TypeDef model (Section 07 Decision 1) merges both traits.
+
+### Checklist
+
+- [ ] Define `DeiPropagation` in `ori_registry/src/core.rs`
+- [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
+- [ ] Document all 3 variants
+- [ ] Unit test: `DeiPropagation::default()` is not provided (force explicit choice)
 
 ---
 
@@ -1143,7 +1408,7 @@ Section 01 is complete when ALL of the following are true:
 
 3. **No LLVM/Pool/Arena dependency**: None of the types reference `inkwell`, `ori_types::Idx`, `ori_types::Pool`, `ori_ir::ExprId`, or any phase-specific type. They use only primitive Rust types, `&'static str`, `&'static [T]`, and other registry types.
 
-4. **Design decisions documented**: Every choice (why two `MemoryStrategy` variants not three, why `ReturnTag` is separate from `TypeTag`, why `OpDefs` has bitwise fields) is recorded with rationale.
+4. **Design decisions documented**: Every choice (why two `MemoryStrategy` variants not three, why three `Ownership` variants not two, why `ReturnTag` is separate from `TypeTag`, why `OpDefs` has 19 expanded fields) is recorded with rationale.
 
 5. **Replacement mapping complete**: Every type has a table showing what it replaces in the current codebase (file, current form, registry form).
 

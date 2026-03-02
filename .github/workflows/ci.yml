@@ -43,16 +43,28 @@ jobs:
     name: Clippy
     if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install LLVM 17
+        run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-17 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends llvm-17 llvm-17-dev libpolly-17-dev clang-17 lld-17
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           key: clippy
-      - run: cargo clippy --workspace --exclude ori_llvm --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+        env:
+          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
 
   # Main test suite
   test:
@@ -62,25 +74,39 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install LLVM 17
+        run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-17 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends llvm-17 llvm-17-dev libpolly-17-dev clang-17 lld-17
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           key: test
 
       - name: Build
-        run: cargo build --workspace --exclude ori_llvm
+        run: cargo build --workspace
+        env:
+          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
 
       - name: Rust unit tests
         id: rust-tests
         continue-on-error: true
         run: |
           set -o pipefail
-          cargo test --workspace --exclude ori_llvm 2>&1 | tee rust-test-output.txt
+          cargo test --workspace 2>&1 | tee rust-test-output.txt
           # Sum all "X passed" counts from "test result:" lines
           RUST_TESTS=$(grep -oE '[0-9]+ passed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           RUST_FAILED=$(grep -oE '[0-9]+ failed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           echo "RUST_TESTS=$RUST_TESTS" >> $GITHUB_ENV
           echo "RUST_FAILED=$RUST_FAILED" >> $GITHUB_ENV
+        env:
+          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
 
       - name: Ori language tests
         id: ori-tests
@@ -93,6 +119,8 @@ jobs:
           ORI_FAILED=$(grep -oE '[0-9]+ failed' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
           echo "ORI_TESTS=$ORI_TESTS" >> $GITHUB_ENV
           echo "ORI_FAILED=$ORI_FAILED" >> $GITHUB_ENV
+        env:
+          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
 
       - name: Ori runtime tests
         id: rt-tests
@@ -163,104 +191,48 @@ jobs:
     name: ${{ matrix.os }}
     needs: [format, clippy]  # Don't waste CI time if basics fail
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 7
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install LLVM 17 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm@17
+          echo "LLVM_SYS_170_PREFIX=$(brew --prefix llvm@17)" >> $GITHUB_ENV
+
+      - name: Install LLVM 17 (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $LLVM_URL = "https://github.com/upstat-io/llvm-package-windows/releases/download/v17.0.6/LLVM-17.0.6-win64.7z"
+          Write-Host "Downloading LLVM from $LLVM_URL"
+          curl.exe -fLO $LLVM_URL
+          Write-Host "Extracting LLVM to C:\LLVM..."
+          7z x LLVM-17.0.6-win64.7z -oC:\LLVM
+          echo "LLVM_SYS_170_PREFIX=C:\LLVM" >> $env:GITHUB_ENV
+          echo "C:\LLVM\bin" >> $env:GITHUB_PATH
+
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}
 
-      - name: Build
-        run: cargo build --workspace --exclude ori_llvm
+      - name: Build (all crates incl. LLVM)
+        run: cargo build --workspace
 
-      - name: Rust unit tests
+      - name: Rust unit tests (excl. LLVM AOT — tested on Linux)
         run: cargo test --workspace --exclude ori_llvm
 
       - name: Ori language tests
         run: cargo run -p oric --bin ori -- test tests/
-
-  # LLVM backend - not in ci-success `needs`, so failures show red but don't block merges
-  llvm:
-    name: LLVM Backend
-    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM 17
-        run: |
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-17 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends llvm-17 llvm-17-dev libpolly-17-dev clang-17 lld-17
-        env:
-          DEBIAN_FRONTEND: noninteractive
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: llvm
-
-      - name: LLVM clippy
-        run: cargo clippy -p ori_llvm --all-targets -- -D warnings
-        env:
-          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
-
-      - name: LLVM tests
-        id: llvm-tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo build -p oric -p ori_rt --features llvm -q
-          cargo test -p ori_rt 2>&1 | tee rt-llvm-output.txt
-          cargo test -p ori_llvm 2>&1 | tee llvm-test-output.txt
-          # Sum all "X passed" counts from test output
-          LLVM_TESTS=$(cat rt-llvm-output.txt llvm-test-output.txt | grep -oE '[0-9]+ passed' | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          LLVM_FAILED=$(cat rt-llvm-output.txt llvm-test-output.txt | grep -oE '[0-9]+ failed' | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          echo "LLVM_TESTS=$LLVM_TESTS" >> $GITHUB_ENV
-          echo "LLVM_FAILED=$LLVM_FAILED" >> $GITHUB_ENV
-        env:
-          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
-
-      - name: Save LLVM test results
-        if: always()
-        run: |
-          LLVM_P=${LLVM_TESTS:-0}
-          LLVM_F=${LLVM_FAILED:-0}
-          OVERALL="passed"
-          if [ "$LLVM_F" -gt 0 ]; then OVERALL="failed"; fi
-          cat > llvm-test-results.json << EOF
-          {
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "overall": "$OVERALL",
-            "suites": [
-              { "name": "Rust unit tests (ori_llvm)", "passed": $LLVM_P, "failed": $LLVM_F, "skipped": 0, "lcfail": null }
-            ],
-            "totals": { "passed": $LLVM_P, "failed": $LLVM_F, "skipped": 0, "lcfail": 0 }
-          }
-          EOF
-          cat llvm-test-results.json
-
-      - name: Upload LLVM test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: llvm-test-results
-          path: llvm-test-results.json
-          retention-days: 90
-
-      - name: Fail if LLVM tests failed
-        if: steps.llvm-tests.outcome == 'failure'
-        run: exit 1
 
   # Single status check for branch protection
   ci-success:

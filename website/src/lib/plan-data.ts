@@ -351,7 +351,7 @@ export function loadSectionFile(filepath: string): RoadmapSection | null {
 
   return {
     num: frontmatter.section,
-    slug: filename,
+    slug: filename.toLowerCase(),
     name: frontmatter.title,
     status,
     note: totalCount > 0 ? `${doneCount}/${totalCount} tasks` : undefined,

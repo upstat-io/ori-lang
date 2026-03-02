@@ -1,0 +1,56 @@
+// Valgrind test: COW list set (index assignment) operations.
+// Exercises set on unique and shared lists, with int and string elements,
+// boundary indices, and chained set operations.
+
+@main () -> int = {
+    // Set on unique owner (in-place fast path)
+    let a = [1, 2, 3];
+    let a2 = a.set(1, 99);
+    let unique_ok = a2.length() == 3 && a2[1] == 99;
+
+    // Set on shared owner (COW slow path)
+    let base = [10, 20, 30];
+    let shared = base;
+    let modified = shared.set(0, 999);
+    let cow_ok = base[0] == 10 && modified[0] == 999
+        && base.length() == 3 && modified.length() == 3;
+
+    // Set first element
+    let b = [1, 2, 3, 4, 5];
+    let b2 = b.set(0, 0);
+    let first_ok = b2[0] == 0 && b2[1] == 2;
+
+    // Set last element
+    let c = [1, 2, 3, 4, 5];
+    let c2 = c.set(4, 50);
+    let last_ok = c2[4] == 50 && c2[3] == 4;
+
+    // Set with string elements (old string must be RC-dec'd)
+    let strs = ["hello", "world", "test"];
+    let strs2 = strs.set(1, "replaced");
+    let str_ok = strs[1] == "world" && strs2[1] == "replaced";
+
+    // Chained set operations
+    let chain = [0, 0, 0, 0];
+    let chain2 = chain.set(0, 1).set(1, 2).set(2, 3).set(3, 4);
+    let chain_ok = chain2[0] == 1 && chain2[1] == 2
+        && chain2[2] == 3 && chain2[3] == 4;
+
+    // Multi-fork set
+    let root = [1, 2, 3];
+    let f1 = root.set(0, 10);
+    let f2 = root.set(0, 20);
+    let f3 = root.set(0, 30);
+    let multi_ok = root[0] == 1 && f1[0] == 10 && f2[0] == 20 && f3[0] == 30;
+
+    // Set in loop (replace each element)
+    let xs = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for i in 0..10 do {
+        xs = xs.set(i, i * 100);
+    };
+    let loop_ok = xs[0] == 0 && xs[5] == 500 && xs[9] == 900;
+
+    if unique_ok && cow_ok && first_ok && last_ok && str_ok
+        && chain_ok && multi_ok && loop_ok
+    then 0 else 1
+}

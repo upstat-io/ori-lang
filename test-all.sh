@@ -76,7 +76,7 @@ ORI_LLVM_EXIT=0
 
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
-    if cargo test --workspace --exclude ori_llvm 2>&1 > "$RUST_OUTPUT"; then
+    if cargo test --workspace 2>&1 > "$RUST_OUTPUT"; then
         echo "  ✓ Rust workspace tests passed"
         return 0
     else
@@ -240,7 +240,7 @@ if [[ $PARALLEL -eq 1 ]]; then
     # Phase 2: LLVM release build (sequential — shares target/ with workspace)
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
-    if ! cargo build -p oric -p ori_rt --features llvm --release -q 2>&1; then
+    if ! cargo build -p oric -p ori_rt --release -q 2>&1; then
         echo -e "  ${RED}✗ LLVM release build FAILED — skipping LLVM spec tests${NC}"
         LLVM_BUILD_OK=0
         ORI_LLVM_EXIT=1
@@ -290,7 +290,7 @@ else
     echo ""
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
-    if ! cargo build -p oric -p ori_rt --features llvm --release -q 2>&1; then
+    if ! cargo build -p oric -p ori_rt --release -q 2>&1; then
         echo -e "  ${RED}✗ LLVM release build FAILED — skipping LLVM spec tests${NC}"
         LLVM_BUILD_OK=0
         ORI_LLVM_EXIT=1

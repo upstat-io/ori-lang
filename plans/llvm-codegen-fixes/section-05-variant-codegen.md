@@ -23,7 +23,7 @@ sections:
 
 **Context:** J6 showed that creating `Success(42)` takes 12 instructions (alloca, store tag, GEP, store value, load tag, insertvalue, load payload, insertvalue) when it could be 2 `insertvalue` instructions. J6 also showed that `Success` and `Failure` match arms compile to identical code (same offset extraction) but aren't merged. This also fixes M14 (uninitialized payload) as a side effect — `insertvalue` doesn't read uninitialized memory.
 
-**Cross-section:** This subsumes the M14 fix from Section 02 for unit variants — `insertvalue` with `undef` payload is well-defined LLVM IR (the `undef` is never used).
+**Cross-section:** This subsumes the M14 fix from Section 02 for unit variants. Unit variant payloads use `zeroinitializer` (not `undef`) — this is the consistent invariant across the plan. While `undef` in unused positions is technically well-defined LLVM IR, `zeroinitializer` is strictly safer and matches Section 02's recommendation.
 
 ---
 

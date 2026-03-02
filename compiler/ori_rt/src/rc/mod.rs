@@ -8,10 +8,11 @@
 //! - Collection buffers: `ori_buffer_rc_dec`, `ori_map_buffer_rc_dec`
 //! - Diagnostics: RC tracing, leak attribution, debug assertions
 
-mod collections;
 mod debug;
+mod list_rc;
+mod map_rc;
+mod set_rc;
 
-pub use collections::*;
 #[cfg(all(test, debug_assertions))]
 pub(crate) use debug::freed_set;
 #[cfg(test)]
@@ -24,6 +25,9 @@ pub(crate) use debug::{
 };
 #[cfg(debug_assertions)]
 pub use debug::{reset_alloc_registry, reset_freed_set};
+pub use list_rc::*;
+pub use map_rc::*;
+pub use set_rc::*;
 
 #[cfg(debug_assertions)]
 use debug::{alloc_registry_insert, alloc_registry_remove, rt_debug_register_freed};

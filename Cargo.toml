@@ -18,8 +18,7 @@ members = [
     "compiler/ori_llvm",
     "compiler/ori_rt",
 ]
-# Default members exclude LLVM crates (require LLVM 17 system libraries).
-# Bare `cargo check`/`cargo test` skip them; use `-p ori_llvm` or `cargo bl` explicitly.
+# All crates including ori_llvm are in default-members; LLVM 17 is required for oric builds.
 default-members = [
     "compiler/ori_ir",
     "compiler/ori_diagnostic",
@@ -35,6 +34,7 @@ default-members = [
     "compiler/ori_compiler",
     "compiler/ori_stack",
     "compiler/oric",
+    "compiler/ori_llvm",
     "compiler/ori_rt",
 ]
 # Excluded crates (not part of workspace at all):

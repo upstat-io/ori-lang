@@ -1,0 +1,70 @@
+// Valgrind test: COW list reverse and sort operations.
+// Exercises reverse/sort on unique and shared lists, single element,
+// already sorted, reverse sorted, with string elements.
+
+@main () -> int = {
+    // Reverse unique owner (in-place)
+    let a = [1, 2, 3, 4, 5];
+    let a2 = a.reverse();
+    let rev_unique_ok = a2[0] == 5 && a2[4] == 1 && a2.length() == 5;
+
+    // Reverse shared owner (COW)
+    let base = [10, 20, 30];
+    let shared = base;
+    let reversed = shared.reverse();
+    let rev_cow_ok = base[0] == 10 && reversed[0] == 30
+        && base.length() == 3 && reversed.length() == 3;
+
+    // Reverse single element
+    let single = [42];
+    let rev_single = single.reverse();
+    let rev_single_ok = rev_single[0] == 42 && rev_single.length() == 1;
+
+    // Sort unique owner (in-place)
+    let b = [3, 1, 4, 1, 5, 9, 2, 6];
+    let b2 = b.sort();
+    let sort_unique_ok = b2[0] == 1 && b2[1] == 1 && b2[7] == 9;
+
+    // Sort shared owner (COW)
+    let unsorted = [5, 3, 1, 4, 2];
+    let shared2 = unsorted;
+    let sorted = shared2.sort();
+    let sort_cow_ok = unsorted[0] == 5 && sorted[0] == 1
+        && unsorted.length() == 5 && sorted.length() == 5;
+
+    // Sort already sorted
+    let already = [1, 2, 3, 4, 5];
+    let still = already.sort();
+    let already_ok = still[0] == 1 && still[4] == 5;
+
+    // Sort reverse sorted
+    let rev = [5, 4, 3, 2, 1];
+    let fwd = rev.sort();
+    let fwd_ok = fwd[0] == 1 && fwd[4] == 5;
+
+    // Sort single element
+    let one = [99];
+    let one_sorted = one.sort();
+    let one_ok = one_sorted[0] == 99;
+
+    // Reverse then sort (chained)
+    let c = [3, 1, 2];
+    let c2 = c.reverse().sort();
+    let chain_ok = c2[0] == 1 && c2[2] == 3;
+
+    // Sort with string elements
+    let strs = ["banana", "apple", "cherry"];
+    let strs2 = strs.sort();
+    let str_sort_ok = strs2[0] == "apple" && strs2[2] == "cherry";
+
+    // Multi-fork reverse
+    let root = [1, 2, 3, 4];
+    let f1 = root.reverse();
+    let f2 = root.sort();
+    let multi_ok = root[0] == 1 && f1[0] == 4 && f2[0] == 1;
+
+    if rev_unique_ok && rev_cow_ok && rev_single_ok && sort_unique_ok
+        && sort_cow_ok && already_ok && fwd_ok && one_ok && chain_ok
+        && str_sort_ok && multi_ok
+    then 0 else 1
+}

@@ -108,7 +108,8 @@ fn runtime_call_emits_apply() {
 #[test]
 fn compiler_intrinsic_call_emits_apply() {
     let interner = StringInterner::new();
-    let func_name = interner.intern("__index");
+    let func_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
 
     let func = lower_call_expr(&interner, func_name, 0);
 
