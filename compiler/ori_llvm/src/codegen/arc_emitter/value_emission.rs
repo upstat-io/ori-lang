@@ -56,11 +56,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     })
             }
             LitValue::Duration { value, unit } => {
-                let nanos = unit.to_nanos(*value);
+                let nanos = unit
+                    .to_nanos(*value)
+                    .expect("duration literal validated by lexer");
                 self.builder.const_i64(nanos)
             }
             LitValue::Size { value, unit } => {
-                let bytes = unit.to_bytes(*value);
+                let bytes = unit
+                    .to_bytes(*value)
+                    .expect("size literal validated by lexer");
                 self.builder.const_i64(bytes as i64)
             }
         }

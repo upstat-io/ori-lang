@@ -224,14 +224,25 @@ fn extract_const_value(
 
 // Binary Folding
 
+/// Validate that a Size result fits in i64 (LLVM codegen casts bytes to i64).
+///
+/// Returns `Some(ConstValue::Size)` if valid, `None` if the value exceeds
+/// `i64::MAX` — deferring the overflow to runtime.
+fn checked_size_bytes(bytes: u64) -> Option<ConstValue> {
+    if i64::try_from(bytes).is_ok() {
+        Some(ConstValue::Size {
+            value: bytes,
+            unit: SizeUnit::Bytes,
+        })
+    } else {
+        None
+    }
+}
+
 /// Evaluate a binary operation on two constant values.
 ///
 /// Returns `None` if the operation would cause undefined behavior
 /// (division by zero, integer overflow) — these are deferred to runtime.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive (BinaryOp, ConstValue, ConstValue) fold dispatch"
-)]
 fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<ConstValue> {
     // Match by reference — all inner data is Copy, so no cloning needed.
     match (op, left, right) {
@@ -332,17 +343,35 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
             Some(ConstValue::Int(a >> shift))
         }
 
-        // Duration arithmetic (normalized to nanoseconds).
-        // Signed i64 results are stored as u64 via `cast_unsigned()`. The
-        // round-trip is safe: readers call `to_nanos()` on the stored value,
-        // which is a no-op (multiplier = 1 for Nanoseconds), then
-        // `cast_signed()` to recover the original i64.
+        // Duration and Size — delegated to focused helpers to keep complexity bounded.
+        (_, ConstValue::Duration { .. }, ConstValue::Duration { .. })
+        | (_, ConstValue::Duration { .. }, ConstValue::Int(_))
+        | (_, ConstValue::Int(_), ConstValue::Duration { .. }) => {
+            fold_duration_binary(op, left, right)
+        }
+        (_, ConstValue::Size { .. }, ConstValue::Size { .. })
+        | (_, ConstValue::Size { .. }, ConstValue::Int(_))
+        | (_, ConstValue::Int(_), ConstValue::Size { .. }) => fold_size_binary(op, left, right),
+
+        // Unmatched type combinations — can't fold.
+        _ => None,
+    }
+}
+
+/// Duration binary operations — arithmetic and comparisons normalized to nanoseconds.
+///
+/// Signed i64 results are stored as u64 via `cast_unsigned()`. The round-trip is safe:
+/// readers call `to_nanos()` on the stored value, which uses `cast_signed()` to recover
+/// the original i64 (multiplier = 1 for Nanoseconds).
+fn fold_duration_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<ConstValue> {
+    match (op, left, right) {
+        // Duration ± Duration, Duration % Duration.
         (
             BinaryOp::Add,
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
         ) => {
-            let (a_ns, b_ns) = (au.to_nanos(*a), bu.to_nanos(*b));
+            let (a_ns, b_ns) = (au.to_nanos(*a)?, bu.to_nanos(*b)?);
             a_ns.checked_add(b_ns).map(|r| ConstValue::Duration {
                 value: r.cast_unsigned(),
                 unit: DurationUnit::Nanoseconds,
@@ -353,7 +382,7 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
         ) => {
-            let (a_ns, b_ns) = (au.to_nanos(*a), bu.to_nanos(*b));
+            let (a_ns, b_ns) = (au.to_nanos(*a)?, bu.to_nanos(*b)?);
             a_ns.checked_sub(b_ns).map(|r| ConstValue::Duration {
                 value: r.cast_unsigned(),
                 unit: DurationUnit::Nanoseconds,
@@ -364,7 +393,7 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
         ) => {
-            let (a_ns, b_ns) = (au.to_nanos(*a), bu.to_nanos(*b));
+            let (a_ns, b_ns) = (au.to_nanos(*a)?, bu.to_nanos(*b)?);
             a_ns.checked_rem(b_ns).map(|r| ConstValue::Duration {
                 value: r.cast_unsigned(),
                 unit: DurationUnit::Nanoseconds,
@@ -376,88 +405,89 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
             BinaryOp::Eq,
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_nanos(*a) == bu.to_nanos(*b))),
+        ) => Some(ConstValue::Bool(au.to_nanos(*a)? == bu.to_nanos(*b)?)),
         (
             BinaryOp::NotEq,
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_nanos(*a) != bu.to_nanos(*b))),
+        ) => Some(ConstValue::Bool(au.to_nanos(*a)? != bu.to_nanos(*b)?)),
         (
             BinaryOp::Lt,
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_nanos(*a) < bu.to_nanos(*b))),
+        ) => Some(ConstValue::Bool(au.to_nanos(*a)? < bu.to_nanos(*b)?)),
         (
             BinaryOp::LtEq,
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_nanos(*a) <= bu.to_nanos(*b))),
+        ) => Some(ConstValue::Bool(au.to_nanos(*a)? <= bu.to_nanos(*b)?)),
         (
             BinaryOp::Gt,
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_nanos(*a) > bu.to_nanos(*b))),
+        ) => Some(ConstValue::Bool(au.to_nanos(*a)? > bu.to_nanos(*b)?)),
         (
             BinaryOp::GtEq,
             ConstValue::Duration { value: a, unit: au },
             ConstValue::Duration { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_nanos(*a) >= bu.to_nanos(*b))),
+        ) => Some(ConstValue::Bool(au.to_nanos(*a)? >= bu.to_nanos(*b)?)),
 
         // Duration * int, int * Duration, Duration / int.
         (BinaryOp::Mul, ConstValue::Duration { value: a, unit: au }, ConstValue::Int(b)) => au
-            .to_nanos(*a)
+            .to_nanos(*a)?
             .checked_mul(*b)
             .map(|r| ConstValue::Duration {
                 value: r.cast_unsigned(),
                 unit: DurationUnit::Nanoseconds,
             }),
         (BinaryOp::Mul, ConstValue::Int(a), ConstValue::Duration { value: b, unit: bu }) => a
-            .checked_mul(bu.to_nanos(*b))
+            .checked_mul(bu.to_nanos(*b)?)
             .map(|r| ConstValue::Duration {
                 value: r.cast_unsigned(),
                 unit: DurationUnit::Nanoseconds,
             }),
         (BinaryOp::Div, ConstValue::Duration { value: a, unit: au }, ConstValue::Int(b)) => au
-            .to_nanos(*a)
+            .to_nanos(*a)?
             .checked_div(*b)
             .map(|r| ConstValue::Duration {
                 value: r.cast_unsigned(),
                 unit: DurationUnit::Nanoseconds,
             }),
 
-        // Size arithmetic (normalized to bytes).
+        _ => None,
+    }
+}
+
+/// Size binary operations — arithmetic and comparisons normalized to bytes.
+///
+/// Results are bounded by `checked_size_bytes` to ensure values fit `i64::MAX`,
+/// matching LLVM codegen's `bytes as i64` cast.
+fn fold_size_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<ConstValue> {
+    match (op, left, right) {
+        // Size ± Size, Size % Size.
         (
             BinaryOp::Add,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
         ) => au
-            .to_bytes(*a)
-            .checked_add(bu.to_bytes(*b))
-            .map(|r| ConstValue::Size {
-                value: r,
-                unit: SizeUnit::Bytes,
-            }),
+            .to_bytes(*a)?
+            .checked_add(bu.to_bytes(*b)?)
+            .and_then(checked_size_bytes),
         (
             BinaryOp::Sub,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
         ) => au
-            .to_bytes(*a)
-            .checked_sub(bu.to_bytes(*b))
-            .map(|r| ConstValue::Size {
-                value: r,
-                unit: SizeUnit::Bytes,
-            }),
+            .to_bytes(*a)?
+            .checked_sub(bu.to_bytes(*b)?)
+            .and_then(checked_size_bytes),
         (
             BinaryOp::Mod,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
         ) => {
-            let (a_b, b_b) = (au.to_bytes(*a), bu.to_bytes(*b));
-            a_b.checked_rem(b_b).map(|r| ConstValue::Size {
-                value: r,
-                unit: SizeUnit::Bytes,
-            })
+            let (a_b, b_b) = (au.to_bytes(*a)?, bu.to_bytes(*b)?);
+            a_b.checked_rem(b_b).and_then(checked_size_bytes)
         }
 
         // Size comparisons.
@@ -465,64 +495,54 @@ fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<Co
             BinaryOp::Eq,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_bytes(*a) == bu.to_bytes(*b))),
+        ) => Some(ConstValue::Bool(au.to_bytes(*a)? == bu.to_bytes(*b)?)),
         (
             BinaryOp::NotEq,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_bytes(*a) != bu.to_bytes(*b))),
+        ) => Some(ConstValue::Bool(au.to_bytes(*a)? != bu.to_bytes(*b)?)),
         (
             BinaryOp::Lt,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_bytes(*a) < bu.to_bytes(*b))),
+        ) => Some(ConstValue::Bool(au.to_bytes(*a)? < bu.to_bytes(*b)?)),
         (
             BinaryOp::LtEq,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_bytes(*a) <= bu.to_bytes(*b))),
+        ) => Some(ConstValue::Bool(au.to_bytes(*a)? <= bu.to_bytes(*b)?)),
         (
             BinaryOp::Gt,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_bytes(*a) > bu.to_bytes(*b))),
+        ) => Some(ConstValue::Bool(au.to_bytes(*a)? > bu.to_bytes(*b)?)),
         (
             BinaryOp::GtEq,
             ConstValue::Size { value: a, unit: au },
             ConstValue::Size { value: b, unit: bu },
-        ) => Some(ConstValue::Bool(au.to_bytes(*a) >= bu.to_bytes(*b))),
+        ) => Some(ConstValue::Bool(au.to_bytes(*a)? >= bu.to_bytes(*b)?)),
 
         // Size * int, int * Size, Size / int (reject negative int).
         (BinaryOp::Mul, ConstValue::Size { value: a, unit: au }, ConstValue::Int(b)) if *b >= 0 => {
-            au.to_bytes(*a)
+            au.to_bytes(*a)?
                 .checked_mul(b.cast_unsigned())
-                .map(|r| ConstValue::Size {
-                    value: r,
-                    unit: SizeUnit::Bytes,
-                })
+                .and_then(checked_size_bytes)
         }
         (BinaryOp::Mul, ConstValue::Int(a), ConstValue::Size { value: b, unit: bu }) if *a >= 0 => {
             a.cast_unsigned()
-                .checked_mul(bu.to_bytes(*b))
-                .map(|r| ConstValue::Size {
-                    value: r,
-                    unit: SizeUnit::Bytes,
-                })
+                .checked_mul(bu.to_bytes(*b)?)
+                .and_then(checked_size_bytes)
         }
         (BinaryOp::Div, ConstValue::Size { value: a, unit: au }, ConstValue::Int(b)) => {
             if *b <= 0 {
                 None // Negative or zero divisor for Size — defer to runtime.
             } else {
-                au.to_bytes(*a)
+                au.to_bytes(*a)?
                     .checked_div(b.cast_unsigned())
-                    .map(|r| ConstValue::Size {
-                        value: r,
-                        unit: SizeUnit::Bytes,
-                    })
+                    .and_then(checked_size_bytes)
             }
         }
 
-        // Unmatched type combinations — can't fold.
         _ => None,
     }
 }
@@ -538,7 +558,7 @@ fn fold_unary(op: UnaryOp, val: &ConstValue) -> Option<ConstValue> {
             Some(ConstValue::Float((-f64::from_bits(*bits)).to_bits()))
         }
         (UnaryOp::Neg, ConstValue::Duration { value, unit }) => {
-            let nanos = unit.to_nanos(*value);
+            let nanos = unit.to_nanos(*value)?;
             nanos.checked_neg().map(|r| ConstValue::Duration {
                 value: r.cast_unsigned(),
                 unit: DurationUnit::Nanoseconds,

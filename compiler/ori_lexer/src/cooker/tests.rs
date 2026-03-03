@@ -169,6 +169,63 @@ fn integer_overflow() {
     assert_eq!(cooker.errors().len(), 1);
 }
 
+// === Float overflow (Finding 2) ===
+
+#[test]
+fn float_overflow_is_error() {
+    // 1e999 overflows to infinity → error per spec 7.7.2
+    let source = "1e999";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Float, 0, source.len() as u32);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
+}
+
+#[test]
+fn float_max_finite_is_valid() {
+    // Regression guard: max finite f64 must still parse
+    let source = "1.7976931348623157e308";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Float, 0, source.len() as u32);
+    assert!(matches!(result.kind, TokenKind::Float(_)));
+    assert!(!result.had_error);
+}
+
+// === Malformed numeric literals (Finding 1) ===
+
+#[test]
+fn hex_int_no_digits_is_error() {
+    // 0x with no hex digits → error, not Int(0)
+    let source = "0x";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::HexInt, 0, 2);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
+}
+
+#[test]
+fn bin_int_only_underscores_is_error() {
+    // 0b_ with only underscores after prefix → error
+    let source = "0b_";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::BinInt, 0, 3);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
+}
+
+#[test]
+fn hex_int_zero_is_valid() {
+    // Regression guard: 0x0 must still produce Int(0)
+    let source = "0x0";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    assert_eq!(cooker.cook(RawTag::HexInt, 0, 3).kind, TokenKind::Int(0));
+}
+
 // === Duration/Size ===
 
 #[test]
@@ -459,6 +516,88 @@ fn hashbang_mapping() {
         TokenKind::HashBang
     );
     assert!(cooker.errors().is_empty());
+}
+
+// === Duration/Size overflow (Finding 3) ===
+
+#[test]
+fn duration_integer_overflow_is_error() {
+    // 3000000h overflows i64 nanoseconds (~292yr limit)
+    let source = "3000000h";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
+}
+
+#[test]
+fn duration_max_valid_hours() {
+    // ~2562047h is near the i64 nanosecond limit but valid
+    let source = "2562047h";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
+    assert_eq!(
+        result.kind,
+        TokenKind::Duration(2_562_047, DurationUnit::Hours)
+    );
+    assert!(!result.had_error);
+}
+
+#[test]
+fn duration_seconds_overflow_is_error() {
+    // 10000000000s overflows i64 nanoseconds
+    let source = "10000000000s";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
+}
+
+#[test]
+fn size_terabytes_overflow_is_error() {
+    // 18446745tb overflows u64
+    let source = "18446745tb";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
+}
+
+#[test]
+fn size_bytes_exceeding_i64_is_error() {
+    // 9223372036854775808b fits u64 but exceeds i64::MAX
+    let source = "9223372036854775808b";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
+}
+
+#[test]
+fn decimal_duration_overflow_is_error() {
+    // Decimal path: result nanos exceed i64
+    let source = "99999999999.0s";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
+}
+
+#[test]
+fn decimal_size_overflow_is_error() {
+    // Decimal path: result bytes exceed i64
+    let source = "9999999999999999.0tb";
+    let interner = StringInterner::new();
+    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
 }
 
 // === Suffix detection ===
