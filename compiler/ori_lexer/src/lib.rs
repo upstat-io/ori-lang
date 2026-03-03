@@ -185,9 +185,9 @@ pub struct LexResult {
 
 /// Lex source code into tokens and accumulated errors.
 ///
-/// Uses the fast path that skips comment classification, newline/blank-line
-/// position tracking, and doc comment detection. For metadata (comments,
-/// formatting info), use [`lex_with_comments()`].
+/// Collects metadata internally (comments, newlines) but returns only
+/// the token stream and errors. For metadata (comments, formatting info),
+/// use [`lex_with_comments()`].
 pub fn lex_full(source: &str, interner: &StringInterner) -> LexResult {
     let output = lex_driver::<true>(source, interner);
     LexResult {
@@ -198,12 +198,8 @@ pub fn lex_full(source: &str, interner: &StringInterner) -> LexResult {
 
 /// Lex source code into a [`TokenList`].
 ///
-/// Uses the hand-written `RawScanner` + `TokenCooker` pipeline.
-/// Produces literals, keywords, identifiers, symbols, trivia (`Newline`),
-/// and `Eof`/`Error` tokens. Each token carries [`TokenFlags`] metadata.
-///
-/// This is the fast path that discards errors. For the full pipeline
-/// (tokens + errors), use [`lex_full()`].
+/// Wraps [`lex_full()`] and discards errors, returning only the token
+/// stream. For the full pipeline (tokens + errors), use [`lex_full()`].
 pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
     lex_full(source, interner).tokens
 }

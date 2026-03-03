@@ -28,8 +28,8 @@ use smallvec::SmallVec;
 
 use super::Interpreter;
 use crate::errors::{
-    await_not_supported, hash_outside_index, parse_error, self_outside_method, undefined_const,
-    undefined_function,
+    await_not_supported, hash_outside_index, integer_overflow, parse_error, self_outside_method,
+    undefined_const, undefined_function,
 };
 use crate::exec::expr;
 use crate::Mutability;
@@ -95,8 +95,14 @@ impl Interpreter<'_> {
             CanExpr::Bool(b) => Ok(Value::Bool(b)),
             CanExpr::Str(name) => Ok(Value::string_static(self.interner.lookup_static(name))),
             CanExpr::Char(c) => Ok(Value::Char(c)),
-            CanExpr::Duration { value, unit } => Ok(Value::Duration(unit.to_nanos(value))),
-            CanExpr::Size { value, unit } => Ok(Value::Size(unit.to_bytes(value))),
+            CanExpr::Duration { value, unit } => Ok(Value::Duration(
+                unit.to_nanos(value)
+                    .ok_or_else(|| integer_overflow("duration literal"))?,
+            )),
+            CanExpr::Size { value, unit } => Ok(Value::Size(
+                unit.to_bytes(value)
+                    .ok_or_else(|| integer_overflow("size literal"))?,
+            )),
             CanExpr::Unit => Ok(Value::Void),
 
             // Compile-Time Constant
@@ -368,6 +374,12 @@ impl Interpreter<'_> {
 // Helpers
 
 /// Convert a `ConstValue` from the constant pool to a runtime `Value`.
+#[expect(
+    clippy::expect_used,
+    reason = "Constants come from cooker-validated literals (overflow-checked) or \
+              const-fold results (Nanoseconds/Bytes unit, i64-bounded arithmetic). \
+              Both paths guarantee to_nanos/to_bytes succeed."
+)]
 fn const_to_value(cv: &ori_ir::canon::ConstValue, interner: &ori_ir::StringInterner) -> Value {
     match *cv {
         ori_ir::canon::ConstValue::Int(n) => Value::int(n),
@@ -376,10 +388,14 @@ fn const_to_value(cv: &ori_ir::canon::ConstValue, interner: &ori_ir::StringInter
         ori_ir::canon::ConstValue::Str(name) => Value::string_static(interner.lookup_static(name)),
         ori_ir::canon::ConstValue::Char(c) => Value::Char(c),
         ori_ir::canon::ConstValue::Unit => Value::Void,
-        ori_ir::canon::ConstValue::Duration { value, unit } => {
-            Value::Duration(unit.to_nanos(value))
-        }
-        ori_ir::canon::ConstValue::Size { value, unit } => Value::Size(unit.to_bytes(value)),
+        ori_ir::canon::ConstValue::Duration { value, unit } => Value::Duration(
+            unit.to_nanos(value)
+                .expect("duration overflow: constant should have been validated"),
+        ),
+        ori_ir::canon::ConstValue::Size { value, unit } => Value::Size(
+            unit.to_bytes(value)
+                .expect("size overflow: constant should have been validated"),
+        ),
     }
 }
 
