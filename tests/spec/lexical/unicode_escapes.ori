@@ -1,0 +1,112 @@
+// Spec: 03-lexical-elements.md § Unicode Escape Sequences
+// Tests for \u{...} Unicode escape sequences (grammar.ebnf § unicode_escape)
+// unicode_escape = '\' 'u' '{' hex_digit { hex_digit } '}' .
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Character Literals with Unicode Escapes
+// =============================================================================
+
+@char_unicode_escape_A () -> char = '\u{41}';
+
+@test_char_unicode_escape_A tests @char_unicode_escape_A () -> void = {
+    assert(cond: char_unicode_escape_A() == 'A')
+}
+
+@char_unicode_escape_zero () -> char = '\u{0}';
+
+@test_char_unicode_escape_zero tests @char_unicode_escape_zero () -> void = {
+    assert(cond: char_unicode_escape_zero() == '\0')
+}
+
+@char_unicode_escape_newline () -> char = '\u{A}';
+
+@test_char_unicode_escape_newline tests @char_unicode_escape_newline () -> void = {
+    assert(cond: char_unicode_escape_newline() == '\n')
+}
+
+@char_unicode_escape_lambda () -> char = '\u{3BB}';
+
+@test_char_unicode_escape_lambda tests @char_unicode_escape_lambda () -> void = {
+    assert(cond: char_unicode_escape_lambda() == 'λ')
+}
+
+// =============================================================================
+// String Literals with Unicode Escapes
+// =============================================================================
+
+@string_unicode_escape_hello () -> str = "\u{48}\u{65}\u{6C}\u{6C}\u{6F}";
+
+@test_string_unicode_escape_hello tests @string_unicode_escape_hello () -> void = {
+    assert(cond: string_unicode_escape_hello() == "Hello")
+}
+
+@string_unicode_mixed () -> str = "abc\u{41}def";
+
+@test_string_unicode_mixed tests @string_unicode_mixed () -> void = {
+    assert(cond: string_unicode_mixed() == "abcAdef")
+}
+
+@string_unicode_with_other_escapes () -> str = "\n\u{41}\t";
+
+@test_string_unicode_with_other_escapes tests @string_unicode_with_other_escapes () -> void = {
+    assert(cond: string_unicode_with_other_escapes() == "\nA\t")
+}
+
+// =============================================================================
+// Template Literals with Unicode Escapes
+// =============================================================================
+
+@template_unicode_escape () -> str = `\u{48}ello`;
+
+@test_template_unicode_escape tests @template_unicode_escape () -> void = {
+    assert(cond: template_unicode_escape() == "Hello")
+}
+
+@template_unicode_with_interpolation () -> str = {
+    let $name = "World";
+    `\u{48}ello {name}`
+}
+
+@test_template_unicode_with_interpolation tests @template_unicode_with_interpolation () -> void = {
+    assert(cond: template_unicode_with_interpolation() == "Hello World")
+}
+
+// =============================================================================
+// Case-Insensitive Hex Digits
+// =============================================================================
+
+@unicode_escape_lowercase () -> char = '\u{1f600}';
+
+@test_unicode_escape_lowercase tests @unicode_escape_lowercase () -> void = {
+    assert(cond: unicode_escape_lowercase() == '\u{1F600}')
+}
+
+@unicode_escape_uppercase () -> char = '\u{1F600}';
+
+@test_unicode_escape_uppercase tests @unicode_escape_uppercase () -> void = {
+    assert(cond: unicode_escape_uppercase() == '\u{1f600}')
+}
+
+@unicode_escape_mixed_case () -> char = '\u{1f600}';
+
+@test_unicode_escape_mixed_case tests @unicode_escape_mixed_case () -> void = {
+    assert(cond: unicode_escape_lowercase() == unicode_escape_mixed_case())
+}
+
+// =============================================================================
+// Comparisons with Direct Characters
+// =============================================================================
+
+@unicode_escape_equals_direct () -> bool = '\u{41}' == 'A';
+
+@test_unicode_escape_equals_direct tests @unicode_escape_equals_direct () -> void = {
+    assert(cond: unicode_escape_equals_direct())
+}
+
+@unicode_escape_string_equals_direct () -> bool = "\u{48}ello" == "Hello";
+
+@test_unicode_escape_string_equals_direct tests @unicode_escape_string_equals_direct () -> void = {
+    assert(cond: unicode_escape_string_equals_direct())
+}
