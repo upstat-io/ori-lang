@@ -179,9 +179,12 @@ impl TargetTripleComponents {
     }
 
     /// Check if this is a macOS target.
+    ///
+    /// The OS component may include a version suffix (e.g., `darwin25.2.0`
+    /// from `arm64-apple-darwin25.2.0`), so we use `starts_with`.
     #[must_use]
     pub fn is_macos(&self) -> bool {
-        self.os == "darwin"
+        self.os.starts_with("darwin") || self.os == "macos"
     }
 
     /// Check if this is a Linux target.
