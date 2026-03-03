@@ -130,17 +130,16 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
-          COMMIT_LOG=$(cat /tmp/commit-log.txt)
-          PR_BODIES=$(cat /tmp/pr-bodies.txt)
           TAG="${{ steps.tag.outputs.tag }}"
           PREV_TAG="${{ steps.commits.outputs.prev_tag }}"
 
           # Generate release notes using Claude Sonnet 4.6 via Copilot SDK
           python3 << PYEOF
           import asyncio, sys, os
+          from pathlib import Path
 
-          COMMIT_LOG = """${COMMIT_LOG}"""
-          PR_BODIES = """${PR_BODIES}"""
+          COMMIT_LOG = Path("/tmp/commit-log.txt").read_text()
+          PR_BODIES = Path("/tmp/pr-bodies.txt").read_text()
           TAG = "${TAG}"
           PREV_TAG = "${PREV_TAG}" or "beginning"
 
