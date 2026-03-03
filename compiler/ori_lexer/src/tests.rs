@@ -893,3 +893,83 @@ fn hashbang_followed_by_ident() {
     assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
     assert_eq!(tokens[2].kind, TokenKind::Eof);
 }
+
+// === Unicode escape integration tests ===
+
+#[test]
+fn unicode_escape_char_bare_u_produces_error() {
+    // '\u' — raw layer produces Char (cursor lands at closing '),
+    // cooked layer reports MissingOpenBrace
+    let interner = StringInterner::new();
+    let output = lex_with_comments("'\\u'", &interner);
+    assert!(output.has_errors());
+    assert_eq!(output.tokens[0].kind, TokenKind::Char('\u{FFFD}'));
+    let unicode_errors: Vec<_> = output
+        .errors
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.kind,
+                lex_error::LexErrorKind::InvalidUnicodeEscape {
+                    detail: lex_error::UnicodeEscapeDetail::MissingOpenBrace
+                }
+            )
+        })
+        .collect();
+    assert_eq!(unicode_errors.len(), 1);
+}
+
+#[test]
+fn unicode_escape_char_malformed_no_brace_is_unterminated() {
+    // '\uX' — raw layer: multi-char content → UnterminatedChar → Error token
+    let interner = StringInterner::new();
+    let output = lex_with_comments("'\\uX'", &interner);
+    assert!(output.has_errors());
+    assert_eq!(output.tokens[0].kind, TokenKind::Error);
+    let unterm_errors: Vec<_> = output
+        .errors
+        .iter()
+        .filter(|e| matches!(e.kind, lex_error::LexErrorKind::UnterminatedChar))
+        .collect();
+    assert_eq!(unterm_errors.len(), 1);
+}
+
+#[test]
+fn unicode_escape_char_surrogate_produces_error() {
+    // '\u{D800}' — valid token boundary, invalid codepoint
+    let interner = StringInterner::new();
+    let output = lex_with_comments("'\\u{D800}'", &interner);
+    assert!(output.has_errors());
+    assert_eq!(output.tokens[0].kind, TokenKind::Char('\u{FFFD}'));
+    let surrogate_errors: Vec<_> = output
+        .errors
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.kind,
+                lex_error::LexErrorKind::InvalidUnicodeEscape {
+                    detail: lex_error::UnicodeEscapeDetail::SurrogateCodepoint { .. }
+                }
+            )
+        })
+        .collect();
+    assert_eq!(surrogate_errors.len(), 1);
+}
+
+#[test]
+fn unicode_escape_string_happy_path() {
+    // "\u{1F600}" — should produce a string with the emoji, no errors
+    let interner = StringInterner::new();
+    let output = lex_with_comments("\"\\u{1F600}\"", &interner);
+    assert!(!output.has_errors(), "errors: {:?}", output.errors);
+    assert!(matches!(output.tokens[0].kind, TokenKind::String(_)));
+}
+
+#[test]
+fn unicode_escape_char_happy_path() {
+    // '\u{41}' — should produce Char('A'), no errors
+    let interner = StringInterner::new();
+    let output = lex_with_comments("'\\u{41}'", &interner);
+    assert!(!output.has_errors(), "errors: {:?}", output.errors);
+    assert_eq!(output.tokens[0].kind, TokenKind::Char('A'));
+}

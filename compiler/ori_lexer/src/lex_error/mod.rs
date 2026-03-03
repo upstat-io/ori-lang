@@ -10,6 +10,25 @@
 
 use ori_ir::Span;
 
+/// Detail about what went wrong in a `\u{...}` Unicode escape sequence.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum UnicodeEscapeDetail {
+    /// Missing `{` after `\u`.
+    MissingOpenBrace,
+    /// `\u{}` — no hex digits between braces.
+    EmptyDigits,
+    /// More than 6 hex digits in `\u{...}`.
+    TooManyDigits,
+    /// Non-hex character inside `\u{...}`.
+    InvalidHexDigit { ch: char },
+    /// Missing closing `}` after hex digits.
+    MissingCloseBrace,
+    /// Codepoint is a UTF-16 surrogate (U+D800–U+DFFF).
+    SurrogateCodepoint { codepoint: u32 },
+    /// Codepoint exceeds U+10FFFF.
+    OutOfRange { codepoint: u32 },
+}
+
 /// A lexer error with full context for diagnostic rendering.
 ///
 /// Follows the cross-system error shape from `v2-conventions.md` §5.
@@ -41,6 +60,8 @@ pub enum LexErrorKind {
     InvalidCharEscape { escape_char: char },
     /// Invalid escape in a template literal.
     InvalidTemplateEscape { escape_char: char },
+    /// Invalid Unicode escape sequence `\u{...}` in any literal context.
+    InvalidUnicodeEscape { detail: UnicodeEscapeDetail },
     /// `\'` used in a string literal — not valid per grammar line 102.
     SingleQuoteEscapeInString,
     /// `\"` used in a char literal — not valid per grammar line 127.
@@ -261,7 +282,7 @@ impl LexError {
             kind: LexErrorKind::InvalidStringEscape { escape_char },
             context: LexErrorContext::InsideString { start: span.start },
             suggestions: vec![LexSuggestion::text(
-                r#"valid escapes are: \n, \t, \r, \", \\, \0"#,
+                r#"valid escapes are: \n, \t, \r, \", \\, \0, \u{...}"#,
                 1,
             )],
         }
@@ -275,7 +296,7 @@ impl LexError {
             kind: LexErrorKind::InvalidCharEscape { escape_char },
             context: LexErrorContext::InsideChar,
             suggestions: vec![LexSuggestion::text(
-                r"valid escapes are: \n, \t, \r, \', \\, \0",
+                r"valid escapes are: \n, \t, \r, \', \\, \0, \u{...}",
                 1,
             )],
         }
@@ -292,9 +313,50 @@ impl LexError {
                 nesting: 0,
             },
             suggestions: vec![LexSuggestion::text(
-                r"valid escapes are: \n, \t, \r, \`, \\, \0",
+                r"valid escapes are: \n, \t, \r, \`, \\, \0, \u{...}",
                 1,
             )],
+        }
+    }
+
+    /// Create an invalid Unicode escape error with explicit context.
+    #[cold]
+    pub fn invalid_unicode_escape(
+        span: Span,
+        detail: UnicodeEscapeDetail,
+        context: LexErrorContext,
+    ) -> Self {
+        let suggestion = match &detail {
+            UnicodeEscapeDetail::MissingOpenBrace => {
+                r"Unicode escapes use the syntax `\u{XXXX}`".to_owned()
+            }
+            UnicodeEscapeDetail::EmptyDigits => {
+                "provide at least one hex digit: `\\u{0}` to `\\u{10FFFF}`".to_owned()
+            }
+            UnicodeEscapeDetail::TooManyDigits => {
+                "use at most 6 hex digits (maximum codepoint is `\\u{10FFFF}`)".to_owned()
+            }
+            UnicodeEscapeDetail::InvalidHexDigit { ch } => {
+                format!("`{ch}` is not a hex digit — use 0-9, a-f, or A-F")
+            }
+            UnicodeEscapeDetail::MissingCloseBrace => {
+                r"add closing `}` to complete the Unicode escape".to_owned()
+            }
+            UnicodeEscapeDetail::SurrogateCodepoint { codepoint } => {
+                format!(
+                    "U+{codepoint:04X} is a UTF-16 surrogate — \
+                     use the actual codepoint instead"
+                )
+            }
+            UnicodeEscapeDetail::OutOfRange { codepoint } => {
+                format!("U+{codepoint:X} exceeds the maximum Unicode codepoint (U+10FFFF)")
+            }
+        };
+        Self {
+            span,
+            kind: LexErrorKind::InvalidUnicodeEscape { detail },
+            context,
+            suggestions: vec![LexSuggestion::text(suggestion, 0)],
         }
     }
 
