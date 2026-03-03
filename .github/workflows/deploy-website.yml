@@ -21,6 +21,9 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  RUST_VERSION: "1.93.1"
+
 jobs:
   build:
     # push: only for release commits (CI is skipped, but website needs the version)
@@ -60,6 +63,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           targets: wasm32-unknown-unknown
 
       - name: Cache Rust dependencies
