@@ -1,4 +1,5 @@
 use super::*;
+use crate::codegen::eh_model::EhModel;
 use inkwell::context::Context;
 
 /// Helper: create a `SimpleCx` for testing.
@@ -888,5 +889,191 @@ fn invoke_indirect_produces_invoke() {
 
     let ir = scx.llmod.print_to_string().to_string();
     assert!(ir.contains("invoke"), "Expected 'invoke' in IR, got:\n{ir}");
+    drop(irb);
+}
+
+// -- SEH (Structured Exception Handling) tests --
+
+/// Helper: set up a function with MSVC triple and SEH personality for SEH tests.
+///
+/// Forces `x86_64-pc-windows-msvc` triple so the LLVM verifier enforces SEH
+/// constraints (funclet bundles, catchret/cleanupret terminators).
+fn setup_seh_builder(irb: &mut IrBuilder<'_, '_>) -> (FunctionId, BlockId) {
+    use inkwell::targets::TargetTriple;
+    irb.scx()
+        .llmod
+        .set_triple(&TargetTriple::create("x86_64-pc-windows-msvc"));
+    let i32_ty = irb.i32_type();
+    let func = irb.declare_function("test_fn", &[], i32_ty);
+    // __CxxFrameHandler3 personality (i32 return, matches runtime_functions.rs)
+    let personality = irb.declare_function("__CxxFrameHandler3", &[], i32_ty);
+    irb.set_personality(func, personality);
+    let entry = irb.append_block(func, "entry");
+    irb.set_current_function(func);
+    irb.position_at_end(entry);
+    (func, entry)
+}
+
+#[test]
+fn seh_catchpad_call_with_funclet() {
+    // Verifies: invoke → catchswitch → catchpad → call_with_funclet → catchret → ret
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new_aot(&scx, EhModel::Seh);
+    let (func, _entry) = setup_seh_builder(&mut irb);
+
+    let i32_ty = irb.i32_type();
+
+    // Declare a callee that may throw
+    let callee = irb.declare_function("may_throw", &[i32_ty], i32_ty);
+
+    // Create blocks: normal continuation and unwind dispatch
+    let normal = irb.append_block(func, "normal");
+    let unwind = irb.append_block(func, "unwind");
+
+    // Entry: invoke callee → normal or unwind
+    let arg = irb.const_i32(42);
+    let result = irb.invoke(callee, &[arg], normal, unwind, "result");
+
+    // Normal: return the invoke result
+    irb.position_at_end(normal);
+    let ret_val = result.unwrap_or_else(|| irb.const_i32(0));
+    irb.ret(ret_val);
+
+    // Unwind: catchswitch → handler → catchpad → call_with_funclet → catchret → ret
+    irb.position_at_end(unwind);
+    let handler_bb = irb.append_block(func, "handler");
+    let cs = irb.catchswitch(None, &[handler_bb], None);
+
+    irb.position_at_end(handler_bb);
+    let null_ptr = irb.const_null_ptr();
+    let i32_64 = irb.const_i32(64);
+    let null_ptr2 = irb.const_null_ptr();
+    let pad = irb.catchpad(cs, &[null_ptr, i32_64, null_ptr2]);
+
+    // Call inside the funclet with the required operand bundle
+    let cleanup_fn = irb.declare_void_function("cleanup_side_effect", &[]);
+    irb.call_with_funclet(cleanup_fn, &[], pad, "");
+
+    // Exit via catchret → continue block → ret
+    let continue_bb = irb.append_block(func, "continue");
+    irb.catchret(pad, continue_bb);
+
+    irb.position_at_end(continue_bb);
+    let zero = irb.const_i32(0);
+    irb.ret(zero);
+
+    // LLVM verifier: validates funclet bundles, catchswitch/catchpad/catchret structure
+    let ir = scx.llmod.print_to_string().to_string();
+    assert!(
+        scx.llmod.verify().is_ok(),
+        "LLVM verification failed for SEH catchpad test:\n{ir}"
+    );
+    assert!(ir.contains("catchswitch"), "Missing catchswitch:\n{ir}");
+    assert!(ir.contains("catchpad"), "Missing catchpad:\n{ir}");
+    assert!(ir.contains("catchret"), "Missing catchret:\n{ir}");
+    drop(irb);
+}
+
+#[test]
+fn seh_cleanuppad_cleanupret() {
+    // Verifies: invoke → cleanuppad → call_with_funclet → cleanupret
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new_aot(&scx, EhModel::Seh);
+    let (func, _entry) = setup_seh_builder(&mut irb);
+
+    let i32_ty = irb.i32_type();
+    let callee = irb.declare_function("may_throw", &[i32_ty], i32_ty);
+
+    let normal = irb.append_block(func, "normal");
+    let cleanup = irb.append_block(func, "cleanup");
+
+    // Entry: invoke → normal or cleanup
+    let arg = irb.const_i32(1);
+    let result = irb.invoke(callee, &[arg], normal, cleanup, "result");
+
+    // Normal: return
+    irb.position_at_end(normal);
+    let ret_val = result.unwrap_or_else(|| irb.const_i32(0));
+    irb.ret(ret_val);
+
+    // Cleanup: cleanuppad → funclet call → cleanupret (re-raises)
+    irb.position_at_end(cleanup);
+    let pad = irb.cleanuppad(None, &[]);
+
+    let dec_fn = irb.declare_void_function("ori_rc_dec", &[]);
+    irb.call_with_funclet(dec_fn, &[], pad, "");
+
+    irb.cleanupret(pad, None);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    assert!(
+        scx.llmod.verify().is_ok(),
+        "LLVM verification failed for SEH cleanuppad test:\n{ir}"
+    );
+    assert!(ir.contains("cleanuppad"), "Missing cleanuppad:\n{ir}");
+    assert!(ir.contains("cleanupret"), "Missing cleanupret:\n{ir}");
+    drop(irb);
+}
+
+#[test]
+fn seh_indirect_call_with_funclet() {
+    // Verifies: invoke → catchpad → call_indirect_with_funclet → catchret → ret
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new_aot(&scx, EhModel::Seh);
+    let (func, _entry) = setup_seh_builder(&mut irb);
+
+    let i32_ty = irb.i32_type();
+    let callee = irb.declare_function("may_throw", &[i32_ty], i32_ty);
+
+    let normal = irb.append_block(func, "normal");
+    let unwind = irb.append_block(func, "unwind");
+
+    // Entry: invoke → normal or unwind
+    let arg = irb.const_i32(7);
+    let result = irb.invoke(callee, &[arg], normal, unwind, "result");
+
+    // Normal: return
+    irb.position_at_end(normal);
+    let ret_val = result.unwrap_or_else(|| irb.const_i32(0));
+    irb.ret(ret_val);
+
+    // Unwind: catchswitch → handler → catchpad
+    irb.position_at_end(unwind);
+    let handler_bb = irb.append_block(func, "handler");
+    let cs = irb.catchswitch(None, &[handler_bb], None);
+
+    irb.position_at_end(handler_bb);
+    let null_ptr = irb.const_null_ptr();
+    let i32_64 = irb.const_i32(64);
+    let null_ptr2 = irb.const_null_ptr();
+    let pad = irb.catchpad(cs, &[null_ptr, i32_64, null_ptr2]);
+
+    // Indirect call inside the funclet: get a function pointer and call through it
+    let target = irb.declare_function("indirect_target", &[i32_ty], i32_ty);
+    let fn_ptr = irb.get_function_ptr(target);
+    let icall_arg = irb.const_i32(99);
+    irb.call_indirect_with_funclet(i32_ty, &[i32_ty], fn_ptr, &[icall_arg], pad, "icall");
+
+    // Exit via catchret
+    let continue_bb = irb.append_block(func, "continue");
+    irb.catchret(pad, continue_bb);
+
+    irb.position_at_end(continue_bb);
+    let zero = irb.const_i32(0);
+    irb.ret(zero);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    assert!(
+        scx.llmod.verify().is_ok(),
+        "LLVM verification failed for SEH indirect call test:\n{ir}"
+    );
+    // Verify the indirect call has the funclet bundle
+    assert!(
+        ir.contains(r#"[ "funclet"#),
+        "Missing funclet bundle on indirect call:\n{ir}"
+    );
     drop(irb);
 }

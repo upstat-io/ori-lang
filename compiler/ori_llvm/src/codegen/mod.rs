@@ -36,6 +36,7 @@
 //! (no LLVM dependency). This module is purely about LLVM code generation.
 
 // -- Core infrastructure --
+pub mod eh_model;
 pub mod ir_builder;
 pub mod type_info;
 pub mod value_id;
@@ -53,4 +54,4 @@ pub mod arc_emitter;
 // -- Public re-exports --
 pub use ir_builder::IrBuilder;
 pub use type_info::{EnumVariantInfo, TypeInfo, TypeInfoStore, TypeLayoutResolver};
-pub use value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
+pub use value_id::{BlockId, FunctionId, LLVMTypeId, TokenId, ValueId};

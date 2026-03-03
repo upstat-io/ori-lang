@@ -192,7 +192,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
 
         // Call ori_iter_next(iter, scratch, elem_size) -> i8 (0=done, 1=has element)
-        let has_next_i8 = self.builder.call(
+        let has_next_i8 = self.emit_rt_call(
             func_id,
             &[iter_ptr, scratch, elem_size_val],
             "iter_next.has",
@@ -228,7 +228,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let n = arg_vals[1];
         let func_id = self.builder.runtime_fn("ori_iter_take");
-        self.builder.call(func_id, &[iter_ptr, n], "iter.take")
+        self.emit_rt_call(func_id, &[iter_ptr, n], "iter.take")
     }
 
     fn emit_iter_skip(&mut self, iter_ptr: ValueId, arg_vals: &[ValueId]) -> Option<ValueId> {
@@ -237,7 +237,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let n = arg_vals[1];
         let func_id = self.builder.runtime_fn("ori_iter_skip");
-        self.builder.call(func_id, &[iter_ptr, n], "iter.skip")
+        self.emit_rt_call(func_id, &[iter_ptr, n], "iter.skip")
     }
 
     fn emit_iter_chain(&mut self, iter_ptr: ValueId, arg_vals: &[ValueId]) -> Option<ValueId> {
@@ -246,12 +246,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let other = arg_vals[1];
         let func_id = self.builder.runtime_fn("ori_iter_chain");
-        self.builder.call(func_id, &[iter_ptr, other], "iter.chain")
+        self.emit_rt_call(func_id, &[iter_ptr, other], "iter.chain")
     }
 
     fn emit_iter_enumerate(&mut self, iter_ptr: ValueId) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_enumerate");
-        self.builder.call(func_id, &[iter_ptr], "iter.enumerate")
+        self.emit_rt_call(func_id, &[iter_ptr], "iter.enumerate")
     }
 
     fn emit_iter_zip(
@@ -301,7 +301,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_map");
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
             "iter.map",
@@ -328,7 +328,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_filter");
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
             "iter.filter",

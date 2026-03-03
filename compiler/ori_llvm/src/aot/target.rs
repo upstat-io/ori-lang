@@ -172,6 +172,12 @@ impl TargetTripleComponents {
         self.os == "windows"
     }
 
+    /// Check if this is a Windows MSVC target (uses SEH exception handling).
+    #[must_use]
+    pub fn is_msvc(&self) -> bool {
+        self.env.as_deref() == Some("msvc")
+    }
+
     /// Check if this is a macOS target.
     #[must_use]
     pub fn is_macos(&self) -> bool {

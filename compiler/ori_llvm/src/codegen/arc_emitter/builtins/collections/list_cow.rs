@@ -34,7 +34,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "push.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr,
@@ -75,7 +75,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "pop.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr,
@@ -117,7 +117,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "set.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr,
@@ -161,7 +161,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "insert.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr,
@@ -203,7 +203,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "remove.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr,
@@ -246,7 +246,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "concat.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data1,
@@ -288,7 +288,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "reverse.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr,
@@ -333,7 +333,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "sort.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr,
@@ -373,7 +373,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "sort_stable.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr,

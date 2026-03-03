@@ -22,7 +22,7 @@ paths:
 | `cargo cl` | `clippy --workspace --all-targets` | Clippy all crates (incl. LLVM) |
 
 ## Workspace Structure
-- All crates including `ori_llvm` are in `default-members`; LLVM 17 is required for all builds
+- All crates including `ori_llvm` are in `default-members`; LLVM 21 is required for all builds
 - `llvm` is a default feature of `oric` — bare `cargo build` includes LLVM
 - `compile_error!` prevents building `oric` without LLVM
 - `tools/ori-lsp` is fully excluded (not a workspace member)

@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [features]
 default = ["llvm"]
-llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 17 installed; always on
+llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 21 installed; always on
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
@@ -35,7 +35,7 @@ ori_eval.workspace = true
 ori_canon.workspace = true
 ori_fmt.workspace = true
 
-# LLVM backend (requires LLVM 17 installed)
+# LLVM backend (requires LLVM 21 installed)
 ori_llvm = { path = "../ori_llvm", optional = true }
 
 # ARC analysis (required for LLVM codegen borrow inference)

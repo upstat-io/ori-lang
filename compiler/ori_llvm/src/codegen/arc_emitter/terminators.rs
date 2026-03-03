@@ -10,6 +10,7 @@ use rustc_hash::FxHashMap;
 use super::context::{EmittedValue, InvokeMode};
 use super::ArcIrEmitter;
 use crate::codegen::abi::{FunctionAbi, ReturnPassing};
+use crate::codegen::eh_model::EhModel;
 use crate::codegen::value_id::{BlockId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
@@ -43,13 +44,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             ArcTerminator::Jump { target, args } => {
-                // Record phi incoming values for the target block's parameters
                 let target_idx = target.index();
                 debug_assert_eq!(
                     args.len(),
                     arc_func.blocks[target_idx].params.len(),
                     "Jump arg count must match target block param count (block {target_idx})"
                 );
+
+                // If inside a SEH funclet (catch-unwind block), exit via catchret
+                // to a trampoline block before branching to the target.
+                // Same pattern as br_exiting_catchpad — kept inline for phi interleaving
+                // (source_block must be read between catchret and br).
+                if let Some((pad, kind)) = self.current_funclet_pad.take() {
+                    match kind {
+                        super::FuncletPadKind::Catch => {
+                            let continue_bb = self
+                                .builder
+                                .append_block(self.current_function, "seh.continue");
+                            self.builder.catchret(pad, continue_bb);
+                            self.builder.position_at_end(continue_bb);
+                        }
+                        super::FuncletPadKind::Cleanup => {
+                            self.builder.record_codegen_error_with_msg(
+                                "Jump terminator inside cleanuppad — \
+                                 cleanup pads must exit via cleanupret (Resume terminator)",
+                            );
+                            self.builder.unreachable();
+                            return;
+                        }
+                    }
+                }
+
+                // Record phi incoming values AFTER potential catchret insertion,
+                // so source_block is the block that will actually br to target.
                 if !args.is_empty() {
                     let Some(source_block) = self.builder.current_block() else {
                         tracing::error!("ARC jump: no current block — skipping phi incoming");
@@ -70,6 +97,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 then_block,
                 else_block,
             } => {
+                debug_assert!(
+                    self.current_funclet_pad.is_none(),
+                    "Branch terminator inside SEH funclet — \
+                     funclets must exit via catchret/cleanupret, not cond_br"
+                );
                 let cond_val = self.var(*cond);
                 self.builder
                     .cond_br(cond_val, self.block(*then_block), self.block(*else_block));
@@ -80,6 +112,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 cases,
                 default,
             } => {
+                debug_assert!(
+                    self.current_funclet_pad.is_none(),
+                    "Switch terminator inside SEH funclet — \
+                     funclets must exit via catchret/cleanupret, not switch"
+                );
                 let scrut_val = self.var(*scrutinee);
                 let llvm_cases: Vec<(ValueId, BlockId)> = cases
                     .iter()
@@ -103,18 +140,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             } => self.emit_invoke(*dst, *func, args, *normal, *unwind, arc_func),
 
             ArcTerminator::Resume => {
-                // Re-raise the caught exception using the landingpad token
-                // captured at the start of this unwind block.
-                if let Some(&lp_val) = landingpad_values.get(&current_block.index()) {
-                    self.builder.resume(lp_val);
-                } else {
-                    // No landingpad for this block — should not happen if ARC IR
-                    // is well-formed, but emit unreachable as a safety fallback.
-                    tracing::warn!(
-                        block = current_block.index(),
-                        "ARC Resume without landingpad — emitting unreachable"
-                    );
-                    self.builder.unreachable();
+                match self.builder.eh_model() {
+                    EhModel::Itanium => {
+                        // Re-raise the caught exception using the landingpad token
+                        // captured at the start of this unwind block.
+                        if let Some(&lp_val) = landingpad_values.get(&current_block.index()) {
+                            self.builder.resume(lp_val);
+                        } else {
+                            tracing::warn!(
+                                block = current_block.index(),
+                                "ARC Resume without landingpad — emitting unreachable"
+                            );
+                            self.builder.unreachable();
+                        }
+                    }
+                    EhModel::Seh => {
+                        // SEH: cleanupret re-raises the exception.
+                        // The cleanuppad token was stored in current_funclet_pad
+                        // during the unwind block prelude.
+                        if let Some((pad, _kind)) = self.current_funclet_pad.take() {
+                            self.builder.cleanupret(pad, None);
+                        } else {
+                            tracing::warn!(
+                                block = current_block.index(),
+                                "ARC Resume without cleanuppad — emitting unreachable"
+                            );
+                            self.builder.unreachable();
+                        }
+                    }
                 }
             }
 
@@ -156,7 +209,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
         if let Some(val) = self.try_emit_format_call(func_name_str, arc_args, arc_func) {
-            self.builder.br(normal_block);
+            self.br_exiting_catchpad(normal_block);
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
             return;
@@ -169,7 +222,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             arc_args,
             arc_func,
         ) {
-            self.builder.br(normal_block);
+            self.br_exiting_catchpad(normal_block);
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
             return;
@@ -223,7 +276,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else if let Some(val) = self.try_emit_builtin_method(callee, arc_args, arc_func) {
             // Builtin method handled inline — branch to normal block
             // (the current block needs a terminator since we skipped invoke)
-            self.builder.br(normal_block);
+            self.br_exiting_catchpad(normal_block);
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
         } else if let Some(func_id) = self.builder.try_runtime_fn(func_name_str) {
@@ -259,7 +312,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             tracing::warn!("{msg}");
             // Emit a branch to the normal block so the IR stays well-formed
             // (every block must have a terminator).
-            self.builder.br(normal_block);
+            self.br_exiting_catchpad(normal_block);
             self.builder.position_at_end(normal_block);
             // Bind dst to unit constant so successor blocks don't crash
             let unit = self.builder.const_i64(0);

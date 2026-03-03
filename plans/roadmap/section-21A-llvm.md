@@ -110,7 +110,7 @@ When implementing these features, ensure they also work across module boundaries
 ## 21.1 LLVM Setup & Infrastructure
 
 - [ ] **Setup**: LLVM development environment
-  - [ ] Docker container with LLVM 17 and development headers
+  - [ ] Docker container with LLVM 21 and development headers
   - [ ] Add `inkwell` crate to `compiler/ori_llvm/Cargo.toml`
   - [ ] Verify LLVM bindings compile and link correctly
   - [ ] Create `compiler/ori_llvm/src/` module structure

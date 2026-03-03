@@ -33,12 +33,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         match mode {
             super::context::InvokeMode::Call { normal } => {
-                let result = self.builder.call(func_id, args, name);
-                self.builder.br(normal);
+                let result = if let Some((pad, _kind)) = self.current_funclet_pad {
+                    self.builder.call_with_funclet(func_id, args, pad, name)
+                } else {
+                    self.builder.call(func_id, args, name)
+                };
+                self.br_exiting_catchpad(normal);
                 result
             }
             super::context::InvokeMode::Invoke { normal, unwind } => {
-                self.builder.invoke(func_id, args, normal, unwind, name)
+                if let Some((pad, _kind)) = self.current_funclet_pad {
+                    self.builder
+                        .invoke_with_funclet(func_id, args, pad, normal, unwind, name)
+                } else {
+                    self.builder.invoke(func_id, args, normal, unwind, name)
+                }
             }
         }
     }
@@ -185,7 +194,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.call_with_sret(func_id, &passed_args, ret_ty, "call")
                 }
                 ReturnPassing::Direct | ReturnPassing::Void => {
-                    self.builder.call(func_id, &passed_args, "call")
+                    self.emit_rt_call(func_id, &passed_args, "call")
                 }
             }
         } else if let Some(val) = self.try_emit_builtin_method(callee, args, func) {
@@ -216,7 +225,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let ret_ty = self.resolve_type(func.var_type(dst));
                 self.call_with_sret(func_id, &coerced_args, ret_ty, "call")
             } else {
-                self.builder.call(func_id, &coerced_args, "call")
+                self.emit_rt_call(func_id, &coerced_args, "call")
             }
         } else {
             let msg = format!(
@@ -288,10 +297,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 resolved_llvm_ty = ?self.builder.arena.get_type(ret_ty),
                 "emit_apply_indirect: resolved return type"
             );
-            if let Some(val) =
+            let result = if let Some((pad, _kind)) = self.current_funclet_pad {
+                self.builder.call_indirect_with_funclet(
+                    ret_ty,
+                    &param_types,
+                    fn_ptr,
+                    &arg_vals,
+                    pad,
+                    "icall",
+                )
+            } else {
                 self.builder
                     .call_indirect(ret_ty, &param_types, fn_ptr, &arg_vals, "icall")
-            {
+            };
+            if let Some(val) = result {
                 self.def_var_repr(dst, val, func);
             }
         } else {
@@ -401,7 +420,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 })
         } else {
             // ori_str_eq / ori_str_ne return i1 (bool) — direct return
-            let result = self.builder.call(func_id, &[lhs_ptr, rhs_ptr], func_name);
+            let result = self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], func_name);
             result.unwrap_or_else(|| self.builder.const_bool(false))
         }
     }
