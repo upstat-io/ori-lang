@@ -133,8 +133,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let align_val = self.builder.const_i64(8);
         let rc_alloc_func = self.builder.runtime_fn("ori_rc_alloc");
         let data_ptr = self
-            .builder
-            .call(rc_alloc_func, &[size_val, align_val], "env.data")
+            .emit_rt_call(rc_alloc_func, &[size_val, align_val], "env.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
 
         // Generate drop function for this environment

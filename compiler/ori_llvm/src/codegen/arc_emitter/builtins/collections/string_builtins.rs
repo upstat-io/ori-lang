@@ -22,7 +22,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(crate) fn emit_str_length(&mut self, receiver: ValueId) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_str_len");
         let ptr = self.str_to_ptr(receiver, "str_len.self");
-        self.builder.call(func_id, &[ptr], "str.len")
+        self.emit_rt_call(func_id, &[ptr], "str.len")
     }
 
     /// Emit `str.is_empty()` — `ori_str_len(s) == 0`.
@@ -42,7 +42,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn(func_name);
         let lhs_ptr = self.str_to_ptr(receiver, "str_op.lhs");
         let rhs_ptr = self.str_to_ptr(arg, "str_op.rhs");
-        self.builder.call(func_id, &[lhs_ptr, rhs_ptr], func_name)
+        self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], func_name)
     }
 
     /// Emit a `(str) -> str` runtime call (`trim`, `to_uppercase`, `to_lowercase`).
@@ -151,23 +151,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Self string
         let self_ptr = self.str_to_ptr(receiver, "split.self");
         let data_ptr = self
-            .builder
-            .call(data_fn, &[self_ptr], "split.self.data")
+            .emit_rt_call(data_fn, &[self_ptr], "split.self.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let str_len = self
-            .builder
-            .call(len_fn, &[self_ptr], "split.self.len")
+            .emit_rt_call(len_fn, &[self_ptr], "split.self.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         // Separator string
         let sep_ptr = self.str_to_ptr(separator, "split.sep");
         let sep_data = self
-            .builder
-            .call(data_fn, &[sep_ptr], "split.sep.data")
+            .emit_rt_call(data_fn, &[sep_ptr], "split.sep.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let sep_len = self
-            .builder
-            .call(len_fn, &[sep_ptr], "split.sep.len")
+            .emit_rt_call(len_fn, &[sep_ptr], "split.sep.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         let list_ty = self.list_struct_type();
@@ -175,7 +171,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "split.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             split_fn,
             &[data_ptr, str_len, sep_data, sep_len, out_alloca],
             "split",
@@ -191,6 +187,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(crate) fn emit_str_iter(&mut self, receiver: ValueId) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_str");
         let str_ptr = self.str_to_ptr(receiver, "str_iter.self");
-        self.builder.call(func_id, &[str_ptr], "str.iter")
+        self.emit_rt_call(func_id, &[str_ptr], "str.iter")
     }
 }

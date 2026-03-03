@@ -258,7 +258,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     ///
     /// Like [`emit_dbg_value`], but appends to the block instead of
     /// inserting before a specific instruction. Uses the LLVM C API
-    /// `LLVMDIBuilderInsertDbgValueAtEnd` which inkwell doesn't wrap.
+    /// `LLVMDIBuilderInsertDbgValueRecordAtEnd` which inkwell doesn't wrap.
     pub fn emit_dbg_value_at_end(
         &self,
         value: BasicValueEnum<'ctx>,
@@ -266,11 +266,11 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         loc: DILocation<'ctx>,
         block: BasicBlock<'ctx>,
     ) {
-        use llvm_sys::debuginfo::LLVMDIBuilderInsertDbgValueAtEnd;
+        use llvm_sys::debuginfo::LLVMDIBuilderInsertDbgValueRecordAtEnd;
 
         let expr = self.create_expression();
         unsafe {
-            LLVMDIBuilderInsertDbgValueAtEnd(
+            LLVMDIBuilderInsertDbgValueRecordAtEnd(
                 self.inner.as_mut_ptr(),
                 value.as_value_ref(),
                 var.as_mut_ptr(),

@@ -857,7 +857,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 
 ## LLVM Version Requirement
 
-**Required:** LLVM 17 or later
+**Required:** LLVM 21 or later
 
 Rationale:
 - Best WASM support with Component Model preview

@@ -126,6 +126,10 @@ pub fn check_source(
 /// RC lifecycle violations. The IR dump runs before verification, so the
 /// annotated LLVM IR is visible on stderr even when the module is invalid.
 #[cfg(feature = "llvm")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "pipeline boundary — target_triple needed for EH model selection"
+)]
 pub fn compile_to_llvm<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
@@ -134,6 +138,7 @@ pub fn compile_to_llvm<'ctx>(
     pool: &'ctx Pool,
     canon: &CanonResult,
     source_path: &str,
+    target_triple: Option<&str>,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     let module_name = Path::new(source_path)
         .file_stem()
@@ -151,6 +156,7 @@ pub fn compile_to_llvm<'ctx>(
         module_name,
         "", // No symbol prefix for single-file compilation
         &[],
+        target_triple,
     )
 }
 
@@ -183,6 +189,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     imported_functions: &[ImportedFunctionInfo],
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
+    target_triple: Option<&str>,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     // arc_cache and module_hash reserved for future ARC IR disk caching
     // integration with the Salsa path (Section 12.14 watch-mode).
@@ -219,5 +226,6 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         module_name,
         module_name, // Multi-file: symbol prefix matches module name
         &import_sigs,
+        target_triple,
     )
 }

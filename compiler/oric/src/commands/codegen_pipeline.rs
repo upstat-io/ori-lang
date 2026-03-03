@@ -233,7 +233,9 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     module_name: &str,
     symbol_prefix: &str,
     import_sigs: &[(Name, FunctionSig)],
+    target_triple: Option<&str>,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
+    use ori_llvm::codegen::eh_model::EhModel;
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
     use ori_llvm::codegen::ir_builder::IrBuilder;
     use ori_llvm::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
@@ -259,7 +261,8 @@ pub(super) fn run_codegen_pipeline<'ctx>(
 
         let store = TypeInfoStore::new(pool);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
-        let mut builder = IrBuilder::new(scx_ref);
+        let eh_model = target_triple.map_or(EhModel::Itanium, EhModel::from_triple);
+        let mut builder = IrBuilder::new_aot(scx_ref, eh_model);
 
         // Runtime functions are declared lazily via `builder.runtime_fn(name)`.
         // No eager `declare_runtime()` call needed — each function is declared
