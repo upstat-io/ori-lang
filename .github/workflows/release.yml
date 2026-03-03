@@ -13,6 +13,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   LLVM_VERSION: "21"
+  RUST_VERSION: "1.93.1"
 
 jobs:
   validate:
@@ -154,6 +155,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
 
       - name: Build with LLVM
@@ -225,6 +227,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           targets: x86_64-pc-windows-msvc
 
       - name: Build with LLVM
