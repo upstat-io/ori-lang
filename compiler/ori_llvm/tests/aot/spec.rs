@@ -765,6 +765,52 @@ fn test_aot_result_err_check() {
     );
 }
 
+/// C4 regression: Option match tag inversion — switch labels must match construction tags.
+/// Construction: Some=tag 0, None=tag 1. Match must use the same mapping.
+#[test]
+fn test_aot_option_match_tag_correctness() {
+    assert_aot_success(
+        r#"
+@unwrap_or (opt: Option<int>, default: int) -> int =
+    match opt { Some(v) -> v, None -> default }
+
+@main () -> int = {
+    let some_val = unwrap_or(opt: Some(42), default: 0);
+    let none_val = unwrap_or(opt: None, default: 99);
+    // some_val should be 42 (not 0), none_val should be 99 (not garbage)
+    if some_val == 42 then {
+        if none_val == 99 then 0 else 1
+    } else 1
+}
+"#,
+        "option_match_tag_correctness",
+    );
+}
+
+/// C4 regression: match on Option inside if/else producing Option values.
+#[test]
+fn test_aot_option_match_with_construction() {
+    assert_aot_success(
+        r#"
+@safe_div (a: int, b: int) -> Option<int> =
+    if b == 0 then None else Some(a / b);
+
+@unwrap_or (opt: Option<int>, default: int) -> int =
+    match opt { Some(v) -> v, None -> default }
+
+@main () -> int = {
+    let a = unwrap_or(opt: safe_div(a: 100, b: 5), default: 0);
+    let b = unwrap_or(opt: safe_div(a: 100, b: 0), default: 5);
+    // a should be 20, b should be 5
+    if a == 20 then {
+        if b == 5 then 0 else 1
+    } else 1
+}
+"#,
+        "option_match_with_construction",
+    );
+}
+
 #[test]
 fn test_aot_option_some_unwrap() {
     assert_aot_success(

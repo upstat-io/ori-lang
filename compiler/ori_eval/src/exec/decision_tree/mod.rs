@@ -254,6 +254,12 @@ fn resolve_bindings(
 // Test matching
 
 /// Check if a runtime value matches a decision tree edge's test value.
+#[expect(
+    clippy::match_same_arms,
+    reason = "Option and Result are independent type families with independently-defined \
+              tag conventions. Merging Some|Ok and None|Err arms hides the per-family \
+              semantics and caused the original C4 tag inversion bug."
+)]
 fn test_matches(
     value: &Value,
     _test_kind: TestKind,
@@ -272,8 +278,12 @@ fn test_matches(
                 variant_name: vn, ..
             } => *vn == *variant_name,
             // Some/None/Ok/Err are represented as special Value variants.
-            Value::Some(_) | Value::Err(_) => *variant_index == 1,
-            Value::None | Value::Ok(_) => *variant_index == 0,
+            // Convention: Some = 0, None = 1 (matches lower_some/lower_none)
+            Value::Some(_) => *variant_index == 0,
+            Value::None => *variant_index == 1,
+            // Convention: Ok = 0, Err = 1 (matches lower_ok/lower_err)
+            Value::Ok(_) => *variant_index == 0,
+            Value::Err(_) => *variant_index == 1,
             _ => false,
         },
 
