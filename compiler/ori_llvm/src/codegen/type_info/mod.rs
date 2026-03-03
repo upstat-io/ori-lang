@@ -145,8 +145,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         }
         self.depth.set(current_depth + 1);
 
-        let resolved =
-            ori_stack::ensure_sufficient_stack(|| self.resolve_inner(canonical));
+        let resolved = ori_stack::ensure_sufficient_stack(|| self.resolve_inner(canonical));
 
         self.depth.set(current_depth);
         resolved

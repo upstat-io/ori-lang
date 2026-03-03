@@ -13,7 +13,7 @@ mod tests {
     use std::path::Path;
 
     use ori_llvm::aot::object::{EmitError, ObjectEmitter, OutputFormat};
-    use ori_llvm::aot::target::TargetError;
+    use ori_llvm::aot::target_features::TargetError;
     use ori_llvm::inkwell::context::Context;
 
     #[test]
