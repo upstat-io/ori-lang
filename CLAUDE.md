@@ -4,6 +4,7 @@
 - **When unsure, STOP and ASK** — don't guess or assume
 - **Fact-check** against spec. Consult `~/projects/reference_repos/lang_repos/` (Rust, Go, Zig, TS, Gleam, Elm, Roc, Swift, Koka, Lean 4).
 - **If you can't do it right, say so** — communicate blockers, don't ship bad code
+- **Continuous improvement everywhere** — if you see something wrong or suboptimal — stale docs, missing CLAUDE.md instructions, incomplete memory, unclear scripts, weak tests, imprecise error messages — fix it at the source. Never work around a problem when you can eliminate it. Every interaction should leave the project better than you found it.
 
 **TDD for bugs** — NEVER fix without tests first:
 1. **STOP** — resist urge to immediately change code
