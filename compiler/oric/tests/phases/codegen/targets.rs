@@ -7,9 +7,9 @@
 //! - Native target detection
 //! - Pointer size and alignment
 
-use ori_llvm::aot::target::{
-    get_host_cpu_features, get_host_cpu_name, parse_features, TargetConfig, TargetError,
-    TargetTripleComponents,
+use ori_llvm::aot::target::TargetConfig;
+use ori_llvm::aot::target_features::{
+    get_host_cpu_features, get_host_cpu_name, parse_features, TargetError, TargetTripleComponents,
 };
 use ori_llvm::inkwell::targets::{CodeModel, RelocMode};
 use ori_llvm::inkwell::OptimizationLevel;

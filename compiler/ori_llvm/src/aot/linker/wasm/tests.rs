@@ -1,5 +1,5 @@
 use super::*;
-use crate::aot::target::TargetTripleComponents;
+use crate::aot::target_features::TargetTripleComponents;
 
 fn test_target() -> TargetConfig {
     let components = TargetTripleComponents::parse("wasm32-unknown-unknown").unwrap();

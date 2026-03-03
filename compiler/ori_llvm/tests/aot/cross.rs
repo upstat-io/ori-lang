@@ -16,9 +16,10 @@
     reason = "wasm vs wasi naming pattern is intentional"
 )]
 
-use ori_llvm::aot::target::{
-    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetConfig,
-    TargetError, TargetTripleComponents,
+use ori_llvm::aot::target::TargetConfig;
+use ori_llvm::aot::target_features::{
+    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetError,
+    TargetTripleComponents,
 };
 
 use super::util::{

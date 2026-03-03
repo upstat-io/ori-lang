@@ -56,6 +56,6 @@ paths:
 - `type_id/`: TypeId (parser-level type index, aligned with Idx)
 - `name/`: Name interning
 - `ast/`: AST node definitions
-- `visitor.rs`: Visitor trait
+- `visitor/`: Visitor trait (`mod.rs`) + `walk_expr` expression walker (`walk_expr.rs`)
 - `derives/`: DerivedTrait enum (source of truth for all derivable traits)
 - `builtin_methods/`: Built-in method name constants

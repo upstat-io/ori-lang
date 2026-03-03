@@ -26,7 +26,7 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections. Activates when Value Semantics Optimization reroute completes.
+> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections. Activates when ori-eh-personality reroute completes.
 
 ---
 
