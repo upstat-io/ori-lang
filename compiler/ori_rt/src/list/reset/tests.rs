@@ -23,6 +23,7 @@ fn read_rc(data: *const u8) -> i64 {
 
 #[test]
 fn reuse_unique_buffer_sufficient_capacity() {
+    let _g = crate::test_helpers::lock_rc();
     let data = alloc_i64_buffer(4);
     let mut out_cap: i64 = 0;
 
@@ -38,6 +39,7 @@ fn reuse_unique_buffer_sufficient_capacity() {
 
 #[test]
 fn reuse_unique_buffer_needs_realloc() {
+    let _g = crate::test_helpers::lock_rc();
     let data = alloc_i64_buffer(2);
     let mut out_cap: i64 = 0;
 
@@ -52,6 +54,7 @@ fn reuse_unique_buffer_needs_realloc() {
 
 #[test]
 fn shared_buffer_allocates_fresh() {
+    let _g = crate::test_helpers::lock_rc();
     let data = alloc_i64_buffer(4);
     ori_rc_inc(data); // RC = 2, shared
     let mut out_cap: i64 = 0;
@@ -70,6 +73,7 @@ fn shared_buffer_allocates_fresh() {
 
 #[test]
 fn null_old_data_allocates_fresh() {
+    let _g = crate::test_helpers::lock_rc();
     let mut out_cap: i64 = 0;
     let result = ori_list_reset_buffer(std::ptr::null_mut(), 0, 0, 5, 8, None, &mut out_cap);
     assert!(!result.is_null());
@@ -80,6 +84,7 @@ fn null_old_data_allocates_fresh() {
 
 #[test]
 fn zero_new_len_returns_null() {
+    let _g = crate::test_helpers::lock_rc();
     let data = alloc_i64_buffer(4);
     let mut out_cap: i64 = 99;
 

@@ -1,8 +1,9 @@
 //! Tests for `ori_rt` core functions (memory, refcounting, panic).
 //!
-//! All RC tests acquire `RC_TEST_LOCK` because `RC_LIVE_COUNT` is a global
-//! atomic counter modified by `ori_rc_alloc`/`ori_rc_free`. Without
-//! serialization, parallel tests cause TOCTOU races in live-count assertions.
+//! All RC tests acquire `lock_rc()` (from `crate::test_helpers`) because
+//! `RC_LIVE_COUNT` is a global atomic counter modified by
+//! `ori_rc_alloc`/`ori_rc_free`. Without serialization, parallel tests
+//! cause TOCTOU races in live-count assertions.
 #![expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
 #![expect(clippy::expect_used, reason = "test code uses expect for clarity")]
 #![expect(
@@ -11,18 +12,10 @@
 )]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::MutexGuard;
 
 use super::*;
 
-/// Serializes all RC tests to prevent TOCTOU races on `RC_LIVE_COUNT`.
-static RC_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn lock_rc() -> MutexGuard<'static, ()> {
-    RC_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
+use crate::test_helpers::lock_rc;
 
 /// Free a heap `OriStr`'s RC allocation in tests.
 ///
