@@ -35,6 +35,7 @@ mod control_flow;
 mod conversions;
 mod memory;
 mod phi_types_blocks;
+pub(crate) mod seh;
 
 use std::cell::{Cell, RefCell};
 
@@ -46,6 +47,7 @@ use rustc_hash::FxHashMap;
 
 use crate::context::SimpleCx;
 
+use super::eh_model::EhModel;
 use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueArena, ValueId};
 
 /// ID-based LLVM IR builder.
@@ -104,6 +106,8 @@ pub struct IrBuilder<'scx, 'ctx> {
     pub(super) last_call_site: Option<CallSiteValue<'ctx>>,
     /// Whether this builder is compiling for JIT or AOT.
     mode: CompilationMode,
+    /// Exception handling model (Itanium vs SEH).
+    eh_model: EhModel,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -120,7 +124,24 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         Self::with_mode(scx, CompilationMode::Jit)
     }
 
+    /// Create a new `IrBuilder` for AOT compilation with an explicit EH model.
+    ///
+    /// Used by the AOT pipeline where the target triple is known. The EH model
+    /// determines whether Itanium (`landingpad`/`resume`) or SEH
+    /// (`catchswitch`/`catchpad`/`cleanuppad`) instructions are emitted.
+    pub fn new_aot(scx: &'scx SimpleCx<'ctx>, eh_model: EhModel) -> Self {
+        Self::with_mode_and_eh(scx, CompilationMode::Aot, eh_model)
+    }
+
     fn with_mode(scx: &'scx SimpleCx<'ctx>, mode: CompilationMode) -> Self {
+        Self::with_mode_and_eh(scx, mode, EhModel::Itanium)
+    }
+
+    fn with_mode_and_eh(
+        scx: &'scx SimpleCx<'ctx>,
+        mode: CompilationMode,
+        eh_model: EhModel,
+    ) -> Self {
         let builder = scx.llcx.create_builder();
         Self {
             builder,
@@ -133,6 +154,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             runtime_cache: FxHashMap::default(),
             last_call_site: None,
             mode,
+            eh_model,
         }
     }
 
@@ -140,6 +162,12 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     #[inline]
     pub fn scx(&self) -> &'scx SimpleCx<'ctx> {
         self.scx
+    }
+
+    /// The exception handling model for this builder.
+    #[inline]
+    pub fn eh_model(&self) -> EhModel {
+        self.eh_model
     }
 
     /// Record a type-mismatch error during IR construction.

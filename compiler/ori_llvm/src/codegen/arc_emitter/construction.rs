@@ -149,7 +149,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 for i in 0..count {
                     self.builder.store(arg_vals[i * 2], key_tmp);
                     self.builder.store(arg_vals[i * 2 + 1], val_tmp);
-                    self.builder.call(
+                    self.emit_rt_call(
                         put_fn,
                         &[
                             data_ptr, cap_val, key_tmp, val_tmp, ks_val, vs_val, hash_thunk,
@@ -197,7 +197,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let put_fn = self.builder.runtime_fn("ori_set_literal_put");
                 for &val in &arg_vals {
                     self.builder.store(val, elem_tmp);
-                    self.builder.call(
+                    self.emit_rt_call(
                         put_fn,
                         &[data_ptr, cap_val, elem_tmp, esize_val, hash_thunk],
                         "set.put",

@@ -118,6 +118,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// before any RC cleanup or catch handler logic.
     pub(super) fn emit_catch_cleanup(&mut self, exc_ptr: ValueId) {
         let func_id = self.builder.runtime_fn("ori_catch_cleanup");
-        self.builder.call(func_id, &[exc_ptr], "");
+        self.emit_rt_call(func_id, &[exc_ptr], "");
     }
 }

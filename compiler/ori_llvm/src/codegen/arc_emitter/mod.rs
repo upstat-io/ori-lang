@@ -57,9 +57,24 @@ use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
 use super::abi::{FunctionAbi, ParamPassing, ReturnPassing};
+use super::eh_model::EhModel;
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
-use super::value_id::{BlockId, FunctionId, ValueId};
+use super::value_id::{BlockId, FunctionId, TokenId, ValueId};
+
+/// Whether the current funclet is a catch handler or a cleanup block.
+///
+/// SEH funclets exit differently: catch pads use `catchret` (can branch to
+/// normal code), cleanup pads use `cleanupret` (re-raises the exception).
+/// Encoding this in the type prevents `br_exiting_catchpad` from accidentally
+/// emitting `catchret` for a cleanup pad.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum FuncletPadKind {
+    /// `catchpad` — exits via `catchret` to a trampoline, then branches normally.
+    Catch,
+    /// `cleanuppad` — exits via `cleanupret` (re-raises exception).
+    Cleanup,
+}
 
 // ---------------------------------------------------------------------------
 // ArcIrEmitter
@@ -124,6 +139,12 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     pub(crate) current_block_idx: usize,
     /// Current instruction index within the current block (set during emission).
     pub(crate) current_instr_idx: usize,
+    /// Active SEH funclet pad token and kind, if inside a `catchpad` or `cleanuppad`.
+    /// When `Some`, all runtime calls are emitted with a `"funclet"` operand
+    /// bundle so that LLVM's verifier accepts them inside SEH pads.
+    /// The `FuncletPadKind` distinguishes catch (exits via `catchret`) from
+    /// cleanup (exits via `cleanupret`).
+    pub(crate) current_funclet_pad: Option<(TokenId, FuncletPadKind)>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -159,6 +180,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             phi_incoming: Vec::new(),
             current_block_idx: 0,
             current_instr_idx: 0,
+            current_funclet_pad: None,
         }
     }
 
@@ -296,11 +318,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
 
         // Set personality function on the LLVM function if any real invokes exist.
-        // Required for any function containing `invoke`/`landingpad`.
+        // Required for any function containing `invoke`/`landingpad` (Itanium) or
+        // `catchswitch`/`catchpad`/`cleanuppad` (SEH).
         let personality_id = if unwind_blocks.is_empty() {
             None
         } else {
-            let pid = self.builder.runtime_fn("rust_eh_personality");
+            let personality_name = self.builder.eh_model().personality_name();
+            let pid = self.builder.runtime_fn(personality_name);
             self.builder.set_personality(self.current_function, pid);
             Some(pid)
         };
@@ -334,10 +358,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // lower array indices, creating forward references if emitted in array order.
         //
         // Dead unwind blocks are skipped entirely — no LLVM block was created.
-        // Live unwind blocks start with a landing pad. Two flavors:
-        // - **Cleanup** (terminator = Resume): `landingpad cleanup`, RC cleanup, resume
-        // - **Catch** (terminator = Jump): `landingpad catch null`, free exception via
-        //   `ori_catch_cleanup`, then jump to catch handler. Used by `catch(expr:)`.
+        // Live unwind blocks start with a landing pad (Itanium) or SEH pad (MSVC).
+        // Two flavors per model:
+        //
+        // **Itanium**:
+        // - Cleanup (Resume): `landingpad cleanup` → RC decs → `resume`
+        // - Catch (Jump): `landingpad catch null` → `ori_catch_cleanup` → RC decs → br
+        //
+        // **SEH**:
+        // - Cleanup (Resume): `cleanuppad` → RC decs → `cleanupret`
+        // - Catch (Jump): `catchswitch` → `catchpad` → `ori_catch_cleanup` → RC decs
+        //                 → `catchret` → br to catch handler
+        let eh_model = self.builder.eh_model();
         let rpo = rpo::compute_block_rpo(func, &dead_unwind);
         let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
         for &block_idx in &rpo {
@@ -345,24 +377,49 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
             self.builder.position_at_end(self.block(block.id));
 
-            // Live unwind blocks must start with a landingpad instruction
+            // Live unwind blocks: emit EH prelude (landingpad or SEH pad)
             if unwind_blocks.contains(&block.id.index()) {
                 if let Some(pid) = personality_id {
                     let is_catch = !matches!(block.terminator, ArcTerminator::Resume);
-                    if is_catch {
-                        // Catch-all landing pad: catches the exception
-                        let lp = self.builder.landingpad_catch_all(pid, "lp.catch");
-                        landingpad_values.insert(block.id.index(), lp);
-
-                        // Extract exception pointer and free via _Unwind_DeleteException
-                        let exc_ptr = self.builder.extract_value(lp, 0, "exc.ptr");
-                        if let Some(exc_ptr) = exc_ptr {
-                            self.emit_catch_cleanup(exc_ptr);
+                    match eh_model {
+                        EhModel::Itanium => {
+                            if is_catch {
+                                let lp = self.builder.landingpad_catch_all(pid, "lp.catch");
+                                landingpad_values.insert(block.id.index(), lp);
+                                let exc_ptr = self.builder.extract_value(lp, 0, "exc.ptr");
+                                if let Some(exc_ptr) = exc_ptr {
+                                    self.emit_catch_cleanup(exc_ptr);
+                                }
+                            } else {
+                                let lp = self.builder.landingpad(pid, true, "lp");
+                                landingpad_values.insert(block.id.index(), lp);
+                            }
                         }
-                    } else {
-                        // Cleanup landing pad: do RC cleanup, then re-raise
-                        let lp = self.builder.landingpad(pid, true, "lp");
-                        landingpad_values.insert(block.id.index(), lp);
+                        EhModel::Seh => {
+                            if is_catch {
+                                // SEH catch-unwind: catchswitch → handler_bb → catchpad
+                                // The catchswitch terminates this dispatch block.
+                                let handler_bb = self
+                                    .builder
+                                    .append_block(self.current_function, "seh.handler");
+                                let cs = self.builder.catchswitch(None, &[handler_bb], None);
+                                // Position at handler block for catchpad + body
+                                self.builder.position_at_end(handler_bb);
+                                // C++ catch-all: [ptr null, i32 64, ptr null]
+                                let null_ptr = self.builder.const_null_ptr();
+                                let i32_64 = self.builder.const_i32(64);
+                                let null_ptr2 = self.builder.const_null_ptr();
+                                let pad = self.builder.catchpad(cs, &[null_ptr, i32_64, null_ptr2]);
+                                self.current_funclet_pad = Some((pad, FuncletPadKind::Catch));
+                                // ori_catch_cleanup with funclet bundle
+                                let null_exc = self.builder.const_null_ptr();
+                                self.emit_catch_cleanup(null_exc);
+                            } else {
+                                // SEH cleanup: cleanuppad → RC decs → cleanupret
+                                let pad = self.builder.cleanuppad(None, &[]);
+                                self.current_funclet_pad = Some((pad, FuncletPadKind::Cleanup));
+                            }
+                        }
                     }
                 }
             }
@@ -383,6 +440,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 &landingpad_values,
                 func,
             );
+
+            // Clear funclet pad after terminator emission — next block starts fresh
+            self.current_funclet_pad = None;
         }
 
         // Terminate blocks that RPO didn't visit (unreachable from entry).

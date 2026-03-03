@@ -1420,4 +1420,12 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // EH personality (Windows SEH — required by invoke/catchswitch/catchpad)
+    RtFn {
+        name: "__CxxFrameHandler3",
+        params: &[],
+        ret: Some(Ty::I32),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: false,
+    },
 ];

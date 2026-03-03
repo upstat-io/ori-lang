@@ -56,13 +56,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if tag == Tag::Set {
             // Sets use hash table layout: (data, cap, len, elem_size, elem_dec_fn)
             let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
-            self.builder
-                .call(func_id, &[data, cap, len, elem_size_val, elem_dec_fn], "");
+            self.emit_rt_call(func_id, &[data, cap, len, elem_size_val, elem_dec_fn], "");
         } else {
             // Lists use packed layout: (data, len, cap, elem_size, elem_dec_fn)
             let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
-            self.builder
-                .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
+            self.emit_rt_call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
         }
     }
 
@@ -93,7 +91,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_type);
 
         let func_id = self.builder.runtime_fn("ori_map_buffer_rc_dec");
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data,
@@ -145,13 +143,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if tag == Tag::Set {
             // Sets use hash table layout: (data, cap, len, elem_size, elem_dec_fn)
             let func_id = self.builder.runtime_fn("ori_set_buffer_drop_unique");
-            self.builder
-                .call(func_id, &[data, cap, len, elem_size_val, elem_dec_fn], "");
+            self.emit_rt_call(func_id, &[data, cap, len, elem_size_val, elem_dec_fn], "");
         } else {
             // Lists use packed layout: (data, len, cap, elem_size, elem_dec_fn)
             let func_id = self.builder.runtime_fn("ori_buffer_drop_unique");
-            self.builder
-                .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
+            self.emit_rt_call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
         }
     }
 
@@ -185,7 +181,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_type);
 
         let func_id = self.builder.runtime_fn("ori_map_buffer_drop_unique");
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data,

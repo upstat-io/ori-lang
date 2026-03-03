@@ -63,7 +63,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
         let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
 
-        let result = self.builder.call(
+        let result = self.emit_rt_call(
             func_id,
             &[data_ptr, cap, len, elem_ptr, elem_size, elem_eq, elem_hash],
             "set.contains",
@@ -102,7 +102,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "set.insert.out", set_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
@@ -142,7 +142,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "set.remove.out", set_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
@@ -198,7 +198,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             set_ty,
         );
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 d1, l1, c1, d2, l2, c2, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
@@ -280,7 +280,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "set.to_list.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[data_ptr, cap, len, elem_size, out_alloca],
             "set.to_list",
@@ -322,7 +322,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let bool_ty = self.builder.bool_type();
         let inclusive = self.builder.trunc(incl_i64, bool_ty, "range.inclusive");
 
-        self.builder
-            .call(func_id, &[start, end, step, inclusive], "range.iter")
+        self.emit_rt_call(func_id, &[start, end, step, inclusive], "range.iter")
     }
 }

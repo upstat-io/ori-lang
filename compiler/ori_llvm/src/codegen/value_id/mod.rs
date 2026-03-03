@@ -15,7 +15,7 @@
 
 use inkwell::basic_block::BasicBlock;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::values::{BasicValueEnum, FunctionValue, InstructionValue};
 
 // ---------------------------------------------------------------------------
 // ID newtypes
@@ -107,6 +107,32 @@ impl FunctionId {
     }
 }
 
+/// Opaque handle to an LLVM token value (SEH pad instruction result).
+///
+/// SEH `catchpad`, `cleanuppad`, and `catchswitch` instructions return
+/// LLVM `token` type, which is NOT a `BasicValueEnum`. This ID type
+/// provides access to the underlying `InstructionValue` via a separate
+/// arena lane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TokenId(u32);
+
+impl TokenId {
+    /// Sentinel for "no token".
+    pub const NONE: Self = Self(u32::MAX);
+
+    /// True if this is the `NONE` sentinel.
+    #[inline]
+    pub fn is_none(self) -> bool {
+        self.0 == u32::MAX
+    }
+
+    /// The raw index.
+    #[inline]
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
 // ---------------------------------------------------------------------------
 // ValueArena
 // ---------------------------------------------------------------------------
@@ -121,6 +147,11 @@ pub(crate) struct ValueArena<'ctx> {
     types: Vec<BasicTypeEnum<'ctx>>,
     blocks: Vec<BasicBlock<'ctx>>,
     functions: Vec<FunctionValue<'ctx>>,
+    /// SEH pad results (`catchpad`/`cleanuppad`/`catchswitch`).
+    ///
+    /// These return LLVM `token` type, which isn't a `BasicValueEnum`.
+    /// Stored separately with `TokenId` handles.
+    tokens: Vec<InstructionValue<'ctx>>,
 }
 
 impl<'ctx> ValueArena<'ctx> {
@@ -131,6 +162,7 @@ impl<'ctx> ValueArena<'ctx> {
             types: Vec::new(),
             blocks: Vec::new(),
             functions: Vec::new(),
+            tokens: Vec::new(),
         }
     }
 
@@ -220,6 +252,28 @@ impl<'ctx> ValueArena<'ctx> {
             self.functions.len()
         );
         self.functions[id.0 as usize]
+    }
+
+    // -- Tokens (SEH pad results) --
+
+    /// Store a token-typed instruction result, returning its `TokenId`.
+    #[inline]
+    pub(crate) fn push_token(&mut self, val: InstructionValue<'ctx>) -> TokenId {
+        let id = self.tokens.len();
+        self.tokens.push(val);
+        TokenId(id as u32)
+    }
+
+    /// Retrieve a token instruction by ID.
+    #[inline]
+    pub(crate) fn get_token(&self, id: TokenId) -> InstructionValue<'ctx> {
+        debug_assert!(
+            (id.0 as usize) < self.tokens.len(),
+            "TokenId {} out of bounds (arena has {} tokens)",
+            id.0,
+            self.tokens.len()
+        );
+        self.tokens[id.0 as usize]
     }
 }
 

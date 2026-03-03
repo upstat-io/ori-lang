@@ -36,7 +36,7 @@ This is the same work that Zig's `@cImport` eliminates entirely.
 
 ### We Already Have The Parser
 
-Ori depends on LLVM 17, which includes **libclang** — a complete, production-grade C parser. It is already linked into the compiler binary. The infrastructure to parse C headers exists; the missing piece is a translation layer from libclang's AST to Ori's `extern "c"` declarations.
+Ori depends on LLVM 21, which includes **libclang** — a complete, production-grade C parser. It is already linked into the compiler binary. The infrastructure to parse C headers exists; the missing piece is a translation layer from libclang's AST to Ori's `extern "c"` declarations.
 
 ### Manual Transcription Introduces Bugs
 
