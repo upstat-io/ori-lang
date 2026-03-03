@@ -183,3 +183,109 @@ fn lex_suggestion_constructors() {
     let replace = LexSuggestion::replace("change it", Span::new(0, 3), "==");
     assert_eq!(replace.replacement.as_ref().unwrap().text, "==");
 }
+
+// === Unicode escape error factory tests ===
+
+#[test]
+fn invalid_unicode_escape_missing_open_brace() {
+    let span = Span::new(5, 7);
+    let err = LexError::invalid_unicode_escape(
+        span,
+        UnicodeEscapeDetail::MissingOpenBrace,
+        LexErrorContext::InsideChar,
+    );
+    assert_eq!(
+        err.kind,
+        LexErrorKind::InvalidUnicodeEscape {
+            detail: UnicodeEscapeDetail::MissingOpenBrace
+        }
+    );
+    assert_eq!(err.context, LexErrorContext::InsideChar);
+    assert!(!err.suggestions.is_empty());
+}
+
+#[test]
+fn invalid_unicode_escape_surrogate() {
+    let span = Span::new(0, 10);
+    let err = LexError::invalid_unicode_escape(
+        span,
+        UnicodeEscapeDetail::SurrogateCodepoint { codepoint: 0xD800 },
+        LexErrorContext::InsideString { start: 0 },
+    );
+    assert_eq!(
+        err.kind,
+        LexErrorKind::InvalidUnicodeEscape {
+            detail: UnicodeEscapeDetail::SurrogateCodepoint { codepoint: 0xD800 }
+        }
+    );
+    assert_eq!(err.context, LexErrorContext::InsideString { start: 0 });
+}
+
+#[test]
+fn invalid_unicode_escape_out_of_range() {
+    let span = Span::new(0, 12);
+    let err = LexError::invalid_unicode_escape(
+        span,
+        UnicodeEscapeDetail::OutOfRange {
+            codepoint: 0x11_0000,
+        },
+        LexErrorContext::InsideTemplate {
+            start: 0,
+            nesting: 0,
+        },
+    );
+    assert_eq!(
+        err.kind,
+        LexErrorKind::InvalidUnicodeEscape {
+            detail: UnicodeEscapeDetail::OutOfRange {
+                codepoint: 0x11_0000
+            }
+        }
+    );
+    assert!(matches!(
+        err.context,
+        LexErrorContext::InsideTemplate { .. }
+    ));
+}
+
+#[test]
+fn invalid_unicode_escape_all_factory_variants_compile() {
+    let s = Span::new(0, 1);
+    let ctx = LexErrorContext::InsideChar;
+    let _ = LexError::invalid_unicode_escape(s, UnicodeEscapeDetail::MissingOpenBrace, ctx.clone());
+    let _ = LexError::invalid_unicode_escape(s, UnicodeEscapeDetail::EmptyDigits, ctx.clone());
+    let _ = LexError::invalid_unicode_escape(s, UnicodeEscapeDetail::TooManyDigits, ctx.clone());
+    let _ = LexError::invalid_unicode_escape(
+        s,
+        UnicodeEscapeDetail::InvalidHexDigit { ch: 'G' },
+        ctx.clone(),
+    );
+    let _ =
+        LexError::invalid_unicode_escape(s, UnicodeEscapeDetail::MissingCloseBrace, ctx.clone());
+    let _ = LexError::invalid_unicode_escape(
+        s,
+        UnicodeEscapeDetail::SurrogateCodepoint { codepoint: 0xD800 },
+        ctx.clone(),
+    );
+    let _ = LexError::invalid_unicode_escape(
+        s,
+        UnicodeEscapeDetail::OutOfRange {
+            codepoint: 0x11_0000,
+        },
+        ctx,
+    );
+}
+
+#[test]
+fn escape_suggestions_mention_unicode() {
+    // Verify existing escape error factories now mention \u{...}
+    let s = Span::new(0, 2);
+    let str_err = LexError::invalid_string_escape(s, 'q');
+    assert!(str_err.suggestions[0].message.contains(r"\u{...}"));
+
+    let char_err = LexError::invalid_char_escape(s, 'q');
+    assert!(char_err.suggestions[0].message.contains(r"\u{...}"));
+
+    let tmpl_err = LexError::invalid_template_escape(s, 'q');
+    assert!(tmpl_err.suggestions[0].message.contains(r"\u{...}"));
+}

@@ -219,6 +219,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.builder.add_noalias_attribute(func_id, 0);
         }
 
+        // Windows x86-64 requires uwtable on all functions for SEH stack unwinding.
+        // Without it, RtlVirtualUnwind cannot find frame info in .pdata/.xdata,
+        // causing STATUS_STACK_BUFFER_OVERRUN when unwinding through the function.
+        if self.builder.eh_model() == crate::codegen::eh_model::EhModel::Seh {
+            self.builder.add_uwtable_attribute(func_id);
+        }
+
         func_id
     }
 

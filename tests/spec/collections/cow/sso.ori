@@ -1,0 +1,121 @@
+// COW behavioral equivalence tests for Small String Optimization (SSO).
+// SSO stores strings <= 23 bytes inline (no heap allocation).
+// Verifies correct behavior at SSO boundary transitions.
+
+use std.testing { assert_eq, assert }
+
+// --- Short strings stay inline ---
+
+@short_concat () -> str = {
+    let a = "hi";
+    let b = a + " there";
+    b
+}
+
+@test_short_concat tests @short_concat () -> void = {
+    assert_eq(actual: short_concat(), expected: "hi there")
+}
+
+// --- SSO boundary (23 bytes) ---
+
+@at_boundary () -> str = {
+    // Exactly 23 bytes: SSO should still work
+    "12345678901234567890123"
+}
+
+@test_at_boundary tests @at_boundary () -> void = {
+    let s = at_boundary();
+    assert_eq(actual: s.length(), expected: 23)
+}
+
+// --- Crossing SSO boundary (SSO -> heap) ---
+
+@cross_boundary () -> str = {
+    // Start with SSO string, concat to exceed 23 bytes
+    let s = "short";
+    let s = s + " string that crosses SSO";
+    s
+}
+
+@test_cross_boundary tests @cross_boundary () -> void = {
+    let s = cross_boundary();
+    assert(condition: s.length() > 23);
+    assert_eq(actual: s, expected: "short string that crosses SSO")
+}
+
+// --- Empty string ---
+
+@empty_str_concat () -> str = {
+    let s = "";
+    let s = s + "hello";
+    s
+}
+
+@test_empty_str_concat tests @empty_str_concat () -> void = {
+    assert_eq(actual: empty_str_concat(), expected: "hello")
+}
+
+// --- SSO string sharing (no COW needed — inline copy) ---
+
+@sso_sharing () -> (str, str) = {
+    let a = "short";
+    let b = a;
+    let b = b + "!";
+    (a, b)
+}
+
+@test_sso_sharing tests @sso_sharing () -> void = {
+    let (original, modified) = sso_sharing();
+    assert_eq(actual: original, expected: "short");
+    assert_eq(actual: modified, expected: "short!")
+}
+
+// --- Heap string sharing (COW needed) ---
+
+@heap_sharing () -> (str, str) = {
+    let a = "this is a long string that exceeds SSO threshold";
+    let b = a;
+    let b = b + " more";
+    (a, b)
+}
+
+@test_heap_sharing tests @heap_sharing () -> void = {
+    let (original, modified) = heap_sharing();
+    assert_eq(actual: original, expected: "this is a long string that exceeds SSO threshold");
+    assert(condition: modified.ends_with(suffix: " more"))
+}
+
+// --- Loop building across boundary ---
+
+@loop_build () -> str = {
+    let s = "";
+    for i in 0..10 do {
+        s = s + str(i);
+    };
+    s
+}
+
+@test_loop_build tests @loop_build () -> void = {
+    assert_eq(actual: loop_build(), expected: "0123456789")
+}
+
+// --- Substring of SSO string ---
+
+@sso_substring () -> str = {
+    "hello world".substring(0, 5)
+}
+
+@test_sso_substring tests @sso_substring () -> void = {
+    assert_eq(actual: sso_substring(), expected: "hello")
+}
+
+// --- Substring of heap string ---
+
+@heap_substring () -> str = {
+    let long = "this is a long string that exceeds SSO threshold easily";
+    long.substring(10, 21)
+}
+
+@test_heap_substring tests @heap_substring () -> void = {
+    assert_eq(actual: heap_substring(), expected: "long string")
+}

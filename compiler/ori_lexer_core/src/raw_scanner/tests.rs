@@ -1141,3 +1141,62 @@ fn realistic_attribute_and_test() {
         ]
     );
 }
+
+// ─── Unicode Escape in Character Literals ───────────────────────
+
+#[test]
+fn char_unicode_escape_emoji() {
+    // '\u{1F600}' — 4-digit+ unicode escape in char literal
+    assert_eq!(scan_tags("'\\u{1F600}'"), vec![RawTag::Char]);
+    assert_eq!(scan("'\\u{1F600}'")[0].len, 11); // ' + \u{1F600} + '
+}
+
+#[test]
+fn char_unicode_escape_ascii() {
+    // '\u{41}' — ASCII 'A' via unicode escape
+    assert_eq!(scan_tags("'\\u{41}'"), vec![RawTag::Char]);
+    assert_eq!(scan("'\\u{41}'")[0].len, 8); // ' + \u{41} + '
+}
+
+#[test]
+fn char_unicode_escape_single_digit() {
+    // '\u{0}' — single hex digit
+    assert_eq!(scan_tags("'\\u{0}'"), vec![RawTag::Char]);
+    assert_eq!(scan("'\\u{0}'")[0].len, 7); // ' + \u{0} + '
+}
+
+#[test]
+fn char_unicode_escape_six_digits() {
+    // '\u{10FFFF}' — maximum codepoint
+    assert_eq!(scan_tags("'\\u{10FFFF}'"), vec![RawTag::Char]);
+    assert_eq!(scan("'\\u{10FFFF}'")[0].len, 12); // ' + \u{10FFFF} + '
+}
+
+#[test]
+fn char_unicode_escape_bare_u() {
+    // '\u' — missing braces, but cursor lands at closing ' → Char token
+    // (cooked layer handles MissingOpenBrace error)
+    assert_eq!(scan_tags("'\\u'"), vec![RawTag::Char]);
+    assert_eq!(scan("'\\u'")[0].len, 4); // ' + \u + '
+}
+
+#[test]
+fn char_unicode_escape_malformed_no_brace() {
+    // '\uX' — after \u, cursor is past u, at X (not at '), so this is
+    // multi-char content → UnterminatedChar
+    assert_eq!(scan_tags("'\\uX'"), vec![RawTag::UnterminatedChar]);
+}
+
+#[test]
+fn string_unicode_escape_scans_correctly() {
+    // "\u{1F600}" — string with unicode escape
+    // " (1) + \ (1) + u{1F600} (8) + " (1) = 11
+    assert_eq!(scan_tags("\"\\u{1F600}\""), vec![RawTag::String]);
+    assert_eq!(scan("\"\\u{1F600}\"")[0].len, 11);
+}
+
+#[test]
+fn string_unicode_escape_mixed() {
+    // "a\u{41}b" — mixed content
+    assert_eq!(scan_tags("\"a\\u{41}b\""), vec![RawTag::String]);
+}

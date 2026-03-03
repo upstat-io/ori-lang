@@ -403,7 +403,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .create_entry_alloca(self.current_function, "str_cmp.rhs", str_ty);
         self.builder.store(rhs, rhs_ptr);
 
-        self.builder.call(func_id, &[lhs_ptr, rhs_ptr], "str_cmp")
+        self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], "str_cmp")
     }
 
     /// Emit `str.hash()` via `ori_str_hash`.
@@ -416,7 +416,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .create_entry_alloca(self.current_function, "str_hash.arg", str_ty);
         self.builder.store(receiver, ptr);
 
-        self.builder.call(func_id, &[ptr], "str_hash")
+        self.emit_rt_call(func_id, &[ptr], "str_hash")
     }
 
     /// Emit string comparison predicate via compare-then-check.

@@ -35,11 +35,22 @@ impl DurationUnit {
     }
 
     /// Convert value to nanoseconds.
+    ///
+    /// For `Nanoseconds` unit (multiplier = 1), the value is a bit-pattern
+    /// of a signed i64 (negative durations from `const_fold` use `cast_unsigned()`),
+    /// so it is reinterpreted via `cast_signed()` without bounds checking.
+    ///
+    /// For other units, returns `None` if the multiplication overflows `u64`
+    /// or the result exceeds `i64::MAX`.
     #[inline]
-    pub fn to_nanos(self, value: u64) -> i64 {
-        let ns = value * self.nanos_multiplier();
-        // Intentional wrap: literal values from lexer won't exceed i64::MAX
-        ns.cast_signed()
+    pub fn to_nanos(self, value: u64) -> Option<i64> {
+        if self.nanos_multiplier() == 1 {
+            // Nanoseconds: value is a raw i64 bit-pattern (may be negative).
+            Some(value.cast_signed())
+        } else {
+            let ns = value.checked_mul(self.nanos_multiplier())?;
+            i64::try_from(ns).ok()
+        }
     }
 
     /// Get the suffix string.
@@ -96,9 +107,11 @@ impl SizeUnit {
     ///
     /// SI units: 1kb = 1000 bytes, 1mb = 1,000,000 bytes, etc.
     /// For exact powers of 1024, use explicit byte counts: `1024b`, `1048576b`.
+    ///
+    /// Returns `None` if the multiplication overflows `u64`.
     #[inline]
-    pub fn to_bytes(self, value: u64) -> u64 {
-        value * self.bytes_multiplier()
+    pub fn to_bytes(self, value: u64) -> Option<u64> {
+        value.checked_mul(self.bytes_multiplier())
     }
 
     /// Get the suffix string.

@@ -5,7 +5,7 @@ paths:
 
 # LLVM Backend
 
-- LLVM 17 required | path in `.cargo/config.toml`
+- LLVM 21 required | path in `.cargo/config.toml`
 - `ori_llvm` and `ori_rt` are in `default-members` — all workspace commands include LLVM
 - Build: `cargo b` (debug) | `cargo b --release` (release)
 - Clippy: `cargo cl` (workspace) | Tests: `cargo test -p ori_llvm` | `./llvm-test.sh` | `./test-all.sh`

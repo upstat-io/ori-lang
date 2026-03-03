@@ -173,3 +173,266 @@ fn template_trailing_single_brace() {
     assert!(result.is_none());
     assert!(errors.is_empty());
 }
+
+// === Unicode escape: char happy paths ===
+
+#[test]
+fn char_unicode_escape_emoji() {
+    let mut errors = Vec::new();
+    let result = unescape_char_v2(r"\u{1F600}", 0, &mut errors);
+    assert_eq!(result, '😀');
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn char_unicode_escape_ascii() {
+    let mut errors = Vec::new();
+    let result = unescape_char_v2(r"\u{41}", 0, &mut errors);
+    assert_eq!(result, 'A');
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn char_unicode_escape_null() {
+    let mut errors = Vec::new();
+    let result = unescape_char_v2(r"\u{0}", 0, &mut errors);
+    assert_eq!(result, '\0');
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn char_unicode_escape_max_codepoint() {
+    let mut errors = Vec::new();
+    let result = unescape_char_v2(r"\u{10FFFF}", 0, &mut errors);
+    assert_eq!(result, '\u{10FFFF}');
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn char_unicode_escape_lowercase_hex() {
+    let mut errors = Vec::new();
+    let result = unescape_char_v2(r"\u{1f600}", 0, &mut errors);
+    assert_eq!(result, '😀');
+    assert!(errors.is_empty());
+}
+
+// === Unicode escape: string happy paths ===
+
+#[test]
+fn string_unicode_escape() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"hello\u{1F600}world", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("hello😀world"));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn string_unicode_escape_ascii() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\u{41}", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("A"));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn string_unicode_escape_mixed() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\n\u{41}\t", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\nA\t"));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn string_multiple_unicode_escapes() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\u{48}\u{65}\u{6C}\u{6C}\u{6F}", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("Hello"));
+    assert!(errors.is_empty());
+}
+
+// === Unicode escape: template happy paths ===
+
+#[test]
+fn template_unicode_escape() {
+    let mut errors = Vec::new();
+    let result = unescape_template_v2(r"hello\u{1F600}", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("hello😀"));
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn template_unicode_escape_mixed() {
+    let mut errors = Vec::new();
+    let result = unescape_template_v2(r"\u{41}\n\`", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("A\n`"));
+    assert!(errors.is_empty());
+}
+
+// === Unicode escape: error cases ===
+
+#[test]
+fn char_unicode_escape_surrogate() {
+    let mut errors = Vec::new();
+    let result = unescape_char_v2(r"\u{D800}", 0, &mut errors);
+    assert_eq!(result, '\u{FFFD}');
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::SurrogateCodepoint { codepoint: 0xD800 }
+        }
+    ));
+    assert_eq!(errors[0].context, LexErrorContext::InsideChar);
+}
+
+#[test]
+fn string_unicode_escape_out_of_range() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\u{110000}", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\u{FFFD}"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::OutOfRange {
+                codepoint: 0x11_0000
+            }
+        }
+    ));
+    assert!(matches!(
+        errors[0].context,
+        LexErrorContext::InsideString { .. }
+    ));
+}
+
+#[test]
+fn unicode_escape_empty_digits() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\u{}", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\u{FFFD}"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::EmptyDigits
+        }
+    ));
+}
+
+#[test]
+fn unicode_escape_invalid_hex_digit() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\u{GGGG}", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\u{FFFD}"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::InvalidHexDigit { ch: 'G' }
+        }
+    ));
+}
+
+#[test]
+fn unicode_escape_missing_close_brace() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\u{41", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\u{FFFD}"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::MissingCloseBrace
+        }
+    ));
+}
+
+#[test]
+fn char_unicode_escape_missing_open_brace() {
+    // Content from '\u' token (raw layer sees '\u' then closing ')
+    let mut errors = Vec::new();
+    let result = unescape_char_v2(r"\u", 0, &mut errors);
+    assert_eq!(result, '\u{FFFD}');
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::MissingOpenBrace
+        }
+    ));
+    assert_eq!(errors[0].context, LexErrorContext::InsideChar);
+}
+
+#[test]
+fn string_unicode_escape_missing_open_brace() {
+    // "\uX" — the 'u' is followed by 'X', not '{'
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\uX", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\u{FFFD}X"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::MissingOpenBrace
+        }
+    ));
+    assert!(matches!(
+        errors[0].context,
+        LexErrorContext::InsideString { .. }
+    ));
+}
+
+#[test]
+fn unicode_escape_too_many_digits() {
+    let mut errors = Vec::new();
+    let result = unescape_string_v2(r"\u{1234567}", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\u{FFFD}"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::TooManyDigits
+        }
+    ));
+}
+
+#[test]
+fn template_unicode_escape_surrogate() {
+    let mut errors = Vec::new();
+    let result = unescape_template_v2(r"\u{DFFF}", 0, &mut errors);
+    assert_eq!(result.as_deref(), Some("\u{FFFD}"));
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        errors[0].kind,
+        crate::lex_error::LexErrorKind::InvalidUnicodeEscape {
+            detail: crate::lex_error::UnicodeEscapeDetail::SurrogateCodepoint { codepoint: 0xDFFF }
+        }
+    ));
+    assert!(matches!(
+        errors[0].context,
+        LexErrorContext::InsideTemplate { .. }
+    ));
+}
+
+// === Unicode escape: error spans ===
+
+#[test]
+fn unicode_escape_span_in_string() {
+    // "abc\u{D800}xyz" — backslash at byte 3, base_offset = 1 (after opening ")
+    // So backslash is at source offset 4
+    // parse_unicode_escape gets "u{D800}" (7 bytes), consumed = 7
+    // Span: backslash_offset .. backslash_offset + 1 + consumed = 4..12
+    let mut errors = Vec::new();
+    let _ = unescape_string_v2(r"abc\u{D800}xyz", 1, &mut errors);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].span, Span::new(4, 12));
+}
+
+#[test]
+fn unicode_escape_span_missing_open_brace() {
+    // "\u" at start, base_offset = 0
+    // Backslash at 0, span covers \u = 0..2
+    let mut errors = Vec::new();
+    let _ = unescape_char_v2(r"\u", 0, &mut errors);
+    assert_eq!(errors[0].span, Span::new(0, 2));
+}

@@ -358,6 +358,7 @@ fn compile_single_module(
         ctx.module_hash
             .as_ref()
             .and_then(|hashes| hashes.get(source_path).copied()),
+        Some(ctx.target.triple()),
     ) {
         Ok(m) => m,
         Err(e) => {

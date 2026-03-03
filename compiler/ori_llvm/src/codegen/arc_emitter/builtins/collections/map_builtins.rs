@@ -57,7 +57,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
 
-        let result = self.builder.call(
+        let result = self.emit_rt_call(
             func_id,
             &[data, cap, len, needle_ptr, key_size_val, key_eq, key_hash],
             "contains_key",
@@ -95,8 +95,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "keys.out", list_ty);
 
-        self.builder
-            .call(func_id, &[data, cap, len, key_size_val, out_alloca], "keys");
+        self.emit_rt_call(func_id, &[data, cap, len, key_size_val, out_alloca], "keys");
 
         Some(self.builder.load(list_ty, out_alloca, "keys.val"))
     }
@@ -120,7 +119,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "values.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[data, cap, len, key_size_val, val_size_val, out_alloca],
             "values",
@@ -162,7 +161,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "get.out", option_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data,
@@ -245,7 +244,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "insert.out", map_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data,
@@ -296,7 +295,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "remove.out", map_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data,
@@ -337,7 +336,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 data,

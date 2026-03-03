@@ -81,7 +81,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             set_struct_ty,
         );
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[iter_ptr, elem_size_val, eq_thunk, hash_thunk, out_ptr],
             "",
@@ -127,7 +127,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_any");
-        let result = self.builder.call(
+        let result = self.emit_rt_call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
             "iter.any",
@@ -160,7 +160,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_all");
-        let result = self.builder.call(
+        let result = self.emit_rt_call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
             "iter.all",
@@ -208,7 +208,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "find.out", opt_struct_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val, out_ptr],
             "",
@@ -237,7 +237,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_for_each");
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
             "",
@@ -285,7 +285,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .create_entry_alloca(self.current_function, "fold.out", acc_llvm_ty);
 
         let func_id = self.builder.runtime_fn("ori_iter_fold");
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[
                 iter_ptr,

@@ -198,7 +198,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.call_with_sret(func_id, &passed_args, ret_ty, "op_trait")
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
-                self.builder.call(func_id, &passed_args, "op_trait")
+                self.emit_rt_call(func_id, &passed_args, "op_trait")
             }
         }
     }
@@ -254,11 +254,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let result = match &ret_passing {
             ReturnPassing::Direct | ReturnPassing::Void => {
-                self.builder.call(func_id, &passed_args, "eq_trait")
+                self.emit_rt_call(func_id, &passed_args, "eq_trait")
             }
             ReturnPassing::Sret { .. } => {
                 // equals() returns bool — should always be Direct
-                self.builder.call(func_id, &passed_args, "eq_trait")
+                self.emit_rt_call(func_id, &passed_args, "eq_trait")
             }
         }?;
 
@@ -303,7 +303,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.call_with_sret(func_id, &passed_args, ret_ty, "cmp_trait")?
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
-                self.builder.call(func_id, &passed_args, "cmp_trait")?
+                self.emit_rt_call(func_id, &passed_args, "cmp_trait")?
             }
         };
 
@@ -356,7 +356,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.call_with_sret(func_id, &passed_args, ret_ty, "op_trait")
             }
             ReturnPassing::Direct | ReturnPassing::Void => {
-                self.builder.call(func_id, &passed_args, "op_trait")
+                self.emit_rt_call(func_id, &passed_args, "op_trait")
             }
         }
     }

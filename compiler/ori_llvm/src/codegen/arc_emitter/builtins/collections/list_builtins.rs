@@ -64,7 +64,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         let func_id = self.builder.runtime_fn(func_name);
-        let result = self.builder.call(func_id, &args, "contains")?;
+        let result = self.emit_rt_call(func_id, &args, "contains")?;
 
         // Convert i64 (0/1) to i1 (bool)
         let zero = self.builder.const_i64(0);
@@ -94,7 +94,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "index.out", elem_llvm_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[data_ptr, len, index, elem_size_val, out_alloca],
             "index",
@@ -125,7 +125,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // For scalar elements (int, float, etc.) this is null.
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[data_ptr, len, cap, elem_size_val, elem_dec_fn],
             "list.iter",
@@ -154,7 +154,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "slice.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[data_ptr, len, cap, start, end, elem_size_val, out],
             "slice",
@@ -184,7 +184,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "take.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[data_ptr, len, cap, n, elem_size_val, out],
             "take",
@@ -214,7 +214,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .create_entry_alloca(self.current_function, "drop.out", list_ty);
 
-        self.builder.call(
+        self.emit_rt_call(
             func_id,
             &[data_ptr, len, cap, n, elem_size_val, out],
             "drop",

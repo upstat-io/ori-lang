@@ -56,11 +56,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     })
             }
             LitValue::Duration { value, unit } => {
-                let nanos = unit.to_nanos(*value);
+                let nanos = unit
+                    .to_nanos(*value)
+                    .expect("duration literal validated by lexer");
                 self.builder.const_i64(nanos)
             }
             LitValue::Size { value, unit } => {
-                let bytes = unit.to_bytes(*value);
+                let bytes = unit
+                    .to_bytes(*value)
+                    .expect("size literal validated by lexer");
                 self.builder.const_i64(bytes as i64)
             }
         }
@@ -118,6 +122,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// before any RC cleanup or catch handler logic.
     pub(super) fn emit_catch_cleanup(&mut self, exc_ptr: ValueId) {
         let func_id = self.builder.runtime_fn("ori_catch_cleanup");
-        self.builder.call(func_id, &[exc_ptr], "");
+        self.emit_rt_call(func_id, &[exc_ptr], "");
     }
 }

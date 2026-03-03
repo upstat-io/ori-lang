@@ -239,7 +239,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.position_at_end(do_inc);
         for _ in 0..count {
-            self.builder.call(func_id, &[env_ptr], "");
+            self.emit_rt_call(func_id, &[env_ptr], "");
         }
         self.builder.br(skip);
 
@@ -268,7 +268,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ptr_ty = self.builder.ptr_type();
         let drop_fn = self.builder.load(ptr_ty, env_ptr, "rc_dec.drop_fn");
         let func_id = self.builder.runtime_fn("ori_rc_dec");
-        self.builder.call(func_id, &[env_ptr, drop_fn], "");
+        self.emit_rt_call(func_id, &[env_ptr, drop_fn], "");
         self.builder.br(skip);
 
         self.builder.position_at_end(skip);
@@ -314,7 +314,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_rc_inc");
         for &ptr in ptrs {
             for _ in 0..count {
-                self.builder.call(func_id, &[ptr], "");
+                self.emit_rt_call(func_id, &[ptr], "");
             }
         }
     }
@@ -332,7 +332,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         let func_id = self.builder.runtime_fn("ori_list_rc_inc");
         for _ in 0..count {
-            self.builder.call(func_id, &[data, cap], "");
+            self.emit_rt_call(func_id, &[data, cap], "");
         }
     }
 
@@ -343,7 +343,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let func_id = self.builder.runtime_fn("ori_rc_dec");
         for &ptr in ptrs {
-            self.builder.call(func_id, &[ptr, drop_fn], "");
+            self.emit_rt_call(func_id, &[ptr, drop_fn], "");
         }
     }
 }

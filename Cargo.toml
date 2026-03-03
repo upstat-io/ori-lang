@@ -18,7 +18,7 @@ members = [
     "compiler/ori_llvm",
     "compiler/ori_rt",
 ]
-# All crates including ori_llvm are in default-members; LLVM 17 is required for oric builds.
+# All crates including ori_llvm are in default-members; LLVM 21 is required for oric builds.
 default-members = [
     "compiler/ori_ir",
     "compiler/ori_diagnostic",

@@ -1,0 +1,117 @@
+// COW behavioral equivalence tests for string substring/slice operations.
+
+use std.testing { assert_eq }
+
+// --- Basic substring ---
+
+@basic_substring () -> str = {
+    "hello world".substring(0, 5)
+}
+
+@test_basic_substring tests @basic_substring () -> void = {
+    assert_eq(actual: basic_substring(), expected: "hello")
+}
+
+// --- Substring from middle ---
+
+@mid_substring () -> str = {
+    "hello world".substring(6, 11)
+}
+
+@test_mid_substring tests @mid_substring () -> void = {
+    assert_eq(actual: mid_substring(), expected: "world")
+}
+
+// --- Empty substring ---
+
+@empty_substring () -> str = {
+    "hello".substring(2, 2)
+}
+
+@test_empty_substring tests @empty_substring () -> void = {
+    assert_eq(actual: empty_substring(), expected: "")
+}
+
+// --- Full substring (0..len) ---
+
+@full_substring () -> str = {
+    let s = "hello";
+    s.substring(0, 5)
+}
+
+@test_full_substring tests @full_substring () -> void = {
+    assert_eq(actual: full_substring(), expected: "hello")
+}
+
+// --- Substring of shared string ---
+
+@shared_substring () -> (str, str) = {
+    let a = "hello world";
+    let b = a;
+    let sub = b.substring(0, 5);
+    (a, sub)
+}
+
+@test_shared_substring tests @shared_substring () -> void = {
+    let (original, sub) = shared_substring();
+    assert_eq(actual: original, expected: "hello world");
+    assert_eq(actual: sub, expected: "hello")
+}
+
+// --- String split ---
+
+@split_result () -> [str] = {
+    "a,b,c".split(sep: ",")
+}
+
+@test_split_result tests @split_result () -> void = {
+    assert_eq(actual: split_result(), expected: ["a", "b", "c"])
+}
+
+// --- Trim ---
+
+@trim_whitespace () -> str = {
+    "  hello  ".trim()
+}
+
+@test_trim_whitespace tests @trim_whitespace () -> void = {
+    assert_eq(actual: trim_whitespace(), expected: "hello")
+}
+
+// --- Upper and lower ---
+
+@case_convert () -> (str, str) = {
+    ("hello".to_uppercase(), "WORLD".to_lowercase())
+}
+
+@test_case_convert tests @case_convert () -> void = {
+    let (upper, lower) = case_convert();
+    assert_eq(actual: upper, expected: "HELLO");
+    assert_eq(actual: lower, expected: "world")
+}
+
+// --- Starts/ends with ---
+
+@prefix_suffix () -> (bool, bool) = {
+    let s = "hello world";
+    (s.starts_with(prefix: "hello"), s.ends_with(suffix: "world"))
+}
+
+@test_prefix_suffix tests @prefix_suffix () -> void = {
+    let (starts, ends) = prefix_suffix();
+    assert_eq(actual: starts, expected: true);
+    assert_eq(actual: ends, expected: true)
+}
+
+// --- Contains ---
+
+@contains_check () -> (bool, bool) = {
+    let s = "hello world";
+    (s.contains(substr: "lo wo"), s.contains(substr: "xyz"))
+}
+
+@test_contains_check tests @contains_check () -> void = {
+    let (yes, no) = contains_check();
+    assert_eq(actual: yes, expected: true);
+    assert_eq(actual: no, expected: false)
+}

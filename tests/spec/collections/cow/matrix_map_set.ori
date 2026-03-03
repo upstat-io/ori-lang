@@ -1,0 +1,182 @@
+// Correctness test matrix for map and set COW operations.
+// Covers missing scenarios: empty, existing key, missing key edge cases.
+
+use std.testing { assert_eq, assert }
+
+// ============ MAP: INSERT ============
+
+@map_insert_empty () -> {str: int} = {
+    let m: {str: int} = {};
+    m.insert("a", 1)
+}
+
+@test_map_insert_empty tests @map_insert_empty () -> void = {
+    assert_eq(actual: map_insert_empty().len(), expected: 1)
+}
+
+@map_insert_existing_key () -> {str: int} = {
+    {"a": 1, "b": 2}.insert("a", 99)
+}
+
+@test_map_insert_existing_key tests @map_insert_existing_key () -> void = {
+    let m = map_insert_existing_key();
+    assert_eq(actual: m.len(), expected: 2);
+    assert_eq(actual: m.get("a"), expected: Some(99))
+}
+
+@map_insert_new_key () -> {str: int} = {
+    {"a": 1}.insert("b", 2)
+}
+
+@test_map_insert_new_key tests @map_insert_new_key () -> void = {
+    assert_eq(actual: map_insert_new_key().len(), expected: 2)
+}
+
+// ============ MAP: REMOVE ============
+
+@map_remove_empty () -> {str: int} = {
+    let m: {str: int} = {};
+    m.remove("nonexistent")
+}
+
+@test_map_remove_empty tests @map_remove_empty () -> void = {
+    assert_eq(actual: map_remove_empty().len(), expected: 0)
+}
+
+@map_remove_existing () -> {str: int} = {
+    {"a": 1, "b": 2}.remove("a")
+}
+
+@test_map_remove_existing tests @map_remove_existing () -> void = {
+    let m = map_remove_existing();
+    assert_eq(actual: m.len(), expected: 1);
+    assert_eq(actual: m.contains_key("a"), expected: false)
+}
+
+@map_remove_nonexistent () -> {str: int} = {
+    {"a": 1}.remove("b")
+}
+
+@test_map_remove_nonexistent tests @map_remove_nonexistent () -> void = {
+    assert_eq(actual: map_remove_nonexistent().len(), expected: 1)
+}
+
+// ============ MAP: GET ============
+
+@map_get_empty () -> Option<int> = {
+    let m: {str: int} = {};
+    m.get("a")
+}
+
+@test_map_get_empty tests @map_get_empty () -> void = {
+    assert_eq(actual: map_get_empty(), expected: None)
+}
+
+@map_get_existing () -> Option<int> = {
+    {"a": 42}.get("a")
+}
+
+@test_map_get_existing tests @map_get_existing () -> void = {
+    assert_eq(actual: map_get_existing(), expected: Some(42))
+}
+
+@map_get_nonexistent () -> Option<int> = {
+    {"a": 1}.get("b")
+}
+
+@test_map_get_nonexistent tests @map_get_nonexistent () -> void = {
+    assert_eq(actual: map_get_nonexistent(), expected: None)
+}
+
+// ============ SET: INSERT ============
+
+@set_insert_empty () -> int = {
+    let s: Set<int> = [].iter().collect();
+    s.insert(1).len()
+}
+
+@test_set_insert_empty tests @set_insert_empty () -> void = {
+    assert_eq(actual: set_insert_empty(), expected: 1)
+}
+
+@set_insert_existing () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.insert(2).len()
+}
+
+@test_set_insert_existing tests @set_insert_existing () -> void = {
+    assert_eq(actual: set_insert_existing(), expected: 3)
+}
+
+@set_insert_new () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.insert(4).len()
+}
+
+@test_set_insert_new tests @set_insert_new () -> void = {
+    assert_eq(actual: set_insert_new(), expected: 4)
+}
+
+// ============ SET: REMOVE ============
+
+@set_remove_empty () -> int = {
+    let s: Set<int> = [].iter().collect();
+    s.remove(1).len()
+}
+
+@test_set_remove_empty tests @set_remove_empty () -> void = {
+    assert_eq(actual: set_remove_empty(), expected: 0)
+}
+
+@set_remove_existing () -> (int, bool) = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let s = s.remove(2);
+    (s.len(), s.contains(2))
+}
+
+@test_set_remove_existing tests @set_remove_existing () -> void = {
+    let (len, has_two) = set_remove_existing();
+    assert_eq(actual: len, expected: 2);
+    assert_eq(actual: has_two, expected: false)
+}
+
+@set_remove_nonexistent () -> int = {
+    let s: Set<int> = [1, 2].iter().collect();
+    s.remove(99).len()
+}
+
+@test_set_remove_nonexistent tests @set_remove_nonexistent () -> void = {
+    assert_eq(actual: set_remove_nonexistent(), expected: 2)
+}
+
+// ============ SET: UNION/INTERSECTION/DIFFERENCE (empty cases) ============
+
+@set_union_empty () -> int = {
+    let a: Set<int> = [].iter().collect();
+    let b: Set<int> = [1, 2].iter().collect();
+    a.union(b).len()
+}
+
+@test_set_union_empty tests @set_union_empty () -> void = {
+    assert_eq(actual: set_union_empty(), expected: 2)
+}
+
+@set_intersection_empty () -> int = {
+    let a: Set<int> = [].iter().collect();
+    let b: Set<int> = [1, 2].iter().collect();
+    a.intersection(b).len()
+}
+
+@test_set_intersection_empty tests @set_intersection_empty () -> void = {
+    assert_eq(actual: set_intersection_empty(), expected: 0)
+}
+
+@set_difference_empty () -> int = {
+    let a: Set<int> = [].iter().collect();
+    let b: Set<int> = [1, 2].iter().collect();
+    a.difference(b).len()
+}
+
+@test_set_difference_empty tests @set_difference_empty () -> void = {
+    assert_eq(actual: set_difference_empty(), expected: 0)
+}

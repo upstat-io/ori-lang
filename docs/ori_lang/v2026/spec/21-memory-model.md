@@ -290,9 +290,13 @@ The following optimizations are permitted:
 | Move optimization | Elide the increment/decrement pair when a value is transferred on last use |
 | Redundant pair elimination | Remove an increment immediately followed by a decrement on the same value |
 | Constructor reuse | Reuse the existing allocation when the reference count is one (requires a runtime uniqueness check) |
+| Seamless slicing | Slice operations (`take`, `skip`, `slice`, `substring`, `trim`) may return a zero-copy view into the original allocation rather than copying elements. The view shares the original allocation's reference count. |
+| Small value inlining | Small values (e.g., short strings) may be stored inline without heap allocation. The threshold is implementation-defined. |
 | Early drop | Deallocate a value before scope end when it is provably unreferenced for the remainder of the scope |
 
 These are permissions, not requirements. A conforming implementation may perform all, some, or none of these optimizations.
+
+NOTE  Constructor reuse (copy-on-write) preserves value semantics: `let b = a; b = b.push(x)` shall not modify `a`, regardless of whether the implementation copies or mutates in place. The optimization is transparent to user code.
 
 ## 21.5 Ownership and borrowing
 

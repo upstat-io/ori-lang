@@ -9,9 +9,16 @@
 //! ## Submodules
 //!
 //! - [`call_graph`] — inter-function call graph for SCC-based borrow inference
+//! - [`dominator`] — dominator tree (Cooper-Harvey-Kennedy algorithm)
+//! - [`post_dominator`] — post-dominator tree (CHK on reverse CFG)
 
 pub mod call_graph;
+mod dominator;
+mod post_dominator;
 pub mod scc;
+
+pub use dominator::DominatorTree;
+pub use post_dominator::PostDominatorTree;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::{smallvec, SmallVec};
@@ -134,345 +141,37 @@ pub(crate) fn compute_postorder(func: &ArcFunction) -> Vec<usize> {
     postorder
 }
 
-/// Dominator tree for ARC IR functions.
+/// CHK intersect: walk two fingers upward until they meet.
 ///
-/// Uses the Cooper-Harvey-Kennedy iterative algorithm, which is simpler than
-/// Lengauer-Tarjan and fast enough for typical function sizes (< 100 blocks).
-/// The algorithm works on reverse postorder and converges in O(n * d) where
-/// d is the loop nesting depth — typically 2-3 iterations.
+/// Both `a` and `b` must be reachable from the entry — their idom chain
+/// always leads to the entry node, so `idom[x]` is always `Some` here.
 ///
-/// Used by cross-block reset/reuse detection and FBIP diagnostics to verify
-/// that a token defined in block A can be used in block B (requires A
-/// dominates B).
-///
-/// Reference: Cooper, Harvey, Kennedy — "A Simple, Fast Dominance Algorithm" (2001)
-pub struct DominatorTree {
-    /// Immediate dominator for each block, indexed by block index.
-    /// `idom[entry] == None`, all others have `Some(dominator_index)`.
-    idom: Vec<Option<usize>>,
-}
-
-impl DominatorTree {
-    /// Build the dominator tree for a function.
-    pub fn build(func: &ArcFunction) -> Self {
-        let n = func.blocks.len();
-        if n == 0 {
-            return Self { idom: vec![] };
-        }
-
-        let preds = compute_predecessors(func);
-        let rpo = Self::reverse_postorder(func);
-
-        // Map block index → RPO position for O(1) lookup
-        let mut rpo_pos = vec![0usize; n];
-        for (pos, &block_idx) in rpo.iter().enumerate() {
-            rpo_pos[block_idx] = pos;
-        }
-
-        let entry = func.entry.index();
-        let mut idom: Vec<Option<usize>> = vec![None; n];
-        idom[entry] = Some(entry); // entry dominates itself
-
-        let mut changed = true;
-        while changed {
-            changed = false;
-            // Iterate in RPO (skip entry at position 0)
-            for &block_idx in &rpo[1..] {
-                // Find first processed predecessor
-                let mut new_idom = None;
-                for &pred in &preds[block_idx] {
-                    if idom[pred].is_some() {
-                        new_idom = Some(pred);
-                        break;
-                    }
-                }
-
-                let Some(mut new_idom_val) = new_idom else {
-                    continue;
-                };
-
-                // Intersect with remaining processed predecessors
-                for &pred in &preds[block_idx] {
-                    if pred == new_idom_val {
-                        continue;
-                    }
-                    if idom[pred].is_some() {
-                        new_idom_val = Self::intersect(pred, new_idom_val, &idom, &rpo_pos);
-                    }
-                }
-
-                if idom[block_idx] != Some(new_idom_val) {
-                    idom[block_idx] = Some(new_idom_val);
-                    changed = true;
-                }
-            }
-        }
-
-        Self { idom }
-    }
-
-    /// Does block `a` dominate block `b`?
-    ///
-    /// A block dominates itself. The entry block dominates all blocks.
-    pub fn dominates(&self, a: ArcBlockId, b: ArcBlockId) -> bool {
-        let a_idx = a.index();
-        let mut current = b.index();
-        loop {
-            if current == a_idx {
-                return true;
-            }
-            match self.idom[current] {
-                Some(dom) if dom != current => current = dom,
-                _ => return current == a_idx,
-            }
-        }
-    }
-
-    /// Return dominated blocks of `a` in preorder (for walking the subtree).
-    pub fn dominated_preorder(&self, root: ArcBlockId, num_blocks: usize) -> Vec<ArcBlockId> {
-        // Build children lists from idom
-        let mut children: Vec<Vec<usize>> = vec![vec![]; num_blocks];
-        for (idx, &idom) in self.idom.iter().enumerate() {
-            if let Some(dom) = idom {
-                if dom != idx {
-                    children[dom].push(idx);
-                }
-            }
-        }
-
-        let mut result = Vec::new();
-        let mut stack = vec![root.index()];
-        while let Some(idx) = stack.pop() {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "ARC IR block counts fit in u32"
-            )]
-            result.push(ArcBlockId::new(idx as u32));
-            // Push in reverse order so left children are visited first
-            for &child in children[idx].iter().rev() {
-                stack.push(child);
-            }
-        }
-        result
-    }
-
-    /// Compute reverse postorder traversal of the CFG.
-    fn reverse_postorder(func: &ArcFunction) -> Vec<usize> {
-        let mut rpo = compute_postorder(func);
-        rpo.reverse();
-        rpo
-    }
-
-    /// CHK intersect: walk two fingers upward until they meet.
-    ///
-    /// Both `a` and `b` must be reachable from the entry — their idom chain
-    /// always leads to the entry node, so `idom[x]` is always `Some` here.
-    fn intersect(mut a: usize, mut b: usize, idom: &[Option<usize>], rpo_pos: &[usize]) -> usize {
-        while a != b {
-            while rpo_pos[a] > rpo_pos[b] {
-                // Safety: CHK algorithm guarantees convergence — all reachable
-                // nodes have an idom leading to the entry.
-                let Some(next) = idom[a] else {
-                    debug_assert!(false, "intersect: broken idom chain at {a}");
-                    return a;
-                };
-                a = next;
-            }
-            while rpo_pos[b] > rpo_pos[a] {
-                let Some(next) = idom[b] else {
-                    debug_assert!(false, "intersect: broken idom chain at {b}");
-                    return b;
-                };
-                b = next;
-            }
-        }
-        a
-    }
-}
-
-/// Post-dominator tree for ARC IR functions.
-///
-/// Block A post-dominates block B if every path from B to any function
-/// exit must pass through A. Computed via CHK on the reverse CFG with
-/// a virtual exit node unifying all exit blocks (`Return`/`Resume`/`Unreachable`).
-///
-/// Used by cross-block reset/reuse detection to verify that a `Construct`
-/// block always executes after the `RcDec` block — preventing memory leaks
-/// when the `Construct` is on only one branch of a conditional.
-///
-/// Reference: Cooper, Harvey, Kennedy — "A Simple, Fast Dominance Algorithm" (2001)
-pub struct PostDominatorTree {
-    /// Immediate post-dominator per block. The virtual exit node (index `n`)
-    /// is the root but is not exposed to callers.
-    ipdom: Vec<Option<usize>>,
-}
-
-impl PostDominatorTree {
-    /// Build the post-dominator tree for a function.
-    ///
-    /// The reverse CFG uses a virtual exit node (index = `num_blocks`) that
-    /// unifies all exit blocks. The CHK algorithm runs on reverse postorder
-    /// of the reverse CFG starting from the virtual exit.
-    pub fn build(func: &ArcFunction) -> Self {
-        let n = func.blocks.len();
-        if n == 0 {
-            return Self { ipdom: vec![] };
-        }
-
-        let virtual_exit = n;
-
-        // Build reverse CFG predecessors: for each edge A → B in the original
-        // CFG, add A as a successor of B in the reverse CFG.
-        // The virtual exit has all exit blocks as successors (reverse: exit
-        // blocks have virtual_exit as predecessor in reverse CFG).
-        let mut rev_succs: Vec<SmallVec<[usize; 4]>> = vec![SmallVec::new(); n + 1];
-        let mut exit_blocks = Vec::new();
-
-        for (block_idx, block) in func.blocks.iter().enumerate() {
-            if matches!(
-                block.terminator,
-                ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable
-            ) {
-                exit_blocks.push(block_idx);
-            }
-
-            for succ_id in successor_block_ids(&block.terminator) {
-                let succ_idx = succ_id.index();
-                if succ_idx < n {
-                    // Reverse edge: succ → block in reverse CFG
-                    rev_succs[succ_idx].push(block_idx);
-                }
-            }
-        }
-
-        // Virtual exit → exit blocks (in reverse CFG, exit blocks reach virtual exit)
-        for &exit_idx in &exit_blocks {
-            rev_succs[virtual_exit].push(exit_idx);
-        }
-
-        // If there are no exit blocks, every block is unreachable and post-dominance
-        // is trivially undefined.
-        if exit_blocks.is_empty() {
-            return Self {
-                ipdom: vec![None; n],
+/// Shared between [`DominatorTree`] and [`PostDominatorTree`].
+pub(super) fn chk_intersect(
+    mut a: usize,
+    mut b: usize,
+    idom: &[Option<usize>],
+    rpo_pos: &[usize],
+) -> usize {
+    while a != b {
+        while rpo_pos[a] > rpo_pos[b] {
+            // Safety: CHK algorithm guarantees convergence — all reachable
+            // nodes have an idom leading to the entry.
+            let Some(next) = idom[a] else {
+                debug_assert!(false, "intersect: broken idom chain at {a}");
+                return a;
             };
+            a = next;
         }
-
-        // Compute reverse postorder of the reverse CFG starting from virtual_exit.
-        let rpo = Self::reverse_postorder_from(&rev_succs, virtual_exit, n + 1);
-
-        // Build reverse predecessor lists (successors in the reverse CFG are
-        // predecessors for the CHK algorithm on the reverse graph).
-        let mut rev_preds: Vec<SmallVec<[usize; 4]>> = vec![SmallVec::new(); n + 1];
-        for (src, dsts) in rev_succs.iter().enumerate() {
-            for &dst in dsts {
-                rev_preds[dst].push(src);
-            }
-        }
-
-        // Map node → RPO position
-        let mut rpo_pos = vec![0usize; n + 1];
-        for (pos, &node) in rpo.iter().enumerate() {
-            rpo_pos[node] = pos;
-        }
-
-        // CHK fixed-point on the reverse CFG
-        let mut ipdom: Vec<Option<usize>> = vec![None; n + 1];
-        ipdom[virtual_exit] = Some(virtual_exit);
-
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for &node in &rpo[1..] {
-                let mut new_idom = None;
-                for &pred in &rev_preds[node] {
-                    if ipdom[pred].is_some() {
-                        new_idom = Some(pred);
-                        break;
-                    }
-                }
-
-                let Some(mut new_idom_val) = new_idom else {
-                    continue;
-                };
-
-                for &pred in &rev_preds[node] {
-                    if pred == new_idom_val {
-                        continue;
-                    }
-                    if ipdom[pred].is_some() {
-                        new_idom_val =
-                            DominatorTree::intersect(pred, new_idom_val, &ipdom, &rpo_pos);
-                    }
-                }
-
-                if ipdom[node] != Some(new_idom_val) {
-                    ipdom[node] = Some(new_idom_val);
-                    changed = true;
-                }
-            }
-        }
-
-        // Truncate to only real blocks (drop virtual exit entry).
-        ipdom.truncate(n);
-
-        Self { ipdom }
-    }
-
-    /// Does block `a` post-dominate block `b`?
-    ///
-    /// Returns `true` if every path from `b` to any function exit must
-    /// pass through `a`. A block post-dominates itself.
-    pub fn post_dominates(&self, a: ArcBlockId, b: ArcBlockId) -> bool {
-        let a_idx = a.index();
-        let n = self.ipdom.len();
-        let mut current = b.index();
-        loop {
-            if current == a_idx {
-                return true;
-            }
-            match self.ipdom.get(current).copied().flatten() {
-                Some(dom) if dom != current && dom < n => current = dom,
-                // Reached virtual exit (dom >= n) or self-loop → stop.
-                _ => return current == a_idx,
-            }
+        while rpo_pos[b] > rpo_pos[a] {
+            let Some(next) = idom[b] else {
+                debug_assert!(false, "intersect: broken idom chain at {b}");
+                return b;
+            };
+            b = next;
         }
     }
-
-    /// Compute reverse postorder of a graph from a given root.
-    fn reverse_postorder_from(
-        succs: &[SmallVec<[usize; 4]>],
-        root: usize,
-        num_nodes: usize,
-    ) -> Vec<usize> {
-        let mut visited = vec![false; num_nodes];
-        let mut postorder = Vec::with_capacity(num_nodes);
-        let mut stack: Vec<(usize, bool)> = vec![(root, false)];
-
-        while let Some(&mut (node, ref mut children_done)) = stack.last_mut() {
-            if *children_done {
-                postorder.push(node);
-                stack.pop();
-                continue;
-            }
-            *children_done = true;
-
-            if node >= num_nodes || visited[node] {
-                stack.pop();
-                continue;
-            }
-            visited[node] = true;
-
-            for &succ in &succs[node] {
-                if succ < num_nodes && !visited[succ] {
-                    stack.push((succ, false));
-                }
-            }
-        }
-
-        postorder.reverse();
-        postorder
-    }
+    a
 }
 
 #[cfg(test)]
