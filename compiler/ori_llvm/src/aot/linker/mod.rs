@@ -420,7 +420,7 @@ impl LinkerDriver {
         let cmd = linker.finalize();
 
         // Execute with retry logic
-        self.execute_with_retry(cmd, input)
+        self.execute_with_retry(cmd, input, false)
     }
 
     /// Configure the linker with all input settings.
@@ -472,7 +472,12 @@ impl LinkerDriver {
     }
 
     /// Execute linker with retry logic for common failures.
-    fn execute_with_retry(&self, cmd: Command, input: &LinkInput) -> Result<(), LinkerError> {
+    fn execute_with_retry(
+        &self,
+        cmd: Command,
+        input: &LinkInput,
+        is_retry: bool,
+    ) -> Result<(), LinkerError> {
         // Check if we need to use a response file
         let cmd = self.maybe_use_response_file(cmd)?;
 
@@ -491,8 +496,8 @@ impl LinkerDriver {
         // We check both streams for retryable patterns.
         let combined = format!("{stderr}\n{stdout}");
 
-        // Check for retryable errors
-        if Self::should_retry(&combined) {
+        // Check for retryable errors — only retry once to prevent infinite loops.
+        if !is_retry && Self::should_retry(&combined) {
             // Retry with adjusted options
             return self.retry_link(input, &combined);
         }
@@ -547,7 +552,7 @@ impl LinkerDriver {
             .any(|pattern| stderr.contains(pattern))
     }
 
-    /// Retry linking with adjusted options.
+    /// Retry linking with adjusted options (at most once).
     fn retry_link(&self, input: &LinkInput, _stderr: &str) -> Result<(), LinkerError> {
         // Create new input with adjusted settings
         let mut adjusted = input.clone();
@@ -564,8 +569,36 @@ impl LinkerDriver {
             adjusted.linker = Some(LinkerFlavor::Gcc);
         }
 
-        // Retry with adjusted settings
-        self.link(&adjusted)
+        // Rebuild command and retry — `is_retry: true` prevents further retries
+        let flavor = adjusted.linker.unwrap_or_else(|| {
+            let preferred = LinkerFlavor::for_target(self.target.components());
+            if LinkerDetection::is_available(preferred) {
+                preferred
+            } else {
+                LinkerDetection::detect(&self.target)
+                    .preferred()
+                    .unwrap_or(preferred)
+            }
+        });
+        let mut linker = match flavor {
+            LinkerFlavor::Gcc => LinkerImpl::Gcc(GccLinker::new(&self.target)),
+            LinkerFlavor::Lld => {
+                if self.target.is_windows() {
+                    LinkerImpl::Msvc(MsvcLinker::with_lld(&self.target))
+                } else if self.target.is_wasm() {
+                    LinkerImpl::Wasm(WasmLinker::new(&self.target))
+                } else {
+                    let mut gcc = GccLinker::with_path(&self.target, "clang");
+                    gcc.cmd().arg("-fuse-ld=lld");
+                    LinkerImpl::Gcc(gcc)
+                }
+            }
+            LinkerFlavor::Msvc => LinkerImpl::Msvc(MsvcLinker::new(&self.target)),
+            LinkerFlavor::WasmLd => LinkerImpl::Wasm(WasmLinker::new(&self.target)),
+        };
+        Self::configure_linker(&mut linker, &adjusted)?;
+        let cmd = linker.finalize();
+        self.execute_with_retry(cmd, &adjusted, true)
     }
 
     /// Use a response file if the command line is too long.
