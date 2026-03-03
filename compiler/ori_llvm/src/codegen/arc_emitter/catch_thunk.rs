@@ -67,12 +67,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Fallback: try runtime function
             if let Some(func_id) = self.builder.try_runtime_fn(func_name_str) {
                 self.emit_seh_catch_rt_call(
-                    dst, func_id, arc_args, &arg_vals, normal_block, unwind_block, arc_func,
+                    dst,
+                    func_id,
+                    arc_args,
+                    &arg_vals,
+                    normal_block,
+                    unwind_block,
+                    arc_func,
                 );
             } else {
-                let msg = format!(
-                    "unresolved function `{func_name_str}` in SEH catch invoke"
-                );
+                let msg = format!("unresolved function `{func_name_str}` in SEH catch invoke");
                 tracing::warn!("{msg}");
                 self.builder.br(normal_block);
                 self.builder.position_at_end(normal_block);
@@ -117,9 +121,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Result field
         let result_ty = if has_result {
             let ty = match &ret_abi.passing {
-                ReturnPassing::Sret { .. } | ReturnPassing::Direct => {
-                    self.resolve_type(ret_abi.ty)
-                }
+                ReturnPassing::Sret { .. } | ReturnPassing::Direct => self.resolve_type(ret_abi.ty),
                 ReturnPassing::Void => unreachable!(),
             };
             ctx_field_types.push(ty);
@@ -133,10 +135,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .iter()
             .map(|&ty_id| self.builder.arena.get_type(ty_id))
             .collect();
-        let ctx_struct = self
-            .builder
-            .scx()
-            .type_struct(&ctx_field_inkwell, false);
+        let ctx_struct = self.builder.scx().type_struct(&ctx_field_inkwell, false);
         let ctx_struct_ty = self.builder.register_type(ctx_struct.into());
 
         let result_field_idx = if has_result {
@@ -157,9 +156,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // === Call site emission ===
 
         // Allocate context struct
-        let ctx_alloca = self
-            .builder
-            .create_entry_alloca(self.current_function, "catch.ctx", ctx_struct_ty);
+        let ctx_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "catch.ctx", ctx_struct_ty);
 
         // Store args into context fields
         let mut field_idx: u32 = 0;
@@ -175,7 +174,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     // Load from the alloca, then store into context.
                     if passed_idx < passed_args.len() {
                         let field_ty = ctx_field_types[field_idx as usize];
-                        let val = self.builder.load(field_ty, passed_args[passed_idx], "ctx.val");
+                        let val = self
+                            .builder
+                            .load(field_ty, passed_args[passed_idx], "ctx.val");
                         let field_ptr = self.builder.struct_gep(
                             ctx_struct_ty,
                             ctx_alloca,
@@ -222,12 +223,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // === Success path: load result from context ===
         self.builder.position_at_end(normal_block);
         if let Some(rty) = result_ty {
-            let result_ptr = self.builder.struct_gep(
-                ctx_struct_ty,
-                ctx_alloca,
-                result_field_idx,
-                "ctx.result",
-            );
+            let result_ptr =
+                self.builder
+                    .struct_gep(ctx_struct_ty, ctx_alloca, result_field_idx, "ctx.result");
             let result_val = self.builder.load(rty, result_ptr, "catch.result");
             self.def_var_repr(dst, result_val, arc_func);
         } else {
@@ -399,10 +397,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Result field (i64 — runtime functions return i64 or void)
         ctx_fields_inkwell.push(self.builder.arena.get_type(i64_ty));
 
-        let ctx_struct = self
-            .builder
-            .scx()
-            .type_struct(&ctx_fields_inkwell, false);
+        let ctx_struct = self.builder.scx().type_struct(&ctx_fields_inkwell, false);
         let ctx_struct_ty = self.builder.register_type(ctx_struct.into());
 
         let result_field_idx = coerced_args.len() as u32;
@@ -416,9 +411,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
 
         // Allocate and populate context
-        let ctx_alloca = self
-            .builder
-            .create_entry_alloca(self.current_function, "catch.ctx", ctx_struct_ty);
+        let ctx_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "catch.ctx", ctx_struct_ty);
 
         for (i, &arg) in coerced_args.iter().enumerate() {
             let field_ptr = self.builder.struct_gep(
@@ -444,12 +439,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Success path
         self.builder.position_at_end(normal_block);
-        let result_ptr = self.builder.struct_gep(
-            ctx_struct_ty,
-            ctx_alloca,
-            result_field_idx,
-            "ctx.result",
-        );
+        let result_ptr =
+            self.builder
+                .struct_gep(ctx_struct_ty, ctx_alloca, result_field_idx, "ctx.result");
         let result_val = self.builder.load(i64_ty, result_ptr, "catch.result");
         self.def_var_repr(dst, result_val, arc_func);
     }

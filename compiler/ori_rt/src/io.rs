@@ -282,10 +282,7 @@ pub extern "C" fn ori_catch_cleanup(_exc_ptr: *mut u8) {
 /// Returns `1` if the call succeeded, `0` if a panic was caught.
 /// On panic, the message is available via [`ori_catch_recover`].
 #[no_mangle]
-pub extern "C" fn ori_try_call(
-    thunk: unsafe extern "C-unwind" fn(*mut u8),
-    ctx: *mut u8,
-) -> i64 {
+pub extern "C" fn ori_try_call(thunk: unsafe extern "C-unwind" fn(*mut u8), ctx: *mut u8) -> i64 {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { thunk(ctx) })) {
         Ok(()) => 1,
         Err(_) => 0,
