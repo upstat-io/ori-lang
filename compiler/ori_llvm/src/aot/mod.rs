@@ -87,12 +87,16 @@ pub mod passes;
 pub mod runtime;
 pub mod syslib;
 pub mod target;
+pub mod target_features;
 pub mod wasm;
 
 // Re-export key types from target
-pub use target::{
-    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetConfig,
-    TargetError, TargetTripleComponents, SUPPORTED_TARGETS,
+pub use target::TargetConfig;
+
+// Re-export key types from target_features
+pub use target_features::{
+    get_host_cpu_features, get_host_cpu_name, is_supported_target, parse_features, TargetError,
+    TargetTripleComponents, SUPPORTED_TARGETS,
 };
 
 // Re-export key types from object

@@ -38,7 +38,8 @@ use std::path::Path;
 use inkwell::module::Module;
 use inkwell::targets::{FileType, TargetMachine};
 
-use super::target::{TargetConfig, TargetError};
+use super::target::TargetConfig;
+use super::target_features::TargetError;
 
 /// Error type for object file emission operations.
 #[derive(Debug, Clone)]

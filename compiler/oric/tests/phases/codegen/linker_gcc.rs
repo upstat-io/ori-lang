@@ -7,7 +7,8 @@ mod tests {
     use std::path::Path;
 
     use ori_llvm::aot::linker::{GccLinker, LibraryKind, LinkOutput};
-    use ori_llvm::aot::target::{TargetConfig, TargetTripleComponents};
+    use ori_llvm::aot::target::TargetConfig;
+    use ori_llvm::aot::target_features::TargetTripleComponents;
 
     // -- Test helpers --
 

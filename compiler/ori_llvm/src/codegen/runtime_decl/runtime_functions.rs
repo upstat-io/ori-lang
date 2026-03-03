@@ -71,6 +71,7 @@ pub(crate) fn is_jit_allowed(name: &str) -> bool {
 }
 
 /// Iterate over names of all JIT-allowed runtime functions.
+#[cfg(test)]
 pub(crate) fn jit_allowed_names() -> impl Iterator<Item = &'static str> {
     RT_FUNCTIONS
         .iter()
