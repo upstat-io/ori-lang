@@ -222,20 +222,33 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         self.inner.create_expression(Vec::new())
     }
 
-    /// Emit a `llvm.dbg.declare` intrinsic for a mutable binding (alloca).
+    /// Emit a debug declare record for a mutable binding (alloca).
     ///
     /// Associates an alloca with a debug variable so debuggers can
     /// inspect the variable at its stack address.
+    ///
+    /// Uses `LLVMDIBuilderInsertDeclareRecordAtEnd` (LLVM 19+) which emits
+    /// a debug record instead of the legacy `llvm.dbg.declare` intrinsic.
     pub fn emit_dbg_declare(
         &self,
         alloca: PointerValue<'ctx>,
         var: DILocalVariable<'ctx>,
         loc: DILocation<'ctx>,
         block: BasicBlock<'ctx>,
-    ) -> InstructionValue<'ctx> {
+    ) {
+        use llvm_sys::debuginfo::LLVMDIBuilderInsertDeclareRecordAtEnd;
+
         let expr = self.create_expression();
-        self.inner
-            .insert_declare_at_end(alloca, Some(var), Some(expr), loc, block)
+        unsafe {
+            LLVMDIBuilderInsertDeclareRecordAtEnd(
+                self.inner.as_mut_ptr(),
+                alloca.as_value_ref(),
+                var.as_mut_ptr(),
+                expr.as_mut_ptr(),
+                loc.as_mut_ptr(),
+                block.as_mut_ptr(),
+            );
+        }
     }
 
     /// Emit a `llvm.dbg.value` intrinsic for an immutable binding (SSA value).
@@ -258,7 +271,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     ///
     /// Like [`emit_dbg_value`], but appends to the block instead of
     /// inserting before a specific instruction. Uses the LLVM C API
-    /// `LLVMDIBuilderInsertDbgValueAtEnd` which inkwell doesn't wrap.
+    /// `LLVMDIBuilderInsertDbgValueRecordAtEnd` which inkwell doesn't wrap.
     pub fn emit_dbg_value_at_end(
         &self,
         value: BasicValueEnum<'ctx>,
@@ -266,11 +279,11 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         loc: DILocation<'ctx>,
         block: BasicBlock<'ctx>,
     ) {
-        use llvm_sys::debuginfo::LLVMDIBuilderInsertDbgValueAtEnd;
+        use llvm_sys::debuginfo::LLVMDIBuilderInsertDbgValueRecordAtEnd;
 
         let expr = self.create_expression();
         unsafe {
-            LLVMDIBuilderInsertDbgValueAtEnd(
+            LLVMDIBuilderInsertDbgValueRecordAtEnd(
                 self.inner.as_mut_ptr(),
                 value.as_value_ref(),
                 var.as_mut_ptr(),

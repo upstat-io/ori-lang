@@ -256,6 +256,7 @@ fn compile_and_cache(
         &pool,
         &canon_result,
         path,
+        Some(target.triple()),
     )
     .unwrap_or_else(|e| {
         eprintln!("{e}");

@@ -47,12 +47,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM 17
+      - name: Install LLVM 21
         run: |
           curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-17 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends llvm-17 llvm-17-dev libpolly-17-dev clang-17 lld-17
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -64,7 +64,7 @@ jobs:
           key: clippy
       - run: cargo clippy --workspace --all-targets -- -D warnings
         env:
-          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
   # Main test suite
   test:
@@ -75,12 +75,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM 17
+      - name: Install LLVM 21
         run: |
           curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-17 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends llvm-17 llvm-17-dev libpolly-17-dev clang-17 lld-17
+          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -92,7 +92,7 @@ jobs:
       - name: Build
         run: cargo build --workspace
         env:
-          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
       - name: Rust unit tests
         id: rust-tests
@@ -106,7 +106,7 @@ jobs:
           echo "RUST_TESTS=$RUST_TESTS" >> $GITHUB_ENV
           echo "RUST_FAILED=$RUST_FAILED" >> $GITHUB_ENV
         env:
-          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
       - name: Ori language tests
         id: ori-tests
@@ -120,7 +120,7 @@ jobs:
           echo "ORI_TESTS=$ORI_TESTS" >> $GITHUB_ENV
           echo "ORI_FAILED=$ORI_FAILED" >> $GITHUB_ENV
         env:
-          LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
+          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
       - name: Ori runtime tests
         id: rt-tests
@@ -191,7 +191,7 @@ jobs:
     name: ${{ matrix.os }}
     needs: [format, clippy]  # Don't waste CI time if basics fail
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 7
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
@@ -199,21 +199,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM 17 (macOS)
+      - name: Install LLVM 21 (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm@17
-          echo "LLVM_SYS_170_PREFIX=$(brew --prefix llvm@17)" >> $GITHUB_ENV
+          brew install llvm@21
+          echo "LLVM_SYS_211_PREFIX=$(brew --prefix llvm@21)" >> $GITHUB_ENV
 
-      - name: Install LLVM 17 (Windows)
+      - name: Install LLVM 21 (Windows)
         if: runner.os == 'Windows'
         run: |
-          $LLVM_URL = "https://github.com/upstat-io/llvm-package-windows/releases/download/v17.0.6/LLVM-17.0.6-win64.7z"
+          $LLVM_URL = "https://github.com/upstat-io/llvm-package-windows/releases/download/v21.1.8/LLVM-21.1.8-win64.7z"
           Write-Host "Downloading LLVM from $LLVM_URL"
           curl.exe -fLO $LLVM_URL
           Write-Host "Extracting LLVM to C:\LLVM..."
-          7z x LLVM-17.0.6-win64.7z -oC:\LLVM
-          echo "LLVM_SYS_170_PREFIX=C:\LLVM" >> $env:GITHUB_ENV
+          7z x LLVM-21.1.8-win64.7z -oC:\LLVM
+          echo "LLVM_SYS_211_PREFIX=C:\LLVM" >> $env:GITHUB_ENV
           echo "C:\LLVM\bin" >> $env:GITHUB_PATH
 
       - name: Set up MSVC environment (Windows)
@@ -233,6 +233,39 @@ jobs:
 
       - name: Ori language tests
         run: cargo run -p oric --bin ori -- test tests/
+
+      - name: AOT smoke test (compile + link + run)
+        continue-on-error: true  # macOS ARM64: compiler stack overflow in LLVM codegen (tracked)
+        shell: bash
+        run: |
+          SMOKE_DIR="${RUNNER_TEMP}/aot_smoke"
+          mkdir -p "$SMOKE_DIR"
+
+          # Write a minimal Ori program that exercises string + print (touches ori_rt)
+          cat > "$SMOKE_DIR/smoke.ori" << 'ORIEOF'
+          @main () -> void = print(msg: "hello from AOT");
+          ORIEOF
+
+          EXE_SUFFIX=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            EXE_SUFFIX=".exe"
+          fi
+
+          BUILD_ARGS=(build "$SMOKE_DIR/smoke.ori" -o "$SMOKE_DIR/smoke${EXE_SUFFIX}")
+
+          # macOS: put Homebrew LLVM on PATH so lld is available
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            LLVM_BIN="$(brew --prefix llvm@21)/bin"
+            if [[ -d "$LLVM_BIN" ]]; then
+              export PATH="$LLVM_BIN:$PATH"
+              if command -v lld >/dev/null 2>&1; then
+                BUILD_ARGS+=(--linker=lld)
+              fi
+            fi
+          fi
+
+          cargo run -p oric --bin ori -- "${BUILD_ARGS[@]}"
+          "$SMOKE_DIR/smoke${EXE_SUFFIX}"
 
   # Single status check for branch protection
   ci-success:

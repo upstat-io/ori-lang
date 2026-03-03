@@ -229,25 +229,47 @@ fn test_float_bits_hash() {
 
 #[test]
 fn test_duration_unit() {
-    assert_eq!(DurationUnit::Nanoseconds.to_nanos(100), 100);
-    assert_eq!(DurationUnit::Microseconds.to_nanos(50), 50_000);
-    assert_eq!(DurationUnit::Milliseconds.to_nanos(100), 100_000_000);
-    assert_eq!(DurationUnit::Seconds.to_nanos(5), 5_000_000_000);
-    assert_eq!(DurationUnit::Minutes.to_nanos(1), 60_000_000_000);
+    assert_eq!(DurationUnit::Nanoseconds.to_nanos(100), Some(100));
+    assert_eq!(DurationUnit::Microseconds.to_nanos(50), Some(50_000));
+    assert_eq!(DurationUnit::Milliseconds.to_nanos(100), Some(100_000_000));
+    assert_eq!(DurationUnit::Seconds.to_nanos(5), Some(5_000_000_000));
+    assert_eq!(DurationUnit::Minutes.to_nanos(1), Some(60_000_000_000));
     assert_eq!(DurationUnit::Hours.suffix(), "h");
     assert_eq!(DurationUnit::Nanoseconds.suffix(), "ns");
     assert_eq!(DurationUnit::Microseconds.suffix(), "us");
 }
 
 #[test]
+fn test_duration_overflow() {
+    // 6_000_000 hours overflows i64 nanoseconds
+    assert_eq!(DurationUnit::Hours.to_nanos(6_000_000), None);
+    // ~2_562_047 hours ≈ 292 years, near the i64 limit but still valid
+    assert!(DurationUnit::Hours.to_nanos(2_562_047).is_some());
+    // For Nanoseconds (multiplier=1), the value is a raw i64 bit-pattern.
+    // u64::MAX reinterprets as -1i64 — this is intentional for negative
+    // durations stored via cast_unsigned() in const_fold.
+    assert_eq!(DurationUnit::Nanoseconds.to_nanos(u64::MAX), Some(-1));
+    // Large non-nanosecond values that would overflow still return None.
+    assert_eq!(DurationUnit::Microseconds.to_nanos(u64::MAX), None);
+}
+
+#[test]
 fn test_size_unit() {
     // SI units: decimal notation (1kb = 1000 bytes)
-    assert_eq!(SizeUnit::Kilobytes.to_bytes(4), 4_000);
-    assert_eq!(SizeUnit::Megabytes.to_bytes(1), 1_000_000);
-    assert_eq!(SizeUnit::Gigabytes.to_bytes(1), 1_000_000_000);
-    assert_eq!(SizeUnit::Terabytes.to_bytes(1), 1_000_000_000_000);
+    assert_eq!(SizeUnit::Kilobytes.to_bytes(4), Some(4_000));
+    assert_eq!(SizeUnit::Megabytes.to_bytes(1), Some(1_000_000));
+    assert_eq!(SizeUnit::Gigabytes.to_bytes(1), Some(1_000_000_000));
+    assert_eq!(SizeUnit::Terabytes.to_bytes(1), Some(1_000_000_000_000));
     assert_eq!(SizeUnit::Bytes.suffix(), "b");
     assert_eq!(SizeUnit::Terabytes.suffix(), "tb");
+}
+
+#[test]
+fn test_size_overflow() {
+    // 20_000_000 terabytes overflows u64
+    assert_eq!(SizeUnit::Terabytes.to_bytes(20_000_000), None);
+    // 18_446_744 terabytes fits u64 (18_446_744 * 1e12 < u64::MAX)
+    assert!(SizeUnit::Terabytes.to_bytes(18_446).is_some());
 }
 
 #[test]

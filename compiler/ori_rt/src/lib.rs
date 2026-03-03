@@ -19,6 +19,25 @@
 //! - **format**: Template string interpolation (`ori_format_int`, etc.)
 //! - **iterator**: Iterator runtime (`ori_iter_from_list`, `ori_iter_next`, etc.)
 //!
+//! # COW Architecture
+//!
+//! Every collection mutation follows the COW (Copy-on-Write) protocol:
+//! 1. Check uniqueness: `ori_rc_is_unique(data)` — is RC == 1?
+//! 2. If unique (fast path): mutate in place, O(1) amortized
+//! 3. If shared (slow path): allocate new buffer, copy, mutate, dec old
+//!
+//! The static uniqueness analysis (`ori_arc`) can eliminate the runtime
+//! check when the value is provably unique at compile time (`cow_mode=1`
+//! for static unique, `cow_mode=0` for dynamic check).
+//!
+//! **Seamless slices** (list `take`/`skip`/`slice`, string `substring`/`trim`)
+//! create zero-copy views by encoding a byte offset in the cap field's sign
+//! bit (`SLICE_FLAG`). COW mutations on slices materialize a standalone copy.
+//! See `slice_encoding` and `list::slice` modules.
+//!
+//! **SSO** (Small String Optimization): Strings ≤23 bytes are stored inline
+//! in the `OriStr` struct — no heap allocation or RC management needed.
+//!
 //! # Safety
 //!
 //! All functions use `#[no_mangle]` and `extern "C"` for FFI compatibility.
@@ -339,6 +358,9 @@ pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test_helpers;
 
 #[cfg(test)]
 mod tests;

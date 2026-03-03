@@ -1,0 +1,141 @@
+// Valgrind + ORI_CHECK_LEAKS test: explicit leak scenarios.
+// Each scenario isolates a specific RC lifecycle pattern that could leak
+// if the COW/ARC machinery has bugs. Block scoping controls drop order.
+
+// Scenario 1: Create shared list, drop one reference, then drop the other.
+// Both sides share the same backing buffer. Dropping the first should
+// decrement RC from 2 to 1. Dropping the second should free the buffer.
+@scenario_shared_drop () -> bool = {
+    let a = [1, 2, 3, 4, 5];
+    let b = a;
+    // Both a and b share the same buffer (RC=2).
+    // At block end, both are dropped. RC should reach 0, buffer freed.
+    a.length() == 5 && b.length() == 5
+}
+
+// Scenario 2: Create slice, drop slice first, original survives.
+// The slice holds a reference to the original's backing buffer.
+// Dropping the slice decrements the buffer RC but doesn't free it.
+@scenario_slice_drop_first () -> bool = {
+    let original = [10, 20, 30, 40, 50];
+    let result = {
+        let slice = original.slice(start: 1, end: 4);
+        // slice goes out of scope here — original buffer still alive
+        slice.length() == 3 && slice[0] == 20
+    };
+    // original still alive, its buffer RC should be 1 now
+    result && original.length() == 5 && original[0] == 10
+}
+
+// Scenario 3: Create slice, drop original first, slice survives.
+// This tests that the backing buffer stays alive while any slice
+// references it, even after the "original" binding is no longer used.
+@scenario_slice_outlives_original () -> bool = {
+    let slice_val = {
+        let original = [100, 200, 300, 400, 500];
+        // original's last use is creating the slice
+        original.slice(start: 1, end: 4)
+    };
+    // original is gone, slice_val keeps the backing buffer alive
+    slice_val.length() == 3 && slice_val[0] == 200 && slice_val[2] == 400
+}
+
+// Scenario 4: Create slice and original, drop both.
+// Tests that after both go out of scope, the backing buffer is freed.
+@scenario_slice_and_original_drop () -> bool = {
+    let result = {
+        let original = [1, 2, 3, 4, 5, 6, 7, 8];
+        let slice1 = original.slice(start: 0, end: 4);
+        let slice2 = original.slice(start: 4, end: 8);
+        // Three references to same buffer: original, slice1, slice2
+        slice1.length() == 4 && slice2.length() == 4
+            && slice1[0] == 1 && slice2[0] == 5
+    };
+    // All three dropped — buffer must be freed
+    result
+}
+
+// Scenario 5: COW copy — old buffer decremented, new buffer has RC=1.
+// After COW divergence, the shared original keeps its buffer, and the
+// mutated copy gets a fresh buffer. Neither leaks.
+@scenario_cow_divergence () -> bool = {
+    let original = [1, 2, 3];
+    let shared = original;
+    // Sharing: both point to same buffer (RC=2)
+    let mutated = shared.push(4);
+    // After push: shared COW'd → mutated has new buffer (RC=1),
+    // original's buffer RC dropped from 2 to... still 2 because
+    // 'shared' still references it. 'shared' is a binding that
+    // hasn't been dropped yet.
+    original.length() == 3 && shared.length() == 3
+        && mutated.length() == 4 && mutated[3] == 4
+}
+
+// Scenario 5b: COW in loop — each iteration forks, all buffers freed.
+// Uses map to avoid the known [[T]] double-free codegen bug.
+@scenario_cow_loop () -> bool = {
+    let base = [0];
+    let results: {int: [int]} = {};
+    for i in 0..20 do {
+        // Each push COW-copies from base (shared), creating a new buffer
+        results = results.insert(i, base.push(i));
+    };
+    base.length() == 1 && results.len() == 20
+}
+
+// Scenario 6: Nested collections — inner elements have their own RC.
+// Uses map-of-lists to avoid the known [[T]] double-free codegen bug.
+// (List-of-lists is tracked for the llvm-codegen-fixes reroute.)
+@scenario_nested_drop () -> bool = {
+    let inner1 = [1, 2, 3];
+    let inner2 = [4, 5, 6];
+    let outer = {"a": inner1, "b": inner2};
+    // outer holds references to inner1 and inner2's buffers
+    let result = outer.len() == 2;
+    // At function end: outer dropped → inner refs decremented.
+    // inner1 and inner2 also dropped. All buffers freed.
+    result
+}
+
+// Scenario 7: String COW — heap strings follow same RC lifecycle.
+@scenario_string_cow () -> bool = {
+    // Force heap allocation (> 23 bytes for SSO threshold)
+    let long_str = "this is a string that exceeds SSO threshold easily";
+    let shared = long_str;
+    // Both share the same heap buffer
+    let extended = shared + " with more text";
+    // extended has a new buffer, shared/long_str keep the old one
+    long_str.length() > 23 && shared == long_str
+        && extended.starts_with(prefix: "this is a string")
+}
+
+// Scenario 8: Map COW — insert on shared map creates new backing.
+@scenario_map_cow () -> bool = {
+    let original = {"a": 1, "b": 2, "c": 3};
+    let shared = original;
+    let modified = shared.insert("d", 4);
+    original.len() == 3 && shared.len() == 3 && modified.len() == 4
+}
+
+// Scenario 9: Set COW — operations on shared set.
+@scenario_set_cow () -> bool = {
+    let original: Set<int> = [1, 2, 3, 4, 5].iter().collect();
+    let shared = original;
+    let modified = shared.insert(6);
+    original.len() == 5 && modified.len() == 6
+}
+
+@main () -> int = {
+    let all_ok = scenario_shared_drop()
+        && scenario_slice_drop_first()
+        && scenario_slice_outlives_original()
+        && scenario_slice_and_original_drop()
+        && scenario_cow_divergence()
+        && scenario_cow_loop()
+        && scenario_nested_drop()
+        && scenario_string_cow()
+        && scenario_map_cow()
+        && scenario_set_cow();
+
+    if all_ok then 0 else 1
+}

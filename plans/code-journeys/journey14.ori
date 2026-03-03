@@ -1,0 +1,15 @@
+// Journey 14: COW String Operations
+// Tests: string creation, concatenation (COW fast path),
+// SSO (small string optimization for short strings),
+// substring/slice, length checking
+// Expected: 5 + 11 + 3 + 1 = 20
+// "hello".length() + "hello world".length() + "hel".length() + (if "hello world" starts with "hello" then 1 else 0)
+
+@main () -> int = {
+    let $s1 = "hello";
+    let $s2 = s1 + " world";
+    let $s3 = s1.substring(start: 0, end: 3);
+    let $check = if s2.starts_with(prefix: "hello") then 1 else 0;
+
+    s1.length() + s2.length() + s3.length() + check
+}

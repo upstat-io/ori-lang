@@ -1,8 +1,8 @@
 # Cargo configuration for Ori
 
 [env]
-# LLVM 17 location for llvm-sys crate
-LLVM_SYS_170_PREFIX = "/usr/lib/llvm-17"
+# LLVM 21 location for llvm-sys crate
+LLVM_SYS_211_PREFIX = "/usr/lib/llvm-21"
 
 [alias]
 # Ori language tests
@@ -20,4 +20,4 @@ c = "check --workspace"
 b = "build --workspace"
 cl = "clippy --workspace --all-targets -- -D warnings"
 
-# LLVM 17 is a default feature of oric. All commands include LLVM.
+# LLVM 21 is a default feature of oric. All commands include LLVM.

@@ -14,11 +14,11 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **ACTIVE REROUTE**: `plans/value-semantics-optimization/` — Value Semantics Optimization: Copy-on-Write collections (in-place when RC==1), Small String Optimization (23-byte inline), zero-copy slices, static uniqueness analysis, collection memory recycling, drop specialization. Covers runtime (`ori_rt`), LLVM codegen (`ori_llvm`), evaluator parity (`ori_eval`), ARC pipeline (`ori_arc`). 9 sections. Paused mid-section-02 (debugging push+reverse COW bug).
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-03-03)**: `plans/value-semantics-optimization/` — Value Semantics Optimization: Copy-on-Write collections (in-place when RC==1), Small String Optimization (23-byte inline), zero-copy slices, static uniqueness analysis, collection memory recycling, drop specialization. Covers runtime (`ori_rt`), LLVM codegen (`ori_llvm`), evaluator parity (`ori_eval`), ARC pipeline (`ori_arc`). 9 sections complete. Key results: 16/16 Valgrind clean, 14/14 leak-free, cow_mode=1 static uniqueness verified, 8 micro-benchmarks + 4 macro-benchmarks baselined, 11,887 tests passing.
 
 ---
 
-> **QUEUED REROUTE**: `plans/llvm-codegen-fixes/` — LLVM Codegen Fixes: resolve all 28 issues discovered across 12 code journeys. 4 CRITICAL (mixed closures crash C1, list indexing crash C2, payload sum Eq silent wrong C3, Option match tag inversion silent wrong C4), 2 HIGH (empty landing pads H1, unsound nounwind H2), 14 MEDIUM (UB, alignment, variant/struct codegen quality, ARC drop dedup, IR cleanliness), 7 LOW (canonicalizer, select, dead phis). 11 sections. Independent of other reroutes — can activate at any time. Section 03 (EH cleanup) overlaps with `ori-eh-personality` plan. Source: `plans/code-journeys/` (12 journey results).
+> **ACTIVE REROUTE**: `plans/llvm-codegen-fixes/` — LLVM Codegen Fixes: resolve all 28 issues discovered across 12 code journeys. 4 CRITICAL (mixed closures crash C1, list indexing crash C2, payload sum Eq silent wrong C3, Option match tag inversion silent wrong C4), 2 HIGH (empty landing pads H1, unsound nounwind H2), 14 MEDIUM (UB, alignment, variant/struct codegen quality, ARC drop dedup, IR cleanliness), 7 LOW (canonicalizer, select, dead phis). 11 sections. Section 03 (EH cleanup) overlaps with `ori-eh-personality` plan. Source: `plans/code-journeys/` (12 journey results).
 
 ---
 

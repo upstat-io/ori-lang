@@ -129,7 +129,7 @@ Lean 4 ExpandResetReuse, Koka ParcReuse, Roc reuse token
 ---
 
 ### Section 09: Verification & Benchmarks
-**File:** `section-09-verification.md` | **Status:** In Progress
+**File:** `section-09-verification.md` | **Status:** Complete
 
 ```
 benchmark, performance, throughput, latency, memory

@@ -195,7 +195,7 @@ fn test_build_output_dir() {
     );
 
     // Binary should be in the output directory
-    let expected_output = out_dir.join("test");
+    let expected_output = out_dir.join(format!("test{}", std::env::consts::EXE_SUFFIX));
     assert!(
         expected_output.exists(),
         "Binary was not created in output directory"

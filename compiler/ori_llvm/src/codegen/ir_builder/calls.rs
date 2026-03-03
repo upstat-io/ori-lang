@@ -443,6 +443,20 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
 
     // -- Function attributes --
 
+    /// Add the `uwtable` attribute to a function.
+    ///
+    /// Required on Windows x86-64 for all functions so the SEH unwinder can
+    /// walk the stack. Without this, functions that are unwound through (e.g.,
+    /// a caller of `ori_panic`) will corrupt the stack because
+    /// `RtlVirtualUnwind` cannot find their frame info in `.pdata`/`.xdata`.
+    pub fn add_uwtable_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("uwtable");
+        // uwtable value: 2 = UWTableKind::Async (full async unwind tables)
+        let attr = self.scx.llcx.create_enum_attribute(kind, 2);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
     /// Add the `nounwind` attribute to a function.
     ///
     /// Declares the function will not unwind (no exceptions). Enables LLVM

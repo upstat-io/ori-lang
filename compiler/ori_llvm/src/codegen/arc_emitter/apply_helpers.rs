@@ -82,7 +82,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut full_args = Vec::with_capacity(1 + args.len());
         full_args.push(sret_alloca);
         full_args.extend_from_slice(args);
-        self.builder.call(func_id, &full_args, name);
+        self.emit_rt_call(func_id, &full_args, name);
         Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
     }
 

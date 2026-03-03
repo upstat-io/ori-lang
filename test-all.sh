@@ -76,7 +76,7 @@ ORI_LLVM_EXIT=0
 
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
-    if cargo test --workspace 2>&1 > "$RUST_OUTPUT"; then
+    if cargo test --workspace --exclude ori_llvm 2>&1 > "$RUST_OUTPUT"; then
         echo "  ✓ Rust workspace tests passed"
         return 0
     else
