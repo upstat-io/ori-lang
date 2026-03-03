@@ -38,11 +38,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
         let saved_emitter_func = self.current_function;
+        let saved_funclet_pad = self.current_funclet_pad.take();
 
         // Generate the drop function (handles declaration, caching, and body)
         let func_id = super::drop_gen::generate_drop_fn(self, ty, &drop_info);
 
-        // Restore builder position and emitter's current function
+        // Restore builder position, emitter's current function, and funclet pad
+        self.current_funclet_pad = saved_funclet_pad;
         self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -70,14 +72,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return self.builder.get_function_ptr(func_id);
         }
 
-        // Save builder state and emitter's current function
+        // Save builder state, emitter's current function, and funclet pad
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
         let saved_emitter_func = self.current_function;
+        let saved_funclet_pad = self.current_funclet_pad.take();
 
         let func_id = self.generate_elem_dec_fn_body(element_type);
 
-        // Restore builder state and emitter's current function
+        // Restore builder state, emitter's current function, and funclet pad
+        self.current_funclet_pad = saved_funclet_pad;
         self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -139,14 +143,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return self.builder.get_function_ptr(func_id);
         }
 
-        // Save builder state and emitter's current function
+        // Save builder state, emitter's current function, and funclet pad
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
         let saved_emitter_func = self.current_function;
+        let saved_funclet_pad = self.current_funclet_pad.take();
 
         let func_id = self.generate_elem_inc_fn_body(element_type);
 
-        // Restore builder state and emitter's current function
+        // Restore builder state, emitter's current function, and funclet pad
+        self.current_funclet_pad = saved_funclet_pad;
         self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
