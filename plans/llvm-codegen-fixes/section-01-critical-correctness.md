@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Critical Correctness"
-status: not-started
+status: in-progress
 goal: "All 12 code journeys produce correct results in both eval and AOT paths"
 inspired_by:
   - "Rust rustc_codegen_llvm/mir/operand.rs — OperandValue variant handling"
@@ -10,7 +10,7 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "Fix C4 — Option match tag inversion"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Fix C3 — Payload sum type $eq codegen"
     status: not-started
@@ -62,14 +62,14 @@ switch i64 %proj.0, label %bb4 [
 
 **Root cause hypothesis:** The match codegen for monomorphized built-in generic types uses a different variant ordering than construction. The `?` operator avoids this because it uses a direct `icmp eq` rather than a `switch`.
 
-- [ ] Reproduce with Journey 12's code — AOT returns 144 instead of 33
-- [ ] Write targeted test: `Option<int>` construction + match, compare eval vs AOT
-- [ ] Write test: user-defined `type MyOpt<T> = MySome(v: T) | MyNone` — should pass (confirms isolation)
-- [ ] Trace the match codegen path for `Option<int>` — find where variant tag → switch label mapping diverges
-- [ ] Find the divergence between user-defined sum type match (correct) and built-in generic match (inverted)
-- [ ] Fix the root cause — ensure match switch labels match construction tags for all sum types
-- [ ] Verify `?` operator still works (it uses a different code path)
-- [ ] Journey 12 AOT returns 33
+- [x] Reproduce with Journey 12's code — AOT returns 144 instead of 33
+- [x] Write targeted test: `Option<int>` construction + match, compare eval vs AOT
+- [x] Write test: user-defined `type MyOpt<T> = MySome(v: T) | MyNone` — should pass (confirms isolation)
+- [x] Trace the match codegen path for `Option<int>` — find where variant tag → switch label mapping diverges
+- [x] Find the divergence between user-defined sum type match (correct) and built-in generic match (inverted)
+- [x] Fix the root cause — ensure match switch labels match construction tags for all sum types
+- [x] Verify `?` operator still works (it uses a different code path)
+- [x] Journey 12 AOT returns 33
 
 ---
 
@@ -175,9 +175,9 @@ PANIC: ValueId 4294967295 out of bounds
 - [ ] Journey 5 (closures): AOT returns 27, matching eval
 - [ ] Journey 10: list indexing test case returns correct element value
 - [ ] Journey 11 (derived Eq): AOT returns 33, matching eval
-- [ ] Journey 12 (Option match): AOT returns 33, matching eval
+- [x] Journey 12 (Option match): AOT returns 33, matching eval
 - [ ] All 12 journeys: `./scripts/dual-exec-verify.sh` — 0 mismatches
-- [ ] No new regressions: `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
+- [x] No new regressions: `./test-all.sh` green
+- [x] `./clippy-all.sh` green
 
 **Exit Criteria:** All 4 critical bugs fixed. `./scripts/dual-exec-verify.sh` runs all 12 journey programs through both eval and AOT, producing 0 mismatches. No test regressions.

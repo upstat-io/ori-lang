@@ -297,8 +297,8 @@ fn lookup_variant_field_type(
             }
         }
         Tag::Option => {
-            // Some (index 1) has one field (the inner type), None (index 0) has none.
-            if variant_index == 1 && field_index == 0 {
+            // Some (index 0) has one field (the inner type), None (index 1) has none.
+            if variant_index == 0 && field_index == 0 {
                 return pool.option_inner(resolved);
             }
         }
