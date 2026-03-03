@@ -189,7 +189,7 @@ fn switch_option_tag() {
         edges: vec![
             (
                 TestValue::Tag {
-                    variant_index: 1,
+                    variant_index: 0,
                     variant_name: interner.intern("Some"),
                 },
                 DecisionTree::Leaf {
@@ -199,7 +199,7 @@ fn switch_option_tag() {
             ),
             (
                 TestValue::Tag {
-                    variant_index: 0,
+                    variant_index: 1,
                     variant_name: interner.intern("None"),
                 },
                 DecisionTree::Leaf {
