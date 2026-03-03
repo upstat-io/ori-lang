@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  RUST_VERSION: "1.93.1"
 
 # Cancel previous runs on the same branch/PR
 concurrency:
@@ -36,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt
       - run: cargo fmt --all -- --check
 
@@ -58,6 +60,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -85,6 +88,8 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: test
@@ -221,6 +226,8 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}
@@ -235,7 +242,6 @@ jobs:
         run: cargo run -p oric --bin ori -- test tests/
 
       - name: AOT smoke test (compile + link + run)
-        continue-on-error: true  # macOS ARM64: compiler stack overflow in LLVM codegen (tracked)
         shell: bash
         run: |
           SMOKE_DIR="${RUNNER_TEMP}/aot_smoke"

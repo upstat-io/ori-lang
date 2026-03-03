@@ -16,12 +16,35 @@ compile_error!(
      Build with: cargo build -p oric"
 );
 
+/// Stack size for the main work thread (32 MiB).
+///
+/// The OS default stack is 8 MiB on macOS, which is insufficient for LLVM's
+/// aarch64 backend during instruction selection (deep internal C++ recursion
+/// through FFI that `ensure_sufficient_stack` cannot wrap). Spawning on a
+/// larger thread follows the `rustc` pattern (`rustc_driver::main`).
+const STACK_SIZE: usize = 32 * 1024 * 1024;
+
+fn main() {
+    let builder = std::thread::Builder::new()
+        .name("ori-main".into())
+        .stack_size(STACK_SIZE);
+
+    let handle = builder.spawn(real_main).unwrap_or_else(|e| {
+        eprintln!("error: failed to spawn main thread: {e}");
+        std::process::exit(1);
+    });
+
+    if let Err(payload) = handle.join() {
+        std::panic::resume_unwind(payload);
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     clippy::cognitive_complexity,
     reason = "CLI command router with arity guards"
 )]
-fn main() {
+fn real_main() {
     oric::tracing_setup::init();
 
     let args: Vec<String> = std::env::args().collect();

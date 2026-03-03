@@ -602,6 +602,43 @@ fn decimal_size_overflow_is_error() {
 
 // === Suffix detection ===
 
+/// Verify every `DurationUnit` variant is covered by `detect_duration_suffix`.
+///
+/// Adding a new `DurationUnit` variant to `all()` without a corresponding
+/// suffix detection path will cause this test to fail.
+#[test]
+fn all_duration_units_detected_by_suffix() {
+    for unit in DurationUnit::all() {
+        let input = format!("1{}", unit.suffix());
+        let (suffix_len, detected) = detect_duration_suffix(&input);
+        assert_eq!(
+            detected, unit,
+            "detect_duration_suffix({input:?}) returned {detected:?}, expected {unit:?}"
+        );
+        assert!(
+            suffix_len > 0,
+            "detect_duration_suffix({input:?}) returned suffix_len=0 for {unit:?}"
+        );
+    }
+}
+
+/// Verify every `SizeUnit` variant is covered by `detect_size_suffix`.
+#[test]
+fn all_size_units_detected_by_suffix() {
+    for unit in SizeUnit::all() {
+        let input = format!("1{}", unit.suffix());
+        let (suffix_len, detected) = detect_size_suffix(&input);
+        assert_eq!(
+            detected, unit,
+            "detect_size_suffix({input:?}) returned {detected:?}, expected {unit:?}"
+        );
+        assert!(
+            suffix_len > 0,
+            "detect_size_suffix({input:?}) returned suffix_len=0 for {unit:?}"
+        );
+    }
+}
+
 #[test]
 fn duration_suffix_detection() {
     assert_eq!(

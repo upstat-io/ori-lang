@@ -18,6 +18,20 @@ pub enum DurationUnit {
 }
 
 impl DurationUnit {
+    /// All duration unit variants.
+    ///
+    /// Used by tests to verify that suffix detection covers every variant.
+    pub const fn all() -> [DurationUnit; 6] {
+        [
+            DurationUnit::Nanoseconds,
+            DurationUnit::Microseconds,
+            DurationUnit::Milliseconds,
+            DurationUnit::Seconds,
+            DurationUnit::Minutes,
+            DurationUnit::Hours,
+        ]
+    }
+
     /// Nanosecond multiplier for this unit.
     ///
     /// Used by the lexer to convert decimal duration literals to nanoseconds
@@ -88,6 +102,19 @@ pub enum SizeUnit {
 }
 
 impl SizeUnit {
+    /// All size unit variants.
+    ///
+    /// Used by tests to verify that suffix detection covers every variant.
+    pub const fn all() -> [SizeUnit; 5] {
+        [
+            SizeUnit::Bytes,
+            SizeUnit::Kilobytes,
+            SizeUnit::Megabytes,
+            SizeUnit::Gigabytes,
+            SizeUnit::Terabytes,
+        ]
+    }
+
     /// Byte multiplier for this unit (SI, powers of 1000).
     ///
     /// Used by the lexer to convert decimal size literals to bytes
