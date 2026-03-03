@@ -902,6 +902,7 @@ dependencies = [
  "ori_arc",
  "ori_ir",
  "ori_rt",
+ "ori_stack",
  "ori_types",
  "pretty_assertions",
  "rustc-hash",

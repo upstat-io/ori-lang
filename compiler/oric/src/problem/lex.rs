@@ -159,26 +159,6 @@ pub fn render_lex_error(err: &LexError) -> Diagnostic {
             .with_message("invalid float literal")
             .with_label(span, "could not parse as a float"),
 
-        LexErrorKind::InvalidDigitForRadix { digit, radix } => Diagnostic::error(ErrorCode::E0003)
-            .with_message(format!("invalid digit `{digit}` for base-{radix} literal"))
-            .with_label(span, format!("not valid in base {radix}")),
-
-        LexErrorKind::EmptyExponent => Diagnostic::error(ErrorCode::E0003)
-            .with_message("expected digits after exponent")
-            .with_label(span, "add digits after `e`"),
-
-        LexErrorKind::LeadingZero => Diagnostic::error(ErrorCode::E0003)
-            .with_message("leading zeros are not allowed in decimal literals")
-            .with_label(span, "remove leading zero"),
-
-        LexErrorKind::TrailingUnderscore => Diagnostic::error(ErrorCode::E0003)
-            .with_message("trailing underscore in numeric literal")
-            .with_label(span, "remove trailing underscore"),
-
-        LexErrorKind::ConsecutiveUnderscores => Diagnostic::error(ErrorCode::E0003)
-            .with_message("consecutive underscores in numeric literal")
-            .with_label(span, "use a single underscore"),
-
         LexErrorKind::InvalidByte { byte } => {
             let ch = *byte as char;
             if byte.is_ascii_control() {

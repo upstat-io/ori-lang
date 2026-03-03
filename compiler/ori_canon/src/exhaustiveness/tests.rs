@@ -1,5 +1,5 @@
 use super::*;
-use ori_ir::canon::tree::DecisionTree;
+use ori_ir::canon::tree::{DecisionTree, PathInstruction};
 use ori_ir::{Name, SharedInterner};
 
 /// Helper: dummy span for tests.

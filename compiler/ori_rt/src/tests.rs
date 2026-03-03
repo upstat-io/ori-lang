@@ -849,6 +849,7 @@ fn next_capacity_overflow_saturates() {
 
 #[test]
 fn list_ensure_capacity_grows_from_sentinel() {
+    let _g = lock_rc();
     let mut list = OriList {
         len: 0,
         cap: 0,
@@ -874,6 +875,7 @@ fn list_ensure_capacity_grows_from_sentinel() {
 
 #[test]
 fn list_ensure_capacity_noop_when_sufficient() {
+    let _g = lock_rc();
     // Allocate a data buffer with capacity 8 (RC-allocated)
     let data = ori_list_alloc_data(8, 8); // 8 elements × 8 bytes
     let mut list = OriList {
@@ -898,6 +900,7 @@ fn list_ensure_capacity_noop_when_sufficient() {
 
 #[test]
 fn list_ensure_capacity_grows_buffer() {
+    let _g = lock_rc();
     // Data buffers are RC-allocated via ori_list_alloc_data
     let data = ori_list_alloc_data(4, 8); // 4 elements × 8 bytes
     let mut list = OriList {

@@ -24,6 +24,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// operations. Pool queries are used for type tags and field
     /// enumeration; these will be eliminated in Section 01.4.
     pub(super) fn inc_value_rc(&mut self, val: super::ValueId, ty: ori_types::Idx, count: u32) {
+        ori_stack::ensure_sufficient_stack(|| self.inc_value_rc_inner(val, ty, count));
+    }
+
+    fn inc_value_rc_inner(&mut self, val: super::ValueId, ty: ori_types::Idx, count: u32) {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
@@ -147,6 +151,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// [`emit_rc_dec_aggregate`](Self::emit_rc_dec_aggregate) and
     /// [`emit_inline_enum_dec`](super::ArcIrEmitter::emit_inline_enum_dec).
     pub(super) fn dec_value_rc(&mut self, val: super::ValueId, ty: ori_types::Idx) {
+        ori_stack::ensure_sufficient_stack(|| self.dec_value_rc_inner(val, ty));
+    }
+
+    fn dec_value_rc_inner(&mut self, val: super::ValueId, ty: ori_types::Idx) {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
