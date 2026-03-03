@@ -242,7 +242,7 @@ jobs:
 
           # Write a minimal Ori program that exercises string + print (touches ori_rt)
           cat > "$SMOKE_DIR/smoke.ori" << 'ORIEOF'
-          @main () -> void = print(msg: "hello from AOT")
+          @main () -> void = print(msg: "hello from AOT");
           ORIEOF
 
           EXE_SUFFIX=""
