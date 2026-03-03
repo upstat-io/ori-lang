@@ -360,4 +360,7 @@ pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
 }
 
 #[cfg(test)]
+pub(crate) mod test_helpers;
+
+#[cfg(test)]
 mod tests;

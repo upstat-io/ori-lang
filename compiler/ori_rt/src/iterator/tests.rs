@@ -526,6 +526,7 @@ fn chain_count() {
 fn list_iter_drop_releases_slice_rc() {
     use crate::rc::{ori_rc_alloc, ori_rc_count, ori_rc_free, ori_rc_inc};
     use crate::slice_encoding::make_slice_cap;
+    let _g = crate::test_helpers::lock_rc();
 
     // Allocate an RC-managed buffer for 5 × i64 = 40 bytes (RC starts at 1)
     let data = ori_rc_alloc(40, 8);
@@ -561,6 +562,7 @@ fn list_iter_drop_releases_slice_rc() {
 fn list_iter_drop_frees_slice_when_last_ref() {
     use crate::rc::{ori_rc_alloc, ori_rc_live_count};
     use crate::slice_encoding::make_slice_cap;
+    let _g = crate::test_helpers::lock_rc();
 
     let before = ori_rc_live_count();
 
