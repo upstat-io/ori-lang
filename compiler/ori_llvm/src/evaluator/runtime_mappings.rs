@@ -469,10 +469,7 @@ pub(crate) fn jit_symbol_mappings() -> Vec<(&'static str, usize)> {
             "ori_str_ends_with",
             runtime::ori_str_ends_with as *const () as usize,
         ),
-        (
-            "ori_str_trim",
-            runtime::ori_str_trim as *const () as usize,
-        ),
+        ("ori_str_trim", runtime::ori_str_trim as *const () as usize),
         (
             "ori_str_to_uppercase",
             runtime::ori_str_to_uppercase as *const () as usize,

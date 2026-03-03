@@ -151,9 +151,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     );
 
                 if is_seh_catch {
-                    self.emit_seh_catch_invoke(
-                        *dst, *func, args, *normal, *unwind, arc_func,
-                    );
+                    self.emit_seh_catch_invoke(*dst, *func, args, *normal, *unwind, arc_func);
                 } else {
                     self.emit_invoke(*dst, *func, args, *normal, *unwind, arc_func);
                 }
