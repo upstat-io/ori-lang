@@ -231,7 +231,7 @@ impl<'a> FlattenCtx<'a> {
     ///
     /// Handles three cases:
     /// - `Tag::Enum`: looks up variant by name in the enum definition
-    /// - `Tag::Option`: `None` = 0, `Some` = 1
+    /// - `Tag::Option`: `Some` = 0, `None` = 1
     /// - `Tag::Result`: `Ok` = 0, `Err` = 1
     #[expect(
         clippy::cast_possible_truncation,
@@ -251,8 +251,8 @@ impl<'a> FlattenCtx<'a> {
                 }
             }
             Tag::Option => {
-                // Convention: None = 0, Some = 1 (matches evaluator's Value::Some/None)
-                return u32::from(self.interner.lookup(variant_name) == "Some");
+                // Convention: Some = 0, None = 1 (matches construction in lower_some/lower_none)
+                return u32::from(self.interner.lookup(variant_name) == "None");
             }
             Tag::Result => {
                 // Convention: Ok = 0, Err = 1 (matches evaluator's Value::Ok/Err)
@@ -273,7 +273,7 @@ impl<'a> FlattenCtx<'a> {
     /// Get the field types for a specific variant of an enum, Option, or Result.
     ///
     /// - `Tag::Enum`: returns field types from the enum definition
-    /// - `Tag::Option`: `Some` (index 1) has one field (the inner type), `None` (index 0) has none
+    /// - `Tag::Option`: `Some` (index 0) has one field (the inner type), `None` (index 1) has none
     /// - `Tag::Result`: `Ok` (index 0) has one field (ok type), `Err` (index 1) has one field (err type)
     fn resolve_variant_field_types(
         &self,
