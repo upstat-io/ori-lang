@@ -235,7 +235,6 @@ jobs:
         run: cargo run -p oric --bin ori -- test tests/
 
       - name: AOT smoke test (compile + link + run)
-        continue-on-error: true  # macOS ARM64: compiler stack overflow in LLVM codegen (tracked)
         shell: bash
         run: |
           SMOKE_DIR="${RUNNER_TEMP}/aot_smoke"
