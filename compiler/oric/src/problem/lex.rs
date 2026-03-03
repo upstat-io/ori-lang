@@ -6,7 +6,7 @@
 
 use crate::diagnostic::{Diagnostic, ErrorCode, Suggestion};
 use crate::ir::Span;
-use ori_lexer::lex_error::{LexError, LexErrorKind};
+use ori_lexer::lex_error::{LexError, LexErrorKind, UnicodeEscapeDetail};
 
 /// Lex-time warnings detected during tokenization.
 ///
@@ -90,6 +90,42 @@ pub fn render_lex_error(err: &LexError) -> Diagnostic {
                 "invalid escape sequence `\\{escape_char}` in template literal"
             ))
             .with_label(span, "unknown escape"),
+
+        LexErrorKind::InvalidUnicodeEscape { detail } => {
+            let (message, label) = match detail {
+                UnicodeEscapeDetail::MissingOpenBrace => (
+                    r"missing `{` after `\u` in Unicode escape".to_owned(),
+                    r"expected `\u{...}`",
+                ),
+                UnicodeEscapeDetail::EmptyDigits => (
+                    "empty Unicode escape `\\u{}`".to_owned(),
+                    "provide at least one hex digit",
+                ),
+                UnicodeEscapeDetail::TooManyDigits => (
+                    "too many digits in Unicode escape".to_owned(),
+                    "at most 6 hex digits allowed",
+                ),
+                UnicodeEscapeDetail::InvalidHexDigit { ch } => (
+                    format!("invalid hex digit `{ch}` in Unicode escape"),
+                    "not a valid hex digit",
+                ),
+                UnicodeEscapeDetail::MissingCloseBrace => (
+                    r"missing `}` in Unicode escape".to_owned(),
+                    "expected closing `}`",
+                ),
+                UnicodeEscapeDetail::SurrogateCodepoint { codepoint } => (
+                    format!("surrogate codepoint U+{codepoint:04X} in Unicode escape"),
+                    "surrogates (U+D800–U+DFFF) are not valid",
+                ),
+                UnicodeEscapeDetail::OutOfRange { codepoint } => (
+                    format!("codepoint U+{codepoint:X} out of range in Unicode escape"),
+                    "maximum codepoint is U+10FFFF",
+                ),
+            };
+            Diagnostic::error(ErrorCode::E0005)
+                .with_message(message)
+                .with_label(span, label)
+        }
 
         LexErrorKind::SingleQuoteEscapeInString => Diagnostic::error(ErrorCode::E0005)
             .with_message(r"`\'` is not a valid escape in string literals")

@@ -23,9 +23,7 @@ impl super::RawScanner<'_> {
                 }
                 b'\\' => {
                     self.cursor.advance(); // consume '\'
-                    if self.cursor.current() != 0 || !self.cursor.is_eof() {
-                        self.cursor.advance(); // skip escaped char
-                    }
+                    self.skip_escape_body();
                 }
                 b'\n' | b'\r' => {
                     return RawToken {
@@ -53,12 +51,11 @@ impl super::RawScanner<'_> {
 
         // Handle char content — must advance the full UTF-8 code point,
         // not just one byte. 'λ' is 2 bytes (CE BB), '😀' is 4 bytes.
+        // For escape sequences, `\u{...}` can span many bytes.
         match self.cursor.current() {
             b'\\' => {
                 self.cursor.advance(); // consume '\'
-                if self.cursor.current() != 0 || !self.cursor.is_eof() {
-                    self.cursor.advance(); // skip escaped char (always ASCII)
-                }
+                self.skip_escape_body();
             }
             b'\'' | b'\n' | b'\r' => {
                 // Empty char literal or unterminated
@@ -97,9 +94,7 @@ impl super::RawScanner<'_> {
                     }
                     b'\\' => {
                         self.cursor.advance();
-                        if self.cursor.current() != 0 || !self.cursor.is_eof() {
-                            self.cursor.advance();
-                        }
+                        self.skip_escape_body();
                     }
                     b'\n' | b'\r' => break,
                     0 if self.cursor.is_eof() => break,
@@ -110,6 +105,40 @@ impl super::RawScanner<'_> {
                 tag: RawTag::UnterminatedChar,
                 len: self.cursor.pos() - start,
             }
+        }
+    }
+
+    /// Skip the body of an escape sequence after `\` has been consumed.
+    ///
+    /// For `\u` escapes: greedily consumes `u`, optional `{`, hex digits,
+    /// and optional `}`. For all other escapes: advances 1 byte.
+    ///
+    /// This is boundary detection only — content validation is the cooked
+    /// layer's responsibility.
+    ///
+    /// Used by string, char, and template scanning.
+    #[inline]
+    pub(super) fn skip_escape_body(&mut self) {
+        let b = self.cursor.current();
+        if b == 0 && self.cursor.is_eof() {
+            return;
+        }
+        if b == b'u' {
+            self.cursor.advance(); // consume 'u'
+            if self.cursor.current() == b'{' {
+                self.cursor.advance(); // consume '{'
+                                       // Consume hex digits
+                while self.cursor.current().is_ascii_hexdigit() {
+                    self.cursor.advance();
+                }
+                if self.cursor.current() == b'}' {
+                    self.cursor.advance(); // consume '}'
+                }
+            }
+            // If no '{', stop — cursor is past 'u', at whatever follows.
+            // The cooked layer will report MissingOpenBrace.
+        } else {
+            self.cursor.advance(); // single-byte escape
         }
     }
 }
