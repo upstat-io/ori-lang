@@ -77,6 +77,7 @@ pub enum LinkerError {
     LinkFailed {
         linker: String,
         exit_code: Option<i32>,
+        stdout: String,
         stderr: String,
         command: String,
     },
@@ -99,12 +100,18 @@ impl fmt::Display for LinkerError {
             Self::LinkFailed {
                 linker,
                 exit_code,
+                stdout,
                 stderr,
                 command,
             } => {
                 write!(f, "linking with '{linker}' failed")?;
                 if let Some(code) = exit_code {
                     write!(f, " (exit code {code})")?;
+                }
+                // MSVC link.exe sends diagnostics (LNK2019, etc.) to stdout.
+                // Show stdout first since it often contains the primary error.
+                if !stdout.is_empty() {
+                    write!(f, "\n\nLinker stdout:\n{stdout}")?;
                 }
                 if !stderr.is_empty() {
                     write!(f, "\n\nLinker stderr:\n{stderr}")?;
@@ -477,17 +484,24 @@ impl LinkerDriver {
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        // Combine stdout and stderr for pattern matching: MSVC link.exe sends
+        // error details (LNK2019 unresolved symbols) to stdout, not stderr.
+        // We check both streams for retryable patterns.
+        let combined = format!("{stderr}\n{stdout}");
 
         // Check for retryable errors
-        if Self::should_retry(&stderr) {
+        if Self::should_retry(&combined) {
             // Retry with adjusted options
-            return self.retry_link(input, &stderr);
+            return self.retry_link(input, &combined);
         }
 
         // Linking failed
         Err(LinkerError::LinkFailed {
             linker: cmd.get_program().to_string_lossy().into(),
             exit_code: output.status.code(),
+            stdout,
             stderr,
             command: format!("{cmd:?}"),
         })
@@ -655,37 +669,42 @@ impl LinkerDetection {
 
     /// Check if a specific linker flavor is available.
     fn is_available(flavor: LinkerFlavor) -> bool {
-        let program = match flavor {
-            LinkerFlavor::Gcc => "cc",
-            // On Windows, LLD's MSVC-compatible driver is `lld-link`, not `lld`
+        match flavor {
+            LinkerFlavor::Msvc => Self::is_msvc_available(),
+            LinkerFlavor::Gcc => Self::check_program("cc", "--version"),
             LinkerFlavor::Lld => {
-                if cfg!(windows) {
-                    "lld-link"
-                } else {
-                    "lld"
-                }
+                let program = if cfg!(windows) { "lld-link" } else { "lld" };
+                Self::check_program(program, "--version")
             }
-            LinkerFlavor::Msvc => "link.exe",
-            LinkerFlavor::WasmLd => "wasm-ld",
-        };
+            LinkerFlavor::WasmLd => Self::check_program("wasm-ld", "--version"),
+        }
+    }
 
-        // Try to run with --version or /? to check availability
-        let result = match flavor {
-            LinkerFlavor::Msvc => Command::new(program).arg("/?").output(),
-            _ => Command::new(program).arg("--version").output(),
-        };
+    /// Check if a linker program is available by running it with a version flag.
+    fn check_program(program: &str, flag: &str) -> bool {
+        Command::new(program).arg(flag).output().is_ok()
+    }
 
-        match result {
+    /// Check if MSVC's `link.exe` is available.
+    ///
+    /// Uses the same Visual Studio discovery as [`MsvcLinker::new`] so that
+    /// detection and construction agree on which `link.exe` to use. Falls
+    /// back to PATH-based lookup only when VS discovery finds nothing, and
+    /// verifies the PATH result is actually MSVC (not GNU coreutils `link`).
+    fn is_msvc_available() -> bool {
+        // If VS discovery finds link.exe, it's definitely MSVC's — no need to verify.
+        if msvc::find_msvc_toolchain().is_some() {
+            return true;
+        }
+
+        // Fall back to PATH lookup — must verify it's actually MSVC's link.exe,
+        // not GNU coreutils `link` (which creates hard links).
+        // MSVC link.exe prints "Microsoft (R) Incremental Linker" on stdout
+        // when invoked with /?. GNU link prints a one-line usage message.
+        match Command::new("link.exe").arg("/?").output() {
             Ok(output) => {
-                if flavor == LinkerFlavor::Msvc {
-                    // Verify it's actually MSVC's link.exe, not GNU coreutils `link`.
-                    // MSVC link.exe prints "Microsoft (R) Incremental Linker" on stdout
-                    // when invoked with /?.  GNU link prints a one-line usage message.
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    stdout.contains("Microsoft") || stdout.contains("Incremental Linker")
-                } else {
-                    true
-                }
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                stdout.contains("Microsoft") || stdout.contains("Incremental Linker")
             }
             Err(_) => false,
         }

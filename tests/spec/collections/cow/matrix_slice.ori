@@ -1,0 +1,122 @@
+// Correctness test matrix for slice lifecycle scenarios.
+// Each test isolates a specific slice lifecycle pattern.
+
+use std.testing { assert_eq, assert }
+
+// --- Slice created, used, dropped ---
+
+@slice_lifecycle () -> int = {
+    let list = [1, 2, 3, 4, 5];
+    let s = list.slice(1, 4);
+    let sum = s[0] + s[1] + s[2];
+    // s dropped at end of block
+    sum
+}
+
+@test_slice_lifecycle tests @slice_lifecycle () -> void = {
+    assert_eq(actual: slice_lifecycle(), expected: 9)
+}
+
+// --- Slice of a slice ---
+
+@slice_of_slice () -> [int] = {
+    let list = [0, 1, 2, 3, 4, 5, 6, 7];
+    let s1 = list.slice(1, 7);
+    let s2 = s1.slice(1, 4);
+    s2
+}
+
+@test_slice_of_slice tests @slice_of_slice () -> void = {
+    assert_eq(actual: slice_of_slice(), expected: [2, 3, 4])
+}
+
+// --- Slice outlives original binding ---
+
+@slice_outlives_original () -> [int] = {
+    let slice_val = {
+        let orig = [10, 20, 30, 40, 50];
+        orig.slice(1, 4)
+    };
+    // orig dropped, slice_val keeps backing alive
+    slice_val
+}
+
+@test_slice_outlives_original tests @slice_outlives_original () -> void = {
+    assert_eq(actual: slice_outlives_original(), expected: [20, 30, 40])
+}
+
+// --- Original binding outlives slice ---
+
+@original_outlives_slice () -> [int] = {
+    let list = [1, 2, 3, 4, 5];
+    let val = {
+        let s = list.slice(0, 3);
+        s[0] + s[1] + s[2]
+    };
+    // s dropped, list still alive
+    list.push(val)
+}
+
+@test_original_outlives_slice tests @original_outlives_slice () -> void = {
+    assert_eq(actual: original_outlives_slice(), expected: [1, 2, 3, 4, 5, 6])
+}
+
+// --- Slice mutated (COW materialization) ---
+
+@slice_cow_push () -> ([int], [int]) = {
+    let list = [1, 2, 3, 4, 5];
+    let s = list.slice(1, 4);
+    let s_pushed = s.push(99);
+    (s, s_pushed)
+}
+
+@test_slice_cow_push tests @slice_cow_push () -> void = {
+    let (original_slice, pushed) = slice_cow_push();
+    assert_eq(actual: original_slice, expected: [2, 3, 4]);
+    assert_eq(actual: pushed, expected: [2, 3, 4, 99])
+}
+
+@slice_cow_set () -> ([int], [int]) = {
+    let list = [10, 20, 30, 40, 50];
+    let s = list.slice(0, 3);
+    let s_modified = s.set(1, 999);
+    (s, s_modified)
+}
+
+@test_slice_cow_set tests @slice_cow_set () -> void = {
+    let (original_slice, modified) = slice_cow_set();
+    assert_eq(actual: original_slice, expected: [10, 20, 30]);
+    assert_eq(actual: modified, expected: [10, 999, 30])
+}
+
+// --- Multiple slices of same list ---
+
+@multiple_slices () -> ([int], [int], [int]) = {
+    let list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    let s1 = list.slice(0, 3);
+    let s2 = list.slice(3, 6);
+    let s3 = list.slice(6, 9);
+    (s1, s2, s3)
+}
+
+@test_multiple_slices tests @multiple_slices () -> void = {
+    let (s1, s2, s3) = multiple_slices();
+    assert_eq(actual: s1, expected: [0, 1, 2]);
+    assert_eq(actual: s2, expected: [3, 4, 5]);
+    assert_eq(actual: s3, expected: [6, 7, 8])
+}
+
+// --- Slice + push on original ---
+
+@slice_then_push_original () -> ([int], [int]) = {
+    let list = [1, 2, 3];
+    let s = list.slice(0, 2);
+    let list = list.push(4);
+    (s, list)
+}
+
+@test_slice_then_push_original tests @slice_then_push_original () -> void = {
+    let (slice, modified_list) = slice_then_push_original();
+    assert_eq(actual: slice, expected: [1, 2]);
+    assert_eq(actual: modified_list, expected: [1, 2, 3, 4])
+}

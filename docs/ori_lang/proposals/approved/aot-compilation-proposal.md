@@ -810,14 +810,14 @@ Rationale:
 
 ### LLVM Version
 
-**Decision:** LLVM 17 or later required.
+**Decision:** LLVM 21 or later required.
 
 Rationale:
 - Best WASM support with Component Model preview
 - Newest pass manager (default since LLVM 14)
 - Improved debug info generation
 - No legacy compatibility burden
-- Current development uses LLVM 17
+- Current development uses LLVM 21
 
 ### LTO Default
 

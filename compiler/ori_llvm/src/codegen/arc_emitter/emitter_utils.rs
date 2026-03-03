@@ -15,7 +15,7 @@ use ori_types::Idx;
 use super::context::EmittedValue;
 use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeLayoutResolver;
-use crate::codegen::value_id::{LLVMTypeId, ValueId};
+use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Get the current instruction's COW mode as an LLVM `i32` constant.
@@ -55,6 +55,55 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.register_type(llvm_ty)
     }
 
+    /// Emit a runtime call, automatically adding a `"funclet"` operand bundle
+    /// when inside a SEH pad (`current_funclet_pad` is `Some`).
+    ///
+    /// On Itanium (non-MSVC) targets, `current_funclet_pad` is always `None`
+    /// so this is a plain `self.builder.call()`. On SEH targets, cleanup and
+    /// catch pads set `current_funclet_pad` before emitting body instructions,
+    /// and this method transparently attaches the required bundle.
+    pub(super) fn emit_rt_call(
+        &mut self,
+        callee: FunctionId,
+        args: &[ValueId],
+        name: &str,
+    ) -> Option<ValueId> {
+        if let Some((pad, _kind)) = self.current_funclet_pad {
+            self.builder.call_with_funclet(callee, args, pad, name)
+        } else {
+            self.builder.call(callee, args, name)
+        }
+    }
+
+    /// Branch to `target`, exiting the current catchpad via `catchret` trampoline.
+    ///
+    /// Emits `catchret pad → trampoline → br target`. Only valid for catchpads;
+    /// cleanup pads exit via `cleanupret` (handled by the Resume terminator).
+    ///
+    /// No-op + plain `br` when `current_funclet_pad` is `None`.
+    pub(super) fn br_exiting_catchpad(&mut self, target: BlockId) {
+        if let Some((pad, kind)) = self.current_funclet_pad.take() {
+            match kind {
+                super::FuncletPadKind::Catch => {
+                    let trampoline = self
+                        .builder
+                        .append_block(self.current_function, "seh.continue");
+                    self.builder.catchret(pad, trampoline);
+                    self.builder.position_at_end(trampoline);
+                }
+                super::FuncletPadKind::Cleanup => {
+                    self.builder.record_codegen_error_with_msg(
+                        "br_exiting_catchpad called from cleanuppad — \
+                         cleanup pads must exit via cleanupret (Resume terminator)",
+                    );
+                    self.builder.unreachable();
+                    return; // block is terminated; skip the br below
+                }
+            }
+        }
+        self.builder.br(target);
+    }
+
     /// Allocate a heap cell via `ori_rc_alloc(size, align)`.
     ///
     /// Returns a `ptr` to the RC-managed allocation. Used for boxing
@@ -63,8 +112,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let size_val = self.builder.const_i64(size as i64);
         let align_val = self.builder.const_i64(align as i64);
         let rc_alloc_func = self.builder.runtime_fn("ori_rc_alloc");
-        self.builder
-            .call(rc_alloc_func, &[size_val, align_val], "rc.alloc")
+        self.emit_rt_call(rc_alloc_func, &[size_val, align_val], "rc.alloc")
             .unwrap_or_else(|| self.builder.const_null_ptr())
     }
 

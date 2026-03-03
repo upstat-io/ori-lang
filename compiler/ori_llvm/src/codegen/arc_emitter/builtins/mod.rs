@@ -362,7 +362,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_rc_inc");
         let data_ptrs = self.extract_rc_data_ptrs(val, ty);
         for data_ptr in data_ptrs {
-            self.builder.call(func_id, &[data_ptr], "");
+            self.emit_rt_call(func_id, &[data_ptr], "");
         }
         Some(val)
     }

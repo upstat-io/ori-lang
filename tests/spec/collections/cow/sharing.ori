@@ -1,0 +1,148 @@
+// COW behavioral equivalence tests for sharing and divergence patterns.
+// Verifies that value semantics are maintained: copies are independent,
+// mutations create new values, originals are never modified.
+
+use std.testing { assert_eq, assert }
+
+// --- Basic sharing: assign creates logical copy ---
+
+@basic_sharing () -> ([int], [int]) = {
+    let a = [1, 2, 3];
+    let b = a;
+    let b = b.push(4);
+    (a, b)
+}
+
+@test_basic_sharing tests @basic_sharing () -> void = {
+    let (original, modified) = basic_sharing();
+    assert_eq(actual: original, expected: [1, 2, 3]);
+    assert_eq(actual: modified, expected: [1, 2, 3, 4])
+}
+
+// --- Diamond sharing: one base, multiple forks ---
+
+@diamond_sharing () -> ([int], [int], [int], [int]) = {
+    let base = [10, 20, 30];
+    let fork_a = base.push(40);
+    let fork_b = base.push(50);
+    let fork_c = base.set(0, 99);
+    (base, fork_a, fork_b, fork_c)
+}
+
+@test_diamond_sharing tests @diamond_sharing () -> void = {
+    let (base, a, b, c) = diamond_sharing();
+    assert_eq(actual: base, expected: [10, 20, 30]);
+    assert_eq(actual: a, expected: [10, 20, 30, 40]);
+    assert_eq(actual: b, expected: [10, 20, 30, 50]);
+    assert_eq(actual: c, expected: [99, 20, 30])
+}
+
+// --- Deep sharing chain: A → B → C → D, then mutate each ---
+
+@deep_chain () -> ([int], [int], [int], [int]) = {
+    let a = [1, 2, 3];
+    let b = a;
+    let c = b;
+    let d = c;
+    let a2 = a.push(10);
+    let b2 = b.push(20);
+    let c2 = c.push(30);
+    let d2 = d.push(40);
+    (a2, b2, c2, d2)
+}
+
+@test_deep_chain tests @deep_chain () -> void = {
+    let (a, b, c, d) = deep_chain();
+    assert_eq(actual: a[3], expected: 10);
+    assert_eq(actual: b[3], expected: 20);
+    assert_eq(actual: c[3], expected: 30);
+    assert_eq(actual: d[3], expected: 40)
+}
+
+// --- Function passing creates sharing ---
+
+@check_via_function (list: [int]) -> bool = {
+    let modified = list.push(99);
+    modified.length() == 4 && list.length() == 3
+}
+
+@test_function_sharing tests _ () -> void = {
+    assert(condition: check_via_function(list: [1, 2, 3]))
+}
+
+// --- Sharing in loop ---
+
+@loop_sharing () -> {int: [int]} = {
+    let base = [0, 0, 0];
+    let results: {int: [int]} = {};
+    for i in 0..5 do {
+        results = results.insert(i, base.set(0, i));
+    };
+    results
+}
+
+@test_loop_sharing tests @loop_sharing () -> void = {
+    let m = loop_sharing();
+    assert_eq(actual: m.len(), expected: 5);
+    assert_eq(actual: m.get(0), expected: Some([0, 0, 0]));
+    assert_eq(actual: m.get(4), expected: Some([4, 0, 0]))
+}
+
+// --- String sharing ---
+
+@string_sharing () -> (str, str) = {
+    let a = "hello";
+    let b = a;
+    let b = b + " world";
+    (a, b)
+}
+
+@test_string_sharing tests @string_sharing () -> void = {
+    let (original, modified) = string_sharing();
+    assert_eq(actual: original, expected: "hello");
+    assert_eq(actual: modified, expected: "hello world")
+}
+
+// --- Map sharing ---
+
+@map_sharing () -> ({str: int}, {str: int}) = {
+    let base = {"x": 1, "y": 2};
+    let fork = base.insert("z", 3);
+    (base, fork)
+}
+
+@test_map_sharing tests @map_sharing () -> void = {
+    let (base, fork) = map_sharing();
+    assert_eq(actual: base.len(), expected: 2);
+    assert_eq(actual: fork.len(), expected: 3)
+}
+
+// --- Set sharing ---
+
+@set_sharing () -> (int, int) = {
+    let base: Set<int> = [1, 2, 3].iter().collect();
+    let fork = base.insert(4);
+    (base.len(), fork.len())
+}
+
+@test_set_sharing tests @set_sharing () -> void = {
+    let (base_len, fork_len) = set_sharing();
+    assert_eq(actual: base_len, expected: 3);
+    assert_eq(actual: fork_len, expected: 4)
+}
+
+// --- Sharing then scope exit ---
+
+@scope_sharing () -> [int] = {
+    let result = {
+        let x = [1, 2, 3, 4, 5];
+        let y = x;
+        // y goes out of scope, x survives
+        x.push(6)
+    };
+    result
+}
+
+@test_scope_sharing tests @scope_sharing () -> void = {
+    assert_eq(actual: scope_sharing(), expected: [1, 2, 3, 4, 5, 6])
+}

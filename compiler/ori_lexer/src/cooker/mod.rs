@@ -521,14 +521,26 @@ impl<'src> TokenCooker<'src> {
             // Spec: "Decimal syntax is compile-time sugar computed via integer
             // arithmetic — no floating-point operations are involved."
             if let Some(nanos) = parse_decimal_unit_value(num_part, unit.nanos_multiplier()) {
-                CookResult::new(TokenKind::Duration(nanos, DurationUnit::Nanoseconds))
+                // Decimal nanos are already base units; validate i64 bounds.
+                if i64::try_from(nanos).is_ok() {
+                    CookResult::new(TokenKind::Duration(nanos, DurationUnit::Nanoseconds))
+                } else {
+                    self.errors.push(LexError::int_overflow(span(offset, len)));
+                    CookResult::with_error(TokenKind::Error)
+                }
             } else {
                 self.errors
                     .push(LexError::decimal_not_representable(span(offset, len)));
                 CookResult::with_error(TokenKind::Error)
             }
         } else if let Some(value) = parse_int_skip_underscores(num_part, 10) {
-            CookResult::new(TokenKind::Duration(value, unit))
+            // Validate: value * nanos_multiplier must fit i64
+            if unit.to_nanos(value).is_some() {
+                CookResult::new(TokenKind::Duration(value, unit))
+            } else {
+                self.errors.push(LexError::int_overflow(span(offset, len)));
+                CookResult::with_error(TokenKind::Error)
+            }
         } else {
             self.errors.push(LexError::int_overflow(span(offset, len)));
             CookResult::with_error(TokenKind::Error)
@@ -549,14 +561,29 @@ impl<'src> TokenCooker<'src> {
         if num_part.contains('.') {
             // Decimal size: convert to bytes via integer arithmetic.
             if let Some(bytes) = parse_decimal_unit_value(num_part, unit.bytes_multiplier()) {
-                CookResult::new(TokenKind::Size(bytes, SizeUnit::Bytes))
+                // LLVM codegen casts bytes to i64; validate i64 bounds.
+                if i64::try_from(bytes).is_ok() {
+                    CookResult::new(TokenKind::Size(bytes, SizeUnit::Bytes))
+                } else {
+                    self.errors.push(LexError::int_overflow(span(offset, len)));
+                    CookResult::with_error(TokenKind::Error)
+                }
             } else {
                 self.errors
                     .push(LexError::decimal_not_representable(span(offset, len)));
                 CookResult::with_error(TokenKind::Error)
             }
         } else if let Some(value) = parse_int_skip_underscores(num_part, 10) {
-            CookResult::new(TokenKind::Size(value, unit))
+            // Validate: value * bytes_multiplier must not overflow AND fit i64.
+            if unit
+                .to_bytes(value)
+                .is_some_and(|b| i64::try_from(b).is_ok())
+            {
+                CookResult::new(TokenKind::Size(value, unit))
+            } else {
+                self.errors.push(LexError::int_overflow(span(offset, len)));
+                CookResult::with_error(TokenKind::Error)
+            }
         } else {
             self.errors.push(LexError::int_overflow(span(offset, len)));
             CookResult::with_error(TokenKind::Error)

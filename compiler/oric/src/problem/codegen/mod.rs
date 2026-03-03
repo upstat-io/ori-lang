@@ -380,13 +380,22 @@ impl From<ori_llvm::aot::LinkerError> for CodegenProblem {
             LinkerError::LinkFailed {
                 linker: _,
                 exit_code,
+                stdout,
                 stderr,
                 command,
-            } => Self::LinkFailed {
-                command,
-                exit_code,
-                stderr,
-            },
+            } => {
+                // Merge stdout + stderr: MSVC link.exe sends diagnostics to stdout.
+                let output = match (stdout.is_empty(), stderr.is_empty()) {
+                    (true, _) => stderr,
+                    (false, true) => stdout,
+                    (false, false) => format!("{stdout}\n{stderr}"),
+                };
+                Self::LinkFailed {
+                    command,
+                    exit_code,
+                    stderr: output,
+                }
+            }
             LinkerError::ResponseFileError { path, message } => Self::LinkFailed {
                 command: String::new(),
                 exit_code: None,

@@ -5,7 +5,11 @@
 # for a set of benchmark programs. Results are printed in a
 # machine-readable table format suitable for tracking over time.
 #
-# Usage: ./scripts/perf-baseline.sh [--release]
+# Usage: ./scripts/perf-baseline.sh [--release] [--include-cow]
+#
+# Options:
+#   --release       Use release binary (default: debug)
+#   --include-cow   Include COW benchmark suite (cow-benchmark.sh)
 #
 # Requires: the LLVM-enabled ori binary in target/debug/ori
 #           (or target/release/ori with --release)
@@ -17,13 +21,19 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 TMPDIR="${ROOT_DIR}/build/perf-baseline"
 mkdir -p "$TMPDIR"
 
-# Use release binary if --release is passed
+# Parse arguments
 ORI="${ROOT_DIR}/target/debug/ori"
 MODE="debug"
-if [[ "${1:-}" == "--release" ]]; then
-    ORI="${ROOT_DIR}/target/release/ori"
-    MODE="release"
-fi
+INCLUDE_COW=false
+for arg in "$@"; do
+    case "$arg" in
+        --release)
+            ORI="${ROOT_DIR}/target/release/ori"
+            MODE="release" ;;
+        --include-cow)
+            INCLUDE_COW=true ;;
+    esac
+done
 
 if [[ ! -x "$ORI" ]]; then
     echo "ERROR: $ORI not found. Run 'cargo b' (or 'cargo b --release' for release) first."
@@ -145,6 +155,26 @@ for bench in "$BENCH_HELLO" "$BENCH_SMALL" "$BENCH_MEDIUM"; do
 
     printf "%-20s %9dK %9dK\n" "$name" "$bin_kb" "$stripped_kb"
 done
+
+# --- COW Benchmarks (optional) ---
+if [[ "$INCLUDE_COW" == "true" ]]; then
+    echo
+    echo "--- COW Benchmark Suite ---"
+    COW_SCRIPT="${SCRIPT_DIR}/cow-benchmark.sh"
+    if [[ -x "$COW_SCRIPT" ]]; then
+        COW_ARGS="--include-macro"
+        if [[ "$MODE" == "release" ]]; then
+            COW_ARGS="--release $COW_ARGS"
+        fi
+        BASELINE="${ROOT_DIR}/tests/benchmarks/cow/baseline.json"
+        if [[ -f "$BASELINE" ]]; then
+            COW_ARGS="$COW_ARGS --compare $BASELINE"
+        fi
+        "$COW_SCRIPT" $COW_ARGS || true
+    else
+        echo "WARNING: cow-benchmark.sh not found at $COW_SCRIPT"
+    fi
+fi
 
 echo
 echo "--- Summary ---"

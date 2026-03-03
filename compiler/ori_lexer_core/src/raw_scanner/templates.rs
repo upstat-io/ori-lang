@@ -51,9 +51,7 @@ impl super::RawScanner<'_> {
                 }
                 b'\\' => {
                     self.cursor.advance(); // consume '\'
-                    if self.cursor.current() != 0 || !self.cursor.is_eof() {
-                        self.cursor.advance(); // skip escaped char
-                    }
+                    self.skip_escape_body();
                 }
                 b'\n' | b'\r' => {
                     // Templates can span multiple lines
@@ -109,9 +107,7 @@ impl super::RawScanner<'_> {
                 }
                 b'\\' => {
                     self.cursor.advance();
-                    if self.cursor.current() != 0 || !self.cursor.is_eof() {
-                        self.cursor.advance();
-                    }
+                    self.skip_escape_body();
                 }
                 b'\n' | b'\r' => {
                     self.cursor.advance();

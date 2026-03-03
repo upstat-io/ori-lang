@@ -4,7 +4,7 @@
 #
 # Usage: ./llvm-test [additional args...]
 #
-# Note: Requires LLVM 17 installed. Path configured in .cargo/config.toml
+# Note: Requires LLVM 21 installed. Path configured in .cargo/config.toml
 #
 # AOT integration tests require an LLVM-enabled `ori` binary. This script
 # builds one before running tests to prevent stale-binary failures (E5004).

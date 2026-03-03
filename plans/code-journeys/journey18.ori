@@ -1,0 +1,21 @@
+// Journey 18: COW String Sharing + SSO Boundary
+// Tests: string value semantics (sharing then mutation),
+// short strings (SSO inline), long strings (heap allocated)
+// Expected: short_len + long_len + orig_short_len + concat_len = 5 + 30 + 5 + 8 = 48
+// But exit codes are mod 256, so 48 is fine
+
+@main () -> int = {
+    let $short = "hello";
+    let $long = "this is a longer string!!!!!!!";
+
+    let $short_len = short.length();
+    let $long_len = long.length();
+
+    // Test string sharing: concat creates new, originals unchanged
+    let $orig_short = short;
+    let $concat = short + "!!!" ;
+    let $orig_short_len = orig_short.length();
+    let $concat_len = concat.length();
+
+    short_len + long_len + orig_short_len + concat_len
+}

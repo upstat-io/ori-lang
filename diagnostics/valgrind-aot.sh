@@ -2,7 +2,7 @@
 # Run AOT-compiled Ori programs under Valgrind to detect memory errors.
 #
 # Usage:
-#   diagnostics/valgrind-aot.sh [options] [file.ori ...]
+#   diagnostics/valgrind-aot.sh [options] [file.ori|directory ...]
 #
 # Options:
 #   --no-color         Disable color output
@@ -49,7 +49,22 @@ while [[ $# -gt 0 ]]; do
             exit 2
             ;;
         *)
-            FILES+=("$1"); shift
+            if [[ -d "$1" ]]; then
+                # Expand directory to all .ori files within it
+                while IFS= read -r -d '' f; do
+                    FILES+=("$f")
+                done < <(find "$1" -name '*.ori' -type f -print0 | sort -z)
+                if [[ ${#FILES[@]} -eq 0 ]]; then
+                    echo "Error: no .ori files found in directory: $1" >&2
+                    exit 2
+                fi
+            elif [[ -f "$1" ]]; then
+                FILES+=("$1")
+            else
+                echo "Error: not a file or directory: $1" >&2
+                exit 2
+            fi
+            shift
             ;;
     esac
 done
@@ -128,7 +143,7 @@ run_one() {
 
     # Compile
     if ! "$ORI" build "$ori_file" -o "$binary" 2>"$tmpdir/compile_${name}.log"; then
-        printf "  %b  %s (compile failed)\n" "$SYM_SKIP" "$name"
+        printf "  %b  %s (AOT compile failed — run 'ori build %s' to see errors)\n" "$SYM_SKIP" "$name" "$ori_file"
         SKIP_COUNT=$((SKIP_COUNT + 1))
         return
     fi

@@ -60,6 +60,7 @@ pub(super) fn build_file_single(
         &pool,
         &canon_result,
         path,
+        Some(target.triple()),
     )
     .unwrap_or_else(|e| report_codegen_error(CodegenProblem::VerificationFailed { message: e }));
 

@@ -12,7 +12,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  LLVM_VERSION: "17"
+  LLVM_VERSION: "21"
 
 jobs:
   validate:
@@ -149,7 +149,7 @@ jobs:
       - name: Install LLVM
         run: |
           brew install llvm@${{ env.LLVM_VERSION }}
-          echo "LLVM_SYS_170_PREFIX=$(brew --prefix llvm@${{ env.LLVM_VERSION }})" >> $GITHUB_ENV
+          echo "LLVM_SYS_211_PREFIX=$(brew --prefix llvm@${{ env.LLVM_VERSION }})" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -184,7 +184,7 @@ jobs:
     timeout-minutes: 60
 
     env:
-      LLVM_SYS_170_PREFIX: C:\LLVM
+      LLVM_SYS_211_PREFIX: C:\LLVM
 
     steps:
       - uses: actions/checkout@v4
@@ -210,17 +210,17 @@ jobs:
       - name: Download LLVM
         run: |
           # Download our pre-built LLVM with all targets
-          $LLVM_URL = "https://github.com/upstat-io/llvm-package-windows/releases/download/v17.0.6/LLVM-17.0.6-win64.7z"
+          $LLVM_URL = "https://github.com/upstat-io/llvm-package-windows/releases/download/v21.1.8/LLVM-21.1.8-win64.7z"
           Write-Host "Downloading LLVM from $LLVM_URL"
           curl.exe -fLO $LLVM_URL
           Write-Host "Extracting LLVM to C:\LLVM..."
-          7z x LLVM-17.0.6-win64.7z -oC:\LLVM
+          7z x LLVM-21.1.8-win64.7z -oC:\LLVM
 
       - name: Verify LLVM
         run: |
-          Write-Host "LLVM_SYS_170_PREFIX = $env:LLVM_SYS_170_PREFIX"
-          & "$env:LLVM_SYS_170_PREFIX\bin\llvm-config.exe" --version
-          & "$env:LLVM_SYS_170_PREFIX\bin\llvm-config.exe" --targets-built
+          Write-Host "LLVM_SYS_211_PREFIX = $env:LLVM_SYS_211_PREFIX"
+          & "$env:LLVM_SYS_211_PREFIX\bin\llvm-config.exe" --version
+          & "$env:LLVM_SYS_211_PREFIX\bin\llvm-config.exe" --targets-built
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

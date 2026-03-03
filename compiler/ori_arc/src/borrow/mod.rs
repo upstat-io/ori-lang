@@ -377,6 +377,7 @@ pub(super) fn update_ownership_inner(
                     my_sig,
                     local_sigs,
                     external_sigs,
+                    builtins,
                     &aliases,
                 );
             }
@@ -417,6 +418,10 @@ pub(super) fn update_ownership_inner(
 /// expects an argument as Owned but the corresponding parameter in our
 /// function is currently Borrowed, we must promote it to Owned to preserve
 /// the tail call optimization.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors promote_callee_args context — both need caller + callee scope + builtins"
+)]
 fn check_tail_call(
     block: &crate::ir::ArcBlock,
     returned_value: ArcVarId,
@@ -424,10 +429,9 @@ fn check_tail_call(
     my_sig: &mut AnnotatedSig,
     local_sigs: &FxHashMap<Name, AnnotatedSig>,
     external_sigs: &FxHashMap<Name, AnnotatedSig>,
+    builtins: &BuiltinOwnershipSets,
     aliases: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> bool {
-    let mut changed = false;
-
     let tail_apply = block
         .body
         .iter()
@@ -438,18 +442,19 @@ fn check_tail_call(
         func: callee, args, ..
     }) = tail_apply
     {
-        let callee_sig = local_sigs.get(callee).or_else(|| external_sigs.get(callee));
-        if let Some(callee_sig) = callee_sig {
-            for (i, &arg) in args.iter().enumerate() {
-                if i < callee_sig.params.len() && callee_sig.params[i].ownership == Ownership::Owned
-                {
-                    changed |= try_mark_param_owned(arg, func, my_sig, aliases);
-                }
-            }
-        }
+        promote_callee_args(
+            *callee,
+            args,
+            func,
+            my_sig,
+            local_sigs,
+            external_sigs,
+            builtins,
+            aliases,
+        )
+    } else {
+        false
     }
-
-    changed
 }
 
 #[cfg(test)]
