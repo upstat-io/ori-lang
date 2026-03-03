@@ -12,7 +12,8 @@ mod tests {
         LibraryKind, LinkInput, LinkLibrary, LinkOutput, LinkerDetection, LinkerDriver,
         LinkerError, LinkerFlavor,
     };
-    use ori_llvm::aot::target::{TargetConfig, TargetTripleComponents};
+    use ori_llvm::aot::target::TargetConfig;
+    use ori_llvm::aot::target_features::TargetTripleComponents;
 
     // -- Test helpers --
 

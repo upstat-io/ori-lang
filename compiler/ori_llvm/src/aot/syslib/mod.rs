@@ -33,7 +33,7 @@
 
 use std::path::PathBuf;
 
-use super::target::TargetTripleComponents;
+use super::target_features::TargetTripleComponents;
 
 /// System library configuration for a target.
 #[derive(Debug, Clone)]

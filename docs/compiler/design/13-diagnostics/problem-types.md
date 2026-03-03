@@ -59,7 +59,7 @@ pub struct LexError {
 `LexErrorKind` covers four groups of errors:
 
 - **String and character errors**: `UnterminatedString`, `UnterminatedChar`, `UnterminatedTemplate`, `InvalidStringEscape { escape_char }`, `InvalidCharEscape`, `InvalidTemplateEscape`, `SingleQuoteEscapeInString`, `DoubleQuoteEscapeInChar`, `EmptyCharLiteral`, `MultiCharLiteral`
-- **Numeric errors**: `IntOverflow`, `HexIntOverflow`, `BinIntOverflow`, `FloatParseError`, `InvalidDigitForRadix { digit, radix }`, `EmptyExponent`, `LeadingZero`, `TrailingUnderscore`, `ConsecutiveUnderscores`, `DecimalNotRepresentable`
+- **Numeric errors**: `IntOverflow`, `HexIntOverflow`, `BinIntOverflow`, `FloatParseError`, `DecimalNotRepresentable`
 - **Character and encoding errors**: `InvalidByte { byte }`, `StandaloneBackslash`, `UnicodeConfusable { found, suggested, name }`, `InvalidNullByte`, `Utf8Bom`, `Utf16LeBom`, `Utf16BeBom`, `InvalidControlChar { byte }`, `ReservedFutureKeyword { keyword }`
 - **Cross-language habit errors**: `TripleEqual`, `SingleQuoteString`, `IncrementDecrement { op }`, `TernaryOperator`
 

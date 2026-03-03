@@ -42,8 +42,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Generate the drop function (handles declaration, caching, and body).
         // Stack guard: drop generation recurses through nested type fields.
-        let func_id =
-            ori_stack::ensure_sufficient_stack(|| super::drop_gen::generate_drop_fn(self, ty, &drop_info));
+        let func_id = ori_stack::ensure_sufficient_stack(|| {
+            super::drop_gen::generate_drop_fn(self, ty, &drop_info)
+        });
 
         // Restore builder position, emitter's current function, and funclet pad
         self.current_funclet_pad = saved_funclet_pad;
