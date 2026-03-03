@@ -137,7 +137,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 arg_ownership: _,
                 normal,
                 unwind,
-            } => self.emit_invoke(*dst, *func, args, *normal, *unwind, arc_func),
+            } => {
+                // On SEH, catch-type invokes use the ori_try_call trampoline
+                // instead of LLVM catchpad (which triggers "Rust panics must
+                // be rethrown" on MSVC).
+                let is_nounwind = self.ctx.nounwind_functions.contains(func);
+                let eh_model = self.builder.eh_model();
+                let is_seh_catch = !is_nounwind
+                    && eh_model == EhModel::Seh
+                    && !matches!(
+                        arc_func.blocks[unwind.index()].terminator,
+                        ArcTerminator::Resume
+                    );
+
+                if is_seh_catch {
+                    self.emit_seh_catch_invoke(
+                        *dst, *func, args, *normal, *unwind, arc_func,
+                    );
+                } else {
+                    self.emit_invoke(*dst, *func, args, *normal, *unwind, arc_func);
+                }
+            }
 
             ArcTerminator::Resume => {
                 match self.builder.eh_model() {

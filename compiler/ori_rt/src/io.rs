@@ -270,6 +270,28 @@ pub extern "C" fn ori_catch_cleanup(_exc_ptr: *mut u8) {
     // See doc comment for rationale.
 }
 
+/// Try calling a function, catching any panic via `catch_unwind`.
+///
+/// Used by `catch(expr:)` on Windows MSVC where LLVM's `catchpad` cannot
+/// properly catch Rust panics — Rust detects the foreign (non-`catch_unwind`)
+/// handler and aborts with "Rust panics must be rethrown."
+///
+/// `thunk` is an LLVM-generated function `void (ptr %ctx)` that loads args
+/// from `ctx`, calls the real function, and stores the result back.
+///
+/// Returns `1` if the call succeeded, `0` if a panic was caught.
+/// On panic, the message is available via [`ori_catch_recover`].
+#[no_mangle]
+pub extern "C" fn ori_try_call(
+    thunk: unsafe extern "C-unwind" fn(*mut u8),
+    ctx: *mut u8,
+) -> i64 {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { thunk(ctx) })) {
+        Ok(()) => 1,
+        Err(_) => 0,
+    }
+}
+
 /// Recover from a caught panic — reads the panic message from thread-local storage.
 ///
 /// Called from `catch(expr:)` unwind blocks after `ori_catch_cleanup` has
