@@ -23,8 +23,6 @@ sections:
 
 # Section 02: Hash Stability Testing
 
-**Status:** Not Started
-**Goal:** Build a comprehensive test suite that proves the core invariant: structurally identical
 types produce identical Merkle hashes across independent Pool instances, regardless of interning
 order, pool size, or Idx assignment.
 
@@ -40,7 +38,6 @@ must be complete and passing before any downstream section begins.
 
 ## 02.1 Cross-Pool Stability Tests — COMPLETE
 
-**Goal:** For every tag category, verify that the same type structure produces the same Merkle
 hash across two independently constructed pools with different interning histories.
 
 **Test Strategy:** For each test, create two fresh pools. Intern different "noise" types in
@@ -153,7 +150,6 @@ Merkle correctness: a container of a non-primitive type at different Idx positio
 
 ## 02.2 Collision Detection & Distribution — COMPLETE
 
-**Goal:** Verify that Merkle hashes have no practical collisions for realistic type sets,
 and that the hash distribution is uniform enough for `FxHashMap` performance.
 
 **Approach:** Generate a large set of distinct types (1,000-10,000) in a single pool,
@@ -236,7 +232,6 @@ fn merkle_hash_distribution_uniform() {
 
 ## 02.3 Structural Equality Verification — COMPLETE
 
-**Goal:** Verify that hash equality implies structural equality (no false positives)
 and that structural equality implies hash equality (no false negatives), by cross-checking
 Merkle hashes against a reference structural comparison.
 
@@ -307,8 +302,6 @@ fn merkle_hash_matches_structural_equality() {
 ---
 
 ## 02.4 Debug Tooling — COMPLETE
-
-**Goal:** Add diagnostic helpers for debugging hash mismatches during development.
 
 **Tools:**
 

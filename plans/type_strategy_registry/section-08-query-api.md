@@ -35,9 +35,6 @@ sections:
 
 # Section 08: Query API & Lookup Functions
 
-**Status:** Not Started
-**Goal:** Every consuming phase (ori_types, ori_eval, ori_arc, ori_llvm) can resolve type behavior through ori_registry's public API, with zero knowledge of how the data is stored.
-
 **Context:** Sections 03-07 define the *data* (TypeDef instances for every builtin type). This section defines the *interface* through which compiler phases access that data. The query API must be:
 1. **Pure** -- no allocation, no mutation, no IO (Salsa-compatible)
 2. **Deterministic** -- same inputs always produce same outputs

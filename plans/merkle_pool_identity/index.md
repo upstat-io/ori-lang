@@ -1,3 +1,10 @@
+---
+reroute: true
+name: "Merkle Pool"
+full_name: "Merkle Pool Identity"
+status: resolved
+---
+
 # Merkle Pool Identity — Plan Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.

@@ -8,8 +8,8 @@
 
 @main () -> int = {
     let double = x -> x * 2;
-    let a = apply(double, 5);      // = 10
-    let add10 = make_adder(10);
-    let b = add10(7);              // = 17
-    a + b                          // = 27
+    let a = apply(f: double, x: 5);   // = 10
+    let add10 = make_adder(n: 10);
+    let b = add10(7);                  // = 17
+    a + b                              // = 27
 }

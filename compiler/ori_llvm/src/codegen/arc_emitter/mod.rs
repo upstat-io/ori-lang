@@ -53,7 +53,7 @@ use context::{is_boxed_enum_field, EmittedValue};
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy, ValueRepr};
 use ori_arc::ArcClassification;
-use ori_ir::StringInterner;
+use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
@@ -193,6 +193,68 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
+    /// Check if an Invoke callee will be intercepted by a builtin handler.
+    ///
+    /// Several handler paths in [`Self::emit_invoke`] always emit `call`
+    /// regardless of the invoke mode: format calls, prelude builtins, and
+    /// builtin type methods. When a callee is intercepted, its unwind block
+    /// will never have a predecessor — it's dead code.
+    ///
+    /// Used by dead unwind detection (to skip creating LLVM blocks) and by
+    /// [`Self::emit_invoke`] (to use `Call` mode instead of `Invoke`).
+    fn callee_will_be_intercepted(
+        &self,
+        callee: Name,
+        args: &[ori_arc::ir::ArcVarId],
+        func: &ArcFunction,
+    ) -> bool {
+        let callee_name = self.interner.lookup(callee);
+
+        // Format call interceptor: `ori_format_*` prefix
+        if callee_name.starts_with("ori_format_") {
+            return true;
+        }
+
+        // Prelude function interceptor: exact name match
+        if builtins::prelude::HANDLED_PRELUDE_NAMES.contains(&callee_name) {
+            return true;
+        }
+
+        // Builtin method interceptor: receiver is a builtin type AND the
+        // callee is not resolvable by the method dispatch chain steps that
+        // respect invoke mode (method_functions, declared functions, mono
+        // dispatch). Only then does try_emit_builtin_method handle it with
+        // `call` instead of respecting invoke mode.
+        //
+        // Critical: declared user functions (in ctx.functions) are resolved
+        // by the dispatch chain and DO respect invoke mode — they must NOT
+        // be treated as intercepted.
+        if self.ctx.functions.contains_key(&callee) {
+            return false;
+        }
+        if let Some(&first_arg) = args.first() {
+            let receiver_ty = func.var_type(first_arg);
+            let type_info = self.type_info.get(receiver_ty);
+            if type_info.builtin_type_name().is_some() {
+                if let Some(type_name) = self.ctx.type_idx_to_name.get(&receiver_ty) {
+                    if !self
+                        .ctx
+                        .method_functions
+                        .contains_key(&(*type_name, callee))
+                    {
+                        return true;
+                    }
+                } else {
+                    // Builtin type but no type_idx_to_name entry — method
+                    // dispatch chain can't resolve it, will be intercepted
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// Emit an entire `ArcFunction` as LLVM IR.
     ///
     /// Pre-creates all LLVM blocks, binds function parameters, emits each
@@ -209,11 +271,26 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             if let ArcTerminator::Invoke {
                 unwind,
                 func: callee,
+                args,
                 ..
             } = &block.terminator
             {
                 all_invoke_unwind.insert(unwind.index());
-                if !self.ctx.nounwind_functions.contains(callee) {
+                // An unwind block is "live" (needs an invoke) only when:
+                // (a) the callee is not proven nounwind,
+                // (b) the callee is not intercepted by a builtin handler
+                //     (format calls, prelude builtins, builtin methods all
+                //     emit `call` regardless of invoke mode), AND
+                // (c) the unwind block has actual cleanup instructions
+                //     (RcDec etc. inserted by the RC pass).
+                // If any condition fails, the block is dead — no LLVM block
+                // is created and no landing pad is emitted.
+                let ub = &func.blocks[unwind.index()];
+                let has_cleanup =
+                    !ub.body.is_empty() || !matches!(ub.terminator, ArcTerminator::Resume);
+                let callee_uses_call = self.ctx.nounwind_functions.contains(callee)
+                    || self.callee_will_be_intercepted(*callee, args, func);
+                if !callee_uses_call && has_cleanup {
                     unwind_blocks.insert(unwind.index());
                 }
             }

@@ -28,9 +28,6 @@ sections:
 
 # Section 01: Representation IR & Decision Framework
 
-**Status:** Not Started
-**Goal:** Every type `Idx` in the Pool has a corresponding `MachineRepr` in the `ReprPlan` that LLVM codegen reads instead of making ad-hoc decisions. The `TypeInfo` enum in `ori_llvm` becomes a consumer of `ReprPlan` rather than computing representations inline. No behavioral changes — existing types map to their current LLVM representations.
-
 **Context:** Today, `ori_llvm::codegen::type_info::info.rs` hardcodes the mapping from `Tag` to LLVM type (e.g., `Tag::Int → i64`). This is scattered across `storage_type()`, `size()`, `alignment()`, and `is_trivial()`. To support narrowing, we need a centralized decision document that multiple analysis passes can populate and codegen can read.
 
 **Reference implementations:**

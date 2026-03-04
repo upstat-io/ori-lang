@@ -43,9 +43,6 @@ subsections:
 
 # Section 13: Migrate ori_ir & Legacy Consolidation
 
-**Status:** Not Started
-**Goal:** `ori_ir::builtin_methods` is deleted. All method metadata lives in `ori_registry`. All consumers (`oric/consistency.rs`, `ori_arc/borrow`, `ori_llvm/builtins/tests.rs`) read from `ori_registry` instead. `BuiltinType` remains in `ori_ir` with a bridge to `TypeTag`. `DerivedTrait` and format spec types stay in `ori_ir` unchanged. Net result: ~400 lines deleted from `ori_ir`, zero new lines added to `ori_ir`, all tests pass.
-
 **Context:** Sections 09-12 wire the four consuming crates (`ori_types`, `ori_eval`, `ori_arc`, `ori_llvm`) to read from `ori_registry` instead of their own hard-coded registries. This section handles the remaining piece: `ori_ir` itself has a builtin method registry (`BUILTIN_METHODS`, 162 entries across 866 lines) that predates `ori_registry`. With all consumers migrated, the `ori_ir` registry is dead weight — a second source of truth that serves no purpose and will inevitably drift.
 
 **Design rationale:** Option B (clean break) over Option A (re-export shim). The `ori_ir` `MethodDef`, `ParamSpec`, and `ReturnSpec` types are structurally different from `ori_registry`'s types (see 13.1-13.3). A compatibility shim would paper over these differences without eliminating them. A clean break is more work upfront but eliminates the drift risk permanently and removes ~400 lines of code.

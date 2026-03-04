@@ -1,7 +1,7 @@
 ---
 import { getCollection, render } from 'astro:content';
 import DetailLayout from '../../../../layouts/DetailLayout.astro';
-import { findRerouteByKey } from '../../../../lib/plan-data';
+import { findPlanByKey } from '../../../../lib/plan-data';
 
 export async function getStaticPaths() {
   const entries = await getCollection('plan-sections');
@@ -21,8 +21,8 @@ const { entry } = Astro.props;
 const { plan } = Astro.params;
 const { Content } = await render(entry);
 
-const reroute = findRerouteByKey(plan);
-const backLabel = reroute?.fullName ?? plan;
+const planInfo = findPlanByKey(plan);
+const backLabel = planInfo?.fullName ?? plan;
 
 // Count checkboxes in markdown body for progress bar
 const body = entry.body ?? '';

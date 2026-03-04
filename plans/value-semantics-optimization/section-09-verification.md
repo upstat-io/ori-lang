@@ -42,9 +42,6 @@ sections:
 
 # Section 09: Verification & Benchmarks
 
-**Status:** Not Started
-**Goal:** Exhaustive proof that the value semantics optimization system is correct (no behavioral changes), safe (no memory errors), and performant (measurable improvement over the baseline). Every optimization path is tested. Every edge case is covered. Every claim is backed by numbers.
-
 **Context:** This is the final section — it verifies everything built in §01-§08. The optimization touches the runtime, LLVM codegen, interpreter, ARC pipeline, and static analysis. A bug in any component can cause silent data corruption, memory leaks, or use-after-free. The verification must be as rigorous as the implementation.
 
 **Depends on:** All sections (§01-§08).

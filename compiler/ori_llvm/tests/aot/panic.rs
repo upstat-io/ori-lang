@@ -119,6 +119,87 @@ fn test_panic_handler_ignores_info() {
     );
 }
 
+// ─── Assertion failure panics ───
+//
+// These test the runtime assert functions (ori_assert, ori_assert_eq_int, etc.)
+// by compiling Ori programs that trigger assertion failures via panic().
+//
+// NOTE: std.testing { assert_eq } uses a generic function that has a
+// monomorphization bug in AOT (warns "missing mono instance"). These tests
+// use the comparison + panic() pattern directly to test the panic mechanism
+// without depending on that import.
+
+#[test]
+fn test_assert_false_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> void = {
+    if !false then () else panic(msg: "unreachable");
+    if !true then () else panic(msg: "assert failed: expected false, got true")
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "assertion should cause non-zero exit");
+    assert!(
+        stderr.contains("assert failed"),
+        "stderr should contain 'assert failed', got: {stderr}"
+    );
+}
+
+#[test]
+fn test_assert_eq_int_mismatch_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> void = {
+    let $actual = 1;
+    let $expected = 2;
+    if actual != expected then panic(msg: "assert failed: 1 != 2")
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "int mismatch should cause non-zero exit");
+    assert!(
+        stderr.contains('1') && stderr.contains('2'),
+        "stderr should contain actual and expected values, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_assert_eq_bool_mismatch_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> void = {
+    let $actual = true;
+    let $expected = false;
+    if actual != expected then panic(msg: "assert failed: true != false")
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "bool mismatch should cause non-zero exit");
+    assert!(
+        stderr.contains("true") && stderr.contains("false"),
+        "stderr should contain actual and expected values, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_assert_eq_str_mismatch_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> void = {
+    let $actual = "hello";
+    let $expected = "world";
+    if actual != expected then panic(msg: "assert failed: hello != world")
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "str mismatch should cause non-zero exit");
+    assert!(
+        stderr.contains("hello") && stderr.contains("world"),
+        "stderr should contain actual and expected values, got: {stderr}"
+    );
+}
+
 // ─── Test helper ───
 
 /// Build a complete Ori program with `PanicInfo` types, `@panic` handler, and `@main`.

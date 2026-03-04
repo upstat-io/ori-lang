@@ -29,50 +29,48 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             CtorKind::EnumVariant { variant, .. } => {
                 // Enum layout is { i64 tag, [M x i64] payload } where M is
-                // sized for the largest variant. Fields are stored at i64-
-                // aligned slots within the payload array.
-                // Use alloca + GEP + store; mem2reg eliminates the alloca.
+                // sized for the largest variant.
                 let tag_val = self.builder.const_i64(i64::from(*variant));
-                let alloca = self.builder.alloca(llvm_ty, "variant");
-                let tag_gep = self.builder.struct_gep(llvm_ty, alloca, 0, "variant.tag");
-                self.builder.store(tag_val, tag_gep);
-                if !arg_vals.is_empty() {
-                    let payload_ptr =
-                        self.builder
-                            .struct_gep(llvm_ty, alloca, 1, "variant.payload");
-                    let i64_ty = self.builder.i64_type();
 
-                    // Look up variant field types for recursive field detection.
-                    let resolved_enum = self.pool.resolve_fully(ty);
-                    let variant_field_types = if self.pool.tag(resolved_enum) == Tag::Enum {
-                        let all_variants = self.pool.enum_variants(resolved_enum);
-                        all_variants
-                            .get(*variant as usize)
-                            .map(|(_, fields)| fields.clone())
-                            .unwrap_or_default()
-                    } else {
-                        Vec::new()
-                    };
+                // Check for recursive enum fields that need RC allocation.
+                // These require the alloca roundtrip because we need to store
+                // the RC pointer into memory, then load back as i64.
+                let resolved_enum = self.pool.resolve_fully(ty);
+                let variant_field_types = if self.pool.tag(resolved_enum) == Tag::Enum {
+                    let all_variants = self.pool.enum_variants(resolved_enum);
+                    all_variants
+                        .get(*variant as usize)
+                        .map(|(_, fields)| fields.clone())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                let has_boxed_fields = variant_field_types
+                    .iter()
+                    .any(|&ft| is_boxed_enum_field(self.pool, ty, ft));
 
-                    for (i, &val) in arg_vals.iter().enumerate() {
-                        let idx = self.builder.const_i64(i as i64);
-                        let slot = self
-                            .builder
-                            .gep(i64_ty, payload_ptr, &[idx], "variant.field");
-
-                        let field_ty = variant_field_types.get(i).copied();
-                        if field_ty.is_some_and(|ft| is_boxed_enum_field(self.pool, ty, ft)) {
-                            // Recursive field: RC-allocate and store pointer.
-                            let size = self.element_store_size(ty);
-                            let rc_ptr = self.rc_alloc(size, 8);
-                            self.builder.store(val, rc_ptr);
-                            self.builder.store(rc_ptr, slot);
-                        } else {
-                            self.builder.store(val, slot);
-                        }
-                    }
+                if has_boxed_fields {
+                    // Recursive variant: fall back to alloca+GEP+store+load
+                    // because RC-allocated pointers must be stored through memory.
+                    self.emit_variant_via_alloca(
+                        llvm_ty,
+                        ty,
+                        tag_val,
+                        &arg_vals,
+                        &variant_field_types,
+                    )
+                } else {
+                    // Optimized case: pure insertvalue chain (no memory roundtrip).
+                    // Start from zeroinitializer (unused payload slots are zero,
+                    // safe for hashing/comparison).
+                    self.emit_variant_via_insertvalue(
+                        llvm_ty,
+                        ty,
+                        tag_val,
+                        &arg_vals,
+                        &variant_field_types,
+                    )
                 }
-                self.builder.load(llvm_ty, alloca, "variant")
             }
 
             CtorKind::ListLiteral => {
@@ -216,6 +214,137 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 unreachable!("closures use PartialApply, not Construct")
             }
         }
+    }
+
+    /// Emit a variant via pure `insertvalue` chain (no memory roundtrip).
+    ///
+    /// Handles two enum layouts:
+    /// - `{ i64, [M x i64] }` (user-defined enums) — nested insert at `[1, i]`
+    /// - `{ i64, T }` (Option/Result) — direct insert at field `1`
+    ///
+    /// Falls back to alloca if any field isn't single-word (can't insert
+    /// a multi-word value into an i64 array element).
+    fn emit_variant_via_insertvalue(
+        &mut self,
+        llvm_ty: super::super::value_id::LLVMTypeId,
+        ty: Idx,
+        tag_val: ValueId,
+        arg_vals: &[ValueId],
+        variant_field_types: &[Idx],
+    ) -> ValueId {
+        let mut result = self.builder.const_zero_ty(llvm_ty);
+        // Insert tag at index 0
+        result = self.builder.insert_value(result, tag_val, 0, "variant.tag");
+
+        if arg_vals.is_empty() {
+            return result;
+        }
+
+        // Check payload layout: array-wrapped vs direct.
+        let has_array_payload = self.builder.is_struct_field_array(llvm_ty, 1);
+
+        if has_array_payload {
+            // User-defined enum: `{ i64, [M x i64] }` — fields must be single-word.
+            if arg_vals.iter().all(|&v| self.builder.is_single_word(v)) {
+                for (i, &val) in arg_vals.iter().enumerate() {
+                    result = self.builder.insert_value_nested(
+                        result,
+                        val,
+                        &[1, i as u32],
+                        &format!("variant.f{i}"),
+                    );
+                }
+            } else {
+                // Multi-word fields (e.g. struct payloads like `Wrapper { value: int }`)
+                // can't be inserted into [M x i64] array slots via insertvalue.
+                // Delegate to alloca path which stores each field through GEP.
+                return self.emit_variant_via_alloca(
+                    llvm_ty,
+                    ty,
+                    tag_val,
+                    arg_vals,
+                    variant_field_types,
+                );
+            }
+        } else {
+            // Option/Result layout: `{ i64, T }` — insert payload directly.
+            // This only works when the value's LLVM type matches the struct
+            // field's type. E.g., `Ok(42)` for `Result<int, str>` carries i64
+            // but the payload slot is `{ i64, i64, ptr }` — type mismatch.
+            let types_match = arg_vals.iter().enumerate().all(|(i, &v)| {
+                self.builder
+                    .value_type_matches_struct_field(llvm_ty, 1 + i as u32, v)
+            });
+            if types_match {
+                for (i, &val) in arg_vals.iter().enumerate() {
+                    result = self.builder.insert_value(
+                        result,
+                        val,
+                        1 + i as u32,
+                        &format!("variant.f{i}"),
+                    );
+                }
+            } else {
+                // Type mismatch: fall back to alloca for correct byte layout.
+                return self.emit_variant_via_alloca(
+                    llvm_ty,
+                    ty,
+                    tag_val,
+                    arg_vals,
+                    variant_field_types,
+                );
+            }
+        }
+
+        result
+    }
+
+    /// Emit a variant via alloca+GEP+store+load (fallback for recursive fields).
+    ///
+    /// Used when any field is a boxed recursive reference. The RC-allocated
+    /// pointer must be stored through memory, then loaded back as i64.
+    fn emit_variant_via_alloca(
+        &mut self,
+        llvm_ty: super::super::value_id::LLVMTypeId,
+        ty: Idx,
+        tag_val: ValueId,
+        arg_vals: &[ValueId],
+        variant_field_types: &[Idx],
+    ) -> ValueId {
+        let alloca = self.builder.alloca(llvm_ty, "variant");
+
+        if arg_vals.is_empty() {
+            let zero = self.builder.const_zero_ty(llvm_ty);
+            self.builder.store(zero, alloca);
+        }
+
+        let tag_gep = self.builder.struct_gep(llvm_ty, alloca, 0, "variant.tag");
+        self.builder.store(tag_val, tag_gep);
+
+        if !arg_vals.is_empty() {
+            let payload_ptr = self
+                .builder
+                .struct_gep(llvm_ty, alloca, 1, "variant.payload");
+            let i64_ty = self.builder.i64_type();
+
+            for (i, &val) in arg_vals.iter().enumerate() {
+                let idx = self.builder.const_i64(i as i64);
+                let slot = self
+                    .builder
+                    .gep(i64_ty, payload_ptr, &[idx], "variant.field");
+
+                let field_ty = variant_field_types.get(i).copied();
+                if field_ty.is_some_and(|ft| is_boxed_enum_field(self.pool, ty, ft)) {
+                    let size = self.element_store_size(ty);
+                    let rc_ptr = self.rc_alloc(size, 8);
+                    self.builder.store(val, rc_ptr);
+                    self.builder.store(rc_ptr, slot);
+                } else {
+                    self.builder.store(val, slot);
+                }
+            }
+        }
+        self.builder.load(llvm_ty, alloca, "variant")
     }
 
     /// Emit a `CollectionReuse` instruction.

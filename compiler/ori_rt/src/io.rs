@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-use crate::{OriPanic, OriStr};
+use crate::OriStr;
 
 // ── setjmp/longjmp JIT recovery ──────────────────────────────────────────
 
@@ -44,6 +44,10 @@ impl Default for JmpBuf {
     }
 }
 
+// On MSVC, _setjmp is a compiler intrinsic that expects a hidden frame pointer
+// argument — it cannot be called via Rust FFI. Use ori_try_call (__try/__except)
+// for panic recovery instead. See `jit_run_protected`.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 extern "C" {
     /// Save the current execution state. Returns 0 on direct call,
     /// non-zero when returning via `longjmp`.
@@ -55,8 +59,42 @@ extern "C" {
 
     /// Restore execution state saved by `setjmp`. Never returns to caller.
     fn longjmp(buf: *mut JmpBuf, val: i32) -> !;
+
+    /// Free a caught exception object (Itanium ABI).
+    ///
+    /// Calls the exception's `exception_cleanup` callback (which is
+    /// `ori_exception_cleanup` for Ori exceptions — frees the malloc'd
+    /// `OriException` object).
+    ///
+    /// Only used on Itanium targets where `catch(expr:)` landing pads
+    /// receive the raw exception pointer. On MSVC, SEH handles cleanup
+    /// via __except — no explicit delete needed.
+    fn _Unwind_DeleteException(exception: *mut u8);
 }
 
+// `ori_raise_exception` is implemented in C (`eh_personality.c`) on ALL platforms:
+//   - Itanium: _Unwind_RaiseException with OriException object
+//   - MSVC: Win32 RaiseException with custom SEH exception code
+//
+// On Itanium, `C-unwind` tells Rust the function may unwind — without this,
+// Rust inserts an abort guard that kills the process before the exception
+// reaches LLVM landing pads.
+//
+// On MSVC, RaiseException is non-returning (EXCEPTION_NONCONTINUABLE),
+// so `extern "C"` is sufficient — no Rust unwind tables needed.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+extern "C-unwind" {
+    fn ori_raise_exception() -> !;
+}
+
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
+extern "C" {
+    fn ori_raise_exception() -> !;
+}
+
+// JIT mode (setjmp/longjmp) is only used on Itanium targets.
+// On MSVC, jit_run_protected uses ori_try_call (__try/__except) instead.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 thread_local! {
     /// Whether the current thread is running JIT-compiled code.
     /// When true, `ori_panic`/`ori_panic_cstr` will `longjmp` instead of `exit(1)`.
@@ -73,18 +111,21 @@ thread_local! {
 ///
 /// `buf` must point to a valid `JmpBuf` that outlives the JIT execution.
 /// The caller must call `leave_jit_mode()` when done (even on `longjmp` return).
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 pub fn enter_jit_mode(buf: *mut JmpBuf) {
     JIT_MODE.with(|m| m.set(true));
     JIT_RECOVERY_BUF.with(|b| b.set(buf));
 }
 
 /// Leave JIT mode: panics will `exit(1)` again (AOT behavior).
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 pub fn leave_jit_mode() {
     JIT_MODE.with(|m| m.set(false));
     JIT_RECOVERY_BUF.with(|b| b.set(std::ptr::null_mut()));
 }
 
 /// Check if we're currently in JIT mode.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 fn is_jit_mode() -> bool {
     JIT_MODE.with(std::cell::Cell::get)
 }
@@ -94,8 +135,95 @@ fn is_jit_mode() -> bool {
 /// # Safety
 ///
 /// `buf` must point to a valid, properly aligned `JmpBuf`.
+///
+/// **WARNING**: On Windows MSVC, `_setjmp` is a compiler intrinsic that expects
+/// a hidden frame pointer argument. This FFI call works on Itanium targets
+/// (Linux, macOS) but **corrupts the stack on MSVC**. Use [`jit_run_protected`]
+/// instead for cross-platform JIT panic recovery.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 pub unsafe fn jit_setjmp(buf: *mut JmpBuf) -> i32 {
     c_setjmp(buf)
+}
+
+// ── JIT panic recovery (platform-abstracted) ─────────────────────────────
+
+/// Run a JIT-compiled function with panic recovery.
+///
+/// Returns `Ok(())` on success, `Err(message)` if the function panicked.
+///
+/// # Platform behavior
+///
+/// - **Itanium** (Linux, macOS): Uses `setjmp`/`longjmp` via JIT mode.
+///   Panics trigger `longjmp` back to this function's `setjmp` save point.
+///
+/// - **MSVC** (Windows): Uses `ori_try_call` (`__try`/`__except` in C).
+///   Panics trigger `RaiseException` which is caught by the SEH handler.
+///   `_setjmp` cannot be called via Rust FFI on MSVC because it's a
+///   compiler intrinsic that expects a hidden frame pointer argument.
+///
+/// # Safety
+///
+/// `func` must be a valid JIT-compiled function pointer with `() -> void`
+/// signature.
+#[allow(unsafe_code, reason = "JIT execution requires unsafe FFI")]
+pub unsafe fn jit_run_protected(func: unsafe extern "C" fn()) -> Result<(), String> {
+    reset_panic_state();
+
+    #[cfg(all(target_os = "windows", target_env = "msvc"))]
+    {
+        // On MSVC, use ori_try_call (__try/__except) to catch SEH exceptions.
+        // Do NOT enter JIT mode — let ori_panic_cstr fall through to
+        // RaiseException, which ori_try_call catches.
+        extern "C" {
+            fn ori_try_call(thunk: unsafe extern "C" fn(*mut u8), ctx: *mut u8) -> i64;
+        }
+
+        unsafe extern "C" fn jit_thunk(ctx: *mut u8) {
+            let f: unsafe extern "C" fn() = unsafe { std::mem::transmute(ctx) };
+            unsafe { f() };
+        }
+
+        let succeeded = unsafe { ori_try_call(jit_thunk, func as *mut u8) };
+        if succeeded == 1 {
+            // Also check panic state as a safety net
+            if did_panic() {
+                let msg = get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+                return Err(msg);
+            }
+            return Ok(());
+        }
+        // Panic was caught — recover message from thread-local storage
+        let msg = get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+        Err(msg)
+    }
+
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    {
+        // On Itanium, use setjmp/longjmp via JIT mode.
+        let mut jmp_buf = JmpBuf::new();
+        let buf_ptr: *mut JmpBuf = &raw mut jmp_buf;
+        enter_jit_mode(buf_ptr);
+
+        let longjmp_fired = unsafe { c_setjmp(buf_ptr) } != 0;
+
+        if longjmp_fired {
+            leave_jit_mode();
+            let msg = get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+            return Err(msg);
+        }
+
+        unsafe { func() };
+
+        leave_jit_mode();
+
+        // Safety net — check panic state even if longjmp didn't fire
+        if did_panic() {
+            let msg = get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+            return Err(msg);
+        }
+
+        Ok(())
+    }
 }
 
 // ── Thread-local panic state ─────────────────────────────────────────────
@@ -177,7 +305,7 @@ pub extern "C" fn ori_print_bool(b: bool) {
 /// 1. Store panic state (for JIT test assertions)
 /// 2. If user `@panic` handler registered and not re-entrant: call trampoline
 /// 3. If JIT mode: `longjmp` back to test runner
-/// 4. AOT default: print to stderr and `exit(1)`
+/// 4. AOT default: raise C exception via `_Unwind_RaiseException`
 #[no_mangle]
 pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
     let msg = if s.is_null() {
@@ -196,7 +324,10 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
     // Call user @panic handler if registered (AOT only, not re-entrant)
     call_panic_trampoline(&msg);
 
-    // In JIT mode, longjmp back to the test runner instead of terminating
+    // On Itanium: if JIT mode, longjmp back to the test runner.
+    // On MSVC: JIT mode is not used — panics go through RaiseException,
+    // caught by ori_try_call's __except in jit_run_protected.
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     if is_jit_mode() {
         let buf = JIT_RECOVERY_BUF.with(std::cell::Cell::get);
         if !buf.is_null() {
@@ -205,16 +336,14 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
         }
     }
 
-    // AOT path: unwind via Rust panic infrastructure.
-    // LLVM invoke/landingpad in the caller will catch this and run
-    // RC cleanup before re-raising or terminating.
+    // Raise C exception: _Unwind_RaiseException (Itanium) or RaiseException (MSVC)
     eprintln!("ori panic: {msg}");
-    std::panic::panic_any(OriPanic { message: msg });
+    aot_raise_exception(msg);
 }
 
 /// Panic with a C string message.
 ///
-/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → unwind.
+/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → C exception.
 #[no_mangle]
 pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
     let msg = if s.is_null() {
@@ -231,7 +360,9 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
     // Call user @panic handler if registered (AOT only, not re-entrant)
     call_panic_trampoline(&msg);
 
-    // In JIT mode, longjmp back to the test runner instead of terminating
+    // On Itanium: if JIT mode, longjmp back to the test runner.
+    // On MSVC: panics go through RaiseException → ori_try_call.
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     if is_jit_mode() {
         let buf = JIT_RECOVERY_BUF.with(std::cell::Cell::get);
         if !buf.is_null() {
@@ -240,60 +371,64 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
         }
     }
 
-    // AOT path: unwind via Rust panic infrastructure
+    // Raise C exception: _Unwind_RaiseException (Itanium) or RaiseException (MSVC)
     eprintln!("ori panic: {msg}");
-    std::panic::panic_any(OriPanic { message: msg });
+    aot_raise_exception(msg);
+}
+
+/// Raise an exception for AOT panic paths.
+///
+/// Implemented in C (`eh_personality.c`) on all platforms:
+///   - Itanium (Linux, macOS, MinGW): `_Unwind_RaiseException` with `OriException`
+///   - Windows MSVC: `RaiseException` with custom SEH exception code
+///
+/// The panic message was already stored in thread-local storage by
+/// `ori_panic`/`ori_panic_cstr` before this is called.
+fn aot_raise_exception(_msg: String) -> ! {
+    // SAFETY: ori_raise_exception is implemented in eh_personality.c,
+    // compiled and linked via build.rs. It never returns.
+    unsafe { ori_raise_exception() }
 }
 
 // ── Catch/recover ────────────────────────────────────────────────────────
 
-/// Acknowledge a caught Rust exception from a `catch(expr:)` landing pad.
+/// Free a caught exception from a `catch(expr:)` landing pad.
 ///
 /// Called from LLVM-generated catch-all landing pads after extracting the
 /// exception pointer from the `landingpad catch null` result.
 ///
-/// # Current limitations (2026)
+/// On Itanium targets, calls `_Unwind_DeleteException` which invokes the
+/// exception's cleanup callback (`ori_exception_cleanup` → `free()`).
 ///
-/// The Rust panic runtime's `__rust_panic_cleanup` is `#[rustc_std_internal_symbol]`
-/// and inaccessible from external crates. `_Unwind_DeleteException` triggers
-/// `exception_cleanup` → `__rust_drop_panic` → abort. So we currently:
-/// - Accept a small memory leak (the `Exception` struct + `Box<dyn Any>` payload)
-/// - Leave the panic counter incremented (doesn't affect single-catch scenarios)
+/// On MSVC targets, `catch(expr:)` uses `ori_try_call` + `catch_unwind`
+/// instead of landing pads, so this function is a no-op there.
 ///
-/// The panic message is still correctly recovered via thread-local storage
-/// in [`ori_catch_recover`]. A proper fix would require either:
-/// - Reimplementing the Rust exception layout to `Box::from_raw` directly, or
-/// - Wrapping the catch body in `catch_unwind` at the runtime level.
+/// The panic message is recovered via thread-local storage in
+/// [`ori_catch_recover`], not from the exception payload.
 #[no_mangle]
-pub extern "C" fn ori_catch_cleanup(_exc_ptr: *mut u8) {
-    // Intentionally does not free the exception object.
-    // See doc comment for rationale.
+pub extern "C" fn ori_catch_cleanup(exc_ptr: *mut u8) {
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    if !exc_ptr.is_null() {
+        unsafe {
+            _Unwind_DeleteException(exc_ptr);
+        }
+    }
+    // On MSVC, SEH handles cleanup — exc_ptr is unused.
+    #[cfg(all(target_os = "windows", target_env = "msvc"))]
+    let _ = exc_ptr;
 }
 
-/// Try calling a function, catching any panic via `catch_unwind`.
-///
-/// Used by `catch(expr:)` on Windows MSVC where LLVM's `catchpad` cannot
-/// properly catch Rust panics — Rust detects the foreign (non-`catch_unwind`)
-/// handler and aborts with "Rust panics must be rethrown."
-///
-/// `thunk` is an LLVM-generated function `void (ptr %ctx)` that loads args
-/// from `ctx`, calls the real function, and stores the result back.
-///
-/// Returns `1` if the call succeeded, `0` if a panic was caught.
-/// On panic, the message is available via [`ori_catch_recover`].
-#[no_mangle]
-pub extern "C" fn ori_try_call(thunk: unsafe extern "C-unwind" fn(*mut u8), ctx: *mut u8) -> i64 {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { thunk(ctx) })) {
-        Ok(()) => 1,
-        Err(_) => 0,
-    }
-}
+// ori_try_call is implemented in C (eh_personality.c) on MSVC using
+// __try/__except to catch Ori's custom SEH exception. On Itanium targets,
+// catch(expr:) uses LLVM invoke/landingpad instead — ori_try_call is not
+// called but is still linked (the symbol exists in the C object file only
+// on MSVC via #ifdef _MSC_VER).
 
 /// Recover from a caught panic — reads the panic message from thread-local storage.
 ///
-/// Called from `catch(expr:)` unwind blocks after `ori_catch_cleanup` has
-/// freed the exception object. Returns the panic message as an `OriStr`.
-/// The message was stored in thread-local storage by `ori_panic`/`ori_panic_cstr`
+/// Called from `catch(expr:)` after `ori_catch_cleanup` has freed the
+/// exception object. Returns the panic message as an `OriStr`. The message
+/// was stored in thread-local storage by `ori_panic`/`ori_panic_cstr`
 /// before unwinding. Clears the panic state so subsequent catches work correctly.
 #[no_mangle]
 pub extern "C" fn ori_catch_recover() -> OriStr {
@@ -307,8 +442,8 @@ pub extern "C" fn ori_catch_recover() -> OriStr {
 
 /// Assert that a condition is true.
 ///
-/// On failure, routes through `ori_panic_cstr` which handles both JIT
-/// (longjmp to test runner) and AOT (unwind via `panic_any`) paths.
+/// On failure, routes through `ori_panic_cstr` which handles JIT
+/// (longjmp to test runner) and AOT (unwind via Ori exception) paths.
 #[no_mangle]
 pub extern "C-unwind" fn ori_assert(condition: bool) {
     if !condition {

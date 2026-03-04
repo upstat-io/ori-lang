@@ -229,8 +229,8 @@ fn lookup_jit_address(name: &str) -> usize {
         // Catch recovery (Itanium EH)
         "ori_catch_cleanup" => runtime::ori_catch_cleanup as *const () as usize,
         "ori_catch_recover" => runtime::ori_catch_recover as *const () as usize,
-        // Exception handling personality
-        "rust_eh_personality" => rust_eh_personality_addr(),
+        // Exception handling personality (ori_rt/src/eh_personality.c)
+        "ori_eh_personality" => runtime::ori_eh_personality_addr(),
         // Catch-all: panics immediately to surface drift between
         // RT_FUNCTIONS and this lookup table.
         other => panic!(
@@ -238,17 +238,4 @@ fn lookup_jit_address(name: &str) -> usize {
              in evaluator/runtime_mappings.rs"
         ),
     }
-}
-
-/// Get the address of `rust_eh_personality` for JIT symbol mapping.
-///
-/// This function is defined in the Rust standard library and handles
-/// DWARF-based exception handling (Itanium ABI). It's present in the
-/// host binary but not exported in the dynamic symbol table, so the
-/// LLVM MCJIT can't resolve it via `dlsym`. We provide it explicitly.
-fn rust_eh_personality_addr() -> usize {
-    extern "C" {
-        fn rust_eh_personality();
-    }
-    rust_eh_personality as *const () as usize
 }

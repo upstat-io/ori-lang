@@ -30,9 +30,6 @@ files:
 
 # Section 07: Iterator & DoubleEndedIterator Type Definitions
 
-**Status:** Not Started
-**Goal:** Declare the complete behavioral specification of `Iterator<T>` and `DoubleEndedIterator<T>` as `const` data in `ori_registry`, including every method's signature, receiver ownership, DEI-only gating, and double-endedness propagation semantics.
-
 **Why this is the most complex section:** Iterator types are unique among builtins because:
 1. They are **generic** (`Iterator<T>`) with type parameters that flow through adapter chains
 2. They have **higher-order methods** that use `ReturnTag::Fresh` to signal type checker inference for closure-dependent return types

@@ -1,3 +1,10 @@
+---
+reroute: true
+name: "Value Semantics"
+full_name: "Value Semantics Optimization"
+status: resolved
+---
+
 # Value Semantics Optimization Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.

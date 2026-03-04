@@ -33,9 +33,6 @@ sections:
 
 # Section 04: Map & Set COW Operations
 
-**Status:** Not Started
-**Goal:** Map and set mutations (`insert`, `remove`, `update`, `union`, `intersection`, `difference`) check uniqueness and mutate in place when uniquely owned. Shared maps/sets copy on first mutation, then all subsequent mutations on the copy are in-place.
-
 **Context:** Currently, `OriMap` uses two parallel arrays (keys and values) with O(n) linear scan lookup, and `OriSet` uses a single sorted array. All mutations allocate unconditionally. Map/set COW follows the same pattern as list COW (§02) but with additional complexity for key lookup and set algebra.
 
 **Reference implementations:**

@@ -25,9 +25,6 @@ sections:
 
 # Section 09: ARC Header Compression
 
-**Status:** Not Started
-**Goal:** The 8-byte refcount header (`i64 strong_count`) is narrowed to 4/2/1 bytes when the compiler can prove that the maximum number of simultaneous references is bounded. Most values in practice have refcount ≤ 3. Using `i8` (max 127 refs) saves 7 bytes per object; for a list of 1M small structs, that's 7MB saved.
-
 **Context:** The current runtime (`ori_rt`) unconditionally uses `i64` for the reference count, with `MAX_REFCOUNT = i64::MAX`. This is maximally safe but wasteful. The ARC pipeline already computes borrow/ownership information — extending this to bound the maximum refcount is a natural next step.
 
 The challenge: RC header width must be a **compile-time** decision, but refcount values are **runtime** quantities. We need static analysis that proves an upper bound on the dynamic refcount.
