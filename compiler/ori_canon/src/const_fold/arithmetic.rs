@@ -66,7 +66,6 @@ pub(super) fn fold_binary(
                 }
             })
         }
-
         // Float arithmetic.
         (BinaryOp::Add, ConstValue::Float(a), ConstValue::Float(b)) => Some(ConstValue::Float(
             (f64::from_bits(*a) + f64::from_bits(*b)).to_bits(),

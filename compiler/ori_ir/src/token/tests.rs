@@ -18,7 +18,6 @@ fn test_discriminant_index_uniqueness() {
         TokenKind::Duration(0, DurationUnit::Seconds),
         TokenKind::Size(0, SizeUnit::Bytes),
         TokenKind::Ident(crate::Name::EMPTY),
-        TokenKind::Async,
         TokenKind::Break,
         TokenKind::Continue,
         TokenKind::Return,
@@ -307,6 +306,10 @@ fn test_friendly_name_from_index() {
         TokenKind::friendly_name_from_index(TokenTag::KwLet as u8),
         Some("let")
     );
+    assert_eq!(
+        TokenKind::friendly_name_from_index(TokenTag::KwReturn as u8),
+        Some("return")
+    );
 
     // Test punctuation
     assert_eq!(
@@ -521,7 +524,6 @@ fn test_token_tag_name_non_empty() {
         TokenTag::TemplateComplete,
         TokenTag::FormatSpec,
         TokenTag::HashBang,
-        TokenTag::KwAsync,
         TokenTag::KwBreak,
         TokenTag::KwContinue,
         TokenTag::KwReturn,
@@ -631,6 +633,19 @@ fn test_token_tag_name_non_empty() {
         TokenTag::Newline,
         TokenTag::Error,
         TokenTag::Eof,
+        // Compound assignment
+        TokenTag::PlusEq,
+        TokenTag::MinusEq,
+        TokenTag::StarEq,
+        TokenTag::SlashEq,
+        TokenTag::PercentEq,
+        TokenTag::AtEq,
+        TokenTag::AmpEq,
+        TokenTag::PipeEq,
+        TokenTag::CaretEq,
+        TokenTag::ShlEq,
+        TokenTag::AmpAmpEq,
+        TokenTag::PipePipeEq,
     ];
 
     for tag in all_tags {

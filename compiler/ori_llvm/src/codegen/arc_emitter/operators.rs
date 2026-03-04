@@ -184,7 +184,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             (
                 *fid,
                 abi.params.clone(),
-                abi.return_abi.passing.clone(),
+                abi.return_abi.passing,
                 abi.return_abi.ty,
             )
         };
@@ -246,7 +246,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .ctx
                 .method_functions
                 .get(&(type_name, interned_method))?;
-            (*fid, abi.params.clone(), abi.return_abi.passing.clone())
+            (*fid, abi.params.clone(), abi.return_abi.passing)
         };
 
         let raw_args = [lhs, rhs];
@@ -289,7 +289,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             (
                 *fid,
                 abi.params.clone(),
-                abi.return_abi.passing.clone(),
+                abi.return_abi.passing,
                 abi.return_abi.ty,
             )
         };
@@ -342,7 +342,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             (
                 *fid,
                 abi.params.clone(),
-                abi.return_abi.passing.clone(),
+                abi.return_abi.passing,
                 abi.return_abi.ty,
             )
         };

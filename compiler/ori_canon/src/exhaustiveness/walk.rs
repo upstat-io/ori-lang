@@ -9,7 +9,7 @@ use ori_ir::StringInterner;
 
 /// Get the field types for a specific variant of a type.
 ///
-/// Handles Enum, Option, and Result types. Returns an empty Vec for
+/// Handles Enum, Option, Result, and Ordering types. Returns an empty Vec for
 /// variants with no fields or when the type is not a recognized enum kind.
 fn variant_field_types(
     pool: &ori_types::Pool,
@@ -31,6 +31,7 @@ fn variant_field_types(
             1 => vec![pool.result_err(type_idx)], // Err(E)
             _ => vec![],
         },
+        // Ordering (Less/Equal/Greater) and all other types have no variant fields.
         _ => vec![],
     }
 }
@@ -83,7 +84,7 @@ pub(super) fn walk(
             // Walk each edge subtree. For EnumTag edges, populate child path
             // types so nested switches can resolve their scrutinee type.
             for (test_value, subtree) in edges {
-                let mut added_paths = Vec::new();
+                let mut added_field_count = 0usize;
                 let mut pushed_wrapper = false;
 
                 if *test_kind == TestKind::EnumTag {
@@ -95,8 +96,10 @@ pub(super) fn walk(
                         if let Some(&type_at_path) = path_types.get(path) {
                             let resolved = pool.resolve_fully(type_at_path);
                             let field_types = variant_field_types(pool, resolved, *variant_index);
+                            added_field_count = field_types.len();
 
-                            // Record field types for child paths.
+                            // Record field types for child paths (move into map,
+                            // reconstruct keys for cleanup to avoid extra clone).
                             #[expect(
                                 clippy::cast_possible_truncation,
                                 reason = "field index bounded by variant field count (max ~256)"
@@ -104,8 +107,7 @@ pub(super) fn walk(
                             for (i, &ft) in field_types.iter().enumerate() {
                                 let mut child_path = path.clone();
                                 child_path.push(PathInstruction::TagPayload(i as u32));
-                                path_types.insert(child_path.clone(), ft);
-                                added_paths.push(child_path);
+                                path_types.insert(child_path, ft);
                             }
 
                             // Push nesting wrapper for diagnostic formatting.
@@ -140,8 +142,14 @@ pub(super) fn walk(
                 if pushed_wrapper {
                     nesting.pop();
                 }
-                for p in &added_paths {
-                    path_types.remove(p);
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "field index bounded by variant field count (max ~256)"
+                )]
+                for i in 0..added_field_count {
+                    let mut key = path.clone();
+                    key.push(PathInstruction::TagPayload(i as u32));
+                    path_types.remove(&key);
                 }
             }
 

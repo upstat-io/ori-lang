@@ -31,7 +31,7 @@ use super::type_info::TypeInfoStore;
 // ---------------------------------------------------------------------------
 
 /// How a parameter is passed to the callee.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParamPassing {
     /// Passed directly in registers (scalars, small structs ≤16 bytes).
     Direct,
@@ -47,7 +47,7 @@ pub enum ParamPassing {
 }
 
 /// How a return value is passed back to the caller.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReturnPassing {
     /// Returned directly in registers.
     Direct,
@@ -72,7 +72,7 @@ pub enum CallConv {
 // ---------------------------------------------------------------------------
 
 /// Physical ABI for a single parameter.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParamAbi {
     /// Parameter name (for debug info / naming LLVM values).
     pub name: Name,
@@ -83,7 +83,7 @@ pub struct ParamAbi {
 }
 
 /// Physical ABI for the return value.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReturnAbi {
     /// Ori type index.
     pub ty: Idx,
