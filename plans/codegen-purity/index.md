@@ -46,7 +46,7 @@ runtime_functions.rs, nounwind.rs, function_compiler, runtime_decl
 ---
 
 ### Section 03: Arithmetic Correctness
-**File:** `section-03-arithmetic-correctness.md` | **Status:** Not Started
+**File:** `section-03-arithmetic-correctness.md` | **Status:** Complete
 
 ```
 unary negation, overflow check, INT_MIN, ssub.with.overflow
@@ -57,7 +57,7 @@ operators.rs, arithmetic.rs
 ---
 
 ### Section 04: ARC Closure Lifecycle
-**File:** `section-04-arc-closure-lifecycle.md` | **Status:** Not Started
+**File:** `section-04-arc-closure-lifecycle.md` | **Status:** Complete
 
 ```
 closure, environment, rc_dec, rc_alloc, memory leak, ARC pipeline

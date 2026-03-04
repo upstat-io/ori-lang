@@ -146,7 +146,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match op {
             UnaryOp::Neg if is_float => self.builder.fneg(operand, "neg"),
-            UnaryOp::Neg => self.builder.neg(operand, "neg"),
+            UnaryOp::Neg => self.builder.checked_neg(operand, "neg"),
             UnaryOp::Not => self.builder.not(operand, "not"),
             UnaryOp::BitNot => {
                 let all_ones = self.builder.const_i64(-1);
