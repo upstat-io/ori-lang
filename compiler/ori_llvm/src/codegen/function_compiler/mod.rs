@@ -231,12 +231,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.builder.add_noalias_attribute(func_id, 0);
         }
 
-        // Windows x86-64 requires uwtable on all functions for SEH stack unwinding.
-        // Without it, RtlVirtualUnwind cannot find frame info in .pdata/.xdata,
-        // causing STATUS_STACK_BUFFER_OVERRUN when unwinding through the function.
-        if self.builder.eh_model() == crate::codegen::eh_model::EhModel::Seh {
-            self.builder.add_uwtable_attribute(func_id);
-        }
+        // All EH-capable targets require uwtable for proper stack unwinding.
+        //
+        // - Windows (SEH): RtlVirtualUnwind needs .pdata/.xdata frame info.
+        // - macOS/Linux (Itanium): LLVM's TargetMachine (created via the C API)
+        //   defaults to ExceptionHandling::None, which suppresses .eh_frame
+        //   personality/LSDA generation. The `uwtable` attribute forces LLVM to
+        //   emit full unwind tables with CIE augmentation "zPLR" (personality +
+        //   LSDA), enabling _Unwind_RaiseException to find catch-all landing pads.
+        //   Without it, invoke/landingpad IR is emitted correctly but the MC layer
+        //   generates .eh_frame entries without personality references, causing
+        //   _URC_END_OF_STACK (code 5) on panic.
+        self.builder.add_uwtable_attribute(func_id);
 
         func_id
     }
