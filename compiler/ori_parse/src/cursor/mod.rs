@@ -383,6 +383,13 @@ impl<'a> Cursor<'a> {
             TokenKind::Run => Some("run"),
             TokenKind::Try => Some("try"),
             TokenKind::With => Some("with"),
+            // Lexer-soft keywords (resolved only with `(` lookahead)
+            TokenKind::Cache => Some("cache"),
+            TokenKind::Catch => Some("catch"),
+            TokenKind::Parallel => Some("parallel"),
+            TokenKind::Recurse => Some("recurse"),
+            TokenKind::Spawn => Some("spawn"),
+            TokenKind::Timeout => Some("timeout"),
             _ => None,
         }
     }
@@ -620,7 +627,8 @@ impl<'a> Cursor<'a> {
 ///
 /// This is the **single source of truth** for which keywords are valid in identifier
 /// position. It is the union of:
-/// - Soft keywords ([`Cursor::soft_keyword_to_name`]): `print`, `panic`, `by`, `run`, `try`, `with`
+/// - Soft keywords ([`Cursor::soft_keyword_to_name`]): `print`, `panic`, `by`, `run`, `try`,
+///   `with`, `cache`, `catch`, `parallel`, `recurse`, `spawn`, `timeout`
 /// - Positional keywords ([`Cursor::keyword_as_name`]): `where`, `match`, `for`, `in`, `if`, `type`
 ///
 /// Used by [`Cursor::is_named_arg_at`] for lookahead. Adding a new keyword-as-identifier
@@ -636,6 +644,13 @@ fn is_keyword_usable_as_ident(kind: &TokenKind) -> bool {
             | TokenKind::Run
             | TokenKind::Try
             | TokenKind::With
+            // Lexer-soft keywords (resolved only with `(` lookahead)
+            | TokenKind::Cache
+            | TokenKind::Catch
+            | TokenKind::Parallel
+            | TokenKind::Recurse
+            | TokenKind::Spawn
+            | TokenKind::Timeout
             // Positional keywords (valid as field/arg names)
             | TokenKind::Where
             | TokenKind::Match

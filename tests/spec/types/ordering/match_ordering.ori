@@ -1,0 +1,51 @@
+// Spec: 06-types.md § Ordering Type
+// Tests for pattern matching on Ordering values
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Exhaustive match on Ordering
+// =============================================================================
+
+@test_match_all_variants tests @match_ordering () -> void = {
+    assert_eq(actual: match_ordering(ord: Less), expected: "less");
+    assert_eq(actual: match_ordering(ord: Equal), expected: "equal");
+    assert_eq(actual: match_ordering(ord: Greater), expected: "greater")
+}
+
+@match_ordering (ord: Ordering) -> str = match ord {
+    Less -> "less",
+    Equal -> "equal",
+    Greater -> "greater",
+}
+
+// =============================================================================
+// Match with wildcard
+// =============================================================================
+
+@test_match_with_wildcard tests @match_wildcard () -> void = {
+    assert_eq(actual: match_wildcard(ord: Less), expected: "less");
+    assert_eq(actual: match_wildcard(ord: Equal), expected: "other");
+    assert_eq(actual: match_wildcard(ord: Greater), expected: "other")
+}
+
+@match_wildcard (ord: Ordering) -> str = match ord {
+    Less -> "less",
+    _ -> "other",
+}
+
+// =============================================================================
+// Match on compare result
+// =============================================================================
+
+@test_match_compare_result tests @match_compare () -> void = {
+    assert_eq(actual: match_compare(a: 1, b: 2), expected: "a < b");
+    assert_eq(actual: match_compare(a: 5, b: 5), expected: "a == b");
+    assert_eq(actual: match_compare(a: 10, b: 3), expected: "a > b")
+}
+
+@match_compare (a: int, b: int) -> str = match a.compare(other: b) {
+    Less -> "a < b",
+    Equal -> "a == b",
+    Greater -> "a > b",
+}

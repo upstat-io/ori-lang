@@ -229,10 +229,11 @@ impl<'a> FlattenCtx<'a> {
 
     /// Resolve a variant name to its discriminant index.
     ///
-    /// Handles three cases:
+    /// Handles four cases:
     /// - `Tag::Enum`: looks up variant by name in the enum definition
     /// - `Tag::Option`: `Some` = 0, `None` = 1
     /// - `Tag::Result`: `Ok` = 0, `Err` = 1
+    /// - `Tag::Ordering`: `Less` = 0, `Equal` = 1, `Greater` = 2
     #[expect(
         clippy::cast_possible_truncation,
         reason = "variant indices never exceed u32"
@@ -258,6 +259,19 @@ impl<'a> FlattenCtx<'a> {
                 // Convention: Ok = 0, Err = 1 (matches evaluator's Value::Ok/Err)
                 return u32::from(self.interner.lookup(variant_name) == "Err");
             }
+            Tag::Ordering => {
+                // Convention: Less = 0, Equal = 1, Greater = 2
+                let name_str = self.interner.lookup(variant_name);
+                return match name_str {
+                    "Less" => 0,
+                    "Equal" => 1,
+                    "Greater" => 2,
+                    other => {
+                        debug_assert!(false, "unknown Ordering variant: {other}");
+                        0
+                    }
+                };
+            }
             _ => {}
         }
         tracing::debug!(
@@ -270,11 +284,12 @@ impl<'a> FlattenCtx<'a> {
         0
     }
 
-    /// Get the field types for a specific variant of an enum, Option, or Result.
+    /// Get the field types for a specific variant of an enum, Option, Result, or Ordering.
     ///
     /// - `Tag::Enum`: returns field types from the enum definition
     /// - `Tag::Option`: `Some` (index 0) has one field (the inner type), `None` (index 1) has none
     /// - `Tag::Result`: `Ok` (index 0) has one field (ok type), `Err` (index 1) has one field (err type)
+    /// - `Tag::Ordering`: all variants (Less, Equal, Greater) are unit — no fields
     fn resolve_variant_field_types(
         &self,
         enum_ty: ori_types::Idx,
@@ -305,6 +320,8 @@ impl<'a> FlattenCtx<'a> {
                 }
                 return vec![self.pool.result_ok(resolved)];
             }
+            // Ordering variants (Less, Equal, Greater) are all unit — no fields.
+            Tag::Ordering => return Vec::new(),
             _ => {}
         }
         Vec::new()

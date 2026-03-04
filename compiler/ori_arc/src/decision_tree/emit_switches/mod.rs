@@ -34,7 +34,7 @@ pub(super) fn emit_switch(
         ctx.root_scrutinee_ty,
         path,
         ctx.span,
-        &ctx.variant_stack,
+        ctx.variant_stack(),
     );
 
     match test_kind {

@@ -1,0 +1,290 @@
+//! I/O, panic, and assertion functions.
+//!
+//! Provides the runtime's interaction with the outside world:
+//! - **Print**: `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool`
+//! - **Panic**: `ori_panic`, `ori_panic_cstr` (with JIT recovery + user handler dispatch)
+//! - **Assert**: `ori_assert`, `ori_assert_eq_*`
+//! - **Catch/recover**: `ori_catch_cleanup`, `ori_catch_recover`
+//! - **JIT recovery**: `setjmp`/`longjmp`-based error recovery for test runners (`jit_recovery`)
+//! - **Panic handler**: `ori_register_panic_handler` for user `@panic` functions (`panic_state`)
+
+mod jit_recovery;
+mod panic_state;
+
+use std::ffi::{c_char, CStr};
+
+use crate::OriStr;
+
+// Re-export public API from submodules
+pub use jit_recovery::{jit_run_protected, JmpBuf};
+pub use panic_state::{
+    did_panic, get_panic_message, ori_register_panic_handler, reset_panic_state,
+    set_panic_state_for_test,
+};
+
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+pub use jit_recovery::{enter_jit_mode, jit_setjmp, leave_jit_mode};
+
+// `ori_raise_exception` is implemented in C (`eh_personality.c`) on ALL platforms:
+//   - Itanium: _Unwind_RaiseException with OriException object
+//   - MSVC: Win32 RaiseException with custom SEH exception code
+//
+// On Itanium, `C-unwind` tells Rust the function may unwind — without this,
+// Rust inserts an abort guard that kills the process before the exception
+// reaches LLVM landing pads.
+//
+// On MSVC, RaiseException is non-returning (EXCEPTION_NONCONTINUABLE),
+// so `extern "C"` is sufficient — no Rust unwind tables needed.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+extern "C-unwind" {
+    fn ori_raise_exception() -> !;
+}
+
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
+extern "C" {
+    fn ori_raise_exception() -> !;
+}
+
+// ── Print functions ──────────────────────────────────────────────────────
+
+/// Print a string to stdout.
+#[no_mangle]
+pub extern "C" fn ori_print(s: *const OriStr) {
+    if s.is_null() {
+        println!();
+        return;
+    }
+
+    // SAFETY: Caller ensures s points to a valid OriStr
+    let ori_str = unsafe { &*s };
+    let text = unsafe { ori_str.as_str() };
+    println!("{text}");
+}
+
+/// Print an integer to stdout.
+#[no_mangle]
+pub extern "C" fn ori_print_int(n: i64) {
+    println!("{n}");
+}
+
+/// Print a float to stdout.
+#[no_mangle]
+pub extern "C" fn ori_print_float(f: f64) {
+    println!("{f}");
+}
+
+/// Print a boolean to stdout.
+#[no_mangle]
+pub extern "C" fn ori_print_bool(b: bool) {
+    println!("{b}");
+}
+
+// ── Panic functions ──────────────────────────────────────────────────────
+
+/// Panic with a message.
+///
+/// Dispatch order:
+/// 1. Store panic state (for JIT test assertions)
+/// 2. If user `@panic` handler registered and not re-entrant: call trampoline
+/// 3. If JIT mode: `longjmp` back to test runner
+/// 4. AOT default: raise C exception via `_Unwind_RaiseException`
+#[no_mangle]
+pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
+    let msg = if s.is_null() {
+        "panic!".to_string()
+    } else {
+        // SAFETY: Caller ensures s points to a valid OriStr
+        let ori_str = unsafe { &*s };
+        let text = unsafe { ori_str.as_str() };
+        text.to_string()
+    };
+
+    // Store panic state in thread-local storage
+    panic_state::store_panic(&msg);
+
+    // Call user @panic handler if registered (AOT only, not re-entrant)
+    panic_state::call_panic_trampoline(&msg);
+
+    // On Itanium: if JIT mode, longjmp back to the test runner.
+    // On MSVC: JIT mode is not used — panics go through RaiseException,
+    // caught by ori_try_call's __except in jit_run_protected.
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    if jit_recovery::is_jit_mode() {
+        let buf = jit_recovery::JIT_RECOVERY_BUF.with(std::cell::Cell::get);
+        if !buf.is_null() {
+            // SAFETY: buf is valid — set by enter_jit_mode, stack-allocated in run_test
+            unsafe { jit_recovery::longjmp(buf, 1) };
+        }
+    }
+
+    // Raise C exception: _Unwind_RaiseException (Itanium) or RaiseException (MSVC)
+    eprintln!("ori panic: {msg}");
+    aot_raise_exception(msg);
+}
+
+/// Panic with a C string message.
+///
+/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → C exception.
+#[no_mangle]
+pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
+    let msg = if s.is_null() {
+        "panic!".to_string()
+    } else {
+        // SAFETY: Caller ensures s points to a valid C string
+        let cstr = unsafe { CStr::from_ptr(s) };
+        cstr.to_string_lossy().to_string()
+    };
+
+    panic_state::store_panic(&msg);
+
+    // Call user @panic handler if registered (AOT only, not re-entrant)
+    panic_state::call_panic_trampoline(&msg);
+
+    // On Itanium: if JIT mode, longjmp back to the test runner.
+    // On MSVC: panics go through RaiseException → ori_try_call.
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    if jit_recovery::is_jit_mode() {
+        let buf = jit_recovery::JIT_RECOVERY_BUF.with(std::cell::Cell::get);
+        if !buf.is_null() {
+            // SAFETY: buf is valid — set by enter_jit_mode, stack-allocated in run_test
+            unsafe { jit_recovery::longjmp(buf, 1) };
+        }
+    }
+
+    // Raise C exception: _Unwind_RaiseException (Itanium) or RaiseException (MSVC)
+    eprintln!("ori panic: {msg}");
+    aot_raise_exception(msg);
+}
+
+/// Raise an exception for AOT panic paths.
+///
+/// Implemented in C (`eh_personality.c`) on all platforms:
+///   - Itanium (Linux, macOS, MinGW): `_Unwind_RaiseException` with `OriException`
+///   - Windows MSVC: `RaiseException` with custom SEH exception code
+///
+/// The panic message was already stored in thread-local storage by
+/// `ori_panic`/`ori_panic_cstr` before this is called.
+fn aot_raise_exception(_msg: String) -> ! {
+    // SAFETY: ori_raise_exception is implemented in eh_personality.c,
+    // compiled and linked via build.rs. It never returns.
+    unsafe { ori_raise_exception() }
+}
+
+// ── Catch/recover ────────────────────────────────────────────────────────
+
+/// Free a caught exception from a `catch(expr:)` landing pad.
+///
+/// Called from LLVM-generated catch-all landing pads after extracting the
+/// exception pointer from the `landingpad catch null` result.
+///
+/// On Itanium targets, calls `_Unwind_DeleteException` which invokes the
+/// exception's cleanup callback (`ori_exception_cleanup` → `free()`).
+///
+/// On MSVC targets, `catch(expr:)` uses `ori_try_call` + `catch_unwind`
+/// instead of landing pads, so this function is a no-op there.
+///
+/// The panic message is recovered via thread-local storage in
+/// [`ori_catch_recover`], not from the exception payload.
+#[no_mangle]
+pub extern "C" fn ori_catch_cleanup(exc_ptr: *mut u8) {
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    if !exc_ptr.is_null() {
+        unsafe {
+            jit_recovery::_Unwind_DeleteException(exc_ptr);
+        }
+    }
+    // On MSVC, SEH handles cleanup — exc_ptr is unused.
+    #[cfg(all(target_os = "windows", target_env = "msvc"))]
+    let _ = exc_ptr;
+}
+
+// ori_try_call is implemented in C (eh_personality.c) on MSVC using
+// __try/__except to catch Ori's custom SEH exception. On Itanium targets,
+// catch(expr:) uses LLVM invoke/landingpad instead — ori_try_call is not
+// called but is still linked (the symbol exists in the C object file only
+// on MSVC via #ifdef _MSC_VER).
+
+/// Recover from a caught panic — reads the panic message from thread-local storage.
+///
+/// Called from `catch(expr:)` after `ori_catch_cleanup` has freed the
+/// exception object. Returns the panic message as an `OriStr`. The message
+/// was stored in thread-local storage by `ori_panic`/`ori_panic_cstr`
+/// before unwinding. Clears the panic state so subsequent catches work correctly.
+#[no_mangle]
+pub extern "C" fn ori_catch_recover() -> OriStr {
+    let msg = panic_state::take_panic_message();
+    let text = msg.unwrap_or_else(|| "unknown panic".to_string());
+    OriStr::from_owned(&text)
+}
+
+// ── Assert functions ─────────────────────────────────────────────────────
+
+/// Assert that a condition is true.
+///
+/// On failure, routes through `ori_panic_cstr` which handles JIT
+/// (longjmp to test runner) and AOT (unwind via Ori exception) paths.
+#[no_mangle]
+pub extern "C-unwind" fn ori_assert(condition: bool) {
+    if !condition {
+        ori_panic_cstr(c"assertion failed".as_ptr());
+    }
+}
+
+/// Assert that two integers are equal.
+///
+/// On failure, formats a message and routes through `ori_panic_cstr`.
+#[no_mangle]
+pub extern "C-unwind" fn ori_assert_eq_int(actual: i64, expected: i64) {
+    if actual != expected {
+        let msg = format!("assertion failed: {actual} != {expected}\0");
+        ori_panic_cstr(msg.as_ptr().cast::<c_char>());
+    }
+}
+
+/// Assert that two booleans are equal.
+///
+/// On failure, formats a message and routes through `ori_panic_cstr`.
+#[no_mangle]
+pub extern "C-unwind" fn ori_assert_eq_bool(actual: bool, expected: bool) {
+    if actual != expected {
+        let msg = format!("assertion failed: {actual} != {expected}\0");
+        ori_panic_cstr(msg.as_ptr().cast::<c_char>());
+    }
+}
+
+/// Assert that two floats are equal.
+///
+/// On failure, formats a message and routes through `ori_panic_cstr`.
+#[no_mangle]
+pub extern "C-unwind" fn ori_assert_eq_float(actual: f64, expected: f64) {
+    #[allow(
+        clippy::float_cmp,
+        reason = "assertion intentionally uses exact equality"
+    )]
+    if actual != expected {
+        let msg = format!("assertion failed: {actual} != {expected}\0");
+        ori_panic_cstr(msg.as_ptr().cast::<c_char>());
+    }
+}
+
+/// Assert two strings are equal.
+///
+/// On failure, formats a message and routes through `ori_panic_cstr`.
+#[no_mangle]
+pub extern "C-unwind" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriStr) {
+    let actual_str = if actual.is_null() {
+        ""
+    } else {
+        unsafe { (*actual).as_str() }
+    };
+    let expected_str = if expected.is_null() {
+        ""
+    } else {
+        unsafe { (*expected).as_str() }
+    };
+
+    if actual_str != expected_str {
+        let msg = format!("assertion failed: \"{actual_str}\" != \"{expected_str}\"\0");
+        ori_panic_cstr(msg.as_ptr().cast::<c_char>());
+    }
+}
