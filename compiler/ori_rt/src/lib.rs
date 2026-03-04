@@ -372,8 +372,7 @@ unsafe extern "C" fn run_main_thunk(ctx: *mut u8) {
 pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
     #[cfg(all(target_os = "windows", target_env = "msvc"))]
     {
-        let succeeded =
-            unsafe { ori_try_call(run_main_thunk, main_fn as *mut u8) };
+        let succeeded = unsafe { ori_try_call(run_main_thunk, main_fn as *mut u8) };
         if succeeded == 1 {
             return check_leaks_and_exit();
         }
