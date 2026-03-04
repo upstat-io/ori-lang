@@ -165,6 +165,7 @@ reroute: true
 name: "{Short Name}"
 full_name: "{Full Plan Name}"
 status: queued
+order: N
 ---
 ```
 
@@ -172,6 +173,7 @@ status: queued
 - `name` — short display name for timeline pills (e.g., "LLVM Fixes")
 - `full_name` — full display name for page titles (e.g., "LLVM Codegen Fixes")
 - `status` — `active | queued | resolved`
+- `order` — queue priority; lower value = promoted first when active reroute completes (default 999 if omitted)
 - `key` and `dir` are derived at load time from the directory name
 
 ```markdown

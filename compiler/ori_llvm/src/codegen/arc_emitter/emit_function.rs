@@ -161,7 +161,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
              dead_unwind detection invariant violated"
         );
 
-        // Pre-create LLVM blocks, skipping dead unwind blocks
+        // Pre-create LLVM blocks, skipping only dead unwind blocks.
+        //
+        // NOTE: Block merging (aliasing single-predecessor normal
+        // continuations to their predecessor's LLVM block) was attempted
+        // here but is fundamentally incompatible with instructions that
+        // create internal LLVM basic blocks (RcInc/RcDec on fat pointers
+        // emit inline SSO/null checks that move the builder to internal
+        // blocks like `rc_inc.sso_skip`). The self-loop detection in
+        // `br_exiting_catchpad` fails when the builder is at an internal
+        // block, causing entry blocks to gain predecessors and terminators
+        // to appear mid-block. Block merging should instead be done as a
+        // pre-emission ARC IR pass (option (b) in section-01-block-merging).
         self.block_map = func
             .blocks
             .iter()
