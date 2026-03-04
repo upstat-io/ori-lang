@@ -322,17 +322,21 @@ impl ArcLowerer<'_> {
                 }
             }
             CanExpr::Field { receiver, field: _ } => {
-                let recv = self.lower_expr(receiver);
-                let setter_fn = self.interner.intern("__set_field");
-                self.builder
-                    .emit_apply(Idx::UNIT, setter_fn, vec![recv, rhs], Some(span));
+                let _recv = self.lower_expr(receiver);
+                // TODO(section-03): field assignment in ARC lowering — blocked on COW
+                // codegen. `__set_field` does not exist as a runtime function or LLVM
+                // intrinsic. The evaluator desugars `obj.field = val` into
+                // `obj = { ...obj, field: val }` before it reaches ARC lowering, so
+                // this arm should be unreachable once desugaring is complete.
+                tracing::warn!("field assignment not yet supported in ARC lowering");
             }
             CanExpr::Index { receiver, index } => {
-                let recv = self.lower_expr(receiver);
-                let idx_var = self.lower_expr(index);
-                let setter_fn = self.interner.intern("__set_index");
-                self.builder
-                    .emit_apply(Idx::UNIT, setter_fn, vec![recv, idx_var, rhs], Some(span));
+                let _recv = self.lower_expr(receiver);
+                let _idx_var = self.lower_expr(index);
+                // TODO(section-03): index assignment in ARC lowering — blocked on COW
+                // codegen. `__set_index` does not exist as a runtime function or LLVM
+                // intrinsic. See field assignment comment above.
+                tracing::warn!("index assignment not yet supported in ARC lowering");
             }
             _ => {
                 tracing::warn!("unsupported assignment target in ARC IR");
@@ -395,16 +399,15 @@ impl ArcLowerer<'_> {
         let tree = self.canon.decision_trees.get_shared(tree_id);
 
         let scrut_ty = self.builder.var_type(scrut_var);
-        let mut ctx = crate::decision_tree::emit::EmitContext {
-            root_scrutinee: scrut_var,
-            root_scrutinee_ty: scrut_ty,
+        let mut ctx = crate::decision_tree::emit::EmitContext::new(
+            scrut_var,
+            scrut_ty,
             merge_block,
-            arm_bodies: arm_ids,
+            arm_ids,
             span,
-            pre_scope: pre_scope.clone(),
+            pre_scope.clone(),
             mutable_var_names,
-            variant_stack: Vec::new(),
-        };
+        );
 
         crate::decision_tree::emit::emit_tree(self, &tree, &mut ctx);
 

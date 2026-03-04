@@ -12,7 +12,8 @@
 
 use ori_types::{Idx, Pool, Tag};
 
-use super::{is_boxed_enum_field, ArcIrEmitter};
+use super::context::is_boxed_enum_field;
+use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{FunctionId, ValueId};
 

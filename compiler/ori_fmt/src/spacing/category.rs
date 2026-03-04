@@ -383,7 +383,6 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Size(_, _) => TokenCategory::Size,
             // Keywords treated as identifiers for spacing purposes
             TokenKind::Ident(_)
-            | TokenKind::Async
             | TokenKind::Dyn
             | TokenKind::Skip
             | TokenKind::Suspend

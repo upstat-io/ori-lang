@@ -15,6 +15,7 @@
 //! with payload comparison for payload variants planned).
 
 mod bodies;
+mod enum_bodies;
 mod field_ops;
 mod string_helpers;
 
@@ -28,9 +29,9 @@ use super::function_compiler::FunctionCompiler;
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 use bodies::{
-    compile_clone_fields, compile_default_construct, compile_enum_match_variants,
-    compile_for_each_field, compile_format_fields,
+    compile_clone_fields, compile_default_construct, compile_for_each_field, compile_format_fields,
 };
+use enum_bodies::compile_enum_match_variants;
 
 // ---------------------------------------------------------------------------
 // Entry point

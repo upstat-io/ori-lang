@@ -203,6 +203,9 @@ fn check_enum_tag(
         ori_types::Tag::Result => {
             check_result(&covered, missing, nesting);
         }
+        ori_types::Tag::Ordering => {
+            check_ordering(&covered, missing, nesting);
+        }
         // Unknown or non-enum type at this path — skip (conservative).
         // This can happen if the type checker couldn't resolve the scrutinee.
         _ => {}
@@ -287,6 +290,25 @@ fn check_result(
     }
     if !covered.contains(&1) {
         missing.push(wrap_pattern(nesting, "Err(_)"));
+    }
+}
+
+/// Check coverage for the builtin `Ordering` type.
+///
+/// Ordering has exactly 3 variants: `Less` (index 0), `Equal` (index 1), `Greater` (index 2).
+fn check_ordering(
+    covered: &rustc_hash::FxHashSet<u32>,
+    missing: &mut Vec<String>,
+    nesting: &[String],
+) {
+    if !covered.contains(&0) {
+        missing.push(wrap_pattern(nesting, "Less"));
+    }
+    if !covered.contains(&1) {
+        missing.push(wrap_pattern(nesting, "Equal"));
+    }
+    if !covered.contains(&2) {
+        missing.push(wrap_pattern(nesting, "Greater"));
     }
 }
 

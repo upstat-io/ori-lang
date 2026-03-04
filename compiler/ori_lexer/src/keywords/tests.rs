@@ -69,7 +69,8 @@ fn builtin_keywords() {
 
 #[test]
 fn misc_keywords() {
-    assert_eq!(lookup("async"), Some(TokenKind::Async));
+    // async is not a keyword (not in spec reserved keywords)
+    assert_eq!(lookup("async"), None);
     assert_eq!(lookup("do"), Some(TokenKind::Do));
     assert_eq!(lookup("then"), Some(TokenKind::Then));
     assert_eq!(lookup("yield"), Some(TokenKind::Yield));

@@ -2,7 +2,7 @@
 
 /// Compact discriminant tag for `TokenKind`, with semantic range layout.
 ///
-/// All values fit in a single `u8` (max 127), with categories arranged in
+/// All values fit in a single `u8` (max 139), with categories arranged in
 /// contiguous ranges separated by gaps for future expansion:
 ///
 /// | Range   | Category           |
@@ -12,7 +12,8 @@
 /// | 50-56   | Type keywords      |
 /// | 57-60   | Constructors       |
 /// | 61-73   | Pattern keywords   |
-/// | 74-75   | Gap (future keywords) |
+/// | 74      | `FormatSpec`       |
+/// | 75      | `HashBang`         |
 /// | 76-99   | Punctuation        |
 /// | 100-120 | Operators          |
 /// | 121-127 | Special            |
@@ -43,8 +44,8 @@ pub enum TokenTag {
     TemplateTail = 9,
     TemplateComplete = 10,
 
-    // === Keywords — reserved (11-39) ===
-    KwAsync = 11,
+    // === Keywords — reserved (12-39) ===
+    // 11: removed (was KwAsync)
     KwBreak = 12,
     KwContinue = 13,
     KwReturn = 14,
@@ -218,7 +219,6 @@ impl TokenTag {
             Self::TemplateTail => "template tail",
             Self::TemplateComplete => "template literal",
             Self::FormatSpec => "format spec",
-            Self::KwAsync => "async",
             Self::KwBreak => "break",
             Self::KwContinue => "continue",
             Self::KwReturn => "return",

@@ -184,7 +184,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .or_else(|| self.ctx.functions.get(&callee))
             .or_else(|| self.lookup_mono_dispatch(callee, args, func))
             .or_else(|| self.lookup_method_fallback(callee))
-            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
+            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi));
 
         let result = if let Some((func_id, params, ret_abi)) = resolved {
             let passed_args = self.apply_param_passing(&arg_vals, &params);

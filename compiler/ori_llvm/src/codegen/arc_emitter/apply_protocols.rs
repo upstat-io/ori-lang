@@ -10,12 +10,13 @@
 //! a handler here. `ori_list_take` is NOT a protocol builtin (it's a real
 //! runtime function with special sret handling).
 //!
-//! | Protocol         | Purpose                                  | Result type      |
-//! |------------------|------------------------------------------|------------------|
-//! | `__iter_next`    | For-loop iteration protocol              | `{i64, T}`       |
-//! | `__collect_set`  | Collect iterator into `Set<T>`           | `{i64, i64, ptr}`|
-//! | `ori_list_take`  | For-yield list finalization (explicit sret)| `{i64, i64, ptr}`|
-//! | `__index`        | `receiver[index]` desugaring             | `T` or `Option<V>`|
+//! | Protocol              | Purpose                                  | Result type      |
+//! |-----------------------|------------------------------------------|------------------|
+//! | `__iter_next`         | For-loop iteration protocol              | `{i64, T}`       |
+//! | `__collect_set`       | Collect iterator into `Set<T>`           | `{i64, i64, ptr}`|
+//! | `ori_list_take`       | For-yield list finalization (explicit sret)| `{i64, i64, ptr}`|
+//! | `ori_list_slice_drop` | List rest pattern (`[a, b, ..rest]`)     | `{i64, i64, ptr}`|
+//! | `__index`             | `receiver[index]` desugaring             | `T` or `Option<V>`|
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
@@ -103,7 +104,83 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return true;
         }
 
+        // ori_list_slice_drop: emitted by decision tree ListRest path resolution.
+        // args[0] = list struct, args[1] = start index (int constant).
+        // Expands to ori_list_slice_drop(data, len, cap, n, elem_size, out_ptr).
+        if callee_name == "ori_list_slice_drop" && args.len() >= 2 {
+            let list_ty = func.var_type(args[0]);
+            if let Some(val) = self.emit_list_slice_drop(args[0], args[1], list_ty, func) {
+                self.def_var_repr(dst, val, func);
+            }
+            return true;
+        }
+
         false
+    }
+
+    /// Emit `ori_list_slice_drop(data, len, cap, n, elem_size, out_ptr)` for
+    /// list rest patterns (`[a, b, ..rest]`).
+    ///
+    /// Extracts the list's data/len/cap components, computes the element size
+    /// from the list type, then calls the runtime function with sret output.
+    fn emit_list_slice_drop(
+        &mut self,
+        list_var: ArcVarId,
+        start_var: ArcVarId,
+        list_ty: ori_types::Idx,
+        _func: &ArcFunction,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_list_slice_drop");
+        let list_val = self.var(list_var);
+        let start_val = self.var(start_var);
+
+        // Extract list components: {len, cap, data}
+        let len = self.builder.extract_value(list_val, 0, "slice.len")?;
+        let cap = self.builder.extract_value(list_val, 1, "slice.cap")?;
+        let data = self.builder.extract_value(list_val, 2, "slice.data")?;
+
+        // Compute element size from the list's element type
+        let resolved = self.pool.resolve_fully(list_ty);
+        let elem_ty = if self.pool.tag(resolved) == ori_types::Tag::List {
+            self.pool.list_elem(resolved)
+        } else {
+            ori_types::Idx::INT // fallback
+        };
+        let elem_size = self.element_store_size(elem_ty);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+
+        // Alloca {i64, i64, ptr} for the sret result
+        let list_struct_ty = self.builder.register_type(
+            self.builder
+                .scx()
+                .type_struct(
+                    &[
+                        self.builder.scx().type_i64().into(),
+                        self.builder.scx().type_i64().into(),
+                        self.builder.scx().type_ptr().into(),
+                    ],
+                    false,
+                )
+                .into(),
+        );
+        let out_alloca = self.builder.create_entry_alloca(
+            self.current_function,
+            "slice_drop.out",
+            list_struct_ty,
+        );
+
+        // Call ori_list_slice_drop(data, len, cap, n, elem_size, out_ptr)
+        self.builder.call(
+            func_id,
+            &[data, len, cap, start_val, elem_size_val, out_alloca],
+            "slice_drop",
+        );
+
+        // Load the result struct
+        Some(
+            self.builder
+                .load(list_struct_ty, out_alloca, "slice_drop.val"),
+        )
     }
 
     /// Emit `ori_list_take(list_ptr, out_ptr)` with manual sret handling.
