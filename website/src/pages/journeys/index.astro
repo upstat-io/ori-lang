@@ -18,6 +18,10 @@ const moderateCount = journeys.filter(j => j.data.difficulty === 'moderate').len
 const complexCount = journeys.filter(j => j.data.difficulty === 'complex').length;
 
 const allFeatures = [...new Set(journeys.flatMap(j => j.data.features))].sort();
+
+const lastJourneyDate = totalJourneys > 0
+  ? new Date(Math.max(...journeys.map(j => j.data.date.getTime()))).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  : null;
 ---
 
 <BaseLayout
@@ -33,6 +37,7 @@ const allFeatures = [...new Set(journeys.flatMap(j => j.data.features))].sort();
         Each journey traces lexing, parsing, type checking, ARC analysis, and codegen, exposing
         exactly what the compiler does at every phase.
       </p>
+      <a href="/journeys/what-is-a-journey/" class="explainer-link">What is a Code Journey?</a>
       <div class="stats">
         <div class="stat">
           <span class="stat-value">{totalJourneys}</span>
@@ -50,6 +55,12 @@ const allFeatures = [...new Set(journeys.flatMap(j => j.data.features))].sort();
           <span class="stat-value">{totalBugs}</span>
           <span class="stat-label">Bugs Found</span>
         </div>
+        {lastJourneyDate && (
+          <div class="stat">
+            <span class="stat-value">{lastJourneyDate}</span>
+            <span class="stat-label">Last Journey</span>
+          </div>
+        )}
       </div>
     </section>
 
@@ -169,8 +180,29 @@ const allFeatures = [...new Set(journeys.flatMap(j => j.data.features))].sort();
     font-size: var(--text-lg);
     color: var(--color-text-secondary);
     max-width: 640px;
-    margin: 0 auto var(--space-8);
+    margin: 0 auto var(--space-4);
     line-height: 1.6;
+  }
+
+  .explainer-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-8);
+    transition: all var(--transition-fast);
+  }
+
+  .explainer-link:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: rgba(86, 156, 214, 0.08);
   }
 
   .stats {

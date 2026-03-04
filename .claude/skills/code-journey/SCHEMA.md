@@ -4,13 +4,17 @@
 > All journey result files MUST conform to this schema. The `/code-journey` skill
 > references this document when generating new journeys.
 
-## File Naming
+## File Layout
 
 ```
 plans/code-journeys/
   NN-slug.ori                 # Source file (e.g., 01-arithmetic.ori)
   NN-slug-results.md          # Results file (e.g., 01-arithmetic-results.md)
-  SCHEMA.md                   # This file
+
+.claude/skills/code-journey/
+  SKILL.md                    # Execution logic
+  SCHEMA.md                   # This file (format specification)
+  score.py                    # Deterministic scoring script
 ```
 
 - `NN` = zero-padded journey number (01, 02, ... 99)
@@ -75,15 +79,34 @@ features:                           # list — from controlled vocabulary (see b
   - nested_structs
 feature_description: "Struct construction, field access, and nested struct operations"
 
-# Scoring (mandatory)
+# Scoring (mandatory — all values computed by score.py, not assigned manually)
 score: 8.5                         # float — overall weighted score (0-10)
-score_breakdown:                   # per-category scores (0-10)
+score_breakdown:                   # per-category scores (0-10), from score.py output
   instruction_efficiency: 8
   arc_correctness: 10
   attributes_safety: 7
   control_flow: 9
   ir_quality: 7
   binary_quality: 8
+  other_findings: 10
+score_metrics:                     # raw inputs to score.py — source of truth for re-scoring
+  instruction_ratio: 1.25
+  instruction_ratio_max: 1.50
+  arc_violations: 0
+  arc_has_unbalanced: false
+  arc_has_scalar_rc: false
+  attr_applicable: 10
+  attr_correct: 8
+  attr_has_wrong: false
+  cf_defects: 1
+  cf_incorrect: false
+  ir_unjustified: 3
+  ir_incorrect: false
+  bin_defects: 0
+  bin_hard_fail: false
+  other_critical: 0
+  other_high: 0
+  other_low: 0
 overflow_check: PASS               # enum: PASS | FAIL
 
 # Bug history (optional — only if bugs were found/fixed)
@@ -624,28 +647,34 @@ inline with `[SEVERITY-N]` (e.g., `[MEDIUM-1]`). The finding is then detailed in
 
 ### `## Codegen Quality Score`
 
-Mandatory weighted scoring table:
+**Scores are computed by `score.py` — do not assign scores manually.** The background agent
+counts metrics from the IR analysis and feeds them to the scoring script. The script applies
+threshold tables and gate conditions to produce deterministic, reproducible scores.
+
+Mandatory weighted scoring table. The **Notes** column MUST include the primary metric value
+(the countable quantity that determined the score):
 
 ```markdown
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 20% | 8/10 | 1.67x avg overhead |
-| ARC Correctness | 20% | 10/10 | All balanced |
-| Attributes & Safety | 15% | 7/10 | Missing nounwind on 1 fn |
-| Control Flow | 15% | 9/10 | 1 redundant branch |
-| IR Quality | 20% | 7/10 | 3 unjustified instructions |
-| Binary Quality | 10% | 8/10 | Standard debug size |
+| Instruction Efficiency | 15% | 9/10 | 1.07x avg ratio |
+| ARC Correctness | 20% | 10/10 | 0 violations |
+| Attributes & Safety | 10% | 7/10 | 83.3% compliance |
+| Control Flow | 10% | 9/10 | 1 defect |
+| IR Quality | 20% | 9/10 | 1 unjustified instruction |
+| Binary Quality | 10% | 10/10 | 0 defects |
+| Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 8.2 / 10**
+**Overall: 9.2 / 10**
 ```
 
-**Score calculation**: `sum(weight_i × score_i) / sum(weight_i)`
+**Score calculation**: `sum(weight_i × score_i) / sum(weight_i)`, computed by `score.py`.
 
 Overflow Checking is pass/fail, not scored — it's a gate, not a gradient.
 
-The `score` and `score_breakdown` in frontmatter MUST match this table.
+The `score` and `score_breakdown` in frontmatter MUST match this table and the `score.py` output.
 
 ### `## Verdict`
 
@@ -689,14 +718,18 @@ Four standardized tags — no bare ``` blocks:
 
 ## Score Weight Definitions
 
-| Category | Weight | Source Scrutiny Category | What It Measures |
-|----------|--------|------------------------|------------------|
-| Instruction Efficiency | 20% | 1. Instruction Purity | Actual vs ideal instruction ratio |
-| ARC Correctness | 20% | 2. ARC Purity | RC balance, elision, move semantics |
-| Attributes & Safety | 15% | 3. Attributes & CC | Attribute presence, fastcc usage |
-| Control Flow | 15% | 4. Control Flow & Block Layout | Empty blocks, redundant branches |
-| IR Quality | 20% | 7. Optimal IR Comparison | Unjustified overhead delta |
-| Binary Quality | 10% | 6. Binary Analysis | Size, symbol quality, native code |
+| Category | Weight | Source | Primary Metric |
+|----------|--------|--------|----------------|
+| Instruction Efficiency | 15% | Cat 1. Instruction Purity | Weighted avg instruction ratio |
+| ARC Correctness | 20% | Cat 2. ARC Purity | Weighted violation count |
+| Attributes & Safety | 10% | Cat 3. Attributes & CC | Attribute compliance % |
+| Control Flow | 10% | Cat 4. Control Flow & Block Layout | Defect count |
+| IR Quality | 20% | Cat 7. Optimal IR Comparison | Unjustified instruction count |
+| Binary Quality | 10% | Cat 6. Binary Analysis | Weighted defect count |
+| Other Findings | 15% | Cat 8+. Journey-specific | Severity-weighted penalty (crit×3, high×2, low×1) |
+
+Scores are mapped from metrics via strict threshold tables in `score.py`.
+See `SKILL.md` for the full rubric, gate conditions, and how to run the script.
 
 ## Complete Example Skeleton
 
@@ -723,14 +756,33 @@ features:
   - let_bindings
   - int_literals
 feature_description: "Basic arithmetic with function calls and let bindings"
-score: 8.8
+score: 9.2
 score_breakdown:
-  instruction_efficiency: 8
+  instruction_efficiency: 9
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 7
   control_flow: 9
-  ir_quality: 8
-  binary_quality: 9
+  ir_quality: 9
+  binary_quality: 10
+  other_findings: 10
+score_metrics:
+  instruction_ratio: 1.07
+  instruction_ratio_max: 1.07
+  arc_violations: 0
+  arc_has_unbalanced: false
+  arc_has_scalar_rc: false
+  attr_applicable: 12
+  attr_correct: 10
+  attr_has_wrong: false
+  cf_defects: 1
+  cf_incorrect: false
+  ir_unjustified: 1
+  ir_incorrect: false
+  bin_defects: 0
+  bin_hard_fail: false
+  other_critical: 0
+  other_high: 0
+  other_low: 0
 overflow_check: PASS
 bugs_found: []
 related_journeys: []

@@ -12,7 +12,7 @@ argument-hint: "[code-description | file.ori | --summary | --infinity]"
 
 ## CRITICAL: Schema Compliance
 
-**All journey output MUST conform to `plans/code-journeys/SCHEMA.md`** — the single source of truth for format, section order, table schemas, frontmatter fields, severity definitions, and scoring weights. Read it before generating any results. Any deviation from the schema is a bug.
+**All journey output MUST conform to `SCHEMA.md`** (in this skill folder: `.claude/skills/code-journey/SCHEMA.md`) — the single source of truth for format, section order, table schemas, frontmatter fields, severity definitions, and scoring weights. Read it before generating any results. Any deviation from the schema is a bug.
 
 ## CRITICAL: Autonomous Execution
 
@@ -43,10 +43,14 @@ Each journey's analysis and results writing is delegated to a **background Task 
 
 ## Journey Directory
 
-All journey files live in `plans/code-journeys/`:
+Journey source and results live in `plans/code-journeys/`:
 - `NN-slug.ori` — the source code for journey N (e.g., `01-arithmetic.ori`)
 - `NN-slug-results.md` — detailed results for journey N (e.g., `01-arithmetic-results.md`)
+
+Skill definition files live in `.claude/skills/code-journey/`:
+- `SKILL.md` — execution logic (this file)
 - `SCHEMA.md` — format specification (single source of truth)
+- `score.py` — deterministic scoring script
 
 **No overview.md** — the web UI auto-generates the gallery from journey frontmatter.
 
@@ -110,30 +114,31 @@ Write the code to `plans/code-journeys/NN-slug.ori`.
 
 ### Step 1: Run Both Paths (Output to Temp Files)
 
-Create a temp directory for this journey's trace data:
+**IMPORTANT — Shell variable limitation:** The Bash tool does NOT persist shell state between calls. Variables like `JTMP=...` vanish after each call. **Always use the literal path `/tmp/journey_N`** (with N replaced by the journey number) in every command. Never rely on `$JTMP` across separate Bash calls.
+
+Create the temp directory:
 
 ```bash
-JTMP="/tmp/journey_N"
-mkdir -p "$JTMP"
+mkdir -p /tmp/journey_N
 ```
 
 **Run both paths, capturing exit codes and output to files (NOT to context):**
 
 ```bash
 # Eval path
-cargo run -- run plans/code-journeys/NN-slug.ori > "$JTMP/eval_stdout.txt" 2> "$JTMP/eval_stderr.txt"
-echo $? > "$JTMP/eval_exit.txt"
+cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/eval_stdout.txt 2> /tmp/journey_N/eval_stderr.txt
+echo $? > /tmp/journey_N/eval_exit.txt
 
 # AOT path
 rm -rf ~/.cache/ori 2>/dev/null
-./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > "$JTMP/aot_stdout.txt" 2> "$JTMP/aot_stderr.txt"
-echo $? > "$JTMP/aot_exit.txt"
+./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/aot_stdout.txt 2> /tmp/journey_N/aot_stderr.txt
+echo $? > /tmp/journey_N/aot_exit.txt
 ```
 
 **Read ONLY the exit codes and stdout results back into context:**
 
 ```bash
-cat "$JTMP/eval_exit.txt" "$JTMP/aot_exit.txt" "$JTMP/eval_stdout.txt" "$JTMP/aot_stdout.txt"
+cat /tmp/journey_N/eval_exit.txt /tmp/journey_N/aot_exit.txt /tmp/journey_N/eval_stdout.txt /tmp/journey_N/aot_stdout.txt
 ```
 
 This gives you just the 4 key values: eval exit code, AOT exit code, eval output, AOT output.
@@ -144,47 +149,38 @@ This gives you just the 4 key values: eval exit code, AOT exit code, eval output
 
 ```bash
 # Lexer trace
-ORI_LOG=ori_lexer=debug cargo run -- run plans/code-journeys/NN-slug.ori > "$JTMP/lexer.txt" 2>&1
+ORI_LOG=ori_lexer=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/lexer.txt 2>&1
 
 # Parser trace
-ORI_LOG=ori_parse=debug cargo run -- run plans/code-journeys/NN-slug.ori > "$JTMP/parser.txt" 2>&1
+ORI_LOG=ori_parse=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/parser.txt 2>&1
 
 # Type checker trace
-ORI_LOG=ori_types=debug cargo run -- run plans/code-journeys/NN-slug.ori > "$JTMP/typeck.txt" 2>&1
+ORI_LOG=ori_types=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/typeck.txt 2>&1
 
 # Canonicalizer trace
-ORI_LOG=ori_canon=debug cargo run -- run plans/code-journeys/NN-slug.ori > "$JTMP/canon.txt" 2>&1
+ORI_LOG=ori_canon=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/canon.txt 2>&1
 
 # Eval trace
-ORI_LOG=ori_eval=trace cargo run -- run plans/code-journeys/NN-slug.ori > "$JTMP/eval_trace.txt" 2>&1
+ORI_LOG=ori_eval=trace cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/eval_trace.txt 2>&1
 
 # Prelude overhead
-ORI_LOG=ori_lexer=debug,ori_parse=debug,ori_types=debug,ori_canon=debug cargo run -- run plans/code-journeys/NN-slug.ori > "$JTMP/prelude.txt" 2>&1
+ORI_LOG=ori_lexer=debug,ori_parse=debug,ori_types=debug,ori_canon=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/prelude.txt 2>&1
 
 # LLVM IR dump (unoptimized — this is what OUR codegen emits)
 rm -rf ~/.cache/ori 2>/dev/null
-ORI_DUMP_AFTER_LLVM=1 ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > "$JTMP/llvm_ir.txt" 2>&1
+ORI_DUMP_AFTER_LLVM=1 ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/llvm_ir.txt 2>&1
 
 # LLVM warnings
 rm -rf ~/.cache/ori 2>/dev/null
-ORI_LOG=warn ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > "$JTMP/llvm_warn.txt" 2>&1
+ORI_LOG=warn ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/llvm_warn.txt 2>&1
 
 # ARC analysis trace (borrow inference, RC operations)
 rm -rf ~/.cache/ori 2>/dev/null
-ORI_LOG=ori_llvm=debug ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > "$JTMP/arc_trace.txt" 2>&1
+ORI_LOG=ori_llvm=debug ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/arc_trace.txt 2>&1
 
-# AOT binary size (if compilation succeeds)
+# AOT binary build + analysis (if compilation succeeds)
 rm -rf ~/.cache/ori 2>/dev/null
-./target/debug/ori build plans/code-journeys/NN-slug.ori -o "$JTMP/binary" > "$JTMP/build_stdout.txt" 2> "$JTMP/build_stderr.txt" && {
-  ls -la "$JTMP/binary" > "$JTMP/binary_size.txt" 2>&1
-  # Symbol table — shows all emitted symbols and their sizes
-  nm --print-size --size-sort "$JTMP/binary" > "$JTMP/symbols.txt" 2>&1
-  # Section sizes — text, data, bss, rodata
-  size "$JTMP/binary" > "$JTMP/sections.txt" 2>&1
-  size -A "$JTMP/binary" >> "$JTMP/sections.txt" 2>&1
-  # Disassembly of user functions (not runtime) for instruction count
-  objdump -d "$JTMP/binary" | grep -A 100 '<_ori_' > "$JTMP/disasm.txt" 2>&1
-}
+./target/debug/ori build plans/code-journeys/NN-slug.ori -o /tmp/journey_N/binary > /tmp/journey_N/build_stdout.txt 2> /tmp/journey_N/build_stderr.txt && ls -la /tmp/journey_N/binary > /tmp/journey_N/binary_size.txt 2>&1 && nm --print-size --size-sort /tmp/journey_N/binary > /tmp/journey_N/symbols.txt 2>&1 && size /tmp/journey_N/binary > /tmp/journey_N/sections.txt 2>&1 && size -A /tmp/journey_N/binary >> /tmp/journey_N/sections.txt 2>&1 && objdump -d /tmp/journey_N/binary | grep -A 100 '<_ori_' > /tmp/journey_N/disasm.txt 2>&1
 ```
 
 Run as many of these in parallel as possible (they are independent).
@@ -199,19 +195,20 @@ Use the **Agent tool** with `run_in_background: true` to spawn a background agen
 - The eval/AOT exit codes and stdout
 
 **The background agent's job:**
-1. Read `plans/code-journeys/SCHEMA.md` first — this is the format specification
+1. Read `.claude/skills/code-journey/SCHEMA.md` first — this is the format specification
 2. Read ALL trace files from the temp directory
 3. Read previous journey results for cross-referencing (scan `*-results.md` frontmatter)
 4. Perform the **Deep Scrutiny** analysis (7 core + journey-specific categories)
-5. Write `plans/code-journeys/NN-slug-results.md` conforming to SCHEMA.md
-6. Clean up the temp directory
+5. Compute scores using `.claude/skills/code-journey/score.py` (see Scoring section below)
+6. Write `plans/code-journeys/NN-slug-results.md` conforming to SCHEMA.md
+7. Clean up the temp directory
 
 **Background agent prompt template** (fill in N, slug, theme, code, expected, exit codes):
 
 ```
 You are analyzing the results of Code Journey N for the Ori compiler.
 
-**FIRST**: Read plans/code-journeys/SCHEMA.md — this is the authoritative format specification.
+**FIRST**: Read .claude/skills/code-journey/SCHEMA.md — this is the authoritative format specification.
 Your output MUST conform to it exactly: frontmatter schema, section order, table schemas,
 severity definitions, scoring weights. Any deviation is a bug.
 
@@ -235,12 +232,13 @@ Trace data is in temp files at /tmp/journey_N/:
 - binary_size.txt, symbols.txt, sections.txt, disasm.txt (if build succeeded)
 
 Your tasks:
-1. Read plans/code-journeys/SCHEMA.md (the format spec)
+1. Read .claude/skills/code-journey/SCHEMA.md (the format spec)
 2. Read ALL trace files and analyze the journey through both compiler paths
 3. Read previous journey results frontmatter for cross-referencing
 4. Perform Deep Scrutiny (all 7 core categories + 1-4 journey-specific)
-5. Write plans/code-journeys/NN-slug-results.md conforming to SCHEMA.md
-6. Run: rm -rf /tmp/journey_N
+5. Compute scores: run `python3 .claude/skills/code-journey/score.py` with your metrics (see Scoring section in SKILL.md). Use its output as the authoritative scores. Do NOT override the script's scores.
+6. Write plans/code-journeys/NN-slug-results.md conforming to SCHEMA.md
+7. Run: rm -rf /tmp/journey_N
 
 Key format requirements from SCHEMA.md:
 - YAML frontmatter with all required fields (including score_breakdown)
@@ -380,20 +378,119 @@ Each journey MUST have at least 1 and at most 4 journey-specific categories.
 
 ## Scoring (for Background Agent)
 
-Mandatory weighted scoring. Categories map 1:1 to core scrutiny:
+**Scores are computed deterministically by `score.py`, not by AI judgment.** The script maps counts to scores via strict threshold tables.
 
-| Category | Weight | Source |
-|----------|--------|--------|
-| Instruction Efficiency | 20% | Instruction Purity (Cat 1) |
-| ARC Correctness | 20% | ARC Purity (Cat 2) |
-| Attributes & Safety | 15% | Attributes & CC (Cat 3) |
-| Control Flow | 15% | Control Flow & Block Layout (Cat 4) |
-| IR Quality | 20% | Optimal IR Comparison (Cat 7) |
-| Binary Quality | 10% | Binary Analysis (Cat 6) |
+### CRITICAL: Exploration First, Scoring Last
 
-Overflow Checking (Cat 5) is pass/fail, not scored.
+**Do NOT let the scoring rubric drive your analysis.** The Deep Scrutiny is open-ended exploration — look at what the compiler actually produced, report what you find, follow surprising threads. The rubric scores the OUTPUT of your exploration; it is not a checklist to optimize for. Goodhart's Law applies: if you only look for what's scored, you'll miss the interesting findings that make journeys valuable.
 
-**Overall score** = weighted average, reported to 1 decimal. Must match frontmatter `score` field.
+**Workflow**: Complete ALL 7 Deep Scrutiny categories with genuine analysis first. Write up your findings. THEN — as a final mechanical step — extract the metrics from what you already wrote and feed them to `score.py`.
+
+### How to Score (After Deep Scrutiny Is Complete)
+
+1. Complete all 7 Deep Scrutiny categories and write up findings
+2. Extract the following metrics from your completed analysis:
+   - **Instruction ratio**: `sum(actual_i) / sum(ideal_i)` across all user functions (weighted average), and the max per-function ratio
+   - **ARC violations**: count using severity multipliers (unbalanced = ×3, scalar RC = ×5, wasted pair = ×1, missing elision = ×1, missing move = ×1)
+   - **Attribute compliance**: count total applicable attributes and how many are correctly applied
+   - **Control flow defects**: count empty blocks, redundant branches, trivial phi nodes, unreachable code after noreturn, redundant block boundaries
+   - **IR unjustified instructions**: count instructions in actual IR not in ideal IR that aren't justified by overflow checking, panic path setup, or ABI compliance
+   - **Binary defects**: count (crashes = ×3, leaks = ×2, eval/AOT mismatch = ×3, each other defect = ×1)
+   - **Gate flags**: boolean flags for critical conditions (unbalanced RC, scalar RC, wrong attributes, incorrect CF, incorrect IR, binary hard fail)
+3. Run the scoring script:
+
+```bash
+python3 .claude/skills/code-journey/score.py \
+  --instruction-ratio <avg_ratio> \
+  --instruction-ratio-max <max_ratio> \
+  --arc-violations <count> \
+  --arc-has-unbalanced <true|false> \
+  --arc-has-scalar-rc <true|false> \
+  --attr-applicable <count> \
+  --attr-correct <count> \
+  --attr-has-wrong <true|false> \
+  --cf-defects <count> \
+  --cf-incorrect <true|false> \
+  --ir-unjustified <count> \
+  --ir-incorrect <true|false> \
+  --bin-defects <count> \
+  --bin-hard-fail <true|false> \
+  --other-critical <count> \
+  --other-high <count> \
+  --other-low <count>
+```
+
+The `--other-*` args default to 0 if omitted (no uncategorized findings).
+
+4. **Use the script's JSON output as the authoritative scores.** Do NOT override, adjust, or "round" the scores. The script implements the rubric; you implement the counting. Paste the `markdown` field from the JSON output directly into the results file.
+
+### Scoring Rubric Reference
+
+Categories map 1:1 to core scrutiny. Overflow Checking (Cat 5) is pass/fail, not scored.
+
+| Category | Weight | Source | Primary Metric |
+|----------|--------|--------|----------------|
+| Instruction Efficiency | 15% | Instruction Purity (Cat 1) | Weighted avg instruction ratio |
+| ARC Correctness | 20% | ARC Purity (Cat 2) | Weighted violation count |
+| Attributes & Safety | 10% | Attributes & CC (Cat 3) | Attribute compliance % |
+| Control Flow | 10% | Control Flow & Block Layout (Cat 4) | Defect count |
+| IR Quality | 20% | Optimal IR Comparison (Cat 7) | Unjustified instruction count |
+| Binary Quality | 10% | Binary Analysis (Cat 6) | Weighted defect count |
+| Other Findings | 15% | Journey-specific categories (Cat 8+) | Severity-weighted penalty |
+
+### Gate Conditions (Critical Issue Caps)
+
+Gates prevent high scores when critical issues exist, regardless of other metrics:
+
+| Gate | Condition | Effect |
+|------|-----------|--------|
+| Instruction max ratio | Any function > 5.00x | Instruction Efficiency capped at 5 |
+| ARC unbalanced | Any unbalanced RC (leak/double-free) | ARC Correctness capped at 3 |
+| ARC scalar RC | Any RC op on scalar type | ARC Correctness forced to 0 |
+| Wrong attribute | Wrong attribute applied | Attributes & Safety capped at 2 |
+| CF incorrect | Semantically wrong control flow | Control Flow capped at 1 |
+| IR incorrect | Semantically wrong IR | IR Quality capped at 1 |
+| Binary hard fail | Wrong output / crash / mismatch | Binary Quality forced to 0 |
+| **Global gate** | Binary Quality == 0 | **Overall capped at 3.0** |
+
+### Attribute Compliance Checklist
+
+For each function, check all applicable attributes:
+
+| Attribute | Applicable When |
+|-----------|----------------|
+| `fastcc` | Function is internal (not `@main` entry) |
+| `nounwind` | Function provably never unwinds |
+| `noreturn` | Function never returns (panic, abort) |
+| `cold` | Function is error/panic path only |
+| `noalias` | Pointer return that doesn't alias |
+| `readonly`/`readnone` | Function has no side effects |
+| `noundef` | All non-poison parameters |
+| `uwtable` | All functions (for stack unwinding) |
+
+### ARC Violation Severity Multipliers
+
+| Violation Type | Multiplier | Rationale |
+|---------------|------------|-----------|
+| Unbalanced RC pair (inc without dec or vice versa) | ×3 | Memory leak or double-free |
+| RC operation on scalar type (i64, double, i1) | ×5 | Fundamentally wrong |
+| Wasted RC pair (inc immediately followed by dec) | ×1 | Unnecessary overhead |
+| Missing borrow elision (owned param only read) | ×1 | Missed optimization |
+| Missing move semantics (inc on value never used after) | ×1 | Missed optimization |
+
+### Zero-RC Programs
+
+Programs with no heap-allocated values that correctly emit zero RC operations score 10 (not N/A — correct absence is perfect).
+
+### Other Findings (the "escape valve")
+
+Findings from journey-specific categories (Cat 8+) or anything that doesn't fit the 6 defined dimensions go here. This ensures the AI isn't constrained to only report what's scored — discoveries outside the rubric still count.
+
+**Scoring**: starts at 10, deducts by severity count: critical = -3, high = -2, low = -1. Clamped to [0, 10]. Zero uncategorized findings = 10/10.
+
+**What counts as "other"**: anything from the journey-specific analysis categories (e.g., "Closures: Representation", "Generics: Monomorphization") that reveals issues not captured by the 6 core metrics. If you discover something interesting that doesn't fit instruction counts, ARC violations, attribute compliance, control flow defects, unjustified IR, or binary defects — it goes here.
+
+**Overall score** = weighted average, reported to 1 decimal. Must match frontmatter `score`, `score_breakdown`, and `score_metrics` fields.
 
 ---
 
