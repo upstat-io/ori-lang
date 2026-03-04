@@ -23,10 +23,17 @@ fn main() {
 
     build.warnings(true).extra_warnings(true);
 
-    // -fno-exceptions is a C++ flag but some C compilers accept it to
-    // suppress exception-related code generation. Use flag_if_supported
-    // for cross-toolchain portability.
-    build.flag_if_supported("-fno-exceptions");
+    // Ensure all C functions have unwind tables so the platform unwinder
+    // can walk through them. Critical for ori_raise_exception: it calls
+    // _Unwind_RaiseException, and the unwinder must be able to traverse
+    // its frame to reach LLVM-generated catch landing pads.
+    //
+    // NOTE: Do NOT add -fno-exceptions here — it suppresses .eh_frame
+    // generation, which prevents the unwinder from walking through
+    // ori_raise_exception, causing _URC_END_OF_STACK (code 5).
+    if !is_msvc {
+        build.flag("-funwind-tables");
+    }
 
     // --- Forced-unwind test harness (Linux x86-64 + aarch64) ---
     //
