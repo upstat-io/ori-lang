@@ -755,3 +755,68 @@ fn test_op_overflow_in_function() {
         "stderr should mention overflow or panic, got: {stderr}"
     );
 }
+
+// --- Unary negation overflow ---
+
+#[test]
+fn test_op_overflow_neg_min() {
+    // Unary negation of INT_MIN (-2^63) overflows: result would be 2^63 > INT_MAX
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let x = -9223372036854775807 - 1;
+    -x
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "INT_MIN unary negation should panic");
+    assert!(
+        stderr.contains("overflow") || stderr.contains("panic"),
+        "stderr should mention overflow or panic, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_op_no_overflow_neg_zero() {
+    // -0 = 0, no overflow
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = 0;
+    let y = -x;
+    if y == 0 then 0 else 1
+}
+"#,
+        "op_no_overflow_neg_zero",
+    );
+}
+
+#[test]
+fn test_op_no_overflow_neg_normal() {
+    // -42 = -42, no overflow
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = 42;
+    let y = -x;
+    if y == -42 then 0 else 1
+}
+"#,
+        "op_no_overflow_neg_normal",
+    );
+}
+
+#[test]
+fn test_op_no_overflow_neg_max() {
+    // -INT_MAX = INT_MIN + 1, no overflow (largest valid negation)
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = 9223372036854775807;
+    let y = -x;
+    if y == -9223372036854775807 then 0 else 1
+}
+"#,
+        "op_no_overflow_neg_max",
+    );
+}

@@ -267,3 +267,37 @@ use std.testing { assert_eq, assert_panics }
 }
 
 @neg_min_overflow () -> int = 0;
+
+// Unary negation of INT_MIN panics (-INT_MIN overflows i64)
+@test_unary_neg_min tests @unary_neg_min () -> void = {
+    assert_panics(f: () -> {
+        let $x = -9223372036854775807 - 1;
+        -x
+    })
+}
+
+@unary_neg_min () -> int = 0;
+
+// Unary negation of 0 is 0 (no overflow)
+@test_unary_neg_zero tests @unary_neg_zero () -> void = {
+    let $x: int = 0;
+    assert_eq(actual: -x, expected: 0)
+}
+
+@unary_neg_zero () -> int = 0;
+
+// Unary negation of 1 is -1 (no overflow)
+@test_unary_neg_one tests @unary_neg_one () -> void = {
+    let $x: int = 1;
+    assert_eq(actual: -x, expected: -1)
+}
+
+@unary_neg_one () -> int = -1;
+
+// Unary negation of INT_MAX is valid (no overflow, result = INT_MIN + 1)
+@test_unary_neg_max tests @unary_neg_max () -> void = {
+    let $x: int = 9223372036854775807;
+    assert_eq(actual: -x, expected: -9223372036854775807)
+}
+
+@unary_neg_max () -> int = -9223372036854775807;

@@ -94,7 +94,9 @@ impl IrBuilder<'_, '_> {
         self.arena.push_value(v.into())
     }
 
-    /// Build integer negation.
+    /// Build integer negation (unchecked — no overflow detection).
+    ///
+    /// Prefer `checked_neg()` for user-facing integer negation.
     pub fn neg(&mut self, val: ValueId, name: &str) -> ValueId {
         let v = self.arena.get_value(val);
         if !v.is_int_value() {
@@ -145,6 +147,21 @@ impl IrBuilder<'_, '_> {
             rhs,
             name,
             "integer overflow on multiplication",
+        )
+    }
+
+    /// Build checked integer negation: panics on overflow.
+    ///
+    /// Negation is `0 - x`, so we reuse `@llvm.ssub.with.overflow.i64(0, x)`.
+    /// The only overflowing case is `-INT_MIN` (result doesn't fit in i64).
+    pub fn checked_neg(&mut self, val: ValueId, name: &str) -> ValueId {
+        let zero = self.const_i64(0);
+        self.emit_checked_binop(
+            "llvm.ssub.with.overflow",
+            zero,
+            val,
+            name,
+            "integer overflow on negation",
         )
     }
 
