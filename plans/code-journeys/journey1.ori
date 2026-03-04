@@ -7,7 +7,7 @@
 @main () -> int = {
     let x = 3;
     let y = 4;
-    let sum = add(x, y);   // = 7
+    let sum = add(a: x, b: y);   // = 7
     let result = sum * 5 - 2;  // = 35 - 2 = 33
     result
 }

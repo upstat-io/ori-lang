@@ -20,6 +20,9 @@ crate-type = ["rlib", "staticlib"]
 ## to be single-threaded.
 single-threaded = []
 
+[build-dependencies]
+cc = "1"
+
 [dependencies]
 # No dependencies - pure runtime functions
 

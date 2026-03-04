@@ -1,3 +1,10 @@
+---
+reroute: true
+name: "Type Registry"
+full_name: "Type Strategy Registry"
+status: queued
+---
+
 # Type Strategy Registry Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.

@@ -60,6 +60,16 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_value(v.into())
     }
 
+    /// Create a zero/null constant from an `LLVMTypeId`.
+    ///
+    /// Convenience wrapper around [`Self::const_zero`] that resolves the
+    /// type ID first. Used for zero-initializing enum allocas to prevent
+    /// LLVM poison values in unwritten payload fields.
+    pub fn const_zero_ty(&mut self, ty_id: super::super::value_id::LLVMTypeId) -> ValueId {
+        let ty = self.arena.get_type(ty_id);
+        self.const_zero(ty)
+    }
+
     /// Create a zero/null constant of any LLVM basic type.
     ///
     /// Used for zero-initializing Option/Result payloads when the inner

@@ -25,9 +25,6 @@ sections:
 
 # Section 02: Crate Scaffolding & Purity Enforcement
 
-**Status:** Not Started
-**Goal:** The `ori_registry` crate exists, compiles, passes tests, is integrated into the workspace and all consuming crates, and has automated tests that enforce its purity contract permanently.
-
 **Context:** Section 01 defines the data model types (`TypeTag`, `MemoryStrategy`, `Ownership`, `OpStrategy`, `MethodDef`, `ParamDef`, `OpDefs`, `TypeDef`). This section creates the crate that houses those types and the type definitions that use them. The crate must be at the absolute bottom of the dependency graph — below even `ori_ir` — because it has zero dependencies. This is the same architectural position as a `#[no_std]` data crate: pure types, pure constants, no behavior.
 
 **Design rationale:** The purity contract is the entire value proposition. If `ori_registry` ever gains a runtime dependency, it can no longer serve as the foundation crate. Every compiler phase would transitively depend on whatever `ori_registry` depends on, creating coupling that defeats the purpose. The enforcement tests in this section are not optional — they are the mechanism that prevents decay over time.

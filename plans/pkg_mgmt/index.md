@@ -1,3 +1,10 @@
+---
+parallel: true
+name: "Pkg Mgmt"
+full_name: "Package Management"
+status: queued
+---
+
 # Ori Package Management Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.

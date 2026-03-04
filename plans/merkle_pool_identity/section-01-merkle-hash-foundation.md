@@ -28,8 +28,6 @@ sections:
 
 # Section 01: Merkle Hash Foundation
 
-**Status:** Not Started
-**Goal:** Replace pool-local hashes with content-addressed Merkle hashes that are stable across
 independent Pool instances, enabling O(1) cross-module type identity.
 
 **Why this matters:** The current `compute_hash` function hashes raw `Idx` values — sequential
@@ -47,7 +45,6 @@ depends only on its structure, not its pool position. Same type → same hash �
 
 ## 01.1 Tag Layout Classification — COMPLETE
 
-**Goal:** Document the complete data layout for all 44 Tag variants, classifying which positions
 in `data` and `extra` are child Idx references (must be Merkle-hashed) vs structural data
 (hashed directly).
 
@@ -214,7 +211,6 @@ Add `debug_assert!` that these never appear in exported FunctionSig hashes.
 
 ## 01.2 Child Reference Map — COMPLETE
 
-**Goal:** Create a compile-time-queryable classification of which data/extra positions are
 child Idx references for each tag. This is the lookup table the Merkle hash function uses.
 
 **Approach:** Add methods to `Tag` in `tag/mod.rs`:
@@ -278,7 +274,6 @@ impl Tag {
 
 ## 01.3 Merkle Hash Function Design — COMPLETE
 
-**Goal:** Design the Merkle hash algorithm that produces identical hashes for structurally
 identical types regardless of which Pool they're interned in.
 
 **Core Invariant:**
@@ -459,7 +454,6 @@ fn merkle_hash_extra(&self, tag: Tag, start: usize, len: usize, h: &mut impl Has
 
 ## 01.4 Implementation — COMPLETE
 
-**Goal:** Replace `compute_hash` with `merkle_hash` in `pool/mod.rs`, updating `intern()`
 and `intern_complex()` to use the new function.
 
 **Files to modify:**
@@ -621,7 +615,6 @@ pub fn find_tuple(&self, elems: &[Idx]) -> Option<Idx> {
 
 ## 01.5 Primitive & Fixed-Index Stability — COMPLETE
 
-**Goal:** Verify that primitives at fixed indices (0-11) produce the same Merkle hash as before,
 and that types composed only of primitives (`List<int>`, `(int, str) -> bool`) produce identical
 hashes across pools.
 

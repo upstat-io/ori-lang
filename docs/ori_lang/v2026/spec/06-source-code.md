@@ -34,6 +34,8 @@ The presence of any other control character outside a string or character litera
 
 NOTE  Control characters may be represented in string and character literals using escape sequences (see [7.7.3.1](07-lexical-elements.md#7731-escape-sequences)).
 
+_Comments_ (see [7.1](07-lexical-elements.md#71-comments)) may contain any _unicode character_.
+
 ### 6.1.1 Line endings
 
 A carriage return U+000D immediately followed by a newline U+000A is normalized to a single newline. A lone carriage return not followed by a newline is also treated as a newline. After normalization, all line endings in source text are represented as U+000A.
@@ -79,6 +81,8 @@ A _line_ is a sequence of characters terminated by a newline (after normalizatio
 A _column_ is the byte offset from the start of a line, numbered starting at 1. The first byte of a line is column 1.
 
 NOTE  Column numbers count UTF-8 bytes, not Unicode code points or grapheme clusters. A multi-byte character occupies multiple column positions. This matches the convention used by the Language Server Protocol and common editors.
+
+Source positions are represented at runtime by the `TraceEntry` type (see [9.9.1](09-types.md#991-traceentry)), which has `line: int` and `column: int` fields following these conventions.
 
 EXAMPLE  In the line `let $π = 3`, the identifier `π` (U+03C0, encoded as 2 bytes CE B0) occupies columns 6–7. The `=` is at column 9.
 

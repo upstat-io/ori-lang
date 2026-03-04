@@ -37,9 +37,6 @@ sections:
 
 # Section 02: List COW Operations
 
-**Status:** Not Started
-**Goal:** Every list mutation (`push`, `pop`, `set`, `insert`, `remove`, `concat`, `reverse`, `sort`) checks uniqueness at runtime. When the list is uniquely owned (RC==1), the operation mutates in place with O(1) amortized cost. When shared, the operation creates a copy (O(n)) — but only at the point of divergence, never again.
-
 **Context:** Currently, `ori_list_push_new()` and all other list mutation functions in `ori_rt` unconditionally allocate a new buffer, copy all elements, perform the mutation, and return the new list. This makes every push O(n). For a loop that builds a list of N elements, the total cost is O(N²). With COW, the same loop is O(N) — identical to a mutable `Vec<T>` in Rust.
 
 **Reference implementations:**

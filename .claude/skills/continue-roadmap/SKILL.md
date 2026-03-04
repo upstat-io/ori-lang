@@ -28,35 +28,41 @@ Use `plans/roadmap/index.md` to find sections by keyword. The index contains sea
 
 ### Step 0: Check for Active Reroute
 
-Before scanning the roadmap, read `plans/roadmap/index.md` and check for reroute blocks. Two states exist:
+The scanner automatically detects reroutes from `plans/*/index.md` frontmatter. Each plan's `index.md` has:
 
-- **ACTIVE REROUTE** — the current priority; all work goes here
-- **QUEUED REROUTE** — next in line; activates when the ACTIVE reroute completes
+```yaml
+reroute: true       # or parallel: true
+name: "Short Name"
+full_name: "Full Plan Name"
+status: active       # active | queued | resolved
+```
 
-**If an ACTIVE REROUTE exists:**
+The scanner outputs an `=== REROUTES ===` block at the top with `[ACTIVE reroute]` and `[queued reroute]` lines.
 
-1. **Read the reroute** — it specifies a plan directory (e.g., `plans/aot_codegen_pipeline/`) that must be completed first
-2. **Switch to the rerouted plan** — read its `index.md` and `00-overview.md`
-3. **Run the rerouted plan's scanner** (if it has section files with checkboxes):
+**If an ACTIVE reroute exists:**
+
+1. **Read the rerouted plan** — its `index.md` and `00-overview.md`
+2. **Run the scanner on the rerouted plan**:
    ```bash
    .claude/skills/continue-roadmap/roadmap-scan.sh plans/<rerouted-plan>
    ```
-4. **Follow the rerouted plan's execution order** — use the plan's recommended section order, not the roadmap's
-5. **Present the rerouted plan status** to the user, making clear this is a reroute from the main roadmap
-6. **When the rerouted plan is complete** — promote any QUEUED REROUTE (see below), then resume
+3. **Follow the rerouted plan's execution order** — use the plan's recommended section order, not the roadmap's
+4. **Present the rerouted plan status** to the user, making clear this is a reroute from the main roadmap
+5. **When the rerouted plan is complete** — update its frontmatter `status: resolved`, then promote queued reroutes (see below)
 
-**When an ACTIVE REROUTE completes (promotion protocol):**
+**When an ACTIVE reroute completes (promotion protocol):**
 
-1. Mark the completed reroute as resolved: change `**ACTIVE REROUTE**` to `**~~ACTIVE REROUTE~~ RESOLVED (YYYY-MM-DD)**`
-2. If a `**QUEUED REROUTE**` block exists below it:
-   - Change `**QUEUED REROUTE**` to `**ACTIVE REROUTE**`
-   - Remove the "Activates when..." suffix
+1. Update the completed plan's frontmatter: `status: resolved`
+2. If queued reroutes exist, pick the highest-priority one:
+   - Update its frontmatter: `status: active`
    - Inform the user that the next reroute has been promoted to active
-3. If no queued reroute exists, inform the user that the reroute is done and normal roadmap work resumes
+3. If no queued reroute exists, inform the user that normal roadmap work resumes
 
-**Do NOT skip the reroute.** The reroute exists because continuing normal roadmap work without completing the rerouted plan would compound the architectural debt.
+**Active parallel plans** (`parallel: true`) run alongside the roadmap — they don't block normal work. Only `reroute: true` plans with `status: active` take priority.
 
-**Do NOT skip the queue.** If a QUEUED REROUTE exists, it must be completed before resuming normal roadmap work — it was queued because it addresses the same class of architectural debt.
+**Do NOT skip reroutes.** They exist because continuing normal roadmap work without completing the rerouted plan would compound architectural debt.
+
+**Do NOT skip the queue.** Queued reroutes must complete before resuming normal roadmap work.
 
 ### Step 1: Run the Scanner
 
@@ -67,6 +73,7 @@ Run the roadmap scanner script to get current status:
 ```
 
 This outputs:
+- Reroute status block (if any active/queued reroutes detected from `plans/*/index.md` frontmatter)
 - One line per section: `[done]` or `[open]` with progress stats
 - Detail block for the **first incomplete section**: subsection statuses (with blocked counts), first 5 **unblocked** items, blocker summary, and blocker chain
 

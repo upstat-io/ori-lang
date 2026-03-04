@@ -44,6 +44,17 @@ plans/{name}/
 ### Step 4: Generate index.md
 
 Create the keyword index with:
+- **Reroute frontmatter** (if this is a reroute plan — i.e., a parallel track alongside the main roadmap):
+  ```yaml
+  ---
+  reroute: true
+  name: "{Short Name}"
+  full_name: "{Full Plan Name}"
+  status: queued
+  ---
+  ```
+  The `name`, `full_name`, and `status` fields are the single source of truth for the website.
+  `key` and `dir` are derived at load time from the directory name.
 - Maintenance notice at the top
 - How to use instructions
 - Keyword cluster for each section (initially with placeholder keywords)

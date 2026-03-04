@@ -125,8 +125,24 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
         // self.codegen_ctx.functions so that emit_partial_apply can look it up by Name.
+        //
+        // declare_and_process_lambda renames each lambda to a globally unique
+        // name. We collect the (old → new) mapping so we can update the
+        // parent function's PartialApply references.
+        let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         for mut lambda in lambdas {
+            let original_name = lambda.name;
             self.compile_lambda_arc(&mut lambda);
+            // After compile_lambda_arc, lambda.name is the globally unique name
+            if lambda.name != original_name {
+                lambda_renames.push((original_name, lambda.name));
+            }
+        }
+
+        // Remap PartialApply callee references in the parent function to use
+        // the globally unique lambda names assigned during compilation.
+        if !lambda_renames.is_empty() {
+            remap_partial_apply_names(&mut arc_func, &lambda_renames);
         }
 
         // Lambda compilation changes builder.current_function to the last
@@ -296,7 +312,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &mut self,
         lambda: &mut ori_arc::ArcFunction,
     ) -> (Name, FunctionId, FunctionAbi) {
-        let lambda_name = lambda.name;
         let is_non_capturing = lambda.num_captures == 0;
 
         let mut abi = self.compute_arc_function_abi(lambda);
@@ -307,14 +322,22 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             abi.call_conv = CallConv::C;
         }
 
+        // Assign a globally unique lambda name to prevent cross-function
+        // collisions in codegen_ctx.functions. Each lower_function_can call
+        // numbers lambdas starting at 0, so two functions each containing a
+        // lambda both produce `__lambda_0`. The global counter ensures
+        // uniqueness across the entire module.
         let counter = self.lambda_counter.get();
         self.lambda_counter.set(counter + 1);
+        let unique_name = self.interner.intern(&format!("__lambda_{counter}"));
+        lambda.name = unique_name;
+
         let symbol = self
             .mangler
             .mangle_function(self.module_path, &format!("__lambda_{counter}"));
 
         debug!(
-            name = %self.interner.lookup(lambda_name),
+            name = %self.interner.lookup(unique_name),
             symbol,
             params = abi.params.len(),
             non_capturing = is_non_capturing,
@@ -332,12 +355,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         };
 
         if is_non_capturing {
-            self.codegen_ctx.non_capturing_lambdas.insert(lambda_name);
+            self.codegen_ctx.non_capturing_lambdas.insert(unique_name);
         }
 
         self.codegen_ctx
             .functions
-            .insert(lambda_name, (func_id, abi.clone()));
+            .insert(unique_name, (func_id, abi.clone()));
 
         // ARC processing
         ori_arc::annotate_arg_ownership(
@@ -359,25 +382,30 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             debug!(?problem, "ARC pipeline problem (lambda)");
         }
 
-        (lambda_name, func_id, abi)
+        (unique_name, func_id, abi)
     }
 
     /// Check if an ARC function is nounwind (cannot unwind/panic).
     ///
     /// A function is nounwind if:
     /// 1. All `Invoke` callees are already known-nounwind (in the set), AND
-    /// 2. No `Apply` calls a may-unwind runtime function (`ori_panic*`), AND
+    /// 2. No `Apply` calls a may-unwind function, AND
     /// 3. No `ApplyIndirect` instructions exist (indirect calls through
     ///    closures/function pointers are conservatively may-unwind).
     ///
-    /// `ori_panic` is the sole runtime function that unwinds -- it uses Rust's
-    /// panic infrastructure. All other `ori_*` / `__*` runtime functions are
-    /// nounwind (abort on failure or never fail).
+    /// For `Apply` callees, three cases:
+    /// - **Runtime function with `Nounwind` attr**: safe (cannot unwind).
+    /// - **Runtime function WITHOUT `Nounwind` attr**: unsafe — may call
+    ///   `ori_panic` internally (e.g., `ori_list_get` on OOB, `ori_assert`
+    ///   on failure, allocating functions on OOM).
+    /// - **User-defined function**: check `nounwind_functions` set.
     ///
     /// Indirect calls (`ApplyIndirect`) cannot be statically resolved to a
     /// known callee, so we must conservatively assume they may unwind. This
     /// prevents UB when a closure target panics inside a `nounwind` function.
     pub(super) fn is_arc_function_nounwind(&self, func: &ori_arc::ArcFunction) -> bool {
+        use crate::codegen::runtime_decl::runtime_functions::is_rt_fn_nounwind;
+
         func.blocks.iter().all(|block| {
             let term_ok = match &block.terminator {
                 ori_arc::ir::ArcTerminator::Invoke { func: callee, .. } => {
@@ -388,7 +416,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let instrs_ok = block.body.iter().all(|instr| match instr {
                 ori_arc::ir::ArcInstr::Apply { func: callee, .. } => {
                     let s = self.interner.lookup(*callee);
-                    !s.starts_with("ori_panic")
+                    match is_rt_fn_nounwind(s) {
+                        // Known runtime function with Nounwind attribute
+                        Some(true) => true,
+                        // Known runtime function WITHOUT Nounwind — may unwind
+                        Some(false) => false,
+                        // Not a runtime function — check user function set
+                        None => self.codegen_ctx.nounwind_functions.contains(callee),
+                    }
                 }
                 // Indirect calls through closures/function pointers are
                 // conservatively treated as may-unwind -- we cannot know
@@ -402,3 +437,25 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 }
 
 use crate::codegen::abi::{compute_param_passing, compute_return_passing};
+
+/// Remap `PartialApply { func, .. }` callee names in an ARC function.
+///
+/// After `declare_and_process_lambda` renames lambdas to globally unique names,
+/// the parent function's `PartialApply` instructions still reference the old
+/// per-function names (e.g., `__lambda_0`). This function updates them to
+/// match the new globally unique names so `emit_partial_apply` finds the
+/// correct entry in `codegen_ctx.functions`.
+pub(super) fn remap_partial_apply_names(func: &mut ori_arc::ArcFunction, renames: &[(Name, Name)]) {
+    for block in &mut func.blocks {
+        for instr in &mut block.body {
+            if let ori_arc::ArcInstr::PartialApply { ref mut func, .. } = instr {
+                for &(old, new) in renames {
+                    if *func == old {
+                        *func = new;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}

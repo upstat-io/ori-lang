@@ -1,3 +1,10 @@
+---
+reroute: true
+name: "LLVM Fixes"
+full_name: "LLVM Codegen Fixes"
+status: resolved
+---
+
 # LLVM Codegen Fixes Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
@@ -14,7 +21,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: Critical Correctness
-**File:** `section-01-critical-correctness.md` | **Status:** Not Started
+**File:** `section-01-critical-correctness.md` | **Status:** Complete
 
 ```
 C1, closure, lambda, non-capturing, capturing, argument mismatch, crash
@@ -27,7 +34,7 @@ phi_types_blocks, param_index, param_count, inkwell
 ---
 
 ### Section 02: UB & Soundness
-**File:** `section-02-ub-soundness.md` | **Status:** Not Started
+**File:** `section-02-ub-soundness.md` | **Status:** Complete
 
 ```
 M14, None, uninitialized, payload, alloca, poison, LLVM UB
@@ -40,7 +47,7 @@ M9, inclusive range, ..=, INT_MAX, end + step, overflow
 ---
 
 ### Section 03: Exception Handling
-**File:** `section-03-exception-handling.md` | **Status:** Not Started
+**File:** `section-03-exception-handling.md` | **Status:** Complete
 
 ```
 H1, invoke, landing pad, empty, cleanup, resume, nounwind propagation
@@ -52,7 +59,7 @@ rust_eh_personality, personality, unwind
 ---
 
 ### Section 04: Alignment
-**File:** `section-04-alignment.md` | **Status:** Not Started
+**File:** `section-04-alignment.md` | **Status:** Complete
 
 ```
 M5, align 4, align 8, i64, struct field, variant field, list element
@@ -62,7 +69,7 @@ load, store, getelementptr, natural alignment
 ---
 
 ### Section 05: Variant Codegen
-**File:** `section-05-variant-codegen.md` | **Status:** Not Started
+**File:** `section-05-variant-codegen.md` | **Status:** Complete
 
 ```
 M7, variant construction, alloca, store, load, roundtrip, insertvalue
@@ -73,7 +80,7 @@ sum type, enum, tagged union, Color, Shape, Status
 ---
 
 ### Section 06: Struct & Param Codegen
-**File:** `section-06-struct-param-codegen.md` | **Status:** Not Started
+**File:** `section-06-struct-param-codegen.md` | **Status:** Complete
 
 ```
 M6, full struct load, partial field access, load_indirect_param, extractvalue
@@ -84,7 +91,7 @@ getelementptr, insertvalue, extractvalue, zeroinitializer
 ---
 
 ### Section 07: ARC Pipeline
-**File:** `section-07-arc-pipeline.md` | **Status:** Not Started
+**File:** `section-07-arc-pipeline.md` | **Status:** Complete
 
 ```
 M12, duplicate drop, identical, _ori_drop, ori_rc_free, layout
@@ -94,7 +101,7 @@ deduplication, drop function, ARC, reference counting
 ---
 
 ### Section 08: Loop & Range
-**File:** `section-08-loop-range.md` | **Status:** Not Started
+**File:** `section-08-loop-range.md` | **Status:** Complete
 
 ```
 M4, tail call, tail recursion, musttail, gcd, loop transformation
@@ -106,7 +113,7 @@ L7, dead phi, loop exit, unused, phi node
 ---
 
 ### Section 09: IR Cleanliness
-**File:** `section-09-ir-cleanliness.md` | **Status:** Not Started
+**File:** `section-09-ir-cleanliness.md` | **Status:** Complete
 
 ```
 M3, dead branch, br label, unnecessary, after call, every journey
@@ -117,7 +124,7 @@ L4, single predecessor, phi, one incoming, redundant
 ---
 
 ### Section 10: Prelude & Startup
-**File:** `section-10-prelude-startup.md` | **Status:** Not Started
+**File:** `section-10-prelude-startup.md` | **Status:** Complete
 
 ```
 M1, prelude, overhead, 10331 bytes, cold start, startup
@@ -128,7 +135,7 @@ L2, decision tree, prelude, lazy, canonicalization
 ---
 
 ### Section 11: Verification
-**File:** `section-11-verification.md` | **Status:** Not Started
+**File:** `section-11-verification.md` | **Status:** Complete
 
 ```
 code journey, dual-exec, verify, valgrind, test matrix

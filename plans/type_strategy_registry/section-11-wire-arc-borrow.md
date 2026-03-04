@@ -38,9 +38,6 @@ sections:
 
 # Section 11: Wire ARC & Borrow Pass (ori_arc)
 
-**Status:** Not Started
-**Goal:** The ARC/borrow pass (`ori_arc`) and all its call sites consume borrowing ownership data exclusively from `ori_registry`. The backwards dependency on `ori_llvm` is eliminated. The legacy `borrowing_method_names()` in `ori_ir` and `borrowing_builtin_names()` in `ori_llvm` are deleted. Iterator exclusion semantics are preserved exactly.
-
 **Context:** The ARC borrow inference pass (`ori_arc::infer_borrows`) needs to know which builtin methods borrow their receiver so it can skip RC operations at their call sites. Currently this data flows through two different functions depending on which code path constructs it:
 
 1. **`ori_ir::builtin_methods::borrowing_method_names()`** -- filters the `BUILTIN_METHODS` table by `receiver_borrows: true`. This was the original SSoT plan's partial fix (Section 01 of `builtin_ownership_ssot`).

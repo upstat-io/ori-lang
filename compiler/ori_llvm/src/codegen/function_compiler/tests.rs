@@ -857,6 +857,92 @@ fn nounwind_mixed_safe_and_indirect_is_not_nounwind() {
     );
 }
 
+#[test]
+fn nounwind_may_panic_runtime_call_is_not_nounwind() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_may_panic_rt"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // ori_list_get can panic on OOB — function calling it is NOT nounwind
+    let func = make_arc_func(
+        &interner,
+        "list_getter",
+        vec![ArcInstr::Apply {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: interner.intern("ori_list_get"),
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Borrowed],
+        }],
+        ArcTerminator::Return {
+            value: ArcVarId::new(1),
+        },
+    );
+    assert!(
+        !fc.is_arc_function_nounwind(&func),
+        "ori_list_get may panic on OOB — caller must not be nounwind"
+    );
+}
+
+#[test]
+fn nounwind_unknown_user_function_is_not_nounwind() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_unknown_user"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Call to user function not in nounwind_functions set → NOT nounwind
+    let func = make_arc_func(
+        &interner,
+        "caller_of_unknown",
+        vec![ArcInstr::Apply {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: interner.intern("some_user_function"),
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        ArcTerminator::Return {
+            value: ArcVarId::new(1),
+        },
+    );
+    assert!(
+        !fc.is_arc_function_nounwind(&func),
+        "user function not in nounwind_functions set — caller must not be nounwind"
+    );
+}
+
 // ── Two-pass nounwind (compute_nounwind_set) tests ─────────────────
 
 #[test]

@@ -70,6 +70,24 @@ pub(crate) fn is_jit_allowed(name: &str) -> bool {
     RT_FUNCTIONS.iter().any(|f| f.name == name && f.jit_allowed)
 }
 
+/// Check whether a runtime function is known to be nounwind.
+///
+/// Returns `Some(true)` if the function has `Attr::Nounwind` (provably never
+/// unwinds), `Some(false)` if it is a known runtime function WITHOUT nounwind
+/// (may call `ori_panic` internally), or `None` if the name is not a runtime
+/// function at all.
+///
+/// Used by `is_arc_function_nounwind` to determine whether calling a runtime
+/// function preserves the nounwind guarantee. Runtime functions without the
+/// `Nounwind` attribute may panic (e.g., `ori_list_get` on OOB, `ori_assert`
+/// on failure, allocating functions on OOM).
+pub(crate) fn is_rt_fn_nounwind(name: &str) -> Option<bool> {
+    RT_FUNCTIONS
+        .iter()
+        .find(|f| f.name == name)
+        .map(|spec| spec.attrs.iter().any(|a| matches!(a, Attr::Nounwind)))
+}
+
 /// Iterate over names of all JIT-allowed runtime functions.
 #[cfg(test)]
 pub(crate) fn jit_allowed_names() -> impl Iterator<Item = &'static str> {
@@ -210,7 +228,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_list_len",
         params: &[Ty::Ptr],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -409,14 +427,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_list_first",
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_list_last",
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -431,14 +449,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_list_contains_int",
         params: &[Ty::Ptr, Ty::I64, Ty::I64],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_list_contains_str",
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -770,26 +788,26 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[],
         jit_allowed: true,
     },
-    // Comparison
+    // Comparison — pure functions, cannot panic
     RtFn {
         name: "ori_compare_int",
         params: &[Ty::I64, Ty::I64],
         ret: Some(Ty::I32),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_min_int",
         params: &[Ty::I64, Ty::I64],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_max_int",
         params: &[Ty::I64, Ty::I64],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // String operations
@@ -804,51 +822,51 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_str_eq",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Bool),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_ne",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Bool),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_compare",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::I8),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_hash",
         params: &[Ty::Ptr],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // String property access (SSO-safe)
+    // String property access (SSO-safe, cannot panic)
     RtFn {
         name: "ori_str_len",
         params: &[Ty::Ptr],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_data",
         params: &[Ty::Ptr],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // String iteration (char-by-char)
+    // String iteration (char-by-char, pure read)
     RtFn {
         name: "ori_str_next_char",
         params: &[Ty::Ptr, Ty::I64, Ty::I64],
         ret: Some(Ty::CharResult),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Type conversion
@@ -1413,9 +1431,11 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[],
         jit_allowed: true,
     },
-    // SEH catch trampoline — wraps a function call in catch_unwind.
-    // Used by catch(expr:) on MSVC where catchpad can't catch Rust panics.
-    // AOT-only: JIT uses Itanium EH with landingpad, not SEH catchpad.
+    // SEH/MSVC catch trampoline — wraps a function call in catch_unwind.
+    // Used by catch(expr:) ONLY under EhModel::Seh (Windows MSVC) where
+    // LLVM catchpad can't catch Rust/Ori panics.
+    // On Itanium targets, catch(expr:) uses invoke/landingpad + ori_eh_personality.
+    // AOT-only: JIT always uses Itanium EH.
     RtFn {
         name: "ori_try_call",
         params: &[Ty::Ptr, Ty::Ptr],
@@ -1424,15 +1444,16 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         jit_allowed: false,
     },
     // EH personality (Itanium ABI — required by invoke/landingpad)
+    // Implemented in ori_rt/src/eh_personality.c
     RtFn {
-        name: "rust_eh_personality",
+        name: "ori_eh_personality",
         params: &[Ty::I32],
         ret: Some(Ty::I32),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // EH personality (Windows SEH — required by invoke/catchswitch/catchpad)
-    // AOT-only: JIT uses Itanium EH with rust_eh_personality.
+    // AOT-only: JIT uses Itanium EH with ori_eh_personality.
     RtFn {
         name: "__CxxFrameHandler3",
         params: &[],

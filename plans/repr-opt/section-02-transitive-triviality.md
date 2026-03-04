@@ -28,9 +28,6 @@ sections:
 
 # Section 02: Transitive Triviality & ARC Elision
 
-**Status:** Not Started
-**Goal:** Types like `Option<int>`, `(int, float, bool)`, `struct Point { x: int, y: int }`, and `Result<int, Ordering>` are classified as trivial and generate ZERO ARC operations — no `ori_rc_inc`, no `ori_rc_dec`, no drop functions. The classification is transitive: `Option<(int, float)>` is trivial because `(int, float)` is trivial because `int` and `float` are trivial.
-
 **Context:** Two independent triviality systems exist today:
 1. `ori_arc::classify::ArcClassifier` — used during ARC IR lowering, classifies as `Scalar`/`DefiniteRef`/`PossibleRef`
 2. `ori_llvm::codegen::type_info::TypeInfoStore::is_trivial()` — used during LLVM codegen, walks type tree
