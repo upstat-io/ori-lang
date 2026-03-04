@@ -34,9 +34,6 @@ sections:
 
 # Section 03: String Optimization
 
-**Status:** Complete
-**Goal:** Strings ≤ 23 bytes are stored inline (no heap allocation, no RC overhead). Heap strings have capacity tracking and COW concat. String operations on unique strings mutate in place.
-
 **Context:** Currently, `OriStr` is a 16-byte fat pointer `{len: i64, data: *const u8}`. Every string, even `""` or `"x"`, allocates an RC'd heap buffer. String concatenation always allocates a new buffer and copies both operands. This is wasteful — the median string in real programs is short (< 20 bytes), and concat chains are common (e.g., building output).
 
 **Reference implementations:**
@@ -452,8 +449,6 @@ Other string mutations that benefit from COW:
   ```
 
 ### Known Issue: `create_entry_alloca` places sret allocas in wrong function (dominance error)
-
-**Status:** Partially fixed — direct emit path fixed, AOT two-pass path still affected.
 
 **Symptom:** LLVM verification fails with "Instruction does not dominate all uses!" for `%str.val.sretNN` allocas in `_ori_main` that are physically located in `_ori___lambda_0`'s entry block.
 

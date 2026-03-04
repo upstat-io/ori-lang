@@ -146,28 +146,8 @@ fn test_ori_assert_passes() {
 }
 
 #[test]
-fn test_ori_assert_fails() {
-    runtime::reset_panic_state();
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime::ori_assert(false);
-    }));
-    assert!(result.is_err(), "ori_assert(false) should panic");
-    assert!(runtime::did_panic());
-}
-
-#[test]
 fn test_ori_assert_eq_int_passes() {
     runtime::ori_assert_eq_int(42, 42);
-}
-
-#[test]
-fn test_ori_assert_eq_int_fails_different() {
-    runtime::reset_panic_state();
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime::ori_assert_eq_int(1, 2);
-    }));
-    assert!(result.is_err(), "ori_assert_eq_int(1, 2) should panic");
-    assert!(runtime::did_panic());
 }
 
 #[test]
@@ -177,39 +157,18 @@ fn test_ori_assert_eq_bool_passes() {
 }
 
 #[test]
-fn test_ori_assert_eq_bool_fails() {
-    runtime::reset_panic_state();
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime::ori_assert_eq_bool(true, false);
-    }));
-    assert!(
-        result.is_err(),
-        "ori_assert_eq_bool(true, false) should panic"
-    );
-    assert!(runtime::did_panic());
-}
-
-#[test]
 fn test_ori_assert_eq_str_passes() {
     let s1 = make_ori_str(b"test");
     let s2 = make_ori_str(b"test");
     runtime::ori_assert_eq_str(&raw const s1, &raw const s2);
 }
 
-#[test]
-fn test_ori_assert_eq_str_fails() {
-    runtime::reset_panic_state();
-    let s1 = make_ori_str(b"hello");
-    let s2 = make_ori_str(b"world");
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime::ori_assert_eq_str(&raw const s1, &raw const s2);
-    }));
-    assert!(
-        result.is_err(),
-        "ori_assert_eq_str should panic on mismatch"
-    );
-    assert!(runtime::did_panic());
-}
+// NOTE: Assertion *failure* tests live in `tests/aot/panic.rs`, not here.
+//
+// The AOT panic path raises C exceptions via `_Unwind_RaiseException` +
+// `ori_eh_personality`. Rust `catch_unwind` cannot catch foreign exceptions,
+// so failure tests must compile+run real Ori programs as subprocesses.
+// See: test_assert_eq_int_mismatch_panics, test_assert_eq_bool_mismatch_panics, etc.
 
 #[test]
 fn test_ori_str_from_int() {

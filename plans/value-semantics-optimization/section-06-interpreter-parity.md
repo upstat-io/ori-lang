@@ -30,9 +30,6 @@ sections:
 
 # Section 06: Interpreter COW Parity
 
-**Status:** Not Started
-**Goal:** The interpreter (`ori_eval`) uses Rust's `Arc::make_mut()` to achieve COW semantics for all collection mutations. Behavioral equivalence between the interpreter and LLVM backend is verified via dual-execution tests.
-
 **Context:** Currently, the interpreter clones `Arc<Vec<Value>>` on every mutation:
 ```rust
 let mut result = (*items).clone();  // Always clones, even when Arc refcount is 1

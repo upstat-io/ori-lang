@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "C Personality Function"
-status: not-started
+status: in-progress
 goal: "ori_eh_personality exists in libori_rt.a and correctly handles cleanup + catch-all landing pads"
 inspired_by:
   - "GCC gcc_personality_v0.c (~/projects/reference_repos/lang_repos/zig/lib/libunwind/src/gcc_personality_v0.c)"
@@ -11,25 +11,22 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "LSDA Parser and Personality Implementation"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Build System Integration"
-    status: not-started
+    status: complete
   - id: "01.3"
     title: "JIT Symbol Bridge"
-    status: not-started
+    status: complete
   - id: "01.4"
     title: "Forced-Unwind Test Harness"
-    status: not-started
+    status: complete
   - id: "01.5"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 01: C Personality Function
-
-**Status:** Not Started
-**Goal:** `ori_eh_personality` is compiled into `libori_rt.a` (staticlib) and `libori_rt.rlib` (for JIT), correctly handles both `cleanup` and `catch ptr null` (catch-all) landing pads per the Itanium EH ABI, and is accessible from both AOT and JIT execution paths.
 
 **Context:** Code Journey 3 identified that Ori's LLVM codegen emits `personality ptr @rust_eh_personality` on every function containing `invoke`/`landingpad`. This symbol comes from Rust's standard library panic infrastructure, making every AOT binary depend on Rust's runtime. Ori needs its own personality function to be a standalone language.
 
@@ -83,7 +80,7 @@ This means: Phase 1 → never return `_URC_HANDLER_FOUND`; Phase 2 → only inst
 
 ### Implementation
 
-- [ ] Create `compiler/ori_rt/src/eh_personality.c` with the following components:
+- [x] Create `compiler/ori_rt/src/eh_personality.c` with the following components: (2026-03-03)
 
   **ULEB128 decoder** (~15 lines):
   ```c
@@ -203,11 +200,11 @@ This means: Phase 1 → never return `_URC_HANDLER_FOUND`; Phase 2 → only inst
   return _URC_INSTALL_CONTEXT;
   ```
 
-- [ ] Include `<unwind.h>` for Itanium EH ABI types (`_Unwind_Context`, `_Unwind_Exception`, `_Unwind_Action`, etc.)
+- [x] Include `<unwind.h>` for Itanium EH ABI types (`_Unwind_Context`, `_Unwind_Exception`, `_Unwind_Action`, etc.) (2026-03-03)
 
-- [ ] Mark function with `__attribute__((used))` to prevent dead-code elimination by the C compiler, and ensure it's exported from the static library.
+- [x] Mark function with `__attribute__((used))` to prevent dead-code elimination by the C compiler, and ensure it's exported from the static library. (2026-03-03)
 
-- [ ] Add a header comment explaining: this is Ori's exception handling personality function, it handles cleanup and catch-all only, and references the Itanium EH ABI spec.
+- [x] Add a header comment explaining: this is Ori's exception handling personality function, it handles cleanup and catch-all only, and references the Itanium EH ABI spec. (2026-03-03)
 
 ---
 
@@ -217,13 +214,13 @@ This means: Phase 1 → never return `_URC_HANDLER_FOUND`; Phase 2 → only inst
 
 The C file must be compiled and linked into `libori_rt.a`. The standard way to do this in Rust is via the `cc` crate in a build script.
 
-- [ ] Add `cc` as a build dependency in `compiler/ori_rt/Cargo.toml`:
+- [x] Add `cc` as a build dependency in `compiler/ori_rt/Cargo.toml`: (2026-03-03)
   ```toml
   [build-dependencies]
   cc = "1"
   ```
 
-- [ ] Create `compiler/ori_rt/build.rs`:
+- [x] Create `compiler/ori_rt/build.rs`: (2026-03-03)
   ```rust
   fn main() {
       let mut build = cc::Build::new();
@@ -247,7 +244,7 @@ The C file must be compiled and linked into `libori_rt.a`. The standard way to d
 
   The `cc` crate compiles the C file into a static archive and tells Cargo to link it. When Cargo builds `libori_rt.a` (staticlib), the C object gets bundled in.
 
-- [ ] Verify that both build outputs contain the symbol:
+- [x] Verify that both build outputs contain the symbol: (2026-03-03)
   - `libori_rt.a` (staticlib for AOT): `nm target/debug/libori_rt.a | grep ori_eh_personality`
   - `libori_rt.rlib` (for JIT): symbol available via Cargo linking
 
@@ -259,7 +256,7 @@ The C file must be compiled and linked into `libori_rt.a`. The standard way to d
 
 The JIT execution engine needs to find `ori_eh_personality` at runtime. Since the C function is compiled into the same library, we need a Rust-side way to get its address.
 
-- [ ] Add an `extern "C"` declaration and address-getter in `ori_rt/src/lib.rs`:
+- [x] Add an `extern "C"` declaration and address-getter in `ori_rt/src/lib.rs`: (2026-03-03)
   ```rust
   extern "C" {
       /// Ori's Itanium EH ABI personality function (implemented in eh_personality.c).
@@ -280,7 +277,7 @@ The JIT execution engine needs to find `ori_eh_personality` at runtime. Since th
 
   This follows the exact same pattern as the existing `rust_eh_personality_addr()` in `evaluator/runtime_mappings.rs`, but moves the address resolution to `ori_rt` where the symbol lives.
 
-- [ ] Verify the function is accessible from `ori_llvm` via `runtime::ori_eh_personality_addr()`.
+- [x] Verify the function is accessible from `ori_llvm` via `runtime::ori_eh_personality_addr()`. (2026-03-03)
 
 ---
 
@@ -309,241 +306,18 @@ A C + assembly test that verifies `ori_eh_personality` correctly handles `_UA_FO
 
 The LSDA format (`.gcc_except_table` section) is identical on both architectures — it's DWARF, not architecture-specific.
 
-- [ ] Create `compiler/ori_rt/src/test_frames_x86_64.S`:
+- [x] Create `compiler/ori_rt/src/test_frames_x86_64.S`: x86-64 assembly stubs with PIC-compatible personality encoding (`0x9b` = `DW_EH_PE_indirect | DW_EH_PE_pcrel | DW_EH_PE_sdata4`), `DW.ref.ori_eh_personality` COMDAT section, and CFI restore directives at landing pads. (2026-03-03)
 
-  x86-64 assembly stubs with `ori_eh_personality` and hand-written LSDA entries.
+- [x] Create `compiler/ori_rt/src/test_frames_aarch64.S`: aarch64 equivalent with AAPCS64 calling convention, same PIC encodings and COMDAT section. (2026-03-03)
 
-  ```asm
-  # x86-64 System V ABI — test frames for ori_eh_personality
-  .text
+- [x] Create `compiler/ori_rt/src/test_forced_unwind.c`: C harness with `_Unwind_ForcedUnwind` + `setjmp`/`longjmp` escape, CFA-based frame detection, and `_UA_END_OF_STACK` safety net. (2026-03-03)
 
-  # ---------------------------------------------------------------
-  # frame_with_catch_all(trigger: fn ptr in %rdi)
-  # LSDA has catch-all entry (ttype_index == 0).
-  # Forced unwind: personality must NOT install this handler.
-  # ---------------------------------------------------------------
-  .globl frame_with_catch_all
-  .type frame_with_catch_all, @function
-  frame_with_catch_all:
-      .cfi_startproc
-      .cfi_personality 0, ori_eh_personality
-      .cfi_lsda 0, .LLSDA_catch
-      pushq   %rbp
-      .cfi_def_cfa_offset 16
-      .cfi_offset %rbp, -16
-      movq    %rsp, %rbp
-      .cfi_def_cfa_register %rbp
-  .Lcatch_call_start:
-      callq   *%rdi                       # call trigger(void)
-  .Lcatch_call_end:
-      xorl    %eax, %eax                  # return 0 (no exception)
-      popq    %rbp
-      .cfi_def_cfa %rsp, 8
-      ret
-  .Lcatch_landing_pad:                     # landing pad — should NOT be reached
-      movl    $1, catch_handler_entered(%rip)
-      xorl    %eax, %eax
-      popq    %rbp
-      ret
-      .cfi_endproc
-      .size frame_with_catch_all, .-frame_with_catch_all
+  **Key implementation notes (deviations from plan):**
+  - Assembly uses PIC encoding `0x9b` (not `0`) for `.cfi_personality` — required for PIE executables
+  - Landing pads have `.cfi_def_cfa` restore directives — CFI must describe prologue state for `_Unwind_Resume` to work
+  - Stop function handles `_UA_END_OF_STACK` as safety net alongside CFA comparison
 
-  # LSDA for catch-all
-  .section .gcc_except_table,"a",@progbits
-  .LLSDA_catch:
-      .byte   0xFF                        # @LPStart encoding: omit
-      .byte   0xFF                        # @TType encoding: omit
-      .byte   0x01                        # call-site encoding: uleb128
-      .uleb128 .Lcatch_cs_end - .Lcatch_cs_start
-  .Lcatch_cs_start:
-      .uleb128 .Lcatch_call_start - frame_with_catch_all
-      .uleb128 .Lcatch_call_end - .Lcatch_call_start
-      .uleb128 .Lcatch_landing_pad - frame_with_catch_all
-      .uleb128 1                          # action: index 1
-  .Lcatch_cs_end:
-      .sleb128 0                          # ttype_index = 0 → catch-all
-      .sleb128 0                          # next action = 0 → end
-  .text
-
-  # ---------------------------------------------------------------
-  # frame_with_cleanup(trigger: fn ptr in %rdi)
-  # LSDA has cleanup-only entry (action == 0).
-  # Forced unwind: personality MUST install this handler.
-  # ---------------------------------------------------------------
-  .globl frame_with_cleanup
-  .type frame_with_cleanup, @function
-  frame_with_cleanup:
-      .cfi_startproc
-      .cfi_personality 0, ori_eh_personality
-      .cfi_lsda 0, .LLSDA_cleanup
-      pushq   %rbp
-      .cfi_def_cfa_offset 16
-      .cfi_offset %rbp, -16
-      movq    %rsp, %rbp
-      .cfi_def_cfa_register %rbp
-  .Lclean_call_start:
-      callq   *%rdi
-  .Lclean_call_end:
-      xorl    %eax, %eax
-      popq    %rbp
-      .cfi_def_cfa %rsp, 8
-      ret
-  .Lclean_landing_pad:                     # cleanup pad — SHOULD be reached
-      movl    $1, cleanup_handler_entered(%rip)
-      movq    %rax, %rdi                  # exception object (data reg 0 = %rax on x86-64)
-      callq   _Unwind_Resume@PLT
-      .cfi_endproc
-      .size frame_with_cleanup, .-frame_with_cleanup
-
-  .section .gcc_except_table,"a",@progbits
-  .LLSDA_cleanup:
-      .byte   0xFF
-      .byte   0xFF
-      .byte   0x01
-      .uleb128 .Lclean_cs_end - .Lclean_cs_start
-  .Lclean_cs_start:
-      .uleb128 .Lclean_call_start - frame_with_cleanup
-      .uleb128 .Lclean_call_end - .Lclean_call_start
-      .uleb128 .Lclean_landing_pad - frame_with_cleanup
-      .uleb128 0                          # action: 0 → cleanup only
-  .Lclean_cs_end:
-  .text
-
-  # Shared state
-  .bss
-  .globl catch_handler_entered
-  catch_handler_entered: .long 0
-  .globl cleanup_handler_entered
-  cleanup_handler_entered: .long 0
-  ```
-
-- [ ] Create `compiler/ori_rt/src/test_frames_aarch64.S`:
-
-  aarch64 (ARM64) AAPCS64 assembly stubs — same LSDA layout, different registers.
-
-  ```asm
-  # aarch64 AAPCS64 — test frames for ori_eh_personality
-  .text
-
-  # ---------------------------------------------------------------
-  # frame_with_catch_all(trigger: fn ptr in x0)
-  # ---------------------------------------------------------------
-  .globl frame_with_catch_all
-  .type frame_with_catch_all, @function
-  frame_with_catch_all:
-      .cfi_startproc
-      .cfi_personality 0, ori_eh_personality
-      .cfi_lsda 0, .LLSDA_catch
-      stp     x29, x30, [sp, #-16]!       // save fp + lr
-      .cfi_def_cfa_offset 16
-      .cfi_offset x29, -16
-      .cfi_offset x30, -8
-      mov     x29, sp
-      .cfi_def_cfa_register x29
-      mov     x9, x0                      // save trigger ptr (x0 is callee-clobbered)
-  .Lcatch_call_start:
-      blr     x9                          // call trigger(void)
-  .Lcatch_call_end:
-      mov     w0, #0                      // return 0
-      ldp     x29, x30, [sp], #16
-      .cfi_def_cfa sp, 0
-      ret
-  .Lcatch_landing_pad:
-      adrp    x9, catch_handler_entered
-      mov     w10, #1
-      str     w10, [x9, :lo12:catch_handler_entered]
-      mov     w0, #0
-      ldp     x29, x30, [sp], #16
-      ret
-      .cfi_endproc
-      .size frame_with_catch_all, .-frame_with_catch_all
-
-  # LSDA — identical wire format to x86-64 (DWARF, not arch-specific)
-  .section .gcc_except_table,"a",@progbits
-  .LLSDA_catch:
-      .byte   0xFF
-      .byte   0xFF
-      .byte   0x01
-      .uleb128 .Lcatch_cs_end - .Lcatch_cs_start
-  .Lcatch_cs_start:
-      .uleb128 .Lcatch_call_start - frame_with_catch_all
-      .uleb128 .Lcatch_call_end - .Lcatch_call_start
-      .uleb128 .Lcatch_landing_pad - frame_with_catch_all
-      .uleb128 1
-  .Lcatch_cs_end:
-      .sleb128 0
-      .sleb128 0
-  .text
-
-  # ---------------------------------------------------------------
-  # frame_with_cleanup(trigger: fn ptr in x0)
-  # ---------------------------------------------------------------
-  .globl frame_with_cleanup
-  .type frame_with_cleanup, @function
-  frame_with_cleanup:
-      .cfi_startproc
-      .cfi_personality 0, ori_eh_personality
-      .cfi_lsda 0, .LLSDA_cleanup
-      stp     x29, x30, [sp, #-16]!
-      .cfi_def_cfa_offset 16
-      .cfi_offset x29, -16
-      .cfi_offset x30, -8
-      mov     x29, sp
-      .cfi_def_cfa_register x29
-      mov     x9, x0
-  .Lclean_call_start:
-      blr     x9
-  .Lclean_call_end:
-      mov     w0, #0
-      ldp     x29, x30, [sp], #16
-      .cfi_def_cfa sp, 0
-      ret
-  .Lclean_landing_pad:
-      adrp    x9, cleanup_handler_entered
-      mov     w10, #1
-      str     w10, [x9, :lo12:cleanup_handler_entered]
-      // x0 already holds exception object (data reg 0 = x0 on aarch64)
-      bl      _Unwind_Resume
-      .cfi_endproc
-      .size frame_with_cleanup, .-frame_with_cleanup
-
-  .section .gcc_except_table,"a",@progbits
-  .LLSDA_cleanup:
-      .byte   0xFF
-      .byte   0xFF
-      .byte   0x01
-      .uleb128 .Lclean_cs_end - .Lclean_cs_start
-  .Lclean_cs_start:
-      .uleb128 .Lclean_call_start - frame_with_cleanup
-      .uleb128 .Lclean_call_end - .Lclean_call_start
-      .uleb128 .Lclean_landing_pad - frame_with_cleanup
-      .uleb128 0
-  .Lclean_cs_end:
-  .text
-
-  # Shared state
-  .bss
-  .globl catch_handler_entered
-  catch_handler_entered: .long 0
-  .globl cleanup_handler_entered
-  cleanup_handler_entered: .long 0
-  ```
-
-  **Key aarch64 differences from x86-64:**
-  - First arg in `x0`, saved to `x9` before `blr` (indirect call clobbers `x0`)
-  - Frame: `stp x29, x30, [sp, #-16]!` (push fp+lr pair) / `ldp x29, x30, [sp], #16` (pop)
-  - PC-relative global access: `adrp x9, symbol` + `str w10, [x9, :lo12:symbol]` (two-instruction sequence vs x86-64's single `symbol(%rip)`)
-  - Exception object arrives in `x0` (data register 0 on aarch64) — no move needed before `bl _Unwind_Resume`
-  - `bl` (branch-with-link) instead of `callq @PLT` — aarch64 ELF uses veneers for PLT, not explicit `@PLT` suffix
-
-  **Design notes (both architectures):**
-  - Each frame takes a `void (*trigger)(void)` and calls it. The LSDA maps that call range to a landing pad.
-  - `frame_with_catch_all` has a catch-all action (`ttype_index == 0`). During forced unwind, the personality must **not** install this pad.
-  - `frame_with_cleanup` has a cleanup action (`action == 0`). During forced unwind, the personality **must** install this pad. The pad calls `_Unwind_Resume` to continue unwinding.
-  - Global flags (`catch_handler_entered`, `cleanup_handler_entered`) are read by the C harness to verify behavior.
-  - The LSDA sections (`.gcc_except_table`) are byte-identical between architectures — DWARF encoding is architecture-independent.
-
-- [ ] Create `compiler/ori_rt/src/test_forced_unwind.c` (~80 lines):
+- [x] Create `compiler/ori_rt/src/test_forced_unwind.c` (~80 lines):
 
   C harness that sets up the exception object, triggers forced unwind, and checks results.
 
@@ -635,7 +409,7 @@ The LSDA format (`.gcc_except_table` section) is identical on both architectures
   - `test_forced_unwind_skips_catch` returns 0 (pass) if the catch-all landing pad was never entered.
   - `test_forced_unwind_runs_cleanup` returns 0 (pass) if the cleanup landing pad was entered.
 
-- [ ] Update `build.rs` to compile test files for supported architectures:
+- [x] Update `build.rs` to compile test files for supported architectures: (2026-03-03)
   ```rust
   fn main() {
       // --- Personality function (always built, all targets) ---
@@ -675,7 +449,7 @@ The LSDA format (`.gcc_except_table` section) is identical on both architectures
 
   **Target gating:** `build.rs` reads `CARGO_CFG_TARGET_ARCH` and `CARGO_CFG_TARGET_OS` (set by Cargo for the *target* platform, not the host). On Linux, it selects the architecture-specific assembly file. On non-Linux or unsupported architectures, the test harness is skipped entirely. `#[cfg(test)]` in `build.rs` would not work because it gates build-script-self-tests, not `cargo test -p ori_rt`.
 
-- [ ] Create `compiler/ori_rt/tests/forced_unwind.rs`:
+- [x] Create unit test module in `compiler/ori_rt/src/lib.rs` (moved from integration test — unit tests see native symbols from `cc` build): (2026-03-03)
   ```rust
   //! Tests that ori_eh_personality handles _UA_FORCE_UNWIND correctly.
   //!
@@ -719,20 +493,20 @@ The LSDA format (`.gcc_except_table` section) is identical on both architectures
 
   The `#![cfg(...)]` at the crate level ensures the entire test file is skipped on non-matching targets. This matches the `build.rs` gate — both accept `(x86_64 | aarch64) + linux`. On skipped targets, `cargo test -p ori_rt` reports 0 tests from this file (not a failure).
 
-  **ARM testing:** Spin up a preemptible GCP `t2a-standard-2` (aarch64) instance, run `cargo test -p ori_rt`, then destroy it. This validates the aarch64 assembly stubs on real hardware.
+  **ARM testing:** Run `cargo test -p ori_rt` on a native aarch64 Linux runner (local hardware, CI arm64 worker, or cloud VM). Cross-compilation alone is insufficient; the assembly stubs must execute natively.
 
 ---
 
 ## 01.5 Completion Checklist
 
-- [ ] `eh_personality.c` exists in `compiler/ori_rt/src/` and compiles without warnings
-- [ ] `build.rs` uses `cc` crate to compile the C file
-- [ ] `nm target/debug/libori_rt.a | grep ori_eh_personality` returns the symbol (T = text section)
-- [ ] `ori_eh_personality_addr()` is exported from `ori_rt` and callable from `ori_llvm`
-- [ ] `cargo build -p ori_rt` succeeds (both rlib and staticlib)
-- [ ] No new Clippy warnings in `ori_rt`
-- [ ] `cargo test -p ori_rt` passes forced-unwind tests on x86-64 Linux (catch skipped, cleanup ran)
-- [ ] `cargo test -p ori_rt` passes forced-unwind tests on aarch64 Linux (native execution on GCP preemptible instance — cross-compilation alone is insufficient, tests must run)
-- [ ] Unsupported targets (non-Linux or unsupported arch): forced-unwind tests cleanly skipped (0 tests, not failure)
+- [x] `eh_personality.c` exists in `compiler/ori_rt/src/` and compiles without warnings (2026-03-03)
+- [x] `build.rs` uses `cc` crate to compile the C file (2026-03-03)
+- [x] `nm target/debug/libori_rt.a | grep ori_eh_personality` returns the symbol (T = text section) (2026-03-03)
+- [x] `ori_eh_personality_addr()` is exported from `ori_rt` and callable from `ori_llvm` (2026-03-03)
+- [x] `cargo build -p ori_rt` succeeds (both rlib and staticlib) (2026-03-03)
+- [x] No new Clippy warnings in `ori_rt` (2026-03-03)
+- [x] `cargo test -p ori_rt` passes forced-unwind tests on x86-64 Linux (catch skipped, cleanup ran) (2026-03-03)
+- [ ] `cargo test -p ori_rt` passes forced-unwind tests on aarch64 Linux (native execution required; cross-compilation alone is insufficient)
+- [x] Unsupported targets (non-Linux or unsupported arch): forced-unwind tests cleanly skipped (0 tests, not failure) — `#[cfg]` gate on unit test module (2026-03-03)
 
 **Exit Criteria:** `ori_eh_personality` symbol is present in both `libori_rt.a` and the rlib, and its address is obtainable via `ori_rt::ori_eh_personality_addr()`. The function implements correct LSDA parsing for cleanup and catch-all landing pads per the Itanium EH ABI. On x86-64 and aarch64 Linux: forced-unwind tests verify catch-all pads are skipped and cleanup pads still run under `_UA_FORCE_UNWIND`. On unsupported targets (non-Linux or unsupported arch): forced-unwind tests are skipped cleanly. Verified via `nm`, `cargo build -p ori_rt`, and `cargo test -p ori_rt`.

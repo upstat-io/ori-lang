@@ -13,7 +13,7 @@ pub enum EhModel {
     /// Itanium EH ABI (Linux, macOS, MinGW).
     ///
     /// Uses `landingpad` / `resume` instructions with
-    /// `rust_eh_personality` as the personality function.
+    /// `ori_eh_personality` as the personality function.
     Itanium,
 
     /// Windows Structured Exception Handling (MSVC).
@@ -40,7 +40,7 @@ impl EhModel {
     /// The personality function name for this EH model.
     pub fn personality_name(&self) -> &'static str {
         match self {
-            Self::Itanium => "rust_eh_personality",
+            Self::Itanium => "ori_eh_personality",
             Self::Seh => "__CxxFrameHandler3",
         }
     }

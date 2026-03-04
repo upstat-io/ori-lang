@@ -767,13 +767,18 @@ try {
   .release-body :global(h2),
   .release-body :global(h3) {
     color: var(--color-text-primary);
-    font-weight: var(--weight-semibold);
     margin-top: var(--space-4);
     margin-bottom: var(--space-2);
   }
 
+  .release-body :global(h1) {
+    font-size: var(--text-xl);
+    font-weight: 800;
+  }
+
   .release-body :global(h2) {
     font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
   }
 
   .release-body :global(h3) {

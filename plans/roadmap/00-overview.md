@@ -1,6 +1,6 @@
 # Ori Compiler Roadmap
 
-REROUTES GO IN the index.md file.
+Reroute metadata lives in each plan's `index.md` frontmatter (`reroute: true`, `name`, `full_name`, `status`). The website discovers reroutes dynamically — no manual registry needed.
 
 ---
 

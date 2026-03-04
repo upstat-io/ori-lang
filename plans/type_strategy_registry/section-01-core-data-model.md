@@ -38,9 +38,6 @@ sections:
 
 # Section 01: Core Data Model Design
 
-**Status:** Not Started
-**Goal:** Design and specify every Rust type that constitutes the registry's schema. These types form the contract between `ori_registry` (pure data) and every consuming phase (type checker, evaluator, ARC pass, LLVM backend). Every type must be `const`-constructible, `Copy` where possible, and carry no behavior beyond what `derive` provides.
-
 **Why this section is first:** Nothing else can begin until these types are finalized. Sections 03-07 (type definitions) instantiate these structs/enums as `const` values. Sections 09-13 (wiring) pattern-match on these enums. A change to any type here propagates to every section, so we design once and design correctly.
 
 ---

@@ -24,8 +24,6 @@ sections:
 
 # Section 04: Hash-First Import Resolution
 
-**Status:** Complete
-**Goal:** Replace the AST-walking import path with a hash-first lookup that resolves types
 in O(1) when they already exist in the local pool, falling back to AST walking only for
 genuinely novel types.
 
@@ -46,7 +44,6 @@ consumer of Merkle hashes.
 
 ## 04.1 Hash-Lookup Import Path — COMPLETE
 
-**Goal:** Add a fast path to `register_imported_function()` that resolves types by
 Merkle hash lookup before falling back to AST re-walking.
 
 **Current flow** (`check/mod.rs:420-438`):
@@ -210,7 +207,6 @@ Salsa `typed()` query.
 
 ## 04.2 Prelude Cache Warming — COMPLETE
 
-**Goal:** Ensure that prelude types (the most commonly imported types) are always present
 in every module's pool, so hash-first lookups always hit for prelude types.
 
 **Current behavior:** The prelude is imported via `register_imported_function()` for each
@@ -297,7 +293,6 @@ only if benchmarks show first-module prelude import is a bottleneck.
 
 ## 04.3 AST Fallback Path — COMPLETE
 
-**Goal:** Ensure the AST fallback path (existing `infer_function_signature_from()`)
 remains correct and well-tested as the primary path for types not yet in the local pool.
 
 **When the fallback fires:**
@@ -355,8 +350,6 @@ fn import_fallback_populates_hashes() {
 ---
 
 ## 04.4 Import Resolution Benchmark — COMPLETE
-
-**Goal:** Verify the performance characteristics of hash-first import resolution.
 
 **Approach:** Integration tests + architectural analysis + tracing verification. A formal
 criterion benchmark was not added because `ori_types` lacks benchmark infrastructure and

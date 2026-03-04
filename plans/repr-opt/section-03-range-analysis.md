@@ -32,9 +32,6 @@ sections:
 
 # Section 03: Value Range Analysis Framework
 
-**Status:** Not Started
-**Goal:** For every `int`-typed variable and expression, compute a provable `[min, max]` interval that the value can inhabit at runtime. This is the foundation for §04 (integer narrowing) and §05 (float narrowing). The analysis must be sound — it may over-approximate (say "I don't know" → full i64 range) but must never under-approximate (say "fits in i8" when it doesn't).
-
 **Context:** Value range propagation (VRP) is one of the most well-studied analyses in compiler optimization. LLVM has `CorrelatedValuePropagation` and `LazyValueInfo`; GCC has `tree-vrp`. However, doing it at the Ori level (before LLVM) has two advantages:
 1. We can optimize **struct layouts** and **ARC headers** based on ranges — LLVM can't see through these
 2. We can narrow **function parameter types** across module boundaries — LLVM's VRP is per-function

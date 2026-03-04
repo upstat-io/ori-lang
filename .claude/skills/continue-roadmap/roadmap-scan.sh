@@ -10,6 +10,58 @@ ROADMAP_DIR="${1:-plans/roadmap}"
 FOCUS_SECTION="${2:-}"
 first_incomplete=""
 
+# ── Reroute detection from plan frontmatter ──
+# Scans plans/*/index.md for reroute/parallel plans with active/queued status
+has_active_reroute=false
+active_reroutes=()
+queued_reroutes=()
+for plan_index in plans/*/index.md; do
+    [[ -f "$plan_index" ]] || continue
+    plan_dir=$(dirname "$plan_index")
+    plan_name=$(basename "$plan_dir")
+    [[ "$plan_name" == "roadmap" ]] && continue
+
+    # Parse frontmatter fields
+    fm_type=$(awk '/^---$/{n++; next} n==1 && /^(reroute|parallel):/{sub(/^[a-z]+: */,""); print; exit}' "$plan_index")
+    fm_status=$(awk '/^---$/{n++; next} n==1 && /^status:/{sub(/^status: */,""); print; exit}' "$plan_index")
+    fm_full_name=$(awk '/^---$/{n++; next} n==1 && /^full_name:/{sub(/^full_name: */,""); gsub(/"/, ""); print; exit}' "$plan_index")
+    fm_name=$(awk '/^---$/{n++; next} n==1 && /^name:/{sub(/^name: */,""); gsub(/"/, ""); print; exit}' "$plan_index")
+    fm_is_reroute=$(awk '/^---$/{n++; next} n==1 && /^reroute:/{sub(/^reroute: */,""); print; exit}' "$plan_index")
+
+    display_name="${fm_full_name:-${fm_name:-$plan_name}}"
+
+    if [[ "$fm_status" == "active" ]]; then
+        # Count progress in plan sections
+        plan_checked=$({ grep -r -c '\- \[x\]' "$plan_dir"/section-*.md 2>/dev/null || true; } | awk -F: '{s+=$NF} END{print s+0}')
+        plan_unchecked=$({ grep -r -c '\- \[ \]' "$plan_dir"/section-*.md 2>/dev/null || true; } | awk -F: '{s+=$NF} END{print s+0}')
+        plan_total=$((plan_checked + plan_unchecked))
+        plan_pct=0
+        [[ "$plan_total" -gt 0 ]] && plan_pct=$((plan_checked * 100 / plan_total))
+        type_label="reroute"
+        [[ "$fm_is_reroute" != "true" ]] && type_label="parallel"
+        active_reroutes+=("${type_label}|${display_name}|${plan_dir}|${plan_checked}/${plan_total} (${plan_pct}%)")
+        [[ "$fm_is_reroute" == "true" ]] && has_active_reroute=true
+    elif [[ "$fm_status" == "queued" ]]; then
+        type_label="reroute"
+        [[ "$fm_is_reroute" != "true" ]] && type_label="parallel"
+        queued_reroutes+=("${type_label}|${display_name}|${plan_dir}")
+    fi
+done
+
+# Display reroute status
+if [[ ${#active_reroutes[@]} -gt 0 || ${#queued_reroutes[@]} -gt 0 ]]; then
+    echo "=== REROUTES ==="
+    for entry in "${active_reroutes[@]}"; do
+        IFS='|' read -r rtype rname rdir rprog <<< "$entry"
+        echo "[ACTIVE ${rtype}] ${rname} — ${rdir} — ${rprog}"
+    done
+    for entry in "${queued_reroutes[@]}"; do
+        IFS='|' read -r rtype rname rdir <<< "$entry"
+        echo "[queued ${rtype}] ${rname} — ${rdir}"
+    done
+    echo ""
+fi
+
 # ── Helper: find section file by section number ──
 find_section_file() {
     local sid="$1"

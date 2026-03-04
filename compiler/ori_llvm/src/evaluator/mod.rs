@@ -129,12 +129,9 @@ impl CompiledTestModule<'_> {
     /// The test function must exist in the compiled module and have signature `() -> void`.
     #[allow(
         unsafe_code,
-        reason = "JIT execution requires unsafe FFI: get_function, setjmp, and call"
+        reason = "JIT execution requires unsafe FFI: get_function and call"
     )]
     pub fn run_test(&self, test_name: Name) -> LLVMEvalResult {
-        // Reset panic state before running
-        runtime::reset_panic_state();
-
         // Snapshot live RC count before test for leak detection
         let live_before = runtime::ori_rc_live_count();
 
@@ -151,31 +148,13 @@ impl CompiledTestModule<'_> {
                 .map_err(|e| LLVMEvalError::new(format!("Test function not found: {e}")))?
         };
 
-        // Set up setjmp/longjmp recovery for JIT panics
-        let mut jmp_buf = runtime::JmpBuf::new();
-        let buf_ptr: *mut runtime::JmpBuf = &raw mut jmp_buf;
-        runtime::enter_jit_mode(buf_ptr);
-
-        // SAFETY: jmp_buf is stack-allocated and valid for the duration of this call.
-        // setjmp returns 0 on direct call, non-zero when longjmp fires.
-        let longjmp_fired = unsafe { runtime::jit_setjmp(buf_ptr) } != 0;
-
-        if longjmp_fired {
-            // longjmp returned us here — JIT code hit a panic
-            runtime::leave_jit_mode();
-            let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
-            return Err(LLVMEvalError::new(msg));
-        }
-
-        // Normal path: execute the test
+        // Run with platform-appropriate panic recovery:
+        // - Itanium (Linux, macOS): setjmp/longjmp via JIT mode
+        // - MSVC (Windows): ori_try_call via __try/__except
+        //
         // SAFETY: test_fn has signature () -> void, compiled by us
-        unsafe { test_fn.call() };
-
-        runtime::leave_jit_mode();
-
-        // Check if panic occurred (safety net — assertions now longjmp in JIT mode)
-        if runtime::did_panic() {
-            let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+        let raw_fn: unsafe extern "C" fn() = unsafe { test_fn.as_raw() };
+        if let Err(msg) = unsafe { runtime::jit_run_protected(raw_fn) } {
             return Err(LLVMEvalError::new(msg));
         }
 

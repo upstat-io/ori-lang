@@ -32,9 +32,6 @@ sections:
 
 # Section 07: Static Uniqueness Analysis
 
-**Status:** Not Started
-**Goal:** The compiler statically proves that collection values are uniquely owned at mutation points, eliminating the runtime `ori_rc_is_unique()` check. The mutation becomes an unconditional in-place write — zero overhead compared to a mutable reference language.
-
 **Context:** After §01-§06, every collection mutation has a runtime COW check:
 ```
 if ori_rc_is_unique(list.data) { fast path } else { slow path }

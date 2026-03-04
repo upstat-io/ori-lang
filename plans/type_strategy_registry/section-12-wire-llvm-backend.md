@@ -43,9 +43,6 @@ subsections:
 
 # Section 12: Wire LLVM Backend (ori_llvm) — OpStrategy Dispatch & Builtin Simplification
 
-**Status:** Not Started
-**Goal:** Eliminate the ad-hoc `is_float`/`is_str` type guard pattern in `emit_binary_op` and `emit_unary_op` permanently, replacing it with `OpStrategy` dispatch driven by `ori_registry` lookups. Remove `receiver_borrowed` from `BuiltinRegistration` (ownership now comes from the registry). Simplify the `declare_builtins!` macro. Delete `borrowing_builtin_names()`. Add registry-backed validation tests.
-
 **This is the section that eliminates the string comparison ordering bug class permanently.** The recent fix that added `is_str` guards for `Lt`, `Gt`, `LtEq`, `GtEq` in `emit_binary_op` was correct but brittle: the same bug class will reappear whenever a new comparable type is added (e.g., `Duration`, user-defined types with operator overloads on primitive-like representations). After this section, adding a new type's operator semantics is a registry entry, not a code change in `emit_binary_op`.
 
 **Context:** Section 11 wires `ori_arc` to read ownership from the registry instead of from `borrowing_builtin_names()`. This section completes the downstream half of that work: the LLVM backend stops producing the ownership data (`receiver_borrowed`, `borrowing_builtin_names()`) and instead consumes operator strategy data from the registry.

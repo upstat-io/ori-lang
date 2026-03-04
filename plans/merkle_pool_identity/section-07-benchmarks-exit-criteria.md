@@ -29,8 +29,6 @@ sections:
 
 # Section 07: Benchmarks & Exit Criteria
 
-**Status:** COMPLETE (2026-02-26)
-**Goal:** Quantitatively verify that Merkle pool identity delivers its promised performance
 characteristics (O(1) cross-module identity, faster imports) without regressing existing
 performance (interning throughput, type checking speed, compile time).
 
@@ -44,8 +42,6 @@ only if the hash hit rate is high enough. Benchmarks prove both claims.
 ---
 
 ## 07.1 Interning Throughput Benchmark — COMPLETE
-
-**Goal:** Measure whether Merkle hash computation maintains interning throughput.
 
 **File:** `compiler/oric/benches/pool_interning.rs`
 
@@ -82,8 +78,6 @@ lookup works as designed.
 
 ## 07.2 Import Boundary Benchmark — COMPLETE
 
-**Goal:** Measure the wall-clock improvement from hash-first import resolution (Section 04).
-
 **Approach:** Rather than a standalone benchmark requiring full Salsa/ModuleChecker plumbing,
 the import boundary performance is captured by the re-interning benchmarks in 07.1:
 
@@ -109,7 +103,6 @@ the import boundary performance is captured by the re-interning benchmarks in 07
 
 ## 07.3 Cross-Module Comparison Benchmark — COMPLETE
 
-**Goal:** Measure the cost of cross-module type comparison: Merkle hash comparison (O(1))
 vs structural comparison (O(depth)).
 
 **File:** `compiler/oric/benches/pool_interning.rs`
@@ -142,8 +135,6 @@ The 31.6x speedup exceeds the 10x target by 3x.
 
 ## 07.4 Memory Usage Analysis — COMPLETE
 
-**Goal:** Measure memory impact of Merkle hashing.
-
 **Analysis (by inspection — no runtime measurement needed):**
 
 **Pool memory: unchanged.** The `hashes: Vec<u64>` field already existed in Pool
@@ -170,8 +161,6 @@ for the same storage. No new fields, no new allocations.
 ---
 
 ## 07.5 Regression Testing — COMPLETE
-
-**Goal:** Verify zero regressions across the entire test suite.
 
 **Test Results (2026-02-26):**
 

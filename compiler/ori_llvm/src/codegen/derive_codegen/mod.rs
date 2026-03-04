@@ -232,6 +232,9 @@ pub(super) struct DeriveSetup {
     /// Resolved `str` type for string operations. `None` for shapes that
     /// don't need string handling (`Nullary`, `UnaryIdentity`).
     pub(super) str_ty_id: Option<LLVMTypeId>,
+    /// The Ori type index for this type (used for LLVM type resolution in
+    /// payload enum derives).
+    pub(super) type_idx: Idx,
 }
 
 /// Common scaffolding for all derived trait codegen functions.
@@ -289,6 +292,7 @@ fn setup_derive_function<'a>(
         self_val: self_opt,
         other_val: other_opt,
         str_ty_id,
+        type_idx,
     }
 }
 

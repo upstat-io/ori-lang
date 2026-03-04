@@ -29,9 +29,6 @@ sections:
 
 # Section 11: Collection Specialization
 
-**Status:** Not Started
-**Goal:** Collections use optimized backing stores based on their contents. Short strings (≤ 22 bytes) are inline (no heap allocation). Small lists (≤ 3 elements) are inline. Bool arrays use 1 bit per element. Lists of `byte` use a packed `[i8]` backing store instead of `[i64]`.
-
 **Context:** Collections are Ori's most common heap allocation. Every `str`, `[T]`, `{K:V}`, and `{T}` allocates on the heap today. For small collections, the allocation overhead (8-byte RC header + heap pointer indirection) dominates the actual data. SSO and SVO eliminate this overhead for the common case.
 
 **Reference implementations:**

@@ -18,6 +18,7 @@ use ori_types::{FieldDef, Idx, VariantDef, VariantFields};
 use tracing::warn;
 
 use super::super::function_compiler::FunctionCompiler;
+use super::super::type_info::TypeLayoutResolver;
 
 use super::field_ops::emit_field_operation;
 use super::string_helpers::{emit_field_to_string, emit_str_concat, emit_str_literal};
@@ -356,13 +357,12 @@ pub(super) fn compile_default_construct<'a>(
 /// Generate derived methods for enum types using `SumBody::MatchVariants`.
 ///
 /// Dispatches on the `struct_body` strategy:
-/// - `ForEachField`: tag-based Eq, Comparable, Hashable
+/// - `ForEachField`: Eq, Comparable, Hashable — with payload comparison
 /// - `CloneFields`: identity return (enums are value types in LLVM)
 /// - Other strategies: not yet implemented (trace warning)
 ///
-/// For unit-only enums (all variants have no payload), tag comparison is
-/// complete and correct. For payload enums, only the tag is compared —
-/// payload comparison is tracked as a separate gap.
+/// For unit-only enums, tag comparison is sufficient. For payload enums,
+/// per-variant field comparison is emitted via switch on tag value.
 pub(super) fn compile_enum_match_variants<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     trait_kind: DerivedTrait,
@@ -372,25 +372,13 @@ pub(super) fn compile_enum_match_variants<'a>(
     variants: &[VariantDef],
     struct_body: &StructBody,
 ) {
-    let is_all_unit = variants
-        .iter()
-        .all(|v| matches!(v.fields, VariantFields::Unit));
-    if !is_all_unit {
-        tracing::trace!(
-            name = %type_name_str,
-            derive = %trait_kind.method_name(),
-            "enum derive with payload variants not yet supported — skipping"
-        );
-        return;
-    }
-
     match *struct_body {
-        StructBody::ForEachField { combine, .. } => {
+        StructBody::ForEachField { combine, field_op } => {
             let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
             match combine {
-                CombineOp::AllTrue => emit_enum_all_true(fc, &setup),
-                CombineOp::Lexicographic => emit_enum_lexicographic(fc, &setup),
-                CombineOp::HashCombine => emit_enum_hash_combine(fc, &setup),
+                CombineOp::AllTrue => emit_enum_all_true(fc, &setup, variants, field_op),
+                CombineOp::Lexicographic => emit_enum_lexicographic(fc, &setup, variants, field_op),
+                CombineOp::HashCombine => emit_enum_hash_combine(fc, &setup, variants, field_op),
             }
         }
         StructBody::CloneFields => {
@@ -409,61 +397,534 @@ pub(super) fn compile_enum_match_variants<'a>(
     }
 }
 
-/// Enum Eq: compare variant tags (field 0) with `icmp eq`.
-fn emit_enum_all_true<'a>(fc: &mut FunctionCompiler<'_, 'a, 'a, '_>, setup: &DeriveSetup) {
+/// Extract field type indices from a `VariantFields`.
+fn variant_field_types(fields: &VariantFields) -> Vec<Idx> {
+    match fields {
+        VariantFields::Unit => vec![],
+        VariantFields::Tuple(types) => types.clone(),
+        VariantFields::Record(field_defs) => field_defs.iter().map(|f| f.ty).collect(),
+    }
+}
+
+/// Enum Eq: compare tags first, then per-variant payload comparison.
+///
+/// For unit-only enums, just compares tags. For payload enums, switches on
+/// the tag value and compares each variant's fields individually.
+fn emit_enum_all_true<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    setup: &DeriveSetup,
+    variants: &[VariantDef],
+    field_op: FieldOp,
+) {
     let self_val = setup.self_val.expect("AllTrue has self");
     let other_val = setup.other_val.expect("AllTrue has other");
+    let func_id = setup.func_id;
 
+    let true_bb = fc.builder_mut().append_block(func_id, "eq.true");
+    let false_bb = fc.builder_mut().append_block(func_id, "eq.false");
+
+    // Extract tags
     let tag_self = fc.builder_mut().extract_value(self_val, 0, "eq.tag.self");
     let tag_other = fc.builder_mut().extract_value(other_val, 0, "eq.tag.other");
 
-    let result = if let (Some(ts), Some(to)) = (tag_self, tag_other) {
-        fc.builder_mut().icmp_eq(ts, to, "eq.tags")
-    } else {
+    let (Some(ts), Some(to)) = (tag_self, tag_other) else {
         warn!("extract_value failed for enum tag in derive Eq");
-        fc.builder_mut().const_bool(false)
+        fc.builder_mut().br(false_bb);
+        emit_enum_true_false_returns(fc, true_bb, false_bb);
+        return;
     };
-    fc.builder_mut().ret(result);
+
+    let tags_eq = fc.builder_mut().icmp_eq(ts, to, "eq.tags");
+    let has_payload = variants.iter().any(|v| !v.fields.is_unit());
+
+    if has_payload {
+        // Tags must match first, then per-variant payload comparison
+        let tags_match_bb = fc.builder_mut().append_block(func_id, "eq.tags.match");
+        fc.builder_mut().cond_br(tags_eq, tags_match_bb, false_bb);
+        fc.builder_mut().position_at_end(tags_match_bb);
+
+        emit_enum_payload_eq(fc, setup, variants, field_op, ts, true_bb, false_bb);
+    } else {
+        // All unit: tags match is sufficient
+        fc.builder_mut().cond_br(tags_eq, true_bb, false_bb);
+    }
+
+    emit_enum_true_false_returns(fc, true_bb, false_bb);
 }
 
-/// Enum Comparable: unsigned ordering of variant tags (field 0).
+/// Emit per-variant payload comparison for Eq via switch on tag.
+fn emit_enum_payload_eq<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    setup: &DeriveSetup,
+    variants: &[VariantDef],
+    field_op: FieldOp,
+    tag_self: super::super::value_id::ValueId,
+    true_bb: super::super::value_id::BlockId,
+    false_bb: super::super::value_id::BlockId,
+) {
+    let self_val = setup.self_val.expect("Eq has self");
+    let other_val = setup.other_val.expect("Eq has other");
+    let func_id = setup.func_id;
+    let str_ty_id = setup.str_ty_id.expect("Eq needs str_ty_id");
+
+    // Alloca self and other for GEP-based payload extraction
+    let enum_llvm_ty = fc.resolve_type(setup.type_idx);
+    let enum_ty_id = fc.builder_mut().register_type(enum_llvm_ty);
+    let self_alloca = fc.entry_alloca(enum_ty_id, "eq.self");
+    let other_alloca = fc.entry_alloca(enum_ty_id, "eq.other");
+    fc.builder_mut().store(self_val, self_alloca);
+    fc.builder_mut().store(other_val, other_alloca);
+
+    // GEP to payload arrays (struct field 1 = [M x i64])
+    let self_payload = fc
+        .builder_mut()
+        .struct_gep(enum_ty_id, self_alloca, 1, "eq.self.payload");
+    let other_payload =
+        fc.builder_mut()
+            .struct_gep(enum_ty_id, other_alloca, 1, "eq.other.payload");
+
+    // Build switch cases — one block per variant
+    let mut cases = Vec::with_capacity(variants.len());
+    let mut variant_bbs = Vec::with_capacity(variants.len());
+    for (tag_idx, variant) in variants.iter().enumerate() {
+        let variant_name = fc.lookup_name(variant.name).to_owned();
+        let bb = fc
+            .builder_mut()
+            .append_block(func_id, &format!("eq.v.{variant_name}"));
+        let tag_val = fc.builder_mut().const_i64(tag_idx as i64);
+        cases.push((tag_val, bb));
+        variant_bbs.push(bb);
+    }
+
+    fc.builder_mut().switch(tag_self, false_bb, &cases);
+
+    // Emit per-variant comparison logic
+    let i64_ty = fc.builder_mut().i64_type();
+
+    for (tag_idx, variant) in variants.iter().enumerate() {
+        fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
+
+        let field_types = variant_field_types(&variant.fields);
+        if field_types.is_empty() {
+            // Unit variant: tags already match → true
+            fc.builder_mut().br(true_bb);
+            continue;
+        }
+
+        // Compare payload fields using GEP into [M x i64] array
+        let mut i64_offset: u64 = 0;
+        for (fi, &field_type) in field_types.iter().enumerate() {
+            let slot_idx = fc.builder_mut().const_i64(i64_offset as i64);
+            let self_slot = fc.builder_mut().gep(
+                i64_ty,
+                self_payload,
+                &[slot_idx],
+                &format!("eq.v{tag_idx}.self.f{fi}"),
+            );
+            let other_slot = fc.builder_mut().gep(
+                i64_ty,
+                other_payload,
+                &[slot_idx],
+                &format!("eq.v{tag_idx}.other.f{fi}"),
+            );
+
+            let field_llvm_ty = fc.resolve_type(field_type);
+            let field_ty_id = fc.builder_mut().register_type(field_llvm_ty);
+
+            let self_field = fc.builder_mut().load(
+                field_ty_id,
+                self_slot,
+                &format!("eq.v{tag_idx}.self.f{fi}.val"),
+            );
+            let other_field = fc.builder_mut().load(
+                field_ty_id,
+                other_slot,
+                &format!("eq.v{tag_idx}.other.f{fi}.val"),
+            );
+
+            let cmp = emit_field_operation(
+                fc,
+                field_op,
+                self_field,
+                Some(other_field),
+                field_type,
+                &format!("eq.v{tag_idx}.f{fi}"),
+                str_ty_id,
+            );
+
+            if fi + 1 < field_types.len() {
+                let next_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("eq.v{tag_idx}.f{}", fi + 1));
+                fc.builder_mut().cond_br(cmp, next_bb, false_bb);
+                fc.builder_mut().position_at_end(next_bb);
+            } else {
+                fc.builder_mut().cond_br(cmp, true_bb, false_bb);
+            }
+
+            // Advance offset by field size in i64 slots
+            let field_bytes = TypeLayoutResolver::type_store_size(field_llvm_ty);
+            i64_offset += field_bytes.div_ceil(8).max(1);
+        }
+    }
+}
+
+/// Emit the true/false return blocks for enum Eq.
+fn emit_enum_true_false_returns<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    true_bb: super::super::value_id::BlockId,
+    false_bb: super::super::value_id::BlockId,
+) {
+    fc.builder_mut().position_at_end(true_bb);
+    let true_val = fc.builder_mut().const_bool(true);
+    fc.builder_mut().ret(true_val);
+
+    fc.builder_mut().position_at_end(false_bb);
+    let false_val = fc.builder_mut().const_bool(false);
+    fc.builder_mut().ret(false_val);
+}
+
+/// Enum Comparable: compare tags first, then per-variant lexicographic ordering.
 ///
-/// Returns `Ordering` (Less=0, Equal=1, Greater=2) based on tag values.
-fn emit_enum_lexicographic<'a>(fc: &mut FunctionCompiler<'_, 'a, 'a, '_>, setup: &DeriveSetup) {
+/// Returns `Ordering` (Less=0, Equal=1, Greater=2) based on tag values,
+/// then per-variant field ordering if tags match.
+fn emit_enum_lexicographic<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    setup: &DeriveSetup,
+    variants: &[VariantDef],
+    field_op: FieldOp,
+) {
     let self_val = setup.self_val.expect("Lexicographic has self");
     let other_val = setup.other_val.expect("Lexicographic has other");
+    let func_id = setup.func_id;
 
     let tag_self = fc.builder_mut().extract_value(self_val, 0, "cmp.tag.self");
     let tag_other = fc
         .builder_mut()
         .extract_value(other_val, 0, "cmp.tag.other");
 
-    let result = if let (Some(ts), Some(to)) = (tag_self, tag_other) {
-        // Unsigned comparison: tag values are 0, 1, 2, ... matching declaration order
-        fc.builder_mut()
-            .emit_icmp_ordering(ts, to, "cmp.tags", false)
-    } else {
+    let (Some(ts), Some(to)) = (tag_self, tag_other) else {
         warn!("extract_value failed for enum tag in derive Comparable");
-        fc.builder_mut().const_i8(1) // Equal fallback
+        let equal = fc.builder_mut().const_i8(1);
+        emit_derive_return(fc, func_id, &setup.abi, Some(equal));
+        return;
     };
-    emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
+
+    // Compare tags as unsigned (variant declaration order)
+    let tag_ord = fc
+        .builder_mut()
+        .emit_icmp_ordering(ts, to, "cmp.tags", false);
+
+    let has_payload = variants.iter().any(|v| !v.fields.is_unit());
+
+    if has_payload {
+        // If tags differ, return tag ordering. If same, compare payloads.
+        let one = fc.builder_mut().const_i8(1);
+        let tags_equal = fc.builder_mut().icmp_eq(tag_ord, one, "cmp.tags.is_eq");
+
+        let equal_bb = fc.builder_mut().append_block(func_id, "cmp.equal");
+        let ret_tag_bb = fc.builder_mut().append_block(func_id, "cmp.ret.tag");
+        fc.builder_mut().cond_br(tags_equal, equal_bb, ret_tag_bb);
+
+        // Return tag ordering when tags differ
+        fc.builder_mut().position_at_end(ret_tag_bb);
+        emit_derive_return(fc, func_id, &setup.abi, Some(tag_ord));
+
+        // Tags match — compare payloads
+        fc.builder_mut().position_at_end(equal_bb);
+        emit_enum_payload_cmp(fc, setup, variants, field_op, ts);
+    } else {
+        // All unit: tag ordering is the full ordering
+        emit_derive_return(fc, func_id, &setup.abi, Some(tag_ord));
+    }
 }
 
-/// Enum Hashable: FNV-1a hash of the variant tag.
-///
-/// Tags are sign-extended to i64 before XOR into the FNV accumulator.
-fn emit_enum_hash_combine<'a>(fc: &mut FunctionCompiler<'_, 'a, 'a, '_>, setup: &DeriveSetup) {
-    let self_val = setup.self_val.expect("HashCombine has self");
+/// Emit per-variant lexicographic comparison via switch on tag.
+fn emit_enum_payload_cmp<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    setup: &DeriveSetup,
+    variants: &[VariantDef],
+    field_op: FieldOp,
+    tag_self: super::super::value_id::ValueId,
+) {
+    let self_val = setup.self_val.expect("Comparable has self");
+    let other_val = setup.other_val.expect("Comparable has other");
+    let func_id = setup.func_id;
+    let str_ty_id = setup.str_ty_id.expect("Comparable needs str_ty_id");
 
+    let equal_result_bb = fc.builder_mut().append_block(func_id, "cmp.result.equal");
+
+    // Alloca for GEP
+    let enum_llvm_ty = fc.resolve_type(setup.type_idx);
+    let enum_ty_id = fc.builder_mut().register_type(enum_llvm_ty);
+    let self_alloca = fc.entry_alloca(enum_ty_id, "cmp.self");
+    let other_alloca = fc.entry_alloca(enum_ty_id, "cmp.other");
+    fc.builder_mut().store(self_val, self_alloca);
+    fc.builder_mut().store(other_val, other_alloca);
+
+    let self_payload = fc
+        .builder_mut()
+        .struct_gep(enum_ty_id, self_alloca, 1, "cmp.self.payload");
+    let other_payload =
+        fc.builder_mut()
+            .struct_gep(enum_ty_id, other_alloca, 1, "cmp.other.payload");
+
+    let mut cases = Vec::with_capacity(variants.len());
+    let mut variant_bbs = Vec::with_capacity(variants.len());
+    for (tag_idx, variant) in variants.iter().enumerate() {
+        let variant_name = fc.lookup_name(variant.name).to_owned();
+        let bb = fc
+            .builder_mut()
+            .append_block(func_id, &format!("cmp.v.{variant_name}"));
+        let tag_val = fc.builder_mut().const_i64(tag_idx as i64);
+        cases.push((tag_val, bb));
+        variant_bbs.push(bb);
+    }
+
+    fc.builder_mut().switch(tag_self, equal_result_bb, &cases);
+
+    let i64_ty = fc.builder_mut().i64_type();
+
+    for (tag_idx, variant) in variants.iter().enumerate() {
+        fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
+
+        let field_types = variant_field_types(&variant.fields);
+        if field_types.is_empty() {
+            fc.builder_mut().br(equal_result_bb);
+            continue;
+        }
+
+        let mut i64_offset: u64 = 0;
+        for (fi, &field_type) in field_types.iter().enumerate() {
+            let slot_idx = fc.builder_mut().const_i64(i64_offset as i64);
+            let self_slot = fc.builder_mut().gep(
+                i64_ty,
+                self_payload,
+                &[slot_idx],
+                &format!("cmp.v{tag_idx}.self.f{fi}"),
+            );
+            let other_slot = fc.builder_mut().gep(
+                i64_ty,
+                other_payload,
+                &[slot_idx],
+                &format!("cmp.v{tag_idx}.other.f{fi}"),
+            );
+
+            let field_llvm_ty = fc.resolve_type(field_type);
+            let field_ty_id = fc.builder_mut().register_type(field_llvm_ty);
+
+            let self_field = fc.builder_mut().load(
+                field_ty_id,
+                self_slot,
+                &format!("cmp.v{tag_idx}.self.f{fi}.val"),
+            );
+            let other_field = fc.builder_mut().load(
+                field_ty_id,
+                other_slot,
+                &format!("cmp.v{tag_idx}.other.f{fi}.val"),
+            );
+
+            let ord = emit_field_operation(
+                fc,
+                field_op,
+                self_field,
+                Some(other_field),
+                field_type,
+                &format!("cmp.v{tag_idx}.f{fi}"),
+                str_ty_id,
+            );
+
+            let one = fc.builder_mut().const_i8(1);
+            let is_equal =
+                fc.builder_mut()
+                    .icmp_eq(ord, one, &format!("cmp.v{tag_idx}.f{fi}.is_eq"));
+
+            if fi + 1 < field_types.len() {
+                let ret_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.v{tag_idx}.ret.f{fi}"));
+                let next_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.v{tag_idx}.f{}", fi + 1));
+                fc.builder_mut().cond_br(is_equal, next_bb, ret_bb);
+
+                fc.builder_mut().position_at_end(ret_bb);
+                emit_derive_return(fc, func_id, &setup.abi, Some(ord));
+
+                fc.builder_mut().position_at_end(next_bb);
+            } else {
+                let ret_bb = fc
+                    .builder_mut()
+                    .append_block(func_id, &format!("cmp.v{tag_idx}.ret.f{fi}"));
+                fc.builder_mut().cond_br(is_equal, equal_result_bb, ret_bb);
+
+                fc.builder_mut().position_at_end(ret_bb);
+                emit_derive_return(fc, func_id, &setup.abi, Some(ord));
+            }
+
+            let field_bytes = TypeLayoutResolver::type_store_size(field_llvm_ty);
+            i64_offset += field_bytes.div_ceil(8).max(1);
+        }
+    }
+
+    fc.builder_mut().position_at_end(equal_result_bb);
+    let equal_val = fc.builder_mut().const_i8(1);
+    emit_derive_return(fc, func_id, &setup.abi, Some(equal_val));
+}
+
+/// Enum Hashable: FNV-1a hash of tag + per-variant payload fields.
+///
+/// Hashes the tag first, then switches on tag to hash variant-specific
+/// payload fields.
+fn emit_enum_hash_combine<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    setup: &DeriveSetup,
+    variants: &[VariantDef],
+    field_op: FieldOp,
+) {
+    let self_val = setup.self_val.expect("HashCombine has self");
+    let func_id = setup.func_id;
+
+    // Hash the tag first
     let mut hash = fc.builder_mut().const_i64(FNV_OFFSET_BASIS as i64);
     let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
 
-    if let Some(tag) = fc.builder_mut().extract_value(self_val, 0, "hash.tag") {
-        let i64_ty = fc.builder_mut().i64_type();
-        let tag_i64 = fc.builder_mut().sext(tag, i64_ty, "hash.tag.i64");
-        let xored = fc.builder_mut().xor(hash, tag_i64, "hash.xor.tag");
+    let tag = fc.builder_mut().extract_value(self_val, 0, "hash.tag");
+    if let Some(tag_val) = tag {
+        // Tag is already i64 in enum layout { i64, [M x i64] } — use directly
+        let xored = fc.builder_mut().xor(hash, tag_val, "hash.xor.tag");
         hash = fc.builder_mut().mul(xored, prime, "hash.mul.tag");
     }
 
-    emit_derive_return(fc, setup.func_id, &setup.abi, Some(hash));
+    let has_payload = variants.iter().any(|v| !v.fields.is_unit());
+
+    if has_payload {
+        emit_enum_payload_hash(fc, setup, variants, field_op, hash);
+    } else {
+        // All unit: tag hash is sufficient
+        emit_derive_return(fc, func_id, &setup.abi, Some(hash));
+    }
+}
+
+/// Emit per-variant payload hashing via switch on tag.
+fn emit_enum_payload_hash<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    setup: &DeriveSetup,
+    variants: &[VariantDef],
+    field_op: FieldOp,
+    tag_hash: super::super::value_id::ValueId,
+) {
+    let self_val = setup.self_val.expect("Hashable has self");
+    let func_id = setup.func_id;
+    let str_ty_id = setup.str_ty_id.expect("Hashable needs str_ty_id");
+
+    let merge_bb = fc.builder_mut().append_block(func_id, "hash.merge");
+
+    // Alloca for GEP
+    let enum_llvm_ty = fc.resolve_type(setup.type_idx);
+    let enum_ty_id = fc.builder_mut().register_type(enum_llvm_ty);
+    let self_alloca = fc.entry_alloca(enum_ty_id, "hash.self");
+    fc.builder_mut().store(self_val, self_alloca);
+
+    let self_payload = fc
+        .builder_mut()
+        .struct_gep(enum_ty_id, self_alloca, 1, "hash.self.payload");
+
+    // Extract tag for switch
+    let tag = fc
+        .builder_mut()
+        .extract_value(self_val, 0, "hash.switch.tag")
+        .expect("tag extraction for hash switch");
+
+    let mut cases = Vec::with_capacity(variants.len());
+    let mut variant_bbs = Vec::with_capacity(variants.len());
+    for (tag_idx, variant) in variants.iter().enumerate() {
+        let variant_name = fc.lookup_name(variant.name).to_owned();
+        let bb = fc
+            .builder_mut()
+            .append_block(func_id, &format!("hash.v.{variant_name}"));
+        let tag_val = fc.builder_mut().const_i64(tag_idx as i64);
+        cases.push((tag_val, bb));
+        variant_bbs.push(bb);
+    }
+
+    fc.builder_mut().switch(tag, merge_bb, &cases);
+
+    let i64_ty = fc.builder_mut().i64_type();
+    let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
+
+    // Collect (variant_bb_end, hash_result) for phi node
+    let mut phi_incoming: Vec<(
+        super::super::value_id::ValueId,
+        super::super::value_id::BlockId,
+    )> = Vec::new();
+
+    for (tag_idx, variant) in variants.iter().enumerate() {
+        fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
+
+        let field_types = variant_field_types(&variant.fields);
+        if field_types.is_empty() {
+            // Unit: just use tag hash
+            phi_incoming.push((tag_hash, variant_bbs[tag_idx]));
+            fc.builder_mut().br(merge_bb);
+            continue;
+        }
+
+        let mut hash = tag_hash;
+        let mut i64_offset: u64 = 0;
+
+        for (fi, &field_type) in field_types.iter().enumerate() {
+            let slot_idx = fc.builder_mut().const_i64(i64_offset as i64);
+            let self_slot = fc.builder_mut().gep(
+                i64_ty,
+                self_payload,
+                &[slot_idx],
+                &format!("hash.v{tag_idx}.f{fi}"),
+            );
+
+            let field_llvm_ty = fc.resolve_type(field_type);
+            let field_ty_id = fc.builder_mut().register_type(field_llvm_ty);
+
+            let field_val = fc.builder_mut().load(
+                field_ty_id,
+                self_slot,
+                &format!("hash.v{tag_idx}.f{fi}.val"),
+            );
+
+            let field_as_i64 = emit_field_operation(
+                fc,
+                field_op,
+                field_val,
+                None,
+                field_type,
+                &format!("hash.v{tag_idx}.f{fi}"),
+                str_ty_id,
+            );
+
+            let xored =
+                fc.builder_mut()
+                    .xor(hash, field_as_i64, &format!("hash.v{tag_idx}.xor.{fi}"));
+            hash = fc
+                .builder_mut()
+                .mul(xored, prime, &format!("hash.v{tag_idx}.mul.{fi}"));
+
+            let field_bytes = TypeLayoutResolver::type_store_size(field_llvm_ty);
+            i64_offset += field_bytes.div_ceil(8).max(1);
+        }
+
+        // Record the current block (may differ from variant_bbs[tag_idx] due to
+        // field operation blocks emitted by emit_field_operation)
+        let current_bb = fc
+            .builder_mut()
+            .current_block()
+            .expect("current block in hash");
+        phi_incoming.push((hash, current_bb));
+        fc.builder_mut().br(merge_bb);
+    }
+
+    // Merge: phi from all variant arms
+    fc.builder_mut().position_at_end(merge_bb);
+    let phi_result = fc.builder_mut().phi(i64_ty, "hash.result");
+    fc.builder_mut().add_phi_incoming(phi_result, &phi_incoming);
+    emit_derive_return(fc, func_id, &setup.abi, Some(phi_result));
 }

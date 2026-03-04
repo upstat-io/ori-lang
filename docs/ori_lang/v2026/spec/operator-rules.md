@@ -575,7 +575,7 @@ SUPPORTED OPERATORS (LOGICAL)
 
 CONSTRAINTS
 ───────────
-- Left-hand side must be a mutable binding (no $ prefix)
+- Left-hand side shall be a mutable binding (no `$` prefix)
 - Compound assignment is a statement, not an expression
 - Target expression is duplicated in AST (pure: no side effects)
 ```

@@ -34,9 +34,6 @@ sections:
 
 # Section 12: Verification & Benchmarks
 
-**Status:** Not Started
-**Goal:** Every optimization in §01-§11 is proven correct by testing (semantic equivalence with unoptimized code), proven safe by Valgrind (no memory errors), and measured for performance impact (speedup/memory reduction vs. baseline).
-
 **Context:** Representation optimization is uniquely dangerous because bugs manifest as silent data corruption rather than crashes. If a value is narrowed incorrectly, the program produces wrong results without any error. The only way to catch this is exhaustive comparison between optimized and unoptimized paths.
 
 **Reference implementations:**
