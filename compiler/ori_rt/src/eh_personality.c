@@ -1,6 +1,96 @@
 /*
- * Ori Exception Handling Personality Function
+ * Ori Exception Handling — Platform-Specific Implementations
  *
+ * Two EH backends, zero Rust runtime dependency:
+ *
+ *   1. Itanium (Linux, macOS, MinGW):
+ *      - ori_eh_personality: LSDA-based personality for invoke/landingpad
+ *      - ori_raise_exception: _Unwind_RaiseException with OriException object
+ *
+ *   2. Windows SEH (MSVC):
+ *      - ori_raise_exception: Win32 RaiseException with custom exception code
+ *      - ori_try_call: __try/__except trampoline for catch(expr:)
+ *
+ * The panic message is stored in thread-local storage by ori_panic/ori_panic_cstr
+ * (Rust side) before either raise path is invoked.
+ */
+
+#ifdef _MSC_VER
+/* ═══════════════════════════════════════════════════════════════════
+ * Windows SEH Implementation
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+/*
+ * Custom exception code for Ori panics.
+ *
+ * Bits 31-30: 11 (severity = error)
+ * Bit  29:     1 (customer-defined, not Microsoft)
+ * Bit  28:     0 (reserved)
+ * Bits 27-0:   0x524900 ("RI\0" — from "ORI")
+ *
+ * This distinguishes Ori exceptions from C++, SEH, and other
+ * language exceptions. The EXCEPTION_NONCONTINUABLE flag prevents
+ * the handler from continuing execution at the faulting instruction.
+ */
+#define ORI_SEH_EXCEPTION_CODE 0xE0524900UL
+
+/*
+ * Raise an Ori exception via Win32 SEH.
+ *
+ * Called by ori_panic/ori_panic_cstr (Rust) after storing the panic
+ * message in thread-local storage. Uses RaiseException with a custom
+ * code that ori_try_call's __except filter recognizes.
+ *
+ * EXCEPTION_NONCONTINUABLE: the exception cannot be continued —
+ * attempting to continue after this exception terminates the process.
+ */
+__declspec(noreturn)
+void ori_raise_exception(void) {
+    RaiseException(ORI_SEH_EXCEPTION_CODE, EXCEPTION_NONCONTINUABLE, 0, NULL);
+    /* RaiseException does not return when EXCEPTION_NONCONTINUABLE is set
+     * and a handler is found. If no handler exists, Windows terminates
+     * the process. This abort() is a safety net. */
+    abort();
+}
+
+/*
+ * Try calling a thunk, catching Ori panics via SEH.
+ *
+ * Used by catch(expr:) codegen on MSVC. The LLVM backend generates a
+ * thunk function `void (ptr %ctx)` that packs args into ctx, calls
+ * the real function, and stores the result back.
+ *
+ * The __except filter only catches ORI_SEH_EXCEPTION_CODE — all other
+ * exceptions (access violations, C++ exceptions, etc.) propagate normally.
+ *
+ * Returns 1 on success, 0 if an Ori panic was caught.
+ * On catch, the panic message is available via ori_catch_recover (Rust).
+ */
+int64_t ori_try_call(void (*thunk)(void *), void *ctx) {
+    __try {
+        thunk(ctx);
+        return 1;
+    }
+    __except (GetExceptionCode() == ORI_SEH_EXCEPTION_CODE
+                  ? EXCEPTION_EXECUTE_HANDLER
+                  : EXCEPTION_CONTINUE_SEARCH) {
+        return 0;
+    }
+}
+
+#else
+/* ═══════════════════════════════════════════════════════════════════
+ * Itanium EH Implementation (Linux, macOS, MinGW)
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/*
  * Implements the Itanium C++ ABI personality routine for Ori's LLVM-compiled
  * code. Every function emitted with `invoke`/`landingpad` references this
  * symbol via `personality ptr @ori_eh_personality`.
@@ -420,3 +510,5 @@ void ori_raise_exception(void) {
         (int)result);
     abort();
 }
+
+#endif /* _MSC_VER */

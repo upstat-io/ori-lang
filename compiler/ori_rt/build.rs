@@ -1,16 +1,27 @@
 fn main() {
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    let is_msvc = target_env == "msvc";
 
     let mut build = cc::Build::new();
 
-    // --- Personality function (always built, all targets) ---
-    build
-        .file("src/eh_personality.c")
-        .flag("-std=c11")
-        .pic(true) // Required: Rust links test binaries as PIE
-        .warnings(true)
-        .extra_warnings(true);
+    // --- EH implementation (all targets) ---
+    //
+    // eh_personality.c contains platform-gated code:
+    //   - MSVC (#ifdef _MSC_VER): SEH-based ori_raise_exception + ori_try_call
+    //   - Others: Itanium personality + ori_raise_exception via _Unwind_RaiseException
+    build.file("src/eh_personality.c");
+
+    if is_msvc {
+        // MSVC: use /std:c11 (not -std=c11 which is a GCC/Clang flag)
+        build.flag("/std:c11");
+    } else {
+        build.flag_if_supported("-std=c11");
+        build.pic(true); // Required: Rust links test binaries as PIE
+    }
+
+    build.warnings(true).extra_warnings(true);
 
     // -fno-exceptions is a C++ flag but some C compilers accept it to
     // suppress exception-related code generation. Use flag_if_supported
