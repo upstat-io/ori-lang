@@ -17,9 +17,6 @@ sections:
   - id: "08.3"
     title: "Range Iteration Specialization"
     status: not-started
-  - id: "08.4"
-    title: "Completion Checklist"
-    status: not-started
 ---
 
 # Section 08: Loop IR Quality
@@ -56,6 +53,17 @@ Two approaches:
 - [ ] Verify: J7 `_ori_sum_loop` computes `i + 1` exactly once per iteration
 - [ ] Verify: no regression in overflow checking (single checked result reused, never replaced with unchecked add)
 
+### 08.1 Completion Checklist
+
+- [ ] Duplicate arithmetic operations within a single block/iteration are eliminated
+- [ ] J7 `_ori_sum_loop` computes `i + 1` exactly once per iteration
+- [ ] CSE does not cross side-effecting operations (calls, stores)
+- [ ] Overflow checking preserved — reused result is from a checked operation, not an unchecked shortcut
+- [ ] IR test: loop body with `total += i + 1; i += 1` has exactly 1 checked add for `i + 1`
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
+
 ---
 
 ## 08.2 Loop-Invariant Phi Elimination
@@ -68,6 +76,15 @@ When a value used inside a loop is defined before the loop and never modified wi
 - [ ] Check: does the value have an incoming edge from the loop body that differs from the pre-header edge?
 - [ ] If both edges carry the same value, skip the phi and use the value directly
 - [ ] Verify: J10 `_ori_check_iteration` has no loop-invariant phi for the list struct
+
+### 08.2 Completion Checklist
+
+- [ ] No loop-invariant phi nodes in loop headers (both incoming edges carry the same value)
+- [ ] J10 `_ori_check_iteration` references the list struct directly (no phi)
+- [ ] IR test: loop using a pre-loop value without modification has no phi for that value
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
 
 ---
 
@@ -90,16 +107,19 @@ Specialization candidates:
 - [ ] Verify: general ranges (e.g., `0..100 by 3`) still work correctly
 - [ ] Add coverage matrix for ascending/descending × inclusive/exclusive × positive/negative/non-unit step
 
----
+### 08.3 Completion Checklist
 
-## 08.4 Completion Checklist
-
-- [ ] No duplicate arithmetic operations in loop bodies (CSE)
-- [ ] No loop-invariant phi nodes
-- [ ] Common range patterns emit 1-instruction bounds check
+- [ ] Common range patterns (`0..n`, `0..=n`, `n..0 by -1`) emit 1-instruction bounds check
 - [ ] General ranges still emit correct (if verbose) bounds checks
+- [ ] J7 `_ori_sum_for` with `1..=n by 1` emits `icmp sle` (1 instruction, not 8)
+- [ ] IR test: `for i in 0..n` emits `icmp slt` only
+- [ ] Coverage: ascending/descending × inclusive/exclusive × unit/non-unit step all pass
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
-- [ ] Loop-heavy programs show measurable instruction count reduction
+- [ ] No regressions in `cargo test -p ori_llvm`
 
-**Exit Criteria:** J7 loop body has exactly one `i + 1` computation. J10 loop header has no invariant phis. J7 range loop uses `icmp sle` for `1..=n by 1`. All loop-related tests pass.
+---
+
+## Section 08 Exit Criteria
+
+J7 loop body has exactly one `i + 1` computation. J10 loop header has no invariant phis. J7 range loop uses `icmp sle` for `1..=n by 1`. All loop-related tests pass. Loop-heavy programs show measurable instruction count reduction.

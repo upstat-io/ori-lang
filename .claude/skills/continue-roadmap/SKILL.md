@@ -35,6 +35,7 @@ reroute: true       # or parallel: true
 name: "Short Name"
 full_name: "Full Plan Name"
 status: active       # active | queued | resolved
+order: 1             # queue priority (lower = promoted first, default 999)
 ```
 
 The scanner outputs an `=== REROUTES ===` block at the top with `[ACTIVE reroute]` and `[queued reroute]` lines.
@@ -53,7 +54,7 @@ The scanner outputs an `=== REROUTES ===` block at the top with `[ACTIVE reroute
 **When an ACTIVE reroute completes (promotion protocol):**
 
 1. Update the completed plan's frontmatter: `status: resolved`
-2. If queued reroutes exist, pick the highest-priority one:
+2. If queued reroutes exist, pick the one with the lowest `order` value:
    - Update its frontmatter: `status: active`
    - Inform the user that the next reroute has been promoted to active
 3. If no queued reroute exists, inform the user that normal roadmap work resumes

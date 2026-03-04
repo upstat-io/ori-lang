@@ -3,6 +3,7 @@ reroute: true
 name: "Repr Opt"
 full_name: "Representation Optimization & ARC Intelligence"
 status: queued
+order: 2
 ---
 
 # Representation Optimization & ARC Intelligence Index

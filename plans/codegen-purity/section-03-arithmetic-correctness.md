@@ -11,9 +11,6 @@ sections:
   - id: "03.1"
     title: "Checked Unary Negation"
     status: not-started
-  - id: "03.2"
-    title: "Completion Checklist"
-    status: not-started
 ---
 
 # Section 03: Arithmetic Correctness
@@ -78,16 +75,20 @@ ok:
 - [ ] Verify existing tests pass (no regressions)
 - [ ] Run `diagnostics/dual-exec-verify.sh tests/spec/` and confirm no new mismatches
 
----
+### 03.1 Completion Checklist
 
-## 03.2 Completion Checklist
-
-- [ ] Unary negation uses `@llvm.ssub.with.overflow.i64`
+- [ ] Unary negation uses `@llvm.ssub.with.overflow.i64` (not bare `sub`)
 - [ ] `-INT_MIN` panics with "integer overflow on negation"
 - [ ] `-0`, `-1`, `-MAX` all work correctly without panic
-- [ ] Spec tests added under an existing arithmetic operator spec file (or a new dedicated overflow-negation spec fixture) in `tests/spec/`
-- [ ] AOT test in `compiler/ori_llvm/tests/aot/operators.rs`
+- [ ] Spec tests added in `tests/spec/` for negation overflow
+- [ ] AOT test in `compiler/ori_llvm/tests/aot/operators.rs` or `ir_quality.rs`
+- [ ] `diagnostics/dual-exec-verify.sh` confirms eval/AOT parity on negation
 - [ ] `./test-all.sh` green
-- [ ] Eval interpreter already uses `checked_neg()` — verify LLVM codegen matches eval behavior (parity confirmed: eval panics, AOT must too)
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
 
-**Exit Criteria:** `ori run` and AOT binary both panic on `-INT_MIN` with a clear overflow message. Dual-execution verification confirms eval and LLVM paths agree.
+---
+
+## Section 03 Exit Criteria
+
+`ori run` and AOT binary both panic on `-INT_MIN` with a clear overflow message. Dual-execution verification confirms eval and LLVM paths agree.

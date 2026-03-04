@@ -11,9 +11,6 @@ sections:
   - id: "05.1"
     title: "extractvalue for Union Payload Fields"
     status: not-started
-  - id: "05.2"
-    title: "Completion Checklist"
-    status: not-started
 ---
 
 # Section 05: Sum Type Payload Extraction
@@ -64,16 +61,20 @@ store { i64, [2 x i64] } %enum_val, ptr %alloca
 - [ ] Verify: J11 `_ori_Shape$eq` derived method uses `extractvalue`
 - [ ] Verify: SROA is no longer needed to clean up the alloca (it shouldn't exist)
 
----
+### 05.1 Completion Checklist
 
-## 05.2 Completion Checklist
-
-- [ ] Match arm payload extraction uses `extractvalue` for SSA values
+- [ ] Match arm payload extraction uses `extractvalue` for SSA values (2 instructions per field)
 - [ ] Alloca path retained only for pointer-sourced values
-- [ ] J6 `_ori_extract` emits 2 instructions per field (not 5)
-- [ ] J11 derived `$eq` for enums uses `extractvalue`
+- [ ] J6 `_ori_extract` IR shows `extractvalue` chains, no `alloca` for payload access
+- [ ] J11 `_ori_Shape$eq` derived method uses `extractvalue` for variant field comparison
+- [ ] IR test: match arm destructuring a 2-field variant uses exactly 2 `extractvalue` instructions per field
+- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for extractvalue payload extraction
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] All AOT tests in `compiler/ori_llvm/tests/aot/` pass
 
-**Exit Criteria:** IR dump of J6's match expression shows `extractvalue` chains with no `alloca` for payload access. Instruction count per match arm reduced from ~5 to ~2 per field.
+---
+
+## Section 05 Exit Criteria
+
+IR dump of J6's match expression shows `extractvalue` chains with no `alloca` for payload access. Instruction count per match arm reduced from ~5 to ~2 per field.

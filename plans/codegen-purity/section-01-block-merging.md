@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Block Merging & CFG Simplification"
-status: not-started
+status: in-progress
 goal: "Zero avoidable bridge blocks in emitted IR while preserving required entry/exit/unwind structure"
 inspired_by:
   - "Rust rustc_codegen_llvm/mir/block.rs — merges sequential MIR blocks during LLVM emission"
@@ -19,9 +19,6 @@ sections:
     status: not-started
   - id: "01.4"
     title: "Break Bridge Block Elimination"
-    status: not-started
-  - id: "01.5"
-    title: "Completion Checklist"
     status: not-started
 ---
 
@@ -53,12 +50,22 @@ sections:
 
 The ARC lowerer creates a new ARC basic block for each let-binding expression, even when no control flow divergence occurs. The LLVM emitter then faithfully creates one LLVM block per ARC block (1:1 via `block_map`). The fix should either prevent creating these blocks in the lowerer, merge them in a post-lowering pass, or skip them during LLVM emission.
 
+- [ ] Implement using approach (b): post-lowering ARC block merge pass
 - [ ] Trace the ARC lowerer to identify where blocks are created for sequential operations (let-bindings, assignments, drops) — look for `new_block()` or `push_block()` patterns in `ori_arc/src/lower/`
-- [ ] Choose approach: (a) avoid creation in lowerer, (b) post-lowering merge pass, or (c) emitter-level skip
-- [ ] Implement: sequential operations (no branching) stay in the same ARC block
-- [ ] Ensure block terminators are only emitted when actually branching
-- [ ] Guardrail: do not collapse blocks that encode required unwind/landing-pad structure
-- [ ] Verify: `_ori_main` for journey 1 has 1 block (not 2), journey 2 has 1 block (not 4)
+- [ ] Choose approach: (a) avoid creation in lowerer, (b) post-lowering merge pass, or (c) emitter-level skip — **chose (c): emitter-level block_map aliasing — REVERTED (see below)**
+
+**Approach (c) reverted:** Emitter-level block_map aliasing is fundamentally incompatible with instructions that create internal LLVM basic blocks. `RcInc`/`RcDec` on fat pointers (strings, lists) emit inline SSO/null-check conditionals that create internal blocks (`rc_inc.sso_skip`, `rc_dec.heap`, etc.) and move the LLVM builder away from the original block. When the merged block's instructions are emitted into the aliased LLVM block, they appear after a terminator mid-block, and the self-loop detection (`current_block == target`) fails because the builder is at an internal block, not the aliased entry. This caused 113 AOT test failures. The correct approach is (b): merge trivial blocks in the ARC IR before LLVM emission, so the emitter sees a single block with all instructions inline.
+
+### 01.1 Completion Checklist
+
+- [ ] No avoidable branch-only bridge blocks between sequential let-bindings in audited journey functions
+- [ ] Match arm codegen produces no redundant single-instruction `br` blocks for sequential arms
+- [ ] IR test: function with 3+ sequential `let` bindings emits a single basic block (no intermediate `br label`)
+- [ ] IR test: match with 3+ value-producing arms has no trivial bridge blocks between arm and merge
+- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for block merging scope
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
 
 ---
 
@@ -95,6 +102,18 @@ Note: `my_abs` specifically is NOT select-eligible because the negation has a si
 - [ ] Add test cases for select-eligible and select-ineligible if/else expressions
 - [ ] Verify: `if x > 0 then a else b` emits `select`, `if x > 0 then f() else g()` emits diamond
 
+### 01.2 Completion Checklist
+
+- [ ] `if x > 0 then a else b` (both arms are variables/constants) emits `select`, not a 4-block diamond
+- [ ] `if x > 0 then f() else g()` (side-effecting arms) still emits the branch+phi diamond
+- [ ] `if x > 0 then -x else x` (overflow-checked arithmetic) still emits diamond (not select)
+- [ ] IR test: select-eligible if/else produces exactly 0 `phi` and 1 `select` instruction
+- [ ] IR test: select-ineligible if/else still produces `phi` with correct incoming edges
+- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for select lowering scope
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
+
 ---
 
 ## 01.3 Single-Predecessor Phi Elimination
@@ -109,6 +128,17 @@ Phi nodes with only one incoming edge are equivalent to a direct value reference
 - [ ] Verify: J6 `_ori_to_code` and J12 `try_div` bb5 have no single-predecessor phis
 - [ ] Verify: J12 single-predecessor phi nodes are eliminated (Finding #3 from J12)
 
+### 01.3 Completion Checklist
+
+- [ ] Zero single-predecessor phi nodes in emitted IR for all audited journey functions
+- [ ] J6 `_ori_to_code` has no single-predecessor phi nodes
+- [ ] J12 `try_div` bb5 has no single-predecessor phi nodes
+- [ ] IR test: function with a single-entry merge point uses direct value reference, not phi
+- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for phi elimination scope
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
+
 ---
 
 ## 01.4 Break Bridge Block Elimination
@@ -122,17 +152,19 @@ Loop break paths emit trivial bridge blocks that just forward control flow. In J
 - [ ] Ensure dead phi values from bridge blocks are not emitted
 - [ ] Verify: J7 `_ori_sum_loop` break path has no intermediate bridge block
 
----
+### 01.4 Completion Checklist
 
-## 01.5 Completion Checklist
-
-- [ ] No avoidable branch-only bridge blocks between sequential let-bindings in audited journey functions
-- [ ] Trivial if/else (both arms are values) emits `select` instruction
-- [ ] Zero single-predecessor phi nodes in emitted IR
-- [ ] Loop break paths have no trivial bridge blocks
-- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` targeted tests updated and passing for this section's scope
+- [ ] J7 `_ori_sum_loop` break path branches directly to post-loop block (no intermediate bridge)
+- [ ] No dead phi values (`%v26`, `%v27` pattern) emitted in break bridge blocks
+- [ ] Loop break paths in all audited journey functions have no trivial bridge blocks
+- [ ] IR test: `loop { if cond then break value }` has no bridge block between break and post-loop
+- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for break bridge scope
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] No regressions in `cargo test -p ori_llvm`
 
-**Exit Criteria:** Re-running code journeys 1–12 shows zero "redundant block" or "trivial branch" findings. Entry/exit/unwind blocks remain only where semantically required.
+---
+
+## Section 01 Exit Criteria
+
+All four subsections complete. Re-running code journeys 1–12 shows zero "redundant block" or "trivial branch" findings. Entry/exit/unwind blocks remain only where semantically required.

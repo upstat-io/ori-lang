@@ -51,9 +51,11 @@ Create the keyword index with:
   name: "{Short Name}"
   full_name: "{Full Plan Name}"
   status: queued
+  order: N
   ---
   ```
-  The `name`, `full_name`, and `status` fields are the single source of truth for the website.
+  The `name`, `full_name`, `status`, and `order` fields are the single source of truth for the website.
+  `order` controls queue priority — lower value = promoted first (default 999 if omitted).
   `key` and `dir` are derived at load time from the directory name.
 - Maintenance notice at the top
 - How to use instructions

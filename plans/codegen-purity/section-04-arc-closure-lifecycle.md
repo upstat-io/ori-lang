@@ -11,9 +11,6 @@ sections:
   - id: "04.1"
     title: "Closure Environment Drop Emission"
     status: not-started
-  - id: "04.2"
-    title: "Completion Checklist"
-    status: not-started
 ---
 
 # Section 04: ARC Closure Lifecycle
@@ -55,15 +52,21 @@ The drop infrastructure (`DropKind::ClosureEnv`, `drop_gen.rs`) is already compl
 - [ ] Add a negative test for over-release (no double `RcDec`) on closure values that are moved then consumed
 - [ ] Verify with `diagnostics/rc-stats.sh`: every `ori_rc_alloc` for closures has a matching `ori_rc_dec`
 
----
-
-## 04.2 Completion Checklist
+### 04.1 Completion Checklist
 
 - [ ] Closure environments get `ori_rc_dec` at end of live range
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks for J5 program
 - [ ] `diagnostics/rc-stats.sh` shows balanced RC for closure environments
 - [ ] Closures in loops don't accumulate leaked environments
+- [ ] Closure passed to another function is freed after last use (no leak)
+- [ ] No double-free on moved/consumed closures
+- [ ] AOT test in `compiler/ori_llvm/tests/aot/` for closure lifecycle
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
 
-**Exit Criteria:** Running J5's `make_adder` program with `ORI_CHECK_LEAKS=1` reports 0 leaks. `rc-stats.sh` shows every `ori_rc_alloc` for closure environments has a matching `ori_rc_dec`.
+---
+
+## Section 04 Exit Criteria
+
+Running J5's `make_adder` program with `ORI_CHECK_LEAKS=1` reports 0 leaks. `rc-stats.sh` shows every `ori_rc_alloc` for closure environments has a matching `ori_rc_dec`.

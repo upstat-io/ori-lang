@@ -30,6 +30,7 @@ export interface Reroute {
   name: string;
   fullName: string;
   status: 'active' | 'queued' | 'resolved';
+  order: number;  // queue priority (lower = promoted first, default 999)
   key: string;    // URL-friendly key (hyphens)
   dir: string;    // filesystem directory name
 }
@@ -70,18 +71,25 @@ export function loadReroutes(plansBase: string = '../plans'): Reroute[] {
     const dir = d.name;
     const key = dir.replace(/_/g, '-');
 
+    const order = typeof parsed.order === 'number' ? parsed.order : 999;
+
     results.push({
       name: parsed.name as string,
       fullName: parsed.full_name as string,
       status: parsed.status as 'active' | 'queued' | 'resolved',
+      order,
       key,
       dir,
     });
   }
 
-  // Sort: active first, then queued, then resolved
+  // Sort: active first, then queued, then resolved; within same status, by order
   const statusOrder: Record<string, number> = { active: 0, queued: 1, resolved: 2 };
-  results.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+  results.sort((a, b) => {
+    const statusDiff = (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
+    if (statusDiff !== 0) return statusDiff;
+    return a.order - b.order;
+  });
 
   return results;
 }
@@ -122,17 +130,24 @@ export function loadParallelPlans(plansBase: string = '../plans'): Reroute[] {
     const dir = d.name;
     const key = dir.replace(/_/g, '-');
 
+    const order = typeof parsed.order === 'number' ? parsed.order : 999;
+
     results.push({
       name: parsed.name as string,
       fullName: parsed.full_name as string,
       status: parsed.status as 'active' | 'queued' | 'resolved',
+      order,
       key,
       dir,
     });
   }
 
   const statusOrder: Record<string, number> = { active: 0, queued: 1, resolved: 2 };
-  results.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+  results.sort((a, b) => {
+    const statusDiff = (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
+    if (statusDiff !== 0) return statusDiff;
+    return a.order - b.order;
+  });
 
   return results;
 }
