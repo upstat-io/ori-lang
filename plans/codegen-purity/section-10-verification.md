@@ -27,12 +27,9 @@ sections:
     title: "Regression Safety"
     status: not-started
   - id: "10.7"
-    title: "Completion Checklist"
-    status: not-started
-  - id: "10.8"
     title: "Finding-Closure Matrix"
     status: not-started
-  - id: "10.9"
+  - id: "10.8"
     title: "Unresolved-ID Ledger"
     status: not-started
 ---
@@ -66,6 +63,13 @@ mkdir -p build/codegen-purity/current
 } > build/codegen-purity/current/verification-meta.txt
 ```
 
+### 10.0 Completion Checklist
+
+- [ ] All required tools confirmed present and versioned
+- [ ] `build/codegen-purity/current/verification-meta.txt` created with commit hash and tool versions
+- [ ] Baseline artifacts preserved at `build/codegen-purity/baseline/`
+- [ ] `-O0` mode confirmed for IR/asm checks
+
 ---
 
 ## 10.1 Re-Run All 12 Code Journeys
@@ -96,6 +100,12 @@ done
 - [ ] Journey 11 (derived traits/Shape): 0 findings (was: L-2, L-4, M-4)
 - [ ] Journey 12 (Option/match): 0 findings (was: M-1, L-4)
 
+### 10.1 Completion Checklist
+
+- [ ] All 12 journey IR/asm/audit artifacts captured in `build/codegen-purity/current/`
+- [ ] All 12 journeys produce 0 findings at all severity levels
+- [ ] Each journey's audit output reviewed and confirmed clean
+
 ---
 
 ## 10.2 Assembly Quality Audit
@@ -117,6 +127,16 @@ rg -n "musttail|select|ori_panic|unreachable" build/codegen-purity/current/ir
 rg -n "jmp" build/codegen-purity/current/asm
 rg -n ' = .*c"integer overflow on (addition|subtraction|multiplication|negation)\\00"' build/codegen-purity/current/ir
 ```
+
+### 10.2 Completion Checklist
+
+- [ ] No redundant `jmp` to next instruction in any journey assembly
+- [ ] `select` present where expected; diamonds only where required
+- [ ] Only used struct fields loaded
+- [ ] Panic paths terminate cleanly
+- [ ] No duplicate string constants in `.rodata`
+- [ ] Tail-recursive functions use loops
+- [ ] Loop bodies have no duplicate arithmetic
 
 ---
 
@@ -142,6 +162,13 @@ diagnostics/dual-exec-verify.sh --json=build/codegen-purity/current/dual-exec-re
 - [ ] Both paths panic on `-INT_MIN` (§03 parity)
 - [ ] Both paths free closure environments (§04 parity)
 
+### 10.3 Completion Checklist
+
+- [ ] All 12 journey dual-exec checks pass (0 mismatches)
+- [ ] Whole-test dual-exec report shows 0 mismatches
+- [ ] `-INT_MIN` parity confirmed (eval and AOT both panic)
+- [ ] Closure environment parity confirmed (both free correctly)
+
 ---
 
 ## 10.4 Pre-Existing IR Quality Tests
@@ -153,6 +180,12 @@ Un-ignore the 4 tests in `compiler/ori_llvm/tests/aot/ir_quality.rs` that docume
 - [ ] `test_mixed_calls_no_dead_unreachable` — remove `#[ignore]` after §02
 - [ ] `test_constant_main_minimal_ir` — remove `#[ignore]` after §01 + §02
 - [ ] Un-ignore progressively: do not remove `#[ignore]` until owning section exit criteria are actually satisfied
+
+### 10.4 Completion Checklist
+
+- [ ] All 4 `#[ignore]` tests un-ignored
+- [ ] All 4 tests passing in `cargo test -p ori_llvm --test ir_quality`
+- [ ] Each test was un-ignored only after its owning section was complete
 
 ---
 
@@ -166,6 +199,12 @@ Convert key findings into permanent `ir_quality.rs` tests to prevent regressions
 - [ ] Add test: payload extraction uses `extractvalue`, not `alloca+store+GEP+load` (§05)
 - [ ] Add test: `-INT_MIN` panics (AOT parity with eval) (§03)
 - [ ] Add test: closure env freed with `ORI_CHECK_LEAKS=1` (§04)
+
+### 10.5 Completion Checklist
+
+- [ ] At least 6 new regression tests added to `ir_quality.rs` (one per key finding category)
+- [ ] All new tests passing
+- [ ] Tests are specific enough to catch regressions (assert on IR patterns, not just "compiles")
 
 ---
 
@@ -185,25 +224,19 @@ for ll in build/codegen-purity/current/ir/*.ll; do
 done
 ```
 
----
+### 10.6 Completion Checklist
 
-## 10.7 Completion Checklist
-
-- [ ] All 12 code journeys produce 0 findings
-- [ ] Assembly quality audit passes for all 12 journeys
-- [ ] Dual execution verification: 0 mismatches
-- [ ] All 4 pre-existing `#[ignore]` tests in `ir_quality.rs` un-ignored and passing
-- [ ] Permanent regression tests added for key findings (§10.5)
-- [ ] Finding-closure matrix in `§10.8` fully populated (one evidence row per ID M-1..L-12)
-- [ ] Full test suite green
-- [ ] Valgrind and leak checks clean
-- [ ] All sections 01–09 marked complete in their frontmatter
-- [ ] Verification artifacts stored under `build/codegen-purity/current/`
-- [ ] `10.9` unresolved-ID ledger is empty (or each entry has explicit defer rationale + owner)
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] `cargo test -p ori_llvm` green
+- [ ] `cargo test -p ori_llvm --test ir_quality` green
+- [ ] Valgrind: 0 memory errors on all 12 journey programs
+- [ ] Leak check: 0 leaks on all 12 journey programs
+- [ ] `opt-21 -passes=verify` clean on all 12 journey IR files
 
 ---
 
-## 10.8 Finding-Closure Matrix
+## 10.7 Finding-Closure Matrix
 
 Populate this table during final verification. Every finding ID from `00-overview.md` must map to concrete evidence.
 
@@ -229,9 +262,15 @@ Populate this table during final verification. Every finding ID from `00-overvie
 | L-11 | §02 | | | |
 | L-12 | §02 | | | |
 
+### 10.7 Completion Checklist
+
+- [ ] Every finding ID (M-1 through L-12) has a status entry (`fixed` or `deferred`)
+- [ ] Every `fixed` entry has a primary evidence artifact and regression test
+- [ ] Every `deferred` entry has rationale in §10.8
+
 ---
 
-## 10.9 Unresolved-ID Ledger
+## 10.8 Unresolved-ID Ledger
 
 Track any finding ID that is not fully closed at verification time. Empty table is the target.
 
@@ -239,4 +278,13 @@ Track any finding ID that is not fully closed at verification time. Empty table 
 |------------|-----------------------------|-----------|---------------|-----------|
 | _none_ | | | | |
 
-**Exit Criteria:** Re-running all journey fixtures produces zero unresolved findings at any severity, or only explicitly deferred IDs in `10.9` with concrete rationale and follow-up. The assembly output at `-O0` is structurally clean and consistent with hand-written C quality. `./test-all.sh`, `./clippy-all.sh`, `cargo test -p ori_llvm --test ir_quality`, `diagnostics/dual-exec-verify.sh`, `diagnostics/valgrind-aot.sh`, and leak checks all pass. Pre-existing IR quality tests un-ignored and green.
+### 10.8 Completion Checklist
+
+- [ ] Ledger is empty (all findings resolved), OR
+- [ ] Every deferred entry has: concrete rationale, owner section, and follow-up plan with timeline
+
+---
+
+## Section 10 Exit Criteria
+
+Re-running all journey fixtures produces zero unresolved findings at any severity, or only explicitly deferred IDs in §10.8 with concrete rationale and follow-up. The assembly output at `-O0` is structurally clean and consistent with hand-written C quality. `./test-all.sh`, `./clippy-all.sh`, `cargo test -p ori_llvm --test ir_quality`, `diagnostics/dual-exec-verify.sh`, `diagnostics/valgrind-aot.sh`, and leak checks all pass. Pre-existing IR quality tests un-ignored and green. All sections 01–09 marked complete in their frontmatter. Verification artifacts stored under `build/codegen-purity/current/`.

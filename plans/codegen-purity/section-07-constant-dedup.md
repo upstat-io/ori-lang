@@ -11,9 +11,6 @@ sections:
   - id: "07.1"
     title: "String Constant Interning"
     status: not-started
-  - id: "07.2"
-    title: "Completion Checklist"
-    status: not-started
 ---
 
 # Section 07: Constant Deduplication
@@ -67,14 +64,22 @@ pub fn build_global_string_ptr(&mut self, value: &str, name: &str) -> ValueId {
 - [ ] Verify: J9 IR has exactly 1 of each overflow message (not 7)
 - [ ] Count: Total global reduction across all 12 journeys
 
----
+### 07.1 Completion Checklist
 
-## 07.2 Completion Checklist
-
-- [ ] String constant cache implemented and used for all string globals
-- [ ] Count of global definitions for each overflow string is 1 per module (`@... = ... c"integer overflow ...\00"`)
+- [ ] String constant cache implemented in IR builder (or module-level state)
+- [ ] `build_global_string_ptr()` deduplicates by content, not by name
+- [ ] Count of global definitions for each overflow string is 1 per module
 - [ ] No duplicate `@.str.*` globals with identical content
+- [ ] J7 IR has exactly 1 `"integer overflow on addition\00"` global
+- [ ] J9 IR has exactly 1 of each overflow message
+- [ ] Deduplicated globals have `unnamed_addr` for linker-level folding
+- [ ] IR test: program with 3 overflow sites has 1 overflow message global (not 3)
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
 
-**Exit Criteria:** For any program, `ORI_DUMP_AFTER_LLVM=1` shows at most one global per unique string value. No duplicated string constants in emitted IR for any of the 12 code journeys.
+---
+
+## Section 07 Exit Criteria
+
+For any program, `ORI_DUMP_AFTER_LLVM=1` shows at most one global per unique string value. No duplicated string constants in emitted IR for any of the 12 code journeys.
