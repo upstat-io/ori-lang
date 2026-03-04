@@ -278,7 +278,7 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
 /// Raise an exception for AOT panic paths.
 ///
 /// Implemented in C (`eh_personality.c`) on all platforms:
-///   - Itanium (Linux, macOS, MinGW): `_Unwind_RaiseException` with OriException
+///   - Itanium (Linux, macOS, MinGW): `_Unwind_RaiseException` with `OriException`
 ///   - Windows MSVC: `RaiseException` with custom SEH exception code
 ///
 /// The panic message was already stored in thread-local storage by
