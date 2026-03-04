@@ -221,8 +221,8 @@ parse_ori_results() {
     eval "${prefix}_CRASHED=0"
 
     # Extract LLVM compile fail count (appears as "N llvm compile fail" in summary)
-    # Use sed instead of grep -P for macOS compatibility
-    local lcfail=$(echo "$line" | sed -n 's/.*\([0-9][0-9]*\) llvm compile fail.*/\1/p')
+    # Use grep -o for macOS compatibility (no -P needed)
+    local lcfail=$(echo "$line" | grep -o '[0-9]* llvm compile fail' | grep -o '[0-9]*')
     eval "${prefix}_LCFAIL=${lcfail:-0}"
 }
 
