@@ -112,7 +112,12 @@ use std::ffi::{c_char, CStr};
 use std::sync::atomic::Ordering;
 
 // ── Exception handling personality ──────────────────────────────────────
+//
+// All EH is implemented in C (`eh_personality.c`), zero Rust panic dependency:
+//   - Itanium (Linux, macOS, MinGW): ori_eh_personality + ori_raise_exception
+//   - MSVC (Windows): ori_raise_exception (RaiseException) + ori_try_call (__try/__except)
 
+#[cfg(not(target_env = "msvc"))]
 extern "C" {
     /// Ori's Itanium EH ABI personality function (implemented in `eh_personality.c`).
     ///
@@ -126,22 +131,18 @@ extern "C" {
 /// The personality function is implemented in C (`src/eh_personality.c`) and
 /// compiled into this library by the `build.rs` script. This function provides
 /// its address so the LLVM MCJIT engine can resolve the symbol at runtime.
+///
+/// On MSVC, returns 0 — SEH is used instead of the Itanium personality.
 #[must_use]
 pub fn ori_eh_personality_addr() -> usize {
-    ori_eh_personality as *const () as usize
-}
-
-/// Ori panic payload for stack unwinding (Windows MSVC compatibility).
-///
-/// On MSVC targets, wrapped in `std::panic::panic_any` because SEH
-/// exception handling uses `catch_unwind` / `ori_try_call` instead of
-/// Itanium `landingpad` / `ori_eh_personality`.
-///
-/// On Itanium targets (Linux, macOS, MinGW), panics raise Ori-owned
-/// exceptions via `ori_raise_exception` → `_Unwind_RaiseException`
-/// and this struct is not used.
-pub struct OriPanic {
-    pub message: String,
+    #[cfg(not(target_env = "msvc"))]
+    {
+        ori_eh_personality as *const () as usize
+    }
+    #[cfg(target_env = "msvc")]
+    {
+        0
+    }
 }
 
 /// Ori Option representation: { i8 tag, T value }
@@ -334,20 +335,34 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
     }
 }
 
-/// Wrap an AOT `@main` call with `catch_unwind` to handle Ori panics.
+// ── ori_try_call (C implementation, MSVC only) ──────────────────────────
+//
+// On MSVC, ori_try_call is implemented in eh_personality.c using __try/__except.
+// On Itanium, catch(expr:) uses LLVM invoke/landingpad directly.
+
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
+extern "C" {
+    fn ori_try_call(thunk: unsafe extern "C" fn(*mut u8), ctx: *mut u8) -> i64;
+}
+
+/// Thunk adapter for `ori_run_main` → `ori_try_call`.
 ///
-/// **Note:** The LLVM-generated `main()` wrapper currently calls `@main`
-/// directly (not through this function). This function is retained for:
-/// - Windows MSVC where `panic_any` is still used as the AOT panic path
-/// - Test infrastructure that needs `catch_unwind` semantics
-/// - Future use if a Rust-level catch wrapper is needed
+/// Casts the context pointer back to a function pointer and calls it.
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
+unsafe extern "C" fn run_main_thunk(ctx: *mut u8) {
+    let main_fn: extern "C" fn() = unsafe { std::mem::transmute(ctx) };
+    main_fn();
+}
+
+/// Wrap an AOT `@main` call to handle Ori panics.
 ///
-/// On Itanium targets, panics raise Ori exceptions via
-/// `ori_raise_exception` → `_Unwind_RaiseException`, which are handled
-/// by LLVM-generated `invoke`/`landingpad` pairs with `ori_eh_personality`.
+/// On Itanium targets (Linux, macOS, MinGW): panics are handled by
+/// LLVM-generated `invoke`/`landingpad` pairs with `ori_eh_personality`.
+/// `ori_run_main` is not used on Itanium — the LLVM-generated `main()`
+/// wrapper calls `@main` directly.
 ///
-/// `main_fn` is a function pointer to the user's compiled `@main` (void → void
-/// or void → int variant).
+/// On Windows MSVC: delegates to the C `ori_try_call` which uses
+/// `__try`/`__except` to catch Ori's custom SEH exception.
 ///
 /// Exit codes:
 /// - **0**: success
@@ -355,36 +370,44 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
 /// - **2**: RC leak detected (only when `ORI_CHECK_LEAKS=1`)
 #[no_mangle]
 pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        main_fn();
-    }));
-
-    match result {
-        Ok(()) => {
-            // Check for RC leaks when enabled
-            if check_leaks_enabled() {
-                let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
-                if live != 0 {
-                    eprintln!("ori: {live} RC allocation(s) not freed (memory leak)");
-                    #[cfg(debug_assertions)]
-                    rc::alloc_registry_report();
-                    return 2;
-                }
-            }
-            0
+    #[cfg(all(target_os = "windows", target_env = "msvc"))]
+    {
+        let succeeded =
+            unsafe { ori_try_call(run_main_thunk, main_fn as *mut u8) };
+        if succeeded == 1 {
+            return check_leaks_and_exit();
         }
-        Err(payload) => {
-            // Check if this is our structured OriPanic
-            if payload.downcast_ref::<OriPanic>().is_some() {
-                // Message already printed by ori_panic/ori_panic_cstr
-                1
-            } else {
-                // Unknown panic (shouldn't happen in well-formed programs)
-                eprintln!("ori panic: unexpected error");
-                1
-            }
+        // Panic was caught — message already printed by ori_panic/ori_panic_cstr
+        1
+    }
+
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    {
+        // On Itanium, ori_run_main is typically not called (LLVM main wrapper
+        // invokes @main directly with landingpad-based EH). But if called
+        // (e.g. test infrastructure), use catch_unwind as a safety net.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            main_fn();
+        }));
+        match result {
+            Ok(()) => check_leaks_and_exit(),
+            Err(_) => 1,
         }
     }
+}
+
+/// Check for RC leaks and return the appropriate exit code.
+fn check_leaks_and_exit() -> i32 {
+    if check_leaks_enabled() {
+        let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+        if live != 0 {
+            eprintln!("ori: {live} RC allocation(s) not freed (memory leak)");
+            #[cfg(debug_assertions)]
+            rc::alloc_registry_report();
+            return 2;
+        }
+    }
+    0
 }
 
 #[cfg(test)]
