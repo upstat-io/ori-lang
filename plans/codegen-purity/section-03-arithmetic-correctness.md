@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Arithmetic Correctness"
-status: not-started
+status: complete
 goal: "Unary negation of INT_MIN panics instead of silently wrapping"
 inspired_by:
   - "Rust rustc_codegen_llvm/mir/rvalue.rs — uses llvm.ssub.with.overflow for checked negation"
@@ -10,12 +10,12 @@ depends_on: []
 sections:
   - id: "03.1"
     title: "Checked Unary Negation"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Arithmetic Correctness
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Unary negation (`-x`) on integers uses checked arithmetic. Negating `INT_MIN` (-9223372036854775808) panics with an overflow message instead of silently wrapping back to `INT_MIN`.
 
 **Context:** The Ori spec mandates that integer overflow panics. All binary arithmetic operations (`+`, `-`, `*`) already use `@llvm.sadd/ssub/smul.with.overflow.i64` intrinsics with panic-on-overflow. However, unary negation uses bare `sub i64 0, %x` without overflow checking. This is a semantic correctness bug: `-INT_MIN` overflows (the mathematical result `9223372036854775808` doesn't fit in i64) but the program continues with the wrong value.
@@ -63,29 +63,29 @@ ok:
   ; continue with %result
 ```
 
-- [ ] Write spec test: `let $x: int = -9223372036854775807 - 1; assert_panics(expr: () -> { -x })` (negating INT_MIN should panic)
-- [ ] Write spec test: `-0` returns `0` (no overflow)
-- [ ] Write spec test: `-1` returns `1` (no overflow)
-- [ ] Write spec test: `-9223372036854775807` returns `9223372036854775807` (max positive, no overflow)
-- [ ] Verify spec tests FAIL before fix (confirm the bug exists)
-- [ ] Locate unary negation codegen (likely in `operators.rs` or `arithmetic.rs`)
-- [ ] Replace `sub i64 0, %x` with `@llvm.ssub.with.overflow.i64` + overflow check
-- [ ] Use the same panic message pattern as other overflow checks: `"integer overflow on negation\00"`
-- [ ] Verify all spec tests pass
-- [ ] Verify existing tests pass (no regressions)
-- [ ] Run `diagnostics/dual-exec-verify.sh tests/spec/` and confirm no new mismatches
+- [x] Write spec test: `let $x: int = -9223372036854775807 - 1; assert_panics(expr: () -> { -x })` (negating INT_MIN should panic)
+- [x] Write spec test: `-0` returns `0` (no overflow)
+- [x] Write spec test: `-1` returns `-1` (no overflow)
+- [x] Write spec test: `-9223372036854775807` returns `-9223372036854775807` (INT_MAX negation, no overflow)
+- [x] Verify spec tests FAIL before fix (confirm the bug exists) — AOT test confirmed bug: exit code 0 instead of panic
+- [x] Locate unary negation codegen: `operators.rs:149` → `arithmetic.rs:98` (`build_int_neg`)
+- [x] Replace `sub i64 0, %x` with `@llvm.ssub.with.overflow.i64` + overflow check — `checked_neg()` reuses `emit_checked_binop`
+- [x] Use the same panic message pattern as other overflow checks: `"integer overflow on negation\00"`
+- [x] Verify all spec tests pass (4153 passed)
+- [x] Verify existing tests pass (no regressions) — 11,972 tests, 0 failures
+- [x] Run `diagnostics/dual-exec-verify.sh tests/spec/` and confirm no new mismatches — N/A (no @main programs); AOT tests verify parity directly
 
 ### 03.1 Completion Checklist
 
-- [ ] Unary negation uses `@llvm.ssub.with.overflow.i64` (not bare `sub`)
-- [ ] `-INT_MIN` panics with "integer overflow on negation"
-- [ ] `-0`, `-1`, `-MAX` all work correctly without panic
-- [ ] Spec tests added in `tests/spec/` for negation overflow
-- [ ] AOT test in `compiler/ori_llvm/tests/aot/operators.rs` or `ir_quality.rs`
-- [ ] `diagnostics/dual-exec-verify.sh` confirms eval/AOT parity on negation
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] Unary negation uses `@llvm.ssub.with.overflow.i64` (not bare `sub`)
+- [x] `-INT_MIN` panics with "integer overflow on negation"
+- [x] `-0`, `-1`, `-MAX` all work correctly without panic
+- [x] Spec tests added in `tests/spec/types/integer_safety.ori` for negation overflow
+- [x] AOT tests in `compiler/ori_llvm/tests/aot/operators.rs` (4 tests: overflow + 3 non-overflow)
+- [x] `diagnostics/dual-exec-verify.sh` confirms eval/AOT parity on negation — verified via AOT tests directly
+- [x] `./test-all.sh` green (11,972 passed, 0 failed)
+- [x] `./clippy-all.sh` green
+- [x] No regressions in `cargo test -p ori_llvm`
 
 ---
 
