@@ -44,6 +44,10 @@ impl Default for JmpBuf {
     }
 }
 
+// On MSVC, _setjmp is a compiler intrinsic that expects a hidden frame pointer
+// argument — it cannot be called via Rust FFI. Use ori_try_call (__try/__except)
+// for panic recovery instead. See `jit_run_protected`.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 extern "C" {
     /// Save the current execution state. Returns 0 on direct call,
     /// non-zero when returning via `longjmp`.
@@ -65,7 +69,6 @@ extern "C" {
     /// Only used on Itanium targets where `catch(expr:)` landing pads
     /// receive the raw exception pointer. On MSVC, SEH handles cleanup
     /// via __except — no explicit delete needed.
-    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     fn _Unwind_DeleteException(exception: *mut u8);
 }
 
@@ -89,6 +92,9 @@ extern "C" {
     fn ori_raise_exception() -> !;
 }
 
+// JIT mode (setjmp/longjmp) is only used on Itanium targets.
+// On MSVC, jit_run_protected uses ori_try_call (__try/__except) instead.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 thread_local! {
     /// Whether the current thread is running JIT-compiled code.
     /// When true, `ori_panic`/`ori_panic_cstr` will `longjmp` instead of `exit(1)`.
@@ -105,18 +111,21 @@ thread_local! {
 ///
 /// `buf` must point to a valid `JmpBuf` that outlives the JIT execution.
 /// The caller must call `leave_jit_mode()` when done (even on `longjmp` return).
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 pub fn enter_jit_mode(buf: *mut JmpBuf) {
     JIT_MODE.with(|m| m.set(true));
     JIT_RECOVERY_BUF.with(|b| b.set(buf));
 }
 
 /// Leave JIT mode: panics will `exit(1)` again (AOT behavior).
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 pub fn leave_jit_mode() {
     JIT_MODE.with(|m| m.set(false));
     JIT_RECOVERY_BUF.with(|b| b.set(std::ptr::null_mut()));
 }
 
 /// Check if we're currently in JIT mode.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 fn is_jit_mode() -> bool {
     JIT_MODE.with(std::cell::Cell::get)
 }
@@ -126,8 +135,95 @@ fn is_jit_mode() -> bool {
 /// # Safety
 ///
 /// `buf` must point to a valid, properly aligned `JmpBuf`.
+///
+/// **WARNING**: On Windows MSVC, `_setjmp` is a compiler intrinsic that expects
+/// a hidden frame pointer argument. This FFI call works on Itanium targets
+/// (Linux, macOS) but **corrupts the stack on MSVC**. Use [`jit_run_protected`]
+/// instead for cross-platform JIT panic recovery.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 pub unsafe fn jit_setjmp(buf: *mut JmpBuf) -> i32 {
     c_setjmp(buf)
+}
+
+// ── JIT panic recovery (platform-abstracted) ─────────────────────────────
+
+/// Run a JIT-compiled function with panic recovery.
+///
+/// Returns `Ok(())` on success, `Err(message)` if the function panicked.
+///
+/// # Platform behavior
+///
+/// - **Itanium** (Linux, macOS): Uses `setjmp`/`longjmp` via JIT mode.
+///   Panics trigger `longjmp` back to this function's `setjmp` save point.
+///
+/// - **MSVC** (Windows): Uses `ori_try_call` (`__try`/`__except` in C).
+///   Panics trigger `RaiseException` which is caught by the SEH handler.
+///   `_setjmp` cannot be called via Rust FFI on MSVC because it's a
+///   compiler intrinsic that expects a hidden frame pointer argument.
+///
+/// # Safety
+///
+/// `func` must be a valid JIT-compiled function pointer with `() -> void`
+/// signature.
+#[allow(unsafe_code, reason = "JIT execution requires unsafe FFI")]
+pub unsafe fn jit_run_protected(func: unsafe extern "C" fn()) -> Result<(), String> {
+    reset_panic_state();
+
+    #[cfg(all(target_os = "windows", target_env = "msvc"))]
+    {
+        // On MSVC, use ori_try_call (__try/__except) to catch SEH exceptions.
+        // Do NOT enter JIT mode — let ori_panic_cstr fall through to
+        // RaiseException, which ori_try_call catches.
+        extern "C" {
+            fn ori_try_call(thunk: unsafe extern "C" fn(*mut u8), ctx: *mut u8) -> i64;
+        }
+
+        unsafe extern "C" fn jit_thunk(ctx: *mut u8) {
+            let f: unsafe extern "C" fn() = unsafe { std::mem::transmute(ctx) };
+            unsafe { f() };
+        }
+
+        let succeeded = unsafe { ori_try_call(jit_thunk, func as *mut u8) };
+        if succeeded == 1 {
+            // Also check panic state as a safety net
+            if did_panic() {
+                let msg = get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+                return Err(msg);
+            }
+            return Ok(());
+        }
+        // Panic was caught — recover message from thread-local storage
+        let msg = get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+        Err(msg)
+    }
+
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    {
+        // On Itanium, use setjmp/longjmp via JIT mode.
+        let mut jmp_buf = JmpBuf::new();
+        let buf_ptr: *mut JmpBuf = &raw mut jmp_buf;
+        enter_jit_mode(buf_ptr);
+
+        let longjmp_fired = unsafe { c_setjmp(buf_ptr) } != 0;
+
+        if longjmp_fired {
+            leave_jit_mode();
+            let msg = get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+            return Err(msg);
+        }
+
+        unsafe { func() };
+
+        leave_jit_mode();
+
+        // Safety net — check panic state even if longjmp didn't fire
+        if did_panic() {
+            let msg = get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+            return Err(msg);
+        }
+
+        Ok(())
+    }
 }
 
 // ── Thread-local panic state ─────────────────────────────────────────────
@@ -228,7 +324,10 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
     // Call user @panic handler if registered (AOT only, not re-entrant)
     call_panic_trampoline(&msg);
 
-    // In JIT mode, longjmp back to the test runner instead of terminating
+    // On Itanium: if JIT mode, longjmp back to the test runner.
+    // On MSVC: JIT mode is not used — panics go through RaiseException,
+    // caught by ori_try_call's __except in jit_run_protected.
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     if is_jit_mode() {
         let buf = JIT_RECOVERY_BUF.with(std::cell::Cell::get);
         if !buf.is_null() {
@@ -237,14 +336,14 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
         }
     }
 
-    // AOT path: unwind via exception raising.
+    // Raise C exception: _Unwind_RaiseException (Itanium) or RaiseException (MSVC)
     eprintln!("ori panic: {msg}");
     aot_raise_exception(msg);
 }
 
 /// Panic with a C string message.
 ///
-/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → unwind.
+/// Same dispatch order as `ori_panic`: user handler → JIT longjmp → C exception.
 #[no_mangle]
 pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
     let msg = if s.is_null() {
@@ -261,7 +360,9 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
     // Call user @panic handler if registered (AOT only, not re-entrant)
     call_panic_trampoline(&msg);
 
-    // In JIT mode, longjmp back to the test runner instead of terminating
+    // On Itanium: if JIT mode, longjmp back to the test runner.
+    // On MSVC: panics go through RaiseException → ori_try_call.
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     if is_jit_mode() {
         let buf = JIT_RECOVERY_BUF.with(std::cell::Cell::get);
         if !buf.is_null() {
@@ -270,7 +371,7 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
         }
     }
 
-    // AOT path: unwind via exception raising.
+    // Raise C exception: _Unwind_RaiseException (Itanium) or RaiseException (MSVC)
     eprintln!("ori panic: {msg}");
     aot_raise_exception(msg);
 }
@@ -305,13 +406,12 @@ fn aot_raise_exception(_msg: String) -> ! {
 /// The panic message is recovered via thread-local storage in
 /// [`ori_catch_recover`], not from the exception payload.
 #[no_mangle]
-pub extern "C" fn ori_catch_cleanup(exc_ptr: *mut u8) {
-    if exc_ptr.is_null() {
-        return;
-    }
+pub extern "C" fn ori_catch_cleanup(_exc_ptr: *mut u8) {
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
-    unsafe {
-        _Unwind_DeleteException(exc_ptr);
+    if !_exc_ptr.is_null() {
+        unsafe {
+            _Unwind_DeleteException(_exc_ptr);
+        }
     }
 }
 

@@ -19,12 +19,14 @@
 )]
 
 use ori_rt::{
-    did_panic, enter_jit_mode, get_panic_message, leave_jit_mode, ori_alloc, ori_args_from_argv,
-    ori_assert_eq_int, ori_compare_int, ori_free, ori_list_free, ori_list_len, ori_list_new,
-    ori_max_int, ori_min_int, ori_print_int, ori_rc_alloc, ori_rc_count, ori_rc_dec, ori_rc_free,
-    ori_rc_inc, ori_realloc, ori_register_panic_handler, ori_str_concat, ori_str_eq, ori_str_ne,
-    reset_panic_state, set_panic_state_for_test, JmpBuf, OriStr,
+    did_panic, get_panic_message, ori_alloc, ori_args_from_argv, ori_assert_eq_int,
+    ori_compare_int, ori_free, ori_list_free, ori_list_len, ori_list_new, ori_max_int, ori_min_int,
+    ori_print_int, ori_rc_alloc, ori_rc_count, ori_rc_dec, ori_rc_free, ori_rc_inc, ori_realloc,
+    ori_register_panic_handler, ori_str_concat, ori_str_eq, ori_str_ne, reset_panic_state,
+    set_panic_state_for_test, OriStr,
 };
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+use ori_rt::{enter_jit_mode, leave_jit_mode, JmpBuf};
 
 #[test]
 fn test_ori_alloc_free() {
@@ -138,18 +140,42 @@ fn test_ori_assert_eq_int_pass() {
     assert!(!did_panic());
 }
 
-extern "C" {
-    #[link_name = "_setjmp"]
-    fn c_setjmp_direct(buf: *mut JmpBuf) -> i32;
-}
-
+// On MSVC, use ori_try_call (__try/__except in C) to catch the SEH exception.
+// On MSVC, _setjmp is a compiler intrinsic that expects a hidden frame pointer
+// argument — calling it via Rust FFI corrupts the stack (exit code 0xc0000028).
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
 #[test]
 fn test_ori_assert_eq_int_fail() {
+    extern "C" {
+        fn ori_try_call(thunk: unsafe extern "C" fn(*mut u8), ctx: *mut u8) -> i64;
+    }
+
+    unsafe extern "C" fn assert_42_43_thunk(_ctx: *mut u8) {
+        ori_assert_eq_int(42, 43);
+    }
+
     reset_panic_state();
-    // Use JIT mode (setjmp/longjmp) to recover from the panic.
-    // `catch_unwind` cannot catch the Itanium foreign exceptions raised by
-    // `ori_raise_exception` on non-MSVC targets.
-    //
+    // ori_try_call returns 1 on success, 0 if an Ori panic was caught
+    let result = unsafe { ori_try_call(assert_42_43_thunk, std::ptr::null_mut()) };
+    assert_eq!(result, 0, "ori_assert_eq_int(42, 43) should have panicked");
+    assert!(
+        did_panic(),
+        "panic state should be set after assertion failure"
+    );
+}
+
+// On Itanium targets, use JIT mode (setjmp/longjmp) to recover from the panic.
+// catch_unwind cannot catch the Itanium foreign exceptions raised by
+// ori_raise_exception on non-MSVC targets.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+#[test]
+fn test_ori_assert_eq_int_fail() {
+    extern "C" {
+        #[link_name = "_setjmp"]
+        fn c_setjmp_direct(buf: *mut JmpBuf) -> i32;
+    }
+
+    reset_panic_state();
     // Call _setjmp directly (not through jit_setjmp wrapper) so the setjmp
     // save point is in THIS function's frame, not an intermediate wrapper.
     let mut jmp_buf = JmpBuf::new();

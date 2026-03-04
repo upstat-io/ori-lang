@@ -158,6 +158,15 @@ run_ori_interpreter() {
 
 run_ori_llvm() {
     echo "=== Running Ori language tests (LLVM backend) ==="
+    # Skip on Windows: JIT spec tests use setjmp/longjmp recovery which is not available
+    # on MSVC (Windows uses SEH). AOT integration tests already cover LLVM codegen on Windows.
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*|*NT*)
+            echo "  (skipped on Windows — JIT recovery not supported; AOT tests cover LLVM codegen)"
+            echo "skipped" > "$ORI_LLVM_OUTPUT"
+            return 0
+            ;;
+    esac
     # Assumes LLVM release build (target/release/ori + libori_rt.a) was done in a prior phase.
     # Capture both stdout and stderr
     ./target/release/ori test --verbose --backend=llvm tests/ > "$ORI_LLVM_OUTPUT" 2>&1
@@ -416,7 +425,9 @@ printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED
 printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
 printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
-if [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
+if grep -q "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
+    printf "%-30s %8s\n" "Ori spec (LLVM backend)" "skipped"
+elif [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "BUILD FAILED"
 elif [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "CRASHED"
