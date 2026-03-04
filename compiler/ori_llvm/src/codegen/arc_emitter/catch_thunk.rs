@@ -1,12 +1,8 @@
 //! SEH catch trampoline for `catch(expr:)` on Windows MSVC.
 //!
-//! On MSVC, `std::panic::panic_any` throws a C++ exception via
-//! `_CxxThrowException`. If an LLVM-generated `catchpad` catches it,
-//! Rust's runtime detects the foreign handler and aborts with:
-//!   "Rust panics must be rethrown"
-//!
-//! The solution: wrap the function call in a runtime trampoline that uses
-//! `std::panic::catch_unwind` (which IS the blessed Rust mechanism).
+//! On MSVC, Ori panics raise a custom SEH exception via `RaiseException`
+//! (implemented in `eh_personality.c`). The `ori_try_call` C function
+//! catches this with `__try`/`__except`, avoiding LLVM `catchpad` entirely.
 //!
 //! # Architecture
 //!
@@ -16,7 +12,7 @@
 //!    from a context struct, calls the real function, stores the result back.
 //!
 //! 2. **Call site**: allocates context, stores args, calls `ori_try_call`
-//!    (which wraps the thunk in `catch_unwind`), branches on the result.
+//!    (C, `__try`/`__except`), branches on the result.
 //!
 //! 3. **Catch block**: now a regular block (no catchpad), reached via the
 //!    failure branch of `ori_try_call`.

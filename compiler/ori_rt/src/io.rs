@@ -13,8 +13,6 @@ use std::cell::RefCell;
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-use crate::OriPanic;
 use crate::OriStr;
 
 // ── setjmp/longjmp JIT recovery ──────────────────────────────────────────
@@ -65,26 +63,29 @@ extern "C" {
     /// `OriException` object).
     ///
     /// Only used on Itanium targets where `catch(expr:)` landing pads
-    /// receive the raw exception pointer. On MSVC, `ori_try_call` +
-    /// `catch_unwind` handles cleanup automatically.
+    /// receive the raw exception pointer. On MSVC, SEH handles cleanup
+    /// via __except — no explicit delete needed.
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     fn _Unwind_DeleteException(exception: *mut u8);
 }
 
-// Separate `extern "C-unwind"` block: `ori_raise_exception` initiates stack
-// unwinding via `_Unwind_RaiseException`. The `C-unwind` ABI tells Rust that
-// the function may unwind — without this, Rust inserts an abort guard that
-// would kill the process before the exception reaches LLVM landing pads.
+// `ori_raise_exception` is implemented in C (`eh_personality.c`) on ALL platforms:
+//   - Itanium: _Unwind_RaiseException with OriException object
+//   - MSVC: Win32 RaiseException with custom SEH exception code
+//
+// On Itanium, `C-unwind` tells Rust the function may unwind — without this,
+// Rust inserts an abort guard that kills the process before the exception
+// reaches LLVM landing pads.
+//
+// On MSVC, RaiseException is non-returning (EXCEPTION_NONCONTINUABLE),
+// so `extern "C"` is sufficient — no Rust unwind tables needed.
 #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 extern "C-unwind" {
-    /// Raise an Ori exception via `_Unwind_RaiseException` (Itanium ABI).
-    ///
-    /// Implemented in `eh_personality.c`. Allocates an `OriException` object,
-    /// sets up the unwind header with `ORI_EXCEPTION_CLASS`, and calls
-    /// `_Unwind_RaiseException`. If no handler is found, aborts.
-    ///
-    /// Must be `extern "C-unwind"` (not `extern "C"`) because the Itanium
-    /// unwinder walks through the calling frame during stack unwinding.
+    fn ori_raise_exception() -> !;
+}
+
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
+extern "C" {
     fn ori_raise_exception() -> !;
 }
 
@@ -276,25 +277,16 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
 
 /// Raise an exception for AOT panic paths.
 ///
-/// On Itanium targets (Linux, macOS, MinGW): raises an Ori exception via
-/// `_Unwind_RaiseException`. LLVM-generated `invoke`/`landingpad` pairs
-/// with `ori_eh_personality` handle cleanup (ARC decrements) and catch-all
-/// pads during unwinding.
+/// Implemented in C (`eh_personality.c`) on all platforms:
+///   - Itanium (Linux, macOS, MinGW): `_Unwind_RaiseException` with OriException
+///   - Windows MSVC: `RaiseException` with custom SEH exception code
 ///
-/// On Windows MSVC: uses `panic_any` with an `OriPanic` payload. The
-/// entry point wrapper catches this with `catch_unwind` (Rust's SEH
-/// integration). This compatibility path remains until a dedicated SEH
-/// migration replaces `ori_try_call`/`catch_unwind` coupling.
-#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+/// The panic message was already stored in thread-local storage by
+/// `ori_panic`/`ori_panic_cstr` before this is called.
 fn aot_raise_exception(_msg: String) -> ! {
     // SAFETY: ori_raise_exception is implemented in eh_personality.c,
     // compiled and linked via build.rs. It never returns.
     unsafe { ori_raise_exception() }
-}
-
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-fn aot_raise_exception(msg: String) -> ! {
-    std::panic::panic_any(OriPanic { message: msg })
 }
 
 // ── Catch/recover ────────────────────────────────────────────────────────
@@ -323,29 +315,11 @@ pub extern "C" fn ori_catch_cleanup(exc_ptr: *mut u8) {
     }
 }
 
-/// Try calling a function, catching any panic via `catch_unwind`.
-///
-/// **SEH/MSVC compatibility only.** On Itanium targets (Linux, macOS, MinGW),
-/// `catch(expr:)` uses LLVM `invoke`/`landingpad catch ptr null` with
-/// `ori_eh_personality` instead.
-///
-/// On Windows MSVC, LLVM's `catchpad` cannot properly catch Rust panics —
-/// Rust detects the foreign (non-`catch_unwind`) handler and aborts with
-/// "Rust panics must be rethrown." This trampoline wraps the call in
-/// `catch_unwind` to avoid that.
-///
-/// `thunk` is an LLVM-generated function `void (ptr %ctx)` that loads args
-/// from `ctx`, calls the real function, and stores the result back.
-///
-/// Returns `1` if the call succeeded, `0` if a panic was caught.
-/// On panic, the message is available via [`ori_catch_recover`].
-#[no_mangle]
-pub extern "C" fn ori_try_call(thunk: unsafe extern "C-unwind" fn(*mut u8), ctx: *mut u8) -> i64 {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { thunk(ctx) })) {
-        Ok(()) => 1,
-        Err(_) => 0,
-    }
-}
+// ori_try_call is implemented in C (eh_personality.c) on MSVC using
+// __try/__except to catch Ori's custom SEH exception. On Itanium targets,
+// catch(expr:) uses LLVM invoke/landingpad instead — ori_try_call is not
+// called but is still linked (the symbol exists in the C object file only
+// on MSVC via #ifdef _MSC_VER).
 
 /// Recover from a caught panic — reads the panic message from thread-local storage.
 ///
