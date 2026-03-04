@@ -11,7 +11,30 @@ export async function getStaticPaths() {
 }
 
 const { entry } = Astro.props;
-const { Content } = await render(entry);
+const { Content, headings } = await render(entry);
+
+// Map score_breakdown keys to keywords found in Deep Scrutiny headings
+const scoreKeywords: Record<string, string[]> = {
+  instruction_efficiency: ['instruction purity', 'instruction'],
+  arc_correctness: ['arc purity', 'arc'],
+  attributes_safety: ['attributes', 'calling convention'],
+  control_flow: ['control flow'],
+  ir_quality: ['optimal ir'],
+  binary_quality: ['binary analysis'],
+};
+
+// Build a map from score key → heading slug by matching keywords in h3 headings
+const scoreAnchors: Record<string, string> = {};
+for (const [key, keywords] of Object.entries(scoreKeywords)) {
+  const h3s = headings.filter(h => h.depth === 3);
+  const match = h3s.find(h => {
+    const lower = h.text.toLowerCase();
+    return keywords.some(kw => lower.includes(kw));
+  });
+  if (match) {
+    scoreAnchors[key] = `#${match.slug}`;
+  }
+}
 
 const d = entry.data;
 const scoreColor = d.score >= 9 ? 'var(--color-success)' :
@@ -31,16 +54,25 @@ function formatDate(date: Date): string {
   return `${months[date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()}`;
 }
 
-const pipelinePhases = [
-  { id: 'source', name: 'Source', icon: '1' },
-  { id: 'lexer', name: 'Lexer', icon: '2' },
-  { id: 'parser', name: 'Parser', icon: '3' },
-  { id: 'type-checker', name: 'Type Checker', icon: '4' },
-  { id: 'canonicalization', name: 'Canon', icon: '5' },
-  { id: 'arc-pipeline', name: 'ARC', icon: '6' },
-  { id: 'backend-interpreter', name: 'Eval', icon: '7a' },
-  { id: 'backend-llvm', name: 'LLVM', icon: '7b' },
+// Resolve pipeline phase anchors from actual headings in the markdown
+const phaseDefinitions = [
+  { keywords: ['source'],          name: 'Source',       icon: '1',  depths: [2] },
+  { keywords: ['lexer'],           name: 'Lexer',        icon: '2',  depths: [3] },
+  { keywords: ['parser'],          name: 'Parser',       icon: '3',  depths: [3] },
+  { keywords: ['type checker'],    name: 'Type Checker', icon: '4',  depths: [3] },
+  { keywords: ['canonicalization'],name: 'Canon',        icon: '5',  depths: [3] },
+  { keywords: ['arc pipeline', 'arc'],name: 'ARC',       icon: '6',  depths: [3] },
+  { keywords: ['interpreter', 'eval'],name: 'Eval',      icon: '7a', depths: [3] },
+  { keywords: ['llvm'],            name: 'LLVM',         icon: '7b', depths: [3] },
 ];
+
+const pipelinePhases = phaseDefinitions.map(phase => {
+  const match = headings.find(h =>
+    phase.depths.includes(h.depth) &&
+    phase.keywords.some(kw => h.text.toLowerCase().includes(kw))
+  );
+  return { ...phase, anchor: match ? `#${match.slug}` : undefined };
+}).filter(p => p.anchor);
 
 const currentPath = Astro.url.pathname;
 const breadcrumbs = [
@@ -129,8 +161,10 @@ const breadcrumbs = [
                            value >= 7 ? 'var(--color-accent)' :
                            value >= 5 ? 'var(--color-warning)' :
                            'var(--color-error, #ef4444)';
+          const anchor = scoreAnchors[key];
+          const Tag = anchor ? 'a' : 'div';
           return (
-            <div class="breakdown-item">
+            <Tag class="breakdown-item" {...(anchor ? { href: anchor } : {})}>
               <div class="breakdown-header">
                 <span class="breakdown-label">{label}</span>
                 <span class="breakdown-value" style={`color: ${barColor}`}>{value}/10</span>
@@ -138,7 +172,7 @@ const breadcrumbs = [
               <div class="breakdown-bar">
                 <div class="breakdown-fill" style={`width: ${value * 10}%; background: ${barColor}`}></div>
               </div>
-            </div>
+            </Tag>
           );
         })}
       </div>
@@ -147,8 +181,8 @@ const breadcrumbs = [
     <nav class="pipeline-nav" aria-label="Compiler pipeline phases">
       <h2>Pipeline Phases</h2>
       <div class="pipeline-steps">
-        {pipelinePhases.map((phase, i) => (
-          <a href={`#${phase.id}`} class="phase-link">
+        {pipelinePhases.map(phase => (
+          <a href={phase.anchor} class="phase-link">
             <span class="phase-icon">{phase.icon}</span>
             <span class="phase-name">{phase.name}</span>
           </a>
@@ -167,6 +201,10 @@ const breadcrumbs = [
     </article>
   </main>
 </BaseLayout>
+
+<script>
+  document.querySelectorAll('.journey-content details').forEach(d => d.setAttribute('open', ''));
+</script>
 
 <style>
   .journey-page {
@@ -404,10 +442,20 @@ const breadcrumbs = [
   }
 
   .breakdown-item {
+    display: block;
     padding: var(--space-3);
     background: var(--color-bg-secondary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
+  }
+
+  .breakdown-item:hover {
+    border-color: var(--color-accent);
+    background: rgba(86, 156, 214, 0.08);
   }
 
   .breakdown-header {
@@ -523,6 +571,13 @@ const breadcrumbs = [
   /* Journey article content */
   .journey-content {
     line-height: var(--leading-relaxed, 1.65);
+  }
+
+  .journey-content :global(h1),
+  .journey-content :global(h2),
+  .journey-content :global(h3),
+  .journey-content :global(h4) {
+    scroll-margin-top: calc(var(--header-height) + var(--space-4));
   }
 
   .journey-content :global(h1) {
@@ -653,19 +708,18 @@ const breadcrumbs = [
   .journey-content :global(details summary) {
     padding: var(--space-3) var(--space-4);
     background: var(--color-bg-secondary);
-    cursor: pointer;
+    border-bottom: 1px solid var(--color-border);
     font-weight: var(--weight-medium);
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
-    transition: background var(--transition-fast);
+    cursor: default;
+    list-style: none;
+    pointer-events: none;
   }
 
-  .journey-content :global(details summary:hover) {
-    background: var(--color-bg-tertiary);
-  }
-
-  .journey-content :global(details[open] summary) {
-    border-bottom: 1px solid var(--color-border);
+  .journey-content :global(details summary::marker),
+  .journey-content :global(details summary::-webkit-details-marker) {
+    display: none;
   }
 
   .journey-content :global(details > :not(summary)) {
