@@ -32,9 +32,6 @@ sections:
 
 # Section 05: Compound Type Definitions
 
-**Status:** Not Started
-**Goal:** Define complete `TypeDef` specifications for all compound types (Duration, Size, Ordering, Error, Channel) and document format spec type coverage in `ori_registry`.
-
 **Context:** Compound types occupy a middle ground between simple primitives (int, float, bool) and generic containers (List, Map, Option). They have pre-interned `TypeId`/`Idx` values (Duration=9, Size=10, Ordering=11), rich method sets, operator overloading (Duration, Size), and enum variant structure (Ordering). They also exhibit the most complex sync gaps in the current codebase: Duration has 35+ methods in typeck but only 23 in eval's `EVAL_BUILTIN_METHODS`, and Channel has 9 methods in typeck but zero eval dispatch handlers.
 
 **Scope boundary:** This section covers Duration, Size, Ordering, Error, and Channel as `TypeDef` declarations. Format spec types (Alignment, Sign, FormatType, FormatSpec) are addressed in subsection 05.6 as a scoping decision — they are type variants rather than method-bearing types, so they may not need full `TypeDef` entries.

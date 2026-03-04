@@ -41,6 +41,13 @@ for arg in "$@"; do
     esac
 done
 
+# Always log full output to a fixed file (cleared on each run)
+LOG_FILE="test-all.log"
+> "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "LOGGING ALL OUTPUT TO $(pwd)/$LOG_FILE"
+echo ""
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -151,6 +158,15 @@ run_ori_interpreter() {
 
 run_ori_llvm() {
     echo "=== Running Ori language tests (LLVM backend) ==="
+    # Skip on Windows: JIT spec tests use setjmp/longjmp recovery which is not available
+    # on MSVC (Windows uses SEH). AOT integration tests already cover LLVM codegen on Windows.
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*|*NT*)
+            echo "  (skipped on Windows — JIT recovery not supported; AOT tests cover LLVM codegen)"
+            echo "skipped" > "$ORI_LLVM_OUTPUT"
+            return 0
+            ;;
+    esac
     # Assumes LLVM release build (target/release/ori + libori_rt.a) was done in a prior phase.
     # Capture both stdout and stderr
     ./target/release/ori test --verbose --backend=llvm tests/ > "$ORI_LLVM_OUTPUT" 2>&1
@@ -214,7 +230,8 @@ parse_ori_results() {
     eval "${prefix}_CRASHED=0"
 
     # Extract LLVM compile fail count (appears as "N llvm compile fail" in summary)
-    local lcfail=$(echo "$line" | grep -oP '[0-9]+(?= llvm compile fail)' || echo "0")
+    # Use grep -o for macOS compatibility (no -P needed)
+    local lcfail=$(echo "$line" | grep -o '[0-9]* llvm compile fail' | grep -o '[0-9]*')
     eval "${prefix}_LCFAIL=${lcfail:-0}"
 }
 
@@ -408,7 +425,9 @@ printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED
 printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
 printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
-if [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
+if grep -qx "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
+    printf "%-30s %8s\n" "Ori spec (LLVM backend)" "skipped"
+elif [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "BUILD FAILED"
 elif [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "CRASHED"

@@ -155,7 +155,24 @@ Track root causes, fix locations, and status so they don't get lost.}
 
 ## Index File Template (`index.md`)
 
-The index enables keyword-based discovery across all sections.
+The index enables keyword-based discovery across all sections. If this plan is a
+**reroute** (a parallel track alongside the main roadmap), add frontmatter to make
+it discoverable by the website:
+
+```yaml
+---
+reroute: true
+name: "{Short Name}"
+full_name: "{Full Plan Name}"
+status: queued
+---
+```
+
+- `reroute: true` — marks this plan as a reroute (omit for non-reroute plans)
+- `name` — short display name for timeline pills (e.g., "LLVM Fixes")
+- `full_name` — full display name for page titles (e.g., "LLVM Codegen Fixes")
+- `status` — `active | queued | resolved`
+- `key` and `dir` are derived at load time from the directory name
 
 ```markdown
 # {Plan Name} Index

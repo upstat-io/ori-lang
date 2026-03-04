@@ -424,6 +424,20 @@ pub fn wasm_opt_available() -> bool {
 
 // AOT compile-and-run helpers
 
+/// Get the workspace root directory (contains `Cargo.toml` + `compiler/`).
+fn workspace_root() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .ancestors()
+        .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
+        .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf)
+}
+
+/// Get the path to the standard library (`library/` in workspace root).
+pub fn stdlib_path() -> PathBuf {
+    workspace_root().join("library")
+}
+
 /// Get the path to an LLVM-enabled `ori` binary.
 ///
 /// When both debug and release binaries exist, prefers one with LLVM support.
@@ -431,11 +445,7 @@ pub fn wasm_opt_available() -> bool {
 /// has LLVM support, panics with a clear message instead of letting 100+
 /// AOT tests fail individually with cryptic E5004 errors.
 pub fn ori_binary() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest_dir
-        .ancestors()
-        .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
-        .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf);
+    let workspace_root = workspace_root();
 
     let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
     let debug_path = workspace_root.join("target/debug").join(&exe);
@@ -540,6 +550,7 @@ pub fn compile_and_run_capture(source: &str) -> (i32, String, String) {
             "-o",
             binary_path.to_str().unwrap(),
         ])
+        .env("ORI_STDLIB", stdlib_path())
         .output()
         .expect("Failed to execute ori build");
 
@@ -581,6 +592,7 @@ pub fn compile_and_capture_ir(source: &str) -> String {
             "-o",
             binary_path.to_str().unwrap(),
         ])
+        .env("ORI_STDLIB", stdlib_path())
         .env("ORI_DEBUG_LLVM", "1")
         .output()
         .expect("Failed to execute ori build");

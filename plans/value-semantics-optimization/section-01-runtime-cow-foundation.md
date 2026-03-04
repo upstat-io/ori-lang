@@ -31,9 +31,6 @@ sections:
 
 # Section 01: Runtime COW Foundation
 
-**Status:** Complete (2026-02-26)
-**Goal:** Every COW collection operation (§02-§05) can call `ori_rc_is_unique()` to branch between fast (in-place) and slow (copy) paths. Capacity management and growth strategy are available as primitives. Empty collections use zero-allocation sentinels. All primitives have LLVM declarations and are callable from codegen.
-
 **Context:** Ori's current runtime (`compiler/ori_rt/src/lib.rs`) provides `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free`, and `ori_rc_count`. Collection operations like `ori_list_push_new` unconditionally allocate new buffers. The RC header is an 8-byte `i64` (or `AtomicI64`) prepended to the data pointer. The infrastructure to *read* the refcount exists (`ori_rc_count`), but there's no dedicated uniqueness check optimized for the COW branch, and no capacity management helpers.
 
 **Reference implementations:**

@@ -11,8 +11,12 @@ impl ArcLowerer<'_> {
     /// Lower `for i in <range> do body` using direct start/end projection.
     ///
     /// Range layout: `{i64 start, i64 end, i64 step, i64 inclusive}`.
-    /// Inclusive ranges (`0..=5`) use `i < end + inclusive` so both exclusive
-    /// and inclusive work with a single `Lt` comparison.
+    /// The loop condition uses sign-aware comparison to avoid overflow:
+    /// - Ascending (step > 0): `i < end` (exclusive) or `i <= end` (inclusive)
+    /// - Descending (step < 0): `i > end` (exclusive) or `i >= end` (inclusive)
+    ///
+    /// The old approach (`i < end + inclusive`) overflows for `0..=INT_MAX`
+    /// because `INT_MAX + 1` wraps to `INT_MIN`.
     #[expect(
         clippy::too_many_lines,
         reason = "range loop lowering with guard/latch/mutable-var SSA merge is inherently sequential"
@@ -80,17 +84,69 @@ impl ArcLowerer<'_> {
 
         let start = self.builder.emit_project(Idx::INT, iter_val, 0, None);
         let end = self.builder.emit_project(Idx::INT, iter_val, 1, None);
-        // Field 3 = inclusive flag (0 or 1). Adding it to end makes `i < end + inclusive`
-        // work for both exclusive (i < end) and inclusive (i < end + 1 ≡ i <= end).
+        let step = self.builder.emit_project(Idx::INT, iter_val, 2, None);
         let inclusive = self.builder.emit_project(Idx::INT, iter_val, 3, None);
-        let adjusted_end = self.builder.emit_let(
-            Idx::INT,
+
+        // Pre-compute loop-invariant direction/inclusive flags.
+        // These are defined in the entry block and dominate the header.
+        let zero = self
+            .builder
+            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
+        let step_pos = self.builder.emit_let(
+            Idx::BOOL,
             ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Add),
-                args: vec![end, inclusive],
+                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
+                args: vec![step, zero],
             },
             None,
         );
+        let step_neg = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Lt),
+                args: vec![step, zero],
+            },
+            None,
+        );
+        let is_incl = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
+                args: vec![inclusive, zero],
+            },
+            None,
+        );
+
+        // Zero-step guard: panic at runtime if step == 0.
+        // Prevents infinite loop for ranges like `0..=0 by 0`.
+        let step_is_zero = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
+                args: vec![step, zero],
+            },
+            None,
+        );
+        let panic_block = self.builder.new_block();
+        let loop_entry_block = self.builder.new_block();
+        self.builder
+            .terminate_branch(step_is_zero, panic_block, loop_entry_block);
+
+        // Panic block: emit "range step cannot be zero" and halt.
+        self.builder.position_at(panic_block);
+        let panic_msg = self.interner.intern("range step cannot be zero");
+        let msg_var = self.builder.emit_let(
+            Idx::STR,
+            ArcValue::Literal(LitValue::String(panic_msg)),
+            None,
+        );
+        let panic_fn = self.interner.intern("ori_panic");
+        self.builder
+            .emit_apply(Idx::UNIT, panic_fn, vec![msg_var], None);
+        self.builder.terminate_unreachable();
+
+        // Continue in loop entry block.
+        self.builder.position_at(loop_entry_block);
 
         // Entry jump args match header param order: [start, mut0, mut1, ...]
         let mut entry_args = vec![start];
@@ -104,11 +160,76 @@ impl ArcLowerer<'_> {
             self.scope.bind_mutable(name, param_var);
         }
 
-        let in_bounds = self.builder.emit_let(
+        // Sign-aware loop condition using boolean arithmetic:
+        //   asc_part  = (step > 0) && (i < end)
+        //   desc_part = (step < 0) && (i > end)
+        //   base      = asc_part || desc_part
+        //   incl_part = inclusive && (i == end)
+        //   in_bounds = base || incl_part
+        //
+        // For compile-time constant step/inclusive, LLVM constant-folds
+        // the dead terms away, producing optimal `icmp slt`/`icmp sle`.
+        let lt_val = self.builder.emit_let(
             Idx::BOOL,
             ArcValue::PrimOp {
                 op: PrimOp::Binary(ori_ir::BinaryOp::Lt),
-                args: vec![i_var, adjusted_end],
+                args: vec![i_var, end],
+            },
+            None,
+        );
+        let gt_val = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
+                args: vec![i_var, end],
+            },
+            None,
+        );
+        let eq_val = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
+                args: vec![i_var, end],
+            },
+            None,
+        );
+        let asc_part = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::And),
+                args: vec![step_pos, lt_val],
+            },
+            None,
+        );
+        let desc_part = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::And),
+                args: vec![step_neg, gt_val],
+            },
+            None,
+        );
+        let base = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Or),
+                args: vec![asc_part, desc_part],
+            },
+            None,
+        );
+        let incl_part = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::And),
+                args: vec![is_incl, eq_val],
+            },
+            None,
+        );
+        let in_bounds = self.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Or),
+                args: vec![base, incl_part],
             },
             None,
         );
@@ -160,14 +281,11 @@ impl ArcLowerer<'_> {
         self.loop_ctx = prev_loop;
 
         self.builder.position_at(latch_block);
-        let one = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(1)), None);
         let next = self.builder.emit_let(
             Idx::INT,
             ArcValue::PrimOp {
                 op: PrimOp::Binary(ori_ir::BinaryOp::Add),
-                args: vec![i_var, one],
+                args: vec![i_var, step],
             },
             None,
         );

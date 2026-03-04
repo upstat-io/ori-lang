@@ -662,3 +662,124 @@ type ByteBox = { b: byte }
         "derive_hash_byte_field",
     );
 }
+
+// =========================================================================
+// C3: Derive Eq on payload sum types (code journey 11)
+// =========================================================================
+
+#[test]
+fn test_aot_derive_eq_payload_sum_type() {
+    assert_aot_success(
+        r#"
+#[derive(Eq)]
+type Shape = Circle(radius: int) | Rect(w: int, h: int);
+
+@main () -> int = {
+    let s1 = Circle(radius: 10);
+    let s2 = Circle(radius: 10);
+    let s3 = Rect(w: 5, h: 8);
+    let same = s1 == s2;
+    let diff = s1 != s3;
+    if same && diff then 0 else 1
+}
+"#,
+        "derive_eq_payload_sum",
+    );
+}
+
+#[test]
+fn test_aot_derive_eq_mixed_variant_comparison() {
+    assert_aot_success(
+        r#"
+#[derive(Eq)]
+type Shape = Circle(radius: int) | Rect(w: int, h: int);
+
+@main () -> int = {
+    let c1 = Circle(radius: 10);
+    let c2 = Circle(radius: 10);
+    let c3 = Circle(radius: 20);
+    let r1 = Rect(w: 5, h: 8);
+    let r2 = Rect(w: 5, h: 8);
+    let same_circle = c1 == c2;
+    let diff_circle = c1 != c3;
+    let cross_type = c1 != r1;
+    let same_rect = r1 == r2;
+    if same_circle && diff_circle && cross_type && same_rect then 0 else 1
+}
+"#,
+        "derive_eq_mixed_variant",
+    );
+}
+
+#[test]
+fn test_aot_derive_eq_single_payload_variant() {
+    assert_aot_success(
+        r#"
+#[derive(Eq)]
+type Wrapper = Val(x: int) | Empty;
+
+@main () -> int = {
+    let v1 = Val(x: 42);
+    let v2 = Val(x: 42);
+    let v3 = Val(x: 99);
+    let e = Empty;
+    let same_val = v1 == v2;
+    let diff_val = v1 != v3;
+    let val_vs_empty = v1 != e;
+    if same_val && diff_val && val_vs_empty then 0 else 1
+}
+"#,
+        "derive_eq_single_payload",
+    );
+}
+
+#[test]
+fn test_aot_journey_11_derived_eq() {
+    assert_aot_success(
+        r#"
+#[derive(Eq)]
+type Point = { x: int, y: int }
+
+#[derive(Eq)]
+type Color = Red | Green | Blue;
+
+#[derive(Eq)]
+type Shape = Circle(radius: int) | Rect(w: int, h: int);
+
+@check_struct_eq () -> int = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 20 };
+    let p3 = Point { x: 10, y: 30 };
+    let same = if p1 == p2 then 3 else 0;
+    let diff = if p1 != p3 then 4 else 0;
+    same + diff
+}
+
+@check_sum_eq () -> int = {
+    let c1 = Red;
+    let c2 = Red;
+    let c3 = Blue;
+    let unit_same = if c1 == c2 then 5 else 0;
+    let unit_diff = if c1 != c3 then 6 else 0;
+    unit_same + unit_diff
+}
+
+@check_nested () -> int = {
+    let s1 = Circle(radius: 10);
+    let s2 = Circle(radius: 10);
+    let s3 = Rect(w: 5, h: 8);
+    let payload_same = if s1 == s2 then 7 else 0;
+    let payload_diff = if s1 != s3 then 8 else 0;
+    payload_same + payload_diff
+}
+
+@main () -> int = {
+    let a = check_struct_eq();
+    let b = check_sum_eq();
+    let c = check_nested();
+    if a + b + c == 33 then 0 else 1
+}
+"#,
+        "journey_11_derived_eq",
+    );
+}

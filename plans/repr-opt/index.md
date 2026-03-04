@@ -1,3 +1,10 @@
+---
+reroute: true
+name: "Repr Opt"
+full_name: "Representation Optimization & ARC Intelligence"
+status: queued
+---
+
 # Representation Optimization & ARC Intelligence Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.

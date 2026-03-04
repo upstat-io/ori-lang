@@ -24,9 +24,6 @@ sections:
 
 # Section 05: Float Narrowing Pipeline
 
-**Status:** Not Started
-**Goal:** When a `float` value is provably representable as `f32` without precision loss, use `f32` in generated code. This halves memory for float-heavy data structures and enables SIMD vectorization on hardware that processes 2× more f32 operations per cycle.
-
 **Context:** Float narrowing is much more constrained than integer narrowing because floating-point precision is non-linear. The set of values exactly representable in f32 is a strict subset of f64. Narrowing is only safe when:
 1. All literal values are exactly representable in f32
 2. All operations produce results exactly representable in f32

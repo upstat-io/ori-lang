@@ -11,7 +11,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // -----------------------------------------------------------------------
 // Range for-loops (regression)
@@ -401,5 +401,166 @@ fn test_for_range_continue_with_mutation() {
 }
 "#,
         "for_range_continue_mutation",
+    );
+}
+
+// ── M9 edge cases: inclusive range overflow and step direction ──────
+
+#[test]
+fn test_for_range_inclusive_single_element() {
+    // Edge case: 0..=0 should iterate exactly once
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let count = 0;
+    for i in 0..=0 do count = count + 1;
+    if count == 1 then 0 else 1
+}
+"#,
+        "for_range_inclusive_single",
+    );
+}
+
+#[test]
+fn test_for_range_inclusive_with_step() {
+    // Inclusive range with step: 0..=10 by 2 → 0, 2, 4, 6, 8, 10
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    for i in 0..=10 by 2 do sum = sum + i;
+    // 0 + 2 + 4 + 6 + 8 + 10 = 30
+    if sum == 30 then 0 else 1
+}
+"#,
+        "for_range_inclusive_step",
+    );
+}
+
+#[test]
+fn test_for_range_descending_inclusive() {
+    // Descending inclusive: 10..=0 by -1 → 10, 9, 8, ..., 0
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    for i in 10..=0 by -1 do sum = sum + i;
+    // 10 + 9 + ... + 0 = 55
+    if sum == 55 then 0 else 1
+}
+"#,
+        "for_range_descending_inclusive",
+    );
+}
+
+#[test]
+fn test_for_range_descending_exclusive() {
+    // Descending exclusive: 5..0 by -1 → 5, 4, 3, 2, 1
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    for i in 5..0 by -1 do sum = sum + i;
+    // 5 + 4 + 3 + 2 + 1 = 15
+    if sum == 15 then 0 else 1
+}
+"#,
+        "for_range_descending_exclusive",
+    );
+}
+
+#[test]
+fn test_for_range_with_step_ascending() {
+    // Ascending with step: 0..10 by 3 → 0, 3, 6, 9
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    for i in 0..10 by 3 do sum = sum + i;
+    // 0 + 3 + 6 + 9 = 18
+    if sum == 18 then 0 else 1
+}
+"#,
+        "for_range_step_ascending",
+    );
+}
+
+#[test]
+fn test_for_range_variable_step_inclusive() {
+    // Variable step: step value from a function call (not compile-time constant)
+    assert_aot_success(
+        r#"
+@make_step () -> int = 2;
+
+@main () -> int = {
+    let $step = make_step();
+    let sum = 0;
+    for i in 0..=10 by step do sum = sum + i;
+    // 0 + 2 + 4 + 6 + 8 + 10 = 30
+    if sum == 30 then 0 else 1
+}
+"#,
+        "for_range_variable_step",
+    );
+}
+
+// ── Zero step panics ─────────────────────────────────────────────────
+
+#[test]
+fn test_for_range_zero_step_panics_exclusive() {
+    // Zero step on exclusive range should panic, not infinite-loop.
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    for i in 0..10 by 0 do sum = sum + i;
+    0
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "zero step should panic (non-zero exit)");
+    assert!(
+        stderr.contains("range step cannot be zero"),
+        "stderr should contain panic message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_for_range_zero_step_panics_inclusive() {
+    // Zero step on inclusive range should panic.
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    for i in 0..=10 by 0 do sum = sum + i;
+    0
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "zero step should panic (non-zero exit)");
+    assert!(
+        stderr.contains("range step cannot be zero"),
+        "stderr should contain panic message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_for_range_zero_step_panics_runtime() {
+    // Zero step from a runtime variable should also panic.
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@zero () -> int = 0;
+
+@main () -> int = {
+    let sum = 0;
+    for i in 0..=10 by zero() do sum = sum + i;
+    0
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "runtime zero step should panic");
+    assert!(
+        stderr.contains("range step cannot be zero"),
+        "stderr should contain panic message, got: {stderr}"
     );
 }

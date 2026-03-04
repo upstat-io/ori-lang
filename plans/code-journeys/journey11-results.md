@@ -1,7 +1,16 @@
-# Journey 11: "I am a derived trait"
+# Journey 11 Results: "I am a derived trait"
 
-**Code**:
+**Date**: 2026-03-03
+**Status**: PASS -- both eval and AOT produce correct result (exit code 33)
+**Previously**: CRITICAL C3 -- payload sum type `$eq` not generated. Now FIXED.
+
+## Source
+
 ```ori
+// Journey 11: "I am a derived trait"
+// Features: #[derive(Eq)], struct equality, sum type equality, == and !=
+// Expected: check_struct_eq() + check_sum_eq() + check_nested() = 7 + 11 + 15 = 33
+
 #[derive(Eq)]
 type Point = { x: int, y: int }
 
@@ -48,179 +57,394 @@ type Shape = Circle(radius: int) | Rect(w: int, h: int);
     a + b + c                    // = 33
 }
 ```
-**Source**: 1319 bytes, **Expected Result**: 33 (= 7 + 11 + 15)
-**Actual**: Eval = 33 (correct), **AOT = 18 (WRONG — missing 15 from check_nested)**
 
-**CRITICAL**: Payload sum type `==`/`!=` silently produces wrong results in AOT. No `Shape$eq` function generated — falls through to raw `icmp` which can't compare structs, silently returns `false`.
+**Features exercised**: `#[derive(Eq)]`, struct equality (`==`/`!=`), unit-variant sum type equality, payload sum type equality (record variants), derived `$eq` codegen for structs and enums, `if/then/else`, named arguments, let bindings, integer addition.
 
----
+## Execution Results
 
-## Transformation Timeline
+| Backend | Exit Code | Expected | Stdout | Stderr | Status |
+|---------|-----------|----------|--------|--------|--------|
+| Eval    | 33        | 33       | (none) | (none) | PASS   |
+| AOT     | 33        | 33       | (none) | compile msg only | PASS   |
 
-### Stages
-```
-Lexer:   1319 bytes → 344 tokens (10 comments, 0 errors)
-Parser:  344 tokens → 4 functions, 3 types, 85 expressions, 0 errors
-TypeCk:  4 functions registered, signatures collected, bodies checked — no mono instances
-Canon:   4 functions, 85 source_exprs → 100 canon_nodes, 4 roots, 6 constants, 0 decision_trees
-Eval:    105 eval_can calls
-```
-- 17.6% canon expansion (85→100) — moderate, from struct/variant construction + if/then/else desugaring
-- 105 eval_can calls — derived method dispatch (eq comparisons) adds overhead
+## Pipeline Trace Summary
 
-### Stage 6b: LLVM Path
+### Lexer
+- Source: 1319 bytes, 344 tokens, 0 errors
+- Prelude: 10331 bytes, 1516 tokens, 0 errors
+- Clean pass, no issues.
 
-#### Type Representations
+### Parser
+- User module: 4 functions, 3 types, 85 expressions, 0 errors, 0 warnings
+- Correctly parsed: `#[derive(Eq)]` attribute on all three types, struct definition `Point`, unit-variant sum `Color`, record-variant sum `Shape`, struct literals, variant construction, equality/inequality operators
+- Prelude: 9 functions, 46 expressions, 4 decision trees
+
+### Canonicalization
+- User module: 4 functions, 100 canon nodes, 6 constants, 0 decision trees
+- Prelude: 9 functions, 46 canon nodes, 4 decision trees
+- Note: No decision trees in user module -- `==`/`!=` is lowered as binary ops, not match/decision tree. The derived `$eq` methods use internal dispatch.
+
+### Type Checker
+- Registration, signature collection, body checking: all complete, 0 errors
+- Two modules checked:
+  - Prelude: 9 functions, 0 tests, 0 impls
+  - User: 4 functions, 0 tests, 0 impls
+- 6 generic prelude imports required AST fallback: `len`, `is_empty`, `is_some`, `is_none`, `is_ok`, `is_err`
+- 3 non-generic prelude imports hit hash-first: `compare`, `min`, `max`
+- The `#[derive(Eq)]` attribute is processed during type registration, generating implicit `impl Eq for Point`, `impl Eq for Color`, and `impl Eq for Shape`. These are NOT counted in the user impls count (they are compiler-generated).
+
+### ARC Pipeline
+- Type registration: 10 types total (3 user + 7 prelude: Ordering, CancellationReason, PanicInfo, TraceEntry, FormatSpec, NurseryErrorMode, FormatType)
+- User types registered:
+  - `%ori.Point = type { i64, i64 }` -- struct, 2 int fields, boxed category
+  - `%ori.Color = type { i64 }` -- enum, 3 unit variants (Red=0, Green=1, Blue=2), discriminant-only
+  - `%ori.Shape = type { i64, [2 x i64] }` -- enum, 2 record variants (Circle: 1 field, Rect: 2 fields), tag + payload
+- Derived methods compiled:
+  - `Point` -- 1 derive (Eq), 2 fields (struct `$eq`)
+  - `Color` -- 1 derive (Eq), 3 variants (enum `$eq`, tag-only)
+  - `Shape` -- 1 derive (Eq), 2 variants (enum `$eq`, per-variant field comparison)
+- 4 user functions + 3 derived `$eq` methods = 7 total functions emitted
+- Nounwind analysis: 2 fixed-point passes, 4 nounwind (all 4 user functions). The `$eq` methods are not counted in the nounwind set (they do not appear in the user function list; they are trait method implementations emitted separately by `derive_codegen`).
+- Entry point wrapper: `main()` -> `_ori_main()` with `trunc i64 to i32`
+
+### Evaluator
+- Full execution traced through 107 lines of CAN evaluation:
+  - `check_struct_eq()`: constructs 3 Point structs, evaluates `p1 == p2` (Eq on struct, true -> 3), `p1 != p3` (NotEq on struct, true -> 4), returns 7
+  - `check_sum_eq()`: constructs 3 Color variants (Red, Red, Blue), evaluates `c1 == c2` (Eq on variant, true -> 5), `c1 != c3` (NotEq on variant, true -> 6), returns 11
+  - `check_nested()`: constructs 3 Shape variants (Circle(10), Circle(10), Rect(5,8)), evaluates `s1 == s2` (Eq on variant, true -> 7), `s1 != s3` (NotEq on variant, true -> 8), returns 15
+  - Final: `a + b + c` = `7 + 11 + 15` = 33
+- Binary operator trace confirms correct dispatch: `Eq` with `left_type="struct"`, `Eq` with `left_type="variant"`, `NotEq` with `left_type="variant"` -- all operating on the derived `$eq` method.
+
+## LLVM Deep Scrutiny (9 Categories)
+
+### 1. Attributes & Calling Convention
+
+| Function | fastcc | nounwind | Status |
+|----------|--------|----------|--------|
+| `_ori_main` | No (C ABI) | Yes | OK |
+| `_ori_check_struct_eq` | Yes | Yes | OK |
+| `_ori_check_sum_eq` | Yes | Yes | OK |
+| `_ori_check_nested` | Yes | Yes | OK |
+| `_ori_Point$eq` | Yes | No `nounwind` | See below |
+| `_ori_Color$eq` | Yes | No `nounwind` | See below |
+| `_ori_Shape$eq` | Yes | No `nounwind` | See below |
+| `main` (wrapper) | No (C ABI) | No | OK |
+| `ori_panic_cstr` | No (extern) | No | OK -- `cold` attr present |
+
+**Derived `$eq` methods lack `nounwind`**: The three `$eq` functions do not have the `nounwind` attribute, even though they perform only `extractvalue`, `icmp`, `load`, `store`, `getelementptr`, `switch`, and `br` -- none of which can unwind. This is because derived methods are emitted by `derive_codegen` outside the standard nounwind analysis pipeline (which only processes user functions). The nounwind analysis logs confirm: "nounwind analysis complete, nounwind_count=4" -- exactly the 4 user functions, not including the 3 derived methods.
+
+**Severity**: LOW -- missing `nounwind` on leaf functions that cannot unwind. Does not affect correctness. Could inhibit some LLVM optimizations that rely on knowing a callee cannot unwind (e.g., call folding, EH edge elimination). The fix would be to either include derived methods in the nounwind fixed-point analysis, or unconditionally mark pure comparison methods as `nounwind`.
+
+### 2. Derived `$eq` Codegen -- Struct (Point)
+
 ```llvm
-%ori.Point = type { i64, i64 }          ; 16 bytes — struct, passed by value
-%ori.Color = type { i64 }               ; 8 bytes — unit-only sum type, just a tag
-%ori.Shape = type { i64, [2 x i64] }    ; 24 bytes — payload sum type: tag + 2-slot payload
-```
-
-#### Generated LLVM IR (formatted, key sections)
-```llvm
-; --- check_struct_eq: calls Point$eq, branch on result ---
-define fastcc i64 @_ori_check_struct_eq() #0 {       ; nounwind
-bb0:
-  ; Point constants passed by value (16 bytes, fits in registers)
-  %eq_trait = call fastcc i1 @"_ori_Point$eq"(
-    %ori.Point { i64 10, i64 20 }, %ori.Point { i64 10, i64 20 })
-  br i1 %eq_trait, label %bb1, label %bb2
-  ; ... phi: same = 3 or 0 ...
-  %eq_trait1 = call fastcc i1 @"_ori_Point$eq"(
-    %ori.Point { i64 10, i64 20 }, %ori.Point { i64 10, i64 30 })
-  %neq = xor i1 %eq_trait1, true    ; != is !(==) — correct
-  ; ... phi: diff = 4 or 0 ...
-  ret i64 %add                       ; same + diff
-}
-
-; --- check_sum_eq: calls Color$eq ---
-define fastcc i64 @_ori_check_sum_eq() #0 {
-bb0:
-  ; Variant construction for Color: alloca+store tag+load (CONFIRMED M7)
-  %variant = alloca %ori.Color, align 8
-  %variant.tag = getelementptr inbounds %ori.Color, ptr %variant, i32 0, i32 0
-  store i64 0, ptr %variant.tag, align 4    ; ← CONFIRMED M5: align 4
-  ; ... load and insertvalue to build Color value ...
-  %eq_trait = call fastcc i1 @"_ori_Color$eq"(%ori.Color %variant.s0, %ori.Color %variant.s05)
-  ; ... branch, phi, neq pattern (same as struct) ...
-  ret i64 %add
-}
-
-; --- check_nested: *** NO Shape$eq call — hardcoded `false` ***
-define fastcc i64 @_ori_check_nested() #0 {
-bb0:
-  ; Variant construction for Shape: alloca+store tag+payload+load
-  ; ... Circle(radius: 10), Circle(radius: 10), Rect(w: 5, h: 8) ...
-
-  br i1 false, label %bb1, label %bb2   ; ← CRITICAL: hardcoded false!
-  ; ... phi: same = 7 or 0 → always 0 ...
-
-  br i1 false, label %bb4, label %bb5   ; ← CRITICAL: hardcoded false!
-  ; ... phi: diff = 8 or 0 → always 0 ...
-
-  ret i64 %add                          ; 0 + 0 = 0
-}
-
-; --- main: all calls, no invoke (no ARC types) ---
-define i64 @_ori_main() #0 {
-bb0:
-  %call = call fastcc i64 @_ori_check_struct_eq()
-  br label %bb1                          ; ← CONFIRMED M3
-bb1:
-  %call1 = call fastcc i64 @_ori_check_sum_eq()
-  br label %bb3                          ; ← CONFIRMED M3
-bb3:
-  %call2 = call fastcc i64 @_ori_check_nested()
-  br label %bb5                          ; ← CONFIRMED M3
-bb5:
-  %add = add i64 %call, %call1
-  %add3 = add i64 %add, %call2
-  ret i64 %add3
-}
-
-; --- Point$eq: field-by-field comparison with early exit ---
 define fastcc i1 @"_ori_Point$eq"(%ori.Point %0, %ori.Point %1) {
 entry:
   %self.x = extractvalue %ori.Point %0, 0
   %other.x = extractvalue %ori.Point %1, 0
   %eq.x = icmp eq i64 %self.x, %other.x
   br i1 %eq.x, label %eq.check.1, label %eq.false
+
 eq.true:
   ret i1 true
+
 eq.false:
   ret i1 false
+
 eq.check.1:
   %self.y = extractvalue %ori.Point %0, 1
   %other.y = extractvalue %ori.Point %1, 1
   %eq.y = icmp eq i64 %self.y, %other.y
   br i1 %eq.y, label %eq.true, label %eq.false
 }
+```
 
-; --- Color$eq: tag-only comparison ---
+**Analysis**: Short-circuit lexicographic field comparison. Compares `x` first; if unequal, returns `false` immediately without comparing `y`. This is the optimal pattern -- no unnecessary field extraction when early fields differ. The struct is passed by value (2 x i64 = 16 bytes, fits in two registers per x86-64 SysV ABI).
+
+**Native code** (`_ori_Point$eq`, 40 bytes):
+```asm
+mov    %rcx,-0x10(%rsp)    ; spill other.y
+mov    %rsi,-0x8(%rsp)     ; spill other.x
+cmp    %rdx,%rdi           ; compare self.x vs other.x
+je     eq.check.1          ; if equal, check y
+jmp    eq.false
+eq.true:
+  mov    $0x1,%al           ; return true
+  ret
+eq.false:
+  xor    %eax,%eax          ; return false
+  ret
+eq.check.1:
+  mov    -0x8(%rsp),%rax    ; load other.y
+  mov    -0x10(%rsp),%rcx   ; load self.y
+  cmp    %rcx,%rax          ; compare y fields
+  je     eq.true
+  jmp    eq.false
+```
+
+The two-register struct is passed as `(self.x=%rdi, self.y=%rsi, other.x=%rdx, other.y=%rcx)` via fastcc. The spills of `%rsi` and `%rcx` are unnecessary in debug mode -- the values could stay in registers. At -O1+ these would be eliminated.
+
+**Verdict**: Correct and efficient codegen. Short-circuit behavior is sound.
+
+**Severity**: None (correctness). LOW (debug-mode register spills -- expected).
+
+### 3. Derived `$eq` Codegen -- Unit-Variant Sum (Color)
+
+```llvm
 define fastcc i1 @"_ori_Color$eq"(%ori.Color %0, %ori.Color %1) {
 entry:
   %eq.tag.self = extractvalue %ori.Color %0, 0
   %eq.tag.other = extractvalue %ori.Color %1, 0
   %eq.tags = icmp eq i64 %eq.tag.self, %eq.tag.other
-  ret i1 %eq.tags
-}
+  br i1 %eq.tags, label %eq.true, label %eq.false
 
-; --- No Shape$eq function exists! ---
+eq.true:
+  ret i1 true
+
+eq.false:
+  ret i1 false
+}
 ```
 
-#### Key Observations
-1. **Point$eq: exemplary codegen** — field-by-field `icmp eq i64` with early-exit chain. Constants inlined (`%ori.Point { i64 10, i64 20 }`). Pass-by-value since Point fits in 16 bytes.
-2. **Color$eq: correct minimal codegen** — single `icmp eq i64` on tag values. Unit-only sum types reduce to pure tag comparison.
-3. **MISSING Shape$eq** — No derived `$eq` function is generated for payload sum types. The codegen falls through to raw `icmp` on `%ori.Shape` (a struct), which triggers the ERROR log and substitutes `false`.
-4. **Silent wrong answer** — `check_nested()` has `br i1 false, label %bb1, label %bb2` hardcoded TWICE. Both `==` and `!=` always return false. This is the worst kind of bug — no crash, no error visible at runtime, just wrong results.
-5. **`!=` is `xor i1 %eq, true`** — Correct negation pattern. But since the underlying `eq` returns `false`, the `!=` result is `xor false, true = true`... wait, but in check_nested, there's no `xor` — the hardcoded `false` replaces both operations.
-6. **0 runtime declarations** — No ARC types in this program. All types are value types (no strings, no lists). The IR is pure computation.
-7. **7 functions defined** — check_struct_eq, check_sum_eq, check_nested, _ori_main, Point$eq, Color$eq, main wrapper.
-8. **nounwind on everything** — Correct! No ARC, no allocations, no panic paths. Pure value manipulation.
-9. **CONFIRMED M5**: `align 4` on variant tag stores (should be `align 8` for i64).
-10. **CONFIRMED M7**: Verbose variant construction via alloca+store+load for Color and Shape variants.
-11. **CONFIRMED M3**: Dead `br label` after every function call in main (3 instances).
-12. **Point constants inlined** — `%ori.Point { i64 10, i64 20 }` as function arguments. No alloca needed.
+**Analysis**: For a unit-variant-only enum (no payloads), equality is a single tag comparison. This is optimal -- extract discriminants, compare, done. No payload checking needed. The `%ori.Color = type { i64 }` is just a tag wrapper.
 
----
+**Native code** (`_ori_Color$eq`, 11 bytes):
+```asm
+cmp    %rsi,%rdi    ; compare tags
+jne    eq.false
+mov    $0x1,%al     ; true
+ret
+eq.false:
+xor    %eax,%eax    ; false
+ret
+```
 
-## Issues Found
+Extremely lean -- 3-4 instructions. The single-field enum is passed as a bare i64 (unwrapped by fastcc), so it is just a register-to-register comparison.
 
-### CRITICAL
-**C3 (NEW): Derived `Eq` for payload sum types — `$eq` function not generated, silent wrong results**
-- `#[derive(Eq)]` on `type Shape = Circle(radius: int) | Rect(w: int, h: int)` does NOT generate a `Shape$eq` function
-- Comparison falls through to raw LLVM `icmp` on struct type `%ori.Shape { i64, [2 x i64] }` which cannot compare aggregate types
-- The codegen ERROR handler silently returns `false` instead of failing — substitutes `br i1 false` in the IR
-- **Impact**: ALL payload sum type equality is silently wrong in AOT. `==` always returns false, `!=` always returns false (both comparisons fail identically).
-- **Root cause**: `derive_codegen.rs` generates `$eq` for product types (structs) and unit-only sum types, but not for sum types with payload fields. The codegen needs to: (1) compare tags first, (2) if tags match, compare payload fields based on variant.
-- **Eval**: Works correctly — the evaluator handles derived Eq for all type forms.
+**Verdict**: Optimal. Cannot be improved.
 
-### MEDIUM
-**CONFIRMED M3**: Dead branches after calls (3 instances in main)
-**CONFIRMED M5**: `align 4` on i64 stores in variant construction (Color tags, Shape tags + payloads)
-**CONFIRMED M7**: alloca+store+load roundtrip for variant construction (Color and Shape)
+**Severity**: None.
 
-### What Works Exceptionally Well
-- **Point$eq: textbook derived equality** — field-by-field with early exit, constants inlined, pass-by-value
-- **Color$eq: minimal tag comparison** — 4 instructions total for unit-only sum type equality
-- **`!=` as `xor i1 %eq, true`** — simple, correct negation (when eq function exists)
-- **No ARC overhead** — pure value types produce zero runtime declarations
-- **nounwind analysis correct** — all functions correctly marked nounwind (no panic paths)
-- **Type representations clean** — Point (2×i64), Color (1×i64 tag), Shape (i64 tag + [2 x i64] payload)
+### 4. Derived `$eq` Codegen -- Payload Sum (Shape)
 
----
+```llvm
+define fastcc i1 @"_ori_Shape$eq"(ptr %0, ptr %1) {
+entry:
+  ; Load both Shape values field-by-field via GEP
+  %param.0.f0.ptr = getelementptr inbounds nuw %ori.Shape, ptr %0, i32 0, i32 0
+  %param.0.f0 = load i64, ptr %param.0.f0.ptr, align 8
+  %param.0.s0 = insertvalue %ori.Shape zeroinitializer, i64 %param.0.f0, 0
+  %param.0.f1.ptr = getelementptr inbounds nuw %ori.Shape, ptr %0, i32 0, i32 1
+  %param.0.f1 = load [2 x i64], ptr %param.0.f1.ptr, align 8
+  %param.0.s1 = insertvalue %ori.Shape %param.0.s0, [2 x i64] %param.0.f1, 1
+  ; ... same for param.1 ...
+  %eq.tag.self = extractvalue %ori.Shape %param.0.s1, 0
+  %eq.tag.other = extractvalue %ori.Shape %param.1.s1, 0
+  %eq.tags = icmp eq i64 %eq.tag.self, %eq.tag.other
+  br i1 %eq.tags, label %eq.tags.match, label %eq.false
 
-## Eval vs LLVM Behavioral Mismatch
+eq.tags.match:
+  store %ori.Shape %param.0.s1, ptr %eq.self, align 8
+  store %ori.Shape %param.1.s1, ptr %eq.other, align 8
+  %eq.self.payload = getelementptr inbounds nuw %ori.Shape, ptr %eq.self, i32 0, i32 1
+  %eq.other.payload = getelementptr inbounds nuw %ori.Shape, ptr %eq.other, i32 0, i32 1
+  switch i64 %eq.tag.self, label %eq.false [
+    i64 0, label %eq.v.Circle
+    i64 1, label %eq.v.Rect
+  ]
 
-| Aspect | Eval | LLVM |
-|--------|------|------|
-| Result | **33** | **18 (WRONG)** |
-| check_struct_eq (Point) | 7 ✓ | 7 ✓ |
-| check_sum_eq (Color) | 11 ✓ | 11 ✓ |
-| check_nested (Shape) | **15 ✓** | **0 ✗ (WRONG)** |
-| Point$eq | Derived dispatch | Generated `$eq` function ✓ |
-| Color$eq | Derived dispatch | Generated `$eq` function ✓ |
-| Shape$eq | Derived dispatch | **NOT GENERATED** ✗ |
-| Runtime declarations | 0 | 0 |
-| Functions generated | N/A | 7 (missing Shape$eq) |
+eq.v.Circle:
+  ; Compare radius field (1 field)
+  %eq.v0.self.f0.val = load i64, ptr %eq.v0.self.f0, align 8
+  %eq.v0.other.f0.val = load i64, ptr %eq.v0.other.f0, align 8
+  %eq.v0.f0 = icmp eq i64 %eq.v0.self.f0.val, %eq.v0.other.f0.val
+  br i1 %eq.v0.f0, label %eq.true, label %eq.false
+
+eq.v.Rect:
+  ; Compare w field, then h field (short-circuit)
+  %eq.v1.f0 = icmp eq i64 %eq.v1.self.f0.val, %eq.v1.other.f0.val
+  br i1 %eq.v1.f0, label %eq.v1.f1, label %eq.false
+eq.v1.f1:
+  %eq.v1.f11 = icmp eq i64 %eq.v1.self.f1.val, %eq.v1.other.f1.val
+  br i1 %eq.v1.f11, label %eq.true, label %eq.false
+```
+
+**Analysis**: This is the most architecturally significant derived method. The codegen follows this pattern:
+1. **Tag check first** -- compare discriminants; if different, return `false` immediately
+2. **Switch dispatch** -- if tags match, `switch` on the tag to variant-specific comparison blocks
+3. **Per-variant field comparison** -- each variant gets its own block(s) with short-circuit field comparison
+4. **Default unreachable** -- `switch` default falls to `eq.false` (conservative, could be `unreachable` for exhaustive enums)
+
+The `Shape` type (24 bytes: tag + 2 x i64 payload) is correctly passed by pointer (`ptr %0, ptr %1`) since it exceeds 16 bytes. The per-field GEP+load pattern is used to reconstitute the aggregate values.
+
+**Previously critical C3 bug -- FIXED**: This is the exact scenario that previously failed. The C3 bug was that `$eq` was not generated for sum types with payloads. The codegen now correctly emits per-variant field comparison with short-circuit behavior.
+
+**Redundant load-store round-trip**: After loading both shapes field-by-field into LLVM SSA values, the codegen stores them back to `%eq.self` and `%eq.other` allocas, then re-loads via GEP for payload access. This is a load -> insertvalue -> store -> GEP -> load round-trip. At -O1+, SROA (Scalar Replacement of Aggregates) will eliminate this. In an ideal codegen, the payload fields could be extracted directly from the GEP'd input pointers without the intermediate alloca.
+
+**Native code** (`_ori_Shape$eq`, 236 bytes):
+The native code is larger due to the alloca round-trip and switch dispatch. Key observations:
+- Tag comparison is a direct `cmp` on loaded i64 values
+- The `switch` compiles to a `test`/`je` for tag 0 (Circle) and `sub $1`/`je` for tag 1 (Rect) -- linear scan, acceptable for 2 variants
+- Per-variant field comparisons are direct `cmp` on loaded values
+- The `eq.v.Rect` block correctly chains two comparisons (w first, then h) with short-circuit
+
+**Verdict**: Correct. The C3 bug is definitively fixed. Codegen quality is acceptable for debug mode with the known load-store round-trip overhead.
+
+**Severity**: LOW -- alloca round-trip in `Shape$eq` adds unnecessary memory operations in debug mode. SROA eliminates at -O1+.
+
+### 5. `==` and `!=` Desugaring
+
+In the user functions, `==` desugars to a direct call to the derived `$eq` method:
+```llvm
+%eq_trait = call fastcc i1 @"_ori_Point$eq"(%ori.Point { i64 10, i64 20 }, %ori.Point { i64 10, i64 20 })
+```
+
+And `!=` desugars to `$eq` + `xor`:
+```llvm
+%eq_trait1 = call fastcc i1 @"_ori_Point$eq"(%ori.Point { i64 10, i64 20 }, %ori.Point { i64 10, i64 30 })
+%neq = xor i1 %eq_trait1, true
+```
+
+This is the correct pattern: `a != b` is `!(a == b)`, implemented as `xor i1 %result, true`. No separate `$ne` method is needed.
+
+For `Shape` (by-pointer), the calling convention correctly uses alloca:
+```llvm
+%ref_arg = alloca %ori.Shape, align 8
+store %ori.Shape { i64 0, [2 x i64] [i64 10, i64 0] }, ptr %ref_arg, align 8
+; ... same for ref_arg1 ...
+%eq_trait = call fastcc i1 @"_ori_Shape$eq"(ptr %ref_arg, ptr %ref_arg1)
+```
+
+**Verdict**: Correct desugaring. `==` calls `$eq` directly, `!=` inverts via `xor`. Pointer-passing for >16B types is sound.
+
+**Severity**: None.
+
+### 6. Control Flow & Block Structure
+
+**`_ori_check_struct_eq`**: 7 blocks (bb0, bb1, bb2, bb3, bb4, bb5, bb6, add.ok, add.ovf_panic). Two equality checks, each producing a diamond (true/false -> phi merge), then overflow-checked addition. Clean.
+
+**`_ori_check_sum_eq`**: Same structure as check_struct_eq. Two equality checks with diamond branches. Clean.
+
+**`_ori_check_nested`**: Same pattern but with alloca for Shape values (by-pointer passing). Four allocas for the two `$eq` calls. Clean.
+
+**`_ori_main`**: 6 blocks. Three sequential function calls with unconditional branches between them (same sequential block merging pattern as prior journeys), two overflow-checked additions.
+
+**Verdict**: All control flow is correct. No unreachable blocks, no dead code. The diamond pattern for `if eq then X else 0` is the expected codegen.
+
+**Severity**: LOW -- sequential block merging in `_ori_main` (same finding as J2).
+
+### 7. Overflow Checking
+
+Five overflow-checked additions across the module:
+- `check_struct_eq`: `same + diff` (1 check)
+- `check_sum_eq`: `unit_same + unit_diff` (1 check)
+- `check_nested`: `payload_same + payload_diff` (1 check)
+- `main`: `a + b` and `(a + b) + c` (2 checks)
+
+All use `@llvm.sadd.with.overflow.i64` with branch to `ori_panic_cstr` + `unreachable`. Correct per Ori spec.
+
+**Severity**: None.
+
+### 8. Duplicate Overflow Messages
+
+```llvm
+@ovf.msg = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00"
+@ovf.msg.1 = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00"
+@ovf.msg.2 = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00"
+@ovf.msg.3 = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00"
+@ovf.msg.4 = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00"
+```
+
+Five identical overflow message constants -- one per addition. This is 4 x 29 = 116 bytes wasted in `.rodata`. Same finding as J2.
+
+**Severity**: LOW -- same known issue.
+
+### 9. Binary Size & Sections
+
+| Metric | Value |
+|--------|-------|
+| Binary size | 6,561,584 bytes (6.26 MiB) |
+| .text | 890,497 bytes (869 KiB) |
+| .rodata | 136,504 bytes (133 KiB) |
+| User code | ~630 bytes total |
+| Debug info | ~4.8 MiB (.debug_*) |
+
+**User code breakdown** (from symbol table):
+
+| Symbol | Size (bytes) | Description |
+|--------|-------------|-------------|
+| `_ori_check_struct_eq` | 159 (0x9f) | Struct `==`/`!=` checks |
+| `_ori_check_sum_eq` | 141 (0x8d) | Unit sum `==`/`!=` checks |
+| `_ori_check_nested` | 262 (0x106) | Payload sum `==`/`!=` checks (alloca overhead) |
+| `_ori_main` | 114 (0x72) | Call + add |
+| `_ori_Point$eq` | 40 (0x28) | Struct derived Eq |
+| `_ori_Color$eq` | 11 (0x0b) | Unit-variant derived Eq |
+| `_ori_Shape$eq` | 236 (0xec) | Payload-variant derived Eq |
+| `main` (wrapper) | 8 | C entry point |
+| **Total** | **971** | |
+
+Notable: `_ori_Color$eq` at 11 bytes is remarkably lean for a derived method. `_ori_Shape$eq` at 236 bytes is the largest due to the switch dispatch and alloca round-trip, but this is reasonable for a 2-variant enum with payload fields.
+
+Binary size is consistent with prior journeys -- runtime-dominated, user code is negligible.
+
+**Severity**: None.
+
+## Findings Summary
+
+| # | Category | Severity | Description | New? |
+|---|----------|----------|-------------|------|
+| 1 | Missing `nounwind` on derived methods | LOW | `$eq` methods lack `nounwind` -- emitted outside nounwind analysis | **Yes** (J11) |
+| 2 | Alloca round-trip in `Shape$eq` | LOW | Load-insertvalue-store-GEP-load pattern; eliminated by SROA at -O1+ | **Yes** (J11) |
+| 3 | Sequential block merging | LOW | Unconditional `br` between sequential blocks in `_ori_main` | No (J2) |
+| 4 | Overflow message dedup | LOW | 5 identical `ovf.msg` constants not merged | No (J2) |
+
+## Derive-Specific Observations
+
+### Derived Eq Codegen Quality
+
+The derived `$eq` codegen demonstrates three distinct patterns:
+
+1. **Struct**: Lexicographic short-circuit field comparison using `extractvalue` + `icmp`. Optimal -- no unnecessary work when early fields differ.
+
+2. **Unit-variant enum**: Single tag comparison. Optimal -- 11 bytes of native code for 3-variant enum.
+
+3. **Payload-variant enum**: Tag check -> switch dispatch -> per-variant field comparison with short-circuit. Architecturally correct. The per-variant blocks ensure that only the fields relevant to the matched variant are compared (Circle compares 1 field; Rect compares 2 fields).
+
+### C3 Bug Resolution
+
+The previously-critical C3 bug (payload sum type `$eq` not generated) is definitively fixed. Evidence:
+- `_ori_Shape$eq` is present in both LLVM IR and symbol table
+- It correctly handles both Circle (1 field) and Rect (2 fields) variants
+- The `switch` dispatch on tag value routes to variant-specific comparison blocks
+- Short-circuit behavior is preserved within each variant (Rect checks `w` before `h`)
+- Both `==` and `!=` work correctly in AOT (exit code 33 = 7 + 11 + 15)
+
+### Passing Convention for Derived Methods
+
+| Type | Size | Passing | Convention |
+|------|------|---------|------------|
+| `Point` (2 x i64) | 16 bytes | By value | Fits in 2 registers (SysV ABI) |
+| `Color` (1 x i64) | 8 bytes | By value | Fits in 1 register |
+| `Shape` (1 x i64 + [2 x i64]) | 24 bytes | By pointer | Exceeds 16-byte threshold |
+
+This is consistent with the struct passing convention established in J4 and J8.
+
+## Cross-Journey Observations
+
+| Feature | First Tested | Journey 11 Status |
+|---------|-------------|------------------|
+| `#[derive(Eq)]` on structs | J11 | Working |
+| `#[derive(Eq)]` on unit-variant enums | J11 | Working |
+| `#[derive(Eq)]` on payload-variant enums | J11 | Working (C3 FIX confirmed) |
+| `==` operator via derived trait | J11 | Working (calls `$eq`) |
+| `!=` operator via derived trait | J11 | Working (`$eq` + `xor i1 true`) |
+| Short-circuit field comparison | J11 | Working |
+| Switch dispatch for variant-specific `$eq` | J11 | Working |
+| Derived method codegen (`derive_codegen`) | J11 | Working |
+
+## Actionable Items
+
+| # | Action | Priority | Description |
+|---|--------|----------|-------------|
+| 1 | Include derived methods in nounwind analysis | LOW | Derived `$eq`/`$compare`/`$hash` methods should participate in the fixed-point nounwind analysis or be unconditionally marked `nounwind` when they cannot unwind |
+| 2 | Eliminate alloca round-trip in enum `$eq` | LOW | Payload-variant `$eq` could GEP directly into the input pointers instead of load->store->GEP. This would reduce debug-mode overhead for enum equality |

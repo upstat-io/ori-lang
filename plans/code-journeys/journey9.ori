@@ -1,5 +1,5 @@
 // Journey 9: "I am a string"
-// Features: boolean operators (&&, ||), string literals, string length, ARC (ref counting)
+// Features: boolean operators (&&, ||), string literals, .length() method, ARC lifecycle
 // Expected: check_logic() + check_strings() = 2 + 11 = 13
 
 @bool_to_int (b: bool) -> int = if b then 1 else 0;

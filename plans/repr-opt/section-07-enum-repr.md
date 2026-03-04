@@ -29,9 +29,6 @@ sections:
 
 # Section 07: Enum Representation Optimization
 
-**Status:** Not Started
-**Goal:** Enum types use the minimum possible memory by exploiting invalid bit patterns (niches) in their payload fields. The flagship optimization: `Option<&T>` (pointer that's never null) uses 8 bytes, not 16 — the `None` variant stores null in the pointer's niche. Similarly, `Option<bool>` uses 1 byte (niche value 2), `Option<Ordering>` uses 1 byte (niche value 3+), and `Result<T, E>` with pointer payloads eliminates the tag entirely.
-
 **Context:** Today, Ori enums use `{i8 tag, [M x i64] payload}` — every enum has an explicit tag byte plus the maximum variant payload. This wastes memory:
 - `Option<int>`: 16 bytes (i8 tag + 7 padding + i64 value) → could be 8 bytes (niche in i64 is not practical, but tagged pointer is)
 - `Option<bool>`: 2 bytes (i8 tag + i8 value) → could be 1 byte (value 2 = None)

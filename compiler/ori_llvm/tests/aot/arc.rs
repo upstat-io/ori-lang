@@ -415,3 +415,40 @@ fn test_arc_lambda_capture_bool() {
         "arc_lambda_capture_bool",
     );
 }
+
+// ─── Aliasing: shared RC buffer passed to multiple params ───
+
+#[test]
+fn test_arc_aliased_list_params() {
+    // Both `a` and `b` share the same RC buffer — must produce correct
+    // result even though the LLVM IR pointers alias. This verifies that
+    // we do NOT blanket-apply `noalias` to function pointer params.
+    assert_aot_success(
+        r#"
+@sum_first (a: [int], b: [int]) -> int = a[0] + b[0];
+
+@main () -> int = {
+    let xs = [42, 10, 20];
+    let result = sum_first(a: xs, b: xs);
+    if result == 84 then 0 else 1
+}
+"#,
+        "arc_aliased_list_params",
+    );
+}
+
+#[test]
+fn test_arc_aliased_string_params() {
+    // Same aliasing test with strings — both params share the same buffer.
+    assert_aot_success(
+        r#"
+@both_equal (a: str, b: str) -> bool = a == b;
+
+@main () -> int = {
+    let s = "hello world";
+    if both_equal(a: s, b: s) then 0 else 1
+}
+"#,
+        "arc_aliased_string_params",
+    );
+}

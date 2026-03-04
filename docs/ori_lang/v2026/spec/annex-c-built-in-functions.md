@@ -27,15 +27,23 @@ Type conversions are the sole exception to named argument requirements. Position
 
 | Function | From | Behavior |
 |----------|------|----------|
-| `int(x)` | `float` | Truncates toward zero |
-| | `str` | Parses decimal; panics on invalid |
+| `int(x)` | `float` | Truncates toward zero; panics on NaN, ±Inf, or out of i64 range |
+| | `str` | Parses decimal integer; panics on invalid (see parsing rules below) |
 | | `bool` | `true`→1, `false`→0 |
 | | `byte` | Zero-extends |
-| `float(x)` | `int` | Exact (may lose precision) |
-| | `str` | Parses; panics on invalid |
+| `float(x)` | `int` | Exact for values within 2^53; precision loss beyond (inherent to i64→f64) |
+| | `str` | Parses float; panics on invalid (see parsing rules below) |
 | `str(x)` | `int`, `float`, `bool` | Decimal representation |
 | `byte(x)` | `int` | Truncates to 8 bits |
 | | `str` | First UTF-8 byte |
+
+**Parsing rules for `int(str)`:** The string shall consist of an optional leading sign (`+` or `-`) followed by one or more ASCII decimal digits (`0`–`9`). No whitespace, digit separators (`_`), or base prefixes (`0x`, `0b`) are permitted. The resulting value shall be in the range of `int` (−2^63 to 2^63 − 1). Any string not matching this format causes a panic.
+
+EXAMPLE  `int(x: "42")` → `42`. `int(x: "-7")` → `-7`. `int(x: " 42")` → panic (leading whitespace). `int(x: "0xFF")` → panic (not decimal).
+
+**Parsing rules for `float(str)`:** The string shall be a valid decimal floating-point representation: optional sign, decimal digits, optional decimal point with fractional digits, optional exponent (`e` or `E` with optional sign and digits). The strings `"inf"`, `"-inf"`, `"NaN"` (case-sensitive) are also accepted. No whitespace or digit separators are permitted. Any string not matching this format causes a panic.
+
+EXAMPLE  `float(x: "3.14")` → `3.14`. `float(x: "2.5e-8")` → `2.5e-8`. `float(x: "inf")` → positive infinity. `float(x: "hello")` → panic.
 
 ## Collection Functions
 
