@@ -406,13 +406,16 @@ fn aot_raise_exception(_msg: String) -> ! {
 /// The panic message is recovered via thread-local storage in
 /// [`ori_catch_recover`], not from the exception payload.
 #[no_mangle]
-pub extern "C" fn ori_catch_cleanup(_exc_ptr: *mut u8) {
+pub extern "C" fn ori_catch_cleanup(exc_ptr: *mut u8) {
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
-    if !_exc_ptr.is_null() {
+    if !exc_ptr.is_null() {
         unsafe {
-            _Unwind_DeleteException(_exc_ptr);
+            _Unwind_DeleteException(exc_ptr);
         }
     }
+    // On MSVC, SEH handles cleanup — exc_ptr is unused.
+    #[cfg(all(target_os = "windows", target_env = "msvc"))]
+    let _ = exc_ptr;
 }
 
 // ori_try_call is implemented in C (eh_personality.c) on MSVC using

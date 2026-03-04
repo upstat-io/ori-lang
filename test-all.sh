@@ -425,7 +425,7 @@ printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED
 printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
 printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
-if grep -q "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
+if grep -qx "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "skipped"
 elif [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "BUILD FAILED"
