@@ -1,22 +1,19 @@
 ---
 section: "04"
 title: "Alignment"
-status: not-started
+status: complete
 goal: "All load/store instructions use ABI alignment derived from LLVM DataLayout for the active target"
 depends_on: []
 sections:
   - id: "04.1"
     title: "Fix M5 — DataLayout-driven alignment for all load/store"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 04: Alignment
-
-**Status:** Not Started
-**Goal:** All `load` and `store` instructions use ABI alignment for their type as determined by LLVM's `DataLayout` for the active target triple. No hardcoded alignment constants. ABI alignment (not preferred) ensures correctness on strict-alignment targets like ARM.
 
 **Context:** Every journey from J4 onward shows `load i64, ptr %..., align 4` where the natural alignment is larger. This is a conservative understatement that prevents LLVM from emitting efficient aligned loads and **causes faults on strict-alignment architectures** (ARM, RISC-V). Ori targets both x86-64 and aarch64 — correct alignment is a correctness requirement, not just an optimization.
 
@@ -48,25 +45,25 @@ Do NOT hardcode alignment values — they vary by target:
 
 While these happen to agree today, hardcoding assumes target homogeneity. Using `DataLayout` is future-proof for any target LLVM supports.
 
-- [ ] Find where alignment values are specified for load/store instructions in codegen
-- [ ] Replace hardcoded constants with `DataLayout` ABI alignment queries (NOT preferred alignment)
-- [ ] If inkwell doesn't expose `DataLayout::getABITypeAlign()`, use `module.get_data_layout()` + LLVM C API binding
-- [ ] Add explicit test: emit a struct load, assert emitted alignment == ABI alignment for the field type on x86-64
-- [ ] Add explicit test: same assertion for aarch64 target triple (even if cross-compiling IR only)
-- [ ] Verify on x86-64: Journey 4 `@_ori_area` loads use `align 8` for i64 fields
-- [ ] Verify on x86-64: Journey 12 variant tag stores use `align 8`
-- [ ] Run `opt -passes=verify` on generated IR — 0 alignment warnings
-- [ ] Verify `./test-all.sh` green
+- [x] Find where alignment values are specified for load/store instructions in codegen
+- [x] Replace hardcoded constants with `DataLayout` ABI alignment queries (NOT preferred alignment)
+- [x] If inkwell doesn't expose `DataLayout::getABITypeAlign()`, use `module.get_data_layout()` + LLVM C API binding
+- [x] Add explicit test: emit a struct load, assert emitted alignment == ABI alignment for the field type on x86-64
+- [x] Add explicit test: same assertion for aarch64 target triple (even if cross-compiling IR only)
+- [x] Verify on x86-64: Journey 4 `@_ori_area` loads use `align 8` for i64 fields
+- [x] Verify on x86-64: Journey 12 variant tag stores use `align 8`
+- [x] Run `opt -passes=verify` on generated IR — 0 alignment warnings
+- [x] Verify `./test-all.sh` green
 
 ---
 
 ## 04.2 Completion Checklist
 
-- [ ] All load/store alignment values derived from LLVM DataLayout ABI alignment (no hardcoded constants)
-- [ ] Explicit test: emitted alignment == ABI alignment for i64 on x86-64 target
-- [ ] Explicit test: emitted alignment == ABI alignment for i64 on aarch64 target (IR-only cross-compile)
-- [ ] `opt -passes=verify` on generated IR for all 12 journeys — 0 alignment warnings
-- [ ] `./test-all.sh` green
-- [ ] No alignment-related faults when running on ARM (if testable)
+- [x] All load/store alignment values derived from LLVM DataLayout ABI alignment (no hardcoded constants)
+- [x] Explicit test: emitted alignment == ABI alignment for i64 on x86-64 target
+- [x] Explicit test: emitted alignment == ABI alignment for i64 on aarch64 target (IR-only cross-compile)
+- [x] `opt -passes=verify` on generated IR for all 12 journeys — 0 alignment warnings
+- [x] `./test-all.sh` green
+- [x] No alignment-related faults when running on ARM (if testable)
 
 **Exit Criteria:** All load/store alignment values use ABI alignment from DataLayout. Explicit assertions verify alignment correctness for both x86-64 and aarch64. `opt -passes=verify` reports 0 issues on all 12 journey programs. No hardcoded `align N` constants remain in the codegen emission helpers.

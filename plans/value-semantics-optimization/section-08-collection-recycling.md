@@ -28,9 +28,6 @@ sections:
 
 # Section 08: Collection Memory Recycling
 
-**Status:** Complete
-**Goal:** When a collection is about to be freed (RC reaches 0) and a same-type collection is about to be allocated, the dead collection's buffer is reused directly — no malloc/free roundtrip. Additionally, provably unique collection drops skip atomic RC operations entirely.
-
 **Context:** The existing reset/reuse optimization in `ori_arc` works for constructors (structs, enums) but explicitly excludes collection buffers (`is_collection_ctor` gate). Collection reuse requires different mechanics: buffer manipulation, element cleanup, and capacity checks — unlike struct reuse which uses per-field `Set` mutations.
 
 **Reference implementations:**
@@ -42,8 +39,6 @@ sections:
 ---
 
 ## 08.1 Collection Literal Buffer Reuse
-
-**Status:** Complete
 
 When `RcDec(old_list)` is followed by `Construct(ListLiteral, [new_elems])` of the same element type in the same block, the old buffer can be reused instead of freeing + allocating.
 
@@ -122,8 +117,6 @@ pub extern "C" fn ori_list_reset_buffer(
 
 ## 08.2 Buffer Recycling Strategy Decision
 
-**Status:** Complete (decision documented)
-
 ### Decision: Static Detection Only (No Runtime Buffer Pool)
 
 We use compile-time pattern matching only. No runtime buffer pool.
@@ -140,8 +133,6 @@ We use compile-time pattern matching only. No runtime buffer pool.
 ---
 
 ## 08.3 Drop Specialization for Unique Collections
-
-**Status:** Complete
 
 When a collection is provably unique (RC == 1) at its `RcDec` point, skip the atomic RC decrement and directly call element cleanup + buffer free. Saves one `atomic::fetch_sub` + `Ordering::Acquire` fence per unique collection drop.
 
@@ -193,8 +184,6 @@ When emitting `RcDec` for a collection with `HeapPointer` strategy, check `drop_
 ---
 
 ## 08.4 Cross-Operation Buffer Reuse
-
-**Status:** Complete (analysis documented)
 
 ### Already Handled by COW (Sections 02-07)
 

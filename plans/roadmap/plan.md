@@ -79,6 +79,31 @@ sections:
 - Any section `in-progress` or mix of statuses → section `in-progress`
 - All sections `not-started` → section `not-started`
 
+### Reroute Frontmatter Format
+
+Each reroute plan's `index.md` uses YAML frontmatter as the single source of truth for its metadata. The website reads these dynamically — no manual registry in TypeScript files needed.
+
+```yaml
+---
+reroute: true
+name: "LLVM Fixes"
+full_name: "LLVM Codegen Fixes"
+status: active
+---
+```
+
+**Fields:**
+- `reroute: true` — discriminator (only plans with this are treated as reroutes)
+- `name` — short display name (used in timeline pills)
+- `full_name` — full display name (used in page titles)
+- `status` — `active | queued | resolved`
+
+**Derived at load time (not in frontmatter):**
+- `dir` — from the file's parent directory name
+- `key` — from `dir` with underscores replaced by hyphens
+
+Not all plan directories are reroutes. Non-reroute plan directories (e.g., `roadmap/`, `code-journeys/`, `spec-depth/`) are excluded by the `reroute: true` filter.
+
 ### Adding New Items
 
 When adding new implementation items to the roadmap, consider creating a new section file if:

@@ -60,11 +60,8 @@ sections:
 
 # Section 21B: AOT Compilation
 
-**Status:** In Progress
 **Proposal:** `proposals/approved/aot-compilation-proposal.md`
 **Depends on:** Section 21A (LLVM Backend - JIT working)
-
-**Goal:** Generate native executables and WebAssembly from Ori source code.
 
 ---
 

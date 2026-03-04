@@ -1,0 +1,46 @@
+fn main() {
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    let mut build = cc::Build::new();
+
+    // --- Personality function (always built, all targets) ---
+    build
+        .file("src/eh_personality.c")
+        .flag("-std=c11")
+        .pic(true) // Required: Rust links test binaries as PIE
+        .warnings(true)
+        .extra_warnings(true);
+
+    // -fno-exceptions is a C++ flag but some C compilers accept it to
+    // suppress exception-related code generation. Use flag_if_supported
+    // for cross-toolchain portability.
+    build.flag_if_supported("-fno-exceptions");
+
+    // --- Forced-unwind test harness (Linux x86-64 + aarch64) ---
+    //
+    // Compiled into the same archive as the personality function.
+    // The unit test module (`forced_unwind_tests` in lib.rs) calls these
+    // C/assembly test functions.
+    //
+    // On non-test builds, the linker dead-strips unreferenced symbols.
+    // On non-Linux or unsupported architectures, the test harness files
+    // are omitted and the Rust test module is #[cfg]-gated to skip.
+    if target_os == "linux" {
+        let asm_file = match target_arch.as_str() {
+            "x86_64" => Some("src/test_frames_x86_64.S"),
+            "aarch64" => Some("src/test_frames_aarch64.S"),
+            _ => None,
+        };
+        if let Some(asm) = asm_file {
+            build
+                .file("src/test_forced_unwind.c")
+                .file(asm)
+                // Ensure C test functions have proper unwind tables so
+                // the unwinder can traverse them during forced unwind.
+                .flag("-funwind-tables");
+        }
+    }
+
+    build.compile("ori_eh");
+}

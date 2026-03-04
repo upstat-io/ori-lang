@@ -6,31 +6,13 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-26)**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: all complete. Key results: 3.1x import speedup, 31.6x cross-module comparison speedup, ~1.6KB/module memory overhead.
+## Reroutes (Parallel Tracks)
 
----
+Reroute plans live in `plans/*/`. Each plan's `index.md` has frontmatter with
+`reroute: true`, `name`, `full_name`, and `status`. The website reads these
+dynamically — no manual registry needed.
 
-> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-27)**: `plans/compiler-diagnostics/` — Compiler Diagnostics Toolkit: comprehensive diagnostic tooling for accelerating compiler debugging. Shell scripts (ir-dump, ir-diff, diagnose-aot, disasm-ori, rc-stats, codegen-audit), runtime RC instrumentation (ORI_TRACE_RC event logging, leak attribution, ORI_RT_DEBUG assertions), phase dump system (ORI_DUMP_AFTER_PARSE/TYPECK/ARC/LLVM, centralized debug_flags module), codegen audit (static RC balance analysis, COW correctness, ABI conformance). 5 sections complete, ~2,050 new lines. All diagnostic scripts self-tested (21/21), documentation updated across CLAUDE.md and 13 rules files.
-
----
-
-> **~~ACTIVE REROUTE~~ RESOLVED (2026-03-03)**: `plans/value-semantics-optimization/` — Value Semantics Optimization: Copy-on-Write collections (in-place when RC==1), Small String Optimization (23-byte inline), zero-copy slices, static uniqueness analysis, collection memory recycling, drop specialization. Covers runtime (`ori_rt`), LLVM codegen (`ori_llvm`), evaluator parity (`ori_eval`), ARC pipeline (`ori_arc`). 9 sections complete. Key results: 16/16 Valgrind clean, 14/14 leak-free, cow_mode=1 static uniqueness verified, 8 micro-benchmarks + 4 macro-benchmarks baselined, 11,887 tests passing.
-
----
-
-> **ACTIVE REROUTE**: `plans/llvm-codegen-fixes/` — LLVM Codegen Fixes: resolve all 28 issues discovered across 12 code journeys. 4 CRITICAL (mixed closures crash C1, list indexing crash C2, payload sum Eq silent wrong C3, Option match tag inversion silent wrong C4), 2 HIGH (empty landing pads H1, unsound nounwind H2), 14 MEDIUM (UB, alignment, variant/struct codegen quality, ARC drop dedup, IR cleanliness), 7 LOW (canonicalizer, select, dead phis). 11 sections. Section 03 (EH cleanup) overlaps with `ori-eh-personality` plan. Source: `plans/code-journeys/` (12 journey results).
-
----
-
-> **QUEUED REROUTE**: `plans/ori-eh-personality/` — Ori EH Personality: replace `rust_eh_personality` with Ori's own `ori_eh_personality` implemented in C (~150 lines of Itanium EH ABI LSDA parsing). Handles cleanup and catch-all landing pads. Covers runtime (`ori_rt` — new C file + build.rs), LLVM codegen (`ori_llvm` — symbol swap in 4 locations). 3 sections. Independent of other reroutes — can activate at any time. Discovered by Code Journey 3.
-
----
-
-> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections. Activates when ori-eh-personality reroute completes.
-
----
-
-> **QUEUED REROUTE**: `plans/repr-opt/` — Representation Optimization & ARC Intelligence: complete the 3-tier representation optimization framework — from abstract types through range analysis and escape analysis to optimally-narrowed LLVM IR. New `ori_repr` crate creates a `ReprPlan` (decision document) between type checking and codegen. Covers: transitive triviality & ARC elision (§02), value range analysis via abstract interpretation (§03), integer narrowing `int`→`i8`/`i16`/`i32` (§04), float narrowing `f64`→`f32` (§05), struct field reordering (§06), enum niche filling like Rust's `Option<bool>`=1 byte (§07), escape analysis & stack promotion (§08), ARC header compression `i64`→`i8`/`i16`/`i32` refcounts (§09), thread-local non-atomic ARC (§10), SSO/SVO/packed-bool collection specialization (§11). Targets: ≥10% runtime improvement, ≥20% memory reduction, ≥40% fewer RC operations. Draws from Swift SIL ARC optimizer, Lean4 RC/Borrow/Reuse, Koka FBIP, Roc NumericRange, Zig InternPool. 12 sections, ~9,500 new lines. Activates when Type Strategy Registry reroute completes.
+Current reroutes are discovered automatically from plan directories.
 
 ---
 

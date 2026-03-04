@@ -23,8 +23,6 @@ sections:
 
 # Section 03: Hash-Forwarded Signatures
 
-**Status:** Complete (2026-02-26)
-**Goal:** Add Merkle hash fields to `FunctionSig` and `TypeEntry` so that cross-module consumers
 can identify types by hash without needing access to the originating Pool. This enables O(1)
 type lookup at import boundaries (Section 04) and pool-independent type comparison (Section 06).
 
@@ -40,7 +38,6 @@ re-derive types from the AST. With embedded Merkle hashes, B can do a direct O(1
 
 ## 03.1 FunctionSig Hash Fields — COMPLETE
 
-**Goal:** Add `param_hashes: Vec<u64>` and `return_hash: u64` to `FunctionSig`, populated
 during signature inference.
 
 **File:** `compiler/ori_types/src/output/mod.rs` (lines 244-442)
@@ -125,7 +122,6 @@ impl FunctionSig {
 
 ## 03.2 TypeEntry Hash Fields — COMPLETE
 
-**Goal:** Add Merkle hashes to `TypeEntry` (user-defined types in `TypedModule`) for
 cross-module type identity of structs, enums, aliases, and newtypes.
 
 **File:** `compiler/ori_types/src/registry/types/mod.rs`
@@ -158,7 +154,6 @@ instead of field-by-field structural comparison.
 
 ## 03.3 Hash Population During Type Checking — COMPLETE
 
-**Goal:** Populate hash fields at the point where `FunctionSig` is constructed during
 type checking, ensuring hashes are always consistent with Idx values.
 
 **File:** `compiler/ori_types/src/check/signatures/mod.rs` (lines 132-274)
@@ -219,7 +214,6 @@ fn function_sig_hashes_match_pool() {
 
 ## 03.4 Salsa Compatibility Verification — COMPLETE
 
-**Goal:** Verify that the new hash fields don't break Salsa's memoization or early-cutoff
 behavior.
 
 **Concerns:**

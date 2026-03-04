@@ -41,6 +41,13 @@ for arg in "$@"; do
     esac
 done
 
+# Always log full output to a fixed file (cleared on each run)
+LOG_FILE="test-all.log"
+> "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "LOGGING ALL OUTPUT TO $(pwd)/$LOG_FILE"
+echo ""
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

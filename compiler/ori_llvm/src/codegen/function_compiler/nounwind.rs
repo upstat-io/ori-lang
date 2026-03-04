@@ -212,11 +212,28 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             "preparing function (ARC pipeline, no emit)"
         );
 
-        // Prepare lambdas: declare + ARC pipeline (no LLVM emission)
+        // Prepare lambdas: declare + ARC pipeline (no LLVM emission).
+        // declare_and_process_lambda renames each lambda to a globally unique
+        // name. We collect the (old → new) mapping so we can update the
+        // parent function's PartialApply references.
+        let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         let prepared_lambdas: Vec<PreparedLambda> = lambdas
             .into_iter()
-            .map(|lambda| self.prepare_lambda(lambda))
+            .map(|lambda| {
+                let original_name = lambda.name;
+                let prepared = self.prepare_lambda(lambda);
+                if prepared.name != original_name {
+                    lambda_renames.push((original_name, prepared.name));
+                }
+                prepared
+            })
             .collect();
+
+        // Remap PartialApply callee references in the parent function to use
+        // the globally unique lambda names assigned during preparation.
+        if !lambda_renames.is_empty() {
+            super::define_phase::remap_partial_apply_names(&mut arc_func, &lambda_renames);
+        }
 
         // Shared ARC processing: borrow annotations → arg ownership → pipeline
         self.process_arc_function(name, &mut arc_func);
@@ -272,6 +289,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         );
 
         let mut pass = 0u32;
+        let mut mono_propagated = 0u32;
         loop {
             let mut changed = false;
 
@@ -295,28 +313,33 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 }
             }
 
+            // Propagate nounwind from mangled monomorphized names to their
+            // original generic names. ARC IR `Invoke` terminators use the
+            // original name (e.g., `"identity"`), while `nounwind_functions`
+            // contains mangled names (e.g., `"identity$m$int"`). If ALL
+            // specializations of a generic are nounwind, the original name
+            // is also safe to call without landing pads.
+            //
+            // This must be INSIDE the fixed-point loop so that callers of
+            // the original generic name (e.g., `main` calling `identity`)
+            // are re-analyzed after the original name is added to the set.
+            for (original_name, specializations) in &self.codegen_ctx.mono_dispatch {
+                if self.codegen_ctx.nounwind_functions.contains(original_name) {
+                    continue; // Already marked (e.g., non-generic with same name)
+                }
+                let all_nounwind = specializations
+                    .iter()
+                    .all(|(_, mangled)| self.codegen_ctx.nounwind_functions.contains(mangled));
+                if all_nounwind && !specializations.is_empty() {
+                    self.codegen_ctx.nounwind_functions.insert(*original_name);
+                    mono_propagated = mono_propagated.saturating_add(1);
+                    changed = true;
+                }
+            }
+
             pass = pass.saturating_add(1);
             if !changed {
                 break;
-            }
-        }
-
-        // Propagate nounwind from mangled monomorphized names to their original
-        // generic names. ARC IR `Invoke` terminators use the original name
-        // (e.g., `"identity"`), while `nounwind_functions` contains mangled names
-        // (e.g., `"identity$m$int"`). If ALL specializations of a generic are
-        // nounwind, the original name is also safe to call without landing pads.
-        let mut mono_propagated = 0u32;
-        for (original_name, specializations) in &self.codegen_ctx.mono_dispatch {
-            if self.codegen_ctx.nounwind_functions.contains(original_name) {
-                continue; // Already marked (e.g., non-generic with same name)
-            }
-            let all_nounwind = specializations
-                .iter()
-                .all(|(_, mangled)| self.codegen_ctx.nounwind_functions.contains(mangled));
-            if all_nounwind && !specializations.is_empty() {
-                self.codegen_ctx.nounwind_functions.insert(*original_name);
-                mono_propagated = mono_propagated.saturating_add(1);
             }
         }
 

@@ -2,6 +2,7 @@ import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
 import { proposalLoader } from './loaders/proposal-loader';
 import { planSectionLoader } from './loaders/plan-section-loader';
+import { reroutes, parallelPlans } from './lib/plan-data';
 
 const docsSchema = z.object({
   title: z.string(),
@@ -57,17 +58,11 @@ const roadmap = defineCollection({
   }),
 });
 
+const allPlans = [...reroutes, ...parallelPlans];
+
 const planSections = defineCollection({
   loader: planSectionLoader({
-    plans: [
-      { key: 'value-semantics-optimization', base: '../plans/value-semantics-optimization' },
-      { key: 'llvm-codegen-fixes', base: '../plans/llvm-codegen-fixes' },
-      { key: 'merkle-pool-identity', base: '../plans/merkle_pool_identity' },
-      { key: 'ori-eh-personality', base: '../plans/ori-eh-personality' },
-      { key: 'type-strategy-registry', base: '../plans/type_strategy_registry' },
-      { key: 'repr-opt', base: '../plans/repr-opt' },
-      { key: 'compiler-diagnostics', base: '../plans/compiler-diagnostics' },
-    ],
+    plans: allPlans.map(r => ({ key: r.key, base: `../plans/${r.dir}` })),
   }),
   schema: z.object({
     plan: z.string(),

@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "UB & Soundness"
-status: not-started
+status: complete
 goal: "Zero LLVM undefined behavior in generated IR; nounwind analysis provably sound"
 inspired_by:
   - "Rust rustc_codegen_llvm — nsw/nuw flag propagation on arithmetic"
@@ -10,28 +10,25 @@ depends_on: []
 sections:
   - id: "02.1"
     title: "Fix M14 — None variant uninitialized payload"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Fix H2 — Audit nounwind for runtime calls"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "Fix M9 — Range overflow for ..=INT_MAX"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Add H3 — noalias on proven non-aliasing parameters"
-    status: not-started
+    status: complete
   - id: "02.5"
     title: "Fix M2 — Checked arithmetic (overflow panics)"
-    status: not-started
+    status: complete
   - id: "02.6"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 02: UB & Soundness
-
-**Status:** Not Started
-**Goal:** All LLVM undefined behavior eliminated from generated IR. The `nounwind` analysis is provably sound — no function marked `nounwind` can transitively call a function that may unwind.
 
 **Context:** These issues don't crash today but represent latent bugs. M14 loads `poison` values from uninitialized memory. H2 marks functions `nounwind` that call potentially-panicking runtime functions. M9 silently overflows when creating `1..=INT_MAX` ranges. M2 means integer overflow in AOT silently wraps instead of panicking. Any of these could cause mysterious failures under different optimization levels, LLVM versions, or target architectures.
 
@@ -61,9 +58,9 @@ store i64 1, ptr %variant.tag, align 4     ; tag = 1 (None) — stored
 
 **Recommended:** Option (a) as immediate fix, option (c) as part of Section 05 (M7). Both must use `zeroinitializer` for unset payload fields — this is the consistent invariant across the plan (no `undef` for unused variant payloads).
 
-- [ ] Write test: construct None, verify no poison in IR (check with `opt -passes=verify`)
-- [ ] Zero-initialize allocas for unit variants of payload sum types
-- [ ] Verify with `./scripts/valgrind-aot.sh` on Journey 12 code
+- [x] Write test: construct unit variant (Empty), verified `zeroinitializer` in IR dump
+- [x] Zero-initialize allocas for unit variants of payload sum types (`construction.rs`)
+- [x] Verify with Valgrind on Journey 12 code — 0 errors, 0 leaks
 
 ---
 
@@ -88,12 +85,12 @@ define fastcc i64 @_ori_check_iteration() #0 {   ; #0 = nounwind
 3. Ensure nounwind analysis considers transitive calls to runtime functions
 4. Functions calling potentially-panicking runtime functions must NOT be `nounwind`
 
-- [ ] Catalog all `declare` runtime functions in generated IR across all 12 journeys
-- [ ] For each: determine if it can panic (check ori_rt source)
-- [ ] Mark nounwind-safe runtime functions with the attribute
-- [ ] Audit the nounwind propagation algorithm — does it check runtime function attributes?
-- [ ] Fix: functions calling non-nounwind runtime functions must not be marked nounwind
-- [ ] Verify: `_ori_check_iteration` should NOT be nounwind (calls allocating runtime functions)
+- [x] Catalog all `declare` runtime functions in generated IR across all 12 journeys
+- [x] For each: determine if it can panic (check ori_rt source)
+- [x] Mark nounwind-safe runtime functions with the attribute
+- [x] Audit the nounwind propagation algorithm — does it check runtime function attributes?
+- [x] Fix: functions calling non-nounwind runtime functions must not be marked nounwind
+- [x] Verify: `_ori_check_iteration` should NOT be nounwind (calls allocating runtime functions)
 
 ---
 
@@ -138,17 +135,17 @@ check_direction:
 
 When the step IS a compile-time constant (the common case), LLVM's constant folding will eliminate the dead branch, producing the same code as a hardcoded `sle`/`sge`. No performance cost for the common case.
 
-- [ ] Write test: `for x in 0..=0 do ...` (edge case — single element range)
-- [ ] Write test: ascending inclusive range near INT_MAX
-- [ ] Write test: `for x in 10..=0 by -1 do ...` (descending inclusive range)
-- [ ] Write test: `for x in 5..=1 by -1 do ...` (descending inclusive with step -1)
-- [ ] Write test: variable step with inclusive range (runtime-dynamic sign)
-- [ ] Write test: zero step panics — `assert_panics(f: () -> for x in 0..=10 by 0 yield x)` (existing `ranges.ori:153` only tests syntax, not runtime behavior)
-- [ ] Implement fix: emit runtime step-sign branch (step > 0 → sle, step < 0 → sge, step == 0 → panic)
-- [ ] Verify: LLVM constant-folds the branch away for literal steps
-- [ ] Verify: Journey 7 still returns 30
-- [ ] Verify: descending inclusive ranges produce correct results matching eval
-- [ ] Verify: variable-step inclusive ranges match eval behavior
+- [x] Write test: `for x in 0..=0 do ...` (edge case — single element range)
+- [x] Write test: ascending inclusive range near INT_MAX
+- [x] Write test: `for x in 10..=0 by -1 do ...` (descending inclusive range)
+- [x] Write test: `for x in 5..=1 by -1 do ...` (descending inclusive with step -1)
+- [x] Write test: variable step with inclusive range (runtime-dynamic sign)
+- [x] Write test: zero step panics — `assert_panics(f: () -> for x in 0..=10 by 0 yield x)` (existing `ranges.ori:153` only tests syntax, not runtime behavior)
+- [x] Implement fix: emit runtime step-sign branch (step > 0 → sle, step < 0 → sge, step == 0 → panic)
+- [x] Verify: LLVM constant-folds the branch away for literal steps
+- [x] Verify: Journey 7 still returns 30
+- [x] Verify: descending inclusive ranges produce correct results matching eval
+- [x] Verify: variable-step inclusive ranges match eval behavior
 
 ---
 
@@ -183,12 +180,12 @@ At the Ori level, `a` and `b` are independent values. But at the LLVM IR level, 
 
 **Deferred analysis:** A full escape analysis could prove more params non-aliasing, but this is a significant undertaking. Start with the conservative cases and measure the optimization impact.
 
-- [ ] Audit all current `noalias` usage — verify soundness of existing annotations
-- [ ] Identify parameters provably non-aliasing (fresh allocations at call site, `Owned` without shared source)
-- [ ] Add `noalias` only to proven non-aliasing pointer params (NOT blanket on all pointer params)
-- [ ] Write test: `f(a: xs, b: xs)` — both params alias same buffer, verify correct behavior with and without noalias
-- [ ] Verify with `opt -passes=print-alias-summary` on proven-noalias cases
-- [ ] Verify: no test regressions
+- [x] Audit all current `noalias` usage — verify soundness of existing annotations
+- [x] Identify parameters provably non-aliasing (fresh allocations at call site, `Owned` without shared source)
+- [x] Add `noalias` only to proven non-aliasing pointer params (NOT blanket on all pointer params)
+- [x] Write test: `f(a: xs, b: xs)` — both params alias same buffer, verify correct behavior with and without noalias
+- [x] Verify with `opt -passes=print-alias-summary` on proven-noalias cases
+- [x] Verify: no test regressions
 
 ---
 
@@ -217,22 +214,22 @@ br i1 %overflow, label %panic, label %continue
 
 **Note:** A future `--release` flag could switch to `nsw` for performance-critical builds, but the default must match the spec (panic on overflow).
 
-- [ ] Emit `llvm.sadd.with.overflow` / `ssub.with.overflow` / `smul.with.overflow` for all signed integer arithmetic
-- [ ] Generate a shared `_ori_overflow_panic` function that each overflow branch calls
-- [ ] Write test: arithmetic that would overflow, verify AOT panics (matching eval behavior)
-- [ ] Verify: non-overflowing arithmetic generates identical results to eval
+- [x] Emit `llvm.sadd.with.overflow` / `ssub.with.overflow` / `smul.with.overflow` for all signed integer arithmetic
+- [x] Generate overflow panic via `ori_panic_cstr` with per-operation messages (inline in each overflow branch)
+- [x] Write test: arithmetic that would overflow, verify AOT panics (matching eval behavior)
+- [x] Verify: non-overflowing arithmetic generates identical results to eval
 
 ---
 
 ## 02.6 Completion Checklist
 
-- [ ] No `load` of uninitialized memory in any generated IR (M14 fixed)
-- [ ] All runtime function declarations have correct `nounwind` attributes
-- [ ] No function marked `nounwind` transitively calls a panicking runtime function
-- [ ] Proven non-aliasing pointer parameters have `noalias` attribute; no blanket annotation (H3)
-- [ ] `1..=0` range works correctly (empty inclusive range edge case)
-- [ ] All signed integer arithmetic uses checked overflow intrinsics (panic on overflow)
-- [ ] `./scripts/valgrind-aot.sh` — 0 errors
-- [ ] `./test-all.sh` green
+- [x] No `load` of uninitialized memory in any generated IR (M14 fixed)
+- [x] All runtime function declarations have correct `nounwind` attributes
+- [x] No function marked `nounwind` transitively calls a panicking runtime function
+- [x] Proven non-aliasing pointer parameters have `noalias` attribute; no blanket annotation (H3)
+- [x] `1..=0` range works correctly (empty inclusive range edge case)
+- [x] All signed integer arithmetic uses checked overflow intrinsics (panic on overflow)
+- [x] `./scripts/valgrind-aot.sh` — 0 errors
+- [x] `./test-all.sh` green
 
 **Exit Criteria:** `opt -passes=verify` on generated IR for all 12 journeys reports 0 errors. Valgrind reports 0 invalid reads/writes. nounwind analysis is conservative-correct. Proven non-aliasing parameters have `noalias`; no blanket annotation on shared-buffer-capable params.

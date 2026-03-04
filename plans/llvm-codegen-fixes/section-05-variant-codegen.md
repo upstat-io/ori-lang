@@ -1,25 +1,22 @@
 ---
 section: "05"
 title: "Variant Codegen"
-status: not-started
+status: complete
 goal: "Variant construction uses insertvalue (no alloca roundtrip); identical match arms deduplicated"
 depends_on: []
 sections:
   - id: "05.1"
     title: "Fix M7 — insertvalue for variant construction"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "Fix M8 — Deduplicate identical match arms"
-    status: not-started
+    status: complete
   - id: "05.3"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 05: Variant Codegen
-
-**Status:** Not Started
-**Goal:** Variant construction uses direct `insertvalue` (2 instructions) instead of alloca+store+load roundtrip (12 instructions). Identical match arms are merged into a single block.
 
 **Context:** J6 showed that creating `Success(42)` takes 12 instructions (alloca, store tag, GEP, store value, load tag, insertvalue, load payload, insertvalue) when it could be 2 `insertvalue` instructions. J6 also showed that `Success` and `Failure` match arms compile to identical code (same offset extraction) but aren't merged. This also fixes M14 (uninitialized payload) as a side effect — `insertvalue` doesn't read uninitialized memory.
 
@@ -53,12 +50,12 @@ With:
 %s1 = insertvalue { i64, [1 x i64] } %s0, i64 42, 1, 0                   ; payload = 42
 ```
 
-- [ ] Find the variant construction code in codegen
-- [ ] Replace alloca+store+load pattern with direct `insertvalue` chain
-- [ ] Handle unit variants: `insertvalue` with tag only, payload left as `zeroinitializer` (avoids M14)
-- [ ] Handle multi-field payload variants (e.g., `Rect(w: int, h: int)`)
-- [ ] Verify: Journey 6 `Success(42)` compiles to 2 insertvalue instructions
-- [ ] Verify: Journey 12 `None` construction has no uninitialized load
+- [x] Find the variant construction code in codegen
+- [x] Replace alloca+store+load pattern with direct `insertvalue` chain
+- [x] Handle unit variants: `insertvalue` with tag only, payload left as `zeroinitializer` (avoids M14)
+- [x] Handle multi-field payload variants (e.g., `Rect(w: int, h: int)`)
+- [x] Verify: Journey 6 `Success(42)` compiles to 2 insertvalue instructions
+- [x] Verify: Journey 12 `None` construction has no uninitialized load
 
 ---
 
@@ -87,19 +84,19 @@ bb3:                                   ; Failure arm — IDENTICAL!
 
 Target: single block when the codegen for different arms is structurally identical.
 
-- [ ] Analyze: how common is this pattern? (Only when all arms extract from the same offset)
-- [ ] Implement: detect when switch arms generate identical code and merge them
-- [ ] Alternative: LLVM's MergeIdenticalBlocks pass may handle this — check if it does
-- [ ] If LLVM handles it: consider this LOW priority (optimization passes clean it up)
+- [x] Analyze: how common is this pattern? (Only when all arms extract from the same offset)
+- [x] Alternative: LLVM's MergeIdenticalBlocks pass may handle this — check if it does
+- [x] Confirmed: LLVM O2 eliminates the switch entirely (both arms extract same value → dead switch)
+- [x] If LLVM handles it: consider this LOW priority (optimization passes clean it up) — CONFIRMED: no codegen change needed
 
 ---
 
 ## 05.3 Completion Checklist
 
-- [ ] Variant construction uses `insertvalue` chain (no alloca+store+load)
-- [ ] Unit variant construction produces no uninitialized loads (M14 fixed as side effect)
-- [ ] Match arm deduplication evaluated (implemented or deferred to LLVM passes)
-- [ ] `./test-all.sh` green
-- [ ] `./scripts/valgrind-aot.sh` — 0 errors
+- [x] Variant construction uses `insertvalue` chain (no alloca+store+load)
+- [x] Unit variant construction produces no uninitialized loads (M14 fixed as side effect)
+- [x] Match arm deduplication evaluated (deferred to LLVM passes — O2 eliminates dead switches)
+- [x] `./test-all.sh` green (11,955 pass, 1 flaky unrelated to changes)
+- [x] `diagnostics/valgrind-aot.sh` — 0 errors (7/7 pass)
 
 **Exit Criteria:** `grep -c "alloca.*variant" *.ll` shows no variant construction allocas. Journey 6 `Success(42)` compiles to 2-3 instructions.

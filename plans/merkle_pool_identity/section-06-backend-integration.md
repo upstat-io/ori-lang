@@ -23,8 +23,6 @@ sections:
 
 # Section 06: Backend Integration
 
-**Status:** Complete
-**Goal:** Use Merkle hashes to eliminate cross-pool Idx misuse in downstream passes (LLVM
 codegen, ARC lowering, evaluator) and enable correct cross-module type identity without
 carrying source module pools.
 
@@ -47,7 +45,6 @@ with Section 05 (portable type descriptors).
 
 ## 06.1 LLVM Backend: Eliminate Source Pool Dependency — COMPLETE
 
-**Goal:** Remove the `pool: &Pool` field from `ImportedFunctionForCodegen` by re-interning
 imported function types into the main compilation pool before codegen.
 
 **Current architecture** (`ori_llvm/src/evaluator.rs:35-48`):
@@ -191,7 +188,6 @@ and creates a class of bugs where Idx values from the wrong pool are used.
 
 ## 06.2 ARC Lowering: Cross-Module Type Identity — COMPLETE
 
-**Goal:** Ensure ARC borrow inference can correctly compare types across module boundaries
 using Merkle hashes instead of Idx equality.
 
 **Current issue:** ARC borrow inference runs per-SCC (strongly connected component) and
@@ -233,8 +229,6 @@ as possible), not at each consumer.
 
 ## 06.3 Evaluator / JIT: Hash-Based Type Comparison — COMPLETE
 
-**Goal:** Ensure the evaluator's JIT test runner correctly handles imported function types.
-
 **Current architecture:** The JIT test runner (`ori_llvm/src/evaluator.rs`) compiles both
 local and imported functions. Imported functions carry their source pool. After Section 06.1,
 the evaluator should re-intern imported types into a single compilation pool before
@@ -264,8 +258,6 @@ invoking the LLVM codegen pipeline.
 ---
 
 ## 06.4 CanonResult Pool Independence — COMPLETE
-
-**Goal:** Ensure `CanonResult` (canonical IR) types are correctly handled after re-interning.
 
 **Issue:** `CanonResult` contains `expr_types: Vec<Idx>` — type annotations for each
 expression in the canonical IR. These Idx values reference the source module's pool.

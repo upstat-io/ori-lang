@@ -28,9 +28,6 @@ sections:
 
 # Section 06: Struct & Tuple Layout Optimization
 
-**Status:** Not Started
-**Goal:** Structs and tuples use the minimum possible memory by reordering fields to minimize padding. A struct `{ a: bool, b: int, c: bool }` currently uses 24 bytes (1 + 7 padding + 8 + 1 + 7 padding); after optimization it uses 16 bytes (8 + 1 + 1 + 6 trailing padding) by putting the `int` first. (Trailing padding to `max_align` is required for correct array element addressing.)
-
 **Context:** The spec (§22) explicitly permits struct field reordering: "Struct field order in memory may differ from declaration order." This is a non-guarantee. Rust's `repr(Rust)` does exactly this — it reorders fields by alignment to minimize padding. Ori should do the same.
 
 **Reference implementations:**

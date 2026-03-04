@@ -1077,3 +1077,118 @@ fn seh_indirect_call_with_funclet() {
     );
     drop(irb);
 }
+
+// -- Alignment --
+
+/// Helper: set up a builder with a specific target DataLayout.
+fn setup_with_data_layout(irb: &mut IrBuilder<'_, '_>, data_layout: &str) -> FunctionId {
+    use inkwell::targets::TargetData;
+    let td = TargetData::create(data_layout);
+    irb.scx().llmod.set_data_layout(&td.get_data_layout());
+    let i64_ty = irb.i64_type();
+    let ptr_ty = irb.ptr_type();
+    let func = irb.declare_function("test_fn", &[ptr_ty], i64_ty);
+    let entry = irb.append_block(func, "entry");
+    irb.set_current_function(func);
+    irb.position_at_end(entry);
+    func
+}
+
+/// x86-64 DataLayout string (from `llc -march=x86-64 -mtriple=x86_64-linux-gnu`).
+const X86_64_DATA_LAYOUT: &str =
+    "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128";
+
+/// aarch64 DataLayout string (from `llc -march=aarch64 -mtriple=aarch64-linux-gnu`).
+const AARCH64_DATA_LAYOUT: &str =
+    "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32";
+
+#[test]
+fn load_alignment_x86_64() {
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new(&scx);
+    let func = setup_with_data_layout(&mut irb, X86_64_DATA_LAYOUT);
+
+    // Load an i64 from the first function parameter (ptr)
+    let param = irb.get_param(func, 0);
+    let i64_ty = irb.i64_type();
+    let _val = irb.load(i64_ty, param, "loaded");
+
+    let ir = scx.llmod.print_to_string().to_string();
+    assert!(
+        ir.contains("align 8"),
+        "i64 load should use align 8 on x86-64, got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("load i64, ptr %0, align 4"),
+        "i64 load must NOT use align 4 on x86-64:\n{ir}"
+    );
+}
+
+#[test]
+fn store_alignment_x86_64() {
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new(&scx);
+    let func = setup_with_data_layout(&mut irb, X86_64_DATA_LAYOUT);
+
+    let param = irb.get_param(func, 0);
+    let val = irb.const_i64(42);
+    irb.store(val, param);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    assert!(
+        ir.contains("store i64 42, ptr %0, align 8"),
+        "i64 store should use align 8 on x86-64, got:\n{ir}"
+    );
+}
+
+#[test]
+fn load_alignment_aarch64() {
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new(&scx);
+    let func = setup_with_data_layout(&mut irb, AARCH64_DATA_LAYOUT);
+
+    let param = irb.get_param(func, 0);
+    let i64_ty = irb.i64_type();
+    let _val = irb.load(i64_ty, param, "loaded");
+
+    let ir = scx.llmod.print_to_string().to_string();
+    assert!(
+        ir.contains("align 8"),
+        "i64 load should use align 8 on aarch64, got:\n{ir}"
+    );
+}
+
+#[test]
+fn struct_load_field_alignment_x86_64() {
+    use inkwell::types::BasicType;
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new(&scx);
+    let func = setup_with_data_layout(&mut irb, X86_64_DATA_LAYOUT);
+
+    // Create a struct type { i64, i64 } via the LLVM context
+    let i64_llvm = scx.type_i64().as_basic_type_enum();
+    let struct_llvm = scx.type_struct(&[i64_llvm, i64_llvm], false);
+    let struct_ty = irb.register_type(struct_llvm.into());
+
+    // Load from ptr param — decomposed into per-field GEP+load+insertvalue
+    let param = irb.get_param(func, 0);
+    let _val = irb.load(struct_ty, param, "s");
+
+    let ir = scx.llmod.print_to_string().to_string();
+    // Each field load should have align 8
+    let align_8_count = ir.matches("align 8").count();
+    assert!(
+        align_8_count >= 2,
+        "struct load should produce at least 2 field loads with align 8, \
+         found {align_8_count} 'align 8' occurrences:\n{ir}"
+    );
+    // No align 4 on i64 loads
+    assert!(
+        !ir.contains("load i64, ptr %s.f0.ptr, align 4"),
+        "struct field loads must NOT use align 4:\n{ir}"
+    );
+}

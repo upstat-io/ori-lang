@@ -19,11 +19,11 @@
 )]
 
 use ori_rt::{
-    did_panic, get_panic_message, ori_alloc, ori_args_from_argv, ori_assert_eq_int,
-    ori_compare_int, ori_free, ori_list_free, ori_list_len, ori_list_new, ori_max_int, ori_min_int,
-    ori_print_int, ori_rc_alloc, ori_rc_count, ori_rc_dec, ori_rc_free, ori_rc_inc, ori_realloc,
-    ori_register_panic_handler, ori_str_concat, ori_str_eq, ori_str_ne, reset_panic_state,
-    set_panic_state_for_test, OriStr,
+    did_panic, enter_jit_mode, get_panic_message, leave_jit_mode, ori_alloc, ori_args_from_argv,
+    ori_assert_eq_int, ori_compare_int, ori_free, ori_list_free, ori_list_len, ori_list_new,
+    ori_max_int, ori_min_int, ori_print_int, ori_rc_alloc, ori_rc_count, ori_rc_dec, ori_rc_free,
+    ori_rc_inc, ori_realloc, ori_register_panic_handler, ori_str_concat, ori_str_eq, ori_str_ne,
+    reset_panic_state, set_panic_state_for_test, JmpBuf, OriStr,
 };
 
 #[test]
@@ -138,14 +138,43 @@ fn test_ori_assert_eq_int_pass() {
     assert!(!did_panic());
 }
 
+extern "C" {
+    #[link_name = "_setjmp"]
+    fn c_setjmp_direct(buf: *mut JmpBuf) -> i32;
+}
+
 #[test]
 fn test_ori_assert_eq_int_fail() {
     reset_panic_state();
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ori_assert_eq_int(42, 43);
-    }));
-    assert!(result.is_err(), "ori_assert_eq_int(42, 43) should panic");
-    assert!(did_panic());
+    // Use JIT mode (setjmp/longjmp) to recover from the panic.
+    // `catch_unwind` cannot catch the Itanium foreign exceptions raised by
+    // `ori_raise_exception` on non-MSVC targets.
+    //
+    // Call _setjmp directly (not through jit_setjmp wrapper) so the setjmp
+    // save point is in THIS function's frame, not an intermediate wrapper.
+    let mut jmp_buf = JmpBuf::new();
+    let buf_ptr: *mut JmpBuf = &raw mut jmp_buf;
+    enter_jit_mode(buf_ptr);
+
+    // SAFETY: jmp_buf is stack-allocated and valid for the duration of this call.
+    let val = unsafe { c_setjmp_direct(buf_ptr) };
+
+    if val != 0 {
+        // longjmp returned us here — ori_assert_eq_int hit a panic
+        leave_jit_mode();
+        assert!(
+            did_panic(),
+            "panic state should be set after assertion failure"
+        );
+        return;
+    }
+
+    // Normal path: this should panic (42 != 43)
+    ori_assert_eq_int(42, 43);
+
+    // Should not reach here
+    leave_jit_mode();
+    panic!("ori_assert_eq_int(42, 43) should have panicked");
 }
 
 #[test]
