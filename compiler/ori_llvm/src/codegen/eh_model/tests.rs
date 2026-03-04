@@ -39,7 +39,7 @@ fn itanium_on_wasm() {
 
 #[test]
 fn personality_name_itanium() {
-    assert_eq!(EhModel::Itanium.personality_name(), "rust_eh_personality");
+    assert_eq!(EhModel::Itanium.personality_name(), "ori_eh_personality");
 }
 
 #[test]

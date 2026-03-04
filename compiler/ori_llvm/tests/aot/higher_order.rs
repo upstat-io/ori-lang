@@ -515,3 +515,106 @@ fn test_hof_closure_return_chain() {
         "hof_closure_return_chain",
     );
 }
+
+// ─── C1: Mixed closure types across functions ───
+// Bug: lambda names are per-function (`__lambda_0` in each), but stored
+// in a global HashMap. Lambdas in different functions collide.
+
+#[test]
+fn test_hof_cross_function_lambda_collision() {
+    // C1 bug: lambda in @main collides with lambda in @make_adder
+    // Both produce __lambda_0 → HashMap collision → wrong calling convention
+    assert_aot_success(
+        r#"
+@apply (f: (int) -> int, x: int) -> int = f(x);
+@make_adder (n: int) -> (int) -> int = (x: int) -> x + n;
+
+@main () -> int = {
+    let $double = (x: int) -> x * 2;
+    let $a = apply(f: double, x: 5);
+    let $add10 = make_adder(n: 10);
+    let $b = add10(7);
+    if a == 10 && b == 17 then 0 else 1
+}
+"#,
+        "hof_cross_function_collision",
+    );
+}
+
+#[test]
+fn test_hof_journey5_reproduction() {
+    // Exact Journey 5 reproduction — AOT should compute 27
+    assert_aot_success(
+        r#"
+@apply (f: (int) -> int, x: int) -> int = f(x);
+@make_adder (n: int) -> (int) -> int = (x: int) -> x + n;
+
+@main () -> int = {
+    let $double = (x: int) -> x * 2;
+    let $a = apply(f: double, x: 5);
+    let $add10 = make_adder(n: 10);
+    let $b = add10(7);
+    if a + b == 27 then 0 else 1
+}
+"#,
+        "hof_journey5",
+    );
+}
+
+#[test]
+fn test_hof_multiple_functions_with_lambdas() {
+    // Three separate functions each containing a lambda
+    assert_aot_success(
+        r#"
+@double_it (x: int) -> int = {
+    let $f = (n: int) -> n * 2;
+    f(x)
+}
+
+@triple_it (x: int) -> int = {
+    let $f = (n: int) -> n * 3;
+    f(x)
+}
+
+@add_ten (x: int) -> int = {
+    let $offset = 10;
+    let $f = (n: int) -> n + offset;
+    f(x)
+}
+
+@main () -> int = {
+    let $a = double_it(x: 5);
+    let $b = triple_it(x: 5);
+    let $c = add_ten(x: 5);
+    if a == 10 && b == 15 && c == 15 then 0 else 1
+}
+"#,
+        "hof_multiple_fn_lambdas",
+    );
+}
+
+#[test]
+fn test_hof_two_noncapturing_in_different_functions() {
+    // Non-capturing lambdas in different functions — tests name collision
+    // even when both are non-capturing (same phantom env convention)
+    assert_aot_success(
+        r#"
+@apply_double (x: int) -> int = {
+    let $f = (n: int) -> n * 2;
+    f(x)
+}
+
+@apply_square (x: int) -> int = {
+    let $f = (n: int) -> n * n;
+    f(x)
+}
+
+@main () -> int = {
+    let $a = apply_double(x: 5);
+    let $b = apply_square(x: 5);
+    if a == 10 && b == 25 then 0 else 1
+}
+"#,
+        "hof_two_noncapturing_diff_fns",
+    );
+}

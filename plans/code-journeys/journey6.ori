@@ -8,17 +8,17 @@ type Result2 = Success(value: int) | Failure(code: int);
 @to_code (s: Status) -> int = match s {
     Pending -> 0,
     Running -> 1,
-    Completed -> 2
+    Completed -> 2,
 }
 
 @extract (r: Result2) -> int = match r {
     Success(v) -> v,
-    Failure(c) -> c
+    Failure(c) -> c,
 }
 
 @main () -> int = {
-    let a = extract(r: Success(42));     // = 42
-    let b = extract(r: Failure(-1));     // = -1
-    let c = to_code(s: Pending);         // = 0
-    a + b + c                            // = 41
+    let a = extract(r: Success(value: 42));     // = 42
+    let b = extract(r: Failure(code: -1));      // = -1
+    let c = to_code(s: Pending);                // = 0
+    a + b + c                                   // = 41
 }

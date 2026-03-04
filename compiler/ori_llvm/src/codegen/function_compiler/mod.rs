@@ -216,6 +216,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         if let ReturnPassing::Sret { .. } = &abi.return_abi.passing {
             self.builder.add_sret_attribute(func_id, 0, return_llvm_id);
+            // noalias acceptance rule for sret: The sret pointer is a fresh
+            // stack alloca from the caller — it cannot alias any other
+            // accessible pointer. This is always safe.
+            //
+            // IMPORTANT: Do NOT add blanket `noalias` to regular pointer
+            // parameters. Ori's RC-managed buffers can alias when the same
+            // value is passed to multiple params (e.g., `f(a: xs, b: xs)`).
+            // A pointer param gets `noalias` if and only if:
+            //   (a) it is sret (this site) or COW out_ptr (runtime_decl.rs),
+            //   (b) it is a fresh `ori_rc_alloc` return (NoaliasReturn attr),
+            //   (c) it is COW StaticUnique at a call site (emitter_utils.rs).
+            // Any state not listed here must NOT get `noalias`.
             self.builder.add_noalias_attribute(func_id, 0);
         }
 

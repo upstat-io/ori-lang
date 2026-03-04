@@ -10,7 +10,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // ─── Integer boundary values ───
 
@@ -581,5 +581,177 @@ fn test_op_size_arithmetic() {
 }
 "#,
         "op_size_arith",
+    );
+}
+
+// ─── Integer overflow (checked arithmetic) ───
+
+#[test]
+fn test_op_overflow_add_max_plus_one() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let x = 9223372036854775807;
+    x + 1
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "addition overflow should panic");
+    assert!(
+        stderr.contains("overflow") || stderr.contains("panic"),
+        "stderr should mention overflow or panic, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_op_overflow_add_min_minus_one() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let x = -9223372036854775807 - 1;
+    x + -1
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "addition underflow should panic");
+    assert!(
+        stderr.contains("overflow") || stderr.contains("panic"),
+        "stderr should mention overflow or panic, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_op_overflow_sub_min_minus_one() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let x = -9223372036854775807 - 1;
+    x - 1
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "subtraction underflow should panic");
+    assert!(
+        stderr.contains("overflow") || stderr.contains("panic"),
+        "stderr should mention overflow or panic, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_op_overflow_mul_large_values() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let x = 9223372036854775807;
+    x * 2
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "multiplication overflow should panic");
+    assert!(
+        stderr.contains("overflow") || stderr.contains("panic"),
+        "stderr should mention overflow or panic, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_op_overflow_mul_min_times_neg_one() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let x = -9223372036854775807 - 1;
+    x * -1
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "INT_MIN * -1 overflow should panic");
+    assert!(
+        stderr.contains("overflow") || stderr.contains("panic"),
+        "stderr should mention overflow or panic, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_op_no_overflow_near_boundary() {
+    // INT_MAX - 1 + 1 = INT_MAX (no overflow)
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = 9223372036854775806;
+    let y = x + 1;
+    if y == 9223372036854775807 then 0 else 1
+}
+"#,
+        "op_no_overflow_add",
+    );
+}
+
+#[test]
+fn test_op_no_overflow_sub_near_boundary() {
+    // INT_MIN + 1 - 1 = INT_MIN (no overflow)
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = -9223372036854775807;
+    let y = x - 1;
+    if y == -9223372036854775807 - 1 then 0 else 1
+}
+"#,
+        "op_no_overflow_sub",
+    );
+}
+
+#[test]
+fn test_op_no_overflow_mul_near_boundary() {
+    // Multiplication that's large but doesn't overflow
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = 3037000499;
+    let y = x * x;
+    // 3037000499^2 = 9223372030926249001 < INT_MAX
+    if y > 0 then 0 else 1
+}
+"#,
+        "op_no_overflow_mul",
+    );
+}
+
+#[test]
+fn test_op_overflow_in_expression() {
+    // Overflow inside a complex expression
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let a = 4611686018427387903;
+    let b = 4611686018427387903;
+    // a + b + 2 = INT_MAX + 1 (overflow on the second addition)
+    a + b + 2
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "overflow in complex expression should panic");
+    assert!(
+        stderr.contains("overflow") || stderr.contains("panic"),
+        "stderr should mention overflow or panic, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_op_overflow_in_function() {
+    // Overflow in a called function
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(
+        r#"
+@add_one (x: int) -> int = x + 1;
+
+@main () -> int = {
+    add_one(x: 9223372036854775807)
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "overflow in function should panic");
+    assert!(
+        stderr.contains("overflow") || stderr.contains("panic"),
+        "stderr should mention overflow or panic, got: {stderr}"
     );
 }

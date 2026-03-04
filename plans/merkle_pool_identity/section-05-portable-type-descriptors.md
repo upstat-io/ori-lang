@@ -24,8 +24,6 @@ sections:
 
 # Section 05: Portable Type Descriptors
 
-**Status:** Complete
-**Goal:** Provide a self-contained type representation that can reconstruct any type in a
 new Pool without access to the originating Pool or AST. This eliminates the AST fallback
 path entirely, making cross-module type resolution fully pool-independent.
 
@@ -51,7 +49,6 @@ in parallel with Section 06 (backend integration).
 
 ## 05.1 TypeDescriptor Design — COMPLETE
 
-**Goal:** Define a compact, pool-independent type representation that references children
 by Merkle hash rather than by Idx.
 
 **Design:**
@@ -186,8 +183,6 @@ pub struct VariantDescriptor {
 
 ## 05.2 Descriptor Generation — COMPLETE
 
-**Goal:** Generate a topologically sorted sequence of `TypeDescriptor`s from a Pool type.
-
 **Algorithm:**
 
 ```rust
@@ -291,8 +286,6 @@ impl Pool {
 
 ## 05.3 Reconstruction Algorithm — COMPLETE
 
-**Goal:** Reconstruct types in a new Pool from a sequence of TypeDescriptors.
-
 **Algorithm:**
 
 ```rust
@@ -387,7 +380,6 @@ lookup never fails.
 
 ## 05.4 Integration with TypeCheckResult — COMPLETE
 
-**Goal:** Embed type descriptors in `TypeCheckResult` so cross-module type reconstruction
 doesn't need AST access.
 
 **Approach:** Add a `type_descriptors` field to `TypedModule`:

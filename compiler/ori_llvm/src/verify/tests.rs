@@ -211,7 +211,7 @@ fn nounwind_invoke_detected() {
     builder.position_at_end(unwind);
     // Need an EH personality for the landing pad
     let personality_type = ctx.i32_type().fn_type(&[ctx.i32_type().into()], false);
-    let personality = module.add_function("rust_eh_personality", personality_type, None);
+    let personality = module.add_function("ori_eh_personality", personality_type, None);
     caller.set_personality_function(personality);
     let lp_type = ctx.struct_type(&[ptr_type.into(), ctx.i32_type().into()], false);
     let _lp = builder

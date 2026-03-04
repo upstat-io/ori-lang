@@ -36,9 +36,6 @@ sections:
 
 # Section 10: Wire Evaluator (ori_eval)
 
-**Status:** Not Started
-**Goal:** Replace all independently-maintained method enumerations in `ori_eval` with data derived from the `ori_registry` crate, while preserving the existing dispatch architecture (resolver chain, pre-interned `Name` comparison, `FxHashSet` lookup) and its O(1) runtime performance.
-
 **Context:** The evaluator is the simplest wiring target. Unlike `ori_types` (Section 09), which must read return types and parameter specs for inference, `ori_eval` only needs the *existence* of methods per type for two purposes: (1) building the `BuiltinMethodResolver`'s `FxHashSet<(Name, Name)>` for O(1) resolution, and (2) cross-crate consistency testing. The evaluator's dispatch mechanism (`dispatch_builtin_method`, `CollectionMethodResolver`, etc.) does not change — it continues to pattern-match on `Value` variants and pre-interned `Name` fields. Only the *source of truth* for what methods exist shifts from hardcoded arrays to registry queries.
 
 **Principle:** The evaluator is a *consumer* of the registry, not a *mirror* of it. The registry declares what methods a type has. The evaluator implements the runtime behavior. The registry-derived data validates that these two sets are aligned, but the evaluator's internal dispatch architecture remains intact.

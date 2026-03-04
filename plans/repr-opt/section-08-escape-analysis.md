@@ -32,9 +32,6 @@ sections:
 
 # Section 08: Escape Analysis & Stack Promotion
 
-**Status:** Not Started
-**Goal:** Values that are created and consumed within a single function are allocated on the stack instead of the heap, eliminating `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, and `ori_rc_free` entirely. This is the single highest-impact ARC optimization — heap allocation is 10-50× slower than stack allocation.
-
 **Context:** Ori's ARC system (ori_arc) already has liveness analysis and borrow inference. The missing piece is **escape analysis** — determining whether a reference-counted value's pointer is ever stored in a location that outlives the current function (return value, closure capture, global, or another heap object's field).
 
 The ori_arc pipeline currently uses liveness-based analysis for RC insertion, but this is conservative: it treats all heap-allocated values as potentially escaping. True escape analysis would identify values that can be stack-promoted.

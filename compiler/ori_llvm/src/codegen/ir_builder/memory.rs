@@ -1,7 +1,7 @@
 //! Memory operations (alloca, load, store, GEP) for `IrBuilder`.
 
 use inkwell::types::{BasicTypeEnum, StructType};
-use inkwell::values::IntValue;
+use inkwell::values::{BasicValue, IntValue};
 
 use super::IrBuilder;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
@@ -80,10 +80,14 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             self.record_codegen_error();
             return self.const_i64(0);
         }
+        let align = self.abi_alignment(ty);
         let v = self
             .builder
             .build_load(llvm_ty, raw.into_pointer_value(), name)
             .expect("load");
+        if let Some(inst) = v.as_instruction_value() {
+            let _ = inst.set_alignment(align);
+        }
         self.arena.push_value(v)
     }
 
@@ -139,9 +143,15 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             self.record_codegen_error();
             return;
         }
-        self.builder
+        // Determine ABI alignment from the stored value's type.
+        let val_ty = v.get_type();
+        let val_ty_id = self.register_type(val_ty);
+        let align = self.abi_alignment(val_ty_id);
+        let inst = self
+            .builder
             .build_store(p.into_pointer_value(), v)
             .expect("store");
+        let _ = inst.set_alignment(align);
     }
 
     /// Build a GEP (get element pointer) with arbitrary indices.

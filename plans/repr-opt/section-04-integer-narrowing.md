@@ -28,9 +28,6 @@ sections:
 
 # Section 04: Integer Narrowing Pipeline
 
-**Status:** Not Started
-**Goal:** When range analysis (§03) proves a variable's range fits in `i32` (or `i16`, `i8`), the variable uses the narrower type in generated code. This reduces memory for struct fields (4 bytes instead of 8), improves cache utilization, and enables SIMD vectorization of narrow-integer loops.
-
 **Context:** Today, every `int` is `i64` in LLVM IR. A loop counter that goes `0..100` wastes 7 bytes per element in array storage. A struct with `{ x: int, y: int }` where both fields are always `0..255` uses 16 bytes instead of 2. The savings compound in collections: `[Point]` with 1M elements wastes 14MB.
 
 **Reference implementations:**

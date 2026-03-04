@@ -34,9 +34,6 @@ sections:
 
 # Section 05: Seamless Slices
 
-**Status:** Not Started
-**Goal:** `list.slice(start, end)`, `str.substring(start, end)`, `str.trim()`, and other view-producing operations return zero-copy views that share the underlying buffer. No allocation, no element copying. COW kicks in only if the slice is mutated.
-
 **Context:** Currently, slicing operations copy all elements from the original into a new allocation. A `list.slice(0, 1000)` on a 10,000-element list copies 1,000 elements. With seamless slices, it creates a view in O(1) — just a pointer + offset + length, with an RC increment on the original buffer.
 
 **Reference implementations:**

@@ -66,8 +66,6 @@ sections:
 
 # Section 21A: LLVM Backend
 
-**Status:** Partial — JIT working, basic codegen functional, many features missing
-
 ## Current Test Results
 
 | Test Suite | Passed | Failed | Skipped | LCFail | Total |

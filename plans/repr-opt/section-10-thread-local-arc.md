@@ -25,9 +25,6 @@ sections:
 
 # Section 10: Thread-Local Non-Atomic ARC
 
-**Status:** Not Started
-**Goal:** Reference count operations on values that never cross thread boundaries use plain `load`/`store` instead of atomic `fetch_add`/`fetch_sub`. On x86-64, this is 5-20× faster per operation (atomic operations involve cache line synchronization even on single-core). For programs that don't use concurrency, ALL RC operations become non-atomic.
-
 **Context:** Currently, `ori_rt` uses `AtomicI64` with `Relaxed`/`Release`/`Acquire` ordering for all RC operations. This is correct for thread-shared values but wasteful for thread-local ones. Most values in most programs never cross thread boundaries — they're created, used, and freed within a single thread.
 
 Rust solved this by having two types: `Rc` (non-atomic, thread-local) and `Arc` (atomic, thread-safe). Ori doesn't expose this distinction to the programmer — the compiler decides automatically.

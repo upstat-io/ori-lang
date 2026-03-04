@@ -111,13 +111,35 @@ pub(crate) use rc::{rc_trace_enabled, rt_debug_validate_rc, MAX_REFCOUNT, RT_DEB
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::Ordering;
 
-/// Ori panic payload for stack unwinding (AOT mode).
+// ── Exception handling personality ──────────────────────────────────────
+
+extern "C" {
+    /// Ori's Itanium EH ABI personality function (implemented in `eh_personality.c`).
+    ///
+    /// Required by any LLVM function containing `invoke`/`landingpad`.
+    /// Compiled into this library via `build.rs` + `cc` crate.
+    fn ori_eh_personality();
+}
+
+/// Get the address of `ori_eh_personality` for JIT symbol mapping.
 ///
-/// Wrapped in `std::panic::panic_any` so the Itanium EH ABI
-/// unwinds through LLVM-generated `invoke`/`landingpad` pairs,
-/// giving cleanup handlers a chance to release RC'd resources.
+/// The personality function is implemented in C (`src/eh_personality.c`) and
+/// compiled into this library by the `build.rs` script. This function provides
+/// its address so the LLVM MCJIT engine can resolve the symbol at runtime.
+#[must_use]
+pub fn ori_eh_personality_addr() -> usize {
+    ori_eh_personality as *const () as usize
+}
+
+/// Ori panic payload for stack unwinding (Windows MSVC compatibility).
 ///
-/// The entry point wrapper catches this with `catch_unwind`.
+/// On MSVC targets, wrapped in `std::panic::panic_any` because SEH
+/// exception handling uses `catch_unwind` / `ori_try_call` instead of
+/// Itanium `landingpad` / `ori_eh_personality`.
+///
+/// On Itanium targets (Linux, macOS, MinGW), panics raise Ori-owned
+/// exceptions via `ori_raise_exception` → `_Unwind_RaiseException`
+/// and this struct is not used.
 pub struct OriPanic {
     pub message: String,
 }
@@ -314,9 +336,15 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
 
 /// Wrap an AOT `@main` call with `catch_unwind` to handle Ori panics.
 ///
-/// The LLVM-generated `main()` calls this instead of calling `@main` directly.
-/// This catches the `OriPanic` payload from `panic_any` and converts it to
-/// `exit(1)`, preventing the Rust runtime from printing an ugly panic message.
+/// **Note:** The LLVM-generated `main()` wrapper currently calls `@main`
+/// directly (not through this function). This function is retained for:
+/// - Windows MSVC where `panic_any` is still used as the AOT panic path
+/// - Test infrastructure that needs `catch_unwind` semantics
+/// - Future use if a Rust-level catch wrapper is needed
+///
+/// On Itanium targets, panics raise Ori exceptions via
+/// `ori_raise_exception` → `_Unwind_RaiseException`, which are handled
+/// by LLVM-generated `invoke`/`landingpad` pairs with `ori_eh_personality`.
 ///
 /// `main_fn` is a function pointer to the user's compiled `@main` (void → void
 /// or void → int variant).
@@ -364,3 +392,40 @@ pub(crate) mod test_helpers;
 
 #[cfg(test)]
 mod tests;
+
+/// Forced-unwind tests for `ori_eh_personality`.
+///
+/// Must be in-crate (not integration test) because the C/assembly test harness
+/// symbols are linked via the build script's `cc::Build::compile()` — static
+/// archive symbols are only available to the library's own test binary, not to
+/// separate integration test crates.
+#[cfg(test)]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod forced_unwind_tests {
+    extern "C" {
+        fn test_forced_unwind_skips_catch() -> i32;
+        fn test_forced_unwind_runs_cleanup() -> i32;
+    }
+
+    /// Single test to avoid data races on shared C globals
+    /// (`catch_handler_entered`, `cleanup_handler_entered`).
+    #[test]
+    fn forced_unwind_personality_behavior() {
+        // Catch-all pads must NOT be installed during forced unwind
+        let result = unsafe { test_forced_unwind_skips_catch() };
+        assert_eq!(
+            result, 0,
+            "catch-all handler should not run during forced unwind"
+        );
+
+        // Cleanup pads MUST still run during forced unwind
+        let result = unsafe { test_forced_unwind_runs_cleanup() };
+        assert_eq!(
+            result, 0,
+            "cleanup pads should still run during forced unwind"
+        );
+    }
+}

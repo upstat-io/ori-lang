@@ -940,6 +940,7 @@ dependencies = [
 name = "ori_rt"
 version = "2026.2.28-alpha.1"
 dependencies = [
+ "cc",
  "ori_ir",
 ]
 

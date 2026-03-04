@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, existsSync } from 'fs';
-import { join, basename } from 'path';
+import { join, basename, resolve } from 'path';
 
 // ============================================================================
 // Core Interfaces
@@ -35,60 +35,109 @@ export interface Reroute {
 }
 
 // ============================================================================
-// Reroute Plan Registry
+// Reroute Plan Registry (loaded from plan index.md frontmatter)
 // ============================================================================
 
-export const reroutes: Reroute[] = [
-  {
-    name: 'Merkle Pool',
-    fullName: 'Merkle Pool Identity',
-    status: 'resolved',
-    key: 'merkle-pool-identity',
-    dir: 'merkle_pool_identity',
-  },
-  {
-    name: 'Diagnostics',
-    fullName: 'Compiler Diagnostics Toolkit',
-    status: 'resolved',
-    key: 'compiler-diagnostics',
-    dir: 'compiler-diagnostics',
-  },
-  {
-    name: 'Value Semantics',
-    fullName: 'Value Semantics Optimization',
-    status: 'active',
-    key: 'value-semantics-optimization',
-    dir: 'value-semantics-optimization',
-  },
-  {
-    name: 'LLVM Fixes',
-    fullName: 'LLVM Codegen Fixes',
-    status: 'queued',
-    key: 'llvm-codegen-fixes',
-    dir: 'llvm-codegen-fixes',
-  },
-  {
-    name: 'EH Personality',
-    fullName: 'Ori EH Personality',
-    status: 'queued',
-    key: 'ori-eh-personality',
-    dir: 'ori-eh-personality',
-  },
-  {
-    name: 'Type Registry',
-    fullName: 'Type Strategy Registry',
-    status: 'queued',
-    key: 'type-strategy-registry',
-    dir: 'type_strategy_registry',
-  },
-  {
-    name: 'Repr Opt',
-    fullName: 'Representation Optimization & ARC Intelligence',
-    status: 'queued',
-    key: 'repr-opt',
-    dir: 'repr-opt',
-  },
-];
+/**
+ * Scan plan directories for index.md files with `reroute: true` frontmatter.
+ * Each reroute plan's index.md is the single source of truth for its metadata.
+ *
+ * @param plansBase - path to plans directory, relative to process.cwd()
+ */
+export function loadReroutes(plansBase: string = '../plans'): Reroute[] {
+  const plansDir = resolve(process.cwd(), plansBase);
+  const results: Reroute[] = [];
+
+  if (!existsSync(plansDir)) return results;
+
+  const dirs = readdirSync(plansDir, { withFileTypes: true })
+    .filter(d => d.isDirectory() && !d.name.startsWith('_'));
+
+  for (const d of dirs) {
+    const indexPath = join(plansDir, d.name, 'index.md');
+    if (!existsSync(indexPath)) continue;
+
+    const content = readFileSync(indexPath, 'utf-8');
+    if (!content.startsWith('---')) continue;
+
+    const endIndex = content.indexOf('---', 3);
+    if (endIndex === -1) continue;
+
+    const yamlStr = content.slice(3, endIndex);
+    const parsed = parseYamlFrontmatter(yamlStr) as unknown as Record<string, unknown>;
+    if (!parsed || parsed.reroute !== true) continue;
+
+    const dir = d.name;
+    const key = dir.replace(/_/g, '-');
+
+    results.push({
+      name: parsed.name as string,
+      fullName: parsed.full_name as string,
+      status: parsed.status as 'active' | 'queued' | 'resolved',
+      key,
+      dir,
+    });
+  }
+
+  // Sort: active first, then queued, then resolved
+  const statusOrder: Record<string, number> = { active: 0, queued: 1, resolved: 2 };
+  results.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+
+  return results;
+}
+
+export const reroutes: Reroute[] = loadReroutes();
+
+// ============================================================================
+// Parallel Plan Registry (loaded from plan index.md frontmatter)
+// ============================================================================
+
+/**
+ * Scan plan directories for index.md files with `parallel: true` frontmatter.
+ * Same shape as reroutes — just a different discriminator field.
+ */
+export function loadParallelPlans(plansBase: string = '../plans'): Reroute[] {
+  const plansDir = resolve(process.cwd(), plansBase);
+  const results: Reroute[] = [];
+
+  if (!existsSync(plansDir)) return results;
+
+  const dirs = readdirSync(plansDir, { withFileTypes: true })
+    .filter(d => d.isDirectory() && !d.name.startsWith('_'));
+
+  for (const d of dirs) {
+    const indexPath = join(plansDir, d.name, 'index.md');
+    if (!existsSync(indexPath)) continue;
+
+    const content = readFileSync(indexPath, 'utf-8');
+    if (!content.startsWith('---')) continue;
+
+    const endIndex = content.indexOf('---', 3);
+    if (endIndex === -1) continue;
+
+    const yamlStr = content.slice(3, endIndex);
+    const parsed = parseYamlFrontmatter(yamlStr) as unknown as Record<string, unknown>;
+    if (!parsed || parsed.parallel !== true) continue;
+
+    const dir = d.name;
+    const key = dir.replace(/_/g, '-');
+
+    results.push({
+      name: parsed.name as string,
+      fullName: parsed.full_name as string,
+      status: parsed.status as 'active' | 'queued' | 'resolved',
+      key,
+      dir,
+    });
+  }
+
+  const statusOrder: Record<string, number> = { active: 0, queued: 1, resolved: 2 };
+  results.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+
+  return results;
+}
+
+export const parallelPlans: Reroute[] = loadParallelPlans();
 
 // ============================================================================
 // YAML Frontmatter Parser
@@ -292,8 +341,8 @@ export function normalizeStatus(status: string): string {
   return status.toLowerCase().replace(/_/g, '-');
 }
 
-/** Count done/total tasks across subsections. */
-export function countTasks(subsections: Section[]): { done: number; total: number } {
+/** Count done/total tasks across subsections. If the section is complete, treat all tasks as done. */
+export function countTasks(subsections: Section[], sectionStatus?: 'complete' | 'partial' | 'not-started'): { done: number; total: number } {
   let done = 0;
   let total = 0;
   for (const subsection of subsections) {
@@ -301,6 +350,9 @@ export function countTasks(subsections: Section[]): { done: number; total: numbe
       total++;
       if (task.done) done++;
     }
+  }
+  if (sectionStatus === 'complete' && total > 0) {
+    done = total;
   }
   return { done, total };
 }
@@ -382,4 +434,61 @@ export function loadAllSections(dir: string): RoadmapSection[] {
 /** Look up a reroute by its URL key. */
 export function findRerouteByKey(key: string): Reroute | undefined {
   return reroutes.find(r => r.key === key);
+}
+
+/** Look up any plan (reroute or parallel) by its URL key. */
+export function findPlanByKey(key: string): Reroute | undefined {
+  return reroutes.find(r => r.key === key) ?? parallelPlans.find(p => p.key === key);
+}
+
+// ============================================================================
+// Mission Extraction
+// ============================================================================
+
+/**
+ * Extract the `## Mission` section from a plan's 00-overview.md.
+ * Returns the text content (without the heading), or null if not found.
+ */
+export function loadMission(planDir: string): string | null {
+  const overviewPath = join(planDir, '00-overview.md');
+  if (!existsSync(overviewPath)) return null;
+
+  let content = readFileSync(overviewPath, 'utf-8');
+
+  // Skip frontmatter if present
+  if (content.startsWith('---')) {
+    const endIndex = content.indexOf('---', 3);
+    if (endIndex !== -1) {
+      content = content.slice(endIndex + 3);
+    }
+  }
+
+  // Find ## Mission heading
+  const missionMatch = content.match(/^## Mission\s*\n([\s\S]*?)(?=\n## |\n---|\s*$)/m);
+  if (!missionMatch) return null;
+
+  const text = missionMatch[1].trim();
+  return text || null;
+}
+
+/**
+ * Convert basic inline markdown to HTML for `set:html` rendering.
+ * Handles **bold**, *italic*, `code`, and paragraph breaks.
+ */
+export function inlineMarkdownToHtml(md: string): string {
+  const paragraphs = md.split(/\n\n+/);
+  return paragraphs
+    .map(p => {
+      let html = p.trim();
+      // Code spans first (to avoid nested transforms)
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // Bold
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      // Italic
+      html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      // Wrap single newlines as line continuation
+      html = html.replace(/\n/g, ' ');
+      return `<p>${html}</p>`;
+    })
+    .join('\n');
 }
