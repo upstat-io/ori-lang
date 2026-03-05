@@ -45,7 +45,7 @@ p3 = p.translate(1, 2)
 
 | Aspect | Inherent Methods | Trait Methods |
 |--------|-----------------|---------------|
-| Defined with | `impl Type { ... }` | `impl Trait for Type { ... }` |
+| Defined with | `impl Type { ... }` | `impl Type: Trait { ... }` |
 | Requires trait | No | Yes |
 | Used for | Type-specific behavior | Shared interfaces |
 | Polymorphism | No | Yes |
@@ -60,7 +60,7 @@ impl User {
 }
 
 // Trait methods - implement shared interface
-impl Printable for User {
+impl User: Printable {
     @to_string (self) -> str = self.name + " <" + self.email + ">"
 }
 ```
@@ -79,7 +79,7 @@ impl User {
     @greet (self) -> str = "Hi!"
 }
 
-impl Greetable for User {
+impl User: Greetable {
     // trait
     @greet (self) -> str = "Hello!"
 }
@@ -94,7 +94,7 @@ Greetable.greet(user)
 
 ## Trait Implementation
 
-Use `impl Trait for Type` to implement a trait:
+Use `impl Type: Trait` to implement a trait:
 
 ```ori
 trait Printable {
@@ -103,7 +103,7 @@ trait Printable {
 
 type User = { name: str, email: str }
 
-impl Printable for User {
+impl User: Printable {
     @to_string (self) -> str = self.name + " <" + self.email + ">"
 }
 ```
@@ -113,7 +113,7 @@ impl Printable for User {
 ## Implementation Syntax
 
 ```ori
-impl TraitName for TypeName {
+impl TypeName: TraitName {
     @method_name (self, params...) -> ReturnType = expression
     @another_method (self) -> AnotherType = expression
 }
@@ -132,11 +132,11 @@ trait Deserialize {
     @from_json (json: str) -> Result<Self, Error>
 }
 
-impl Serialize for User {
+impl User: Serialize {
     @to_json (self) -> str = ...
 }
 
-impl Deserialize for User {
+impl User: Deserialize {
     @from_json (json: str) -> Result<Self, Error> = ...
 }
 ```
@@ -152,7 +152,7 @@ trait Eq {
     @not_equals (self, other: Self) -> bool = !self.equals(other)
 }
 
-impl Eq for Point {
+impl Point: Eq {
     // Only equals is required
     @equals (self, other: Self) -> bool =
         self.x == other.x && self.y == other.y
@@ -167,7 +167,7 @@ impl Eq for Point {
 ### For Generic Types
 
 ```ori
-impl<T> Printable for Option<T> where T: Printable {
+impl<T> Option<T>: Printable where T: Printable {
     @to_string (self) -> str = match(self,
         Some(value) -> "Some(" + value.to_string() + ")",
         None -> "None",
@@ -181,7 +181,7 @@ Implement for all types meeting a constraint:
 
 ```ori
 // Any Printable type gets Debug for free
-impl<T> Debug for T where T: Printable {
+impl<T> T: Debug where T: Printable {
     @debug (self) -> str = "Debug: " + self.to_string()
 }
 ```
@@ -197,11 +197,11 @@ trait Doubled {
     @doubled (self) -> Self
 }
 
-impl Doubled for int {
+impl int: Doubled {
     @doubled (self) -> Self = self * 2
 }
 
-impl Doubled for str {
+impl str: Doubled {
     @doubled (self) -> Self = self + self
 }
 ```
@@ -224,15 +224,15 @@ At least one of (trait, type) must be defined in your module:
 ```ori
 // OK: your trait for external type
 trait MyTrait { ... }
-impl MyTrait for int { ... }
+impl int: MyTrait { ... }
 
 // OK: external trait for your type
 type MyType = { ... }
-impl Printable for MyType { ... }
+impl MyType: Printable { ... }
 
 // ERROR: external trait for external type
 // Neither Printable nor int is yours
-impl Printable for int { ... }
+impl int: Printable { ... }
 ```
 
 ### Why?
@@ -248,19 +248,19 @@ A type can implement multiple traits:
 ```ori
 type User = { id: int, name: str, email: str }
 
-impl Eq for User {
+impl User: Eq {
     @equals (self, other: Self) -> bool = self.id == other.id
 }
 
-impl Hashable for User {
+impl User: Hashable {
     @hash (self) -> int = hash(self.id)
 }
 
-impl Printable for User {
+impl User: Printable {
     @to_string (self) -> str = self.name
 }
 
-impl Comparable for User {
+impl User: Comparable {
     @compare (self, other: Self) -> Ordering = compare(self.id, other.id)
 }
 ```
@@ -273,9 +273,9 @@ impl Comparable for User {
 
 ```ori
 // Good: organized by trait
-impl Eq for User { ... }
-impl Hashable for User { ... }
-impl Printable for User { ... }
+impl User: Eq { ... }
+impl User: Hashable { ... }
+impl User: Printable { ... }
 ```
 
 ### Separate from Type Definition
@@ -287,8 +287,8 @@ Implementations are separate from type definitions:
 type User = { id: int, name: str }
 
 // traits.ori (or same file, separate section)
-impl Printable for User { ... }
-impl Serialize for User { ... }
+impl User: Printable { ... }
+impl User: Serialize { ... }
 ```
 
 This allows implementing traits defined elsewhere.
@@ -303,7 +303,7 @@ trait Iterator {
     @next (self) -> Option<Self.Item>
 }
 
-impl Iterator for Range {
+impl Range: Iterator {
     // specify the associated type
     type Item = int
     @next (self) -> Option<int> = ...
@@ -321,8 +321,8 @@ trait A { @process (self) -> int }
 trait B { @process (self) -> str }
 
 type MyType = { ... }
-impl A for MyType { @process (self) -> int = 42 }
-impl B for MyType { @process (self) -> str = "hello" }
+impl MyType: A { @process (self) -> int = 42 }
+impl MyType: B { @process (self) -> str = "hello" }
 
 // Ambiguous call
 // ERROR: ambiguous
@@ -342,12 +342,12 @@ y = B.process(my_value)
 There can only be one implementation of a trait for a type:
 
 ```ori
-impl Printable for User {
+impl User: Printable {
     @to_string (self) -> str = self.name
 }
 
 // ERROR: duplicate implementation
-impl Printable for User {
+impl User: Printable {
     @to_string (self) -> str = self.email
 }
 ```
@@ -362,12 +362,12 @@ Implementations follow the type's visibility:
 // If User is public, implementations are usable where User is visible
 pub type User = { ... }
 // accessible where User is
-impl Printable for User { ... }
+impl User: Printable { ... }
 
 // Private types have private implementations
 type Internal = { ... }
 // only accessible in this module
-impl Printable for Internal { ... }
+impl Internal: Printable { ... }
 ```
 
 ---

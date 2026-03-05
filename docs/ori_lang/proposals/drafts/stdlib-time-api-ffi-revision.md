@@ -282,7 +282,7 @@ The `Clock` capability allows injecting mock time without FFI changes:
 ```ori
 type MockClock = { current: Instant }
 
-impl Clock for MockClock {
+impl MockClock: Clock {
     @now () -> Instant = self.current
     @local_timezone () -> Timezone = Timezone.utc()
 }

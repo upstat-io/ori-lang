@@ -86,7 +86,7 @@ An additional condition in a pattern match arm, written with `if`. For example, 
 ## I
 
 ### Impl Block
-A block that provides trait implementations for a type. Written as `impl Trait for Type { ... }`.
+A block that provides trait implementations for a type. Written as `impl Type: Trait { ... }`.
 
 ### Inference
 The compiler's ability to determine types without explicit annotations. Ori infers types within functions but requires explicit signatures at function boundaries.

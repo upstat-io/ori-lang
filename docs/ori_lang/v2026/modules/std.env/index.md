@@ -58,7 +58,7 @@ type MockEnv = {
     cwd: str,
 }
 
-impl Env for MockEnv {
+impl MockEnv: Env {
     @get (name: str) -> Option<str> = self.vars.get(name)
     @set (name: str, value: str) -> void = self.vars = self.vars.insert(name, value)
     @remove (name: str) -> void = self.vars = self.vars.remove(name)

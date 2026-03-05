@@ -388,12 +388,12 @@ sections:
   - [ ] **AOT Tests**: No AOT coverage yet (formal Collect trait definition)
 
 - [ ] **Implement**: Standard `Iterable` implementations
-  - `impl<T> Iterable for [T]` — list iteration
-  - `impl<K, V> Iterable for {K: V}` — map iteration (yields tuples)
-  - `impl<T> Iterable for Set<T>` — set iteration
-  - `impl Iterable for str` — character iteration
-  - `impl Iterable for Range<int>` — range iteration
-  - `impl<T> Iterable for Option<T>` — zero/one element
+  - `impl<T> [T]: Iterable` — list iteration
+  - `impl<K, V> {K: V}: Iterable` — map iteration (yields tuples)
+  - `impl<T> Set<T>: Iterable` — set iteration
+  - `impl str: Iterable` — character iteration
+  - `impl Range<int>: Iterable` — range iteration
+  - `impl<T> Option<T>: Iterable` — zero/one element
   - [ ] **Ori Tests**: `tests/spec/stdlib/iterable_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for standard Iterable implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Iterable implementations codegen

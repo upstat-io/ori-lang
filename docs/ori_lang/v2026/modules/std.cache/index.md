@@ -123,7 +123,7 @@ type MockCache = {
     data: {str: str},
 }
 
-impl Cache for MockCache {
+impl MockCache: Cache {
     @get (key: str) -> Option<str> = self.data.get(key)
 
     @set (key: str, value: str) -> void =

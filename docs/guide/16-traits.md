@@ -28,7 +28,7 @@ Now let's implement this trait for a type:
 ```ori
 type Point = { x: int, y: int }
 
-impl Displayable for Point {
+impl Point: Displayable {
     @display (self) -> str = `({self.x}, {self.y})`;
 }
 
@@ -53,7 +53,7 @@ This function works with Points, Users, or any type that implements `Displayable
 ```ori
 type User = { name: str, age: int }
 
-impl Displayable for User {
+impl User: Displayable {
     @display (self) -> str = `{self.name} (age {self.age})`;
 }
 
@@ -75,7 +75,7 @@ trait Clonable {
     @clone (self) -> Self;  // Returns the same type as the implementer
 }
 
-impl Clonable for Point {
+impl Point: Clonable {
     @clone (self) -> Self = Point { x: self.x, y: self.y };
 }
 
@@ -96,7 +96,7 @@ trait Describable {
 
 type Car = { model: str }
 
-impl Describable for Car {
+impl Car: Describable {
     @name (self) -> str = self.model;
     // describe uses the default implementation
 }
@@ -108,7 +108,7 @@ car.describe();  // "This is a Tesla"
 Implementers can override defaults if needed:
 
 ```ori
-impl Describable for Point {
+impl Point: Describable {
     @name (self) -> str = "Point";
 
     @describe (self) -> str = `Point at ({self.x}, {self.y})`;  // Override default
@@ -127,7 +127,7 @@ trait Container {
     @len (self) -> int;
 }
 
-impl Container for [int] {
+impl [int]: Container {
     type Item = int;  // For [int], Item is int
 
     @get (self, index: int) -> Option<int> =
@@ -157,11 +157,11 @@ trait Comparable: Eq {  // Comparable requires Eq
 To implement `Comparable`, you must also implement `Eq`:
 
 ```ori
-impl Eq for Point {
+impl Point: Eq {
     @eq (self, other: Self) -> bool = self.x == other.x && self.y == other.y;
 }
 
-impl Comparable for Point {
+impl Point: Comparable {
     @compare (self, other: Self) -> Ordering = {
         let by_x = compare(left: self.x, right: other.x);
         if by_x != Equal then by_x else compare(left: self.y, right: other.y)
@@ -199,7 +199,7 @@ Implement traits for generic types:
 
 ```ori
 // Implement Displayable for any list of Displayable items
-impl<T: Displayable> Displayable for [T] {
+impl<T: Displayable> [T]: Displayable {
     @display (self) -> str = {
         let items = for item in self yield item.display();
         `[{items.join(sep: ", ")}]`
@@ -332,11 +332,11 @@ trait Animal {
 type Dog = { name: str }
 type Cat = { name: str }
 
-impl Animal for Dog {
+impl Dog: Animal {
     @speak (self) -> str = "Woof!";
 }
 
-impl Animal for Cat {
+impl Cat: Animal {
     @speak (self) -> str = "Meow!";
 }
 
@@ -414,7 +414,7 @@ Implementing these traits enables your types to use `as`/`as?`:
 type Celsius = { value: float }
 type Fahrenheit = { value: float }
 
-impl As<Fahrenheit> for Celsius {
+impl Celsius: As<Fahrenheit> {
     @as (self) -> Fahrenheit =
         Fahrenheit { value: self.value * 9.0 / 5.0 + 32.0 };
 }
@@ -461,22 +461,22 @@ type Player = {
     assists: int,
 }
 
-impl Scorable for Player {
+impl Player: Scorable {
     @score (self) -> int = self.kills * 3 + self.assists - self.deaths;
 }
 
-impl Eq for Player {
+impl Player: Eq {
     @eq (self, other: Self) -> bool = self.name == other.name;
 }
 
-impl Comparable for Player {
+impl Player: Comparable {
     @compare (self, other: Self) -> Ordering =
         compare(left: self.score(), right: other.score());
 }
 
-impl Rankable for Player {}
+impl Player: Rankable {}
 
-impl Printable for Player {
+impl Player: Printable {
     @to_str (self) -> str = `{self.name}: {self.score()} points`;
 }
 
@@ -514,7 +514,7 @@ impl Printable for Player {
 // Team type also implementing Scorable
 type Team = { name: str, players: [Player] }
 
-impl Scorable for Team {
+impl Team: Scorable {
     @score (self) -> int =
         self.players.iter()
             .map(transform: p -> p.score())
@@ -555,8 +555,8 @@ trait Child: Parent { ... }
 ### Implement a Trait
 
 ```ori
-impl Trait for Type { ... }
-impl<T: Bound> Trait for Container<T> { ... }
+impl Type: Trait { ... }
+impl<T: Bound> Container<T>: Trait { ... }
 ```
 
 ### Derive Traits

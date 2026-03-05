@@ -342,56 +342,13 @@ impl LexError {
         }
     }
 
-    /// Create a triple-equals error with replacement suggestion.
-    #[cold]
-    pub fn triple_equal(span: Span) -> Self {
-        Self {
-            span,
-            kind: LexErrorKind::TripleEqual,
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::replace(
-                "use `==` for equality in Ori",
-                span,
-                "==",
-            )],
-        }
-    }
-
-    /// Create a single-quote string error.
-    #[cold]
-    pub fn single_quote_string(span: Span) -> Self {
-        Self {
-            span,
-            kind: LexErrorKind::SingleQuoteString,
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::text(
-                r#"use double quotes for strings: "hello""#,
-                0,
-            )],
-        }
-    }
-
-    /// Create an increment/decrement error.
-    #[cold]
-    pub fn increment_decrement(span: Span, op: &'static str) -> Self {
-        let alt = if op == "++" { "x + 1" } else { "x - 1" };
-        Self {
-            span,
-            kind: LexErrorKind::IncrementDecrement { op },
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::text(format!("use `{alt}` instead"), 0)],
-        }
-    }
-
     /// Add a context to this error.
-    #[must_use]
     pub fn with_context(mut self, ctx: LexErrorContext) -> Self {
         self.context = ctx;
         self
     }
 
     /// Add a suggestion to this error.
-    #[must_use]
     pub fn with_suggestion(mut self, suggestion: LexSuggestion) -> Self {
         self.suggestions.push(suggestion);
         self

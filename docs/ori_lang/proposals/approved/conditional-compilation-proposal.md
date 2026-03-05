@@ -243,7 +243,7 @@ type Handle = int
 
 // Trait implementations
 #target(os: "linux")
-impl FileDescriptor for Socket { ... }
+impl Socket: FileDescriptor { ... }
 
 // Config constants
 #cfg(debug)

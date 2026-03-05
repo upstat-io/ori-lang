@@ -35,6 +35,7 @@ pub enum UnicodeEscapeDetail {
 ///
 /// Follows the cross-system error shape from `v2-conventions.md` §5.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[must_use]
 pub struct LexError {
     /// WHERE the error occurred.
     pub span: Span,
@@ -68,10 +69,6 @@ pub enum LexErrorKind {
     SingleQuoteEscapeInString,
     /// `\"` used in a char literal — not valid per grammar line 127.
     DoubleQuoteEscapeInChar,
-    /// Empty char literal `''`.
-    EmptyCharLiteral,
-    /// Multiple characters in char literal `'ab'`.
-    MultiCharLiteral,
 
     // Numeric errors
     /// Integer literal overflowed `u64`.
@@ -102,9 +99,6 @@ pub enum LexErrorKind {
     Utf16LeBom,
     /// UTF-16 BE BOM at file start. Wrong encoding — Ori requires UTF-8.
     Utf16BeBom,
-    /// ASCII control character (0x01-0x1F except `\t`, `\n`, `\r`).
-    InvalidControlChar { byte: u8 },
-
     // Unit literal errors
     /// Decimal duration/size literal cannot be represented as a whole number
     /// of base units (nanoseconds for duration, bytes for size).
@@ -113,16 +107,40 @@ pub enum LexErrorKind {
     // Reserved-future keyword errors
     /// A keyword reserved for future use (`asm`, `inline`, `static`, `union`, `view`).
     ReservedFutureKeyword { keyword: &'static str },
+}
 
-    // Cross-language pattern errors
-    /// `===` or `!==` used (JavaScript habit).
-    TripleEqual,
-    /// `'string'` used instead of `"string"` (Python/JS habit).
-    SingleQuoteString,
-    /// `++` or `--` used (C/JavaScript habit).
-    IncrementDecrement { op: &'static str },
-    /// `? :` ternary operator pattern (C habit).
-    TernaryOperator,
+impl LexErrorKind {
+    /// Return the error code for this kind.
+    ///
+    /// Mirrors the code assignments in `oric::problem::lex::render_lex_error()`.
+    /// Having codes at the source avoids requiring the diagnostic layer for
+    /// programmatic error code access.
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            Self::UnterminatedString => "E0001",
+            Self::UnterminatedChar => "E0004",
+            Self::UnterminatedTemplate => "E0006",
+            Self::InvalidStringEscape { .. }
+            | Self::InvalidCharEscape { .. }
+            | Self::InvalidTemplateEscape { .. }
+            | Self::InvalidUnicodeEscape { .. }
+            | Self::SingleQuoteEscapeInString
+            | Self::DoubleQuoteEscapeInChar => "E0005",
+            Self::IntOverflow
+            | Self::HexIntOverflow
+            | Self::BinIntOverflow
+            | Self::FloatParseError => "E0003",
+            Self::InvalidByte { .. }
+            | Self::InvalidNullByte
+            | Self::Utf8Bom
+            | Self::Utf16LeBom
+            | Self::Utf16BeBom => "E0002",
+            Self::StandaloneBackslash => "E0013",
+            Self::UnicodeConfusable { .. } => "E0011",
+            Self::DecimalNotRepresentable => "E0014",
+            Self::ReservedFutureKeyword { .. } => "E0015",
+        }
+    }
 }
 
 /// Lexing context at the point of error — the WHY.
@@ -230,5 +248,5 @@ impl LexSuggestion {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
+#[expect(clippy::unwrap_used, reason = "test assertions")]
 mod tests;

@@ -1427,17 +1427,17 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
 
 - [ ] **Implement**: `library/std/duration.ori`
   - [ ] Type definition with `#derive(Eq, Comparable, Hashable, Clone, Debug, Default, Sendable)`
-  - [ ] `impl Add for Duration`
-  - [ ] `impl Sub for Duration`
-  - [ ] `impl Mul<int> for Duration`
-  - [ ] `impl Mul<Duration> for int` (commutative)
-  - [ ] `impl Div<int> for Duration`
-  - [ ] `impl Div for Duration` → `int` (ratio)
-  - [ ] `impl Rem for Duration`
-  - [ ] `impl Neg for Duration`
+  - [ ] `impl Duration: Add`
+  - [ ] `impl Duration: Sub`
+  - [ ] `impl Duration: Mul<int>`
+  - [ ] `impl int: Mul<Duration>` (commutative)
+  - [ ] `impl Duration: Div<int>`
+  - [ ] `impl Duration: Div` → `int` (ratio)
+  - [ ] `impl Duration: Rem`
+  - [ ] `impl Duration: Neg`
   - [ ] Factory methods: `from_nanoseconds`, `from_microseconds`, `from_milliseconds`, `from_seconds`, `from_minutes`, `from_hours`
   - [ ] Extraction methods: `nanoseconds`, `microseconds`, `milliseconds`, `seconds`, `minutes`, `hours`
-  - [ ] `impl Printable for Duration`
+  - [ ] `impl Duration: Printable`
   - [ ] **Ori Tests**: `tests/spec/stdlib/duration.ori`
   - [ ] **LLVM Support**: LLVM codegen for Duration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/duration_tests.rs`
@@ -1447,16 +1447,16 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
 
 - [ ] **Implement**: `library/std/size.ori`
   - [ ] Type definition with `#derive(Eq, Comparable, Hashable, Clone, Debug, Default, Sendable)`
-  - [ ] `impl Add for Size`
-  - [ ] `impl Sub for Size` (panics if negative)
-  - [ ] `impl Mul<int> for Size` (panics if negative)
-  - [ ] `impl Mul<Size> for int` (commutative)
-  - [ ] `impl Div<int> for Size`
-  - [ ] `impl Div for Size` → `int` (ratio)
-  - [ ] `impl Rem for Size`
+  - [ ] `impl Size: Add`
+  - [ ] `impl Size: Sub` (panics if negative)
+  - [ ] `impl Size: Mul<int>` (panics if negative)
+  - [ ] `impl int: Mul<Size>` (commutative)
+  - [ ] `impl Size: Div<int>`
+  - [ ] `impl Size: Div` → `int` (ratio)
+  - [ ] `impl Size: Rem`
   - [ ] Factory methods: `from_bytes`, `from_kilobytes`, `from_megabytes`, `from_gigabytes`, `from_terabytes`
   - [ ] Extraction methods: `bytes`, `kilobytes`, `megabytes`, `gigabytes`, `terabytes`
-  - [ ] `impl Printable for Size`
+  - [ ] `impl Size: Printable`
   - [ ] **Ori Tests**: `tests/spec/stdlib/size.ori`
   - [ ] **LLVM Support**: LLVM codegen for Size
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/size_tests.rs`

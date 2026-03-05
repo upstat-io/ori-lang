@@ -108,7 +108,7 @@ type PanicInfo = {
 `PanicInfo` is available in the prelude. It implements `Printable` and `Debug`:
 
 ```ori
-impl Printable for PanicInfo {
+impl PanicInfo: Printable {
     @to_str (self) -> str =
         `panic at {self.location.file}:{self.location.line}:{self.location.column}: {self.message}`;
 }
@@ -199,7 +199,7 @@ Custom error types should implement `Error`:
 ```ori
 type ParseError = { line: int, message: str }
 
-impl Error for ParseError {
+impl ParseError: Error {
     @message (self) -> str =
         "line " + str(self.line) + ": " + self.message;
 }

@@ -82,8 +82,8 @@ x.index(key: key);
 A type may implement `Index` for multiple key types:
 
 ```ori
-impl Index<str, Option<JsonValue>> for JsonValue { ... }
-impl Index<int, Option<JsonValue>> for JsonValue { ... }
+impl JsonValue: Index<str, Option<JsonValue>> { ... }
+impl JsonValue: Index<int, Option<JsonValue>> { ... }
 ```
 
 If the key type is ambiguous, the call is a compile-time error.
@@ -541,7 +541,7 @@ NOTE  The `Div` trait method is named `divide` rather than `div` because `div` i
 ```ori
 type Vector2 = { x: float, y: float }
 
-impl Add for Vector2 {
+impl Vector2: Add {
     @add (self, rhs: Vector2) -> Self = Vector2 {
         x: self.x + rhs.x,
         y: self.y + rhs.y,
@@ -559,13 +559,13 @@ Traits support different operand types. Commutative operations require both orde
 
 ```ori
 // Duration * int
-impl Mul<int> for Duration {
+impl Duration: Mul<int> {
     type Output = Duration;
     @multiply (self, n: int) -> Duration = ...;
 }
 
 // int * Duration
-impl Mul<Duration> for int {
+impl int: Mul<Duration> {
     type Output = Duration;
     @multiply (self, d: Duration) -> Duration = d * self;
 }
@@ -891,7 +891,50 @@ loop {
 
 Labels allow `break` and `continue` to target a specific loop. See [Control Flow § Labeled Loops](16-control-flow.md#163-labeled-loops) for label semantics.
 
-## 14.12 Lambda
+## 14.12 While Expression
+
+> **Grammar:** See [grammar.ebnf](grammar.md) § while_expr
+
+The `while` expression evaluates a condition before each iteration. If the condition is `false`, the loop exits.
+
+### 14.12.1 Syntax
+
+```ori
+while condition do body
+while:name condition do body  // labeled
+```
+
+### 14.12.2 Desugaring
+
+`while condition do body` desugars to:
+
+```ori
+loop {
+    if !condition then break;
+    body
+}
+```
+
+The desugaring is purely syntactic — no new runtime semantics.
+
+### 14.12.3 Type
+
+`while...do` has type `void`. It does not produce a value.
+
+`break value` inside a `while` loop is a compile-time error (E0860). `continue value` is a compile-time error (E0861). Use `loop { }` for value-producing loops.
+
+### 14.12.4 Examples
+
+```ori
+while self.pos < self.buf.len() do {
+    self.pos += 1
+}
+
+while self.pos < self.buf.len() && self.buf[self.pos].is_whitespace() do
+    self.pos += 1
+```
+
+## 14.13 Lambda
 
 ```ori
 x -> x * 2;
@@ -899,11 +942,11 @@ x -> x * 2;
 (x: int) -> int = x * 2;
 ```
 
-## 14.13 Evaluation
+## 14.14 Evaluation
 
 Expressions are evaluated left-to-right. This order is guaranteed and observable.
 
-### 14.13.1 Operand Evaluation
+### 14.14.1 Operand Evaluation
 
 Binary operators evaluate the left operand before the right:
 
@@ -911,7 +954,7 @@ Binary operators evaluate the left operand before the right:
 left() + right();  // left() called first, then right()
 ```
 
-### 14.13.2 Argument Evaluation
+### 14.14.2 Argument Evaluation
 
 Function arguments are evaluated left-to-right as written, before the call:
 
@@ -927,7 +970,7 @@ foo(c: third(), a: first(), b: second());
 // Order: third(), first(), second(), then foo()
 ```
 
-### 14.13.3 Compound Expressions
+### 14.14.3 Compound Expressions
 
 Postfix operations evaluate left-to-right:
 
@@ -936,7 +979,7 @@ list[index()].method(arg());
 // Order: list, index(), method lookup, arg(), method call
 ```
 
-### 14.13.4 List and Map Literals
+### 14.14.4 List and Map Literals
 
 Elements evaluate left-to-right:
 
@@ -946,7 +989,7 @@ Elements evaluate left-to-right:
 
 ```
 
-## 14.14 Pipe Operator
+## 14.15 Pipe Operator
 
 > **Grammar:** See [grammar.ebnf](grammar.md) § `pipe_expr`, `pipe_step`
 
@@ -959,7 +1002,7 @@ data
     |> sum
 ```
 
-### 14.14.1 Implicit Fill
+### 14.15.1 Implicit Fill
 
 When the right side of `|>` is a function call, the piped value fills the single _unspecified parameter_. A parameter is unspecified when it is both (a) not provided in the call arguments and (b) has no default value.
 
@@ -973,7 +1016,7 @@ It is a compile-time error if:
 - Zero parameters are unspecified (all provided or defaulted): "nothing for pipe to fill"
 - Two or more parameters are unspecified: "ambiguous pipe target; specify all parameters except one"
 
-### 14.14.2 Method Calls on the Piped Value
+### 14.15.2 Method Calls on the Piped Value
 
 A leading `.` calls a method on the piped value itself, rather than passing it as a function argument:
 
@@ -989,7 +1032,7 @@ x |> sort          // free function: sort(<piped>: x)
 x |> .sort()       // method: x.sort()
 ```
 
-### 14.14.3 Lambda Pipe Steps
+### 14.15.3 Lambda Pipe Steps
 
 A lambda receives the piped value as its parameter:
 
@@ -998,7 +1041,7 @@ x |> (a -> a @ weight + bias)
 x |> (a -> a ** 2)
 ```
 
-### 14.14.4 Error Propagation
+### 14.15.4 Error Propagation
 
 The `?` operator on a pipe step applies to the result of the desugared call:
 
@@ -1007,7 +1050,7 @@ data |> parse_csv?
 // Desugars to: parse_csv(input: data)?
 ```
 
-### 14.14.5 Desugaring
+### 14.15.5 Desugaring
 
 Each pipe step desugars to a let-binding and an ordinary call:
 
@@ -1029,7 +1072,7 @@ expr |> .method(arg: val)
 
 The type checker resolves implicit fill by inspecting the function signature. The evaluator and codegen see only the desugared form.
 
-### 14.14.6 Precedence and Associativity
+### 14.15.6 Precedence and Associativity
 
 `|>` has the lowest precedence of all binary operators (level 16, below `??` at 15). It is left-associative.
 
@@ -1040,13 +1083,13 @@ a |> f |> g |> h       // ((a |> f) |> g) |> h — equivalent to h(g(f(a)))
 
 ---
 
-## 14.15 Spread Operator
+## 14.16 Spread Operator
 
 > **Grammar:** See [grammar.ebnf](grammar.md) § EXPRESSIONS (list_element, map_element, struct_element)
 
 The spread operator `...` expands collections and structs in literal contexts.
 
-### 14.15.1 List Spread
+### 14.16.1 List Spread
 
 Expands list elements into a list literal:
 
@@ -1062,7 +1105,7 @@ let b = [4, 5, 6];
 
 The spread expression shall be of type `[T]` where `T` matches the list element type.
 
-### 14.15.2 Map Spread
+### 14.16.2 Map Spread
 
 Expands map entries into a map literal:
 
@@ -1076,7 +1119,7 @@ let custom = {"retries": 5, "verbose": true};
 
 Later entries override earlier ones on key conflicts. The spread expression shall be of type `{K: V}` matching the map type.
 
-### 14.15.3 Struct Spread
+### 14.16.3 Struct Spread
 
 Copies fields from an existing struct:
 
@@ -1090,14 +1133,14 @@ Point { x: 10, ...original };  // Point { x: 1, y: 2, z: 3 }
 
 Order determines precedence: later fields override earlier ones. The spread expression shall be of the same struct type.
 
-### 14.15.4 Constraints
+### 14.16.4 Constraints
 
 - Spread is only valid in literal contexts (lists, maps, struct constructors)
 - It is a compile-time error to use spread in function call arguments
 - All spread expressions shall have compatible types with the target container
 - Struct spread requires the exact same type (not subtypes or supertypes)
 
-### 14.15.5 Evaluation Order
+### 14.16.5 Evaluation Order
 
 Spread expressions evaluate left-to-right:
 
@@ -1109,7 +1152,7 @@ Spread expressions evaluate left-to-right:
 // Order: defaults(), computed(), overrides()
 ```
 
-### 14.15.6 Assignment
+### 14.16.6 Assignment
 
 The right side evaluates before assignment:
 
@@ -1117,7 +1160,7 @@ The right side evaluates before assignment:
 x = compute();  // compute() evaluated, then assigned to x
 ```
 
-### 14.15.7 Compound Assignment
+### 14.16.7 Compound Assignment
 
 > **Grammar:** See [grammar.ebnf](grammar.md) § `compound_op`
 > **Rules:** See [operator-rules.md](operator-rules.md) § Compound Assignment
@@ -1135,7 +1178,7 @@ Supported operators: `+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `@=`, `&=`, `|=`, `^=`
 
 The `&&=` and `||=` forms preserve short-circuit evaluation: `x &&= expr` does not evaluate `expr` when `x` is `false`.
 
-### 14.15.8 Short-Circuit Evaluation
+### 14.16.8 Short-Circuit Evaluation
 
 Logical and coalesce operators may skip the right operand:
 
@@ -1151,7 +1194,7 @@ true \|\| expensive();  // expensive() not called
 Some(x) ?? expensive();  // expensive() not called
 ```
 
-### 14.15.9 Conditional Branches
+### 14.16.9 Conditional Branches
 
 Only the taken branch is evaluated:
 
@@ -1164,9 +1207,9 @@ else
 
 See [Control Flow](16-control-flow.md) for details on conditionals and loops.
 
-## 14.16 Composite Literal Typing
+## 14.17 Composite Literal Typing
 
-### 14.16.1 List literals
+### 14.17.1 List literals
 
 The type of a list literal `[e1, e2, ..., en]` is `[T]` where `T` is the unified type of all elements. All elements shall have the same type; there are no implicit numeric conversions.
 
@@ -1185,7 +1228,7 @@ let x: [int] = [];  // OK: type context provides [int]
 let y = [];          // error: cannot infer element type
 ```
 
-### 14.16.2 Map literals
+### 14.17.2 Map literals
 
 The type of a map literal `{k1: v1, k2: v2, ...}` is `{K: V}` where `K` is the unified key type and `V` is the unified value type. Keys shall implement `Eq` and `Hashable`.
 
@@ -1198,19 +1241,19 @@ The syntax `{ }` (braces with whitespace) is parsed as an empty map literal.
 
 NOTE  When key expressions are bare identifiers (e.g., `{key: value}`), the parser distinguishes map literals from struct literals by the presence or absence of a type name prefix.
 
-### 14.16.3 Struct literals
+### 14.17.3 Struct literals
 
 The type of a struct literal `TypeName { f1: v1, f2: v2 }` is `TypeName`. All fields shall be provided unless a spread expression (`...`) supplies the remaining fields. Field types shall match the declared field types.
 
 An unknown field name is a compile-time error. A missing required field is a compile-time error.
 
-### 14.16.4 Tuple literals
+### 14.17.4 Tuple literals
 
 The type of a tuple literal `(e1, e2, ..., en)` is `(T1, T2, ..., Tn)` where each `Ti` is the type of the corresponding element. The empty tuple `()` has type `void`.
 
 NOTE  Single-element tuples are not supported. `(a,)` is parsed as a parenthesized expression.
 
-## 14.17 Template String Semantics
+## 14.18 Template String Semantics
 
 A template string `` `text {expr} text` `` desugars to string concatenation of its segments. Each interpolated expression is converted to `str` by calling its `Printable.to_str()` method.
 
@@ -1220,7 +1263,7 @@ Segments are evaluated left-to-right. Nested template strings are valid.
 
 EXAMPLE  `` `Hello, {name}!` `` desugars to `"Hello, " + name.to_str() + "!"`.
 
-## 14.18 General Evaluation Order
+## 14.19 General Evaluation Order
 
 Expressions are evaluated left-to-right. In a binary expression `a + b`, `a` is evaluated before `b`. In a function call `f(x: a, y: b)`, `a` is evaluated before `b`. Arguments are evaluated in textual order regardless of parameter names.
 
@@ -1228,7 +1271,7 @@ Exceptions to left-to-right evaluation:
 - Short-circuit operators (`&&`, `||`, `??`) may skip the right operand (see 14.15.8).
 - Conditional branches evaluate only the taken branch (see 14.15.9).
 
-## 14.19 Method Values
+## 14.20 Method Values
 
 Methods cannot be referenced without calling them. The expression `value.method` without trailing parentheses is a compile-time error.
 

@@ -71,6 +71,9 @@ impl TokenKind {
             TokenKind::Panic => Some("panic"),
             TokenKind::Todo => Some("todo"),
             TokenKind::Unreachable => Some("unreachable"),
+            // Pattern keywords
+            TokenKind::Run => Some("run"),
+            TokenKind::Try => Some("try"),
             // Operators: `div` is also a keyword
             TokenKind::Div => Some("div"),
             // Not keywords

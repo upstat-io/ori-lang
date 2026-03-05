@@ -210,7 +210,7 @@ No `with...in` needed. `Http` is automatically bound to the default from `std.ne
 ```ori
 type MockHttp = { responses: {str: str} }
 
-impl Http for MockHttp {
+impl MockHttp: Http {
     @get (self, url: str) -> Result<Response, Error> =
         match self.responses[url] {
             Some(body) -> Ok(Response { status: 200, headers: {}, body: body }),
@@ -241,7 +241,7 @@ When you need custom config, use `with...in`:
 ```ori
 type ConfiguredHttp = { timeout: Duration, base_url: str }
 
-impl Http for ConfiguredHttp {
+impl ConfiguredHttp: Http {
     @get (self, url: str) -> Result<Response, Error> =
         __http_request(
             method: "GET",
@@ -324,11 +324,11 @@ pub def impl Http {
 
 ### No `self` Parameter
 
-Unlike `impl Trait for Type`, `def impl` methods don't have `self`:
+Unlike `impl Type: Trait`, `def impl` methods don't have `self`:
 
 ```ori
 // Regular impl - has self
-impl Http for MyHttp {
+impl MyHttp: Http {
     @get (self, url: str) -> Result<Response, Error> = ...
 }
 

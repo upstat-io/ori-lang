@@ -19,6 +19,9 @@ sections:
   - id: "10.3"
     title: loop Expression
     status: in-progress
+  - id: "10.3A"
+    title: while Expression
+    status: not-started
   - id: "10.4"
     title: Error Propagation (?)
     status: not-started
@@ -48,6 +51,7 @@ sections:
 > - `proposals/approved/if-expression-proposal.md` — Conditional expression semantics
 > - `proposals/approved/error-return-traces-proposal.md` — Automatic error trace collection
 > - `proposals/approved/loop-expression-proposal.md` — Loop expression semantics
+> - `proposals/approved/while-loop-proposal.md` — While loop expression (sugar over loop)
 
 ---
 
@@ -376,6 +380,46 @@ sections:
   - [ ] **Ori Tests**: `tests/compile-fail/undefined_label.ori`
   - [ ] **LLVM Support**: N/A (compile-time check)
   - [ ] **LLVM Rust Tests**: N/A
+
+---
+
+## 10.3A while Expression
+
+**Proposal**: `proposals/approved/while-loop-proposal.md`
+
+Syntactic sugar: `while condition do body` desugars to `loop { if !condition then break; body }`. Always `void` type.
+
+### Implementation
+
+- [ ] **Implement**: Add `while` as reserved keyword — spec/07-lexical-elements.md § 7.3.1
+  - [ ] **Lexer**: Add `while` to keyword lookup in `ori_lexer/src/keywords/mod.rs` (5-char bucket)
+  - [ ] **Token**: Add `KwWhile` variant to `ori_ir/src/token/tag.rs`
+  - [ ] **Rust Tests**: Lexer keyword recognition test
+  - [ ] **Ori Tests**: `tests/spec/lexical/keywords.ori` — verify `while` is reserved
+
+- [ ] **Implement**: Parse `while [label] expression do expression` — spec/14-expressions.md § 14.12
+  - [ ] Parser produces `ExprKind::While { condition, body, label }`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — while parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/while_loop.ori`
+
+- [ ] **Implement**: Desugar to `loop { if !condition then break; body }` — spec/16-control-flow.md § 16.2.4
+  - [ ] Desugaring in parser or early lowering
+  - [ ] **Rust Tests**: Verify desugared form
+  - [ ] **Ori Tests**: `tests/spec/expressions/while_loop.ori`
+
+- [ ] **Implement**: Type checking — `while...do` has type `void`
+  - [ ] `break value` in while is error E0860
+  - [ ] `continue value` in while is error E0861
+  - [ ] **Rust Tests**: `ori_types` — while type inference
+  - [ ] **Ori Tests**: `tests/compile-fail/while_break_value.ori`, `tests/compile-fail/while_continue_value.ori`
+
+- [ ] **Implement**: Labels on while — `while:name condition do body`
+  - [ ] `break:name` and `continue:name` work correctly
+  - [ ] **Rust Tests**: Parser — labeled while parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/while_loop.ori`
+
+- [ ] **Implement**: LLVM codegen for while expression
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/while_loops.rs`
 
 ---
 

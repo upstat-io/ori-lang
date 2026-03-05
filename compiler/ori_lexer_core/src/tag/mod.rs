@@ -19,6 +19,8 @@
 //! | 240-245 | Errors                |
 //! | 255     | EOF                   |
 
+mod display;
+
 /// Raw token kind produced by the low-level tokenizer.
 ///
 /// This is the standalone equivalent of `ori_ir::TokenKind`, with no compiler
@@ -39,7 +41,7 @@
 #[non_exhaustive]
 #[repr(u8)]
 pub enum RawTag {
-    // === Identifiers & Literals (0-15) ===
+    // Identifiers & Literals (0-15)
     /// Identifier (not yet classified as keyword — resolution happens in cooking layer).
     Ident = 0,
     /// Integer literal (decimal).
@@ -59,7 +61,7 @@ pub enum RawTag {
     /// Binary integer literal (`0b...`).
     BinInt = 8,
 
-    // === Template Literals (16-19) ===
+    // Template Literals (16-19)
     /// Template head: `` `text{ `` (opening backtick to first unescaped `{`).
     TemplateHead = 16,
     /// Template middle: `}text{` (between interpolations).
@@ -75,7 +77,7 @@ pub enum RawTag {
     /// (exclusive). The `}` is NOT consumed — it triggers `template_middle_or_tail`.
     FormatSpec = 20,
 
-    // === Operators (32-61) ===
+    // Operators (32-61)
     /// `+`
     Plus = 32,
     /// `-`
@@ -163,7 +165,7 @@ pub enum RawTag {
     /// `||=`
     PipePipeEq = 73,
 
-    // === Delimiters (80-95) ===
+    // Delimiters (80-95)
     /// `(`
     LeftParen = 80,
     /// `)`
@@ -197,7 +199,7 @@ pub enum RawTag {
     /// `#!` (file attribute prefix).
     HashBang = 95,
 
-    // === Trivia (112-114) ===
+    // Trivia (112-114)
     /// Horizontal whitespace (spaces, tabs).
     Whitespace = 112,
     /// Line feed (`\n`) or CRLF (`\r\n`).
@@ -205,7 +207,7 @@ pub enum RawTag {
     /// Line comment (`//` to end of line).
     LineComment = 114,
 
-    // === Errors (240-245) ===
+    // Errors (240-245)
     /// Invalid byte (non-ASCII, control character).
     InvalidByte = 240,
     /// Unterminated string literal (missing closing `"`).
@@ -229,171 +231,12 @@ pub enum RawTag {
     /// via `encoding_issues()` and reported them with more specific diagnostics.
     InteriorNull = 245,
 
-    // === Control (255) ===
+    // Control (255)
     /// End of file (sentinel reached).
     Eof = 255,
 }
 
 impl RawTag {
-    /// Returns the fixed lexeme for this tag, if it has one.
-    ///
-    /// Operators and delimiters have fixed lexemes. Identifiers, literals,
-    /// and error tokens return `None` (their text varies).
-    #[must_use]
-    pub fn lexeme(self) -> Option<&'static str> {
-        match self {
-            Self::Plus => Some("+"),
-            Self::Minus => Some("-"),
-            Self::Star => Some("*"),
-            Self::Slash => Some("/"),
-            Self::Percent => Some("%"),
-            Self::Caret => Some("^"),
-            Self::Ampersand => Some("&"),
-            Self::Pipe => Some("|"),
-            Self::Tilde => Some("~"),
-            Self::Bang => Some("!"),
-            Self::Equal => Some("="),
-            Self::Less => Some("<"),
-            Self::Greater => Some(">"),
-            Self::Dot => Some("."),
-            Self::Question => Some("?"),
-            Self::EqualEqual => Some("=="),
-            Self::BangEqual => Some("!="),
-            Self::LessEqual => Some("<="),
-            Self::AmpersandAmpersand => Some("&&"),
-            Self::PipePipe => Some("||"),
-            Self::Arrow => Some("->"),
-            Self::FatArrow => Some("=>"),
-            Self::DotDot => Some(".."),
-            Self::DotDotEqual => Some("..="),
-            Self::DotDotDot => Some("..."),
-            Self::ColonColon => Some("::"),
-            Self::Shl => Some("<<"),
-            Self::QuestionQuestion => Some("??"),
-            // Compound assignment
-            Self::PlusEq => Some("+="),
-            Self::MinusEq => Some("-="),
-            Self::StarEq => Some("*="),
-            Self::SlashEq => Some("/="),
-            Self::PercentEq => Some("%="),
-            Self::AtEq => Some("@="),
-            Self::AmpersandEq => Some("&="),
-            Self::PipeEq => Some("|="),
-            Self::CaretEq => Some("^="),
-            Self::ShlEq => Some("<<="),
-            Self::AmpersandAmpersandEq => Some("&&="),
-            Self::PipePipeEq => Some("||="),
-            Self::LeftParen => Some("("),
-            Self::RightParen => Some(")"),
-            Self::LeftBracket => Some("["),
-            Self::RightBracket => Some("]"),
-            Self::LeftBrace => Some("{"),
-            Self::RightBrace => Some("}"),
-            Self::Comma => Some(","),
-            Self::Colon => Some(":"),
-            Self::Semicolon => Some(";"),
-            Self::At => Some("@"),
-            Self::Hash => Some("#"),
-            Self::Underscore => Some("_"),
-            Self::Backslash => Some("\\"),
-            Self::Dollar => Some("$"),
-            Self::HashBracket => Some("#["),
-            Self::HashBang => Some("#!"),
-            Self::Newline => Some("\n"),
-            _ => None,
-        }
-    }
-
-    /// Returns a human-readable name for this tag.
-    ///
-    /// Used in diagnostic messages and debugging output.
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Ident => "identifier",
-            Self::Int => "integer literal",
-            Self::Float => "float literal",
-            Self::HexInt => "hex integer literal",
-            Self::BinInt => "binary integer literal",
-            Self::String => "string literal",
-            Self::Char => "character literal",
-            Self::Duration => "duration literal",
-            Self::Size => "size literal",
-            Self::TemplateHead => "template head",
-            Self::TemplateMiddle => "template middle",
-            Self::TemplateTail => "template tail",
-            Self::TemplateComplete => "template literal",
-            Self::FormatSpec => "format spec",
-            Self::Plus => "`+`",
-            Self::Minus => "`-`",
-            Self::Star => "`*`",
-            Self::Slash => "`/`",
-            Self::Percent => "`%`",
-            Self::Caret => "`^`",
-            Self::Ampersand => "`&`",
-            Self::Pipe => "`|`",
-            Self::Tilde => "`~`",
-            Self::Bang => "`!`",
-            Self::Equal => "`=`",
-            Self::Less => "`<`",
-            Self::Greater => "`>`",
-            Self::Dot => "`.`",
-            Self::Question => "`?`",
-            Self::EqualEqual => "`==`",
-            Self::BangEqual => "`!=`",
-            Self::LessEqual => "`<=`",
-            Self::AmpersandAmpersand => "`&&`",
-            Self::PipePipe => "`||`",
-            Self::Arrow => "`->`",
-            Self::FatArrow => "`=>`",
-            Self::DotDot => "`..`",
-            Self::DotDotEqual => "`..=`",
-            Self::DotDotDot => "`...`",
-            Self::ColonColon => "`::`",
-            Self::Shl => "`<<`",
-            Self::QuestionQuestion => "`??`",
-            // Compound assignment
-            Self::PlusEq => "`+=`",
-            Self::MinusEq => "`-=`",
-            Self::StarEq => "`*=`",
-            Self::SlashEq => "`/=`",
-            Self::PercentEq => "`%=`",
-            Self::AtEq => "`@=`",
-            Self::AmpersandEq => "`&=`",
-            Self::PipeEq => "`|=`",
-            Self::CaretEq => "`^=`",
-            Self::ShlEq => "`<<=`",
-            Self::AmpersandAmpersandEq => "`&&=`",
-            Self::PipePipeEq => "`||=`",
-            Self::LeftParen => "`(`",
-            Self::RightParen => "`)`",
-            Self::LeftBracket => "`[`",
-            Self::RightBracket => "`]`",
-            Self::LeftBrace => "`{`",
-            Self::RightBrace => "`}`",
-            Self::Comma => "`,`",
-            Self::Colon => "`:`",
-            Self::Semicolon => "`;`",
-            Self::At => "`@`",
-            Self::Hash => "`#`",
-            Self::Underscore => "`_`",
-            Self::Backslash => "`\\`",
-            Self::Dollar => "`$`",
-            Self::HashBracket => "`#[`",
-            Self::HashBang => "`#!`",
-            Self::Whitespace => "whitespace",
-            Self::Newline => "newline",
-            Self::LineComment => "line comment",
-            Self::InvalidByte => "invalid byte",
-            Self::UnterminatedString => "unterminated string",
-            Self::UnterminatedChar => "unterminated character literal",
-            Self::InvalidEscape => "invalid escape",
-            Self::UnterminatedTemplate => "unterminated template",
-            Self::InteriorNull => "interior null byte",
-            Self::Eof => "end of file",
-        }
-    }
-
     /// Returns `true` if this tag represents trivia (whitespace, comments).
     ///
     /// Newlines are NOT trivia — they are significant as implicit statement
@@ -402,6 +245,103 @@ impl RawTag {
     pub fn is_trivia(self) -> bool {
         matches!(self, Self::Whitespace | Self::LineComment)
     }
+
+    /// All defined `RawTag` variants.
+    ///
+    /// Centralizes variant enumeration so downstream drift guards (e.g.,
+    /// the `trivial_count` test in `ori_lexer`) can derive from this
+    /// single source of truth rather than maintaining parallel lists.
+    pub const ALL: [RawTag; 80] = [
+        // Identifiers & Literals (0-15)
+        Self::Ident,
+        Self::Int,
+        Self::Float,
+        Self::HexInt,
+        Self::String,
+        Self::Char,
+        Self::Duration,
+        Self::Size,
+        Self::BinInt,
+        // Template Literals (16-20)
+        Self::TemplateHead,
+        Self::TemplateMiddle,
+        Self::TemplateTail,
+        Self::TemplateComplete,
+        Self::FormatSpec,
+        // Single operators (32-46)
+        Self::Plus,
+        Self::Minus,
+        Self::Star,
+        Self::Slash,
+        Self::Percent,
+        Self::Caret,
+        Self::Ampersand,
+        Self::Pipe,
+        Self::Tilde,
+        Self::Bang,
+        Self::Equal,
+        Self::Less,
+        Self::Greater,
+        Self::Dot,
+        Self::Question,
+        // Compound operators (48-61)
+        Self::EqualEqual,
+        Self::BangEqual,
+        Self::LessEqual,
+        Self::AmpersandAmpersand,
+        Self::PipePipe,
+        Self::Arrow,
+        Self::FatArrow,
+        Self::DotDot,
+        Self::DotDotEqual,
+        Self::DotDotDot,
+        Self::ColonColon,
+        Self::Shl,
+        Self::QuestionQuestion,
+        // Compound assignment (62-73)
+        Self::PlusEq,
+        Self::MinusEq,
+        Self::StarEq,
+        Self::SlashEq,
+        Self::PercentEq,
+        Self::AtEq,
+        Self::AmpersandEq,
+        Self::PipeEq,
+        Self::CaretEq,
+        Self::ShlEq,
+        Self::AmpersandAmpersandEq,
+        Self::PipePipeEq,
+        // Delimiters (80-95)
+        Self::LeftParen,
+        Self::RightParen,
+        Self::LeftBracket,
+        Self::RightBracket,
+        Self::LeftBrace,
+        Self::RightBrace,
+        Self::Comma,
+        Self::Colon,
+        Self::Semicolon,
+        Self::At,
+        Self::Hash,
+        Self::Underscore,
+        Self::Backslash,
+        Self::Dollar,
+        Self::HashBracket,
+        Self::HashBang,
+        // Trivia (112-114)
+        Self::Whitespace,
+        Self::Newline,
+        Self::LineComment,
+        // Errors (240-245)
+        Self::InvalidByte,
+        Self::UnterminatedString,
+        Self::UnterminatedChar,
+        Self::InvalidEscape,
+        Self::UnterminatedTemplate,
+        Self::InteriorNull,
+        // Control (255)
+        Self::Eof,
+    ];
 }
 
 /// Raw token produced by the low-level tokenizer.

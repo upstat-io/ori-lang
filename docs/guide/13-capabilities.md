@@ -90,7 +90,7 @@ with Http = RealHttp { base_url: "https://api.example.com" } in
 **Custom capabilities compose standard ones.** When you create your own capability like `PaymentProcessor`, you don't implement raw network I/O — you use `Http`:
 
 ```ori
-impl PaymentProcessor for StripeProcessor {
+impl StripeProcessor: PaymentProcessor {
     @charge (customer_id: str, amount: float) -> Result<Receipt, PaymentError> uses Http = {
         // Uses the Http capability — doesn't do raw socket I/O
         let response = Http.post(
@@ -261,7 +261,7 @@ type StripeProcessor = {
     base_url: str,
 }
 
-impl PaymentProcessor for StripeProcessor {
+impl StripeProcessor: PaymentProcessor {
     // Note: this impl uses Http — it doesn't do raw I/O itself
     @charge (customer_id: str, amount: float) -> Result<Receipt, PaymentError> uses Http = {
         let response = Http.post(
@@ -303,7 +303,7 @@ type MockPaymentProcessor = {
     balance: float,
 }
 
-impl PaymentProcessor for MockPaymentProcessor {
+impl MockPaymentProcessor: PaymentProcessor {
     // No "uses Http" — mock doesn't do real I/O, just returns canned data
     @charge (customer_id: str, amount: float) -> Result<Receipt, PaymentError> =
         self.responses[customer_id].unwrap_or(default: Ok(Receipt {
@@ -427,7 +427,7 @@ trait UserApi {
 // Implementation bridges the levels
 type RealUserApi = { base_url: str }
 
-impl UserApi for RealUserApi {
+impl RealUserApi: UserApi {
     @get_user (id: int) -> Result<User, ApiError> uses Http = {
         let response = Http.get(url: `{self.base_url}/users/{id}`)?;
         parse_user(json: response.body)
@@ -513,7 +513,7 @@ trait Counter {
 
 type InMemoryCounter = { value: int }
 
-impl Counter for InMemoryCounter {
+impl InMemoryCounter: Counter {
     @increment () -> int = {
         self.value = self.value + 1;
         self.value
@@ -737,7 +737,7 @@ When you create a custom capability, also create a mock:
 // Production implementation
 type RealEmailService = { smtp_host: str, api_key: str }
 
-impl Email for RealEmailService {
+impl RealEmailService: Email {
     @send (to: str, subject: str, body: str) -> Result<void, Error> = {
         // Actual SMTP/API call
         smtp_send(host: self.smtp_host, key: self.api_key, to: to, subject: subject, body: body)
@@ -750,7 +750,7 @@ type MockEmail = {
     should_fail: bool,
 }
 
-impl Email for MockEmail {
+impl MockEmail: Email {
     @send (to: str, subject: str, body: str) -> Result<void, Error> = {
         if self.should_fail then
             Err(Error { message: "Mock email failure" })
@@ -906,7 +906,7 @@ type MultiChannelNotifier = {
     push_service: PushClient,
 }
 
-impl NotificationService for MultiChannelNotifier {
+impl MultiChannelNotifier: NotificationService {
     @send (notification: Notification) -> Result<void, Error> = {
         let prefs = self.get_preferences(user_id: notification.user_id)?;
         match notification.channel {
@@ -949,7 +949,7 @@ type MockNotificationService = {
     should_fail: bool,
 }
 
-impl NotificationService for MockNotificationService {
+impl MockNotificationService: NotificationService {
     @send (notification: Notification) -> Result<void, Error> =
         if self.should_fail then
             Err(Error { message: "Mock failure" })
@@ -1044,7 +1044,7 @@ trait CapabilityName {
 ```ori
 type RealImplementation = { config: Config }
 
-impl CapabilityName for RealImplementation {
+impl RealImplementation: CapabilityName {
     @method1 (param: Type) -> ReturnType = ...;
     @method2 (param: Type) -> ReturnType = ...;
 }

@@ -665,7 +665,7 @@ impl<T: Sendable> Consumer<T> {
     @is_closed (self) -> bool;
 }
 
-impl<T: Sendable> Iterable for Consumer<T> {
+impl<T: Sendable> Consumer<T>: Iterable {
     type Item = T;
 }
 ```
@@ -817,8 +817,8 @@ Generic types derive traits conditionally based on type parameter constraints:
 type Pair<T> = { first: T, second: T }
 
 // Generated:
-impl<T: Eq> Eq for Pair<T> { ... }
-impl<T: Clone> Clone for Pair<T> { ... }
+impl<T: Eq> Pair<T>: Eq { ... }
+impl<T: Clone> Pair<T>: Clone { ... }
 ```
 
 **Recursive Types:**
@@ -1038,7 +1038,7 @@ Values are dropped in reverse declaration order (LIFO):
 **No async operations:** Drop cannot perform suspending operations. Drop runs synchronously during stack unwinding. Async operations could deadlock.
 
 ```ori
-impl Drop for Connection {
+impl Connection: Drop {
     @drop (self) -> void uses Suspend = ...;  // error E0980: Drop cannot be async
 }
 ```
@@ -1076,11 +1076,11 @@ Most types do not need `Drop`:
 Types wrapping external resources typically implement Drop:
 
 ```ori
-impl Drop for FileHandle {
+impl FileHandle: Drop {
     @drop (self) -> void = close_file_descriptor(self.fd);
 }
 
-impl Drop for Lock {
+impl Lock: Drop {
     @drop (self) -> void = release_lock(self.handle);
 }
 ```
@@ -1090,7 +1090,7 @@ impl Drop for Lock {
 Drop should handle its own errors. Drop cannot return errors; propagating would require panic, which is dangerous during unwinding:
 
 ```ori
-impl Drop for Connection {
+impl Connection: Drop {
     @drop (self) -> void = match self.close() {
         Ok(_) -> ()
         Err(e) -> log(msg: `close failed: {e}`),  // Log, don't propagate
@@ -1131,7 +1131,7 @@ Conversion requires explicit `.into()` method call. Ori does NOT perform implici
 
 **No Blanket Identity:**
 
-There is no blanket `impl<T> Into<T> for T`. Each conversion shall be explicitly implemented.
+There is no blanket `impl<T> T: Into<T>`. Each conversion shall be explicitly implemented.
 
 **No Automatic Chaining:**
 
@@ -1225,11 +1225,11 @@ Types can implement conversion traits:
 ```ori
 type UserId = int;
 
-impl As<str> for UserId {
+impl UserId: As<str> {
     @as (self) -> str = "user_" + (self.inner as str);
 }
 
-impl TryAs<Username> for str {
+impl str: TryAs<Username> {
     @try_as (self) -> Option<Username> =
         if self.is_empty() || self.len() > 32 then
             None
@@ -1300,7 +1300,7 @@ Types may implement `Debug` manually for custom formatting:
 ```ori
 type SecretKey = { value: [byte] }
 
-impl Debug for SecretKey {
+impl SecretKey: Debug {
     @debug (self) -> str = "SecretKey { value: [REDACTED] }";
 }
 ```
@@ -1375,7 +1375,7 @@ The only types with interior mutability are runtime-provided resources. These wr
 `Sendable` cannot be implemented manually. It is automatically derived by the compiler when all conditions are met. This ensures thread safety cannot be circumvented.
 
 ```ori
-impl Sendable for MyType { }  // error: cannot implement Sendable manually
+impl MyType: Sendable { }  // error: cannot implement Sendable manually
 
 ```
 

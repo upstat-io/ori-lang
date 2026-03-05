@@ -59,7 +59,7 @@ fn test_parse_int_zero_digit_still_valid() {
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::approx_constant,
     reason = "testing float parsing, not using mathematical constants"
 )]

@@ -62,6 +62,8 @@ pub(crate) struct CookResult {
     pub contextual_kw: bool,
 }
 
+const _: () = assert!(std::mem::size_of::<CookResult>() <= 24);
+
 impl CookResult {
     /// Normal token: no error, not contextual.
     #[inline]
@@ -113,6 +115,9 @@ pub(crate) struct TokenCooker<'src> {
     /// On hit, bypasses keyword lookup AND the interner entirely.
     /// Soft keywords are NOT cached (context-sensitive).
     ident_cache: IdentCache<'src>,
+    /// Last non-trivia `RawTag` for O(1) method-position detection.
+    /// Set by the driver loop after each non-trivia token.
+    last_non_trivia_raw: Option<RawTag>,
 }
 
 impl<'src> TokenCooker<'src> {
@@ -123,7 +128,17 @@ impl<'src> TokenCooker<'src> {
             interner,
             errors: Vec::new(),
             ident_cache: IdentCache::new(),
+            last_non_trivia_raw: None,
         }
+    }
+
+    /// Record the last non-trivia raw tag for method-position detection.
+    ///
+    /// Called by the driver loop after processing each non-trivia token.
+    /// Enables O(1) method-position checks in `cook_ident()` instead of
+    /// backward source scanning.
+    pub(crate) fn set_last_non_trivia(&mut self, tag: RawTag) {
+        self.last_non_trivia_raw = Some(tag);
     }
 
     /// Consume the cooker, returning accumulated errors.
@@ -147,10 +162,10 @@ impl<'src> TokenCooker<'src> {
     /// `Semicolon` is the exception — always reaches here.
     #[inline]
     pub(crate) fn cook(&mut self, tag: RawTag, offset: u32, len: u32) -> CookResult {
-        // Fast path: trivial 1:1 mapping (safety net for try_trivial bypass)
-        if let Some((kind, _)) = crate::trivial::try_trivial(tag) {
-            return CookResult::new(kind);
-        }
+        // NOTE: In the driver loop, trivial tokens (operators, delimiters) are
+        // intercepted by try_trivial() before reaching cook(). Semicolon is the
+        // exception — it always reaches here. Unit tests may call cook() directly
+        // with any tag; the match arms below handle all variants correctly.
 
         match tag {
             // Semicolon: not in try_trivial() but still a direct mapping
@@ -231,8 +246,22 @@ impl<'src> TokenCooker<'src> {
                 CookResult::new(TokenKind::Eof)
             }
 
-            // Future variants (non_exhaustive)
-            _ => CookResult::new(TokenKind::Error),
+            // Trivial tokens (operators, delimiters, HashBang): normally intercepted
+            // by try_trivial() in the driver loop, but unit tests may call cook()
+            // directly. Fall through to try_trivial() as a safe catch-all.
+            _ => {
+                if let Some((kind, tag_byte)) = crate::trivial::try_trivial(tag) {
+                    CookResult {
+                        kind,
+                        tag: tag_byte,
+                        had_error: false,
+                        contextual_kw: false,
+                    }
+                } else {
+                    debug_assert!(false, "unhandled RawTag variant in cook(): {tag:?}");
+                    CookResult::new(TokenKind::Error)
+                }
+            }
         }
     }
 
@@ -253,7 +282,7 @@ impl<'src> TokenCooker<'src> {
                     if let Some((suggested, name)) = unicode_confusables::lookup_confusable(ch) {
                         // Span should cover the full multi-byte character
                         // char::len_utf8() is always 1..=4, safe to truncate
-                        #[allow(
+                        #[expect(
                             clippy::cast_possible_truncation,
                             reason = "char::len_utf8() is 1..=4, fits u32"
                         )]
@@ -289,7 +318,7 @@ impl<'src> TokenCooker<'src> {
 
         // Fast path: direct-mapped cache hit bypasses keyword lookup + interner.
         if let Some(kind) = self.ident_cache.get(text) {
-            return CookResult::new(kind.clone());
+            return CookResult::new(kind);
         }
 
         // Keyword lookup
@@ -310,14 +339,10 @@ impl<'src> TokenCooker<'src> {
         // Reserved-future check (still lex as identifier so parser can continue).
         // Skip the error in method position (after `.`) — the dot provides
         // unambiguous context, e.g. `set.union(other)` is clearly a method call.
-        // This mirrors how soft keywords use lookahead for context sensitivity.
+        // Uses O(1) `last_non_trivia_raw` instead of backward source scanning.
         let had_error = if keywords::could_be_reserved_future(text) {
             if let Some(keyword) = keywords::reserved_future_lookup(text) {
-                let preceding: &[u8] = &self.source[..offset as usize];
-                let in_method_position = preceding
-                    .iter()
-                    .rposition(|b: &u8| !b.is_ascii_whitespace())
-                    .is_some_and(|i| preceding[i] == b'.');
+                let in_method_position = self.last_non_trivia_raw == Some(RawTag::Dot);
                 if in_method_position {
                     false
                 } else {
@@ -359,7 +384,7 @@ impl<'src> TokenCooker<'src> {
 /// String/template content is a substring of the original valid UTF-8 at
 /// codepoint boundaries. `debug_assert!` catches scanner bugs in debug builds.
 #[inline]
-#[allow(
+#[expect(
     unsafe_code,
     reason = "hot path: source is &str, scanner splits on ASCII boundaries"
 )]
@@ -382,7 +407,7 @@ pub(super) fn span(offset: u32, len: u32) -> ori_ir::Span {
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "test code: source lengths always fit u32"
 )]

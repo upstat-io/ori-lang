@@ -45,7 +45,7 @@ type Point = { x: int, y: int }
 
 ```ori
 // Generated implementation
-impl Eq for Point {
+impl Point: Eq {
     @equals (self, other: Self) -> bool =
         self.x == other.x && self.y == other.y
 }
@@ -239,7 +239,7 @@ You can implement some traits manually and derive others:
 type User = { id: int, name: str }
 
 // Manual Eq implementation (different from field-by-field)
-impl Eq for User {
+impl User: Eq {
     @equals (self, other: Self) -> bool = self.id == other.id
 }
 ```
@@ -264,12 +264,12 @@ impl Eq for User {
 type User = { id: int, name: str, password_hash: str }
 
 // Manual: don't include password_hash in equality
-impl Eq for User {
+impl User: Eq {
     @equals (self, other: Self) -> bool = self.id == other.id
 }
 
 // Manual: don't include password_hash in string output
-impl Printable for User {
+impl User: Printable {
     @to_string (self) -> str = "User { id: " + str(self.id) + ", name: " + self.name + " }"
 }
 ```
@@ -290,7 +290,7 @@ If you derive `Eq`, consider deriving `Hashable` too (they should be consistent)
 
 ```ori
 // #User equality is based on ID only, not all fields
-impl Eq for User {
+impl User: Eq {
     @equals (self, other: Self) -> bool = self.id == other.id
 }
 ```

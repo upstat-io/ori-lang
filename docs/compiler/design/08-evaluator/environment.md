@@ -231,7 +231,7 @@ fn call_function(&mut self, func: &FunctionValue, args: Vec<Value>) -> Result<Va
     // Start with captured environment (for closures)
     self.env.push_scope_with(func.captured_env.clone());
 
-    // Bind parameters (immutable — params cannot be reassigned)
+    // Bind parameters (immutable — params cannot be reassigned, except self)
     for (param, arg) in func.params.iter().zip(args) {
         self.env.define(*param, arg, Mutability::Immutable);
     }
@@ -243,7 +243,7 @@ fn call_function(&mut self, func: &FunctionValue, args: Vec<Value>) -> Result<Va
 }
 ```
 
-Function parameters are always immutable — they cannot be reassigned within the function body. This is enforced by defining them with `Mutability::Immutable`.
+Function parameters are immutable — they cannot be reassigned within the function body. This is enforced by defining them with `Mutability::Immutable`. The exception is `self` in method bodies, which is bound as `Mutability::Mutable` to support self-mutating methods (see `mutable-self-proposal`).
 
 ## Prior Art
 

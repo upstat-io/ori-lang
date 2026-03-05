@@ -249,7 +249,7 @@ Ori symbols are mangled for uniqueness:
 | `@foo (x: int) -> int` | `_ori_foo_i` |
 | `MyModule.@bar` | `_ori_MyModule_bar` |
 | `impl Type.@method` | `_ori_Type_method` |
-| `impl Trait for Type.@method` | `_ori_Trait_Type_method` |
+| `impl Type: Trait.@method` | `_ori_Trait_Type_method` |
 
 **Demangling:** The `ori demangle` command converts mangled names back.
 

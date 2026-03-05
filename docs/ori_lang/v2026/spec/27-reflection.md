@@ -164,7 +164,7 @@ type Point = { x: int, y: int }
 The compiler generates:
 
 ```ori
-impl Reflect for Point {
+impl Point: Reflect {
     @type_info (self) -> TypeInfo = $POINT_TYPE_INFO;
 
     @field_count (self) -> int = 2;
@@ -196,7 +196,7 @@ type Shape =
     | Rectangle(width: float, height: float)
     | Point;
 
-impl Reflect for Shape {
+impl Shape: Reflect {
     @current_variant (self) -> Option<VariantInfo> = Some(match self {
         Circle(_) -> VariantInfo { name: "Circle", index: 0, fields: [...] },
         Rectangle(_, _) -> VariantInfo { name: "Rectangle", index: 1, fields: [...] },
@@ -215,7 +215,7 @@ Generic types derive `Reflect` conditionally:
 type Container<T> = { items: [T], count: int }
 
 // Reflects when T: Reflect
-impl<T: Reflect> Reflect for Container<T> {
+impl<T: Reflect> Container<T>: Reflect {
     @type_info (self) -> TypeInfo = TypeInfo {
         ...base_info,
         type_params: [T.type_info().name],

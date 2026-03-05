@@ -54,7 +54,7 @@ trait Drop {
 ```ori
 type FileHandle = { fd: int }
 
-impl Drop for FileHandle {
+impl FileHandle: Drop {
     @drop (self) -> void = close_fd(self.fd)
 }
 ```
@@ -172,7 +172,7 @@ What if a destructor panics?
 ```ori
 type BadType = { ... }
 
-impl Drop for BadType {
+impl BadType: Drop {
     @drop (self) -> void = panic(msg: "destructor failed!")
 }
 
@@ -351,7 +351,7 @@ Destructors run in the task that drops the value:
 Destructors CANNOT be async — they run synchronously:
 
 ```ori
-impl Drop for Resource {
+impl Resource: Drop {
     @drop (self) -> void uses Suspend = ...  // ERROR: drop cannot be async
 }
 ```
@@ -365,7 +365,7 @@ impl AsyncResource {
     @close (self) -> void uses Suspend = ...  // Explicit async cleanup
 }
 
-impl Drop for AsyncResource {
+impl AsyncResource: Drop {
     @drop (self) -> void = ()  // Synchronous, minimal
 }
 
@@ -396,7 +396,7 @@ When a task is cancelled, destructors still run:
 ```ori
 type FileHandle = { fd: int }
 
-impl Drop for FileHandle {
+impl FileHandle: Drop {
     @drop (self) -> void = close_fd(self.fd)  // Synchronous OS call
 }
 
@@ -413,7 +413,7 @@ impl Drop for FileHandle {
 ```ori
 type Connection = { ... }
 
-impl Drop for Connection {
+impl Connection: Drop {
     @drop (self) -> void = {
         // Don't panic in destructor — handle errors gracefully
         match self.close_internal() {

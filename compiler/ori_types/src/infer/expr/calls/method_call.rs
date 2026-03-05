@@ -15,7 +15,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError, Typ
 /// Resolution priority:
 /// 1. Built-in methods on primitives/collections (len, `is_empty`, first, etc.)
 /// 2. User-defined inherent methods (from `impl Type { ... }`)
-/// 3. User-defined trait methods (from `impl Trait for Type { ... }`)
+/// 3. User-defined trait methods (from `impl Type: Trait { ... }`)
 ///
 /// For unresolved type variables, returns a fresh variable to defer resolution.
 pub(crate) fn infer_method_call(

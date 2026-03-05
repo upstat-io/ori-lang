@@ -18,13 +18,13 @@ Without default associated types, every impl must specify all associated types e
 
 ```ori
 // Today: verbose
-impl Add for Vector2 {
+impl Vector2: Add {
     type Output = Vector2  // Required even though it's always Self
     @add (self, rhs: Vector2) -> Vector2 = ...
 }
 
 // Goal: omit when default applies
-impl Add for Vector2 {
+impl Vector2: Add {
     @add (self, rhs: Vector2) -> Self = ...  // Output defaults to Self
 }
 ```
@@ -79,12 +79,12 @@ trait Add<Rhs = Self> {
     @add (self, rhs: Rhs) -> Self.Output
 }
 
-impl Add for Point {
+impl Point: Add {
     // Output = Self = Point (default)
     @add (self, rhs: Point) -> Point = ...
 }
 
-impl Add<int> for Vector2 {
+impl Vector2: Add<int> {
     type Output = Vector2  // Explicit override
     @add (self, rhs: int) -> Vector2 = ...
 }
@@ -115,12 +115,12 @@ trait Add<Rhs = Self> {
 }
 
 // Use default: Output = Self = BigInt
-impl Add for BigInt {
+impl BigInt: Add {
     @add (self, rhs: BigInt) -> Self = ...
 }
 
 // Override: Output = bool (not Self)
-impl Add for Set {
+impl Set: Add {
     type Output = bool  // Union returns whether any new elements added
     @add (self, rhs: Set) -> bool = ...
 }
@@ -136,11 +136,11 @@ trait Process {
     @process (self) -> Self.Output
 }
 
-impl Process for String {  // OK: String: Clone
+impl String: Process {  // OK: String: Clone
     @process (self) -> Self = self.clone()
 }
 
-impl Process for Connection {  // ERROR if Connection: !Clone and no override
+impl Connection: Process {  // ERROR if Connection: !Clone and no override
     // Must provide explicit Output type since Self doesn't satisfy Clone
     type Output = ConnectionHandle
     @process (self) -> ConnectionHandle = ...
@@ -168,7 +168,7 @@ If the default does not satisfy bounds after substitution, it is a compile error
 ### Type Checker Changes
 
 1. Parse default type in `associated_type` grammar rule
-2. When checking `impl Trait for Type`:
+2. When checking `impl Type: Trait`:
    - Collect provided associated types
    - For missing associated types with defaults:
      - Substitute `Self` with implementing type
@@ -184,13 +184,13 @@ trait Add<Rhs = Self> {
     @add (self, rhs: Rhs) -> Self.Output
 }
 
-impl Add for Point {
+impl Point: Add {
     @add (self, rhs: Point) -> Point = ...
 }
 ```
 
 Resolution steps:
-1. `impl Add for Point` - no associated types provided
+1. `impl Point: Add` - no associated types provided
 2. Trait has `type Output = Self` default
 3. Substitute `Self` → `Point`
 4. Result: `Output = Point`
@@ -205,7 +205,7 @@ trait Convert<T = Self> {
     @convert (self) -> Self.Output
 }
 
-impl Convert for String {
+impl String: Convert {
     // T = Self = String (from default type param)
     // Output = T = String (from default associated type)
     @convert (self) -> String = self.clone()

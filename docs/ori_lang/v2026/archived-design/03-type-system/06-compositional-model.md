@@ -97,19 +97,19 @@ trait Speaks {
 type Dog = { name: str, breed: str }
 type Cat = { name: str, color: str }
 
-impl Named for Dog {
+impl Dog: Named {
     @name (self) -> str = self.name
 }
 
-impl Named for Cat {
+impl Cat: Named {
     @name (self) -> str = self.name
 }
 
-impl Speaks for Dog {
+impl Dog: Speaks {
     @speak (self) -> str = "woof"
 }
 
-impl Speaks for Cat {
+impl Cat: Speaks {
     @speak (self) -> str = "meow"
 }
 ```
@@ -306,20 +306,20 @@ type Parrot = { name: str, color: str }
 type Duck = { name: str }
 
 // Dog: Named + Speaks + Swims
-impl Named for Dog { ... }
-impl Speaks for Dog { ... }
-impl Swims for Dog { ... }
+impl Dog: Named { ... }
+impl Dog: Speaks { ... }
+impl Dog: Swims { ... }
 
 // Parrot: Named + Speaks + Flies
-impl Named for Parrot { ... }
-impl Speaks for Parrot { ... }
-impl Flies for Parrot { ... }
+impl Parrot: Named { ... }
+impl Parrot: Speaks { ... }
+impl Parrot: Flies { ... }
 
 // Duck: Named + Speaks + Flies + Swims
-impl Named for Duck { ... }
-impl Speaks for Duck { ... }
-impl Flies for Duck { ... }
-impl Swims for Duck { ... }
+impl Duck: Named { ... }
+impl Duck: Speaks { ... }
+impl Duck: Flies { ... }
+impl Duck: Swims { ... }
 
 // Function requiring multiple capabilities
 @describe<T> (x: T) -> str where T: Named + Speaks =

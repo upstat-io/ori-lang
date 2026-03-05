@@ -231,7 +231,7 @@ trait Arbitrary {
 **Built-in Implementations:**
 
 ```ori
-impl Arbitrary for int {
+impl int: Arbitrary {
     @arbitrary (rng: Rng) -> int = rng.int(min: int.MIN, max: int.MAX)
     @shrink (self) -> [int] = match self {
         0 -> []
@@ -240,12 +240,12 @@ impl Arbitrary for int {
     }
 }
 
-impl Arbitrary for bool {
+impl bool: Arbitrary {
     @arbitrary (rng: Rng) -> bool = rng.bool()
     @shrink (self) -> [bool] = if self then [false] else []
 }
 
-impl Arbitrary for str {
+impl str: Arbitrary {
     @arbitrary (rng: Rng) -> str = rng.str(max_len: 100)
     @shrink (self) -> [str] = {
         let chars = self.chars();

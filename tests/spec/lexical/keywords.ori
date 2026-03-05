@@ -293,7 +293,7 @@ def impl KeywordDefTrait {
     let ifValue = 1;
     let letBinding = 2;
     let forLoop = 3;
-    let whileCondition = 4; // 'while' is not a keyword in Ori
+    let whileCondition = 4; // 'while' is a keyword; prefixed identifiers are still valid
     let matchResult = 5;
     ifValue + letBinding + forLoop + whileCondition + matchResult
 }

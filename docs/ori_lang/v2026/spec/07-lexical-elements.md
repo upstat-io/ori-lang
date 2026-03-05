@@ -106,7 +106,7 @@ as      break    continue  def     div     do      else    extend
 extension extern  false     for     if      impl    in      let
 loop    match    Never     pub     self    Self    suspend tests
 then    trait    true      type    unsafe  use     uses    void
-where   with     yield
+where   while    with      yield
 ```
 
 **Exception:** In _member position_ (after `.`), any keyword may be used as a field or method name. The `.` prefix provides unambiguous context, so `x.then(y)` is a method call, not part of an `if`/`then` expression. See [grammar.ebnf](grammar.md) § `member_name`.
@@ -289,6 +289,9 @@ The following escape sequences are recognized in string literals, template strin
 | `\r` | U+000D | Carriage return |
 | `\0` | U+0000 | Null |
 | `\u{`*H*`}` | U+*HHHH* | Unicode code point |
+| `\xHH` | U+00*HH* | Hex byte value |
+
+The `\xHH` escape specifies a value using exactly two hexadecimal digits (case-insensitive). In string and char literal contexts, the value shall be in the ASCII range (`\x00`–`\x7F`); values `\x80`–`\xFF` are a compile-time error. In byte literal contexts (7.7.6), the full range `\x00`–`\xFF` is valid.
 
 This table is exhaustive. Any other `\`-prefixed sequence is a compile-time error.
 
@@ -349,16 +352,41 @@ A character literal shall contain exactly one character or escape sequence. The 
 - Empty character literal: `''`
 - Multi-character literal: `'ab'`
 - Surrogate code point (via unicode escape): `'\u{D800}'`
+- Hex escape out of ASCII range: `'\x80'` through `'\xFF'`
 
-The escape sequence `\'` (single quote) is valid in character literals but not in string or template literals.
+The escape sequence `\'` (single quote) is valid in character literals but not in string or template literals. The `\xHH` escape is valid in character literals but restricted to the ASCII range (`\x00`–`\x7F`). Values `\x80`–`\xFF` are a compile-time error; use `\u{HH}` for code points above U+007F.
 
-EXAMPLE  Valid character literals: `'a'`, `'\n'`, `'\u{1F600}'`, `'\0'`, `'\''`.
+EXAMPLE  Valid character literals: `'a'`, `'\n'`, `'\u{1F600}'`, `'\0'`, `'\''`, `'\x41'`.
 
-### 7.7.6 Boolean literals
+### 7.7.6 Byte literals
+
+A _byte literal_ represents an unsigned 8-bit integer value of type `byte`.
+
+> **Grammar:** See [Annex A](grammar.md) §A.LEXICAL_GRAMMAR
+
+```ebnf
+byte_lit    = "b'" ( byte_char | byte_escape ) "'" .
+byte_char   = ascii_char - "'" - "\" .
+byte_escape = "\\" | "\'" | "\n" | "\t" | "\r" | "\0" | "\x" hex hex .
+```
+
+A byte literal is prefixed with `b` and shall contain exactly one ASCII character or escape sequence. The type is `byte`.
+
+Unescaped characters in byte literals shall be printable ASCII (U+0020–U+007E), excluding the delimiter `'` and the escape introducer `\`. Non-ASCII characters are a compile-time error.
+
+The `\xHH` escape specifies a byte value from 0x00 to 0xFF using exactly two hexadecimal digits. The full range is valid in byte literals (unlike char literals, which restrict to `\x00`–`\x7F`).
+
+The escapes `\u{...}` (Unicode) and `\"` (double quote) are not valid in byte literals. Unicode escapes are not meaningful for bytes (which are 8-bit values), and double quotes do not need escaping since they are not the delimiter.
+
+EXAMPLE  Valid byte literals: `b'a'`, `b'\n'`, `b'\0'`, `b'\x1B'`, `b'\xFF'`.
+
+EXAMPLE  Invalid byte literals: `b'\u{41}'` (error: unicode escape in byte literal), `b'é'` (error: non-ASCII character).
+
+### 7.7.7 Boolean literals
 
 The boolean literals are `true` and `false`. They have type `bool`.
 
-### 7.7.7 Duration literals
+### 7.7.8 Duration literals
 
 A _duration literal_ represents a time span of type `Duration`. The internal representation is a 64-bit signed integer count of nanoseconds.
 
@@ -387,7 +415,7 @@ EXAMPLE  `0.5s` = 500 000 000 ns (valid). `1.5ms` = 1 500 000 ns (valid). `1.5ns
 
 The maximum duration is limited by the `i64` range of nanoseconds, approximately ±292 years.
 
-### 7.7.8 Size literals
+### 7.7.9 Size literals
 
 A _size literal_ represents a quantity of data of type `Size`. The internal representation is a 64-bit signed integer count of bytes (non-negative).
 

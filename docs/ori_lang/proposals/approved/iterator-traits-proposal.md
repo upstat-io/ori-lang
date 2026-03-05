@@ -291,7 +291,7 @@ A standalone function for creating infinite iterators:
 
 type RepeatIterator<T> = { value: T }
 
-impl<T: Clone> Iterator for RepeatIterator<T> {
+impl<T: Clone> RepeatIterator<T>: Iterator {
     type Item = T
     @next (self) -> (Option<T>, RepeatIterator<T>) =
         (Some(self.value.clone()), self)
@@ -346,53 +346,53 @@ items.iter().map(transform: x -> x * 2).collect()
 
 ```ori
 // Lists are iterable and double-ended
-impl<T> Iterable for [T] {
+impl<T> [T]: Iterable {
     type Item = T
     @iter (self) -> ListIterator<T> = ListIterator { list: self, front: 0, back: len(collection: self) }
 }
 
-impl<T> Collect<T> for [T] {
+impl<T> [T]: Collect<T> {
     @from_iter<I: Iterator> (iter: I) -> [T] where I.Item == T = /* intrinsic */
 }
 
 // Maps are iterable (yields key-value tuples, NOT double-ended — unordered)
-impl<K, V> Iterable for {K: V} {
+impl<K, V> {K: V}: Iterable {
     type Item = (K, V)
     @iter (self) -> MapEntryIterator<K, V> = /* intrinsic */
 }
 
 // Sets are iterable (NOT double-ended — unordered)
-impl<T> Iterable for Set<T> {
+impl<T> Set<T>: Iterable {
     type Item = T
     @iter (self) -> SetIterator<T> = /* intrinsic */
 }
 
-impl<T> Collect<T> for Set<T> {
+impl<T> Set<T>: Collect<T> {
     @from_iter<I: Iterator> (iter: I) -> Set<T> where I.Item == T = /* intrinsic */
 }
 
 // Strings are iterable and double-ended (yields characters)
-impl Iterable for str {
+impl str: Iterable {
     type Item = char
     @iter (self) -> CharIterator = /* intrinsic */
 }
 
 // Integer ranges are iterable and double-ended
 // Note: Range<float> does NOT implement Iterable (precision issues)
-impl Iterable for Range<int> {
+impl Range<int>: Iterable {
     type Item = int
     @iter (self) -> RangeIterator<int> =
         RangeIterator { current: self.start, end: self.end, step: self.step }
 }
 
 // Option is iterable (zero or one element)
-impl<T> Iterable for Option<T> {
+impl<T> Option<T>: Iterable {
     type Item = T
     @iter (self) -> OptionIterator<T> = OptionIterator { value: self }
 }
 
 // Iterators are iterable (return self)
-impl<I: Iterator> Iterable for I {
+impl<I: Iterator> I: Iterable {
     type Item = I.Item
     @iter (self) -> I = self
 }
@@ -403,7 +403,7 @@ impl<I: Iterator> Iterable for I {
 ```ori
 type ListIterator<T> = { list: [T], front: int, back: int }
 
-impl<T> Iterator for ListIterator<T> {
+impl<T> ListIterator<T>: Iterator {
     type Item = T
     @next (self) -> (Option<T>, ListIterator<T>) =
         if self.front < self.back then
@@ -412,7 +412,7 @@ impl<T> Iterator for ListIterator<T> {
             (None, self)
 }
 
-impl<T> DoubleEndedIterator for ListIterator<T> {
+impl<T> ListIterator<T>: DoubleEndedIterator {
     @next_back (self) -> (Option<T>, ListIterator<T>) =
         if self.front < self.back then
             (Some(self.list[self.back - 1]), ListIterator { list: self.list, front: self.front, back: self.back - 1 })
@@ -422,7 +422,7 @@ impl<T> DoubleEndedIterator for ListIterator<T> {
 
 type RangeIterator<T> = { current: T, end: T, step: T }
 
-impl Iterator for RangeIterator<int> {
+impl RangeIterator<int>: Iterator {
     type Item = int
     @next (self) -> (Option<int>, RangeIterator<int>) =
         if (self.step > 0 && self.current < self.end) || (self.step < 0 && self.current > self.end) then
@@ -431,7 +431,7 @@ impl Iterator for RangeIterator<int> {
             (None, self)
 }
 
-impl DoubleEndedIterator for RangeIterator<int> {
+impl RangeIterator<int>: DoubleEndedIterator {
     @next_back (self) -> (Option<int>, RangeIterator<int>) = {
         let back_pos = if self.step > 0 then
             self.end - 1 - ((self.end - 1 - self.current) % self.step)
@@ -446,7 +446,7 @@ impl DoubleEndedIterator for RangeIterator<int> {
 
 type MapIterator<I: Iterator, U> = { source: I, transform: (I.Item) -> U }
 
-impl<I: Iterator, U> Iterator for MapIterator<I, U> {
+impl<I: Iterator, U> MapIterator<I, U>: Iterator {
     type Item = U
     @next (self) -> (Option<U>, MapIterator<I, U>) =
         match self.source.next() {
@@ -457,7 +457,7 @@ impl<I: Iterator, U> Iterator for MapIterator<I, U> {
         }
 }
 
-impl<I: DoubleEndedIterator, U> DoubleEndedIterator for MapIterator<I, U> {
+impl<I: DoubleEndedIterator, U> MapIterator<I, U>: DoubleEndedIterator {
     @next_back (self) -> (Option<U>, MapIterator<I, U>) =
         match self.source.next_back() {
             (Some(item), next_source) ->
@@ -469,7 +469,7 @@ impl<I: DoubleEndedIterator, U> DoubleEndedIterator for MapIterator<I, U> {
 
 type FilterIterator<I: Iterator> = { source: I, predicate: (I.Item) -> bool }
 
-impl<I: Iterator> Iterator for FilterIterator<I> {
+impl<I: Iterator> FilterIterator<I>: Iterator {
     type Item = I.Item
     @next (self) -> (Option<I.Item>, FilterIterator<I>) = {
         let source = self.source
@@ -486,7 +486,7 @@ impl<I: Iterator> Iterator for FilterIterator<I> {
     }
 }
 
-impl<I: DoubleEndedIterator> DoubleEndedIterator for FilterIterator<I> {
+impl<I: DoubleEndedIterator> FilterIterator<I>: DoubleEndedIterator {
     @next_back (self) -> (Option<I.Item>, FilterIterator<I>) = {
         let source = self.source
         loop {
@@ -504,7 +504,7 @@ impl<I: DoubleEndedIterator> DoubleEndedIterator for FilterIterator<I> {
 
 type RevIterator<I: DoubleEndedIterator> = { source: I }
 
-impl<I: DoubleEndedIterator> Iterator for RevIterator<I> {
+impl<I: DoubleEndedIterator> RevIterator<I>: Iterator {
     type Item = I.Item
     @next (self) -> (Option<I.Item>, RevIterator<I>) =
         match self.source.next_back() {
@@ -513,7 +513,7 @@ impl<I: DoubleEndedIterator> Iterator for RevIterator<I> {
         }
 }
 
-impl<I: DoubleEndedIterator> DoubleEndedIterator for RevIterator<I> {
+impl<I: DoubleEndedIterator> RevIterator<I>: DoubleEndedIterator {
     @next_back (self) -> (Option<I.Item>, RevIterator<I>) =
         match self.source.next() {
             (Some(item), next_source) -> (Some(item), RevIterator { source: next_source })
@@ -523,7 +523,7 @@ impl<I: DoubleEndedIterator> DoubleEndedIterator for RevIterator<I> {
 
 type CycleIterator<I: Iterator + Clone> = { original: I, current: I }
 
-impl<I: Iterator + Clone> Iterator for CycleIterator<I> {
+impl<I: Iterator + Clone> CycleIterator<I>: Iterator {
     type Item = I.Item
     @next (self) -> (Option<I.Item>, CycleIterator<I>) =
         match self.current.next() {
@@ -576,12 +576,12 @@ type TreeIterator<T> = {
     stack: [TreeNode<T>],
 }
 
-impl<T> Iterable for TreeNode<T> {
+impl<T> TreeNode<T>: Iterable {
     type Item = T
     @iter (self) -> TreeIterator<T> = TreeIterator { stack: [self] }
 }
 
-impl<T> Iterator for TreeIterator<T> {
+impl<T> TreeIterator<T>: Iterator {
     type Item = T
     @next (self) -> (Option<T>, TreeIterator<T>) =
         if is_empty(collection: self.stack) then
@@ -842,3 +842,9 @@ Update prelude traits list and add iterator documentation to the quick reference
 | Generators | Deferred to future proposal |
 
 This proposal formalizes iteration as a first-class concept in Ori, enabling generic programming over any iterable while maintaining Ori's simplicity, explicitness, and functional semantics.
+
+---
+
+## Errata (added 2026-03-05)
+
+> **Affected by [mutable-self-proposal](mutable-self-proposal.md)**: The "Why Functional `next()` Signature?" rationale (§ Design Rationale) states "Function parameters are immutable. To advance iterator state, `next()` returns both the optional value and the updated iterator." With mutable self approved, `self` is now a mutable binding in method bodies, which enables a simpler `@next (self) -> Option<Self.Item>` signature. The Iterator trait revision is tracked as a separate follow-up proposal; the current `(Option<Item>, Self)` signature remains until that proposal is approved.

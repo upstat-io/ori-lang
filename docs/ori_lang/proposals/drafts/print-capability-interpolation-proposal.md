@@ -92,7 +92,7 @@ Print.println(msg: "Hello")
 // Default: writes to stdout
 type StdoutPrint = {}
 
-impl Print for StdoutPrint {
+impl StdoutPrint: Print {
     @print (msg: str) -> void = // native stdout write
     @println (msg: str) -> void = // native stdout writeln
     @output () -> str = ""  // stdout doesn't capture
@@ -102,7 +102,7 @@ impl Print for StdoutPrint {
 // For testing/WASM: captures to buffer
 type BufferPrint = { buffer: mut str }
 
-impl Print for BufferPrint {
+impl BufferPrint: Print {
     @print (msg: str) -> void =
         self.buffer = self.buffer + msg
 

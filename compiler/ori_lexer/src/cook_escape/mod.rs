@@ -40,7 +40,7 @@ fn resolve_common_escape(c: char) -> Option<char> {
 /// from the start of `content` (the `u`) through the closing `}` inclusive.
 /// On error, returns `'\u{FFFD}'` (replacement character) and the number of
 /// bytes consumed greedily.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
@@ -175,7 +175,7 @@ fn parse_unicode_escape(
 ///
 /// Fast path: if no backslashes, returns `None` to signal the caller can
 /// intern the source slice directly.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
@@ -248,9 +248,16 @@ pub(crate) fn unescape_string_v2(
                 i += 1;
             }
         } else {
-            let ch = content[i..].chars().next().unwrap_or('\0');
-            result.push(ch);
-            i += ch.len_utf8();
+            // ASCII fast path: single byte, no chars() iterator needed
+            let b = bytes[i];
+            if b < 128 {
+                result.push(b as char);
+                i += 1;
+            } else {
+                let ch = content[i..].chars().next().unwrap_or('\0');
+                result.push(ch);
+                i += ch.len_utf8();
+            }
         }
     }
 
@@ -261,7 +268,7 @@ pub(crate) fn unescape_string_v2(
 ///
 /// Valid escapes per grammar line 127: `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
 /// `\"` is **not** valid in char literals.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
@@ -322,7 +329,7 @@ pub(crate) fn unescape_char_v2(
 ///
 /// Fast path: if no backslashes and no consecutive braces, returns `None`
 /// to signal the caller can intern the source slice directly.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
@@ -331,15 +338,19 @@ pub(crate) fn unescape_template_v2(
     base_offset: u32,
     errors: &mut Vec<LexError>,
 ) -> Option<String> {
-    // Fast path: check if any processing is needed
-    let needs_unescape = content.contains('\\');
-    let needs_brace_unescape = content.contains("{{") || content.contains("}}");
-    if !needs_unescape && !needs_brace_unescape {
+    // Fast path: single scan for backslash or consecutive braces ({{ / }}).
+    // Lone braces don't need processing (they're interpolation delimiters in
+    // real template segments), so we check adjacent pairs, not individual bytes.
+    let bytes = content.as_bytes();
+    let needs_processing = bytes.contains(&b'\\')
+        || bytes
+            .windows(2)
+            .any(|w| (w[0] == b'{' && w[1] == b'{') || (w[0] == b'}' && w[1] == b'}'));
+    if !needs_processing {
         return None;
     }
 
     let mut result = String::with_capacity(content.len());
-    let bytes = content.as_bytes();
     let mut i = 0;
 
     while i < bytes.len() {
@@ -401,10 +412,16 @@ pub(crate) fn unescape_template_v2(
             result.push('}');
             i += 2;
         } else {
-            // Regular character — figure out its UTF-8 length
-            let ch = content[i..].chars().next().unwrap_or('\0');
-            result.push(ch);
-            i += ch.len_utf8();
+            // ASCII fast path: single byte, no chars() iterator needed
+            let b2 = bytes[i];
+            if b2 < 128 {
+                result.push(b2 as char);
+                i += 1;
+            } else {
+                let ch = content[i..].chars().next().unwrap_or('\0');
+                result.push(ch);
+                i += ch.len_utf8();
+            }
         }
     }
 
