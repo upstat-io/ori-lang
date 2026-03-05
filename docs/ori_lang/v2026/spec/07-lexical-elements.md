@@ -106,7 +106,7 @@ as      break    continue  def     div     do      else    extend
 extension extern  false     for     if      impl    in      let
 loop    match    Never     pub     self    Self    suspend tests
 then    trait    true      type    unsafe  use     uses    void
-where   with     yield
+where   while    with      yield
 ```
 
 **Exception:** In _member position_ (after `.`), any keyword may be used as a field or method name. The `.` prefix provides unambiguous context, so `x.then(y)` is a method call, not part of an `if`/`then` expression. See [grammar.ebnf](grammar.md) § `member_name`.
