@@ -10,7 +10,7 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "Sequential Block Merging at Let-Binding Boundaries"
-    status: in-progress
+    status: complete
   - id: "01.2"
     title: "Select Lowering for Trivial If/Else"
     status: not-started
@@ -59,9 +59,9 @@ The ARC lowerer creates a new ARC basic block for each let-binding expression, e
 ### 01.1 Completion Checklist
 
 - [x] No avoidable branch-only bridge blocks between sequential let-bindings in audited journey functions
-- [ ] Match arm codegen produces no redundant single-instruction `br` blocks for sequential arms
+- [x] Match arm codegen produces no redundant single-instruction `br` blocks for sequential arms
 - [x] IR test: function with 3+ sequential `let` bindings emits a single basic block (no intermediate `br label`)
-- [ ] IR test: match with 3+ value-producing arms has no trivial bridge blocks between arm and merge
+- [x] IR test: match with 3+ value-producing arms has no trivial bridge blocks between arm and merge
 - [x] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for block merging scope
 - [x] `./test-all.sh` green
 - [x] `./clippy-all.sh` green

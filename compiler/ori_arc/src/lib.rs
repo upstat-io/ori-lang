@@ -43,6 +43,8 @@
 //!   → RC identity propagation (Project roots)
 //!   → RC elimination (dataflow-based)
 //!   → cross-block RC elimination
+//!   → block merge (post-lowering CFG simplification)
+//!   → drop hints (unique-collection drop optimization)
 //!   → FBIP enforcement (#fbip functions)
 //! ```
 //!
