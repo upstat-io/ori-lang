@@ -1,6 +1,6 @@
 use super::*;
 
-// === Operator mapping ===
+// Operator mapping
 
 #[test]
 fn direct_map_operators() {
@@ -71,7 +71,7 @@ fn compound_operators() {
     );
 }
 
-// === Identifiers and keywords ===
+// Identifiers and keywords
 
 #[test]
 fn identifier_interning() {
@@ -101,7 +101,7 @@ fn str_type_keyword() {
     assert_eq!(cooker.cook(RawTag::Ident, 0, 3).kind, TokenKind::StrType);
 }
 
-// === Numeric literals ===
+// Numeric literals
 
 #[test]
 fn integer_literal() {
@@ -169,7 +169,7 @@ fn integer_overflow() {
     assert_eq!(cooker.errors().len(), 1);
 }
 
-// === Float overflow (Finding 2) ===
+// Float overflow (Finding 2)
 
 #[test]
 fn float_overflow_is_error() {
@@ -193,7 +193,7 @@ fn float_max_finite_is_valid() {
     assert!(!result.had_error);
 }
 
-// === Malformed numeric literals (Finding 1) ===
+// Malformed numeric literals (Finding 1)
 
 #[test]
 fn hex_int_no_digits_is_error() {
@@ -226,7 +226,7 @@ fn hex_int_zero_is_valid() {
     assert_eq!(cooker.cook(RawTag::HexInt, 0, 3).kind, TokenKind::Int(0));
 }
 
-// === Duration/Size ===
+// Duration/Size
 
 #[test]
 fn duration_milliseconds() {
@@ -283,7 +283,7 @@ fn size_bytes() {
     );
 }
 
-// === Decimal duration/size (spec: compile-time sugar) ===
+// Decimal duration/size (spec: compile-time sugar)
 
 #[test]
 fn decimal_duration_seconds() {
@@ -397,7 +397,7 @@ fn decimal_size_bytes_error() {
     assert_eq!(cooker.errors().len(), 1);
 }
 
-// === String literals ===
+// String literals
 
 #[test]
 fn string_simple() {
@@ -423,7 +423,7 @@ fn string_with_escapes() {
     }
 }
 
-// === Char literals ===
+// Char literals
 
 #[test]
 fn char_simple() {
@@ -447,7 +447,7 @@ fn char_escape() {
     );
 }
 
-// === Error tokens ===
+// Error tokens
 
 #[test]
 fn error_tags_produce_error_kind() {
@@ -461,7 +461,7 @@ fn error_tags_produce_error_kind() {
     assert_eq!(cooker.errors().len(), 1);
 }
 
-// === Delimiter mapping ===
+// Delimiter mapping
 
 #[test]
 fn delimiters() {
@@ -518,7 +518,7 @@ fn hashbang_mapping() {
     assert!(cooker.errors().is_empty());
 }
 
-// === Duration/Size overflow (Finding 3) ===
+// Duration/Size overflow (Finding 3)
 
 #[test]
 fn duration_integer_overflow_is_error() {
@@ -600,7 +600,7 @@ fn decimal_size_overflow_is_error() {
     assert!(result.had_error);
 }
 
-// === Suffix detection ===
+// Suffix detection
 
 /// Verify every `DurationUnit` variant is covered by `detect_duration_suffix`.
 ///
@@ -667,7 +667,7 @@ fn size_suffix_detection() {
     assert_eq!(detect_size_suffix("1tb"), (2, SizeUnit::Terabytes));
 }
 
-// === Decimal unit value parsing ===
+// Decimal unit value parsing
 
 #[test]
 fn parse_decimal_unit_value_basic() {

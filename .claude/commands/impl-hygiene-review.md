@@ -1,7 +1,7 @@
 ---
 name: impl-hygiene-review
 description: Review implementation hygiene at phase boundaries — plumbing quality and file organization.
-allowed-tools: Read, Grep, Glob, Task, Bash, EnterPlanMode
+allowed-tools: Read, Grep, Glob, Agent, Bash, Skill
 ---
 
 # Implementation Hygiene Review
@@ -36,7 +36,13 @@ Review implementation hygiene against `.claude/rules/impl-hygiene.md` and genera
 
 ### Step 1: Load Rules
 
-Read `.claude/rules/impl-hygiene.md` and `.claude/rules/compiler.md` to have the full rule set in context.
+The full rule set is embedded below (source of truth files — do not maintain separate copies):
+
+**Hygiene Rules** (`.claude/rules/impl-hygiene.md`):
+@.claude/rules/impl-hygiene.md
+
+**Compiler Guidelines** (`.claude/rules/compiler.md`):
+@.claude/rules/compiler.md
 
 ### Step 2: Load Plan Context
 
@@ -65,24 +71,46 @@ Plan context does NOT suppress or deprioritize findings. Instead, it **annotates
 
 This ensures the review adds value by distinguishing "known debt being addressed" from "unknown debt needing attention."
 
-### Step 3: Map the Boundary
+### Step 3: Identify Review Targets
 
-Identify the phase boundary being reviewed:
+Determine the distinct crates or phase boundaries to review based on the target scope from Step 1:
+
+1. List the crates (directories) in scope
+2. Identify which phase boundaries exist between them (e.g., lexer→parser, parser→types)
+3. Group crates into **review units** — each review unit is either:
+   - A single crate (for internal review)
+   - A pair of crates sharing a boundary (for boundary review)
+   - Closely related crates that should be reviewed together
+
+Each review unit will be reviewed by a **separate Agent** in the next step.
+
+### Step 4: Review Each Target (Separate Agent Per Review Unit)
+
+For **each review unit** identified in Step 3, spawn a **separate Agent** (using the Agent tool). Each agent receives:
+
+1. **The full rule set** — both hygiene rules and compiler guidelines (from Step 1)
+2. **Plan context summary** — which plans are active and relevant (from Step 2)
+3. **The specific crate(s)/boundary** to review
+4. **The audit checklist** (below)
+
+Each agent performs the following work within its review unit:
+
+#### 4a. Map the Boundary
+
 1. What types cross the boundary? (tokens, AST nodes, IR types)
 2. What functions form the interface? (entry points, constructors, conversion functions)
 3. What data flows across? (source text, spans, errors, metadata)
 
-For each crate in the target, read `lib.rs` and the key interface files to understand the public API surface.
+Read `lib.rs` and key interface files to understand the public API surface.
 
-### Step 4: Trace Data Flow
+#### 4b. Trace Data Flow
 
-Follow the data from producer to consumer:
 1. **Read the producer's output types** — What does the upstream phase emit?
 2. **Read the consumer's input handling** — How does the downstream phase receive and process it?
 3. **Check the boundary types** — Are they minimal? Do they carry unnecessary baggage?
 4. **Check ownership** — Is data moved, borrowed, or cloned? Are clones necessary?
 
-### Step 5: Audit Each Rule Category
+#### 4c. Audit Each Rule Category
 
 **Phase Boundary Discipline:**
 - [ ] Data flows one way? (no callbacks to earlier phase, no reaching back)
@@ -137,45 +165,72 @@ Follow the data from producer to consumer:
 - [ ] Directory structure mirrors the logical phase/pass structure?
 - [ ] Files touched by these commits that were already over 500 lines — were they split?
 
-### Step 6: Compile Findings
+**Unsafe & FFI (for ori_llvm, ori_rt, oric):**
+- [ ] Every unsafe block has a `// SAFETY:` comment?
+- [ ] Unsafe scope minimized?
+- [ ] FFI exports use `ori_` prefix, `#[no_mangle]`, `extern "C"`?
+- [ ] C types use `std::ffi` (c_char, c_int), never raw primitives?
 
-Organize findings by boundary/interface, categorized as:
+**Naming, Comments, Visibility, Style:**
+- [ ] Phase-specific verb prefixes used? (cook_, parse_, check_, eval_, emit_)
+- [ ] Spec citations on non-obvious language semantics implementations?
+- [ ] No decorative banners, no commented-out code, no bare TODOs?
+- [ ] Functions < 100 lines? Nesting depth ≤ 4?
+- [ ] pub(crate)/pub(super) used appropriately? No dead pub items?
 
-- **LEAK** — Data or control flow crossing a boundary it shouldn't (phase bleeding, backward reference, swallowed error)
-- **DRIFT** — Registration data present in one location but missing from a parallel location that must stay in sync (e.g., enum variant added but `from_str()`/docs/mapping not updated)
-- **GAP** — Feature supported in one phase but blocked or missing in another, breaking end-to-end functionality (e.g., type checker handles `.0` but parser rejects it)
-- **WASTE** — Unnecessary allocation, clone, or transformation at boundary (extra copy, redundant conversion)
-- **EXPOSURE** — Internal state leaking through boundary types (parser state in AST, raw IDs without newtypes)
-- **BLOAT** — File exceeds 500-line production limit, mixes multiple responsibilities, or lacks submodule structure. Bloated files obscure internal boundaries and make drift/leak detection harder. Include: current line count, identified responsibilities, and concrete extraction targets.
-- **NOTE** — Observation, not actionable (acceptable tradeoff, documented exception)
+#### 4d. Return Findings
 
-### Step 7: Generate Plan
+Each agent must return its findings as a structured list using the categories from `.claude/rules/impl-hygiene.md` (LEAK, DRIFT, GAP, WASTE, EXPOSURE, BLOAT, NOTE) with their default severity levels. Every finding must include `file:line`, the boundary it violates, and a concrete fix.
 
-Use **EnterPlanMode** to create a fix plan. The plan should:
+**Parallelization:** Review agents for independent crates/boundaries should be spawned in parallel. Only serialize agents that share a boundary (e.g., if reviewing lexer→parser, don't also spawn a separate lexer-only and parser-only agent).
 
-1. List every LEAK, DRIFT, GAP, WASTE, EXPOSURE, and BLOAT finding with `file:line` references
-2. Group by boundary (e.g., "lexer→parser", "parser→types")
-3. Estimate scope: "N boundaries, ~M findings"
-4. Order: leaks first (phase bleeding), then drift (sync), then gaps (feature coverage), then bloat (file organization), then waste (perf), then exposure (type safety)
+### Step 5: Compile Findings
 
-### Plan Format
+Collect the findings returned by all review agents. Deduplicate any findings that overlap at shared boundaries. Organize findings by boundary/interface and present them to the user.
+
+### Step 6: Generate Plan (Separate Agent)
+
+Spawn a **separate Agent** to generate the fix plan. This agent should use `/create-plan` (via the **Skill** tool). Pass it:
+
+1. **All compiled findings** from Step 5
+2. **The plan name**: `hygiene-{target-short-name}` (e.g., `hygiene-ori-types`, `hygiene-lexer-parser`, `hygiene-last-commit`)
+
+The agent should create a plan that:
+
+1. Lists every LEAK, DRIFT, GAP, WASTE, EXPOSURE, and BLOAT finding with `file:line` references
+2. Groups by boundary (e.g., "lexer→parser", "parser→types")
+3. Estimates scope: "N boundaries, ~M findings"
+4. Orders: leaks first (phase bleeding), then drift (sync), then gaps (feature coverage), then bloat (file organization), then waste (perf), then exposure (type safety)
+
+The **final section** of the plan must be a cleanup step:
+
+```markdown
+## Cleanup
+
+- [ ] Run `./test-all.sh` to verify no behavior changes
+- [ ] Run `./clippy-all.sh` to verify no regressions
+- [ ] Delete this plan directory: `rm -rf plans/hygiene-{name}/`
+```
+
+Hygiene fix plans are disposable — they exist to track the fixes, then get deleted when complete.
+
+### Plan Section Format
+
+Each section groups findings by boundary:
 
 ```
-## Implementation Hygiene Review: {target}
+## {Boundary: Phase A → Phase B}
 
-**Scope:** N boundaries reviewed, ~M findings (X leak, Y drift, Z gap, W bloat, V waste, U exposure)
+**Interface types:** {list types crossing this boundary}
+**Entry points:** {list key functions}
 
 ### Active Plan Context
 
 {List each plan file read and its relevance. If a plan has a reroute/suspension, note it here.}
 - `plans/trait_arch/` — Active reroute: all roadmap work suspended until trait architecture refactor completes
-- `plans/roadmap/section-03-traits.md` — Recently modified, covers trait registration changes
 - (none) — if no plan files were found
 
-### {Boundary: Phase A → Phase B}
-
-**Interface types:** {list types crossing this boundary}
-**Entry points:** {list key functions}
+### Findings
 
 1. **[LEAK]** `file:line` — {description}
 2. **[DRIFT]** `file:line` — {description}
@@ -185,30 +240,15 @@ Use **EnterPlanMode** to create a fix plan. The plan should:
 4. **[GAP]** `file:line` — {description}
 5. **[WASTE]** `file:line` — {description}
 6. **[EXPOSURE]** `file:line` — {description}
-...
-
-### {Next Boundary}
-...
-
-### Execution Order
-
-1. Phase bleeding fixes (may require interface changes)
-2. Registration drift fixes (add missing mappings, centralize parallel lists)
-3. Gap fixes (unblock end-to-end feature paths)
-4. File organization fixes (split bloated files into submodules — pure refactor, no logic changes)
-5. Error propagation fixes (may add error variants)
-6. Ownership/allocation fixes (perf, no API change)
-7. Type discipline fixes (newtypes, generics)
-8. Run `./test-all.sh` to verify no behavior changes
-9. Run `./clippy-all.sh` to verify no regressions
 ```
 
 ## Important Rules
 
 1. **No architecture changes** — Don't propose new phases, new IRs, or restructured crate graphs
-2. **Full scope** — Phase boundaries, data flow, naming, comments, visibility, file organization, lint discipline, and code fixes are all in scope. Only new phases, IRs, or crate graph restructures are out of scope (that's architecture).
+2. **Full scope** — Phase boundaries, data flow, naming, comments, visibility, file organization, lint discipline, unsafe hygiene, and code fixes are all in scope. Only new phases, IRs, or crate graph restructures are out of scope (that's architecture).
 3. **Trace, don't grep** — Follow actual data flow through the code, don't just search for patterns
 4. **Read both sides** — Always read both the producer and consumer of a boundary
 5. **Understand before flagging** — Some apparent violations are intentional (e.g., lexer tracking nesting depth for nested comments is acceptable phase-local state, not phase bleeding)
 6. **Be specific** — Every finding must have `file:line`, the boundary it violates, and a concrete fix
 7. **Compare to reference compilers** — When in doubt, check how Rust/Zig/Go/Gleam handle the same boundary at `~/projects/reference_repos/lang_repos/`
+8. **Finding targets** — Scale with scope. Single boundary or single crate: **20**. Multi-crate or last N commits spanning multiple crates: **30**. Full project: **40**. Dig deep, read broadly, trace more paths. Do NOT fabricate, exaggerate, or inflate findings to hit the target — every finding must be real and verifiable. If the target area genuinely has fewer issues, report what you find honestly and note the shortfall.

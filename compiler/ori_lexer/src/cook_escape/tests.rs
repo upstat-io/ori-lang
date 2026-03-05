@@ -1,6 +1,6 @@
 use super::*;
 
-// === String escapes ===
+// String escapes
 
 #[test]
 fn string_no_escapes_fast_path() {
@@ -59,7 +59,7 @@ fn string_trailing_backslash() {
     assert_eq!(errors.len(), 1);
 }
 
-// === Char escapes ===
+// Char escapes
 
 #[test]
 fn char_simple() {
@@ -115,7 +115,7 @@ fn char_empty() {
     assert_eq!(unescape_char_v2("", 0, &mut errors), '\0');
 }
 
-// === Template escapes ===
+// Template escapes
 
 #[test]
 fn template_no_escapes_fast_path() {
@@ -174,7 +174,7 @@ fn template_trailing_single_brace() {
     assert!(errors.is_empty());
 }
 
-// === Unicode escape: char happy paths ===
+// Unicode escape: char happy paths
 
 #[test]
 fn char_unicode_escape_emoji() {
@@ -216,7 +216,7 @@ fn char_unicode_escape_lowercase_hex() {
     assert!(errors.is_empty());
 }
 
-// === Unicode escape: string happy paths ===
+// Unicode escape: string happy paths
 
 #[test]
 fn string_unicode_escape() {
@@ -250,7 +250,7 @@ fn string_multiple_unicode_escapes() {
     assert!(errors.is_empty());
 }
 
-// === Unicode escape: template happy paths ===
+// Unicode escape: template happy paths
 
 #[test]
 fn template_unicode_escape() {
@@ -268,7 +268,7 @@ fn template_unicode_escape_mixed() {
     assert!(errors.is_empty());
 }
 
-// === Unicode escape: error cases ===
+// Unicode escape: error cases
 
 #[test]
 fn char_unicode_escape_surrogate() {
@@ -414,7 +414,7 @@ fn template_unicode_escape_surrogate() {
     ));
 }
 
-// === Unicode escape: error spans ===
+// Unicode escape: error spans
 
 #[test]
 fn unicode_escape_span_in_string() {
