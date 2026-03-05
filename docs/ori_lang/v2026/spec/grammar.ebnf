@@ -56,9 +56,9 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 // --- Keywords ---
 // See: 07-lexical-elements.md § 7.3 Keywords
 //
-// Reserved (35): as, break, continue, def, div, do, else, extend, extension, extern,
+// Reserved (36): as, break, continue, def, div, do, else, extend, extension, extern,
 //           false, for, if, impl, in, let, loop, match, Never, pub, self, Self, suspend,
-//           tests, then, trait, true, type, unsafe, use, uses, void, where, with, yield
+//           tests, then, trait, true, type, unsafe, use, uses, void, where, while, with, yield
 // Reserved (future, 5): asm, inline, static, union, view
 // Context-sensitive (patterns, 9): cache, catch, handler, nursery, parallel, recurse, spawn,
 //           timeout, try
@@ -354,7 +354,7 @@ function_type = "(" [ type { "," type } ] ")" "->" type .
 // See: 09-expressions.md
 // ============================================================================
 
-expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | break_expr | continue_expr | unsafe_expr | block_expr | match_expr | try_expr | binary_expr .
+expression = with_expr | let_expr | if_expr | for_expr | while_expr | loop_expr | lambda | break_expr | continue_expr | unsafe_expr | block_expr | match_expr | try_expr | binary_expr .
 
 // --- Primary Expressions ---
 
@@ -503,6 +503,12 @@ for_clause     = "for" binding_pattern "in" expression [ "if" expression ] .
 // See: 09-expressions.md § Loop Expression, 19-control-flow.md § Labeled Loops
 
 loop_expr = "loop" [ label ] block_expr .
+
+// --- While Expression ---
+// See: 16-control-flow.md § While Loop
+// Desugars to: loop { if !condition then break; body }
+
+while_expr = "while" [ label ] expression "do" expression .
 
 // --- Labels ---
 // See: 19-control-flow.md § Labeled Loops
