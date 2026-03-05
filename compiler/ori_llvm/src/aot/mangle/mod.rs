@@ -24,7 +24,7 @@
 //! | `@main` in root | `_ori_main` |
 //! | `@add` in `math` | `_ori_math$add` |
 //! | `@process` in `data/utils` | `_ori_data$utils$process` |
-//! | `impl Eq for int` | `_ori_int$$Eq$equals` |
+//! | `impl int: Eq` | `_ori_int$$Eq$equals` |
 //! | `extend [int]` | `_ori_list_int_$$ext$count` |
 //!
 //! # Usage

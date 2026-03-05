@@ -83,7 +83,7 @@ trait Comparable {
 Types implementing `Comparable` can be ordered:
 
 ```ori
-impl Comparable for int {
+impl int: Comparable {
     @compare (self, other: int) -> Ordering =
         if self < other then Less
         else if self > other then Greater
@@ -232,7 +232,7 @@ Ordering.default()  // Equal
 #derive(Eq)
 type Point = { x: int, y: int }
 
-impl Comparable for Point {
+impl Point: Comparable {
     @compare (self, other: Point) -> Ordering =
         compare(left: self.x, right: other.x)
             .then(other: compare(left: self.y, right: other.y))
@@ -242,7 +242,7 @@ impl Comparable for Point {
 ### Multi-Field Comparison
 
 ```ori
-impl Comparable for Person {
+impl Person: Comparable {
     @compare (self, other: Person) -> Ordering =
         compare(left: self.last_name, right: other.last_name)
             .then_with(f: () -> compare(left: self.first_name, right: other.first_name))

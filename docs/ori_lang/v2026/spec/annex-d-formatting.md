@@ -605,11 +605,11 @@ trait Collection {
 Associated type assignments first, then methods in trait declaration order. Blank line between methods.
 
 ```ori
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = `({self.x}, {self.y})`;
 }
 
-impl Iterator for Range {
+impl Range: Iterator {
     type Item = int;
 
     @next (self) -> (Option<int>, Self) = {
@@ -619,7 +619,7 @@ impl Iterator for Range {
 }
 
 // Generic impl
-impl<T: Printable> Printable for [T] {
+impl<T: Printable> [T]: Printable {
     @to_str (self) -> str = {
         let $items = for item in self yield item.to_str();
 

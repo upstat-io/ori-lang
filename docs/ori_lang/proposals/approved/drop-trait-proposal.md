@@ -126,7 +126,7 @@ Collection elements are dropped in reverse order (back-to-front):
 Drop cannot perform async operations:
 
 ```ori
-impl Drop for Connection {
+impl Connection: Drop {
     @drop (self) -> void = {
         self.send_goodbye(),  // ERROR if async
         self.close()
@@ -145,7 +145,7 @@ impl Drop for Connection {
 Drop must return `void`:
 
 ```ori
-impl Drop for Resource {
+impl Resource: Drop {
     @drop (self) -> void = cleanup(self)  // OK
     @drop (self) -> bool = ...            // ERROR: must return void
 }
@@ -156,7 +156,7 @@ impl Drop for Resource {
 If drop panics during panic unwinding (double panic), the program aborts:
 
 ```ori
-impl Drop for Bad {
+impl Bad: Drop {
     @drop (self) -> void = panic(msg: "drop failed")  // Dangerous
 }
 
@@ -182,15 +182,15 @@ Most types don't need `Drop`:
 Types wrapping external resources typically implement Drop:
 
 ```ori
-impl Drop for FileHandle {
+impl FileHandle: Drop {
     @drop (self) -> void = close_file_descriptor(self.fd)
 }
 
-impl Drop for Connection {
+impl Connection: Drop {
     @drop (self) -> void = close_socket(self.socket)
 }
 
-impl Drop for Lock {
+impl Lock: Drop {
     @drop (self) -> void = release_lock(self.handle)
 }
 ```
@@ -272,7 +272,7 @@ Allows releasing resources early when no longer needed.
 ```ori
 type TempFile = { path: str }
 
-impl Drop for TempFile {
+impl TempFile: Drop {
     @drop (self) -> void = delete_file(self.path)
 }
 
@@ -288,7 +288,7 @@ impl Drop for TempFile {
 ```ori
 type TimedOperation = { name: str, start: Duration }
 
-impl Drop for TimedOperation {
+impl TimedOperation: Drop {
     @drop (self) -> void = {
         let elapsed = now() - self.start
         log(msg: `{self.name} took {elapsed}`)
@@ -307,7 +307,7 @@ impl Drop for TimedOperation {
 ```ori
 type RefCounted<T> = { value: T, id: int }
 
-impl<T> Drop for RefCounted<T> {
+impl<T> RefCounted<T>: Drop {
     @drop (self) -> void = log(msg: `RefCounted {self.id} dropped`)
 }
 ```
@@ -321,7 +321,7 @@ impl<T> Drop for RefCounted<T> {
 Drop should handle its own errors:
 
 ```ori
-impl Drop for Connection {
+impl Connection: Drop {
     @drop (self) -> void = match self.close() {
         Ok(_) -> ()
         Err(e) -> log(msg: `close failed: {e}`),  // Log, don't propagate

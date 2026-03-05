@@ -193,7 +193,7 @@ type Error = {
     // trace stored internally
 }
 
-impl Traceable for Error {
+impl Error: Traceable {
     @with_trace (self, entry: TraceEntry) -> Error = ...
     @trace (self) -> str = ...  // Formatted trace string
     @trace_entries (self) -> [TraceEntry] = ...

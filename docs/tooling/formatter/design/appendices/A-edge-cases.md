@@ -25,7 +25,7 @@ let empty_struct = Empty {}
 trait Marker {}
 
 // Empty impl
-impl Marker for Point {}
+impl Point: Marker {}
 ```
 
 ## Single-Element Collections

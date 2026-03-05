@@ -175,7 +175,7 @@ capset Http = Logger, Cache  // ERROR: `Http` already defined as a trait
 
 Because a capset is not a trait:
 
-- **No `impl`**: You cannot `impl SomeCapset for SomeType`
+- **No `impl`**: You cannot `impl SomeType: SomeCapset`
 - **No `def impl`**: You cannot `def impl SomeCapset { ... }`
 - **No `with` binding**: You cannot `with SomeCapset = expr in ...`
 - **No method calls**: You cannot `SomeCapset.method(...)`
@@ -624,7 +624,7 @@ A future proposal could introduce a way to bind all capabilities in a capset wit
 
 ```ori
 type ProdNet = { http: ProdHttp, dns: ProdDns, tls: ProdTls }
-impl Net for ProdNet { ... }  // Would require capsets to become trait-like
+impl ProdNet: Net { ... }  // Would require capsets to become trait-like
 
 with Net = ProdNet { ... } in ...
 ```

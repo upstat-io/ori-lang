@@ -324,7 +324,7 @@ This is identical to Swift's copy-on-write behavior for `Array`, `Dictionary`, a
 ### List: `[T]`
 
 ```ori
-impl<T> IndexSet<int, T> for [T] {
+impl<T> [T]: IndexSet<int, T> {
     @updated (self, key: int, value: T) -> [T] =
         if key < 0 || key >= self.len() then
             panic(msg: "index out of bounds: " + key.to_str())
@@ -339,7 +339,7 @@ impl<T> IndexSet<int, T> for [T] {
 ### Map: `{K: V}`
 
 ```ori
-impl<K: Eq + Hashable, V> IndexSet<K, V> for {K: V} {
+impl<K: Eq + Hashable, V> {K: V}: IndexSet<K, V> {
     @updated (self, key: K, value: V) -> {K: V} =
         // intrinsic: compiler-provided
         // Inserts or replaces the entry for key
@@ -364,7 +364,7 @@ Note: Map's `Index` returns `Option<V>`, but `IndexSet` takes a bare `V`. This a
 ### Fixed-Capacity List: `[T, max N]`
 
 ```ori
-impl<T, $N: int> IndexSet<int, T> for [T, max N] {
+impl<T, $N: int> [T, max N]: IndexSet<int, T> {
     @updated (self, key: int, value: T) -> [T, max N] =
         if key < 0 || key >= self.len() then
             panic(msg: "index out of bounds: " + key.to_str())

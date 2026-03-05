@@ -1332,7 +1332,7 @@ impl TypeCheckError {
 
     /// Create a "duplicate impl" error (E2010).
     ///
-    /// Emitted when `impl Trait for Type` is defined more than once.
+    /// Emitted when `impl Type: Trait` is defined more than once.
     pub fn duplicate_impl(span: Span, first_span: Span, trait_name: Name) -> Self {
         Self {
             span,

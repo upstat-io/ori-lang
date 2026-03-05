@@ -48,7 +48,7 @@ These are often different:
 type User = { id: int, name: str, password_hash: str, email: str }
 
 // For users: just the name
-impl Printable for User {
+impl User: Printable {
     @to_str (self) -> str = self.name
 }
 
@@ -120,47 +120,47 @@ Tree.Branch(left: Leaf(value: 1), right: Leaf(value: 2)).debug()
 All primitive and built-in types implement `Debug`:
 
 ```ori
-impl Debug for int   { @debug (self) -> str = self as str }
-impl Debug for float { @debug (self) -> str = self as str }
-impl Debug for bool  { @debug (self) -> str = if self then "true" else "false" }
-impl Debug for str   { @debug (self) -> str = "\"" + self.escape() + "\"" }
-impl Debug for char  { @debug (self) -> str = "'" + self.escape() + "'" }
-impl Debug for byte  { @debug (self) -> str = (self as int) as str }
-impl Debug for void  { @debug (self) -> str = "()" }
+impl int: Debug   { @debug (self) -> str = self as str }
+impl float: Debug { @debug (self) -> str = self as str }
+impl bool: Debug  { @debug (self) -> str = if self then "true" else "false" }
+impl str: Debug   { @debug (self) -> str = "\"" + self.escape() + "\"" }
+impl char: Debug  { @debug (self) -> str = "'" + self.escape() + "'" }
+impl byte: Debug  { @debug (self) -> str = (self as int) as str }
+impl void: Debug  { @debug (self) -> str = "()" }
 
-impl<T: Debug> Debug for [T] {
+impl<T: Debug> [T]: Debug {
     @debug (self) -> str = "[" + self.iter()
         .map(transform: x -> x.debug())
         .join(sep: ", ") + "]"
 }
 
-impl<K: Debug, V: Debug> Debug for {K: V} {
+impl<K: Debug, V: Debug> {K: V}: Debug {
     @debug (self) -> str = "{" + self.iter()
         .map(transform: (k, v) -> k.debug() + ": " + v.debug())
         .join(sep: ", ") + "}"
 }
 
-impl<T: Debug> Debug for Set<T> {
+impl<T: Debug> Set<T>: Debug {
     @debug (self) -> str = "Set {" + self.iter()
         .map(transform: x -> x.debug())
         .join(sep: ", ") + "}"
 }
 
-impl<T: Debug> Debug for Option<T> {
+impl<T: Debug> Option<T>: Debug {
     @debug (self) -> str = match self {
         Some(v) -> "Some(" + v.debug() + ")"
         None -> "None"
     }
 }
 
-impl<T: Debug, E: Debug> Debug for Result<T, E> {
+impl<T: Debug, E: Debug> Result<T, E>: Debug {
     @debug (self) -> str = match self {
         Ok(v) -> "Ok(" + v.debug() + ")"
         Err(e) -> "Err(" + e.debug() + ")"
     }
 }
 
-impl<A: Debug, B: Debug> Debug for (A, B) {
+impl<A: Debug, B: Debug> (A, B): Debug {
     @debug (self) -> str = "(" + self.0.debug() + ", " + self.1.debug() + ")"
 }
 // ... extends to all tuple arities
@@ -186,13 +186,13 @@ Types can implement `Debug` manually for custom formatting:
 ```ori
 type SecretKey = { value: [byte] }
 
-impl Debug for SecretKey {
+impl SecretKey: Debug {
     @debug (self) -> str = "SecretKey { value: [REDACTED] }"
 }
 
 type LargeBuffer = { data: [byte] }
 
-impl Debug for LargeBuffer {
+impl LargeBuffer: Debug {
     @debug (self) -> str =
         "LargeBuffer { len: " + (self.data.len() as str) + " }"
 }
@@ -206,7 +206,7 @@ The two traits are independent:
 type User = { id: int, name: str, email: str }
 
 #[derive(Debug)]  // Auto-generate debug representation
-impl Printable for User {
+impl User: Printable {
     @to_str (self) -> str = self.name  // Custom user-facing output
 }
 

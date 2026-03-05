@@ -131,7 +131,7 @@ trait Drop {
 ```ori
 type FileHandle = { fd: int }
 
-impl Drop for FileHandle {
+impl FileHandle: Drop {
     @drop (self) -> void = close_fd(self.fd)
 }
 ```
@@ -222,7 +222,7 @@ trait From<T> {
 **Purpose:** Convert from another type.
 
 ```ori
-impl From<int> for str {
+impl str: From<int> {
     @from (value: int) -> str = int_to_string(value)
 }
 
@@ -247,7 +247,7 @@ trait Into<T> {
 **Automatic:** If `From<A>` is implemented for `B`, then `Into<B>` is automatic for `A`.
 
 ```ori
-// Given: impl From<int> for str
+// Given: impl str: From<int>
 n = 42
 // Inferred: into str
 s = n.into()
@@ -267,7 +267,7 @@ trait TryFrom<T> {
 **Purpose:** Conversion that might fail.
 
 ```ori
-impl TryFrom<str> for int {
+impl int: TryFrom<str> {
     type Error = ParseError
     @try_from (text: str) -> Result<int, ParseError> = parse_int(text)
 }
@@ -307,7 +307,7 @@ trait Iterable {
 **Purpose:** Enable iteration over elements.
 
 ```ori
-impl Iterable for [T] {
+impl [T]: Iterable {
     type Item = T
     @iter (self) -> Iterator<T> = ...
 }
@@ -350,7 +350,7 @@ trait Indexable<I> {
 **Operator:** `x[i]`
 
 ```ori
-impl Indexable<int> for [T] {
+impl [T]: Indexable<int> {
     type Output = T
     @get (self, index: int) -> Option<T> = ...
 }
@@ -372,7 +372,7 @@ trait Sized {
 **Purpose:** Get the number of elements.
 
 ```ori
-impl Sized for [T] {
+impl [T]: Sized {
     @size (self) -> int = list_length(self)
 }
 
@@ -393,7 +393,7 @@ trait Empty {
 **Purpose:** Check if collection has no elements.
 
 ```ori
-impl Empty for [T] {
+impl [T]: Empty {
     @is_empty (self) -> bool = self.size() == 0
 }
 ```
@@ -510,7 +510,7 @@ trait Add<Rhs = Self> {
 **Operator:** `+`
 
 ```ori
-impl Add for Point {
+impl Point: Add {
     type Output = Point
     @add (self, rhs: Point) -> Point =
         Point { x: self.x + rhs.x, y: self.y + rhs.y }

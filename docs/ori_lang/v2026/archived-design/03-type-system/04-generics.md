@@ -249,7 +249,7 @@ trait Iterator {
     @next (self) -> Option<Self.Item>
 }
 
-impl Iterator for Range {
+impl Range: Iterator {
     type Item = int
 
     @next (self) -> Option<int> = ...

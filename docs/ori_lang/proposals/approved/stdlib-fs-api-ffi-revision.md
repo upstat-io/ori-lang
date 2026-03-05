@@ -663,7 +663,7 @@ impl FileReader {
 // Line iterator wraps FileReader
 type FileLineIterator = { reader: FileReader, buffer: str, eof: bool }
 
-impl Iterator for FileLineIterator {
+impl FileLineIterator: Iterator {
     type Item = str
 
     @next (self) -> (Option<str>, FileLineIterator) =

@@ -252,7 +252,7 @@ If a destructor panics while already unwinding from another panic (double panic)
 Destructors cannot be async:
 
 ```ori
-impl Drop for Resource {
+impl Resource: Drop {
     @drop (self) -> void uses Suspend = ...;  // ERROR: drop cannot be async
 }
 ```
@@ -264,7 +264,7 @@ impl AsyncResource {
     @close (self) -> void uses Suspend = ...;  // Explicit async cleanup
 }
 
-impl Drop for AsyncResource {
+impl AsyncResource: Drop {
     @drop (self) -> void = ();  // Synchronous no-op
 }
 ```

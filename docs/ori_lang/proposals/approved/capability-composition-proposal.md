@@ -313,7 +313,7 @@ trait Http {
 
 type MockHttp = { responses: {str: Response} }
 
-impl Http for MockHttp {
+impl MockHttp: Http {
     @get (url: str) -> Result<Response, Error> uses Suspend =
         Ok(self.responses[url])
     // ...
@@ -439,10 +439,10 @@ def impl Logger { @info (message: str) -> void = print(msg: message) }
 
 // Production implementations (no def impl — must be explicitly provided)
 type ProdDatabase = { connection: Connection }
-impl Database for ProdDatabase { ... }
+impl ProdDatabase: Database { ... }
 
 type ProdHttp = { client: HttpClient }
-impl Http for ProdHttp { ... }
+impl ProdHttp: Http { ... }
 
 // Application code
 @fetch_and_store (url: str) -> Result<void, Error> uses Http, Database, Logger =

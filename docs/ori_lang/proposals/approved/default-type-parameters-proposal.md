@@ -18,12 +18,12 @@ Without default type parameters, every impl must specify all type arguments:
 
 ```ori
 // Today: verbose
-impl Add<Vector2> for Vector2 { ... }
-impl Eq<Vector2> for Vector2 { ... }
+impl Vector2: Add<Vector2> { ... }
+impl Vector2: Eq<Vector2> { ... }
 
 // Goal: concise when types match
-impl Add for Vector2 { ... }  // Rhs defaults to Self = Vector2
-impl Eq for Vector2 { ... }   // Rhs defaults to Self = Vector2
+impl Vector2: Add { ... }  // Rhs defaults to Self = Vector2
+impl Vector2: Eq { ... }   // Rhs defaults to Self = Vector2
 ```
 
 This is especially important for operator traits where the common case is operating on the same type.
@@ -58,12 +58,12 @@ trait Example<T = int, U = T> {
 }
 
 // These are equivalent:
-impl Example for Foo { ... }
-impl Example<int, int> for Foo { ... }
+impl Foo: Example { ... }
+impl Foo: Example<int, int> { ... }
 
 // Partial specification:
-impl Example<str> for Bar { ... }  // U defaults to T = str
-impl Example<str, str> for Bar { ... }  // equivalent
+impl Bar: Example<str> { ... }  // U defaults to T = str
+impl Bar: Example<str, str> { ... }  // equivalent
 ```
 
 Ordering constraint example:
@@ -83,10 +83,10 @@ trait Invalid<T = int, U> { ... }  // Error: non-default parameter after default
 ```ori
 trait Add<Rhs = Self> { ... }
 
-impl Add for Point { ... }
+impl Point: Add { ... }
 // Rhs = Self = Point
 
-impl Add for Vector2 { ... }
+impl Vector2: Add { ... }
 // Rhs = Self = Vector2
 ```
 
@@ -111,13 +111,13 @@ trait Transform<Input = Self, Output = Input> {
     @transform (self, input: Input) -> Output
 }
 
-impl Transform for Parser { ... }
+impl Parser: Transform { ... }
 // Input = Self = Parser, Output = Input = Parser
 
-impl Transform<str> for Parser { ... }
+impl Parser: Transform<str> { ... }
 // Input = str, Output = Input = str
 
-impl Transform<str, Ast> for Parser { ... }
+impl Parser: Transform<str, Ast> { ... }
 // Input = str, Output = Ast
 ```
 
@@ -126,7 +126,7 @@ impl Transform<str, Ast> for Parser { ... }
 ### Type Checker Changes
 
 1. Parse default type in `type_param` grammar rule
-2. When checking `impl Trait for Type`:
+2. When checking `impl Type: Trait`:
    - Count provided type arguments
    - Fill missing arguments with defaults
    - Substitute `Self` with implementing type
@@ -139,16 +139,16 @@ trait Add<Rhs = Self> {
     @add (self, rhs: Rhs) -> Self
 }
 
-impl Add for Point {
+impl Point: Add {
     @add (self, rhs: Point) -> Self = ...
 }
 ```
 
 Resolution steps:
-1. `impl Add for Point` - no type args provided
+1. `impl Point: Add` - no type args provided
 2. Trait has 1 type param with default `Self`
 3. Substitute `Self` → `Point`
-4. Result: `impl Add<Point> for Point`
+4. Result: `impl Point: Add<Point>`
 
 ## Alternatives Considered
 
@@ -156,7 +156,7 @@ Resolution steps:
 
 Require all type parameters to be specified.
 
-**Rejected:** Too verbose for common cases like `impl Add for MyType`.
+**Rejected:** Too verbose for common cases like `impl MyType: Add`.
 
 ### Inference Instead of Defaults
 
