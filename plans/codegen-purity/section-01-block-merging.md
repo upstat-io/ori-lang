@@ -10,7 +10,7 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "Sequential Block Merging at Let-Binding Boundaries"
-    status: not-started
+    status: in-progress
   - id: "01.2"
     title: "Select Lowering for Trivial If/Else"
     status: not-started
@@ -24,7 +24,7 @@ sections:
 
 # Section 01: Block Merging & CFG Simplification
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Every basic block in emitted LLVM IR has a reason to exist. Required entry/exit/unwind blocks are allowed, but avoidable bridge blocks are not. No trivial `br label %next` between sequential let-bindings. No 4-block diamonds for `select`-eligible if/else expressions.
 
 **Context:** This is the most pervasive structural finding across the journey set. Redundant unconditional branches were confirmed in J1, J2, J5, J6, J7, J8, and J12, and similar trivial bridge patterns also appear in targeted functions from later journeys. The current ARC-to-LLVM lowering path often materializes extra blocks even when no control-flow divergence exists. This inflates IR size and makes IR-level debugging harder.
@@ -50,22 +50,22 @@ sections:
 
 The ARC lowerer creates a new ARC basic block for each let-binding expression, even when no control flow divergence occurs. The LLVM emitter then faithfully creates one LLVM block per ARC block (1:1 via `block_map`). The fix should either prevent creating these blocks in the lowerer, merge them in a post-lowering pass, or skip them during LLVM emission.
 
-- [ ] Implement using approach (b): post-lowering ARC block merge pass
-- [ ] Trace the ARC lowerer to identify where blocks are created for sequential operations (let-bindings, assignments, drops) — look for `new_block()` or `push_block()` patterns in `ori_arc/src/lower/`
-- [ ] Choose approach: (a) avoid creation in lowerer, (b) post-lowering merge pass, or (c) emitter-level skip — **chose (c): emitter-level block_map aliasing — REVERTED (see below)**
+- [x] Implement using approach (b): post-lowering ARC block merge pass
+- [x] Trace the ARC lowerer to identify where blocks are created for sequential operations (let-bindings, assignments, drops) — look for `new_block()` or `push_block()` patterns in `ori_arc/src/lower/`
+- [x] Choose approach: (a) avoid creation in lowerer, (b) post-lowering merge pass, or (c) emitter-level skip — **chose (b): post-lowering ARC block merge pass** (approach (c) was attempted and reverted — see below)
 
 **Approach (c) reverted:** Emitter-level block_map aliasing is fundamentally incompatible with instructions that create internal LLVM basic blocks. `RcInc`/`RcDec` on fat pointers (strings, lists) emit inline SSO/null-check conditionals that create internal blocks (`rc_inc.sso_skip`, `rc_dec.heap`, etc.) and move the LLVM builder away from the original block. When the merged block's instructions are emitted into the aliased LLVM block, they appear after a terminator mid-block, and the self-loop detection (`current_block == target`) fails because the builder is at an internal block, not the aliased entry. This caused 113 AOT test failures. The correct approach is (b): merge trivial blocks in the ARC IR before LLVM emission, so the emitter sees a single block with all instructions inline.
 
 ### 01.1 Completion Checklist
 
-- [ ] No avoidable branch-only bridge blocks between sequential let-bindings in audited journey functions
+- [x] No avoidable branch-only bridge blocks between sequential let-bindings in audited journey functions
 - [ ] Match arm codegen produces no redundant single-instruction `br` blocks for sequential arms
-- [ ] IR test: function with 3+ sequential `let` bindings emits a single basic block (no intermediate `br label`)
+- [x] IR test: function with 3+ sequential `let` bindings emits a single basic block (no intermediate `br label`)
 - [ ] IR test: match with 3+ value-producing arms has no trivial bridge blocks between arm and merge
-- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for block merging scope
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for block merging scope
+- [x] `./test-all.sh` green
+- [x] `./clippy-all.sh` green
+- [x] No regressions in `cargo test -p ori_llvm`
 
 ---
 
