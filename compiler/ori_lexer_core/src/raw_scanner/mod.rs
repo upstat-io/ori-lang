@@ -351,7 +351,7 @@ impl Iterator for RawScanner<'_> {
 /// `true` for a-z, A-Z, 0-9, and underscore.
 /// Table lookup replaces the multi-range `matches!` with a single indexed read.
 /// The sentinel byte (0x00) maps to `false`, naturally terminating loops.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "loop counter i is 0..=255, always fits in u8"
 )]
@@ -393,9 +393,5 @@ pub fn tokenize(source: &str) -> Vec<RawToken> {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    reason = "test assertions use unwrap/expect for clarity"
-)]
+#[expect(clippy::expect_used, reason = "test assertions use expect for clarity")]
 mod tests;

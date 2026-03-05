@@ -277,13 +277,13 @@ The following traits are also recognized in trait bounds:
   - [x] **LLVM Support**: LLVM codegen — type-qualified method dispatch (`_ori_Type$method` mangling)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — inherent impl (3 tests: method, params, field access), impl_method_field_access (1 test) [done] (2026-02-13)
 
-- [x] **Implement**: Trait impl `impl Trait for Type { ... }` — spec/08-declarations.md § Trait Implementations [done] (2026-02-10)
+- [x] **Implement**: Trait impl `impl Type: Trait { ... }` — spec/08-declarations.md § Trait Implementations [done] (2026-02-10)
   - [x] **Write test**: `tests/spec/traits/declaration.ori` (Widget.greet(), Widget.describe(), Widget.summarize())
   - [x] **Run test**: All pass
   - [x] **LLVM Support**: LLVM codegen — trait method dispatch (`_ori_Type$$Trait$method` mangling)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — trait impl (2 tests: single method, multiple methods) [done] (2026-02-13)
 
-- [x] **Implement**: Generic impl `impl<T: Bound> Trait for Container<T>` — spec/08-declarations.md § Generic Implementations [done] (2026-02-10)
+- [x] **Implement**: Generic impl `impl<T: Bound> Container<T>: Trait` — spec/08-declarations.md § Generic Implementations [done] (2026-02-10)
   - [x] **Rust Tests**: Parser tests in `ori_parse/src/grammar/item.rs`
   - [x] **Ori Tests**: `tests/spec/traits/generic_impl.ori` — 4 tests (inherent + trait impls on generic types, all pass)
   - **Note**: Added `parse_impl_type()` to handle `Box<T>` syntax in impl blocks. Also added
@@ -762,7 +762,7 @@ Specifies rules for resolving trait implementation conflicts: diamond problem, c
   - [ ] **Rust Tests**: orphan rule tests
   - [ ] **Ori Tests**: `tests/compile-fail/orphan_impl.ori`
 
-- [ ] **Implement**: Blanket impl restrictions — orphan rules for `impl<T> Trait for T`  <!-- blocked-by:4 -->
+- [ ] **Implement**: Blanket impl restrictions — orphan rules for `impl<T> T: Trait`  <!-- blocked-by:4 -->
   - [ ] **Rust Tests**: blanket impl tests
   - [ ] **Ori Tests**: `tests/compile-fail/orphan_blanket.ori`
 
@@ -1431,7 +1431,7 @@ Allow type parameters on traits to have default values, enabling `trait Add<Rhs 
 
 - [x] **Implement**: Fill missing type arguments with defaults in impl checking [done] (2026-02-10)
   - [x] **Rust Tests**: `resolve_trait_type_args()` in `trait_registration.rs`
-  - [x] **Ori Tests**: `tests/spec/traits/default_type_params.ori` — `impl Addable for Point` omits Rhs, uses Self default
+  - [x] **Ori Tests**: `tests/spec/traits/default_type_params.ori` — `impl Point: Addable` omits Rhs, uses Self default
 
 - [x] **Implement**: Substitute `Self` with implementing type in defaults [done] (2026-02-10)
   - [x] **Rust Tests**: `resolve_parsed_type_with_self_substitution()` in `trait_registration.rs`
@@ -1600,31 +1600,36 @@ Add `@` as a binary operator for matrix multiplication at multiplicative precede
 
 ---
 
-## 3.22 `with` Syntax for Bounds (Capability Unification)
+## 3.22 Bound Syntax — ELIMINATED (Capability Unification)
 
-**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 2
+**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 2 (eliminated)
 
-Replace `:` with `with` in all trait bound positions: generic parameters, where clauses, supertrait declarations, and impl block bounds. This gives Ori a consistent keyword vocabulary for structural capabilities.
+**Status:** This section is **no longer needed**. The 2026-03-04 addendum to the capability-unification-generics-proposal decided to retain `:` for all bound positions (generic parameters, where clauses, supertrait declarations, impl block bounds). No parser changes, no test migration, no spec updates for bound syntax. Only the `#derive` → `:` trait clause on type declarations is a new syntax change (tracked in Section 5).
+
+---
+
+## 3.23 Impl Colon Syntax
+
+**Proposal**: `proposals/approved/impl-colon-syntax-proposal.md`
+
+Replace `impl Trait for Type` with `impl Type: Trait` — subject-first ordering, completes `:` = "conforms to" unification across all five conformance positions.
 
 ### Implementation
 
-- [ ] **Implement**: Parser — change `parse_generic_param()` bound delimiter from `:` to `with`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — generic param `with` bound tests
-  - [ ] **Ori Tests**: `tests/spec/traits/bounds/with_syntax.ori`
-- [ ] **Implement**: Parser — change `parse_where_clause()` from `T: Bounds` to `T with Bounds`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — where clause `with` bound tests
-  - [ ] **Ori Tests**: `tests/spec/traits/bounds/where_with.ori`
-- [ ] **Implement**: Parser — change `parse_trait_def()` supertrait syntax from `: Bounds` to `with Bounds`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — supertrait `with` tests
-  - [ ] **Ori Tests**: `tests/spec/traits/bounds/supertrait_with.ori`
-- [ ] **Implement**: Migration error for old `:` bound syntax (suggests `with`)
-  - [ ] **Ori Tests**: `tests/compile-fail/old_colon_bound_syntax.ori`
-- [ ] **Migration**: Update all spec tests from `T: Trait` to `T with Trait`
-- [ ] **Migration**: Update all spec tests from `where T: Trait` to `where T with Trait`
-- [ ] **Migration**: Update all spec tests from `trait Foo: Bar` to `trait Foo with Bar`
-- [ ] **Migration**: Update all spec tests from `impl<T: Trait>` to `impl<T with Trait>`
-- [ ] **Update Spec**: `grammar.ebnf` — `type_param`, `where_clause`, `trait_def` productions
-- [ ] **Update Spec**: All bound examples across spec files
-- [ ] **Update**: `.claude/rules/ori-syntax.md` — bound syntax
-- [ ] **LLVM Support**: Verify LLVM tests compile with new syntax
-- [ ] **Verify**: `./test-all.sh` passes after migration
+- [ ] **Implement**: Parser change — `impl Type: Trait` replaces `impl Trait for Type`
+  - [ ] Update `ori_parse/src/grammar/item/impl_def/mod.rs` — parse type first, then `:` + trait
+  - [ ] Update parser tests in `impl_def/tests.rs`
+  - [ ] **Rust Tests**: Parser unit tests for new syntax
+  - [ ] **Ori Tests**: Migrate all `.ori` test files from `impl Trait for Type` to `impl Type: Trait` (~34 files, ~111 occurrences — deferred until parser supports new syntax)
+
+- [ ] **Implement**: Error recovery — detect old `impl Trait for Type` syntax and suggest fix
+  - [ ] **Rust Tests**: Recovery test for old syntax
+
+- [ ] **Migrate**: Update all `.ori` test/spec files to new syntax
+  - [ ] `tests/spec/traits/` — 30 files
+  - [ ] `tests/compile-fail/` — 3 files
+  - [ ] `tests/fmt/declarations/impls/` — 1 file
+
+- [ ] **Verify**: All spec tests pass with new parser
+  - [ ] `cargo st` — full spec test suite
+  - [ ] `cargo t` — full Rust test suite

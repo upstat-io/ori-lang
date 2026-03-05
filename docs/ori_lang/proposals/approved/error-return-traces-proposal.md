@@ -140,7 +140,7 @@ trait Error {
 }
 
 // The prelude Error struct implements the Error trait
-impl Error for Error {
+impl Error: Error {
     @message (self) -> str = self.message
 }
 ```
@@ -270,7 +270,7 @@ trait Into<T> {
 Standard implementations:
 
 ```ori
-impl Into<Error> for str {
+impl str: Into<Error> {
     @into (self) -> Error = Error { message: self, source: None }
 }
 ```

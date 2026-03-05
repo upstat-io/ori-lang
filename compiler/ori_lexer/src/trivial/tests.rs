@@ -131,106 +131,48 @@ fn non_trivial_returns_none() {
 
 /// Verify the trivial count matches expectations by counting all known
 /// `RawTag` variants that return `Some`.
+///
+/// Uses `RawTag::ALL` as the single source of truth for variant enumeration.
+/// If a new variant is added to `ori_lexer_core` without updating the trivial
+/// mapping here, this test will catch the drift.
 #[test]
 fn trivial_count() {
-    // All defined RawTag variants — test each one
-    let all_raw_tags = [
-        // Identifiers & Literals
-        RawTag::Ident,
-        RawTag::Int,
-        RawTag::Float,
-        RawTag::HexInt,
-        RawTag::String,
-        RawTag::Char,
-        RawTag::Duration,
-        RawTag::Size,
-        RawTag::BinInt,
-        // Template literals
-        RawTag::TemplateHead,
-        RawTag::TemplateMiddle,
-        RawTag::TemplateTail,
-        RawTag::TemplateComplete,
-        RawTag::FormatSpec,
-        // Single operators
-        RawTag::Plus,
-        RawTag::Minus,
-        RawTag::Star,
-        RawTag::Slash,
-        RawTag::Percent,
-        RawTag::Caret,
-        RawTag::Ampersand,
-        RawTag::Pipe,
-        RawTag::Tilde,
-        RawTag::Bang,
-        RawTag::Equal,
-        RawTag::Less,
-        RawTag::Greater,
-        RawTag::Dot,
-        RawTag::Question,
-        // Compound operators
-        RawTag::EqualEqual,
-        RawTag::BangEqual,
-        RawTag::LessEqual,
-        RawTag::AmpersandAmpersand,
-        RawTag::PipePipe,
-        RawTag::Arrow,
-        RawTag::FatArrow,
-        RawTag::DotDot,
-        RawTag::DotDotEqual,
-        RawTag::DotDotDot,
-        RawTag::ColonColon,
-        RawTag::Shl,
-        RawTag::QuestionQuestion,
-        // Compound assignment
-        RawTag::PlusEq,
-        RawTag::MinusEq,
-        RawTag::StarEq,
-        RawTag::SlashEq,
-        RawTag::PercentEq,
-        RawTag::AtEq,
-        RawTag::AmpersandEq,
-        RawTag::PipeEq,
-        RawTag::CaretEq,
-        RawTag::ShlEq,
-        RawTag::AmpersandAmpersandEq,
-        RawTag::PipePipeEq,
-        // Delimiters
-        RawTag::LeftParen,
-        RawTag::RightParen,
-        RawTag::LeftBracket,
-        RawTag::RightBracket,
-        RawTag::LeftBrace,
-        RawTag::RightBrace,
-        RawTag::Comma,
-        RawTag::Colon,
-        RawTag::Semicolon,
-        RawTag::At,
-        RawTag::Hash,
-        RawTag::Underscore,
-        RawTag::Backslash,
-        RawTag::Dollar,
-        RawTag::HashBracket,
-        RawTag::HashBang,
-        // Trivia
-        RawTag::Whitespace,
-        RawTag::Newline,
-        RawTag::LineComment,
-        // Errors
-        RawTag::InvalidByte,
-        RawTag::UnterminatedString,
-        RawTag::UnterminatedChar,
-        RawTag::InvalidEscape,
-        RawTag::UnterminatedTemplate,
-        RawTag::InteriorNull,
-        // Control
-        RawTag::Eof,
-    ];
-
-    let count = all_raw_tags
+    let count = RawTag::ALL
         .iter()
         .filter(|&&raw| try_trivial(raw).is_some())
         .count();
     assert_eq!(count, 54, "expected 54 trivial entries");
+}
+
+/// Drift guard: every `RawTag` variant with a fixed `lexeme()` (operators and
+/// delimiters) must be routed through `try_trivial()` — UNLESS it's explicitly
+/// excluded for semantic reasons (e.g. `Semicolon` needs error emission,
+/// `Backslash` needs error cooking, `Newline` is handled by the driver).
+///
+/// If a new operator/delimiter variant is added to `RawTag` but not to
+/// `try_trivial()`, this test will fail, forcing an explicit routing decision.
+#[test]
+fn fixed_lexeme_variants_are_routed() {
+    // Variants with a fixed lexeme that are explicitly NOT in try_trivial().
+    // Each exclusion must have a documented reason.
+    let excluded_from_trivial: &[RawTag] = &[
+        RawTag::Semicolon, // needs error emission (semicolons are invalid Ori syntax)
+        RawTag::Backslash, // needs error cooking (standalone backslash)
+        RawTag::Newline,   // handled by driver loop (significant for statement separation)
+    ];
+
+    for &tag in &RawTag::ALL {
+        let has_fixed_lexeme = tag.lexeme().is_some();
+        let is_trivial = try_trivial(tag).is_some();
+        let is_excluded = excluded_from_trivial.contains(&tag);
+
+        assert!(
+            !(has_fixed_lexeme && !is_trivial && !is_excluded),
+            "{tag:?} has a fixed lexeme but is not in try_trivial() \
+             and not in the explicit exclusion list. Either add it to \
+             try_trivial() or add it to excluded_from_trivial with a reason."
+        );
+    }
 }
 
 /// Verify `TokenKind::At` is included as trivial (it IS a declaration start,

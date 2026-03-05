@@ -116,7 +116,7 @@ For complete `#derive` semantics including field constraints, generic types, and
 type Point = { x: int, y: int }
 
 // Generated: lexicographic comparison by field declaration order
-impl Comparable for Point {
+impl Point: Comparable {
     @compare (self, other: Point) -> Ordering =
         compare(left: self.x, right: other.x)
             .then(other: compare(left: self.y, right: other.y))
@@ -211,7 +211,7 @@ let set: Set<Point> = Set.new()  // Point must be Eq + Hashable
 type Point = { x: int, y: int }
 
 // Generated: combine field hashes
-impl Hashable for Point {
+impl Point: Hashable {
     @hash (self) -> int = {
         let h = 0
         h = hash_combine(seed: h, value: self.x.hash())

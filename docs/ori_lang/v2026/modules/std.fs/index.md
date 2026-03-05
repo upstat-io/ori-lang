@@ -59,7 +59,7 @@ type MockFileSystem = {
     files: {str: str},
 }
 
-impl FileSystem for MockFileSystem {
+impl MockFileSystem: FileSystem {
     @read (path: str) -> Result<str, FileError> =
         match self.files.get(path) {
             Some(content) -> Ok(content)

@@ -245,12 +245,12 @@ trait Iterable {
 Each implementor provides its own concrete type. The caller sees `impl Iterator` and can only use Iterator methods:
 
 ```ori
-impl Iterable for [T] {
+impl [T]: Iterable {
     type Item = T
     @iter (self) -> impl Iterator where Item == T = ListIterator { ... }
 }
 
-impl Iterable for Range<int> {
+impl Range<int>: Iterable {
     type Item = int
     @iter (self) -> impl Iterator where Item == int = RangeIterator { ... }
 }

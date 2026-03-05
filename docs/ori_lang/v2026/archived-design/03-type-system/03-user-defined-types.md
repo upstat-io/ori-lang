@@ -392,14 +392,14 @@ trait Widget {
 
 // Library provides some implementations
 type Button = { label: str, on_click: () -> void }
-impl Widget for Button { ... }
+impl Button: Widget { ... }
 
 type Slider = { value: float, range: (float, float) }
-impl Widget for Slider { ... }
+impl Slider: Widget { ... }
 
 // Users can add their own
 type MyCustomGraph = { data: [Point] }
-impl Widget for MyCustomGraph { ... }
+impl MyCustomGraph: Widget { ... }
 ```
 
 **Decision guide:**

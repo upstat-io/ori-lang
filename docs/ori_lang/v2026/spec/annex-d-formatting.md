@@ -116,7 +116,7 @@ Consecutive blank lines are collapsed to a single blank line. Trailing whitespac
 | Labels `:` | No space around | `loop:outer`, `break:label` |
 | Type conversion `as`/`as?` | Space around | `42 as float`, `"42" as? int` |
 | Visibility `pub` | Space after | `pub @add`, `pub type` |
-| Generic bounds `with` | Space around | `T with Clone` |
+| Generic bounds `:` | Space around | `T: Clone` |
 | Multi-trait `+` | Space around | `Printable + Debug` |
 | Default type params `=` | Space around | `<Rhs = Self>` |
 | Default param values `=` | Space around | `port: int = 8080` |
@@ -264,17 +264,17 @@ The return type stays on the `)` line. The body breaks to the next line if the f
 
 ### Generic Parameters
 
-Inline if the declaration fits. One per line otherwise. Uses `T with Trait` syntax for bounds.
+Inline if the declaration fits. One per line otherwise. Uses `T: Trait` syntax for bounds.
 
 ```ori
 // Inline
 @identity<T> (x: T) -> T = x;
-@sort<T with Comparable> (items: [T]) -> [T] = { ... }
+@sort<T: Comparable> (items: [T]) -> [T] = { ... }
 
 // Broken — one per line
 @complex<
-    T with Comparable,
-    U with Hashable,
+    T: Comparable,
+    U: Hashable,
     $N: int,
     $M: int,
 > (items: [T], keys: [U]) -> [[T]]
@@ -291,12 +291,12 @@ Inline if the declaration fits. Otherwise, `where` on a new indented line with c
 
 ```ori
 // Inline
-@sort<T> (items: [T]) -> [T] where T with Comparable = { ... }
+@sort<T> (items: [T]) -> [T] where T: Comparable = { ... }
 
 // Broken — where on new line
 @process<T, U> (items: [T], f: (T) -> U) -> [U]
-    where T with Clone + Debug,
-          U with Default + Printable
+    where T: Clone + Debug,
+          U: Default + Printable
 = { ... }
 ```
 
@@ -323,8 +323,8 @@ Inline if the declaration fits. Otherwise, each contract on its own indented lin
 @clamp (n: int, lo: int, hi: int) -> int pre(lo <= hi) = { ... }
 
 // Broken — each on own line
-@process<T with Comparable> (items: [T]) -> [T]
-    where T with Clone
+@process<T: Comparable> (items: [T]) -> [T]
+    where T: Clone
     uses FileSystem
     pre(!items.is_empty() | "items must not be empty")
     post(r -> r.len() <= items.len())
@@ -457,10 +457,10 @@ type User = {
 `where` clause appears before `=`. When `where` is present and breaks, `=` goes on its own line.
 
 ```ori
-type Wrapper<T with Clone> = { value: T };
+type Wrapper<T: Clone> = { value: T };
 
 type SortedMap<K, V>
-    where K with Comparable + Hashable
+    where K: Comparable + Hashable
 = {
     keys: [K],
     values: [V],
@@ -605,11 +605,11 @@ trait Collection {
 Associated type assignments first, then methods in trait declaration order. Blank line between methods.
 
 ```ori
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = `({self.x}, {self.y})`;
 }
 
-impl Iterator for Range {
+impl Range: Iterator {
     type Item = int;
 
     @next (self) -> (Option<int>, Self) = {
@@ -619,7 +619,7 @@ impl Iterator for Range {
 }
 
 // Generic impl
-impl<T with Printable> Printable for [T] {
+impl<T: Printable> [T]: Printable {
     @to_str (self) -> str = {
         let $items = for item in self yield item.to_str();
 
@@ -655,7 +655,7 @@ pub extend str {
     @lines (self) -> [str] = self.split(separator: "\n");
 }
 
-extend<T with Printable> [T] {
+extend<T: Printable> [T] {
     @join_str (self, separator: str) -> str = {
         for item in self yield item.to_str()
     }

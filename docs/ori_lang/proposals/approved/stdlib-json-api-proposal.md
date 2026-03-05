@@ -248,7 +248,7 @@ type User = {
 }
 
 // Generates:
-impl Json for User {
+impl User: Json {
     @to_json (self) -> JsonValue = JsonValue.Object({
         "name": JsonValue.String(self.name),
         "age": JsonValue.Number(float(self.age)),
@@ -396,12 +396,12 @@ impl JsonParser {
     @new (source: str) -> JsonParser
 }
 
-impl Iterator for JsonParser {
+impl JsonParser: Iterator {
     type Item = JsonEvent
     @next (self) -> (Option<JsonEvent>, JsonParser)
 }
 
-impl Iterable for JsonParser {
+impl JsonParser: Iterable {
     type Item = JsonEvent
     @iter (self) -> JsonParser = self
 }

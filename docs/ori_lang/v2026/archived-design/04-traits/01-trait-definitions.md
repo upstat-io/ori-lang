@@ -45,7 +45,7 @@ trait Printable {
     @to_string (self) -> str
 }
 
-impl Printable for User {
+impl User: Printable {
     // self refers to the User instance
     @to_string (self) -> str = self.name + " <" + self.email + ">"
 }
@@ -61,7 +61,7 @@ trait Clone {
     @clone (self) -> Self
 }
 
-impl Clone for Point {
+impl Point: Clone {
     // Self is Point when implementing for Point
     @clone (self) -> Self = Point { x: self.x, y: self.y }
 }
@@ -100,7 +100,7 @@ trait Default {
     @default () -> Self
 }
 
-impl Default for Point {
+impl Point: Default {
     @default () -> Self = Point { x: 0, y: 0 }
 }
 ```
@@ -123,7 +123,7 @@ trait Eq {
 Implementors get `not_equals` for free:
 
 ```ori
-impl Eq for Point {
+impl Point: Eq {
     @equals (self, other: Self) -> bool =
         self.x == other.x && self.y == other.y
     // not_equals is automatically available
@@ -133,7 +133,7 @@ impl Eq for Point {
 ### Override Defaults
 
 ```ori
-impl Eq for SpecialType {
+impl SpecialType: Eq {
     @equals (self, other: Self) -> bool = ...
 
     // Can override the default if needed
@@ -185,11 +185,11 @@ trait Comparable: Eq {
 To implement `Comparable`, you must also implement `Eq`:
 
 ```ori
-impl Eq for User {
+impl User: Eq {
     @equals (self, other: Self) -> bool = self.id == other.id
 }
 
-impl Comparable for User {
+impl User: Comparable {
     @compare (self, other: Self) -> Ordering = compare(self.id, other.id)
 }
 ```
@@ -221,14 +221,14 @@ trait Iterator {
 ### Implementing with Associated Types
 
 ```ori
-impl Iterator for Range {
+impl Range: Iterator {
     type Item = int
 
     @next (self) -> Option<int> = ...
     @has_next (self) -> bool = ...
 }
 
-impl Iterator for StringChars {
+impl StringChars: Iterator {
     type Item = str
 
     @next (self) -> Option<str> = ...

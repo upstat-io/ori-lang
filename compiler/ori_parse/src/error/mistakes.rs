@@ -86,7 +86,7 @@ pub fn check_common_keyword_mistake(text: &str) -> Option<(&'static str, &'stati
         )),
         "implements" => Some((
             "implements keyword",
-            "In Ori, use `impl Trait for Type { ... }` to implement a trait for a type.",
+            "In Ori, use `impl Type: Trait { ... }` to implement a trait for a type.",
         )),
         "interface" => Some((
             "interface keyword",

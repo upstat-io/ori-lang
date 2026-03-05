@@ -8,7 +8,7 @@
 
 ## Errata (added 2026-02-20)
 
-> **Partially superseded by capability-unification-generics-proposal**: The `#derive(Trait)` syntax described in this proposal is replaced by `type T with Trait = { ... }` syntax. Derivation rules, field constraints, error codes, and the set of 7 derivable traits remain valid. Only the syntax for declaring derivation changes.
+> **Partially superseded by capability-unification-generics-proposal**: The `#derive(Trait)` syntax described in this proposal is replaced by `type T: Trait = { ... }` syntax (`:` trait clause on type declarations). Derivation rules, field constraints, error codes, and the set of 7 derivable traits remain valid. Only the syntax for declaring derivation changes.
 
 ---
 
@@ -68,7 +68,7 @@ Field-wise equality comparison:
 type Point = { x: int, y: int }
 
 // Generated:
-impl Eq for Point {
+impl Point: Eq {
     @equals (self, other: Point) -> bool =
         self.x == other.x && self.y == other.y
 }
@@ -81,7 +81,7 @@ For sum types:
 type Status = Pending | Running(progress: int) | Done
 
 // Generated:
-impl Eq for Status {
+impl Status: Eq {
     @equals (self, other: Status) -> bool = match (self, other) {
         (Pending, Pending) -> true
         (Running(a), Running(b)) -> a == b
@@ -100,7 +100,7 @@ Combined hash from all fields:
 type Point = { x: int, y: int }
 
 // Generated:
-impl Hashable for Point {
+impl Point: Hashable {
     @hash (self) -> int = {
         let h = 0
         h = hash_combine(seed: h, value: self.x.hash())
@@ -121,7 +121,7 @@ Lexicographic field comparison (declaration order):
 type Point = { x: int, y: int }
 
 // Generated:
-impl Comparable for Point {
+impl Point: Comparable {
     @compare (self, other: Point) -> Ordering = match compare(left: self.x, right: other.x) {
         Equal -> compare(left: self.y, right: other.y)
         result -> result
@@ -147,7 +147,7 @@ Field-wise cloning:
 type Config = { host: str, port: int, options: Options }
 
 // Generated:
-impl Clone for Config {
+impl Config: Clone {
     @clone (self) -> Config = Config {
         host: self.host.clone(),
         port: self.port.clone(),
@@ -165,7 +165,7 @@ Field-wise default construction:
 type Config = { host: str, port: int, debug: bool }
 
 // Generated:
-impl Default for Config {
+impl Config: Default {
     @default () -> Config = Config {
         host: str.default(),    // ""
         port: int.default(),    // 0
@@ -185,7 +185,7 @@ Structural representation with type name:
 type Point = { x: int, y: int }
 
 // Generated:
-impl Debug for Point {
+impl Point: Debug {
     @debug (self) -> str = `Point \{ x: {self.x.debug()}, y: {self.y.debug()} \}`
 }
 
@@ -201,7 +201,7 @@ Human-readable representation with type name:
 type Point = { x: int, y: int }
 
 // Generated:
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = `Point({self.x}, {self.y})`
 }
 
@@ -309,7 +309,7 @@ Some traits cannot be derived:
 
 ```ori
 // Iterator cannot be derived
-impl Iterator for MyIter {
+impl MyIter: Iterator {
     type Item = int
     @next (self) -> (Option<int>, Self) = ...  // Custom logic
 }

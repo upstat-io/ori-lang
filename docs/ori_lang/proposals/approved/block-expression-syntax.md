@@ -274,7 +274,7 @@ trait Drawable {
     @color (self) -> str = "black";    // default method (expression body) — ;
 }
 
-impl Drawable for Point {
+impl Point: Drawable {
     @draw (self) -> void = print(msg: `({self.x}, {self.y})`);
 }
 ```

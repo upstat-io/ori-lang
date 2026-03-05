@@ -176,7 +176,7 @@ Implement traits with custom behavior:
 ```ori
 type Email = str
 
-impl Printable for Email {
+impl Email: Printable {
     @to_str (self) -> str = `<{self.inner}>`  // Custom format
 }
 ```

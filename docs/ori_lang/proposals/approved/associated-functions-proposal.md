@@ -120,7 +120,7 @@ trait Default {
     @default () -> Self
 }
 
-impl Default for Point {
+impl Point: Default {
     @default () -> Self = Point { x: 0, y: 0 }
 }
 ```

@@ -153,7 +153,7 @@ type RealHttp = {
     timeout: Duration
 }
 
-impl Http for RealHttp {
+impl RealHttp: Http {
     @get (url: str) -> Result<Response, Error> =
         // Actual HTTP call implementation
         native_http_get(
@@ -193,7 +193,7 @@ type MockHttp = {
     errors: {str: Error}
 }
 
-impl Http for MockHttp {
+impl MockHttp: Http {
     @get (url: str) -> Result<Response, Error> =
         match(
             self.errors.get(
@@ -328,7 +328,7 @@ type LoggingHttp = {
     logger: dyn Logger
 }
 
-impl Http for LoggingHttp {
+impl LoggingHttp: Http {
     @get (url: str) -> Result<Response, Error> = run(
         self.logger.info(
             .message: "GET " + url,
@@ -438,7 +438,7 @@ type MockClock = {
     fixed_time: Timestamp
 }
 
-impl Clock for MockClock {
+impl MockClock: Clock {
     @now () -> Timestamp = self.fixed_time
 }
 
@@ -474,7 +474,7 @@ error[E0500]: trait `Http` is not implemented for type `MyType`
 10 |     with Http = MyType {} in
    |                 ^^^^^^ `MyType` does not implement `Http`
    |
-   = help: add `impl Http for MyType { ... }`
+   = help: add `impl MyType: Http { ... }`
 ```
 
 ### Incomplete Implementation
@@ -483,7 +483,7 @@ error[E0500]: trait `Http` is not implemented for type `MyType`
 error[E0501]: missing method in impl
   --> src/main.ori:15:1
    |
-15 | impl Http for MockHttp {
+15 | impl MockHttp: Http {
    | ^^^^^^^^^^^^^^^^^^^^^^ missing method `delete`
    |
    = note: trait `Http` requires method `@delete (url: str) -> Result<void, Error>`

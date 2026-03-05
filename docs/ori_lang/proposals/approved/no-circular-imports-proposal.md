@@ -199,7 +199,7 @@ trait Renderable {
 
 // scene.ori
 use './renderer' { Renderable, render }
-impl Renderable for Scene { ... }
+impl Scene: Renderable { ... }
 @preview (self: Scene) -> Image = render(self)
 ```
 

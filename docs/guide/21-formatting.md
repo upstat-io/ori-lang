@@ -394,7 +394,7 @@ let $TIMEOUT = 30s;
 ### Between Trait/Impl Methods
 
 ```ori
-impl Displayable for Point {
+impl Point: Displayable {
     @display (self) -> str = `({self.x}, {self.y})`;
 
     @format (self, spec: FormatSpec) -> str = ...;
@@ -464,11 +464,11 @@ trait Container {
 ### Implementations
 
 ```ori
-impl Displayable for Point {
+impl Point: Displayable {
     @display (self) -> str = `({self.x}, {self.y})`;
 }
 
-impl<T: Displayable> Displayable for [T] {
+impl<T: Displayable> [T]: Displayable {
     @display (self) -> str = {
         let items = self.iter().map(transform: x -> x.display()).collect();
         `[{items.join(sep: ", ")}]`

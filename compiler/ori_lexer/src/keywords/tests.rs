@@ -1,6 +1,102 @@
 use super::*;
 
-// === Reserved keyword tests ===
+// Keyword sync
+
+// All reserved keywords: (text, TokenKind).
+// Single source of truth for keyword sync tests.
+// When adding a new keyword, add it here AND in lookup() AND in keyword_str().
+const ALL_RESERVED_KEYWORDS: &[(&str, TokenKind)] = &[
+    // Uppercase sorts before lowercase in Rust's byte ordering
+    ("Err", TokenKind::Err),
+    ("Never", TokenKind::NeverType),
+    ("None", TokenKind::None),
+    ("Ok", TokenKind::Ok),
+    ("Self", TokenKind::SelfUpper),
+    ("Some", TokenKind::Some),
+    ("as", TokenKind::As),
+    ("bool", TokenKind::BoolType),
+    ("break", TokenKind::Break),
+    ("by", TokenKind::By),
+    ("byte", TokenKind::ByteType),
+    ("char", TokenKind::CharType),
+    ("continue", TokenKind::Continue),
+    ("def", TokenKind::Def),
+    ("div", TokenKind::Div),
+    ("do", TokenKind::Do),
+    ("dyn", TokenKind::Dyn),
+    ("else", TokenKind::Else),
+    ("extend", TokenKind::Extend),
+    ("extension", TokenKind::Extension),
+    ("extern", TokenKind::Extern),
+    ("false", TokenKind::False),
+    ("float", TokenKind::FloatType),
+    ("for", TokenKind::For),
+    ("if", TokenKind::If),
+    ("impl", TokenKind::Impl),
+    ("in", TokenKind::In),
+    ("int", TokenKind::IntType),
+    ("let", TokenKind::Let),
+    ("loop", TokenKind::Loop),
+    ("match", TokenKind::Match),
+    ("panic", TokenKind::Panic),
+    ("print", TokenKind::Print),
+    ("pub", TokenKind::Pub),
+    ("return", TokenKind::Return),
+    ("run", TokenKind::Run),
+    ("self", TokenKind::SelfLower),
+    ("skip", TokenKind::Skip),
+    ("str", TokenKind::StrType),
+    ("suspend", TokenKind::Suspend),
+    ("tests", TokenKind::Tests),
+    ("then", TokenKind::Then),
+    ("todo", TokenKind::Todo),
+    ("trait", TokenKind::Trait),
+    ("true", TokenKind::True),
+    ("try", TokenKind::Try),
+    ("type", TokenKind::Type),
+    ("unreachable", TokenKind::Unreachable),
+    ("unsafe", TokenKind::Unsafe),
+    ("use", TokenKind::Use),
+    ("uses", TokenKind::Uses),
+    ("void", TokenKind::Void),
+    ("where", TokenKind::Where),
+    ("with", TokenKind::With),
+    ("yield", TokenKind::Yield),
+];
+
+#[test]
+fn keyword_table_matches_keyword_str() {
+    // Forward: every keyword in the lexer lookup table must have a matching keyword_str()
+    for &(text, ref expected_kind) in ALL_RESERVED_KEYWORDS {
+        let got = lookup(text);
+        assert_eq!(
+            got.as_ref(),
+            Some(expected_kind),
+            "lookup({text:?}) returned {got:?}, expected Some({expected_kind:?})"
+        );
+        let round_trip = expected_kind.keyword_str();
+        assert_eq!(
+            round_trip,
+            Some(text),
+            "{expected_kind:?}.keyword_str() returned {round_trip:?}, expected Some({text:?})"
+        );
+    }
+}
+
+#[test]
+fn keyword_table_is_sorted() {
+    // Enforce alphabetical ordering of ALL_RESERVED_KEYWORDS for maintainability
+    for pair in ALL_RESERVED_KEYWORDS.windows(2) {
+        assert!(
+            pair[0].0 < pair[1].0,
+            "ALL_RESERVED_KEYWORDS out of order: {:?} should come before {:?}",
+            pair[1].0,
+            pair[0].0,
+        );
+    }
+}
+
+// Reserved keyword tests
 
 #[test]
 fn control_flow_keywords() {
@@ -92,7 +188,7 @@ fn misc_keywords() {
     assert_eq!(lookup("extern"), Some(TokenKind::Extern));
 }
 
-// === Soft keywords are NOT in the reserved table ===
+// Soft keywords are NOT in the reserved table
 
 #[test]
 fn soft_keywords_not_in_reserved_table() {
@@ -104,7 +200,7 @@ fn soft_keywords_not_in_reserved_table() {
     assert_eq!(lookup("timeout"), None);
 }
 
-// === Soft keyword lookup tests ===
+// Soft keyword lookup tests
 
 #[test]
 fn soft_keyword_with_lparen() {
@@ -183,7 +279,7 @@ fn soft_keyword_non_keyword_text() {
     assert_eq!(soft_keyword_lookup("if", b"(x)"), None);
 }
 
-// === Edge cases ===
+// Edge cases
 
 #[test]
 fn non_keywords_return_none() {
@@ -243,7 +339,7 @@ fn non_alpha_start_rejection() {
     assert_eq!(lookup("1let"), None);
 }
 
-// === has_lparen_lookahead edge cases ===
+// has_lparen_lookahead edge cases
 
 #[test]
 fn lparen_lookahead_empty_rest() {
@@ -266,7 +362,7 @@ fn lparen_lookahead_stops_at_non_whitespace() {
     assert!(!has_lparen_lookahead(b"// comment\n("));
 }
 
-// === Reserved-future keyword tests ===
+// Reserved-future keyword tests
 
 #[test]
 fn reserved_future_keywords_detected() {
@@ -285,7 +381,7 @@ fn non_reserved_future_returns_none() {
     assert_eq!(reserved_future_lookup("Static"), None); // case-sensitive
 }
 
-// === Pre-filter tests ===
+// Pre-filter tests
 
 #[test]
 fn could_be_soft_keyword_accepts_all_soft_keywords() {

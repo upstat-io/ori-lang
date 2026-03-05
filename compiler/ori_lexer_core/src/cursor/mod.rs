@@ -126,7 +126,7 @@ impl<'a> Cursor<'a> {
     /// and on valid UTF-8 character boundaries. This is guaranteed when
     /// `start` and `end` come from the scanner's token boundary tracking,
     /// since the source was originally valid UTF-8 (`&str`).
-    #[allow(
+    #[expect(
         unsafe_code,
         reason = "from_utf8_unchecked on source originally validated as &str"
     )]
@@ -201,7 +201,7 @@ impl<'a> Cursor<'a> {
     /// Used by the comment scanner to skip comment bodies.
     /// Scans only within source content (not into sentinel/padding).
     /// If no newline found, positions cursor at EOF sentinel.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "remaining.len() <= source_len which fits in u32"
     )]
@@ -220,7 +220,7 @@ impl<'a> Cursor<'a> {
     /// "Interesting" bytes for strings: `"`, `\`, `\n`, `\r`.
     /// Uses memchr3 for SIMD-accelerated search of the 3 most common
     /// delimiters (`"`, `\`, `\n`), with a secondary check for `\r`.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "remaining.len() <= source_len which fits in u32"
     )]
@@ -249,7 +249,7 @@ impl<'a> Cursor<'a> {
     /// Template delimiters: `` ` ``, `{`, `}`, `\`, `\n`, `\r`.
     /// Uses memchr3 for the 3 most common (`` ` ``, `{`, `\`),
     /// with secondary search for `}`, `\n`, `\r`.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "remaining.len() <= source_len which fits in u32"
     )]
@@ -350,12 +350,12 @@ fn scalar_count_whitespace(buf: &[u8]) -> usize {
 /// guard for the SWAR loop.
 #[cfg_attr(
     not(test),
-    allow(
+    expect(
         dead_code,
         reason = "reference impl kept for property testing against scalar version"
     )
 )]
-#[allow(
+#[expect(
     unsafe_code,
     reason = "unaligned u64 reads required for SWAR byte-parallel processing"
 )]

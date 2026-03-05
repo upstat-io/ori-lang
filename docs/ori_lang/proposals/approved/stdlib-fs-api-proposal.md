@@ -153,7 +153,7 @@ impl FileReader {
     @close (self) -> void uses FileSystem
 }
 
-impl Iterable for FileReader {
+impl FileReader: Iterable {
     type Item = str
     @iter (self) -> FileLineIterator
 }

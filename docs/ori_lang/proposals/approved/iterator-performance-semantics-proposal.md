@@ -162,7 +162,7 @@ Iterators must track exhaustion state. Simplest implementation:
 ```ori
 type ListIterator<T> = { list: [T], front: int, back: int }
 
-impl<T> Iterator for ListIterator<T> {
+impl<T> ListIterator<T>: Iterator {
     @next (self) -> (Option<T>, ListIterator<T>) =
         if self.front >= self.back then
             (None, self)  // Returns same state, None forever

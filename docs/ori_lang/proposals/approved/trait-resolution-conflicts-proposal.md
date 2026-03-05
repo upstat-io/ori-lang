@@ -42,7 +42,7 @@ trait D: B + C { }  // D inherits A through both B and C
 **Single Implementation**: A type implementing `D` provides ONE implementation of `A.method`. There is no duplication or conflict because traits define interface, not implementation.
 
 ```ori
-impl D for MyType {
+impl MyType: D {
     @method (self) -> int = 42  // Single implementation satisfies A via B and C
 }
 ```
@@ -57,13 +57,13 @@ trait B: A { @method (self) -> int = 1 }
 trait C: A { @method (self) -> int = 2 }
 trait D: B + C { }
 
-impl D for MyType { }  // ERROR: ambiguous default for @method
+impl MyType: D { }  // ERROR: ambiguous default for @method
 ```
 
 **Resolution**: The implementing type MUST provide an explicit implementation when defaults conflict.
 
 ```ori
-impl D for MyType {
+impl MyType: D {
     @method (self) -> int = 3  // Explicit implementation resolves ambiguity
 }
 ```
@@ -74,11 +74,11 @@ impl D for MyType {
 
 ### Definition
 
-**Coherence** ensures that for any type `T` and trait `Trait`, there is at most one implementation of `Trait for T` visible in any compilation unit.
+**Coherence** ensures that for any type `T` and trait `Trait`, there is at most one implementation of `T: Trait` visible in any compilation unit.
 
 ### Orphan Rules
 
-An implementation `impl Trait for Type` is allowed only if **at least one** of these is true:
+An implementation `impl Type: Trait` is allowed only if **at least one** of these is true:
 
 1. `Trait` is defined in the current module
 2. `Type` is defined in the current module
@@ -89,26 +89,26 @@ An implementation `impl Trait for Type` is allowed only if **at least one** of t
 
 // OK: Type is local
 type MyType = { ... }
-impl ExternalTrait for MyType { }
+impl MyType: ExternalTrait { }
 
 // OK: Trait is local
 trait MyTrait { ... }
-impl MyTrait for ExternalType { }
+impl ExternalType: MyTrait { }
 
 // ERROR: Both trait and type are external (orphan)
-impl std.Display for std.Vec { }  // Error: orphan implementation
+impl std.Vec: std.Display { }  // Error: orphan implementation
 ```
 
 ### Blanket Implementations
 
-Blanket implementations (`impl<T> Trait for T where ...`) follow the same rules:
+Blanket implementations (`impl<T> T: Trait where ...`) follow the same rules:
 
 ```ori
 // OK in std library: both Printable and From<T> are std traits
-impl<T: Printable> From<T> for str { }
+impl<T: Printable> str: From<T> { }
 
 // ERROR in user code: cannot add blanket impl for external trait
-impl<T> ExternalTrait for T { }  // Error: orphan blanket
+impl<T> T: ExternalTrait { }  // Error: orphan blanket
 ```
 
 ### Rationale
@@ -139,7 +139,7 @@ impl Foo {
 }
 
 trait Bar { @method (self) -> int }
-impl Bar for Foo {
+impl Foo: Bar {
     @method (self) -> int = 2  // Priority 3: trait (if Bar in scope)
 }
 
@@ -159,8 +159,8 @@ If multiple traits provide the same method and none are inherent:
 trait A { @method (self) -> int }
 trait B { @method (self) -> int }
 
-impl A for Foo { @method (self) -> int = 1 }
-impl B for Foo { @method (self) -> int = 2 }
+impl Foo: A { @method (self) -> int = 1 }
+impl Foo: B { @method (self) -> int = 2 }
 
 let x: Foo = ...
 x.method()  // ERROR: ambiguous method call
@@ -196,7 +196,7 @@ trait Child: Parent {
 The same syntax works when overriding in `impl`:
 
 ```ori
-impl Parent for MyType {
+impl MyType: Parent {
     @method (self) -> int = Parent.method(self) * 2
 }
 ```
@@ -297,9 +297,9 @@ Without qualification, `C.Item` is ambiguous when multiple traits define `Item`.
 When multiple impls could apply, more specific wins:
 
 ```ori
-impl<T> Trait for T { }          // Generic blanket
-impl<T: Clone> Trait for T { }   // Constrained blanket (more specific)
-impl Trait for MyType { }         // Concrete (most specific)
+impl<T> T: Trait { }              // Generic blanket
+impl<T: Clone> T: Trait { }      // Constrained blanket (more specific)
+impl MyType: Trait { }            // Concrete (most specific)
 ```
 
 For `MyType`:
@@ -311,12 +311,12 @@ For `MyType`:
 The compiler ensures no two applicable impls have equal specificity:
 
 ```ori
-impl<T: A> Trait for T { }
-impl<T: B> Trait for T { }
+impl<T: A> T: Trait { }
+impl<T: B> T: Trait { }
 
 type Foo = { }
-impl A for Foo { }
-impl B for Foo { }
+impl Foo: A { }
+impl Foo: B { }
 
 // ERROR at impl sites: overlapping implementations
 // If Foo: A + B, which impl of Trait applies?
@@ -332,11 +332,11 @@ impl B for Foo { }
 error[E0600]: conflicting implementations of trait `Display`
   --> src/main.ori:10:1
    |
-5  | impl Display for MyType { ... }
-   | ------------------------------ first implementation here
+5  | impl MyType: Display { ... }
+   | ---------------------------- first implementation here
 ...
-10 | impl Display for MyType { ... }
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation
+10 | impl MyType: Display { ... }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation
 ```
 
 ### Orphan Implementation
@@ -345,8 +345,8 @@ error[E0600]: conflicting implementations of trait `Display`
 error[E0601]: orphan implementation
   --> src/main.ori:5:1
    |
-5  | impl std.Display for std.Vec { }
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+5  | impl std.Vec: std.Display { }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = note: implement a local trait for external type, or a trait for local type
    = note: this restriction prevents conflicting implementations across crates

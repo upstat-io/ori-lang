@@ -228,7 +228,7 @@ Method calls resolve through a three-level dispatch, following the principle tha
 
 2. **Inherent methods** — `impl Type { ... }` blocks that add methods directly to a type without going through a trait.
 
-3. **Trait methods** — `impl Trait for Type { ... }` blocks, resolved via the `TraitRegistry`. When multiple traits provide a method with the same name, the caller must use qualified syntax (`Trait.method(v)`) to disambiguate.
+3. **Trait methods** — `impl Type: Trait { ... }` blocks, resolved via the `TraitRegistry`. When multiple traits provide a method with the same name, the caller must use qualified syntax (`Trait.method(v)`) to disambiguate.
 
 This ordering means that a type's own methods always shadow trait methods, and built-in methods (which are critical for primitives like `str.len()` or `[T].map()`) take highest priority. The design mirrors Rust's method resolution order.
 

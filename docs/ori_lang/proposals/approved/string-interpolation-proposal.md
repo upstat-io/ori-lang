@@ -219,7 +219,7 @@ trait Printable {
 // Custom types need Printable impl
 type Point = { x: int, y: int }
 
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = `({self.x}, {self.y})`
 }
 
@@ -399,7 +399,7 @@ type Alignment = Left | Right | Center
 type FormatType = Binary | Hex | HexUpper | Octal | Exp | ExpUpper
 
 // Default: Formattable delegates to Printable
-impl<T: Printable> Formattable for T {
+impl<T: Printable> T: Formattable {
     @format (self, spec: FormatSpec) -> str =
         apply_format(self.to_str(), spec)
 }
@@ -637,7 +637,7 @@ r`Path: {path}\n stays literal`
 User-defined format types:
 
 ```ori
-impl Formattable for Money {
+impl Money: Formattable {
     @format (self, spec: FormatSpec) -> str =
         match spec.format_type {
             Some(Currency) -> `${self.dollars}.{self.cents:02}`
