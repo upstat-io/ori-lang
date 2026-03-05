@@ -130,7 +130,7 @@ impl_block  = inherent_impl | trait_impl
 inherent_impl = "impl" [generics] type_path [where_clause] "{" {method} "}"
 
 // Trait implementation - implementing a trait for a type
-trait_impl  = "impl" [generics] type_path "for" type [where_clause] "{" {method} "}"
+trait_impl  = "impl" [generics] type ":" type_path [where_clause] "{" {method} "}"
 
 where_clause = "where" constraint {"," constraint}
 constraint  = IDENT ":" bounds
@@ -148,7 +148,7 @@ impl Point {
 }
 
 // Trait impl - Point implements Printable
-impl Printable for Point {
+impl Point: Printable {
     @to_string (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")"
 }
 ```

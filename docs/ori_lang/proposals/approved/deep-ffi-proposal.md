@@ -250,7 +250,7 @@ When a function returns `owned CPtr` with a `#free` function, the compiler gener
 // Conceptual expansion (not user-visible):
 type __Owned_sqlite3_db = { ptr: CPtr }
 
-impl Drop for __Owned_sqlite3_db {
+impl __Owned_sqlite3_db: Drop {
     @drop (self) -> void uses FFI("sqlite3") = sqlite3_close(db: self.ptr)
 }
 ```

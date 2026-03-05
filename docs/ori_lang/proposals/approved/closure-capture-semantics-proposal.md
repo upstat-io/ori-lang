@@ -400,3 +400,9 @@ Add:
 | Equality | Not supported |
 | Closure memory | Captured values (references for ARC types) |
 | Lifetime annotations | Not needed |
+
+---
+
+## Errata (added 2026-03-05)
+
+> **Affected by [mutable-self-proposal](mutable-self-proposal.md)**: The "Captured Values Are Immutable" section states closures cannot modify captured state. With mutable self approved, `self` captured inside a closure from a method body retains its mutability — the closure receives a mutable copy of `self`. Mutations inside the closure operate on the closure's copy and do not propagate back to the outer method's `self`. Other captured bindings remain immutable as specified.

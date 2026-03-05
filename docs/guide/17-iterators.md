@@ -353,7 +353,7 @@ Create your own iterator by implementing the trait:
 ```ori
 type Counter = { current: int, max: int }
 
-impl Iterator for Counter {
+impl Counter: Iterator {
     type Item = int;
 
     @next (self) -> (Option<int>, Counter) = {

@@ -89,6 +89,41 @@ impl CowAnnotations {
     pub fn iter(&self) -> impl Iterator<Item = ((usize, usize), CowMode)> + '_ {
         self.annotations.iter().map(|(&k, &v)| (k, v))
     }
+
+    /// Remap block indices after compaction or renumbering.
+    ///
+    /// `block_remap[old_idx]` is `Some(new_idx)` for surviving blocks,
+    /// `None` for dead blocks. Annotations on dead blocks are dropped;
+    /// annotations on surviving blocks get their block index updated.
+    pub fn remap_block_indices(&mut self, block_remap: &[Option<usize>]) {
+        let old = std::mem::take(&mut self.annotations);
+        for ((block_idx, instr_idx), mode) in old {
+            if let Some(&Some(new_block)) = block_remap.get(block_idx) {
+                self.annotations.insert((new_block, instr_idx), mode);
+            }
+        }
+    }
+
+    /// Remap annotations when merging block `from_block` into `to_block`.
+    ///
+    /// All annotations keyed at `(from_block, I)` are re-keyed to
+    /// `(to_block, instr_offset + I)`, reflecting that B's instructions
+    /// are appended to A's body at position `instr_offset`.
+    pub fn remap_block_merge(&mut self, from_block: usize, to_block: usize, instr_offset: usize) {
+        // Collect entries to move (can't modify map while iterating).
+        let to_move: Vec<(usize, CowMode)> = self
+            .annotations
+            .iter()
+            .filter(|&(&(b, _), _)| b == from_block)
+            .map(|(&(_, i), &mode)| (i, mode))
+            .collect();
+
+        for (instr_idx, mode) in to_move {
+            self.annotations.remove(&(from_block, instr_idx));
+            self.annotations
+                .insert((to_block, instr_offset + instr_idx), mode);
+        }
+    }
 }
 
 // Derived data — not part of structural identity.

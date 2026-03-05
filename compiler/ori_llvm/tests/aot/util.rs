@@ -635,6 +635,82 @@ pub fn extract_function_ir<'a>(full_ir: &'a str, func_name: &str) -> &'a str {
     &full_ir[define_start..define_start + end]
 }
 
+/// Count "bridge-only" blocks in a function's LLVM IR.
+///
+/// A bridge-only block is one whose only non-comment, non-blank instruction
+/// is `br label %target` — no phi, no computation, no conditional branch.
+/// These represent redundant blocks from invoke splitting that should have
+/// been merged by the ARC block merge pass.
+///
+/// Parses the function IR structurally (label lines → next label or `}`),
+/// handling LLVM output variations (predecessor comments, spacing, label
+/// formats).
+pub fn count_bridge_blocks(function_ir: &str) -> usize {
+    let mut bridge_count = 0;
+    let mut in_block = false;
+    let mut block_instrs: Vec<&str> = Vec::new();
+
+    for line in function_ir.lines() {
+        let trimmed = line.trim();
+
+        // Detect block start: a label line (e.g., "bb1:", "entry:", "4:")
+        // or the opening "{" of the function.
+        let is_label =
+            trimmed.ends_with(':') && !trimmed.starts_with(';') && !trimmed.contains("  ; preds");
+
+        // Also match "labelname: ; preds = ..." pattern
+        let is_label = is_label
+            || trimmed.contains(':') && !trimmed.starts_with(';') && {
+                let colon_pos = trimmed.find(':');
+                colon_pos.is_some_and(|p| {
+                    let before = &trimmed[..p];
+                    // Label is alphanumeric/underscore/dot, possibly with numeric prefix
+                    !before.is_empty()
+                        && before
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '%')
+                })
+            };
+
+        if is_label || trimmed == "{" {
+            // Flush previous block.
+            if in_block && is_bridge_only(&block_instrs) {
+                bridge_count += 1;
+            }
+            block_instrs.clear();
+            in_block = is_label;
+            continue;
+        }
+
+        if trimmed == "}" {
+            // End of function — flush.
+            if in_block && is_bridge_only(&block_instrs) {
+                bridge_count += 1;
+            }
+            break;
+        }
+
+        if in_block {
+            block_instrs.push(trimmed);
+        }
+    }
+
+    bridge_count
+}
+
+/// Check if a block's instructions consist of only an unconditional `br label`.
+fn is_bridge_only(instrs: &[&str]) -> bool {
+    let meaningful: Vec<&&str> = instrs
+        .iter()
+        .filter(|l| {
+            let l = l.trim();
+            !l.is_empty() && !l.starts_with(';')
+        })
+        .collect();
+
+    meaningful.len() == 1 && meaningful[0].starts_with("br label ")
+}
+
 /// Create a minimal valid WASM module for testing.
 ///
 /// This creates a WASM module with:

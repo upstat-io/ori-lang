@@ -45,6 +45,7 @@ All other constructs are expressions that produce values:
 | `match expr { arms }` | Unified type of all arm bodies |
 | `for x in s yield e` | `[T]` where `T` is type of `e` |
 | `for x in s do e` | `void` |
+| `while c do e` | `void` |
 | `loop { ... break v }` | Type of `v` |
 | `loop { ... break }` | `void` |
 | `loop { ... }` (no break) | `Never` |
@@ -132,13 +133,52 @@ loop {
 }
 ```
 
+## 16.2.4 While loop
+
+A `while` expression evaluates a condition before each iteration. If the condition is `false`, the loop exits.
+
+> **Grammar:** See [Annex A](grammar.md) § `while_expr`
+
+`while condition do body` desugars to:
+
+```ori
+loop {
+    if !condition then break;
+    body
+}
+```
+
+The condition expression shall have type `bool`. The `while` expression has type `void`.
+
+```ori
+while self.pos < self.buf.len() do {
+    self.pos += 1
+}
+```
+
+`break` exits the loop. `break value` is a compile-time error (E0860) — `while...do` does not produce a value.
+
+`continue` skips to the next iteration (re-evaluating the condition). `continue value` is a compile-time error (E0861) — `while` does not accumulate values.
+
+Labels work on `while` loops as on `loop` and `for`:
+
+```ori
+while:outer scanning do {
+    while self.pos < self.buf.len() do {
+        if done then break:outer
+    }
+}
+```
+
+NOTE  There is no `while...yield` form. Use `for...yield` with an iterator for collection building.
+
 ## 16.3 Labeled loops
 
 Labels allow `break` and `continue` to target an outer loop.
 
 ### 16.3.1 Label declaration
 
-Labels use the syntax `loop:name` or `for:name`, with no space around the colon:
+Labels use the syntax `loop:name`, `while:name`, or `for:name`, with no space around the colon:
 
 ```ori
 loop:outer {
@@ -432,20 +472,20 @@ let m: {str: int} = for item in items yield (item.name, item.count);
 
 | Form | Valid in | Effect |
 |------|---------|--------|
-| `break` | `loop`, `for...do`, `for...yield` | Exit loop |
+| `break` | `loop`, `while...do`, `for...do`, `for...yield` | Exit loop |
 | `break value` | `loop`, `for...yield` | Exit with value |
-| `break:label` | Labeled `loop`, `for` | Exit labeled loop |
+| `break:label` | Labeled `loop`, `while`, `for` | Exit labeled loop |
 | `break:label value` | Labeled `loop`, `for...yield` | Exit labeled with value |
-| `continue` | `loop`, `for...do`, `for...yield` | Next iteration |
+| `continue` | `loop`, `while...do`, `for...do`, `for...yield` | Next iteration |
 | `continue value` | `for...yield` | Substitute value |
-| `continue:label` | Labeled `loop`, `for` | Continue labeled loop |
+| `continue:label` | Labeled `loop`, `while`, `for` | Continue labeled loop |
 | `continue:label value` | Labeled `for...yield` | Substitute in labeled yield |
 
 The following uses are compile-time errors:
 
 - `break` or `continue` outside any loop: error
-- `break value` in `for...do`: error (E0860) — `for...do` has type `void`
-- `continue value` in `loop`: error (E0861) — loops do not accumulate values
+- `break value` in `for...do` or `while...do`: error (E0860) — these forms have type `void`
+- `continue value` in `loop` or `while`: error (E0861) — these loops do not accumulate values
 - `continue:label value` targeting a `for...do`: error (E0873)
 - Reference to undefined label: error
 - Label shadowing: error (E0871)

@@ -7,7 +7,7 @@ paths:
 
 **Spec is authoritative**: `docs/ori_lang/v2026/spec/` (Clauses 1–27, Annexes A–E; `grammar.ebnf` for syntax, `operator-rules.md` for semantics)
 
-> **Pending**: `capability-unification-generics-proposal` (approved 2026-02-20) will change: `#derive(Trait)` → `type T with Trait = {...}`, `T: Trait` → `T with Trait`, `trait Foo: Bar` → `trait Foo with Bar`. Syntax below reflects CURRENT compiler behavior until implementation.
+> **Pending**: `capability-unification-generics-proposal` (approved 2026-02-20, revised 2026-03-04) will change: `#derive(Trait)` → `type T: Trait = {...}`. Bound syntax (`T: Trait`, `where T: Trait`, `trait Foo: Bar`) is UNCHANGED. Syntax below reflects CURRENT compiler behavior until implementation.
 
 ## Declarations
 
@@ -19,7 +19,7 @@ paths:
 **Types**: `type N = { f: T }` struct | `A | B | C(f: T)` sum | `type N = Existing` newtype | `type N<T>` | `#derive(Eq)` | `pub type`
 **Newtypes**: `type UserId = int` | construct: `UserId(42)` | `.inner` (always public) | no trait/method inheritance | `#derive(Eq, Clone)` required | zero cost
 **Traits**: `trait N { @m (self) -> T }` | `@m (self) -> T = default` | `type Item` assoc | `type Output = Self` default | `trait C: P` | `@m () -> Self` assoc fn | `trait N<T = Self>` default type param
-**Impls**: `impl T { @m }` inherent | `impl Trait for T` | `impl<T: B> Trait for C<T>` | `self`/`Self`
+**Impls**: `impl T { @m }` inherent | `impl T: Trait` | `impl<T: B> C<T>: Trait` | `self` (mutable in methods — mutations propagate to caller) / `Self`
 **Associated Functions**: `impl T { @new () -> T }` — no `self` | call: `Type.method()` | `Self` in return | generics: `Option<int>.some(v:)`
 **Default Impls**: `pub def impl Trait { @m }` — stateless, one per trait/module, auto-bound, override with `with`
 **Extensions**: `extend Type { @m (self) -> T }` | `extend<T: Bound> [T]` | `extend T where T: Bound` | `pub extend` | no statics/fields/override
@@ -82,7 +82,7 @@ Bottom type (uninhabited); coerces to any `T`
 
 ## Literals
 
-`42`, `1_000_000`, `0xFF`, `0b1010` | `3.14`, `2.5e-8` | `"hello"` (escapes: `\\\"\n\t\r\0`) | `` `{name}` `` | `'a'` | `true`/`false` | duration/size literals | `[1, 2]`, `[...a, ...b]` | `{key: v}`, `{"key": v}`, `{[expr]: v}`, `{...a, ...b}` | `Point { x, y }`, `{ ...p, x: 10 }`
+`42`, `1_000_000`, `0xFF`, `0b1010` | `3.14`, `2.5e-8` | `"hello"` (escapes: `\\\"\n\t\r\0\xHH\u{H}`) | `` `{name}` `` | `'a'`, `'\x41'` (escapes: `\\\'\n\t\r\0\xHH\u{H}`, `\xHH` restricted to `\x00`–`\x7F`) | `b'x'`, `b'\xFF'` (byte literal, escapes: `\\\'\n\t\r\0\xHH`, full `\x00`–`\xFF`, no `\u{}` or `\"`) | `true`/`false` | duration/size literals | `[1, 2]`, `[...a, ...b]` | `{key: v}`, `{"key": v}`, `{[expr]: v}`, `{...a, ...b}` | `Point { x, y }`, `{ ...p, x: 10 }`
 
 ## Operators (precedence high→low)
 
@@ -105,10 +105,11 @@ Bottom type (uninhabited); coerces to any `T`
 **Lambdas**: `x -> x + 1` | `(a, b) -> a + b` | `() -> 42` | `(x: int) -> int = x * 2` — capture by value
 **Ranges**: `0..10` excl | `0..=10` incl | `0..10 by 2` | descending: `10..0 by -1` | infinite: `0..`, `0.. by -1` | int only
 **Blocks**: `{ let $x = 1; x + 2 }` — `;` terminates statements, last expression (no `;`) is value | all `;` = void block | `ori fmt` enforces blank line before result | empty `{ }` = empty map
-**Loops**: `for i in items do e` | `for x in items yield x * 2` | `for x in items if g yield x` | nested `for` | `loop { body }` + `break`/`continue` | `break value` | `continue value`
+**Loops**: `while c do e` | `for i in items do e` | `for x in items yield x * 2` | `for x in items if g yield x` | nested `for` | `loop { body }` + `break`/`continue` | `break value` | `continue value`
+**While**: `while condition do body` — sugar for `loop { if !condition then break; body }` | type: `void` | no `while...yield` | `break value` error (E0860) | `continue value` error (E0861)
 **Loop body**: block expression; `loop { a \n b \n c }` for sequences | type: `void` (break no value), inferred (break value), `Never` (no break) | `continue value` error (E0861)
 **Yield control**: `continue` skips | `continue value` substitutes | `break` stops | `break value` adds final | `{K: V}` from `(K, V)` tuples
-**Labels**: `loop:name` | `for:name` | `break:name` | `continue:name` | no shadowing | `continue:name value` in yield → outer
+**Labels**: `loop:name` | `for:name` | `while:name` | `break:name` | `continue:name` | no shadowing | `continue:name value` in yield → outer
 **Spread**: `[...a, ...b]` | `{...a, ...b}` | `P { ...orig, x: 10 }` — later wins, literal contexts only | `fn(...list)` into variadic only
 
 ## Block expressions
@@ -178,7 +179,7 @@ Bottom type (uninhabited); coerces to any `T`
 
 ## Keywords
 
-**Reserved (34)**: `as break continue def div do else extend extension extern false for if impl in let loop match pub self Self suspend tests then trait true type unsafe use uses void where with yield`
+**Reserved (35)**: `as break continue def div do else extend extension extern false for if impl in let loop match pub self Self suspend tests then trait true type unsafe use uses void where while with yield`
 **Reserved (future)**: `asm inline static union view` (reserved for future low-level features)
 **Context-sensitive**: `args body buffer by cache catch default embed expr from handler has_embed map max nursery on_error over parallel pre post recurse spawn state timeout try without`
 **Built-in names**: `int float str byte bool len is_empty is_some is_none is_ok is_err assert assert_eq assert_ne assert_some assert_none assert_ok assert_err assert_panics assert_panics_with compare min max print panic todo unreachable dbg compile_error embed has_embed`

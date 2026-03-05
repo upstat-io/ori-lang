@@ -391,7 +391,7 @@ impl TestTerminal {
 }
 
 // Use in tests
-impl Console for TestTerminal { ... }
+impl TestTerminal: Console { ... }
 ```
 
 ### Snapshot Testing

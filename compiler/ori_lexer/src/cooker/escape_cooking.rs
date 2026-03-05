@@ -10,6 +10,7 @@ use super::{slice_source, CookResult, TokenCooker};
 use crate::cook_escape::{unescape_char_v2, unescape_string_v2, unescape_template_v2};
 
 impl TokenCooker<'_> {
+    /// Cook a string literal: strip quotes, unescape, intern.
     pub(super) fn cook_string(&mut self, offset: u32, len: u32) -> CookResult {
         let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
@@ -33,6 +34,7 @@ impl TokenCooker<'_> {
         }
     }
 
+    /// Cook a char literal: strip quotes, unescape, return char value.
     pub(super) fn cook_char(&mut self, offset: u32, len: u32) -> CookResult {
         let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
@@ -49,6 +51,7 @@ impl TokenCooker<'_> {
         }
     }
 
+    /// Cook a template head: strip `` ` `` and `{`, unescape, intern.
     pub(super) fn cook_template_head(&mut self, offset: u32, len: u32) -> CookResult {
         let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
@@ -68,6 +71,7 @@ impl TokenCooker<'_> {
         }
     }
 
+    /// Cook a template middle segment: strip `}` and `{`, unescape, intern.
     pub(super) fn cook_template_middle(&mut self, offset: u32, len: u32) -> CookResult {
         let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
@@ -87,6 +91,7 @@ impl TokenCooker<'_> {
         }
     }
 
+    /// Cook a template tail: strip `}` and `` ` ``, unescape, intern.
     pub(super) fn cook_template_tail(&mut self, offset: u32, len: u32) -> CookResult {
         let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
@@ -106,6 +111,7 @@ impl TokenCooker<'_> {
         }
     }
 
+    /// Cook a format spec: strip leading `:`, intern the spec content.
     pub(super) fn cook_format_spec(&self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
         // The format spec token includes the leading `:` from the scanner.
@@ -114,6 +120,7 @@ impl TokenCooker<'_> {
         CookResult::new(TokenKind::FormatSpec(self.interner.intern(content)))
     }
 
+    /// Cook a complete template (no interpolation): strip both backticks, unescape, intern.
     pub(super) fn cook_template_complete(&mut self, offset: u32, len: u32) -> CookResult {
         let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);

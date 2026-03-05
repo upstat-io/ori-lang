@@ -55,7 +55,7 @@ x.index(key: key)
 For containers where access should always succeed:
 
 ```ori
-impl Index<int, T> for [T] {
+impl [T]: Index<int, T> {
     @index (self, key: int) -> T  // Panics if out of bounds
 }
 
@@ -69,7 +69,7 @@ list[10]  // panic: index out of bounds
 For containers where keys may be absent:
 
 ```ori
-impl Index<K, Option<V>> for {K: V} {
+impl {K: V}: Index<K, Option<V>> {
     @index (self, key: K) -> Option<V>  // None if not present
 }
 
@@ -86,7 +86,7 @@ For containers where access can fail with details:
 // Example: user-defined JSON type with Result-based indexing
 type JsonError = KeyNotFound { key: str } | NotAnObject
 
-impl Index<str, Result<JsonValue, JsonError>> for JsonValue {
+impl JsonValue: Index<str, Result<JsonValue, JsonError>> {
     @index (self, key: str) -> Result<JsonValue, JsonError>
 }
 
@@ -101,11 +101,11 @@ json["field"]?  // Propagate JsonError if field missing
 A type can implement `Index` for multiple key types:
 
 ```ori
-impl Index<int, Option<JsonValue>> for JsonValue {
+impl JsonValue: Index<int, Option<JsonValue>> {
     @index (self, key: int) -> Option<JsonValue> = ...
 }
 
-impl Index<str, Option<JsonValue>> for JsonValue {
+impl JsonValue: Index<str, Option<JsonValue>> {
     @index (self, key: str) -> Option<JsonValue> = ...
 }
 
@@ -138,7 +138,7 @@ json[key]  // ERROR: ambiguous Index implementation
 ### List
 
 ```ori
-impl<T> Index<int, T> for [T] {
+impl<T> [T]: Index<int, T> {
     @index (self, key: int) -> T =
         if key < 0 || key >= len(collection: self) then
             panic(msg: "index out of bounds")
@@ -150,7 +150,7 @@ impl<T> Index<int, T> for [T] {
 ### Fixed-Capacity List
 
 ```ori
-impl<T, $N: int> Index<int, T> for [T, max N] {
+impl<T, $N: int> [T, max N]: Index<int, T> {
     @index (self, key: int) -> T = ...  // Same as [T]
 }
 ```
@@ -158,7 +158,7 @@ impl<T, $N: int> Index<int, T> for [T, max N] {
 ### Map
 
 ```ori
-impl<K: Eq + Hashable, V> Index<K, Option<V>> for {K: V} {
+impl<K: Eq + Hashable, V> {K: V}: Index<K, Option<V>> {
     @index (self, key: K) -> Option<V> = ...
 }
 ```
@@ -166,7 +166,7 @@ impl<K: Eq + Hashable, V> Index<K, Option<V>> for {K: V} {
 ### String
 
 ```ori
-impl Index<int, str> for str {
+impl str: Index<int, str> {
     @index (self, key: int) -> str =  // Returns single-codepoint str
         if key < 0 || key >= len(collection: self) then
             panic(msg: "index out of bounds")
@@ -186,7 +186,7 @@ let list = [1, 2, 3]
 list[# - 1]  // OK: built-in list indexing
 
 type MyContainer = { ... }
-impl Index<int, int> for MyContainer { ... }
+impl MyContainer: Index<int, int> { ... }
 
 let c = MyContainer { ... }
 c[# - 1]  // ERROR: # not available for custom Index
@@ -226,7 +226,7 @@ Ori's memory model prefers immutable updates. Index assignment would require mut
 ```ori
 type Matrix = { rows: [[float]] }
 
-impl Index<(int, int), float> for Matrix {
+impl Matrix: Index<(int, int), float> {
     @index (self, key: (int, int)) -> float = {
         let (row, col) = key
         self.rows[row][col]
@@ -242,7 +242,7 @@ m[(0, 1)]  // 2.0
 ```ori
 type SparseArray<T> = { data: {int: T}, default: T }
 
-impl<T: Clone> Index<int, T> for SparseArray<T> {
+impl<T: Clone> SparseArray<T>: Index<int, T> {
     @index (self, key: int) -> T = match self.data[key] {
         Some(v) -> v
         None -> self.default.clone()
@@ -255,7 +255,7 @@ impl<T: Clone> Index<int, T> for SparseArray<T> {
 ```ori
 type Config = { data: {str: JsonValue} }
 
-impl Index<str, Option<JsonValue>> for Config {
+impl Config: Index<str, Option<JsonValue>> {
     @index (self, key: str) -> Option<JsonValue> = {
         let parts = key.split(sep: ".")
         parts.fold(
@@ -297,7 +297,7 @@ error[E0951]: `MyType` cannot be indexed
  5 | let x = my_value[0]
    |         ^^^^^^^^^^^ `Index` not implemented
    |
-   = help: implement `Index<int, _>` for `MyType`
+   = help: implement `Index<int, _>` for `MyType`: `impl MyType: Index<int, _> { ... }`
 ```
 
 ### Ambiguous Key Type

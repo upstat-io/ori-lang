@@ -43,6 +43,8 @@
 //!   → RC identity propagation (Project roots)
 //!   → RC elimination (dataflow-based)
 //!   → cross-block RC elimination
+//!   → block merge (post-lowering CFG simplification)
+//!   → drop hints (unique-collection drop optimization)
 //!   → FBIP enforcement (#fbip functions)
 //! ```
 //!
@@ -56,6 +58,7 @@
 //! (for `Name`, `BinaryOp`, `UnaryOp`, etc.). No LLVM dependency — ARC
 //! analysis is backend-independent.
 
+mod block_merge;
 pub mod borrow;
 pub(crate) mod classify;
 pub mod decision_tree;
@@ -197,8 +200,13 @@ pub fn run_arc_pipeline(
 
     rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
 
+    // Block merge: eliminate redundant blocks created by invoke splitting.
+    // Runs AFTER RC elimination (all RC ops are final) but BEFORE drop hints
+    // (which store block_idx/instr_idx coordinates that merge invalidates).
+    block_merge::merge_blocks(func);
+
     // Drop hints: identify RcDec instructions on provably unique collections.
-    // Runs AFTER RC elimination (indices are final). The LLVM emitter uses
+    // Runs AFTER block merge (indices are final). The LLVM emitter uses
     // these hints to call ori_buffer_drop_unique instead of ori_buffer_rc_dec.
     func.drop_hints = uniqueness::compute_drop_hints(func, pool);
 

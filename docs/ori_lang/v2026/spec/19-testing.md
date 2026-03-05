@@ -100,7 +100,7 @@ The following declarations are exempt from the test coverage requirement:
 - Immutable bindings (`let $name = ...`) — constants
 - Type definitions (`type Name = ...`)
 - Trait definitions (`trait Name { ... }`)
-- Trait implementations (`impl Trait for Type { ... }`)
+- Trait implementations (`impl Type: Trait { ... }`)
 - Default implementations (`def impl Trait { ... }`)
 
 ## 19.3 Test execution model

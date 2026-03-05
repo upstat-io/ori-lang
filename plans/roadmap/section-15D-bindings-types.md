@@ -22,6 +22,9 @@ sections:
     title: Index and Field Assignment
     status: not-started
   - id: "15D.6"
+    title: Mutable Self
+    status: not-started
+  - id: "15D.7"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -504,7 +507,99 @@ list[0] += 5                          // compound: list[0] = list[0] + 5
 
 ---
 
-## 15D.6 Section Completion Checklist
+## 15D.6 Mutable Self
+
+**Proposal**: `proposals/approved/mutable-self-proposal.md`
+
+Make `self` a mutable binding in method bodies with implicit mutation propagation back to the caller. Extends the existing field/index assignment desugaring pattern to method calls.
+
+```ori
+impl Cursor {
+    @advance (self) -> void = {
+        self.pos += 1
+    }
+}
+
+cursor.advance()   // cursor is updated via desugaring
+```
+
+### Phase 1: Self Mutability
+
+- [ ] **Implement**: Make `self` a mutable binding in method bodies (type checker)
+  - [ ] **Rust Tests**: `ori_types/src/infer/` — self mutability in methods
+  - [ ] **Ori Tests**: `tests/spec/methods/mutable_self_basic.ori`
+
+- [ ] **Implement**: Mutation detection dataflow analysis (classify methods as mutating/non-mutating)
+  - [ ] **Rust Tests**: `ori_types/src/infer/` — mutation classification
+  - [ ] **Ori Tests**: `tests/spec/methods/mutation_detection.ori`
+
+### Phase 2: Call-Site Desugaring
+
+- [ ] **Implement**: Void-returning mutating methods desugar to `-> Self` + implicit reassignment
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — void method desugaring
+  - [ ] **Ori Tests**: `tests/spec/methods/mutable_self_void.ori`
+
+- [ ] **Implement**: Value-returning mutating methods desugar to `-> (Self, T)` + tuple split
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — value method desugaring
+  - [ ] **Ori Tests**: `tests/spec/methods/mutable_self_value_return.ori`
+
+- [ ] **Implement**: No desugaring for `-> Self` methods (already return Self)
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — Self return carve-out
+  - [ ] **Ori Tests**: `tests/spec/methods/mutable_self_returns_self.ori`
+
+- [ ] **Implement**: Nested field mutation cascading (`self.inner.advance()`)
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — nested mutation desugaring
+  - [ ] **Ori Tests**: `tests/spec/methods/mutable_self_nested.ori`
+
+### Phase 3: Caller Validation
+
+- [ ] **Implement**: Error when calling mutating method on immutable (`$`) binding
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/` — immutable receiver error
+  - [ ] **Ori Tests**: `tests/compile-fail/methods/mutating_on_immutable.ori`
+
+- [ ] **Implement**: Diagnostics for mutation-related errors
+  - [ ] **Rust Tests**: `ori_diagnostic/` — mutation error diagnostics
+  - [ ] **Ori Tests**: `tests/compile-fail/methods/mutation_errors.ori`
+
+### Phase 4: Trait Integration
+
+- [ ] **Implement**: Infer mutation classification across trait implementations
+  - [ ] **Rust Tests**: `ori_types/src/infer/` — trait mutation consistency
+  - [ ] **Ori Tests**: `tests/spec/traits/mutable_self_trait.ori`
+
+- [ ] **Implement**: Conservative mutating classification for trait objects without local impls
+  - [ ] **Rust Tests**: `ori_types/src/infer/` — trait object mutation
+  - [ ] **Ori Tests**: `tests/spec/traits/mutable_self_trait_object.ori`
+
+### Phase 5: Extension Support
+
+- [ ] **Implement**: Extension methods follow same mutation propagation rules
+  - [ ] **Rust Tests**: `ori_types/src/infer/` — extension mutation propagation
+  - [ ] **Ori Tests**: `tests/spec/methods/mutable_self_extension.ori`
+
+### Phase 6: Evaluator
+
+- [ ] **Implement**: Evaluator support for mutable self in method bodies
+  - [ ] **Rust Tests**: `ori_eval/src/` — mutable self evaluation
+  - [ ] **Ori Tests**: `tests/spec/methods/mutable_self_eval.ori`
+
+- [ ] **Implement**: Evaluator call-site desugaring (implicit reassignment)
+  - [ ] **Rust Tests**: `ori_eval/src/` — call-site desugaring evaluation
+  - [ ] **Ori Tests**: `tests/spec/methods/mutable_self_propagation.ori`
+
+### Phase 7: LLVM Support
+
+- [ ] **LLVM Support**: LLVM codegen for mutable self desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — mutable self codegen
+  - [ ] **AOT Tests**: `tests/spec/methods/mutable_self_aot.ori`
+
+- [ ] **LLVM Support**: COW integration for self-mutating methods
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — mutable self COW codegen
+  - [ ] **AOT Tests**: `tests/spec/methods/mutable_self_cow.ori`
+
+---
+
+## 15D.7 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated

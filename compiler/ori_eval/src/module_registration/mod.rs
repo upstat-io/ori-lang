@@ -42,7 +42,7 @@ pub struct MethodCollectionConfig<'a> {
     /// String interner for converting primitive `TypeId`s to `Name`s.
     ///
     /// Required for extracting `key_type_hint` from trait type arguments
-    /// (e.g., `impl Index<int, str> for T` → hint = intern("int")).
+    /// (e.g., `impl T: Index<int, str>` → hint = intern("int")).
     pub interner: &'a StringInterner,
 }
 
@@ -158,7 +158,7 @@ pub fn collect_extend_methods_with_config(
 /// Takes explicit captures instead of borrowing from an interpreter, enabling
 /// use from both CLI and WASM playground.
 ///
-/// For trait impls with type arguments (e.g., `impl Index<int, str> for T`),
+/// For trait impls with type arguments (e.g., `impl T: Index<int, str>`),
 /// extracts the first type argument as `key_type_hint` for runtime dispatch.
 fn collect_impl_methods(
     module: &Module,
@@ -176,7 +176,7 @@ fn collect_impl_methods(
 
     // Track how many times each (type_name, method_name) pair has been seen,
     // so we can pick the correct canonical body when multiple impls define the
-    // same method (e.g., two `impl Index<K,V> for T` blocks both defining `index`).
+    // same method (e.g., two `impl T: Index<K,V>` blocks both defining `index`).
     // The canonicalization pass pushes method_roots in the same iteration order,
     // so the Nth occurrence here matches the Nth entry in `method_roots`.
     let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
@@ -250,7 +250,7 @@ fn collect_impl_methods(
 
 /// Extract the first trait type argument as a `Name` for runtime dispatch.
 ///
-/// For `impl Index<int, str> for T`, this returns `Some(Name("int"))`.
+/// For `impl T: Index<int, str>`, this returns `Some(Name("int"))`.
 /// Used to disambiguate multiple impls of the same trait on the same type.
 fn extract_key_type_hint(
     impl_def: &ori_ir::ImplDef,

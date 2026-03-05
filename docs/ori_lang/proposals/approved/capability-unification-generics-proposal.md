@@ -10,21 +10,46 @@
 
 > **Monomorphization Architecture**: The monomorphization pipeline design for Phases 1-5 has been documented in `docs/ori_lang/v2026/design/monomorphization-architecture.md`. This design was informed by a study of Rust (`rustc`), Swift, Zig, and Lean 4 compilers. Key decision: a unified `GenericArg` enum (matching Rust's `GenericArgKind`) handles both type and const value substitution through all five phases. The current `MonoInstance.type_args: Vec<Idx>` will evolve to `MonoInstance.generic_args: Vec<GenericArg>` at the Phase 1-to-Phase 2 boundary. See the architecture document for full details including pipeline stages, ARC lowering integration, name mangling, and reference compiler comparison.
 
+## Errata (added 2026-03-05)
+
+> **Superseded by impl-colon-syntax-proposal**: Section 12.1 stated that `impl Trait for Type` syntax is "unchanged." The impl-colon-syntax-proposal (approved 2026-03-05) replaces `impl Trait for Type` with `impl Type: Trait`, completing the `:` = "conforms to" unification. The summary table row "Manual `impl`" is also superseded. All other sections of this proposal remain valid.
+
+## Addendum (added 2026-03-04)
+
+> **Decision: `:` replaces `with` for all structural bounds.** After reviewing prior art across 10 reference compilers (Rust, Swift, Kotlin, Haskell, Elm, Gleam, Roc, Koka, TypeScript, Zig), the `:` syntax was chosen over `with` for all structural capability positions: type declarations, generic bounds, where clauses, and supertrait declarations. Rationale:
+>
+> 1. **Universal familiarity** — Rust, Swift, and Kotlin all use `:` for bounds. Any developer from these languages reads `T: Comparable` instantly.
+> 2. **Conciseness** — `T: Eq` (5 chars) vs `T with Eq` (9 chars). In complex signatures this compounds significantly.
+> 3. **No migration for bounds** — `:` is already the compiler's syntax for generic bounds, where clauses, and supertraits. Only `#derive` → `:` on type declarations requires migration.
+> 4. **`with` simplification** — `with` now has exactly ONE meaning: expression-level capability provision (`with Http = Mock in body`). No disambiguation rules needed.
+>
+> The `uses` keyword for environmental capabilities is unaffected. The conceptual unification remains: `:` = structural capabilities (what types *have*), `uses` = environmental capabilities (what functions *do*).
+>
+> | Before | After |
+> |--------|-------|
+> | `#derive(Eq, Hashable)` | `type Point: Eq, Hashable = { ... }` |
+> | `T: Comparable` | `T: Comparable` (unchanged) |
+> | `where T: Eq` | `where T: Eq` (unchanged) |
+> | `trait Comparable: Eq` | `trait Comparable: Eq` (unchanged) |
+> | `with Http = Mock in body` | `with Http = Mock in body` (unchanged) |
+>
+> **All examples in this proposal have been updated to reflect `:` syntax.** The original `with`-based framing is superseded.
+
 ---
 
 ## Summary
 
-Establish a consistent keyword vocabulary for capabilities — **`with`** for structural capabilities (what types *have*) and **`uses`** for environmental capabilities (what functions *do*) — replacing the three disconnected syntaxes (`#derive`, `:`, `uses`) with two purposeful keywords. Replace `#derive(Trait)` with `type T with Trait`, replace `:` in generic bounds with `T with Trait`, and derive const generic eligibility from the capability model rather than a whitelist.
+Establish a consistent vocabulary for capabilities — **`:`** for structural capabilities (what types *have*) and **`uses`** for environmental capabilities (what functions *do*) — replacing the disconnected `#derive` annotation with a grammar-level `:` clause on type declarations. Retain `:` for generic bounds, where clauses, and supertraits (already the existing syntax). Derive const generic eligibility from the capability model rather than a whitelist.
 
 | Current | Proposed |
 |---------|----------|
-| `#derive(Eq, Hashable)` | `type Point with Eq, Hashable = { ... }` |
-| `type Point = { x: int, y: int }` | `type Point with Eq, Hashable = { x: int, y: int }` |
-| `T: Comparable` | `T with Comparable` |
-| `where T: Eq, U: Clone` | `where T with Eq, U with Clone` |
-| `impl<T: Eq> Eq for [T]` | `impl<T with Eq> Eq for [T]` |
-| Const generics: `int` and `bool` only | Any type `with Eq, Hashable` |
-| Three concepts (derive, bounds, effects) | Two concepts (`with` structural, `uses` environmental) |
+| `#derive(Eq, Hashable)` | `type Point: Eq, Hashable = { ... }` |
+| `type Point = { x: int, y: int }` | `type Point: Eq, Hashable = { x: int, y: int }` |
+| `T: Comparable` | `T: Comparable` (unchanged) |
+| `where T: Eq, U: Clone` | `where T: Eq, U: Clone` (unchanged) |
+| `impl<T: Eq> Eq for [T]` | `impl<T: Eq> [T]: Eq` (see impl-colon-syntax-proposal) |
+| Const generics: `int` and `bool` only | Any type `: Eq, Hashable` |
+| Three concepts (derive, bounds, effects) | Two concepts (`:` structural, `uses` environmental) |
 
 This proposal is the foundation for Ori's generics upgrade (const generics, associated consts, const functions in type positions) and represents the language's conceptual unification of traits and effects under the term *capabilities*.
 
@@ -141,23 +166,23 @@ The vocabulary inconsistency has concrete costs:
 
 ---
 
-## 2. The Model: with/uses
+## 2. The Model: `:`/`uses`
 
-This proposal introduces a unified model with two keywords:
+This proposal introduces a unified model with two syntactic mechanisms:
 
-### `with` — Structural Capabilities
+### `:` — Structural Capabilities
 
 "This entity **has** these capabilities, determined by its structure."
 
 ```ori
 // On concrete types: compiler derives implementation from fields
-type Point with Eq, Hashable = { x: int, y: int }
+type Point: Eq, Hashable = { x: int, y: int }
 
 // On generic parameters: caller must guarantee the capability
-@sort<T with Comparable> (items: [T]) -> [T] = ...
+@sort<T: Comparable> (items: [T]) -> [T] = ...
 
 // On const generics: type is eligible because it has Eq + Hashable
-type Color with Eq, Hashable = Red | Green | Blue;
+type Color: Eq, Hashable = Red | Green | Blue;
 @themed<$C: Color> () -> Style = ...
 ```
 
@@ -175,33 +200,33 @@ with Http = MockHttp in fetch(url: "/api/data")
 
 ### The Distinction
 
-| | `with` (structural) | `uses` (environmental) |
+| | `:` (structural) | `uses` (environmental) |
 |---|---|---|
 | **Determined by** | The entity's shape (fields, structure) | The caller's context (environment) |
 | **Who provides it** | The compiler (auto-derived) or the programmer (manual impl) | The caller (via `with...in` or `def impl`) |
 | **Propagation** | None — local to the type | Through call chains (transitive) |
 | **Mockable** | No (structural truth) | Yes (`with Http = Mock in`) |
-| **Keyword position** | Type declarations, generic parameters | Function signatures |
-| **Example** | `type Point with Eq` | `fn fetch() uses Http` |
+| **Syntax position** | Type declarations, generic parameters, where clauses | Function signatures |
+| **Example** | `type Point: Eq` / `T: Comparable` | `@fetch () uses Http` |
 
-### Expression-Level `with...in` Is Separate
+### `with` Is Exclusively for Expression-Level Capability Provision
 
-The expression form `with Cap = Provider in body` remains unchanged. It provides an environmental capability in a scope. This is syntactically distinct from declaration-level `with`:
+The `with` keyword has exactly one meaning in Ori: expression-level capability provision.
 
-- **Declaration `with`**: `type Point with Eq = { ... }` — no `=` after trait name, no `in`
-- **Bound `with`**: `T with Comparable` — inside angle brackets or `where` clause
-- **Expression `with...in`**: `with Http = mock in body` — always has `= expr in expr`
+```ori
+with Http = MockHttp in fetch(url: "/api/data")
+```
 
-The parser trivially disambiguates these from syntactic context.
+It always has the form `with Name = Expr in Expr`. There is no declaration-level `with` — type declarations and bounds use `:`.
 
 ### The Consistent Vocabulary
 
-Both `with` and `uses` answer the same question: **what can this entity do?** The difference is *where the answer comes from*:
+Both `:` and `uses` answer the same question: **what can this entity do?** The difference is *where the answer comes from*:
 
-- Structural capabilities (`with`) come from the entity's definition — its fields, its structure
+- Structural capabilities (`:`) come from the entity's definition — its fields, its structure
 - Environmental capabilities (`uses`) come from the entity's context — its callers, its runtime
 
-This is one concept (capabilities), two flavors (structural/environmental), two keywords (`with`/`uses`). The compiler infrastructure remains appropriately separate — structural capabilities use the `TraitRegistry`, environmental capabilities use effect tracking — but the user-facing vocabulary is unified.
+This is one concept (capabilities), two flavors (structural/environmental), two syntactic mechanisms (`:` for structural, `uses` for environmental). The compiler infrastructure remains appropriately separate — structural capabilities use the `TraitRegistry`, environmental capabilities use effect tracking — but the user-facing vocabulary is unified.
 
 ---
 
@@ -219,7 +244,7 @@ No existing language combines general const generics, first-class effect trackin
 | Rust | `int`, `bool`, `char` (stable) — stuck | None | No | Good |
 | Swift | Int only (just shipped) | async/throws | No | Good |
 | Koka | None | Best (row-polymorphic) | No | Good |
-| **Ori (proposed)** | **Any `Eq + Hashable` type** | **Capabilities** | **Yes** | **`with` everywhere** |
+| **Ori (proposed)** | **Any `Eq + Hashable` type** | **Capabilities** | **Yes** | **`:` + `uses`** |
 
 ### Key Observations
 
@@ -241,9 +266,9 @@ No existing language combines general const generics, first-class effect trackin
 
 Rust uses a proc-macro-based derive system (`#[derive(Eq, Hash)]`) and colon syntax for bounds (`T: Clone + Send`). These are completely separate mechanisms. Rust has no built-in effect tracking.
 
-**What Ori takes:** Nothing syntactically. Ori's `with` unifies what Rust keeps separate.
+**What Ori takes:** The `:` bound syntax is retained (matching Rust). The key difference is replacing `#[derive]` attributes with a `:` trait clause on the type declaration itself.
 
-**What Ori avoids:** Rust's derive is a macro system — arbitrary code execution at compile time. Ori's `with` is grammar-level, not macro-level.
+**What Ori avoids:** Rust's derive is a macro system — arbitrary code execution at compile time. Ori's `:` trait clause is grammar-level, not macro-level.
 
 ### 4.2 Haskell — `deriving` + type classes
 
@@ -253,9 +278,9 @@ Haskell's `deriving (Eq, Show)` clause is part of the data declaration grammar:
 data Point = Point { x :: Int, y :: Int } deriving (Eq, Show)
 ```
 
-**What Ori takes:** The idea that derivation should be part of the type declaration, not an annotation. Haskell's `deriving` is closer to Ori's `with` than Rust's `#[derive]`.
+**What Ori takes:** The idea that derivation should be part of the type declaration, not an annotation. Haskell's `deriving` is closer to Ori's `:` trait clause than Rust's `#[derive]`.
 
-**What Ori avoids:** Haskell's `deriving` is a keyword specific to data declarations. It doesn't extend to bounds or effects. Ori's `with` does.
+**What Ori avoids:** Haskell's `deriving` is a keyword specific to data declarations. Ori's `:` serves double duty — the same symbol used for both type declaration traits and generic bounds.
 
 ### 4.3 Zig — `comptime` parameters
 
@@ -267,7 +292,7 @@ fn sort(comptime T: type, items: []T) []T { ... }
 
 **What Ori takes:** The ambition of general const generics beyond just integers.
 
-**What Ori avoids:** Duck typing. In Zig, if you pass a type that doesn't support `<`, the error appears deep inside the function body. In Ori, `T with Comparable` catches it at the call site.
+**What Ori avoids:** Duck typing. In Zig, if you pass a type that doesn't support `<`, the error appears deep inside the function body. In Ori, `T: Comparable` catches it at the call site.
 
 ### 4.4 Koka — Row-Polymorphic Effects
 
@@ -322,7 +347,7 @@ def parse(s: String)(using CanThrow[ParseError]): Int = ...
 
 Zig and Mojo let you use any type as a comptime parameter — but they're duck-typed. Pass the wrong thing and you get a compile error deep inside the implementation, not at the call site. Rust is type-safe but stuck on integers. Lean is both general and safe but requires dependent type theory.
 
-Ori's rule — any type `with Eq, Hashable` — is general enough for real use (shapes, strings, enums, config structs) and type-safe (the compiler checks capability bounds at the call site, not inside the function body). It's the Goldilocks position: more powerful than Rust/Swift, more structured than Zig/Mojo, more accessible than Lean/Haskell.
+Ori's rule — any type `: Eq, Hashable` — is general enough for real use (shapes, strings, enums, config structs) and type-safe (the compiler checks capability bounds at the call site, not inside the function body). It's the Goldilocks position: more powerful than Rust/Swift, more structured than Zig/Mojo, more accessible than Lean/Haskell.
 
 ### 5.2 First-Class Effect Tracking
 
@@ -330,7 +355,7 @@ Only Koka has a comparable built-in effect system. But Koka has no const generic
 
 ### 5.3 Consistent Vocabulary
 
-This is the part no other language has. Every other language treats traits/type classes and effects as separate systems with separate syntax. Ori's `with`/`uses` vocabulary gives both a consistent framing: capabilities. Types have structural capabilities (`with Eq`). Functions have environmental capabilities (`uses Gpu`). Generic bounds are capability requirements (`T with Comparable`). Two keywords, one mental model — even though the compiler infrastructure remains appropriately separate (structural capabilities use `TraitRegistry`, environmental capabilities use effect tracking).
+This is the part no other language has. Every other language treats traits/type classes and effects as separate systems with separate syntax. Ori's `:`/`uses` vocabulary gives both a consistent framing: capabilities. Types have structural capabilities (`: Eq`). Functions have environmental capabilities (`uses Gpu`). Generic bounds are capability requirements (`T: Comparable`). Two mechanisms, one mental model — even though the compiler infrastructure remains appropriately separate (structural capabilities use `TraitRegistry`, environmental capabilities use effect tracking).
 
 ### 5.4 Honest Gaps
 
@@ -346,7 +371,7 @@ Ori would NOT match:
 |--------|---------------|----------------|
 | Shape-typed numeric code | Const list generics + compile-time shape checking | Dex (research, inactive) |
 | Effect-tracked practical systems | Capabilities built into the type system, not a library | Koka (but no generics) |
-| Vocabulary consistency | Two keywords (`with`/`uses`) instead of three syntaxes | No direct precedent |
+| Vocabulary consistency | Two mechanisms (`:`/`uses`) instead of three syntaxes | No direct precedent |
 | Const generic breadth with type safety | Any `Eq + Hashable` type, not just integers | Zig/Mojo (duck-typed) |
 
 ---
@@ -355,7 +380,7 @@ Ori would NOT match:
 
 ## 6. Grammar Changes
 
-### 6.1 Type Declarations — Add `with` Clause
+### 6.1 Type Declarations — Add `:` Trait Clause
 
 **Current grammar:**
 
@@ -366,35 +391,23 @@ type_def    = "type" identifier [ generics ] [ where_clause ] "=" type_body [ ";
 **Proposed grammar:**
 
 ```ebnf
-type_def    = "type" identifier [ generics ] [ with_clause ] [ where_clause ] "=" type_body [ ";" ] .
-with_clause = "with" trait_list .
+type_def    = "type" identifier [ generics ] [ ":" trait_list ] [ where_clause ] "=" type_body [ ";" ] .
 trait_list  = trait_ref { "," trait_ref } .
 trait_ref   = type_path [ "(" assoc_bindings ")" ] .
 ```
 
-The `with_clause` sits between generics and `where_clause`, before the `=`. This positions structural capabilities as part of the type's identity, after any type parameters but before any constraints on those parameters.
+The trait clause sits between generics and `where_clause`, before the `=`. This positions structural capabilities as part of the type's identity, after any type parameters but before any constraints on those parameters. Traits are comma-separated (matching Swift's `struct Point: Equatable, Hashable` pattern).
 
-### 6.2 Generic Parameters — Replace `:` with `with`
-
-**Current grammar:**
+### 6.2 Generic Parameters — Unchanged
 
 ```ebnf
 type_param  = identifier [ ":" bounds ] [ "=" type ] .
 bounds      = type_path { "+" type_path } .
 ```
 
-**Proposed grammar:**
+No change. `:` for bounds is already the existing syntax.
 
-```ebnf
-type_param  = identifier [ "with" bounds ] [ "=" type ] .
-bounds      = type_path { "+" type_path } .
-```
-
-The `+` combinator for multiple bounds remains unchanged.
-
-### 6.3 Where Clauses — Replace `:` with `with`
-
-**Current grammar:**
+### 6.3 Where Clauses — Unchanged
 
 ```ebnf
 where_clause    = "where" constraint { "," constraint } .
@@ -402,39 +415,23 @@ constraint      = type_constraint | const_constraint .
 type_constraint = identifier [ "." identifier ] ":" bounds .
 ```
 
-**Proposed grammar:**
+No change. `:` for constraints is already the existing syntax.
 
-```ebnf
-where_clause    = "where" constraint { "," constraint } .
-constraint      = type_constraint | const_constraint .
-type_constraint = identifier [ "." identifier ] "with" bounds .
-```
-
-### 6.4 Trait Definitions — Replace `:` with `with` for Supertraits
-
-**Current grammar:**
+### 6.4 Trait Definitions — Unchanged
 
 ```ebnf
 trait_def = "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item } "}" .
 ```
 
-**Proposed grammar:**
+No change. `trait Comparable: Eq { ... }` is already the existing syntax.
 
-```ebnf
-trait_def = "trait" identifier [ generics ] [ "with" bounds ] "{" { trait_item } "}" .
-```
-
-This means `trait Comparable with Eq { ... }` replaces `trait Comparable: Eq { ... }`.
-
-### 6.5 Impl Blocks — Replace `:` with `with`
-
-**Current grammar:**
+### 6.5 Impl Blocks — Unchanged
 
 ```ebnf
 impl_block = "impl" [ generics ] [ trait_path "for" ] type [ where_clause ] "{" { impl_item } "}" .
 ```
 
-Generic parameters within the `generics` of an impl block use the same updated `type_param` rule from §6.2.
+No change. Generic bounds in impl blocks already use `:`.
 
 ### 6.6 Expression-Level `with...in` — Unchanged
 
@@ -443,63 +440,55 @@ with_expr           = "with" capability_binding { "," capability_binding } "in" 
 capability_binding  = identifier "=" expression .
 ```
 
-No change. The expression form is syntactically distinct: it always has `= expression` after the capability name and `in` at the end.
+No change. `with` is exclusively used for expression-level capability provision.
 
 ### 6.7 `#derive` Attribute — Removed
 
-The `#derive(...)` attribute form is removed. `with_clause` on type declarations replaces it entirely.
+The `#derive(...)` attribute form is removed. The `:` trait clause on type declarations replaces it entirely.
 
-### 6.8 Complete Disambiguation
+### 6.8 Disambiguation
 
-The `with` keyword now appears in four contexts. Each is unambiguously parseable:
+The `:` symbol appears in several contexts, all unambiguously parseable:
 
 | Context | Pattern | Example |
 |---------|---------|---------|
-| Type declaration | `type Name ... with TraitList =` | `type Point with Eq = { ... }` |
-| Generic parameter | `<T with Bounds>` | `<T with Eq + Clone>` |
-| Where clause | `where T with Bounds` | `where T with Comparable` |
-| Expression | `with Name = Expr in Expr` | `with Http = mock in body` |
+| Type declaration traits | `type Name [ generics ] ":" TraitList "="` | `type Point: Eq = { ... }` |
+| Generic parameter bound | `Ident ":" Bounds` | `<T: Eq + Clone>` |
+| Const generic type | `"$" Ident ":" Type` | `<$N: int>` |
+| Where clause | `where Ident ":" Bounds` | `where T: Comparable` |
+| Supertrait | `trait Name ":" Bounds` | `trait Comparable: Eq` |
+| Let binding type | `let x ":" Type` | `let x: int = 5` |
 
-**Disambiguation rule:** If `with` is followed by `Ident =`, it's an expression-level capability binding. Otherwise, it's a structural capability declaration/bound.
+The `$` sigil distinguishes const generics (`$N: int`) from trait bounds (`T: Eq`). On type declarations, the parser expects `:` after the optional generics — if present, it parses a comma-separated trait list until it hits `where` or `=`.
 
-### 6.9 Supertrait Declaration
+### 6.9 `with` Keyword Scope
 
-**Current:**
-
-```ori
-trait Comparable: Eq {
-    @compare (self, other: Self) -> Ordering;
-}
-```
-
-**Proposed:**
+The `with` keyword now has exactly one meaning in Ori: expression-level capability provision.
 
 ```ori
-trait Comparable with Eq {
-    @compare (self, other: Self) -> Ordering;
-}
+with Http = MockHttp in fetch(url: "/api")
 ```
 
-This reads as "Comparable is a trait that comes with Eq" — i.e., anything that is Comparable must also be Eq.
+This simplification eliminates the need for disambiguation rules between declaration-level and expression-level `with`.
 
 ---
 
-## 7. `with` on Type Declarations
+## 7. `:` on Type Declarations
 
 ### 7.1 Basic Syntax
 
 ```ori
 // Struct
-type Point with Eq, Hashable = { x: int, y: int }
+type Point: Eq, Hashable = { x: int, y: int }
 
 // Sum type
-type Color with Eq, Hashable, Printable = Red | Green | Blue;
+type Color: Eq, Hashable, Printable = Red | Green | Blue;
 
 // Newtype
-type UserId with Eq, Hashable = int;
+type UserId: Eq, Hashable = int;
 
 // Multiple capabilities
-type User with Eq, Hashable, Comparable, Clone, Debug = {
+type User: Eq, Hashable, Comparable, Clone, Debug = {
     id: int,
     name: str,
     email: str,
@@ -508,7 +497,7 @@ type User with Eq, Hashable, Comparable, Clone, Debug = {
 
 ### 7.2 Semantics
 
-`type T with Trait1, Trait2 = body` means:
+`type T: Trait1, Trait2 = body` means:
 
 1. **Validation**: The compiler checks that all fields of `T` implement `Trait1` and `Trait2`. If any field lacks a required trait, emit error E2032 ("field type does not implement required trait").
 
@@ -525,30 +514,30 @@ type User with Eq, Hashable, Comparable, Clone, Debug = {
 
 ### 7.3 Supertrait Enforcement
 
-When `with` includes a trait that requires a supertrait, the supertrait must also be listed:
+When `:` includes a trait that requires a supertrait, the supertrait must also be listed:
 
 ```ori
 // OK: Hashable requires Eq, and Eq is listed
-type Point with Eq, Hashable = { x: int, y: int }
+type Point: Eq, Hashable = { x: int, y: int }
 
 // ERROR E2029: Hashable requires Eq
-type Point with Hashable = { x: int, y: int }
+type Point: Hashable = { x: int, y: int }
 ```
 
 Error:
 ```
 error[E2029]: `Hashable` requires supertrait `Eq`
-  --> src/types.ori:1:17
+  --> src/types.ori:1:13
    |
- 1 | type Point with Hashable = { x: int, y: int }
-   |                 ^^^^^^^^ `Hashable` requires `Eq` to also be derived
+ 1 | type Point: Hashable = { x: int, y: int }
+   |             ^^^^^^^^ `Hashable` requires `Eq` to also be derived
    |
-   = help: add `Eq` to the with clause: `with Eq, Hashable`
+   = help: add `Eq` to the trait list: `type Point: Eq, Hashable`
 ```
 
 ### 7.4 Non-Derivable Traits
 
-Only the 7 derivable traits can appear in a `with` clause on a type declaration:
+Only the 7 derivable traits can appear in a `:` trait clause on a type declaration:
 
 | Trait | Derivable | Struct | Sum Type |
 |-------|-----------|--------|----------|
@@ -564,43 +553,42 @@ Attempting to use a non-derivable trait produces error E2033:
 
 ```ori
 // ERROR E2033: Iterator cannot be derived
-type MyIter with Iterator = { items: [int], pos: int }
+type MyIter: Iterator = { items: [int], pos: int }
 ```
 
 ```
 error[E2033]: trait `Iterator` cannot be derived
-  --> src/types.ori:1:18
+  --> src/types.ori:1:14
    |
- 1 | type MyIter with Iterator = { items: [int], pos: int }
-   |                  ^^^^^^^^ not derivable
+ 1 | type MyIter: Iterator = { items: [int], pos: int }
+   |              ^^^^^^^^ not derivable
    |
    = note: derivable traits: Eq, Hashable, Comparable, Clone, Default, Debug, Printable
-   = help: implement `Iterator` manually with `impl Iterator for MyIter { ... }`
+   = help: implement `Iterator` manually: `impl MyIter: Iterator { ... }`
 ```
 
-### 7.5 Generic Types with `with`
+### 7.5 Generic Types with `:`
 
-For generic types, `with` generates bounded implementations:
+For generic types, `:` generates bounded implementations:
 
 ```ori
-type Pair<T> with Eq, Clone, Debug = { first: T, second: T }
+type Pair<T>: Eq, Clone, Debug = { first: T, second: T }
 
 // Generates:
-// impl<T with Eq> Eq for Pair<T> { ... }
-// impl<T with Clone> Clone for Pair<T> { ... }
-// impl<T with Debug> Debug for Pair<T> { ... }
+// impl<T: Eq> Pair<T>: Eq { ... }
+// impl<T: Clone> Pair<T>: Clone { ... }
+// impl<T: Debug> Pair<T>: Debug { ... }
 ```
 
 This means `Pair<int>` has `Eq`, `Clone`, `Debug` (because `int` has all three), but `Pair<SomeOpaqueType>` only has the traits that `SomeOpaqueType` has.
 
-### 7.6 with Clause Ordering
+### 7.6 Trait Clause Ordering
 
-The `with` clause sits after generics, before `where`, before `=`:
+The `:` trait clause sits after generics, before `where`, before `=`:
 
 ```ori
-type Matrix<T, $M: int, $N: int>
-    with Eq, Clone
-    where T with Eq + Clone
+type Matrix<T, $M: int, $N: int>: Eq, Clone
+    where T: Eq + Clone
 = {
     data: [T],
     rows: int,
@@ -608,82 +596,46 @@ type Matrix<T, $M: int, $N: int>
 }
 ```
 
-Order of elements: `type Name [generics] [with traits] [where constraints] = body`
+Order of elements: `type Name [generics] [: traits] [where constraints] = body`
 
 ---
 
-## 8. `with` on Generic Bounds
+## 8. Generic Bounds — Unchanged
+
+Generic bound syntax is **not changed** by this proposal. The existing `:` syntax for bounds, where clauses, supertraits, and impl blocks is already the target syntax. Examples for reference:
 
 ### 8.1 Inline Bounds
 
-**Current:**
 ```ori
 @sort<T: Comparable> (items: [T]) -> [T] = ...
 ```
 
-**Proposed:**
-```ori
-@sort<T with Comparable> (items: [T]) -> [T] = ...
-```
-
 ### 8.2 Multiple Bounds
 
-**Current:**
 ```ori
 @merge<T: Eq + Clone + Hashable> (a: [T], b: [T]) -> [T] = ...
 ```
 
-**Proposed:**
-```ori
-@merge<T with Eq + Clone + Hashable> (a: [T], b: [T]) -> [T] = ...
-```
-
-The `+` combinator for multiple bounds remains unchanged.
-
 ### 8.3 Where Clauses
 
-**Current:**
 ```ori
 @process<T, U> (items: [T], f: (T) -> U) -> [U]
     where T: Clone, U: Default
 = ...
 ```
 
-**Proposed:**
-```ori
-@process<T, U> (items: [T], f: (T) -> U) -> [U]
-    where T with Clone, U with Default
-= ...
-```
-
 ### 8.4 Associated Type Constraints
 
-**Current:**
 ```ori
 @collect<I, C> (iter: I) -> C
     where I: Iterator, C: Collect, I.Item: Clone
 = ...
 ```
 
-**Proposed:**
-```ori
-@collect<I, C> (iter: I) -> C
-    where I with Iterator, C with Collect, I.Item with Clone
-= ...
-```
-
 ### 8.5 Trait Bounds on Impl Blocks
 
-**Current:**
 ```ori
-impl<T: Printable> Printable for [T] {
-    @to_str (self) -> str = ...;
-}
-```
-
-**Proposed:**
-```ori
-impl<T with Printable> Printable for [T] {
+impl<T: Printable> [T]: Printable {
     @to_str (self) -> str = ...;
 }
 ```
@@ -691,24 +643,24 @@ impl<T with Printable> Printable for [T] {
 ### 8.6 Mixed Type and Const Parameters
 
 ```ori
-@fill<T with Clone + Default, $N: int> () -> [T, max N]
+@fill<T: Clone + Default, $N: int> () -> [T, max N]
     where N > 0
 = for _ in 0..N yield T.default()
 ```
 
-Const parameters retain `:` for their type annotation (`$N: int`) because this isn't a trait bound — it's a type declaration. Only trait bounds change from `:` to `with`.
+Both trait bounds (`T: Clone + Default`) and const parameter types (`$N: int`) use `:`. The `$` sigil disambiguates const generics from type parameters.
 
 ### 8.7 Reading the Syntax
 
-The proposed syntax reads naturally in English:
+The familiar `:` syntax reads naturally:
 
 | Expression | Reading |
 |------------|---------|
-| `T with Comparable` | "T, with Comparable" — T has the Comparable capability |
-| `T with Eq + Clone` | "T, with Eq and Clone" — T has both |
-| `type Point with Eq` | "Point, with Eq" — Point has Eq |
-| `where T with Clone` | "where T has Clone" |
-| `trait Hashable with Eq` | "Hashable, which has Eq" — Hashable requires Eq |
+| `T: Comparable` | "T is Comparable" |
+| `T: Eq + Clone` | "T is Eq and Clone" |
+| `type Point: Eq` | "Point is Eq" (derives Eq) |
+| `where T: Clone` | "where T is Clone" |
+| `trait Hashable: Eq` | "Hashable extends Eq" |
 
 ---
 
@@ -738,15 +690,15 @@ No whitelist. No special `ConstEligible` marker trait. Just: does the type have 
 // Primitives — all have Eq + Hashable, all const-eligible
 @buffer<$N: int> () -> [byte, max N] = ...
 @flag<$B: bool> () -> Config = ...
-@label<$S: str> () -> Label = ...       // str with Eq, Hashable ✓
-@code<$C: char> () -> Encoding = ...    // char with Eq, Hashable ✓
+@label<$S: str> () -> Label = ...       // str: Eq, Hashable ✓
+@code<$C: char> () -> Encoding = ...    // char: Eq, Hashable ✓
 
-// User types — opt in by declaring with Eq, Hashable
-type Color with Eq, Hashable = Red | Green | Blue;
-@themed<$C: Color> () -> Style = ...    // Color with Eq, Hashable ✓
+// User types — opt in by declaring : Eq, Hashable
+type Color: Eq, Hashable = Red | Green | Blue;
+@themed<$C: Color> () -> Style = ...    // Color: Eq, Hashable ✓
 
 // Compound types — inherit capabilities from element types
-@shaped<$S: [int]> () -> Tensor<float, S> = ...  // [int] with Eq, Hashable ✓
+@shaped<$S: [int]> () -> Tensor<float, S> = ...  // [int]: Eq, Hashable ✓
 
 // Types without Eq + Hashable — NOT const-eligible
 type Opaque = { data: [byte] }
@@ -764,8 +716,8 @@ error[E1040]: type `Opaque` cannot be used as a const generic parameter
    |
    = note: const generic parameters require `Eq + Hashable`
    = note: `Opaque` does not implement `Eq` or `Hashable`
-   = help: add `with Eq, Hashable` to the type declaration:
-   |        type Opaque with Eq, Hashable = { ... }
+   = help: add `Eq, Hashable` to the type declaration:
+   |        type Opaque: Eq, Hashable = { ... }
 ```
 
 ### 9.4 Why This Is Better Than a Whitelist
@@ -773,9 +725,9 @@ error[E1040]: type `Opaque` cannot be used as a const generic parameter
 | Approach | `int` | `bool` | `str` | `char` | User enums | User structs | Lists |
 |----------|-------|--------|-------|--------|------------|-------------|-------|
 | Whitelist (`int`, `bool` only) | Yes | Yes | No | No | No | No | No |
-| `Eq + Hashable` capability check | Yes | Yes | Yes | Yes | If declared | If declared | If elements are |
+| `Eq + Hashable` check | Yes | Yes | Yes | Yes | If declared | If declared | If elements are |
 
-The whitelist approach forces every extension to be a language-level decision. The capability approach lets users opt in by declaring `with Eq, Hashable` on their types. New types become const-eligible without compiler changes.
+The whitelist approach forces every extension to be a language-level decision. The capability approach lets users opt in by declaring `: Eq, Hashable` on their types. New types become const-eligible without compiler changes.
 
 ### 9.5 Interaction with Current Const Generics
 
@@ -813,7 +765,7 @@ trait Shaped {
     $total: int = $product(Self.$shape);  // Default (computed from $shape)
 }
 
-impl Shaped for Matrix<float, 3, 4> {
+impl Matrix<float, 3, 4>: Shaped {
     $rank = 2;
     $shape = [3, 4];
     // $total uses default: $product([3, 4]) = 12
@@ -825,11 +777,11 @@ impl Shaped for Matrix<float, 3, 4> {
 Associated consts can be constrained in `where` clauses:
 
 ```ori
-@matrix_op<T with Shaped> (t: T) -> T
+@matrix_op<T: Shaped> (t: T) -> T
     where T.$rank == 2
 = ...
 
-@compatible<A with Shaped, B with Shaped> (a: A, b: B) -> bool
+@compatible<A: Shaped, B: Shaped> (a: A, b: B) -> bool
     where A.$shape == B.$shape
 = true
 ```
@@ -839,14 +791,13 @@ Associated consts can be constrained in `where` clauses:
 When declaring a type with a trait that has associated consts, the values can be bound:
 
 ```ori
-type Tensor<T with DType, $S: [int]>
-    with Eq, Clone, Shaped($shape = S, $rank = $len(S))
+type Tensor<T: DType, $S: [int]>: Eq, Clone, Shaped($shape = S, $rank = $len(S))
 = {
     data: [T],
 }
 ```
 
-This reads as: "Tensor, with Eq, Clone, and Shaped where `$shape` is `S` and `$rank` is `$len(S)`."
+This reads as: "Tensor is Eq, Clone, and Shaped where `$shape` is `S` and `$rank` is `$len(S)`."
 
 ### 10.5 This Is Phase 4
 
@@ -866,7 +817,7 @@ This is substantial compiler work and is deliberately positioned as Phase 4.
 With associated consts and const generic types, it becomes natural to use const functions in type positions:
 
 ```ori
-@reshape<T with DType, $FROM: [int], $TO: [int]> (
+@reshape<T: DType, $FROM: [int], $TO: [int]> (
     t: Tensor<T, FROM>,
 ) -> Tensor<T, TO>
     where $product(FROM) == $product(TO)
@@ -918,27 +869,29 @@ This is the most complex phase and depends on all previous phases being complete
 
 ## 12. Interaction with Existing Features
 
-### 12.1 Manual Trait Implementations — Unchanged
+### 12.1 Manual Trait Implementations
 
-`impl Trait for Type { ... }` is unaffected. `with` on types is specifically for auto-derivation. Manual implementations continue to work:
+> **Note:** The `impl-colon-syntax-proposal` (approved 2026-03-05) changed `impl Trait for Type` to `impl Type: Trait`. Examples below reflect the updated syntax.
+
+Manual implementations use `impl Type: Trait { ... }`. `:` on types is specifically for auto-derivation. Manual implementations continue to work:
 
 ```ori
 type Custom = { data: [byte] }
 
 // Manual implementation — not derivable from fields
-impl Eq for Custom {
+impl Custom: Eq {
     @eq (self, other: Custom) -> bool = self.data == other.data;
 }
 ```
 
-A type can have some traits from `with` (auto-derived) and others from `impl` (manual):
+A type can have some traits from `:` (auto-derived) and others from `impl` (manual):
 
 ```ori
-type Custom with Clone, Debug = { data: [byte] }
+type Custom: Clone, Debug = { data: [byte] }
 
 // Clone and Debug are auto-derived
 // Eq is manually implemented
-impl Eq for Custom {
+impl Custom: Eq {
     @eq (self, other: Custom) -> bool = custom_compare(a: self.data, b: other.data);
 }
 ```
@@ -951,7 +904,7 @@ Expression-level capability provision is not affected:
 with Http = MockHttp in fetch(url: "/api")
 ```
 
-The parser distinguishes declaration-level `with` (no `=` after trait name) from expression-level `with...in` (has `= expr in`).
+`with` is now exclusively used for this expression form. No disambiguation with type declarations needed.
 
 ### 12.3 Object Safety — Unchanged
 
@@ -977,39 +930,24 @@ Method resolution order remains:
 3. Trait methods from in-scope traits
 4. Extension methods
 
-### 12.5 Existential Types — Bound Syntax Changes
+### 12.5 Existential Types — Unchanged
 
 ```ori
-// Current
 @iter () -> impl Iterator<int>
-
-// After Phase 2 (bound syntax change)
-// No change needed — impl Iterator<int> doesn't use `:` bounds
-```
-
-For existential types with bounds:
-
-```ori
-// Current
-@make_iter () -> impl Iterator<int> + Clone
-
-// Proposed — + syntax unchanged
 @make_iter () -> impl Iterator<int> + Clone
 ```
 
-### 12.6 Extension Methods — Bound Syntax Changes
+No change. Existential type syntax doesn't use `:` bounds.
+
+### 12.6 Extension Methods — Unchanged
 
 ```ori
-// Current
 extend<T: Printable> [T] {
     @show (self) -> void = print(msg: self.to_str());
 }
-
-// Proposed
-extend<T with Printable> [T] {
-    @show (self) -> void = print(msg: self.to_str());
-}
 ```
+
+No change. Extension method bounds already use `:`.
 
 ### 12.7 `capset` Declarations — Unchanged
 
@@ -1048,48 +986,48 @@ Environmental capabilities continue to use `uses`. No change to syntax, semantic
 
 ```
 error[E2032]: cannot derive `Eq` for `Container`
-  --> src/types.ori:1:22
+  --> src/types.ori:1:18
    |
- 1 | type Container with Eq = { item: FileHandle }
-   |                     ^^ `Eq` cannot be derived
-   |                          ─────────────────── `FileHandle` does not implement `Eq`
+ 1 | type Container: Eq = { item: FileHandle }
+   |                 ^^ `Eq` cannot be derived
+   |                      ─────────────────── `FileHandle` does not implement `Eq`
    |
-   = help: implement `Eq` for `FileHandle`, or remove `Eq` from the `with` clause
+   = help: implement `Eq` for `FileHandle`, or remove `Eq` from the trait list
 ```
 
 ### 13.2 Non-Derivable Trait (E2033)
 
 ```
 error[E2033]: trait `Iterator` cannot be derived
-  --> src/types.ori:1:18
+  --> src/types.ori:1:14
    |
- 1 | type MyIter with Iterator = { ... }
-   |                  ^^^^^^^^ not derivable
+ 1 | type MyIter: Iterator = { ... }
+   |              ^^^^^^^^ not derivable
    |
    = note: derivable traits: Eq, Hashable, Comparable, Clone, Default, Debug, Printable
-   = help: implement `Iterator` manually: `impl Iterator for MyIter { ... }`
+   = help: implement `Iterator` manually: `impl MyIter: Iterator { ... }`
 ```
 
 ### 13.3 Supertrait Missing (E2029)
 
 ```
 error[E2029]: `Hashable` requires supertrait `Eq`
-  --> src/types.ori:1:17
+  --> src/types.ori:1:13
    |
- 1 | type Point with Hashable = { x: int, y: int }
-   |                 ^^^^^^^^ requires `Eq`
+ 1 | type Point: Hashable = { x: int, y: int }
+   |             ^^^^^^^^ requires `Eq`
    |
-   = help: add `Eq`: `type Point with Eq, Hashable = { ... }`
+   = help: add `Eq`: `type Point: Eq, Hashable = { ... }`
 ```
 
 ### 13.4 Default on Sum Type (E2028)
 
 ```
 error[E2028]: cannot derive `Default` for sum type
-  --> src/types.ori:1:17
+  --> src/types.ori:1:13
    |
- 1 | type Status with Default = Active | Inactive;
-   |                  ^^^^^^^ not derivable for sum types
+ 1 | type Status: Default = Active | Inactive;
+   |              ^^^^^^^ not derivable for sum types
    |
    = note: sum types have multiple variants; no unambiguous default
    = help: implement `Default` manually to specify which variant
@@ -1105,7 +1043,7 @@ error[E1040]: type `Opaque` cannot be used as a const generic parameter
    |        ^^^^^^ not const-eligible
    |
    = note: const generic parameters require `Eq` and `Hashable`
-   = help: add `with Eq, Hashable` to the type: `type Opaque with Eq, Hashable = { ... }`
+   = help: add to the type declaration: `type Opaque: Eq, Hashable = { ... }`
 ```
 
 ### 13.6 Missing Capability in Bound (E2020)
@@ -1118,62 +1056,54 @@ error[E2020]: `T` does not satisfy bound `Comparable`
    |          - `T` declared here without bounds
    |
  3 |     sort(items: items)
-   |          ^^^^^^^^^^^^^ `sort` requires `T with Comparable`
+   |          ^^^^^^^^^^^^^ `sort` requires `T: Comparable`
    |
-   = help: add bound: `@process<T with Comparable>`
+   = help: add bound: `@process<T: Comparable>`
 ```
 
 ### 13.7 Old `#derive` Syntax Used (Migration Error)
 
 ```
-error: `#derive` syntax has been replaced by `with` clause
+error: `#derive` syntax has been replaced by `:` trait clause
   --> src/types.ori:1:1
    |
  1 | #derive(Eq, Hashable)
    | ^^^^^^^^^^^^^^^^^^^^^ old syntax
  2 | type Point = { x: int, y: int }
    |
-   = help: use: `type Point with Eq, Hashable = { x: int, y: int }`
+   = help: use: `type Point: Eq, Hashable = { x: int, y: int }`
 ```
 
-### 13.8 Old `:` Bound Syntax Used (Migration Error)
+### ~~13.8 Old `:` Bound Syntax~~ — Removed
 
-```
-error: trait bounds now use `with` instead of `:`
-  --> src/main.ori:1:10
-   |
- 1 | @sort<T: Comparable> (items: [T]) -> [T] = ...
-   |         ^ use `with` instead
-   |
-   = help: `@sort<T with Comparable> (items: [T]) -> [T] = ...`
-```
+No migration error needed for `:` in bounds — `:` is retained as the bound syntax.
 
 ---
 
 # Part III: Implementation Phases
 
-## 14. Phase 1: `with` on Type Declarations
+## 14. Phase 1: `:` on Type Declarations
 
-**Scope:** Replace `#derive(Trait)` with `type T with Trait = ...`
+**Scope:** Replace `#derive(Trait)` with `type T: Trait = ...`
 
 **Estimated impact:** Parser + IR + type checker registration. Evaluator and LLVM unchanged.
 
 ### 14.1 Parser Changes
 
-1. **`parse_type_decl()`** — After parsing generics, check for `with` keyword before `where`/`=`. Parse comma-separated trait names.
-2. **`ParsedAttrs`** — Remove `derive_traits: Vec<Name>` field. Add `with_traits: Vec<Name>` to the type declaration node instead.
+1. **`parse_type_decl()`** — After parsing generics, check for `:` before `where`/`=`. Parse comma-separated trait names.
+2. **`ParsedAttrs`** — Remove `derive_traits: Vec<Name>` field. Add `derive_traits: Vec<Name>` to the type declaration node instead.
 3. **Remove** `parse_derive_attr()` — The `#derive(...)` attribute handler is no longer needed.
-4. **Keep** `#[derive(...)]` as a migration error that suggests the `with` syntax.
+4. **Keep** `#derive(...)` as a migration error that suggests the `:` syntax.
 
 ### 14.2 IR Changes
 
-1. **`TypeDef`** node — Add `with_traits: Vec<DerivedTrait>` field (replacing attribute-sourced data).
+1. **`TypeDef`** node — Add `derive_traits: Vec<DerivedTrait>` field (replacing attribute-sourced data).
 2. **`DerivedTrait`** — Unchanged. The enum and strategy system remain as-is.
 3. **Remove** derive-related fields from `ParsedAttrs`.
 
 ### 14.3 Type Checker Changes
 
-1. **`register_derived_impls()`** — Change input source from `ParsedAttrs.derive_traits` to `TypeDef.with_traits`. Processing logic unchanged.
+1. **`register_derived_impls()`** — Change input source from `ParsedAttrs.derive_traits` to `TypeDef.derive_traits`. Processing logic unchanged.
 2. **All validation** (E2028, E2029, E2032, E2033) — Unchanged. Only the source of trait names changes.
 
 ### 14.4 Evaluator Changes
@@ -1186,8 +1116,8 @@ None. The LLVM codegen receives `DerivedMethodInfo` regardless of how the derive
 
 ### 14.6 Test Changes
 
-- Update all `#derive(...)` in spec tests to `with` syntax (~193 files)
-- Add parser tests for new `with` clause syntax
+- Update all `#derive(...)` in spec tests to `:` syntax (~193 files)
+- Add parser tests for new `:` trait clause syntax
 - Add migration error tests for old `#derive` syntax
 - Verify all existing derive tests pass with new syntax
 
@@ -1201,46 +1131,19 @@ None. The LLVM codegen receives `DerivedMethodInfo` regardless of how the derive
 
 ---
 
-## 15. Phase 2: `with` on Generic Bounds
+## 15. Phase 2 — Eliminated
 
-**Scope:** Replace `T: Trait` with `T with Trait` in generic parameters and where clauses.
+**Original scope:** Replace `T: Trait` with `T with Trait` in generic parameters and where clauses.
 
-**Estimated impact:** Parser + all spec documents. Type checker constraint checking is unchanged (same data, different parse source).
+**Status:** This phase is **no longer needed**. The decision to retain `:` for bounds means generic parameters, where clauses, supertraits, and impl blocks all keep their existing syntax. No parser changes, no test migration, no spec updates for bound syntax.
 
-### 15.1 Parser Changes
-
-1. **`parse_generic_param()`** — Change bound delimiter from `:` to `with`. Continue using `+` for multiple bounds.
-2. **`parse_where_clause()`** — Change constraint syntax from `T: Bounds` to `T with Bounds`.
-3. **`parse_trait_def()`** — Change supertrait syntax from `: Bounds` to `with Bounds`.
-4. **Keep** `:` parsing as a migration error that suggests `with`.
-
-### 15.2 Disambiguation with Const Generics
-
-Const generic parameters retain `:` for type annotations:
-
-```ori
-@f<T with Eq, $N: int> (items: [T, max N]) -> [T, max N]
-```
-
-Here, `T with Eq` uses `with` (trait bound), while `$N: int` uses `:` (type annotation). The parser distinguishes them by the `$` sigil: parameters starting with `$` use `:` for their type; parameters without `$` use `with` for their bounds.
-
-### 15.3 Type Checker Changes
-
-Minimal. The type checker already works with `GenericParam.bounds: Vec<TraitBound>`. The data structure doesn't change — only the parser that populates it.
-
-### 15.4 Spec Changes
-
-This is the largest spec update:
-- Update `grammar.ebnf`: `type_param`, `where_clause`, `trait_def` productions
-- Update ALL examples in `06-types.md`, `07-properties-of-types.md`, `08-declarations.md`
-- Update ALL examples in `11-built-in-functions.md`, `14-capabilities.md`, `16-formatting.md`
-- Update 28 affected proposals (see Part V)
+The work originally allocated to Phase 2 (spec-wide syntax updates for ~28 proposals and ~100+ test files) is eliminated entirely.
 
 ---
 
 ## 16. Phase 3: Const Generic Eligibility
 
-**Scope:** Replace the `{int, bool}` whitelist with "any type `with Eq, Hashable`" check.
+**Scope:** Replace the `{int, bool}` whitelist with "any type `: Eq, Hashable`" check.
 
 **Estimated impact:** Type checker only. Small, targeted change.
 
@@ -1260,9 +1163,9 @@ After this phase, the following types become const-eligible (assuming they have 
 | `str` | Excluded | **Eligible** |
 | `char` | Excluded | **Eligible** |
 | `byte` | Excluded | **Eligible** |
-| User enums `with Eq, Hashable` | Excluded | **Eligible** |
-| User structs `with Eq, Hashable` | Excluded | **Eligible** |
-| `[T]` where `T with Eq, Hashable` | Excluded | **Eligible** |
+| User enums `: Eq, Hashable` | Excluded | **Eligible** |
+| User structs `: Eq, Hashable` | Excluded | **Eligible** |
+| `[T]` where `T: Eq + Hashable` | Excluded | **Eligible** |
 | Tuples of eligible types | Excluded | **Eligible** |
 
 ### 16.3 Spec Changes
@@ -1364,23 +1267,23 @@ This proposal touches 6 roadmap sections directly and affects 4 more indirectly:
 **Current status:** 70% complete. Core dispatch, derives, bounds, associated types all work.
 
 **Impact:**
-- **3.3 Trait Bounds** — Syntax changes from `:` to `with`. All bound checking logic unchanged, but every test and example needs updating.
-- **3.5 Derived Traits** — `#derive` attribute replaced by `with` clause. Processing pipeline unchanged but input source changes (attribute → type declaration node).
-- **3.1 Trait Declarations** — Supertrait syntax changes from `trait Foo: Bar` to `trait Foo with Bar`.
+- **3.3 Trait Bounds** — Unchanged. `:` is retained for bounds.
+- **3.5 Derived Traits** — `#derive` attribute replaced by `:` trait clause. Processing pipeline unchanged but input source changes (attribute → type declaration node).
+- **3.1 Trait Declarations** — Supertrait syntax unchanged (`trait Foo: Bar` already correct).
 - **3.4 Associated Types** — Existing feature. Phase 4 (associated consts) extends this pattern.
-- **3.11 Object Safety** — Rules unchanged. But documentation and error messages reference bound syntax.
+- **3.11 Object Safety** — Rules unchanged.
 - **3.14 Comparable/Hashable** — These become the gatekeepers for const generic eligibility.
 
-**Estimated effort:** Medium (mostly mechanical syntax changes + test updates).
+**Estimated effort:** Low (only `#derive` → `:` migration, no bound syntax changes).
 
 ### 19.2 Section 5: Type Declarations (DIRECT — Major Impact)
 
 **Current status:** Evaluator complete, LLVM tests missing.
 
 **Impact:**
-- **5.4 Generic Types** — Bound syntax changes from `:` to `with`.
+- **5.4 Generic Types** — Bound syntax unchanged.
 - **5.5 Compound Type Inference** — NOT STARTED. Lists, Maps, Sets, Tuples, Ranges have no type checker support. **This blocks Phase 3** (const generic eligibility for compound types like `[int]`).
-- **5.7 Derive Attributes** — Replaced entirely by `with` clause.
+- **5.7 Derive Attributes** — Replaced entirely by `:` trait clause.
 
 **Estimated effort:** Low for syntax change; HIGH for 5.5 dependency.
 
@@ -1390,8 +1293,8 @@ This proposal touches 6 roadmap sections directly and affects 4 more indirectly:
 
 **Impact:**
 - **Conceptual reframing** — Capabilities become "environmental capabilities" under the unified model. No code changes, but all documentation reframed.
-- **6.11 Composition** — `with...in` expression syntax unchanged. But proposals/docs need updating to distinguish "structural `with`" from "environmental `with...in`".
-- **6.2 Capability Traits** — These remain traits. The distinction is that capability traits are used with `uses` (environmental), while structural traits are used with `with` (on types/bounds).
+- **6.11 Composition** — `with...in` expression syntax unchanged. `with` is now exclusively for expression-level capability provision — no disambiguation needed.
+- **6.2 Capability Traits** — These remain traits. The distinction is that capability traits are used with `uses` (environmental), while structural traits are declared with `:` (on types/bounds).
 
 **Estimated effort:** Low (documentation and conceptual reframing, no code changes).
 
@@ -1400,7 +1303,7 @@ This proposal touches 6 roadmap sections directly and affects 4 more indirectly:
 **Current status:** `#derive` is the primary attribute in the type system.
 
 **Impact:**
-- **`#derive` removal** — The `#derive(...)` attribute is removed. Other attributes (`#test`, `#skip`, `#main`, `#cfg`) are unaffected.
+- **`#derive` removal** — The `#derive(...)` attribute is removed, replaced by `:` trait clause on type declarations. Other attributes (`#test`, `#skip`, `#main`, `#cfg`) are unaffected.
 - **`#[derive(...)]` bracket syntax** — Also removed (was kept for backward compatibility).
 - **Parser** — Attribute parsing simplified; derive-specific handler removed.
 
@@ -1443,7 +1346,7 @@ This proposal touches 6 roadmap sections directly and affects 4 more indirectly:
 
 **Current state:** Entirely unimplemented. Lists, Maps, Sets, Tuples, Ranges all have evaluator support but NO type checker support.
 
-**Why it blocks:** Phase 3 (const generic eligibility) needs `[int] with Eq, Hashable` to work. This requires the type checker to know that `[T]` has `Eq` when `T` has `Eq` — which requires compound type inference.
+**Why it blocks:** Phase 3 (const generic eligibility) needs `[int]: Eq, Hashable` to work. This requires the type checker to know that `[T]` has `Eq` when `T` has `Eq` — which requires compound type inference.
 
 **Recommendation:** Pull forward to before Phase 3. Implement basic type inference for at least `[T]` (lists) and `(T, U)` (tuples), since these are the most common const generic compound types.
 
@@ -1459,7 +1362,7 @@ This proposal touches 6 roadmap sections directly and affects 4 more indirectly:
 
 **Current state:** Not started. Multi-binding `with...in` syntax exists but validation is incomplete.
 
-**Why it matters:** The proposal needs a clear understanding of how `with...in` (environmental) composes, to ensure no confusion with `with` (structural) in documentation and error messages.
+**Why it matters:** The proposal needs a clear understanding of how `with...in` (environmental) composes for documentation and error messages.
 
 **Recommendation:** Complete during Phase 1, alongside the conceptual reframing.
 
@@ -1476,14 +1379,9 @@ Section 15A (Attributes) ← simplified by Phase 1
 
 No blockers. Phase 1 can start immediately.
 
-### 21.2 Phase 2 Dependencies
+### 21.2 Phase 2 — Eliminated
 
-```
-Section 3.3 (Trait Bounds) ← syntax change
-Section 3.1 (Trait Declarations) ← supertrait syntax change
-```
-
-No blockers beyond Phase 1 completion.
+Phase 2 (bound syntax migration from `:` to `with`) is no longer needed. `:` is retained for bounds.
 
 ### 21.3 Phase 3 Dependencies
 
@@ -1513,9 +1411,7 @@ Section 18 (Const Generics full) ← must be substantially complete
 ### 21.6 Proposed Timeline
 
 ```
-Immediate:  Phase 1 (with on types)
-            ↓
-Next:       Phase 2 (with on bounds) + Section 5.5 (compound type inference) in parallel
+Immediate:  Phase 1 (: on types, replacing #derive) + Section 5.5 (compound type inference)
             ↓
 Then:       Phase 3 (const eligibility) + Section 18.0 (const evaluation) in parallel
             ↓
@@ -1523,6 +1419,8 @@ Later:      Phase 4 (associated consts)
             ↓
 Future:     Phase 5 (const functions in type positions)
 ```
+
+Phase 2 is eliminated — bound syntax already uses `:`.
 
 ---
 
@@ -1532,17 +1430,13 @@ Future:     Phase 5 (const functions in type positions)
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Parser ambiguity with `with` | Low | Medium | Syntactic positions are distinct; tested |
+| Parser ambiguity with `:` on type declarations | Low | Low | `:` after generics, before `where`/`=`; well-defined position |
 | Test migration breaks tests | Medium | Low | Mechanical replacement; CI catches failures |
-| Community confusion about syntax change | Low | Low | Migration errors guide users |
+| Community confusion about syntax change | Low | Low | Migration errors guide users; `:` is universally familiar |
 
-### 22.2 Phase 2 Risks — MEDIUM
+### 22.2 Phase 2 — Eliminated
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| `:` to `with` changes interact badly with const generics (`:` for type annotation) | Medium | Medium | `$` sigil disambiguates: `$N: int` ≠ `T with Eq` |
-| Spec update scope is very large (15+ docs, 28 proposals) | High | Medium | Automated tooling for mechanical replacements |
-| Supertrait `with` reads oddly: `trait Comparable with Eq` | Medium | Low | Alternative: keep `:` for supertraits only |
+Phase 2 risks are eliminated entirely because bound syntax is unchanged.
 
 ### 22.3 Phase 3 Risks — MEDIUM
 
@@ -1576,15 +1470,14 @@ Future:     Phase 5 (const functions in type positions)
 
 | Document | Changes | Phase |
 |----------|---------|-------|
-| `grammar.ebnf` | `type_def`, `type_param`, `where_clause`, `trait_def` productions | 1-2 |
-| `06-types.md` | All `#derive` examples, all bound examples, const generic section | 1-3 |
-| `07-properties-of-types.md` | All `#derive` and `T: Trait` examples | 1-2 |
-| `08-declarations.md` | All trait/impl/extension examples | 1-2 |
-| `11-built-in-functions.md` | Function signatures with bounds | 2 |
-| `14-capabilities.md` | Conceptual reframing, `with...in` disambiguation | 1 |
-| `16-formatting.md` | `#derive` examples, generic bounds | 1-2 |
+| `grammar.ebnf` | `type_def` production (add `:` trait clause) | 1 |
+| `06-types.md` | All `#derive` examples → `:` syntax, const generic section | 1, 3 |
+| `07-properties-of-types.md` | All `#derive` examples → `:` syntax | 1 |
+| `08-declarations.md` | `#derive` examples → `:` syntax | 1 |
+| `14-capabilities.md` | Conceptual reframing | 1 |
+| `16-formatting.md` | `#derive` examples → `:` syntax | 1 |
 | `21-constant-expressions.md` | Const generic eligibility | 3 |
-| `27-reflection.md` | `#derive(Reflect)` examples | 1 |
+| `27-reflection.md` | `#derive(Reflect)` examples → `: Reflect` | 1 |
 
 ---
 
@@ -1594,56 +1487,37 @@ Future:     Phase 5 (const functions in type positions)
 
 | Proposal | Superseded Sections |
 |----------|-------------------|
-| `derived-traits-proposal.md` | `#derive` syntax (replaced by `with` clause). Derivation rules, field constraints, error messages remain valid. |
+| `derived-traits-proposal.md` | `#derive` syntax (replaced by `:` trait clause). Derivation rules, field constraints, error messages remain valid. |
 | `const-generics-proposal.md` | "Allowed Const Types" section (whitelist replaced by `Eq + Hashable` check). All other sections remain valid. |
 
 ### 24.2 Proposals Requiring Syntax Updates
 
-These proposals contain `#derive(...)` or `T: Trait` syntax that must be updated to match:
+Since bound syntax (`:`) is unchanged, only proposals containing `#derive(...)` need updating:
 
 | Proposal | Update Needed |
 |----------|--------------|
-| `comparable-hashable-traits-proposal.md` | `#derive` examples → `with` |
-| `clone-trait-proposal.md` | `#derive` examples → `with` |
-| `debug-trait-proposal.md` | `#derive` examples → `with` |
-| `drop-trait-proposal.md` | Bound examples → `with` |
-| `additional-traits-proposal.md` | Bound examples → `with` |
-| `formattable-trait-proposal.md` | Bound examples → `with` |
-| `len-trait-proposal.md` | Bound examples → `with` |
-| `iterator-traits-proposal.md` | Bound examples → `with` |
-| `into-trait-proposal.md` | Bound examples → `with` |
-| `index-trait-proposal.md` | Bound examples → `with` |
-| `operator-traits-proposal.md` | Bound examples → `with` |
-| `object-safety-rules-proposal.md` | Bound examples → `with` |
-| `trait-resolution-conflicts-proposal.md` | Bound examples → `with` |
-| `extension-methods-proposal.md` | Bound examples → `with` |
-| `default-impl-proposal.md` | Capability examples |
-| `default-impl-resolution-proposal.md` | Capability examples |
-| `default-type-parameters-proposal.md` | Generic examples → `with` |
-| `default-associated-types-proposal.md` | Generic examples → `with` |
-| `associated-functions-proposal.md` | Bound examples → `with` |
-| `existential-types-proposal.md` | Bound examples → `with` |
-| `capability-composition-proposal.md` | Documentation reframing |
-| `capset-proposal.md` | Documentation reframing |
-| `stateful-mock-testing-proposal.md` | `with` disambiguation note |
-| `intrinsics-capability-proposal.md` | Documentation reframing |
-| `const-generic-bounds-proposal.md` | Where clause syntax → `with` |
-| `reflection-api-proposal.md` | `#derive(Reflect)` → `with Reflect` |
-| `sendable-channels-proposal.md` | `T: Sendable` → `T with Sendable` |
-| `block-expression-syntax.md` | No change needed (doesn't reference derives/bounds) |
+| `comparable-hashable-traits-proposal.md` | `#derive` examples → `:` trait clause |
+| `clone-trait-proposal.md` | `#derive` examples → `:` trait clause |
+| `debug-trait-proposal.md` | `#derive` examples → `:` trait clause |
+| `reflection-api-proposal.md` | `#derive(Reflect)` → `: Reflect` |
+| `capability-composition-proposal.md` | Documentation reframing only |
+| `capset-proposal.md` | Documentation reframing only |
+| `intrinsics-capability-proposal.md` | Documentation reframing only |
+
+**No longer affected** (bound syntax unchanged): `drop-trait-proposal.md`, `additional-traits-proposal.md`, `formattable-trait-proposal.md`, `len-trait-proposal.md`, `iterator-traits-proposal.md`, `into-trait-proposal.md`, `index-trait-proposal.md`, `operator-traits-proposal.md`, `object-safety-rules-proposal.md`, `trait-resolution-conflicts-proposal.md`, `extension-methods-proposal.md`, `default-impl-proposal.md`, `default-impl-resolution-proposal.md`, `default-type-parameters-proposal.md`, `default-associated-types-proposal.md`, `associated-functions-proposal.md`, `existential-types-proposal.md`, `stateful-mock-testing-proposal.md`, `const-generic-bounds-proposal.md`, `sendable-channels-proposal.md`, `block-expression-syntax.md`.
 
 ---
 
 ## 25. Test Migration Plan
 
-### 25.1 Phase 1: `#derive` → `with` (193+ files)
+### 25.1 Phase 1: `#derive` → `:` (193+ files)
 
 Mechanical replacement across all test files:
 
 ```
-#derive(Eq)                        → (move to type declaration with clause)
-#derive(Eq, Hashable)              → (move to type declaration with clause)
-#derive(Eq, Hashable, Comparable)  → (move to type declaration with clause)
+#derive(Eq)                        → (move to type declaration : clause)
+#derive(Eq, Hashable)              → (move to type declaration : clause)
+#derive(Eq, Hashable, Comparable)  → (move to type declaration : clause)
 ```
 
 This is not a simple find-replace because `#derive` is on the line before the `type` declaration and must merge into it:
@@ -1654,41 +1528,27 @@ This is not a simple find-replace because `#derive` is on the line before the `t
 type Point = { x: int, y: int }
 
 // After
-type Point with Eq, Clone = { x: int, y: int }
+type Point: Eq, Clone = { x: int, y: int }
 ```
 
 **Tooling needed:** A migration script that:
 1. Finds `#derive(...)` lines
 2. Extracts trait names
 3. Removes the `#derive` line
-4. Inserts `with Traits` into the following `type` declaration
+4. Inserts `: Traits` into the following `type` declaration
 
-### 25.2 Phase 2: `:` → `with` in bounds
+### 25.2 Phase 2 — Eliminated
 
-Mechanical replacement in function signatures, trait definitions, impl blocks, and where clauses:
-
-```
-T: Comparable       → T with Comparable
-T: Eq + Clone       → T with Eq + Clone
-where T: Eq         → where T with Eq
-trait Foo: Bar      → trait Foo with Bar
-impl<T: Eq>         → impl<T with Eq>
-```
-
-**Note:** Must NOT replace `:` in const generic parameters: `$N: int` stays as-is.
+No bound syntax migration needed. `:` is retained for bounds.
 
 ### 25.3 Test File Counts by Category
 
 | Category | Files | Phase |
 |----------|-------|-------|
 | `tests/spec/traits/derive/` | 12 | 1 |
-| `tests/spec/declarations/` (attributes, generics, where_clause) | 5 | 1-2 |
-| `tests/spec/traits/` (all others) | 80+ | 2 |
-| `tests/spec/capabilities/` | 5 | 1 (documentation) |
-| `tests/spec/expressions/` | 10+ | 2 |
-| `tests/spec/types/` | 10+ | 2 |
-| `tests/spec/patterns/` | 5 | 1-2 |
-| `compiler/oric/tests/` (Rust) | 50+ | 1-2 |
+| `tests/spec/declarations/` (attributes) | 5 | 1 |
+| Files with `#derive` across all `tests/spec/` | ~193 | 1 |
+| `compiler/oric/tests/` (Rust, derive-related) | ~20 | 1 |
 
 ---
 
@@ -1696,19 +1556,15 @@ impl<T: Eq>         → impl<T with Eq>
 
 ### 26.1 Phase 1 Transition
 
-During Phase 1, both `#derive` and `with` could be accepted temporarily:
-- `#derive(Eq)` → accepted with deprecation warning pointing to `with Eq`
-- `type Point with Eq = { ... }` → canonical form
+During Phase 1, both `#derive` and `:` could be accepted temporarily:
+- `#derive(Eq)` → accepted with deprecation warning pointing to `: Eq`
+- `type Point: Eq = { ... }` → canonical form
 
 **Recommendation:** No transition period. This is a pre-1.0 language. Make the change cleanly.
 
-### 26.2 Phase 2 Transition
+### 26.2 Phase 2 — Eliminated
 
-During Phase 2, both `:` and `with` could be accepted for bounds:
-- `T: Comparable` → accepted with deprecation warning pointing to `T with Comparable`
-- `T with Comparable` → canonical form
-
-**Recommendation:** No transition period for the same reason. Pre-1.0 means no backwards compatibility obligation.
+No transition needed for bounds. `:` is retained as the bound syntax.
 
 ---
 
@@ -1716,30 +1572,30 @@ During Phase 2, both `:` and `with` could be accepted for bounds:
 
 ### 27.1 Migration Script
 
-A script (`scripts/migrate_with_syntax.py` or similar) that:
-1. Finds all `#derive(...)` annotations and converts to `with` clauses
-2. Finds all `T: Trait` bounds and converts to `T with Trait` (excluding `$N: Type`)
-3. Finds all `where T: Trait` and converts to `where T with Trait`
-4. Finds all `trait Foo: Bar` and converts to `trait Foo with Bar`
+A script (`scripts/migrate_derive_syntax.py` or similar) that:
+1. Finds all `#derive(...)` annotations
+2. Extracts trait names
+3. Removes the `#derive` line
+4. Inserts `: Traits` into the following `type` declaration
+
+No bound syntax migration needed.
 
 ### 27.2 Editor Support
 
-- LSP should auto-complete `with` after type name in declarations
-- LSP should suggest available derivable traits after `with`
+- LSP should auto-complete derivable trait names after `:` in type declarations
 - LSP should show "available capabilities" on hover for types (structural) and functions (environmental)
 
 ### 27.3 `ori fmt`
 
-- Format `with` clause on the same line as `type` if it fits
-- Break to next line (indented) if the with clause is long:
+- Format `:` trait clause on the same line as `type` if it fits
+- Break to next line (indented) if the trait clause is long:
 
 ```ori
 // Short — same line
-type Point with Eq = { x: int, y: int }
+type Point: Eq = { x: int, y: int }
 
 // Long — next line
-type User
-    with Eq, Hashable, Comparable, Clone, Debug, Printable
+type User: Eq, Hashable, Comparable, Clone, Debug, Printable
 = {
     id: int,
     name: str,
@@ -1753,17 +1609,17 @@ type User
 
 ## 28. Open Questions
 
-### Q1: Should `with` on types allow non-derivable traits as markers?
+### Q1: Should `:` on types allow non-derivable traits as markers?
 
-**Question:** If `type Foo with Serializable` is written and `Serializable` isn't auto-derivable, should the compiler (a) error, (b) check for a manual impl, or (c) treat it as a constraint on the type?
+**Question:** If `type Foo: Serializable` is written and `Serializable` isn't auto-derivable, should the compiler (a) error, (b) check for a manual impl, or (c) treat it as a constraint on the type?
 
-**Current proposal:** Error (E2033). Only the 7 derivable traits are allowed in `with` on type declarations.
+**Current proposal:** Error (E2033). Only the 7 derivable traits are allowed in `:` trait clauses on type declarations.
 
-**Alternative:** Allow any trait, with the compiler checking for a manual impl. This would make `with` truly mean "has" rather than "derive." But it muddies the semantics — `with` would sometimes derive and sometimes just assert.
+**Alternative:** Allow any trait, with the compiler checking for a manual impl. This would make `:` truly mean "conforms to" rather than "derive." But it muddies the semantics — `:` would sometimes derive and sometimes just assert.
 
 **Recommendation:** Start with derivable-only (simpler). Revisit if users request it.
 
-### Q2: Should `with` on types support user-defined derivable traits?
+### Q2: Should `:` on types support user-defined derivable traits?
 
 **Question:** Can library authors create new derivable traits? E.g., `trait Serialize` with a derivation strategy that auto-generates from fields?
 
@@ -1775,31 +1631,19 @@ type User
 
 **Question:** For traits with type parameters like `Add<int>`, how does the bound syntax read?
 
-**Current (`:`)**:
 ```ori
 @f<T: Add<int>> (x: T) -> T.Output = ...
 ```
 
-**Proposed (`with`)**:
-```ori
-@f<T with Add<int>> (x: T) -> T.Output = ...
-```
+**Assessment:** Already works. `:` is the existing bound syntax. `T: Add<int>` parses unambiguously.
 
-**Assessment:** This works. `T with Add<int>` parses unambiguously — `Add<int>` is a type path with generic arguments.
+### Q4: Should `trait Foo: Bar` change? — RESOLVED
 
-### Q4: Should `trait Foo with Bar` replace `trait Foo: Bar`?
+**Decision:** No. `trait Comparable: Eq` is retained. `:` is used for all structural capability declarations — type declarations, bounds, where clauses, and supertraits. This is consistent with Rust, Swift, and Kotlin.
 
-**Question:** The supertrait syntax `trait Comparable: Eq` could change to `trait Comparable with Eq`. Is this desirable?
+### Q5: Can `:` appear in return type position?
 
-**Argument for:** Consistency. `with` means "has this capability" everywhere.
-
-**Argument against:** `trait Foo: Bar` is well-understood from Rust/Haskell. It reads as "Foo is a subtype of Bar" or "Foo extends Bar." Changing it may confuse users coming from those languages.
-
-**Current proposal:** Change to `with` for full consistency. The reading "Comparable, with Eq" is natural English.
-
-### Q5: Can `with` appear in return type position?
-
-**Question:** Does `fn foo() -> T with Eq` make sense?
+**Question:** Does `@foo () -> T: Eq` make sense?
 
 **Answer:** No. Return types describe what comes back, not what constraints it satisfies. Use `where` clauses or existential types instead:
 
@@ -1807,53 +1651,47 @@ type User
 @foo () -> impl Printable = ...
 ```
 
-### Q6: How does `with` interact with `dyn Trait`?
+### Q6: How does `:` interact with trait objects?
 
 **Question:** Ori removed the `dyn` keyword (see `remove-dyn-keyword-proposal.md`). Trait objects use `impl Trait` syntax. How do additional bounds work?
 
-**Current:** `impl Printable + Clone` (uses `+`)
+**Answer:** `impl Printable + Clone` (uses `+`). This is separate from `:` — `+` is for combining traits in existential/object position, `:` is for bounds on type parameters and type declarations.
 
-**Proposed:** Unchanged. `+` is for combining traits in existential/object position. `with` is for bounds on type parameters.
-
-### Q7: Interaction with `extend` blocks?
+### Q7: Interaction with `extend` blocks? — No Change
 
 **Question:** Extension methods have generic bounds. Do they change?
 
-**Answer:** Yes, consistent with all other bound syntax:
+**Answer:** No. Extension method bounds already use `:`:
 
 ```ori
-// Current
 extend<T: Printable> [T] { ... }
-
-// Proposed
-extend<T with Printable> [T] { ... }
 ```
 
-### Q8: Should capsets use `with`?
+### Q8: Should capsets use `:`?
 
-**Question:** Currently: `capset Net = Http, Dns, Tls`. Should this be `capset Net with Http, Dns, Tls`?
+**Question:** Currently: `capset Net = Http, Dns, Tls`. Should this be `capset Net: Http, Dns, Tls`?
 
 **Answer:** No. Capsets are aliases for environmental capability sets (used with `uses`). They don't declare structural capabilities on a type. The `=` syntax correctly expresses "Net is defined as the set {Http, Dns, Tls}."
 
 ### Q9: What about the Sendable auto-trait?
 
-**Question:** `Sendable` is automatically derived by the compiler (not via `#derive`). How does it interact with `with`?
+**Question:** `Sendable` is automatically derived by the compiler (not via `#derive`). How does it interact with `:`?
 
-**Answer:** `Sendable` continues to be automatically computed by the compiler based on field types. It does not appear in `with` clauses. Users can use it in bounds:
+**Answer:** `Sendable` continues to be automatically computed by the compiler based on field types. It does not appear in `:` trait clauses on type declarations. Users can use it in bounds:
 
 ```ori
-@spawn<T with Sendable> (task: () -> T) -> Future<T> = ...
+@spawn<T: Sendable> (task: () -> T) -> Future<T> = ...
 ```
 
-### Q10: Does the `with` clause affect type identity?
+### Q10: Does the `:` trait clause affect type identity?
 
-**Question:** Are `type Point with Eq = { x: int, y: int }` and `type Point = { x: int, y: int }` the same type?
+**Question:** Are `type Point: Eq = { x: int, y: int }` and `type Point = { x: int, y: int }` the same type?
 
-**Answer:** Yes. `with` generates trait implementations but does not change the type's identity. A `Point` is a `Point` regardless of which traits it derives.
+**Answer:** Yes. `:` generates trait implementations but does not change the type's identity. A `Point` is a `Point` regardless of which traits it derives.
 
-### Q11: Ordering within `with` clause — does it matter?
+### Q11: Ordering within `:` trait clause — does it matter?
 
-**Question:** Is `type Point with Eq, Hashable` the same as `type Point with Hashable, Eq`?
+**Question:** Is `type Point: Eq, Hashable` the same as `type Point: Hashable, Eq`?
 
 **Answer:** Yes. Order is irrelevant, same as the current `#derive` behavior. Supertrait requirements are checked regardless of order.
 
@@ -1862,7 +1700,7 @@ extend<T with Printable> [T] { ... }
 **Question:** For constraining associated consts:
 
 ```ori
-@matrix_op<T with Shaped> (t: T) -> T
+@matrix_op<T: Shaped> (t: T) -> T
     where T.$rank == 2
 ```
 
@@ -1870,18 +1708,18 @@ Does `T.$rank` reference work in where clauses?
 
 **Answer:** Yes. `T.$rank` is an associated const projection, analogous to `T.Item` for associated types. It resolves via the trait registry.
 
-### Q13: What about `with` on function return types for documentation?
+### Q13: What about `:` on function return types for documentation?
 
-**Question:** Could `with` on return types serve as documentation?
+**Question:** Could `:` on return types serve as documentation?
 
 ```ori
-@sort<T with Comparable> (items: [T]) -> [T] with Sorted
+@sort<T: Comparable> (items: [T]) -> [T]: Sorted
 ```
 
-**Answer:** No. `with Sorted` on a return type is not a capability — it's an assertion about a property. This is better handled by post-conditions:
+**Answer:** No. `: Sorted` on a return type is not a capability — it's an assertion about a property. This is better handled by post-conditions:
 
 ```ori
-@sort<T with Comparable> (items: [T]) -> [T]
+@sort<T: Comparable> (items: [T]) -> [T]
     post(result -> is_sorted(items: result))
 ```
 
@@ -1890,7 +1728,7 @@ Does `T.$rank` reference work in where clauses?
 **Question:** Currently, deriving `Hashable` without `Eq` produces a warning (W0100). With `with`, this becomes:
 
 ```ori
-type Foo with Hashable = { ... }  // Warning: Hashable without Eq
+type Foo: Hashable = { ... }  // Warning: Hashable without Eq
 ```
 
 **Answer:** Same behavior. The warning is based on the trait list, not the syntax.
@@ -1899,7 +1737,7 @@ type Foo with Hashable = { ... }  // Warning: Hashable without Eq
 
 **Question:** Compile-fail tests check for specific error codes. Do any error codes change?
 
-**Answer:** Error codes are preserved. E2028, E2029, E2032, E2033 remain the same. Only error message text changes (e.g., "add `Eq` to the derive list" → "add `Eq` to the `with` clause").
+**Answer:** Error codes are preserved. E2028, E2029, E2032, E2033 remain the same. Only error message text changes (e.g., "add `Eq` to the derive list" → "add `Eq` to the trait list").
 
 ---
 
@@ -1907,7 +1745,7 @@ type Foo with Hashable = { ... }  // Warning: Hashable without Eq
 
 This proposal deliberately does not provide:
 
-1. **Higher-kinded types (HKTs):** You cannot write `T with Functor` where `Functor` abstracts over type constructors like `Option`, `Result`, `List`. This limits certain abstractions (no generic `map` over any container).
+1. **Higher-kinded types (HKTs):** You cannot write `T: Functor` where `Functor` abstracts over type constructors like `Option`, `Result`, `List`. This limits certain abstractions (no generic `map` over any container).
 
 2. **Row-polymorphic effects:** Koka's effect system allows functions to be generic over "any set of effects." Ori's `uses` is a flat list of named capabilities. You cannot write `fn f<E>(x: () -E-> int)` where `E` is an effect variable.
 
@@ -1923,7 +1761,7 @@ These are deliberate scope limitations. Each could be a future proposal, but thi
 
 ## 30. Non-Goals
 
-1. **Changing how `uses` works.** Environmental capabilities are unchanged. This proposal only adds `with` for structural capabilities and changes bound syntax.
+1. **Changing how `uses` works.** Environmental capabilities are unchanged. This proposal only adds `:` trait clauses on type declarations and generalizes const generic eligibility.
 
 2. **Changing `with...in` expression syntax.** The capability provision expression `with Http = Mock in body` is unchanged.
 
@@ -1933,7 +1771,7 @@ These are deliberate scope limitations. Each could be a future proposal, but thi
 
 5. **Implementing the full generics upgrade.** Phases 4-5 (associated consts, const functions in type positions) are future work described here for completeness but not implemented by this proposal. Only Phases 1-3 are proposed for immediate implementation.
 
-6. **Backward compatibility with `#derive` or `:`**. As a pre-1.0 language, Ori does not maintain backward compatibility. The old syntax is removed, with migration errors to guide users.
+6. **Backward compatibility with `#derive`**. As a pre-1.0 language, Ori does not maintain backward compatibility. The old `#derive` syntax is removed, with migration errors to guide users.
 
 ---
 
@@ -1941,17 +1779,17 @@ These are deliberate scope limitations. Each could be a future proposal, but thi
 
 | Aspect | Current | Proposed | Phase |
 |--------|---------|----------|-------|
-| Derive on types | `#derive(Eq, Clone)` | `type T with Eq, Clone = { ... }` | 1 |
-| Generic bounds | `T: Comparable` | `T with Comparable` | 2 |
-| Where clauses | `where T: Eq` | `where T with Eq` | 2 |
-| Supertrait syntax | `trait Foo: Bar` | `trait Foo with Bar` | 2 |
-| Impl bounds | `impl<T: Eq>` | `impl<T with Eq>` | 2 |
-| Const generic types | `int`, `bool` only | Any type with `Eq + Hashable` | 3 |
+| Derive on types | `#derive(Eq, Clone)` | `type T: Eq, Clone = { ... }` | 1 |
+| Generic bounds | `T: Comparable` | `T: Comparable` (unchanged) | — |
+| Where clauses | `where T: Eq` | `where T: Eq` (unchanged) | — |
+| Supertrait syntax | `trait Foo: Bar` | `trait Foo: Bar` (unchanged) | — |
+| Impl bounds | `impl<T: Eq>` | `impl<T: Eq>` (unchanged) | — |
+| Const generic types | `int`, `bool` only | Any type `: Eq, Hashable` | 3 |
 | Associated consts | Not supported | `$rank: int` in traits | 4 |
 | Const fns in types | Not supported | `where $product(S) == N` | 5 |
 | `uses` keyword | Environmental effects | Unchanged | — |
-| `with...in` expression | Capability provision | Unchanged | — |
-| Manual `impl` | `impl Trait for Type` | Unchanged | — |
+| `with...in` expression | Capability provision | Unchanged (only use of `with`) | — |
+| Manual `impl` | `impl Trait for Type` | `impl Type: Trait` (see impl-colon-syntax-proposal) | — |
 | Trait dispatch | 4-tier resolution | Unchanged | — |
 | 7 derivable traits | Eq, Hash, Cmp, Clone, Default, Debug, Print | Unchanged | — |
 | `capset` | Named effect set | Unchanged | — |
@@ -1971,7 +1809,7 @@ This proposal supersedes the following sections of existing proposals:
 
 - **`derived-traits-proposal.md`** — Derivation rules and field constraints (semantics retained)
 - **`const-generics-proposal.md`** — Const generic syntax and semantics (eligibility changed)
-- **`const-generic-bounds-proposal.md`** — Where clause syntax for const bounds (syntax updated)
+- **`const-generic-bounds-proposal.md`** — Where clause syntax for const bounds (unchanged)
 - **`const-evaluation-termination-proposal.md`** — Compile-time evaluation limits (prerequisite for Phase 4)
 - **`capability-composition-proposal.md`** — Environmental capability composition (unchanged, reframed)
 - **`capset-proposal.md`** — Named capability sets (unchanged)
@@ -1984,8 +1822,10 @@ This proposal supersedes the following sections of existing proposals:
 
 Discovered during design discussion (2026-02-20). The initial observation was that `#derive(Eq)` felt like it was "going around" Ori's capability system — granting abilities to types through a separate mechanism rather than through the capabilities model that is central to Ori's design philosophy.
 
-Investigation revealed that while Eq and Http are mechanically different (structural vs. environmental), they are conceptually the same: capabilities that entities have. The `with`/`uses` split emerged as a clean way to express this distinction using two keywords that each have one meaning.
+Investigation revealed that while Eq and Http are mechanically different (structural vs. environmental), they are conceptually the same: capabilities that entities have. The `:`/`uses` split emerged as a clean way to express this distinction: `:` for structural capabilities (what types have), `uses` for environmental capabilities (what functions do).
+
+The original proposal used `with` for structural capabilities, but after reviewing 10 reference compilers (2026-03-04), the decision was made to use `:` instead — matching the universal convention from Rust, Swift, and Kotlin. This simplified the proposal significantly: bound syntax, where clauses, and supertrait declarations all retain their existing `:` syntax. Only `#derive` → `:` trait clause on type declarations is a new change.
 
 The const generic eligibility insight came from a side conversation: "what types can be const generic parameters?" is the same question as "what types have Eq + Hashable?" — and the capability model answers it without needing a whitelist.
 
-The landscape analysis confirmed that no existing language combines general const generics, first-class effect tracking, and a consistent keyword vocabulary for both. Ori's position — more powerful than Rust, more structured than Zig, more accessible than Lean, with effects that Koka lacks generics for — occupies a distinctive niche.
+The landscape analysis confirmed that no existing language combines general const generics, first-class effect tracking, and a consistent vocabulary for both. Ori's position — more powerful than Rust, more structured than Zig, more accessible than Lean, with effects that Koka lacks generics for — occupies a distinctive niche.

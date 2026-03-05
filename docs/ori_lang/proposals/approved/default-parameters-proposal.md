@@ -474,12 +474,12 @@ trait Configurable {
 3. Callers through trait objects (`dyn Trait`) use the trait's declared default
 
 ```ori
-impl Configurable for Widget {
+impl Widget: Configurable {
     // Override with different default
     @configure (self, options: Options = widget_defaults()) -> void = ...
 }
 
-impl Configurable for Button {
+impl Button: Configurable {
     // Remove default — callers must provide options
     @configure (self, options: Options) -> void = ...
 }

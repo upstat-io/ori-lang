@@ -1,6 +1,6 @@
 use super::*;
 
-// === LexOutput Tests ===
+// LexOutput Tests
 
 #[test]
 fn test_lex_output_new() {
@@ -30,8 +30,7 @@ fn test_lex_output_into_metadata() {
     assert!(!metadata.newlines.is_empty());
 }
 
-// === Newline Tracking Tests ===
-
+// Newline Tracking Tests
 #[test]
 fn test_newline_tracking_single() {
     let interner = StringInterner::new();
@@ -59,8 +58,7 @@ fn test_newline_tracking_none() {
     assert!(output.newlines.is_empty());
 }
 
-// === Blank Line Detection Tests ===
-
+// Blank Line Detection Tests
 #[test]
 fn test_blank_line_single() {
     let interner = StringInterner::new();
@@ -136,8 +134,7 @@ fn test_blank_line_after_comment() {
     assert_eq!(output.blank_lines.len(), 1);
 }
 
-// === Comment Tracking Tests ===
-
+// Comment Tracking Tests
 #[test]
 fn test_comment_tracking_single() {
     let interner = StringInterner::new();
@@ -167,8 +164,7 @@ let x = 1";
     assert_eq!(output.blank_lines.len(), 1);
 }
 
-// === Integration Tests ===
-
+// Integration Tests
 #[test]
 fn test_realistic_source() {
     let interner = StringInterner::new();
@@ -223,8 +219,7 @@ fn test_only_comments() {
     assert!(output.blank_lines.is_empty());
 }
 
-// === Metadata Conversion Tests ===
-
+// Metadata Conversion Tests
 #[test]
 fn test_metadata_preserves_comments() {
     let interner = StringInterner::new();
@@ -257,8 +252,7 @@ fn test_metadata_line_number() {
     assert_eq!(metadata.line_number(7), 2);
 }
 
-// === V2 Entry Point Tests ===
-
+// V2 Entry Point Tests
 #[test]
 fn test_lex_basic() {
     let interner = StringInterner::new();
@@ -321,8 +315,7 @@ fn test_lex_with_comments_blank_lines() {
     assert_eq!(output.blank_lines[0], 2);
 }
 
-// === Span coverage property ===
-
+// Span coverage property
 #[test]
 fn spans_cover_source() {
     let interner = StringInterner::new();
@@ -345,8 +338,7 @@ fn spans_cover_source() {
     assert_eq!(eof.span.start, source.len() as u32);
 }
 
-// === ADJACENT flag tests ===
-
+// ADJACENT flag tests
 #[test]
 fn adjacent_flag_on_first_token() {
     // First token in file has no preceding trivia → ADJACENT
@@ -421,8 +413,7 @@ fn adjacent_mutual_exclusion_with_space() {
     assert!(flags[1].has_space_before());
 }
 
-// === HAS_ERROR flag tests ===
-
+// HAS_ERROR flag tests
 #[test]
 fn has_error_on_invalid_byte() {
     let interner = StringInterner::new();
@@ -458,8 +449,7 @@ fn semicolon_is_valid_token() {
     assert!(!flags[0].has_error(), "semicolon should not have HAS_ERROR");
 }
 
-// === CONTEXTUAL_KW flag tests ===
-
+// CONTEXTUAL_KW flag tests
 #[test]
 fn contextual_kw_on_soft_keyword_with_paren() {
     // "cache (x)" — 'cache' is a soft keyword with ( → CONTEXTUAL_KW
@@ -513,8 +503,7 @@ fn contextual_kw_on_all_soft_keywords() {
     }
 }
 
-// === Reserved-future keyword tests ===
-
+// Reserved-future keyword tests
 #[test]
 fn reserved_future_keyword_produces_error() {
     let interner = StringInterner::new();
@@ -545,8 +534,7 @@ fn all_reserved_future_keywords_produce_errors() {
     }
 }
 
-// === IS_DOC flag tests ===
-
+// IS_DOC flag tests
 #[test]
 fn is_doc_on_token_after_description() {
     // "// #Desc\ndef" — 'def' should have IS_DOC
@@ -662,21 +650,28 @@ fn no_is_doc_without_comment() {
 }
 
 #[test]
-fn is_doc_set_in_simple_lex() {
-    // lex() currently routes through lex_driver::<true>, so IS_DOC is set.
-    // If routing changes to lex_driver::<false>, IS_DOC would be omitted.
+fn is_doc_not_set_in_fast_path_lex() {
+    // lex()/lex_full() use lex_driver::<false> — no metadata collection.
+    // IS_DOC is only set by lex_with_comments() (lex_driver::<true>).
     let interner = StringInterner::new();
     let tokens = lex("// #Description\ndef", &interner);
     let flags = tokens.flags();
     // tokens: newline, def, EOF
     assert!(
-        flags[1].is_doc(),
-        "lex() should set IS_DOC (routes through full metadata path)"
+        !flags[1].is_doc(),
+        "lex() uses fast path — IS_DOC should not be set"
+    );
+
+    // Verify lex_with_comments() still sets IS_DOC
+    let output = lex_with_comments("// #Description\ndef", &interner);
+    let meta_flags = output.tokens.flags();
+    assert!(
+        meta_flags[1].is_doc(),
+        "lex_with_comments() should set IS_DOC"
     );
 }
 
-// === LexOutput Salsa Trait Tests ===
-
+// LexOutput Salsa Trait Tests
 #[test]
 fn lex_output_equality() {
     let interner = StringInterner::new();
@@ -719,8 +714,7 @@ fn lex_output_debug_format() {
     assert!(debug.contains("comments"));
 }
 
-// === Encoding issue detection tests ===
-
+// Encoding issue detection tests
 #[test]
 fn utf8_bom_produces_error() {
     let interner = StringInterner::new();
@@ -853,8 +847,7 @@ fn multiple_interior_nulls_no_duplicates() {
     );
 }
 
-// === HashBang token tests ===
-
+// HashBang token tests
 #[test]
 fn hashbang_produces_token() {
     let interner = StringInterner::new();
@@ -894,8 +887,7 @@ fn hashbang_followed_by_ident() {
     assert_eq!(tokens[2].kind, TokenKind::Eof);
 }
 
-// === Unicode escape integration tests ===
-
+// Unicode escape integration tests
 #[test]
 fn unicode_escape_char_bare_u_produces_error() {
     // '\u' — raw layer produces Char (cursor lands at closing '),

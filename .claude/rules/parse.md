@@ -14,6 +14,13 @@ paths:
 - Lexer: new tokens in `ori_lexer/` | AST: add nodes to `ori_ir/`
 - Parser: add parsing in `ori_parse/` | type checker + evaluator updates
 
+## Token Consumption Primitives
+All parsing composes from these — no other token consumption patterns:
+- `bump()` — advance unconditionally
+- `check(kind)` / `at(kind)` — lookahead without consuming
+- `expect(kind)` — advance or emit error
+- `eat(kind)` — try advance, return bool
+
 ## Context Flags
 - `NO_STRUCT_LIT` -- prevent in `if` conditions
 - `IN_PATTERN` -- parsing pattern

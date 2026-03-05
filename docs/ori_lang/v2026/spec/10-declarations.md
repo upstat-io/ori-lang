@@ -99,7 +99,7 @@ pub @identity<T> (x: T) -> T = x;
 
 - `@` prefix required
 - Return type required (`void` for no value)
-- Parameters are immutable
+- Parameters are immutable (except `self` — see [13.5](13-variables.md#135-function-parameters))
 - Private by default; `pub` exports
 - `uses` declares capability dependencies
 
@@ -320,12 +320,12 @@ Semantics:
 4. Parameters with defaults shall appear after all parameters without defaults
 
 ```ori
-impl Add for Point {
+impl Point: Add {
     // Rhs defaults to Self = Point
     @add (self, rhs: Point) -> Self = ...;
 }
 
-impl Add<int> for Vector2 {
+impl Vector2: Add<int> {
     // Explicit Rhs = int
     @add (self, rhs: int) -> Self = ...;
 }
@@ -338,9 +338,9 @@ trait Transform<Input = Self, Output = Input> {
     @transform (self, input: Input) -> Output;
 }
 
-impl Transform for Parser { ... }           // Input = Self = Parser, Output = Parser
-impl Transform<str> for Parser { ... }      // Input = str, Output = str
-impl Transform<str, Ast> for Parser { ... } // Input = str, Output = Ast
+impl Parser: Transform { ... }           // Input = Self = Parser, Output = Parser
+impl Parser: Transform<str> { ... }      // Input = str, Output = str
+impl Parser: Transform<str, Ast> { ... } // Input = str, Output = Ast
 ```
 
 ### 10.3.2 Default Associated Types
@@ -367,12 +367,12 @@ Semantics:
 4. Defaults are evaluated at impl site, not trait definition site
 
 ```ori
-impl Add for Point {
+impl Point: Add {
     // Output defaults to Self = Point
     @add (self, rhs: Point) -> Self = ...;
 }
 
-impl Add<int> for Vector2 {
+impl Vector2: Add<int> {
     type Output = Vector2;  // Explicit override
     @add (self, rhs: int) -> Vector2 = ...;
 }
@@ -388,11 +388,11 @@ trait Process {
     @process (self) -> Self.Output;
 }
 
-impl Process for String {  // OK: String: Clone
+impl String: Process {  // OK: String: Clone
     @process (self) -> Self = self.clone();
 }
 
-impl Process for Connection {  // ERROR if Connection: !Clone and no override
+impl Connection: Process {  // ERROR if Connection: !Clone and no override
     // Must provide explicit Output type since Self doesn't satisfy Clone
     type Output = ConnectionHandle;
     @process (self) -> ConnectionHandle = ...;
@@ -416,7 +416,7 @@ trait Default {
     @default () -> Self;
 }
 
-impl Default for Point {
+impl Point: Default {
     @default () -> Self = Point { x: 0, y: 0 };
 }
 ```
@@ -430,11 +430,11 @@ impl Point {
     @new (x: int, y: int) -> Point = Point { x, y };
 }
 
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")";
 }
 
-impl<T: Printable> Printable for [T] {
+impl<T: Printable> [T]: Printable {
     @to_str (self) -> str = ...;
 }
 ```
@@ -541,7 +541,7 @@ trait B: A { }
 trait C: A { }
 trait D: B + C { }  // D inherits A through both B and C
 
-impl D for MyType {
+impl MyType: D {
     @method (self) -> int = 42;  // Single implementation satisfies A via B and C
 }
 ```
@@ -556,18 +556,18 @@ trait B: A { @method (self) -> int = 1; }
 trait C: A { @method (self) -> int = 2; }
 trait D: B + C { }
 
-impl D for MyType { }  // ERROR: ambiguous default for @method
+impl MyType: D { }  // ERROR: ambiguous default for @method
 
-impl D for MyType {
+impl MyType: D {
     @method (self) -> int = 3;  // Explicit implementation resolves ambiguity
 }
 ```
 
 ### 10.6.3 Coherence Rules
 
-_Coherence_ ensures that for any type `T` and trait `Trait`, there is at most one implementation of `Trait for T` visible in any compilation unit.
+_Coherence_ ensures that for any type `T` and trait `Trait`, there is at most one implementation of `Trait` for `T` visible in any compilation unit.
 
-An implementation `impl Trait for Type` is allowed only if at least one of these is true:
+An implementation `impl Type: Trait` is allowed only if at least one of these is true:
 
 1. `Trait` is defined in the current module
 2. `Type` is defined in the current module
@@ -576,17 +576,17 @@ An implementation `impl Trait for Type` is allowed only if at least one of these
 ```ori
 // OK: Type is local
 type MyType = { ... }
-impl ExternalTrait for MyType { }
+impl MyType: ExternalTrait { }
 
 // OK: Trait is local
 trait MyTrait { ... }
-impl MyTrait for ExternalType { }
+impl ExternalType: MyTrait { }
 
 // ERROR: Both trait and type are external (orphan)
-impl std.Display for std.Vec { }  // Error: orphan implementation
+impl std.Vec: std.Display { }  // Error: orphan implementation
 ```
 
-Blanket implementations (`impl<T> Trait for T where ...`) follow the same rules.
+Blanket implementations (`impl<T> T: Trait where ...`) follow the same rules.
 
 A duplicate implementation — where the same `Trait` and `Type` combination is implemented twice — is an error (E2010). When two blanket implementations with equal specificity could both apply, it is an error (E2021).
 
@@ -619,7 +619,7 @@ trait Child: Parent {
     @method (self) -> int = Parent.method(self) + 1;
 }
 
-impl Parent for MyType {
+impl MyType: Parent {
     @method (self) -> int = Parent.method(self) * 2;
 }
 ```
@@ -643,9 +643,9 @@ trait B { type Item; }
 
 When multiple implementations could apply, the most specific wins:
 
-1. **Concrete** — `impl Trait for MyType` (most specific)
-2. **Constrained blanket** — `impl<T: Clone> Trait for T`
-3. **Generic blanket** — `impl<T> Trait for T` (least specific)
+1. **Concrete** — `impl MyType: Trait` (most specific)
+2. **Constrained blanket** — `impl<T: Clone> T: Trait`
+3. **Generic blanket** — `impl<T> T: Trait` (least specific)
 
 It is an error if two applicable implementations have equal specificity (E2021).
 

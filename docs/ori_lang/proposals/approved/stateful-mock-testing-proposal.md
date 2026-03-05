@@ -261,7 +261,7 @@ For a handler operation named `op` implementing trait method `@op (self, p1: T1,
 
 ### Handlers Are Not Impl Blocks
 
-A `handler(...)` expression is a **distinct dispatch mechanism** from `impl Trait for Type`. The handler:
+A `handler(...)` expression is a **distinct dispatch mechanism** from `impl Type: Trait`. The handler:
 - Has **no `self`** -- state replaces self in the operation signature
 - Is **not a type** -- it is a handler frame with scoped lifetime
 - Does **not require** an `impl` block -- the handler declaration itself satisfies the trait for the scope of the `with...in`

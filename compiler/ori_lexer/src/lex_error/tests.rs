@@ -39,15 +39,6 @@ fn error_equality() {
 }
 
 #[test]
-fn triple_equal_error_has_replacement() {
-    let span = Span::new(5, 8);
-    let err = LexError::triple_equal(span);
-    assert_eq!(err.kind, LexErrorKind::TripleEqual);
-    let replacement = err.suggestions[0].replacement.as_ref().unwrap();
-    assert_eq!(replacement.text, "==");
-}
-
-#[test]
 fn unicode_confusable_error() {
     let span = Span::new(0, 3);
     let err = LexError::unicode_confusable(span, '\u{201C}', '"', "Left Double Quotation Mark");
@@ -102,17 +93,14 @@ fn all_factory_methods_compile() {
     let _ = LexError::standalone_backslash(s);
     let _ = LexError::decimal_not_representable(s);
     let _ = LexError::unicode_confusable(s, '\u{201C}', '"', "Left Double Quotation Mark");
-    let _ = LexError::triple_equal(s);
-    let _ = LexError::single_quote_string(s);
-    let _ = LexError::increment_decrement(s, "++");
 }
 
 #[test]
 fn error_hash_compatible() {
     use std::collections::HashSet;
     let mut set = HashSet::new();
-    let e1 = LexError::triple_equal(Span::new(0, 3));
-    let e2 = LexError::triple_equal(Span::new(0, 3));
+    let e1 = LexError::standalone_backslash(Span::new(0, 1));
+    let e2 = LexError::standalone_backslash(Span::new(0, 1));
     let e3 = LexError::standalone_backslash(Span::new(5, 6));
     set.insert(e1);
     set.insert(e2); // duplicate
@@ -184,7 +172,56 @@ fn lex_suggestion_constructors() {
     assert_eq!(replace.replacement.as_ref().unwrap().text, "==");
 }
 
-// === Unicode escape error factory tests ===
+// Error code coverage
+
+#[test]
+fn every_lex_error_kind_has_error_code() {
+    // Construct one of every LexErrorKind variant and verify it returns a non-empty code
+    let variants: Vec<LexErrorKind> = vec![
+        LexErrorKind::UnterminatedString,
+        LexErrorKind::UnterminatedChar,
+        LexErrorKind::UnterminatedTemplate,
+        LexErrorKind::InvalidStringEscape { escape_char: 'q' },
+        LexErrorKind::InvalidCharEscape { escape_char: 'q' },
+        LexErrorKind::InvalidTemplateEscape { escape_char: 'q' },
+        LexErrorKind::InvalidUnicodeEscape {
+            detail: UnicodeEscapeDetail::EmptyDigits,
+        },
+        LexErrorKind::SingleQuoteEscapeInString,
+        LexErrorKind::DoubleQuoteEscapeInChar,
+        LexErrorKind::IntOverflow,
+        LexErrorKind::HexIntOverflow,
+        LexErrorKind::BinIntOverflow,
+        LexErrorKind::FloatParseError,
+        LexErrorKind::InvalidByte { byte: 0xFF },
+        LexErrorKind::StandaloneBackslash,
+        LexErrorKind::UnicodeConfusable {
+            found: '\u{201C}',
+            suggested: '"',
+            name: "test",
+        },
+        LexErrorKind::InvalidNullByte,
+        LexErrorKind::Utf8Bom,
+        LexErrorKind::Utf16LeBom,
+        LexErrorKind::Utf16BeBom,
+        LexErrorKind::DecimalNotRepresentable,
+        LexErrorKind::ReservedFutureKeyword { keyword: "asm" },
+    ];
+
+    for kind in &variants {
+        let code = kind.error_code();
+        assert!(
+            !code.is_empty(),
+            "LexErrorKind::{kind:?} returned empty error code"
+        );
+        assert!(
+            code.starts_with('E'),
+            "LexErrorKind::{kind:?} error code {code:?} doesn't start with 'E'"
+        );
+    }
+}
+
+// Unicode escape error factory tests
 
 #[test]
 fn invalid_unicode_escape_missing_open_brace() {

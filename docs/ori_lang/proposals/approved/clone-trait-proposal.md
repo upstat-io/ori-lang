@@ -66,42 +66,42 @@ Single method, returns owned copy of `self`.
 All primitive and built-in types implement `Clone`:
 
 ```ori
-impl Clone for int      { @clone (self) -> int = self }
-impl Clone for float    { @clone (self) -> float = self }
-impl Clone for bool     { @clone (self) -> bool = self }
-impl Clone for str      { @clone (self) -> str = self }
-impl Clone for char     { @clone (self) -> char = self }
-impl Clone for byte     { @clone (self) -> byte = self }
-impl Clone for Duration { @clone (self) -> Duration = self }
-impl Clone for Size     { @clone (self) -> Size = self }
+impl int: Clone      { @clone (self) -> int = self }
+impl float: Clone    { @clone (self) -> float = self }
+impl bool: Clone     { @clone (self) -> bool = self }
+impl str: Clone      { @clone (self) -> str = self }
+impl char: Clone     { @clone (self) -> char = self }
+impl byte: Clone     { @clone (self) -> byte = self }
+impl Duration: Clone { @clone (self) -> Duration = self }
+impl Size: Clone     { @clone (self) -> Size = self }
 
-impl<T: Clone> Clone for [T] {
+impl<T: Clone> [T]: Clone {
     @clone (self) -> [T] = self.map(transform: x -> x.clone())
 }
 
-impl<K: Clone, V: Clone> Clone for {K: V} {
+impl<K: Clone, V: Clone> {K: V}: Clone {
     @clone (self) -> {K: V} = ...
 }
 
-impl<T: Clone> Clone for Set<T> {
+impl<T: Clone> Set<T>: Clone {
     @clone (self) -> Set<T> = ...
 }
 
-impl<T: Clone> Clone for Option<T> {
+impl<T: Clone> Option<T>: Clone {
     @clone (self) -> Option<T> = match self {
         Some(v) -> Some(v.clone())
         None -> None
     }
 }
 
-impl<T: Clone, E: Clone> Clone for Result<T, E> {
+impl<T: Clone, E: Clone> Result<T, E>: Clone {
     @clone (self) -> Result<T, E> = match self {
         Ok(v) -> Ok(v.clone())
         Err(e) -> Err(e.clone())
     }
 }
 
-impl<A: Clone, B: Clone> Clone for (A, B) {
+impl<A: Clone, B: Clone> (A, B): Clone {
     @clone (self) -> (A, B) = (self.0.clone(), self.1.clone())
 }
 // ... extends to all tuple arities
@@ -123,7 +123,7 @@ Derived implementation clones each field:
 
 ```ori
 // Generated for Point:
-impl Clone for Point {
+impl Point: Clone {
     @clone (self) -> Point = Point { x: self.x.clone(), y: self.y.clone() }
 }
 ```
@@ -138,7 +138,7 @@ type CachedData = {
     cache: {str: Result},  // Don't clone cache
 }
 
-impl Clone for CachedData {
+impl CachedData: Clone {
     @clone (self) -> CachedData = CachedData {
         data: self.data.clone(),
         cache: {},  // Start with empty cache

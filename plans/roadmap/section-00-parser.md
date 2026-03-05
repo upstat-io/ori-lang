@@ -420,8 +420,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] **Ori Tests**: tested across trait/struct test files
 
 - [x] **Audit**: Trait impl — grammar.ebnf § trait_impl [done] (2026-02-10)
-  - [x] `impl Printable for Point { ... }` — parses correctly
-  - [x] Generic: `impl<T: Printable> Printable for Box<T> { ... }` — parses correctly
+  - [x] `impl Point: Printable { ... }` — parses correctly
+  - [x] Generic: `impl<T: Printable> Box<T>: Printable { ... }` — parses correctly
   - [x] **Ori Tests**: `tests/spec/declarations/traits.ori` — trait impls tested
 
 - [x] **Audit**: Default impl — grammar.ebnf § def_impl [done] (2026-02-10)

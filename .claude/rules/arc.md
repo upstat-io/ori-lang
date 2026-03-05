@@ -120,10 +120,25 @@ CanExpr → lower → ArcFunction
 - **Wrong var after if/match?** `ori_arc=trace` → mutable var merge divergence
 - **Lambda captures wrong?** `ori_arc=debug` → capture count, `trace` → each captured name
 
+## Advanced Optimization Patterns (from prior art)
+
+### RC Identity Through Projections
+`retain(struct.field)` may equal `retain(struct)` when field is the only RC-tracked component. Track RC identity equivalence through `Project` instructions to eliminate redundant inc/dec pairs. Pattern from Swift (`~rc` equivalence relation), Lean 4 (`DerivedValInfo`).
+
+### Lattice-Based RC State
+RC elimination should be formal dataflow analysis with lattice semantics, not ad-hoc:
+```
+None → Decremented → MightBeUsed → MightBeDecremented
+```
+Meet operation at control flow joins. `KnownSafe` flag when nested retains guarantee safety. Pattern from Swift ARC optimizer.
+
+### Tail Call Preservation
+Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instead: mark callee param as `Owned` when call-site arg is owned, eliminating the inc/dec pair. Pattern from Lean 4 (`ownParamsUsingArgs`).
+
 ## Reference Repos
 
 - **Lean 4**: `lean4/src/Lean/Compiler/IR/RC.lean` (RC insertion), `Borrow.lean` (borrow inference), `ExpandResetReuse.lean` (reuse)
-- **Swift**: `swift/lib/SILOptimizer/ARC/` (ARC optimization), `swift/lib/SIL/` (SIL IR)
+- **Swift**: `swift/lib/SILOptimizer/ARC/` (ARC optimization), `swift/lib/SIL/` (SIL IR), `ARCOptimization.md` (lattice docs)
 - **Koka**: `koka/src/Core/Borrowed.hs` (borrow analysis), `koka/src/Core/CheckFBIP.hs` (FBIP)
 
 ## Key Files

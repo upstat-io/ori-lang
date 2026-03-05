@@ -6,7 +6,7 @@ allowed-tools: Read, Grep, Glob, Bash, Task, Edit, Write
 
 # Code Hygiene Review
 
-Review code for hygiene violations against `.claude/rules/code-hygiene.md` and fix them.
+Review code for hygiene violations against `.claude/rules/impl-hygiene.md` and fix them.
 
 **Hygiene is NOT refactoring.** No behavior changes, no API changes, no moving things between modules. Just making existing code clean:
 - Dead code, unused imports, stale comments
@@ -30,7 +30,7 @@ If no argument: ask the user what to review.
 
 ### Step 1: Load Rules
 
-Read `.claude/rules/code-hygiene.md` to have the full rule set in context. You will embed these rules verbatim into each agent's prompt (agents cannot read rule files themselves).
+Read `.claude/rules/impl-hygiene.md` to have the full rule set in context. You will embed these rules verbatim into each agent's prompt (agents cannot read rule files themselves).
 
 ### Step 2: Build File Inventory
 
@@ -46,7 +46,7 @@ Launch exactly 10 Task agents **in a single message** (all 10 tool calls in one 
 
 Each agent's prompt MUST include:
 
-1. **The complete hygiene rules** (embed the full content of `code-hygiene.md` directly — agents cannot read rule files)
+1. **The complete hygiene rules** (embed the full content of `impl-hygiene.md` directly — agents cannot read rule files)
 2. **The exact list of files** this agent is responsible for
 3. **The processing instructions** (see below)
 4. **The audit checklist** (see below)
@@ -76,7 +76,7 @@ Code cleanup is internal to each file.
 
 ## Hygiene Rules
 
-{full content of code-hygiene.md}
+{full content of impl-hygiene.md}
 
 ## Audit Checklist
 

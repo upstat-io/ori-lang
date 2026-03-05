@@ -56,7 +56,7 @@ type MockHttp = {
     responses: {str: Response},
 }
 
-impl Http for MockHttp {
+impl MockHttp: Http {
     @get (url: str) -> Result<Response, HttpError> =
         match self.responses.get(url) {
             Some(resp) -> Ok(resp)

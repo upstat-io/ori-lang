@@ -239,7 +239,7 @@ a |> f |> g |> h
 ### Neural Network Forward Pass
 
 ```ori
-impl Module for MnistNet {
+impl MnistNet: Module {
     @forward (self, x: Tensor) -> Tensor =
         x
         |> self.conv1.forward

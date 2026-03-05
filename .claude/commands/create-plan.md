@@ -28,7 +28,17 @@ Use AskUserQuestion if needed to clarify scope.
 
 Read `plans/_template/plan.md` for the structure reference.
 
-### Step 3: Create Directory Structure
+### Step 3: Load Hygiene Rules
+
+The full rule set is embedded below (source of truth files — do not maintain separate copies). Use these rules when structuring plan sections to ensure plans account for registration sync points, file size limits, phase boundary discipline, and other hygiene requirements from the start.
+
+**Hygiene Rules** (`.claude/rules/impl-hygiene.md`):
+@.claude/rules/impl-hygiene.md
+
+**Compiler Guidelines** (`.claude/rules/compiler.md`):
+@.claude/rules/compiler.md
+
+### Step 4: Create Directory Structure
 
 Create the plan directory and files:
 
@@ -41,7 +51,7 @@ plans/{name}/
 └── section-NN-*.md    # Final section
 ```
 
-### Step 4: Generate index.md
+### Step 5: Generate index.md
 
 Create the keyword index with:
 - **Reroute frontmatter** (if this is a reroute plan — i.e., a parallel track alongside the main roadmap):
@@ -62,7 +72,7 @@ Create the keyword index with:
 - Keyword cluster for each section (initially with placeholder keywords)
 - Quick reference table
 
-### Step 5: Generate 00-overview.md
+### Step 6: Generate 00-overview.md
 
 Create overview with:
 - Plan title and goal
@@ -70,7 +80,7 @@ Create overview with:
 - Dependencies (if any)
 - Success criteria
 
-### Step 6: Generate Section Files
+### Step 7: Generate Section Files
 
 For each section, create `section-{NN}-{name}.md` with:
 - YAML frontmatter (section ID, title, status: not-started, goal)
@@ -78,10 +88,118 @@ For each section, create `section-{NN}-{name}.md` with:
 - Placeholder subsections with `- [ ]` checkboxes
 - Completion checklist at the end
 
-### Step 7: Report Summary
+### Step 8: Report Progress
 
 Show the user:
 - Files created
+- Note: "Running 4 independent review passes..."
+
+### Step 9: Sequential Independent Review (4 Agents)
+
+After the plan is fully created, run **4 review agents in sequence** (NOT parallel). Each agent:
+
+- Receives **only the plan files** — no conversation context, no reasoning behind the plan
+- Is instructed to **read the plan, review it, and edit the files directly** to fix issues
+- Sees edits made by all previous agents (because they run sequentially)
+
+This creates an iterative refinement pipeline: each reviewer builds on the last.
+
+**IMPORTANT**: Run these agents ONE AT A TIME. Wait for each to complete before starting the next.
+
+#### Agent 1: Technical Accuracy Review
+
+Spawn an Agent with the following prompt (substitute `{plan_dir}` with the actual plan directory path):
+
+```
+You are reviewing a plan for the Ori compiler at {plan_dir}/.
+
+INSTRUCTIONS:
+1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
+2. Cross-reference every technical claim against the actual codebase:
+   - Do referenced files, types, functions, modules exist?
+   - Are crate dependency assumptions correct? (ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric)
+   - Are described code patterns accurate?
+3. Check claims against the spec in docs/ori_lang/v2026/spec/ (grammar.ebnf, operator-rules.md, clause files)
+4. For every inaccuracy found, EDIT the plan files directly to fix them
+5. If a section references nonexistent code paths or wrong file locations, correct them
+6. Add a brief comment near each fix: <!-- reviewed: accuracy fix -->
+
+You may add missing sections, expand scope, or restructure if the plan is genuinely incomplete.
+After editing, list what you changed and why.
+```
+
+#### Agent 2: Completeness & Gap Review
+
+```
+You are reviewing a plan for the Ori compiler at {plan_dir}/.
+
+INSTRUCTIONS:
+1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
+2. Review each section for completeness:
+   - Are there missing steps that would block implementation?
+   - Are edge cases and error handling accounted for?
+   - Are dependencies between sections correctly identified?
+   - Are test strategies adequate for each section?
+3. Check for missing sync points — if the plan adds enum variants, new types, or registration entries, does it list ALL locations that must be updated together?
+4. For every gap found, EDIT the plan files directly to add the missing content
+5. Add missing checklist items, missing steps, missing test requirements
+6. Add a brief comment near each addition: <!-- reviewed: completeness fix -->
+
+You may add new sections, restructure, or expand scope if the plan has genuine gaps.
+After editing, list what you changed and why.
+```
+
+#### Agent 3: Hygiene & Feasibility Review
+
+```
+You are reviewing a plan for the Ori compiler at {plan_dir}/.
+
+INSTRUCTIONS:
+1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
+2. Read the hygiene rules at .claude/rules/impl-hygiene.md and compiler guidelines at .claude/rules/compiler.md
+3. Review the plan against these rules:
+   - Does the plan respect file size limits (500 lines)?
+   - Does it maintain phase boundary discipline?
+   - Does it follow the test file conventions (sibling tests.rs)?
+   - Are implementation steps ordered correctly (upstream before downstream)?
+   - Are there steps that are impractical or underestimate complexity?
+4. For every hygiene violation or feasibility concern, EDIT the plan files directly to fix them
+5. Reorder steps if they violate crate dependency ordering
+6. Add warnings for steps that are particularly complex or risky
+7. Add a brief comment near each change: <!-- reviewed: hygiene fix -->
+
+You may expand scope, add sections, or restructure if needed to satisfy hygiene and feasibility requirements.
+After editing, list what you changed and why.
+```
+
+#### Agent 4: Clarity & Consistency Review
+
+```
+You are reviewing a plan for the Ori compiler at {plan_dir}/.
+
+INSTRUCTIONS:
+1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
+2. Review for clarity and internal consistency:
+   - Are section descriptions clear and unambiguous?
+   - Do checklist items describe concrete, actionable tasks (not vague goals)?
+   - Is terminology consistent across sections?
+   - Does the overview (00-overview.md) accurately reflect the section contents?
+   - Does index.md have accurate keyword clusters for each section?
+   - Are there contradictions between sections?
+3. For every issue found, EDIT the plan files directly to improve clarity
+4. Sharpen vague checklist items into specific, verifiable tasks
+5. Fix inconsistent terminology
+6. Update the overview if sections have changed during prior reviews
+7. Remove all <!-- reviewed: ... --> comments left by previous reviewers (clean up)
+
+After editing, list what you changed and why.
+```
+
+### Step 10: Report Summary
+
+Show the user:
+- Files created (with paths)
+- Summary of what each review agent changed
 - Next steps (fill in details, add keywords to index)
 
 ---

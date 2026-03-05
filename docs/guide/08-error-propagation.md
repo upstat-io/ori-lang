@@ -233,7 +233,7 @@ type ApiError =
     | ValidationError(errors: [str])
     | NotFound(resource: str);
 
-impl Printable for ApiError {
+impl ApiError: Printable {
     @to_str (self) -> str = match self {
         NetworkError(msg) -> `Network error: {msg}`
         ParseError(msg, line) -> `Parse error at line {line}: {msg}`
@@ -259,7 +259,7 @@ Implement this to make your error types support traces:
 ```ori
 type MyError = { message: str, trace: [TraceEntry] }
 
-impl Traceable for MyError {
+impl MyError: Traceable {
     @with_trace (self, trace: [TraceEntry]) -> Self =
         MyError { ...self, trace };
 
@@ -364,7 +364,7 @@ type AppError =
     | FileError(path: str, message: str)
     | ParseError(message: str);
 
-impl Printable for AppError {
+impl AppError: Printable {
     @to_str (self) -> str = match self {
         UserNotFound(id) -> `User {id} not found`
         FileError(path, msg) -> `File error ({path}): {msg}`
