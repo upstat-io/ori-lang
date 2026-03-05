@@ -41,10 +41,6 @@ use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
-// ---------------------------------------------------------------------------
-// FunctionCompiler
-// ---------------------------------------------------------------------------
-
 /// Two-pass function compiler.
 ///
 /// Holds the mapping from function `Name` → `(FunctionId, FunctionAbi)`,
@@ -119,9 +115,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Phase 1: Declare
-    // -----------------------------------------------------------------------
 
     /// Declare all module functions from type checker signatures.
     ///
@@ -243,6 +237,27 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         //   generates .eh_frame entries without personality references, causing
         //   _URC_END_OF_STACK (code 5) on panic.
         self.builder.add_uwtable_attribute(func_id);
+
+        // §02.6: noundef on scalar params/returns — Ori values are always defined.
+        // Only scalar primitives (i64, f64, i1, i32, i8) get noundef; aggregates
+        // and pointers are excluded per conservative policy.
+        let mut nidx = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }))
+            + extra_leading_params.len() as u32;
+        for param in &abi.params {
+            if matches!(param.passing, ParamPassing::Direct) {
+                if self.type_info.get(param.ty).is_llvm_scalar() {
+                    self.builder.add_noundef_param_attribute(func_id, nidx);
+                }
+                nidx += 1;
+            } else if !matches!(param.passing, ParamPassing::Void) {
+                nidx += 1;
+            }
+        }
+        if matches!(abi.return_abi.passing, ReturnPassing::Direct)
+            && self.type_info.get(abi.return_abi.ty).is_llvm_scalar()
+        {
+            self.builder.add_noundef_return_attribute(func_id);
+        }
 
         func_id
     }
@@ -389,9 +404,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Accessors
-    // -----------------------------------------------------------------------
 
     /// Look up a declared function by name.
     pub fn get_function(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
@@ -413,9 +426,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         &self.codegen_ctx.type_idx_to_name
     }
 
-    // -----------------------------------------------------------------------
     // Derive Codegen Accessors (pub(crate))
-    // -----------------------------------------------------------------------
 
     /// Mutable borrow of the `IrBuilder`.
     pub(crate) fn builder_mut(&mut self) -> &mut IrBuilder<'scx, 'ctx> {
@@ -479,10 +490,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             .cloned()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[allow(

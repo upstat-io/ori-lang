@@ -9,7 +9,7 @@
 //! 3. **Emit**: Emit LLVM IR using the complete nounwind set, ensuring
 //!    callers of nounwind callees use `call` instead of `invoke`.
 //!
-//! # Known limitation
+//! # Known limitations
 //!
 //! Impl methods are compiled via the old immediate-emit path
 //! ([`FunctionCompiler::emit_arc_function`]) **before** the two-pass analysis
@@ -17,6 +17,14 @@
 //! use `invoke` instead of `call`, even if the callee is trivially nounwind.
 //! This is safe (using `invoke` is always correct) but generates unnecessary
 //! overhead. A future refactor could fold impl methods into the two-pass batch.
+//!
+//! # NOTE: Derived methods handled separately (§02.3)
+//!
+//! Derived trait methods (`$eq`, `$compare`, `$hash`, `$clone`, `$default`)
+//! are emitted by `derive_codegen` outside this two-pass pipeline. Pure
+//! derives are marked `nounwind` directly in `setup_derive_function()` using
+//! `DerivedTrait::is_nounwind_derived()`. Impure derives (`$to_str`, `$debug`)
+//! are left unmarked.
 
 use ori_arc::lower_function_can;
 use ori_ir::canon::CanonResult;

@@ -5,7 +5,7 @@ status: in-progress
 tier: 2
 goal: Effect tracking (moved earlier to unblock Section 8 cache and Section 11 FFI)
 spec:
-  - spec/14-capabilities.md
+  - spec/20-capabilities.md
 sections:
   - id: "6.1"
     title: Capability Declaration
@@ -61,7 +61,7 @@ sections:
 
 **Goal**: Effect tracking (moved earlier to unblock Section 8 cache and Section 11 FFI)
 
-> **SPEC**: `spec/14-capabilities.md`
+> **SPEC**: `spec/20-capabilities.md`
 > **DESIGN**: `design/14-capabilities/index.md`
 
 **Status**: In-progress — Core evaluator working (6.1-6.8, 6.10 partial, ~36 test annotations across 6 test files); composition (6.11), resolution (6.12), intrinsics (6.14), unsafe (6.9) pending. LLVM tests missing. Verified 2026-02-10.
@@ -89,7 +89,7 @@ sections:
 ## 6.2 Capability Traits
 
 - [x] **Implement**: Capability traits [done] (2026-02-10)
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability trait validation
+  - [x] **Rust Tests**: `ori_types/src/check/tests.rs` — 7 tests for capability trait validation
   - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — 5 tests for capability traits
   - [ ] **LLVM Support**: LLVM codegen for capability trait dispatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
@@ -102,14 +102,14 @@ sections:
 > **Note**: Renamed from `Async` to `Suspend` per `proposals/approved/rename-async-to-suspend-proposal.md`
 
 - [x] **Implement**: Explicit suspension declaration [done] (2026-02-10)
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 4 tests (marker trait, signature storage, combined capabilities, sync function)
+  - [x] **Rust Tests**: `ori_types/src/check/tests.rs` — 4 tests (marker trait, signature storage, combined capabilities, sync function)
   - [x] **Ori Tests**: `tests/spec/capabilities/async.ori` (test file exists)
   - [ ] **LLVM Support**: LLVM codegen for explicit suspension declaration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Sync vs suspending behavior [done] (2026-02-10)
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_sync_function_no_suspend_capability`
+  - [x] **Rust Tests**: `ori_types/src/check/tests.rs::test_sync_function_no_suspend_capability`
   - [x] **Ori Tests**: `tests/spec/capabilities/async.ori`
 
 - [x] **Implement**: No `async` type modifier [done] (2026-02-10)
@@ -117,13 +117,13 @@ sections:
   - [x] **Ori Tests**: Design notes document this
 
 - [x] **Implement**: No `await` expression [done] (2026-02-10)
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_await_syntax_not_supported`
+  - [x] **Rust Tests**: `ori_types/src/check/tests.rs::test_await_syntax_not_supported`
   - [x] **Ori Tests**: Design notes document this
 
-- [ ] **Implement**: Concurrency with `parallel` — spec/14-capabilities.md § Suspend Capability
+- [ ] **Implement**: Concurrency with `parallel` — spec/20-capabilities.md § Suspend Capability
   - [ ] **Deferred to Section 8**: `parallel` pattern evaluation
   - [ ] **Ori Tests**: `tests/spec/patterns/parallel.ori` (Section 8)
-  - [ ] **Note**: Interpreter has a loud stub for parallel in `can_eval.rs` — replace when Suspend capability is implemented (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
+  - [ ] **Note**: Evaluator has a loud stub for parallel in `can_eval.rs` — replace when Suspend capability is implemented
 
 ---
 
@@ -131,14 +131,14 @@ sections:
 
 - [x] **Implement**: `with...in` expression [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/lib.rs` — with expression parsing (3 tests)
-  - [x] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — with expression evaluation
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/mod.rs` — with expression evaluation
   - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` (17 test annotations)
   - [ ] **LLVM Support**: LLVM codegen for `with...in` capability binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Scoping [done] (2026-02-10)
-  - [x] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — capability scoping via push_scope/pop_scope
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/mod.rs` — capability scoping via push_scope/pop_scope
   - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` — scoping and shadowing tests
   - [ ] **LLVM Support**: LLVM codegen for capability scoping (push/pop)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
@@ -158,11 +158,11 @@ sections:
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Static transitive requirements [done] (2026-02-10)
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability propagation (E2014)
+  - [x] **Rust Tests**: `ori_types/src/check/tests.rs` — 7 tests for capability propagation (E2014)
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — 7 test annotations for propagation
 
 - [x] **Implement**: Providing vs requiring [done] (2026-02-10)
-  - [x] **Rust Tests**: `oric/src/typeck/infer/call.rs` — check_capability_propagation function
+  - [x] **Rust Tests**: `ori_types/src/infer/ (calls)` — check_capability_propagation function
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — tests with...in providing capabilities
 
 ---
@@ -208,7 +208,7 @@ sections:
 > **STATUS**: Complete — compile-time enforcement via E2014 propagation errors
 
 - [x] **Implement**: Compile-time enforcement [done] (2026-02-10)
-  - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for E2014 propagation errors
+  - [x] **Rust Tests**: `ori_types/src/check/tests.rs` — 7 tests for E2014 propagation errors
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — caller must declare or provide capabilities
 
 ---
@@ -270,7 +270,7 @@ Introduce `def impl` syntax to declare a default implementation for a trait. Imp
   - [ ] Track def_impls in Module struct
 
 - [ ] **Implement**: Type checking for `def impl`
-  - [ ] **Rust Tests**: `ori_typeck/src/checker/trait_registration.rs` — register_def_impls
+  - [ ] **Rust Tests**: `ori_types/src/check/registration/` — register_def_impls
   - [ ] Verify trait exists
   - [ ] Method signatures converted to ImplMethodDef
   - [ ] Methods are associated (no self parameter)
@@ -290,7 +290,7 @@ Introduce `def impl` syntax to declare a default implementation for a trait. Imp
   - [ ] Check module-local `def impl` third
   - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
 
-- [ ] **Implement**: Evaluator support
+- [ ] **Implement**: Evaluator dispatch for `def impl` — route method calls through default impl resolution in `ori_eval`
   - [ ] Dispatch method calls to bound default
   - [ ] Override via `with...in` works
   - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
@@ -316,23 +316,23 @@ Specifies how capabilities compose: partial provision, nested binding semantics,
   - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
 
 - [ ] **Implement**: Partial provision — providing some capabilities while others use defaults
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — partial capability provision
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — partial capability provision
   - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
 
 - [ ] **Implement**: Nested `with...in` shadowing — inner bindings shadow outer
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — capability shadowing
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — capability shadowing
   - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
 
 - [ ] **Implement**: Capability variance — more caps can call fewer, not reverse
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — variance checking
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — variance checking
   - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
 
 - [ ] **Implement**: Resolution priority order — inner with → outer with → imported def impl → local def impl → error
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — resolution priority
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — resolution priority
   - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
 
 - [ ] **Implement**: Suspend binding prohibition — `with Suspend = ...` is compile error
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — suspend prohibition (E1203)
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — suspend prohibition (E1203)
   - [ ] **Ori Tests**: `tests/spec/capabilities/composition.ori`
 
 - [ ] **Implement**: Error codes E1200-E1203
@@ -362,30 +362,30 @@ Specifies resolution rules for `def impl`: conflict handling, `without def` impo
 
 - [ ] **Implement**: Import conflict detection — one `def impl` per trait per scope
   - [ ] Error E1000: conflicting default implementations when two imports bring same trait's `def impl`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — import conflict detection
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — import conflict detection
   - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
 
 - [ ] **Implement**: Duplicate `def impl` detection — one per trait per module
   - [ ] Error E1001: duplicate default implementation in same module
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — duplicate def impl detection
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — duplicate def impl detection
   - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
 
 - [ ] **Implement**: Resolution order — with...in > imported def > module-local def
   - [ ] Innermost `with...in` binding takes precedence
   - [ ] Imported `def impl` overrides module-local
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — resolution priority
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — resolution priority
   - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
 
 - [ ] **Implement**: Re-export with `without def` — permanently strips default from export path
   - [ ] `pub use "module" { Trait without def }` re-exports trait without default
-  - [ ] **Rust Tests**: `oric/src/eval/module/import.rs` — re-export stripping
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — re-export stripping
   - [ ] **Ori Tests**: `tests/spec/capabilities/def-impl-resolution.ori`
 
 - [ ] **Implement**: Error messages with help text
   - [ ] E1000: "use `Logger without def` to import trait without default"
   - [ ] E1001: show location of first definition
   - [ ] E1002: "`def impl` methods cannot have `self` parameter"
-  - [ ] **Rust Tests**: `oric/src/errors/` — error formatting tests
+  - [ ] **Rust Tests**: `ori_diagnostic/src/` — error formatting tests
 
 - [ ] **Implement**: LLVM backend support
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/def_impl_resolution_tests.rs`
@@ -413,27 +413,27 @@ Transparent aliases for capability sets. Expanded during name resolution before 
   - [ ] Expand capset names in `uses` clauses to constituent capabilities
   - [ ] Transitive expansion (capsets containing capsets)
   - [ ] Deduplication (set semantics)
-  - [ ] **Rust Tests**: `oric/src/typeck/` — capset expansion tests
+  - [ ] **Rust Tests**: `ori_types/src/check/` — capset expansion tests
 
-- [ ] **Implement**: Cycle detection
+- [ ] **Implement**: Capset cycle detection — topological sort in `ori_types` during capset expansion
   - [ ] Topological sort of capset definitions
   - [ ] Error E1220 for cyclic definitions
   - [ ] **Ori Tests**: `tests/spec/capabilities/capset-errors.ori`
 
-- [ ] **Implement**: Validation rules
+- [ ] **Implement**: Capset validation rules — error reporting in `ori_types/src/check/`
   - [ ] Error E1221: empty capset
   - [ ] Error E1222: name collision with trait
   - [ ] Error E1223: member is not capability or capset
   - [ ] Warning W1220: redundant capability in `uses`
   - [ ] **Ori Tests**: `tests/spec/capabilities/capset-errors.ori`
 
-- [ ] **Implement**: Visibility checking
+- [ ] **Implement**: Capset visibility checking — `pub` capset members must be accessible
   - [ ] `pub` capset must not reference non-accessible capabilities
   - [ ] **Ori Tests**: `tests/spec/capabilities/capset-visibility.ori`
 
 - [ ] **Implement**: Enhanced E1200 error messages
   - [ ] Show capset expansion context in "missing capability" errors
-  - [ ] **Rust Tests**: `oric/src/errors/` — error formatting tests
+  - [ ] **Rust Tests**: `ori_diagnostic/src/` — error formatting tests
 
 - [ ] **Implement**: LSP support
   - [ ] Show capset expansion on hover
@@ -449,7 +449,7 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 
 ### Implementation
 
-- [ ] **Implement**: Add `Intrinsics` trait to prelude — spec/14-capabilities.md
+- [ ] **Implement**: Add `Intrinsics` trait to prelude — spec/20-capabilities.md
   - [ ] Trait definition with all SIMD and bit operations
   - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics.ori`
 
@@ -499,11 +499,11 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
   - [ ] For testing and portability
   - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-emulated.ori`
 
-- [ ] **Implement**: Error messages
+- [ ] **Implement**: Intrinsics error diagnostics — add error codes E1060/E1062/E1063 to `ori_diagnostic`
   - [ ] E1060: requires Intrinsics capability
   - [ ] E1062: unknown CPU feature
   - [ ] E1063: wrong SIMD vector size
-  - [ ] **Rust Tests**: `oric/src/errors/` — error formatting tests
+  - [ ] **Rust Tests**: `ori_diagnostic/src/` — error formatting tests
 
 - [ ] **Implement**: LLVM backend SIMD codegen
   - [ ] Map to LLVM vector intrinsics
@@ -541,7 +541,7 @@ Extend `with...in` to support stateful effect handlers. The `handler(state: expr
   - [ ] State type inferred from initializer, consistent across all operations
   - [ ] All required trait methods must have handler operations
   - [ ] Default trait methods used if not overridden
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — handler type checking
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — handler type checking
   - [ ] **Ori Tests**: `tests/spec/capabilities/stateful-handlers.ori`
 
 - [ ] **Implement**: Error codes E1204-E1207
@@ -549,7 +549,7 @@ Extend `with...in` to support stateful effect handlers. The `handler(state: expr
   - [ ] E1205: handler operation signature mismatch
   - [ ] E1206: handler state type inconsistency
   - [ ] E1207: handler operation for non-existent trait method
-  - [ ] **Rust Tests**: `oric/src/errors/` — handler error formatting
+  - [ ] **Rust Tests**: `ori_diagnostic/src/` — handler error formatting
   - [ ] **Ori Tests**: `tests/spec/capabilities/stateful-handler-errors.ori`
 
 - [ ] **Implement**: Evaluator — handler frame state threading

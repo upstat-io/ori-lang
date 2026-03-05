@@ -10,7 +10,8 @@
 //! aids debugging and makes IR inspection feasible during development.
 
 use crate::util::{
-    compile_and_capture_ir, count_bridge_blocks, count_single_pred_phis, extract_function_ir,
+    compile_and_capture_ir, count_bridge_blocks, count_dead_phis, count_single_pred_phis,
+    extract_function_ir,
 };
 
 /// Nounwind-only program: zero `unreachable` terminators in the IR.
@@ -134,6 +135,211 @@ fn test_constant_main_minimal_ir() {
         !main_ir.contains("landingpad"),
         "constant-returning _ori_main should have no landing pads.\nIR:\n{main_ir}"
     );
+}
+
+// ── nounwind on C main Wrapper (Codegen Purity §02.2) ───────────────
+
+/// Trivial `@main` should have `nounwind` on the C `main()` wrapper.
+///
+/// A `@main () -> int = 42` is pure arithmetic — the nounwind analysis
+/// marks `_ori_main` as `nounwind`, and the C main wrapper inherits it.
+#[test]
+fn test_trivial_main_wrapper_has_nounwind() {
+    let ir = compile_and_capture_ir(
+        r"
+@main () -> int = 42;
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_has_attr(&ir, "main", "nounwind");
+}
+
+/// `@main` that may panic should NOT have `nounwind` on C `main()` wrapper.
+///
+/// The wrapper calls `_ori_main` which may unwind — the C `main` must not
+/// be marked `nounwind` or LLVM would treat unwinding as UB.
+#[test]
+fn test_panicking_main_wrapper_lacks_nounwind() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = {
+    let x = 42;
+    if x == 0 then panic(msg: "zero");
+    x
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_lacks_attr(&ir, "main", "nounwind");
+}
+
+// ── nounwind on Derived Trait Methods (Codegen Purity §02.3) ────────
+
+/// Pure derived methods ($eq, $compare, $hash) should have `nounwind`.
+///
+/// These methods only do field comparisons, hashing, and arithmetic —
+/// no string allocation or user code calls. They are provably nounwind.
+#[test]
+fn test_pure_derived_methods_have_nounwind() {
+    let ir = compile_and_capture_ir(
+        r"
+#derive(Eq, Comparable, Hashable)
+type Shape = { sides: int, area: float };
+
+@main () -> int = {
+    let a = Shape { sides: 4, area: 16.0 };
+    let b = Shape { sides: 4, area: 16.0 };
+    let c = a.compare(other: b);
+    let h = a.hash();
+    if a == b then 1 else 0
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_has_attr(&ir, "_ori_Shape$eq", "nounwind");
+    assert_fn_has_attr(&ir, "_ori_Shape$compare", "nounwind");
+    assert_fn_has_attr(&ir, "_ori_Shape$hash", "nounwind");
+}
+
+/// Impure derived methods (`$to_str`, `$debug`) should NOT have `nounwind`.
+///
+/// These methods allocate strings and call non-nounwind runtime functions.
+#[test]
+fn test_impure_derived_methods_lack_nounwind() {
+    let ir = compile_and_capture_ir(
+        r"
+#derive(Printable, Debug)
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let p = Point { x: 1, y: 2 };
+    let s = p.to_str();
+    let d = p.debug();
+    0
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_lacks_attr(&ir, "_ori_Point$to_str", "nounwind");
+    assert_fn_lacks_attr(&ir, "_ori_Point$debug", "nounwind");
+}
+
+// ── noreturn on Panic Functions (Codegen Purity §02.1) ──────────────
+
+/// Panic function declarations should have the `noreturn` attribute.
+///
+/// `ori_panic_cstr` (compile-time constant messages, e.g. overflow) and
+/// `ori_panic` (dynamic string messages) never return to their caller.
+/// LLVM needs `noreturn` to eliminate dead code after panic calls.
+///
+/// This test uses arithmetic (triggers `ori_panic_cstr` for overflow)
+/// and explicit `panic()` (triggers `ori_panic` for dynamic messages).
+///
+/// LLVM IR uses attribute groups (`#N = { ... }`) — the `declare` line
+/// references the group number, not the attributes directly.
+#[test]
+fn test_panic_declarations_have_noreturn() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = {
+    let x = 42;
+    if x == 0 then panic(msg: "zero");
+    x + 1
+}
+"#,
+    );
+
+    // Skip if release binary (no IR output)
+    if !ir.contains("declare ") && !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // Check ori_panic_cstr has noreturn via its attribute group
+    assert_fn_has_attr(&ir, "ori_panic_cstr", "noreturn");
+    assert_fn_lacks_attr(&ir, "ori_panic_cstr", "nounwind");
+
+    // Check ori_panic has noreturn via its attribute group
+    assert_fn_has_attr(&ir, "ori_panic", "noreturn");
+    assert_fn_lacks_attr(&ir, "ori_panic", "nounwind");
+}
+
+/// Assert that a function declaration in the IR has a specific attribute
+/// (resolved through LLVM's `#N = { ... }` attribute groups).
+fn assert_fn_has_attr(ir: &str, func_name: &str, attr: &str) {
+    let attrs = resolve_fn_attrs(ir, func_name);
+    assert!(
+        attrs.contains(attr),
+        "{func_name} should have `{attr}` attribute.\n\
+         Resolved attributes: {attrs}"
+    );
+}
+
+/// Assert that a function declaration does NOT have a specific attribute.
+fn assert_fn_lacks_attr(ir: &str, func_name: &str, attr: &str) {
+    let attrs = resolve_fn_attrs(ir, func_name);
+    assert!(
+        !attrs.contains(attr),
+        "{func_name} must NOT have `{attr}` attribute.\n\
+         Resolved attributes: {attrs}"
+    );
+}
+
+/// Resolve a function's attributes by following its `#N` attribute group
+/// reference in the LLVM IR.
+///
+/// Searches both `declare` and `define` lines. Handles both plain names
+/// (`@main(`) and quoted names (`@"_ori_Shape$eq"(`).
+fn resolve_fn_attrs(ir: &str, func_name: &str) -> String {
+    // LLVM quotes names with special characters: @"_ori_Shape$eq"(
+    let search_plain = format!("@{func_name}(");
+    let search_quoted = format!("@\"{func_name}\"(");
+    let decl_line = ir
+        .lines()
+        .find(|l| {
+            (l.contains("declare") || l.contains("define"))
+                && (l.contains(&search_plain) || l.contains(&search_quoted))
+        })
+        .unwrap_or_else(|| panic!("{func_name} should be declared/defined in IR"));
+
+    // Extract attribute group reference (e.g., "#2" from the declaration).
+    // For `define`, strip trailing ` {` first.
+    let line = decl_line.trim_end_matches('{').trim();
+    let group_ref = line
+        .rsplit_once('#')
+        .map(|(_, num)| format!("#{}", num.trim()))
+        .unwrap_or_default();
+
+    if group_ref.is_empty() {
+        return String::new();
+    }
+
+    // Find the attribute group definition: `attributes #2 = { cold noreturn }`
+    let group_prefix = format!("attributes {group_ref} = ");
+    ir.lines()
+        .find(|l| l.starts_with(&group_prefix))
+        .map(|l| l[group_prefix.len()..].to_string())
+        .unwrap_or_default()
 }
 
 // ── Bridge-Block Elimination Tests ──────────────────────────────────
@@ -530,5 +736,217 @@ fn test_synthetic_single_pred_phi_eliminated() {
         single_pred, 0,
         "expected zero single-predecessor phi nodes in _ori_synthetic, \
          but found {single_pred}.\nIR:\n{fn_ir}"
+    );
+}
+
+// ── Break Bridge Block Elimination Tests (Section 01.4) ─────────────
+
+/// Single-break loop: exit block should have no bridge blocks or dead phis.
+///
+/// `loop { if cond then break value }` with a single break path has
+/// a single-predecessor exit block. Phase 5 converts params to Let
+/// bindings and Phase 4 merges the blocks.
+#[test]
+fn test_single_break_loop_clean_exit() {
+    let ir = compile_and_capture_ir(
+        r"
+@sum_loop (n: int) -> int = {
+    let i = 0;
+    let total = 0;
+    loop {
+        if i >= n then break total;
+        total += i + 1;
+        i += 1
+    }
+};
+
+@main () -> int = sum_loop(n: 5);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
+
+    // Single-break loop: Phase 5 should handle single-predecessor exit.
+    let single_pred = count_single_pred_phis(fn_ir);
+    assert_eq!(
+        single_pred, 0,
+        "expected zero single-predecessor phis in _ori_sum_loop.\nIR:\n{fn_ir}"
+    );
+
+    let dead = count_dead_phis(fn_ir);
+    assert_eq!(
+        dead, 0,
+        "expected zero dead phis in _ori_sum_loop.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Multi-break loop: exit block should have no dead phis.
+///
+/// Two `break` paths create a multi-predecessor exit block. The exit
+/// block params for mutable variables (`i`, `total`) that are unused
+/// after the loop should be eliminated by dead-param analysis.
+#[test]
+fn test_multi_break_loop_no_dead_phis() {
+    let ir = compile_and_capture_ir(
+        r"
+@multi_break (n: int) -> int = {
+    let i = 0;
+    let total = 0;
+    loop {
+        if i >= n then break total;
+        if total > 100 then break -1;
+        total += i + 1;
+        i += 1
+    }
+};
+
+@main () -> int = multi_break(n: 5);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_multi_break");
+
+    let dead = count_dead_phis(fn_ir);
+    assert_eq!(
+        dead, 0,
+        "expected zero dead phis in _ori_multi_break, but found {dead}.\n\
+         Dead phis arise from unused mutable variable params on multi-predecessor \
+         exit blocks.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Multi-break loop with post-loop variable use: only truly dead params eliminated.
+///
+/// When a mutable variable IS used after the loop, its exit block param
+/// must be preserved. Only unused params should be eliminated.
+#[test]
+fn test_multi_break_loop_preserves_live_params() {
+    let ir = compile_and_capture_ir(
+        r"
+@search (n: int) -> int = {
+    let i = 0;
+    let found = loop {
+        if i >= n then break -1;
+        if i * i > n then break i;
+        i += 1
+    };
+    found + i
+};
+
+@main () -> int = search(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_search");
+
+    // `i` is used after the loop (`found + i`), so its exit param is live.
+    // The `found` param (break value) is also live.
+    // No dead phis should exist.
+    let dead = count_dead_phis(fn_ir);
+    assert_eq!(
+        dead, 0,
+        "expected zero dead phis in _ori_search.\nIR:\n{fn_ir}"
+    );
+}
+
+// ── noundef on Scalar Parameters (Codegen Purity §02.6) ─────────────
+
+/// Scalar parameters (`int`, `float`, `bool`) should have `noundef` in IR.
+///
+/// Ori's type system guarantees all scalar values are initialized, so LLVM
+/// can assume passing undef/poison is UB. This enables range analysis,
+/// dead argument elimination, and other scalar optimizations.
+#[test]
+fn test_scalar_params_have_noundef() {
+    let ir = compile_and_capture_ir(
+        r"
+@add (a: int, b: int) -> int = a + b;
+
+@scale (x: float, factor: float) -> float = x * factor;
+
+@main () -> int = {
+    let s = scale(x: 3.0, factor: 2.0);
+    add(a: 1, b: 2)
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // _ori_add: both int params and int return should have noundef
+    let add_decl = ir
+        .lines()
+        .find(|l| l.contains("@_ori_add") || l.contains("@\"_ori_add\""))
+        .expect("_ori_add should be in IR");
+    assert_eq!(
+        add_decl.matches("noundef").count(),
+        3,
+        "expected 3 noundef (2 int params + int return) on _ori_add:\n{add_decl}"
+    );
+
+    // _ori_scale: both float params and float return should have noundef
+    let scale_decl = ir
+        .lines()
+        .find(|l| l.contains("@_ori_scale") || l.contains("@\"_ori_scale\""))
+        .expect("_ori_scale should be in IR");
+    assert_eq!(
+        scale_decl.matches("noundef").count(),
+        3,
+        "expected 3 noundef (2 float params + float return) on _ori_scale:\n{scale_decl}"
+    );
+}
+
+/// Aggregate parameters (str) and pointer params should NOT have `noundef`.
+///
+/// §02.6 conservative policy: only scalar primitives get `noundef`.
+/// Aggregates and pointers require additional proof obligations.
+#[test]
+fn test_aggregate_params_lack_noundef() {
+    let ir = compile_and_capture_ir(
+        r#"
+@greet (name: str) -> str = `Hello, {name}`;
+
+@main () -> void = {
+    let msg = greet(name: "world");
+    print(msg: msg)
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // _ori_greet has str param (aggregate, >16 bytes, Indirect → ptr) and str
+    // return (Sret → void). Neither should have noundef.
+    let greet_decl = ir
+        .lines()
+        .find(|l| {
+            (l.contains("@_ori_greet") || l.contains("@\"_ori_greet\""))
+                && (l.contains("define") || l.contains("declare"))
+        })
+        .expect("_ori_greet should be in IR");
+    assert!(
+        !greet_decl.contains("noundef"),
+        "str param/return should NOT have noundef on _ori_greet:\n{greet_decl}"
     );
 }

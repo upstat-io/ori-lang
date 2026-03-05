@@ -22,7 +22,9 @@ sections:
 **Status:** Not Started
 **Goal:** Functions whose last action is a self-recursive call are compiled using `musttail` (or equivalent loop conversion) so they execute in constant stack space.
 
-> **WARNING — VERY HIGH COMPLEXITY / VERY HIGH RISK:** This is the most complex section in the plan. It requires coordinated changes across TWO crates (`ori_arc` for detection/rewriting, `ori_llvm` for emission), touches the ARC pipeline's RC insertion pass (the most correctness-critical pass), and requires proving that RcDec hoisting is safe per-variable. The ARC+TCO interaction is research-grade — Lean 4's solution (`ownParamsUsingArgs`) required multiple iterations. Budget 2-3x the estimated effort. Strongly consider deferring to a follow-up cycle if earlier sections take longer than expected.
+> **WARNING — VERY HIGH COMPLEXITY / VERY HIGH RISK:** This is the most complex section in the plan. It requires coordinated changes across TWO crates (`ori_arc` for detection/rewriting, `ori_llvm` for emission), touches the ARC pipeline's RC insertion pass (the most correctness-critical pass), and requires proving that RcDec hoisting is safe per-variable. The ARC+TCO interaction is research-grade — Lean 4's solution (`ownParamsUsingArgs`) required multiple iterations. Budget 2-3x the estimated effort.
+>
+> **Decision (2026-03-05): ATTEMPT.** The ARC+TCO interaction will be attempted, not deferred. Use the rollback plan (§09.2) if correctness cannot be verified.
 
 > **Spec consultation:** Check `docs/ori_lang/v2026/spec/` for whether the Ori language promises tail call optimization. If the spec does NOT guarantee TCO, this section is a quality improvement only (not a correctness fix) and can be safely deferred. Document the spec's position either way.
 

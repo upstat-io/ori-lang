@@ -488,3 +488,7 @@ Add `Drop` to the prelude traits list.
 | Collections | Always by reference |
 | Async destructors | Not allowed; use explicit cleanup |
 | Cancellation | Destructors still run |
+
+## Errata (added 2026-03-05)
+
+> **Copy vs Clone distinction added by [value-trait-proposal](value-trait-proposal.md)**: This proposal states "Ori doesn't distinguish Copy vs Clone at the language level." The `Value` trait now introduces this distinction — `Value` types are trivially copyable (bitwise copy satisfies Clone), while non-Value types may require deep cloning via the `Clone` trait. The ≤32 byte pass-by-value threshold remains as an implementation optimization independent of `Value`; `Value` is a semantic contract enforced by the type checker.

@@ -552,7 +552,209 @@ fn module_path_appears_in_mangled_name() {
     assert!(scx.llmod.get_function("add").is_none());
 }
 
-// ── Nounwind analysis tests ──────────────────────────────────────────
+// Noundef attribute tests (§02.6)
+
+#[test]
+fn scalar_params_have_noundef() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_noundef"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+
+    let func_name = interner.intern("add");
+    let a_name = interner.intern("a");
+    let b_name = interner.intern("b");
+
+    let sig = make_sig(
+        func_name,
+        vec![a_name, b_name],
+        vec![Idx::INT, Idx::INT],
+        Idx::INT,
+        false,
+    );
+
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+    );
+    fc.declare_function(func_name, &sig, Span::DUMMY);
+
+    drop(fc);
+    drop(builder);
+    drop(resolver);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Both int parameters and int return should have noundef
+    assert!(
+        ir.contains("noundef"),
+        "scalar int parameters should have noundef attribute:\n{ir}"
+    );
+}
+
+#[test]
+fn scalar_return_has_noundef() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_noundef_ret"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+
+    let func_name = interner.intern("get_bool");
+    let sig = make_sig(func_name, vec![], vec![], Idx::BOOL, false);
+
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+    );
+    fc.declare_function(func_name, &sig, Span::DUMMY);
+
+    drop(fc);
+    drop(builder);
+    drop(resolver);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Bool return (i1) should have noundef
+    assert!(
+        ir.contains("noundef"),
+        "scalar bool return should have noundef attribute:\n{ir}"
+    );
+}
+
+#[test]
+fn aggregate_params_no_noundef() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_aggregate_params"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+
+    let func_name = interner.intern("process_str");
+    let s_name = interner.intern("s");
+
+    // Str is an aggregate (24-byte {len, cap, data}), should NOT get noundef
+    let sig = make_sig(func_name, vec![s_name], vec![Idx::STR], Idx::UNIT, false);
+
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+    );
+    fc.declare_function(func_name, &sig, Span::DUMMY);
+
+    drop(fc);
+    drop(builder);
+    drop(resolver);
+
+    // Check the function declaration line only (avoid matching module name)
+    let ir = scx.llmod.print_to_string().to_string();
+    let decl_line = ir
+        .lines()
+        .find(|l| l.contains("@_ori_process_str"))
+        .unwrap();
+
+    // Str is passed indirect (>16 bytes). The ptr param should NOT have noundef.
+    assert!(
+        !decl_line.contains("noundef"),
+        "aggregate/pointer params should NOT have noundef:\n{decl_line}"
+    );
+}
+
+#[test]
+fn mixed_params_selective_noundef() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_mixed_params"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+
+    let func_name = interner.intern("mixed");
+    let n_name = interner.intern("n");
+    let s_name = interner.intern("s");
+    let f_name = interner.intern("f");
+
+    // Mix: int (scalar), str (aggregate), float (scalar)
+    let sig = make_sig(
+        func_name,
+        vec![n_name, s_name, f_name],
+        vec![Idx::INT, Idx::STR, Idx::FLOAT],
+        Idx::BOOL,
+        false,
+    );
+
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+    );
+    fc.declare_function(func_name, &sig, Span::DUMMY);
+
+    drop(fc);
+    drop(builder);
+    drop(resolver);
+
+    // Check the declaration line for selective noundef
+    let ir = scx.llmod.print_to_string().to_string();
+    let decl_line = ir.lines().find(|l| l.contains("@_ori_mixed")).unwrap();
+
+    // Should have noundef on int param, float param, and bool return.
+    // Str param (passed as ptr, Indirect) should NOT have noundef.
+    let noundef_count = decl_line.matches("noundef").count();
+    assert_eq!(
+        noundef_count, 3,
+        "expected 3 noundef (int param + float param + bool return), got {noundef_count}:\n{decl_line}"
+    );
+}
+
+// Nounwind analysis tests
 
 /// Helper: create a minimal FunctionCompiler for nounwind testing.
 fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(

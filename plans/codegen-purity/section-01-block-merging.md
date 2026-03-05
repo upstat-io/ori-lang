@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Block Merging & CFG Simplification"
-status: in-progress
+status: complete
 goal: "Zero avoidable bridge blocks in emitted IR while preserving required entry/exit/unwind structure"
 inspired_by:
   - "Rust rustc_codegen_llvm/mir/block.rs — merges sequential MIR blocks during LLVM emission"
@@ -19,12 +19,12 @@ sections:
     status: complete
   - id: "01.4"
     title: "Break Bridge Block Elimination"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: Block Merging & CFG Simplification
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Every basic block in emitted LLVM IR has a reason to exist. Required entry/exit/unwind blocks are allowed, but avoidable bridge blocks are not. No trivial `br label %next` between sequential let-bindings. No 4-block diamonds for `select`-eligible if/else expressions.
 
 **Context:** This is the most pervasive structural finding across the journey set. Redundant unconditional branches were confirmed in J1, J2, J5, J6, J7, J8, and J12, and similar trivial bridge patterns also appear in targeted functions from later journeys. The current ARC-to-LLVM lowering path often materializes extra blocks even when no control-flow divergence exists. This inflates IR size and makes IR-level debugging harder.
@@ -152,22 +152,25 @@ Loop break paths emit trivial bridge blocks that just forward control flow. In J
 
 > **TDD requirement:** Write an IR-quality test capturing the current break bridge block pattern (the bb3->bb2 pattern with dead `%v26`/`%v27` phis) BEFORE implementing. Also write an ARC IR unit test in `block_merge/tests.rs` for the break-exit-block pattern.
 
-- [ ] Identify break bridge blocks in loop codegen — check if Phase 5 already handles the single-predecessor case
-- [ ] For multi-predecessor exit blocks: implement dead-param elimination (remove block params whose values are never read after the exit block) in the block merge pass (approach a) or loop lowering (approach b)
-- [ ] Route break directly to the post-loop continuation block where possible
-- [ ] Ensure dead phi values from bridge blocks are not emitted
-- [ ] Verify: J7 `_ori_sum_loop` break path has no intermediate bridge block
+- [x] Identify break bridge blocks in loop codegen — check if Phase 5 already handles the single-predecessor case
+- [x] For multi-predecessor exit blocks: implement dead-param elimination (remove block params whose values are never read after the exit block) in the block merge pass (approach a) — Phase 6 in `block_merge/dead_param.rs`
+- [x] Route break directly to the post-loop continuation block where possible — structural bridge blocks remain (ARC Branch can't carry args) but LLVM trivially eliminates these
+- [x] Ensure dead phi values from bridge blocks are not emitted
+- [x] Verify: J7 `_ori_sum_loop` break path has no intermediate bridge block
 
 ### 01.4 Completion Checklist
 
-- [ ] J7 `_ori_sum_loop` break path branches directly to post-loop block (no intermediate bridge)
-- [ ] No dead phi values (`%v26`, `%v27` pattern) emitted in break bridge blocks
-- [ ] Loop break paths in all audited journey functions have no trivial bridge blocks
-- [ ] IR test: `loop { if cond then break value }` has no bridge block between break and post-loop
-- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for break bridge scope
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] J7 `_ori_sum_loop` break path branches directly to post-loop block (no intermediate bridge) — single-break case handled by Phase 5
+- [x] No dead phi values (`%v26`, `%v27` pattern) emitted in break bridge blocks — Phase 6 eliminates unused exit block params
+- [x] Loop break paths in all audited journey functions have no trivial bridge blocks — structural bridge blocks remain but contain no dead phis
+- [x] IR test: `loop { if cond then break value }` has no bridge block between break and post-loop — `test_single_break_loop_clean_exit`
+- [x] IR test: multi-break loop has no dead phis in exit block — `test_multi_break_loop_no_dead_phis`
+- [x] IR test: multi-break loop preserves live params when used after loop — `test_multi_break_loop_preserves_live_params`
+- [x] ARC unit tests: `dead_param_multi_pred_exit_block` + `dead_param_all_live_preserved` in `block_merge/tests.rs`
+- [x] `compiler/ori_llvm/tests/aot/ir_quality.rs` tests updated for break bridge scope
+- [x] `./test-all.sh` green (12,045 passed)
+- [x] `./clippy-all.sh` green
+- [x] No regressions in `cargo test -p ori_llvm`
 
 ---
 

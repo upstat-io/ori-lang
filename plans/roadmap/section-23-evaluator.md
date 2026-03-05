@@ -6,11 +6,11 @@ tier: 0
 goal: Complete evaluator support for entire Ori spec semantics
 spec:
   - spec/grammar.ebnf
-  - spec/06-types.md
-  - spec/08-declarations.md
-  - spec/09-expressions.md
-  - spec/10-patterns.md
-  - spec/11-traits.md
+  - spec/08-types.md
+  - spec/10-declarations.md
+  - spec/14-expressions.md
+  - spec/15-patterns.md
+  - spec/09-properties-of-types.md
 sections:
   - id: "23.1"
     title: Operators
@@ -42,7 +42,7 @@ sections:
 
 **Goal**: Complete evaluator support for entire Ori spec semantics (parsing assumed working — see Section 0)
 
-> **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/06-types.md`, `spec/09-expressions.md`, `spec/11-traits.md`
+> **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/08-types.md`, `spec/14-expressions.md`, `spec/09-properties-of-types.md`
 
 **Status**: In Progress — Most features work! 1983 tests pass, 31 skipped. Only a few actual bugs remain (verified 2026-02-04).
 
@@ -64,7 +64,7 @@ This section ensures the evaluator (interpreter) correctly implements all Ori la
 
 ## 23.1 Operators
 
-> **SPEC**: `spec/09-expressions.md` § Operators
+> **SPEC**: `spec/14-expressions.md` § Operators
 
 ### 23.1.1 Null Coalesce Operator (`??`)
 
@@ -105,7 +105,7 @@ This section ensures the evaluator (interpreter) correctly implements all Ori la
 
 ## 23.2 Primitive Trait Methods
 
-> **SPEC**: `spec/11-traits.md` § Built-in Traits
+> **SPEC**: `spec/09-properties-of-types.md` § Built-in Traits
 > **STATUS**: ALL IMPLEMENTED (verified 2026-02-04)
 
 Primitives (int, str, bool, float, etc.) implement standard trait methods.
@@ -138,7 +138,7 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ## 23.3 Type Coercion and Indexing
 
-> **SPEC**: `spec/09-expressions.md` § Index Access
+> **SPEC**: `spec/14-expressions.md` § Index Access
 > **STATUS**: Mostly complete (verified 2026-02-04)
 
 ### 23.3.1 Map Index Return Type
@@ -173,7 +173,7 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ## 23.4 Control Flow
 
-> **SPEC**: `spec/09-expressions.md` § Control Flow
+> **SPEC**: `spec/14-expressions.md` § Control Flow
 
 ### 23.4.1 Break with Value in Nested Loops
 
@@ -195,7 +195,7 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ## 23.5 Derived Traits
 
-> **SPEC**: `spec/08-declarations.md` § Attributes
+> **SPEC**: `spec/10-declarations.md` § Attributes
 > **STATUS**: ALL IMPLEMENTED (verified 2026-02-04)
 
 ### 23.5.1 `#derive(Eq)` Implementation
@@ -272,7 +272,7 @@ Primitives (int, str, bool, float, etc.) implement standard trait methods.
 
 ## 23.8 Parser Feature Support (Type Checker/Evaluator)
 
-> **SPEC**: `spec/08-declarations.md` § Functions, `spec/09-expressions.md` § Calls
+> **SPEC**: `spec/10-declarations.md` § Functions, `spec/14-expressions.md` § Calls
 
 These features have working **parser support** (Section 0.9.1 complete), but need type checker and/or evaluator implementation.
 
@@ -282,7 +282,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 > **Test File**: `tests/spec/declarations/clause_params.ori`
 
 - [ ] **Type Checker**: Verify guard expression returns `bool`
-  - [ ] **Location**: `ori_typeck/src/infer/` — check guard expression type
+  - [ ] **Location**: `ori_types/src/infer/` — check guard expression type
   - [ ] **Constraint**: Guard must be `bool`-typed
 - [ ] **Evaluator**: Select matching clause based on guard evaluation
   - [ ] **Location**: `ori_eval/src/interpreter/` — function call resolution
@@ -295,7 +295,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 > **Test File**: `tests/spec/declarations/clause_params.ori`
 
 - [ ] **Type Checker**: Extract bindings from list patterns
-  - [ ] **Location**: `ori_typeck/src/infer/` — pattern binding extraction
+  - [ ] **Location**: `ori_types/src/infer/` — pattern binding extraction
   - [ ] **Bindings**: `[x, ..tail]` creates `x: T` and `tail: [T]`
   - [ ] **Empty**: `[]` pattern matches empty list only
 - [ ] **Evaluator**: Destructure list into pattern bindings
@@ -309,7 +309,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 > **Test File**: `tests/spec/declarations/generics.ori`
 
 - [ ] **Type Checker**: Make const generic params available in scope
-  - [ ] **Location**: `ori_typeck/src/infer/` — generic parameter handling
+  - [ ] **Location**: `ori_types/src/infer/` — generic parameter handling
   - [ ] **Binding**: `$N` available as compile-time constant in function body
   - [ ] **Type**: Const param has the declared type (`int`, `bool`, etc.)
 - [ ] **Type Checker**: Evaluate const generic default values
@@ -326,7 +326,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 > **Test File**: `tests/spec/declarations/variadic_params.ori` (needs creation)
 
 - [ ] **Type Checker**: Handle variadic parameter types
-  - [ ] **Location**: `ori_typeck/src/infer/` — function signature handling
+  - [ ] **Location**: `ori_types/src/infer/` — function signature handling
   - [ ] **Semantics**: `...T` in parameter position → receives as `[T]`
   - [ ] **Constraint**: Only one variadic param allowed per function
   - [ ] **Constraint**: Variadic must be last parameter
@@ -362,7 +362,7 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
 > **Test File**: `tests/spec/expressions/function_calls.ori`
 
 - [ ] **Type Checker**: Verify spread arg matches variadic param type
-  - [ ] **Location**: `ori_typeck/src/infer/` — call type checking
+  - [ ] **Location**: `ori_types/src/infer/` — call type checking
   - [ ] **Constraint**: Spread only valid for variadic parameters
   - [ ] **Constraint**: `...expr` where `expr: [T]` spreads into `...T` param
 - [ ] **Evaluator**: Expand spread arguments at call site

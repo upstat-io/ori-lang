@@ -265,6 +265,14 @@ fn setup_derive_function<'a>(
     let (func_id, self_val, param_vals) =
         fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
 
+    // Approach (b.1) from §02.3: mark pure derived methods as nounwind directly.
+    // Eq, Comparable, Hashable, Clone, Default only do field operations and
+    // call nounwind runtime functions (ori_rc_inc, etc.). Printable and Debug
+    // allocate strings and may call non-nounwind runtime functions.
+    if trait_kind.is_nounwind_derived() {
+        fc.builder_mut().add_nounwind_attribute(func_id);
+    }
+
     let self_opt = if shape.has_self() {
         Some(self_val)
     } else {

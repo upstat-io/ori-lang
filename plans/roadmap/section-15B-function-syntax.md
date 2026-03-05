@@ -159,25 +159,25 @@ greet(name: "Alice")  // "Hello, Alice!"
 ### Type Checker
 
 - [ ] **Implement**: Verify default expression has parameter's type
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/params.rs` — default type checking
+  - [ ] **Rust Tests**: `ori_types/src/check/params.rs` — default type checking
   - [ ] **Ori Tests**: `tests/compile-fail/default_param_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for default type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default type checking codegen
 
 - [ ] **Implement**: Verify default doesn't reference other parameters
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/params.rs` — default param reference checking
+  - [ ] **Rust Tests**: `ori_types/src/check/params.rs` — default param reference checking
   - [ ] **Ori Tests**: `tests/compile-fail/default_param_references_other.ori`
   - [ ] **LLVM Support**: LLVM codegen for default param reference checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default param reference checking codegen
 
 - [ ] **Implement**: Track which parameters have defaults for call validation
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — optional parameter tracking
+  - [ ] **Rust Tests**: `ori_types/src/check/call.rs` — optional parameter tracking
   - [ ] **Ori Tests**: `tests/spec/expressions/call_with_defaults.ori`
   - [ ] **LLVM Support**: LLVM codegen for optional parameter tracking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — optional parameter tracking codegen
 
 - [ ] **Implement**: Capability checking for default expressions
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/params.rs` — default capability checking
+  - [ ] **Rust Tests**: `ori_types/src/check/params.rs` — default capability checking
   - [ ] **Ori Tests**: `tests/spec/capabilities/default_param_capabilities.ori`
   - [ ] **LLVM Support**: LLVM codegen for default capability checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default capability checking codegen
@@ -185,13 +185,13 @@ greet(name: "Alice")  // "Hello, Alice!"
 ### Call Site Validation
 
 - [ ] **Implement**: Required parameters (no default) must be provided
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — required param validation
+  - [ ] **Rust Tests**: `ori_types/src/check/call.rs` — required param validation
   - [ ] **Ori Tests**: `tests/compile-fail/missing_required_param.ori`
   - [ ] **LLVM Support**: LLVM codegen for required param validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — required param validation codegen
 
 - [ ] **Implement**: Allow omitting parameters with defaults
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — optional param omission
+  - [ ] **Rust Tests**: `ori_types/src/check/call.rs` — optional param omission
   - [ ] **Ori Tests**: `tests/spec/expressions/omit_default_params.ori`
   - [ ] **LLVM Support**: LLVM codegen for optional param omission
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — optional param omission codegen
@@ -206,21 +206,21 @@ greet(name: "Alice")  // "Hello, Alice!"
 ### Code Generation
 
 - [ ] **Implement**: Insert default expressions for omitted arguments
-  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — default insertion
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/call.rs` — default insertion
   - [ ] **Ori Tests**: `tests/spec/expressions/default_insertion.ori`
   - [ ] **LLVM Support**: LLVM codegen for default insertion
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default insertion codegen
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — default insertion end-to-end
 
 - [ ] **Implement**: Evaluate defaults at call time (not definition time)
-  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — call-time evaluation
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/call.rs` — call-time evaluation
   - [ ] **Ori Tests**: `tests/spec/expressions/default_call_time_eval.ori`
   - [ ] **LLVM Support**: LLVM codegen for call-time evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — call-time evaluation codegen
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — call-time evaluation end-to-end
 
 - [ ] **Implement**: Correct evaluation order (explicit args first, then defaults in param order)
-  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — evaluation order
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/call.rs` — evaluation order
   - [ ] **Ori Tests**: `tests/spec/expressions/default_eval_order.ori`
   - [ ] **LLVM Support**: LLVM codegen for evaluation order
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — evaluation order codegen
@@ -236,14 +236,14 @@ greet(name: "Alice")  // "Hello, Alice!"
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — trait method defaults end-to-end
 
 - [ ] **Implement**: Allow implementations to override/remove defaults
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/impl.rs` — impl default override
+  - [ ] **Rust Tests**: `ori_types/src/check/impl.rs` — impl default override
   - [ ] **Ori Tests**: `tests/spec/traits/impl_override_defaults.ori`
   - [ ] **LLVM Support**: LLVM codegen for impl default override
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — impl default override codegen
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — impl default override end-to-end
 
 - [ ] **Implement**: Trait object calls use trait's declared default
-  - [ ] **Rust Tests**: `oric/src/codegen/dyn_dispatch.rs` — dyn default dispatch
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/dyn_dispatch.rs` — dyn default dispatch
   - [ ] **Ori Tests**: `tests/spec/traits/dyn_trait_defaults.ori`
   - [ ] **LLVM Support**: LLVM codegen for dyn default dispatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — dyn default dispatch codegen
@@ -291,37 +291,37 @@ Allow functions to be defined with multiple clauses that pattern match on argume
 ### Semantic Analysis
 
 - [ ] **Implement**: Validate all clauses have same parameter count
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — parameter count validation
+  - [ ] **Rust Tests**: `ori_types/src/check/clauses.rs` — parameter count validation
   - [ ] **Ori Tests**: `tests/compile-fail/clause_param_count_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for parameter count validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — parameter count validation codegen
 
 - [ ] **Implement**: Validate all clauses have same return type
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — return type validation
+  - [ ] **Rust Tests**: `ori_types/src/check/clauses.rs` — return type validation
   - [ ] **Ori Tests**: `tests/compile-fail/clause_return_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for return type validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — return type validation codegen
 
 - [ ] **Implement**: Validate all clauses have same capabilities (`uses`)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — capability validation
+  - [ ] **Rust Tests**: `ori_types/src/check/clauses.rs` — capability validation
   - [ ] **Ori Tests**: `tests/compile-fail/clause_capability_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for capability validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — capability validation codegen
 
 - [ ] **Implement**: First clause rules (visibility, generics, types)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — first clause signature
+  - [ ] **Rust Tests**: `ori_types/src/check/clauses.rs` — first clause signature
   - [ ] **Ori Tests**: `tests/spec/declarations/first_clause_rules.ori`
   - [ ] **LLVM Support**: LLVM codegen for first clause rules
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — first clause rules codegen
 
 - [ ] **Implement**: Type inference for subsequent clause parameters
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — clause type inference
+  - [ ] **Rust Tests**: `ori_types/src/check/clauses.rs` — clause type inference
   - [ ] **Ori Tests**: `tests/spec/declarations/clause_type_inference.ori`
   - [ ] **LLVM Support**: LLVM codegen for clause type inference
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause type inference codegen
 
 - [ ] **Implement**: Error if visibility/generics repeated on subsequent clauses
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/clauses.rs` — duplicate modifier errors
+  - [ ] **Rust Tests**: `ori_types/src/check/clauses.rs` — duplicate modifier errors
   - [ ] **Ori Tests**: `tests/compile-fail/clause_duplicate_modifiers.ori`
   - [ ] **LLVM Support**: LLVM codegen for duplicate modifier errors
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — duplicate modifier errors codegen
@@ -329,13 +329,13 @@ Allow functions to be defined with multiple clauses that pattern match on argume
 ### Exhaustiveness & Reachability
 
 - [ ] **Implement**: Exhaustiveness checking across all clauses
-  - [ ] **Rust Tests**: `oric/src/typeck/exhaustiveness.rs` — clause exhaustiveness
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness.rs` — clause exhaustiveness
   - [ ] **Ori Tests**: `tests/compile-fail/clause_non_exhaustive.ori`
   - [ ] **LLVM Support**: LLVM codegen for clause exhaustiveness
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause exhaustiveness codegen
 
 - [ ] **Implement**: Unreachable clause detection and warnings
-  - [ ] **Rust Tests**: `oric/src/typeck/exhaustiveness.rs` — unreachable clause warning
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness.rs` — unreachable clause warning
   - [ ] **Ori Tests**: `tests/warnings/unreachable_clause.ori`
   - [ ] **LLVM Support**: LLVM codegen for unreachable clause warning
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — unreachable clause warning codegen
@@ -343,14 +343,14 @@ Allow functions to be defined with multiple clauses that pattern match on argume
 ### Code Generation
 
 - [ ] **Implement**: Desugar clauses to single function with `match`
-  - [ ] **Rust Tests**: `oric/src/codegen/clauses.rs` — clause desugaring
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/clauses.rs` — clause desugaring
   - [ ] **Ori Tests**: `tests/spec/declarations/clause_desugaring.ori`
   - [ ] **LLVM Support**: LLVM codegen for clause desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause desugaring codegen
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — clause desugaring end-to-end
 
 - [ ] **Implement**: Function clause `if` guards (compile to match arm guards)
-  - [ ] **Rust Tests**: `oric/src/codegen/clauses.rs` — guard desugaring
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/clauses.rs` — guard desugaring
   - [ ] **Ori Tests**: `tests/spec/declarations/guard_desugaring.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — guard desugaring codegen
@@ -359,21 +359,21 @@ Allow functions to be defined with multiple clauses that pattern match on argume
 ### Integration
 
 - [ ] **Implement**: Named argument reordering before pattern matching
-  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — argument reordering
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/call.rs` — argument reordering
   - [ ] **Ori Tests**: `tests/spec/expressions/clause_named_args.ori`
   - [ ] **LLVM Support**: LLVM codegen for argument reordering
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — argument reordering codegen
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — argument reordering end-to-end
 
 - [ ] **Implement**: Default parameter filling before pattern matching
-  - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — default filling with clauses
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/call.rs` — default filling with clauses
   - [ ] **Ori Tests**: `tests/spec/expressions/clause_default_params.ori`
   - [ ] **LLVM Support**: LLVM codegen for default filling with clauses
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — default filling codegen
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — default filling with clauses end-to-end
 
 - [ ] **Implement**: Tests target function name (cover all clauses)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/test.rs` — clause test targeting
+  - [ ] **Rust Tests**: `ori_types/src/check/test.rs` — clause test targeting
   - [ ] **Ori Tests**: `tests/spec/testing/clause_tests.ori`
   - [ ] **LLVM Support**: LLVM codegen for clause test targeting
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause test targeting codegen
@@ -420,26 +420,26 @@ NOT lambda expressions (named arg required):
 ### Type Checker
 
 - [ ] **Implement**: Check for lambda-literal positional argument exception in call resolution
-  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — lambda positional arg tests
+  - [ ] **Rust Tests**: `ori_types/src/infer/ (calls)` — lambda positional arg tests
   - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional.ori`
   - [ ] **LLVM Support**: LLVM codegen for lambda positional args
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — lambda positional arg codegen
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — lambda positional arg end-to-end
 
 - [ ] **Implement**: Verify callee has exactly 1 explicit parameter (exclude `self`)
-  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — single param check
+  - [ ] **Rust Tests**: `ori_types/src/infer/ (calls)` — single param check
   - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional_single_param.ori`
   - [ ] **LLVM Support**: LLVM codegen for single param check
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — single param check codegen
 
 - [ ] **Implement**: Verify argument expression is a `LambdaExpr` AST node
-  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — lambda detection
+  - [ ] **Rust Tests**: `ori_types/src/infer/ (calls)` — lambda detection
   - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional_detection.ori`
   - [ ] **LLVM Support**: LLVM codegen for lambda detection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — lambda detection codegen
 
 - [ ] **Implement**: Reject positional for function references/variables (not lambda literals)
-  - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — function reference rejection
+  - [ ] **Rust Tests**: `ori_types/src/infer/ (calls)` — function reference rejection
   - [ ] **Ori Tests**: `tests/compile-fail/positional_function_reference.ori`
   - [ ] **LLVM Support**: LLVM codegen for function reference rejection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — function reference rejection codegen
