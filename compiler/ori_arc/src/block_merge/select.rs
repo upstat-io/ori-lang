@@ -30,6 +30,7 @@ struct SelectDiamond {
 }
 
 /// Fold trivial if/else diamond patterns into `Select` instructions.
+#[tracing::instrument(skip_all, name = "phase3_select")]
 pub(crate) fn fold_select_diamonds(func: &mut ArcFunction) {
     let pred_counts = compute_pred_counts(func);
 

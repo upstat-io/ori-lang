@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Sum Type Payload Extraction"
-status: not-started
+status: complete
 goal: "Match arm payload extraction uses extractvalue (2 instructions) instead of alloca+store+GEP+load (5 instructions)"
 inspired_by:
   - "Rust rustc_codegen_llvm/mir/place.rs — uses extractvalue for enum variant fields"
@@ -10,12 +10,12 @@ depends_on: []
 sections:
   - id: "05.1"
     title: "extractvalue for Union Payload Fields"
-    status: not-started
+    status: complete
 ---
 
 # Section 05: Sum Type Payload Extraction
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** When destructuring a sum type variant in a match expression, the codegen uses `extractvalue` to access payload fields directly from the SSA value, rather than spilling the entire enum to the stack via alloca+store+GEP+load.
 
 **Context:** Sum types with record payloads use a `{ i64, [N x i64] }` representation where the first i64 is the tag and `[N x i64]` is a union of all variant payloads. When matching and destructuring, the current codegen spills the entire value to an alloca, then uses GEP to index into the payload array. This costs 5 instructions per field extraction where 2 would suffice.
@@ -41,15 +41,16 @@ Note: `Option<int>` uses flat `{ i64, i64 }` (not `[N x i64]`) and already works
 Replace the alloca+store+GEP+load sequence with extractvalue when destructuring sum type payloads in match arms.
 
 ```llvm
-; CURRENT (5 instructions per field):
+; BEFORE (5 instructions per field):
 %alloca = alloca { i64, [2 x i64] }
 store { i64, [2 x i64] } %enum_val, ptr %alloca
 %payload_ptr = getelementptr { i64, [2 x i64] }, ptr %alloca, i64 0, i32 1, i64 0
 %field0 = load i64, ptr %payload_ptr
 
-; TARGET (2 instructions per field):
+; AFTER (2-3 instructions per field):
 %payload = extractvalue { i64, [2 x i64] } %enum_val, 1      ; get [2 x i64] payload
-%field0 = extractvalue [2 x i64] %payload, 0                  ; get first field
+%field0_raw = extractvalue [2 x i64] %payload, 0              ; get raw i64
+%field0 = bitcast i64 %field0_raw to double                   ; reinterpret (only if non-i64)
 ```
 
 **Current code structure in `emit_project()` (lines 28-110 of `instr_dispatch.rs`):**
@@ -62,14 +63,14 @@ The fix targets case (2): replace alloca+store+GEP+GEP+load with two `extractval
 
 > **TDD requirement:** Write an IR-quality test that asserts the current alloca+store+GEP+load pattern for a 2-field sum type variant BEFORE implementing. Verify the test captures the 5-instruction sequence. Then implement `extractvalue` and verify the test changes to the 2-instruction pattern. Also write a negative test for boxed enum fields (must still use alloca) BEFORE implementing.
 
-- [ ] Identify the general enum path (case 2 in `emit_project`, lines 49-80)
-- [ ] For the `is_general_enum` branch: when the source value is an SSA value (not a pointer), use `extractvalue {tag, [N x i64]} value, 1` to get the payload array, then `extractvalue [N x i64] payload, idx` for each field
-- [ ] Detect when the source value is an SSA aggregate vs. a pointer (check if the LLVM value's type is a struct type vs. pointer type)
-- [ ] Keep the alloca path for: (a) boxed enum fields (recursive types — need pointer dereference), (b) pointer-sourced values
-- [ ] Guardrail: preserve active-variant safety (no reads from inactive payload bytes; keep tag checks authoritative)
-- [ ] Verify: J6 `_ori_extract` match arms use `extractvalue` instead of alloca
-- [ ] Verify: J11 `_ori_Shape$eq` derived method uses `extractvalue`
-- [ ] Verify: SROA is no longer needed to clean up the alloca (it shouldn't exist)
+- [x] Identify the general enum path (case 2 in `emit_project`, lines 49-80)
+- [x] For the `is_general_enum` branch: when the source value is an SSA value (not a pointer), use `extractvalue {tag, [N x i64]} value, 1` to get the payload array, then `extractvalue [N x i64] payload, idx` for each field
+- [x] Detect when the source value is an SSA aggregate vs. a pointer (check if the LLVM value's type is a struct type vs. pointer type)
+- [x] Keep the alloca path for: (a) boxed enum fields (recursive types — need pointer dereference), (b) pointer-sourced values
+- [x] Guardrail: preserve active-variant safety (no reads from inactive payload bytes; keep tag checks authoritative)
+- [x] Verify: J6 `_ori_extract` match arms use `extractvalue` instead of alloca
+- [x] Verify: J11 `_ori_Shape$eq` derived method uses `extractvalue`
+- [x] Verify: SROA is no longer needed to clean up the alloca (it shouldn't exist)
 
 ### Edge Cases
 
@@ -81,20 +82,27 @@ The fix targets case (2): replace alloca+store+GEP+GEP+load with two `extractval
 
 ### 05.1 Completion Checklist
 
-- [ ] Match arm payload extraction uses `extractvalue` for SSA values (2 instructions per field)
-- [ ] Alloca path retained for: (1) pointer-sourced values, (2) boxed enum fields (recursive types)
-- [ ] Result types: verify extractvalue applicability (separate code path from general enums)
-- [ ] J6 `_ori_extract` IR shows `extractvalue` chains, no `alloca` for payload access
-- [ ] J11 `_ori_Shape$eq` derived method uses `extractvalue` for variant field comparison
-- [ ] IR test: match arm destructuring a 2-field variant uses exactly 2 `extractvalue` instructions per field
-- [ ] IR test: boxed (recursive) enum field still uses alloca+GEP+load (correctness guard)
-- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for extractvalue payload extraction
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] All AOT tests in `compiler/ori_llvm/tests/aot/` pass
+- [x] Match arm payload extraction uses `extractvalue` for SSA values (2-3 instructions per field)
+- [x] Alloca path retained for: (1) pointer-sourced values, (2) boxed enum fields (recursive types)
+- [x] Result types: verify extractvalue applicability (separate code path from general enums — unchanged)
+- [x] J6 `_ori_extract` IR shows `extractvalue` chains, no `alloca` for payload access
+- [x] J11 `_ori_Shape$eq` derived method uses `extractvalue` for variant field comparison
+- [x] IR test: match arm destructuring a 2-field variant uses exactly 2 `extractvalue` instructions per field
+- [x] IR test: boxed (recursive) enum field still uses alloca+GEP+load (correctness guard)
+- [x] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for extractvalue payload extraction
+- [x] `./test-all.sh` green
+- [x] `./clippy-all.sh` green
+- [x] All AOT tests in `compiler/ori_llvm/tests/aot/` pass
 
 ---
 
 ## Section 05 Exit Criteria
 
 IR dump of J6's match expression shows `extractvalue` chains with no `alloca` for payload access. Instruction count per match arm reduced from ~5 to ~2 per field.
+
+**Implementation details:**
+- `emit_project()` fast path: checks `is_struct_value(val) && is_single_slot_type(result_ty) && !is_boxed_enum_field(...)`, then uses `extract_value` → `extract_value_any` → `reinterpret_from_i64` chain.
+- Derive codegen (`enum_eq.rs`): when all variant fields are single-slot, uses `extractvalue` chains instead of alloca+store+GEP+load for field comparison.
+- New IrBuilder methods: `is_single_slot_type()`, `is_struct_value()`, `reinterpret_from_i64()`, `extract_value_any()` (made public).
+- Multi-word fields (str, nested structs) and boxed/recursive fields keep the alloca path.
+- Type reinterpretation: `i64→i64` (identity), `i64→double` (bitcast), `i64→i1/i8/i32` (trunc), `i64→ptr` (inttoptr).

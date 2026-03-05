@@ -8,12 +8,10 @@
 //! (no logic, no branching). Splitting would scatter the single source of truth
 //! across files, making audits harder and increasing sync risk.
 
-// ---------------------------------------------------------------------------
 // Type and attribute descriptors
-// ---------------------------------------------------------------------------
 
 /// Primitive type descriptor for runtime function signatures.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Ty {
     I64,
     I32,
@@ -43,7 +41,7 @@ impl Ty {
 }
 
 /// Function attribute applied after declaration.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Attr {
     Nounwind,
     Noreturn,
@@ -53,6 +51,7 @@ pub(crate) enum Attr {
 }
 
 /// Runtime function specification: name, signature, and attributes.
+#[derive(Debug)]
 pub(crate) struct RtFn {
     pub(crate) name: &'static str,
     pub(crate) params: &'static [Ty],
@@ -114,9 +113,7 @@ pub(crate) fn jit_allowed_names() -> impl Iterator<Item = &'static str> {
         .map(|f| f.name)
 }
 
-// ---------------------------------------------------------------------------
 // Runtime function table (single source of truth)
-// ---------------------------------------------------------------------------
 
 /// All runtime functions declared by the Ori compiler.
 ///

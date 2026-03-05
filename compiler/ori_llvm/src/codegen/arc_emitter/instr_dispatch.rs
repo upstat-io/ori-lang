@@ -43,12 +43,36 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     val_type_info,
                     super::super::type_info::TypeInfo::Enum { .. }
                 );
+
+                // Fast path: extractvalue chain for general enum scalar fields.
+                // Avoids alloca+store+GEP+load (5 instr) with extractvalue (2-3 instr).
+                if is_general_enum
+                    && !is_boxed_enum_field(self.pool, val_ty, ty)
+                    && self.builder.is_struct_value(val)
+                    && self.builder.is_single_slot_type(result_ty)
+                {
+                    let payload = self
+                        .builder
+                        .extract_value(val, 1, "proj.payload")
+                        .expect("enum value should be a struct");
+                    let raw = self.builder.extract_value_any(
+                        payload,
+                        field - 1,
+                        &format!("proj.{field}.raw"),
+                    );
+                    let converted =
+                        self.builder
+                            .reinterpret_from_i64(raw, result_ty, &format!("proj.{field}"));
+                    self.def_var_repr(dst, converted, func);
+                    return;
+                }
+
+                // Slow path: alloca+store+GEP+load for Result types, boxed fields,
+                // multi-word types, and pointer-sourced values.
                 let llvm_val_ty = self.resolve_type(val_ty);
                 let alloca = self.builder.alloca(llvm_val_ty, "proj.alloca");
                 self.builder.store(val, alloca);
                 if is_general_enum {
-                    // General enum: payload is [M x i64] at struct field 1.
-                    // Index into the payload array with i64-stride GEP.
                     let payload_ptr =
                         self.builder
                             .struct_gep(llvm_val_ty, alloca, 1, "proj.payload");
