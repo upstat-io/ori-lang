@@ -39,7 +39,11 @@ sections:
 
 ## 06.1 Surgical Struct Field Loading
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/construction.rs`, `compiler/ori_llvm/src/codegen/ir_builder/aggregates.rs`
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/instr_dispatch.rs` (field extraction via `emit_project`), `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` (struct parameter loading), `compiler/ori_llvm/src/codegen/ir_builder/aggregates.rs`
+
+> **WARNING — HIGH COMPLEXITY / HIGH RISK:** This subsection changes how struct parameters are loaded from memory. This is a fundamental ABI-level change that affects every function receiving struct arguments. `define_phase.rs` is already 461 lines — adding lazy-load tracking could push it over the 500-line limit (BLOAT). Consider extracting struct parameter loading into a dedicated `param_loading.rs` submodule before implementing. Approach (a) introduces a new "by-pointer vs by-value" distinction that must be threaded through the entire emission pipeline. Both approaches require extensive AOT test coverage across all struct-using programs, not just the targeted journeys.
+
+> **TDD requirement:** Write IR-quality tests asserting current (broken) behavior FIRST. Verify they capture the over-loading. Then implement the fix and verify tests change to the expected pattern. Do NOT implement first.
 
 Instead of loading all fields of a struct into an aggregate, load only the fields that are referenced by the function.
 
@@ -47,8 +51,8 @@ Two approaches:
 - **(a) Lazy field loading** (preferred): Don't load struct fields eagerly. When a field access (`extractvalue` or GEP) is emitted, load that field on-demand from the pointer. This requires tracking whether a value is "by-pointer" or "by-value" at the codegen level.
 - **(b) Usage analysis**: Before emitting loads, scan the function body for field references and only load referenced fields.
 
-- [ ] Determine which approach fits the current codegen architecture
-- [ ] Implement on-demand field loading for struct parameters
+- [ ] Choose approach: (a) lazy field loading (track by-pointer vs by-value in codegen state) or (b) pre-scan function body for field references before emitting loads. Document choice rationale.
+- [ ] Implement the chosen approach for struct parameter field loading
 - [ ] Verify: J4 `_ori_area` only loads `width` and `height`, not `origin.x`/`origin.y`
 - [ ] Verify: J10 `_ori_count_items` only loads `length`, not `capacity` or `data_ptr`
 
@@ -67,15 +71,27 @@ Two approaches:
 
 ## 06.2 Skip Codegen After Noreturn Calls
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/construction.rs`
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs` (block emission loop), `compiler/ori_llvm/src/codegen/arc_emitter/apply.rs` (call emission — can detect noreturn callees), `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs` (source of truth for noreturn status)
 
 After emitting a call to a known-noreturn function (e.g., `ori_panic`, `ori_panic_cstr`), immediately terminate the **normal** path (`unreachable`) and stop generating normal-path code in that block. Do not emit cleanup, drop, or continuation code on the impossible normal-return edge.
 
-- [ ] Track which runtime functions are noreturn (coordinate with §02.1 — requires `Attr::Noreturn` infrastructure)
-- [ ] After emitting a call to a proven-noreturn function, emit `unreachable` and terminate the block
-- [ ] Do not emit drop/cleanup code after the unreachable
+**Dependency:** Requires §02.1 to land first (provides `Attr::Noreturn` and `is_rt_fn_noreturn()`).
+
+**Three categories of noreturn call sites to handle:**
+1. **`emit_checked_binop()` overflow panic** — ALREADY handled correctly. `arithmetic.rs` emits `call ori_panic_cstr` + `unreachable` + positions at continue block. No fix needed.
+2. **Runtime panic calls outside overflow** — e.g., zero-step loop guard, OOB index. These call `ori_panic`/`ori_panic_cstr` through `Apply` instructions in ARC IR. The ARC emitter's `emit_apply` does not check for noreturn.
+3. **User `panic()` calls** — `panic(msg: "reason")` in Ori source. These lower to `Apply` calling `ori_panic`. Same path as (2).
+
+**Implementation approach:** In the ARC emitter's call emission path (`apply.rs` or `emit_function.rs`), after emitting a `call` to a function proven `noreturn` via `is_rt_fn_noreturn()`, emit `unreachable` and skip remaining instructions in that block.
+
+- [ ] Use `is_rt_fn_noreturn()` from §02.1 to query noreturn status of runtime functions at call sites
+- [ ] In ARC emitter call emission: after calling a noreturn function, emit `unreachable` and stop emitting the current block
+- [ ] Handle the ARC IR block structure: remaining instructions AND terminator after the noreturn call must be skipped
+- [ ] Do not emit drop/cleanup code after the unreachable on the normal path
 - [ ] Keep existing cleanup behavior for unwind paths where applicable (do not conflate `nounwind` and `noreturn`) — panic functions are `noreturn` but may still unwind for RC cleanup
+- [ ] Verify `emit_checked_binop()` already handles this correctly (no change needed there)
 - [ ] Verify: J7 panic path (bb6) has no code after `ori_panic()` call
+- [ ] Verify: user `panic()` calls also get `unreachable` after the call
 
 ### 06.2 Completion Checklist
 
@@ -83,12 +99,20 @@ After emitting a call to a known-noreturn function (e.g., `ori_panic`, `ori_pani
 - [ ] J7 panic path (bb6) has `call @ori_panic_cstr(...)` + `unreachable` only
 - [ ] Unwind paths for RC cleanup are preserved (not affected by noreturn pruning)
 - [ ] IR test: function with explicit `panic()` has `unreachable` immediately after the call
+- [ ] IR test: function with `if cond then panic(msg: "x") else value` — the panic arm has `unreachable`, the else arm continues normally
+- [ ] Regression test: `emit_checked_binop` overflow path still has `unreachable` (guard against breaking the existing correct behavior)
 - [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for no code after noreturn
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] No regressions in `cargo test -p ori_llvm`
 
 ---
+
+## Dependency Note
+
+§06.2 (Skip Codegen After Noreturn) has a hard dependency on §02.1 (noreturn on Panic Functions). §02.1 MUST land before §06.2 begins — no partial implementation with hardcoded function names. The `is_rt_fn_noreturn()` query is the proper abstraction.
+
+§06.1 (Surgical Struct Field Loading) has NO dependency on §02 and can proceed independently.
 
 ## Section 06 Exit Criteria
 

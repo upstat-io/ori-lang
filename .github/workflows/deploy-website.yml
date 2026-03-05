@@ -1,8 +1,11 @@
 name: Deploy Website
 
 on:
-  # Deploy on every push to master (CI guaranteed by branch protection)
-  push:
+  # Deploy after Auto Release completes — ensures the release tag exists
+  # before the website goes live with that version number.
+  workflow_run:
+    workflows: ["Auto Release"]
+    types: [completed]
     branches: [master]
   workflow_dispatch:
 
@@ -21,6 +24,8 @@ env:
 
 jobs:
   build:
+    # Only deploy if Auto Release succeeded (or if manually triggered)
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
