@@ -1,12 +1,7 @@
 name: Deploy Website
 
 on:
-  # Deploy after CI completes on master (includes PR merges)
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [master]
-  # Deploy directly on release commits (CI is skipped for these, but website needs version update)
+  # Deploy on every push to master (CI guaranteed by branch protection)
   push:
     branches: [master]
   workflow_dispatch:
@@ -15,7 +10,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  actions: read  # Needed to download artifacts from other workflows
+  actions: read  # Needed to download test-results artifact from CI workflow
 
 concurrency:
   group: pages
@@ -26,13 +21,6 @@ env:
 
 jobs:
   build:
-    # push: only for release commits (CI is skipped, but website needs the version)
-    # workflow_run: only when CI succeeded (not when skipped for release commits)
-    # workflow_dispatch: always
-    if: >-
-      (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore: release v')) ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -47,7 +35,6 @@ jobs:
           branch: master
           name: test-results
           path: website/public
-          run_id: ${{ github.event.workflow_run.id }}
           if_no_artifact_found: warn
         continue-on-error: true
 
