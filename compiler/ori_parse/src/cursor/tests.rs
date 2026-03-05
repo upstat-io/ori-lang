@@ -7,13 +7,20 @@ use super::*;
 /// this set. Adding a keyword here requires updating the corresponding
 /// `*_to_name` method and `is_keyword_usable_as_ident`.
 const KEYWORD_AS_IDENT_TOKENS: &[TokenKind] = &[
-    // Soft keywords
+    // Soft keywords (always-resolved, usable as identifiers)
     TokenKind::Print,
     TokenKind::Panic,
     TokenKind::By,
     TokenKind::Run,
     TokenKind::Try,
     TokenKind::With,
+    // Lexer-soft keywords (resolved only with `(` lookahead)
+    TokenKind::Cache,
+    TokenKind::Catch,
+    TokenKind::Parallel,
+    TokenKind::Recurse,
+    TokenKind::Spawn,
+    TokenKind::Timeout,
     // Positional keywords
     TokenKind::Where,
     TokenKind::Match,
@@ -297,22 +304,48 @@ fn keyword_as_ident_consistency_negative() {
 #[test]
 fn soft_keyword_covers_canonical_subset() {
     // soft_keyword_to_name must accept exactly the soft-keyword subset.
-    let soft_keywords = &KEYWORD_AS_IDENT_TOKENS[..6]; // Print, Panic, By, Run, Try, With
+    // First 6: always-resolved soft keywords. Next 6: lexer-soft keywords
+    // (only resolved when `(` follows, so we test them individually).
+    let always_resolved = &KEYWORD_AS_IDENT_TOKENS[..6]; // Print, Panic, By, Run, Try, With
     let ctx = TestCtx::new("print panic by run try with");
     let mut cursor = ctx.cursor();
-    for expected in soft_keywords {
+    for expected in always_resolved {
         assert!(
             cursor.soft_keyword_to_name().is_some(),
             "soft_keyword_to_name should accept {expected:?}"
         );
         cursor.advance();
     }
+
+    // Lexer-soft keywords: these are only tokenized as keywords when `(`
+    // follows, so we test each with `(` lookahead to produce the keyword token.
+    let lexer_soft_sources = [
+        ("cache()", TokenKind::Cache),
+        ("catch()", TokenKind::Catch),
+        ("parallel()", TokenKind::Parallel),
+        ("recurse()", TokenKind::Recurse),
+        ("spawn()", TokenKind::Spawn),
+        ("timeout()", TokenKind::Timeout),
+    ];
+    for (source, expected_kind) in &lexer_soft_sources {
+        let ctx = TestCtx::new(source);
+        let cursor = ctx.cursor();
+        assert_eq!(
+            cursor.current_kind(),
+            expected_kind,
+            "lexer should resolve {source} as {expected_kind:?}"
+        );
+        assert!(
+            cursor.soft_keyword_to_name().is_some(),
+            "soft_keyword_to_name should accept {expected_kind:?}"
+        );
+    }
 }
 
 #[test]
 fn keyword_as_name_covers_canonical_subset() {
     // keyword_as_name must accept exactly the positional-keyword subset.
-    let positional = &KEYWORD_AS_IDENT_TOKENS[6..]; // Where, Match, For, In, If, Type
+    let positional = &KEYWORD_AS_IDENT_TOKENS[12..]; // Where, Match, For, In, If, Type
     let ctx = TestCtx::new("where match for in if type");
     let mut cursor = ctx.cursor();
     for expected in positional {

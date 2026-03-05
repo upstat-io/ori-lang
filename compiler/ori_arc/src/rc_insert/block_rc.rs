@@ -96,6 +96,20 @@ pub(super) fn process_block_rc(
             }
         }
 
+        // ApplyIndirect borrows the closure (position 0): the callee is
+        // invoked through the closure's fn_ptr but does not take ownership
+        // of the environment. The caller must Dec the closure after its
+        // last use, just like any other borrowing position.
+        if let ArcInstr::ApplyIndirect { closure, .. } = instr {
+            if needs_rc_trackable(*closure, ctx) && !live.contains(closure) {
+                new_body.push(ArcInstr::RcDec {
+                    var: *closure,
+                    strategy: rc_strategy(ctx, *closure),
+                });
+                new_spans.push(None);
+            }
+        }
+
         new_body.push(instr.clone());
         new_spans.push(span);
 
@@ -305,6 +319,16 @@ fn process_instruction_uses(
         if is_borrowing {
             live.insert(var);
             continue;
+        }
+
+        // ApplyIndirect borrows the closure (position 0): calling through
+        // a closure's fn_ptr does not consume the closure environment.
+        // Treat as a borrowing use — add to live, no Inc.
+        if let ArcInstr::ApplyIndirect { closure, .. } = instr {
+            if var == *closure {
+                live.insert(var);
+                continue;
+            }
         }
 
         // Normal (non-borrowed) var.

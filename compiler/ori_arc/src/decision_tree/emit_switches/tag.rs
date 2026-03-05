@@ -59,9 +59,9 @@ pub(in crate::decision_tree) fn emit_tag_switch(
             TestValue::Tag { variant_index, .. } => *variant_index,
             _ => 0,
         };
-        ctx.variant_stack.push((scrut_ty, variant_index));
+        ctx.push_variant(scrut_ty, variant_index);
         emit_tree(lowerer, subtree, ctx);
-        ctx.variant_stack.pop();
+        ctx.pop_variant();
     }
 
     // Emit the default block.

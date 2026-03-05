@@ -10,6 +10,7 @@
 //!
 //! 1. **Thunk function**: `void @_ori_catch_thunk$N(ptr %ctx)` — loads args
 //!    from a context struct, calls the real function, stores the result back.
+//!    (See [`super::catch_thunk_gen`].)
 //!
 //! 2. **Call site**: allocates context, stores args, calls `ori_try_call`
 //!    (C, `__try`/`__except`), branches on the result.
@@ -57,7 +58,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .or_else(|| self.ctx.functions.get(&callee))
             .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
             .or_else(|| self.lookup_method_fallback(callee))
-            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
+            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi));
 
         let Some((callee_func_id, params, ret_abi)) = resolved else {
             // Fallback: try runtime function
@@ -95,12 +96,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             if matches!(param_abi.passing, ParamPassing::Void) {
                 continue;
             }
-            // Indirect/Reference args are passed as pointers at call site,
-            // but in the context struct we store the original value (not the ptr).
-            // The thunk will take the address of the field.
             match &param_abi.passing {
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    // Store the value itself, thunk will pass &field
                     let field_ty = self.resolve_type(param_abi.ty);
                     ctx_field_types.push(field_ty);
                 }
@@ -149,25 +146,128 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             result_field_idx,
         );
 
-        // === Call site emission ===
-
         // Allocate context struct
         let ctx_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "catch.ctx", ctx_struct_ty);
 
         // Store args into context fields
+        self.store_args_to_context(
+            &params,
+            &passed_args,
+            &ctx_field_types,
+            ctx_struct_ty,
+            ctx_alloca,
+        );
+
+        // Call ori_try_call, branch, and load result
+        self.emit_try_call_and_branch(
+            thunk_id,
+            ctx_alloca,
+            ctx_struct_ty,
+            result_field_idx,
+            result_ty,
+            normal_block,
+            unwind_block,
+            dst,
+            arc_func,
+        );
+    }
+
+    /// Emit a catch-type Invoke for a runtime function via `ori_try_call`.
+    ///
+    /// Simpler path for runtime functions (which use `ccc` and take `ptr` args).
+    fn emit_seh_catch_rt_call(
+        &mut self,
+        dst: ArcVarId,
+        func_id: FunctionId,
+        arc_args: &[ArcVarId],
+        arg_vals: &[ValueId],
+        normal_block: BlockId,
+        unwind_block: BlockId,
+        arc_func: &ArcFunction,
+    ) {
+        // Coerce aggregate args to pointers (same as emit_invoke runtime path)
+        let coerced_args: Vec<ValueId> = arc_args
+            .iter()
+            .zip(arg_vals.iter())
+            .map(|(arc_var, &val)| {
+                let arg_ty = arc_func.var_type(*arc_var);
+                self.coerce_aggregate_to_ptr(val, arg_ty)
+            })
+            .collect();
+
+        // Build context: [coerced_args..., result(i64)]
+        let ptr_ty = self.builder.ptr_type();
+        let i64_ty = self.builder.i64_type();
+
+        let mut ctx_fields_inkwell: Vec<_> = coerced_args
+            .iter()
+            .map(|_| self.builder.arena.get_type(ptr_ty))
+            .collect();
+        ctx_fields_inkwell.push(self.builder.arena.get_type(i64_ty));
+
+        let ctx_struct = self.builder.scx().type_struct(&ctx_fields_inkwell, false);
+        let ctx_struct_ty = self.builder.register_type(ctx_struct.into());
+
+        let result_field_idx = coerced_args.len() as u32;
+
+        // Generate minimal thunk for runtime call
+        let thunk_id = self.generate_rt_catch_thunk(
+            func_id,
+            coerced_args.len(),
+            ctx_struct_ty,
+            result_field_idx,
+        );
+
+        // Allocate and populate context
+        let ctx_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "catch.ctx", ctx_struct_ty);
+
+        for (i, &arg) in coerced_args.iter().enumerate() {
+            let field_ptr = self.builder.struct_gep(
+                ctx_struct_ty,
+                ctx_alloca,
+                i as u32,
+                &format!("ctx.arg.{i}"),
+            );
+            self.builder.store(arg, field_ptr);
+        }
+
+        // Call ori_try_call, branch, and load result
+        self.emit_try_call_and_branch(
+            thunk_id,
+            ctx_alloca,
+            ctx_struct_ty,
+            result_field_idx,
+            Some(i64_ty),
+            normal_block,
+            unwind_block,
+            dst,
+            arc_func,
+        );
+    }
+
+    // -- Shared helpers --
+
+    /// Store ABI-passed args into context struct fields.
+    fn store_args_to_context(
+        &mut self,
+        params: &[crate::codegen::abi::ParamAbi],
+        passed_args: &[ValueId],
+        ctx_field_types: &[LLVMTypeId],
+        ctx_struct_ty: LLVMTypeId,
+        ctx_alloca: ValueId,
+    ) {
         let mut field_idx: u32 = 0;
         let mut passed_idx = 0;
-        for param_abi in &params {
+        for param_abi in params {
             if matches!(param_abi.passing, ParamPassing::Void) {
                 continue;
             }
             match &param_abi.passing {
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    // The passed_args[passed_idx] is already a pointer (alloca).
-                    // We need to store the *value* into the context field.
-                    // Load from the alloca, then store into context.
                     if passed_idx < passed_args.len() {
                         let field_ty = ctx_field_types[field_idx as usize];
                         let val = self
@@ -200,23 +300,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ParamPassing::Void => unreachable!(),
             }
         }
+    }
 
-        // Get thunk function pointer
+    /// Call `ori_try_call`, branch on result, and define the destination variable.
+    ///
+    /// Shared by both the compiled-function and runtime-function catch paths.
+    fn emit_try_call_and_branch(
+        &mut self,
+        thunk_id: FunctionId,
+        ctx_alloca: ValueId,
+        ctx_struct_ty: LLVMTypeId,
+        result_field_idx: u32,
+        result_ty: Option<LLVMTypeId>,
+        normal_block: BlockId,
+        unwind_block: BlockId,
+        dst: ArcVarId,
+        arc_func: &ArcFunction,
+    ) {
         let thunk_ptr = self.builder.get_function_ptr(thunk_id);
-
-        // Call ori_try_call(thunk_ptr, ctx_ptr)
         let try_call_fn = self.builder.runtime_fn("ori_try_call");
         let result = self
             .builder
             .call(try_call_fn, &[thunk_ptr, ctx_alloca], "try.result")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
-        // Branch: result == 1 → success, result == 0 → caught
         let one = self.builder.const_i64(1);
         let is_ok = self.builder.icmp_eq(result, one, "try.ok");
         self.builder.cond_br(is_ok, normal_block, unwind_block);
 
-        // === Success path: load result from context ===
+        // Success path: load result from context
         self.builder.position_at_end(normal_block);
         if let Some(rty) = result_ty {
             let result_ptr =
@@ -228,290 +340,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let unit = self.builder.const_i64(0);
             self.def_var(dst, EmittedValue::Immediate(unit));
         }
-    }
-
-    /// Generate a catch thunk function: `void @_ori_catch_thunk$N(ptr %ctx)`.
-    ///
-    /// The thunk loads arguments from the context struct, calls the real
-    /// function with proper ABI, and stores the result back.
-    fn generate_catch_thunk(
-        &mut self,
-        callee_id: FunctionId,
-        params: &[crate::codegen::abi::ParamAbi],
-        ret_abi: &crate::codegen::abi::ReturnAbi,
-        ctx_struct_ty: LLVMTypeId,
-        result_field_idx: u32,
-    ) -> FunctionId {
-        let ptr_ty = self.builder.ptr_type();
-        let counter = self.catch_thunk_counter;
-        self.catch_thunk_counter += 1;
-
-        let name = format!("_ori_catch_thunk${counter}");
-        let thunk_id = self.builder.declare_void_function(&name, &[ptr_ty]);
-        self.builder.set_ccc(thunk_id);
-        // NOT nounwind — the callee may panic, and the unwind must propagate
-        // through this thunk so that ori_try_call's catch_unwind can catch it.
-        // Add uwtable so the SEH unwinder can walk through the thunk's frame.
-        self.builder.add_uwtable_attribute(thunk_id);
-
-        // Save builder state
-        let saved_pos = self.builder.save_position();
-        let saved_func = self.builder.current_function();
-        let saved_emitter_func = self.current_function;
-        let saved_funclet_pad = self.current_funclet_pad.take();
-
-        // Create entry block
-        let entry = self.builder.append_block(thunk_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(thunk_id);
-        self.current_function = thunk_id;
-
-        // Get context pointer param
-        let ctx_ptr = self.builder.get_param(thunk_id, 0);
-
-        // Load args from context and build call args
-        let mut call_args: Vec<ValueId> = Vec::new();
-        let has_sret = matches!(ret_abi.passing, ReturnPassing::Sret { .. });
-
-        // If sret, allocate local for the return value
-        let sret_alloca = if has_sret {
-            let ret_ty = self.resolve_type(ret_abi.ty);
-            let alloca = self.builder.alloca(ret_ty, "thunk.sret");
-            call_args.push(alloca);
-            Some(alloca)
-        } else {
-            None
-        };
-
-        let mut field_idx: u32 = 0;
-        for param_abi in params {
-            if matches!(param_abi.passing, ParamPassing::Void) {
-                continue;
-            }
-            let field_ptr = self.builder.struct_gep(
-                ctx_struct_ty,
-                ctx_ptr,
-                field_idx,
-                &format!("thunk.arg.{field_idx}"),
-            );
-
-            match &param_abi.passing {
-                ParamPassing::Direct => {
-                    let field_ty = self.resolve_type(param_abi.ty);
-                    let val = self.builder.load(field_ty, field_ptr, "thunk.load");
-                    call_args.push(val);
-                }
-                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    // Callee expects a pointer — pass the address of the field
-                    call_args.push(field_ptr);
-                }
-                ParamPassing::Void => unreachable!(),
-            }
-            field_idx += 1;
-        }
-
-        // Call the real function
-        let result = self.builder.call(callee_id, &call_args, "thunk.call");
-
-        // Store result into context
-        match &ret_abi.passing {
-            ReturnPassing::Direct => {
-                if let Some(val) = result {
-                    let result_ptr = self.builder.struct_gep(
-                        ctx_struct_ty,
-                        ctx_ptr,
-                        result_field_idx,
-                        "thunk.result.ptr",
-                    );
-                    self.builder.store(val, result_ptr);
-                }
-            }
-            ReturnPassing::Sret { .. } => {
-                // Result is in sret alloca — copy to context
-                if let Some(sret) = sret_alloca {
-                    let ret_ty = self.resolve_type(ret_abi.ty);
-                    let val = self.builder.load(ret_ty, sret, "thunk.sret.load");
-                    let result_ptr = self.builder.struct_gep(
-                        ctx_struct_ty,
-                        ctx_ptr,
-                        result_field_idx,
-                        "thunk.result.ptr",
-                    );
-                    self.builder.store(val, result_ptr);
-                }
-            }
-            ReturnPassing::Void => {
-                // Nothing to store
-            }
-        }
-
-        self.builder.ret_void();
-
-        // Restore builder state
-        self.current_funclet_pad = saved_funclet_pad;
-        self.current_function = saved_emitter_func;
-        self.builder.restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            self.builder.set_current_function(f);
-        }
-
-        thunk_id
-    }
-
-    /// Emit a catch-type Invoke for a runtime function via `ori_try_call`.
-    ///
-    /// Simpler path for runtime functions (which use `ccc` and take `ptr` args).
-    fn emit_seh_catch_rt_call(
-        &mut self,
-        dst: ArcVarId,
-        func_id: FunctionId,
-        arc_args: &[ArcVarId],
-        arg_vals: &[ValueId],
-        normal_block: BlockId,
-        unwind_block: BlockId,
-        arc_func: &ArcFunction,
-    ) {
-        // Coerce aggregate args to pointers (same as emit_invoke runtime path)
-        let coerced_args: Vec<ValueId> = arc_args
-            .iter()
-            .zip(arg_vals.iter())
-            .map(|(arc_var, &val)| {
-                let arg_ty = arc_func.var_type(*arc_var);
-                self.coerce_aggregate_to_ptr(val, arg_ty)
-            })
-            .collect();
-
-        // Build context: [coerced_args..., result(i64)]
-        let ptr_ty = self.builder.ptr_type();
-        let i64_ty = self.builder.i64_type();
-
-        // All runtime fn args are ptr type
-        let mut ctx_fields_inkwell: Vec<_> = coerced_args
-            .iter()
-            .map(|_| self.builder.arena.get_type(ptr_ty))
-            .collect();
-        // Result field (i64 — runtime functions return i64 or void)
-        ctx_fields_inkwell.push(self.builder.arena.get_type(i64_ty));
-
-        let ctx_struct = self.builder.scx().type_struct(&ctx_fields_inkwell, false);
-        let ctx_struct_ty = self.builder.register_type(ctx_struct.into());
-
-        let result_field_idx = coerced_args.len() as u32;
-
-        // Generate minimal thunk for runtime call
-        let thunk_id = self.generate_rt_catch_thunk(
-            func_id,
-            coerced_args.len(),
-            ctx_struct_ty,
-            result_field_idx,
-        );
-
-        // Allocate and populate context
-        let ctx_alloca =
-            self.builder
-                .create_entry_alloca(self.current_function, "catch.ctx", ctx_struct_ty);
-
-        for (i, &arg) in coerced_args.iter().enumerate() {
-            let field_ptr = self.builder.struct_gep(
-                ctx_struct_ty,
-                ctx_alloca,
-                i as u32,
-                &format!("ctx.arg.{i}"),
-            );
-            self.builder.store(arg, field_ptr);
-        }
-
-        // Call ori_try_call
-        let thunk_ptr = self.builder.get_function_ptr(thunk_id);
-        let try_call_fn = self.builder.runtime_fn("ori_try_call");
-        let result = self
-            .builder
-            .call(try_call_fn, &[thunk_ptr, ctx_alloca], "try.result")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-
-        let one = self.builder.const_i64(1);
-        let is_ok = self.builder.icmp_eq(result, one, "try.ok");
-        self.builder.cond_br(is_ok, normal_block, unwind_block);
-
-        // Success path
-        self.builder.position_at_end(normal_block);
-        let result_ptr =
-            self.builder
-                .struct_gep(ctx_struct_ty, ctx_alloca, result_field_idx, "ctx.result");
-        let result_val = self.builder.load(i64_ty, result_ptr, "catch.result");
-        self.def_var_repr(dst, result_val, arc_func);
-    }
-
-    /// Generate a catch thunk for a runtime function call.
-    ///
-    /// All runtime function args are `ptr` type (after coercion).
-    fn generate_rt_catch_thunk(
-        &mut self,
-        callee_id: FunctionId,
-        num_args: usize,
-        ctx_struct_ty: LLVMTypeId,
-        result_field_idx: u32,
-    ) -> FunctionId {
-        let ptr_ty = self.builder.ptr_type();
-        let counter = self.catch_thunk_counter;
-        self.catch_thunk_counter += 1;
-
-        let name = format!("_ori_catch_thunk${counter}");
-        let thunk_id = self.builder.declare_void_function(&name, &[ptr_ty]);
-        self.builder.set_ccc(thunk_id);
-        // NOT nounwind — callee may panic; uwtable for SEH frame info
-        self.builder.add_uwtable_attribute(thunk_id);
-
-        // Save builder state
-        let saved_pos = self.builder.save_position();
-        let saved_func = self.builder.current_function();
-        let saved_emitter_func = self.current_function;
-        let saved_funclet_pad = self.current_funclet_pad.take();
-
-        let entry = self.builder.append_block(thunk_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(thunk_id);
-        self.current_function = thunk_id;
-
-        let ctx_ptr = self.builder.get_param(thunk_id, 0);
-
-        // Load args from context
-        let mut call_args: Vec<ValueId> = Vec::with_capacity(num_args);
-        for i in 0..num_args {
-            let field_ptr = self.builder.struct_gep(
-                ctx_struct_ty,
-                ctx_ptr,
-                i as u32,
-                &format!("thunk.arg.{i}"),
-            );
-            let val = self.builder.load(ptr_ty, field_ptr, "thunk.load");
-            call_args.push(val);
-        }
-
-        // Call the runtime function
-        let result = self.builder.call(callee_id, &call_args, "thunk.call");
-
-        // Store result
-        if let Some(val) = result {
-            let result_ptr = self.builder.struct_gep(
-                ctx_struct_ty,
-                ctx_ptr,
-                result_field_idx,
-                "thunk.result.ptr",
-            );
-            self.builder.store(val, result_ptr);
-        }
-
-        self.builder.ret_void();
-
-        // Restore builder state
-        self.current_funclet_pad = saved_funclet_pad;
-        self.current_function = saved_emitter_func;
-        self.builder.restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            self.builder.set_current_function(f);
-        }
-
-        thunk_id
     }
 }

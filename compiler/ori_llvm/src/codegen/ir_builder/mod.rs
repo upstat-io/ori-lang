@@ -24,15 +24,19 @@
 //! | Control flow | `control_flow` |
 //! | Aggregates | `aggregates` |
 //! | Calls | `calls` |
+//! | Invoke / EH | `invoke` |
+//! | Attributes | `attributes` |
 //! | Phi / Types / Blocks | `phi_types_blocks` |
 
 mod aggregates;
 mod arithmetic;
+mod attributes;
 mod calls;
 mod comparisons;
 mod constants;
 mod control_flow;
 mod conversions;
+mod invoke;
 mod memory;
 mod phi_types_blocks;
 pub(crate) mod seh;
@@ -51,6 +55,17 @@ use crate::context::SimpleCx;
 use super::eh_model::EhModel;
 use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueArena, ValueId};
 
+/// Whether the LLVM module is being compiled for JIT or AOT execution.
+///
+/// Used to guard `runtime_fn()` / `try_runtime_fn()` against using
+/// AOT-only runtime functions in JIT mode. This prevents silent symbol
+/// resolution failures at MCJIT relocation time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CompilationMode {
+    Jit,
+    Aot,
+}
+
 /// ID-based LLVM IR builder.
 ///
 /// All LLVM values are stored in an internal arena; callers only handle
@@ -63,17 +78,6 @@ use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueArena, ValueId};
 ///
 /// These are separate to avoid drop-checker issues where `IrBuilder`
 /// and `SimpleCx` are local variables in the same scope.
-/// Whether the LLVM module is being compiled for JIT or AOT execution.
-///
-/// Used to guard `runtime_fn()` / `try_runtime_fn()` against using
-/// AOT-only runtime functions in JIT mode. This prevents silent symbol
-/// resolution failures at MCJIT relocation time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CompilationMode {
-    Jit,
-    Aot,
-}
-
 pub struct IrBuilder<'scx, 'ctx> {
     /// The underlying inkwell builder.
     pub(super) builder: InkwellBuilder<'ctx>,

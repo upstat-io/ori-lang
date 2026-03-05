@@ -15,6 +15,12 @@
 //! Type definitions live in `ori_ir::canon::tree` (shared across crates).
 //! The compilation algorithm and ARC IR emission logic live here in `ori_arc`.
 //!
+//! NOTE: `decision_tree::compile` and `flatten` are pattern-matching primitives
+//! temporarily housed in `ori_arc`. They are consumed by `ori_canon` (which
+//! imports `ori_arc`), creating an upward dependency from canonicalization into
+//! ARC optimization. These will move to `ori_canon::patterns` in `eval_v2`
+//! Section 03 — see `ori_ir::canon::tree` for the migration plan.
+//!
 //! # References
 //!
 //! - Maranget (2008): foundational algorithm
