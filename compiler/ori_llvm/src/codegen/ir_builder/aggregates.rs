@@ -93,7 +93,7 @@ impl IrBuilder<'_, '_> {
     ///
     /// Unlike [`Self::extract_value`], this works on any aggregate (struct or array),
     /// returning the raw value without requiring the outer to be a struct.
-    fn extract_value_any(&mut self, agg: ValueId, index: u32, name: &str) -> ValueId {
+    pub fn extract_value_any(&mut self, agg: ValueId, index: u32, name: &str) -> ValueId {
         let raw = self.arena.get_value(agg);
         match raw {
             BasicValueEnum::StructValue(v) => {

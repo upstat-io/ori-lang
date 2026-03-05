@@ -15,7 +15,9 @@
 //! so predecessor relationships remain valid.
 
 use rustc_hash::FxHashSet;
+use smallvec::SmallVec;
 
+use crate::graph::compute_predecessors;
 use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 
 /// Eliminate block params whose defined variables are never used.
@@ -26,14 +28,19 @@ use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 #[tracing::instrument(skip_all, name = "phase6_dead_param")]
 pub(crate) fn eliminate_dead_params(func: &mut ArcFunction) {
     let used = collect_used_vars(func);
+    let predecessors = compute_predecessors(func);
 
+    #[expect(
+        clippy::needless_range_loop,
+        reason = "loop body mutates func.blocks at both b_idx and predecessor indices"
+    )]
     for b_idx in 0..func.blocks.len() {
         if func.blocks[b_idx].params.is_empty() {
             continue;
         }
 
         // Identify dead param indices (defined var not in used set).
-        let dead_indices: Vec<usize> = func.blocks[b_idx]
+        let dead_indices: SmallVec<[usize; 4]> = func.blocks[b_idx]
             .params
             .iter()
             .enumerate()
@@ -57,15 +64,18 @@ pub(crate) fn eliminate_dead_params(func: &mut ArcFunction) {
             func.blocks[b_idx].params.remove(i);
         }
 
-        // Remove corresponding args from all predecessor Jumps.
+        // Remove corresponding args from predecessor Jumps only.
         let b_id = func.blocks[b_idx].id;
-        for a_idx in 0..func.blocks.len() {
+        for &a_idx in &predecessors[b_idx] {
             if let ArcTerminator::Jump { target, args } = &mut func.blocks[a_idx].terminator {
                 if *target == b_id && !args.is_empty() {
                     for &i in dead_indices.iter().rev() {
-                        if i < args.len() {
-                            args.remove(i);
-                        }
+                        debug_assert!(
+                            i < args.len(),
+                            "dead_param: jump arg index {i} out of bounds for {} args",
+                            args.len()
+                        );
+                        args.remove(i);
                     }
                 }
             }

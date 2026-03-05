@@ -33,9 +33,7 @@ use bodies::{
 };
 use enum_bodies::compile_enum_match_variants;
 
-// ---------------------------------------------------------------------------
 // Entry point
-// ---------------------------------------------------------------------------
 
 /// Compile derived trait methods for all types in the module.
 ///
@@ -218,11 +216,10 @@ fn compile_enum_derives<'a>(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Factory: common derive scaffolding
-// ---------------------------------------------------------------------------
 
 /// Context returned by [`setup_derive_function`] for derive body emitters.
+#[derive(Debug)]
 pub(super) struct DeriveSetup {
     pub(super) func_id: FunctionId,
     pub(super) abi: FunctionAbi,
@@ -338,9 +335,7 @@ fn derive_return_type(shape: DerivedMethodShape, type_idx: Idx) -> Idx {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Shared helpers
-// ---------------------------------------------------------------------------
 
 /// Build a `FunctionSig` for a derived method (no generics, no capabilities).
 fn make_sig(

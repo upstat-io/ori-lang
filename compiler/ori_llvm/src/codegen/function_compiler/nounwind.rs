@@ -38,9 +38,7 @@ use crate::codegen::abi::FunctionAbi;
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::value_id::FunctionId;
 
-// ---------------------------------------------------------------------------
 // Prepared function types
-// ---------------------------------------------------------------------------
 
 /// A function fully processed through the ARC pipeline, ready for nounwind
 /// analysis and LLVM emission.
@@ -53,6 +51,7 @@ use crate::codegen::value_id::FunctionId;
 ///
 /// This ensures monomorphized callee nounwind status is available when
 /// analyzing callers, preventing unnecessary `invoke` + landing pad overhead.
+#[derive(Debug)]
 pub struct PreparedFunction {
     pub(super) name: Name,
     pub(super) func_id: FunctionId,
@@ -66,6 +65,7 @@ pub struct PreparedFunction {
 /// The lambda's LLVM function is already declared and registered in
 /// `CodegenContext::functions` during preparation — only the body emission
 /// is deferred to [`FunctionCompiler::emit_prepared_functions`].
+#[derive(Debug)]
 pub(super) struct PreparedLambda {
     pub(super) name: Name,
     pub(super) func_id: FunctionId,
@@ -73,9 +73,7 @@ pub(super) struct PreparedLambda {
     pub(super) arc_func: ori_arc::ArcFunction,
 }
 
-// ---------------------------------------------------------------------------
 // Prepare phase
-// ---------------------------------------------------------------------------
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Lower all non-generic functions through the ARC pipeline without
@@ -276,9 +274,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Analyze phase
-    // -----------------------------------------------------------------------
 
     /// Build the complete nounwind function set from all prepared functions.
     ///
@@ -359,9 +355,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         );
     }
 
-    // -----------------------------------------------------------------------
     // Emit phase
-    // -----------------------------------------------------------------------
 
     /// Emit LLVM IR for all prepared functions using the complete nounwind set.
     ///

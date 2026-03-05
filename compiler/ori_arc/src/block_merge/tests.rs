@@ -14,7 +14,7 @@ use super::merge_blocks;
 use super::select::{fold_select_diamonds, is_trivial_body};
 use super::single_pred_phi::eliminate_single_pred_params;
 
-// ── Phase 2: Invoke Downgrade ───────────────────────────────────────
+// Phase 2: Invoke Downgrade
 
 /// Trivial invoke (empty unwind + Resume, single-pred normal, no params)
 /// should be downgraded to Apply + Jump.
@@ -369,7 +369,7 @@ fn invoke_normal_equals_unwind_not_downgraded() {
     assert!(has_invoke, "invoke with normal==unwind should be preserved");
 }
 
-// ── Phase 3: Jump Chain Merge ───────────────────────────────────────
+// Phase 3: Jump Chain Merge
 
 /// Single-predecessor Jump merge (no params).
 #[test]
@@ -651,7 +651,7 @@ fn transitive_chain_merge() {
     ));
 }
 
-// ── Phase 1: Dead Block Compaction ──────────────────────────────────
+// Phase 1: Dead Block Compaction
 
 /// Dead block compaction removes unreachable blocks and remaps IDs.
 #[test]
@@ -745,7 +745,7 @@ fn dead_cycle_compaction() {
     ));
 }
 
-// ── Span Consistency ────────────────────────────────────────────────
+// Span Consistency
 
 /// Span entries match instruction count after merge.
 #[test]
@@ -793,7 +793,7 @@ fn spans_consistent_after_merge() {
     }
 }
 
-// ── COW Annotation Preservation ─────────────────────────────────────
+// COW Annotation Preservation
 
 /// COW annotations survive body Apply merge.
 #[test]
@@ -1036,7 +1036,7 @@ fn auto_fbip_preserved_after_merge() {
     assert_eq!(func.cow_annotations.get(0, 1), CowMode::StaticUnique);
 }
 
-// ── Drop Hints Stability ────────────────────────────────────────────
+// Drop Hints Stability
 
 /// Drop hints computed after merge have valid coordinates.
 #[test]
@@ -1102,7 +1102,7 @@ fn drop_hints_valid_after_merge() {
     }
 }
 
-// ── Full Pipeline: Invoke Downgrade + Merge ─────────────────────────
+// Full Pipeline: Invoke Downgrade + Merge
 
 /// 3 sequential calls: invoke/normal/invoke/normal/invoke/normal → single block.
 #[test]
@@ -1208,7 +1208,7 @@ fn three_sequential_calls_merge_to_single_block() {
     ));
 }
 
-// ── Phase 3: Select Diamond Folding — is_trivial_body ───────────────
+// Phase 3: Select Diamond Folding — is_trivial_body
 
 /// Empty body is trivial.
 #[test]
@@ -1284,7 +1284,7 @@ fn trivial_body_mixed_instructions() {
     ]));
 }
 
-// ── Phase 3: Select Diamond Folding — Positive (fold occurs) ────────
+// Phase 3: Select Diamond Folding — Positive (fold occurs)
 
 /// Configuration for a 4-block diamond test pattern.
 struct DiamondConfig {
@@ -1801,7 +1801,7 @@ fn select_fold_preserves_branch_block_cow_annotations() {
     );
 }
 
-// ── Phase 3: Select Diamond Folding — Negative (fold does NOT occur) ─
+// Phase 3: Select Diamond Folding — Negative (fold does NOT occur)
 
 /// Arm has Apply instruction → Branch preserved.
 #[test]
@@ -2113,7 +2113,7 @@ fn select_not_folded_chained_let() {
     );
 }
 
-// ── Phase 5: Single-Predecessor Phi Elimination ─────────────────────
+// Phase 5: Single-Predecessor Phi Elimination
 
 /// Jump predecessor with params → params cleared, Let bindings added.
 #[test]
@@ -2430,7 +2430,7 @@ fn phase5_branch_both_arms_same_target() {
     );
 }
 
-// ── Phase 6: Dead Block Param Elimination ─────────────────────────────
+// Phase 6: Dead Block Param Elimination
 
 /// Build a non-diamond two-path-to-merge pattern (avoids select folding).
 ///

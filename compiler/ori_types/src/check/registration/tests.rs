@@ -709,11 +709,10 @@ fn all_derived_traits_have_type_signatures() {
     register_builtin_types(&mut checker);
 
     for &trait_kind in DerivedTrait::ALL {
-        let trait_name = interner.intern(trait_kind.trait_name());
         let type_name = interner.intern("TestType");
         let self_type = checker.pool_mut().named(type_name);
 
-        let methods = build_derived_methods(&mut checker, trait_name, self_type, Span::DUMMY);
+        let methods = build_derived_methods(&mut checker, trait_kind, self_type, Span::DUMMY);
 
         assert!(
             !methods.is_empty(),

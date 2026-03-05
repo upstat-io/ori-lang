@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! Type system for Ori.
 //!
 //! Provides the unified type system based on:
