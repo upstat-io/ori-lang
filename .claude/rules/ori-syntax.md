@@ -109,7 +109,8 @@ Bottom type (uninhabited); coerces to any `T`
 **While**: `while condition do body` — sugar for `loop { if !condition then break; body }` | type: `void` | no `while...yield` | `break value` error (E0860) | `continue value` error (E0861)
 **Loop body**: block expression; `loop { a \n b \n c }` for sequences | type: `void` (break no value), inferred (break value), `Never` (no break) | `continue value` error (E0861)
 **Yield control**: `continue` skips | `continue value` substitutes | `break` stops | `break value` adds final | `{K: V}` from `(K, V)` tuples
-**Labels**: `loop:name` | `for:name` | `while:name` | `break:name` | `continue:name` | no shadowing | `continue:name value` in yield → outer
+**Labels**: `loop:name` | `for:name` | `while:name` | `block:name` | `break:name` | `continue:name` | no shadowing | `continue:name value` in yield → outer
+**Labeled blocks**: `block:name { body }` — early exit via `break:name value` | type = unified exit paths | bare `break` is loop-only (not block) | `continue:block_label` = error | transparent to `break:loop_label`/`continue:loop_label`
 **Spread**: `[...a, ...b]` | `{...a, ...b}` | `P { ...orig, x: 10 }` — later wins, literal contexts only | `fn(...list)` into variadic only
 
 ## Block expressions
@@ -181,13 +182,13 @@ Bottom type (uninhabited); coerces to any `T`
 
 **Reserved (35)**: `as break continue def div do else extend extension extern false for if impl in let loop match pub self Self suspend tests then trait true type unsafe use uses void where while with yield`
 **Reserved (future)**: `asm inline static union view` (reserved for future low-level features)
-**Context-sensitive**: `args body buffer by cache catch default embed expr from handler has_embed map max nursery on_error over parallel pre post recurse spawn state timeout try without`
+**Context-sensitive**: `args block body buffer by cache catch default embed expr from handler has_embed map max nursery on_error over parallel pre post recurse spawn state timeout try without`
 **Built-in names**: `int float str byte bool len is_empty is_some is_none is_ok is_err assert assert_eq assert_ne assert_some assert_none assert_ok assert_err assert_panics assert_panics_with compare min max print panic todo unreachable dbg compile_error embed has_embed`
 
 ## Prelude
 
 **Types**: `Option<T>` (`Some`/`None`), `Result<T, E>` (`Ok`/`Err`), `Error`, `TraceEntry`, `Ordering`, `PanicInfo`, `CancellationError`, `CancellationReason`, `FormatSpec`, `Alignment`, `Sign`, `FormatType`
-**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Formattable`, `Debug`, `Clone`, `Default`, `Drop`, `Len`, `IsEmpty`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`, `Index`, `Sendable`
+**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Formattable`, `Debug`, `Clone`, `Default`, `Drop`, `Len`, `IsEmpty`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`, `Index`, `Sendable`, `Value`
 
 **Built-ins**: `print(msg:)`, `len(collection:)`, `is_empty(collection:)`, `is_some/is_none(option:)`, `is_ok/is_err(result:)`, `assert(condition:)`, `assert_eq(actual:, expected:)`, `assert_ne(actual:, unexpected:)`, `assert_some/none/ok/err(...)`, `assert_panics(expr:)`, `assert_panics_with(expr:, message:)`, `panic(msg:)`→`Never`, `todo()`/`todo(reason:)`→`Never`, `unreachable()`/`unreachable(reason:)`→`Never`, `dbg(value:)`/`dbg(value:, label:)`→`T`, `compare(left:, right:)`→`Ordering`, `min/max(left:, right:)`, `hash_combine(seed:, value:)`→`int`, `repeat(value:)`→iter (`T: Clone`), `is_cancelled()`→`bool`, `compile_error(msg:)`, `drop_early(value:)`, `embed(path)`→type-driven (`str`/`[byte]`), `has_embed(path)`→`bool`
 
@@ -217,6 +218,9 @@ Bottom type (uninhabited); coerces to any `T`
 **Operator traits**: `Add`/`Sub`/`Mul`/`Div`/`FloorDiv`/`Rem`/`Pow<Rhs = Self>` — binary; `MatMul<Rhs = Self>` — matrix multiply (`@`); `Neg`/`Not`/`BitNot` — unary; `BitAnd`/`BitOr`/`BitXor<Rhs = Self>`, `Shl`/`Shr<Rhs = int>` — bitwise; `As<T>`/`TryAs<T>` — conversion (`as`/`as?`); all default `type Output = Self`
 **Operator methods**: `add`/`subtract`/`multiply`/`divide`/`floor_divide`/`remainder`/`power` — arithmetic; `matrix_multiply` — matmul (`@`); `negate`/`not`/`bit_not` — unary; `bit_and`/`bit_or`/`bit_xor`/`shift_left`/`shift_right` — bitwise; `as`/`try_as` — conversion
 **Sendable**: marker trait, auto-derived by compiler; all fields must be `Sendable`, no interior mutability, no non-Sendable captures; required for channel types `T: Sendable`; cannot be implemented manually
+**Value**: `trait Value: Clone, Eq` — marker trait; inline storage, bitwise copy, no ARC, no Drop; all fields must be `Value`; cannot be implemented manually; auto-satisfies `Clone` + `Sendable`; warning >256 bytes, error >512 bytes; primitives (`int`/`float`/`bool`/`char`/`byte`/`void`/`Duration`/`Size`/`Ordering`) implicitly `Value`; `str`/`[T]`/`{K:V}`/`Set<T>` never `Value`; syntax: `type Point: Value, Eq = { x: float, y: float }`
 **List methods**: `.map(transform:)`, `.filter(predicate:)`, `.fold(initial:, op:)`, `.find(where:)`, `.any(predicate:)`, `.all(predicate:)`, `.first()`, `.last()`, `.take(count:)`, `.skip(count:)`, `.slice(start, end)`, `.push(value)`, `.pop()`, `.insert(index, value)`, `.remove(index)`, `.reverse()`, `.sort()` (`T: Comparable`), `.contains(value:)` (`T: Eq`), `.updated(key:, value:)`, `.len()`, `.is_empty()`
-**String methods**: `.split(sep:)`, `.trim()`, `.substring(start:, end:)`, `.upper()`, `.lower()`, `.starts_with(prefix:)`, `.ends_with(suffix:)`, `.contains(substr:)`, `.len()`, `.is_empty()`
+**String methods**: `.split(sep:)`, `.trim()`, `.substring(start:, end:)`, `.upper()`, `.lower()`, `.starts_with(prefix:)`, `.ends_with(suffix:)`, `.contains(substr:)`, `.len()`, `.is_empty()`, `.as_bytes()`→`[byte]` (zero-copy), `.to_bytes()`→`[byte]` (copy), `.byte_len()`→`int`; assoc: `str.from_utf8(bytes:)`→`Result<str, Error>`, `str.from_utf8_unchecked(bytes:)`→`str` (unsafe)
+**Char methods**: `.is_alphabetic()`, `.is_digit()`, `.is_alphanumeric()`, `.is_whitespace()`, `.is_uppercase()`, `.is_lowercase()`, `.is_ascii()`, `.is_control()` (Unicode); `.is_ascii_alphabetic()`, `.is_ascii_digit()`, `.is_ascii_alphanumeric()`, `.is_ascii_whitespace()`, `.is_ascii_uppercase()`, `.is_ascii_lowercase()`, `.is_ascii_hex_digit()`, `.is_ascii_punctuation()`, `.is_ascii_control()` (ASCII); `.to_ascii_uppercase()`, `.to_ascii_lowercase()`, `.to_digit(radix:)`→`Option<int>` (radix 2..=36, panic on invalid)
+**Byte methods**: `.is_ascii()`, `.is_ascii_alpha()`/`.is_alpha()`, `.is_ascii_digit()`/`.is_digit()`, `.is_ascii_alphanumeric()`/`.is_alnum()`, `.is_ascii_whitespace()`/`.is_whitespace()`, `.is_ascii_uppercase()`/`.is_upper()`, `.is_ascii_lowercase()`/`.is_lower()`, `.is_ascii_hex_digit()`/`.is_hex_digit()`, `.is_ascii_punctuation()`, `.is_ascii_control()`; `.to_ascii_uppercase()`, `.to_ascii_lowercase()`, `.to_digit(radix:)`→`Option<int>`
 **Reflect** (opt-in via `#derive(Reflect)`): `@type_info`→`TypeInfo`, `@field_count`→`int`, `@field_by_index`/`@field_by_name`→`Option<Unknown>`; `Unknown` for type-erased downcasting; all primitives impl; read-only, no method reflection

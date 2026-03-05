@@ -344,7 +344,7 @@ a > b
 // true for letters
 c.is_alphabetic()
 // true for digits
-c.is_numeric()
+c.is_digit()
 // true for spaces, tabs, newlines
 c.is_whitespace()
 // true for 0..=127

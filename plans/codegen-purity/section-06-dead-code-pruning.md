@@ -39,20 +39,24 @@ sections:
 
 ## 06.1 Surgical Struct Field Loading
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/instr_dispatch.rs` (field extraction via `emit_project`), `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` (struct parameter loading), `compiler/ori_llvm/src/codegen/ir_builder/aggregates.rs`
-
-> **WARNING — HIGH COMPLEXITY / HIGH RISK:** This subsection changes how struct parameters are loaded from memory. This is a fundamental ABI-level change that affects every function receiving struct arguments. `define_phase.rs` is already 461 lines — adding lazy-load tracking could push it over the 500-line limit (BLOAT). Consider extracting struct parameter loading into a dedicated `param_loading.rs` submodule before implementing. Approach (a) introduces a new "by-pointer vs by-value" distinction that must be threaded through the entire emission pipeline. Both approaches require extensive AOT test coverage across all struct-using programs, not just the targeted journeys.
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs` (parameter binding at lines 213–238), `compiler/ori_llvm/src/codegen/ir_builder/memory.rs` (new `load_struct_selective` method)
 
 > **TDD requirement:** Write IR-quality tests asserting current (broken) behavior FIRST. Verify they capture the over-loading. Then implement the fix and verify tests change to the expected pattern. Do NOT implement first.
 
 Instead of loading all fields of a struct into an aggregate, load only the fields that are referenced by the function.
 
-Two approaches:
-- **(a) Lazy field loading** (preferred): Don't load struct fields eagerly. When a field access (`extractvalue` or GEP) is emitted, load that field on-demand from the pointer. This requires tracking whether a value is "by-pointer" or "by-value" at the codegen level.
-- **(b) Usage analysis**: Before emitting loads, scan the function body for field references and only load referenced fields.
+**Decision (2026-03-05): Approach (b) — pre-scan usage analysis.** Lazy loading (a) breaks the pipeline invariant that `self.var(id)` returns a value, not a pointer. Every instruction handler relies on this contract. Pre-scan preserves it: the emitter still loads an aggregate at function entry — it just loads fewer fields. Downstream code is unaware anything changed.
 
-- [ ] Choose approach: (a) lazy field loading (track by-pointer vs by-value in codegen state) or (b) pre-scan function body for field references before emitting loads. Document choice rationale.
-- [ ] Implement the chosen approach for struct parameter field loading
+**How it works:**
+1. Before parameter binding, scan all `ArcInstr::Project { value, field }` in the function to build `HashMap<ArcVarId, HashSet<u32>>` of accessed fields per variable.
+2. Also scan `Apply`/`ApplyIndirect`/`Construct` args — if a struct param is passed whole (not via `Project`), all fields must be loaded.
+3. During `Indirect`/`Reference` param loading (`emit_function.rs:223–230`), call a new `IrBuilder::load_struct_selective(ty, ptr, &used_fields)` that only emits GEP+load+insert_value for fields in the used set. Unaccessed fields get `undef` in the aggregate.
+4. The aggregate shape is unchanged — downstream code sees the same type.
+
+- [ ] Implement `scan_used_fields(func: &ArcFunction) -> HashMap<ArcVarId, HashSet<u32>>` in `emit_function.rs`
+- [ ] Include `Apply`/`ApplyIndirect`/`Construct` arg scanning (whole-struct passthrough = all fields used)
+- [ ] Add `load_struct_selective(ty, ptr, used_fields, name)` to `IrBuilder` in `memory.rs`
+- [ ] Wire selective loading into `Indirect`/`Reference` parameter binding in `emit_function.rs`
 - [ ] Verify: J4 `_ori_area` only loads `width` and `height`, not `origin.x`/`origin.y`
 - [ ] Verify: J10 `_ori_count_items` only loads `length`, not `capacity` or `data_ptr`
 

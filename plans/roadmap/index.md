@@ -58,6 +58,7 @@ Never type, bottom type, uninhabited, coercion
 low-level, future-proofing, reserved, inline type, view type
 lifetime, LifetimeId, borrowed, value category, ValueCategory
 stack allocation, Inline, View, Boxed, architectural slot
+Value trait, value type, bitwise copy, ARC-free, no Drop, inline storage
 ```
 
 ---

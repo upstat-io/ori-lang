@@ -1,8 +1,9 @@
 # Proposal: Labeled Block Early Exit
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-03-05
+**Approved:** 2026-03-05
 
 ---
 
@@ -101,13 +102,69 @@ let x = block:done {
 }
 ```
 
+### Keyword
+
+`block` is a **context-sensitive keyword** — it is only recognized as a keyword when immediately followed by `:`. Outside that position, `block` is a valid identifier:
+
+```ori
+let block = 5;           // OK: `block` as variable name
+let x = block:done { 1 } // OK: `block:done` is a labeled block
+```
+
+This is consistent with other context-sensitive keywords like `handler`, `try`, `from`, etc.
+
 ### Semantics
 
 - `break:label value` exits the named block and produces `value` as the block's result
 - All `break:label` paths and the final expression shall have compatible types
 - The block has type equal to the unified type of all exit paths
+- Labeled blocks are nestable — inner blocks can be exited independently of outer blocks
+- The no-shadowing rule applies: block labels share the label namespace with loop labels
 
-This is the same as labeled loops, except applied to plain blocks.
+### Unlabeled `break` is Loop-Only
+
+Bare `break` (without a label) always targets the innermost **loop**, not the innermost labeled block. Inside a labeled block, `break` without a label passes through the block and targets an enclosing loop:
+
+```ori
+loop {
+    let x = block:result {
+        if done then break;  // Exits the LOOP, not the block
+        if found then break:result value;
+        default
+    };
+    process(x)
+}
+```
+
+This prevents confusion when a labeled block is added around existing loop code. It is consistent with Rust's labeled block behavior.
+
+### `continue:block_label` is an Error
+
+`continue:label` targeting a labeled block is a compile-time error. Blocks do not iterate — there is no "next iteration" to skip to:
+
+```ori
+block:result {
+    continue:result;  // ERROR: cannot `continue` a labeled block
+}
+```
+
+`continue:loop_label` *through* a labeled block is valid — see "Loop Control Flow" below.
+
+### Loop Control Flow Transparency
+
+Labeled blocks are transparent to loop control flow. `break:loop_label` and `continue:loop_label` pass through labeled blocks, just like `try { }`:
+
+```ori
+loop:outer {
+    let x = block:inner {
+        if skip then continue:outer;    // OK: passes through block, continues loop
+        if done then break:outer;       // OK: passes through block, exits loop
+        if found then break:inner 42;   // OK: exits block with value
+        0
+    };
+    process(x)
+}
+```
 
 ### Why `block:name` and Not Just Labels on `{ }`?
 
@@ -120,6 +177,8 @@ block:result { ... break:result x ... }
 // Ambiguous: is this a labeled map or a labeled block?
 // :result { key: value }  -- confusing
 ```
+
+The `block:name` syntax also follows the established `keyword:label` pattern: `loop:name`, `for:name`, `while:name`, `block:name`.
 
 ### Desugaring (Conceptual)
 
@@ -215,13 +274,28 @@ Labeled blocks are **scoped** — you see exactly where the exit targets. `retur
 
 ```ebnf
 // New production:
-labeled_block = "block" ":" identifier "{" block_body "}" .
+labeled_block = "block" label block_expr .
 
-// Update break to allow targeting labeled blocks:
-// (Already supported — break:label targets any labeled construct)
+// Update expression to include labeled_block:
+// expression = ... | labeled_block | ...
+
+// break already supports labels — no change needed:
+// break_expr = "break" [ label ] [ expression ] .
 ```
 
-**New context-sensitive keyword:** `block`
+**New context-sensitive keyword:** `block` (only meaningful before `:`)
+
+---
+
+## Spec Changes: Break/Continue Summary (16.9)
+
+The following rows shall be added to the break/continue summary table:
+
+| Form | Valid in | Effect |
+|------|---------|--------|
+| `break:label` | Labeled block | Exit labeled block |
+| `break:label value` | Labeled block | Exit labeled block with value |
+| `continue:label` targeting block | — | **Error**: blocks do not iterate |
 
 ---
 
@@ -235,20 +309,35 @@ labeled_block = "block" ":" identifier "{" block_body "}" .
 
 Many early-exit patterns can also use `match`. Labeled blocks are for cases where `match` doesn't fit (multiple conditions checked sequentially, with side effects between them).
 
+### Loop Control Flow
+
+Labeled blocks are transparent to `break` and `continue` targeting outer loops. This matches the behavior of `try { }`:
+
+```ori
+for:search items in collection do {
+    let result = block:check {
+        if invalid(items) then continue:search;   // OK: continue outer for loop
+        if found(items) then break:search items;   // OK: break outer for loop
+        transform(items)
+    };
+    process(result)
+}
+```
+
+---
+
+## Decisions
+
+1. **Keyword choice:** `block:name` — follows the established `keyword:label` pattern.
+2. **Nesting:** Yes — labeled blocks are nestable, with the same no-shadowing rule as loops.
+3. **`break` without label in blocks:** Loop-only — bare `break` always targets the innermost loop, never a labeled block. You must use `break:name` to exit a block.
+
 ---
 
 ## Migration / Compatibility
 
 - **Non-breaking.** `block` is a new context-sensitive keyword (only meaningful before `:`).
 - **Gradual adoption.** Deeply nested `if/else` chains can be refactored to use labeled blocks.
-
----
-
-## Open Questions
-
-1. **Keyword choice:** `block:name` vs `do:name` vs bare label syntax?
-2. **Nesting:** Should labeled blocks be nestable? (Likely yes, for consistency with labeled loops.)
-3. **`break` without label in blocks?** Should `break` (no label) exit the innermost labeled block, or remain loop-only? Keeping it loop-only is safer.
 
 ---
 
@@ -263,3 +352,4 @@ Many early-exit patterns can also use `match`. Labeled blocks are for cases wher
 ## Changelog
 
 - 2026-03-05: Initial draft
+- 2026-03-05: Approved — resolved open questions, added continue transparency, continue:block error, spec table updates

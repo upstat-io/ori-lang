@@ -282,6 +282,25 @@ impl TypeInfo {
         }
     }
 
+    /// True if this type maps to a single LLVM scalar value.
+    ///
+    /// Used for the `noundef` attribute (§02.6): Ori's type system guarantees
+    /// scalar values are always initialized, so passing `undef`/`poison` is UB.
+    /// Aggregates, pointers, and composite types are excluded.
+    pub fn is_llvm_scalar(&self) -> bool {
+        matches!(
+            self,
+            Self::Int
+                | Self::Float
+                | Self::Bool
+                | Self::Char
+                | Self::Byte
+                | Self::Duration
+                | Self::Size
+                | Self::Ordering
+        )
+    }
+
     /// True if this type has no ARC semantics (no retain/release needed).
     ///
     /// Trivial types are passed by value and don't participate in

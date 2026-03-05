@@ -250,6 +250,95 @@ Extraction methods truncate toward zero: `1536kb.megabytes()` returns `1`.
 
 **Traits:** `Eq`, `Comparable`, `Hashable`, `Clone`, `Debug`, `Printable`, `Default`, `Sendable`
 
+### 8.1.4 Character Methods
+
+The `char` type provides classification and conversion methods. Unicode methods operate on full Unicode; ASCII methods operate on the ASCII subset only.
+
+**Unicode classification:**
+
+| Method | Description |
+|--------|-------------|
+| `is_alphabetic()` | Unicode letter (`L*` categories) |
+| `is_digit()` | Unicode decimal digit (`Nd` category) |
+| `is_alphanumeric()` | Letter or digit |
+| `is_whitespace()` | Unicode whitespace |
+| `is_uppercase()` | Uppercase letter (`Lu`) |
+| `is_lowercase()` | Lowercase letter (`Ll`) |
+| `is_ascii()` | U+0000 through U+007F |
+| `is_control()` | Control character (`Cc`) |
+
+**ASCII classification:**
+
+| Method | Description |
+|--------|-------------|
+| `is_ascii_alphabetic()` | `a-z`, `A-Z` |
+| `is_ascii_digit()` | `0-9` |
+| `is_ascii_alphanumeric()` | `a-z`, `A-Z`, `0-9` |
+| `is_ascii_whitespace()` | space, tab, newline, CR, VT, FF |
+| `is_ascii_uppercase()` | `A-Z` |
+| `is_ascii_lowercase()` | `a-z` |
+| `is_ascii_hex_digit()` | `0-9`, `a-f`, `A-F` |
+| `is_ascii_punctuation()` | ASCII punctuation characters |
+| `is_ascii_control()` | 0x00 through 0x1F and 0x7F |
+
+ASCII classification methods return `false` for any `char` outside the ASCII range.
+
+**Conversion methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `to_ascii_uppercase()` | `char` | Uppercase if ASCII letter, else self |
+| `to_ascii_lowercase()` | `char` | Lowercase if ASCII letter, else self |
+| `to_digit(radix: int)` | `Option<int>` | Digit value in given radix (2..=36); panics on invalid radix |
+
+### 8.1.5 Byte Methods
+
+The `byte` type provides ASCII classification and conversion methods. All classification methods return `false` for byte values above 127 (except `is_ascii()` which tests for this condition).
+
+Short aliases are provided for conciseness (e.g., `is_alpha()` for `is_ascii_alpha()`), since `byte` values have no Unicode semantics.
+
+| Full Method | Short Alias | Description |
+|-------------|-------------|-------------|
+| `is_ascii()` | — | 0x00 through 0x7F |
+| `is_ascii_alpha()` | `is_alpha()` | `a-z`, `A-Z` |
+| `is_ascii_digit()` | `is_digit()` | `0-9` |
+| `is_ascii_alphanumeric()` | `is_alnum()` | `a-z`, `A-Z`, `0-9` |
+| `is_ascii_whitespace()` | `is_whitespace()` | space, tab, newline, CR, VT, FF |
+| `is_ascii_uppercase()` | `is_upper()` | `A-Z` |
+| `is_ascii_lowercase()` | `is_lower()` | `a-z` |
+| `is_ascii_hex_digit()` | `is_hex_digit()` | `0-9`, `a-f`, `A-F` |
+| `is_ascii_punctuation()` | — | ASCII punctuation characters |
+| `is_ascii_control()` | — | 0x00 through 0x1F and 0x7F |
+
+**Conversion methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `to_ascii_uppercase()` | `byte` | Uppercase if ASCII letter, else self |
+| `to_ascii_lowercase()` | `byte` | Lowercase if ASCII letter, else self |
+| `to_digit(radix: int)` | `Option<int>` | Digit value in given radix (2..=36); panics on invalid radix |
+
+### 8.1.6 String Byte Access
+
+The `str` type provides methods for accessing the underlying UTF-8 byte representation.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `as_bytes()` | `[byte]` | Zero-copy view via seamless slice |
+| `to_bytes()` | `[byte]` | Independent copy of UTF-8 bytes |
+| `byte_len()` | `int` | Number of UTF-8 bytes (O(1)) |
+
+`as_bytes()` returns a `[byte]` that shares the underlying allocation with the source `str` via seamless slicing. COW semantics apply — modifying the `[byte]` triggers a copy, leaving the original `str` unaffected. If the source `str` is itself a seamless slice (e.g., from `substring()`), `as_bytes()` produces a single-level `[byte]` view (no nesting).
+
+**Associated functions on `str`:**
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `str.from_utf8(bytes:)` | `Result<str, Error>` | Validates UTF-8 encoding |
+| `str.from_utf8_unchecked(bytes:)` | `str` | Skips validation; requires `unsafe` |
+
+`from_utf8_unchecked` with invalid UTF-8 has unspecified but memory-safe behavior — the program may panic or produce garbled output, but shall never cause memory corruption.
+
 ## 8.2 Compound Types
 
 ### 8.2.1 List
@@ -1441,6 +1530,59 @@ let (p, c) = channel<int>(buffer: 10);  // OK: int is Sendable
 
 type Handle = { file: FileHandle }
 let (p, c) = channel<Handle>(buffer: 10);  // error: Handle is not Sendable
+```
+
+### 8.14.7 Value Trait
+
+The `Value` trait marks types that are stored inline, copied by value (bitwise copy), and completely bypass ARC (automatic reference counting).
+
+```ori
+trait Value: Clone, Eq {}
+```
+
+`Value` is a marker trait with no methods. It shall not be manually implemented. The compiler verifies a type satisfies `Value` when all of the following hold:
+
+1. All fields recursively satisfy `Value`
+2. The type does not implement `Drop`
+3. The type is not recursive (no heap indirection)
+4. The type size does not exceed 512 bytes
+
+A type that satisfies `Value` automatically satisfies `Clone` (via bitwise copy) and `Sendable`.
+
+NOTE  A type exceeding 256 bytes but not 512 bytes produces a warning. Types exceeding 512 bytes produce an error.
+
+#### Standard Value Types
+
+| Type | Value? |
+|------|--------|
+| `int`, `float`, `bool`, `char`, `byte`, `void` | Yes |
+| `Duration`, `Size`, `Ordering` | Yes |
+| `Never` | Yes (vacuously) |
+| `str` | No (heap-allocated, reference-counted) |
+| `[T]`, `{K: V}`, `Set<T>` | No (heap-allocated) |
+| `(T) -> U` | No (may capture heap-allocated values) |
+| `Option<T>` where `T: Value` | Yes |
+| `Result<T, E>` where `T: Value, E: Value` | Yes |
+| `Range<T>` where `T: Value` | Yes |
+| `(T, U, ...)` where all elements are `Value` | Yes |
+
+#### Declaration Syntax
+
+```ori
+type Point: Value, Eq = { x: float, y: float }
+type Color: Value, Eq, Hashable = { r: byte, g: byte, b: byte, a: byte }
+type Direction: Value, Eq = North | South | East | West
+type Meters: Value, Eq = float
+```
+
+EXAMPLE
+
+```ori
+// Valid: all fields are Value
+type Vec3: Value, Eq = { x: float, y: float, z: float }
+
+// Invalid: str is not Value
+type Entity: Value, Eq = { x: int, name: str }  // error[E2040]
 ```
 
 ## 8.15 Existential Types

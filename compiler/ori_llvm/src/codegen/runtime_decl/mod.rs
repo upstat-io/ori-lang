@@ -65,6 +65,7 @@ fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
 fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr) {
     match attr {
         Attr::Nounwind => builder.add_nounwind_attribute(func),
+        Attr::Noreturn => builder.add_noreturn_attribute(func),
         Attr::Cold => builder.add_cold_attribute(func),
         Attr::NoaliasReturn => builder.add_noalias_return_attribute(func),
         Attr::MemArgmemRW => builder.add_memory_argmem_readwrite_attribute(func),

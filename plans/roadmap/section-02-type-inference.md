@@ -5,8 +5,8 @@ status: in-progress
 tier: 1
 goal: Full Hindley-Milner type inference
 spec:
-  - spec/06-types.md
-  - spec/07-properties-of-types.md
+  - spec/08-types.md
+  - spec/09-properties-of-types.md
 sections:
   - id: "2.1"
     title: Unification Algorithm
@@ -26,7 +26,7 @@ sections:
 
 **Goal**: Full Hindley-Milner type inference
 
-> **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`
+> **SPEC**: `spec/08-types.md`, `spec/09-properties-of-types.md`
 
 **Status**: Complete — Full Hindley-Milner inference with actionable type error messages. 4,078 Rust tests in workspace (all pass), 101 Ori spec tests across inference/bindings/lambdas/collections (all pass), all 11 compile-fail tests pass including 5 conversion hint tests (`int(x)`, `float(x)`, `str(x)`, `byte(x)`, `[x]`).
 
@@ -34,20 +34,20 @@ sections:
 
 ## 2.1 Unification Algorithm
 
-- [x] **Implement**: Occurs check — spec/06-types.md § Type Inference [done] (2026-02-10)
+- [x] **Implement**: Occurs check — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/unify/mod.rs` — `occurs_check_detects_infinite_type` (prevents T = [T])
   - [x] **Ori Tests**: `tests/spec/inference/unification.ori` — 25 tests (all pass)
 
-- [x] **Implement**: Substitution application via `resolve()` — spec/06-types.md § Type Inference [done] (2026-02-10)
+- [x] **Implement**: Substitution application via `resolve()` — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/unify/mod.rs` — path_compression, error_propagates, never_unifies_with_anything
   - [x] **Ori Tests**: `tests/spec/inference/unification.ori` — substitution verified through unification tests
 
-- [x] **Implement**: Generalization (let-polymorphism) — spec/06-types.md § Type Inference [done] (2026-02-10)
+- [x] **Implement**: Generalization (let-polymorphism) — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/unify/mod.rs` — `generalize_identity_function`, `generalize_monomorphic`, `generalize_does_not_generalize_outer_vars`, `let_polymorphism_example`
   - [x] **Ori Tests**: `tests/spec/inference/polymorphism.ori` — 8 tests (all pass)
   - [x] **Verified**: Polymorphic identity `@id (x) = x` works with both int and str
 
-- [x] **Implement**: Instantiation — spec/06-types.md § Type Inference [done] (2026-02-10)
+- [x] **Implement**: Instantiation — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/unify/mod.rs` — `instantiate_identity_scheme`, `instantiate_non_scheme`, `instantiate_twice_gives_different_vars`
   - [x] **Ori Tests**: `tests/spec/inference/polymorphism.ori`
 
@@ -55,12 +55,12 @@ sections:
 
 ## 2.2 Expression Type Inference
 
-- [x] **Implement**: Local variable inference — spec/06-types.md § Type Inference [done] (2026-02-10)
+- [x] **Implement**: Local variable inference — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/expr.rs` — 85+ expression inference tests
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — 17 tests (all pass)
   - [x] **Verified**: `let x = 42` infers int, `let x = x + 1` chains correctly
 
-- [x] **Implement**: Lambda parameter inference — spec/06-types.md § Type Inference [done] (2026-02-10)
+- [x] **Implement**: Lambda parameter inference — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/expr.rs` — lambda inference tests
   - [x] **Ori Tests**: `tests/spec/expressions/lambdas.ori` — 29 tests (all pass)
   - [x] **Verified**: `apply(x -> x + 1, 41)` correctly infers x: int from context
@@ -68,11 +68,11 @@ sections:
 - [ ] **Fix**: Closure-returning-closure inference bug
   - [ ] `(n: int) -> (int) -> int = { (x: int) -> int = base + n + x }` — infers `()` return instead of `(int) -> int` when outer closure returns inner closure (`test_aot_closure_capturing_closure`)
 
-- [x] **Implement**: Generic type argument inference — spec/06-types.md § Type Inference [done] (2026-02-10)
+- [x] **Implement**: Generic type argument inference — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/` — generic inference tests
   - [x] **Ori Tests**: `tests/spec/inference/generics.ori` — 22 tests (all pass)
 
-- [x] **Implement**: Collection element type inference — spec/06-types.md § Type Inference [done] (2026-02-10)
+- [x] **Implement**: Collection element type inference — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/expr.rs` — collection inference tests
   - [x] **Ori Tests**: `tests/spec/types/collections.ori` — 35 tests (all pass)
   - [x] **Verified**: `[1, 2, 3]` infers `[int]`, `{"a": 1}` infers `{str: int}`
@@ -81,18 +81,18 @@ sections:
 
 ## 2.3 Type Error Improvements
 
-- [x] **Implement**: Expected vs found messages — spec/06-types.md § Type Errors [done] (2026-02-10)
+- [x] **Implement**: Expected vs found messages — spec/08-types.md § Type Errors [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/` — 20+ type error tests
   - [x] **Ori Tests**: `tests/compile-fail/type_mismatch_arg.ori` — 1 test (passes)
 
-- [x] **Implement**: Type conversion hints — spec/06-types.md § Type Errors [done] (2026-02-16)
+- [x] **Implement**: Type conversion hints — spec/08-types.md § Type Errors [done] (2026-02-16)
   - [x] **Implement**: Edit-distance typo suggestions ("did you mean?") [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/env.rs` — 21 tests including edit distance for typo suggestions
   - [x] **Ori Tests**: `tests/compile-fail/type_hints.ori` — 5 non-skipped tests pass
   - [x] **Implement**: Conversion function suggestions in type mismatch errors (`int(x)`, `float(x)`, `str(x)`, `byte(x)`, `[x]`) [done] (2026-02-16)
   - [x] **Ori Tests**: `tests/compile-fail/type_hints.ori` — all 10 tests pass (5 conversion hints + 5 existing) [done] (2026-02-16)
 
-- [x] **Implement**: Source location in errors — spec/06-types.md § Type Errors [done] (2026-02-10)
+- [x] **Implement**: Source location in errors — spec/08-types.md § Type Errors [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/compile-fail/return_type_mismatch.ori` — 1 test (passes)
   - [x] **Verified**: All type errors include span information
 

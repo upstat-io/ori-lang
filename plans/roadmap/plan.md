@@ -7,7 +7,7 @@
 Before starting:
 1. Familiarize yourself with `CLAUDE.md` (language quick reference)
 2. Familiarize yourself with `docs/ori_lang/v2026/spec/` (authoritative spec)
-3. Ensure `./test-all.sh` passes (runs Rust tests, Ori interpreter tests, and LLVM tests)
+3. Ensure `./test-all.sh` passes (runs Rust tests, Ori evaluator tests, and LLVM tests)
 
 ### Execution Rules
 
@@ -28,7 +28,7 @@ Before starting:
 ### Updating Progress
 
 - Check boxes as items complete: `[ ]` → `[x]`
-- Update `priority-and-tracking.md` section status
+- Update section file frontmatter status
 - Save after each update
 
 ### Style Rules
@@ -52,7 +52,7 @@ status: in-progress                # not-started | in-progress | complete
 tier: 1                            # 1-8 (see tier descriptions below)
 goal: Fix type checking to properly use type annotations
 spec:                              # string or array (optional)
-  - spec/06-types.md
+  - spec/08-types.md
 sections:
   - id: "1.1"                      # matches ## X.Y headers in body
     title: Primitive Types
@@ -117,7 +117,7 @@ When adding new implementation items to the roadmap, consider creating a new sec
 1. Use letter suffixes for sub-sections within a tier (e.g., 7E, 15E)
 2. Use the next number for entirely new sections (coordinate with tier structure)
 3. Follow naming convention: `section-NN-descriptive-name.md` or `section-NNA-descriptive-name.md`
-4. Update three files: new section file, `00-overview.md` tier table, `priority-and-tracking.md` status table
+4. Update two files: new section file and `00-overview.md` tier table
 5. Keep sections focused — each section should have a clear goal and exit criteria
 
 **When NOT to create a new section:**
@@ -164,9 +164,9 @@ These are parser/lexer issues discovered during formatting testing, not formatte
 
 Approved proposals that need spec documentation:
 
-- [ ] **Clone Trait** — Add trait definition to `spec/06-types.md` or `spec/08-declarations.md`
+- [ ] **Clone Trait** — Add trait definition to `spec/08-types.md` or `spec/10-declarations.md`
   - Proposal: `proposals/approved/clone-trait-proposal.md`
-  - Implementation: Already in `oric/src/typeck/derives/mod.rs`
+  - Implementation: Already in `ori_types/src/check/`
   - Missing: Spec definition of `trait Clone { @clone (self) -> Self }`
 
 - [ ] **Zipper Data Structures** — Add to stdlib roadmap
@@ -306,12 +306,12 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 ## Running Tests
 
 ```bash
-# Run ALL tests (Rust + Ori interpreter + LLVM backend)
+# Run ALL tests (Rust + Ori evaluator + LLVM backend)
 ./test-all.sh
 
 # Individual test suites:
 cargo t                          # Rust unit tests only
-cargo st                         # Ori language tests (interpreter)
+cargo st                         # Ori language tests (evaluator)
 ./llvm-test.sh                   # LLVM Rust unit tests
 ./docker/llvm/run.sh ori test tests/  # Ori language tests (LLVM)
 

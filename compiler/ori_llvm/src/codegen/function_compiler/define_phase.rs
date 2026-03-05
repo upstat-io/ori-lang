@@ -426,8 +426,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     }
                 }
                 // Indirect calls through closures/function pointers are
-                // conservatively treated as may-unwind -- we cannot know
+                // conservatively treated as may-unwind — we cannot know
                 // the callee's unwind behavior at compile time.
+                //
+                // §02.5 decision: conservative (document limitation).
+                // Interprocedural proof (tracking all possible callees for
+                // every closure variable) is a significant analysis investment
+                // for a LOW-severity finding. The pessimistic result (using
+                // invoke instead of call) is always safe.
                 ori_arc::ir::ArcInstr::ApplyIndirect { .. } => false,
                 _ => true,
             });
