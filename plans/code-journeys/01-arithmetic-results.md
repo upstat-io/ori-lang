@@ -2,7 +2,7 @@
 journey: 1
 slug: arithmetic
 theme: "I am arithmetic"
-date: 2026-03-04
+date: 2026-03-05
 status: PASS
 expected: 33
 eval_result: 33
@@ -23,27 +23,27 @@ features:
   - int_literals
   - multiple_functions
 feature_description: "Basic arithmetic with function calls, let bindings, and integer operations"
-score: 9.2
+score: 9.7
 score_breakdown:
-  instruction_efficiency: 9
+  instruction_efficiency: 10
   arc_correctness: 10
   attributes_safety: 7
-  control_flow: 9
-  ir_quality: 9
+  control_flow: 10
+  ir_quality: 10
   binary_quality: 10
   other_findings: 10
 score_metrics:
-  instruction_ratio: 1.05
-  instruction_ratio_max: 1.07
+  instruction_ratio: 1.00
+  instruction_ratio_max: 1.00
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
   attr_applicable: 7
   attr_correct: 6
   attr_has_wrong: false
-  cf_defects: 1
+  cf_defects: 0
   cf_incorrect: false
-  ir_unjustified: 1
+  ir_unjustified: 0
   ir_incorrect: false
   bin_defects: 0
   bin_hard_fail: false
@@ -307,21 +307,18 @@ add.ovf_panic:                                    ; preds = %bb0
 define i64 @_ori_main() #0 {
 bb0:
   %call = call fastcc i64 @_ori_add(i64 3, i64 4)
-  br label %bb1
-
-bb1:                                              ; preds = %bb0
   %mul = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %call, i64 5)
   %mul.val = extractvalue { i64, i1 } %mul, 0
   %mul.ovf = extractvalue { i64, i1 } %mul, 1
   br i1 %mul.ovf, label %mul.ovf_panic, label %mul.ok
 
-mul.ok:                                           ; preds = %bb1
+mul.ok:                                           ; preds = %bb0
   %sub = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %mul.val, i64 2)
   %sub.val = extractvalue { i64, i1 } %sub, 0
   %sub.ovf = extractvalue { i64, i1 } %sub, 1
   br i1 %sub.ovf, label %sub.ovf_panic, label %sub.ok
 
-mul.ovf_panic:                                    ; preds = %bb1
+mul.ovf_panic:                                    ; preds = %bb0
   call void @ori_panic_cstr(ptr @ovf.msg.1)
   unreachable
 
@@ -373,40 +370,38 @@ attributes #2 = { cold }
    1b113:  lea    ovf.msg(%rip),%rdi     ; load panic message address
    1b11a:  call   ori_panic_cstr         ; panic (does not return)
 
-000000000001b120 <_ori_main>:                   ; 101 bytes
+000000000001b120 <_ori_main>:                   ; 93 bytes
    1b120:  sub    $0x18,%rsp              ; stack frame (24 bytes)
    1b124:  mov    $0x3,%edi               ; arg a = 3
    1b129:  mov    $0x4,%esi               ; arg b = 4
    1b12e:  call   _ori_add               ; sum = add(3, 4) -> 7
-   1b133:  mov    %rax,0x10(%rsp)        ; spill call result (O0)
-   1b138:  mov    0x10(%rsp),%rax        ; reload call result (O0 redundant)
-   1b13d:  mov    $0x5,%ecx              ; load constant 5
-   1b142:  imul   %rcx,%rax              ; sum * 5 = 35
-   1b146:  mov    %rax,0x8(%rsp)         ; spill mul result (O0)
-   1b14b:  seto   %al                    ; overflow check (mul)
-   1b14e:  jo     mul_panic              ; branch if overflow
-   1b150:  mov    0x8(%rsp),%rax         ; reload mul result (O0)
-   1b155:  sub    $0x2,%rax              ; 35 - 2 = 33
-   1b159:  mov    %rax,(%rsp)            ; spill sub result (O0)
-   1b15d:  seto   %al                    ; overflow check (sub)
-   1b160:  jo     sub_panic              ; branch if overflow
-   1b162:  jmp    epilogue               ; jump over panic blocks [MEDIUM-1]
+   1b133:  mov    $0x5,%ecx              ; load constant 5
+   1b138:  imul   %rcx,%rax              ; sum * 5 = 35
+   1b13c:  mov    %rax,0x10(%rsp)        ; spill mul result (O0)
+   1b141:  seto   %al                    ; overflow check (mul)
+   1b144:  jo     mul_panic              ; branch if overflow
+   1b146:  mov    0x10(%rsp),%rax        ; reload mul result (O0)
+   1b14b:  sub    $0x2,%rax              ; 35 - 2 = 33
+   1b14f:  mov    %rax,0x8(%rsp)         ; spill sub result (O0)
+   1b154:  seto   %al                    ; overflow check (sub)
+   1b157:  jo     sub_panic              ; branch if overflow
+   1b159:  jmp    epilogue               ; jump over panic blocks
    ; --- mul overflow path ---
-   1b164:  lea    ovf.msg.1(%rip),%rdi
-   1b16b:  call   ori_panic_cstr
+   1b15b:  lea    ovf.msg.1(%rip),%rdi
+   1b162:  call   ori_panic_cstr
    ; --- epilogue ---
-   1b170:  mov    (%rsp),%rax            ; reload final result (O0)
-   1b174:  add    $0x18,%rsp             ; restore stack
-   1b178:  ret                           ; return 33
+   1b167:  mov    0x8(%rsp),%rax         ; reload final result (O0)
+   1b16c:  add    $0x18,%rsp             ; restore stack
+   1b170:  ret                           ; return 33
    ; --- sub overflow path ---
-   1b179:  lea    ovf.msg.2(%rip),%rdi
-   1b180:  call   ori_panic_cstr
+   1b171:  lea    ovf.msg.2(%rip),%rdi
+   1b178:  call   ori_panic_cstr
 
-000000000001b190 <main>:                        ; 8 bytes
-   1b190:  push   %rax
-   1b191:  call   _ori_main
-   1b196:  pop    %rcx
-   1b197:  ret
+000000000001b180 <main>:                        ; 8 bytes
+   1b180:  push   %rax
+   1b181:  call   _ori_main
+   1b186:  pop    %rcx
+   1b187:  ret
 ```
 
 ## Deep Scrutiny
@@ -416,12 +411,12 @@ attributes #2 = { cold }
 | # | Function | Actual (IR) | Ideal (IR) | Ratio | Verdict |
 |---|----------|-------------|------------|-------|---------|
 | 1 | @add     | 7           | 7          | 1.00x | OPTIMAL |
-| 2 | @main    | 15          | 14         | 1.07x | NEAR-OPTIMAL [MEDIUM-1] |
+| 2 | @main    | 14          | 14         | 1.00x | OPTIMAL |
 | 3 | main wrapper | 3      | 3          | 1.00x | OPTIMAL |
 
 **@add (7 instructions)**: Every instruction is justified. The overflow-checked addition requires the intrinsic call (1), two extractvalues to split the result and overflow flag (2), a conditional branch (1), a return (1), and a panic path with call + unreachable (2). No wasted instructions. **OPTIMAL.**
 
-**@main (15 instructions)**: 14 are necessary. The 1 extra is `br label %bb1` -- a redundant unconditional branch between `bb0` and `bb1`. This branch exists because the codegen creates a new basic block after the `let sum = add(...)` binding, even though no control flow diverges at that point. Merging bb0 and bb1 would eliminate this instruction.
+**@main (14 instructions)**: Every instruction is justified. The function calls `@_ori_add` (1), performs overflow-checked multiplication (call + 2 extractvalue + branch = 4), overflow-checked subtraction (call + 2 extractvalue + branch = 4), returns (1), and has two panic paths (2 x (call + unreachable) = 4). The block merge pass has eliminated the previously-observed redundant `br label %bb1` bridge block -- the call result now flows directly into the multiply in the same `bb0` block. **OPTIMAL.**
 
 **Let binding elimination**: All four `let` bindings (`x`, `y`, `sum`, `result`) are correctly eliminated -- no `alloca`/`store`/`load` chains. Constants `3` and `4` are inlined directly as call arguments. The call result feeds directly into the multiply intrinsic. This is `-O1` quality codegen in a debug build.
 
@@ -443,13 +438,13 @@ attributes #2 = { cold }
 | @add     | YES    | YES      | YES     | N/A     | N/A      | N/A  |       |
 | @main    | NO (C) | YES      | YES     | N/A     | N/A      | N/A  | C conv for entry point -- correct |
 | main wrapper | NO (C) | NO  | NO      | N/A     | N/A      | N/A  |       |
-| ori_panic_cstr | N/A | N/A | N/A     | N/A     | N/A      | YES  | Missing noreturn [MEDIUM-2] |
+| ori_panic_cstr | N/A | N/A | N/A     | N/A     | N/A      | YES  | Missing noreturn [LOW-1] |
 
 **@_ori_add uses `fastcc`**: Correct. Internal function benefits from fast calling convention (callee-pops, register preference). The `nounwind` attribute is present (fixed-point analysis confirms both user functions do not unwind). `uwtable` is present for stack unwinding support.
 
 **@_ori_main uses C convention**: Correct. Called from the C `main()` wrapper, must use C ABI for compatibility with the system entry point. Also marked `nounwind` and `uwtable`.
 
-**`ori_panic_cstr` has `cold` but not `noreturn`**: This function never returns (it calls `longjmp` or `abort`). Missing `noreturn` means LLVM cannot eliminate dead code after panic calls and may generate suboptimal branch layouts. The `cold` attribute is correct and helps branch prediction.
+**`ori_panic_cstr` has `cold` but not `noreturn`**: This function never returns (it calls `longjmp` or `abort`). Missing `noreturn` means LLVM cannot eliminate dead code after panic calls and may generate suboptimal branch layouts. However, the `unreachable` instruction after each call site already conveys non-return semantics to LLVM. The impact is therefore minimal for this program. The `cold` attribute is correct and helps branch prediction.
 
 **Attribute compliance**: 7 applicable attributes checked (fastcc, nounwind, uwtable on @add; nounwind, uwtable on @main; noreturn on ori_panic_cstr; cold on ori_panic_cstr). 6 of 7 correct -- only `noreturn` on `ori_panic_cstr` is missing. 85.7% compliance.
 
@@ -458,22 +453,19 @@ attributes #2 = { cold }
 | Function | Blocks | Empty Blocks | Redundant Branches | Phi Nodes | Notes |
 |----------|--------|-------------|-------------------|-----------|-------|
 | @add     | 3      | 0           | 0                 | 0         | Optimal layout |
-| @main    | 6      | 0           | 1                 | 0         | [MEDIUM-1] |
+| @main    | 5      | 0           | 0                 | 0         | Optimal -- block merge pass eliminated bridge block [NOTE-2] |
 | main wrapper | 1  | 0           | 0                 | 0         | Optimal |
 
 **@add block layout**: 3 blocks -- `bb0` (entry with overflow check), `add.ok` (happy-path return), `add.ovf_panic` (cold panic). Happy path is fallthrough from the conditional branch. Panic block placed at the end. **Optimal layout.**
 
-**@main block layout**: 6 blocks with 1 redundant unconditional branch:
-- `bb0`: call to `@_ori_add`, then `br label %bb1` (REDUNDANT)
-- `bb1`: overflow-checked multiply
-- `mul.ok`: overflow-checked subtract
+**@main block layout**: 5 blocks with zero redundant branches. The block merge pass has eliminated the `bb0 -> bb1` bridge block that was present in the previous run. The call to `@_ori_add` and the subsequent overflow-checked multiply now reside in the same `bb0` block:
+- `bb0`: call to `@_ori_add` + overflow-checked multiply + conditional branch
+- `mul.ok`: overflow-checked subtract + conditional branch
 - `mul.ovf_panic`: cold panic for multiply overflow
 - `sub.ok`: return
 - `sub.ovf_panic`: cold panic for subtract overflow
 
-The `bb0 -> bb1` branch is unnecessary -- these blocks should be merged. The codegen creates a new basic block at the let-binding boundary (`let sum = add(...)`) even though no control flow divergence occurs. In native code, this manifests as `jmp 1b170` (instruction at 0x1b162).
-
-Panic blocks are correctly placed after the happy path, and the `cold` attribute on `ori_panic_cstr` helps LLVM's branch prediction heuristics.
+Panic blocks are correctly placed after the happy path, and the `cold` attribute on `ori_panic_cstr` helps LLVM's branch prediction heuristics. **Optimal layout.**
 
 ### 5. Overflow Checking
 
@@ -494,19 +486,21 @@ The panic messages are operation-specific (not generic), which is good for debug
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (6,554,584 bytes, debug) |
-| .text section | 868 KiB (889,393 bytes) |
+| .text section | 868 KiB (889,377 bytes) |
 | .rodata section | 134 KiB (136,778 bytes) |
 | .debug_info | 1.56 MiB (1,638,828 bytes) |
 | .debug_str | 1.72 MiB (1,803,885 bytes) |
 | .eh_frame | 109 KiB (111,976 bytes) |
 | User code (@add) | 31 bytes |
-| User code (@main) | 101 bytes |
+| User code (@main) | 93 bytes |
 | User code (main wrapper) | 8 bytes |
-| User code total | 140 bytes |
-| User code % of .text | 0.016% |
+| User code total | 132 bytes |
+| User code % of .text | 0.015% |
 | Runtime % of binary | ~99.98% |
 
-The binary is large due to static linking of `ori_rt` (the Ori runtime, which includes Rust's standard library for panic handling, I/O, memory allocation, etc.) and full debug symbols (3.28 MiB of .debug_* sections). The user's actual code is 140 bytes -- everything else is runtime infrastructure. This is expected for a debug build of a statically-linked binary.
+The binary is large due to static linking of `ori_rt` (the Ori runtime, which includes Rust's standard library for panic handling, I/O, memory allocation, etc.) and full debug symbols (3.28 MiB of .debug_* sections). The user's actual code is 132 bytes -- everything else is runtime infrastructure. This is expected for a debug build of a statically-linked binary.
+
+Note that `@main` shrank from 101 bytes (previous run) to 93 bytes, a direct result of the block merge pass eliminating the bridge block and its corresponding native `jmp` instruction.
 
 #### Disassembly: @add
 
@@ -525,34 +519,30 @@ _ori_add:                        ; 31 bytes, 10 instructions (+ 1 nop)
   call   ori_panic_cstr         ; panic (does not return)
 ```
 
-The `mov %rdi,(%rsp)` / `mov (%rsp),%rax` is an unnecessary stack round-trip from LLVM's `-O0` register allocator. An optimal native sequence would be: `add %rsi,%rdi; jo panic; mov %rdi,%rax; ret` (4 instructions). This is expected behavior for unoptimized builds.
-
 #### Disassembly: @main
 
 ```asm
-_ori_main:                       ; 101 bytes, 24 instructions
+_ori_main:                       ; 93 bytes, 22 instructions
   sub    $0x18,%rsp              ; stack frame (24 bytes)
   mov    $0x3,%edi               ; arg a = 3
   mov    $0x4,%esi               ; arg b = 4
   call   _ori_add               ; sum = add(3, 4) -> 7
-  mov    %rax,0x10(%rsp)        ; spill call result (O0)
-  mov    0x10(%rsp),%rax        ; reload call result (O0 redundant)
   mov    $0x5,%ecx              ; load constant 5
   imul   %rcx,%rax              ; sum * 5 = 35
-  mov    %rax,0x8(%rsp)         ; spill mul result (O0)
+  mov    %rax,0x10(%rsp)        ; spill mul result (O0)
   seto   %al                    ; overflow check (mul)
   jo     mul_panic              ; branch if overflow
-  mov    0x8(%rsp),%rax         ; reload mul result (O0)
+  mov    0x10(%rsp),%rax        ; reload mul result (O0)
   sub    $0x2,%rax              ; 35 - 2 = 33
-  mov    %rax,(%rsp)            ; spill sub result (O0)
+  mov    %rax,0x8(%rsp)         ; spill sub result (O0)
   seto   %al                    ; overflow check (sub)
   jo     sub_panic              ; branch if overflow
-  jmp    epilogue               ; jump over panic blocks [MEDIUM-1 in native]
+  jmp    epilogue               ; jump over panic blocks
   ; --- mul overflow path ---
   lea    ovf.msg.1(%rip),%rdi
   call   ori_panic_cstr
   ; --- epilogue ---
-  mov    (%rsp),%rax            ; reload final result (O0)
+  mov    0x8(%rsp),%rax         ; reload final result (O0)
   add    $0x18,%rsp             ; restore stack
   ret                           ; return 33
   ; --- sub overflow path ---
@@ -626,38 +616,31 @@ sub_panic:
 ```
 
 ```llvm
-; ACTUAL (15 instructions -- 1 extra)
+; ACTUAL (14 instructions)
 define i64 @_ori_main() #0 {
 bb0:
   %call = call fastcc i64 @_ori_add(i64 3, i64 4)
-  br label %bb1                ; <-- REDUNDANT: unconditional branch to next block
-
-bb1:
   %mul = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %call, i64 5)
   %mul.val = extractvalue { i64, i1 } %mul, 0
   %mul.ovf = extractvalue { i64, i1 } %mul, 1
   br i1 %mul.ovf, label %mul.ovf_panic, label %mul.ok
-
 mul.ok:
   %sub = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %mul.val, i64 2)
   %sub.val = extractvalue { i64, i1 } %sub, 0
   %sub.ovf = extractvalue { i64, i1 } %sub, 1
   br i1 %sub.ovf, label %sub.ovf_panic, label %sub.ok
-
 mul.ovf_panic:
   call void @ori_panic_cstr(ptr @ovf.msg.1)
   unreachable
-
 sub.ok:
   ret i64 %sub.val
-
 sub.ovf_panic:
   call void @ori_panic_cstr(ptr @ovf.msg.2)
   unreachable
 }
 ```
 
-**Delta**: +1 instruction -- `br label %bb1` is a redundant unconditional branch between the call to `@_ori_add` and the multiply operation. The codegen creates a new basic block at the `let sum = add(...)` binding boundary even though no control flow diverges. This would be eliminated by a simple block-merging pass.
+**Delta**: 0 instructions. The actual IR matches the ideal IR exactly. The block merge pass has eliminated the previously-observed redundant `br label %bb1` bridge block between the call and the multiply. The call to `@_ori_add` and the overflow-checked multiply now reside in the same `bb0` block, exactly as in the ideal IR. **OPTIMAL.**
 
 #### main wrapper: Ideal vs Actual
 
@@ -688,9 +671,9 @@ entry:
 | Function | Ideal | Actual | Delta | Justified | Verdict |
 |----------|-------|--------|-------|-----------|---------|
 | @add     | 7     | 7      | +0    | N/A       | OPTIMAL |
-| @main    | 14    | 15     | +1    | NO        | NEAR-OPTIMAL |
+| @main    | 14    | 14     | +0    | N/A       | OPTIMAL |
 | main wrapper | 3 | 3      | +0    | N/A       | OPTIMAL |
-| **Total** | **24** | **25** | **+1** | | |
+| **Total** | **24** | **24** | **+0** | | |
 
 ### 8. Arithmetic: Let Binding Elimination
 
@@ -717,27 +700,25 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | MEDIUM   | Control Flow | Redundant unconditional branch in @main (`bb0 -> bb1`) | NEW | J1 |
-| 2 | MEDIUM   | Attributes | Missing `noreturn` on `ori_panic_cstr` declaration | NEW | J1 |
-| 3 | NOTE     | Instruction Purity | Let bindings eliminated to direct SSA -- O1-quality at O0 | NEW | J1 |
-| 4 | NOTE     | Instruction Purity | @add matches ideal IR exactly -- OPTIMAL | NEW | J1 |
+| 1 | LOW      | Attributes | Missing `noreturn` on `ori_panic_cstr` declaration | CONFIRMED | J1 |
+| 2 | NOTE     | Control Flow | Block merge pass eliminated redundant `bb0 -> bb1` bridge | FIXED | J1 |
+| 3 | NOTE     | Instruction Purity | Let bindings eliminated to direct SSA -- O1-quality at O0 | CONFIRMED | J1 |
+| 4 | NOTE     | Instruction Purity | Both user functions match ideal IR exactly -- OPTIMAL | NEW | J1 |
 
-### MEDIUM-1: Redundant unconditional branch in @main
-
-**Location**: `_ori_main`, `bb0 -> bb1` (IR), `jmp 1b170` (native at 0x1b162)
-**Impact**: 1 unnecessary IR instruction (6.7% overhead in @main). In native code, this manifests as a `jmp` over panic blocks that could be avoided by better block layout. The block split also prevents LLVM from combining the call result directly with the multiply in the same basic block.
-**Root cause**: The codegen creates a new basic block at let-binding boundaries even when no control flow divergence occurs. The `let sum = add(...)` binding triggers a block split between the call and subsequent arithmetic.
-**Fix**: Merge sequential blocks when no control flow divergence occurs. The block splitter should not create a new block after a simple call expression that does not introduce branching.
-**First seen**: Journey 1
-**Found in**: Control Flow & Block Layout (Category 4), Optimal IR Comparison (Category 7)
-
-### MEDIUM-2: Missing `noreturn` on `ori_panic_cstr` declaration
+### LOW-1: Missing `noreturn` on `ori_panic_cstr` declaration
 
 **Location**: `declare void @ori_panic_cstr(ptr) #2` where `#2 = { cold }`
-**Impact**: Without `noreturn`, LLVM may not fully optimize code paths after panic calls. Specifically: dead code elimination after the `call + unreachable` pair relies on `unreachable`, but `noreturn` would allow LLVM to propagate this information earlier in its pipeline. It also affects branch weight estimation and code size optimization.
+**Impact**: Without `noreturn`, LLVM may not fully optimize code paths after panic calls. However, the `unreachable` instruction after each call site already conveys non-return semantics to LLVM at the call site level, minimizing the practical impact. The `cold` attribute correctly marks the function as unlikely.
 **Fix**: Add `noreturn` to the `ori_panic_cstr` declaration. The attribute group should be `{ cold noreturn }`. This should be changed in `compiler/ori_llvm/src/codegen/runtime_decl/mod.rs`.
 **First seen**: Journey 1
 **Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-2: Block merge pass eliminated redundant bridge block
+
+**Location**: `_ori_main`, previously had `bb0: ... br label %bb1` / `bb1: %mul = ...`
+**Impact**: Positive. The newly-implemented block merge pass correctly identified and eliminated the unconditional branch between `bb0` and `bb1`. The call to `@_ori_add` and the overflow-checked multiply now reside in the same block. This removed 1 instruction from @main (15 to 14) and 8 bytes from the native code (101 to 93 bytes). @main now matches the ideal IR exactly.
+**Previous state**: MEDIUM-1 in previous run (redundant unconditional branch, 6.7% overhead)
+**Found in**: Control Flow & Block Layout (Category 4)
 
 ### NOTE-3: Let bindings eliminated to direct SSA
 
@@ -745,26 +726,38 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 **Impact**: Positive. No `alloca`/`store`/`load` chains for scalar let bindings. Values flow directly from definition to use as SSA values. This is `-O1` quality codegen in a debug build -- many compilers (including Clang at `-O0`) would emit stack operations for every local variable.
 **Found in**: Arithmetic: Let Binding Elimination (Category 8)
 
-### NOTE-4: @add matches ideal IR exactly
+### NOTE-4: Both user functions match ideal IR exactly
 
-**Location**: `_ori_add` function
-**Impact**: Positive. The generated IR for the simplest user function (binary addition with overflow checking) matches the hand-written ideal IR instruction-for-instruction. Zero overhead. This establishes a strong baseline for codegen quality.
+**Location**: `_ori_add` and `_ori_main`
+**Impact**: Positive. Both user functions now produce instruction counts exactly matching the hand-written ideal IR. @add has always been optimal (7/7). @main improved from 15 to 14 instructions thanks to the block merge pass, now achieving 14/14 -- a perfect score. The entire module has zero unjustified overhead.
 **Found in**: Optimal IR Comparison (Category 7)
 
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 15% | 9/10 | 1.05x avg ratio (max 1.07x) |
+| Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
 | Attributes & Safety | 10% | 7/10 | 85.7% compliance |
-| Control Flow | 10% | 9/10 | 1 defect |
-| IR Quality | 20% | 9/10 | 1 unjustified instruction |
+| Control Flow | 10% | 10/10 | 0 defects |
+| IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.2 / 10**
+**Overall: 9.7 / 10**
 
 ## Verdict
 
-Journey 1's arithmetic codegen is strong for a debug build. The `@add` function matches hand-written ideal IR instruction-for-instruction -- OPTIMAL with zero overhead beyond mandatory overflow checking. The only waste in `@main` is a single redundant unconditional branch at a let-binding boundary (1 instruction, 6.7% overhead). All four let bindings are eliminated to direct SSA with no stack operations, which is `-O1` quality at `-O0`. ARC is irrelevant for pure scalar arithmetic -- zero RC operations, exactly as expected. The primary improvement opportunity is the missing `noreturn` attribute on `ori_panic_cstr`.
+Journey 1's arithmetic codegen has reached near-perfection. Both `@add` and `@main` now match the hand-written ideal IR instruction-for-instruction -- zero overhead beyond mandatory overflow checking. The block merge pass, implemented in this session, eliminated the previously-observed redundant bridge block in `@main`, improving the score from 9.2 to 9.7. The only remaining gap is the missing `noreturn` attribute on `ori_panic_cstr`, which has minimal practical impact since `unreachable` already terminates each call site.
+
+## Cross-Journey Observations
+
+| Feature | First Tested | This Journey | Status |
+|---------|-------------|--------------|--------|
+| Overflow checking | J1 | J1 | CONFIRMED (correct) |
+| fastcc usage | J1 | J1 | CONFIRMED (correct) |
+| nounwind attribute | J1 | J1 | CONFIRMED (now present -- was missing in old-format J1) |
+| Redundant bridge blocks | J1 | J1 | FIXED (block merge pass) |
+| Missing noreturn on panic | J1 | J1 | CONFIRMED (still missing) |
+
+The block merge pass is a significant improvement to codegen quality. For this simple arithmetic journey, it eliminated the only unjustified overhead, bringing the instruction ratio to a perfect 1.00x. The impact on more complex journeys (with more let-binding boundaries and deeper block nesting) should be investigated in subsequent journey reruns.
