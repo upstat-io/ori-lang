@@ -4,9 +4,9 @@
 //! orchestrates block pre-creation, parameter binding, EH setup, and
 //! per-block instruction/terminator emission in reverse post-order.
 
-use ori_arc::ir::{ArcFunction, ArcTerminator, ArcVarId};
+use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use ori_ir::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::context::EmittedValue;
 use super::ArcIrEmitter;
@@ -14,6 +14,142 @@ use super::FuncletPadKind;
 use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use crate::codegen::eh_model::EhModel;
 use crate::codegen::value_id::ValueId;
+
+/// Scan an ARC function to determine which fields of each variable are accessed.
+///
+/// Returns a map from variable ID to the set of field indices accessed via
+/// `Project`. Variables used in any other context (Apply args, Return,
+/// Construct, etc.) are marked as needing ALL fields loaded — represented
+/// by `None` in the map. Variables not in the map at all have no field
+/// accesses (they may be scalars or unused).
+///
+/// This enables surgical struct loading: only fields that are actually
+/// projected are loaded from memory. Unused fields get `undef`.
+fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option<FxHashSet<u32>>> {
+    /// Resolve a variable through alias chains to its root.
+    fn resolve(aliases: &FxHashMap<ArcVarId, ArcVarId>, mut var: ArcVarId) -> ArcVarId {
+        let mut depth = 0;
+        while let Some(&src) = aliases.get(&var) {
+            var = src;
+            depth += 1;
+            if depth > 100 {
+                break;
+            }
+        }
+        var
+    }
+
+    /// Mark a variable (resolved through aliases) as needing all fields.
+    fn mark_all(
+        aliases: &FxHashMap<ArcVarId, ArcVarId>,
+        usage: &mut FxHashMap<ArcVarId, Option<FxHashSet<u32>>>,
+        var: ArcVarId,
+    ) {
+        usage.insert(resolve(aliases, var), None);
+    }
+
+    /// Mark each variable in a slice as needing all fields.
+    fn mark_all_slice(
+        aliases: &FxHashMap<ArcVarId, ArcVarId>,
+        usage: &mut FxHashMap<ArcVarId, Option<FxHashSet<u32>>>,
+        vars: &[ArcVarId],
+    ) {
+        for v in vars {
+            mark_all(aliases, usage, *v);
+        }
+    }
+
+    // Phase 1: Build alias map (Let { Var } chains).
+    let mut aliases: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ori_arc::ir::ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                aliases.insert(*dst, *src);
+            }
+        }
+    }
+
+    // Phase 2: Collect field usage, resolving through aliases.
+    let mut usage: FxHashMap<ArcVarId, Option<FxHashSet<u32>>> = FxHashMap::default();
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Project { value, field, .. } => {
+                    let root = resolve(&aliases, *value);
+                    if !matches!(usage.get(&root), Some(None)) {
+                        usage
+                            .entry(root)
+                            .or_insert_with(|| Some(FxHashSet::default()))
+                            .as_mut()
+                            .map(|s| s.insert(*field));
+                    }
+                }
+
+                // PrimOp uses its args as whole values (e.g., string concat).
+                ArcInstr::Let {
+                    value: ori_arc::ir::ArcValue::PrimOp { args, .. },
+                    ..
+                } => mark_all_slice(&aliases, &mut usage, args),
+
+                // Let { Var } is an alias (phase 1), Let { Literal } has no var refs.
+                ArcInstr::Let { .. } => {}
+
+                ArcInstr::Apply { args, .. }
+                | ArcInstr::PartialApply { args, .. }
+                | ArcInstr::Construct { args, .. }
+                | ArcInstr::Reuse { args, .. } => {
+                    mark_all_slice(&aliases, &mut usage, args);
+                }
+                ArcInstr::ApplyIndirect { closure, args, .. } => {
+                    mark_all(&aliases, &mut usage, *closure);
+                    mark_all_slice(&aliases, &mut usage, args);
+                }
+                ArcInstr::CollectionReuse { old_var, args, .. } => {
+                    mark_all(&aliases, &mut usage, *old_var);
+                    mark_all_slice(&aliases, &mut usage, args);
+                }
+                ArcInstr::Set { base, value, .. } => {
+                    mark_all(&aliases, &mut usage, *base);
+                    mark_all(&aliases, &mut usage, *value);
+                }
+                ArcInstr::SetTag { base, .. } => mark_all(&aliases, &mut usage, *base),
+                ArcInstr::Select {
+                    cond,
+                    true_val,
+                    false_val,
+                    ..
+                } => {
+                    mark_all(&aliases, &mut usage, *cond);
+                    mark_all(&aliases, &mut usage, *true_val);
+                    mark_all(&aliases, &mut usage, *false_val);
+                }
+                ArcInstr::RcInc { var, .. }
+                | ArcInstr::RcDec { var, .. }
+                | ArcInstr::IsShared { var, .. }
+                | ArcInstr::Reset { var, .. } => mark_all(&aliases, &mut usage, *var),
+            }
+        }
+
+        // Terminators that use whole variables.
+        match &block.terminator {
+            ArcTerminator::Return { value } => mark_all(&aliases, &mut usage, *value),
+            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
+                mark_all_slice(&aliases, &mut usage, args);
+            }
+            ArcTerminator::Branch { cond, .. } => mark_all(&aliases, &mut usage, *cond),
+            ArcTerminator::Switch { scrutinee, .. } => mark_all(&aliases, &mut usage, *scrutinee),
+            ArcTerminator::Resume | ArcTerminator::Unreachable => {}
+        }
+    }
+
+    usage
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Check if an Invoke callee will be intercepted by a builtin handler.
@@ -190,6 +326,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
 
+        // Pre-scan: determine which struct fields are actually used per variable.
+        // This enables surgical struct loading — only accessed fields are loaded.
+        let used_fields = scan_used_fields(func);
+
         // Bind function parameters (respecting ABI passing modes).
         // Reference and Indirect params arrive as pointers — load the actual
         // value so ARC IR sees the struct, not the pointer.
@@ -225,7 +365,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         .builder
                         .get_param(self.current_function, llvm_param_idx);
                     let ty = self.resolve_type(param.ty);
-                    let loaded = self.builder.load(ty, ptr_param, "param.load");
+
+                    // Surgical loading: only load fields actually used.
+                    // `None` in the map = all fields needed, `Some(set)` = selective.
+                    let field_set = used_fields.get(&param.var);
+                    let loaded = if let Some(selective) = field_set {
+                        self.builder.load_struct_selective(
+                            ty,
+                            ptr_param,
+                            selective.as_ref(),
+                            "param.load",
+                        )
+                    } else {
+                        // Variable not in usage map at all — unused param.
+                        // Load nothing (zero-init). The aggregate is never read.
+                        self.builder.load_struct_selective(
+                            ty,
+                            ptr_param,
+                            Some(&FxHashSet::default()),
+                            "param.load",
+                        )
+                    };
                     self.def_var_repr(param.var, loaded, func);
                     llvm_param_idx += 1;
                 }

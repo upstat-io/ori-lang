@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Dead Code Pruning"
-status: not-started
+status: in-progress
 goal: "No dead loads (unused struct/list fields) and no code generation after noreturn calls"
 inspired_by:
   - "Rust rustc_codegen_llvm/mir/operand.rs — loads only accessed fields via OperandValue::Ref"
@@ -10,7 +10,7 @@ depends_on: ["02"]
 sections:
   - id: "06.1"
     title: "Surgical Struct Field Loading"
-    status: not-started
+    status: complete
   - id: "06.2"
     title: "Skip Codegen After Noreturn Calls"
     status: not-started
@@ -53,23 +53,23 @@ Instead of loading all fields of a struct into an aggregate, load only the field
 3. During `Indirect`/`Reference` param loading (`emit_function.rs:223–230`), call a new `IrBuilder::load_struct_selective(ty, ptr, &used_fields)` that only emits GEP+load+insert_value for fields in the used set. Unaccessed fields get `undef` in the aggregate.
 4. The aggregate shape is unchanged — downstream code sees the same type.
 
-- [ ] Implement `scan_used_fields(func: &ArcFunction) -> HashMap<ArcVarId, HashSet<u32>>` in `emit_function.rs`
-- [ ] Include `Apply`/`ApplyIndirect`/`Construct` arg scanning (whole-struct passthrough = all fields used)
-- [ ] Add `load_struct_selective(ty, ptr, used_fields, name)` to `IrBuilder` in `memory.rs`
-- [ ] Wire selective loading into `Indirect`/`Reference` parameter binding in `emit_function.rs`
-- [ ] Verify: J4 `_ori_area` only loads `width` and `height`, not `origin.x`/`origin.y`
-- [ ] Verify: J10 `_ori_count_items` only loads `length`, not `capacity` or `data_ptr`
+- [x] Implement `scan_used_fields(func: &ArcFunction) -> HashMap<ArcVarId, HashSet<u32>>` in `emit_function.rs`
+- [x] Include `Apply`/`ApplyIndirect`/`Construct` arg scanning (whole-struct passthrough = all fields used)
+- [x] Add `load_struct_selective(ty, ptr, used_fields, name)` to `IrBuilder` in `memory.rs`
+- [x] Wire selective loading into `Indirect`/`Reference` parameter binding in `emit_function.rs`
+- [x] Verify: J4 `_ori_area` only loads `width` and `height`, not `origin.x`/`origin.y`
+- [x] Verify: J10 `_ori_count_items` only loads `length`, not `capacity` or `data_ptr`
 
 ### 06.1 Completion Checklist
 
-- [ ] Struct parameters: only referenced fields are loaded from memory
-- [ ] J4 `_ori_area` loads exactly 2 fields (not 4)
-- [ ] J10 `_ori_count_items` loads exactly 1 field (length, not 3)
-- [ ] IR test: function accessing 1 of 4 struct fields emits 1 load (not 4)
-- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for surgical field loading
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] Struct parameters: only referenced fields are loaded from memory
+- [x] J4 `_ori_area` loads exactly 2 fields (not 4)
+- [x] J10 `_ori_count_items` loads exactly 1 field (length, not 3)
+- [x] IR test: function accessing 1 of 4 struct fields emits 1 load (not 4)
+- [x] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for surgical field loading
+- [x] `./test-all.sh` green
+- [x] `./clippy-all.sh` green
+- [x] No regressions in `cargo test -p ori_llvm`
 
 ---
 
