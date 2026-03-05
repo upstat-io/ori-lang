@@ -9,6 +9,7 @@ status: active
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
 > **Source:** All findings from code journeys 1–12 (`plans/code-journeys/`)
+> **Last reviewed:** 2026-03-05
 
 ## How to Use
 
@@ -21,13 +22,13 @@ status: active
 ## Keyword Clusters by Section
 
 ### Section 01: Block Merging & CFG Simplification
-**File:** `section-01-block-merging.md` | **Status:** Not Started
+**File:** `section-01-block-merging.md` | **Status:** In Progress (3/4 subsections complete)
 
 ```
 basic block, unconditional branch, br label, block merging, CFG simplification
 select instruction, if/else diamond, phi node, single-predecessor phi
 break bridge, dead phi, trivial block, sequential block, let-binding boundary
-arc_emitter, terminators.rs, construction.rs, element_fn_gen.rs
+block_merge/mod.rs, arc_emitter, emit_function.rs, terminators.rs
 ```
 
 ---
@@ -40,7 +41,9 @@ noreturn, nounwind, noundef, cold, function attribute, LLVM attribute
 ori_panic_cstr, ori_str_from_raw, indirect closure call, main wrapper
 derived methods, derive_codegen, nounwind analysis, fixed-point
 fastcc, calling convention, exception table, personality function
-runtime_functions.rs, nounwind.rs, function_compiler, runtime_decl
+Attr enum, Attr::Noreturn, Attr::Nounwind, add_noreturn_attribute
+runtime_functions.rs, nounwind.rs, function_compiler, runtime_decl, attributes.rs
+apply_attr, is_rt_fn_nounwind, is_rt_fn_noreturn, entry_point.rs
 ```
 
 ---
@@ -74,7 +77,7 @@ ori_arc, drop_gen.rs, arc_emitter
 sum type, variant, payload, destructuring, match expression
 alloca, store, GEP, load, extractvalue, union payload
 [N x i64], record variant, enum, Option, decision tree
-arc_emitter, construction.rs, element_fn_gen.rs
+arc_emitter, instr_dispatch.rs, construction.rs, element_fn_gen.rs
 ```
 
 ---
@@ -86,7 +89,7 @@ arc_emitter, construction.rs, element_fn_gen.rs
 dead code, dead load, struct field, list field, unused field
 noreturn, unreachable, cleanup after panic, DCE
 aggregate load, per-field GEP, surgical extraction
-arc_emitter, construction.rs, aggregates.rs
+arc_emitter, instr_dispatch.rs, emit_function.rs, apply.rs, aggregates.rs
 ```
 
 ---
@@ -109,7 +112,7 @@ ir_builder, constants.rs
 loop, CSE, common subexpression, duplicate computation
 loop-invariant, phi node, LICM, hoisting
 range iteration, bounds check, specialization, 1..=n
-for_range.rs, arc_emitter, control_flow
+for_range.rs, loops.rs, emit_function.rs, operators.rs, control_flow
 ```
 
 ---
@@ -141,15 +144,15 @@ build/codegen-purity/current, artifact capture, opt-21 verify
 
 ## Quick Reference
 
-| ID | Title | File |
-|----|-------|------|
-| 01 | Block Merging & CFG Simplification | `section-01-block-merging.md` |
-| 02 | Function Attributes | `section-02-function-attributes.md` |
-| 03 | Arithmetic Correctness | `section-03-arithmetic-correctness.md` |
-| 04 | ARC Closure Lifecycle | `section-04-arc-closure-lifecycle.md` |
-| 05 | Sum Type Payload Extraction | `section-05-payload-extraction.md` |
-| 06 | Dead Code Pruning | `section-06-dead-code-pruning.md` |
-| 07 | Constant Deduplication | `section-07-constant-dedup.md` |
-| 08 | Loop IR Quality | `section-08-loop-ir-quality.md` |
-| 09 | Tail Call Optimization | `section-09-tail-call.md` |
-| 10 | Verification | `section-10-verification.md` |
+| ID | Title | File | Status |
+|----|-------|------|--------|
+| 01 | Block Merging & CFG Simplification | `section-01-block-merging.md` | In Progress |
+| 02 | Function Attributes | `section-02-function-attributes.md` | Not Started |
+| 03 | Arithmetic Correctness | `section-03-arithmetic-correctness.md` | Complete |
+| 04 | ARC Closure Lifecycle | `section-04-arc-closure-lifecycle.md` | Complete |
+| 05 | Sum Type Payload Extraction | `section-05-payload-extraction.md` | Not Started |
+| 06 | Dead Code Pruning | `section-06-dead-code-pruning.md` | Not Started |
+| 07 | Constant Deduplication | `section-07-constant-dedup.md` | Not Started |
+| 08 | Loop IR Quality | `section-08-loop-ir-quality.md` | Not Started |
+| 09 | Tail Call Optimization | `section-09-tail-call.md` | Not Started |
+| 10 | Verification | `section-10-verification.md` | Not Started |

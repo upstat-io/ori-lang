@@ -26,7 +26,7 @@ sections:
 
 **Existing infrastructure:** `emit_checked_binop()` in `arithmetic.rs` already implements the `@llvm.ssub.with.overflow.i64` pattern for binary subtraction. The negation fix can reuse this infrastructure directly (negation is `0 - x`).
 
-**Current codegen location:** Unary integer negation currently lowers via `self.builder.neg(...)` (unchecked `build_int_neg`) in ARC emitter operator handling.
+**Current codegen location:** Unary integer negation lowers via `self.builder.checked_neg(operand, "neg")` in ARC emitter operator handling (`operators.rs`), which delegates to `IrBuilder::checked_neg()` → `emit_checked_binop("llvm.ssub.with.overflow", 0, x)` in `arithmetic.rs`. The unchecked `build_int_neg()` path still exists in `arithmetic.rs` as `neg()` but is no longer used for user-facing negation.
 
 **Eval parity:** The eval interpreter **already handles this correctly**:
 - `compiler/oric/src/eval/tests/unary_operators_tests.rs` and evaluator numeric paths use `checked_neg()` semantics for ints.
@@ -68,7 +68,7 @@ ok:
 - [x] Write spec test: `-1` returns `-1` (no overflow)
 - [x] Write spec test: `-9223372036854775807` returns `-9223372036854775807` (INT_MAX negation, no overflow)
 - [x] Verify spec tests FAIL before fix (confirm the bug exists) — AOT test confirmed bug: exit code 0 instead of panic
-- [x] Locate unary negation codegen: `operators.rs:149` → `arithmetic.rs:98` (`build_int_neg`)
+- [x] Locate unary negation codegen: `operators.rs` `UnaryOp::Neg` → `IrBuilder::checked_neg()` in `arithmetic.rs` (was unchecked `build_int_neg`, now `emit_checked_binop`)
 - [x] Replace `sub i64 0, %x` with `@llvm.ssub.with.overflow.i64` + overflow check — `checked_neg()` reuses `emit_checked_binop`
 - [x] Use the same panic message pattern as other overflow checks: `"integer overflow on negation\00"`
 - [x] Verify all spec tests pass (4153 passed)
