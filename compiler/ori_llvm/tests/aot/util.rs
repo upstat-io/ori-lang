@@ -711,6 +711,28 @@ fn is_bridge_only(instrs: &[&str]) -> bool {
     meaningful.len() == 1 && meaningful[0].starts_with("br label ")
 }
 
+/// Count phi nodes with exactly one incoming edge in a function's IR.
+///
+/// A single-predecessor phi `%x = phi T [ %v, %bb ]` with one incoming
+/// edge is redundant — equivalent to using `%v` directly. These should
+/// be eliminated by the ARC block merge pass (Phase 5).
+pub fn count_single_pred_phis(function_ir: &str) -> usize {
+    function_ir
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with(';') {
+                return false;
+            }
+            if !trimmed.contains(" = phi ") {
+                return false;
+            }
+            // Single incoming edge = exactly one `[` bracket pair.
+            trimmed.matches('[').count() == 1
+        })
+        .count()
+}
+
 /// Create a minimal valid WASM module for testing.
 ///
 /// This creates a WASM module with:
