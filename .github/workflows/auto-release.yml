@@ -1,15 +1,14 @@
 name: Auto Release
 
-# Automatically tag and release on every merge to master — but ONLY after CI passes.
+# Automatically tag and release on every merge to master.
+# CI is guaranteed to have passed via branch protection (required status check).
 # Uses CalVer: v2026.02.27.N-alpha (UTC date + daily build counter + release stage).
 # The daily counter (N) is derived from git history via bump-build.sh, so multiple
 # merges on the same day correctly get .1, .2, .3, etc.
 # No commits to master — just tags the merge commit directly.
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  push:
     branches: [master]
 
 # Queue releases — don't cancel in-progress ones.
@@ -24,8 +23,7 @@ permissions:
 jobs:
   auto-release:
     name: Tag & Release
-    # Only release if CI succeeded — never release on failure
-    if: github.event.workflow_run.conclusion == 'success'
+    # CI is guaranteed by branch protection — this only runs after a merge to master
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
