@@ -1,6 +1,6 @@
 use super::*;
 
-// === RawTag discriminants ===
+// RawTag discriminants
 
 #[test]
 fn repr_u8_identifiers_and_literals() {
@@ -53,7 +53,7 @@ fn tag_is_one_byte() {
     assert_eq!(std::mem::size_of::<RawTag>(), 1);
 }
 
-// === Lexeme ===
+// Lexeme
 
 #[test]
 fn fixed_lexeme_single_char_operators() {
@@ -131,7 +131,7 @@ fn variable_lexeme_returns_none() {
     assert_eq!(RawTag::Eof.lexeme(), None);
 }
 
-// === Name ===
+// Name
 
 #[test]
 fn name_returns_readable_description() {
@@ -155,7 +155,7 @@ fn name_returns_readable_description() {
     assert_eq!(RawTag::UnterminatedString.name(), "unterminated string");
 }
 
-// === Trivia ===
+// Trivia
 
 #[test]
 fn trivia_classification() {
@@ -168,7 +168,7 @@ fn trivia_classification() {
     assert!(!RawTag::Eof.is_trivia());
 }
 
-// === RawToken ===
+// RawToken
 
 #[test]
 fn raw_token_construction() {
@@ -188,4 +188,26 @@ fn raw_token_is_copy() {
     };
     let tok2 = tok; // Copy
     assert_eq!(tok, tok2);
+}
+
+// ALL constant
+
+#[test]
+fn all_contains_no_duplicates() {
+    let all = RawTag::ALL;
+    for (i, a) in all.iter().enumerate() {
+        for (j, b) in all.iter().enumerate() {
+            if i != j {
+                assert_ne!(a, b, "duplicate in RawTag::ALL at indices {i} and {j}");
+            }
+        }
+    }
+}
+
+#[test]
+fn all_matches_name_exhaustiveness() {
+    // Every variant in ALL must return a non-empty name
+    for tag in RawTag::ALL {
+        assert!(!tag.name().is_empty(), "{tag:?} has empty name");
+    }
 }
