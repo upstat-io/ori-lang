@@ -842,3 +842,9 @@ Update prelude traits list and add iterator documentation to the quick reference
 | Generators | Deferred to future proposal |
 
 This proposal formalizes iteration as a first-class concept in Ori, enabling generic programming over any iterable while maintaining Ori's simplicity, explicitness, and functional semantics.
+
+---
+
+## Errata (added 2026-03-05)
+
+> **Affected by [mutable-self-proposal](mutable-self-proposal.md)**: The "Why Functional `next()` Signature?" rationale (§ Design Rationale) states "Function parameters are immutable. To advance iterator state, `next()` returns both the optional value and the updated iterator." With mutable self approved, `self` is now a mutable binding in method bodies, which enables a simpler `@next (self) -> Option<Self.Item>` signature. The Iterator trait revision is tracked as a separate follow-up proposal; the current `(Option<Item>, Self)` signature remains until that proposal is approved.

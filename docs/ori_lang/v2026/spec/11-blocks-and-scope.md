@@ -293,4 +293,4 @@ The keyword `Self` (capitalized) refers to the implementing type. It is visible 
 
 `Self` is not visible in standalone functions, module scope, or `extend` blocks.
 
-The keyword `self` (lowercase) is a parameter name available in methods — functions declared with a `self` parameter. It is immutable (like all parameters) and has type `Self`.
+The keyword `self` (lowercase) is a parameter name available in methods — functions declared with a `self` parameter. Unlike other parameters, `self` is a mutable binding: it may be reassigned and its fields may be mutated within the method body. Methods that mutate `self` implicitly propagate the modified value back to the caller through desugaring (see [mutable-self-proposal](../../proposals/approved/mutable-self-proposal.md)). `self` has type `Self`.

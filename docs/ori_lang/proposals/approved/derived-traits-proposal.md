@@ -8,7 +8,7 @@
 
 ## Errata (added 2026-02-20)
 
-> **Partially superseded by capability-unification-generics-proposal**: The `#derive(Trait)` syntax described in this proposal is replaced by `type T with Trait = { ... }` syntax. Derivation rules, field constraints, error codes, and the set of 7 derivable traits remain valid. Only the syntax for declaring derivation changes.
+> **Partially superseded by capability-unification-generics-proposal**: The `#derive(Trait)` syntax described in this proposal is replaced by `type T: Trait = { ... }` syntax (`:` trait clause on type declarations). Derivation rules, field constraints, error codes, and the set of 7 derivable traits remain valid. Only the syntax for declaring derivation changes.
 
 ---
 

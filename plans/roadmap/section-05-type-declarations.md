@@ -307,27 +307,27 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
 
 **Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 1
 
-Replace `#derive(Trait)` with `type T with Trait = ...`. Derivation moves from attribute syntax into the type declaration grammar.
+Replace `#derive(Trait)` with `type T: Trait = ...`. Derivation moves from attribute syntax into the type declaration grammar as a `:` trait clause.
 
-> **SUPERSEDES**: Previous syntax `#derive(Eq, Clone)` and `#[derive(Eq, Clone)]` are both replaced by `type T with Eq, Clone = { ... }`.
+> **SUPERSEDES**: Previous syntax `#derive(Eq, Clone)` and `#[derive(Eq, Clone)]` are both replaced by `type T: Eq, Clone = { ... }`.
 
 ### Syntax Migration
 
-- [ ] **Implement**: Parser — parse `with` clause in `parse_type_decl()` between generics and `where`/`=`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — `with` clause parsing
-  - [ ] **Ori Tests**: `tests/spec/declarations/with_clause.ori`
-- [ ] **Implement**: IR — add `with_traits: Vec<DerivedTrait>` to `TypeDef` node (replacing attribute-sourced data)
-- [ ] **Implement**: Remove `parse_derive_attr()` from parser; keep as migration error suggesting `with`
+- [ ] **Implement**: Parser — parse `:` trait clause in `parse_type_decl()` between generics and `where`/`=`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — `:` trait clause parsing
+  - [ ] **Ori Tests**: `tests/spec/declarations/trait_clause.ori`
+- [ ] **Implement**: IR — add `derive_traits: Vec<DerivedTrait>` to `TypeDef` node (replacing attribute-sourced data)
+- [ ] **Implement**: Remove `parse_derive_attr()` from parser; keep as migration error suggesting `:`
   - [ ] **Ori Tests**: `tests/compile-fail/old_derive_syntax.ori`
-- [ ] **Migration**: Update all `#derive(...)` in spec tests to `with` clause (~193 files)
-- [ ] **Migration**: Migration script (`scripts/migrate_with_syntax.py`)
+- [ ] **Migration**: Update all `#derive(...)` in spec tests to `:` trait clause (~193 files)
+- [ ] **Migration**: Migration script (`scripts/migrate_derive_syntax.py`)
 - [ ] **Update Spec**: `grammar.ebnf` — `type_def` production
 - [ ] **Update**: `.claude/rules/ori-syntax.md` — derive syntax
 - [ ] **Verify**: `./test-all.sh` passes after migration
 
 ### Existing Derive Functionality (carries forward)
 
-- [x] **Implement**: Parse `#[derive(Trait1, Trait2)]` [done] (2026-02-10) — to be replaced by `with` clause
+- [x] **Implement**: Parse `#[derive(Trait1, Trait2)]` [done] (2026-02-10) — to be replaced by `:` trait clause
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — derive attribute parsing
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` (15+ tests)
   - [ ] **LLVM Support**: LLVM codegen for derive attributes
