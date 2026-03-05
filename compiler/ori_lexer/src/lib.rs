@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! Lexer for Ori with string interning.
 //!
 //! Produces `TokenList` for Salsa queries.
@@ -189,7 +190,7 @@ pub struct LexResult {
 /// the token stream and errors. For metadata (comments, formatting info),
 /// use [`lex_with_comments()`].
 pub fn lex_full(source: &str, interner: &StringInterner) -> LexResult {
-    let output = lex_driver::<true>(source, interner);
+    let output = lex_driver::<false>(source, interner);
     LexResult {
         tokens: output.tokens,
         errors: output.errors,
@@ -396,6 +397,9 @@ fn lex_driver<const WITH_METADATA: bool>(source: &str, interner: &StringInterner
                     .tokens
                     .push_with_tag(Token::new(kind, token_span), tag, flags);
                 pending_flags = TokenFlags::EMPTY;
+
+                // Track last non-trivia raw tag for O(1) method-position detection.
+                cooker.set_last_non_trivia(raw.tag);
             }
         }
 
@@ -482,7 +486,7 @@ fn is_declaration_start(kind: &TokenKind) -> bool {
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "test code: source lengths always fit u32"
 )]

@@ -40,7 +40,7 @@ fn resolve_common_escape(c: char) -> Option<char> {
 /// from the start of `content` (the `u`) through the closing `}` inclusive.
 /// On error, returns `'\u{FFFD}'` (replacement character) and the number of
 /// bytes consumed greedily.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
@@ -175,7 +175,7 @@ fn parse_unicode_escape(
 ///
 /// Fast path: if no backslashes, returns `None` to signal the caller can
 /// intern the source slice directly.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
@@ -261,7 +261,7 @@ pub(crate) fn unescape_string_v2(
 ///
 /// Valid escapes per grammar line 127: `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
 /// `\"` is **not** valid in char literals.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
@@ -322,7 +322,7 @@ pub(crate) fn unescape_char_v2(
 ///
 /// Fast path: if no backslashes and no consecutive braces, returns `None`
 /// to signal the caller can intern the source slice directly.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]

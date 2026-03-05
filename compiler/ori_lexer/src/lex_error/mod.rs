@@ -68,10 +68,6 @@ pub enum LexErrorKind {
     SingleQuoteEscapeInString,
     /// `\"` used in a char literal — not valid per grammar line 127.
     DoubleQuoteEscapeInChar,
-    /// Empty char literal `''`.
-    EmptyCharLiteral,
-    /// Multiple characters in char literal `'ab'`.
-    MultiCharLiteral,
 
     // Numeric errors
     /// Integer literal overflowed `u64`.
@@ -102,9 +98,6 @@ pub enum LexErrorKind {
     Utf16LeBom,
     /// UTF-16 BE BOM at file start. Wrong encoding — Ori requires UTF-8.
     Utf16BeBom,
-    /// ASCII control character (0x01-0x1F except `\t`, `\n`, `\r`).
-    InvalidControlChar { byte: u8 },
-
     // Unit literal errors
     /// Decimal duration/size literal cannot be represented as a whole number
     /// of base units (nanoseconds for duration, bytes for size).
@@ -113,16 +106,6 @@ pub enum LexErrorKind {
     // Reserved-future keyword errors
     /// A keyword reserved for future use (`asm`, `inline`, `static`, `union`, `view`).
     ReservedFutureKeyword { keyword: &'static str },
-
-    // Cross-language pattern errors
-    /// `===` or `!==` used (JavaScript habit).
-    TripleEqual,
-    /// `'string'` used instead of `"string"` (Python/JS habit).
-    SingleQuoteString,
-    /// `++` or `--` used (C/JavaScript habit).
-    IncrementDecrement { op: &'static str },
-    /// `? :` ternary operator pattern (C habit).
-    TernaryOperator,
 }
 
 /// Lexing context at the point of error — the WHY.
@@ -230,5 +213,5 @@ impl LexSuggestion {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
+#[expect(clippy::unwrap_used, reason = "test assertions")]
 mod tests;

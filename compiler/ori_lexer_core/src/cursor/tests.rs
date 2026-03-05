@@ -1,6 +1,6 @@
 use crate::SourceBuffer;
 
-// === Basic Navigation ===
+// Basic Navigation
 
 #[test]
 fn current_returns_first_byte() {
@@ -38,7 +38,7 @@ fn advance_through_entire_source() {
     assert!(cursor.is_eof());
 }
 
-// === Peek ===
+// Peek
 
 #[test]
 fn peek_returns_next_byte() {
@@ -70,7 +70,7 @@ fn peek2_near_end_returns_zero() {
     assert_eq!(cursor.peek2(), 0);
 }
 
-// === Peek at cache-line boundary ===
+// Peek at cache-line boundary
 //
 // When (source_len + 1) % 64 == 0, the buffer has zero post-sentinel padding.
 // peek/peek2 must still be safe at the sentinel position.
@@ -119,7 +119,7 @@ fn peek2_at_sentinel_62_byte_source() {
     assert_eq!(cursor.peek2(), 0); // must not panic
 }
 
-// === EOF Detection ===
+// EOF Detection
 
 #[test]
 fn is_eof_at_sentinel() {
@@ -148,7 +148,7 @@ fn interior_null_is_not_eof() {
     assert_eq!(cursor.current(), b'b');
 }
 
-// === Slice ===
+// Slice
 
 #[test]
 fn slice_extracts_substring() {
@@ -184,7 +184,7 @@ fn slice_utf8_multibyte() {
     assert_eq!(cursor.slice(7, 11), " bye");
 }
 
-// === eat_while ===
+// eat_while
 
 #[test]
 fn eat_while_consumes_matching_bytes() {
@@ -221,7 +221,7 @@ fn eat_while_no_match() {
     assert_eq!(cursor.pos(), 0); // didn't move
 }
 
-// === eat_until ===
+// eat_until
 
 #[test]
 fn eat_until_finds_target() {
@@ -259,7 +259,7 @@ fn eat_until_skips_interior_null() {
     assert_eq!(cursor.current(), b'!');
 }
 
-// === Copy Semantics ===
+// Copy Semantics
 
 #[test]
 fn cursor_is_copy_for_checkpointing() {
@@ -279,7 +279,7 @@ fn cursor_is_copy_for_checkpointing() {
     assert_eq!(saved.current(), b'c');
 }
 
-// === eat_until_newline_or_eof ===
+// eat_until_newline_or_eof
 
 #[test]
 fn eat_until_newline_finds_lf() {
@@ -336,7 +336,7 @@ fn eat_until_newline_from_middle() {
     assert_eq!(cursor.current(), b'\n');
 }
 
-// === skip_to_string_delim ===
+// skip_to_string_delim
 
 #[test]
 fn skip_to_string_delim_finds_closing_quote() {
@@ -421,7 +421,7 @@ fn skip_to_string_delim_cr_before_newline() {
     assert_eq!(cursor.pos(), 3);
 }
 
-// === skip_to_template_delim ===
+// skip_to_template_delim
 
 #[test]
 fn skip_to_template_delim_finds_backtick() {
@@ -514,7 +514,7 @@ fn skip_to_template_delim_at_first_position() {
     assert_eq!(cursor.pos(), 0);
 }
 
-// === eat_whitespace (SWAR) ===
+// eat_whitespace (SWAR)
 
 #[test]
 fn eat_whitespace_spaces_only() {
@@ -657,7 +657,7 @@ fn eat_whitespace_long_mixed_run() {
     let buf = SourceBuffer::new(source);
     let mut cursor = buf.cursor();
     cursor.eat_whitespace();
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "test string is under 30 bytes"
     )]
@@ -666,7 +666,7 @@ fn eat_whitespace_long_mixed_run() {
     assert_eq!(cursor.current(), b'x');
 }
 
-// === SWAR vs scalar agreement ===
+// SWAR vs scalar agreement
 
 #[test]
 fn swar_matches_scalar_basic_cases() {
@@ -699,9 +699,9 @@ fn swar_matches_scalar_basic_cases() {
     }
 }
 
-// === Property tests ===
+// Property tests
 
-#[allow(
+#[expect(
     clippy::disallowed_types,
     reason = "proptest macros internally use Arc"
 )]
