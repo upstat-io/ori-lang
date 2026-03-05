@@ -429,3 +429,14 @@ SIMD operations map to LLVM vector intrinsics:
 3. **64-bit integers only** — Integer SIMD uses Ori's native `int` (i64) to avoid truncation complexity.
 4. **String-based feature detection** — Simple `cpu_has_feature("avx2")` pattern with documented valid strings and panic on unknown features.
 5. **Core operation set** — Includes arithmetic, comparisons, min/max, math (sqrt/abs), and horizontal sum. More exotic operations (shuffle, blend, FMA) can be added in future proposals.
+
+## Errata (added 2026-03-05)
+
+> **Superseded by [intrinsics-v2-byte-simd-proposal](intrinsics-v2-byte-simd-proposal.md)**: This proposal's explicit-width naming scheme (`simd_add_f32x4`, `simd_add_i64x2`, etc.) is replaced by a generic API (`simd_add<T, $N>`). Key changes:
+>
+> 1. **Generic API**: All operations are generic over lane type `T` and width `$N`. The compiler monomorphizes based on the fixed-capacity list type at the call site.
+> 2. **Float lane width fix**: `f32` in names was incorrect — Ori's `float` is f64. `[float, max 2]` = 128-bit (not `[float, max 4]` as this proposal stated).
+> 3. **`Mask<$N>` type**: Comparison operations now return `Mask<$N>` instead of `[bool, max N]`.
+> 4. **Byte SIMD added**: 12 byte-level operations at 128/256/512-bit widths.
+> 5. **`std.bytes` module**: High-level byte search functions backed by SIMD.
+> 6. **V1 names deprecated**: Explicit-width names remain as aliases but emit deprecation warnings.
