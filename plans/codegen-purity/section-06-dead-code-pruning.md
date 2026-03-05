@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Dead Code Pruning"
-status: in-progress
+status: complete
 goal: "No dead loads (unused struct/list fields) and no code generation after noreturn calls"
 inspired_by:
   - "Rust rustc_codegen_llvm/mir/operand.rs — loads only accessed fields via OperandValue::Ref"
@@ -13,12 +13,12 @@ sections:
     status: complete
   - id: "06.2"
     title: "Skip Codegen After Noreturn Calls"
-    status: not-started
+    status: complete
 ---
 
 # Section 06: Dead Code Pruning
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** The codegen only loads struct/list fields that are actually used by the function, and emits no instructions after known-noreturn function calls (e.g., `ori_panic`).
 
 **Context:** Two categories of dead code in the emitted IR:
@@ -88,27 +88,27 @@ After emitting a call to a known-noreturn function (e.g., `ori_panic`, `ori_pani
 
 **Implementation approach:** In the ARC emitter's call emission path (`apply.rs` or `emit_function.rs`), after emitting a `call` to a function proven `noreturn` via `is_rt_fn_noreturn()`, emit `unreachable` and skip remaining instructions in that block.
 
-- [ ] Use `is_rt_fn_noreturn()` from §02.1 to query noreturn status of runtime functions at call sites
-- [ ] In ARC emitter call emission: after calling a noreturn function, emit `unreachable` and stop emitting the current block
-- [ ] Handle the ARC IR block structure: remaining instructions AND terminator after the noreturn call must be skipped
-- [ ] Do not emit drop/cleanup code after the unreachable on the normal path
-- [ ] Keep existing cleanup behavior for unwind paths where applicable (do not conflate `nounwind` and `noreturn`) — panic functions are `noreturn` but may still unwind for RC cleanup
-- [ ] Verify `emit_checked_binop()` already handles this correctly (no change needed there)
-- [ ] Verify: J7 panic path (bb6) has no code after `ori_panic()` call
-- [ ] Verify: user `panic()` calls also get `unreachable` after the call
+- [x] Use `is_rt_fn_noreturn()` from §02.1 to query noreturn status of runtime functions at call sites
+- [x] In ARC emitter call emission: after calling a noreturn function, emit `unreachable` and stop emitting the current block
+- [x] Handle the ARC IR block structure: remaining instructions AND terminator after the noreturn call must be skipped
+- [x] Do not emit drop/cleanup code after the unreachable on the normal path
+- [x] Keep existing cleanup behavior for unwind paths where applicable (do not conflate `nounwind` and `noreturn`) — panic functions are `noreturn` but may still unwind for RC cleanup
+- [x] Verify `emit_checked_binop()` already handles this correctly (no change needed there)
+- [x] Verify: J7 panic path (bb6) has no code after `ori_panic()` call
+- [x] Verify: user `panic()` calls also get `unreachable` after the call
 
 ### 06.2 Completion Checklist
 
-- [ ] No instructions emitted after noreturn calls on the normal path
-- [ ] J7 panic path (bb6) has `call @ori_panic_cstr(...)` + `unreachable` only
-- [ ] Unwind paths for RC cleanup are preserved (not affected by noreturn pruning)
-- [ ] IR test: function with explicit `panic()` has `unreachable` immediately after the call
-- [ ] IR test: function with `if cond then panic(msg: "x") else value` — the panic arm has `unreachable`, the else arm continues normally
-- [ ] Regression test: `emit_checked_binop` overflow path still has `unreachable` (guard against breaking the existing correct behavior)
-- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for no code after noreturn
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] No instructions emitted after noreturn calls on the normal path
+- [x] J7 panic path (bb6) has `call @ori_panic_cstr(...)` + `unreachable` only
+- [x] Unwind paths for RC cleanup are preserved (not affected by noreturn pruning)
+- [x] IR test: function with explicit `panic()` has `unreachable` immediately after the call
+- [x] IR test: function with `if cond then panic(msg: "x") else value` — the panic arm has `unreachable`, the else arm continues normally
+- [x] Regression test: `emit_checked_binop` overflow path still has `unreachable` (guard against breaking the existing correct behavior)
+- [x] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for no code after noreturn
+- [x] `./test-all.sh` green
+- [x] `./clippy-all.sh` green
+- [x] No regressions in `cargo test -p ori_llvm`
 
 ---
 

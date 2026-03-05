@@ -1185,3 +1185,132 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
          IR:\n{fn_ir}"
     );
 }
+
+// ── Skip Codegen After Noreturn Tests (Codegen Purity §06.2) ─────────
+
+/// Explicit `panic()` call should have `unreachable` immediately after —
+/// no RC cleanup or other code between the call and the terminator.
+///
+/// In `if cond then panic(msg: "x") else value`, the panic arm calls
+/// `ori_panic` (noreturn). The codegen should emit `call @ori_panic` +
+/// `unreachable` with nothing in between.
+#[test]
+fn test_noreturn_panic_has_unreachable_no_cleanup() {
+    let ir = compile_and_capture_ir(
+        r#"
+@may_panic (x: int) -> int = {
+    if x == 0 then panic(msg: "zero") else x
+};
+
+@main () -> int = may_panic(x: 5);
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
+
+    // Find the line that calls ori_panic.
+    let lines: Vec<&str> = fn_ir.lines().collect();
+    let panic_line_idx = lines
+        .iter()
+        .position(|l| {
+            l.contains("call") && l.contains("ori_panic") && !l.contains("ori_panic_cstr")
+        })
+        .expect("expected call to ori_panic in _ori_may_panic");
+
+    // The very next non-empty line after the panic call should be `unreachable`.
+    let next_meaningful = lines[panic_line_idx + 1..]
+        .iter()
+        .find(|l| !l.trim().is_empty())
+        .expect("expected instruction after ori_panic call");
+
+    assert!(
+        next_meaningful.trim() == "unreachable",
+        "expected `unreachable` immediately after `call @ori_panic`, \
+         but found: `{}`.\n\
+         No RC cleanup or other code should follow a noreturn call.\nIR:\n{fn_ir}",
+        next_meaningful.trim()
+    );
+}
+
+/// The else arm of `if cond then panic(...) else value` should still work
+/// normally — the noreturn pruning must not affect the non-panic path.
+#[test]
+fn test_noreturn_panic_else_arm_continues() {
+    let ir = compile_and_capture_ir(
+        r#"
+@may_panic (x: int) -> int = {
+    if x == 0 then panic(msg: "zero") else x
+};
+
+@main () -> int = may_panic(x: 5);
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
+
+    // The function must still contain a `ret` for the else arm.
+    assert!(
+        fn_ir.contains("ret i64"),
+        "expected `ret i64` for the else arm in _ori_may_panic.\n\
+         Noreturn pruning should not affect the non-panic path.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Checked arithmetic overflow panic (`emit_checked_binop`) should still
+/// have `unreachable` after the panic call — regression guard.
+///
+/// This path was already correct before §06.2. The test guards against
+/// accidentally breaking it while implementing noreturn pruning.
+#[test]
+fn test_checked_binop_overflow_still_has_unreachable() {
+    let ir = compile_and_capture_ir(
+        r"
+@add_checked (a: int, b: int) -> int = a + b;
+
+@main () -> int = add_checked(a: 9223372036854775807, b: 1);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_add_checked");
+
+    // The overflow panic block should contain ori_panic_cstr + unreachable.
+    assert!(
+        fn_ir.contains("ori_panic_cstr"),
+        "expected `ori_panic_cstr` for overflow panic in _ori_add_checked.\nIR:\n{fn_ir}"
+    );
+
+    // Find the ori_panic_cstr call line.
+    let lines: Vec<&str> = fn_ir.lines().collect();
+    let panic_line_idx = lines
+        .iter()
+        .position(|l| l.contains("call") && l.contains("ori_panic_cstr"))
+        .expect("expected call to ori_panic_cstr in _ori_add_checked");
+
+    // Next meaningful line should be `unreachable`.
+    let next_meaningful = lines[panic_line_idx + 1..]
+        .iter()
+        .find(|l| !l.trim().is_empty())
+        .expect("expected instruction after ori_panic_cstr call");
+
+    assert!(
+        next_meaningful.trim() == "unreachable",
+        "expected `unreachable` immediately after `call ori_panic_cstr` in overflow path, \
+         but found: `{}`.\nIR:\n{fn_ir}",
+        next_meaningful.trim()
+    );
+}

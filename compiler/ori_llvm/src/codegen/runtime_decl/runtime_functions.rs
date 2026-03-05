@@ -94,9 +94,7 @@ pub(crate) fn is_rt_fn_nounwind(name: &str) -> Option<bool> {
 /// to its caller), `Some(false)` if it is a known runtime function WITHOUT
 /// noreturn, or `None` if the name is not a runtime function at all.
 ///
-/// Infrastructure for §06 dead code pruning — will be consumed when that
-/// section identifies calls after which code is unreachable.
-#[allow(dead_code, reason = "infrastructure for §06 dead code pruning")]
+/// Used by §06.2 to skip codegen after noreturn calls.
 pub(crate) fn is_rt_fn_noreturn(name: &str) -> Option<bool> {
     RT_FUNCTIONS
         .iter()
