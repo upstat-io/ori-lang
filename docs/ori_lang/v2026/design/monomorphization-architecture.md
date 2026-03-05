@@ -834,7 +834,7 @@ However, if generic function bodies are only checked once (with unresolved type 
 
 ### 9.2 Generic Trait Methods
 
-Phase 1 handles only free functions. Generic trait methods (`impl<T with Eq> Eq for [T]`) require resolving both the type parameter and the trait implementation at the call site. This is more complex and is deferred to after Phase 1.
+Phase 1 handles only free functions. Generic trait methods (`impl<T: Eq> Eq for [T]`) require resolving both the type parameter and the trait implementation at the call site. This is more complex and is deferred to after Phase 1.
 
 ### 9.3 Cross-Module Monomorphization
 

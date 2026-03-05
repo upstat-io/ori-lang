@@ -1600,31 +1600,8 @@ Add `@` as a binary operator for matrix multiplication at multiplicative precede
 
 ---
 
-## 3.22 `with` Syntax for Bounds (Capability Unification)
+## 3.22 Bound Syntax — ELIMINATED (Capability Unification)
 
-**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 2
+**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 2 (eliminated)
 
-Replace `:` with `with` in all trait bound positions: generic parameters, where clauses, supertrait declarations, and impl block bounds. This gives Ori a consistent keyword vocabulary for structural capabilities.
-
-### Implementation
-
-- [ ] **Implement**: Parser — change `parse_generic_param()` bound delimiter from `:` to `with`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — generic param `with` bound tests
-  - [ ] **Ori Tests**: `tests/spec/traits/bounds/with_syntax.ori`
-- [ ] **Implement**: Parser — change `parse_where_clause()` from `T: Bounds` to `T with Bounds`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — where clause `with` bound tests
-  - [ ] **Ori Tests**: `tests/spec/traits/bounds/where_with.ori`
-- [ ] **Implement**: Parser — change `parse_trait_def()` supertrait syntax from `: Bounds` to `with Bounds`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — supertrait `with` tests
-  - [ ] **Ori Tests**: `tests/spec/traits/bounds/supertrait_with.ori`
-- [ ] **Implement**: Migration error for old `:` bound syntax (suggests `with`)
-  - [ ] **Ori Tests**: `tests/compile-fail/old_colon_bound_syntax.ori`
-- [ ] **Migration**: Update all spec tests from `T: Trait` to `T with Trait`
-- [ ] **Migration**: Update all spec tests from `where T: Trait` to `where T with Trait`
-- [ ] **Migration**: Update all spec tests from `trait Foo: Bar` to `trait Foo with Bar`
-- [ ] **Migration**: Update all spec tests from `impl<T: Trait>` to `impl<T with Trait>`
-- [ ] **Update Spec**: `grammar.ebnf` — `type_param`, `where_clause`, `trait_def` productions
-- [ ] **Update Spec**: All bound examples across spec files
-- [ ] **Update**: `.claude/rules/ori-syntax.md` — bound syntax
-- [ ] **LLVM Support**: Verify LLVM tests compile with new syntax
-- [ ] **Verify**: `./test-all.sh` passes after migration
+**Status:** This section is **no longer needed**. The 2026-03-04 addendum to the capability-unification-generics-proposal decided to retain `:` for all bound positions (generic parameters, where clauses, supertrait declarations, impl block bounds). No parser changes, no test migration, no spec updates for bound syntax. Only the `#derive` → `:` trait clause on type declarations is a new syntax change (tracked in Section 5).

@@ -7,7 +7,7 @@ paths:
 
 **Spec is authoritative**: `docs/ori_lang/v2026/spec/` (Clauses 1–27, Annexes A–E; `grammar.ebnf` for syntax, `operator-rules.md` for semantics)
 
-> **Pending**: `capability-unification-generics-proposal` (approved 2026-02-20) will change: `#derive(Trait)` → `type T with Trait = {...}`, `T: Trait` → `T with Trait`, `trait Foo: Bar` → `trait Foo with Bar`. Syntax below reflects CURRENT compiler behavior until implementation.
+> **Pending**: `capability-unification-generics-proposal` (approved 2026-02-20, revised 2026-03-04) will change: `#derive(Trait)` → `type T: Trait = {...}`. Bound syntax (`T: Trait`, `where T: Trait`, `trait Foo: Bar`) is UNCHANGED. Syntax below reflects CURRENT compiler behavior until implementation.
 
 ## Declarations
 
@@ -19,7 +19,7 @@ paths:
 **Types**: `type N = { f: T }` struct | `A | B | C(f: T)` sum | `type N = Existing` newtype | `type N<T>` | `#derive(Eq)` | `pub type`
 **Newtypes**: `type UserId = int` | construct: `UserId(42)` | `.inner` (always public) | no trait/method inheritance | `#derive(Eq, Clone)` required | zero cost
 **Traits**: `trait N { @m (self) -> T }` | `@m (self) -> T = default` | `type Item` assoc | `type Output = Self` default | `trait C: P` | `@m () -> Self` assoc fn | `trait N<T = Self>` default type param
-**Impls**: `impl T { @m }` inherent | `impl Trait for T` | `impl<T: B> Trait for C<T>` | `self`/`Self`
+**Impls**: `impl T { @m }` inherent | `impl Trait for T` | `impl<T: B> Trait for C<T>` | `self` (mutable in methods — mutations propagate to caller) / `Self`
 **Associated Functions**: `impl T { @new () -> T }` — no `self` | call: `Type.method()` | `Self` in return | generics: `Option<int>.some(v:)`
 **Default Impls**: `pub def impl Trait { @m }` — stateless, one per trait/module, auto-bound, override with `with`
 **Extensions**: `extend Type { @m (self) -> T }` | `extend<T: Bound> [T]` | `extend T where T: Bound` | `pub extend` | no statics/fields/override
