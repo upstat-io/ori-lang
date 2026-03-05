@@ -34,6 +34,8 @@
 //! - `SourceBuffer` / `Cursor`: API is stable
 //! - Error tags: May be refined (new error kinds)
 
+#![deny(unsafe_code)]
+
 mod cursor;
 mod raw_scanner;
 mod source_buffer;

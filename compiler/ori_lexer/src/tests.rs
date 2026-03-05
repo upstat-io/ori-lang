@@ -662,16 +662,24 @@ fn no_is_doc_without_comment() {
 }
 
 #[test]
-fn is_doc_set_in_simple_lex() {
-    // lex() currently routes through lex_driver::<true>, so IS_DOC is set.
-    // If routing changes to lex_driver::<false>, IS_DOC would be omitted.
+fn is_doc_not_set_in_fast_path_lex() {
+    // lex()/lex_full() use lex_driver::<false> — no metadata collection.
+    // IS_DOC is only set by lex_with_comments() (lex_driver::<true>).
     let interner = StringInterner::new();
     let tokens = lex("// #Description\ndef", &interner);
     let flags = tokens.flags();
     // tokens: newline, def, EOF
     assert!(
-        flags[1].is_doc(),
-        "lex() should set IS_DOC (routes through full metadata path)"
+        !flags[1].is_doc(),
+        "lex() uses fast path — IS_DOC should not be set"
+    );
+
+    // Verify lex_with_comments() still sets IS_DOC
+    let output = lex_with_comments("// #Description\ndef", &interner);
+    let meta_flags = output.tokens.flags();
+    assert!(
+        meta_flags[1].is_doc(),
+        "lex_with_comments() should set IS_DOC"
     );
 }
 

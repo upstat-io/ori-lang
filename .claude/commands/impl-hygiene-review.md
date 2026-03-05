@@ -8,7 +8,7 @@ allowed-tools: Read, Grep, Glob, Task, Bash, EnterPlanMode
 
 Review implementation hygiene against `.claude/rules/impl-hygiene.md` and generate a plan to fix violations.
 
-**Implementation hygiene is NOT architecture** (design decisions are made) **and NOT code style** (naming, comments, formatting). It's the plumbing layer — phase boundaries, data flow, error propagation, abstraction discipline, and file organization.
+**Implementation hygiene is NOT architecture** (design decisions are made). It covers the full plumbing layer — phase boundaries, data flow, error propagation, abstraction discipline, file organization, naming, comments, visibility, and lint discipline.
 
 ## Target
 
@@ -206,7 +206,7 @@ Use **EnterPlanMode** to create a fix plan. The plan should:
 ## Important Rules
 
 1. **No architecture changes** — Don't propose new phases, new IRs, or restructured crate graphs
-2. **No code style fixes** — Don't flag naming, comments, or formatting (that's `/code-hygiene-review`). File organization (size, hierarchy, submodule structure) IS in scope — it's structural hygiene, not style.
+2. **Full scope** — Phase boundaries, data flow, naming, comments, visibility, file organization, lint discipline, and code fixes are all in scope. Only new phases, IRs, or crate graph restructures are out of scope (that's architecture).
 3. **Trace, don't grep** — Follow actual data flow through the code, don't just search for patterns
 4. **Read both sides** — Always read both the producer and consumer of a boundary
 5. **Understand before flagging** — Some apparent violations are intentional (e.g., lexer tracking nesting depth for nested comments is acceptable phase-local state, not phase bleeding)

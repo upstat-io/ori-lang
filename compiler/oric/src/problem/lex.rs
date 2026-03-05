@@ -135,14 +135,6 @@ pub fn render_lex_error(err: &LexError) -> Diagnostic {
             .with_message(r#"`\"` is not a valid escape in character literals"#)
             .with_label(span, "not valid in char literals"),
 
-        LexErrorKind::EmptyCharLiteral => Diagnostic::error(ErrorCode::E0004)
-            .with_message("empty character literal")
-            .with_label(span, "character literal must contain exactly one character"),
-
-        LexErrorKind::MultiCharLiteral => Diagnostic::error(ErrorCode::E0004)
-            .with_message("character literal contains multiple characters")
-            .with_label(span, "expected a single character"),
-
         LexErrorKind::IntOverflow => Diagnostic::error(ErrorCode::E0003)
             .with_message("integer literal overflows `int`")
             .with_label(span, "value exceeds maximum integer"),
@@ -206,10 +198,6 @@ pub fn render_lex_error(err: &LexError) -> Diagnostic {
             .with_label(span, "UTF-16 BE byte order mark detected")
             .with_note("Ori source files must be UTF-8 encoded"),
 
-        LexErrorKind::InvalidControlChar { byte } => Diagnostic::error(ErrorCode::E0002)
-            .with_message(format!("invalid control character (0x{byte:02X})"))
-            .with_label(span, "unexpected control character"),
-
         LexErrorKind::DecimalNotRepresentable => Diagnostic::error(ErrorCode::E0014)
             .with_message("decimal literal cannot be represented as a whole number of base units")
             .with_label(span, "value is not a whole number of nanoseconds or bytes")
@@ -219,26 +207,6 @@ pub fn render_lex_error(err: &LexError) -> Diagnostic {
         LexErrorKind::ReservedFutureKeyword { keyword } => Diagnostic::error(ErrorCode::E0015)
             .with_message(format!("`{keyword}` is reserved for future use"))
             .with_label(span, "reserved keyword"),
-
-        // Cross-language pattern errors
-        LexErrorKind::TripleEqual => Diagnostic::error(ErrorCode::E0008)
-            .with_message("Ori uses `==` for equality, not `===`")
-            .with_label(span, "replace with `==`"),
-
-        LexErrorKind::SingleQuoteString => Diagnostic::error(ErrorCode::E0009)
-            .with_message("strings in Ori use double quotes, not single quotes")
-            .with_label(span, r#"use `"..."` instead of `'...'`"#),
-
-        LexErrorKind::IncrementDecrement { op } => {
-            let alt = if *op == "++" { "x + 1" } else { "x - 1" };
-            Diagnostic::error(ErrorCode::E0010)
-                .with_message(format!("Ori doesn't have `{op}` — use `{alt}` instead"))
-                .with_label(span, format!("use `{alt}` instead"))
-        }
-
-        LexErrorKind::TernaryOperator => Diagnostic::error(ErrorCode::E0002)
-            .with_message("Ori uses `if`/`else` expressions, not ternary `? :`")
-            .with_label(span, "use `if condition then a else b`"),
     };
 
     // Attach suggestions from the LexError

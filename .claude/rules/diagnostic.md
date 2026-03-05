@@ -18,6 +18,18 @@ paths:
 - Backticks for code: `` `variable` ``
 - No periods in main message
 - Imperative: "try using X" | three-part: problem -> context -> guidance
+- **Expected context**: every "expected X, got Y" MUST include WHY — annotation, return type, parameter, operator context
+- **Suggestions**: use Damerau-Levenshtein edit distance for "did you mean?" — threshold: `distance <= max(2, name.len() / 3)`
+
+## Error Code Stability
+- Error codes are **permanent stable API** — once assigned, never reuse or change meaning
+- New errors get the next available code in their range
+- Each code documented in `errors/EXXX.md` with spec reference + example
+
+## Deduplication
+- Hash emitted diagnostics; suppress exact duplicates
+- Suppress follow-on errors when earlier error on same span already explains the problem
+- "invalid operand" style cascading errors suppressed if prior error exists on same expression
 
 ## Emitters (`emitter/`)
 - `terminal/`: Terminal (Ariadne-based) | `json/`: JSON | `sarif/`: SARIF

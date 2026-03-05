@@ -1,6 +1,6 @@
 use super::*;
 
-// === Construction ===
+// Construction
 
 #[test]
 fn empty_source() {
@@ -33,7 +33,7 @@ fn utf8_multibyte_source() {
     assert!(buf.encoding_issues().is_empty());
 }
 
-// === Cache-Line Alignment ===
+// Cache-Line Alignment
 
 #[test]
 fn buffer_aligned_to_cache_line() {
@@ -61,7 +61,7 @@ fn sentinel_and_padding_are_zero() {
     }
 }
 
-// === BOM Detection ===
+// BOM Detection
 
 #[test]
 fn detects_utf8_bom() {
@@ -90,7 +90,7 @@ fn no_bom_in_clean_source() {
     assert!(buf.encoding_issues().is_empty());
 }
 
-// === Interior Null Detection ===
+// Interior Null Detection
 
 #[test]
 fn detects_interior_null() {
@@ -133,7 +133,7 @@ fn no_false_positive_nulls() {
     assert!(nulls.is_empty());
 }
 
-// === Multiple Issues ===
+// Multiple Issues
 
 #[test]
 fn bom_and_null_both_detected() {
@@ -147,7 +147,7 @@ fn bom_and_null_both_detected() {
     );
 }
 
-// === Large Source ===
+// Large Source
 
 #[test]
 fn large_source() {
@@ -162,7 +162,7 @@ fn large_source() {
     assert_eq!(buf.as_sentinel_bytes().len() % CACHE_LINE, 0);
 }
 
-// === Cursor Creation ===
+// Cursor Creation
 
 #[test]
 fn cursor_starts_at_zero() {
