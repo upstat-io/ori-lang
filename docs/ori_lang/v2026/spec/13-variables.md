@@ -44,7 +44,7 @@ The `$` prefix marks a binding as immutable. See [Constants](12-constants.md) fo
 ### 13.2.1 Cannot Reassign
 
 - Immutable bindings (`$`-prefixed)
-- Function parameters
+- Function parameters (except `self` — see 13.5)
 - Loop variables
 
 ```ori
@@ -118,7 +118,7 @@ Parameters are immutable bindings scoped to the function body:
 @add (a: int, b: int) -> int = a + b;
 ```
 
-Parameters cannot be reassigned regardless of `$` prefix.
+Parameters cannot be reassigned regardless of `$` prefix, with one exception: `self` is a mutable binding in method bodies. `self` may be reassigned and its fields may be mutated. When a method mutates `self`, the modified value is implicitly propagated back to the caller through desugaring. See [11.11](11-blocks-and-scope.md#1111-self-and-self).
 
 ## 13.6 Assignment Semantics
 

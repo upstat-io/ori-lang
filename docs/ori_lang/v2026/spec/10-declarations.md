@@ -99,7 +99,7 @@ pub @identity<T> (x: T) -> T = x;
 
 - `@` prefix required
 - Return type required (`void` for no value)
-- Parameters are immutable
+- Parameters are immutable (except `self` — see [13.5](13-variables.md#135-function-parameters))
 - Private by default; `pub` exports
 - `uses` declares capability dependencies
 

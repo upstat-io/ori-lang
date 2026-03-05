@@ -134,7 +134,7 @@ Option, Some, None, optional
 Result, Ok, Err, error handling
 Ordering, Less, Equal, Greater
 List, Map, Set, collections
-with clause, type T with Eq, derive replacement
+trait clause, type T: Eq, derive replacement
 capability unification, structural capabilities
 Tuple, tuple type, (T, U)
 Range, range type, iterator
@@ -482,6 +482,8 @@ field assignment, state.field = x, struct spread
 compound assignment, +=, -=, *=
 assignment target, lvalue, lhs
 copy-on-write, COW, ARC optimization
+mutable self, self mutation, mutation propagation, desugaring
+mutating method, non-mutating, self-mutating
 ```
 
 ---
