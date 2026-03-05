@@ -35,6 +35,7 @@ pub enum UnicodeEscapeDetail {
 ///
 /// Follows the cross-system error shape from `v2-conventions.md` §5.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[must_use]
 pub struct LexError {
     /// WHERE the error occurred.
     pub span: Span,
@@ -106,6 +107,40 @@ pub enum LexErrorKind {
     // Reserved-future keyword errors
     /// A keyword reserved for future use (`asm`, `inline`, `static`, `union`, `view`).
     ReservedFutureKeyword { keyword: &'static str },
+}
+
+impl LexErrorKind {
+    /// Return the error code for this kind.
+    ///
+    /// Mirrors the code assignments in `oric::problem::lex::render_lex_error()`.
+    /// Having codes at the source avoids requiring the diagnostic layer for
+    /// programmatic error code access.
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            Self::UnterminatedString => "E0001",
+            Self::UnterminatedChar => "E0004",
+            Self::UnterminatedTemplate => "E0006",
+            Self::InvalidStringEscape { .. }
+            | Self::InvalidCharEscape { .. }
+            | Self::InvalidTemplateEscape { .. }
+            | Self::InvalidUnicodeEscape { .. }
+            | Self::SingleQuoteEscapeInString
+            | Self::DoubleQuoteEscapeInChar => "E0005",
+            Self::IntOverflow
+            | Self::HexIntOverflow
+            | Self::BinIntOverflow
+            | Self::FloatParseError => "E0003",
+            Self::InvalidByte { .. }
+            | Self::InvalidNullByte
+            | Self::Utf8Bom
+            | Self::Utf16LeBom
+            | Self::Utf16BeBom => "E0002",
+            Self::StandaloneBackslash => "E0013",
+            Self::UnicodeConfusable { .. } => "E0011",
+            Self::DecimalNotRepresentable => "E0014",
+            Self::ReservedFutureKeyword { .. } => "E0015",
+        }
+    }
 }
 
 /// Lexing context at the point of error — the WHY.

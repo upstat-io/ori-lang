@@ -343,14 +343,12 @@ impl LexError {
     }
 
     /// Add a context to this error.
-    #[must_use]
     pub fn with_context(mut self, ctx: LexErrorContext) -> Self {
         self.context = ctx;
         self
     }
 
     /// Add a suggestion to this error.
-    #[must_use]
     pub fn with_suggestion(mut self, suggestion: LexSuggestion) -> Self {
         self.suggestions.push(suggestion);
         self
