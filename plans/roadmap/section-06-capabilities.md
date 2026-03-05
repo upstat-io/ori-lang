@@ -47,7 +47,7 @@ sections:
     title: Named Capability Sets (capset)
     status: not-started
   - id: "6.14"
-    title: Intrinsics Capability
+    title: Intrinsics Capability (Generic SIMD, Byte Ops, Mask Type)
     status: not-started
   - id: "6.16"
     title: Stateful Handlers
@@ -443,41 +443,62 @@ Transparent aliases for capability sets. Expanded during name resolution before 
 
 ## 6.14 Intrinsics Capability
 
-**Proposal**: `proposals/approved/intrinsics-capability-proposal.md`
+**Proposal**: `proposals/approved/intrinsics-capability-proposal.md` (v1)
+**Proposal**: `proposals/approved/intrinsics-v2-byte-simd-proposal.md` (v2 — generic API, byte SIMD, Mask type)
 
-Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferred to separate proposal.
+Generic SIMD API, byte-level SIMD, `Mask<$N>` type, bit manipulation, and hardware feature detection. Atomics deferred to separate proposal.
 
 ### Implementation
 
+- [ ] **Implement**: Generic SIMD type validation — spec/20-capabilities.md
+  - [ ] Validate T x N combinations (byte: 16/32/64, int: 2/4/8, float: 2/4/8)
+  - [ ] Validate operation availability by lane type (div/sqrt/abs float-only, shuffle byte-only)
+  - [ ] Error E1063 for invalid T x N combinations
+  - [ ] Error E1064 for operation not available for lane type
+  - [ ] **Rust Tests**: `ori_types/src/check/` — SIMD type validation tests
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-type-validation.ori`
+
+- [ ] **Implement**: `Mask<$N>` type — spec/20-capabilities.md
+  - [ ] Add `Mask` as compiler-known type with const-generic parameter
+  - [ ] Methods: `bits`, `any`, `all`, `count`, `first_set`
+  - [ ] Implement `BitAnd`, `BitOr`, `BitNot` for `Mask<$N>`
+  - [ ] Valid N values: 2, 4, 8, 16, 32, 64
+  - [ ] **Rust Tests**: `ori_types/src/check/` — Mask type tests
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-mask.ori`
+
 - [ ] **Implement**: Add `Intrinsics` trait to prelude — spec/20-capabilities.md
-  - [ ] Trait definition with all SIMD and bit operations
+  - [ ] Generic SIMD operations (`simd_add<T, $N>`, etc.)
+  - [ ] Comparison operations returning `Mask<N>`
+  - [ ] Byte-specific: `simd_shuffle<$N>`
+  - [ ] Aligned loads: `simd_load_aligned<T, $N>`
+  - [ ] Select: `simd_select<T, $N>` (mask-driven)
   - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics.ori`
 
-- [ ] **Implement**: SIMD float operations (4-wide/128-bit)
-  - [ ] `simd_add_f32x4`, `simd_sub_f32x4`, `simd_mul_f32x4`, `simd_div_f32x4`
-  - [ ] `simd_min_f32x4`, `simd_max_f32x4`, `simd_sqrt_f32x4`, `simd_abs_f32x4`
-  - [ ] `simd_eq_f32x4`, `simd_lt_f32x4`, `simd_gt_f32x4`
-  - [ ] `simd_sum_f32x4` (horizontal reduction)
-  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-f32x4.ori`
+- [ ] **Implement**: Generic SIMD operations — float (128/256/512-bit)
+  - [ ] `simd_add`, `simd_sub`, `simd_mul`, `simd_div`, `simd_sqrt`, `simd_abs`
+  - [ ] `simd_cmpeq`, `simd_cmplt`, `simd_cmpgt` (return `Mask<N>`)
+  - [ ] `simd_min`, `simd_max`, `simd_sum`, `simd_splat`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-float.ori`
 
-- [ ] **Implement**: SIMD float operations (8-wide/256-bit, AVX)
-  - [ ] Same operations as 4-wide with `f32x8` suffix
-  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-f32x8.ori`
+- [ ] **Implement**: Generic SIMD operations — int (128/256/512-bit)
+  - [ ] `simd_add`, `simd_sub`, `simd_mul`
+  - [ ] `simd_cmpeq`, `simd_cmplt`, `simd_cmpgt` (return `Mask<N>`)
+  - [ ] `simd_min`, `simd_max`, `simd_sum`, `simd_splat`
+  - [ ] `simd_and`, `simd_or`, `simd_xor`, `simd_andnot`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-int.ori`
 
-- [ ] **Implement**: SIMD float operations (16-wide/512-bit, AVX-512)
-  - [ ] Same operations as 4-wide with `f32x16` suffix
-  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-f32x16.ori`
+- [ ] **Implement**: Generic SIMD operations — byte (128/256/512-bit)
+  - [ ] `simd_load`, `simd_load_aligned`, `simd_add`, `simd_sub`, `simd_mul`
+  - [ ] `simd_cmpeq`, `simd_cmplt`, `simd_cmpgt` (return `Mask<N>`)
+  - [ ] `simd_min`, `simd_max`, `simd_sum`, `simd_splat`
+  - [ ] `simd_and`, `simd_or`, `simd_xor`, `simd_andnot`
+  - [ ] `simd_shuffle` (byte-only), `simd_select`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-byte.ori`
 
-- [ ] **Implement**: SIMD 64-bit integer operations (2-wide/128-bit)
-  - [ ] `simd_add_i64x2`, `simd_sub_i64x2`, `simd_mul_i64x2`
-  - [ ] `simd_min_i64x2`, `simd_max_i64x2`
-  - [ ] `simd_eq_i64x2`, `simd_lt_i64x2`, `simd_gt_i64x2`
-  - [ ] `simd_sum_i64x2` (horizontal reduction)
-  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-i64x2.ori`
-
-- [ ] **Implement**: SIMD 64-bit integer operations (4-wide/256-bit, AVX2)
-  - [ ] Same operations as 2-wide with `i64x4` suffix
-  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-simd-i64x4.ori`
+- [ ] **Implement**: V1 deprecated aliases
+  - [ ] Map `simd_add_f32x4` → `simd_add<float, 2>`, etc.
+  - [ ] Emit deprecation warning for v1 names
+  - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-v1-compat.ori`
 
 - [ ] **Implement**: Bit manipulation operations
   - [ ] `count_leading_zeros`, `count_trailing_zeros`, `count_ones`
@@ -485,7 +506,7 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
   - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-bits.ori`
 
 - [ ] **Implement**: Hardware feature detection
-  - [ ] `cpu_has_feature` with valid feature strings
+  - [ ] `cpu_has_feature` with valid feature strings (add `ssse3`, `avx512bw`)
   - [ ] Error E1062 for unknown features
   - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-feature-detect.ori`
 
@@ -499,14 +520,19 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
   - [ ] For testing and portability
   - [ ] **Ori Tests**: `tests/spec/capabilities/intrinsics-emulated.ori`
 
-- [ ] **Implement**: Intrinsics error diagnostics — add error codes E1060/E1062/E1063 to `ori_diagnostic`
+- [ ] **Implement**: Intrinsics error diagnostics
   - [ ] E1060: requires Intrinsics capability
   - [ ] E1062: unknown CPU feature
-  - [ ] E1063: wrong SIMD vector size
+  - [ ] E1063: invalid SIMD type x width combination
+  - [ ] E1064: operation not available for lane type
   - [ ] **Rust Tests**: `ori_diagnostic/src/` — error formatting tests
 
 - [ ] **Implement**: LLVM backend SIMD codegen
-  - [ ] Map to LLVM vector intrinsics
+  - [ ] Generic dispatch: monomorphize to platform vector intrinsics
+  - [ ] `Mask<$N>` codegen: `<N x i1>` in LLVM IR
+  - [ ] Byte SIMD: `<16 x i8>`, `<32 x i8>`, `<64 x i8>`
+  - [ ] Float SIMD: `<2 x double>`, `<4 x double>`, `<8 x double>`
+  - [ ] Int SIMD: `<2 x i64>`, `<4 x i64>`, `<8 x i64>`
   - [ ] `count_ones` → `llvm.ctpop.i64`
   - [ ] `count_leading_zeros` → `llvm.ctlz.i64`
   - [ ] Runtime CPUID for feature detection
@@ -578,7 +604,7 @@ Extend `with...in` to support stateful effect handlers. The `handler(state: expr
 - [ ] 6.11 Capability Composition — not started
 - [ ] 6.12 Default Implementation Resolution — not started
 - [ ] 6.13 Named Capability Sets (`capset`) — not started
-- [ ] 6.14 Intrinsics Capability — not started
+- [ ] 6.14 Intrinsics Capability (Generic SIMD, Byte Ops, Mask Type) — not started
 - [ ] 6.16 Stateful Handlers — not started
 - [ ] LLVM codegen for capabilities — no test files exist
 - [ ] Full test suite: `./test-all.sh`
