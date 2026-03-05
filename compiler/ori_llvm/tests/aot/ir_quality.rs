@@ -8,7 +8,7 @@
 //! These properties are optimized away at `-O1`+, but clean `-O0` output
 //! aids debugging and makes IR inspection feasible during development.
 
-use crate::util::{compile_and_capture_ir, extract_function_ir};
+use crate::util::{compile_and_capture_ir, count_bridge_blocks, extract_function_ir};
 
 /// Nounwind-only program: zero `unreachable` terminators in the IR.
 ///
@@ -130,5 +130,69 @@ fn test_constant_main_minimal_ir() {
     assert!(
         !main_ir.contains("landingpad"),
         "constant-returning _ori_main should have no landing pads.\nIR:\n{main_ir}"
+    );
+}
+
+// ── Bridge-Block Elimination Tests ──────────────────────────────────
+
+/// Sequential `add()` calls should produce no bridge-only blocks.
+///
+/// The ARC block merge pass should downgrade trivial invokes and merge
+/// the resulting jump chains, eliminating `br label %bbN` bridge blocks.
+#[test]
+fn test_sequential_calls_no_bridge_blocks() {
+    let ir = compile_and_capture_ir(
+        r"
+@add (a: int, b: int) -> int = a + b;
+
+@main () -> int = {
+    let x = add(a: 1, b: 2);
+    let y = add(a: x, b: 3);
+    let z = add(a: y, b: 4);
+    z
+}
+",
+    );
+
+    // ORI_DEBUG_LLVM is debug-only — release binary produces no IR.
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    let bridges = count_bridge_blocks(main_ir);
+
+    assert_eq!(
+        bridges, 0,
+        "expected zero bridge-only blocks in _ori_main with 3 sequential add() calls, \
+         but found {bridges}.\nIR:\n{main_ir}"
+    );
+}
+
+/// @main calling a function should produce no bridge-only blocks.
+#[test]
+fn test_main_with_call_no_bridge_blocks() {
+    let ir = compile_and_capture_ir(
+        r"
+@double (x: int) -> int = x * 2;
+
+@main () -> int = double(x: 21);
+",
+    );
+
+    // ORI_DEBUG_LLVM is debug-only — release binary produces no IR.
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+    let bridges = count_bridge_blocks(main_ir);
+
+    assert_eq!(
+        bridges, 0,
+        "expected zero bridge-only blocks in _ori_main calling double(), \
+         but found {bridges}.\nIR:\n{main_ir}"
     );
 }
