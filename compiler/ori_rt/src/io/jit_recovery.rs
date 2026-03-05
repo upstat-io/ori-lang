@@ -8,8 +8,6 @@
 //! On MSVC, `_setjmp` is a compiler intrinsic with a hidden frame pointer argument —
 //! it cannot be called via Rust FFI. Instead, `ori_try_call` uses `__try`/`__except`.
 
-use std::cell::Cell;
-
 use super::panic_state::{did_panic, get_panic_message, reset_panic_state};
 
 /// Buffer for `setjmp`/`longjmp` JIT error recovery.
@@ -69,6 +67,9 @@ extern "C" {
 
 // JIT mode (setjmp/longjmp) is only used on Itanium targets.
 // On MSVC, jit_run_protected uses ori_try_call (__try/__except) instead.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+use std::cell::Cell;
+
 #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
 thread_local! {
     /// Whether the current thread is running JIT-compiled code.
