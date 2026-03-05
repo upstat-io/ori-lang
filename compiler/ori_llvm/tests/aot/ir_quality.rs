@@ -1033,6 +1033,114 @@ type IntEnum = A(x: int) | B(x: int, y: int);
     );
 }
 
+// ── Surgical Struct Field Loading Tests (Codegen Purity §06.1) ───────
+
+/// Function accessing 1 of 4 struct fields should emit only 1 GEP+load.
+///
+/// `get_x` receives a 4-field `Point` by pointer but only accesses field 0.
+/// The codegen should skip loading fields 1, 2, 3 — only emit 1 GEP+load
+/// (not 4 GEP+load+insertvalue sequences).
+#[test]
+fn test_struct_selective_field_loading() {
+    let ir = compile_and_capture_ir(
+        r"
+type Point = { x: int, y: int, z: int, w: int };
+
+@get_x (p: Point) -> int = p.x;
+
+@main () -> int = get_x(p: Point { x: 42, y: 0, z: 0, w: 0 });
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_get_x");
+
+    // Count GEP instructions for field access — should be exactly 1 (field 0).
+    let gep_count = fn_ir.matches("getelementptr").count();
+    assert!(
+        gep_count <= 1,
+        "expected at most 1 GEP in _ori_get_x (accessing only field x), \
+         but found {gep_count}.\nIR:\n{fn_ir}"
+    );
+
+    // Count load instructions — should be exactly 1 (loading field 0).
+    let load_count = fn_ir.matches("= load ").count();
+    assert!(
+        load_count <= 1,
+        "expected at most 1 load in _ori_get_x (loading only field x), \
+         but found {load_count}.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Function accessing 2 of 4 struct fields should emit exactly 2 GEP+load.
+#[test]
+fn test_struct_selective_two_fields() {
+    let ir = compile_and_capture_ir(
+        r"
+type Rect = { x: int, y: int, width: int, height: int };
+
+@area (r: Rect) -> int = r.width * r.height;
+
+@main () -> int = area(r: Rect { x: 0, y: 0, width: 3, height: 4 });
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_area");
+
+    // Should load exactly 2 fields (width at index 2, height at index 3).
+    let load_count = fn_ir.matches("= load ").count();
+    assert!(
+        load_count <= 2,
+        "expected at most 2 loads in _ori_area (width + height only), \
+         but found {load_count}.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Struct passed whole to another function must load all fields.
+///
+/// When a struct param is passed directly as an argument to another call
+/// (not via Project), all fields must be loaded — the callee may use any.
+/// Uses a 4-field struct to ensure Indirect passing (>16 bytes).
+#[test]
+fn test_struct_whole_passthrough_loads_all() {
+    let ir = compile_and_capture_ir(
+        r"
+type Big = { a: int, b: int, c: int, d: int };
+
+@sum_big (p: Big) -> int = p.a + p.b + p.c + p.d;
+
+@forward (p: Big) -> int = sum_big(p: p);
+
+@main () -> int = forward(p: Big { a: 1, b: 2, c: 3, d: 4 });
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_forward");
+
+    // `forward` passes `p` whole to `sum_big` — all fields must be loaded.
+    // Big has 4 fields, so we need at least 4 loads.
+    let load_count = fn_ir.matches("= load ").count();
+    assert!(
+        load_count >= 4,
+        "expected at least 4 loads in _ori_forward (whole passthrough of 4-field struct), \
+         but found {load_count}.\nIR:\n{fn_ir}"
+    );
+}
+
 /// Boxed (recursive) enum fields must still use alloca+GEP+load.
 ///
 /// Recursive types are heap-allocated behind RC pointers. The payload
