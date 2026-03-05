@@ -5,7 +5,7 @@ status: not-started
 tier: 5
 goal: Enable platform-specific code and feature flags
 spec:
-  - spec/24-conditional-compilation.md
+  - spec/25-conditional-compilation.md
 sections:
   - id: "13.1"
     title: Target Attribute
@@ -91,7 +91,7 @@ sections:
 
 ## 13.1 Target Attribute
 
-**Spec section**: `spec/24-conditional-compilation.md § Target Attribute`
+**Spec section**: `spec/25-conditional-compilation.md § Target Attribute`
 
 ### Syntax
 
@@ -118,7 +118,7 @@ sections:
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/24-conditional-compilation.md`
+- [ ] **Spec**: Add `spec/25-conditional-compilation.md`
   - [ ] Target attribute syntax
   - [ ] OS, arch, family values
   - [ ] Scope rules
@@ -148,7 +148,7 @@ sections:
 
 ## 13.2 OR Conditions
 
-**Spec section**: `spec/24-conditional-compilation.md § OR Conditions`
+**Spec section**: `spec/25-conditional-compilation.md § OR Conditions`
 
 ### Syntax
 
@@ -189,7 +189,7 @@ sections:
 
 ## 13.3 Negation
 
-**Spec section**: `spec/24-conditional-compilation.md § Negation`
+**Spec section**: `spec/25-conditional-compilation.md § Negation`
 
 ### Syntax
 
@@ -234,7 +234,7 @@ sections:
 
 ## 13.4 Cfg Attribute
 
-**Spec section**: `spec/24-conditional-compilation.md § Cfg Attribute`
+**Spec section**: `spec/25-conditional-compilation.md § Cfg Attribute`
 
 ### Syntax
 
@@ -285,7 +285,7 @@ sections:
 
 ## 13.5 Feature Flags
 
-**Spec section**: `spec/24-conditional-compilation.md § Features`
+**Spec section**: `spec/25-conditional-compilation.md § Features`
 
 ### Syntax
 
@@ -357,7 +357,7 @@ Feature names must be valid Ori identifiers:
 
 ## 13.6 File-Level Conditions
 
-**Spec section**: `spec/24-conditional-compilation.md § File-Level Conditions`
+**Spec section**: `spec/25-conditional-compilation.md § File-Level Conditions`
 
 ### Syntax
 
@@ -403,7 +403,16 @@ The `#!` prefix indicates a file-level condition. It must appear before any decl
 
 ## 13.7 Compile-Time Constants
 
-**Spec section**: `spec/24-conditional-compilation.md § Compile-Time Constants`
+**Spec section**: `spec/25-conditional-compilation.md § Compile-Time Constants`
+
+### Sync Points: Compile-Time Constants (multi-crate sync required)
+
+Adding `$target_os`, `$target_arch`, `$target_family`, `$debug`, `$release` requires:
+
+1. **`ori_ir`** — Represent compile-time constants in AST (distinguish from user `$` constants)
+2. **`ori_types`** — Register type signatures (`$target_os: str`, `$debug: bool`, etc.) in `infer_ident()`
+3. **`ori_eval`** — Provide runtime values from build configuration
+4. **`ori_llvm`** — Fold to constants during codegen, enable dead branch elimination
 
 ### Built-in Constants
 
@@ -465,7 +474,7 @@ Branches conditioned on compile-time constants are eliminated and not type-check
 
 ## 13.8 Build Configuration
 
-**Spec section**: `spec/24-conditional-compilation.md § Build Configuration`
+**Spec section**: `spec/25-conditional-compilation.md § Build Configuration`
 
 ### CLI Flags
 
@@ -540,7 +549,7 @@ dependencies = ["winapi"]
 
 ## 13.9 Diagnostics
 
-**Spec section**: `spec/24-conditional-compilation.md § Diagnostics`
+**Spec section**: `spec/25-conditional-compilation.md § Diagnostics`
 
 ### Error Messages
 
@@ -598,6 +607,9 @@ dependencies = ["winapi"]
 
 ## 13.10 compile_error Built-in
 
+> **CROSS-REFERENCE**: Section 11.8 also covers `compile_error` in the FFI context.
+> Implementation should be done once and shared; avoid duplicate work.
+
 **Proposal**: `proposals/approved/additional-builtins-proposal.md`
 
 ### Syntax
@@ -628,7 +640,7 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 
 ### Implementation
 
-- [ ] **Spec**: Add `compile_error` to `spec/11-built-in-functions.md`
+- [ ] **Spec**: Add `compile_error` to `spec/annex-c-built-in-functions.md`
   - [ ] Syntax and return type
   - [ ] Context restrictions (conditional compilation only)
   - [ ] Error message format
@@ -657,7 +669,7 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 ## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/24-conditional-compilation.md` complete
+- [ ] Spec updated: `spec/25-conditional-compilation.md` complete
 - [ ] CLAUDE.md updated with conditional compilation syntax
 - [ ] `#target(...)` works on items
 - [ ] `#cfg(...)` works on items

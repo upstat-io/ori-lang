@@ -1,8 +1,9 @@
 # Proposal: Range Patterns on char and byte
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-03-05
+**Approved:** 2026-03-05
 
 ---
 
@@ -68,9 +69,9 @@ This is the natural pattern-matching style for lexers.
 |----------|-------------------|--------|
 | Rust | Yes | `'a'..='z'` |
 | Swift | Yes | `"a"..."z"` (in switch) |
-| Zig | No (uses `if` chains) | — |
-| Go | No (no pattern matching) | — |
-| Gleam | No (no range patterns) | — |
+| Zig | No (uses `if` chains) | -- |
+| Go | No (no pattern matching) | -- |
+| Gleam | No (no range patterns) | -- |
 | Haskell | Yes | `['a'..'z']` (list syntax, not pattern) |
 
 ---
@@ -82,8 +83,8 @@ This is the natural pattern-matching style for lexers.
 Range patterns use the same syntax as range expressions:
 
 ```
-range_pattern = pattern ".." pattern .       /* exclusive end */
-range_pattern = pattern "..=" pattern .      /* inclusive end */
+range_pattern = const_pattern ".." const_pattern .       /* exclusive end */
+range_pattern = const_pattern "..=" const_pattern .      /* inclusive end */
 ```
 
 For char and byte:
@@ -95,16 +96,32 @@ match ch {
 }
 ```
 
+### Const Pattern Endpoints
+
+Range pattern endpoints shall be compile-time constants: either literals or `$`-prefixed constant identifiers:
+
+```ori
+let $MAX_ASCII = '\x7F';
+let $MIN_DIGIT = '0';
+
+match ch {
+    $MIN_DIGIT..='9' -> "digit",
+    '\x00'..$MAX_ASCII -> "other ascii",
+    _ -> "non-ascii",
+}
+```
+
 ### Supported Types
 
-Range patterns are valid for types that implement `Comparable`:
+Range patterns are valid for types that implement `Comparable` with a discrete domain:
 
 | Type | Example | Ordering |
 |------|---------|----------|
 | `int` | `0..100` | Numeric |
-| `float` | `0.0..1.0` | Numeric |
 | `char` | `'a'..'z'` | Unicode code point |
-| `byte` | `b'0'..b'9'` | Numeric (0–255) |
+| `byte` | `b'0'..b'9'` | Numeric (0-255) |
+
+`float` is excluded from range patterns due to NaN semantics and precision issues. Use guards for float ranges: `x if x >= 0.0 && x < 1.0 -> ...`.
 
 ### Semantics
 
@@ -178,6 +195,8 @@ range_pattern = const_pattern ".." const_pattern
 const_pattern = literal | "$" identifier .
 ```
 
+The `const_pattern` production allows both literals and compile-time constant identifiers as range endpoints.
+
 ---
 
 ## Type Checking
@@ -192,7 +211,7 @@ match x {
 
 ### Endpoints must be comparable
 
-The type must implement `Comparable`. All primitive types do.
+The type must implement `Comparable`. All supported types (`int`, `char`, `byte`) do.
 
 ### Empty ranges are warnings
 
@@ -205,7 +224,7 @@ match x {
 
 ### Overlap detection
 
-The compiler should warn about overlapping range patterns:
+The compiler shall warn about overlapping range patterns:
 
 ```ori
 match x {
@@ -217,6 +236,12 @@ match x {
 
 ---
 
+## Relationship to Existing Roadmap
+
+Range patterns for `int` are already tracked in `plans/roadmap/section-09-match.md`. This proposal extends that work to `char` and `byte` types, and adds the `const_pattern` endpoint grammar. The existing `'a'..='z'` char range pattern support (parsing and evaluation, done 2026-02-14) is formalized by this proposal.
+
+---
+
 ## Migration / Compatibility
 
 - **No breaking changes.** Range patterns are a new pattern form.
@@ -225,10 +250,10 @@ match x {
 
 ---
 
-## Open Questions
+## Depends On
 
-1. **Half-open ranges in patterns?** Should `..10` (start omitted) or `5..` (end omitted) be valid in patterns? These would match "anything less than 10" or "anything >= 5." Could simplify some patterns but adds complexity.
-2. **Char ordering:** Is char ordering by code point universally correct for patterns? Users might expect locale-sensitive ordering. Answer: code point ordering is correct — pattern matching is structural, not linguistic.
+- `byte-literals-proposal.md` [approved] — uses `b'x'` syntax in byte range patterns
+- `pattern-matching-exhaustiveness-proposal.md` [approved] — exhaustiveness algorithm extended
 
 ---
 
@@ -244,3 +269,4 @@ match x {
 ## Changelog
 
 - 2026-03-05: Initial draft
+- 2026-03-05: Approved — removed float from supported types; added const_pattern endpoints ($identifier); referenced existing roadmap task; resolved all open questions (half-open ranges deferred, char ordering is code point)

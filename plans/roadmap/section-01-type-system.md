@@ -5,9 +5,9 @@ status: complete
 tier: 1
 goal: Fix type checking to properly use type annotations
 spec:
-  - spec/06-types.md
-  - spec/07-properties-of-types.md
-  - spec/08-declarations.md
+  - spec/08-types.md
+  - spec/09-properties-of-types.md
+  - spec/10-declarations.md
 sections:
   - id: "1.1"
     title: Primitive Types
@@ -42,7 +42,7 @@ sections:
 
 **Goal**: Fix type checking to properly use type annotations
 
-> **SPEC**: `spec/06-types.md`, `spec/07-properties-of-types.md`, `spec/08-declarations.md`
+> **SPEC**: `spec/08-types.md`, `spec/09-properties-of-types.md`, `spec/10-declarations.md`
 
 **Status**: **COMPLETE** [done] (2026-02-13). Core (1.1-1.4) verified 2026-02-10. 1.1 all LLVM AOT tests 2026-02-13. 1.1A constant folding 2026-02-13. 1.1B `?` LLVM support 2026-02-13. 1.6 type system slots (LifetimeId, ValueCategory, Borrowed tag, StructDef category) + parser `&T` error + keyword rejection verified 2026-02-13.
 
@@ -52,49 +52,49 @@ sections:
 
 ## 1.1 Primitive Types
 
-- [x] **Implement**: `int` type — spec/06-types.md § int [done] (2026-02-10)
+- [x] **Implement**: `int` type — spec/08-types.md § int [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 0; type checker handles int
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — 162 tests (all pass)
-  - [x] **LLVM Support**: `TypeInfo::Int` → i64 via `storage_type()` + `lower_int()` in `lower_literals.rs`
+  - [x] **LLVM Support**: `TypeInfo::Int` → i64 via `storage_type()` + `lower_int()` in codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 12 AOT tests using int
 
-- [x] **Implement**: `float` type — spec/06-types.md § float [done] (2026-02-10)
+- [x] **Implement**: `float` type — spec/08-types.md § float [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 1; type checker handles float
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — float literal, negative, scientific, annotated, arithmetic, comparison tests
-  - [x] **LLVM Support**: `TypeInfo::Float` → f64 via `storage_type()` + `lower_float()` in `lower_literals.rs`
+  - [x] **LLVM Support**: `TypeInfo::Float` → f64 via `storage_type()` + `lower_float()` in codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 4 AOT tests (literals, arithmetic, comparison, negation) [done] (2026-02-13)
 
-- [x] **Implement**: `bool` type — spec/06-types.md § bool [done] (2026-02-10)
+- [x] **Implement**: `bool` type — spec/08-types.md § bool [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 2; type checker handles bool
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — bool literal, logic, short-circuit tests
-  - [x] **LLVM Support**: `TypeInfo::Bool` → i1 via `storage_type()` + `lower_bool()` in `lower_literals.rs`
+  - [x] **LLVM Support**: `TypeInfo::Bool` → i1 via `storage_type()` + `lower_bool()` in codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 7 AOT tests using bool
 
-- [x] **Implement**: `str` type — spec/06-types.md § str [done] (2026-02-10)
+- [x] **Implement**: `str` type — spec/08-types.md § str [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 3; type checker handles str
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — str literal, equality, concatenation tests
-  - [x] **LLVM Support**: `TypeInfo::Str` → {i64 len, ptr data} via `storage_type()` + `lower_string()` in `lower_literals.rs`
+  - [x] **LLVM Support**: `TypeInfo::Str` → {i64 len, ptr data} via `storage_type()` + `lower_string()` in codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 1 AOT test (print_string)
 
-- [x] **Implement**: `char` type — spec/06-types.md § char [done] (2026-02-10)
+- [x] **Implement**: `char` type — spec/08-types.md § char [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 4; type checker handles char
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — char literal, equality tests
-  - [x] **LLVM Support**: `TypeInfo::Char` → i32 via `storage_type()` + `lower_char()` in `lower_literals.rs`
+  - [x] **LLVM Support**: `TypeInfo::Char` → i32 via `storage_type()` + `lower_char()` in codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (literals, comparison) [done] (2026-02-13)
 
-- [x] **Implement**: `byte` type — spec/06-types.md § byte [done] (2026-02-10)
+- [x] **Implement**: `byte` type — spec/08-types.md § byte [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 5; type checker handles byte
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — byte conversion, equality tests
   - [x] **LLVM Support**: `TypeInfo::Byte` → i8 via `storage_type()`
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 1 AOT test (basics, equality, boundary values); fixed byte codegen bug (i64→i8 store mismatch) [done] (2026-02-13)
 
-- [x] **Implement**: `void` type — spec/06-types.md § void [done] (2026-02-10)
+- [x] **Implement**: `void` type — spec/08-types.md § void [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 6 (Unit); type checker handles void
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — void function return tests
   - [x] **LLVM Support**: `TypeInfo::Unit` → i64 via `storage_type()` + `lower_unit()` (LLVM void cannot be stored)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 5 AOT tests using void return
 
-- [x] **Implement**: `Never` type — spec/06-types.md § Never [done] (2026-02-10)
+- [x] **Implement**: `Never` type — spec/08-types.md § Never [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 7; type checker handles Never
   - [x] **Ori Tests**: `tests/spec/types/never.ori` — 21 tests (all pass)
   - [x] **LLVM Support**: `TypeInfo::Never` → i64 via `storage_type()`
@@ -115,13 +115,13 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 - [x] **Implement**: Duration literal tokenization with all units (ns, us, ms, s, m, h) [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 10+ duration tests (units, decimal, many digits)
   - [x] **Ori Tests**: `tests/spec/lexical/duration_literals.ori` — 70+ tests
-  - [x] **LLVM Support**: `lower_duration()` in `lower_literals.rs` — Duration → i64 (nanosecond precision)
+  - [x] **LLVM Support**: `lower_duration()` in codegen — Duration → i64 (nanosecond precision)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 4 AOT tests (literals, negative, arithmetic, comparison) [done] (2026-02-13)
 
 - [x] **Implement**: Size literal tokenization with all units (b, kb, mb, gb, tb) [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 5+ size tests
   - [x] **Ori Tests**: `tests/spec/lexical/size_literals.ori` — 70+ tests
-  - [x] **LLVM Support**: `lower_size()` in `lower_literals.rs` — Size → i64 (bytes)
+  - [x] **LLVM Support**: `lower_size()` in codegen — Size → i64 (bytes)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 3 AOT tests (literals, arithmetic, comparison) [done] (2026-02-13)
 
 - [x] **Implement**: Error for floating-point prefix on duration/size literals [done] (2026-02-10)
@@ -130,11 +130,11 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
 
 ### Type System
 
-- [x] **Implement**: Duration type representation — spec/06-types.md § Duration [done] (2026-02-10)
+- [x] **Implement**: Duration type representation — spec/08-types.md § Duration [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 9; `TypeInfo::Duration`
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Duration type tests
 
-- [x] **Implement**: Size type representation — spec/06-types.md § Size [done] (2026-02-10)
+- [x] **Implement**: Size type representation — spec/08-types.md § Size [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 10; `TypeInfo::Size`
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Size type tests
 

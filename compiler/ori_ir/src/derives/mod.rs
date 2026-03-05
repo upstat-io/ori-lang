@@ -208,6 +208,23 @@ impl DerivedTrait {
             },
         }
     }
+
+    /// Whether this derived trait's generated method is provably nounwind.
+    ///
+    /// Pure derived methods (field comparisons, hashing, cloning, default
+    /// construction) only perform arithmetic, field access, and calls to
+    /// nounwind runtime functions. Printable and Debug allocate strings
+    /// and may call non-nounwind runtime functions.
+    pub fn is_nounwind_derived(&self) -> bool {
+        matches!(
+            self,
+            DerivedTrait::Eq
+                | DerivedTrait::Comparable
+                | DerivedTrait::Hashable
+                | DerivedTrait::Clone
+                | DerivedTrait::Default
+        )
+    }
 }
 
 /// Information about a derived method.

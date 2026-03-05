@@ -46,6 +46,7 @@ impl Ty {
 #[derive(Clone, Copy)]
 pub(crate) enum Attr {
     Nounwind,
+    Noreturn,
     Cold,
     NoaliasReturn,
     MemArgmemRW,
@@ -88,6 +89,22 @@ pub(crate) fn is_rt_fn_nounwind(name: &str) -> Option<bool> {
         .map(|spec| spec.attrs.iter().any(|a| matches!(a, Attr::Nounwind)))
 }
 
+/// Check whether a runtime function is known to be noreturn.
+///
+/// Returns `Some(true)` if the function has `Attr::Noreturn` (never returns
+/// to its caller), `Some(false)` if it is a known runtime function WITHOUT
+/// noreturn, or `None` if the name is not a runtime function at all.
+///
+/// Infrastructure for §06 dead code pruning — will be consumed when that
+/// section identifies calls after which code is unreachable.
+#[allow(dead_code, reason = "infrastructure for §06 dead code pruning")]
+pub(crate) fn is_rt_fn_noreturn(name: &str) -> Option<bool> {
+    RT_FUNCTIONS
+        .iter()
+        .find(|f| f.name == name)
+        .map(|spec| spec.attrs.iter().any(|a| matches!(a, Attr::Noreturn)))
+}
+
 /// Iterate over names of all JIT-allowed runtime functions.
 #[cfg(test)]
 pub(crate) fn jit_allowed_names() -> impl Iterator<Item = &'static str> {
@@ -107,59 +124,61 @@ pub(crate) fn jit_allowed_names() -> impl Iterator<Item = &'static str> {
 /// and any LLVM attributes. This table is the single source of truth —
 /// both `declare_single()` and `declare_runtime()` use it.
 pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
-    // I/O
+    // I/O — extern "C" (panics abort at ABI boundary, never unwind)
     RtFn {
         name: "ori_print",
         params: &[Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_print_int",
         params: &[Ty::I64],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_print_float",
         params: &[Ty::F64],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_print_bool",
         params: &[Ty::Bool],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Panic (cold, NOT nounwind — must unwind for RC cleanup)
+    // Panic (cold + noreturn, NOT nounwind — must unwind for RC cleanup)
     RtFn {
         name: "ori_panic",
         params: &[Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Cold],
+        attrs: &[Attr::Cold, Attr::Noreturn],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_panic_cstr",
         params: &[Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Cold],
+        attrs: &[Attr::Cold, Attr::Noreturn],
         jit_allowed: true,
     },
-    // Entry point wrapper (AOT-only — JIT runs functions directly)
+    // Entry point wrapper (AOT-only — JIT runs functions directly).
+    // Nounwind: catches all panics internally via catch_unwind (Itanium) or
+    // __try/__except SEH (MSVC). Never unwinds to its caller.
     RtFn {
         name: "ori_run_main",
         params: &[Ty::Ptr],
         ret: Some(Ty::I32),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: false,
     },
-    // Assertions
+    // Assertions — extern "C-unwind" (call ori_panic on failure, must unwind)
     RtFn {
         name: "ori_assert",
         params: &[Ty::Bool],
@@ -195,33 +214,33 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[],
         jit_allowed: true,
     },
-    // List
+    // List — extern "C" unless noted
     RtFn {
         name: "ori_list_alloc_data",
         params: &[Ty::I64, Ty::I64],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_list_free_data",
         params: &[Ty::Ptr, Ty::I64, Ty::I64],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_list_new",
         params: &[Ty::I64, Ty::I64],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_list_free",
         params: &[Ty::Ptr, Ty::I64],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -235,14 +254,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_list_push",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_list_take",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -256,7 +275,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_list_push_new",
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -274,7 +293,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -291,7 +310,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -310,7 +329,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -329,7 +348,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -347,7 +366,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -367,7 +386,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -384,7 +403,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -402,7 +421,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -420,7 +439,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -437,6 +456,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // extern "C-unwind" — panics on out-of-bounds access
     RtFn {
         name: "ori_list_get",
         // (data, len, index, elem_size, out_ptr) — panics on OOB
@@ -463,14 +483,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_list_concat",
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_list_reverse",
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Map literal construction — hash table allocation + per-entry insert
@@ -479,7 +499,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         // (count, key_size, val_size, out_cap) -> ptr
         params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -495,7 +515,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Map — hash table layout: data = [metadata|keys|values]
@@ -512,7 +532,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -520,7 +540,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         // (data, cap, len, key_size, out_ptr)
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -528,7 +548,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         // (data, cap, len, key_size, val_size, out_ptr)
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -546,7 +566,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -568,7 +588,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -589,7 +609,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -605,10 +625,10 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
         jit_allowed: true,
     },
-    // Set
+    // Set — all extern "C"
     RtFn {
         name: "ori_set_contains",
         // (data, cap, len, needle, elem_size, elem_eq, elem_hash) -> i64
@@ -622,7 +642,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -642,7 +662,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -662,7 +682,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -684,7 +704,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -706,7 +726,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -728,7 +748,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -736,7 +756,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         // (data, cap, len, elem_size, out_ptr)
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Set literal construction — hash table allocation + per-entry insert
@@ -745,7 +765,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         // (count, elem_size, out_cap) -> ptr
         params: &[Ty::I64, Ty::I64, Ty::Ptr],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -753,7 +773,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         // (data, cap, elem, elem_size, elem_hash)
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Set buffer RC cleanup (hash table layout — cap and len swapped vs list)
@@ -773,19 +793,19 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
         jit_allowed: true,
     },
-    // String iteration
+    // String iteration — extern "C"
     RtFn {
         name: "ori_str_chars",
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_split",
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Comparison — pure functions, cannot panic
@@ -810,12 +830,12 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // String operations
+    // String operations — all extern "C"
     RtFn {
         name: "ori_str_concat",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -869,126 +889,126 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Type conversion
+    // Type conversion — all extern "C"
     RtFn {
         name: "ori_str_from_raw",
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_from_int",
         params: &[Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_from_bool",
         params: &[Ty::Bool],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_from_float",
         params: &[Ty::F64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // String methods
+    // String methods — all extern "C"
     RtFn {
         name: "ori_str_contains",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Bool),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_starts_with",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Bool),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_ends_with",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Bool),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_trim",
         params: &[Ty::Ptr],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_to_uppercase",
         params: &[Ty::Ptr],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_to_lowercase",
         params: &[Ty::Ptr],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_replace",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_str_repeat",
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Format (section 3.16 Formattable trait)
+    // Format (section 3.16 Formattable trait) — all extern "C"
     RtFn {
         name: "ori_format_int",
         params: &[Ty::I64, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_format_float",
         params: &[Ty::F64, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_format_str",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_format_bool",
         params: &[Ty::Bool, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_format_char",
         params: &[Ty::I32, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Slice operations
@@ -1044,7 +1064,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_str_substring",
         params: &[Ty::Ptr, Ty::I64, Ty::I64],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     // Reference counting (ARC-safe attributes are CRITICAL — see section 11.3)
@@ -1226,28 +1246,28 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Args conversion
+    // Args conversion — extern "C"
     RtFn {
         name: "ori_args_from_argv",
         params: &[Ty::I32, Ty::Ptr],
         ret: Some(Ty::List),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Iterator constructors
+    // Iterator constructors — all extern "C"
     RtFn {
         name: "ori_iter_from_list",
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         //        data   len   cap   es     elem_dec_fn
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_from_range",
         params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Bool],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -1255,7 +1275,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         params: &[Ty::Ptr],
         //        *const OriStr (SSO-safe)
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -1273,73 +1293,73 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         ],
         //        data   cap    len   ks     vs     owns_data  k_dec  v_dec
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Iterator next
+    // Iterator next — extern "C" (callbacks called inside, panics abort at boundary)
     RtFn {
         name: "ori_iter_next",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Iterator adapters
+    // Iterator adapters — extern "C" (store callback, don't call it)
     RtFn {
         name: "ori_iter_map",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_filter",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_take",
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_skip",
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_enumerate",
         params: &[Ty::Ptr],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_zip",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_chain",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Ptr),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Iterator consumers
+    // Iterator consumers — extern "C" (call callbacks internally, panics abort at boundary)
     RtFn {
         name: "ori_iter_collect",
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -1347,42 +1367,42 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         // (iter, elem_size, elem_eq, elem_hash, out_ptr)
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_count",
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_any",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_all",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_find",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_for_each",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
@@ -1397,50 +1417,47 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Iterator cleanup
+    // Iterator cleanup — extern "C"
     RtFn {
         name: "ori_iter_drop",
         params: &[Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Panic handler registration
+    // Panic handler registration — extern "C" (stores function pointer, no panic)
     RtFn {
         name: "ori_register_panic_handler",
         params: &[Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Catch recovery
+    // Catch recovery — extern "C" (called after unwinding completes, no panic)
     RtFn {
         name: "ori_catch_cleanup",
         params: &[Ty::Ptr],
         ret: None,
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_catch_recover",
         params: &[],
         ret: Some(Ty::Str),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // SEH/MSVC catch trampoline — wraps a function call in catch_unwind.
-    // Used by catch(expr:) ONLY under EhModel::Seh (Windows MSVC) where
-    // LLVM catchpad can't catch Rust/Ori panics.
-    // On Itanium targets, catch(expr:) uses invoke/landingpad + ori_eh_personality.
-    // AOT-only: JIT always uses Itanium EH.
+    // SEH/MSVC catch trampoline — wraps a function call in __try/__except.
+    // extern "C" (catches exceptions internally, returns status code)
     RtFn {
         name: "ori_try_call",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::I64),
-        attrs: &[],
+        attrs: &[Attr::Nounwind],
         jit_allowed: false,
     },
     // EH personality (Itanium ABI — required by invoke/landingpad)

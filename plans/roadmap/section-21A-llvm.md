@@ -70,7 +70,7 @@ sections:
 
 | Test Suite | Passed | Failed | Skipped | LCFail | Total |
 |------------|--------|--------|---------|--------|-------|
-| Ori spec (interpreter) | 3035 | 0 | 42 | - | 3077 |
+| Ori spec (evaluator) | 3035 | 0 | 42 | - | 3077 |
 | Ori spec (LLVM backend) | 1082 | 1 | 9 | 1985 | 3077 |
 | Rust unit tests (LLVM) | 527 | 0 | 15 | - | 542 |
 
@@ -136,7 +136,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Tag values: None=0, Some=1; Err=0, Ok=1
   - [ ] Proper payload handling for non-primitive types
 
-- [ ] **Implement**: Collection types
+- [ ] **Implement**: Collection type representations in `ori_llvm/src/codegen/` — list/map/set LLVM struct layouts
   - [ ] Map lists to `{ i64 len, i64 cap, ptr data }` struct
   - [ ] Map maps to appropriate hash table representation
   - [ ] Map sets to appropriate hash set representation
@@ -155,7 +155,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Size methods: `.bytes()`, `.kilobytes()`, `.megabytes()`, `.gigabytes()`, `.terabytes()`
   - [ ] Factory functions: `Duration.from_nanoseconds(ns:)`, `Size.from_bytes(b:)`
 
-- [ ] **Implement**: Newtype codegen
+- [ ] **Implement**: Newtype codegen in `ori_llvm/src/codegen/` — transparent wrapper representation
   - [ ] Newtype type representation (same as wrapped type)
   - [ ] Constructor codegen: `TypeName(value)`
   - [ ] `.inner` field access
@@ -179,7 +179,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `.to_dynamic()` conversion
   - [ ] `.to_fixed<$N>()` and `.try_to_fixed<$N>()`
 
-- [ ] **Implement**: Channel types
+- [ ] **Implement**: Channel type codegen — `Producer<T>`/`Consumer<T>` LLVM representations and runtime calls
   - [ ] `Producer<T>` and `Consumer<T>` type representation
   - [ ] `CloneableProducer<T>` and `CloneableConsumer<T>`
   - [ ] `Sendable` trait constraint checking
@@ -189,7 +189,7 @@ When implementing these features, ensure they also work across module boundaries
 
 ## 21.3 Expression Codegen
 
-- [ ] **Implement**: Basic expressions
+- [ ] **Implement**: Core expression codegen — literals, binary/unary ops, calls, field access in `ori_llvm/src/codegen/`
   - [ ] **Rust Tests**: `tests/arithmetic_tests.rs`, `tests/operator_tests.rs`
   - [ ] Literals (int, float, bool, string, char, byte)
   - [ ] Binary ops (add, sub, mul, div, mod, comparisons, logical)
@@ -221,13 +221,13 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Integer floor division codegen
   - [ ] Distinct from `/` (truncating division)
 
-- [ ] **Implement**: Bitwise operators
+- [ ] **Implement**: Bitwise operator codegen — `~`/`&`/`|`/`^`/`<<`/`>>` for int and byte types
   - [ ] `~` (BitNot) codegen
   - [ ] `&`, `|`, `^` for int and byte types
   - [ ] `<<`, `>>` shift operators
   - [ ] Shift overflow panics (count < 0 or count >= bit width)
 
-- [ ] **Implement**: Type conversions
+- [ ] **Implement**: Type conversion codegen — `as`/`as?`/`Into` trait dispatch in LLVM IR
   - [ ] `expr as Type` infallible conversion codegen
   - [ ] `expr as? Type` fallible conversion → `Option<T>`
   - [ ] Standard conversions: int→float, str→Error, Set<T>→[T]
@@ -238,7 +238,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Index assignment: `list[0] = value`
   - [ ] Nested assignments: `a.b.c = value`
 
-- [ ] **Implement**: String operations
+- [ ] **Implement**: String operation codegen — indexing, interpolation, escapes, methods via `ori_rt` calls
   - [ ] String indexing with Unicode handling (`str[i]` → single-codepoint `str`)
   - [ ] String interpolation: `` `Hello {name}` ``
   - [ ] All escape sequences: `\n`, `\t`, `\r`, `\0`, `\\`, `\"`
@@ -368,7 +368,7 @@ When implementing these features, ensure they also work across module boundaries
         specialized versions of imported generic functions (e.g., `assert_eq<int>`).
         Currently `declare_all` skips all generics — this is the single biggest gap
         for LLVM test coverage (affects 2,472+ `assert_eq` call sites).
-  - **Implementation plan**: `plans/monomorphization/` (4 sections: type checker, ARC lowering, LLVM pipeline, verification)
+  - **Implementation plan**: Monomorphization (4 sections: type checker, ARC lowering, LLVM pipeline, verification)
   - **Architecture document**: `docs/ori_lang/v2026/design/monomorphization-architecture.md`
 
 - [ ] **Implement**: Basic function codegen
@@ -397,7 +397,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `with(acquire:, use:, release:)` codegen
   - [ ] Guaranteed release even on panic
   - [ ] Resource binding in `use:` block
-  - [ ] **Note**: Interpreter has a loud stub in `can_eval.rs` — replace stub with real impl when ready (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
+  - [ ] **Note**: Evaluator has a loud stub in `can_eval.rs` — replace stub with real impl when ready
 
 ---
 
@@ -419,7 +419,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `uses Suspend` capability requirement
   - [ ] `Sendable` bound on task return types
   - [ ] **Rust Tests**: `ori_llvm/src/concurrency/parallel_tests.rs`
-  - [ ] **Interpreter**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real parallel eval (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
+  - [ ] **Evaluator**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real parallel eval
 
 - [ ] **Implement**: Spawn pattern
   - [ ] `spawn(tasks:, max_concurrent:)` → `void`
@@ -427,7 +427,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Background execution with structured lifetime
   - [ ] Tasks must complete before parent scope exits
   - [ ] **Rust Tests**: `ori_llvm/src/concurrency/spawn_tests.rs`
-  - [ ] **Interpreter**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real spawn eval (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
+  - [ ] **Evaluator**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real spawn eval
 
 - [ ] **Implement**: Timeout pattern
   - [ ] `timeout(op:, after:)` → `Result<T, TimeoutError>`
@@ -435,7 +435,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Cleanup: resources released, destructors run
   - [ ] Cooperative cancellation model (no preemption)
   - [ ] **Rust Tests**: `ori_llvm/src/concurrency/timeout_tests.rs`
-  - [ ] **Interpreter**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real timeout eval (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
+  - [ ] **Evaluator**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real timeout eval
 
 - [ ] **Implement**: Cache pattern
   - [ ] `cache(key:, op:, ttl:)` codegen
@@ -444,7 +444,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Thread-safe cache access
   - [ ] `uses Cache` capability requirement
   - [ ] **Rust Tests**: `ori_llvm/src/concurrency/cache_tests.rs`
-  - [ ] **Interpreter**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real cache eval (see `plans/eval_legacy_removal/section-02-inline-patterns.md`)
+  - [ ] **Evaluator**: Replace loud stub in `can_eval.rs:eval_can_function_exp` with real cache eval
 
 - [ ] **Implement**: Nursery pattern
   - [ ] `nursery(body:, on_error:, timeout:)` codegen
@@ -561,7 +561,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Spread in literals: `{...base, key: value}`
   - [ ] **Rust Tests**: `ori_llvm/src/collections/map_tests.rs`
 
-- [ ] **Implement**: Set operations <!-- partially done (2026-02-25) -->
+- [ ] **Implement**: Set operations [partial]
   - [x] `Set<T>` type representation: `{i64 len, i64 cap, ptr data}` (same as list — sorted flat array, not hash set)
   - [x] Set creation in AOT: `__collect_set` implemented — intercepts in `emit_apply`, calls `ori_iter_collect_set` runtime (2026-03-01)
   - [x] `.len()` → `emit_set_length()` — extract field 0
@@ -782,7 +782,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Stack-allocated values: no refcount (moved or copied)
   - [ ] **Rust Tests**: `ori_llvm/src/arc/refcount_tests.rs`
 
-- [ ] **Spec**: Drop trait in `spec/06-types.md` § Drop Trait DONE
+- [ ] **Spec**: Drop trait in `spec/08-types.md` § Drop Trait DONE
   - [ ] Trait definition, execution timing, LIFO order
   - [ ] Constraints (no async, must return void, panic during unwind = abort)
   - [ ] drop_early built-in function
@@ -1100,7 +1100,7 @@ for_yield_with_filter, for_yield_transform
 
 **Total AOT test counts** (2026-02-23): 850 passed, 0 failed, 70 ignored
 
-**Exit Criteria**: Feature parity with interpreter for all language constructs
+**Exit Criteria**: Feature parity with evaluator for all language constructs
 
 ---
 

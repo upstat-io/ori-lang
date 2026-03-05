@@ -200,14 +200,14 @@ Returns `Option<T>` — `None` on overflow:
 ### 7D.3.4 Type Bounds Constants
 
 - [ ] **Implement**: `int.min`, `int.max` constants
-  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — type constants tests
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/identifiers.rs` — type constants tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/type_bounds.ori`
   - [ ] **LLVM Support**: LLVM codegen for int.min/max constants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — int constants codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `byte.min`, `byte.max` constants
-  - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — byte constants tests
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/identifiers.rs` — byte constants tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/type_bounds.ori`
   - [ ] **LLVM Support**: LLVM codegen for byte.min/max constants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — byte constants codegen
@@ -219,7 +219,7 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] Addition, subtraction, multiplication emit overflow checks
   - [ ] Division by zero and `int.min / -1` panic
   - [ ] Consistent behavior in debug and release builds
-  - [ ] **Rust Tests**: `oric/src/eval/exec/binary.rs` — overflow panic tests
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/binary.rs` — overflow panic tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/overflow_panic.ori`
   - [ ] **LLVM Support**: LLVM codegen for overflow panic behavior
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — overflow panic codegen
@@ -227,7 +227,7 @@ Returns `Option<T>` — `None` on overflow:
 
 - [ ] **Implement**: Compile-time constant overflow is a compile error
   - [ ] `$big = int.max + 1` → ERROR: constant overflow
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/const_eval.rs` — constant overflow tests
+  - [ ] **Rust Tests**: `ori_types/src/check/const_eval.rs` — constant overflow tests
   - [ ] **Ori Tests**: `tests/compile-fail/constant_overflow.ori`
   - [ ] **LLVM Support**: LLVM codegen for compile-time overflow errors
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — constant overflow codegen
@@ -305,7 +305,7 @@ Returns `Option<T>` — `None` on overflow:
 
 - [ ] **Implement**: `todo()` and `todo(reason: str)` → `Never`
   - Panics with "not yet implemented" and location
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — todo tests
+  - [ ] **Rust Tests**: `ori_eval/src/function_val.rs` — todo tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/todo.ori`
   - [ ] **LLVM Support**: LLVM codegen for todo
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — todo codegen
@@ -313,7 +313,7 @@ Returns `Option<T>` — `None` on overflow:
 
 - [ ] **Implement**: `unreachable()` and `unreachable(reason: str)` → `Never`
   - Panics with "unreachable code reached" and location
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — unreachable tests
+  - [ ] **Rust Tests**: `ori_eval/src/function_val.rs` — unreachable tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/unreachable.ori`
   - [ ] **LLVM Support**: LLVM codegen for unreachable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — unreachable codegen
@@ -323,7 +323,7 @@ Returns `Option<T>` — `None` on overflow:
   - Requires `T: Debug`
   - Prints `[file:line] label = <debug>` to stderr
   - Returns value unchanged
-  - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — dbg tests
+  - [ ] **Rust Tests**: `ori_eval/src/function_val.rs` — dbg tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/dbg.ori`
   - [ ] **LLVM Support**: LLVM codegen for dbg
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — dbg codegen
@@ -331,7 +331,7 @@ Returns `Option<T>` — `None` on overflow:
 
 - [ ] **Implement**: Location capture for `todo`, `unreachable`, `dbg`
   - Compiler passes call-site location implicitly
-  - [ ] **Rust Tests**: `oric/src/eval/location.rs`
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/location.rs`
   - [ ] **LLVM Support**: LLVM codegen for location capture
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — location capture codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -518,7 +518,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
 
 - [ ] **Implement**: `Clock` trait update
   - `now() -> Instant`, `local_timezone() -> Timezone`
-  - [ ] **Rust Tests**: `oric/src/capabilities/clock.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/capabilities/clock.rs`
   - [ ] **Ori Tests**: `tests/spec/capabilities/clock.ori`
   - [ ] **LLVM Support**: LLVM codegen for Clock capability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — Clock codegen
@@ -633,7 +633,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — extraction methods codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Indexing methods
+- [ ] **Implement**: JSON indexing methods — `get(key:)` and `get_index(index:)` on `JsonValue`
   - `get(key: str)` for objects, `get_index(index: int)` for arrays
   - [ ] **Rust Tests**: `library/std/json/value.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/value_methods.ori`
@@ -653,7 +653,7 @@ JSON parsing, serialization, and manipulation.
 
 - [ ] **Implement**: `#derive(Json)` for structs
   - Generate `to_json` and `from_json` implementations
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/json.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/derives/json.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_struct.ori`
   - [ ] **LLVM Support**: LLVM codegen for derive(Json) structs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — derive(Json) struct codegen
@@ -662,7 +662,7 @@ JSON parsing, serialization, and manipulation.
 - [ ] **Implement**: `#derive(Json)` for sum types
   - Simple variants serialize as strings, payload variants as objects
   - Support `#json(tag: "type", content: "data")` for tagged unions
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/json.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/derives/json.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_enum.ori`
   - [ ] **LLVM Support**: LLVM codegen for derive(Json) enums
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — derive(Json) enum codegen
@@ -673,7 +673,7 @@ JSON parsing, serialization, and manipulation.
   - `#json(skip)` — exclude from serialization
   - `#json(default: value)` — default if field missing
   - `#json(flatten)` — merge nested object into parent (compile error on conflicts)
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/json.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/derives/json.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_attrs.ori`
   - [ ] **LLVM Support**: LLVM codegen for field attributes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — field attributes codegen
@@ -1377,7 +1377,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
 
 - [ ] **Implement**: `Crypto` capability trait
   - Non-suspending capability for cryptographic operations
-  - [ ] **Rust Tests**: `oric/src/capabilities/crypto.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/capabilities/crypto.rs`
   - [ ] **Ori Tests**: `tests/spec/capabilities/crypto.ori`
   - [ ] **LLVM Support**: LLVM codegen for Crypto capability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — Crypto codegen
@@ -1395,7 +1395,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
 
 - [ ] **Implement**: Compiler warning for deprecated algorithms
   - `#allow(deprecated_algorithm)` to suppress
-  - [ ] **Rust Tests**: `oric/src/diagnostics/deprecated.rs`
+  - [ ] **Rust Tests**: `ori_diagnostic/src/deprecated.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/deprecation.ori`
   - [ ] **LLVM Support**: N/A (compile-time only)
 

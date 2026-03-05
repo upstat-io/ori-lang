@@ -5,8 +5,8 @@ status: in-progress
 tier: 7
 goal: Enable type parameters that are compile-time constant values
 spec:
-  - spec/06-types.md
-  - spec/07-properties-of-types.md
+  - spec/08-types.md
+  - spec/09-properties-of-types.md
 sections:
   - id: "18.0"
     title: Const Evaluation Termination
@@ -49,8 +49,8 @@ sections:
 
 **Criticality**: Medium — Type-level programming, fixed-size arrays
 
-**Dependencies**: Sections 1-2 (Type System Foundation)
-**Blocked by**: `plans/monomorphization/` — base monomorphization infrastructure must be complete before const generics can be compiled through AOT. The `GenericArg` enum and `MonoInstance` pipeline handle both type and const value arguments.
+**Dependencies**: Sections 1-2 (Type System Foundation), Section 5 (Type Declarations — for compound type eligibility in 18.8)
+**Blocked by**: Monomorphization infrastructure — base monomorphization must be complete before const generics can be compiled through AOT. The `GenericArg` enum and `MonoInstance` pipeline handle both type and const value arguments.
 
 ---
 
@@ -88,28 +88,28 @@ Specifies termination guarantees and limits for compile-time constant evaluation
 ### Implementation
 
 - [ ] **Implement**: Step limit enforcement — stop const evaluation after 1,000,000 operations
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_eval_limits.rs`
   - [ ] **Ori Tests**: `tests/spec/const/step_limit.ori`
   - [ ] **LLVM Support**: LLVM codegen for const evaluation step counting
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Recursion depth limit — stop const evaluation after 1,000 stack frames
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_eval_limits.rs`
   - [ ] **Ori Tests**: `tests/spec/const/recursion_limit.ori`
   - [ ] **LLVM Support**: LLVM codegen for recursion depth tracking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Memory limit — stop const evaluation after 100 MB allocation
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_eval_limits.rs`
   - [ ] **Ori Tests**: `tests/spec/const/memory_limit.ori`
   - [ ] **LLVM Support**: LLVM codegen for memory tracking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Time limit — stop const evaluation after 10 seconds
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_eval_limits.rs`
   - [ ] **Ori Tests**: `tests/spec/const/time_limit.ori`
   - [ ] **LLVM Support**: LLVM codegen for time limit enforcement
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
@@ -120,39 +120,39 @@ Specifies termination guarantees and limits for compile-time constant evaluation
   - [ ] **Ori Tests**: `tests/spec/const/configurable_limits.ori`
 
 - [ ] **Implement**: Per-expression limit override via `#const_limit(...)` attribute
-  - [ ] **Rust Tests**: `ori_parser/tests/const_limit_attr.rs`
+  - [ ] **Rust Tests**: `ori_parse/tests/const_limit_attr.rs`
   - [ ] **Ori Tests**: `tests/spec/const/const_limit_attribute.ori`
   - [ ] **LLVM Support**: LLVM codegen for attribute parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Partial evaluation for mixed const/runtime arguments (required behavior)
-  - [ ] **Rust Tests**: `ori_typeck/tests/partial_eval.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/partial_eval.rs`
   - [ ] **Ori Tests**: `tests/spec/const/partial_evaluation.ori`
   - [ ] **LLVM Support**: LLVM codegen for partial const evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Allow local mutable bindings in const functions
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_local_mutation.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_local_mutation.rs`
   - [ ] **Ori Tests**: `tests/spec/const/local_mutation.ori`
   - [ ] **LLVM Support**: LLVM codegen for mutable locals in const
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Allow loop expressions (`for`, `loop`) in const functions
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_loops.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_loops.rs`
   - [ ] **Ori Tests**: `tests/spec/const/const_loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for loops in const
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Const evaluation caching (by function + args hash)
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_caching.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_caching.rs`
   - [ ] **Ori Tests**: `tests/spec/const/caching.ori`
 
 - [ ] **Implement**: Error diagnostics (E0500-E0504)
-  - [ ] **Rust Tests**: `ori_reporting/tests/const_eval_errors.rs`
+  - [ ] **Rust Tests**: `ori_diagnostic/tests/const_eval_errors.rs`
   - [ ] **Ori Tests**: `tests/spec/const/error_diagnostics.ori`
 
 ---
@@ -165,7 +165,7 @@ Specifies termination guarantees and limits for compile-time constant evaluation
 
 **Proposal**: `proposals/approved/const-generics-proposal.md`
 
-**Spec section**: `spec/06-types.md § Const Generic Parameters`
+**Spec section**: `spec/08-types.md § Const Generic Parameters`
 
 ### Syntax
 
@@ -253,7 +253,7 @@ buffer.push(11)         // PANIC after 10 elements
 
 ### Implementation
 
-- [ ] **Spec**: Fixed-capacity list type — `spec/06-types.md § Fixed-Capacity List`
+- [ ] **Spec**: Fixed-capacity list type — `spec/08-types.md § Fixed-Capacity List`
   - [ ] Type syntax `[T, max N]`
   - [ ] Relationship to dynamic `[T]` (subtype)
   - [ ] Capacity limit semantics
@@ -334,7 +334,7 @@ buffer.push(11)         // PANIC after 10 elements
 
 ## 18.3 Fixed-Size Arrays (Future)
 
-**Spec section**: `spec/06-types.md § Fixed-Size Arrays`
+**Spec section**: `spec/08-types.md § Fixed-Size Arrays`
 
 > **Note:** This is a future extension. Fixed-capacity lists (`[T, max N]`) are prioritized first. Fixed-size arrays always have exactly N elements, unlike fixed-capacity lists which have 0 to N elements.
 
@@ -398,7 +398,7 @@ let elem = arr[2]               // Bounds checked at compile time if index const
 
 ## 18.4 Const Expressions in Types
 
-**Spec section**: `spec/06-types.md § Const Expressions`
+**Spec section**: `spec/08-types.md § Const Expressions`
 
 ### Syntax
 
@@ -469,7 +469,7 @@ type Buffer<$SIZE: int> = {
 
 **Proposal**: `proposals/approved/const-generic-bounds-proposal.md`
 
-**Spec section**: `spec/06-types.md § Const Bounds`
+**Spec section**: `spec/08-types.md § Const Bounds`
 
 Formalizes const generic bounds (e.g., `where N > 0`), including allowed constraints, evaluation semantics, constraint propagation, and error handling.
 
@@ -508,7 +508,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [ ] `const_and_expr = const_not_expr { "&&" const_not_expr }`
   - [ ] `const_not_expr = "!" const_not_expr | const_cmp_expr`
   - [ ] `const_cmp_expr = const_expr comparison_op const_expr | "(" const_bound_expr ")"`
-  - [ ] **Rust Tests**: `ori_parser/tests/const_bound_grammar.rs`
+  - [ ] **Rust Tests**: `ori_parse/tests/const_bound_grammar.rs`
 
 - [ ] **Parser**: Parse const bounds
   - [x] In where clauses (compound expressions with `&&`, `||`, `!`) [done] (2026-02-13)
@@ -527,7 +527,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [ ] Linear arithmetic implication checking (caller must imply callee bounds)
   - [ ] Transitivity (`M >= 20` implies `M >= 10`)
   - [ ] Equivalence (`M >= 10` implies `M > 9`)
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_bounds.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_bounds.rs`
   - [ ] **LLVM Support**: LLVM codegen for const bounds validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds validation codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -535,7 +535,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
 - [ ] **Const evaluator**: Overflow handling
   - [ ] Arithmetic overflow during const bound evaluation is compile error (E1033)
   - [ ] 64-bit signed integer arithmetic
-  - [ ] **Rust Tests**: `ori_typeck/tests/const_bound_overflow.rs`
+  - [ ] **Rust Tests**: `ori_types/tests/const_bound_overflow.rs`
   - [ ] **Ori Tests**: `tests/spec/types/const_bound_overflow.ori`
 
 - [ ] **Error messages**: Const bound error codes
@@ -543,7 +543,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [ ] E1031: Caller bound does not imply callee bound (with help message)
   - [ ] E1032: Invalid const bound expression (method calls not allowed)
   - [ ] E1033: Const bound evaluation overflow
-  - [ ] **Rust Tests**: `ori_reporting/tests/const_bound_errors.rs`
+  - [ ] **Rust Tests**: `ori_diagnostic/tests/const_bound_errors.rs`
 
 - [ ] **Test**: `tests/spec/types/const_bounds.ori`
   - [ ] Positive size constraint
@@ -564,7 +564,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
 
 ## 18.6 Default Const Values
 
-**Spec section**: `spec/06-types.md § Default Const Values`
+**Spec section**: `spec/08-types.md § Default Const Values`
 
 ### Syntax
 
@@ -621,7 +621,7 @@ let custom_buf = create_buffer<8192>()    // 8192
 
 ## 18.7 Const in Trait Bounds
 
-**Spec section**: `spec/07-properties-of-types.md § Const in Traits`
+**Spec section**: `spec/09-properties-of-types.md § Const in Traits`
 
 ### Syntax
 
@@ -674,7 +674,7 @@ impl [int, max 5]: FixedSize {
 ## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/06-types.md` and `spec/07-properties-of-types.md` const generics sections
+- [ ] Spec updated: `spec/08-types.md` and `spec/09-properties-of-types.md` const generics sections
 - [ ] CLAUDE.md updated with const generic syntax
 - [ ] `[T, max N]` fixed-capacity lists work
 - [ ] `$N: int` const parameters in types work

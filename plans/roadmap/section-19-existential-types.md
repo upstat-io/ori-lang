@@ -5,7 +5,7 @@ status: not-started
 tier: 7
 goal: Enable returning opaque types that implement a trait without exposing concrete type
 spec:
-  - spec/06-types.md
+  - spec/08-types.md
 sections:
   - id: "19.1"
     title: Return Position impl Trait
@@ -30,9 +30,18 @@ sections:
 
 **Criticality**: Low — API design improvement
 
-**Dependencies**: Section 3 (Traits)
+**Dependencies**: Section 3 (Traits), Monomorphization infrastructure (for AOT compilation — `impl Trait` is statically dispatched/monomorphized)
 
 **Proposal**: `proposals/approved/existential-types-proposal.md`
+
+### Sync Points: Opaque Type Representation (multi-crate sync required)
+
+Adding `impl Trait` return types requires updates across these crates:
+
+1. **`ori_ir`** — Add `Type::ImplTrait { bounds, where_clause }` variant in type AST
+2. **`ori_types`** — Infer concrete type from function body, verify all return paths yield same type, check trait bounds satisfied, reject invalid positions (arg, struct field)
+3. **`ori_eval`** — Evaluator sees concrete type (opaque only to callers), no special handling needed
+4. **`ori_llvm`** — Monomorphize to concrete type at codegen time, no vtable needed (static dispatch)
 
 ---
 
@@ -72,7 +81,7 @@ sections:
 <!-- unblocks:0.4.2 -->
 <!-- unblocks:0.9.1 -->
 
-**Spec section**: `spec/06-types.md § Existential Types`
+**Spec section**: `spec/08-types.md § Existential Types`
 
 ### Syntax
 
@@ -136,7 +145,7 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
 
 ## 19.2 Type Inference
 
-**Spec section**: `spec/06-types.md § Existential Type Inference`
+**Spec section**: `spec/08-types.md § Existential Type Inference`
 
 ### Rules
 
@@ -200,7 +209,7 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
 
 ## 19.3 Associated Type Constraints
 
-**Spec section**: `spec/06-types.md § Existential Associated Types`
+**Spec section**: `spec/08-types.md § Existential Associated Types`
 
 ### Syntax
 
@@ -248,7 +257,7 @@ trait Mapping {
 
 ## 19.4 Limitations and Errors
 
-**Spec section**: `spec/06-types.md § Existential Limitations`
+**Spec section**: `spec/08-types.md § Existential Limitations`
 
 ### Not Supported
 
@@ -315,7 +324,7 @@ error: `impl Trait` is only allowed in return position
 
 ## 19.5 impl Trait vs dyn Trait
 
-**Spec section**: `spec/06-types.md § Static vs Dynamic Dispatch`
+**Spec section**: `spec/08-types.md § Static vs Dynamic Dispatch`
 
 ### Comparison
 
@@ -372,7 +381,7 @@ error: `impl Trait` is only allowed in return position
 ## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/06-types.md` existential types section
+- [ ] Spec updated: `spec/08-types.md` existential types section
 - [ ] CLAUDE.md updated with impl Trait syntax
 - [ ] Return position `impl Trait` works
 - [ ] Type inference correct

@@ -34,7 +34,7 @@ block_merge/mod.rs, arc_emitter, emit_function.rs, terminators.rs
 ---
 
 ### Section 02: Function Attributes
-**File:** `section-02-function-attributes.md` | **Status:** Not Started
+**File:** `section-02-function-attributes.md` | **Status:** In Progress
 
 ```
 noreturn, nounwind, noundef, cold, function attribute, LLVM attribute
@@ -147,7 +147,7 @@ build/codegen-purity/current, artifact capture, opt-21 verify
 | ID | Title | File | Status |
 |----|-------|------|--------|
 | 01 | Block Merging & CFG Simplification | `section-01-block-merging.md` | In Progress |
-| 02 | Function Attributes | `section-02-function-attributes.md` | Not Started |
+| 02 | Function Attributes | `section-02-function-attributes.md` | In Progress |
 | 03 | Arithmetic Correctness | `section-03-arithmetic-correctness.md` | Complete |
 | 04 | ARC Closure Lifecycle | `section-04-arc-closure-lifecycle.md` | Complete |
 | 05 | Sum Type Payload Extraction | `section-05-payload-extraction.md` | Not Started |

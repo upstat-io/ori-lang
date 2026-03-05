@@ -5,7 +5,7 @@ status: in-progress
 tier: 3
 goal: Full pattern matching support
 spec:
-  - spec/10-patterns.md
+  - spec/15-patterns.md
 sections:
   - id: "9.0"
     title: Match Expression Syntax
@@ -34,11 +34,12 @@ sections:
 
 **Goal**: Full pattern matching support
 
-> **SPEC**: `spec/10-patterns.md`
+> **SPEC**: `spec/15-patterns.md`
 
 **Proposals**:
 - `proposals/approved/match-expression-syntax-proposal.md` — Match expression and pattern syntax
 - `proposals/approved/pattern-matching-exhaustiveness-proposal.md` — Exhaustiveness checking
+- `proposals/approved/range-patterns-char-byte-proposal.md` — Range patterns on char and byte
 
 ---
 
@@ -81,49 +82,49 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
 
 ## 9.1 match Expression
 
-- [x] **Implement**: Grammar `match_expr = "match" "(" expression "," match_arms ")"` — spec/10-patterns.md § match [done] (2026-02-10)
+- [x] **Implement**: Grammar `match_expr = "match" "(" expression "," match_arms ")"` — spec/15-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Parser and evaluator — match expression tests
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori` — 58 tests pass
   - [ ] **LLVM Support**: LLVM codegen for match expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match expression codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — full match expression codegen with or-patterns, guards, tuples, bindings, nested match, exhaustiveness (22 tests, 0 ignored)
 
-- [x] **Implement**: Grammar `match_arms = match_arm { "," match_arm } [ "," ]` — spec/10-patterns.md § match [done] (2026-02-10)
+- [x] **Implement**: Grammar `match_arms = match_arm { "," match_arm } [ "," ]` — spec/15-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — match arms parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match arms
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match arms codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — comma-separated multi-arm match with literals, bindings, wildcards, guards (all 22 tests use multi-arm match)
 
-- [x] **Implement**: Grammar `match_arm = pattern [ guard ] "->" expression` — spec/10-patterns.md § match [done] (2026-02-10)
+- [x] **Implement**: Grammar `match_arm = pattern [ guard ] "->" expression` — spec/15-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — match arm parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match arm
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match arm codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — match arm with pattern + guard + expression codegen (test_pattern_guard_basic, test_pattern_guard_with_binding, test_pattern_fizzbuzz)
 
-- [x] **Implement**: Evaluate scrutinee expression — spec/10-patterns.md § match [done] (2026-02-10)
+- [x] **Implement**: Evaluate scrutinee expression — spec/15-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — scrutinee evaluation
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for scrutinee evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — scrutinee evaluation codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — scrutinee evaluation for int, char, bool, tuple, and Result values (all 22 tests evaluate scrutinee expressions)
 
-- [x] **Implement**: Test each arm's pattern in order — spec/10-patterns.md § match [done] (2026-02-10)
+- [x] **Implement**: Test each arm's pattern in order — spec/15-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — pattern matching order
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for pattern matching order
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — pattern matching order codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — first-match-wins ordering with literal and guard arms (test_pattern_tuple_basic, test_pattern_tuple_second_arm, test_pattern_guard_basic)
 
-- [x] **Implement**: If pattern matches and guard passes, evaluate arm — spec/10-patterns.md § match [done] (2026-02-10)
+- [x] **Implement**: If pattern matches and guard passes, evaluate arm — spec/15-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — arm evaluation
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for arm evaluation with guard
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — arm evaluation codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — arm evaluation with guard conditions (test_pattern_guard_basic, test_pattern_guard_with_binding, test_pattern_guard_complex_condition)
 
-- [x] **Implement**: Return the result — spec/10-patterns.md § match [done] (2026-02-10)
+- [x] **Implement**: Return the result — spec/15-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — result return
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match result return
@@ -134,77 +135,84 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
 
 ## 9.2 Pattern Types
 
-- [x] **Implement**: `literal_pattern = literal` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
+- [x] **Implement**: `literal_pattern = literal` — spec/15-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — literal pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`, `tests/spec/patterns/match_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for literal pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — literal pattern codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — int, char, and bool literal patterns in match arms (test_pattern_or_int_literals, test_pattern_or_char_literals, test_pattern_match_all_bool_cases, test_pattern_match_many_char_literals)
 
-- [x] **Implement**: `binding_pattern = identifier` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
+- [x] **Implement**: `binding_pattern = identifier` — spec/15-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — binding pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match_patterns.ori` — 36 tests
   - [ ] **LLVM Support**: LLVM codegen for binding pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — binding pattern codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — binding capture and mixed binding+literal arms (test_pattern_binding_capture, test_pattern_binding_with_literal_arms)
 
-- [x] **Implement**: `wildcard_pattern = "_"` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
+- [x] **Implement**: `wildcard_pattern = "_"` — spec/15-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — wildcard pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for wildcard pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — wildcard pattern codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — wildcard catch-all in match arms (test_pattern_tuple_wildcard_fallthrough, test_pattern_tuple_all_wildcards, and _ arms throughout)
 
-- [x] **Implement**: `variant_pattern = type_path [ "(" ... ")" ]` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
+- [x] **Implement**: `variant_pattern = type_path [ "(" ... ")" ]` — spec/15-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — variant pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`, `tests/spec/declarations/sum_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for variant pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — variant pattern codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — Result variant dispatch via is_ok/is_err (test_pattern_match_on_result_tag)
 
-- [x] **Implement**: `struct_pattern = "{" ... [ ".." ] "}"` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
+- [x] **Implement**: `struct_pattern = "{" ... [ ".." ] "}"` — spec/15-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — struct pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — struct destructuring tests
   - [ ] **LLVM Support**: LLVM codegen for struct pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — struct pattern codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/recursion.rs` — struct construction and field access in recursive context (test_rec_struct_param with Point struct)
 
-- [x] **Implement**: `field_pattern = identifier [ ":" pattern ]` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
+- [x] **Implement**: `field_pattern = identifier [ ":" pattern ]` — spec/15-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — field pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for field pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — field pattern codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/recursion.rs` — struct field access in recursive patterns (test_rec_struct_param with Point { x, y } fields)
 
-- [x] **Implement**: `list_pattern = "[" ... "]"` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
+- [x] **Implement**: `list_pattern = "[" ... "]"` — spec/15-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — list pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — list destructure tests
   - [ ] **LLVM Support**: LLVM codegen for list pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — list pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Implement**: `list_elem = pattern | ".." [ identifier ]` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
+- [x] **Implement**: `list_elem = pattern | ".." [ identifier ]` — spec/15-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — list element parsing
   - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — head/tail, first_two_rest
   - [ ] **LLVM Support**: LLVM codegen for list element pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — list element pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `range_pattern = [ literal ] ".." [ literal ]` — spec/10-patterns.md § Pattern Types
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — range pattern parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
-  - [ ] **LLVM Support**: LLVM codegen for range pattern
+- [ ] **Implement**: `range_pattern = const_pattern ( ".." | "..=" ) const_pattern` — spec/15-patterns.md § Pattern Types, proposals/approved/range-patterns-char-byte-proposal.md
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — range pattern parsing (int, char, byte)
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_range_patterns.ori` — int ranges
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_range_char.ori` — char range patterns (`'a'..='z'`)
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_range_byte.ori` — byte range patterns (`b'0'..b'9'`)
+  - [ ] **Implement**: `const_pattern = literal | "$" identifier` — compile-time constant endpoints
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — const pattern with `$` identifiers
+  - [ ] **Ori Tests**: `tests/spec/patterns/match_range_const.ori` — constant endpoint patterns
+  - [ ] **Implement**: Empty range warning (lo > hi) — proposals/approved/range-patterns-char-byte-proposal.md § Type Checking
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — empty range warning
+  - [ ] **LLVM Support**: LLVM codegen for range pattern (int, char, byte)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — range pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `or_pattern = pattern "|" pattern` — spec/10-patterns.md § Pattern Types
+- [ ] **Implement**: `or_pattern = pattern "|" pattern` — spec/15-patterns.md § Pattern Types
   - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — or pattern parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for or pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — or pattern codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — or-pattern codegen for int, char, bool literals and in loops (4 tests: or_int_literals, or_char_literals, or_bool, or_in_loop)
 
-- [ ] **Implement**: `at_pattern = identifier "@" pattern` — spec/10-patterns.md § Pattern Types
+- [ ] **Implement**: `at_pattern = identifier "@" pattern` — spec/15-patterns.md § Pattern Types
   - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — at pattern parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for at pattern
@@ -215,21 +223,21 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
 
 ## 9.3 Pattern Guards
 
-- [x] **Implement**: Grammar `guard = "if" expression` (was `.match(cond)`, changed by match-arm-comma-separator-proposal) — spec/10-patterns.md § Guards [done] (2026-02-10)
+- [x] **Implement**: Grammar `guard = "if" expression` (was `.match(cond)`, changed by match-arm-comma-separator-proposal) — spec/15-patterns.md § Guards [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — guard parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori` — guard tests included
   - [ ] **LLVM Support**: LLVM codegen for guard expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — guard expression codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — guard clause codegen with comparisons, logical ops, modulo (4 tests: basic, binding, complex_condition, in_loop)
 
-- [x] **Implement**: Guard expression must evaluate to `bool` — spec/10-patterns.md § Guards [done] (2026-02-10)
+- [x] **Implement**: Guard expression must evaluate to `bool` — spec/15-patterns.md § Guards [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — guard type checking
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — guard type checking codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — guards evaluate bool conditions (test_pattern_guard_basic, test_pattern_guard_complex_condition)
 
-- [x] **Implement**: Variables bound by pattern are in scope — spec/10-patterns.md § Guards [done] (2026-02-10)
+- [x] **Implement**: Variables bound by pattern are in scope — spec/15-patterns.md § Guards [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — guard scoping
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard scoping
@@ -244,74 +252,76 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
 
 Pattern matrix decomposition algorithm (Maranget's algorithm) for exhaustiveness verification.
 
+
+
 ### 9.4.1 Core Algorithm
 
 - [ ] **Implement**: Pattern matrix decomposition — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Algorithm
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — matrix decomposition
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — matrix decomposition
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
 
 - [ ] **Implement**: Constructor enumeration for types — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Algorithm
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — type constructors
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — type constructors
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
 
 ### 9.4.2 Exhaustiveness Errors
 
 - [ ] **Implement**: Match expressions must be exhaustive (E0123) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Error Policy
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — exhaustiveness checking
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — exhaustiveness checking
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
 
 - [ ] **Implement**: Let binding refutability check — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Refutability Requirements
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — refutability errors
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — refutability errors
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
 
 - [ ] **Implement**: Function clause exhaustiveness — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Error Policy
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — clause exhaustiveness
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — clause exhaustiveness
   - [ ] **Ori Tests**: `tests/spec/patterns/function_clauses_exhaustive.ori`
 
 ### 9.4.3 Guard Handling
 
 - [ ] **Implement**: Guards not considered for exhaustiveness — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Guards
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — guard handling
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — guard handling
   - [ ] **Ori Tests**: `tests/spec/patterns/match_guards_exhaustive.ori`
 
 - [ ] **Implement**: Guards require catch-all pattern (E0124) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Guards
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — guard catch-all requirement
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — guard catch-all requirement
   - [ ] **Ori Tests**: `tests/spec/patterns/match_guards_exhaustive.ori`
 
 ### 9.4.4 Pattern Coverage
 
 - [ ] **Implement**: Or-pattern combined coverage — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Or-Patterns
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — or-pattern coverage
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — or-pattern coverage
   - [ ] **Ori Tests**: `tests/spec/patterns/match_or_patterns.ori`
 
 - [ ] **Implement**: Or-pattern binding consistency — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Binding Rules
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — or-pattern bindings
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — or-pattern bindings
   - [ ] **Ori Tests**: `tests/spec/patterns/match_or_patterns.ori`
 
 - [ ] **Implement**: At-pattern coverage (same as inner) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § At-Patterns
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — at-pattern coverage
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — at-pattern coverage
   - [ ] **Ori Tests**: `tests/spec/patterns/match_at_patterns.ori`
 
 - [ ] **Implement**: List pattern length coverage — proposals/approved/pattern-matching-exhaustiveness-proposal.md § List Patterns
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — list length coverage
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — list length coverage
   - [ ] **Ori Tests**: `tests/spec/patterns/match_list_patterns.ori`
 
 - [ ] **Implement**: Range pattern requires wildcard for integers — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Range Patterns
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — range coverage
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — range coverage
   - [ ] **Ori Tests**: `tests/spec/patterns/match_range_patterns.ori`
 
 ### 9.4.5 Unreachable Pattern Detection
 
 - [ ] **Implement**: Detect completely unreachable patterns (W0456) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Unreachable Pattern Detection
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — unreachable detection
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — unreachable detection
   - [ ] **Ori Tests**: `tests/spec/patterns/match_unreachable.ori`
 
 - [ ] **Implement**: Detect overlapping range patterns (W0457) — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Range Overlap
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — range overlap detection
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — range overlap detection
   - [ ] **Ori Tests**: `tests/spec/patterns/match_range_overlap.ori`
 
 - [ ] **Implement**: Suggest missing patterns in error messages — proposals/approved/pattern-matching-exhaustiveness-proposal.md § Error Messages
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/exhaustiveness.rs` — suggestions
+  - [ ] **Rust Tests**: `ori_types/src/check/exhaustiveness/tests.rs` — suggestions
   - [ ] **Ori Tests**: `tests/spec/patterns/match_exhaustive.ori`
 
 ---
@@ -392,7 +402,7 @@ match shape {
 ## 9.6 Section Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/10-patterns.md` reflects implementation
+- [ ] Spec updated: `spec/15-patterns.md` reflects implementation
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] 80+% test coverage
 - [ ] Run full test suite: `./test-all.sh`

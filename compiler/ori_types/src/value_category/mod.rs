@@ -1,25 +1,28 @@
 //! Value category for types — determines memory representation and semantics.
 //!
-//! Reserved for future use — all current Ori compound types are `Boxed`
-//! (heap-allocated with ARC). When inline types or borrowed views are added,
-//! this enum will distinguish their memory semantics.
+//! All current Ori compound types are `Boxed` (heap-allocated with ARC).
+//! Types declared with the `Value` trait will use `Inline` (stack-allocated,
+//! bitwise-copied, no ARC). `View` is reserved for future borrowed views.
 //!
-//! See `proposals/approved/low-level-future-proofing-proposal.md`.
+//! See `proposals/approved/value-trait-proposal.md` and
+//! `proposals/approved/low-level-future-proofing-proposal.md`.
 
 /// Value category for a type — determines memory representation and semantics.
 ///
 /// Currently all compound types are `Boxed` (heap-allocated, ARC-managed).
-/// The `Inline` and `View` variants are reserved for future low-level features.
+/// Types with the `Value` trait will use `Inline`. `View` is reserved for
+/// future borrowed views.
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug, Default)]
 pub enum ValueCategory {
     /// Heap-allocated with ARC (current default for all compound types).
     #[default]
     Boxed,
 
-    /// Stack-allocated, copied on assignment (future: `inline type`).
+    /// Stack-allocated, bitwise-copied on assignment.
     ///
-    /// Reserved — not yet implemented. When active, values of this category
-    /// will be passed by copy rather than by reference count.
+    /// Used for types declared with the `Value` trait — guaranteed inline
+    /// storage, no ARC participation, no `Drop`.
+    /// See `proposals/approved/value-trait-proposal.md`.
     Inline,
 
     /// Borrowed view, cannot outlive source (future: `Slice<T>`).
