@@ -40,6 +40,7 @@
 
 mod builder;
 mod builder_scope;
+mod builder_types;
 mod config;
 mod context;
 mod line_map;

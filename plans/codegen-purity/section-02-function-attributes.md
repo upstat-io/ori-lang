@@ -26,9 +26,6 @@ sections:
   - id: "02.6"
     title: "noundef on Integer Parameters"
     status: not-started
-  - id: "02.7"
-    title: "Completion Checklist"
-    status: not-started
 ---
 
 # Section 02: Function Attributes
@@ -69,6 +66,17 @@ sections:
 - [ ] Verify: IR for `panic()` calls shows `call void @ori_panic_cstr(...) #noreturn`
 - [ ] Verify: call sites to proven-`noreturn` panic functions terminate the path (`unreachable` or equivalent no-return terminator)
 
+### 02.1 Completion Checklist
+
+- [ ] `Attr::Noreturn` variant exists and emits the LLVM `noreturn` function attribute
+- [ ] `ori_panic_cstr` declaration has `noreturn` + `cold` but NOT `nounwind`
+- [ ] All panic-path runtime functions (`ori_panic`, `ori_panic_cstr`) have `noreturn`
+- [ ] IR test: `@ori_panic_cstr` declaration includes `noreturn` attribute
+- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for noreturn on panic functions
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
+
 ---
 
 ## 02.2 nounwind on C main Wrapper
@@ -79,6 +87,13 @@ The C `main()` wrapper function calls `_ori_main` (which is typically nounwind) 
 
 - [ ] Mark the C `main` wrapper as `nounwind` when `_ori_main` is nounwind
 - [ ] Verify: `main` function in IR has `nounwind` attribute
+
+### 02.2 Completion Checklist
+
+- [ ] C `main` wrapper has `nounwind` when `_ori_main` is nounwind
+- [ ] IR test: `define i32 @main(...)` includes `nounwind` for a trivial program
+- [ ] `./test-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
 
 ---
 
@@ -96,6 +111,16 @@ Two approaches:
 - [ ] Verify: `$eq` methods in J11 IR have `nounwind` attribute
 - [ ] Verify: `$compare`, `$hash` methods also get `nounwind` where applicable
 
+### 02.3 Completion Checklist
+
+- [ ] All derived trait methods that are pure (`$eq`, `$compare`, `$hash`) have `nounwind`
+- [ ] Derived methods that may allocate or call user code (`$to_str`, `$debug`) are correctly excluded or included based on analysis
+- [ ] IR test: `$eq` for a simple struct has `nounwind`
+- [ ] J11 `_ori_Shape$eq` has `nounwind` in emitted IR
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
+
 ---
 
 ## 02.4 nounwind on Runtime Declarations
@@ -108,6 +133,16 @@ Two approaches:
 - [ ] Add `nounwind` to `ori_str_from_raw` and any other safe runtime functions
 - [ ] For each runtime function left without `nounwind`, add or confirm rationale (may panic, may allocate, or otherwise may unwind)
 - [ ] Verify: Functions calling `ori_str_from_raw` can now be marked `nounwind` by the fixed-point analysis
+
+### 02.4 Completion Checklist
+
+- [ ] Every runtime function declaration has either `nounwind` or a documented rationale for omitting it
+- [ ] `ori_str_from_raw` has `nounwind`
+- [ ] Functions that transitively call only `nounwind` runtime functions are now caught by the fixed-point analysis
+- [ ] Runtime declaration table in `runtime_functions.rs` has comments explaining nounwind status
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
 
 ---
 
@@ -123,6 +158,15 @@ Indirect calls through closure function pointers (e.g., `ApplyIndirect` in ARC I
 - [ ] If implementing interprocedural proof, require whole-module evidence that all possible callees are nounwind
 - [ ] Add negative test where one closure target may unwind; indirect calls must remain without `nounwind`
 
+### 02.5 Completion Checklist
+
+- [ ] Policy documented: either interprocedural proof implemented, or conservative limitation explicitly documented with rationale
+- [ ] If interprocedural: functions with all-nounwind closure targets get `nounwind`; mixed targets do not
+- [ ] If conservative: comment in `nounwind.rs` explains why indirect calls are excluded
+- [ ] Negative test: function with a may-unwind closure target is NOT marked `nounwind`
+- [ ] `./test-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
+
 ---
 
 ## 02.6 noundef on Integer Parameters
@@ -137,19 +181,19 @@ Ori has no undefined scalar values at language level. Adding `noundef` tells LLV
 - [ ] Verify: IR shows `noundef i64 %param` in function signatures
 - [ ] Verify: No test regressions (noundef should be a pure optimization hint)
 
----
+### 02.6 Completion Checklist
 
-## 02.7 Completion Checklist
-
-- [ ] `ori_panic_cstr` has `noreturn` attribute
-- [ ] C `main` wrapper has `nounwind` when `_ori_main` is nounwind
-- [ ] All derived trait methods include `nounwind` where applicable
-- [ ] All safe runtime declarations have `nounwind`
-- [ ] Runtime declaration table has an explicit yes/no nounwind rationale for every panic-capable runtime function
-- [ ] `noundef` on proven-defined scalar parameters and scalar returns
+- [ ] All scalar parameters (`i64`, `i1`, `double`) have `noundef` in LLVM IR
+- [ ] Scalar return values have `noundef` where guaranteed defined
+- [ ] Aggregate/pointer values do NOT have `noundef` (unless proven)
+- [ ] IR test: function with `int` parameter shows `noundef i64` in signature
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] No regressions in `cargo test -p ori_llvm`
 - [ ] `opt-21 -passes=verify` clean on representative journey IR
 
-**Exit Criteria:** `grep` for function declarations in emitted IR shows: all panic functions have `noreturn`, all pure functions have `nounwind`, all integer parameters have `noundef`. Zero attribute gaps across all 12 code journeys.
+---
+
+## Section 02 Exit Criteria
+
+All six subsections complete. `grep` for function declarations in emitted IR shows: all panic functions have `noreturn`, all pure functions have `nounwind`, all integer parameters have `noundef`. Zero attribute gaps across all 12 code journeys.

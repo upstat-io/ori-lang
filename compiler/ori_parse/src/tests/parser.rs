@@ -466,14 +466,15 @@ fn test_with_capability_nested() {
 fn test_no_async_type_modifier() {
     // Ori does not support `async` as a type modifier.
     // Instead, use `uses Async` capability.
-    // The `async` keyword is reserved but should cause a parse error when used as type.
+    // `async` is not a keyword — it parses as an identifier, but `async int`
+    // is still invalid syntax (two identifiers in type position).
     let result = parse_source(
         r"
 @example () -> async int = 42;
 ",
     );
 
-    // Should have parse error - async is not a valid type modifier
+    // Should have parse error - two identifiers is not a valid type
     assert!(
         result.has_errors(),
         "async type modifier should not be supported"
@@ -481,8 +482,9 @@ fn test_no_async_type_modifier() {
 }
 
 #[test]
-fn test_async_keyword_reserved() {
-    // The async keyword is reserved and cannot be used as an identifier
+fn test_async_as_identifier() {
+    // `async` is not a reserved keyword (not in spec reserved list).
+    // It can be used as a regular identifier.
     let result = parse_source(
         r"
 @test () -> int = {
@@ -492,8 +494,11 @@ fn test_async_keyword_reserved() {
 ",
     );
 
-    // Should have parse error - async is a reserved keyword
-    assert!(result.has_errors(), "async should be a reserved keyword");
+    assert!(
+        !result.has_errors(),
+        "async should be a valid identifier: {:?}",
+        result.errors
+    );
 }
 
 #[test]

@@ -6,8 +6,8 @@
 //!
 //! # Status
 //!
-//! Implemented and tested independently. NOT wired into the main interpreter
-//! dispatch yet — Section 07 (Backend Migration) will do that.
+//! Wired into the main interpreter via `eval_can_match()` in
+//! `interpreter/can_eval/control_flow.rs`.
 //!
 //! # Architecture
 //!
@@ -262,10 +262,14 @@ fn resolve_bindings(
 )]
 fn test_matches(
     value: &Value,
-    _test_kind: TestKind,
+    test_kind: TestKind,
     test_value: &TestValue,
     interner: &StringInterner,
 ) -> bool {
+    // TODO(section-07): test_kind is currently unused; the decision tree builder
+    // sometimes emits IntEq for IntRange values. Once test_kind is used for
+    // dispatch, fix the builder to emit the correct kind.
+    let _ = test_kind;
     match test_value {
         TestValue::Tag {
             variant_index,
@@ -284,6 +288,11 @@ fn test_matches(
             // Convention: Ok = 0, Err = 1 (matches lower_ok/lower_err)
             Value::Ok(_) => *variant_index == 0,
             Value::Err(_) => *variant_index == 1,
+            // Convention: Less = 0, Equal = 1, Greater = 2
+            Value::Ordering(ord) => {
+                let tag = u32::from(ord.to_tag().unsigned_abs());
+                *variant_index == tag
+            }
             _ => false,
         },
 

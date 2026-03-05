@@ -10,6 +10,8 @@
 mod capture;
 mod index;
 mod kind;
+mod kind_display;
+mod kind_index;
 mod list;
 mod tag;
 mod tag_constants;
@@ -22,9 +24,13 @@ pub use list::TokenList;
 pub use tag::TokenTag;
 pub use units::{DurationUnit, SizeUnit};
 
-/// Number of [`TokenKind`] variants. Used for bitset sizing and test verification.
+/// Number of [`TokenKind`] variants in the bitset-indexable range (0-120).
+///
+/// This is the count of variants with `discriminant_index() < 128`, used for
+/// the `[u128; 2]` bitset in `TokenSet`. The total variant count (including
+/// compound assignment at 128+) is higher.
 #[cfg(test)]
-pub(crate) const TOKEN_KIND_COUNT: usize = 122;
+pub(crate) const TOKEN_KIND_COUNT: usize = 121;
 
 use std::fmt;
 

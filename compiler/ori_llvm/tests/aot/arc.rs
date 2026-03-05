@@ -416,6 +416,51 @@ fn test_arc_lambda_capture_bool() {
     );
 }
 
+// ─── Closure lifecycle: loop + passed closures ───
+
+#[test]
+fn test_arc_closure_loop_no_leak() {
+    // Closures created in a loop must be freed each iteration.
+    // ORI_CHECK_LEAKS=1 (set by assert_aot_success) catches accumulation.
+    assert_aot_success(
+        r#"
+@make_adder (n: int) -> (int) -> int = {
+    (x: int) -> n + x
+};
+
+@main () -> int = {
+    let sum = 0;
+    for i in 0..100 do {
+        let $f = make_adder(i);
+        sum = sum + f(1)
+    };
+    if sum == 5050 then 0 else 1
+}
+"#,
+        "arc_closure_loop_no_leak",
+    );
+}
+
+#[test]
+fn test_arc_closure_passed_and_freed() {
+    // Closure passed to another function — must be freed after last use.
+    assert_aot_success(
+        r#"
+@apply_twice (f: (int) -> int, x: int) -> int = {
+    f(f(x))
+};
+
+@main () -> int = {
+    let $n = 10;
+    let $adder = (x: int) -> x + n;
+    let $result = apply_twice(f: adder, x: 5);
+    if result == 25 then 0 else 1
+}
+"#,
+        "arc_closure_passed_and_freed",
+    );
+}
+
 // ─── Aliasing: shared RC buffer passed to multiple params ───
 
 #[test]

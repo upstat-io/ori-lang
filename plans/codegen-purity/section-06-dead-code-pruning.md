@@ -14,9 +14,6 @@ sections:
   - id: "06.2"
     title: "Skip Codegen After Noreturn Calls"
     status: not-started
-  - id: "06.3"
-    title: "Completion Checklist"
-    status: not-started
 ---
 
 # Section 06: Dead Code Pruning
@@ -55,6 +52,17 @@ Two approaches:
 - [ ] Verify: J4 `_ori_area` only loads `width` and `height`, not `origin.x`/`origin.y`
 - [ ] Verify: J10 `_ori_count_items` only loads `length`, not `capacity` or `data_ptr`
 
+### 06.1 Completion Checklist
+
+- [ ] Struct parameters: only referenced fields are loaded from memory
+- [ ] J4 `_ori_area` loads exactly 2 fields (not 4)
+- [ ] J10 `_ori_count_items` loads exactly 1 field (length, not 3)
+- [ ] IR test: function accessing 1 of 4 struct fields emits 1 load (not 4)
+- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for surgical field loading
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
+
 ---
 
 ## 06.2 Skip Codegen After Noreturn Calls
@@ -69,15 +77,19 @@ After emitting a call to a known-noreturn function (e.g., `ori_panic`, `ori_pani
 - [ ] Keep existing cleanup behavior for unwind paths where applicable (do not conflate `nounwind` and `noreturn`) — panic functions are `noreturn` but may still unwind for RC cleanup
 - [ ] Verify: J7 panic path (bb6) has no code after `ori_panic()` call
 
----
+### 06.2 Completion Checklist
 
-## 06.3 Completion Checklist
-
-- [ ] Struct parameters: only referenced fields are loaded
-- [ ] No instructions emitted after noreturn calls
-- [ ] J4 `_ori_area` loads exactly 2 fields (not 4)
-- [ ] J7 panic path has `call + unreachable` only
+- [ ] No instructions emitted after noreturn calls on the normal path
+- [ ] J7 panic path (bb6) has `call @ori_panic_cstr(...)` + `unreachable` only
+- [ ] Unwind paths for RC cleanup are preserved (not affected by noreturn pruning)
+- [ ] IR test: function with explicit `panic()` has `unreachable` immediately after the call
+- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for no code after noreturn
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
+- [ ] No regressions in `cargo test -p ori_llvm`
 
-**Exit Criteria:** IR dumps show no `load` instructions for struct fields that are never used in the function body. No instructions follow `ori_panic`/`ori_panic_cstr` calls except `unreachable`.
+---
+
+## Section 06 Exit Criteria
+
+IR dumps show no `load` instructions for struct fields that are never used in the function body. No instructions follow `ori_panic`/`ori_panic_cstr` calls except `unreachable`.

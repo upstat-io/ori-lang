@@ -273,13 +273,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .or_else(|| self.ctx.functions.get(&callee))
             .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
             .or_else(|| self.lookup_method_fallback(callee))
-            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
+            .map(|(fid, abi)| {
+                (
+                    *fid,
+                    abi.params.clone(),
+                    abi.return_abi.passing,
+                    abi.return_abi.ty,
+                )
+            });
 
-        if let Some((func_id, params, ret_abi)) = resolved {
+        if let Some((func_id, params, ret_passing, ret_ty_idx)) = resolved {
             let passed_args = self.apply_param_passing(&arg_vals, &params);
-            let result = match &ret_abi.passing {
+            let result = match &ret_passing {
                 ReturnPassing::Sret { .. } => {
-                    let ret_ty = self.resolve_type(ret_abi.ty);
+                    let ret_ty = self.resolve_type(ret_ty_idx);
                     let sret_alloca =
                         self.builder
                             .create_entry_alloca(self.current_function, "sret.tmp", ret_ty);

@@ -93,7 +93,6 @@ pub(crate) fn lookup(text: &str) -> Option<TokenKind> {
         },
         5 => match text {
             "Never" => Some(TokenKind::NeverType),
-            "async" => Some(TokenKind::Async),
             "break" => Some(TokenKind::Break),
             "false" => Some(TokenKind::False),
             "float" => Some(TokenKind::FloatType),

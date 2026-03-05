@@ -285,8 +285,8 @@ Before marking this plan `complete`, all of these must be true:
 |----|-------|------|--------|
 | 01 | Block Merging & CFG Simplification | `section-01-block-merging.md` | Not Started |
 | 02 | Function Attributes | `section-02-function-attributes.md` | Not Started |
-| 03 | Arithmetic Correctness | `section-03-arithmetic-correctness.md` | Not Started |
-| 04 | ARC Closure Lifecycle | `section-04-arc-closure-lifecycle.md` | Not Started |
+| 03 | Arithmetic Correctness | `section-03-arithmetic-correctness.md` | Complete |
+| 04 | ARC Closure Lifecycle | `section-04-arc-closure-lifecycle.md` | Complete |
 | 05 | Sum Type Payload Extraction | `section-05-payload-extraction.md` | Not Started |
 | 06 | Dead Code Pruning | `section-06-dead-code-pruning.md` | Not Started |
 | 07 | Constant Deduplication | `section-07-constant-dedup.md` | Not Started |

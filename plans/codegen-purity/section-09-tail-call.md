@@ -15,9 +15,6 @@ sections:
   - id: "09.2"
     title: "musttail Emission or Loop Lowering"
     status: not-started
-  - id: "09.3"
-    title: "Completion Checklist"
-    status: not-started
 ---
 
 # Section 09: Tail Call Optimization
@@ -53,6 +50,16 @@ Criteria for tail call eligibility:
 - [ ] Add tail call detection pass to the ARC pipeline or codegen
 - [ ] Handle: the ARC pipeline may insert cleanup between the tail call and return — these must be hoisted before the call for TCO to work
 - [ ] Annotate eligible calls in the ARC IR
+
+### 09.1 Completion Checklist
+
+- [ ] Tail call detection correctly identifies self-recursive tail calls
+- [ ] Detection handles ARC cleanup between call and return (hoisting or deferral)
+- [ ] Non-tail calls (result transformed, intervening side effects) are correctly excluded
+- [ ] Mutual recursion is correctly excluded (self-recursion only for this section)
+- [ ] Annotation in ARC IR marks eligible calls
+- [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 
 ---
 
@@ -95,16 +102,20 @@ Requirements for `musttail` (fallback only):
 - [ ] Verify: non-tail-recursive functions are unaffected
 - [ ] If ARC-safe loop lowering is not defensible for this cycle, mark L-10 as deferred in `§10.9` with concrete rationale and follow-up scope (no silent partial landing)
 
----
+### 09.2 Completion Checklist
 
-## 09.3 Completion Checklist
-
-- [ ] Tail call detection implemented and correct
-- [ ] Self-recursive tail calls use `musttail` or equivalent loop lowering
-- [ ] Deeply recursive tail calls run in constant stack space
-- [ ] Non-tail-recursive functions unchanged
+- [ ] Self-recursive tail calls compiled as loops (no `call` to self in IR) OR `musttail` for zero-ARC cases
+- [ ] J3 `gcd` function emits a loop, not a recursive call
+- [ ] Stress test: tail recursion at depth >= 100,000 runs without stack overflow in AOT
+- [ ] ARC cleanup (RcDec) hoisted correctly before loop back-edge — no leaks, no double-free
+- [ ] Non-tail-recursive functions unchanged (no false positives)
+- [ ] AOT test in `compiler/ori_llvm/tests/aot/` for deep tail recursion
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
-- [ ] AOT test for deep recursion in `compiler/ori_llvm/tests/aot/`
+- [ ] No regressions in `cargo test -p ori_llvm`
 
-**Exit Criteria:** J3's `gcd` function is stack-safe (via `musttail` or loop lowering). A recursion-depth stress test (>100,000) runs without stack overflow in AOT mode. Non-tail-recursive functions show no behavioral change.
+---
+
+## Section 09 Exit Criteria
+
+J3's `gcd` function is stack-safe (via `musttail` or loop lowering). A recursion-depth stress test (>100,000) runs without stack overflow in AOT mode. Non-tail-recursive functions show no behavioral change. If deferred, `§10.9` has concrete rationale.
