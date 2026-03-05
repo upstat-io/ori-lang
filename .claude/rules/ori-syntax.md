@@ -82,7 +82,7 @@ Bottom type (uninhabited); coerces to any `T`
 
 ## Literals
 
-`42`, `1_000_000`, `0xFF`, `0b1010` | `3.14`, `2.5e-8` | `"hello"` (escapes: `\\\"\n\t\r\0`) | `` `{name}` `` | `'a'` | `true`/`false` | duration/size literals | `[1, 2]`, `[...a, ...b]` | `{key: v}`, `{"key": v}`, `{[expr]: v}`, `{...a, ...b}` | `Point { x, y }`, `{ ...p, x: 10 }`
+`42`, `1_000_000`, `0xFF`, `0b1010` | `3.14`, `2.5e-8` | `"hello"` (escapes: `\\\"\n\t\r\0\xHH\u{H}`) | `` `{name}` `` | `'a'`, `'\x41'` (escapes: `\\\'\n\t\r\0\xHH\u{H}`, `\xHH` restricted to `\x00`–`\x7F`) | `b'x'`, `b'\xFF'` (byte literal, escapes: `\\\'\n\t\r\0\xHH`, full `\x00`–`\xFF`, no `\u{}` or `\"`) | `true`/`false` | duration/size literals | `[1, 2]`, `[...a, ...b]` | `{key: v}`, `{"key": v}`, `{[expr]: v}`, `{...a, ...b}` | `Point { x, y }`, `{ ...p, x: 10 }`
 
 ## Operators (precedence high→low)
 

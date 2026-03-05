@@ -38,6 +38,9 @@ sections:
   - id: "15C.11"
     title: Pipe Operator
     status: not-started
+  - id: "15C.13"
+    title: Byte Literals and Hex Escapes
+    status: not-started
   - id: "15C.12"
     title: Section Completion Checklist
     status: not-started
@@ -854,6 +857,81 @@ data
 
 - [ ] **LLVM Support**: No changes needed — type checker desugars before reaching LLVM codegen
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/pipe.rs` — verify desugared form compiles correctly
+
+---
+
+## 15C.13 Byte Literals and Hex Escapes
+
+**Proposal**: `proposals/approved/byte-literals-proposal.md`
+
+Add `b'x'` byte literal syntax and `\xHH` hex escapes. Byte literals produce type `byte` (0–255). `\xHH` is also added to char literals (restricted to `\x00`–`\x7F`).
+
+```ori
+let space: byte = b' ';
+let esc: byte = b'\x1B';
+let max: byte = b'\xFF';
+let tab_char: char = '\x09';
+```
+
+### Raw Scanner
+
+- [ ] **Implement**: Modify identifier dispatch in `ori_lexer_core/src/raw_scanner/mod.rs` — peek for `'` after `b` to start byte literal scanning
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — byte literal boundary detection
+- [ ] **Implement**: Add `RawTag::ByteLiteral` and `RawTag::UnterminatedByteLiteral` variants
+  - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
+- [ ] **Implement**: Add `scan_byte_literal()` method in `strings.rs` — reuse `skip_escape_body()` with `\x` extension
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — byte literal scanning (escapes, unterminated, multi-char)
+- [ ] **Implement**: Extend `skip_escape_body()` to handle `\x` — consume exactly 2 hex digits
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — hex escape boundary detection
+
+### Cooker
+
+- [ ] **Implement**: Add `cook_byte_literal()` method in `escape_cooking.rs` — strips `b'...'`, calls `unescape_byte_v2()`
+  - [ ] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — byte literal cooking
+- [ ] **Implement**: Add `unescape_byte_v2()` function in `cook_escape/mod.rs` — handles `\\` `\'` `\n` `\t` `\r` `\0` `\xHH`; rejects `\u{...}` and `\"`; produces `u8`
+  - [ ] **Rust Tests**: `ori_lexer/src/cook_escape/tests.rs` — byte escape processing
+- [ ] **Implement**: Extend `unescape_char_v2()` to handle `\xHH` — restricted to `\x00`–`\x7F`; error for `\x80`–`\xFF`
+  - [ ] **Rust Tests**: `ori_lexer/src/cook_escape/tests.rs` — char hex escape processing
+
+### Token Kind
+
+- [ ] **Implement**: Add `TokenKind::Byte(u8)` variant to `ori_ir/src/token/kind.rs`
+  - [ ] **Rust Tests**: `ori_ir/src/token/tests.rs` — display, discriminant
+
+### Parser
+
+- [ ] **Implement**: Parse `TokenKind::Byte(u8)` as literal expression in `ori_parse`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — byte literal parsing
+  - [ ] **Ori Tests**: `tests/spec/literals/byte_literal.ori`
+
+### Type Checker
+
+- [ ] **Implement**: Infer `byte` type for byte literal expressions in `ori_types`
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — byte literal type inference
+  - [ ] **Ori Tests**: `tests/spec/types/byte_literal_type.ori`
+
+### Evaluator
+
+- [ ] **Implement**: Evaluate byte literals to `Value::Byte(u8)` in `ori_eval`
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/tests.rs` — byte literal evaluation
+  - [ ] **Ori Tests**: `tests/spec/literals/byte_literal_eval.ori`
+
+### LLVM Codegen
+
+- [ ] **LLVM Support**: Emit byte literal as `i8` constant in `ori_llvm`
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/literals.rs` — byte literal codegen
+  - [ ] **AOT Tests**: `tests/spec/literals/byte_literal_aot.ori`
+
+### Error Messages
+
+- [ ] **Implement**: Error for `\u{...}` in byte literal — "byte literal cannot contain unicode escape"
+  - [ ] **Ori Tests**: `tests/compile-fail/byte_literal_unicode_escape.ori`
+- [ ] **Implement**: Error for `\"` in byte literal — "invalid escape in byte literal"
+  - [ ] **Ori Tests**: `tests/compile-fail/byte_literal_double_quote_escape.ori`
+- [ ] **Implement**: Error for non-ASCII character in byte literal — "non-ASCII character in byte literal"
+  - [ ] **Ori Tests**: `tests/compile-fail/byte_literal_non_ascii.ori`
+- [ ] **Implement**: Error for `\x80`–`\xFF` in char literal — "\\x value exceeds ASCII range in char literal (use \\u{...})"
+  - [ ] **Ori Tests**: `tests/compile-fail/char_literal_hex_out_of_range.ori`
 
 ---
 
