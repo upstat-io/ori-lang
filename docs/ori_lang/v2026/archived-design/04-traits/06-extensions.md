@@ -189,7 +189,7 @@ trait Eq {
 }
 
 // Always available to implementors
-impl Eq for Point { ... }
+impl Point: Eq { ... }
 // Works without any import
 point1.not_equals(point2)
 ```

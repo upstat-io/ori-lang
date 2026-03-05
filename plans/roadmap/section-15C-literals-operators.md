@@ -168,7 +168,7 @@ Two string types:
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format enums codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Blanket impl `Formattable for T: Printable`
+- [ ] **Implement**: Blanket impl `T: Formattable` where `T: Printable`
   - [ ] **Ori Tests**: `tests/spec/traits/formattable_blanket.ori`
   - [ ] **LLVM Support**: LLVM codegen for blanket impl
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — blanket impl codegen

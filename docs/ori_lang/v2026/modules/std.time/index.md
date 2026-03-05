@@ -57,7 +57,7 @@ type MockClock = {
     fixed_time: DateTime,
 }
 
-impl Clock for MockClock {
+impl MockClock: Clock {
     @now () -> DateTime = self.fixed_time
     @today () -> Date = self.fixed_time.date
     @timestamp () -> int = self.fixed_time.timestamp()

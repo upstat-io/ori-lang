@@ -155,22 +155,22 @@ These remain unchanged.
 Primitives have built-in implementations:
 
 ```ori
-impl Add for int {
+impl int: Add {
     type Output = int
     @add (self, rhs: int) -> int = /* intrinsic */
 }
 
-impl Add for float {
+impl float: Add {
     type Output = float
     @add (self, rhs: float) -> float = /* intrinsic */
 }
 
-impl Add for str {
+impl str: Add {
     type Output = str
     @add (self, rhs: str) -> str = /* intrinsic: concatenation */
 }
 
-impl Add for Duration {
+impl Duration: Add {
     type Output = Duration
     @add (self, rhs: Duration) -> Duration = /* intrinsic */
 }
@@ -183,12 +183,12 @@ impl Add for Duration {
 Traits support different right-hand-side types:
 
 ```ori
-impl Mul<int> for Duration {
+impl Duration: Mul<int> {
     type Output = Duration
     @multiply (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() * n)
 }
 
-impl Div<int> for Duration {
+impl Duration: Div<int> {
     type Output = Duration
     @divide (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() / n)
 }
@@ -204,13 +204,13 @@ For operations where both orderings should be valid (e.g., `int * Duration` and 
 
 ```ori
 // Duration * int
-impl Mul<int> for Duration {
+impl Duration: Mul<int> {
     type Output = Duration
     @multiply (self, n: int) -> Duration = Duration.from_nanoseconds(ns: self.nanoseconds() * n)
 }
 
 // int * Duration
-impl Mul<Duration> for int {
+impl int: Mul<Duration> {
     type Output = Duration
     @multiply (self, d: Duration) -> Duration = d * self  // Delegate to Duration * int
 }
@@ -227,28 +227,28 @@ The compiler does not automatically commute operands. Each ordering requires an 
 ```ori
 type Vector2 = { x: float, y: float }
 
-impl Add for Vector2 {
+impl Vector2: Add {
     @add (self, rhs: Vector2) -> Self = Vector2 {
         x: self.x + rhs.x,
         y: self.y + rhs.y,
     }
 }
 
-impl Sub for Vector2 {
+impl Vector2: Sub {
     @subtract (self, rhs: Vector2) -> Self = Vector2 {
         x: self.x - rhs.x,
         y: self.y - rhs.y,
     }
 }
 
-impl Mul<float> for Vector2 {
+impl Vector2: Mul<float> {
     @multiply (self, scalar: float) -> Self = Vector2 {
         x: self.x * scalar,
         y: self.y * scalar,
     }
 }
 
-impl Neg for Vector2 {
+impl Vector2: Neg {
     @negate (self) -> Self = Vector2 { x: -self.x, y: -self.y }
 }
 
@@ -285,7 +285,7 @@ Common cases can use `#derive`:
 type Meters = { value: float }
 
 // Generates:
-impl Add for Meters {
+impl Meters: Add {
     @add (self, rhs: Meters) -> Self = Meters { value: self.value + rhs.value }
 }
 // ... etc
@@ -304,8 +304,8 @@ trait Add<Rhs = Self> {  // Rhs defaults to Self if not specified
 }
 
 // These are equivalent:
-impl Add for Point { ... }
-impl Add<Point> for Point { ... }
+impl Point: Add { ... }
+impl Point: Add<Point> { ... }
 ```
 
 **Status:** APPROVED — See `default-type-parameters-proposal.md`
@@ -321,7 +321,7 @@ trait Add<Rhs = Self> {
 }
 
 // Can omit Output if it's Self:
-impl Add for Point {
+impl Point: Add {
     @add (self, rhs: Point) -> Self = ...  // Output inferred as Self = Point
 }
 ```
@@ -392,7 +392,7 @@ let x = Point { x: 1, y: 2 } + 5
 //   |         ^^^^^^^^^^^^^^^^^^^^^^^^
 //   |
 //   = note: `Point` implements `Add<Point>` but not `Add<int>`
-//   = help: consider implementing `Add<int>` for `Point`
+//   = help: consider implementing `Add<int>` for `Point`: `impl Point: Add<int> { ... }`
 ```
 
 ## Alternatives Considered

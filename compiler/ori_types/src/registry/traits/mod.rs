@@ -172,7 +172,7 @@ pub struct ImplEntry {
     pub trait_idx: Option<Idx>,
 
     /// Concrete type arguments for the trait (e.g., `[INT, STR]` for
-    /// `impl Index<int, str> for T`). Empty for non-generic traits or
+    /// `impl T: Index<int, str>`). Empty for non-generic traits or
     /// inherent impls. Used by coherence checking to distinguish different
     /// instantiations of the same generic trait.
     pub trait_type_args: Vec<Idx>,
@@ -206,11 +206,11 @@ pub struct ImplEntry {
 /// overlap error (E2021).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ImplSpecificity {
-    /// `impl<T> Trait for T` — applies to all types.
+    /// `impl<T> T: Trait` — applies to all types.
     Generic = 0,
-    /// `impl<T: Bound> Trait for T` — applies to types satisfying bounds.
+    /// `impl<T: Bound> T: Trait` — applies to types satisfying bounds.
     Constrained = 1,
-    /// `impl Trait for ConcreteType` — applies to exactly one type.
+    /// `impl ConcreteType: Trait` — applies to exactly one type.
     Concrete = 2,
 }
 

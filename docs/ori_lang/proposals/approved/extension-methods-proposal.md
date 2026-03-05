@@ -74,7 +74,7 @@ Extensions may be defined for:
 
 Extensions cannot:
 - Add fields to types
-- Implement traits (use `impl Trait for Type` instead)
+- Implement traits (use `impl Type: Trait` instead)
 - Override existing methods
 - Add static methods (methods without `self` — use inherent `impl` instead)
 

@@ -237,7 +237,7 @@ type Point = {
 The compiler generates:
 
 ```ori
-impl Reflect for Point {
+impl Point: Reflect {
     @type_info (self) -> TypeInfo = $POINT_TYPE_INFO
 
     @field_count (self) -> int = 2
@@ -287,7 +287,7 @@ type Shape =
 The compiler generates similar code with variant matching:
 
 ```ori
-impl Reflect for Shape {
+impl Shape: Reflect {
     @type_info (self) -> TypeInfo = $SHAPE_TYPE_INFO
 
     @field_count (self) -> int = match self {
@@ -330,7 +330,7 @@ type Container<T> = {
 }
 
 // Reflects when T: Reflect
-impl<T: Reflect> Reflect for Container<T> {
+impl<T: Reflect> Container<T>: Reflect {
     @type_info (self) -> TypeInfo = {
         let base = $CONTAINER_TYPE_INFO
         TypeInfo {

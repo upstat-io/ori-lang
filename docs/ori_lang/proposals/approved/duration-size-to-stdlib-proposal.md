@@ -60,52 +60,52 @@ This keeps the ergonomic syntax while moving implementation to the library.
 pub type Duration = { nanoseconds: int }
 
 // Duration + Duration -> Duration
-impl Add for Duration {
+impl Duration: Add {
     @add (self, other: Duration) -> Duration =
         Duration { nanoseconds: self.nanoseconds + other.nanoseconds }
 }
 
 // Duration - Duration -> Duration
-impl Sub for Duration {
+impl Duration: Sub {
     @subtract (self, other: Duration) -> Duration =
         Duration { nanoseconds: self.nanoseconds - other.nanoseconds }
 }
 
 // Duration * int -> Duration
-impl Mul<int> for Duration {
+impl Duration: Mul<int> {
     type Output = Duration
     @multiply (self, n: int) -> Duration =
         Duration { nanoseconds: self.nanoseconds * n }
 }
 
 // int * Duration -> Duration (commutative)
-impl Mul<Duration> for int {
+impl int: Mul<Duration> {
     type Output = Duration
     @multiply (self, d: Duration) -> Duration = d * self
 }
 
 // Duration / int -> Duration
-impl Div<int> for Duration {
+impl Duration: Div<int> {
     type Output = Duration
     @divide (self, n: int) -> Duration =
         Duration { nanoseconds: self.nanoseconds / n }
 }
 
 // Duration / Duration -> int (ratio)
-impl Div for Duration {
+impl Duration: Div {
     type Output = int
     @divide (self, other: Duration) -> int =
         self.nanoseconds / other.nanoseconds
 }
 
 // Duration % Duration -> Duration (remainder)
-impl Rem for Duration {
+impl Duration: Rem {
     @remainder (self, other: Duration) -> Duration =
         Duration { nanoseconds: self.nanoseconds % other.nanoseconds }
 }
 
 // -Duration -> Duration
-impl Neg for Duration {
+impl Duration: Neg {
     @negate (self) -> Duration =
         Duration { nanoseconds: -self.nanoseconds }
 }
@@ -128,7 +128,7 @@ impl Duration {
     pub @hours (self) -> int = self.nanoseconds / 3_600_000_000_000
 }
 
-impl Printable for Duration {
+impl Duration: Printable {
     @to_str (self) -> str = {
         let ns = self.nanoseconds
         if ns % 3_600_000_000_000 == 0 then `{ns / 3_600_000_000_000}h`
@@ -151,13 +151,13 @@ impl Printable for Duration {
 pub type Size = { bytes: int }
 
 // Size + Size -> Size
-impl Add for Size {
+impl Size: Add {
     @add (self, other: Size) -> Size =
         Size { bytes: self.bytes + other.bytes }
 }
 
 // Size - Size -> Size (panics if negative)
-impl Sub for Size {
+impl Size: Sub {
     @subtract (self, other: Size) -> Size = {
         let result = self.bytes - other.bytes
         if result < 0 then panic(msg: "Size cannot be negative")
@@ -166,7 +166,7 @@ impl Sub for Size {
 }
 
 // Size * int -> Size (panics if negative)
-impl Mul<int> for Size {
+impl Size: Mul<int> {
     type Output = Size
     @multiply (self, n: int) -> Size = {
         let result = self.bytes * n
@@ -176,25 +176,25 @@ impl Mul<int> for Size {
 }
 
 // int * Size -> Size (commutative)
-impl Mul<Size> for int {
+impl int: Mul<Size> {
     type Output = Size
     @multiply (self, s: Size) -> Size = s * self
 }
 
 // Size / int -> Size
-impl Div<int> for Size {
+impl Size: Div<int> {
     type Output = Size
     @divide (self, n: int) -> Size = Size { bytes: self.bytes / n }
 }
 
 // Size / Size -> int (ratio)
-impl Div for Size {
+impl Size: Div {
     type Output = int
     @divide (self, other: Size) -> int = self.bytes / other.bytes
 }
 
 // Size % Size -> Size (remainder)
-impl Rem for Size {
+impl Size: Rem {
     @remainder (self, other: Size) -> Size =
         Size { bytes: self.bytes % other.bytes }
 }
@@ -220,7 +220,7 @@ impl Size {
     pub @terabytes (self) -> int = self.bytes / 1_000_000_000_000
 }
 
-impl Printable for Size {
+impl Size: Printable {
     // SI units (1000-based)
     @to_str (self) -> str = {
         let b = self.bytes

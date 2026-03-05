@@ -537,7 +537,7 @@ A capset is not a trait. It cannot be used in `impl` blocks, `def impl` declarat
 with Net = something in ...  // error
 
 // Invalid — capsets are not traits
-impl Net for SomeType { ... }  // error
+impl SomeType: Net { ... }  // error
 def impl Net { ... }           // error
 ```
 

@@ -283,14 +283,14 @@ trait Stepper {
 }
 
 // This impl mutates self — step() is classified as mutating
-impl Stepper for Cursor {
+impl Cursor: Stepper {
     @step (self) -> void = {
         self.pos += 1
     }
 }
 
 // Non-mutating impl is compatible with mutating classification
-impl Stepper for Fixed {
+impl Fixed: Stepper {
     @step (self) -> void = { }
 }
 ```

@@ -43,7 +43,7 @@ type MockHttp = {
     errors: {str: Error},
 }
 
-impl Http for MockHttp {
+impl MockHttp: Http {
     @get (url: str) -> Result<str, Error> =
         match(
             self.errors.get(
@@ -177,7 +177,7 @@ type SequenceMockHttp = {
     responses: [str],
 }
 
-impl Http for SequenceMockHttp {
+impl SequenceMockHttp: Http {
     // Implementation tracks call count internally
 }
 ```
@@ -189,7 +189,7 @@ type ConditionalMockHttp = {
     handler: (str) -> Result<str, Error>,
 }
 
-impl Http for ConditionalMockHttp {
+impl ConditionalMockHttp: Http {
     @get (url: str) -> Result<str, Error> = self.handler(url)
     @post (url: str, body: str) -> Result<str, Error> = self.handler(url)
 }
@@ -294,7 +294,7 @@ type MockClock = {
     fixed_time: Timestamp,
 }
 
-impl Clock for MockClock {
+impl MockClock: Clock {
     @now () -> Timestamp = self.fixed_time
 }
 ```
@@ -345,7 +345,7 @@ type MockRandom = {
     values: [int],
 }
 
-impl Random for MockRandom {
+impl MockRandom: Random {
     // Returns values in sequence
 }
 
@@ -353,7 +353,7 @@ type FixedRandom = {
     value: int,
 }
 
-impl Random for FixedRandom {
+impl FixedRandom: Random {
     @int (min: int, max: int) -> int = self.value
 }
 ```
@@ -397,7 +397,7 @@ type MockHttp = {
     responses: {str: str},
 }
 
-impl Http for MockHttp {
+impl MockHttp: Http {
     @get (url: str) -> Result<str, Error> =
         match(
             self.responses.get(
@@ -446,7 +446,7 @@ type CapturingLogger = {
     messages: [str],
 }
 
-impl Logger for CapturingLogger {
+impl CapturingLogger: Logger {
     @info (message: str) -> void =
         self.messages = self.messages + ["INFO: " + message]
     @error (message: str) -> void =

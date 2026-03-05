@@ -462,7 +462,7 @@ When FFI operations are implemented, add `Unsafe` requirement checks:
 
 - **Runtime safety checks** — `unsafe` is compile-time only; no runtime overhead
 - **Unsafe field access** — Ori has no `unsafe` fields (unlike Swift's `@unsafe` on properties)
-- **Unsafe trait implementations** — deferred; may need `unsafe impl Trait` in the future for traits with safety invariants
+- **Unsafe trait implementations** — deferred; may need `unsafe impl Type: Trait` in the future for traits with safety invariants
 - **Formal verification** — `unsafe` is a trust boundary, not a proof obligation
 - **Linting infrastructure** — unused unsafe detection deferred to linting system
 

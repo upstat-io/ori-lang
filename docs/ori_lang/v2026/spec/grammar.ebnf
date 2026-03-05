@@ -296,7 +296,7 @@ variadic_param = identifier ":" "..." type .
 
 impl_block    = inherent_impl | trait_impl | def_impl .
 inherent_impl = "impl" [ generics ] type_path [ where_clause ] "{" { method } "}" .
-trait_impl    = "impl" [ generics ] type_path "for" type [ where_clause ] "{" { method } "}" .
+trait_impl    = "impl" [ generics ] type ":" type_path [ where_clause ] "{" { method } "}" .
 def_impl      = "def" "impl" identifier "{" { def_impl_method } "}" .
 method        = "@" identifier params "->" type [ uses_clause ] "=" expression [ ";" ] .
 def_impl_method = "@" identifier params "->" type "=" expression [ ";" ] .  /* no self, no uses */

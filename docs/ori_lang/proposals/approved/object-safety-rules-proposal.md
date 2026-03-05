@@ -143,7 +143,7 @@ trait CloneArc {
     @clone_arc (self) -> Arc<CloneArc>
 }
 
-impl<T: Clone> CloneArc for T {
+impl<T: Clone> T: CloneArc {
     @clone_arc (self) -> Arc<CloneArc> = Arc(self.clone())
 }
 ```
@@ -307,7 +307,7 @@ trait BuilderObj {
     @build (self) -> Product
 }
 
-impl<B: Builder> BuilderObj for B {
+impl<B: Builder> B: BuilderObj {
     @with_option_dyn (self, opt: Option) -> Arc<BuilderObj> =
         Arc(self.with_option(opt: opt))
     @build (self) -> Product = self.build()

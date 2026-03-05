@@ -266,8 +266,8 @@ Profile before assuming `dyn` is a bottleneck. The flexibility often outweighs t
 ```ori
 // Type that implements both
 type Dog = { ... }
-impl Named for Dog { ... }
-impl Speaks for Dog { ... }
+impl Dog: Named { ... }
+impl Dog: Speaks { ... }
 
 // Convert to multi-trait object
 pet: dyn Named + Speaks = dog

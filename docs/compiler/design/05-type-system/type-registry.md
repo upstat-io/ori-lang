@@ -11,7 +11,7 @@ section: "Type System"
 
 A type pool stores *structural* types — `[int]`, `(str) -> bool`, `(int, float)`. But a real programming language also has *named* types: `type Point = { x: int, y: int }`, `type Option<T> = Some(T) | None`. These user-defined types need a registry that maps names to definitions, tracks fields and variants, and provides lookup for the type checker during inference.
 
-Beyond types, most languages have **traits** (or interfaces, typeclasses, protocols) — named collections of methods that types can implement. And methods — both inherent (`impl Point { @distance ... }`) and trait-based (`impl Printable for Point { @to_str ... }`) — need a resolution system that finds the right method for a given receiver type.
+Beyond types, most languages have **traits** (or interfaces, typeclasses, protocols) — named collections of methods that types can implement. And methods — both inherent (`impl Point { @distance ... }`) and trait-based (`impl Point: Printable { @to_str ... }`) — need a resolution system that finds the right method for a given receiver type.
 
 The **type registry** is the data structure that organizes all of this: type definitions, trait definitions, trait implementations, and method resolution. It is populated during Pass 0 of type checking and consulted throughout the remaining passes.
 
@@ -33,7 +33,7 @@ Traits serve two purposes in Ori's type system:
 
 2. **Bounded generics** — constraining type parameters: `@sort<T: Comparable>(list: [T]) -> [T]` means `T` must support comparison. Without the bound, the function body couldn't call comparison operators on `T`.
 
-This is the typeclass pattern from Haskell (Wadler and Blott, 1989), adapted through Rust's trait system. The key design choice is *explicit implementation* — a type doesn't satisfy a trait just because it has the right methods. It must explicitly `impl Trait for Type`, making the relationship visible in the source code.
+This is the typeclass pattern from Haskell (Wadler and Blott, 1989), adapted through Rust's trait system. The key design choice is *explicit implementation* — a type doesn't satisfy a trait just because it has the right methods. It must explicitly `impl Type: Trait`, making the relationship visible in the source code.
 
 ## Three Registries
 
@@ -202,7 +202,7 @@ pub struct TraitEntry {
 
 **`super_traits`** lists the trait's supertrait `Idx` values. `Comparable` has `Eq` as a supertrait — implementing `Comparable` requires also implementing `Eq`. The `TraitRegistry` provides `all_super_traits()`, which performs a transitive BFS walk to collect the full supertrait closure, used to verify that an impl satisfies all inherited obligations.
 
-**`assoc_types`** tracks associated type declarations. A trait like `Iterator` has `type Item` — the type of elements the iterator produces. Implementations must specify the concrete type: `impl Iterator for Range { type Item = int }`.
+**`assoc_types`** tracks associated type declarations. A trait like `Iterator` has `type Item` — the type of elements the iterator produces. Implementations must specify the concrete type: `impl Range: Iterator { type Item = int }`.
 
 ### Object Safety
 
@@ -303,7 +303,7 @@ This array is sorted, enabling binary search and serving as a single source of t
 
 2. **Inherent methods** — `impl Type { ... }` blocks. These are the type's "own" methods, not associated with any trait.
 
-3. **Trait methods** — `impl Trait for Type { ... }` blocks. When multiple traits provide a method with the same name, the caller must use qualified syntax to disambiguate: `Trait.method(value)`.
+3. **Trait methods** — `impl Type: Trait { ... }` blocks. When multiple traits provide a method with the same name, the caller must use qualified syntax to disambiguate: `Trait.method(value)`.
 
 This ordering follows the principle that more specific bindings take priority. A type's own methods shadow trait methods, and built-in methods (which are the primary interface for primitives) take highest priority.
 
@@ -391,4 +391,4 @@ Haskell's typeclass system (Wadler and Blott, ["How to make ad-hoc polymorphism 
 
 **Object safety at definition time.** Checking object safety when the trait is defined (rather than when it's used as a trait object) means violations are reported early, but it also means the check runs even for traits that are never used as trait objects. The early check is a small cost (one analysis per trait definition) for a significant UX benefit (errors at the definition site, not at distant use sites).
 
-**Explicit vs. implicit trait implementation.** Requiring explicit `impl Trait for Type` is more verbose than Go's implicit conformance but prevents accidental satisfaction. A type with a `to_str` method doesn't automatically become `Printable` — the author must explicitly declare the intent. This catches bugs where a method happens to have the right name but the wrong semantics.
+**Explicit vs. implicit trait implementation.** Requiring explicit `impl Type: Trait` is more verbose than Go's implicit conformance but prevents accidental satisfaction. A type with a `to_str` method doesn't automatically become `Printable` — the author must explicitly declare the intent. This catches bugs where a method happens to have the right name but the wrong semantics.

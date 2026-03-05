@@ -127,7 +127,7 @@ type Row = {
     columns: {str: Value},
 }
 
-impl Index<str, Result<Value, ColumnError>> for Row {
+impl Row: Index<str, Result<Value, ColumnError>> {
     @index (self, key: str) -> Result<Value, ColumnError> =
         match self.columns[key] {
             Some(v) -> Ok(v)
@@ -156,7 +156,7 @@ type JsonValue =
     | Object({str: JsonValue})
 
 // Index by string (object access)
-impl Index<str, Option<JsonValue>> for JsonValue {
+impl JsonValue: Index<str, Option<JsonValue>> {
     @index (self, key: str) -> Option<JsonValue> =
         match self {
             Object(map) -> map[key]
@@ -165,7 +165,7 @@ impl Index<str, Option<JsonValue>> for JsonValue {
 }
 
 // Index by int (array access)
-impl Index<int, Option<JsonValue>> for JsonValue {
+impl JsonValue: Index<int, Option<JsonValue>> {
     @index (self, key: int) -> Option<JsonValue> =
         match self {
             Array(arr) -> if key >= 0 && key < len(collection: arr) then Some(arr[key]) else None
@@ -222,13 +222,13 @@ These built-in types would have explicit trait implementations:
 
 ```ori
 // List
-impl<T> Index<int, T> for [T] { ... }
+impl<T> [T]: Index<int, T> { ... }
 
 // Map - read returns Option
-impl<K: Hashable, V> Index<K, Option<V>> for {K: V} { ... }
+impl<K: Hashable, V> {K: V}: Index<K, Option<V>> { ... }
 
 // String - read only, returns str (single codepoint)
-impl Index<int, str> for str { ... }
+impl str: Index<int, str> { ... }
 ```
 
 ---
@@ -245,17 +245,17 @@ Different types can choose appropriate error handling:
 
 ```ori
 // Panic strategy (Matrix - programmer error if out of bounds)
-impl Index<(int, int), T> for Matrix<T> {
+impl Matrix<T>: Index<(int, int), T> {
     @index (self, key: (int, int)) -> T = ...  // panics on invalid
 }
 
 // Option strategy (SparseVector - missing is normal)
-impl Index<int, Option<T>> for SparseVector<T> {
+impl SparseVector<T>: Index<int, Option<T>> {
     @index (self, key: int) -> Option<T> = ...
 }
 
 // Result strategy (DatabaseRow - need error details)
-impl Index<str, Result<Value, DbError>> for Row {
+impl Row: Index<str, Result<Value, DbError>> {
     @index (self, key: str) -> Result<Value, DbError> = ...
 }
 ```
@@ -311,7 +311,7 @@ type BitSet = {
     size: int,
 }
 
-impl Index<int, bool> for BitSet {
+impl BitSet: Index<int, bool> {
     @index (self, key: int) -> bool = {
         assert(condition: key >= 0 && key < self.size, msg: "index out of bounds")
         let byte_idx = key / 8

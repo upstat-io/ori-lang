@@ -60,7 +60,7 @@ type MockRandom = {
     bool_value: bool,
 }
 
-impl Random for MockRandom {
+impl MockRandom: Random {
     @int (min: int, max: int) -> int = self.int_value
     @float () -> float = self.float_value
     @bool () -> bool = self.bool_value

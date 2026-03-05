@@ -66,7 +66,7 @@ fail(err: Error { message: "detailed" })  // No conversion needed, already Error
 ### str to Error
 
 ```ori
-impl Into<Error> for str {
+impl str: Into<Error> {
     @into (self) -> Error = Error { message: self, source: None }
 }
 ```
@@ -78,7 +78,7 @@ let e: Error = "failed to connect".into()
 ### Numeric Widening
 
 ```ori
-impl Into<float> for int {
+impl int: Into<float> {
     @into (self) -> float = self as float
 }
 ```
@@ -92,7 +92,7 @@ let f: float = 42.into()  // 42.0
 ### Collection Conversions
 
 ```ori
-impl<T: Eq + Hashable> Into<[T]> for Set<T> {
+impl<T: Eq + Hashable> Set<T>: Into<[T]> {
     @into (self) -> [T] = self.iter().collect()
 }
 ```
@@ -174,7 +174,7 @@ process(value: 10.into())    // int, explicit .into() required
 ```ori
 type UserId = int
 
-impl Into<str> for UserId {
+impl UserId: Into<str> {
     @into (self) -> str = `user-{self.inner}`
 }
 
@@ -188,11 +188,11 @@ let s: str = id.into()  // "user-42"
 type Celsius = float
 type Fahrenheit = float
 
-impl Into<Fahrenheit> for Celsius {
+impl Celsius: Into<Fahrenheit> {
     @into (self) -> Fahrenheit = Fahrenheit(self.inner * 9.0 / 5.0 + 32.0)
 }
 
-impl Into<Celsius> for Fahrenheit {
+impl Fahrenheit: Into<Celsius> {
     @into (self) -> Celsius = Celsius((self.inner - 32.0) * 5.0 / 9.0)
 }
 ```
@@ -201,7 +201,7 @@ impl Into<Celsius> for Fahrenheit {
 
 ## No Blanket Identity
 
-There is NO blanket `impl<T> Into<T> for T`. Each type must implement conversions explicitly.
+There is NO blanket `impl<T> T: Into<T>`. Each type must implement conversions explicitly.
 
 ### Rationale
 
@@ -215,8 +215,8 @@ Into does NOT chain automatically:
 
 ```ori
 // Given:
-impl Into<B> for A { ... }
-impl Into<C> for B { ... }
+impl A: Into<B> { ... }
+impl B: Into<C> { ... }
 
 let a: A = ...
 let c: C = a.into()  // ERROR: A does not implement Into<C>
@@ -240,13 +240,13 @@ Into implementations follow standard orphan rules:
 type MyType = { ... }
 
 // OK: implementing Into for our type (defined in this module)
-impl Into<str> for MyType { ... }
+impl MyType: Into<str> { ... }
 
 // OK: implementing Into our type (target type in this module)
-impl Into<MyType> for str { ... }
+impl str: Into<MyType> { ... }
 
 // ERROR: cannot implement foreign Into for foreign types
-impl Into<str> for int { ... }
+impl int: Into<str> { ... }
 ```
 
 ---
@@ -263,7 +263,7 @@ error[E0960]: `MyType` does not implement `Into<str>`
    |                    ^^^^ trait not implemented
    |
    = note: `MyType` cannot be converted to `str`
-   = help: implement `Into<str>` for `MyType`
+   = help: implement `Into<str>` for `MyType`: `impl MyType: Into<str> { ... }`
 ```
 
 ### Ambiguous Into

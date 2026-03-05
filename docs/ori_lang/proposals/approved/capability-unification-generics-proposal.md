@@ -10,6 +10,10 @@
 
 > **Monomorphization Architecture**: The monomorphization pipeline design for Phases 1-5 has been documented in `docs/ori_lang/v2026/design/monomorphization-architecture.md`. This design was informed by a study of Rust (`rustc`), Swift, Zig, and Lean 4 compilers. Key decision: a unified `GenericArg` enum (matching Rust's `GenericArgKind`) handles both type and const value substitution through all five phases. The current `MonoInstance.type_args: Vec<Idx>` will evolve to `MonoInstance.generic_args: Vec<GenericArg>` at the Phase 1-to-Phase 2 boundary. See the architecture document for full details including pipeline stages, ARC lowering integration, name mangling, and reference compiler comparison.
 
+## Errata (added 2026-03-05)
+
+> **Superseded by impl-colon-syntax-proposal**: Section 12.1 stated that `impl Trait for Type` syntax is "unchanged." The impl-colon-syntax-proposal (approved 2026-03-05) replaces `impl Trait for Type` with `impl Type: Trait`, completing the `:` = "conforms to" unification. The summary table row "Manual `impl`" is also superseded. All other sections of this proposal remain valid.
+
 ## Addendum (added 2026-03-04)
 
 > **Decision: `:` replaces `with` for all structural bounds.** After reviewing prior art across 10 reference compilers (Rust, Swift, Kotlin, Haskell, Elm, Gleam, Roc, Koka, TypeScript, Zig), the `:` syntax was chosen over `with` for all structural capability positions: type declarations, generic bounds, where clauses, and supertrait declarations. Rationale:
@@ -43,7 +47,7 @@ Establish a consistent vocabulary for capabilities — **`:`** for structural ca
 | `type Point = { x: int, y: int }` | `type Point: Eq, Hashable = { x: int, y: int }` |
 | `T: Comparable` | `T: Comparable` (unchanged) |
 | `where T: Eq, U: Clone` | `where T: Eq, U: Clone` (unchanged) |
-| `impl<T: Eq> Eq for [T]` | `impl<T: Eq> Eq for [T]` (unchanged) |
+| `impl<T: Eq> Eq for [T]` | `impl<T: Eq> [T]: Eq` (see impl-colon-syntax-proposal) |
 | Const generics: `int` and `bool` only | Any type `: Eq, Hashable` |
 | Three concepts (derive, bounds, effects) | Two concepts (`:` structural, `uses` environmental) |
 
@@ -560,7 +564,7 @@ error[E2033]: trait `Iterator` cannot be derived
    |              ^^^^^^^^ not derivable
    |
    = note: derivable traits: Eq, Hashable, Comparable, Clone, Default, Debug, Printable
-   = help: implement `Iterator` manually: `impl Iterator for MyIter { ... }`
+   = help: implement `Iterator` manually: `impl MyIter: Iterator { ... }`
 ```
 
 ### 7.5 Generic Types with `:`
@@ -571,9 +575,9 @@ For generic types, `:` generates bounded implementations:
 type Pair<T>: Eq, Clone, Debug = { first: T, second: T }
 
 // Generates:
-// impl<T: Eq> Eq for Pair<T> { ... }
-// impl<T: Clone> Clone for Pair<T> { ... }
-// impl<T: Debug> Debug for Pair<T> { ... }
+// impl<T: Eq> Pair<T>: Eq { ... }
+// impl<T: Clone> Pair<T>: Clone { ... }
+// impl<T: Debug> Pair<T>: Debug { ... }
 ```
 
 This means `Pair<int>` has `Eq`, `Clone`, `Debug` (because `int` has all three), but `Pair<SomeOpaqueType>` only has the traits that `SomeOpaqueType` has.
@@ -631,7 +635,7 @@ Generic bound syntax is **not changed** by this proposal. The existing `:` synta
 ### 8.5 Trait Bounds on Impl Blocks
 
 ```ori
-impl<T: Printable> Printable for [T] {
+impl<T: Printable> [T]: Printable {
     @to_str (self) -> str = ...;
 }
 ```
@@ -761,7 +765,7 @@ trait Shaped {
     $total: int = $product(Self.$shape);  // Default (computed from $shape)
 }
 
-impl Shaped for Matrix<float, 3, 4> {
+impl Matrix<float, 3, 4>: Shaped {
     $rank = 2;
     $shape = [3, 4];
     // $total uses default: $product([3, 4]) = 12
@@ -865,15 +869,17 @@ This is the most complex phase and depends on all previous phases being complete
 
 ## 12. Interaction with Existing Features
 
-### 12.1 Manual Trait Implementations — Unchanged
+### 12.1 Manual Trait Implementations
 
-`impl Trait for Type { ... }` is unaffected. `with` on types is specifically for auto-derivation. Manual implementations continue to work:
+> **Note:** The `impl-colon-syntax-proposal` (approved 2026-03-05) changed `impl Trait for Type` to `impl Type: Trait`. Examples below reflect the updated syntax.
+
+Manual implementations use `impl Type: Trait { ... }`. `:` on types is specifically for auto-derivation. Manual implementations continue to work:
 
 ```ori
 type Custom = { data: [byte] }
 
 // Manual implementation — not derivable from fields
-impl Eq for Custom {
+impl Custom: Eq {
     @eq (self, other: Custom) -> bool = self.data == other.data;
 }
 ```
@@ -885,7 +891,7 @@ type Custom: Clone, Debug = { data: [byte] }
 
 // Clone and Debug are auto-derived
 // Eq is manually implemented
-impl Eq for Custom {
+impl Custom: Eq {
     @eq (self, other: Custom) -> bool = custom_compare(a: self.data, b: other.data);
 }
 ```
@@ -999,7 +1005,7 @@ error[E2033]: trait `Iterator` cannot be derived
    |              ^^^^^^^^ not derivable
    |
    = note: derivable traits: Eq, Hashable, Comparable, Clone, Default, Debug, Printable
-   = help: implement `Iterator` manually: `impl Iterator for MyIter { ... }`
+   = help: implement `Iterator` manually: `impl MyIter: Iterator { ... }`
 ```
 
 ### 13.3 Supertrait Missing (E2029)
@@ -1783,7 +1789,7 @@ These are deliberate scope limitations. Each could be a future proposal, but thi
 | Const fns in types | Not supported | `where $product(S) == N` | 5 |
 | `uses` keyword | Environmental effects | Unchanged | — |
 | `with...in` expression | Capability provision | Unchanged (only use of `with`) | — |
-| Manual `impl` | `impl Trait for Type` | Unchanged | — |
+| Manual `impl` | `impl Trait for Type` | `impl Type: Trait` (see impl-colon-syntax-proposal) | — |
 | Trait dispatch | 4-tier resolution | Unchanged | — |
 | 7 derivable traits | Eq, Hash, Cmp, Clone, Default, Debug, Print | Unchanged | — |
 | `capset` | Named effect set | Unchanged | — |

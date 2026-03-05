@@ -162,7 +162,7 @@ impl<T: Sendable> Consumer<T> {
 }
 
 // Consumer is Iterable
-impl<T: Sendable> Iterable for Consumer<T> {
+impl<T: Sendable> Consumer<T>: Iterable {
     type Item = T
     @iter (self) -> impl Iterator where Item == T
 }
@@ -270,8 +270,8 @@ type CloneableProducer<T: Sendable> = Producer<T>  // + Clone impl
 type CloneableConsumer<T: Sendable> = Consumer<T>  // + Clone impl
 
 // Clone implementations
-impl<T: Sendable> Clone for CloneableProducer<T> { ... }
-impl<T: Sendable> Clone for CloneableConsumer<T> { ... }
+impl<T: Sendable> CloneableProducer<T>: Clone { ... }
+impl<T: Sendable> CloneableConsumer<T>: Clone { ... }
 ```
 
 ---

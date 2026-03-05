@@ -49,7 +49,7 @@ pub struct UserMethod {
     /// Expected key type name for discriminated dispatch.
     ///
     /// Set when a method is registered from a trait impl with type arguments
-    /// (e.g., `impl Index<int, str> for T` → `key_type_hint = Some("int")`).
+    /// (e.g., `impl T: Index<int, str>` → `key_type_hint = Some("int")`).
     /// Used at runtime to disambiguate when multiple methods share the same
     /// `(type_name, method_name)` key.
     pub key_type_hint: Option<Name>,

@@ -255,7 +255,7 @@ type FileHandle = {
 }
 
 // Destructor runs when refcount hits 0
-impl Drop for FileHandle {
+impl FileHandle: Drop {
     @drop (self) -> void = close_fd(self.fd)
 }
 
