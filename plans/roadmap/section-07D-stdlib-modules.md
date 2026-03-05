@@ -37,6 +37,9 @@ sections:
     title: Duration and Size to Stdlib
     status: not-started
   - id: "7D.11"
+    title: std.bytes Module
+    status: not-started
+  - id: "7D.12"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -1480,7 +1483,40 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
 
 ---
 
-## 7D.11 Section Completion Checklist
+## 7D.11 std.bytes Module
+
+**Proposal**: `proposals/approved/intrinsics-v2-byte-simd-proposal.md`
+
+High-level byte search functions backed by SIMD internally. No `uses Intrinsics` needed by callers. Requires Section 6.14 (Intrinsics Capability).
+
+### Implementation
+
+- [ ] **Implement**: `find_byte` — find first occurrence of a byte in a byte slice
+  - [ ] SIMD path: 16-byte chunks using `simd_load`, `simd_cmpeq`, `Mask.first_set`
+  - [ ] Scalar tail for remaining bytes
+  - [ ] **Ori Tests**: `tests/spec/stdlib/bytes/find_byte.ori`
+
+- [ ] **Implement**: `find_any` — find first occurrence of any byte from a target set
+  - [ ] Multi-target comparison with mask OR
+  - [ ] **Ori Tests**: `tests/spec/stdlib/bytes/find_any.ori`
+
+- [ ] **Implement**: `find_not` — find first byte NOT in accept set
+  - [ ] Inverse mask logic
+  - [ ] **Ori Tests**: `tests/spec/stdlib/bytes/find_not.ori`
+
+- [ ] **Implement**: `count_byte` — count occurrences of a byte
+  - [ ] **Ori Tests**: `tests/spec/stdlib/bytes/count_byte.ori`
+
+- [ ] **Implement**: `contains_byte` — check if byte exists
+  - [ ] **Ori Tests**: `tests/spec/stdlib/bytes/contains_byte.ori`
+
+- [ ] **Performance**: Benchmark against C `memchr`
+  - [ ] Target: 60-80% of hand-tuned C `memchr` throughput
+  - [ ] **Benchmarks**: `tests/benchmarks/bytes/`
+
+---
+
+## 7D.12 Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md
