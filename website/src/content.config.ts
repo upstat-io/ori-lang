@@ -91,6 +91,47 @@ const blog = defineCollection({
   }),
 });
 
+const journeys = defineCollection({
+  loader: glob({ pattern: '[0-9][0-9]-*-results.md', base: '../plans/code-journeys' }),
+  schema: z.object({
+    journey: z.number(),
+    slug: z.string(),
+    theme: z.string(),
+    date: z.coerce.date(),
+    status: z.enum(['PASS', 'FAIL_EVAL', 'FAIL_AOT', 'FAIL_BOTH']),
+    expected: z.number(),
+    eval_result: z.number(),
+    aot_result: z.number(),
+    difficulty: z.enum(['simple', 'moderate', 'complex']),
+    prerequisites: z.array(z.string()).default([]),
+    learning_objectives: z.array(z.string()).default([]),
+    features: z.array(z.string()),
+    feature_description: z.string(),
+    score: z.number(),
+    score_breakdown: z.object({
+      instruction_efficiency: z.number(),
+      arc_correctness: z.number(),
+      attributes_safety: z.number(),
+      control_flow: z.number(),
+      ir_quality: z.number(),
+      binary_quality: z.number(),
+    }),
+    overflow_check: z.enum(['PASS', 'FAIL']),
+    bugs_found: z.array(z.object({
+      id: z.string(),
+      severity: z.string(),
+      description: z.string(),
+      status: z.enum(['OPEN', 'FIXED']),
+      found_in: z.string(),
+      fixed_in: z.string().optional(),
+    })).default([]),
+    related_journeys: z.array(z.object({
+      journey: z.number(),
+      relationship: z.string(),
+    })).default([]),
+  }),
+});
+
 const proposals = defineCollection({
   loader: proposalLoader({ base: '../docs/ori_lang/proposals' }),
   schema: z.object({
@@ -104,4 +145,4 @@ const proposals = defineCollection({
   }),
 });
 
-export const collections = { guide, spec, 'compiler-design': compilerDesign, formatter, lsp, roadmap, 'plan-sections': planSections, proposals, blog };
+export const collections = { guide, spec, 'compiler-design': compilerDesign, formatter, lsp, roadmap, 'plan-sections': planSections, proposals, blog, journeys };

@@ -24,28 +24,67 @@ use super::{DecisionTree, PathInstruction, ScrutineePath};
 /// variables that may be reassigned in arm bodies.
 pub(crate) struct EmitContext {
     /// The root scrutinee variable.
-    pub root_scrutinee: ArcVarId,
+    pub(crate) root_scrutinee: ArcVarId,
     /// Pool type of the root scrutinee (for type-aware path resolution).
-    pub root_scrutinee_ty: Idx,
+    pub(crate) root_scrutinee_ty: Idx,
     /// The merge block all arms jump to after executing their body.
-    pub merge_block: crate::ir::ArcBlockId,
+    pub(crate) merge_block: crate::ir::ArcBlockId,
     /// The body expression for each arm (indexed by `arm_index`).
-    pub arm_bodies: Vec<ori_ir::canon::CanId>,
+    pub(crate) arm_bodies: Vec<ori_ir::canon::CanId>,
     /// Span of the match expression.
-    pub span: Span,
+    pub(crate) span: Span,
     /// Scope snapshot from before the match. Each arm resets to this
     /// before lowering its body, ensuring arm-to-arm scope isolation.
-    pub pre_scope: ArcScope,
+    pub(crate) pre_scope: ArcScope,
     /// Mutable variable names to pass as merge block params (in order).
     /// These serve as SSA phi inputs at the match convergence point.
-    pub mutable_var_names: Vec<Name>,
+    pub(crate) mutable_var_names: Vec<Name>,
     /// Variant context stack for type-aware path resolution.
     ///
     /// Each entry is `(enum_type, variant_index)` pushed by `emit_tag_switch`
     /// when entering a specific variant's case block. `resolve_path` uses this
     /// to look up the actual field type for `TagPayload` steps, which is
     /// critical for recursive enums where fields may be RC-boxed pointers.
-    pub variant_stack: Vec<(Idx, u32)>,
+    variant_stack: Vec<(Idx, u32)>,
+}
+
+impl EmitContext {
+    /// Create a new emit context for decision tree emission.
+    pub(crate) fn new(
+        root_scrutinee: ArcVarId,
+        root_scrutinee_ty: Idx,
+        merge_block: crate::ir::ArcBlockId,
+        arm_bodies: Vec<ori_ir::canon::CanId>,
+        span: Span,
+        pre_scope: ArcScope,
+        mutable_var_names: Vec<Name>,
+    ) -> Self {
+        Self {
+            root_scrutinee,
+            root_scrutinee_ty,
+            merge_block,
+            arm_bodies,
+            span,
+            pre_scope,
+            mutable_var_names,
+            variant_stack: Vec::new(),
+        }
+    }
+
+    /// Push a variant onto the context stack (entering a variant's case block).
+    pub(crate) fn push_variant(&mut self, enum_type: Idx, variant_index: u32) {
+        self.variant_stack.push((enum_type, variant_index));
+    }
+
+    /// Pop the most recent variant from the context stack (leaving a variant's case block).
+    pub(crate) fn pop_variant(&mut self) {
+        self.variant_stack.pop();
+    }
+
+    /// Get the current variant stack (for path resolution).
+    pub(crate) fn variant_stack(&self) -> &[(Idx, u32)] {
+        &self.variant_stack
+    }
 }
 
 /// Emit a decision tree as ARC IR basic blocks.
@@ -266,10 +305,35 @@ pub(super) fn resolve_path(
                 };
                 (*idx, elem_ty)
             }
-            // List rest (slicing) not yet supported in LLVM backend.
-            // Emit element 0 as a placeholder — will be replaced when
-            // list pattern codegen is fully implemented.
-            PathInstruction::ListRest(_) => (0, Idx::UNIT),
+            PathInstruction::ListRest(start_idx) => {
+                // Emit a runtime call to slice the list from `start_idx` onward.
+                // The ARC IR uses Apply("ori_list_slice_drop", [list, start]),
+                // and the LLVM emitter expands this into the full sret call
+                // (extracting data/len/cap, computing elem_size, calling runtime).
+                let resolved = pool.resolve_fully(current_ty);
+                let list_ty = current_ty;
+                let elem_ty = if pool.tag(resolved) == Tag::List {
+                    pool.list_elem(resolved)
+                } else {
+                    Idx::UNIT
+                };
+                let _ = elem_ty; // Used by LLVM emitter via the list type
+                let start_const = lowerer.builder.emit_let(
+                    Idx::INT,
+                    crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(i64::from(*start_idx))),
+                    Some(span),
+                );
+                let slice_fn = lowerer.interner.intern("ori_list_slice_drop");
+                let result = lowerer.builder.emit_apply(
+                    list_ty,
+                    slice_fn,
+                    vec![current, start_const],
+                    Some(span),
+                );
+                current = result;
+                current_ty = list_ty;
+                continue;
+            }
         };
         current = lowerer
             .builder
@@ -332,7 +396,7 @@ fn bind_pattern_variables(
             ctx.root_scrutinee_ty,
             path,
             ctx.span,
-            &ctx.variant_stack,
+            ctx.variant_stack(),
         );
         lowerer.scope.bind(*name, var);
     }

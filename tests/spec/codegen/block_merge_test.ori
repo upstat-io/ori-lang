@@ -1,0 +1,26 @@
+use std.testing { assert_eq }
+
+@test_add tests @add () -> void = assert_eq(actual: add(a: 1, b: 2), expected: 3);
+
+@add (a: int, b: int) -> int = a + b;
+
+@test_my_abs tests @my_abs () -> void = {
+    assert_eq(actual: my_abs(n: -7), expected: 7);
+    assert_eq(actual: my_abs(n: 5), expected: 5);
+    assert_eq(actual: my_abs(n: 0), expected: 0)
+}
+
+@my_abs (n: int) -> int = if n < 0 then -n else n;
+
+@test_my_max tests @my_max () -> void = assert_eq(actual: my_max(a: 3, b: 10), expected: 10);
+
+@my_max (a: int, b: int) -> int = if a > b then a else b;
+
+@main () -> int = {
+    let x = 3;
+    let y = 4;
+    let sum = add(a: x, b: y);
+    let a = my_abs(n: -7);
+    let b = my_max(a: 3, b: 10);
+    sum + a + b
+}

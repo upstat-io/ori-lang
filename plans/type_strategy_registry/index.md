@@ -3,6 +3,7 @@ reroute: true
 name: "Type Registry"
 full_name: "Type Strategy Registry"
 status: queued
+order: 1
 ---
 
 # Type Strategy Registry Index

@@ -27,6 +27,8 @@ for plan_index in plans/*/index.md; do
     fm_full_name=$(awk '/^---$/{n++; next} n==1 && /^full_name:/{sub(/^full_name: */,""); gsub(/"/, ""); print; exit}' "$plan_index")
     fm_name=$(awk '/^---$/{n++; next} n==1 && /^name:/{sub(/^name: */,""); gsub(/"/, ""); print; exit}' "$plan_index")
     fm_is_reroute=$(awk '/^---$/{n++; next} n==1 && /^reroute:/{sub(/^reroute: */,""); print; exit}' "$plan_index")
+    fm_order=$(awk '/^---$/{n++; next} n==1 && /^order:/{sub(/^order: */,""); print; exit}' "$plan_index")
+    fm_order="${fm_order:-999}"
 
     display_name="${fm_full_name:-${fm_name:-$plan_name}}"
 
@@ -44,7 +46,7 @@ for plan_index in plans/*/index.md; do
     elif [[ "$fm_status" == "queued" ]]; then
         type_label="reroute"
         [[ "$fm_is_reroute" != "true" ]] && type_label="parallel"
-        queued_reroutes+=("${type_label}|${display_name}|${plan_dir}")
+        queued_reroutes+=("${fm_order}|${type_label}|${display_name}|${plan_dir}")
     fi
 done
 
@@ -55,9 +57,12 @@ if [[ ${#active_reroutes[@]} -gt 0 || ${#queued_reroutes[@]} -gt 0 ]]; then
         IFS='|' read -r rtype rname rdir rprog <<< "$entry"
         echo "[ACTIVE ${rtype}] ${rname} — ${rdir} — ${rprog}"
     done
-    for entry in "${queued_reroutes[@]}"; do
-        IFS='|' read -r rtype rname rdir <<< "$entry"
-        echo "[queued ${rtype}] ${rname} — ${rdir}"
+    # Sort queued reroutes by order field (numeric, ascending)
+    IFS=$'\n' sorted_queued=($(printf '%s\n' "${queued_reroutes[@]}" | sort -t'|' -k1 -n))
+    unset IFS
+    for entry in "${sorted_queued[@]}"; do
+        IFS='|' read -r rorder rtype rname rdir <<< "$entry"
+        echo "[queued ${rtype}] ${rname} — ${rdir} (order: ${rorder})"
     done
     echo ""
 fi
