@@ -510,11 +510,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
+            let mut block_terminated_by_noreturn = false;
             for (instr_idx, instr) in block.body.iter().enumerate() {
                 self.current_block_idx = block_idx;
                 self.current_instr_idx = instr_idx;
                 self.emit_instr(instr, func);
+
+                // After emitting a call to a known-noreturn function,
+                // emit `unreachable` and skip remaining instructions +
+                // terminator. The callee never returns, so all subsequent
+                // code in this block is dead.
+                if let ArcInstr::Apply { func: callee, .. } = instr {
+                    let callee_str = self.interner.lookup(*callee);
+                    if crate::codegen::runtime_decl::runtime_functions::is_rt_fn_noreturn(
+                        callee_str,
+                    ) == Some(true)
+                    {
+                        self.builder.unreachable();
+                        block_terminated_by_noreturn = true;
+                        break;
+                    }
+                }
             }
+
+            if block_terminated_by_noreturn {
+                self.current_funclet_pad = None;
+                continue;
+            }
+
             // Set instruction index for terminator: one past the last body
             // instruction, matching the convention in compute_cow_annotations.
             self.current_instr_idx = block.body.len();
