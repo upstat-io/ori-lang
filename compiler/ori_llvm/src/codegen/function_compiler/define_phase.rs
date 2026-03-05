@@ -13,14 +13,14 @@ use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
 use super::FunctionCompiler;
-use crate::codegen::abi::{CallConv, FunctionAbi, ParamAbi, ReturnAbi};
+use crate::codegen::abi::{
+    compute_param_passing, compute_return_passing, CallConv, FunctionAbi, ParamAbi, ReturnAbi,
+};
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::value_id::FunctionId;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
-    // -----------------------------------------------------------------------
     // Monomorphized function support
-    // -----------------------------------------------------------------------
 
     /// Declare monomorphized functions (phase 1).
     ///
@@ -28,7 +28,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// existing `declare_function` infrastructure works unchanged.
     pub fn declare_mono_functions(&mut self, mono_functions: &[crate::monomorphize::MonoFunction]) {
         for mono_fn in mono_functions {
-            self.declare_function(mono_fn.mangled_name, &mono_fn.sig, Span::new(0, 0));
+            self.declare_function(mono_fn.mangled_name, &mono_fn.sig, Span::DUMMY);
 
             // Build mono dispatch index: original_name -> [(param_types, mangled_name)]
             self.codegen_ctx
@@ -39,9 +39,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Phase 2: Define
-    // -----------------------------------------------------------------------
 
     /// Define a single function body via the ARC codegen pipeline.
     ///
@@ -246,9 +244,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Shared ARC processing helpers
-    // -----------------------------------------------------------------------
 
     /// Apply borrow annotations, annotate arg ownership, and run the ARC
     /// pipeline on a function.
@@ -441,8 +437,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         })
     }
 }
-
-use crate::codegen::abi::{compute_param_passing, compute_return_passing};
 
 /// Remap `PartialApply { func, .. }` callee names in an ARC function.
 ///

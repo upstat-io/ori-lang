@@ -16,6 +16,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator};
 use super::usize_to_block_id;
 
 /// Convert trivial `Invoke` terminators to `Apply` + `Jump`.
+#[tracing::instrument(skip_all, name = "phase2_downgrade")]
 pub(crate) fn downgrade_trivial_invokes(func: &mut ArcFunction) {
     let pred_counts = compute_pred_counts(func);
 

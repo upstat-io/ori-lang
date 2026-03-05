@@ -20,7 +20,7 @@ use crate::util::{
 /// unwind, so there should be no unwind landing pads and therefore
 /// no dead blocks with `unreachable`.
 #[test]
-#[ignore = "Pre-existing: nounwind analysis not yet eliminating dead unreachable blocks at -O0"]
+#[ignore = "codegen-purity plan, sections 02 + 06: nounwind invoke→call + dead block pruning"]
 fn test_nounwind_program_has_no_unreachable_blocks() {
     let ir = compile_and_capture_ir(
         r"
@@ -48,7 +48,7 @@ fn test_nounwind_program_has_no_unreachable_blocks() {
 /// After two-pass nounwind analysis, the invoke should be downgraded to
 /// call, and the former unwind block should not be emitted at all.
 #[test]
-#[ignore = "Pre-existing: nounwind generic call still leaves dead unreachable blocks"]
+#[ignore = "codegen-purity plan, sections 02 + 06: nounwind generic invoke→call + dead block pruning"]
 fn test_nounwind_generic_call_no_unreachable() {
     let ir = compile_and_capture_ir(
         r"
@@ -73,7 +73,7 @@ fn test_nounwind_generic_call_no_unreachable() {
 /// The IR for `_ori_main` should have landing pads only for the may-unwind call,
 /// and no dead `unreachable` blocks from the nounwind call.
 #[test]
-#[ignore = "Pre-existing: mixed nounwind/may-unwind calls leave dead unreachable blocks"]
+#[ignore = "codegen-purity plan, sections 02 + 06: mixed nounwind/may-unwind dead block pruning"]
 fn test_mixed_calls_no_dead_unreachable() {
     let ir = compile_and_capture_ir(
         r#"
@@ -111,7 +111,7 @@ fn test_mixed_calls_no_dead_unreachable() {
 /// `@main () -> int = 33` should produce minimal IR — just a function that
 /// returns 33. No unreachable blocks, no landing pads.
 #[test]
-#[ignore = "Pre-existing: constant-returning main still has unreachable/invoke/landingpad"]
+#[ignore = "codegen-purity plan, sections 02 + 06: constant main should emit minimal IR"]
 fn test_constant_main_minimal_ir() {
     let ir = compile_and_capture_ir(
         r"
@@ -948,5 +948,132 @@ fn test_aggregate_params_lack_noundef() {
     assert!(
         !greet_decl.contains("noundef"),
         "str param/return should NOT have noundef on _ori_greet:\n{greet_decl}"
+    );
+}
+
+// ── Sum Type Payload Extraction Tests (Codegen Purity §05) ──────────
+
+/// Enum payload extraction should use `extractvalue`, not alloca+store+GEP+load.
+///
+/// A match arm that destructures a 2-field sum type variant currently
+/// spills the entire enum to the stack via alloca+store, then uses GEP
+/// to index into the payload array. This costs 5 instructions per field.
+/// With `extractvalue`, it's 2 instructions per field (extract payload
+/// array, then extract element) plus an optional bitcast for non-i64 types.
+#[test]
+fn test_enum_payload_uses_extractvalue() {
+    let ir = compile_and_capture_ir(
+        r"
+type Shape = Circle(radius: float) | Rect(width: float, height: float);
+
+@extract (s: Shape) -> float = match s {
+    Circle(radius) -> radius,
+    Rect(width, height) -> width + height,
+};
+
+@main () -> int = {
+    let c = Circle(radius: 3.14);
+    let r = Rect(width: 2.0, height: 5.0);
+    let x = extract(s: c);
+    let y = extract(s: r);
+    0
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_extract");
+
+    // Match arm blocks should NOT contain `proj.alloca` (the alloca+store pattern
+    // for enum payload extraction). The extractvalue path avoids stack spill.
+    assert!(
+        !fn_ir.contains("proj.alloca"),
+        "expected no `proj.alloca` in _ori_extract — enum payload extraction should use \
+         `extractvalue` instead of alloca+store+GEP+load.\nIR:\n{fn_ir}"
+    );
+
+    // Should contain extractvalue for payload access.
+    assert!(
+        fn_ir.contains("extractvalue"),
+        "expected `extractvalue` instructions for enum payload extraction.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Enum with int fields: extractvalue needs no bitcast (i64 → i64 is identity).
+#[test]
+fn test_enum_int_payload_extractvalue() {
+    let ir = compile_and_capture_ir(
+        r"
+type IntEnum = A(x: int) | B(x: int, y: int);
+
+@extract_b (e: IntEnum) -> int = match e {
+    A(x) -> x,
+    B(x, y) -> x + y,
+};
+
+@main () -> int = extract_b(e: B(x: 10, y: 20));
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_extract_b");
+
+    assert!(
+        !fn_ir.contains("proj.alloca"),
+        "expected no `proj.alloca` in _ori_extract_b — int payload should use extractvalue.\n\
+         IR:\n{fn_ir}"
+    );
+}
+
+/// Boxed (recursive) enum fields must still use alloca+GEP+load.
+///
+/// Recursive types are heap-allocated behind RC pointers. The payload
+/// slot contains a pointer, not a value. Extractvalue can get the raw
+/// pointer bits, but the subsequent dereference requires a load from
+/// heap memory — which only works through a pointer, not extractvalue.
+#[test]
+fn test_boxed_enum_field_uses_alloca() {
+    let ir = compile_and_capture_ir(
+        r"
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
+
+@left_val (t: Tree) -> int = match t {
+    Leaf(value) -> value,
+    Node(left, right) -> match left {
+        Leaf(value) -> value,
+        _ -> -1,
+    },
+};
+
+@main () -> int = {
+    let t = Node(left: Leaf(value: 42), right: Leaf(value: 0));
+    left_val(t: t)
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_left_val");
+
+    // Boxed enum fields (recursive types) MUST still use alloca path —
+    // the RC pointer needs a load from heap, which extractvalue cannot do.
+    // The function should contain proj.alloca for the Node arm's left/right extraction.
+    assert!(
+        fn_ir.contains("proj.alloca") || fn_ir.contains("proj.") && fn_ir.contains(".ptr"),
+        "expected alloca-based extraction for boxed (recursive) enum fields in _ori_left_val.\n\
+         Boxed fields store RC pointers in payload slots — extractvalue alone cannot dereference heap.\n\
+         IR:\n{fn_ir}"
     );
 }

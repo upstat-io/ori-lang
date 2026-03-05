@@ -97,7 +97,7 @@ pub(super) fn register_derived_impl(
     }
 
     // 6. Build method signatures for the derived trait
-    let methods = build_derived_methods(checker, trait_name, self_type, type_decl.span);
+    let methods = build_derived_methods(checker, trait_kind, self_type, type_decl.span);
 
     // 7. Create and register the impl entry (derived impls are always concrete)
     let entry = ImplEntry {
@@ -253,18 +253,15 @@ fn field_type_satisfies_trait(
 /// - Clone: `clone(self: T) -> T`
 /// - Hashable: `hash(self: T) -> int`
 /// - Printable: `to_str(self: T) -> str`
+/// - Debug: `debug(self: T) -> str`
 /// - Default: `default() -> T`
+/// - Comparable: `compare(self: T, other: T) -> Ordering`
 pub(super) fn build_derived_methods(
     checker: &mut ModuleChecker<'_>,
-    trait_name: Name,
+    trait_kind: DerivedTrait,
     self_type: Idx,
     span: Span,
 ) -> FxHashMap<Name, ImplMethodDef> {
-    let trait_str = checker.interner().lookup(trait_name);
-    let Some(trait_kind) = DerivedTrait::from_name(trait_str) else {
-        return FxHashMap::default();
-    };
-
     let method_str = trait_kind.method_name();
     let method_name = checker.interner().intern(method_str);
 

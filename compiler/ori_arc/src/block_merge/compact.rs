@@ -11,6 +11,7 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator};
 use super::usize_to_block_id;
 
 /// Remove blocks unreachable from the entry block.
+#[tracing::instrument(skip_all, name = "block_merge_compact")]
 pub(crate) fn compact_blocks(func: &mut ArcFunction) {
     let num_blocks = func.blocks.len();
     if num_blocks == 0 {
