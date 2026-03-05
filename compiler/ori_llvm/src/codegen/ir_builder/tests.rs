@@ -1192,3 +1192,59 @@ fn struct_load_field_alignment_x86_64() {
         "struct field loads must NOT use align 4:\n{ir}"
     );
 }
+
+// -- String constant deduplication --
+
+#[test]
+fn global_string_ptr_dedup_same_content() {
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new(&scx);
+    setup_builder(&mut irb);
+
+    // Call build_global_string_ptr three times with identical content.
+    let a = irb.build_global_string_ptr("hello world", "s1");
+    let b = irb.build_global_string_ptr("hello world", "s2");
+    let c = irb.build_global_string_ptr("hello world", "s3");
+
+    // All three should return the same ValueId.
+    assert_eq!(a, b, "identical strings must return the same ValueId");
+    assert_eq!(b, c, "identical strings must return the same ValueId");
+
+    // The module IR should contain exactly one global for this content.
+    let ir = scx.llmod.print_to_string().to_string();
+    let count = ir.matches("hello world").count();
+    assert_eq!(
+        count, 1,
+        "expected exactly 1 \"hello world\" global, found {count}:\n{ir}"
+    );
+}
+
+#[test]
+fn global_string_ptr_different_content_distinct() {
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new(&scx);
+    setup_builder(&mut irb);
+
+    let a = irb.build_global_string_ptr("integer overflow on addition", "msg1");
+    let b = irb.build_global_string_ptr("integer overflow on subtraction", "msg2");
+
+    assert_ne!(a, b, "different strings must return different ValueIds");
+}
+
+#[test]
+fn global_string_ptr_unnamed_addr() {
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new(&scx);
+    setup_builder(&mut irb);
+
+    irb.build_global_string_ptr("test constant", "tc");
+
+    let ir = scx.llmod.print_to_string().to_string();
+    assert!(
+        ir.contains("unnamed_addr"),
+        "deduplicated global strings must have unnamed_addr:\n{ir}"
+    );
+}

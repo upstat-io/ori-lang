@@ -19,6 +19,7 @@
 //! | Constants | `constants` |
 //! | Memory | `memory` |
 //! | Arithmetic | `arithmetic` |
+//! | Checked arithmetic | `checked_ops` |
 //! | Comparisons | `comparisons` |
 //! | Conversions | `conversions` |
 //! | Control flow | `control_flow` |
@@ -32,6 +33,7 @@ mod aggregates;
 mod arithmetic;
 mod attributes;
 mod calls;
+mod checked_ops;
 mod comparisons;
 mod constants;
 mod control_flow;
@@ -120,6 +122,11 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// memory instruction, ensuring correctness on strict-alignment
     /// architectures (ARM, RISC-V).
     target_data: Option<TargetData>,
+    /// Cache: string content → already-emitted global string pointer.
+    ///
+    /// Deduplicates identical string constants (e.g., overflow panic messages)
+    /// so each unique string is emitted as a single LLVM global per module.
+    global_strings: FxHashMap<String, ValueId>,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -168,6 +175,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             mode,
             eh_model,
             target_data: None,
+            global_strings: FxHashMap::default(),
         }
     }
 
