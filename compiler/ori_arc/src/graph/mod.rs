@@ -89,6 +89,28 @@ pub(crate) fn collect_invoke_defs(func: &ArcFunction) -> FxHashMap<ArcBlockId, V
     map
 }
 
+/// Compute predecessor counts for each block (deduplicated).
+///
+/// Unlike [`compute_predecessors`] which returns full predecessor lists,
+/// this returns only counts — sufficient for single-predecessor checks
+/// and cheaper to compute.
+pub(crate) fn compute_pred_counts(func: &ArcFunction) -> Vec<usize> {
+    let num_blocks = func.blocks.len();
+    let mut counts = vec![0usize; num_blocks];
+
+    for block in &func.blocks {
+        let mut seen = FxHashSet::default();
+        for succ in successor_block_ids(&block.terminator) {
+            let si = succ.index();
+            if si < num_blocks && seen.insert(si) {
+                counts[si] += 1;
+            }
+        }
+    }
+
+    counts
+}
+
 /// Compute a postorder traversal of the CFG starting from the entry block.
 ///
 /// Uses an iterative DFS with an explicit stack to avoid recursion depth

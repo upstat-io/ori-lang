@@ -233,65 +233,94 @@ fn invoke_with_normal_params_not_downgraded() {
 /// Invoke preserved when normal has multiple predecessors.
 #[test]
 fn invoke_with_multi_pred_normal_not_downgraded() {
-    // bb0: invoke → normal=bb2, unwind=bb3
-    // bb1: jump → bb2
-    // bb2: return (two predecessors: bb0, bb1)
-    // bb3: resume
+    // bb0: branch(cond) → then=bb1, else=bb2
+    // bb1: invoke callee(v0) → normal=bb3, unwind=bb4
+    // bb2: jump → bb3
+    // bb3: return v1 (two predecessors: bb1 via invoke normal, bb2 via jump)
+    // bb4: resume (trivial unwind)
+    //
+    // bb3 has two predecessors (bb1 and bb2), so the invoke in bb1 should
+    // NOT be downgraded even though the unwind block is trivial.
     let func = make_func(
         vec![owned_param(0, Idx::INT)],
         Idx::INT,
         vec![
+            // bb0: branch to bb1 or bb2
             ArcBlock {
                 id: b(0),
                 params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(1),
+                    ty: Idx::BOOL,
+                    value: ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                }],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            // bb1: invoke → normal=bb3, unwind=bb4
+            ArcBlock {
+                id: b(1),
+                params: vec![],
                 body: vec![],
                 terminator: ArcTerminator::Invoke {
-                    dst: v(1),
+                    dst: v(2),
                     ty: Idx::INT,
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
-                    normal: b(2),
-                    unwind: b(3),
+                    normal: b(3),
+                    unwind: b(4),
                 },
             },
+            // bb2: alternative path to bb3
             ArcBlock {
-                id: b(1),
+                id: b(2),
                 params: vec![],
                 body: vec![ArcInstr::Let {
-                    dst: v(1),
+                    dst: v(2),
                     ty: Idx::INT,
                     value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
                 }],
                 terminator: ArcTerminator::Jump {
-                    target: b(2),
+                    target: b(3),
                     args: vec![],
                 },
             },
-            ArcBlock {
-                id: b(2),
-                params: vec![],
-                body: vec![],
-                terminator: ArcTerminator::Return { value: v(1) },
-            },
+            // bb3: return (two predecessors: bb1 normal, bb2 jump)
             ArcBlock {
                 id: b(3),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+            // bb4: trivial unwind
+            ArcBlock {
+                id: b(4),
                 params: vec![],
                 body: vec![],
                 terminator: ArcTerminator::Resume,
             },
         ],
-        vec![Idx::INT, Idx::INT],
+        vec![Idx::INT, Idx::BOOL, Idx::INT],
     );
 
     let mut func = func;
     merge_blocks(&mut func);
 
-    // bb1 is unreachable from bb0 (entry). After compaction, only bb0's
-    // successors remain. But bb2 still has 1 pred from bb0 after compaction,
-    // so the invoke CAN be downgraded if bb1 is removed.
-    // The key test: if bb1 were reachable, invoke would be preserved.
-    // Let's restructure: make bb1 reachable via a branch from entry.
+    // The invoke in bb1 should be preserved because bb3 (normal) has two
+    // predecessors (bb1 and bb2). All other downgrade criteria are met
+    // (trivial unwind, no params on normal), but criterion 4 fails.
+    let has_invoke = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Invoke { .. }));
+    assert!(
+        has_invoke,
+        "invoke should be preserved when normal block has multiple predecessors"
+    );
 }
 
 /// Invoke preserved when normal == unwind (degenerate IR).
