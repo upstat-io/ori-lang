@@ -73,7 +73,7 @@ recurse(
 Within a `recurse` expression, `self(...)` refers to recursive invocation. If the enclosing function is a trait method, the receiver `self` (without parentheses) remains accessible:
 
 ```ori
-impl Tree for TreeOps {
+impl TreeOps: Tree {
     @depth (self) -> int = recurse(
         condition: self.is_leaf(),  // Receiver self (no parens)
         base: 1,

@@ -121,7 +121,7 @@ parse_sum_or_newtype()       // Some(T) | None
 
 **trait_def.rs** — Trait definitions with method signatures, default methods, and associated types.
 
-**impl_def.rs** — Implementation blocks: `impl Trait for Type`, `def impl Trait`, and inherent methods.
+**impl_def.rs** — Implementation blocks: `impl Type: Trait`, `def impl Trait`, and inherent methods.
 
 **use_def.rs** — Import declarations: relative (`"./math"`), module (`std.net.http`), aliased (`as http`), and selective (`{ add, subtract }`).
 

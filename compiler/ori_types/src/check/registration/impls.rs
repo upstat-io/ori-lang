@@ -1,7 +1,7 @@
 //! Implementation block registration (Pass 0c, part 2).
 //!
 //! Registers both inherent impls (`impl Type { ... }`) and trait impls
-//! (`impl Trait for Type { ... }`). Handles default method inheritance,
+//! (`impl Type: Trait { ... }`). Handles default method inheritance,
 //! super-trait transitive defaults, associated types, where clauses,
 //! coherence checks, and specificity computation.
 
@@ -29,7 +29,7 @@ pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) 
 ///
 /// Converts an `ori_ir::ImplDef` to an `ImplEntry` and registers it in the
 /// `TraitRegistry`. Handles both inherent impls (`impl Type { ... }`) and
-/// trait impls (`impl Trait for Type { ... }`).
+/// trait impls (`impl Type: Trait { ... }`).
 fn register_impl(
     checker: &mut ModuleChecker<'_>,
     impl_def: &ori_ir::ImplDef,
@@ -51,7 +51,7 @@ fn register_impl(
         checker.pool_mut().named(trait_name)
     });
 
-    // 3b. Resolve trait type arguments (e.g., `<int, str>` in `impl Index<int, str> for T`)
+    // 3b. Resolve trait type arguments (e.g., `<int, str>` in `impl T: Index<int, str>`)
     let trait_type_args: Vec<Idx> = {
         let arg_ids = arena.get_parsed_type_list(impl_def.trait_type_args);
         arg_ids
@@ -274,8 +274,8 @@ fn has_coherence_violation(
     trait_type_args: &[Idx],
 ) -> bool {
     // Borrow dance: extract existing impl span and trait name, then push error.
-    // Uses type-argument-aware matching so that `impl Index<int, str> for T`
-    // and `impl Index<str, str> for T` are correctly treated as distinct.
+    // Uses type-argument-aware matching so that `impl T: Index<int, str>`
+    // and `impl T: Index<str, str>` are correctly treated as distinct.
     let existing: Option<(Span, Name)> = {
         let reg = checker.trait_registry();
         reg.find_impl_with_args(trait_idx, self_type, trait_type_args)

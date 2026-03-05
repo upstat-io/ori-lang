@@ -259,7 +259,7 @@ pub struct ImplDef {
     pub generics: GenericParamRange,
     /// The trait being implemented (None for inherent impl).
     pub trait_path: Option<Vec<Name>>,
-    /// Type arguments for the trait (e.g., `[int]` in `impl Add<int> for Point`).
+    /// Type arguments for the trait (e.g., `[int]` in `impl Point: Add<int>`).
     /// Empty if no type arguments specified or if this is an inherent impl.
     pub trait_type_args: ParsedTypeRange,
     /// The type path being implemented (e.g., `["Point"]` for `impl Point { ... }`).

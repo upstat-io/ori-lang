@@ -228,7 +228,7 @@ Format specifications in template strings use the syntax:
 All `Printable` types have a blanket `Formattable` implementation:
 
 ```ori
-impl<T: Printable> Formattable for T {
+impl<T: Printable> T: Formattable {
     @format (self, spec: FormatSpec) -> str = {
         let base = self.to_str();
         apply_format(s: base, spec: spec)
@@ -245,7 +245,7 @@ User types may implement `Formattable` for custom formatting:
 ```ori
 type Money = { cents: int }
 
-impl Formattable for Money {
+impl Money: Formattable {
     @format (self, spec: FormatSpec) -> str = {
         let dollars = self.cents / 100;
         let cents = self.cents % 100;
@@ -260,7 +260,7 @@ Newtypes can delegate to their inner value:
 ```ori
 type UserId = int;
 
-impl Formattable for UserId {
+impl UserId: Formattable {
     @format (self, spec: FormatSpec) -> str = self.inner.format(spec: spec);
 }
 ```
@@ -677,7 +677,7 @@ User types may implement `Into` for meaningful conversions:
 ```ori
 type UserId = int;
 
-impl Into<str> for UserId {
+impl UserId: Into<str> {
     @into (self) -> str = `user-{self.inner}`;
 }
 
@@ -687,7 +687,7 @@ let s: str = id.into();  // "user-42"
 
 ### 9.14.5 No Blanket Identity
 
-There is no blanket `impl<T> Into<T> for T`. Each conversion shall be explicitly implemented. This ensures `impl Into<T>` parameters remain meaningful — they indicate types that can be converted to `T`, not any type.
+There is no blanket `impl<T> T: Into<T>`. Each conversion shall be explicitly implemented. This ensures `impl Into<T>` parameters remain meaningful — they indicate types that can be converted to `T`, not any type.
 
 ### 9.14.6 No Automatic Chaining
 

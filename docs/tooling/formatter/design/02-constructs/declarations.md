@@ -298,7 +298,7 @@ trait DoubleEndedIterator: Iterator {
 ### Trait Implementations
 
 ```ori
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = `({self.x}, {self.y})`
 }
 ```

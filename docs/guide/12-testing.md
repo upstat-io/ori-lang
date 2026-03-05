@@ -477,7 +477,7 @@ When a test fails, the name should tell you what broke.
 type User = { id: int, name: str, email: str }
 type UserError = InvalidEmail(email: str) | NotFound(id: int);
 
-impl Printable for UserError {
+impl UserError: Printable {
     @to_str (self) -> str = match self {
         InvalidEmail(email) -> `Invalid email: {email}`
         NotFound(id) -> `User {id} not found`

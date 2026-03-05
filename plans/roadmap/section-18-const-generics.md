@@ -631,7 +631,7 @@ trait FixedSize {
     $SIZE: int
 }
 
-impl FixedSize for [int, max 5] {
+impl [int, max 5]: FixedSize {
     $SIZE: int = 5
 }
 

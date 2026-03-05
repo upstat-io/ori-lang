@@ -240,7 +240,7 @@ Convert domain errors to the standard `Error` type:
 }
 
 // Or implement Printable trait
-impl Printable for FileError {
+impl FileError: Printable {
     @to_str (self) -> str = match(self,
         NotFound(path) -> "File not found: " + path,
         ...

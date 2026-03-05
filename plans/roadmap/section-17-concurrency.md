@@ -145,7 +145,7 @@ type Point = { x: int, y: int }  // Sendable: all fields are int
 type Handle = { file: FileHandle }  // NOT Sendable
 
 // Manual implementation is forbidden
-impl Sendable for MyType { }  // ERROR: cannot implement Sendable manually
+impl MyType: Sendable { }  // ERROR: cannot implement Sendable manually
 ```
 
 Interior mutability does not exist in user-defined Ori types. Only runtime-provided resources (FileHandle, Socket, etc.) have interior mutability because they wrap OS state. Channel endpoints (Producer, Consumer) ARE Sendable.

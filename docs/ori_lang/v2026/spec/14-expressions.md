@@ -82,8 +82,8 @@ x.index(key: key);
 A type may implement `Index` for multiple key types:
 
 ```ori
-impl Index<str, Option<JsonValue>> for JsonValue { ... }
-impl Index<int, Option<JsonValue>> for JsonValue { ... }
+impl JsonValue: Index<str, Option<JsonValue>> { ... }
+impl JsonValue: Index<int, Option<JsonValue>> { ... }
 ```
 
 If the key type is ambiguous, the call is a compile-time error.
@@ -541,7 +541,7 @@ NOTE  The `Div` trait method is named `divide` rather than `div` because `div` i
 ```ori
 type Vector2 = { x: float, y: float }
 
-impl Add for Vector2 {
+impl Vector2: Add {
     @add (self, rhs: Vector2) -> Self = Vector2 {
         x: self.x + rhs.x,
         y: self.y + rhs.y,
@@ -559,13 +559,13 @@ Traits support different operand types. Commutative operations require both orde
 
 ```ori
 // Duration * int
-impl Mul<int> for Duration {
+impl Duration: Mul<int> {
     type Output = Duration;
     @multiply (self, n: int) -> Duration = ...;
 }
 
 // int * Duration
-impl Mul<Duration> for int {
+impl int: Mul<Duration> {
     type Output = Duration;
     @multiply (self, d: Duration) -> Duration = d * self;
 }

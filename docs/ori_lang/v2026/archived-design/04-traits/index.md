@@ -26,7 +26,7 @@ trait Printable {
     @to_string (self) -> str
 }
 
-impl Printable for User {
+impl User: Printable {
     @to_string (self) -> str = self.name + " <" + self.email + ">"
 }
 ```
@@ -56,8 +56,8 @@ type Admin = {
 }
 
 // Share behavior via traits
-impl Identifiable for User { ... }
-impl Identifiable for Admin { ... }
+impl User: Identifiable { ... }
+impl Admin: Identifiable { ... }
 ```
 
 ### Traits for Extensibility
@@ -78,11 +78,11 @@ trait Widget {
 }
 
 // Library provides implementations
-impl Widget for Button { ... }
-impl Widget for Slider { ... }
+impl Button: Widget { ... }
+impl Slider: Widget { ... }
 
 // Users add their own
-impl Widget for MyCustomChart { ... }
+impl MyCustomChart: Widget { ... }
 ```
 
 **Guideline:** If you're writing a library and want users to extend your abstraction, use a trait. Use sum types only for truly closed sets.

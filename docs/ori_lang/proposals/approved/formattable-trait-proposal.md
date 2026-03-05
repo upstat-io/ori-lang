@@ -202,7 +202,7 @@ This applies width, alignment, and fill. Type-specific formatting (binary, hex, 
 ### int
 
 ```ori
-impl Formattable for int {
+impl int: Formattable {
     @format (self, spec: FormatSpec) -> str = match spec.format_type {
         Some(Binary) -> format_int_base(n: self, base: 2, spec: spec)
         Some(Octal) -> format_int_base(n: self, base: 8, spec: spec)
@@ -216,7 +216,7 @@ impl Formattable for int {
 ### float
 
 ```ori
-impl Formattable for float {
+impl float: Formattable {
     @format (self, spec: FormatSpec) -> str = match spec.format_type {
         Some(Exp) -> format_scientific(n: self, uppercase: false, spec: spec)
         Some(ExpUpper) -> format_scientific(n: self, uppercase: true, spec: spec)
@@ -230,7 +230,7 @@ impl Formattable for float {
 ### str
 
 ```ori
-impl Formattable for str {
+impl str: Formattable {
     @format (self, spec: FormatSpec) -> str = {
         let s = match spec.precision {
             Some(n) -> self.take(count: n)
@@ -250,7 +250,7 @@ impl Formattable for str {
 ```ori
 type Money = { cents: int }
 
-impl Formattable for Money {
+impl Money: Formattable {
     @format (self, spec: FormatSpec) -> str = {
         let dollars = self.cents / 100
         let cents = self.cents % 100
@@ -270,7 +270,7 @@ let price = Money { cents: 1995 }
 ```ori
 type UserId = int
 
-impl Formattable for UserId {
+impl UserId: Formattable {
     @format (self, spec: FormatSpec) -> str = self.inner.format(spec: spec)
 }
 ```

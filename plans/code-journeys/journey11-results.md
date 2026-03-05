@@ -91,7 +91,7 @@ type Shape = Circle(radius: int) | Rect(w: int, h: int);
   - User: 4 functions, 0 tests, 0 impls
 - 6 generic prelude imports required AST fallback: `len`, `is_empty`, `is_some`, `is_none`, `is_ok`, `is_err`
 - 3 non-generic prelude imports hit hash-first: `compare`, `min`, `max`
-- The `#[derive(Eq)]` attribute is processed during type registration, generating implicit `impl Eq for Point`, `impl Eq for Color`, and `impl Eq for Shape`. These are NOT counted in the user impls count (they are compiler-generated).
+- The `#[derive(Eq)]` attribute is processed during type registration, generating implicit `impl Point: Eq`, `impl Color: Eq`, and `impl Shape: Eq`. These are NOT counted in the user impls count (they are compiler-generated).
 
 ### ARC Pipeline
 - Type registration: 10 types total (3 user + 7 prelude: Ordering, CancellationReason, PanicInfo, TraceEntry, FormatSpec, NurseryErrorMode, FormatType)

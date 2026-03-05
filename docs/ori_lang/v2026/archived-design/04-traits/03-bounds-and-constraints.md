@@ -161,7 +161,7 @@ Constrain associated types:
 
 ```ori
 // Only implement Printable for Option<T> when T is Printable
-impl<T> Printable for Option<T> where T: Printable {
+impl<T> Option<T>: Printable where T: Printable {
     @to_string (self) -> str = match(self,
         Some(value) -> "Some(" + value.to_string() + ")",
         None -> "None",
@@ -173,11 +173,11 @@ impl<T> Printable for Option<T> where T: Printable {
 
 ```ori
 // Different implementations based on bounds
-impl<T> Summarize for [T] where T: Printable {
+impl<T> [T]: Summarize where T: Printable {
     @summarize (self) -> str = ...
 }
 
-impl<T> Summarize for [T] where T: Numeric {
+impl<T> [T]: Summarize where T: Numeric {
     @summarize (self) -> str = "Sum: " + str(sum(self))
 }
 ```

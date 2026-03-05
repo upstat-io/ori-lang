@@ -150,32 +150,32 @@ For conversions that lose information (like float to int), `as` and `as?` are bo
 
 ```ori
 // Widening numeric conversions
-impl As<float> for int   { @as (self) -> float = /* intrinsic */ }
-impl As<int> for byte    { @as (self) -> int = /* intrinsic */ }
+impl int: As<float>    { @as (self) -> float = /* intrinsic */ }
+impl byte: As<int>     { @as (self) -> int = /* intrinsic */ }
 
 // To string (always succeeds)
-impl As<str> for int     { @as (self) -> str = /* intrinsic */ }
-impl As<str> for float   { @as (self) -> str = /* intrinsic */ }
-impl As<str> for bool    { @as (self) -> str = /* intrinsic */ }
-impl As<str> for char    { @as (self) -> str = /* intrinsic */ }
-impl As<str> for byte    { @as (self) -> str = /* intrinsic */ }
+impl int: As<str>      { @as (self) -> str = /* intrinsic */ }
+impl float: As<str>    { @as (self) -> str = /* intrinsic */ }
+impl bool: As<str>     { @as (self) -> str = /* intrinsic */ }
+impl char: As<str>     { @as (self) -> str = /* intrinsic */ }
+impl byte: As<str>     { @as (self) -> str = /* intrinsic */ }
 
 // Char to int (codepoint, always succeeds)
-impl As<int> for char    { @as (self) -> int = /* codepoint */ }
+impl char: As<int>     { @as (self) -> int = /* codepoint */ }
 ```
 
 #### Fallible Conversions (TryAs trait)
 
 ```ori
 // Parsing
-impl TryAs<int> for str   { @try_as (self) -> Option<int> = /* parse */ }
-impl TryAs<float> for str { @try_as (self) -> Option<float> = /* parse */ }
-impl TryAs<bool> for str  { @try_as (self) -> Option<bool> = /* "true"/"false" */ }
+impl str: TryAs<int>    { @try_as (self) -> Option<int> = /* parse */ }
+impl str: TryAs<float>  { @try_as (self) -> Option<float> = /* parse */ }
+impl str: TryAs<bool>   { @try_as (self) -> Option<bool> = /* "true"/"false" */ }
 
 // Narrowing numeric conversions (can overflow or fail)
-impl TryAs<byte> for int  { @try_as (self) -> Option<byte> = /* 0-255 range check */ }
-impl TryAs<byte> for char { @try_as (self) -> Option<byte> = /* 0-127 ASCII check */ }
-impl TryAs<char> for int  { @try_as (self) -> Option<char> = /* valid codepoint? */ }
+impl int: TryAs<byte>   { @try_as (self) -> Option<byte> = /* 0-255 range check */ }
+impl char: TryAs<byte>  { @try_as (self) -> Option<byte> = /* 0-127 ASCII check */ }
+impl int: TryAs<char>   { @try_as (self) -> Option<char> = /* valid codepoint? */ }
 ```
 
 ### User-Defined Conversions
@@ -187,12 +187,12 @@ type UserId = { value: int }
 type Username = { value: str }
 
 // Infallible: UserId always converts to string
-impl As<str> for UserId {
+impl UserId: As<str> {
     @as (self) -> str = "user_" + (self.value as str)
 }
 
 // Fallible: String might not be valid username
-impl TryAs<Username> for str {
+impl str: TryAs<Username> {
     @try_as (self) -> Option<Username> = {
         if self.is_empty() || self.len() > 32 then
             None

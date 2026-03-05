@@ -210,12 +210,12 @@ See the panic-handler-proposal for full details on the `@panic` function.
 ## Standard Implementation
 
 ```ori
-impl Printable for PanicInfo {
+impl PanicInfo: Printable {
     @to_str (self) -> str =
         `panic at {self.location.file}:{self.location.line}:{self.location.column}: {self.message}`
 }
 
-impl Debug for PanicInfo {
+impl PanicInfo: Debug {
     @debug (self) -> str =
         `PanicInfo \{ message: {self.message.debug()}, location: {self.location.debug()}, stack_trace: {self.stack_trace.debug()}, thread_id: {self.thread_id.debug()} \}`
 }

@@ -81,22 +81,22 @@ trait Pow<Rhs = Self> {
 Built-in implementations for primitives:
 
 ```ori
-impl Pow for int {
+impl int: Pow {
     type Output = int
     @power (self, rhs: int) -> int  // integer exponentiation
 }
 
-impl Pow for float {
+impl float: Pow {
     type Output = float
     @power (self, rhs: float) -> float  // delegates to libm pow()
 }
 
-impl Pow<int> for float {
+impl float: Pow<int> {
     type Output = float
     @power (self, rhs: int) -> float  // float ** int (common case)
 }
 
-impl Pow<float> for int {
+impl int: Pow<float> {
     type Output = float
     @power (self, rhs: float) -> float  // int ** float (e.g., head_dim ** -0.5)
 }
@@ -255,7 +255,7 @@ Python, JavaScript, and Ruby all parse `-x ** 2` as `-(x ** 2)`. The mathematica
 
 ### Why allow mixed int/float operands?
 
-`head_dim ** -0.5` is idiomatic ML code. Requiring explicit conversion (`(head_dim as float) ** -0.5` or `head_dim as float |> _ ** -0.5`) adds friction for the most common use case. The mixed-type `impl Pow<float> for int` returns `float`, which is always the correct behavior.
+`head_dim ** -0.5` is idiomatic ML code. Requiring explicit conversion (`(head_dim as float) ** -0.5` or `head_dim as float |> _ ** -0.5`) adds friction for the most common use case. The mixed-type `impl int: Pow<float>` returns `float`, which is always the correct behavior.
 
 ---
 

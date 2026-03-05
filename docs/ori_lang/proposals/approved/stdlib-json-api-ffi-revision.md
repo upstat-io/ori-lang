@@ -881,7 +881,7 @@ impl JsonParser {
             len: 1,
         }
 
-impl Iterator for JsonParser {
+impl JsonParser: Iterator {
     type Item = JsonEvent
 
     #target(not_arch: "wasm32")

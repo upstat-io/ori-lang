@@ -152,7 +152,7 @@ Conditional compilation applies to:
 |------|---------|
 | Functions | `#target(os: "linux") @platform_func () -> void` |
 | Types | `#target(os: "windows") type Handle = int` |
-| Trait implementations | `#target(os: "linux") impl FileDescriptor for Socket` |
+| Trait implementations | `#target(os: "linux") impl Socket: FileDescriptor` |
 | Constants | `#cfg(debug) let $log_level = "debug"` |
 | Imports | `#target(os: "linux") use "./linux/io" { epoll_create }` |
 

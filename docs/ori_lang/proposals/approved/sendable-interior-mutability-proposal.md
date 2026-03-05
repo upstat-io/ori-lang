@@ -142,7 +142,7 @@ Users CANNOT manually implement `Sendable`:
 
 ```ori
 // ERROR: cannot implement Sendable manually
-impl Sendable for MyType { }
+impl MyType: Sendable { }
 // Sendable is automatically derived or not available
 ```
 
@@ -286,7 +286,7 @@ Container types often have conditional Sendability. The compiler generates condi
 
 ```ori
 // Compiler-generated: Box is Sendable when T is Sendable
-impl<T: Sendable> Sendable for Box<T> { }  // auto-generated, not user code
+impl<T: Sendable> Box<T>: Sendable { }  // auto-generated, not user code
 
 // This enables:
 let boxed: Box<int> = Box(42)  // Sendable

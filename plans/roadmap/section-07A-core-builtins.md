@@ -84,21 +84,21 @@ sections:
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Standard `As` implementations
-  - `impl As<float> for int` — widening (infallible)
-  - `impl As<str> for int` — formatting (infallible)
-  - `impl As<str> for float` — formatting (infallible)
-  - `impl As<str> for bool` — "true"/"false" (infallible)
-  - `impl As<int> for char` — codepoint (infallible)
+  - `impl int: As<float>` — widening (infallible)
+  - `impl int: As<str>` — formatting (infallible)
+  - `impl float: As<str>` — formatting (infallible)
+  - `impl bool: As<str>` — "true"/"false" (infallible)
+  - `impl char: As<int>` — codepoint (infallible)
   - [ ] **Ori Tests**: `tests/spec/stdlib/as_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for standard As implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — As implementations codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Standard `TryAs` implementations
-  - `impl TryAs<int> for str` — parsing (fallible)
-  - `impl TryAs<float> for str` — parsing (fallible)
-  - `impl TryAs<byte> for int` — range check (fallible)
-  - `impl TryAs<char> for int` — valid codepoint check (fallible)
+  - `impl str: TryAs<int>` — parsing (fallible)
+  - `impl str: TryAs<float>` — parsing (fallible)
+  - `impl int: TryAs<byte>` — range check (fallible)
+  - `impl int: TryAs<char>` — valid codepoint check (fallible)
   - [ ] **Ori Tests**: `tests/spec/stdlib/try_as_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for standard TryAs implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — TryAs implementations codegen

@@ -61,7 +61,7 @@ type CapturingLogger = {
 
 type LogEntry = { level: Level, message: str }
 
-impl Logger for CapturingLogger {
+impl CapturingLogger: Logger {
     @debug (message: str) -> void =
         self.messages = self.messages + [LogEntry { level: Debug, message: message }]
 

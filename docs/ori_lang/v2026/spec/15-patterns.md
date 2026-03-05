@@ -348,7 +348,7 @@ Within a `recurse` expression:
 These coexist when `recurse` appears in a trait method:
 
 ```ori
-impl Tree for TreeOps {
+impl TreeOps: Tree {
     @depth (self) -> int = recurse(
         condition: self.is_leaf(),  // Receiver
         base: 1,
