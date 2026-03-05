@@ -27,7 +27,7 @@
 
 use rustc_hash::FxHashSet;
 
-use crate::graph::successor_block_ids;
+use crate::graph::{compute_pred_counts, successor_block_ids};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 use crate::uniqueness::DropHints;
 
@@ -126,6 +126,16 @@ fn compact_blocks(func: &mut ArcFunction) {
     func.cow_annotations.remap_block_indices(&remap);
 }
 
+/// Convert a `usize` block index to an `ArcBlockId`.
+///
+/// # Panics
+///
+/// Panics if `idx` exceeds `u32::MAX`.
+fn usize_to_block_id(idx: usize) -> ArcBlockId {
+    let raw = u32::try_from(idx).unwrap_or_else(|_| panic!("block index {idx} exceeds u32::MAX"));
+    ArcBlockId::new(raw)
+}
+
 /// Convert a remap entry to an `ArcBlockId`.
 ///
 /// # Panics
@@ -134,24 +144,13 @@ fn compact_blocks(func: &mut ArcFunction) {
 /// reachable was expected) or exceeds `u32::MAX`.
 fn remap_to_block_id(entry: Option<usize>) -> ArcBlockId {
     let idx = entry.unwrap_or_else(|| panic!("block remap entry is None for a required block"));
-    let raw = u32::try_from(idx).unwrap_or_else(|_| panic!("block index {idx} exceeds u32::MAX"));
-    ArcBlockId::new(raw)
-}
-
-/// Convert a `usize` block index to an `ArcBlockId`.
-fn usize_to_block_id(idx: usize) -> ArcBlockId {
-    let raw = u32::try_from(idx).unwrap_or_else(|_| panic!("block index {idx} exceeds u32::MAX"));
-    ArcBlockId::new(raw)
+    usize_to_block_id(idx)
 }
 
 /// Rewrite all `ArcBlockId` references in a terminator using a remap table.
 fn remap_terminator_targets(term: &mut ArcTerminator, remap: &[Option<usize>]) {
     fn remap_id(id: &mut ArcBlockId, remap: &[Option<usize>]) {
-        let idx = remap[id.index()]
-            .unwrap_or_else(|| panic!("reachable block targets unreachable block"));
-        let raw =
-            u32::try_from(idx).unwrap_or_else(|_| panic!("block index {idx} exceeds u32::MAX"));
-        *id = ArcBlockId::new(raw);
+        *id = remap_to_block_id(remap[id.index()]);
     }
 
     match term {
@@ -443,30 +442,6 @@ fn lower_parallel_copy(
             func.spans[block_idx].push(None);
         }
     }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────
-
-/// Compute predecessor counts for each block.
-///
-/// Unlike `graph::compute_predecessors` which returns full predecessor
-/// lists, this returns only counts — sufficient for single-predecessor
-/// checks and cheaper to compute.
-fn compute_pred_counts(func: &ArcFunction) -> Vec<usize> {
-    let num_blocks = func.blocks.len();
-    let mut counts = vec![0usize; num_blocks];
-
-    for block in &func.blocks {
-        let mut seen = FxHashSet::default();
-        for succ in successor_block_ids(&block.terminator) {
-            let si = succ.index();
-            if si < num_blocks && seen.insert(si) {
-                counts[si] += 1;
-            }
-        }
-    }
-
-    counts
 }
 
 #[cfg(test)]
