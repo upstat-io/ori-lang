@@ -89,7 +89,7 @@ delimiter = "(" | ")" | "[" | "]" | "{" | "}"
 // See: 07-lexical-elements.md § 7.7 Literals
 
 literal = int_literal | float_literal | string_literal | template_literal | char_literal
-        | bool_literal | duration_literal | size_literal .
+        | byte_literal | bool_literal | duration_literal | size_literal .
 
 // Integer literals
 // See: 07-lexical-elements.md § 7.7.1 Integer literals
@@ -111,8 +111,10 @@ exponent        = ( "e" | "E" ) [ "+" | "-" ] decimal_digits .
 string_literal  = '"' { string_char | escape_seq } '"' .
 string_char     = unicode_char - ( '"' | '\' | newline ) .
 escape_seq      = '\' ( '"' | '\' | 'n' | 't' | 'r' | '0' )
-                | unicode_escape .
+                | unicode_escape
+                | hex_escape .
 unicode_escape  = '\' 'u' '{' hex_digit { hex_digit } '}' .  /* 1-6 hex digits */
+hex_escape      = '\' 'x' hex_digit hex_digit .               /* \x00-\xFF */
 
 // Template string literals (with interpolation)
 // See: 07-lexical-elements.md § 7.7.4 Template strings
@@ -140,20 +142,30 @@ format_type      = 'b' | 'o' | 'x' | 'X' | 'e' | 'E' | 'f' | '%' .
 char_literal = "'" ( char_char | char_escape ) "'" .
 char_char    = unicode_char - ( "'" | '\' | newline ) .
 char_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' )
-             | unicode_escape .
+             | unicode_escape
+             | char_hex_escape .
+char_hex_escape = '\' 'x' hex_digit hex_digit .  /* \x00-\x7F only; \x80-\xFF is an error */
+
+// Byte literals
+// See: 07-lexical-elements.md § 7.7.6 Byte literals
+byte_literal = "b'" ( byte_char | byte_escape ) "'" .
+byte_char    = ascii_char - ( "'" | '\' ) .      /* U+0020-U+007E, excluding ' and \ */
+byte_escape  = '\' ( "'" | '\' | 'n' | 't' | 'r' | '0' )
+             | hex_escape .                       /* \x00-\xFF; no \u{} or \" */
+ascii_char   = '\x20' … '\x7E' .                 /* printable ASCII */
 
 // Boolean literals
 bool_literal = "true" | "false" .
 
 // Duration literals
-// See: 07-lexical-elements.md § 7.7.7 Duration literals
+// See: 07-lexical-elements.md § 7.7.8 Duration literals
 // Decimal syntax (e.g., 0.5s) is compile-time sugar computed via integer arithmetic
 duration_literal = duration_number duration_unit .
 duration_number  = decimal_lit | decimal_lit "." digit { digit } .
 duration_unit    = "ns" | "us" | "ms" | "s" | "m" | "h" .
 
 // Size literals
-// See: 07-lexical-elements.md § 7.7.8 Size literals
+// See: 07-lexical-elements.md § 7.7.9 Size literals
 // Decimal syntax (e.g., 1.5kb) is compile-time sugar computed via integer arithmetic
 size_literal = size_number size_unit .
 size_number  = decimal_lit | decimal_lit "." digit { digit } .
@@ -600,7 +612,7 @@ match_pattern = literal_pattern
               | or_pattern
               | at_pattern .
 
-literal_pattern     = [ "-" ] int_literal | string_literal | char_literal | bool_literal .
+literal_pattern     = [ "-" ] int_literal | string_literal | char_literal | byte_literal | bool_literal .
 identifier_pattern  = identifier .
 wildcard_pattern    = "_" .
 variant_pattern     = type_path [ "(" [ variant_field { "," variant_field } ] ")" ] .
