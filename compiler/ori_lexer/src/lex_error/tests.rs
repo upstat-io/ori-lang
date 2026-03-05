@@ -172,7 +172,56 @@ fn lex_suggestion_constructors() {
     assert_eq!(replace.replacement.as_ref().unwrap().text, "==");
 }
 
-// === Unicode escape error factory tests ===
+// Error code coverage
+
+#[test]
+fn every_lex_error_kind_has_error_code() {
+    // Construct one of every LexErrorKind variant and verify it returns a non-empty code
+    let variants: Vec<LexErrorKind> = vec![
+        LexErrorKind::UnterminatedString,
+        LexErrorKind::UnterminatedChar,
+        LexErrorKind::UnterminatedTemplate,
+        LexErrorKind::InvalidStringEscape { escape_char: 'q' },
+        LexErrorKind::InvalidCharEscape { escape_char: 'q' },
+        LexErrorKind::InvalidTemplateEscape { escape_char: 'q' },
+        LexErrorKind::InvalidUnicodeEscape {
+            detail: UnicodeEscapeDetail::EmptyDigits,
+        },
+        LexErrorKind::SingleQuoteEscapeInString,
+        LexErrorKind::DoubleQuoteEscapeInChar,
+        LexErrorKind::IntOverflow,
+        LexErrorKind::HexIntOverflow,
+        LexErrorKind::BinIntOverflow,
+        LexErrorKind::FloatParseError,
+        LexErrorKind::InvalidByte { byte: 0xFF },
+        LexErrorKind::StandaloneBackslash,
+        LexErrorKind::UnicodeConfusable {
+            found: '\u{201C}',
+            suggested: '"',
+            name: "test",
+        },
+        LexErrorKind::InvalidNullByte,
+        LexErrorKind::Utf8Bom,
+        LexErrorKind::Utf16LeBom,
+        LexErrorKind::Utf16BeBom,
+        LexErrorKind::DecimalNotRepresentable,
+        LexErrorKind::ReservedFutureKeyword { keyword: "asm" },
+    ];
+
+    for kind in &variants {
+        let code = kind.error_code();
+        assert!(
+            !code.is_empty(),
+            "LexErrorKind::{kind:?} returned empty error code"
+        );
+        assert!(
+            code.starts_with('E'),
+            "LexErrorKind::{kind:?} error code {code:?} doesn't start with 'E'"
+        );
+    }
+}
+
+// Unicode escape error factory tests
 
 #[test]
 fn invalid_unicode_escape_missing_open_brace() {

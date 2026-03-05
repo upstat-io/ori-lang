@@ -34,16 +34,19 @@ impl<'src> IdentCache<'src> {
     }
 
     /// Look up a cached identifier result.
+    ///
+    /// Returns by value (clone) — keyword variants are fieldless (zero-cost clone),
+    /// and `Ident(Name)` clones a `u32` wrapper. Eliminates indirection at call sites.
     #[expect(
         clippy::inline_always,
         reason = "hot inner loop: 3-instruction cache probe"
     )]
     #[inline(always)]
-    pub(super) fn get(&self, text: &str) -> Option<&TokenKind> {
+    pub(super) fn get(&self, text: &str) -> Option<TokenKind> {
         let slot = Self::hash(text);
         if let Some((cached, kind)) = &self.slots[slot] {
             if *cached == text {
-                return Some(kind);
+                return Some(kind.clone());
             }
         }
         None

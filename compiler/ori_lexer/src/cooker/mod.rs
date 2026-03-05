@@ -62,6 +62,8 @@ pub(crate) struct CookResult {
     pub contextual_kw: bool,
 }
 
+const _: () = assert!(std::mem::size_of::<CookResult>() <= 24);
+
 impl CookResult {
     /// Normal token: no error, not contextual.
     #[inline]
@@ -160,10 +162,10 @@ impl<'src> TokenCooker<'src> {
     /// `Semicolon` is the exception — always reaches here.
     #[inline]
     pub(crate) fn cook(&mut self, tag: RawTag, offset: u32, len: u32) -> CookResult {
-        // Fast path: trivial 1:1 mapping (safety net for try_trivial bypass)
-        if let Some((kind, _)) = crate::trivial::try_trivial(tag) {
-            return CookResult::new(kind);
-        }
+        // NOTE: In the driver loop, trivial tokens (operators, delimiters) are
+        // intercepted by try_trivial() before reaching cook(). Semicolon is the
+        // exception — it always reaches here. Unit tests may call cook() directly
+        // with any tag; the match arms below handle all variants correctly.
 
         match tag {
             // Semicolon: not in try_trivial() but still a direct mapping
@@ -244,10 +246,21 @@ impl<'src> TokenCooker<'src> {
                 CookResult::new(TokenKind::Eof)
             }
 
-            // Future variants (non_exhaustive) — debug builds catch unhandled variants
+            // Trivial tokens (operators, delimiters, HashBang): normally intercepted
+            // by try_trivial() in the driver loop, but unit tests may call cook()
+            // directly. Fall through to try_trivial() as a safe catch-all.
             _ => {
-                debug_assert!(false, "unhandled RawTag variant in cook(): {tag:?}");
-                CookResult::new(TokenKind::Error)
+                if let Some((kind, tag_byte)) = crate::trivial::try_trivial(tag) {
+                    CookResult {
+                        kind,
+                        tag: tag_byte,
+                        had_error: false,
+                        contextual_kw: false,
+                    }
+                } else {
+                    debug_assert!(false, "unhandled RawTag variant in cook(): {tag:?}");
+                    CookResult::new(TokenKind::Error)
+                }
             }
         }
     }
@@ -305,7 +318,7 @@ impl<'src> TokenCooker<'src> {
 
         // Fast path: direct-mapped cache hit bypasses keyword lookup + interner.
         if let Some(kind) = self.ident_cache.get(text) {
-            return CookResult::new(kind.clone());
+            return CookResult::new(kind);
         }
 
         // Keyword lookup
