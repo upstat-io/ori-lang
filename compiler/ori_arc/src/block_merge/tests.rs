@@ -10,7 +10,8 @@ use crate::ir::{
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::uniqueness::CowMode;
 
-use super::{is_trivial_body, merge_blocks};
+use super::merge_blocks;
+use super::select::{fold_select_diamonds, is_trivial_body};
 
 // ── Phase 2: Invoke Downgrade ───────────────────────────────────────
 
@@ -1824,7 +1825,7 @@ fn select_not_folded_with_apply() {
 
     // Don't use merge_blocks — that includes Phase 4 which may eliminate
     // the Branch by other means. Test the select fold specifically.
-    super::fold_select_diamonds(&mut func);
+    fold_select_diamonds(&mut func);
 
     let has_branch = func
         .blocks
@@ -1853,7 +1854,7 @@ fn select_not_folded_with_rc_ops() {
     func.params.push(owned_param(1, Idx::INT));
     func.params.push(owned_param(2, Idx::INT));
 
-    super::fold_select_diamonds(&mut func);
+    fold_select_diamonds(&mut func);
 
     let has_branch = func
         .blocks
@@ -1886,7 +1887,7 @@ fn select_not_folded_with_primop() {
     func.params.push(owned_param(3, Idx::INT));
     func.params.push(owned_param(4, Idx::INT));
 
-    super::fold_select_diamonds(&mut func);
+    fold_select_diamonds(&mut func);
 
     let has_branch = func
         .blocks
@@ -1959,7 +1960,7 @@ fn select_not_folded_multi_predecessor() {
         vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT],
     );
 
-    super::fold_select_diamonds(&mut func);
+    fold_select_diamonds(&mut func);
 
     let has_branch = func
         .blocks
@@ -2027,7 +2028,7 @@ fn select_not_folded_mismatched_merge_targets() {
         vec![Idx::BOOL, Idx::INT, Idx::INT],
     );
 
-    super::fold_select_diamonds(&mut func);
+    fold_select_diamonds(&mut func);
 
     let has_branch = func
         .blocks
@@ -2061,7 +2062,7 @@ fn select_not_folded_one_arm_nontrivial() {
     func.params.push(owned_param(1, Idx::INT));
     func.params.push(owned_param(3, Idx::INT));
 
-    super::fold_select_diamonds(&mut func);
+    fold_select_diamonds(&mut func);
 
     let has_branch = func
         .blocks
@@ -2099,7 +2100,7 @@ fn select_not_folded_chained_let() {
     });
     func.params.push(owned_param(3, Idx::INT));
 
-    super::fold_select_diamonds(&mut func);
+    fold_select_diamonds(&mut func);
 
     let has_branch = func
         .blocks
