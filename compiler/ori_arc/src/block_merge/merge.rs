@@ -113,7 +113,7 @@ pub(crate) fn merge_jump_chains(func: &mut ArcFunction) {
 /// is written. When no arg aliases a target param, direct Let is safe.
 /// When overlap exists (e.g., swap: `Jump { args: [p1, p0] }` → params
 /// `[p0, p1]`), we use fresh temps to avoid clobbering.
-fn lower_parallel_copy(
+pub(super) fn lower_parallel_copy(
     func: &mut ArcFunction,
     block_idx: usize,
     params: &[(ArcVarId, ori_types::Idx)],
