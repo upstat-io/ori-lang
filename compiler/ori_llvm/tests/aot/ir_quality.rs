@@ -4,6 +4,7 @@
 //! - No dead `unreachable` blocks from nounwind invoke→call downgrade
 //! - Minimal `declare` statements (only what's actually called)
 //! - No redundant single-instruction `br` blocks in match arms
+//! - Trivial if/else expressions emit `select`, not branch+phi diamonds
 //!
 //! These properties are optimized away at `-O1`+, but clean `-O0` output
 //! aids debugging and makes IR inspection feasible during development.
@@ -286,5 +287,108 @@ fn test_match_call_arms_no_bridge_blocks() {
         bridges <= 1,
         "expected at most 1 bridge block (switch default) in _ori_dispatch, \
          but found {bridges}.\nIR:\n{dispatch_ir}"
+    );
+}
+
+// ── Select Lowering Tests ───────────────────────────────────────────
+
+/// Trivial if/else with variables should emit `select`, not a 4-block diamond.
+///
+/// `if x > 0 then a else b` — both arms are function parameters (no side
+/// effects, no arm-local definitions). The ARC block merge pass should fold
+/// this into a single `select` instruction.
+#[test]
+fn test_trivial_if_else_emits_select() {
+    let ir = compile_and_capture_ir(
+        r"
+@pick (x: int, a: int, b: int) -> int = if x > 0 then a else b;
+
+@main () -> int = pick(x: 5, a: 10, b: 20);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let pick_ir = extract_function_ir(&ir, "_ori_pick");
+
+    // Should contain select instruction.
+    assert!(
+        pick_ir.contains("select"),
+        "expected `select` instruction for trivial if/else in _ori_pick.\nIR:\n{pick_ir}"
+    );
+
+    // Should not contain phi (for a function this simple, all control flow
+    // should be folded to select).
+    assert!(
+        !pick_ir.contains("phi "),
+        "expected no `phi` nodes for trivial if/else (should use select).\nIR:\n{pick_ir}"
+    );
+
+    let bridges = count_bridge_blocks(pick_ir);
+    assert_eq!(
+        bridges, 0,
+        "expected zero bridge blocks for trivial if/else.\nIR:\n{pick_ir}"
+    );
+}
+
+/// Non-trivial if/else with function calls should emit branch+phi diamond.
+///
+/// Function calls lower to `Apply`/`Invoke` which are not trivial
+/// (`is_trivial_body` only accepts `Let { Literal | Var }`).
+#[test]
+fn test_nontrivial_if_else_emits_diamond() {
+    let ir = compile_and_capture_ir(
+        r"
+@f (x: int) -> int = x + 1;
+@g (x: int) -> int = x - 1;
+
+@pick (x: int) -> int = if x > 0 then f(x: x) else g(x: x);
+
+@main () -> int = pick(x: 5);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let pick_ir = extract_function_ir(&ir, "_ori_pick");
+
+    // Should contain conditional branch (br i1).
+    assert!(
+        pick_ir.contains("br i1"),
+        "expected conditional branch for non-trivial if/else in _ori_pick.\nIR:\n{pick_ir}"
+    );
+}
+
+/// If/else with negation (`PrimOp`) should emit diamond, not select.
+///
+/// Negation lowers to `Let { PrimOp { Unary(Neg) } }`, which is a `Let`
+/// but not in the trivial whitelist (only `Literal` and `Var`).
+#[test]
+fn test_if_else_with_negation_emits_diamond() {
+    let ir = compile_and_capture_ir(
+        r"
+@pick (x: int) -> int = if x > 0 then -x else x;
+
+@main () -> int = pick(x: 5);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let pick_ir = extract_function_ir(&ir, "_ori_pick");
+
+    // Should contain conditional branch (negation is not select-eligible).
+    assert!(
+        pick_ir.contains("br i1"),
+        "expected conditional branch for if/else with negation in _ori_pick.\nIR:\n{pick_ir}"
     );
 }

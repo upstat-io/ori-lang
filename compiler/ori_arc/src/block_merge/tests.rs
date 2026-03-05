@@ -3,11 +3,14 @@
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 
-use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, RcStrategy};
+use crate::ir::{
+    ArcBlock, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue, PrimOp,
+    RcStrategy,
+};
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::uniqueness::CowMode;
 
-use super::merge_blocks;
+use super::{is_trivial_body, merge_blocks};
 
 // ── Phase 2: Invoke Downgrade ───────────────────────────────────────
 
@@ -1201,4 +1204,909 @@ fn three_sequential_calls_merge_to_single_block() {
         func.blocks[0].terminator,
         ArcTerminator::Return { value } if value == v(3)
     ));
+}
+
+// ── Phase 3: Select Diamond Folding — is_trivial_body ───────────────
+
+/// Empty body is trivial.
+#[test]
+fn trivial_body_empty() {
+    assert!(is_trivial_body(&[]));
+}
+
+/// Single literal Let is trivial.
+#[test]
+fn trivial_body_single_literal() {
+    assert!(is_trivial_body(&[ArcInstr::Let {
+        dst: v(0),
+        ty: Idx::INT,
+        value: ArcValue::Literal(LitValue::Int(42)),
+    }]));
+}
+
+/// Var referencing a pre-branch variable is trivial.
+#[test]
+fn trivial_body_var_pre_branch() {
+    // v(10) is NOT defined in this body, so it's a pre-branch variable.
+    assert!(is_trivial_body(&[ArcInstr::Let {
+        dst: v(0),
+        ty: Idx::INT,
+        value: ArcValue::Var(v(10)),
+    }]));
+}
+
+/// `PrimOp` is NOT trivial (even though it's a Let).
+#[test]
+fn trivial_body_primop_rejected() {
+    assert!(!is_trivial_body(&[ArcInstr::Let {
+        dst: v(0),
+        ty: Idx::INT,
+        value: ArcValue::PrimOp {
+            op: PrimOp::Binary(ori_ir::BinaryOp::Add),
+            args: vec![v(1), v(2)],
+        },
+    }]));
+}
+
+/// Chained var reference (b refs a, which is arm-local) is NOT trivial.
+#[test]
+fn trivial_body_chained_var_rejected() {
+    assert!(!is_trivial_body(&[
+        ArcInstr::Let {
+            dst: v(0),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(1)),
+        },
+        ArcInstr::Let {
+            dst: v(1),
+            ty: Idx::INT,
+            value: ArcValue::Var(v(0)), // v(0) is defined in same body
+        },
+    ]));
+}
+
+/// Mixed instructions (Let + `RcInc`) are NOT trivial.
+#[test]
+fn trivial_body_mixed_instructions() {
+    assert!(!is_trivial_body(&[
+        ArcInstr::Let {
+            dst: v(0),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(1)),
+        },
+        ArcInstr::RcInc {
+            var: v(0),
+            count: 1,
+            strategy: RcStrategy::FatPointer,
+        },
+    ]));
+}
+
+// ── Phase 3: Select Diamond Folding — Positive (fold occurs) ────────
+
+/// Configuration for a 4-block diamond test pattern.
+struct DiamondConfig {
+    cond_var: u32,
+    then_body: Vec<ArcInstr>,
+    then_args: Vec<ArcVarId>,
+    else_body: Vec<ArcInstr>,
+    else_args: Vec<ArcVarId>,
+    merge_params: Vec<(ArcVarId, Idx)>,
+    merge_result: ArcVarId,
+    var_count: usize,
+}
+
+/// Build a 4-block diamond pattern from a config.
+///
+/// `B0`: branch(cond) → `B1`, `B2` |
+/// `B1` / `B2`: arm body + jump → `B3` |
+/// `B3`: merge params + return
+fn make_diamond(cfg: DiamondConfig) -> crate::ir::ArcFunction {
+    let var_types = vec![Idx::INT; cfg.var_count];
+    make_func(
+        vec![owned_param(cfg.cond_var, Idx::BOOL)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(cfg.cond_var),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: cfg.then_body,
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: cfg.then_args,
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: cfg.else_body,
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: cfg.else_args,
+                },
+            },
+            ArcBlock {
+                id: b(3),
+                params: cfg.merge_params,
+                body: vec![],
+                terminator: ArcTerminator::Return {
+                    value: cfg.merge_result,
+                },
+            },
+        ],
+        var_types,
+    )
+}
+
+/// Empty arm bodies with pre-branch variables as jump args → Select emitted.
+#[test]
+fn select_fold_trivial_if_else() {
+    // v0 = cond, v1/v2 = pre-branch values
+    // B0: branch(v0) → B1, B2
+    // B1: jump(v1) → B3
+    // B2: jump(v2) → B3
+    // B3(v3): return v3
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![],
+        then_args: vec![v(1)],
+        else_body: vec![],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(3), Idx::INT)],
+        merge_result: v(3),
+        var_count: 4,
+    });
+    func.params.push(owned_param(1, Idx::INT));
+    func.params.push(owned_param(2, Idx::INT));
+
+    merge_blocks(&mut func);
+
+    // Should have Select in some block.
+    let has_select = func
+        .blocks
+        .iter()
+        .any(|bl| bl.body.iter().any(|i| matches!(i, ArcInstr::Select { .. })));
+    assert!(has_select, "expected Select instruction after folding");
+
+    // No Branch should remain.
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(!has_branch, "expected no Branch after folding");
+}
+
+/// Both arms have literal Let bodies → Select emitted with correct values.
+#[test]
+fn select_fold_with_literal_arms() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![ArcInstr::Let {
+            dst: v(1),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(10)),
+        }],
+        then_args: vec![v(1)],
+        else_body: vec![ArcInstr::Let {
+            dst: v(2),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(20)),
+        }],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(3), Idx::INT)],
+        merge_result: v(3),
+        var_count: 4,
+    });
+
+    merge_blocks(&mut func);
+
+    let has_select = func
+        .blocks
+        .iter()
+        .any(|bl| bl.body.iter().any(|i| matches!(i, ArcInstr::Select { .. })));
+    assert!(has_select, "expected Select with literal arms");
+}
+
+/// Both arms have Var Let bodies → Select emitted.
+#[test]
+fn select_fold_with_var_arms() {
+    // v0 = cond, v1/v2 = pre-branch params
+    // then: let v3 = v1; jump(v3)
+    // else: let v4 = v2; jump(v4)
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![ArcInstr::Let {
+            dst: v(3),
+            ty: Idx::INT,
+            value: ArcValue::Var(v(1)),
+        }],
+        then_args: vec![v(3)],
+        else_body: vec![ArcInstr::Let {
+            dst: v(4),
+            ty: Idx::INT,
+            value: ArcValue::Var(v(2)),
+        }],
+        else_args: vec![v(4)],
+        merge_params: vec![(v(5), Idx::INT)],
+        merge_result: v(5),
+        var_count: 6,
+    });
+    func.params.push(owned_param(1, Idx::INT));
+    func.params.push(owned_param(2, Idx::INT));
+
+    merge_blocks(&mut func);
+
+    let has_select = func
+        .blocks
+        .iter()
+        .any(|bl| bl.body.iter().any(|i| matches!(i, ArcInstr::Select { .. })));
+    assert!(has_select, "expected Select with var arms");
+}
+
+/// Multiple merge params → multiple Selects emitted.
+#[test]
+fn select_fold_with_multiple_merge_params() {
+    // Both arms pass two values to merge block.
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![],
+        then_args: vec![v(1), v(2)],
+        else_body: vec![],
+        else_args: vec![v(3), v(4)],
+        merge_params: vec![(v(5), Idx::INT), (v(6), Idx::INT)],
+        merge_result: v(5),
+        var_count: 7,
+    });
+    func.params.push(owned_param(1, Idx::INT));
+    func.params.push(owned_param(2, Idx::INT));
+    func.params.push(owned_param(3, Idx::INT));
+    func.params.push(owned_param(4, Idx::INT));
+
+    merge_blocks(&mut func);
+
+    let select_count: usize = func
+        .blocks
+        .iter()
+        .map(|bl| {
+            bl.body
+                .iter()
+                .filter(|i| matches!(i, ArcInstr::Select { .. }))
+                .count()
+        })
+        .sum();
+    assert_eq!(select_count, 2, "expected 2 Select instructions");
+}
+
+/// Both arms define the same `ArcVarId` with different values → fresh-renamed.
+#[test]
+fn select_fold_same_var_different_defs() {
+    // Both arms define v(1), but with different literals.
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![ArcInstr::Let {
+            dst: v(1),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(10)),
+        }],
+        then_args: vec![v(1)],
+        else_body: vec![ArcInstr::Let {
+            dst: v(1),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(20)),
+        }],
+        else_args: vec![v(1)],
+        merge_params: vec![(v(2), Idx::INT)],
+        merge_result: v(2),
+        var_count: 3,
+    });
+
+    merge_blocks(&mut func);
+
+    // Should have a Select (the two values are different literals).
+    let has_select = func
+        .blocks
+        .iter()
+        .any(|bl| bl.body.iter().any(|i| matches!(i, ArcInstr::Select { .. })));
+    assert!(
+        has_select,
+        "expected Select when same var has different defs"
+    );
+
+    // Find the Select and verify its true_val != false_val (fresh-renamed).
+    for bl in &func.blocks {
+        for instr in &bl.body {
+            if let ArcInstr::Select {
+                true_val,
+                false_val,
+                ..
+            } = instr
+            {
+                assert_ne!(true_val, false_val, "fresh-renamed vars should be distinct");
+            }
+        }
+    }
+}
+
+/// After full `merge_blocks()`, dead arm blocks are removed (block count drops).
+#[test]
+fn select_fold_dead_blocks_compacted() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![],
+        then_args: vec![v(1)],
+        else_body: vec![],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(3), Idx::INT)],
+        merge_result: v(3),
+        var_count: 4,
+    });
+    func.params.push(owned_param(1, Idx::INT));
+    func.params.push(owned_param(2, Idx::INT));
+
+    assert_eq!(func.blocks.len(), 4, "should start with 4 blocks");
+
+    merge_blocks(&mut func);
+
+    assert!(
+        func.blocks.len() < 4,
+        "expected fewer than 4 blocks after merge, got {}",
+        func.blocks.len()
+    );
+}
+
+/// Zero merge params → Branch becomes bare Jump, zero Selects emitted.
+#[test]
+fn select_fold_zero_merge_params() {
+    // B3 has no params, both arms jump with no args.
+    let mut func = make_func(
+        vec![owned_param(0, Idx::BOOL)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: b(3),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(42)),
+                }],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::BOOL, Idx::INT],
+    );
+
+    merge_blocks(&mut func);
+
+    // No Select should exist.
+    let select_count: usize = func
+        .blocks
+        .iter()
+        .map(|bl| {
+            bl.body
+                .iter()
+                .filter(|i| matches!(i, ArcInstr::Select { .. }))
+                .count()
+        })
+        .sum();
+    assert_eq!(
+        select_count, 0,
+        "expected zero Selects with zero merge params"
+    );
+
+    // No Branch should remain.
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(!has_branch, "expected no Branch after folding");
+}
+
+/// Both arms jump with the same variable → Let { Var } emitted, not Select.
+#[test]
+fn select_fold_identical_args_passthrough() {
+    // Both arms pass v(1) to merge.
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![],
+        then_args: vec![v(1)],
+        else_body: vec![],
+        else_args: vec![v(1)],
+        merge_params: vec![(v(2), Idx::INT)],
+        merge_result: v(2),
+        var_count: 3,
+    });
+    func.params.push(owned_param(1, Idx::INT));
+
+    merge_blocks(&mut func);
+
+    // No Select — should use Let { Var } passthrough.
+    let select_count: usize = func
+        .blocks
+        .iter()
+        .map(|bl| {
+            bl.body
+                .iter()
+                .filter(|i| matches!(i, ArcInstr::Select { .. }))
+                .count()
+        })
+        .sum();
+    assert_eq!(
+        select_count, 0,
+        "expected zero Selects for identical args (should use Var passthrough)"
+    );
+
+    // A Let { Var } should exist for the passthrough.
+    let has_var_let = func.blocks.iter().any(|bl| {
+        bl.body.iter().any(|i| {
+            matches!(
+                i,
+                ArcInstr::Let {
+                    value: ArcValue::Var(_),
+                    ..
+                }
+            )
+        })
+    });
+    assert!(has_var_let, "expected Let {{ Var }} passthrough");
+}
+
+/// After `merge_blocks()`, branch and merge blocks are merged into one
+/// (validates Phase 3 → Phase 4 interaction end-to-end).
+#[test]
+fn select_fold_then_phase4_merges() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![],
+        then_args: vec![v(1)],
+        else_body: vec![],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(3), Idx::INT)],
+        merge_result: v(3),
+        var_count: 4,
+    });
+    func.params.push(owned_param(1, Idx::INT));
+    func.params.push(owned_param(2, Idx::INT));
+
+    merge_blocks(&mut func);
+
+    // Phase 3 folds diamond → B0 gets Select + Jump to B3.
+    // Phase 3b compacts → B3 renumbered.
+    // Phase 4 merges B0 + B3 (single predecessor) → 1 block.
+    assert_eq!(
+        func.blocks.len(),
+        1,
+        "expected 1 block after select fold + phase 4 merge, got {}",
+        func.blocks.len()
+    );
+
+    // The single block should have a Select and a Return.
+    let has_select = func.blocks[0]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Select { .. }));
+    assert!(has_select, "merged block should contain Select");
+
+    assert!(
+        matches!(func.blocks[0].terminator, ArcTerminator::Return { .. }),
+        "merged block should have Return terminator"
+    );
+}
+
+/// Branch block with existing COW annotations preserves them after folding.
+#[test]
+fn select_fold_preserves_branch_block_cow_annotations() {
+    let mut func = make_func(
+        vec![
+            owned_param(0, Idx::BOOL),
+            owned_param(1, Idx::INT),
+            owned_param(2, Idx::INT),
+        ],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::Apply {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    func: Name::from_raw(200),
+                    args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                }],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![v(1)],
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![v(2)],
+                },
+            },
+            ArcBlock {
+                id: b(3),
+                params: vec![(v(4), Idx::INT)],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(4) },
+            },
+        ],
+        vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT, Idx::INT],
+    );
+
+    // Set annotation on branch block's existing Apply at (0, 0).
+    func.cow_annotations.set(0, 0, CowMode::StaticUnique);
+
+    merge_blocks(&mut func);
+
+    // After merge, the Apply should still have its annotation at (0, 0).
+    assert_eq!(
+        func.cow_annotations.get(0, 0),
+        CowMode::StaticUnique,
+        "branch block COW annotation should survive select folding"
+    );
+}
+
+// ── Phase 3: Select Diamond Folding — Negative (fold does NOT occur) ─
+
+/// Arm has Apply instruction → Branch preserved.
+#[test]
+fn select_not_folded_with_apply() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![ArcInstr::Apply {
+            dst: v(1),
+            ty: Idx::INT,
+            func: Name::from_raw(100),
+            args: vec![v(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        then_args: vec![v(1)],
+        else_body: vec![],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(3), Idx::INT)],
+        merge_result: v(3),
+        var_count: 4,
+    });
+    func.params.push(owned_param(2, Idx::INT));
+
+    // Don't use merge_blocks — that includes Phase 4 which may eliminate
+    // the Branch by other means. Test the select fold specifically.
+    super::fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(has_branch, "Branch should be preserved when arm has Apply");
+}
+
+/// Arm has `RcInc` → Branch preserved (most common negative case).
+#[test]
+fn select_not_folded_with_rc_ops() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![ArcInstr::RcInc {
+            var: v(1),
+            count: 1,
+            strategy: RcStrategy::FatPointer,
+        }],
+        then_args: vec![v(1)],
+        else_body: vec![],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(3), Idx::INT)],
+        merge_result: v(3),
+        var_count: 4,
+    });
+    func.params.push(owned_param(1, Idx::INT));
+    func.params.push(owned_param(2, Idx::INT));
+
+    super::fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(has_branch, "Branch should be preserved when arm has RcInc");
+}
+
+/// Arm has `Let { PrimOp }` → Branch preserved (IS a `Let`, but not `Literal`/`Var`).
+#[test]
+fn select_not_folded_with_primop() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![ArcInstr::Let {
+            dst: v(1),
+            ty: Idx::INT,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Add),
+                args: vec![v(2), v(3)],
+            },
+        }],
+        then_args: vec![v(1)],
+        else_body: vec![],
+        else_args: vec![v(4)],
+        merge_params: vec![(v(5), Idx::INT)],
+        merge_result: v(5),
+        var_count: 6,
+    });
+    func.params.push(owned_param(2, Idx::INT));
+    func.params.push(owned_param(3, Idx::INT));
+    func.params.push(owned_param(4, Idx::INT));
+
+    super::fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(has_branch, "Branch should be preserved when arm has PrimOp");
+}
+
+/// Then block has 2 predecessors → Branch preserved.
+#[test]
+fn select_not_folded_multi_predecessor() {
+    // B0: branch → B1, B2
+    // B4: jump → B1 (gives B1 two predecessors)
+    // B1: jump(v1) → B3
+    // B2: jump(v2) → B3
+    // B3(v3): return v3
+    let mut func = make_func(
+        vec![
+            owned_param(0, Idx::BOOL),
+            owned_param(1, Idx::INT),
+            owned_param(2, Idx::INT),
+        ],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![v(1)],
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![v(2)],
+                },
+            },
+            ArcBlock {
+                id: b(3),
+                params: vec![(v(3), Idx::INT)],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(3) },
+            },
+            // Extra block jumping to B1, giving it 2 predecessors.
+            ArcBlock {
+                id: b(4),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(1),
+                    args: vec![],
+                },
+            },
+        ],
+        vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT],
+    );
+
+    super::fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(
+        has_branch,
+        "Branch should be preserved when then block has multiple predecessors"
+    );
+}
+
+/// Arms jump to different merge blocks → Branch preserved.
+#[test]
+fn select_not_folded_mismatched_merge_targets() {
+    // B1 → B3, B2 → B4 (different targets).
+    let mut func = make_func(
+        vec![
+            owned_param(0, Idx::BOOL),
+            owned_param(1, Idx::INT),
+            owned_param(2, Idx::INT),
+        ],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(4),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: b(3),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(4),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        vec![Idx::BOOL, Idx::INT, Idx::INT],
+    );
+
+    super::fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(
+        has_branch,
+        "Branch should be preserved when arms jump to different targets"
+    );
+}
+
+/// Then is trivial, else has Apply → Branch preserved (per-arm check).
+#[test]
+fn select_not_folded_one_arm_nontrivial() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![],
+        then_args: vec![v(1)],
+        else_body: vec![ArcInstr::Apply {
+            dst: v(2),
+            ty: Idx::INT,
+            func: Name::from_raw(100),
+            args: vec![v(3)],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(4), Idx::INT)],
+        merge_result: v(4),
+        var_count: 5,
+    });
+    func.params.push(owned_param(1, Idx::INT));
+    func.params.push(owned_param(3, Idx::INT));
+
+    super::fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(
+        has_branch,
+        "Branch should be preserved when one arm is non-trivial"
+    );
+}
+
+/// Arm has chained Let { Var } → Branch preserved.
+#[test]
+fn select_not_folded_chained_let() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![
+            ArcInstr::Let {
+                dst: v(1),
+                ty: Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            },
+            ArcInstr::Let {
+                dst: v(2),
+                ty: Idx::INT,
+                value: ArcValue::Var(v(1)), // v(1) is arm-local
+            },
+        ],
+        then_args: vec![v(2)],
+        else_body: vec![],
+        else_args: vec![v(3)],
+        merge_params: vec![(v(4), Idx::INT)],
+        merge_result: v(4),
+        var_count: 5,
+    });
+    func.params.push(owned_param(3, Idx::INT));
+
+    super::fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(
+        has_branch,
+        "Branch should be preserved when arm has chained Let"
+    );
 }
