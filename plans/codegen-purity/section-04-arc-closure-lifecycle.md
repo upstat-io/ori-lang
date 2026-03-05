@@ -76,6 +76,17 @@ The drop infrastructure (`DropKind::ClosureEnv`, `drop_gen.rs`) is already compl
 
 ---
 
+## Lingering Edge Cases (Post-Completion)
+
+While §04 is marked complete, the following edge cases should be verified during §10 verification:
+
+- **Nested closures (closure returning closure):** `let f = (x) -> (y) -> x + y` — the outer closure's environment must be RC'd correctly when the inner closure captures from it. Verify both environments are freed.
+- **Closures captured by closures:** When closure A captures closure B, B's environment must be RC-incremented on capture and RC-decremented when A's environment is freed.
+- **Closures in collections:** `let fns = [() -> 1, () -> 2]` — each closure environment must be RC-tracked through list push/pop.
+- **Closures passed across function boundaries multiple times:** A closure passed through 3+ function calls must maintain correct RC at each boundary.
+
+These should be covered by AOT tests during §10 or earlier if issues surface. If any fail, reopen §04 with specific test cases.
+
 ## Section 04 Exit Criteria
 
 Running J5's `make_adder` program with `ORI_CHECK_LEAKS=1` reports 0 leaks. `rc-stats.sh` shows every `ori_rc_alloc` for closure environments has a matching `ori_rc_dec`.

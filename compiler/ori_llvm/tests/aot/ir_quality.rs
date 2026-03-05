@@ -9,7 +9,9 @@
 //! These properties are optimized away at `-O1`+, but clean `-O0` output
 //! aids debugging and makes IR inspection feasible during development.
 
-use crate::util::{compile_and_capture_ir, count_bridge_blocks, extract_function_ir};
+use crate::util::{
+    compile_and_capture_ir, count_bridge_blocks, count_single_pred_phis, extract_function_ir,
+};
 
 /// Nounwind-only program: zero `unreachable` terminators in the IR.
 ///
@@ -390,5 +392,143 @@ fn test_if_else_with_negation_emits_diamond() {
     assert!(
         pick_ir.contains("br i1"),
         "expected conditional branch for if/else with negation in _ori_pick.\nIR:\n{pick_ir}"
+    );
+}
+
+// ── Single-Predecessor Phi Elimination Tests ─────────────────────────
+
+/// J6 pattern: enum match on Status should have no single-predecessor phis.
+///
+/// The enum match produces merge blocks; after block merge Phase 5,
+/// any single-predecessor phis should be eliminated.
+#[test]
+fn test_enum_match_no_single_pred_phis() {
+    let ir = compile_and_capture_ir(
+        r"
+type Status = Active | Inactive | Pending;
+
+@to_code (s: Status) -> int = match s {
+    Active -> 1,
+    Inactive -> 2,
+    Pending -> 3,
+};
+
+@main () -> int = to_code(s: Active);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_to_code");
+    let single_pred = count_single_pred_phis(fn_ir);
+
+    assert_eq!(
+        single_pred, 0,
+        "expected zero single-predecessor phi nodes in _ori_to_code, \
+         but found {single_pred}.\nIR:\n{fn_ir}"
+    );
+}
+
+/// J12 pattern: `?` operator on `Option<int>` should have no
+/// single-predecessor phis.
+#[test]
+fn test_option_propagation_no_single_pred_phis() {
+    let ir = compile_and_capture_ir(
+        r"
+@try_div (a: int, b: int) -> Option<int> = {
+    if b == 0 then None else Some(a / b)
+};
+
+@main () -> int = {
+    let r = try_div(a: 10, b: 2);
+    match r {
+        Some(v) -> v,
+        None -> -1,
+    }
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_try_div");
+    let single_pred = count_single_pred_phis(fn_ir);
+
+    assert_eq!(
+        single_pred, 0,
+        "expected zero single-predecessor phi nodes in _ori_try_div, \
+         but found {single_pred}.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Generic test: a function with a single entry merge point should use
+/// direct value reference, not phi.
+#[test]
+fn test_single_entry_merge_uses_direct_value() {
+    let ir = compile_and_capture_ir(
+        r"
+@pick (x: int, a: int, b: int) -> int = {
+    let result = if x > 0 then a else b;
+    result * 2
+};
+
+@main () -> int = pick(x: 1, a: 10, b: 20);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_pick");
+    let single_pred = count_single_pred_phis(fn_ir);
+
+    assert_eq!(
+        single_pred, 0,
+        "expected zero single-predecessor phi nodes in _ori_pick, \
+         but found {single_pred}.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Synthetic test: force a pattern where Phase 4 can't fully clean up.
+///
+/// The if/else with side-effecting arms (function calls) prevents select
+/// lowering. Phase 5 should ensure no single-predecessor phis remain.
+#[test]
+fn test_synthetic_single_pred_phi_eliminated() {
+    let ir = compile_and_capture_ir(
+        r"
+@inc (x: int) -> int = x + 1;
+@dec (x: int) -> int = x - 1;
+
+@synthetic (x: int) -> int = {
+    let a = if x > 0 then inc(x: x) else dec(x: x);
+    let b = a * 2;
+    b
+};
+
+@main () -> int = synthetic(x: 5);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_synthetic");
+    let single_pred = count_single_pred_phis(fn_ir);
+
+    assert_eq!(
+        single_pred, 0,
+        "expected zero single-predecessor phi nodes in _ori_synthetic, \
+         but found {single_pred}.\nIR:\n{fn_ir}"
     );
 }

@@ -12,6 +12,7 @@ use crate::uniqueness::CowMode;
 
 use super::merge_blocks;
 use super::select::{fold_select_diamonds, is_trivial_body};
+use super::single_pred_phi::eliminate_single_pred_params;
 
 // ── Phase 2: Invoke Downgrade ───────────────────────────────────────
 
@@ -2109,5 +2110,322 @@ fn select_not_folded_chained_let() {
     assert!(
         has_branch,
         "Branch should be preserved when arm has chained Let"
+    );
+}
+
+// ── Phase 5: Single-Predecessor Phi Elimination ─────────────────────
+
+/// Jump predecessor with params → params cleared, Let bindings added.
+#[test]
+fn phase5_single_pred_jump_params_to_let() {
+    // bb0: Jump{target: b(1), args: [v(0)]}
+    // bb1: params: [(v(1), INT)], return v(1)
+    let mut func = make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(1),
+                    args: vec![v(0)],
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![(v(1), Idx::INT)],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::INT, Idx::INT],
+    );
+
+    eliminate_single_pred_params(&mut func);
+
+    assert!(func.blocks[1].params.is_empty(), "params should be cleared");
+    // bb0 should have a Let binding: v(1) = Var(v(0))
+    assert_eq!(func.blocks[0].body.len(), 1);
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let { dst, value: ArcValue::Var(src), .. }
+            if *dst == v(1) && *src == v(0)
+    ));
+    // Jump args should be cleared
+    assert!(matches!(
+        &func.blocks[0].terminator,
+        ArcTerminator::Jump { args, .. } if args.is_empty()
+    ));
+}
+
+/// Non-Jump predecessor: params are dead, cleared without Let bindings.
+#[test]
+fn phase5_single_pred_non_jump_params_cleared() {
+    // bb0: Branch{cond: v(0), then_block: b(1), else_block: b(2)}
+    // bb1: params: [(v(1), INT)], return v(1)
+    // bb2: return v(0)
+    let mut func = make_func(
+        vec![owned_param(0, Idx::BOOL)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(42)),
+                }],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![(v(2), Idx::INT)],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::BOOL, Idx::INT, Idx::INT],
+    );
+
+    eliminate_single_pred_params(&mut func);
+
+    assert!(
+        func.blocks[1].params.is_empty(),
+        "dead params on Branch-predecessor block should be cleared"
+    );
+    // No Let bindings should be added to bb0 (Branch doesn't carry args)
+    assert_eq!(func.blocks[0].body.len(), 1, "bb0 body should be unchanged");
+}
+
+/// Multi-predecessor block: params preserved (negative test).
+#[test]
+fn phase5_multi_pred_params_preserved() {
+    // bb0: Jump{b(2), args:[v(0)]}
+    // bb1: Jump{b(2), args:[v(1)]}
+    // bb2: params:[(v(2), INT)], return v(2)
+    // bb0 is entry, bb1 unreachable — but let's make bb1 reachable via a Branch.
+    let mut func = make_func(
+        vec![owned_param(0, Idx::BOOL), owned_param(1, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![v(1)],
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![v(1)],
+                },
+            },
+            ArcBlock {
+                id: b(3),
+                params: vec![(v(2), Idx::INT)],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        vec![Idx::BOOL, Idx::INT, Idx::INT],
+    );
+
+    eliminate_single_pred_params(&mut func);
+
+    assert_eq!(
+        func.blocks[3].params.len(),
+        1,
+        "multi-predecessor block params should be preserved"
+    );
+}
+
+/// Entry block params are never touched (negative test).
+#[test]
+fn phase5_entry_block_params_preserved() {
+    let mut func = make_func(
+        vec![],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![(v(0), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::INT],
+    );
+
+    eliminate_single_pred_params(&mut func);
+
+    assert_eq!(
+        func.blocks[0].params.len(),
+        1,
+        "entry block params should be preserved"
+    );
+}
+
+/// COW annotations on B's body are NOT moved when Phase 5 clears params.
+#[test]
+fn phase5_cow_annotations_preserved_on_param_elim() {
+    // bb0: Branch{cond: v(0), then: b(1), else: b(2)}
+    // bb1: params[(v(3), INT)], body[Apply], return
+    // bb2: return
+    let mut func = make_func(
+        vec![owned_param(0, Idx::BOOL)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![(v(3), Idx::INT)],
+                body: vec![ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    func: Name::from_raw(200),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                }],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        vec![Idx::BOOL, Idx::INT, Idx::INT, Idx::INT],
+    );
+
+    func.cow_annotations.set(1, 0, CowMode::StaticUnique);
+
+    eliminate_single_pred_params(&mut func);
+
+    assert!(func.blocks[1].params.is_empty(), "params should be cleared");
+    assert_eq!(
+        func.cow_annotations.get(1, 0),
+        CowMode::StaticUnique,
+        "COW annotation at (1, 0) should be preserved (B's body stays in B)"
+    );
+}
+
+/// Span consistency: `spans[i].len() == blocks[i].body.len()` after Phase 5.
+#[test]
+fn phase5_span_consistency_after_param_elim() {
+    // Jump predecessor with params — lower_parallel_copy pushes None spans.
+    let mut func = make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: b(1),
+                    args: vec![v(0)],
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![(v(1), Idx::INT)],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::INT, Idx::INT, Idx::INT],
+    );
+
+    eliminate_single_pred_params(&mut func);
+
+    for (i, block) in func.blocks.iter().enumerate() {
+        assert_eq!(
+            func.spans[i].len(),
+            block.body.len(),
+            "span count must match body length for block {i}"
+        );
+    }
+}
+
+/// Branch where both arms target the same block: params are dead.
+#[test]
+fn phase5_branch_both_arms_same_target() {
+    // bb0: Branch{cond: v(0), then: b(1), else: b(1)}
+    // bb1: params[(v(1), INT)], return v(1)
+    // compute_predecessors deduplicates → pred_count=1 → params cleared.
+    let mut func = make_func(
+        vec![owned_param(0, Idx::BOOL)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(1),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![(v(1), Idx::INT)],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::BOOL, Idx::INT],
+    );
+
+    eliminate_single_pred_params(&mut func);
+
+    assert!(
+        func.blocks[1].params.is_empty(),
+        "params should be cleared when Branch targets same block for both arms"
     );
 }
