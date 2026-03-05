@@ -1,7 +1,7 @@
 ---
 plan: "codegen-purity"
 title: "Codegen Purity: Hand-Written Assembly Quality at -O0"
-status: not-started
+status: in-progress
 supersedes: []
 references:
   - "plans/code-journeys/overview.md"
@@ -49,6 +49,14 @@ If a case must be deferred, it requires an explicit note in `section-10-verifica
 - Do not "fix tests" by weakening assertions; update assertions only when they encode incorrect assumptions.
 - Keep verification artifacts deterministic: same fixture, same command, same target triple, same optimization level (`-O0`).
 
+**TDD mandate (from CLAUDE.md):** Every section MUST follow TDD:
+1. Write tests capturing the current (broken/suboptimal) behavior FIRST
+2. Verify tests detect the issue (fail if checking for the fix, or pass showing the current state)
+3. Implement the fix
+4. Tests pass unchanged — if tests need changing, the tests were wrong or the fix is wrong
+
+No section may begin implementation before its test infrastructure is in place. See individual section files for specific TDD instructions.
+
 ## Plan Quality Bar
 
 This plan is only acceptable if it remains strong on all five axes:
@@ -56,7 +64,7 @@ This plan is only acceptable if it remains strong on all five axes:
 - **Thoroughness:** every finding ID has an owner section, concrete implementation steps, and explicit verification tasks.
 - **Accuracy:** file paths, symbols, and commands are validated against the current repository state; avoid brittle line-number coupling.
 - **Completeness:** each section has clear exit criteria, regression coverage, and a definition of what is out of scope.
-- **Exhaustiveness:** no silent deferrals; unresolved items must be listed in `§10.9` with rationale and follow-up.
+- **Exhaustiveness:** no silent deferrals; unresolved items must be listed in `§10.8` with rationale and follow-up.
 - **Codegen purity:** all claims are proven on compiler-emitted `-O0` IR/asm before LLVM optimization cleanup.
 
 ## Architecture
@@ -136,6 +144,8 @@ Source (.ori)
 - **`§02` + `§06`**: `noreturn` on panic declarations is required for reliable "emit `unreachable` and stop" behavior.
 - **`§04` + `§09`**: Tail-call lowering must not regress closure/environment lifetime correctness.
 - **`§01` + `§08`**: Loop phi cleanup and block-merging touch the same CFG construction path.
+- **`§07` + `§03`**: §07 refactors `emit_checked_binop()` in `arithmetic.rs` to use the IrBuilder wrapper for string dedup. This touches the same code that §03 modified for checked negation. Verify §03's overflow paths still work after §07's refactoring.
+- **`§02` + `§02.3`**: Derived methods bypass the two-pass nounwind pipeline (compiled before `compute_nounwind_set`). Any future pipeline refactoring must account for this ordering.
 
 ## Implementation Sequence
 
@@ -157,8 +167,8 @@ Phase 2 - IR Structure (eliminate redundant IR constructs)
 
 Phase 3 - Attributes, Constants, and Dead-Path Pruning
   └─ §02: noreturn, nounwind, noundef on all applicable functions
-  └─ §06: Dead field loads, dead code after noreturn
-  └─ §07: Overflow message string deduplication
+  └─ §06: Dead field loads, dead code after noreturn (§06.2 requires §02.1 first)
+  └─ §07: Overflow message string deduplication (PREREQUISITE: split arithmetic.rs first — 513 lines, over limit)
   Gate: Attribute assertions pass; 0 duplicate targeted overflow strings; no post-noreturn emission in audited paths
 
 Phase 4 - Loop Quality (optimize loop IR patterns)
@@ -178,12 +188,18 @@ Phase 5 - Verification
 - Phase 4 handles loop and recursion-specific patterns after CFG/attribute cleanup is stable.
 - Phase 5 is the final gate — nothing ships without re-verification.
 
+**Crate dependency ordering:** Within each phase, changes to `ori_arc` (upstream) MUST land before changes to `ori_llvm` (downstream). `ori_arc` has NO LLVM dependency. Specifically:
+- §01 (block merging): `ori_arc/src/block_merge/` first → `ori_llvm` emission changes second
+- §07 (constant dedup): **must split `arithmetic.rs` (513 lines, BLOAT)** before refactoring it
+- §08 (loop IR quality): `ori_arc/src/lower/control_flow/` first (08.2, 08.3) → `ori_llvm` emission second (08.1 if LLVM-level CSE)
+- §09 (tail call): `ori_arc/src/` detection/rewriting first → `ori_llvm` emission second. These are coordinated but `ori_arc` changes are independent of `ori_llvm`.
+
 ## Known Failing Tests (Expected Until Completion)
 
 These are expected to fail until their owning section lands; do not patch around them ad hoc.
 
-- Unary negation overflow parity tests (`-INT_MIN`) until `§03` is complete.
-- Leak-check closure lifecycle tests until `§04` is complete.
+- ~~Unary negation overflow parity tests (`-INT_MIN`) until `§03` is complete.~~ **Resolved** — §03 complete.
+- ~~Leak-check closure lifecycle tests until `§04` is complete.~~ **Resolved** — §04 complete.
 - IR-quality assertions for select lowering/payload extraction/loop simplification until `§01`, `§05`, `§08` are complete.
 
 **Pre-existing `#[ignore]` tests in `compiler/ori_llvm/tests/aot/ir_quality.rs`:**
@@ -240,9 +256,9 @@ These 4 tests document the exact issues this plan targets. Un-ignore as owning s
 | Journey functional correctness (eval vs AOT) | 12/12 pass | 12/12 pass (no regressions) |
 | Medium-severity purity findings | 7 (5 IDs + 2 sub-IDs: M-1b, M-1c) | 0 |
 | Low-severity purity findings | 12 | 0 unresolved |
-| Findings with permanent regression tests | 0/19 | 19/19 |
+| Findings with permanent regression tests | 4/19 (M-1 via §01.1; M-1b via §01.2; M-5 via §03; M-3 via §04) | 19/19 |
 | Journey artifacts captured (IR/asm/audit) | 0/12 | 12/12 |
-| Sections complete | 0/10 | 10/10 |
+| Sections complete | 2/10 (§03, §04; §01 in progress — 3/4 subsections done) | 10/10 |
 
 ## Estimated Effort
 
@@ -253,10 +269,10 @@ These 4 tests document the exact issues this plan targets. Un-ignore as owning s
 | 03 Arithmetic Correctness | ~40-90 | Low | — |
 | 04 ARC Closure Lifecycle | ~180-320 | High | — |
 | 05 Payload Extraction | ~90-170 | Medium | — |
-| 06 Dead Code Pruning | ~120-220 | Medium | 02 |
+| 06 Dead Code Pruning | ~120-220 | **High** (06.1 is ABI-level) | 02 |
 | 07 Constant Deduplication | ~50-120 | Low | — |
-| 08 Loop IR Quality | ~180-320 | High | 01 |
-| 09 Tail Call Optimization | ~300-500 | High | 04 (coordination) |
+| 08 Loop IR Quality | ~180-320 | **Very High** (08.1 CSE + 08.3 specialization) | 01 |
+| 09 Tail Call Optimization | ~300-500 | **Very High** (ARC interaction is research-grade) | 04 (coordination) |
 | 10 Verification | ~120-200 (tests/docs) | Medium | 01-09 |
 
 ## Risk Register
@@ -268,6 +284,10 @@ These 4 tests document the exact issues this plan targets. Un-ignore as owning s
 | Tail-call work conflicts with ARC cleanup | Incorrect drops or no TCO | Treat `§04` and `§09` as coordinated landing; require dedicated recursion tests |
 | Over-specialized loop paths | Behavioral regressions on uncommon ranges | Keep general fallback path and add property-style tests for range variants |
 | Verification drift over time | Plan appears complete but gaps reappear | Section 10 requires artifact regeneration and explicit unresolved-ID accounting before close |
+| §07 pushes `arithmetic.rs` over 500 lines | BLOAT finding; already at 513 lines | Split `arithmetic.rs` before §07 work (extract checked-binop to submodule) |
+| §06.1 changes struct param loading ABI | Could break all struct-passing codegen | Requires extensive AOT test coverage; implement behind feature flag initially |
+| §08.1 CSE invalidation correctness | Stale cache entries cause miscompilation | Restrict to single-block, invalidate on any side effect; add negative tests |
+| §09 ARC+TCO interaction | Hoisting RcDec before tail call may cause use-after-free | Safety proof required per-variable; conservative fallback (no TCO) if proof fails |
 
 ## Sign-Off Requirements
 
@@ -283,7 +303,7 @@ Before marking this plan `complete`, all of these must be true:
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Block Merging & CFG Simplification | `section-01-block-merging.md` | Not Started |
+| 01 | Block Merging & CFG Simplification | `section-01-block-merging.md` | In Progress |
 | 02 | Function Attributes | `section-02-function-attributes.md` | Not Started |
 | 03 | Arithmetic Correctness | `section-03-arithmetic-correctness.md` | Complete |
 | 04 | ARC Closure Lifecycle | `section-04-arc-closure-lifecycle.md` | Complete |

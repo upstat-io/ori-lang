@@ -137,7 +137,6 @@ Phi nodes with only one incoming edge are equivalent to a direct value reference
 
 ## 01.4 Break Bridge Block Elimination
 
-<!-- reviewed: completeness fix — added root cause analysis and ARC-level vs LLVM-level approach options -->
 **File(s):** `compiler/ori_arc/src/lower/control_flow/loops.rs` (primary — loop lowering creates exit blocks with mutable var params), `compiler/ori_llvm/src/codegen/arc_emitter/terminators.rs` (secondary — LLVM emission of break paths)
 
 Loop break paths emit trivial bridge blocks that just forward control flow. In J7's `_ori_sum_loop`, the break path goes bb3→bb2 through a bridge block containing dead phi values (`%v26` constant 0, `%v27` unused loop counter). The break should branch directly to the function exit.
@@ -151,8 +150,10 @@ Loop break paths emit trivial bridge blocks that just forward control flow. In J
 
 **Note:** Phase 5 (single-predecessor phi elimination) may already handle some of these cases if the exit block has a single predecessor. The remaining issue is when the exit block has multiple predecessors (e.g., both `break` and loop-end paths jump to exit).
 
+> **TDD requirement:** Write an IR-quality test capturing the current break bridge block pattern (the bb3->bb2 pattern with dead `%v26`/`%v27` phis) BEFORE implementing. Also write an ARC IR unit test in `block_merge/tests.rs` for the break-exit-block pattern.
+
 - [ ] Identify break bridge blocks in loop codegen — check if Phase 5 already handles the single-predecessor case
-- [ ] For multi-predecessor exit blocks: implement dead-param elimination in the block merge pass or loop lowering
+- [ ] For multi-predecessor exit blocks: implement dead-param elimination (remove block params whose values are never read after the exit block) in the block merge pass (approach a) or loop lowering (approach b)
 - [ ] Route break directly to the post-loop continuation block where possible
 - [ ] Ensure dead phi values from bridge blocks are not emitted
 - [ ] Verify: J7 `_ori_sum_loop` break path has no intermediate bridge block
