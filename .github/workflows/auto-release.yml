@@ -95,7 +95,7 @@ jobs:
           git add BUILD_NUMBER Cargo.toml compiler/ori_llvm/Cargo.toml compiler/ori_rt/Cargo.toml \
                   tools/ori-lsp/Cargo.toml website/playground-wasm/Cargo.toml \
                   website/src/layouts/BaseLayout.astro \
-                  website/package.json website/src/wasm/package.json editors/vscode-ori/package.json
+                  website/package.json editors/vscode-ori/package.json
           if git diff --cached --quiet; then
             echo "Versions already in sync — no commit needed"
           else

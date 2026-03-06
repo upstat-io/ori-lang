@@ -5,7 +5,7 @@ status: in-progress
 tier: 2
 goal: Collection methods, iterator traits, and Debug trait
 spec:
-  - spec/11-built-in-functions.md
+  - spec/annex-c-built-in-functions.md
 sections:
   - id: "7C.1"
     title: Collection Functions
@@ -37,7 +37,7 @@ sections:
 
 **Goal**: Collection methods, iterator traits, and Debug trait
 
-> **SPEC**: `spec/11-built-in-functions.md`
+> **SPEC**: `spec/annex-c-built-in-functions.md`
 > **DESIGN**: `modules/prelude.md`
 
 ---
@@ -48,14 +48,14 @@ sections:
 > The free function forms are deprecated in favor of `.len()` and `.is_empty()` methods.
 > Keep backward compatibility during transition, then remove free functions.
 
-- [x] **Implement**: `len(x)` — spec/11-built-in-functions.md § len (deprecated, use `.len()`) [done] (2026-02-10)
+- [x] **Implement**: `len(x)` — spec/annex-c-built-in-functions.md § len (deprecated, use `.len()`) [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — len function tests
   - [x] **Ori Tests**: Used extensively in test suite via `.len()` method
   - [ ] **LLVM Support**: LLVM codegen for len function
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — len function codegen
   - [ ] **AOT Tests**: No AOT coverage yet (free function form; method form covered in 7C.4)
 
-- [x] **Implement**: `is_empty(x)` — spec/11-built-in-functions.md § is_empty (deprecated, use `.is_empty()`) [done] (2026-02-10)
+- [x] **Implement**: `is_empty(x)` — spec/annex-c-built-in-functions.md § is_empty (deprecated, use `.is_empty()`) [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — is_empty function tests
   - [x] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — 15+ tests
   - [ ] **LLVM Support**: LLVM codegen for is_empty function
@@ -356,7 +356,7 @@ sections:
       @next (mut self) -> Option<Self.Item>
   }
   ```
-  - [ ] **Rust Tests**: `oric/src/typeck/traits/iterator.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/traits/iterator.rs`
   - [ ] **Ori Tests**: `tests/spec/traits/iterator.ori`
   - [ ] **LLVM Support**: LLVM codegen for Iterator trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Iterator trait codegen
@@ -369,7 +369,7 @@ sections:
       @iter (self) -> impl Iterator where Item == Self.Item
   }
   ```
-  - [ ] **Rust Tests**: `oric/src/typeck/traits/iterable.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/traits/iterable.rs`
   - [ ] **Ori Tests**: `tests/spec/traits/iterable.ori`
   - [ ] **LLVM Support**: LLVM codegen for Iterable trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Iterable trait codegen
@@ -381,7 +381,7 @@ sections:
       @from_iter (iter: impl Iterator where Item == T) -> Self
   }
   ```
-  - [ ] **Rust Tests**: `oric/src/typeck/traits/collect.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/traits/collect.rs`
   - [ ] **Ori Tests**: `tests/spec/traits/collect.ori`
   - [ ] **LLVM Support**: LLVM codegen for Collect trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Collect trait codegen
@@ -408,7 +408,7 @@ sections:
   - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_list_iter_collect`, `test_iter_chain_collect` (collect to list via `.iter().collect()`)
 
 - [ ] **Implement**: `for` loop desugaring to `.iter()` and `.next()`
-  - [ ] **Rust Tests**: `oric/src/eval/for_loop.rs`
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/for_loop.rs`
   - [ ] **Ori Tests**: `tests/spec/control/for_iterator.ori`
   - [ ] **LLVM Support**: LLVM codegen for for loop desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — for loop desugaring codegen
@@ -436,14 +436,14 @@ sections:
       @debug (self) -> str
   }
   ```
-  - [ ] **Rust Tests**: `oric/src/typeck/traits/debug.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/traits/debug.rs`
   - [ ] **Ori Tests**: `tests/spec/traits/debug.ori`
   - [ ] **LLVM Support**: LLVM codegen for Debug trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs` — Debug trait codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `#[derive(Debug)]` for structs and sum types
-  - [ ] **Rust Tests**: `oric/src/typeck/derives/debug.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/derives/debug.rs`
   - [ ] **Ori Tests**: `tests/spec/traits/debug_derive.ori`
   - [ ] **LLVM Support**: LLVM codegen for derive(Debug)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs` — derive(Debug) codegen

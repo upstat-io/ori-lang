@@ -10,7 +10,8 @@
 //! aids debugging and makes IR inspection feasible during development.
 
 use crate::util::{
-    compile_and_capture_ir, count_bridge_blocks, count_single_pred_phis, extract_function_ir,
+    compile_and_capture_ir, count_bridge_blocks, count_dead_phis, count_single_pred_phis,
+    extract_function_ir,
 };
 
 /// Nounwind-only program: zero `unreachable` terminators in the IR.
@@ -19,7 +20,7 @@ use crate::util::{
 /// unwind, so there should be no unwind landing pads and therefore
 /// no dead blocks with `unreachable`.
 #[test]
-#[ignore = "Pre-existing: nounwind analysis not yet eliminating dead unreachable blocks at -O0"]
+#[ignore = "codegen-purity plan, sections 02 + 06: nounwind invoke→call + dead block pruning"]
 fn test_nounwind_program_has_no_unreachable_blocks() {
     let ir = compile_and_capture_ir(
         r"
@@ -47,7 +48,7 @@ fn test_nounwind_program_has_no_unreachable_blocks() {
 /// After two-pass nounwind analysis, the invoke should be downgraded to
 /// call, and the former unwind block should not be emitted at all.
 #[test]
-#[ignore = "Pre-existing: nounwind generic call still leaves dead unreachable blocks"]
+#[ignore = "codegen-purity plan, sections 02 + 06: nounwind generic invoke→call + dead block pruning"]
 fn test_nounwind_generic_call_no_unreachable() {
     let ir = compile_and_capture_ir(
         r"
@@ -72,7 +73,7 @@ fn test_nounwind_generic_call_no_unreachable() {
 /// The IR for `_ori_main` should have landing pads only for the may-unwind call,
 /// and no dead `unreachable` blocks from the nounwind call.
 #[test]
-#[ignore = "Pre-existing: mixed nounwind/may-unwind calls leave dead unreachable blocks"]
+#[ignore = "codegen-purity plan, sections 02 + 06: mixed nounwind/may-unwind dead block pruning"]
 fn test_mixed_calls_no_dead_unreachable() {
     let ir = compile_and_capture_ir(
         r#"
@@ -110,7 +111,7 @@ fn test_mixed_calls_no_dead_unreachable() {
 /// `@main () -> int = 33` should produce minimal IR — just a function that
 /// returns 33. No unreachable blocks, no landing pads.
 #[test]
-#[ignore = "Pre-existing: constant-returning main still has unreachable/invoke/landingpad"]
+#[ignore = "codegen-purity plan, sections 02 + 06: constant main should emit minimal IR"]
 fn test_constant_main_minimal_ir() {
     let ir = compile_and_capture_ir(
         r"
@@ -134,6 +135,211 @@ fn test_constant_main_minimal_ir() {
         !main_ir.contains("landingpad"),
         "constant-returning _ori_main should have no landing pads.\nIR:\n{main_ir}"
     );
+}
+
+// ── nounwind on C main Wrapper (Codegen Purity §02.2) ───────────────
+
+/// Trivial `@main` should have `nounwind` on the C `main()` wrapper.
+///
+/// A `@main () -> int = 42` is pure arithmetic — the nounwind analysis
+/// marks `_ori_main` as `nounwind`, and the C main wrapper inherits it.
+#[test]
+fn test_trivial_main_wrapper_has_nounwind() {
+    let ir = compile_and_capture_ir(
+        r"
+@main () -> int = 42;
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_has_attr(&ir, "main", "nounwind");
+}
+
+/// `@main` that may panic should NOT have `nounwind` on C `main()` wrapper.
+///
+/// The wrapper calls `_ori_main` which may unwind — the C `main` must not
+/// be marked `nounwind` or LLVM would treat unwinding as UB.
+#[test]
+fn test_panicking_main_wrapper_lacks_nounwind() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = {
+    let x = 42;
+    if x == 0 then panic(msg: "zero");
+    x
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_lacks_attr(&ir, "main", "nounwind");
+}
+
+// ── nounwind on Derived Trait Methods (Codegen Purity §02.3) ────────
+
+/// Pure derived methods ($eq, $compare, $hash) should have `nounwind`.
+///
+/// These methods only do field comparisons, hashing, and arithmetic —
+/// no string allocation or user code calls. They are provably nounwind.
+#[test]
+fn test_pure_derived_methods_have_nounwind() {
+    let ir = compile_and_capture_ir(
+        r"
+#derive(Eq, Comparable, Hashable)
+type Shape = { sides: int, area: float };
+
+@main () -> int = {
+    let a = Shape { sides: 4, area: 16.0 };
+    let b = Shape { sides: 4, area: 16.0 };
+    let c = a.compare(other: b);
+    let h = a.hash();
+    if a == b then 1 else 0
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_has_attr(&ir, "_ori_Shape$eq", "nounwind");
+    assert_fn_has_attr(&ir, "_ori_Shape$compare", "nounwind");
+    assert_fn_has_attr(&ir, "_ori_Shape$hash", "nounwind");
+}
+
+/// Impure derived methods (`$to_str`, `$debug`) should NOT have `nounwind`.
+///
+/// These methods allocate strings and call non-nounwind runtime functions.
+#[test]
+fn test_impure_derived_methods_lack_nounwind() {
+    let ir = compile_and_capture_ir(
+        r"
+#derive(Printable, Debug)
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let p = Point { x: 1, y: 2 };
+    let s = p.to_str();
+    let d = p.debug();
+    0
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_lacks_attr(&ir, "_ori_Point$to_str", "nounwind");
+    assert_fn_lacks_attr(&ir, "_ori_Point$debug", "nounwind");
+}
+
+// ── noreturn on Panic Functions (Codegen Purity §02.1) ──────────────
+
+/// Panic function declarations should have the `noreturn` attribute.
+///
+/// `ori_panic_cstr` (compile-time constant messages, e.g. overflow) and
+/// `ori_panic` (dynamic string messages) never return to their caller.
+/// LLVM needs `noreturn` to eliminate dead code after panic calls.
+///
+/// This test uses arithmetic (triggers `ori_panic_cstr` for overflow)
+/// and explicit `panic()` (triggers `ori_panic` for dynamic messages).
+///
+/// LLVM IR uses attribute groups (`#N = { ... }`) — the `declare` line
+/// references the group number, not the attributes directly.
+#[test]
+fn test_panic_declarations_have_noreturn() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = {
+    let x = 42;
+    if x == 0 then panic(msg: "zero");
+    x + 1
+}
+"#,
+    );
+
+    // Skip if release binary (no IR output)
+    if !ir.contains("declare ") && !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // Check ori_panic_cstr has noreturn via its attribute group
+    assert_fn_has_attr(&ir, "ori_panic_cstr", "noreturn");
+    assert_fn_lacks_attr(&ir, "ori_panic_cstr", "nounwind");
+
+    // Check ori_panic has noreturn via its attribute group
+    assert_fn_has_attr(&ir, "ori_panic", "noreturn");
+    assert_fn_lacks_attr(&ir, "ori_panic", "nounwind");
+}
+
+/// Assert that a function declaration in the IR has a specific attribute
+/// (resolved through LLVM's `#N = { ... }` attribute groups).
+fn assert_fn_has_attr(ir: &str, func_name: &str, attr: &str) {
+    let attrs = resolve_fn_attrs(ir, func_name);
+    assert!(
+        attrs.contains(attr),
+        "{func_name} should have `{attr}` attribute.\n\
+         Resolved attributes: {attrs}"
+    );
+}
+
+/// Assert that a function declaration does NOT have a specific attribute.
+fn assert_fn_lacks_attr(ir: &str, func_name: &str, attr: &str) {
+    let attrs = resolve_fn_attrs(ir, func_name);
+    assert!(
+        !attrs.contains(attr),
+        "{func_name} must NOT have `{attr}` attribute.\n\
+         Resolved attributes: {attrs}"
+    );
+}
+
+/// Resolve a function's attributes by following its `#N` attribute group
+/// reference in the LLVM IR.
+///
+/// Searches both `declare` and `define` lines. Handles both plain names
+/// (`@main(`) and quoted names (`@"_ori_Shape$eq"(`).
+fn resolve_fn_attrs(ir: &str, func_name: &str) -> String {
+    // LLVM quotes names with special characters: @"_ori_Shape$eq"(
+    let search_plain = format!("@{func_name}(");
+    let search_quoted = format!("@\"{func_name}\"(");
+    let decl_line = ir
+        .lines()
+        .find(|l| {
+            (l.contains("declare") || l.contains("define"))
+                && (l.contains(&search_plain) || l.contains(&search_quoted))
+        })
+        .unwrap_or_else(|| panic!("{func_name} should be declared/defined in IR"));
+
+    // Extract attribute group reference (e.g., "#2" from the declaration).
+    // For `define`, strip trailing ` {` first.
+    let line = decl_line.trim_end_matches('{').trim();
+    let group_ref = line
+        .rsplit_once('#')
+        .map(|(_, num)| format!("#{}", num.trim()))
+        .unwrap_or_default();
+
+    if group_ref.is_empty() {
+        return String::new();
+    }
+
+    // Find the attribute group definition: `attributes #2 = { cold noreturn }`
+    let group_prefix = format!("attributes {group_ref} = ");
+    ir.lines()
+        .find(|l| l.starts_with(&group_prefix))
+        .map(|l| l[group_prefix.len()..].to_string())
+        .unwrap_or_default()
 }
 
 // ── Bridge-Block Elimination Tests ──────────────────────────────────
@@ -531,4 +737,812 @@ fn test_synthetic_single_pred_phi_eliminated() {
         "expected zero single-predecessor phi nodes in _ori_synthetic, \
          but found {single_pred}.\nIR:\n{fn_ir}"
     );
+}
+
+// ── Break Bridge Block Elimination Tests (Section 01.4) ─────────────
+
+/// Single-break loop: exit block should have no bridge blocks or dead phis.
+///
+/// `loop { if cond then break value }` with a single break path has
+/// a single-predecessor exit block. Phase 5 converts params to Let
+/// bindings and Phase 4 merges the blocks.
+#[test]
+fn test_single_break_loop_clean_exit() {
+    let ir = compile_and_capture_ir(
+        r"
+@sum_loop (n: int) -> int = {
+    let i = 0;
+    let total = 0;
+    loop {
+        if i >= n then break total;
+        total += i + 1;
+        i += 1
+    }
+};
+
+@main () -> int = sum_loop(n: 5);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
+
+    // Single-break loop: Phase 5 should handle single-predecessor exit.
+    let single_pred = count_single_pred_phis(fn_ir);
+    assert_eq!(
+        single_pred, 0,
+        "expected zero single-predecessor phis in _ori_sum_loop.\nIR:\n{fn_ir}"
+    );
+
+    let dead = count_dead_phis(fn_ir);
+    assert_eq!(
+        dead, 0,
+        "expected zero dead phis in _ori_sum_loop.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Multi-break loop: exit block should have no dead phis.
+///
+/// Two `break` paths create a multi-predecessor exit block. The exit
+/// block params for mutable variables (`i`, `total`) that are unused
+/// after the loop should be eliminated by dead-param analysis.
+#[test]
+fn test_multi_break_loop_no_dead_phis() {
+    let ir = compile_and_capture_ir(
+        r"
+@multi_break (n: int) -> int = {
+    let i = 0;
+    let total = 0;
+    loop {
+        if i >= n then break total;
+        if total > 100 then break -1;
+        total += i + 1;
+        i += 1
+    }
+};
+
+@main () -> int = multi_break(n: 5);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_multi_break");
+
+    let dead = count_dead_phis(fn_ir);
+    assert_eq!(
+        dead, 0,
+        "expected zero dead phis in _ori_multi_break, but found {dead}.\n\
+         Dead phis arise from unused mutable variable params on multi-predecessor \
+         exit blocks.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Multi-break loop with post-loop variable use: only truly dead params eliminated.
+///
+/// When a mutable variable IS used after the loop, its exit block param
+/// must be preserved. Only unused params should be eliminated.
+#[test]
+fn test_multi_break_loop_preserves_live_params() {
+    let ir = compile_and_capture_ir(
+        r"
+@search (n: int) -> int = {
+    let i = 0;
+    let found = loop {
+        if i >= n then break -1;
+        if i * i > n then break i;
+        i += 1
+    };
+    found + i
+};
+
+@main () -> int = search(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_search");
+
+    // `i` is used after the loop (`found + i`), so its exit param is live.
+    // The `found` param (break value) is also live.
+    // No dead phis should exist.
+    let dead = count_dead_phis(fn_ir);
+    assert_eq!(
+        dead, 0,
+        "expected zero dead phis in _ori_search.\nIR:\n{fn_ir}"
+    );
+}
+
+// ── noundef on Scalar Parameters (Codegen Purity §02.6) ─────────────
+
+/// Scalar parameters (`int`, `float`, `bool`) should have `noundef` in IR.
+///
+/// Ori's type system guarantees all scalar values are initialized, so LLVM
+/// can assume passing undef/poison is UB. This enables range analysis,
+/// dead argument elimination, and other scalar optimizations.
+#[test]
+fn test_scalar_params_have_noundef() {
+    let ir = compile_and_capture_ir(
+        r"
+@add (a: int, b: int) -> int = a + b;
+
+@scale (x: float, factor: float) -> float = x * factor;
+
+@main () -> int = {
+    let s = scale(x: 3.0, factor: 2.0);
+    add(a: 1, b: 2)
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // _ori_add: both int params and int return should have noundef
+    let add_decl = ir
+        .lines()
+        .find(|l| l.contains("@_ori_add") || l.contains("@\"_ori_add\""))
+        .expect("_ori_add should be in IR");
+    assert_eq!(
+        add_decl.matches("noundef").count(),
+        3,
+        "expected 3 noundef (2 int params + int return) on _ori_add:\n{add_decl}"
+    );
+
+    // _ori_scale: both float params and float return should have noundef
+    let scale_decl = ir
+        .lines()
+        .find(|l| l.contains("@_ori_scale") || l.contains("@\"_ori_scale\""))
+        .expect("_ori_scale should be in IR");
+    assert_eq!(
+        scale_decl.matches("noundef").count(),
+        3,
+        "expected 3 noundef (2 float params + float return) on _ori_scale:\n{scale_decl}"
+    );
+}
+
+/// Aggregate parameters (str) and pointer params should NOT have `noundef`.
+///
+/// §02.6 conservative policy: only scalar primitives get `noundef`.
+/// Aggregates and pointers require additional proof obligations.
+#[test]
+fn test_aggregate_params_lack_noundef() {
+    let ir = compile_and_capture_ir(
+        r#"
+@greet (name: str) -> str = `Hello, {name}`;
+
+@main () -> void = {
+    let msg = greet(name: "world");
+    print(msg: msg)
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // _ori_greet has str param (aggregate, >16 bytes, Indirect → ptr) and str
+    // return (Sret → void). Neither should have noundef.
+    let greet_decl = ir
+        .lines()
+        .find(|l| {
+            (l.contains("@_ori_greet") || l.contains("@\"_ori_greet\""))
+                && (l.contains("define") || l.contains("declare"))
+        })
+        .expect("_ori_greet should be in IR");
+    assert!(
+        !greet_decl.contains("noundef"),
+        "str param/return should NOT have noundef on _ori_greet:\n{greet_decl}"
+    );
+}
+
+// ── Sum Type Payload Extraction Tests (Codegen Purity §05) ──────────
+
+/// Enum payload extraction should use `extractvalue`, not alloca+store+GEP+load.
+///
+/// A match arm that destructures a 2-field sum type variant currently
+/// spills the entire enum to the stack via alloca+store, then uses GEP
+/// to index into the payload array. This costs 5 instructions per field.
+/// With `extractvalue`, it's 2 instructions per field (extract payload
+/// array, then extract element) plus an optional bitcast for non-i64 types.
+#[test]
+fn test_enum_payload_uses_extractvalue() {
+    let ir = compile_and_capture_ir(
+        r"
+type Shape = Circle(radius: float) | Rect(width: float, height: float);
+
+@extract (s: Shape) -> float = match s {
+    Circle(radius) -> radius,
+    Rect(width, height) -> width + height,
+};
+
+@main () -> int = {
+    let c = Circle(radius: 3.14);
+    let r = Rect(width: 2.0, height: 5.0);
+    let x = extract(s: c);
+    let y = extract(s: r);
+    0
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_extract");
+
+    // Match arm blocks should NOT contain `proj.alloca` (the alloca+store pattern
+    // for enum payload extraction). The extractvalue path avoids stack spill.
+    assert!(
+        !fn_ir.contains("proj.alloca"),
+        "expected no `proj.alloca` in _ori_extract — enum payload extraction should use \
+         `extractvalue` instead of alloca+store+GEP+load.\nIR:\n{fn_ir}"
+    );
+
+    // Should contain extractvalue for payload access.
+    assert!(
+        fn_ir.contains("extractvalue"),
+        "expected `extractvalue` instructions for enum payload extraction.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Enum with int fields: extractvalue needs no bitcast (i64 → i64 is identity).
+#[test]
+fn test_enum_int_payload_extractvalue() {
+    let ir = compile_and_capture_ir(
+        r"
+type IntEnum = A(x: int) | B(x: int, y: int);
+
+@extract_b (e: IntEnum) -> int = match e {
+    A(x) -> x,
+    B(x, y) -> x + y,
+};
+
+@main () -> int = extract_b(e: B(x: 10, y: 20));
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_extract_b");
+
+    assert!(
+        !fn_ir.contains("proj.alloca"),
+        "expected no `proj.alloca` in _ori_extract_b — int payload should use extractvalue.\n\
+         IR:\n{fn_ir}"
+    );
+}
+
+// ── Surgical Struct Field Loading Tests (Codegen Purity §06.1) ───────
+
+/// Function accessing 1 of 4 struct fields should emit only 1 GEP+load.
+///
+/// `get_x` receives a 4-field `Point` by pointer but only accesses field 0.
+/// The codegen should skip loading fields 1, 2, 3 — only emit 1 GEP+load
+/// (not 4 GEP+load+insertvalue sequences).
+#[test]
+fn test_struct_selective_field_loading() {
+    let ir = compile_and_capture_ir(
+        r"
+type Point = { x: int, y: int, z: int, w: int };
+
+@get_x (p: Point) -> int = p.x;
+
+@main () -> int = get_x(p: Point { x: 42, y: 0, z: 0, w: 0 });
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_get_x");
+
+    // Count GEP instructions for field access — should be exactly 1 (field 0).
+    let gep_count = fn_ir.matches("getelementptr").count();
+    assert!(
+        gep_count <= 1,
+        "expected at most 1 GEP in _ori_get_x (accessing only field x), \
+         but found {gep_count}.\nIR:\n{fn_ir}"
+    );
+
+    // Count load instructions — should be exactly 1 (loading field 0).
+    let load_count = fn_ir.matches("= load ").count();
+    assert!(
+        load_count <= 1,
+        "expected at most 1 load in _ori_get_x (loading only field x), \
+         but found {load_count}.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Function accessing 2 of 4 struct fields should emit exactly 2 GEP+load.
+#[test]
+fn test_struct_selective_two_fields() {
+    let ir = compile_and_capture_ir(
+        r"
+type Rect = { x: int, y: int, width: int, height: int };
+
+@area (r: Rect) -> int = r.width * r.height;
+
+@main () -> int = area(r: Rect { x: 0, y: 0, width: 3, height: 4 });
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_area");
+
+    // Should load exactly 2 fields (width at index 2, height at index 3).
+    let load_count = fn_ir.matches("= load ").count();
+    assert!(
+        load_count <= 2,
+        "expected at most 2 loads in _ori_area (width + height only), \
+         but found {load_count}.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Struct passed whole to another function must load all fields.
+///
+/// When a struct param is passed directly as an argument to another call
+/// (not via Project), all fields must be loaded — the callee may use any.
+/// Uses a 4-field struct to ensure Indirect passing (>16 bytes).
+#[test]
+fn test_struct_whole_passthrough_loads_all() {
+    let ir = compile_and_capture_ir(
+        r"
+type Big = { a: int, b: int, c: int, d: int };
+
+@sum_big (p: Big) -> int = p.a + p.b + p.c + p.d;
+
+@forward (p: Big) -> int = sum_big(p: p);
+
+@main () -> int = forward(p: Big { a: 1, b: 2, c: 3, d: 4 });
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_forward");
+
+    // `forward` passes `p` whole to `sum_big` — all fields must be loaded.
+    // Big has 4 fields, so we need at least 4 loads.
+    let load_count = fn_ir.matches("= load ").count();
+    assert!(
+        load_count >= 4,
+        "expected at least 4 loads in _ori_forward (whole passthrough of 4-field struct), \
+         but found {load_count}.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Boxed (recursive) enum fields must still use alloca+GEP+load.
+///
+/// Recursive types are heap-allocated behind RC pointers. The payload
+/// slot contains a pointer, not a value. Extractvalue can get the raw
+/// pointer bits, but the subsequent dereference requires a load from
+/// heap memory — which only works through a pointer, not extractvalue.
+#[test]
+fn test_boxed_enum_field_uses_alloca() {
+    let ir = compile_and_capture_ir(
+        r"
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
+
+@left_val (t: Tree) -> int = match t {
+    Leaf(value) -> value,
+    Node(left, right) -> match left {
+        Leaf(value) -> value,
+        _ -> -1,
+    },
+};
+
+@main () -> int = {
+    let t = Node(left: Leaf(value: 42), right: Leaf(value: 0));
+    left_val(t: t)
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_left_val");
+
+    // Boxed enum fields (recursive types) MUST still use alloca path —
+    // the RC pointer needs a load from heap, which extractvalue cannot do.
+    // The function should contain proj.alloca for the Node arm's left/right extraction.
+    assert!(
+        fn_ir.contains("proj.alloca") || fn_ir.contains("proj.") && fn_ir.contains(".ptr"),
+        "expected alloca-based extraction for boxed (recursive) enum fields in _ori_left_val.\n\
+         Boxed fields store RC pointers in payload slots — extractvalue alone cannot dereference heap.\n\
+         IR:\n{fn_ir}"
+    );
+}
+
+// ── Skip Codegen After Noreturn Tests (Codegen Purity §06.2) ─────────
+
+/// Explicit `panic()` call should have `unreachable` immediately after —
+/// no RC cleanup or other code between the call and the terminator.
+///
+/// In `if cond then panic(msg: "x") else value`, the panic arm calls
+/// `ori_panic` (noreturn). The codegen should emit `call @ori_panic` +
+/// `unreachable` with nothing in between.
+#[test]
+fn test_noreturn_panic_has_unreachable_no_cleanup() {
+    let ir = compile_and_capture_ir(
+        r#"
+@may_panic (x: int) -> int = {
+    if x == 0 then panic(msg: "zero") else x
+};
+
+@main () -> int = may_panic(x: 5);
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
+
+    // Find the line that calls ori_panic.
+    let lines: Vec<&str> = fn_ir.lines().collect();
+    let panic_line_idx = lines
+        .iter()
+        .position(|l| {
+            l.contains("call") && l.contains("ori_panic") && !l.contains("ori_panic_cstr")
+        })
+        .expect("expected call to ori_panic in _ori_may_panic");
+
+    // The very next non-empty line after the panic call should be `unreachable`.
+    let next_meaningful = lines[panic_line_idx + 1..]
+        .iter()
+        .find(|l| !l.trim().is_empty())
+        .expect("expected instruction after ori_panic call");
+
+    assert!(
+        next_meaningful.trim() == "unreachable",
+        "expected `unreachable` immediately after `call @ori_panic`, \
+         but found: `{}`.\n\
+         No RC cleanup or other code should follow a noreturn call.\nIR:\n{fn_ir}",
+        next_meaningful.trim()
+    );
+}
+
+/// The else arm of `if cond then panic(...) else value` should still work
+/// normally — the noreturn pruning must not affect the non-panic path.
+#[test]
+fn test_noreturn_panic_else_arm_continues() {
+    let ir = compile_and_capture_ir(
+        r#"
+@may_panic (x: int) -> int = {
+    if x == 0 then panic(msg: "zero") else x
+};
+
+@main () -> int = may_panic(x: 5);
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
+
+    // The function must still contain a `ret` for the else arm.
+    assert!(
+        fn_ir.contains("ret i64"),
+        "expected `ret i64` for the else arm in _ori_may_panic.\n\
+         Noreturn pruning should not affect the non-panic path.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Checked arithmetic overflow panic (`emit_checked_binop`) should still
+/// have `unreachable` after the panic call — regression guard.
+///
+/// This path was already correct before §06.2. The test guards against
+/// accidentally breaking it while implementing noreturn pruning.
+#[test]
+fn test_checked_binop_overflow_still_has_unreachable() {
+    let ir = compile_and_capture_ir(
+        r"
+@add_checked (a: int, b: int) -> int = a + b;
+
+@main () -> int = add_checked(a: 9223372036854775807, b: 1);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_add_checked");
+
+    // The overflow panic block should contain ori_panic_cstr + unreachable.
+    assert!(
+        fn_ir.contains("ori_panic_cstr"),
+        "expected `ori_panic_cstr` for overflow panic in _ori_add_checked.\nIR:\n{fn_ir}"
+    );
+
+    // Find the ori_panic_cstr call line.
+    let lines: Vec<&str> = fn_ir.lines().collect();
+    let panic_line_idx = lines
+        .iter()
+        .position(|l| l.contains("call") && l.contains("ori_panic_cstr"))
+        .expect("expected call to ori_panic_cstr in _ori_add_checked");
+
+    // Next meaningful line should be `unreachable`.
+    let next_meaningful = lines[panic_line_idx + 1..]
+        .iter()
+        .find(|l| !l.trim().is_empty())
+        .expect("expected instruction after ori_panic_cstr call");
+
+    assert!(
+        next_meaningful.trim() == "unreachable",
+        "expected `unreachable` immediately after `call ori_panic_cstr` in overflow path, \
+         but found: `{}`.\nIR:\n{fn_ir}",
+        next_meaningful.trim()
+    );
+}
+
+// Range specialization (Section 08.3)
+
+/// Ascending exclusive range (`0..n`): single `icmp slt` in header.
+///
+/// With step=1 and inclusive=0 known at compile time, the general
+/// 8-instruction boolean condition reduces to a single comparison.
+#[test]
+fn test_range_ascending_exclusive_single_icmp() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_up (n: int) -> int = {
+    let count = 0;
+    for i in 0..n do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_up(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_up");
+
+    // Header block: exactly 1 icmp (the `slt` condition), not 8 boolean ops.
+    // Find the header by looking for the block with phi + icmp + br pattern.
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+    assert_eq!(
+        icmp_count, 1,
+        "expected exactly 1 icmp in specialized header (step=1, excl), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+    assert!(
+        header.contains("icmp slt"),
+        "expected `icmp slt` for ascending exclusive range.\nHeader:\n{header}"
+    );
+
+    // No zero-step guard: step=1 is known non-zero.
+    assert!(
+        !fn_ir.contains("range step cannot be zero"),
+        "expected no zero-step guard for literal step=1.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Ascending inclusive range (`0..=n`): single `icmp sle` in header.
+#[test]
+fn test_range_ascending_inclusive_single_icmp() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_incl (n: int) -> int = {
+    let count = 0;
+    for i in 0..=n do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_incl(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_incl");
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+    assert_eq!(
+        icmp_count, 1,
+        "expected exactly 1 icmp in specialized header (step=1, incl), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+    assert!(
+        header.contains("icmp sle"),
+        "expected `icmp sle` for ascending inclusive range.\nHeader:\n{header}"
+    );
+}
+
+/// Descending exclusive range (`n..0 by -1`): single `icmp sgt` in header.
+#[test]
+fn test_range_descending_exclusive_single_icmp() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_down (n: int) -> int = {
+    let count = 0;
+    for i in n..0 by -1 do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_down(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_down");
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+    assert_eq!(
+        icmp_count, 1,
+        "expected exactly 1 icmp in specialized header (step=-1, excl), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+    assert!(
+        header.contains("icmp sgt"),
+        "expected `icmp sgt` for descending exclusive range.\nHeader:\n{header}"
+    );
+}
+
+/// Descending inclusive range (`n..=0 by -1`): single `icmp sge` in header.
+#[test]
+fn test_range_descending_inclusive_single_icmp() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_down_incl (n: int) -> int = {
+    let count = 0;
+    for i in n..=0 by -1 do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_down_incl(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_down_incl");
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+    assert_eq!(
+        icmp_count, 1,
+        "expected exactly 1 icmp in specialized header (step=-1, incl), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+    assert!(
+        header.contains("icmp sge"),
+        "expected `icmp sge` for descending inclusive range.\nHeader:\n{header}"
+    );
+}
+
+/// Variable step (`0..n by s`): falls back to general 8-instruction condition.
+#[test]
+fn test_range_variable_step_general_condition() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_step (n: int, s: int) -> int = {
+    let count = 0;
+    for i in 0..n by s do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_step(n: 10, s: 2);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_step");
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+
+    // General path: 6 icmp instructions (step>0, step<0, incl>0, i<end, i>end, i==end).
+    assert!(
+        icmp_count >= 4,
+        "expected >= 4 icmp in general header (variable step), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+
+    // Zero-step guard should be present.
+    assert!(
+        fn_ir.contains("range step cannot be zero")
+            || fn_ir.contains("ori_panic_cstr")
+            || fn_ir.contains("ori_panic"),
+        "expected zero-step guard for variable step.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Find the loop header block in LLVM IR (block with phi nodes + conditional branch).
+fn find_loop_header(fn_ir: &str) -> String {
+    let mut in_header = false;
+    let mut header_lines = Vec::new();
+
+    for line in fn_ir.lines() {
+        let trimmed = line.trim();
+        // Start of a new block
+        if trimmed.ends_with(':') || (trimmed.contains(':') && trimmed.contains("preds")) {
+            if in_header {
+                break; // We were in the header, now hit the next block
+            }
+            // Check if this block has phi nodes (next lines)
+            in_header = false;
+            header_lines.clear();
+            header_lines.push(line.to_string());
+            continue;
+        }
+        if in_header
+            || (!header_lines.is_empty() && trimmed.starts_with('%') && trimmed.contains("= phi "))
+        {
+            in_header = true;
+            header_lines.push(line.to_string());
+        } else if !in_header && !header_lines.is_empty() {
+            // This block didn't start with phi — not the header
+            header_lines.clear();
+        }
+    }
+
+    header_lines.join("\n")
 }

@@ -1,7 +1,7 @@
 ---
 section: "06"
 title: "Dead Code Pruning"
-status: not-started
+status: complete
 goal: "No dead loads (unused struct/list fields) and no code generation after noreturn calls"
 inspired_by:
   - "Rust rustc_codegen_llvm/mir/operand.rs — loads only accessed fields via OperandValue::Ref"
@@ -10,15 +10,15 @@ depends_on: ["02"]
 sections:
   - id: "06.1"
     title: "Surgical Struct Field Loading"
-    status: not-started
+    status: complete
   - id: "06.2"
     title: "Skip Codegen After Noreturn Calls"
-    status: not-started
+    status: complete
 ---
 
 # Section 06: Dead Code Pruning
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** The codegen only loads struct/list fields that are actually used by the function, and emits no instructions after known-noreturn function calls (e.g., `ori_panic`).
 
 **Context:** Two categories of dead code in the emitted IR:
@@ -39,33 +39,37 @@ sections:
 
 ## 06.1 Surgical Struct Field Loading
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/instr_dispatch.rs` (field extraction via `emit_project`), `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs` (struct parameter loading), `compiler/ori_llvm/src/codegen/ir_builder/aggregates.rs`
-
-> **WARNING — HIGH COMPLEXITY / HIGH RISK:** This subsection changes how struct parameters are loaded from memory. This is a fundamental ABI-level change that affects every function receiving struct arguments. `define_phase.rs` is already 461 lines — adding lazy-load tracking could push it over the 500-line limit (BLOAT). Consider extracting struct parameter loading into a dedicated `param_loading.rs` submodule before implementing. Approach (a) introduces a new "by-pointer vs by-value" distinction that must be threaded through the entire emission pipeline. Both approaches require extensive AOT test coverage across all struct-using programs, not just the targeted journeys.
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/emit_function.rs` (parameter binding at lines 213–238), `compiler/ori_llvm/src/codegen/ir_builder/memory.rs` (new `load_struct_selective` method)
 
 > **TDD requirement:** Write IR-quality tests asserting current (broken) behavior FIRST. Verify they capture the over-loading. Then implement the fix and verify tests change to the expected pattern. Do NOT implement first.
 
 Instead of loading all fields of a struct into an aggregate, load only the fields that are referenced by the function.
 
-Two approaches:
-- **(a) Lazy field loading** (preferred): Don't load struct fields eagerly. When a field access (`extractvalue` or GEP) is emitted, load that field on-demand from the pointer. This requires tracking whether a value is "by-pointer" or "by-value" at the codegen level.
-- **(b) Usage analysis**: Before emitting loads, scan the function body for field references and only load referenced fields.
+**Decision (2026-03-05): Approach (b) — pre-scan usage analysis.** Lazy loading (a) breaks the pipeline invariant that `self.var(id)` returns a value, not a pointer. Every instruction handler relies on this contract. Pre-scan preserves it: the emitter still loads an aggregate at function entry — it just loads fewer fields. Downstream code is unaware anything changed.
 
-- [ ] Choose approach: (a) lazy field loading (track by-pointer vs by-value in codegen state) or (b) pre-scan function body for field references before emitting loads. Document choice rationale.
-- [ ] Implement the chosen approach for struct parameter field loading
-- [ ] Verify: J4 `_ori_area` only loads `width` and `height`, not `origin.x`/`origin.y`
-- [ ] Verify: J10 `_ori_count_items` only loads `length`, not `capacity` or `data_ptr`
+**How it works:**
+1. Before parameter binding, scan all `ArcInstr::Project { value, field }` in the function to build `HashMap<ArcVarId, HashSet<u32>>` of accessed fields per variable.
+2. Also scan `Apply`/`ApplyIndirect`/`Construct` args — if a struct param is passed whole (not via `Project`), all fields must be loaded.
+3. During `Indirect`/`Reference` param loading (`emit_function.rs:223–230`), call a new `IrBuilder::load_struct_selective(ty, ptr, &used_fields)` that only emits GEP+load+insert_value for fields in the used set. Unaccessed fields get `undef` in the aggregate.
+4. The aggregate shape is unchanged — downstream code sees the same type.
+
+- [x] Implement `scan_used_fields(func: &ArcFunction) -> HashMap<ArcVarId, HashSet<u32>>` in `emit_function.rs`
+- [x] Include `Apply`/`ApplyIndirect`/`Construct` arg scanning (whole-struct passthrough = all fields used)
+- [x] Add `load_struct_selective(ty, ptr, used_fields, name)` to `IrBuilder` in `memory.rs`
+- [x] Wire selective loading into `Indirect`/`Reference` parameter binding in `emit_function.rs`
+- [x] Verify: J4 `_ori_area` only loads `width` and `height`, not `origin.x`/`origin.y`
+- [x] Verify: J10 `_ori_count_items` only loads `length`, not `capacity` or `data_ptr`
 
 ### 06.1 Completion Checklist
 
-- [ ] Struct parameters: only referenced fields are loaded from memory
-- [ ] J4 `_ori_area` loads exactly 2 fields (not 4)
-- [ ] J10 `_ori_count_items` loads exactly 1 field (length, not 3)
-- [ ] IR test: function accessing 1 of 4 struct fields emits 1 load (not 4)
-- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for surgical field loading
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] Struct parameters: only referenced fields are loaded from memory
+- [x] J4 `_ori_area` loads exactly 2 fields (not 4)
+- [x] J10 `_ori_count_items` loads exactly 1 field (length, not 3)
+- [x] IR test: function accessing 1 of 4 struct fields emits 1 load (not 4)
+- [x] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for surgical field loading
+- [x] `./test-all.sh` green
+- [x] `./clippy-all.sh` green
+- [x] No regressions in `cargo test -p ori_llvm`
 
 ---
 
@@ -84,27 +88,27 @@ After emitting a call to a known-noreturn function (e.g., `ori_panic`, `ori_pani
 
 **Implementation approach:** In the ARC emitter's call emission path (`apply.rs` or `emit_function.rs`), after emitting a `call` to a function proven `noreturn` via `is_rt_fn_noreturn()`, emit `unreachable` and skip remaining instructions in that block.
 
-- [ ] Use `is_rt_fn_noreturn()` from §02.1 to query noreturn status of runtime functions at call sites
-- [ ] In ARC emitter call emission: after calling a noreturn function, emit `unreachable` and stop emitting the current block
-- [ ] Handle the ARC IR block structure: remaining instructions AND terminator after the noreturn call must be skipped
-- [ ] Do not emit drop/cleanup code after the unreachable on the normal path
-- [ ] Keep existing cleanup behavior for unwind paths where applicable (do not conflate `nounwind` and `noreturn`) — panic functions are `noreturn` but may still unwind for RC cleanup
-- [ ] Verify `emit_checked_binop()` already handles this correctly (no change needed there)
-- [ ] Verify: J7 panic path (bb6) has no code after `ori_panic()` call
-- [ ] Verify: user `panic()` calls also get `unreachable` after the call
+- [x] Use `is_rt_fn_noreturn()` from §02.1 to query noreturn status of runtime functions at call sites
+- [x] In ARC emitter call emission: after calling a noreturn function, emit `unreachable` and stop emitting the current block
+- [x] Handle the ARC IR block structure: remaining instructions AND terminator after the noreturn call must be skipped
+- [x] Do not emit drop/cleanup code after the unreachable on the normal path
+- [x] Keep existing cleanup behavior for unwind paths where applicable (do not conflate `nounwind` and `noreturn`) — panic functions are `noreturn` but may still unwind for RC cleanup
+- [x] Verify `emit_checked_binop()` already handles this correctly (no change needed there)
+- [x] Verify: J7 panic path (bb6) has no code after `ori_panic()` call
+- [x] Verify: user `panic()` calls also get `unreachable` after the call
 
 ### 06.2 Completion Checklist
 
-- [ ] No instructions emitted after noreturn calls on the normal path
-- [ ] J7 panic path (bb6) has `call @ori_panic_cstr(...)` + `unreachable` only
-- [ ] Unwind paths for RC cleanup are preserved (not affected by noreturn pruning)
-- [ ] IR test: function with explicit `panic()` has `unreachable` immediately after the call
-- [ ] IR test: function with `if cond then panic(msg: "x") else value` — the panic arm has `unreachable`, the else arm continues normally
-- [ ] Regression test: `emit_checked_binop` overflow path still has `unreachable` (guard against breaking the existing correct behavior)
-- [ ] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for no code after noreturn
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] No instructions emitted after noreturn calls on the normal path
+- [x] J7 panic path (bb6) has `call @ori_panic_cstr(...)` + `unreachable` only
+- [x] Unwind paths for RC cleanup are preserved (not affected by noreturn pruning)
+- [x] IR test: function with explicit `panic()` has `unreachable` immediately after the call
+- [x] IR test: function with `if cond then panic(msg: "x") else value` — the panic arm has `unreachable`, the else arm continues normally
+- [x] Regression test: `emit_checked_binop` overflow path still has `unreachable` (guard against breaking the existing correct behavior)
+- [x] `compiler/ori_llvm/tests/aot/ir_quality.rs` test for no code after noreturn
+- [x] `./test-all.sh` green
+- [x] `./clippy-all.sh` green
+- [x] No regressions in `cargo test -p ori_llvm`
 
 ---
 

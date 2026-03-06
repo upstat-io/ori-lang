@@ -6,12 +6,12 @@ tier: 0
 goal: Complete parser support for entire Ori spec grammar (parsing only, not evaluation)
 spec:
   - spec/grammar.ebnf
-  - spec/02-source-code.md
-  - spec/03-lexical-elements.md
-  - spec/06-types.md
-  - spec/08-declarations.md
-  - spec/09-expressions.md
-  - spec/10-patterns.md
+  - spec/06-source-code.md
+  - spec/07-lexical-elements.md
+  - spec/08-types.md
+  - spec/10-declarations.md
+  - spec/14-expressions.md
+  - spec/15-patterns.md
 sections:
   - id: "0.1"
     title: Lexical Grammar
@@ -52,7 +52,7 @@ sections:
 
 **Goal**: Complete parser support for entire Ori spec grammar (parsing only — evaluator in Section 23)
 
-> **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/02-source-code.md`, `spec/03-lexical-elements.md`
+> **SPEC**: `spec/grammar.ebnf` (authoritative), `spec/06-source-code.md`, `spec/07-lexical-elements.md`
 
 **Status**: In Progress — Re-verified 2026-02-14. ~3 parser bugs remain (down from ~24). 23 items previously broken now parse correctly. Remaining gaps: const functions, `.match()` method syntax. See § 0.8 for full bug list.
 
@@ -74,7 +74,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.1 Lexical Grammar
 
-> **SPEC**: `grammar.ebnf` § LEXICAL GRAMMAR, `spec/03-lexical-elements.md`
+> **SPEC**: `grammar.ebnf` § LEXICAL GRAMMAR, `spec/07-lexical-elements.md`
 
 ### 0.1.1 Comments
 
@@ -107,7 +107,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — soft keyword lookahead, contextual flag tests
   - [x] **Ori Tests**: `tests/spec/lexical/keywords.ori` — context-sensitive usage verified
 
-- [x] **Audit**: Context-sensitive keywords (stdlib methods) — spec/03-lexical-elements.md § Context-Sensitive [done] (2026-02-10)
+- [x] **Audit**: Context-sensitive keywords (stdlib methods) — spec/07-lexical-elements.md § Context-Sensitive [done] (2026-02-10)
   - [x] `collect`, `filter`, `find`, `fold`, `map`, `retry`, `validate`
   - [x] **Note**: These are stdlib iterator methods, not compiler patterns — listed in spec as context-sensitive
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — builtin_names_are_identifiers test
@@ -237,7 +237,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.2 Source Structure
 
-> **SPEC**: `grammar.ebnf` § SOURCE STRUCTURE, `spec/02-source-code.md`, `spec/12-modules.md`
+> **SPEC**: `grammar.ebnf` § SOURCE STRUCTURE, `spec/06-source-code.md`, `spec/18-modules.md`
 
 ### 0.2.1 Source File
 
@@ -312,7 +312,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.3 Declarations
 
-> **SPEC**: `grammar.ebnf` § DECLARATIONS, `spec/08-declarations.md`
+> **SPEC**: `grammar.ebnf` § DECLARATIONS, `spec/10-declarations.md`
 
 ### 0.3.1 Attributes
 
@@ -448,7 +448,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.4 Types
 
-> **SPEC**: `grammar.ebnf` § TYPES, `spec/06-types.md`
+> **SPEC**: `grammar.ebnf` § TYPES, `spec/08-types.md`
 
 ### 0.4.1 Type Paths
 
@@ -495,14 +495,14 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.4.5 Trait Objects
 
-> **SPEC**: `spec/06-types.md` § Trait Objects
+> **SPEC**: `spec/08-types.md` § Trait Objects
 
-- [x] **Audit**: Simple trait objects — spec/06-types.md § Trait Objects [done] (2026-02-10)
+- [x] **Audit**: Simple trait objects — spec/08-types.md § Trait Objects [done] (2026-02-10)
   - [x] Trait name as type: `@display (item: Printable) -> void` — parses correctly (verified via `ori parse`)
   - [x] In collections: `[Printable]`, `{str: Printable}` — parses correctly [done] (2026-02-13)
   - [x] **Ori Tests**: `tests/spec/types/trait_objects.ori` — tests exist
 
-- [x] **Audit**: Bounded trait objects — spec/06-types.md § Bounded Trait Objects [done] (2026-02-14)
+- [x] **Audit**: Bounded trait objects — spec/08-types.md § Bounded Trait Objects [done] (2026-02-14)
   - [x] Multiple bounds: `Printable + Hashable` — parses correctly as `TraitBounds` variant [done] (2026-02-14)
   - [x] As parameter type: `@store (item: Printable + Hashable) -> void` — parses correctly [done] (2026-02-14)
   - [x] **Grammar**: `trait_object_bounds` already in grammar.ebnf; parser now implements it [done] (2026-02-14)
@@ -511,7 +511,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.5 Expressions
 
-> **SPEC**: `grammar.ebnf` § EXPRESSIONS, `spec/09-expressions.md`
+> **SPEC**: `grammar.ebnf` § EXPRESSIONS, `spec/14-expressions.md`
 
 ### 0.5.1 Primary Expressions
 
@@ -696,7 +696,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.6 Patterns
 
-> **SPEC**: `grammar.ebnf` § PATTERNS, `spec/10-patterns.md`
+> **SPEC**: `grammar.ebnf` § PATTERNS, `spec/15-patterns.md`
 
 ### 0.6.1 Sequential Patterns
 
@@ -838,7 +838,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ## 0.7 Constant Expressions
 
-> **SPEC**: `grammar.ebnf` § CONSTANT EXPRESSIONS, `spec/04-constants.md`, `spec/21-constant-expressions.md`
+> **SPEC**: `grammar.ebnf` § CONSTANT EXPRESSIONS, `spec/12-constants.md`, `spec/24-constant-expressions.md`
 
 - [x] **Audit**: Literal const expressions — grammar.ebnf § const_expr [done] (2026-02-10)
   - [x] `let $A = 42`, `let $B = true`, `let $C = "hello"` — all parse correctly (verified via `ori parse`)

@@ -49,6 +49,7 @@ All other constructs are expressions that produce values:
 | `loop { ... break v }` | Type of `v` |
 | `loop { ... break }` | `void` |
 | `loop { ... }` (no break) | `Never` |
+| `block:name { ... break:name v }` | Type of `v` |
 | `try { ... }` | `Result<T, E>` |
 
 ## 16.1 Sequential flow
@@ -294,11 +295,106 @@ loop:loop123 { }     // OK
 loop:for { }         // ERROR: 'for' is a keyword
 ```
 
-## 16.4 Error propagation
+## 16.4 Labeled blocks
+
+A _labeled block_ is a block expression with a label, allowing early exit via `break:label value`.
+
+> **Grammar:** See [Annex A](grammar.md) § `labeled_block`
+
+### 16.4.1 Syntax
+
+The syntax is `block:name { body }`, where `block` is a context-sensitive keyword recognized only before `:`:
+
+```ori
+let x = block:done {
+    if condition1 then break:done value1;
+    if condition2 then break:done value2;
+    default_value
+}
+```
+
+`block` is a valid identifier outside this position:
+
+```ori
+let block = 5;              // OK: identifier
+let x = block:done { 42 }   // OK: labeled block
+```
+
+### 16.4.2 Semantics
+
+`break:label value` exits the named block and produces `value` as the block's result. All `break:label` paths and the final expression shall have compatible types. The type of the labeled block is the unified type of all exit paths.
+
+```ori
+@validate (input: Request) -> Result<ValidRequest, Error> = block:done {
+    if input.name.is_empty() then
+        break:done Err(Error { message: "name required" });
+
+    Ok(ValidRequest { name: input.name })
+}
+```
+
+### 16.4.3 Unlabeled break is loop-only
+
+Bare `break` (without a label) inside a labeled block targets the innermost enclosing **loop**, not the block:
+
+```ori
+loop {
+    let x = block:result {
+        if done then break;          // exits the LOOP
+        if found then break:result v; // exits the BLOCK
+        default
+    };
+    process(x)
+}
+```
+
+### 16.4.4 Continue targeting a block
+
+`continue:label` targeting a labeled block is a compile-time error. Blocks do not iterate:
+
+```ori
+block:result {
+    continue:result;  // ERROR: cannot continue a labeled block
+}
+```
+
+### 16.4.5 Transparency to loop control flow
+
+Labeled blocks are transparent to `break` and `continue` targeting outer loops, in the same way as `try` blocks (see 16.7.3):
+
+```ori
+for:search items in collection do {
+    let result = block:check {
+        if invalid(items) then continue:search;  // OK: continues outer for loop
+        if found(items) then break:search items;  // OK: breaks outer for loop
+        transform(items)
+    };
+    process(result)
+}
+```
+
+### 16.4.6 Nesting and label namespace
+
+Labeled blocks are nestable. Block labels share the label namespace with loop labels. The no-shadowing rule (16.3.4) applies across all labeled constructs:
+
+```ori
+block:outer {
+    block:inner {
+        break:outer 1;  // OK: exits outer block
+        break:inner 2;  // OK: exits inner block
+    }
+}
+
+loop:name {
+    block:name { }  // ERROR E0871: label 'name' already in scope
+}
+```
+
+## 16.5 Error propagation
 
 The `?` operator propagates errors and absent values.
 
-### 16.4.1 On Result
+### 16.5.1 On Result
 
 If the value is `Err(e)`, the enclosing function returns `Err(e)`:
 
@@ -310,7 +406,7 @@ If the value is `Err(e)`, the enclosing function returns `Err(e)`:
 }
 ```
 
-### 16.4.2 On Option
+### 16.5.2 On Option
 
 If the value is `None`, the enclosing function returns `None`:
 
@@ -323,14 +419,14 @@ If the value is `None`, the enclosing function returns `None`:
 
 The function's return type shall be compatible with the propagated type.
 
-## 16.5 Terminating expressions
+## 16.6 Terminating expressions
 
 A _terminating expression_ is an expression whose evaluation is guaranteed to not complete normally. Terminating expressions have type `Never`, which is compatible with any type (see [8.1.1](08-types.md)).
 
 The following are terminating expressions:
 
 1. `panic(msg:)`, `todo()`, `unreachable()` — always terminate the program
-2. `break` and `break value` — exit the enclosing loop
+2. `break` and `break value` — exit the enclosing loop or labeled block
 3. `continue` and `continue value` — skip to the next iteration
 4. `expr?` when the Err/None branch is taken — returns from the enclosing function
 5. A block `{ ... e }` where the last expression `e` is terminating
@@ -352,9 +448,9 @@ Code following a terminating expression within the same block is unreachable. Th
 }
 ```
 
-## 16.6 Conditional evaluation
+## 16.7 Conditional evaluation
 
-### 16.6.1 If-then-else
+### 16.7.1 If-then-else
 
 The condition expression shall have type `bool`. Only the taken branch is evaluated.
 
@@ -377,7 +473,7 @@ else "zero"
 
 NOTE  There is no `if let` syntax. Use `match` for destructuring conditionals.
 
-### 16.6.2 Match
+### 16.7.2 Match
 
 The scrutinee expression is evaluated exactly once. Arms are tested top-to-bottom. The body of the first matching arm is evaluated; no further arms are tested.
 
@@ -397,7 +493,7 @@ match value {
 }
 ```
 
-### 16.6.3 Try blocks
+### 16.7.3 Try blocks
 
 A `try` block wraps an expression in error-handling context. The `?` operator inside a `try` block propagates to the `try` boundary rather than the enclosing function.
 
@@ -413,7 +509,7 @@ The type of a `try` block is `Result<T, E>` where `T` is the block's value type 
 
 `break` and `continue` inside a `try` block target the enclosing loop (passing through the `try` boundary).
 
-## 16.7 Short-circuit operators
+## 16.8 Short-circuit operators
 
 Logical operators may skip evaluation of the right operand:
 
@@ -428,7 +524,7 @@ valid && expensive();   // expensive() skipped if valid is false
 cached ?? compute();    // compute() skipped if cached is Some/Ok
 ```
 
-## 16.8 Iteration protocol
+## 16.9 Iteration protocol
 
 A `for` expression desugars to calls on the `Iterable` and `Iterator` traits.
 
@@ -460,7 +556,7 @@ yield (x, y)
 // Equivalent to: xs.flat_map(x -> ys.map(y -> (x, y)))
 ```
 
-### 16.8.1 For producing maps
+### 16.9.1 For producing maps
 
 When a `for...yield` expression yields tuples of `(K, V)` and the target type is `{K: V}`, the result is a map:
 
@@ -468,14 +564,14 @@ When a `for...yield` expression yields tuples of `(K, V)` and the target type is
 let m: {str: int} = for item in items yield (item.name, item.count);
 ```
 
-## 16.9 Break and continue summary
+## 16.10 Break and continue summary
 
 | Form | Valid in | Effect |
 |------|---------|--------|
 | `break` | `loop`, `while...do`, `for...do`, `for...yield` | Exit loop |
 | `break value` | `loop`, `for...yield` | Exit with value |
-| `break:label` | Labeled `loop`, `while`, `for` | Exit labeled loop |
-| `break:label value` | Labeled `loop`, `for...yield` | Exit labeled with value |
+| `break:label` | Labeled `loop`, `while`, `for`, `block` | Exit labeled construct |
+| `break:label value` | Labeled `loop`, `for...yield`, `block` | Exit labeled with value |
 | `continue` | `loop`, `while...do`, `for...do`, `for...yield` | Next iteration |
 | `continue value` | `for...yield` | Substitute value |
 | `continue:label` | Labeled `loop`, `while`, `for` | Continue labeled loop |
@@ -487,5 +583,6 @@ The following uses are compile-time errors:
 - `break value` in `for...do` or `while...do`: error (E0860) — these forms have type `void`
 - `continue value` in `loop` or `while`: error (E0861) — these loops do not accumulate values
 - `continue:label value` targeting a `for...do`: error (E0873)
+- `continue:label` targeting a labeled `block`: error — blocks do not iterate
 - Reference to undefined label: error
 - Label shadowing: error (E0871)

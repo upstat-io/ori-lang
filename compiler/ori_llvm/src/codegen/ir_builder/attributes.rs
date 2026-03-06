@@ -27,6 +27,18 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
+    /// Add the `noreturn` attribute to a function.
+    ///
+    /// Declares the function never returns to its caller (e.g., `ori_panic`).
+    /// Enables LLVM to insert `unreachable` after calls to this function,
+    /// eliminating dead code on panic paths.
+    pub fn add_noreturn_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("noreturn");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
     /// Add the `nounwind` attribute to a function.
     ///
     /// Declares the function will not unwind (no exceptions). Enables LLVM
@@ -163,6 +175,29 @@ impl IrBuilder<'_, '_> {
             .llcx
             .create_type_attribute(byval_kind, ty.as_any_type_enum());
         f.add_attribute(AttributeLoc::Param(param_index), byval_attr);
+    }
+
+    /// Add the `noundef` attribute to a function parameter.
+    ///
+    /// Declares the parameter value is never `undef` or `poison`. Ori's type
+    /// system guarantees all scalar values are initialized, so this is always
+    /// safe for scalar types (`i64`, `f64`, `i1`, `i32`, `i8`).
+    pub fn add_noundef_param_attribute(&mut self, func: FunctionId, param_index: u32) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("noundef");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Param(param_index), attr);
+    }
+
+    /// Add the `noundef` attribute to a function's return value.
+    ///
+    /// Declares the return value is never `undef` or `poison`. Safe for
+    /// scalar types where Ori guarantees the value is always initialized.
+    pub fn add_noundef_return_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("noundef");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Return, attr);
     }
 
     // -- Per-call-site attributes --

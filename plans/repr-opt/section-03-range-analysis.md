@@ -44,11 +44,17 @@ sections:
 
 **Depends on:** §01 (ranges stored in ReprPlan).
 
+**Risk warning:** Abstract interpretation with widening/narrowing is the most complex analysis in this plan. Transfer functions for multiplication and division have subtle corner cases (signed overflow, division by ranges spanning zero). Implement §03.1 (lattice) and §03.2 (transfer functions) first with property-based tests (e.g., `proptest`). Only then add §03.3 (widening/narrowing). Start with conservative (Top-returning) transfer functions and tighten incrementally.
+
+**Crate dependency:** Range analysis operates on `ArcFunction` (from `ori_arc::ir`). This means `ori_repr` depends on `ori_arc`. The dependency chain is `ori_types → ori_arc → ori_repr → ori_llvm`. This is correct: `ori_repr` reads from `ori_arc` IR but `ori_arc` does NOT depend on `ori_repr` (no cycle). The lattice types (`ValueRange`, `IntWidth`) live in `ori_repr` and do NOT reference `ori_arc` — only `fixpoint.rs` (which takes `&ArcFunction`) requires the `ori_arc` dependency.
+
+**File organization:** 5 files in `compiler/ori_repr/src/range/` submodule — `mod.rs` (lattice + re-exports), `transfer.rs`, `fixpoint.rs`, `conditional.rs`, `signatures.rs`, plus `tests.rs` (sibling test convention).
+
 ---
 
 ## 03.1 Interval Lattice
 
-**File(s):** `compiler/ori_repr/src/range.rs`
+**File(s):** `compiler/ori_repr/src/range/mod.rs` (was `range.rs` — moved to submodule)
 
 The interval lattice is the core data structure. Each element represents a set of possible integer values.
 
@@ -125,7 +131,7 @@ The interval lattice is the core data structure. Each element represents a set o
 
 ## 03.2 Transfer Functions
 
-**File(s):** `compiler/ori_repr/src/range_transfer.rs`
+**File(s):** `compiler/ori_repr/src/range/transfer.rs`
 
 Transfer functions describe how each operation transforms value ranges.
 
@@ -189,7 +195,7 @@ Transfer functions describe how each operation transforms value ranges.
 
 ## 03.3 Widening & Narrowing Operators
 
-**File(s):** `compiler/ori_repr/src/range_fixpoint.rs`
+**File(s):** `compiler/ori_repr/src/range/fixpoint.rs`
 
 For loops and recursive functions, naive fixed-point iteration may not terminate. Widening accelerates convergence; narrowing recovers precision after widening.
 
@@ -219,14 +225,20 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   }
   ```
 
+- [ ] **IR choice:** Range analysis operates on `ArcFunction` (from `ori_arc::ir`), NOT `CanExpr`:
+  - `ArcFunction` has basic blocks, SSA-like variables (`ArcVarId`), and dominator trees
+  - `CanExpr` is an expression tree with no explicit control flow graph — unsuitable for dataflow analysis
+  - This means range analysis runs AFTER ARC lowering but BEFORE LLVM codegen
+  - The `ArcFunction` → range analysis → ReprPlan → LLVM codegen flow preserves phase ordering
+
 - [ ] Implement fixed-point iteration with widening:
   ```rust
   pub fn range_fixpoint(
-      func: &CanFunction,
+      func: &ArcFunction,
       pool: &Pool,
       max_iterations: usize,
-  ) -> FxHashMap<VarId, ValueRange> {
-      let mut ranges: FxHashMap<VarId, ValueRange> = FxHashMap::default();
+  ) -> FxHashMap<ArcVarId, ValueRange> {
+      let mut ranges: FxHashMap<ArcVarId, ValueRange> = FxHashMap::default();
       let mut iteration = 0;
 
       loop {
@@ -275,17 +287,20 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 
 ## 03.4 Conditional Range Refinement
 
-**File(s):** `compiler/ori_repr/src/range_conditional.rs`
+**File(s):** `compiler/ori_repr/src/range/conditional.rs`
 
 When code branches on a comparison (e.g., `if x < 100`), the true branch knows `x ∈ [-2⁶³, 99]` and the false branch knows `x ∈ [100, 2⁶³-1]`. This is the most powerful source of narrowing information.
 
 - [ ] Implement conditional range extraction:
   ```rust
+  // NOTE: Pseudocode — actual API uses ArcInstr/ArcTerminator, not Expr.
+  // See ArcTerminator::CondBranch { cond: ArcVarId, true_block, false_block }
+  // and trace back cond to the ArcInstr that produced it (e.g., Compare).
   pub fn refine_from_condition(
-      cond: &Expr,
-      ranges: &FxHashMap<VarId, ValueRange>,
+      cond: &Expr,  // placeholder — actual: ArcVarId + ArcInstr lookup
+      ranges: &FxHashMap<ArcVarId, ValueRange>,
       true_branch: bool,
-  ) -> Vec<(VarId, ValueRange)> {
+  ) -> Vec<(ArcVarId, ValueRange)> {
       match cond {
           // x < c → true: [lo, c-1], false: [c, hi]
           Expr::BinOp(Lt, Var(x), Lit(c)) => {
@@ -314,7 +329,7 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
 
 ## 03.5 Function Signature Range Propagation
 
-**File(s):** `compiler/ori_repr/src/range_signatures.rs`
+**File(s):** `compiler/ori_repr/src/range/signatures.rs`
 
 For cross-function narrowing, we need to propagate range information through function signatures.
 
@@ -358,6 +373,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [ ] For `for i in 0..100`: range of `i` is `[0, 99]`
 - [ ] For `let n = len(list)`: range is `[0, i64::MAX]`
 - [ ] `./test-all.sh` green (range analysis is additive — no behavioral changes)
+- [ ] `./clippy-all.sh` green
 - [ ] Tracing: `ORI_LOG=ori_repr=debug` shows range computations for each function
 
-**Exit Criteria:** Running range analysis on `tests/benchmarks/fibonacci.ori` and `tests/benchmarks/` programs produces non-trivial ranges (not all `Top`) for loop counters, index variables, and function parameters. Results logged at `debug` level.
+**Exit Criteria:** Running range analysis on `tests/benchmarks/bench_small.ori` and other `tests/benchmarks/` programs produces non-trivial ranges (not all `Top`) for loop counters, index variables, and function parameters. Results logged at `debug` level.

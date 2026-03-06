@@ -1,7 +1,7 @@
 //! Constant value construction for `IrBuilder`.
 
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::BasicValueEnum;
+use inkwell::values::{BasicValueEnum, UnnamedAddress};
 
 use super::IrBuilder;
 use crate::codegen::value_id::ValueId;
@@ -98,12 +98,23 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     }
 
     /// Create a global null-terminated string and return a pointer to it.
+    ///
+    /// Deduplicates by content: if an identical string has already been
+    /// emitted, returns the existing global pointer. Deduplicated globals
+    /// are marked `unnamed_addr` to enable linker-level COMDAT folding.
     pub fn build_global_string_ptr(&mut self, value: &str, name: &str) -> ValueId {
-        let v = self
+        if let Some(&cached) = self.global_strings.get(value) {
+            return cached;
+        }
+        let global = self
             .builder
             .build_global_string_ptr(value, name)
-            .expect("build_global_string_ptr")
-            .as_pointer_value();
-        self.arena.push_value(v.into())
+            .expect("build_global_string_ptr");
+        // Address is irrelevant — only content matters. Enables linker merging.
+        global.set_unnamed_address(UnnamedAddress::Global);
+        let v = global.as_pointer_value();
+        let id = self.arena.push_value(v.into());
+        self.global_strings.insert(value.to_string(), id);
+        id
     }
 }

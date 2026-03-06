@@ -1,0 +1,110 @@
+// Spec: 16-control-flow.md § For Loop, 14-expressions.md § Range Expressions
+// Tests for range iteration edge cases — guards for 08.3 specialization.
+//
+// These tests exercise boundary conditions that must produce identical
+// results whether the range condition uses the general 8-instruction
+// path or the specialized 1-instruction path.
+use std.testing { assert_eq, assert_panics }
+
+@empty_exclusive () -> [int] = for x in 0..0 yield x;
+
+@single_inclusive () -> [int] = for x in 0..=0 yield x;
+
+@near_int_max_inclusive () -> int = {
+    let count = 0;
+    for i in 9223372036854775800..=9223372036854775806 do { count = count + 1 };
+
+    count
+}
+
+@descending_from_large () -> [int] = for i in 9223372036854775807..9223372036854775800 by -1 yield i;
+
+@zero_step_panics () -> void = { for i in 0..10 by 0 do {} }
+
+@nonzero_start_exclusive () -> [int] = for x in 5..10 yield x;
+
+@nonzero_start_inclusive () -> [int] = for x in 5..=10 yield x;
+
+@descending_exclusive () -> [int] = for x in 5..0 by -1 yield x;
+
+@descending_inclusive () -> [int] = for x in 5..=0 by -1 yield x;
+
+@general_step () -> [int] = for x in 0..100 by 3 yield x;
+
+@variable_step () -> [int] = {
+    let step = 3;
+    for x in 0..12 by step yield x
+}
+
+// Empty range (exclusive): 0..0 produces zero iterations.
+@test_empty_exclusive tests @empty_exclusive () -> void = {
+    let r = for x in 0..0 yield x;
+    assert_eq(actual: r, expected: [])
+}
+
+// Single element (inclusive): 0..=0 produces exactly one iteration.
+@test_single_inclusive tests @single_inclusive () -> void = {
+    let r = for x in 0..=0 yield x;
+    assert_eq(actual: r, expected: [0])
+}
+
+// Near-INT_MAX inclusive bound: no overflow in condition check.
+// Uses a small range near INT_MAX to verify the inclusive condition
+// (i == end) works without the old (i < end + inclusive) overflow.
+// Ends at INT_MAX - 1 to avoid latch overflow (i + step at INT_MAX).
+@test_near_int_max_inclusive tests @near_int_max_inclusive () -> void = {
+    let count = 0;
+    for i in 9223372036854775800..=9223372036854775806 do { count = count + 1 };
+
+    assert_eq(actual: count, expected: 7)
+}
+
+// Descending from large value: INT_MAX exclusive, step -1.
+@test_descending_from_large tests @descending_from_large () -> void = {
+    let r = for i in 9223372036854775807..9223372036854775800 by -1 yield i;
+    assert_eq(actual: r.len(), expected: 7)
+}
+
+// Zero step: panics with "range step cannot be zero".
+@test_zero_step_panics tests @zero_step_panics () -> void = {
+    assert_panics(expr: () -> { for i in 0..10 by 0 do {} })
+}
+
+// Ascending exclusive with non-zero start: specialization depends
+// on step/inclusive only, not on start.
+@test_nonzero_start_exclusive tests @nonzero_start_exclusive () -> void = {
+    let r = for x in 5..10 yield x;
+    assert_eq(actual: r, expected: [5, 6, 7, 8, 9])
+}
+
+// Ascending inclusive with non-zero start.
+@test_nonzero_start_inclusive tests @nonzero_start_inclusive () -> void = {
+    let r = for x in 5..=10 yield x;
+    assert_eq(actual: r, expected: [5, 6, 7, 8, 9, 10])
+}
+
+// Descending exclusive with step -1.
+@test_descending_exclusive tests @descending_exclusive () -> void = {
+    let r = for x in 5..0 by -1 yield x;
+    assert_eq(actual: r, expected: [5, 4, 3, 2, 1])
+}
+
+// Descending inclusive with step -1.
+@test_descending_inclusive tests @descending_inclusive () -> void = {
+    let r = for x in 5..=0 by -1 yield x;
+    assert_eq(actual: r, expected: [5, 4, 3, 2, 1, 0])
+}
+
+// General range (non-unit step): should still work with general path.
+@test_general_step tests @general_step () -> void = {
+    let r = for x in 0..100 by 3 yield x;
+    assert_eq(actual: r.len(), expected: 34)
+}
+
+// Variable step: cannot be specialized at compile time.
+@test_variable_step tests @variable_step () -> void = {
+    let step = 3;
+    let r = for x in 0..12 by step yield x;
+
+    assert_eq(actual: r, expected: [0, 3, 6, 9])
+}

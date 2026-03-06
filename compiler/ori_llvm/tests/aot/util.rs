@@ -733,6 +733,61 @@ pub fn count_single_pred_phis(function_ir: &str) -> usize {
         .count()
 }
 
+/// Count phi nodes whose result is never used elsewhere in the function.
+///
+/// A dead phi `%vN = phi T [...]` defines a value that is never referenced
+/// as an operand in any other instruction. These arise from dead block params
+/// on multi-predecessor exit blocks (e.g., mutable loop variables not used
+/// after the loop).
+pub fn count_dead_phis(function_ir: &str) -> usize {
+    let lines: Vec<&str> = function_ir.lines().collect();
+
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(i, line)| {
+            let trimmed = line.trim();
+            if !trimmed.contains(" = phi ") || trimmed.starts_with(';') {
+                return false;
+            }
+            let name = match trimmed.split_whitespace().next() {
+                Some(n) if n.starts_with('%') => n,
+                _ => return false,
+            };
+            // Dead if name never appears in any OTHER non-comment line.
+            !lines.iter().enumerate().any(|(j, other)| {
+                if i == &j {
+                    return false;
+                }
+                let ot = other.trim();
+                if ot.starts_with(';') {
+                    return false;
+                }
+                is_ssa_var_used_in(name, ot)
+            })
+        })
+        .count()
+}
+
+/// Check whether `%name` appears as a standalone SSA variable in `line`.
+///
+/// Handles the `%v3` vs `%v34` ambiguity by requiring a word boundary
+/// (non-alphanumeric, non-underscore) after the variable name.
+fn is_ssa_var_used_in(var_name: &str, line: &str) -> bool {
+    let mut search_from = 0;
+    while let Some(pos) = line[search_from..].find(var_name) {
+        let abs_pos = search_from + pos;
+        let after = abs_pos + var_name.len();
+        let next_char = line[after..].chars().next();
+        let is_boundary = next_char.is_none_or(|c| !c.is_alphanumeric() && c != '_');
+        if is_boundary {
+            return true;
+        }
+        search_from = abs_pos + 1;
+    }
+    false
+}
+
 /// Create a minimal valid WASM module for testing.
 ///
 /// This creates a WASM module with:

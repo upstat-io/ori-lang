@@ -48,7 +48,7 @@ Rust's niche optimization is the gold standard. We study and match it.
 
 ## 07.1 Niche Filling
 
-**File(s):** `compiler/ori_repr/src/layout/enum_repr.rs`, `compiler/ori_repr/src/niche.rs`
+**File(s):** `compiler/ori_repr/src/layout/enum_repr.rs`, `compiler/ori_repr/src/layout/niche.rs`
 
 A "niche" is an invalid bit pattern in a type. If an enum variant's payload has a niche, we can use it to encode a different variant, eliminating the explicit tag.
 
@@ -234,6 +234,7 @@ When variant payloads have different sizes, the current approach uses `max(sizeo
 - [ ] Single-variant enums → newtype erasure (no tag)
 - [ ] Discriminant uses minimum width (i8 for ≤256, i16 for ≤65536)
 - [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Pattern matching codegen correctly reads niche-encoded variants
 

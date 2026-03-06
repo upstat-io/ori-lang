@@ -2,7 +2,7 @@
 section: 20
 title: Runtime Reflection
 status: not-started
-tier: 7
+tier: 8
 goal: Enable runtime type introspection and dynamic operations
 spec:
   - spec/27-reflection.md
@@ -40,6 +40,22 @@ sections:
 **Criticality**: Low — Serialization, debugging, metaprogramming
 
 **Dependencies**: Section 3 (Traits), Section 5 (Type Declarations), Section 7 (Derive Macros), Section 11 (Generics)
+
+### Sync Points: `#derive(Reflect)` (5-crate sync required)
+
+Adding `Reflect` as a derived trait requires updating ALL of these locations together:
+
+1. **`ori_ir/src/derives/mod.rs`** — Add `DerivedTrait::Reflect` variant + `from_name("Reflect")` + `method_name()` return values
+2. **`ori_types/src/check/registration/mod.rs`** — Register `Reflect` trait definition + derived impl signatures in `register_traits()` / `register_derived_impl()`
+3. **`ori_eval/src/interpreter/derived_methods.rs`** — Add match arm in `eval_derived_method()` + implement `eval_derived_reflect()` handler
+4. **`ori_llvm/src/codegen/derive_codegen.rs`** — Add LLVM IR generation for derived Reflect methods
+5. **`library/std/prelude.ori`** — Add `Reflect` trait definition to prelude (or `library/std/reflect.ori` with prelude export)
+
+Additionally, `TypeInfo`, `FieldInfo`, `VariantInfo`, `TypeKind`, and `Unknown` types need:
+- **`ori_ir`** — IR type representations
+- **`ori_types`** — Type registration and checking
+- **`ori_eval`** — Runtime value representations and method dispatch
+- **`ori_llvm`** — LLVM type layouts and codegen
 
 **Proposal**: `proposals/approved/reflection-api-proposal.md` — APPROVED 2026-01-31
 

@@ -139,14 +139,14 @@ Two string types:
 ### Type System
 
 - [ ] **Implement**: Interpolated expressions must implement `Printable`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/interpolation.rs` — printable constraint
+  - [ ] **Rust Tests**: `ori_types/src/check/interpolation.rs` — printable constraint
   - [ ] **Ori Tests**: `tests/spec/types/printable_interpolation.ori`
   - [ ] **LLVM Support**: LLVM codegen for Printable constraint
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — Printable constraint codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Validate format spec type compatibility (e.g., `x`/`X`/`b`/`o` only for int)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/format_spec.rs` — format spec type validation
+  - [ ] **Rust Tests**: `ori_types/src/check/format_spec.rs` — format spec type validation
   - [ ] **Ori Tests**: `tests/compile-fail/format_spec_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for format spec type validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec type validation codegen
@@ -186,14 +186,14 @@ Two string types:
 ### Codegen
 
 - [ ] **Implement**: Desugar template strings to concatenation with `to_str()` calls
-  - [ ] **Rust Tests**: `oric/src/desugar/interpolation.rs` — template desugaring
+  - [ ] **Rust Tests**: `ori_types/src/check/interpolation_desugar.rs` — template desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/interpolation_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string desugaring codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Desugar format specifiers to `format(value, FormatSpec {...})` calls
-  - [ ] **Rust Tests**: `oric/src/desugar/format_spec.rs` — format spec desugaring
+  - [ ] **Rust Tests**: `ori_types/src/check/format_spec_desugar.rs` — format spec desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/format_spec_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for format spec desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec desugaring codegen
@@ -248,25 +248,25 @@ let updated = Point { ...original, x: 10 }
 ### Type Checker
 
 - [ ] **Implement**: Verify list spread expression is `[T]` matching container
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/spread.rs` — list spread type checking
+  - [ ] **Rust Tests**: `ori_types/src/check/spread.rs` — list spread type checking
   - [ ] **Ori Tests**: `tests/compile-fail/list_spread_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for list spread type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread type checking codegen
 
 - [ ] **Implement**: Verify map spread expression is `{K: V}` matching container
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/spread.rs` — map spread type checking
+  - [ ] **Rust Tests**: `ori_types/src/check/spread.rs` — map spread type checking
   - [ ] **Ori Tests**: `tests/compile-fail/map_spread_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for map spread type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread type checking codegen
 
 - [ ] **Implement**: Verify struct spread is same struct type (no subset/superset)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/spread.rs` — struct spread type checking
+  - [ ] **Rust Tests**: `ori_types/src/check/spread.rs` — struct spread type checking
   - [ ] **Ori Tests**: `tests/compile-fail/struct_spread_wrong_type.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct spread type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread type checking codegen
 
 - [ ] **Implement**: Track struct field coverage (spread + explicit must cover all fields)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/struct_lit.rs` — field coverage tracking
+  - [ ] **Rust Tests**: `ori_types/src/check/struct_lit.rs` — field coverage tracking
   - [ ] **Ori Tests**: `tests/compile-fail/struct_spread_missing_fields.ori`
   - [ ] **LLVM Support**: LLVM codegen for field coverage tracking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — field coverage tracking codegen
@@ -274,21 +274,21 @@ let updated = Point { ...original, x: 10 }
 ### Code Generation
 
 - [ ] **Implement**: Desugar list spread to concatenation (`[a] + b + [c]`)
-  - [ ] **Rust Tests**: `oric/src/codegen/spread.rs` — list spread desugaring
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/spread.rs` — list spread desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/list_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for list spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread desugaring codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Desugar map spread to merge calls
-  - [ ] **Rust Tests**: `oric/src/codegen/spread.rs` — map spread desugaring
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/spread.rs` — map spread desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/map_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for map spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread desugaring codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Desugar struct spread to explicit field assignments
-  - [ ] **Rust Tests**: `oric/src/codegen/spread.rs` — struct spread desugaring
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/spread.rs` — struct spread desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/struct_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread desugaring codegen
@@ -309,7 +309,7 @@ let updated = Point { ...original, x: 10 }
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error for spread in function call arguments
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — spread in call error
+  - [ ] **Rust Tests**: `ori_types/src/check/call.rs` — spread in call error
   - [ ] **Ori Tests**: `tests/compile-fail/spread_in_function_call.ori`
   - [ ] **LLVM Support**: LLVM codegen for spread in call error
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — spread in call error codegen
@@ -349,42 +349,42 @@ Add a `by` keyword to range expressions for non-unit step values.
 ### Type Checker
 
 - [ ] **Implement**: Validate step expression has same type as range bounds
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/range.rs` — step type checking
+  - [ ] **Rust Tests**: `ori_types/src/check/range.rs` — step type checking
   - [ ] **Ori Tests**: `tests/compile-fail/range_step_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for step type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — step type checking codegen
 
 - [ ] **Implement**: Restrict `by` to integer ranges only (compile-time error for float)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/range.rs` — int-only restriction
+  - [ ] **Rust Tests**: `ori_types/src/check/range.rs` — int-only restriction
   - [ ] **Ori Tests**: `tests/compile-fail/range_step_float.ori`
   - [ ] **LLVM Support**: LLVM codegen for int-only restriction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — int-only restriction codegen
 
-### Code Generation / Interpreter
+### Code Generation / Evaluator
 
 - [ ] **Implement**: Extend Range type with optional step field (default 1)
-  - [ ] **Rust Tests**: `oric/src/ir/types.rs` — Range type extension
+  - [ ] **Rust Tests**: `ori_ir/src/types.rs` — Range type extension
   - [ ] **Ori Tests**: `tests/spec/types/range_with_step.ori`
   - [ ] **LLVM Support**: LLVM codegen for Range type extension
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — Range type extension codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Iterator for stepped ranges (ascending and descending)
-  - [ ] **Rust Tests**: `oric/src/eval/iter.rs` — stepped range iteration
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/iter.rs` — stepped range iteration
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_iteration.ori`
   - [ ] **LLVM Support**: LLVM codegen for stepped range iteration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — stepped range iteration codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Runtime panic for zero step
-  - [ ] **Rust Tests**: `oric/src/eval/range.rs` — zero step panic
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/range.rs` — zero step panic
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_zero_panic.ori`
   - [ ] **LLVM Support**: LLVM codegen for zero step panic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — zero step panic codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Empty range for mismatched direction (no panic)
-  - [ ] **Rust Tests**: `oric/src/eval/range.rs` — direction mismatch
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/range.rs` — direction mismatch
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_empty.ori`
   - [ ] **LLVM Support**: LLVM codegen for direction mismatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — direction mismatch codegen
@@ -439,20 +439,20 @@ Formalize map literal key semantics: bare identifiers are literal string keys (l
 ### Type Checker
 
 - [ ] **Implement**: Bare identifier keys always produce `str` type
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/map_lit.rs` — bare key type inference
+  - [ ] **Rust Tests**: `ori_types/src/check/map_lit.rs` — bare key type inference
   - [ ] **Ori Tests**: `tests/spec/types/map_key_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for bare key types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Computed keys must match map key type `K` in `{K: V}`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/map_lit.rs` — computed key type checking
+  - [ ] **Rust Tests**: `ori_types/src/check/map_lit.rs` — computed key type checking
   - [ ] **Ori Tests**: `tests/compile-fail/computed_key_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for computed key type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
 
 - [ ] **Implement**: Error for bare literals in non-string-key maps
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/map_lit.rs` — bare key in int-map error
+  - [ ] **Rust Tests**: `ori_types/src/check/map_lit.rs` — bare key in int-map error
   - [ ] **Ori Tests**: `tests/compile-fail/bare_key_non_string_map.ori`
   - [ ] **LLVM Support**: LLVM codegen for bare key error
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
@@ -460,14 +460,14 @@ Formalize map literal key semantics: bare identifiers are literal string keys (l
 ### Code Generation
 
 - [ ] **Implement**: Desugar bare identifier keys to string literals
-  - [ ] **Rust Tests**: `oric/src/codegen/map.rs` — bare key desugaring
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/map.rs` — bare key desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/map_key_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for bare key desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Evaluate computed key expressions at runtime
-  - [ ] **Rust Tests**: `oric/src/codegen/map.rs` — computed key evaluation
+  - [ ] **Rust Tests**: `ori_llvm/src/codegen/map.rs` — computed key evaluation
   - [ ] **Ori Tests**: `tests/spec/expressions/computed_key_eval.ori`
   - [ ] **LLVM Support**: LLVM codegen for computed key evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
@@ -578,7 +578,7 @@ let s = 0.25mb      // 250,000 bytes
 
 ## 15C.7 Null Coalesce Operator (`??`)
 
-**Source**: `grammar.ebnf § coalesce_expr`, `spec/09-expressions.md § Operators`
+**Source**: `grammar.ebnf § coalesce_expr`, `spec/14-expressions.md § Operators`
 
 The null coalesce operator `??` provides a default value when an `Option` is `None`.
 
@@ -601,11 +601,11 @@ let count = get_count() ?? 0
 ### Type Checker
 
 - [ ] **Implement**: Infer type for `a ?? b` — result is `T` where `a: Option<T>` and `b: T`
-  - [ ] **Rust Tests**: `ori_typeck/src/infer/expressions/operators.rs` — coalesce type inference
+  - [ ] **Rust Tests**: `ori_types/src/infer/ (operators)` — coalesce type inference
   - [ ] **Ori Tests**: `tests/spec/types/coalesce_inference.ori`
 
 - [ ] **Implement**: Error for non-Option left operand
-  - [ ] **Rust Tests**: `ori_typeck/src/infer/tests.rs` — coalesce type error
+  - [ ] **Rust Tests**: `ori_types/src/infer/ (tests)` — coalesce type error
   - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/coalesce_non_option.ori`
 
 ### Edge Cases

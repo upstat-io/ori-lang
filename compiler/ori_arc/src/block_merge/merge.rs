@@ -19,6 +19,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueR
 use super::compact::compact_blocks;
 
 /// Merge single-predecessor Jump chains until fixed point.
+#[tracing::instrument(skip_all, name = "phase4_merge")]
 pub(crate) fn merge_jump_chains(func: &mut ArcFunction) {
     let mut dead: FxHashSet<usize> = FxHashSet::default();
 

@@ -168,6 +168,59 @@ The type of the at-pattern binding is the type of the scrutinee at that nesting 
 
 At-patterns are refutable if their inner pattern is refutable, and irrefutable if their inner pattern is irrefutable.
 
+#### Range Patterns
+
+> **Grammar:** See [grammar.ebnf](grammar.md) § range_pattern, const_pattern
+
+A _range pattern_ matches values within a numeric or character range. Both exclusive (`..`) and inclusive (`..=`) forms are supported.
+
+```ebnf
+range_pattern = const_pattern ( ".." | "..=" ) const_pattern .
+const_pattern = literal_pattern | "$" identifier .
+```
+
+A range pattern `lo..hi` matches a value `v` when `v >= lo && v < hi`. A range pattern `lo..=hi` matches when `v >= lo && v <= hi`. Both endpoints shall be compile-time constants (literals or `$`-prefixed constant identifiers).
+
+Range patterns are valid for types that implement `Comparable` with a discrete domain: `int`, `char`, and `byte`. Float range patterns are not permitted.
+
+EXAMPLE 1  Range patterns on integer, char, and byte types:
+
+```ori
+match score {
+    0..60 -> "fail",
+    60..=100 -> "pass",
+    _ -> "invalid",
+}
+
+match ch {
+    'a'..='z' | 'A'..='Z' | '_' -> "ident_start",
+    '0'..='9' -> "digit",
+    _ -> "other",
+}
+
+match b: byte {
+    b'0'..=b'9' -> "digit",
+    b'a'..=b'f' | b'A'..=b'F' -> "hex_letter",
+    _ -> "other",
+}
+```
+
+EXAMPLE 2  Constant endpoints:
+
+```ori
+let $MIN_PRINTABLE = b' ';
+let $MAX_PRINTABLE = b'~';
+
+match b {
+    $MIN_PRINTABLE..=$MAX_PRINTABLE -> "printable",
+    _ -> "control",
+}
+```
+
+Both endpoints shall have the same type. The compiler warns about empty range patterns (where `lo > hi`) and overlapping range patterns.
+
+Range patterns compose with or-patterns (`|`) and at-patterns (`@`).
+
 #### Exhaustiveness Checking
 
 A match expression is _exhaustive_ if every possible value of the scrutinee type matches at least one pattern arm. The compiler uses pattern matrix decomposition to verify exhaustiveness.
@@ -177,8 +230,10 @@ For each type, the compiler knows its constructors:
 - `Option<T>`: `Some(_)`, `None`
 - `Result<T, E>`: `Ok(_)`, `Err(_)`
 - Sum types: all declared variants
-- Integers: infinite (requires wildcard)
-- Strings: infinite (requires wildcard)
+- `int`: infinite (requires wildcard)
+- `byte`: finite (0..=255, range patterns can cover)
+- `char`: finite but large (requires wildcard in practice)
+- `str`: infinite (requires wildcard)
 
 **Never variants:** Variants containing `Never` are uninhabited and need not be matched:
 
@@ -288,7 +343,18 @@ To be exhaustive, patterns shall cover all lengths.
 
 #### Range Pattern Exhaustiveness
 
-Integer ranges cannot be exhaustive without a wildcard (infinite domain). The compiler warns about overlapping ranges.
+`int` ranges cannot be exhaustive without a wildcard (infinite domain). `byte` ranges can be exhaustive (domain 0..=255). `char` ranges are theoretically exhaustive (Unicode scalar values) but practically require a wildcard.
+
+EXAMPLE  Exhaustive byte range patterns:
+
+```ori
+match b: byte {
+    0..128 -> "ascii",
+    128..=255 -> "non-ascii",
+}
+```
+
+The compiler warns about overlapping ranges.
 
 #### Unreachable Patterns
 

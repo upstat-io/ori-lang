@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "Constant Deduplication"
-status: not-started
+status: complete
 goal: "Identical string constants share a single global — zero duplicates in emitted IR"
 inspired_by:
   - "Rust rustc_codegen_llvm/common.rs — interns all string constants via const_str()"
@@ -10,12 +10,12 @@ depends_on: []
 sections:
   - id: "07.1"
     title: "String Constant Interning"
-    status: not-started
+    status: complete
 ---
 
 # Section 07: Constant Deduplication
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Each unique string constant (e.g., `"integer overflow on addition\00"`) is emitted as a single LLVM global, shared across all use sites. Zero duplicate constant strings in emitted IR.
 
 **Context:** The codegen emits identical overflow message strings as separate globals for each overflow check site. J2 has 2 duplicates, J7 has 6, J9 has 7, J12 has 6. While LLVM's linker may merge `unnamed_addr` constants at link time, the IR is unnecessarily verbose and the duplicate creation wastes module-level resources.
@@ -30,66 +30,45 @@ sections:
 
 ## 07.1 String Constant Interning
 
-**File(s):** `compiler/ori_llvm/src/codegen/ir_builder/constants.rs`
+**File(s):** `compiler/ori_llvm/src/codegen/ir_builder/constants.rs`, `compiler/ori_llvm/src/codegen/ir_builder/checked_ops.rs`
 
-The duplicate globals come from `build_global_string_ptr()`, not `const_string()`. `const_string()` creates inline byte arrays; `build_global_string_ptr()` creates named global string pointers — the ones that duplicate. It's called from:
-- `compiler/ori_llvm/src/codegen/ir_builder/arithmetic.rs` (line 252) — overflow panic messages (primary source of duplicates). **CRITICAL:** `emit_checked_binop()` calls the raw inkwell `self.builder.build_global_string_ptr()` directly, NOT the `IrBuilder::build_global_string_ptr()` wrapper in `constants.rs`. The dedup cache will NOT apply to overflow messages unless `emit_checked_binop` is refactored to use the IrBuilder wrapper. This is the #1 source of duplicate strings across 10/12 journeys.
-- `compiler/ori_llvm/src/codegen/arc_emitter/value_emission.rs` (line 45) — string literal emission (uses `IrBuilder` wrapper — will benefit from cache automatically)
-- `compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs` (line 30) — derive codegen string construction (uses raw inkwell builder via `fc.builder` — another bypass of the IrBuilder wrapper)
+The duplicate globals came from `build_global_string_ptr()`, not `const_string()`. `const_string()` creates inline byte arrays; `build_global_string_ptr()` creates named global string pointers — the ones that duplicated. It's called from:
+- `compiler/ori_llvm/src/codegen/ir_builder/checked_ops.rs` — overflow panic messages (extracted from `arithmetic.rs`). Was the primary source of duplicates: `emit_checked_binop()` called the raw inkwell `self.builder.build_global_string_ptr()` directly. Fixed to use `self.build_global_string_ptr()` (the IrBuilder wrapper with dedup cache).
+- `compiler/ori_llvm/src/codegen/arc_emitter/value_emission.rs` (line 45) — string literal emission (uses `IrBuilder` wrapper — benefits from cache automatically)
+- `compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs` (line 30) — derive codegen string construction (uses `fc.builder_mut().build_global_string_ptr()` which IS the IrBuilder wrapper — benefits from cache automatically)
 
-**Bypass summary:** 2 of 3 call sites bypass `IrBuilder::build_global_string_ptr()`. The fix must either:
-- **(a)** Refactor ALL callers to use the IrBuilder wrapper (preferred — single dedup point), OR
-- **(b)** Implement dedup at a lower level (e.g., check LLVM module for existing global before creating)
+**Correction from original plan:** Only 1 of 3 call sites bypassed the IrBuilder wrapper (arithmetic.rs), not 2. `string_helpers.rs` already went through the IrBuilder via `FunctionCompiler::builder_mut()`.
 
-Add a string constant cache to the IR builder. When `build_global_string_ptr` is called, first check if an identical string has already been emitted; if so, return the existing global pointer.
+**Implementation:** Added `global_strings: FxHashMap<String, ValueId>` to `IrBuilder`. `build_global_string_ptr()` checks cache by content before creating globals. New globals marked with `unnamed_addr` (Global) for linker-level COMDAT folding.
 
-```rust
-// In IrBuilder or a module-level state accessible from IrBuilder:
-global_strings: HashMap<String, PointerValue<'ctx>>,
-
-pub fn build_global_string_ptr(&mut self, value: &str, name: &str) -> ValueId {
-    if let Some(&existing) = self.global_strings.get(value) {
-        return self.arena.push_value(existing.into());
-    }
-    let v = self.builder
-        .build_global_string_ptr(value, name)
-        .expect("build_global_string_ptr")
-        .as_pointer_value();
-    self.global_strings.insert(value.to_string(), v);
-    self.arena.push_value(v.into())
-}
-```
-
-> **BLOAT prerequisite:** `arithmetic.rs` is currently 513 lines (over the 500-line limit). Before refactoring `emit_checked_binop()` to use the IrBuilder wrapper, split `arithmetic.rs` into submodules (e.g., extract checked-binop logic into `arithmetic/checked_ops.rs`). Do NOT add code to a file already over the limit.
-
-- [ ] **Split `arithmetic.rs`** into submodules BEFORE other §07 work (500-line limit exceeded)
-- [ ] Add a `HashMap<String, PointerValue<'ctx>>` to the IR builder or module-level codegen state
-- [ ] Modify `build_global_string_ptr()` in `constants.rs` to check cache before creating globals
-- [ ] Refactor `emit_checked_binop()` in `arithmetic.rs` (now in submodule) to use `IrBuilder::build_global_string_ptr()` instead of raw inkwell `self.builder.build_global_string_ptr()` — otherwise overflow panic messages bypass the dedup cache
-- [ ] Refactor `derive_codegen/string_helpers.rs` to use `IrBuilder::build_global_string_ptr()` instead of raw inkwell builder — otherwise derive codegen string constants bypass the dedup cache
-- [ ] Cache key uses full byte content (including terminating `\0` contract), not just a display label
-- [ ] Mark deduplicated globals with `unnamed_addr` to enable linker-level COMDAT folding
-- [ ] Verify: J7 IR has exactly 1 `"integer overflow on addition\00"` global (not 6)
-- [ ] Verify: J9 IR has exactly 1 of each overflow message (not 7)
-- [ ] Count: Total global reduction across all 12 journeys
-- [ ] Unit test in IrBuilder: calling `build_global_string_ptr` twice with same content returns same pointer
+- [x] **Split `arithmetic.rs`** into submodules BEFORE other §07 work (513 → 352 lines in `arithmetic.rs` + 162 lines in `checked_ops.rs`)
+- [x] Add a `FxHashMap<String, ValueId>` to the IR builder codegen state
+- [x] Modify `build_global_string_ptr()` in `constants.rs` to check cache before creating globals
+- [x] Refactor `emit_checked_binop()` in `checked_ops.rs` to use `IrBuilder::build_global_string_ptr()` instead of raw inkwell `self.builder.build_global_string_ptr()` — also refactored panic call to use `self.call()`
+- [x] `derive_codegen/string_helpers.rs` already uses IrBuilder wrapper (via `fc.builder_mut()`) — no refactoring needed (plan was incorrect about bypass)
+- [x] Cache key uses full byte content (the `value: &str` parameter), not the display label (`name`)
+- [x] Mark deduplicated globals with `unnamed_addr` (Global) to enable linker-level COMDAT folding
+- [x] Verify: J7 IR has exactly 1 `"integer overflow on addition\00"` global (was 6)
+- [x] Verify: J9 IR has exactly 1 of each overflow message (was 7)
+- [x] Count: All 12 journeys now have exactly 1 global per unique overflow message — zero duplicates
+- [x] Unit test in IrBuilder: `global_string_ptr_dedup_same_content`, `global_string_ptr_different_content_distinct`, `global_string_ptr_unnamed_addr`
 
 ### 07.1 Completion Checklist
 
-- [ ] String constant cache implemented in IR builder (or module-level state)
-- [ ] `build_global_string_ptr()` deduplicates by content, not by name
-- [ ] Count of global definitions for each overflow string is 1 per module
-- [ ] No duplicate `@.str.*` globals with identical content
-- [ ] J7 IR has exactly 1 `"integer overflow on addition\00"` global
-- [ ] J9 IR has exactly 1 of each overflow message
-- [ ] Deduplicated globals have `unnamed_addr` for linker-level folding
-- [ ] IR test: program with 3 overflow sites has 1 overflow message global (not 3)
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] String constant cache implemented in IR builder (`global_strings: FxHashMap<String, ValueId>`)
+- [x] `build_global_string_ptr()` deduplicates by content, not by name
+- [x] Count of global definitions for each overflow string is 1 per module
+- [x] No duplicate `@.str.*` globals with identical content
+- [x] J7 IR has exactly 1 `"integer overflow on addition\00"` global
+- [x] J9 IR has exactly 1 of each overflow message
+- [x] Deduplicated globals have `unnamed_addr` for linker-level folding
+- [x] IR test: program with 3 overflow sites has 1 overflow message global (not 3) — `global_string_ptr_dedup_same_content`
+- [x] `./test-all.sh` green (12,067 tests, 0 failures)
+- [x] `./clippy-all.sh` green
+- [x] No regressions in `cargo test -p ori_llvm` (428 tests, 3 new)
 
 ---
 
 ## Section 07 Exit Criteria
 
-For any program, `ORI_DUMP_AFTER_LLVM=1` shows at most one global per unique string value. No duplicated string constants in emitted IR for any of the 12 code journeys.
+For any program, `ORI_DUMP_AFTER_LLVM=1` shows at most one global per unique string value. No duplicated string constants in emitted IR for any of the 12 code journeys. ✓ Verified.

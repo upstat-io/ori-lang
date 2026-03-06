@@ -365,3 +365,7 @@ This proposal reserves architectural space for future low-level features:
 4. **Arena integration**: How do arenas interact with capabilities?
 
 These questions don't need answers now. The reserved slots support any of these directions.
+
+## Errata (added 2026-03-05)
+
+> **`inline type` approach superseded by [value-trait-proposal](value-trait-proposal.md)**: Open question #2 ("Should inline types have a marker trait?") has been resolved — yes. The `Value` marker trait (`type T: Value, Eq = { ... }`) replaces the `inline type` keyword approach for declaring stack-allocated, ARC-free types. A trait is more composable than a keyword (generic bounds, conditional satisfaction). The `inline` keyword remains reserved for potential future fine-grained storage control. `ValueCategory::Inline` in the IR maps to types with the `Value` trait.

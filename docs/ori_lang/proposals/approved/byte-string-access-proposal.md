@@ -1,8 +1,9 @@
 # Proposal: Byte-Level String Access
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-03-05
+**Approved:** 2026-03-05
 
 ---
 
@@ -93,6 +94,16 @@ let b = bytes[0];             // b'h' — O(1), no copy
 bytes[0] = b'H';              // COW: bytes gets its own copy, s unaffected
 ```
 
+#### Flattening for Substrings
+
+If the source `str` is itself a seamless slice (e.g., from `.substring()` or `.trim()`), `as_bytes()` produces a single-level `[byte]` view of the same byte range. No nested slices are created — the implementation takes the substring's pointer and length and creates a byte slice directly from those.
+
+```ori
+let s = "hello world";
+let sub = s.substring(start: 0, end: 5);  // "hello" — seamless slice of s
+let bytes = sub.as_bytes();                // [byte] view of bytes 0..5 — single level
+```
+
 ### `to_bytes()` — Owned Copy
 
 `to_bytes()` returns an independent `[byte]` copy. Use when you need to mutate the bytes without affecting the source string.
@@ -107,7 +118,7 @@ bytes[0] = b'H';              // COW: bytes gets its own copy, s unaffected
 For ASCII strings, these are equal. For multibyte characters, they differ:
 
 ```ori
-let s = "cafe\u{0301}";      // "café" — 5 bytes, 4-5 codepoints
+let s = "cafe\u{0301}";      // "cafe" — 6 bytes, 5 codepoints
 s.byte_len()                  // 6
 s.len()                       // depends on len() definition
 ```
@@ -119,13 +130,19 @@ s.len()                       // depends on len() definition
 @from_utf8_unchecked (bytes: [byte]) -> str   // unsafe — caller guarantees valid UTF-8
 ```
 
-`from_utf8` validates UTF-8 encoding and returns an error on invalid sequences. `from_utf8_unchecked` skips validation — using it with invalid UTF-8 is undefined behavior and requires `unsafe`.
+`from_utf8` validates UTF-8 encoding and returns an error on invalid sequences.
+
+`from_utf8_unchecked` skips validation and requires `unsafe`. If called with invalid UTF-8, the behavior is **unspecified but memory-safe** — the program may panic, produce garbled string output, or behave unexpectedly, but it shall never cause memory corruption, buffer overflows, or use-after-free. This is consistent with Ori's safety philosophy: `unsafe` relaxes type-level guarantees but does not permit memory unsafety.
 
 These are associated functions on `str`:
 
 ```ori
 let bytes: [byte] = [104, 101, 108, 108, 111];
-let s = str.from_utf8(bytes: bytes);           // Ok("hello")
+let s = str.from_utf8(bytes:);               // Ok("hello")
+
+unsafe {
+    let s = str.from_utf8_unchecked(bytes:);  // "hello"
+}
 ```
 
 ### Iteration
@@ -160,12 +177,10 @@ This is the same mechanism used by `list.take()`, `list.skip()`, `str.substring(
 
 ---
 
-## Open Questions
+## Depends On
 
-1. **`byte_len()` naming:** `byte_len()` vs `byte_count()` vs `utf8_len()`?
-2. **`len()` semantics:** Is `str.len()` codepoints or grapheme clusters? This affects the contrast with `byte_len()`.
-3. **Byte string literals?** Should `b"hello"` produce `[byte]` directly? (See byte-literals proposal.)
-4. **`as_bytes()` on substrings:** If a `str` is itself a seamless slice (from `.substring()`), does `as_bytes()` produce a nested slice? Or does it flatten?
+- `byte-literals-proposal.md` [approved] — uses byte literals in examples
+- Seamless slicing (spec 21.4) [implemented] — runtime mechanism for zero-copy views
 
 ---
 
@@ -180,3 +195,4 @@ This is the same mechanism used by `list.take()`, `list.skip()`, `str.substring(
 ## Changelog
 
 - 2026-03-05: Initial draft
+- 2026-03-05: Approved — specified flatten behavior for substring slices; clarified `from_utf8_unchecked` as unspecified-but-memory-safe (no true UB); resolved `byte_len` naming; resolved all open questions (byte string literals deferred)
