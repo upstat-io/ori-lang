@@ -35,6 +35,7 @@ fn sample_arc_function() -> ArcFunction {
         num_captures: 0,
         cow_annotations: ori_arc::CowAnnotations::default(),
         drop_hints: ori_arc::DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
