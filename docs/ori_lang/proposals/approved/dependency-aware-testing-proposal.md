@@ -7,6 +7,8 @@
 
 ---
 
+> **NOTE:** This document predates configurable test enforcement (2026-03-05). References to "mandatory testing" describe the `test-enforcement = "error"` mode, which is no longer the default.
+
 ## Summary
 
 Implement reverse dependency closure for test execution. When a function changes, automatically run tests for that function AND tests for all functions that depend on it (callers up the dependency graph).

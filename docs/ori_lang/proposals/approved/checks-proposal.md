@@ -5,6 +5,8 @@
 **Created:** 2026-01-21
 **Approved:** 2026-01-28
 
+> **NOTE:** This document predates configurable test enforcement (2026-03-05). References to "mandatory testing" describe the `test-enforcement = "error"` mode, which is no longer the default.
+
 > **Errata (2026-02-19):** The syntax in this proposal (`pre_check:`/`post_check:` inside `run()`) has been superseded by `block-expression-syntax.md`. Contracts now use function-level `pre()`/`post()` declarations. The semantic decisions (evaluation order, scope, types, messages, desugaring) remain valid.
 
 ---

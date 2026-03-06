@@ -361,6 +361,15 @@ impl Diagnostic {
         Self::new_with_severity(code, Severity::Warning)
     }
 
+    /// Override the severity level.
+    ///
+    /// Useful when the same diagnostic type (e.g., `MissingTest`) should be
+    /// emitted at different severity levels depending on configuration.
+    pub fn with_severity(mut self, severity: Severity) -> Self {
+        self.severity = severity;
+        self
+    }
+
     /// Set the main message.
     pub fn with_message(mut self, message: impl Into<String>) -> Self {
         self.message = message.into();

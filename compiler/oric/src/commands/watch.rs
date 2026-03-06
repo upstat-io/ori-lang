@@ -10,12 +10,14 @@ use std::time::{Duration, Instant};
 
 use notify::{EventKind, RecursiveMode, Watcher};
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+use ori_diagnostic::Severity;
 use oric::problem::semantic::{check_test_coverage, pattern_problem_to_diagnostic};
 use oric::{CompilerDb, Db, SourceFile};
 use salsa::Setter;
 
 use super::read_file;
 use super::report_frontend_errors;
+use super::TestEnforcement;
 
 /// Debounce window — drain events for this long after the first event.
 const DEBOUNCE_MS: u64 = 300;
@@ -26,7 +28,7 @@ const DEBOUNCE_MS: u64 = 300;
 /// calls `file.set_text(&mut db).to(new_content)` which invalidates only the
 /// affected Salsa queries — downstream queries that depend on unchanged results
 /// are not re-executed (early cutoff).
-pub fn watch_file(path: &str) {
+pub fn watch_file(path: &str, enforcement: TestEnforcement) {
     let canonical = match std::fs::canonicalize(path) {
         Ok(p) => p,
         Err(e) => {
@@ -40,7 +42,7 @@ pub fn watch_file(path: &str) {
     let mut db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
 
-    run_check(&db, file, path);
+    run_check(&db, file, path, enforcement);
 
     println!();
     println!("Watching {path}...");
@@ -105,7 +107,7 @@ pub fn watch_file(path: &str) {
         // Only queries that depend on the changed text will re-execute.
         file.set_text(&mut db).to(new_content);
 
-        run_check(&db, file, path);
+        run_check(&db, file, path, enforcement);
 
         println!();
         println!("Watching {path}...");
@@ -116,7 +118,7 @@ pub fn watch_file(path: &str) {
 ///
 /// Does NOT exit on errors — in watch mode we keep running so the user can fix
 /// issues and see the results immediately.
-fn run_check(db: &CompilerDb, file: SourceFile, path: &str) {
+fn run_check(db: &CompilerDb, file: SourceFile, path: &str, enforcement: TestEnforcement) {
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
     let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty)
         .with_source(file.text(db).as_str())
@@ -146,11 +148,24 @@ fn run_check(db: &CompilerDb, file: SourceFile, path: &str) {
         emitter.flush();
     }
 
-    // Test coverage
-    let interner = db.interner();
-    for problem in check_test_coverage(&parse_result.module, interner) {
-        emitter.emit(&problem.into_diagnostic(interner));
-        has_errors = true;
+    // Test coverage — severity controlled by enforcement level.
+    // Spec: Clause 19.2 — configurable test enforcement (off/warn/error).
+    let mut has_coverage_issues = false;
+    if enforcement != TestEnforcement::Off {
+        let interner = db.interner();
+        let severity = match enforcement {
+            TestEnforcement::Warn => Severity::Warning,
+            TestEnforcement::Error => Severity::Error,
+            TestEnforcement::Off => unreachable!(),
+        };
+        for problem in check_test_coverage(&parse_result.module, interner) {
+            let diag = problem.into_diagnostic(interner).with_severity(severity);
+            emitter.emit(&diag);
+            has_coverage_issues = true;
+            if enforcement == TestEnforcement::Error {
+                has_errors = true;
+            }
+        }
     }
 
     if has_errors {
@@ -158,9 +173,23 @@ fn run_check(db: &CompilerDb, file: SourceFile, path: &str) {
         return;
     }
 
+    // Success message — varies by enforcement level
     let func_count = parse_result.module.functions.len();
     let test_count = parse_result.module.tests.len();
-    println!("OK: {path} ({func_count} functions, {test_count} tests, 100% coverage)");
+    match enforcement {
+        TestEnforcement::Off => {
+            println!("OK: {path} ({func_count} functions, {test_count} tests)");
+        }
+        TestEnforcement::Warn if has_coverage_issues => {
+            let uncovered = func_count.saturating_sub(test_count);
+            println!(
+                "OK: {path} ({func_count} functions, {test_count} tests, {uncovered} uncovered)"
+            );
+        }
+        TestEnforcement::Warn | TestEnforcement::Error => {
+            println!("OK: {path} ({func_count} functions, {test_count} tests, 100% coverage)");
+        }
+    }
 }
 
 /// Check if a notify event is relevant to our watched file.

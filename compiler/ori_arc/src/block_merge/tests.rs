@@ -369,7 +369,7 @@ fn invoke_normal_equals_unwind_not_downgraded() {
     assert!(has_invoke, "invoke with normal==unwind should be preserved");
 }
 
-// Phase 3: Jump Chain Merge
+// Phase 4: Jump Chain Merge
 
 /// Single-predecessor Jump merge (no params).
 #[test]

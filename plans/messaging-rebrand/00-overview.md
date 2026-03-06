@@ -1,7 +1,7 @@
 ---
 plan: "messaging-rebrand"
 title: "Messaging Rebrand & Testing Policy: Exhaustive Implementation Plan"
-status: not-started
+status: complete
 supersedes: []
 references:
   - "README.md"
@@ -142,9 +142,9 @@ Phase 3 — Verification
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Positioning Strategy | `section-01-positioning.md` | Not Started |
-| 02 | Testing Policy | `section-02-testing-policy.md` | Not Started |
-| 03 | README Rewrite | `section-03-readme.md` | Not Started |
-| 04 | Website Landing Page | `section-04-website.md` | Not Started |
-| 05 | Spec & Documentation | `section-05-spec-docs.md` | Not Started |
-| 06 | Verification | `section-06-verification.md` | Not Started |
+| 01 | Positioning Strategy | `section-01-positioning.md` | Complete |
+| 02 | Testing Policy | `section-02-testing-policy.md` | Complete (CLI flag + severity switch done; oripk.toml deferred) |
+| 03 | README Rewrite | `section-03-readme.md` | Complete |
+| 04 | Website Landing Page | `section-04-website.md` | Complete |
+| 05 | Spec & Documentation | `section-05-spec-docs.md` | Complete |
+| 06 | Verification | `section-06-verification.md` | Complete |

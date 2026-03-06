@@ -215,9 +215,9 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
 ## 22.5 Test Runner
 
 > **NOTE**: This section covers the TEST RUNNER CLI commands, which are largely complete.
-> The TESTING FRAMEWORK features (mandatory testing, dependency-aware execution, incremental tests)
+> The TESTING FRAMEWORK features (configurable test enforcement, dependency-aware execution, incremental tests)
 > are in Section 14 and are not yet implemented. The test runner runs tests; the framework enforces
-> testing requirements and manages test dependencies.
+> testing requirements (when enabled) and manages test dependencies.
 
 - [ ] **Implement**: `ori test` command — run all tests — design/11-testing/index.md
   - [ ] **Rust Tests**: `oric/src/commands/test.rs` — test command
