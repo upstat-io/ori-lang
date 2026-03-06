@@ -291,7 +291,7 @@ fn move_arm_body(
             }
             _ => {
                 // is_trivial_body guarantees only Let instructions.
-                debug_assert!(false, "non-Let instruction in trivial arm body");
+                unreachable!("non-Let instruction in trivial arm body");
             }
         }
     }

@@ -31,6 +31,7 @@
 use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
+use crate::graph;
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
 /// Eliminate block params that are loop-invariant.
@@ -64,14 +65,15 @@ pub(crate) fn eliminate_invariant_params(func: &mut ArcFunction) {
 /// Returns `(block_idx, param_position, param_var, replacement_var)`.
 fn find_invariant_params(func: &ArcFunction) -> SmallVec<[(usize, usize, ArcVarId, ArcVarId); 4]> {
     let mut results = SmallVec::new();
+    let predecessors = graph::compute_predecessors(func);
 
     for (b_idx, block) in func.blocks.iter().enumerate() {
         if block.params.is_empty() {
             continue;
         }
 
-        // Collect all predecessor Jump args targeting this block.
-        let incoming = collect_incoming_args(func, block.id);
+        // Collect Jump args from pre-computed predecessors.
+        let incoming = collect_incoming_args_from_preds(func, block.id, &predecessors);
 
         if incoming.is_empty() {
             continue;
@@ -115,15 +117,21 @@ fn find_invariant_params(func: &ArcFunction) -> SmallVec<[(usize, usize, ArcVarI
     results
 }
 
-/// Collect incoming Jump args for a target block.
+/// Collect incoming Jump args for a target block using pre-computed predecessors.
 ///
 /// Returns a vec of arg slices — one per predecessor Jump targeting `target_id`.
-/// Borrows from `func.blocks[..].terminator`, safe because `find_invariant_params`
-/// holds an immutable borrow on `func` for the entire call.
-fn collect_incoming_args(func: &ArcFunction, target_id: ArcBlockId) -> Vec<&[ArcVarId]> {
-    let mut incoming = Vec::new();
-    for block in &func.blocks {
-        if let ArcTerminator::Jump { target, args } = &block.terminator {
+fn collect_incoming_args_from_preds<'a>(
+    func: &'a ArcFunction,
+    target_id: ArcBlockId,
+    predecessors: &[Vec<usize>],
+) -> Vec<&'a [ArcVarId]> {
+    let target_idx = target_id.index();
+    let Some(preds) = predecessors.get(target_idx) else {
+        return Vec::new();
+    };
+    let mut incoming = Vec::with_capacity(preds.len());
+    for &pred_idx in preds {
+        if let ArcTerminator::Jump { target, args } = &func.blocks[pred_idx].terminator {
             if *target == target_id {
                 incoming.push(args.as_slice());
             }

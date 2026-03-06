@@ -213,9 +213,7 @@ define_error_codes! {
     W2001, "Infinite iterator consumed without bound";
 }
 
-// ---------------------------------------------------------------------------
 // Phase classification (derived from naming convention)
-// ---------------------------------------------------------------------------
 
 impl ErrorCode {
     /// Check if this is a lexer error (E0xxx range).
@@ -264,9 +262,7 @@ impl ErrorCode {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Display and FromStr
-// ---------------------------------------------------------------------------
 
 impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

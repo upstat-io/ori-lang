@@ -214,9 +214,7 @@ fn lower_loop_produces_header_and_exit() {
     assert_jump_args_match_params(&func);
 }
 
-// -----------------------------------------------------------------------
 // SSA well-formedness: jump args match block params
-// -----------------------------------------------------------------------
 
 /// Verify that every `Jump` terminator passes exactly as many args as the
 /// target block has params. This catches SSA param ordering mismatches
@@ -403,9 +401,7 @@ fn for_range_with_mutable_vars_ssa_well_formed() {
     assert_jump_args_match_params(&func);
 }
 
-// -----------------------------------------------------------------------
 // pool_type_store_size — cross-phase size agreement
-// -----------------------------------------------------------------------
 //
 // These values must match `TypeLayoutResolver::type_store_size()` in ori_llvm.
 // If a new type is added and these constants differ, for-yield element

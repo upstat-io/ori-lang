@@ -1,9 +1,44 @@
 //! [`ArcFunction`] methods — variable management, block allocation, and
 //! type/representation lookups.
 
+use ori_ir::Name;
 use ori_types::Idx;
 
-use super::{ArcBlock, ArcBlockId, ArcVarId, ValueRepr};
+use super::{ArcBlock, ArcBlockId, ArcFunction, ArcTerminator, ArcVarId, ValueRepr};
+
+/// Minimal empty function for test construction.
+///
+/// Tests use struct update syntax to override only the fields they care about:
+/// ```ignore
+/// ArcFunction { name: ..., blocks: ..., ..Default::default() }
+/// ```
+///
+/// The default has a single empty block with an `Unreachable` terminator,
+/// which is the minimal valid structure for most analysis passes.
+impl Default for ArcFunction {
+    fn default() -> Self {
+        ArcFunction {
+            name: Name::from_raw(0),
+            params: Vec::new(),
+            return_type: Idx::from_raw(0),
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            }],
+            entry: ArcBlockId::new(0),
+            var_types: Vec::new(),
+            var_reprs: Vec::new(),
+            spans: vec![Vec::new()],
+            is_fbip: false,
+            num_captures: 0,
+            cow_annotations: crate::uniqueness::CowAnnotations::default(),
+            drop_hints: crate::uniqueness::DropHints::default(),
+            tail_calls: Vec::new(),
+        }
+    }
+}
 
 impl super::ArcFunction {
     /// Look up the type of a variable.

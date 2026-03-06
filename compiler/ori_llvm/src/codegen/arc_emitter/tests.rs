@@ -656,11 +656,7 @@ fn is_shared_emits_gep_load_icmp() {
         var_types: vec![Idx::STR, Idx::BOOL],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let abi = FunctionAbi {
@@ -782,11 +778,7 @@ fn set_emits_struct_gep_and_store() {
         var_types: vec![struct_ty, Idx::INT],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let abi = FunctionAbi {
@@ -908,11 +900,7 @@ fn set_tag_emits_gep_and_store() {
         var_types: vec![enum_ty],
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let abi = FunctionAbi {
@@ -1135,11 +1123,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         var_types: vec![Idx::STR],
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let abi = FunctionAbi {
@@ -1235,11 +1219,7 @@ fn rc_dec_closure_null_checks_env() {
         var_types: vec![fn_ty],
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let abi = FunctionAbi {
@@ -1348,11 +1328,7 @@ fn rc_inc_inline_enum_is_noop() {
         var_types: vec![result_ty],
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let abi = FunctionAbi {
@@ -1449,11 +1425,7 @@ fn rc_dec_inline_enum_tag_switches() {
         var_types: vec![result_ty],
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let abi = FunctionAbi {
@@ -1562,11 +1534,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         var_types: vec![Idx::STR],
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let abi = FunctionAbi {

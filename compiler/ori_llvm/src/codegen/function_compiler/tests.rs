@@ -802,11 +802,7 @@ fn make_arc_func(
         var_types: vec![Idx::INT; 8],
         var_reprs: vec![],
         spans: vec![],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     }
 }
 

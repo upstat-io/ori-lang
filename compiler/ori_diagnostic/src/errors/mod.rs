@@ -117,6 +117,8 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E2036, include_str!("E2036.md")),
     (ErrorCode::E2037, include_str!("E2037.md")),
     (ErrorCode::E2038, include_str!("E2038.md")),
+    (ErrorCode::E2039, include_str!("E2039.md")),
+    (ErrorCode::E2040, include_str!("E2040.md")),
     // Pattern errors (E3xxx)
     (ErrorCode::E3001, include_str!("E3001.md")),
     (ErrorCode::E3002, include_str!("E3002.md")),
@@ -124,6 +126,11 @@ static DOCS: &[(ErrorCode, &str)] = &[
     // Semantic / lint errors (E3xxx — test coverage)
     (ErrorCode::E3010, include_str!("E3010.md")),
     (ErrorCode::E3011, include_str!("E3011.md")),
+    // ARC analysis errors (E4xxx)
+    (ErrorCode::E4001, include_str!("E4001.md")),
+    (ErrorCode::E4002, include_str!("E4002.md")),
+    (ErrorCode::E4003, include_str!("E4003.md")),
+    (ErrorCode::E4004, include_str!("E4004.md")),
     // Internal errors (E9xxx)
     (ErrorCode::E9001, include_str!("E9001.md")),
     (ErrorCode::E9002, include_str!("E9002.md")),
