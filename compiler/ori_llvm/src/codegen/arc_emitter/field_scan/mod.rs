@@ -148,5 +148,19 @@ pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option
         }
     }
 
+    // Phase 3: Propagate usage from alias targets back to sources.
+    //
+    // When Let bindings create aliases (e.g., `%0 = Var(%13)` from TCO
+    // loop-header Let bindings), usage of `%0` gets resolved to `%13`.
+    // But callers look up the original variable (`%0`) — e.g., for
+    // function parameter binding. Propagate the resolved entry back so
+    // alias sources are also correctly marked.
+    for &src in aliases.keys() {
+        let root = resolve(&aliases, src);
+        if let Some(entry) = usage.get(&root).cloned() {
+            usage.entry(src).or_insert(entry);
+        }
+    }
+
     usage
 }

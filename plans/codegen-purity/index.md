@@ -2,7 +2,7 @@
 reroute: true
 name: "Codegen Purity"
 full_name: "Codegen Purity: Hand-Written Assembly Quality at -O0"
-status: active
+status: resolved
 ---
 
 # Codegen Purity Index
@@ -121,7 +121,7 @@ get_literal_int, ArcIrBuilder, block_merge, dead_param.rs
 ---
 
 ### Section 09: Tail Call Optimization
-**File:** `section-09-tail-call.md` | **Status:** Not Started
+**File:** `section-09-tail-call.md` | **Status:** Complete
 
 ```
 tail call, TCO, tail recursion, musttail, stack overflow, L-10
@@ -139,7 +139,7 @@ tail_call/mod.rs, tail_call/tests.rs, ArcLowerer func_name, lib.rs pipeline exce
 ---
 
 ### Section 10: Verification
-**File:** `section-10-verification.md` | **Status:** Not Started
+**File:** `section-10-verification.md` | **Status:** Complete
 
 ```
 code journey, verification, purity, -O0, assembly quality
@@ -164,5 +164,5 @@ build/codegen-purity/current, artifact capture, opt-21 verify
 | 06 | Dead Code Pruning | `section-06-dead-code-pruning.md` | Complete |
 | 07 | Constant Deduplication | `section-07-constant-dedup.md` | Complete |
 | 08 | Loop IR Quality | `section-08-loop-ir-quality.md` | Complete |
-| 09 | Tail Call Optimization | `section-09-tail-call.md` | Not Started |
-| 10 | Verification | `section-10-verification.md` | Not Started |
+| 09 | Tail Call Optimization | `section-09-tail-call.md` | Complete |
+| 10 | Verification | `section-10-verification.md` | Complete |

@@ -42,15 +42,26 @@ use rustc_hash::FxHashSet;
 
 /// A detected self-recursive tail call site.
 ///
-/// Stores the block and instruction index of the `Apply` instruction
-/// that is in tail position. The rewrite pass (§09.2) uses this to
-/// replace the `Apply` + `Jump(merge)` with a loop back-edge.
+/// Stores the block and the kind of call (body `Apply` or terminator
+/// `Invoke`). The rewrite pass (§09.2) uses this to replace the call
+/// with a loop back-edge.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TailCallSite {
-    /// Block containing the tail-recursive `Apply` instruction.
+    /// Block containing the tail-recursive call.
     pub call_block: crate::ir::ArcBlockId,
-    /// Index of the `Apply` instruction in the call block's body.
-    pub call_instr_idx: usize,
+    /// Whether the call is a body `Apply` instruction or an `Invoke` terminator.
+    pub kind: TailCallKind,
+}
+
+/// Distinguishes body `Apply` instructions from `Invoke` terminators.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum TailCallKind {
+    /// Body `Apply` instruction at this index.
+    Apply { instr_idx: usize },
+    /// `Invoke` terminator — the call is the block's terminator, not a body
+    /// instruction. User function calls are lowered as `Invoke` because they
+    /// may unwind (panic).
+    Invoke,
 }
 
 /// Detect self-recursive tail calls in an ARC function.
@@ -84,6 +95,13 @@ pub(crate) fn detect_tail_calls(func: &ArcFunction) -> Vec<TailCallSite> {
             }
         }
     }
+
+    // Also check Invoke terminators — user function calls are lowered as
+    // Invoke (not body Apply) because they may unwind. The pattern is:
+    //   bb_call: Invoke @self(args) → normal: bb_normal, unwind: bb_unwind
+    //   bb_normal: [RcDec only] → Jump bb_merge([dst]) or Return dst
+    //   bb_merge: (%param) → Return %param
+    find_invoke_tail_calls(func, func_name, &mut sites);
 
     tracing::debug!(count = sites.len(), "tail call detection complete");
     sites
@@ -186,11 +204,112 @@ fn find_tail_apply_in_block(
 
         return Some(TailCallSite {
             call_block: block.id,
-            call_instr_idx: instr_idx,
+            kind: TailCallKind::Apply { instr_idx },
         });
     }
 
     None
+}
+
+/// Find tail call sites where the self-recursive call is an `Invoke` terminator.
+///
+/// User function calls are lowered as `Invoke` (not body `Apply`) because they
+/// may unwind. This function detects the pattern:
+///
+/// ```text
+/// bb_call:
+///   [arg computation]
+///   Invoke @self(args) → normal: bb_normal, unwind: bb_unwind
+///
+/// bb_normal:
+///   [optional RcDec ops]
+///   Jump bb_merge([dst])   — or —   Return dst
+///
+/// bb_merge: (%param)
+///   Return %param
+/// ```
+fn find_invoke_tail_calls(func: &ArcFunction, func_name: Name, sites: &mut Vec<TailCallSite>) {
+    for block in &func.blocks {
+        let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            args,
+            normal,
+            ..
+        } = &block.terminator
+        else {
+            continue;
+        };
+
+        // Self-recursion only.
+        if *callee != func_name {
+            continue;
+        }
+
+        let normal_block = &func.blocks[normal.index()];
+
+        // Normal block body must be empty or only RcDec instructions.
+        let all_rc_decs = normal_block
+            .body
+            .iter()
+            .all(|i| matches!(i, ArcInstr::RcDec { .. }));
+        if !all_rc_decs {
+            tracing::trace!(
+                block = ?block.id,
+                "invoke tail call rejected: non-RcDec instructions in normal block"
+            );
+            continue;
+        }
+
+        // Safety: no RcDec target may be an argument to the recursive call.
+        // These RcDecs will be hoisted before the back-edge jump that passes
+        // the args, so decrementing an arg would be use-after-free.
+        let arg_set: FxHashSet<ArcVarId> = args.iter().copied().collect();
+        let has_unsafe_dec = normal_block
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::RcDec { var, .. } if arg_set.contains(var)));
+        if has_unsafe_dec {
+            tracing::trace!(
+                block = ?block.id,
+                "invoke tail call rejected: RcDec target used as recursive arg"
+            );
+            continue;
+        }
+
+        // Direct pattern: normal block returns dst.
+        if let ArcTerminator::Return { value } = &normal_block.terminator {
+            if *value == *dst {
+                sites.push(TailCallSite {
+                    call_block: block.id,
+                    kind: TailCallKind::Invoke,
+                });
+                continue;
+            }
+        }
+
+        // Cross-block pattern: normal block jumps to a merge block that
+        // returns the invoke result.
+        if let ArcTerminator::Jump {
+            target,
+            args: jump_args,
+        } = &normal_block.terminator
+        {
+            let dst_pos = jump_args.iter().position(|v| *v == *dst);
+            if let Some(pos) = dst_pos {
+                let merge_block = &func.blocks[target.index()];
+                if let ArcTerminator::Return { value } = &merge_block.terminator {
+                    let param = merge_block.params.get(pos).map(|(v, _)| *v);
+                    if param == Some(*value) {
+                        sites.push(TailCallSite {
+                            call_block: block.id,
+                            kind: TailCallKind::Invoke,
+                        });
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
