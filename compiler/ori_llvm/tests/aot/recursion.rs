@@ -390,6 +390,224 @@ fn test_rec_tower_of_hanoi_count() {
     );
 }
 
+// ─── Deep tail recursion (TCO stress tests) ───
+
+#[test]
+fn test_tail_rec_gcd_correct() {
+    // gcd is tail-recursive — loop lowering should handle it.
+    assert_aot_success(
+        r#"
+@gcd (a: int, b: int) -> int = {
+    if b == 0 then a else gcd(a: b, b: a % b)
+};
+
+@main () -> int = {
+    let r = 0;
+    if gcd(a: 48, b: 18) != 6 then r = 1;
+    if gcd(a: 100, b: 75) != 25 then r = 1;
+    if gcd(a: 17, b: 13) != 1 then r = 1;
+    if gcd(a: 0, b: 5) != 5 then r = 1;
+    if gcd(a: 7, b: 0) != 7 then r = 1;
+    r
+}
+"#,
+        "tail_rec_gcd",
+    );
+}
+
+#[test]
+fn test_tail_rec_countdown_deep() {
+    // Tail-recursive countdown at depth 200,000. Without TCO this would
+    // stack overflow; with loop lowering it runs in O(1) stack space.
+    assert_aot_success(
+        r#"
+@countdown (n: int, acc: int) -> int = {
+    if n <= 0 then acc else countdown(n: n - 1, acc: acc + 1)
+};
+
+@main () -> int = {
+    if countdown(n: 200000, acc: 0) == 200000 then 0 else 1
+}
+"#,
+        "tail_rec_countdown_deep",
+    );
+}
+
+#[test]
+fn test_tail_rec_collatz_deep() {
+    // Collatz sequence is tail-recursive. Large starting values can
+    // produce long sequences. n=837799 takes 524 steps.
+    assert_aot_success(
+        r#"
+@collatz (n: int, steps: int) -> int = {
+    if n == 1 then steps
+    else if n % 2 == 0 then collatz(n: n / 2, steps: steps + 1)
+    else collatz(n: n * 3 + 1, steps: steps + 1)
+};
+
+@main () -> int = {
+    if collatz(n: 27, steps: 0) == 111 then 0 else 1
+}
+"#,
+        "tail_rec_collatz_deep",
+    );
+}
+
+#[test]
+fn test_tail_rec_if_else_both_branches() {
+    // Both branches are tail calls: f(a) or f(b).
+    assert_aot_success(
+        r#"
+@find_zero (lo: int, hi: int) -> int = {
+    if lo >= hi then lo
+    else {
+        let mid = lo + (hi - lo) / 2;
+        if mid > 50 then find_zero(lo: lo, hi: mid)
+        else find_zero(lo: mid + 1, hi: hi)
+    }
+};
+
+@main () -> int = {
+    if find_zero(lo: 0, hi: 100) == 51 then 0 else 1
+}
+"#,
+        "tail_rec_both_branches",
+    );
+}
+
+#[test]
+fn test_tail_rec_factorial_acc_deep() {
+    // Tail-recursive factorial with accumulator, deep enough to stress TCO.
+    assert_aot_success(
+        r#"
+@fact (n: int, acc: int) -> int = {
+    if n <= 1 then acc else fact(n: n - 1, acc: acc * n)
+};
+
+@main () -> int = {
+    // fact(20) = 2432902008176640000
+    if fact(n: 20, acc: 1) == 2432902008176640000 then 0 else 1
+}
+"#,
+        "tail_rec_fact_deep",
+    );
+}
+
+// ─── Tail recursion: `recurse()` pattern ───
+
+#[test]
+fn test_tail_rec_recurse_pattern() {
+    // `recurse(condition:, base:, step:)` with `self(...)` calls.
+    // The __recurse sentinel is resolved to the actual function name,
+    // enabling TCO loop lowering.
+    assert_aot_success(
+        r#"
+@fact (n: int, acc: int) -> int = {
+    recurse(
+        condition: n <= 1,
+        base: acc,
+        step: self(n: n - 1, acc: acc * n),
+    )
+};
+
+@main () -> int = {
+    if fact(n: 20, acc: 1) == 2432902008176640000 then 0 else 1
+}
+"#,
+        "tail_rec_recurse_pattern",
+    );
+}
+
+#[test]
+fn test_tail_rec_recurse_deep() {
+    // `recurse()` pattern at depth 200,000 — would stack overflow
+    // without TCO loop lowering.
+    assert_aot_success(
+        r#"
+@countdown (n: int, acc: int) -> int = {
+    recurse(
+        condition: n <= 0,
+        base: acc,
+        step: self(n: n - 1, acc: acc + 1),
+    )
+};
+
+@main () -> int = {
+    if countdown(n: 200000, acc: 0) == 200000 then 0 else 1
+}
+"#,
+        "tail_rec_recurse_deep",
+    );
+}
+
+// ─── Tail recursion: RC-managed args ───
+
+#[test]
+fn test_tail_rec_with_list_param() {
+    // Tail-recursive function passing an RC-managed list through 100,000
+    // iterations. Without TCO this would stack overflow. The list is
+    // allocated once and freed once — no leaks, no double-free.
+    assert_aot_success(
+        r#"
+@count_down (items: [int], n: int) -> int = {
+    if n <= 0 then items.len() else count_down(items: items, n: n - 1)
+};
+
+@main () -> int = {
+    if count_down(items: [1, 2, 3], n: 100000) == 3 then 0 else 1
+}
+"#,
+        "tail_rec_list_param",
+    );
+}
+
+#[test]
+fn test_tail_rec_with_string_param() {
+    // Tail-recursive function passing an RC-managed string through
+    // iterations. Verifies string RC ops are balanced across TCO.
+    assert_aot_success(
+        r#"
+@find_char (s: str, target: int, idx: int) -> int = {
+    if idx >= s.len() then -1
+    else if idx == target then idx
+    else find_char(s: s, target: target, idx: idx + 1)
+};
+
+@main () -> int = {
+    if find_char(s: "hello", target: 3, idx: 0) == 3 then 0 else 1
+}
+"#,
+        "tail_rec_string_param",
+    );
+}
+
+// ─── Tail recursion: mixed tail/non-tail ───
+
+#[test]
+fn test_tail_rec_mixed_tail_and_nontail() {
+    // One branch is a tail call, another is non-tail (result + 1).
+    // Only the tail call branch should be loop-lowered.
+    assert_aot_success(
+        r#"
+@mixed (n: int, acc: int) -> int = {
+    if n <= 0 then acc
+    else if n % 7 == 0 then 1 + mixed(n: n - 1, acc: acc)
+    else mixed(n: n - 1, acc: acc + 1)
+};
+
+@main () -> int = {
+    // Verify correctness: count non-multiples-of-7 in 1..50
+    // and add 1 for each multiple of 7 hit.
+    let r = mixed(n: 50, acc: 0);
+    // n=50: 7 multiples of 7 (7,14,21,28,35,42,49), each adds 1 to result.
+    // Remaining 43 iterations add 1 to acc each. Total = 43 + 7 = 50.
+    if r == 50 then 0 else 1
+}
+"#,
+        "tail_rec_mixed",
+    );
+}
+
 // ─── Recursion with Option ───
 
 #[test]

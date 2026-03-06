@@ -368,3 +368,49 @@ fn test_checked_binop_overflow_still_has_unreachable() {
         next_meaningful.trim()
     );
 }
+
+// Tail call loop lowering
+
+/// Tail-recursive `gcd` should compile to a loop, not a recursive `call`.
+///
+/// The ARC loop-lowering pass (§09.2) replaces `Apply @gcd(b, rem)` with
+/// a `Jump(header, [b, rem])` back-edge. The LLVM IR should contain a
+/// `br label` loop back-edge instead of `call @_ori_gcd`.
+#[test]
+fn test_tail_recursive_gcd_has_no_self_call() {
+    let ir = compile_and_capture_ir(
+        r"
+@gcd (a: int, b: int) -> int = {
+    if b == 0 then a else gcd(a: b, b: a % b)
+};
+
+@main () -> int = gcd(a: 48, b: 18);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_gcd");
+
+    // The function must NOT contain a recursive call to itself.
+    assert!(
+        !fn_ir.contains("call fastcc i64 @_ori_gcd"),
+        "expected no recursive `call @_ori_gcd` in tail-recursive gcd — \
+         loop lowering should have replaced it with a back-edge.\nIR:\n{fn_ir}"
+    );
+
+    // The function must contain a loop back-edge (br label).
+    assert!(
+        fn_ir.contains("br label"),
+        "expected `br label` loop back-edge in tail-recursive gcd.\nIR:\n{fn_ir}"
+    );
+
+    // The function must contain phi nodes for the loop parameters.
+    assert!(
+        fn_ir.contains("phi i64"),
+        "expected `phi i64` for loop parameters in tail-recursive gcd.\nIR:\n{fn_ir}"
+    );
+}

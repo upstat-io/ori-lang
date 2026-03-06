@@ -43,7 +43,7 @@
 //!   → RC identity propagation (Project roots)
 //!   → RC elimination (dataflow-based)
 //!   → cross-block RC elimination
-//!   → tail call detection (self-recursive tail calls)
+//!   → tail call detection + loop lowering (self-recursive → loops)
 //!   → block merge (post-lowering CFG simplification)
 //!   → drop hints (unique-collection drop optimization)
 //!   → FBIP enforcement (#fbip functions)
@@ -203,12 +203,13 @@ pub fn run_arc_pipeline(
 
     rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
 
-    // Tail call detection: identify self-recursive tail calls for loop lowering.
-    // Runs AFTER RC elimination (all RC ops are in final positions — we can
-    // verify RcDec hoisting safety) and BEFORE block merge (which renumbers
-    // blocks and would invalidate the annotations). The rewrite pass (§09.2)
-    // will consume these annotations to replace Apply + Jump with loop back-edges.
+    // Tail call detection + loop lowering: identify self-recursive tail calls
+    // and rewrite them as loop back-edges. Runs AFTER RC elimination (all RC
+    // ops are in final positions — we can verify RcDec hoisting safety) and
+    // BEFORE block merge (which cleans up dead merge blocks left by the rewrite
+    // and renumbers blocks).
     func.tail_calls = tail_call::detect_tail_calls(func);
+    tail_call::rewrite_tail_calls(func);
 
     // Block merge: eliminate redundant blocks created by invoke splitting.
     // Runs AFTER RC elimination (all RC ops are final) but BEFORE drop hints
