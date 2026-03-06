@@ -1,7 +1,7 @@
 ---
 section: "09"
 title: "Tail Call Optimization"
-status: not-started
+status: in-progress
 goal: "Tail-recursive functions are compiled to loops — no stack growth on tail calls"
 inspired_by:
   - "Lean4 src/Lean/Compiler/IR/RC.lean — tail call detection and loop lowering"
@@ -11,7 +11,7 @@ depends_on: ["04"]
 sections:
   - id: "09.1"
     title: "Tail Call Detection"
-    status: not-started
+    status: in-progress
   - id: "09.2"
     title: "Loop Lowering (Primary) or musttail Emission (Fallback)"
     status: not-started
@@ -119,8 +119,8 @@ For TCO detection, `__recurse` must be resolved to the current function name. Tw
 
 **If Option 1 is not feasible** (e.g., unexpected issue with adding the field), use Option 2 and add a `resolve_recurse_sentinel(func: &mut ArcFunction, interner: &StringInterner)` helper that rewrites all `Apply { func: __recurse, .. }` to `Apply { func: func.name, .. }` as the first step of the detection pass.
 
-- [ ] **PREREQUISITE:** Resolve `__recurse` sentinel to actual function name. **Option 1 (preferred):** (a) Add `pub(crate) func_name: Name` field to `ArcLowerer` in `lower/expr/mod.rs`. (b) Set it from `name` parameter in `lower_function_can()` at `lower/mod.rs:153`. (c) In `lower/constructs.rs:lower_exp_recurse()`, replace `self.interner.intern("__recurse")` with `self.func_name`. If Option 2, add `resolve_recurse_sentinel()` helper as first step of detection pass.
-- [ ] **PREREQUISITE:** Verify that `recurse()` pattern programs compile and run correctly via AOT before and after the sentinel resolution fix (this may expose a latent AOT bug — see note above).
+- [x] **PREREQUISITE:** Resolve `__recurse` sentinel to actual function name. **Option 1 (preferred):** (a) Add `pub(crate) func_name: Name` field to `ArcLowerer` in `lower/expr/mod.rs`. (b) Set it from `name` parameter in `lower_function_can()` at `lower/mod.rs:153`. (c) In `lower/constructs.rs:lower_exp_recurse()`, replace `self.interner.intern("__recurse")` with `self.func_name`. If Option 2, add `resolve_recurse_sentinel()` helper as first step of detection pass. (2026-03-06: Also fixed `self(...)` calls — parser emits `Ident("self")` not `SelfRef`, resolved to `func_name` in `lower_ident` and `lower_call`. Also fixed `lower_exp_recurse` to emit conditional control flow instead of eager evaluation.)
+- [x] **PREREQUISITE:** Verify that `recurse()` pattern programs compile and run correctly via AOT before and after the sentinel resolution fix (this may expose a latent AOT bug — see note above). (2026-03-06: Confirmed — before fix, AOT panicked with "unresolved function `self`". After fix, factorial(5)=120 and gcd(48,18)=6 both work correctly in AOT. All 4164 spec tests pass.)
 - [ ] Add tail call detection pass as a NEW function (not extending `check_tail_call()` — different purpose, different phase). Detection must trace cross-block patterns: `Return(v)` → predecessor `Jump(merge, [v])` → `Apply { dst: v, func: self_name }` in predecessor block.
 - [ ] Confirm pipeline placement in `run_arc_pipeline()`: AFTER `rc_identity` + `rc_elim` (all RC ops finalized) and BEFORE `block_merge` (as specified in §09.2's pipeline code sample). Document placement with comment in `run_arc_pipeline()`. Update `lib.rs` pipeline ordering documentation.
 - [ ] Handle: for RC-managed functions, the ARC pipeline inserts `RcDec` between the tail call `Apply` and the `Jump` terminator — these must be hoisted before the call for TCO to work
@@ -132,14 +132,14 @@ For TCO detection, `__recurse` must be resolved to the current function name. Tw
 
 ### 09.1 Completion Checklist
 
-- [ ] `__recurse` sentinel resolved to actual function name (no unresolved `__recurse` in ARC IR post-lowering)
+- [x] `__recurse` sentinel resolved to actual function name (no unresolved `__recurse` in ARC IR post-lowering) (2026-03-06)
 - [ ] Tail call detection correctly identifies self-recursive tail calls across the cross-block pattern (Apply → Jump → Return)
 - [ ] Detection accounts for `RcDec` operations between Apply and Jump (verifies hoisting is safe; actual hoisting is in §09.2)
 - [ ] Non-tail calls (result transformed, intervening side effects) are correctly excluded
 - [ ] Mutual recursion is correctly excluded (self-recursion only for this section)
 - [ ] `ApplyIndirect` calls are excluded (callee identity unknown)
 - [ ] Multi-clause functions with self-recursive calls in match arms are detected
-- [ ] `recurse()` pattern calls (formerly `__recurse` sentinel) are detected
+- [x] `recurse()` pattern calls (formerly `__recurse` sentinel) are detected (2026-03-06: resolved at lowering time — emits Apply @func_name(...) directly)
 - [ ] Annotation format chosen and implemented (sidecar on `ArcFunction` or IR variant)
 - [ ] `run_arc_pipeline()` updated with new pass placement and ordering comment
 - [ ] `//!` module doc on `tail_call/mod.rs` describing pass purpose, inputs, outputs

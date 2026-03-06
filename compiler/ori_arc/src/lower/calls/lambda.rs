@@ -99,6 +99,7 @@ impl ArcLowerer<'_> {
                 lambdas: self.lambdas,
                 hash_length: None,
                 block_let_names: rustc_hash::FxHashSet::default(),
+                func_name: self.func_name,
                 variant_ctors: self.variant_ctors,
                 type_subst: self.type_subst,
             };
