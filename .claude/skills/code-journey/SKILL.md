@@ -52,7 +52,7 @@ Skill definition files live in `.claude/skills/code-journey/`:
 - `SCHEMA.md` — format specification (single source of truth)
 - `score.py` — deterministic scoring script
 
-**No overview.md** — the web UI auto-generates the gallery from journey frontmatter.
+- `overview.md` — cross-journey summary (generated after all journeys complete)
 
 ---
 
@@ -235,10 +235,15 @@ Your tasks:
 1. Read .claude/skills/code-journey/SCHEMA.md (the format spec)
 2. Read ALL trace files and analyze the journey through both compiler paths
 3. Read previous journey results frontmatter for cross-referencing
-4. Perform Deep Scrutiny (all 7 core categories + 1-4 journey-specific)
-5. Compute scores: run `python3 .claude/skills/code-journey/score.py` with your metrics (see Scoring section in SKILL.md). Use its output as the authoritative scores. Do NOT override the script's scores.
-6. Write plans/code-journeys/NN-slug-results.md conforming to SCHEMA.md
-7. Run: rm -rf /tmp/journey_N
+4. Run extract-metrics.py FIRST to get algorithmic metrics:
+   python3 .claude/skills/code-journey/extract-metrics.py \
+     --ir-file /tmp/journey_N/llvm_ir.txt \
+     --eval-exit <eval_code> --aot-exit <aot_code> --expected <expected>
+   Use its JSON output for 6 of 7 scoring dimensions. Do NOT override these numbers.
+5. Perform Deep Scrutiny (all 7 core categories + 1-4 journey-specific)
+6. Compute scores: pass extract-metrics.py output + your --other-* counts to score.py
+7. Write plans/code-journeys/NN-slug-results.md conforming to SCHEMA.md
+8. Run: rm -rf /tmp/journey_N
 
 Key format requirements from SCHEMA.md:
 - YAML frontmatter with all required fields (including score_breakdown)
@@ -281,7 +286,102 @@ Journey N (slug) complete: eval=[exit_code] aot=[exit_code] — next: [feature a
 
 Then loop back to Step 0 for journey N+1. **Do not elaborate. Do not summarize findings. The background agent handles that.**
 
-**If stopping** (infinity mode, both paths failed): Print a brief termination message and stop.
+**If stopping** (infinity mode, both paths failed): Print a brief termination message, then proceed to Step 5.
+
+### Step 5: Generate Overview (After All Journeys)
+
+**This step runs ONCE after all journeys are complete** — either after the single journey finishes (if results files from previous journeys also exist), after infinity mode terminates, or after a "redo all" completes.
+
+**Skip this step if**: only 1 results file exists total (a single journey with no history doesn't need an overview).
+
+**Wait for background agents**: Before generating the overview, check that all expected `NN-slug-results.md` files exist. If any are still being written by background agents, wait for their task notifications before proceeding.
+
+**Generate `plans/code-journeys/overview.md`** with these sections:
+
+#### 1. Header and Description
+```markdown
+# Code Journeys — Overview
+
+Code journeys trace a single Ori program through the entire compiler pipeline (lexer, parser, typeck, canonicalization, interpreter, LLVM codegen, AOT binary) and perform deep scrutiny on the generated output. Each journey tests a specific language feature set.
+```
+
+#### 2. Journey Index Table
+
+Read YAML frontmatter from every `*-results.md` file. Build a summary table:
+
+```markdown
+## Journey Index
+
+| # | Name | Features | Expected | Eval | AOT | Score | Key Findings |
+|---|------|----------|----------|------|-----|-------|--------------|
+| J1 | "I am arithmetic" | arithmetic, function_calls, let_bindings | 33 | PASS | PASS | 9.8/10 | OPTIMAL codegen, zero ARC |
+| J2 | "I am a branch" | branching, comparison | 17 | PASS | PASS | 9.2/10 | branchless select, 5 CF defects |
+...
+```
+
+For each journey, extract from frontmatter: `journey`, `theme`, `features` (abbreviated), `expected`, `eval_result`, `aot_result`, `score`, and the most notable findings.
+
+#### 3. Recurring Issues Across Journeys
+
+Scan ALL `## Findings` sections across all results files. Group findings that appear in multiple journeys (same description pattern or same root cause):
+
+```markdown
+## Recurring Issues
+
+| Issue | Severity | Journeys | Description |
+|-------|----------|----------|-------------|
+| Empty trampoline blocks | LOW | J2, J3, J5, J7, J9, J12 | Unconditional br to next sequential block |
+| Missing memory attribute | MEDIUM | J4, J12 | Pure functions lack memory(read) or memory(none) |
+...
+```
+
+#### 4. Resolved Issues (if any)
+
+If any findings have status FIXED (cross-referenced across journeys), document them:
+
+```markdown
+## Resolved Issues
+
+### [Issue name] — FIXED
+**First seen**: Journey N
+**Fixed in**: Journey M (or commit hash)
+**Description**: ...
+```
+
+#### 5. Score Trend
+
+Show score progression across journeys:
+
+```markdown
+## Score Trend
+
+| Difficulty | Journeys | Avg Score | Range |
+|------------|----------|-----------|-------|
+| Simple (J1-J4) | 4 | 9.1 | 8.5–9.8 |
+| Moderate (J5-J8) | 4 | 9.0 | 8.8–9.8 |
+| Complex (J9-J12) | 4 | 8.7 | 7.5–9.8 |
+| **Overall** | **12** | **8.9** | **7.5–9.8** |
+```
+
+#### 6. Tooling Notes (if any)
+
+Document any metric extraction bugs or limitations discovered during the run.
+
+#### 7. Results File Links
+
+```markdown
+## Results Files
+
+- [Journey 1: "I am arithmetic"](01-arithmetic-results.md)
+- [Journey 2: "I am a branch"](02-branching-results.md)
+...
+```
+
+**Write the overview directly** (the main agent does this, NOT a background agent — it's the final deliverable). Print a completion message:
+
+```
+Overview written to plans/code-journeys/overview.md
+```
 
 ---
 
@@ -378,26 +478,46 @@ Each journey MUST have at least 1 and at most 4 journey-specific categories.
 
 ## Scoring (for Background Agent)
 
-**Scores are computed deterministically by `score.py`, not by AI judgment.** The script maps counts to scores via strict threshold tables.
+**Scores are computed deterministically by scripts, not by AI judgment.** 6 of 7 scoring dimensions are computed algorithmically by `extract-metrics.py`. Only "Other Findings" (15% weight) remains AI-determined.
+
+### CRITICAL: Use extract-metrics.py
+
+**Before ANY manual analysis**, run the metric extraction script on the LLVM IR dump:
+
+```bash
+python3 .claude/skills/code-journey/extract-metrics.py \
+  --ir-file /tmp/journey_N/llvm_ir.txt \
+  --eval-exit <eval_exit_code> \
+  --aot-exit <aot_exit_code> \
+  --expected <expected_value> \
+  [--sections-file /tmp/journey_N/sections.txt]
+```
+
+This produces JSON with all 6 algorithmic dimensions. The script also prints the `score.py` command to stderr.
+
+**If `extract-metrics.py` produces different numbers than your manual analysis, the SCRIPT IS CORRECT.** Investigate why your analysis differs — the script uses deterministic algorithms that produce the same output given the same input, regardless of who runs it.
 
 ### CRITICAL: Exploration First, Scoring Last
 
 **Do NOT let the scoring rubric drive your analysis.** The Deep Scrutiny is open-ended exploration — look at what the compiler actually produced, report what you find, follow surprising threads. The rubric scores the OUTPUT of your exploration; it is not a checklist to optimize for. Goodhart's Law applies: if you only look for what's scored, you'll miss the interesting findings that make journeys valuable.
 
-**Workflow**: Complete ALL 7 Deep Scrutiny categories with genuine analysis first. Write up your findings. THEN — as a final mechanical step — extract the metrics from what you already wrote and feed them to `score.py`.
+**Workflow**: Complete ALL 7 Deep Scrutiny categories with genuine analysis first. Write up your findings. THEN — as a final mechanical step — run `extract-metrics.py` and feed its output + your "Other Findings" counts to `score.py`.
 
 ### How to Score (After Deep Scrutiny Is Complete)
 
 1. Complete all 7 Deep Scrutiny categories and write up findings
-2. Extract the following metrics from your completed analysis:
-   - **Instruction ratio**: `sum(actual_i) / sum(ideal_i)` across all user functions (weighted average), and the max per-function ratio
-   - **ARC violations**: count using severity multipliers (unbalanced = ×3, scalar RC = ×5, wasted pair = ×1, missing elision = ×1, missing move = ×1)
-   - **Attribute compliance**: count total applicable attributes and how many are correctly applied
-   - **Control flow defects**: count empty blocks, redundant branches, trivial phi nodes, unreachable code after noreturn, redundant block boundaries
-   - **IR unjustified instructions**: count instructions in actual IR not in ideal IR that aren't justified by overflow checking, panic path setup, or ABI compliance
-   - **Binary defects**: count (crashes = ×3, leaks = ×2, eval/AOT mismatch = ×3, each other defect = ×1)
-   - **Gate flags**: boolean flags for critical conditions (unbalanced RC, scalar RC, wrong attributes, incorrect CF, incorrect IR, binary hard fail)
-3. Run the scoring script:
+2. Run `extract-metrics.py` (see command above) — it computes 6 dimensions algorithmically:
+   - **Instruction ratio** (avg and max) — from unjustified instruction detection
+   - **ARC violations** — from RC operation counting and violation detection
+   - **Attribute compliance** — from deterministic attribute rule checking
+   - **Control flow defects** — from empty block, redundant branch, trivial phi detection
+   - **IR unjustified instructions** — same unjustified count used for instruction ratio
+   - **Binary defects** — from exit code comparison
+3. Determine the "Other Findings" counts from your journey-specific analysis (Cat 8+):
+   - `--other-critical`: count of CRITICAL findings from journey-specific categories
+   - `--other-high`: count of HIGH findings from journey-specific categories
+   - `--other-low`: count of LOW/MEDIUM findings from journey-specific categories
+4. Run the scoring script (combine extract-metrics.py output with your Other Findings):
 
 ```bash
 python3 .claude/skills/code-journey/score.py \

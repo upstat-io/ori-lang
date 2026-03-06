@@ -1,0 +1,20 @@
+// Journey 8: "I am generic"
+// Slug: generics
+// Difficulty: moderate
+// Features: generics, monomorphization, generic_structs, type_inference
+// Expected: identity(42) + first(10, 20) + get_value(Box { value: 5 }) = 42 + 10 + 5 = 57
+
+type Box<T> = { value: T }
+
+@identity<T> (x: T) -> T = x;
+
+@first<A, B> (a: A, b: B) -> A = a;
+
+@get_value<T> (b: Box<T>) -> T = b.value;
+
+@main () -> int = {
+    let a = identity(x: 42);                   // = 42
+    let b = first(a: 10, b: 20);               // = 10
+    let c = get_value(b: Box { value: 5 });     // = 5
+    a + b + c                                   // = 57
+}
