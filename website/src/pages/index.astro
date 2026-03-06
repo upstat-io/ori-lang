@@ -16,15 +16,15 @@ const faqSchema = {
       name: 'What is Ori programming language?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Ori is a statically-typed programming language with mandatory testing, dependency-aware integrity, and explicit effects. Every function must have tests, and changes are automatically traced through the dependency graph.'
+        text: 'Ori is a statically-typed programming language with value semantics, explicit effects, and smart testing. Eight compiler optimizations turn functional code into in-place mutations — no garbage collector, no borrow checker, no manual memory management.'
       }
     },
     {
       '@type': 'Question',
-      name: 'How does mandatory testing work in Ori?',
+      name: 'How does testing work in Ori?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'In Ori, every function (except @main) requires associated tests. If a function lacks tests, the code won\'t compile. Tests live in the dependency graph, so changing a function automatically runs its tests and the tests of all callers.'
+        text: 'Ori has smart, dependency-aware testing built into the compiler. Tests live in the dependency graph — change a function and every affected test runs automatically. Test enforcement is configurable per project: off (default), warn, or error. Mocking is trivial thanks to the capability system.'
       }
     },
     {
@@ -56,9 +56,9 @@ const faqSchema = {
 ---
 
 <BaseLayout
-  title="Ori — Code That Proves Itself"
-  description="Ori is a statically-typed language with functional semantics and imperative performance. No garbage collector, no borrow checker — eight stacked ARC optimizations turn value-semantic code into in-place mutations. Every function tested. Every effect explicit. Free and open source."
-  keywords="Ori programming language, ARC memory management, value semantics, no garbage collector, no borrow checker, mandatory testing, static typing, type inference, dependency tracking, code verification, effect system, capabilities, functional programming, in-place mutation, open source programming language"
+  title="Ori — Functional Code. Imperative Speed."
+  description="Ori is a statically-typed language where functional code compiles to imperative speed. No garbage collector, no borrow checker — eight stacked optimizations turn value-semantic code into in-place mutations. Effects you can see. Testing that knows your code. Free and open source."
+  keywords="Ori programming language, ARC memory management, value semantics, no garbage collector, no borrow checker, smart testing, dependency-aware testing, configurable test enforcement, static typing, type inference, effect system, capabilities, functional programming, in-place mutation, open source programming language"
 >
   <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} slot="head" />
 

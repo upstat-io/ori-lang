@@ -44,7 +44,7 @@ subsections:
 
 **Context:** Sections 09-13 wired all consuming phases (ori_types, ori_eval, ori_arc, ori_llvm, ori_ir) to read from ori_registry instead of maintaining independent type knowledge. This section is the final gate: it replaces the ~1,010-line `consistency.rs` (with its 560+ allowlist entries across 6 arrays) with a small set of structural enforcement tests that derive their expectations directly from the registry. No manual lists. No gap tracking. No "known missing" arrays. The registry IS the specification; the enforcement tests verify that every phase faithfully implements it.
 
-**Design rationale:** The old consistency tests were necessary because type knowledge was scattered: `TYPECK_BUILTIN_METHODS` (426 entries), `EVAL_BUILTIN_METHODS` (~165 entries), `BUILTIN_METHODS` in ori_ir (162 entries), `BuiltinTable` in ori_llvm (179 entries), and `borrowing_builtins` in ori_arc. The allowlists (`TYPECK_METHODS_NOT_IN_EVAL`, `EVAL_METHODS_NOT_IN_IR`, etc.) tracked intentional gaps between these independent lists. With the registry as single source of truth, these gaps become structural impossibilities -- a method either exists in the registry (and all phases must handle it) or it does not exist (and no phase references it). The enforcement tests verify this invariant at test time, while Rust's type system enforces it at compile time (adding a field to `TypeDef` is a compile error in every consuming phase).
+**Design rationale:** The old consistency tests were necessary because type knowledge was scattered: `TYPECK_BUILTIN_METHODS` (390 entries), `EVAL_BUILTIN_METHODS` (~165 entries), `BUILTIN_METHODS` in ori_ir (162 entries), `BuiltinTable` in ori_llvm (179 entries), and `borrowing_builtins` in ori_arc. The allowlists (`TYPECK_METHODS_NOT_IN_EVAL`, `EVAL_METHODS_NOT_IN_IR`, etc.) tracked intentional gaps between these independent lists. With the registry as single source of truth, these gaps become structural impossibilities -- a method either exists in the registry (and all phases must handle it) or it does not exist (and no phase references it). The enforcement tests verify this invariant at test time, while Rust's type system enforces it at compile time (adding a field to `TypeDef` is a compile error in every consuming phase).
 
 **What this section replaces:**
 - `compiler/oric/src/eval/tests/methods/consistency.rs` (~1,010 lines) -- entire file deleted
@@ -1155,11 +1155,11 @@ error, list, map, range, tuple
 **Verification:**
 - [ ] `grep -r "TYPECK_METHODS_NOT_IN_EVAL" compiler/ --include='*.rs'` returns 0 results
 
-### 14.5.7 TYPECK_BUILTIN_METHODS (426 entries)
+### 14.5.7 TYPECK_BUILTIN_METHODS (390 entries)
 
 **What it tracked:** The exported constant in `ori_types` listing every `(type, method)` pair the type checker recognizes. Used by consistency tests for cross-checking.
 
-**Entries:** 426 `(type, method)` pairs in `ori_types/src/infer/expr/methods/mod.rs`
+**Entries:** 390 `(type, method)` pairs in `ori_types/src/infer/expr/methods/mod.rs`
 
 **Why no longer needed:** The type checker reads directly from `ori_registry`. It does not maintain its own method list. Enforcement tests iterate the registry, not `TYPECK_BUILTIN_METHODS`.
 
@@ -1218,7 +1218,7 @@ error, list, map, range, tuple
 - [ ] Delete `EVAL_METHODS_NOT_IN_TYPECK` (63 entries)
 - [ ] Delete `TYPECK_METHODS_NOT_IN_IR` (143 entries)
 - [ ] Delete `TYPECK_METHODS_NOT_IN_EVAL` (260 entries)
-- [ ] Delete `TYPECK_BUILTIN_METHODS` (426 entries) from `ori_types`
+- [ ] Delete `TYPECK_BUILTIN_METHODS` (390 entries) from `ori_types`
 - [ ] Delete `EVAL_BUILTIN_METHODS` (~165 entries) from `ori_eval`
 - [ ] Delete `ITERATOR_METHOD_NAMES` (~35 entries) from `ori_eval`
 - [ ] Delete `DEI_ONLY_METHODS` (5 entries) from `ori_types`

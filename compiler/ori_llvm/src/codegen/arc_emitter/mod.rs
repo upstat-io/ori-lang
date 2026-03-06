@@ -23,6 +23,7 @@
 //! - [`context`] — shared types: `CodegenContext`, `EmittedValue`, `InvokeMode`, `is_boxed_enum_field`
 //! - [`drop_gen`] — per-type LLVM drop function generation (cached by mangled name)
 //! - [`emit_function`] — function-level emission orchestration
+//! - [`field_scan`] — field usage scanning for surgical struct loading
 //! - [`instr_dispatch`] — per-instruction dispatch (`emit_instr`, `emit_project`)
 //! - [`operators`] — binary and unary operator emission (primitive + trait dispatch)
 //! - [`rc_helpers`] — RC data pointer extraction and inline enum cleanup
@@ -43,6 +44,7 @@ mod drop_gen;
 mod element_fn_gen;
 mod emit_function;
 mod emitter_utils;
+mod field_scan;
 mod instr_dispatch;
 mod operators;
 mod rc_buffer_ops;
@@ -72,7 +74,7 @@ use super::value_id::{BlockId, FunctionId, TokenId, ValueId};
 /// Encoding this in the type prevents `br_exiting_catchpad` from accidentally
 /// emitting `catchret` for a cleanup pad.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum FuncletPadKind {
+pub(super) enum FuncletPadKind {
     /// `catchpad` — exits via `catchret` to a trampoline, then branches normally.
     ///
     /// Currently unused: SEH catch blocks use the `ori_try_call` trampoline
@@ -142,15 +144,15 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     phi_incoming: Vec<(usize, usize, ValueId, BlockId)>,
     /// Current block index in the ARC IR function (set during emission).
     /// Used by COW emitters to query `CowAnnotations` for the current instruction.
-    pub(crate) current_block_idx: usize,
+    pub(super) current_block_idx: usize,
     /// Current instruction index within the current block (set during emission).
-    pub(crate) current_instr_idx: usize,
+    pub(super) current_instr_idx: usize,
     /// Active SEH funclet pad token and kind, if inside a `catchpad` or `cleanuppad`.
     /// When `Some`, all runtime calls are emitted with a `"funclet"` operand
     /// bundle so that LLVM's verifier accepts them inside SEH pads.
     /// The `FuncletPadKind` distinguishes catch (exits via `catchret`) from
     /// cleanup (exits via `cleanupret`).
-    pub(crate) current_funclet_pad: Option<(TokenId, FuncletPadKind)>,
+    pub(super) current_funclet_pad: Option<(TokenId, FuncletPadKind)>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {

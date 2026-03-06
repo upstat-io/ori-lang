@@ -3,7 +3,7 @@ section: 14
 title: Testing Framework
 status: in-progress
 tier: 5
-goal: Mandatory testing enforcement with dependency-aware execution and incremental test execution during compilation
+goal: Configurable test enforcement with dependency-aware execution and incremental test execution during compilation
 spec:
   - spec/19-testing.md
 sections:
@@ -50,7 +50,7 @@ sections:
 
 # Section 14: Testing Framework
 
-**Goal**: Mandatory testing enforcement with dependency-aware execution and incremental test execution during compilation
+**Goal**: Configurable test enforcement with dependency-aware execution and incremental test execution during compilation
 
 > **SPEC**: `spec/19-testing.md`
 > **DESIGN**: `design/11-testing/index.md`
@@ -67,11 +67,11 @@ sections:
 
 ## 14.1 Test Requirement
 
-- [ ] **Implement**: Every function must have tests — spec/19-testing.md § Test Requirements, design/11-testing/01-mandatory-tests.md
-  - [ ] **Rust Tests**: `ori_types/src/check/test_coverage.rs` — mandatory test enforcement
-  - [ ] **Ori Tests**: `tests/spec/testing/mandatory.ori`
-  - [ ] **LLVM Support**: LLVM codegen for mandatory test enforcement
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — mandatory test enforcement codegen
+- [ ] **Implement**: Configurable test enforcement (off/warn/error) — spec/19-testing.md § Test Requirements, design/11-testing/01-mandatory-tests.md
+  - [ ] **Rust Tests**: `ori_types/src/check/test_coverage.rs` — configurable test enforcement
+  - [ ] **Ori Tests**: `tests/spec/testing/enforcement.ori`
+  - [ ] **LLVM Support**: LLVM codegen for test enforcement
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test enforcement codegen
 
 - [ ] **Implement**: Exemptions (`@main`, private helpers) — spec/19-testing.md § Exemptions
   - [ ] **Rust Tests**: `ori_types/src/check/test_coverage.rs` — exemption rules

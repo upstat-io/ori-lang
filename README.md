@@ -2,29 +2,17 @@
 
 # Ori
 
-**Code That Proves Itself**
+**Functional Code. Imperative Speed.**
 
-Functional semantics. Imperative performance. Zero compromise.
+No garbage collector. No borrow checker. Eight compiler optimizations turn functional code into in-place mutations — automatically.
 
-A statically-typed, expression-based language with mandatory testing, explicit effects, and a memory model that turns value semantics into in-place mutations.
+A statically-typed, expression-based language with value semantics, explicit effects, and smart testing.
 
 [Website](https://ori-lang.com) | [Playground](https://ori-lang.com/playground) | [Getting Started](#quick-start) | [Specification](https://ori-lang.com/docs/spec/01-notation) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
 
 </div>
 
 > **Experimental:** Ori is under active development and not ready for production use. The language, APIs, and tooling may change without notice.
-
-## Why Ori?
-
-### Two Problems, One Design
-
-**Problem 1: Code without tests is a hypothesis.** Developers forget to write tests, skip them under pressure, and ignore failures. AI assistants are even worse — they generate code without tests and "fix" failures by weakening assertions.
-
-**Problem 2: "Safe" languages force you to choose.** Garbage collector pauses, borrow checker complexity, or manual memory management. Pick two at most.
-
-### One Solution
-
-Ori makes both automatic. Verification is mandatory — the compiler enforces what discipline cannot. Memory management is invisible — no garbage collector, no borrow checker, no manual allocation. And the same design choices that make code verifiable make it fast: value semantics eliminate aliasing, which lets the compiler optimize aggressively.
 
 ## The Memory Model Nobody Else Has
 
@@ -98,30 +86,48 @@ For the full technical details, see the [ARC System Design](https://ori-lang.com
 | **Cycle prevention** | Structural (language design) | Weak refs (manual) | Ownership rules | GC handles it | Structural | Structural |
 | **Latency** | Deterministic | Deterministic | Deterministic | GC pauses | Deterministic | Deterministic |
 
-## Mandatory Testing
+## Effects You Can See
 
-Every function requires tests. No exceptions. No skipping. No "I'll add tests later."
+Side effects are tracked through capabilities. Every function declares what it can do, and mocking is just providing a different implementation.
 
 ```ori
-@fibonacci (n: int) -> int = recurse(
-    condition: n <= 1,
-    base: n,
-    step: fibonacci(n: n - 1) + fibonacci(n: n - 2),
-    memo: true,
-)
+@fetch_user (id: UserId) -> Result<User, Error> uses Http =
+    Http.get("/users/" + str(id))
 
-@test_fibonacci tests @fibonacci () -> void = {
-    assert_eq(fibonacci(n: 0), 0);
-    assert_eq(fibonacci(n: 1), 1);
-    assert_eq(fibonacci(n: 10), 55);
-}
+@test_fetch_user tests @fetch_user () -> void =
+    with Http = MockHttp(responses: {"/users/1": mock_user}) in {
+        let result = fetch_user(id: 1);
+        assert_ok(result);
+        assert_eq(result.unwrap().name, "Alice");
+    }
 ```
 
-`@test tests @target` creates a compiler-enforced bond between test and function. The compiler ensures every function has tests. No tests, no compile.
+No test framework. No mocking library. No DI container. Just the language.
 
-## Dependency-Aware Test Execution
+## The Design That Compounds
 
-Tests are in the dependency graph. Change `@parse`, and tests for `@compile` (which calls `@parse`) run too.
+These are not independent features bolted together. They are one coherent design where each choice reinforces the others:
+
+```
+Value semantics
+├── No aliasing → ARC optimizes aggressively (in-place reuse, COW, borrow inference)
+├── No shared mutable state → capabilities track ALL effects
+│   └── Capabilities → trivial mocking → testing isn't painful
+│       └── Smart testing → code integrity → refactoring is safe
+└── Pure functions (no capabilities) → compiler can memoize, reorder, parallelize
+```
+
+**Value semantics** make the memory model possible — without aliasing, the compiler can prove ownership and reuse allocations. They also make capabilities complete — when mutation is explicit, every side effect is visible. Capabilities make mocking trivial, which makes testing practical. And smart testing means code integrity is enforced by infrastructure, not by discipline.
+
+The same design choice that gives you safe memory gives you testable code gives you optimizable programs. One decision, compounding returns.
+
+## Smart Testing
+
+Ori's testing infrastructure is built into the compiler — not bolted on as an afterthought.
+
+### Dependency-Aware Execution
+
+Tests are nodes in the dependency graph. Change `@parse`, and tests for `@compile` (which calls `@parse`) run automatically.
 
 ```ori
 @parse (input: str) -> Result<Ast, Error> = ...
@@ -136,23 +142,21 @@ Tests are in the dependency graph. Change `@parse`, and tests for `@compile` (wh
 
 Change `@parse` → the compiler runs `@test_parse` AND `@test_compile`.
 
-## Explicit Effects & Trivial Mocking
+### Configurable Enforcement
 
-Side effects are tracked through capabilities. Mocking is just providing a different implementation.
+Choose your testing policy per project:
 
-```ori
-@fetch_user (id: UserId) -> Result<User, Error> uses Http =
-    Http.get("/users/" + str(id))
-
-@test_fetch_user tests @fetch_user () -> void =
-    with Http = MockHttp(responses: {"/users/1": mock_user}) in {
-        let result = fetch_user(id: 1);
-        assert_ok(result);
-        assert_eq(result.unwrap().name, "Alice");
-    }
+```bash
+ori check --test-enforcement=off file.ori    # Tests optional (default)
+ori check --test-enforcement=warn file.ori   # Warnings for missing tests
+ori check --test-enforcement=error file.ori  # Full enforcement for production
 ```
 
-No test framework. No mocking library. Just the language.
+No enforcement by default — you choose when testing becomes a requirement.
+
+### Test-Driven Optimization
+
+Your tests are automatic profiling data. The compiler uses test execution patterns to optimize your production binary — the functions your tests exercise most get the best optimization.
 
 ## Contracts
 
@@ -169,23 +173,6 @@ Functions declare and enforce their invariants.
     assert_panics(sqrt(x: -1.0));
 }
 ```
-
-## The Design That Compounds
-
-These are not independent features bolted together. They are one coherent design where each choice reinforces the others:
-
-```
-Value semantics
-├── No aliasing → ARC optimizes aggressively (in-place reuse, COW, borrow inference)
-├── No shared mutable state → capabilities track ALL effects
-│   └── Capabilities → trivial mocking → mandatory testing isn't painful
-│       └── Mandatory testing → code integrity → refactoring is safe
-└── Pure functions (no capabilities) → compiler can memoize, reorder, parallelize
-```
-
-**Value semantics** make the memory model possible — without aliasing, the compiler can prove ownership and reuse allocations. They also make capabilities complete — when mutation is explicit, every side effect is visible. Capabilities make mocking trivial, which makes mandatory testing practical rather than painful. And mandatory testing means code integrity is enforced, not hoped for.
-
-The same design choice that gives you safe memory gives you testable code gives you optimizable programs. One decision, compounding returns.
 
 ## Quick Start
 
@@ -214,7 +201,7 @@ ori run program.ori      # Run a program
 ori test                 # Run all tests (parallel)
 ori test file.test.ori   # Run specific test file
 ori build program.ori    # Compile to native binary
-ori check program.ori    # Type-check and verify test coverage
+ori check program.ori    # Type-check and verify
 ori fmt src/             # Format source files
 ```
 
@@ -259,19 +246,18 @@ Requires Rust 1.70+.
 
 ## Design Philosophy
 
-**Code that proves itself.** Every function tested. Every change traced. Every effect explicit. Every allocation optimized.
+**Functional code that runs fast.** Value semantics that compile to in-place mutations. Effects you can see. Testing that knows your code. Every allocation optimized.
 
-Ori makes verification and performance automatic — the compiler enforces what discipline alone cannot.
+Ori makes performance and verification automatic — the compiler does what discipline alone cannot.
 
 | Traditional Approach | Ori Approach |
 |---------------------|----------------|
-| Tests are optional | Tests are mandatory |
+| GC pauses or borrow checker | ARC with value semantics |
+| Hidden effects | Explicit capabilities |
+| Mock with frameworks | Mock with capabilities |
 | Tests are external | Tests are in the dependency graph |
 | Change and hope | Change and know what broke |
-| Mock with frameworks | Mock with capabilities |
 | Runtime errors | Compile-time guarantees |
-| Hidden effects | Explicit capabilities |
-| GC pauses or borrow checker | ARC with value semantics |
 | Manual optimization hints | Optimization from semantics |
 
 ## Getting Help

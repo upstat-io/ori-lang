@@ -1,0 +1,16 @@
+// Journey 4: "I am a struct"
+// Slug: structs
+// Difficulty: simple
+// Features: struct_construction, field_access, nested_structs, function_calls
+// Expected: p.x + p.y + area(r) = 3 + 4 + 10 * 5 = 57
+
+type Point = { x: int, y: int }
+type Rect = { origin: Point, width: int, height: int }
+
+@area (r: Rect) -> int = r.width * r.height;
+
+@main () -> int = {
+    let p = Point { x: 3, y: 4 };
+    let r = Rect { origin: p, width: 10, height: 5 };
+    p.x + p.y + area(r: r)    // = 3 + 4 + 50 = 57
+}

@@ -1,0 +1,51 @@
+// Journey 11: "I am a derived trait"
+// Slug: derived-traits
+// Difficulty: complex
+// Features: derived_traits, trait_methods, struct_construction, sum_types, pattern_matching
+// Expected: check_struct_eq() + check_sum_eq() + check_nested() = 7 + 11 + 15 = 33
+
+#[derive(Eq)]
+type Point = { x: int, y: int }
+
+#[derive(Eq)]
+type Color = Red | Green | Blue;
+
+#[derive(Eq)]
+type Shape = Circle(radius: int) | Rect(w: int, h: int);
+
+@check_struct_eq () -> int = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 20 };
+    let p3 = Point { x: 10, y: 30 };
+    let same = if p1 == p2 then 3 else 0;
+    let diff = if p1 != p3 then 4 else 0;
+    same + diff
+    // = 3 + 4 = 7
+}
+
+@check_sum_eq () -> int = {
+    let c1 = Red;
+    let c2 = Red;
+    let c3 = Blue;
+    let unit_same = if c1 == c2 then 5 else 0;
+    let unit_diff = if c1 != c3 then 6 else 0;
+    unit_same + unit_diff
+    // = 5 + 6 = 11
+}
+
+@check_nested () -> int = {
+    let s1 = Circle(radius: 10);
+    let s2 = Circle(radius: 10);
+    let s3 = Rect(w: 5, h: 8);
+    let payload_same = if s1 == s2 then 7 else 0;
+    let payload_diff = if s1 != s3 then 8 else 0;
+    payload_same + payload_diff
+    // = 7 + 8 = 15
+}
+
+@main () -> int = {
+    let a = check_struct_eq();   // = 7
+    let b = check_sum_eq();      // = 11
+    let c = check_nested();      // = 15
+    a + b + c                    // = 33
+}

@@ -21,10 +21,10 @@
   <text x="600" y="380" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="72" fill="#e2e4e9">Ori</text>
 
   <!-- Tagline -->
-  <text x="600" y="440" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="28" fill="#9ca0ab">Code That Proves Itself</text>
+  <text x="600" y="440" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="28" fill="#9ca0ab">Functional Code. Imperative Speed.</text>
 
   <!-- Subtitle -->
-  <text x="600" y="500" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="20" fill="#636874">Mandatory testing · Dependency-aware integrity · Explicit effects</text>
+  <text x="600" y="500" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="20" fill="#636874">No GC · No borrow checker · Eight optimizations · Value semantics</text>
 
   <!-- URL -->
   <text x="600" y="580" text-anchor="middle" font-family="monospace" font-weight="500" font-size="18" fill="#60a5fa">ori-lang.com</text>

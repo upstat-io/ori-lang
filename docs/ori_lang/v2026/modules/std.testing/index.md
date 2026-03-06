@@ -367,5 +367,5 @@ use std.testing { Mock, assert_eq }
 
 ## See Also
 
-- [Mandatory Testing](../../spec/13-testing.md) — Test requirements
+- [Testing](../../spec/19-testing.md) — Test requirements
 - [Design: Testing](../../design/11-testing/) — Testing philosophy

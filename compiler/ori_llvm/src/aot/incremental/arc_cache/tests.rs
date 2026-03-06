@@ -31,10 +31,7 @@ fn sample_arc_function() -> ArcFunction {
         var_types: vec![Idx::INT, Idx::INT],
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::CowAnnotations::default(),
-        drop_hints: ori_arc::DropHints::default(),
+        ..Default::default()
     }
 }
 

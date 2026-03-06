@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Loop IR Quality"
-status: in-progress
+status: complete
 goal: "Loops emit minimal IR — no duplicate computations, no loop-invariant block params, optimized range checks for common patterns"
 inspired_by:
   - "LLVM GVN/CSE passes — what the optimizer does that we should do at emission"
@@ -10,10 +10,10 @@ depends_on: ["01"]
 sections:
   - id: "08.1"
     title: "Compound Assignment CSE"
-    status: not-started
+    status: complete
   - id: "08.2"
     title: "Loop-Invariant Block Param Elimination"
-    status: not-started
+    status: complete
   - id: "08.3"
     title: "Range Iteration Specialization"
     status: complete
@@ -21,7 +21,7 @@ sections:
 
 # Section 08: Loop IR Quality
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Loop bodies emit exactly the instructions needed — no duplicate computations within a single iteration, no values carried through block params that never change, and common range patterns (`1..=n by 1`) emit optimized bounds checks.
 
 **Context:** Three distinct loop IR quality issues found across code journeys:
@@ -86,20 +86,20 @@ The body block (in ARC IR) is lowered to the LLVM body block. But note the `for_
 
 **Recommendation:** Start with **(b) LLVM-level `IrBuilder` cache** for this cycle. It directly addresses the L-6 finding with minimal risk and complexity. The cache goes in `IrBuilder` (not `ArcIrEmitter`), checked inside `emit_checked_binop` in `checked_ops.rs`. File a follow-up for (a) ARC-level CSE if a WASM backend materializes. The ARC-level approach becomes more valuable when multiple backends exist.
 
-- [ ] **1. PREREQUISITE:** Split `emit_function.rs` (579 lines, over 500-line limit) before adding any CSE infrastructure. Extract `scan_used_fields()` (~190 lines) into `field_scan.rs`.
-- [ ] **2. Add `cse_cache` field** to `IrBuilder`: `HashMap<(String, ValueId, ValueId), ValueId>` in `checked_ops.rs`. The cache maps `(intrinsic_name, lhs_ssa, rhs_ssa)` to the result `ValueId`.
-- [ ] **3. Add cache lookup** at the top of `IrBuilder::emit_checked_binop`: if key exists, return cached result (skip intrinsic call, extract, branch, and continue-block creation).
-- [ ] **4. Add cache store** at the bottom of `emit_checked_binop`: after the continue block is created and the result is available, insert into cache.
-- [ ] **5. Add `clear_cse_cache()` method** on `IrBuilder`. Call it from `ArcIrEmitter` at each ARC-block-boundary transition (NOT from internal `position_at_end` calls within `emit_checked_binop`, which creates panic/continue blocks as part of a single operation).
+- [x] **1. PREREQUISITE:** Split `emit_function.rs` (579 lines, over 500-line limit) before adding any CSE infrastructure. Extract `scan_used_fields()` (~150 lines) into `field_scan.rs`. (2026-03-05)
+- [x] **2. Add `cse_cache` field** to `IrBuilder`: `HashMap<(&'static str, CseOperand, CseOperand), ValueId>` in `checked_ops.rs`. Uses `CseOperand` enum to normalize constant operands so identical constants match regardless of `ValueId`. (2026-03-05)
+- [x] **3. Add cache lookup** at the top of `IrBuilder::emit_checked_binop`: if key exists, return cached result (skip intrinsic call, extract, branch, and continue-block creation). (2026-03-05)
+- [x] **4. Add cache store** at the bottom of `emit_checked_binop`: after the continue block is created and the result is available, insert into cache. (2026-03-05)
+- [x] **5. Add `clear_cse_cache()` method** on `IrBuilder`. Call it from `ArcIrEmitter` at each ARC-block-boundary transition (NOT from internal `position_at_end` calls within `emit_checked_binop`, which creates panic/continue blocks as part of a single operation). (2026-03-05)
 
 > **RISK: `position_at_end` vs block boundaries.** Each `emit_checked_binop` call creates two new LLVM blocks (panic_bb and continue_bb) and calls `position_at_end(continue_bb)` internally. The CSE cache must NOT be cleared on these internal calls — only on explicit ARC-block-boundary transitions. Use the dedicated `clear_cse_cache()` method called from `ArcIrEmitter`, not a hook on `position_at_end`.
 
-- [ ] **6.** Restrict cache reuse to semantically identical checked operations (same intrinsic name, same operand `ValueId`s, same overflow behavior)
-- [ ] **7.** Do NOT cache across side-effecting operations (calls, stores); within a single LLVM basic block, checked arithmetic does not invalidate the cache because overflow either panics (terminates) or continues (result available)
-- [ ] **8.** Scope: each ARC block gets its own cache (cleared on block entry via `clear_cse_cache()`). Inner loop blocks get independent caches. The LLVM phi node for `i` produces a new SSA value each iteration, so `i+1` in iteration N is naturally a different cache key from `i+1` in iteration N+1 — no cross-iteration staleness.
-- [ ] **9. Measure:** Before and after, dump IR for J7 `_ori_sum_loop` using `ORI_DUMP_AFTER_LLVM=1`. Count `@llvm.sadd.with.overflow.i64` calls in the loop body block. Before: 2 (or 3 with latch). After: 1 (or 2 with latch). Also count total LLVM instructions in the body block.
-- [ ] Verify: J7 `_ori_sum_loop` computes `i + 1` exactly once per iteration
-- [ ] Verify: no regression in overflow checking (single checked result reused, never replaced with unchecked add)
+- [x] **6.** Restrict cache reuse to semantically identical checked operations (same intrinsic name, same operand values, same overflow behavior). `CseOperand` normalizes constants; SSA values use identity. (2026-03-05)
+- [x] **7.** Do NOT cache across side-effecting operations (calls, stores); cache cleared at ARC block boundaries. Within a single ARC block, checked arithmetic does not invalidate the cache because overflow either panics (terminates) or continues (result available). (2026-03-05)
+- [x] **8.** Scope: each ARC block gets its own cache (cleared on block entry via `clear_cse_cache()`). Inner loop blocks get independent caches. The LLVM phi node for `i` produces a new SSA value each iteration, so `i+1` in iteration N is naturally a different cache key from `i+1` in iteration N+1 — no cross-iteration staleness. (2026-03-05)
+- [x] **9. Measure:** Before: 3 `sadd.with.overflow` calls in `_ori_sum_loop`. After: 2 (duplicate `i+1` eliminated). Entire panic/continue block sequence for the duplicate removed (~7 LLVM instructions saved per iteration). (2026-03-05)
+- [x] Verify: J7 `_ori_sum_loop` computes `i + 1` exactly once per iteration — confirmed via IR dump and `test_cse_loop_duplicate_add_eliminated`. (2026-03-05)
+- [x] Verify: no regression in overflow checking — reused result comes from a checked `sadd.with.overflow` call; all 12,098 tests pass. (2026-03-05)
 
 ### Edge Cases for CSE
 
@@ -112,18 +112,18 @@ The body block (in ARC IR) is lowered to the LLVM body block. But note the `for_
 
 ### 08.1 Completion Checklist
 
-- [ ] Duplicate arithmetic operations within a single block/iteration are eliminated
-- [ ] J7 `_ori_sum_loop` computes `i + 1` exactly once per iteration
-- [ ] CSE does not cross side-effecting operations (calls, stores)
-- [ ] CSE does not cross basic block boundaries (single-block CSE only)
-- [ ] Overflow checking preserved — reused result is from a checked operation, not an unchecked shortcut
-- [ ] Commutative operations are NOT naively CSE'd (operand order matters for checked ops)
-- [ ] Nested loops: inner loop CSE is independent of outer loop CSE (separate cache scopes)
-- [ ] IR test: loop body with `total += i + 1; i += 1` has exactly 1 checked add for `i + 1`
-- [ ] IR test: count `@llvm.sadd.with.overflow.i64` calls in loop body — assert reduction from baseline
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] Duplicate arithmetic operations within a single block/iteration are eliminated (2026-03-05)
+- [x] J7 `_ori_sum_loop` computes `i + 1` exactly once per iteration (2026-03-05)
+- [x] CSE does not cross side-effecting operations (calls, stores) — cache cleared at ARC block boundaries (2026-03-05)
+- [x] CSE does not cross basic block boundaries (single-block CSE only) — scoped per ARC block (2026-03-05)
+- [x] Overflow checking preserved — reused result is from a checked operation, not an unchecked shortcut (2026-03-05)
+- [x] Commutative operations are NOT naively CSE'd (operand order matters for checked ops) — `test_cse_different_operands_not_eliminated` (2026-03-05)
+- [x] Nested loops: inner loop CSE is independent of outer loop CSE (separate cache scopes) — each ARC block gets `clear_cse_cache()` on entry (2026-03-05)
+- [x] IR test: loop body with `total += i + 1; i += 1` has exactly 1 checked add for `i + 1` — `test_cse_loop_duplicate_add_eliminated` (2026-03-05)
+- [x] IR test: count `@llvm.sadd.with.overflow.i64` calls in loop body — assert reduction from baseline (3 → 2) (2026-03-05)
+- [x] `./test-all.sh` green — 12,098 passed, 0 failed (2026-03-05)
+- [x] `./clippy-all.sh` green (2026-03-05)
+- [x] No regressions in `cargo test -p ori_llvm` — 1,228 AOT tests pass (2026-03-05)
 
 ---
 
@@ -166,13 +166,13 @@ The challenge is that the loop body hasn't been lowered yet when we need to deci
 
 **Interaction with §01 block merge:** The dead param elimination in Phase 6 (`block_merge/dead_param.rs`) already removes unused exit block params. The invariant-param detection is a natural extension: Phase 6 checks "is the param's value never read after the block?", while invariant detection checks "do all incoming values agree?" These can be combined into a single pass or run sequentially. The block merge pass runs AFTER lowering and BEFORE LLVM emission — the right place.
 
-- [ ] **1.** Confirm: NO changes to `emit_function.rs` needed for 08.2. The fix is entirely in `ori_arc` (block_merge pass). `emit_function.rs` faithfully translates block params to phi nodes — that behavior is correct.
-- [ ] **2.** Add invariant-param detection to the block merge pass (extend Phase 6 in `dead_param.rs` or add a new Phase 7): for each block with params, collect all `Jump { target: block, args }` terminators. For each param position `p`, if all predecessors pass the same `ArcVarId`, the param is invariant.
-- [ ] **3.** Handle the entry edge and back-edge: the first jump to the header (from the loop entry) and the back-edge (from the latch/body) must agree for the param to be invariant.
-- [ ] **4.** For each invariant param: replace all uses of the param var with the common incoming value; remove the param and corresponding jump args from all predecessors.
-- [ ] **5.** Write ARC IR unit test in `block_merge/tests.rs` (under a `// Invariant param elimination` section marker): construct a function with a loop header that has an invariant param (all predecessors pass the same var) and verify the pass removes it.
-- [ ] **6.** Write ARC IR unit test: construct a function where predecessors pass DIFFERENT values — verify the param is preserved.
-- [ ] **7.** Verify: J10 `_ori_check_iteration` LLVM IR has no loop-invariant phi node for the list struct
+- [x] **1.** Confirm: NO changes to `emit_function.rs` needed for 08.2. The fix is entirely in `ori_arc` (block_merge pass). `emit_function.rs` faithfully translates block params to phi nodes — that behavior is correct. (2026-03-05)
+- [x] **2.** Add invariant-param detection to the block merge pass as a new Phase 7 in `block_merge/invariant_param.rs`: for each block with params, collect all `Jump { target: block, args }` terminators. For each param position `p`, filter out self-references (back-edge passes param to itself), and if exactly one unique non-self value remains, the param is invariant. (2026-03-05)
+- [x] **3.** Handle the entry edge and back-edge: self-references (back-edge passes the param var itself) are filtered out. If the only remaining incoming value is from the entry edge, the param is invariant. (2026-03-05)
+- [x] **4.** For each invariant param: substitute all uses of the param var with the common incoming value via `substitute_var()` on instructions and terminators; remove the param and corresponding jump args from all predecessors. (2026-03-05)
+- [x] **5.** Write ARC IR unit test `invariant_param_same_value_removed` in `block_merge/tests.rs`: construct a loop header with an invariant param (entry passes v2, back-edge passes v5=self) and verify Phase 7 removes it and substitutes v2. (2026-03-05)
+- [x] **6.** Write ARC IR unit test `non_invariant_param_preserved`: verify that params receiving different values from entry (v1) and back-edge (v9) are NOT removed. (2026-03-05)
+- [x] **7.** Verify: J10 `_ori_check_iteration` pattern has no loop-invariant phi node — confirmed via IR dump. Current iterator-based loop codegen uses runtime `ori_iter_from_list`, so the list struct is never carried as a block param. Only `found` (modified inside loop) has a phi. (2026-03-05)
 
 ### Edge Cases for Invariant Block Params
 
@@ -183,16 +183,16 @@ The challenge is that the loop body hasn't been lowered yet when we need to deci
 
 ### 08.2 Completion Checklist
 
-- [ ] No loop-invariant block params in ARC IR loop headers (and consequently no loop-invariant phi nodes in LLVM IR)
-- [ ] J10 `_ori_check_iteration` references the list struct directly (no block param in ARC IR, no phi node in LLVM IR)
-- [ ] IR test: loop using a pre-loop mutable binding without modification has no block param for that value
-- [ ] ARC unit test: invariant param (all predecessors same value) is removed
-- [ ] ARC unit test: non-invariant param (predecessors differ) is preserved
-- [ ] ARC unit test: mixed invariant and non-invariant params — only invariant ones removed
-- [ ] Invariant param elimination integrates cleanly with existing block merge phases (no ordering conflicts)
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] No regressions in `cargo test -p ori_llvm`
+- [x] No loop-invariant block params in ARC IR loop headers (and consequently no loop-invariant phi nodes in LLVM IR) (2026-03-05)
+- [x] J10 `_ori_check_iteration` references the list struct directly (no block param in ARC IR, no phi node in LLVM IR) — confirmed: iterator-based loops use runtime `ori_iter_from_list`, list never becomes a block param (2026-03-05)
+- [x] IR test: `test_loop_invariant_binding_no_phi` — loop with pre-loop `limit` binding has 2 phi nodes (total, i) not 3 (2026-03-05)
+- [x] ARC unit test: `invariant_param_same_value_removed` — invariant param (entry passes v2, back-edge passes self) is removed (2026-03-05)
+- [x] ARC unit test: `non_invariant_param_preserved` — non-invariant params (predecessors pass different values) are preserved (2026-03-05)
+- [x] ARC unit test: `mixed_invariant_only_invariant_removed` — mixed invariant and non-invariant params: only invariant ones removed (2026-03-05)
+- [x] Invariant param elimination integrates cleanly as Phase 7 after Phase 6 (dead param) — no ordering conflicts, 55 block_merge tests pass (2026-03-05)
+- [x] `./test-all.sh` green — 12,104 passed, 0 failed (2026-03-05)
+- [x] `./clippy-all.sh` green (2026-03-05)
+- [x] No regressions in `cargo test -p ori_llvm` (2026-03-05)
 
 ---
 

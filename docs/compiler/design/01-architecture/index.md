@@ -224,9 +224,9 @@ When source text changes, Salsa re-runs `tokens()`. If the tokens are identical 
 
 A `CacheGuard` safety token ensures invalidation is always performed before re-type-checking — callers cannot skip it.
 
-### Mandatory Verification
+### Smart Verification
 
-Tests are not optional in Ori. Every function (except `@main`) requires attached tests:
+Tests in Ori are bound to functions via first-class syntax and tracked in the dependency graph:
 
 ```ori
 @factorial (n: int) -> int = if n <= 1 then 1 else n * factorial(n: n - 1)
@@ -237,7 +237,7 @@ Tests are not optional in Ori. Every function (except `@main`) requires attached
 }
 ```
 
-The type checker enforces this requirement. Functions also support contracts (`pre()`/`post()`) that run at call boundaries. This design reflects a belief that untested code is broken code — the compiler makes it structurally impossible to ship a function without at least verifying its basic behavior.
+Test enforcement is configurable: `off` (default), `warn`, or `error`. Functions also support contracts (`pre()`/`post()`) that run at call boundaries. The compiler tracks test-to-function relationships in the dependency graph, enabling incremental test execution — only affected tests run when code changes.
 
 ## Crate Architecture
 

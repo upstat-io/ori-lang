@@ -6,9 +6,11 @@
 
 ---
 
+> **NOTE:** This document predates configurable test enforcement (2026-03-05). References to "mandatory testing" describe the `test-enforcement = "error"` mode, which is no longer the default.
+
 ## Summary
 
-Leverage Ori's mandatory test infrastructure as an automatic source of PGO (Profile-Guided Optimization) training data. Since every function requires tests and tests live in the dependency graph, `ori test` already exercises representative code paths. Feed these execution profiles into LLVM's PGO pipeline and Meta's BOLT binary optimizer to produce faster binaries with a single flag.
+Leverage Ori's test infrastructure as an automatic source of PGO (Profile-Guided Optimization) training data. Since every function requires tests and tests live in the dependency graph, `ori test` already exercises representative code paths. Feed these execution profiles into LLVM's PGO pipeline and Meta's BOLT binary optimizer to produce faster binaries with a single flag.
 
 ```bash
 ori build program.ori --pgo          # instrument → test → optimize

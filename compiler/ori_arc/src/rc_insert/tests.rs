@@ -2439,7 +2439,7 @@ fn int_add_still_scalar_no_rc() {
     );
 }
 
-// ── Duplicate arg dedup tests ──────────────────────────
+// Duplicate arg dedup tests
 
 /// Duplicate borrowing arg — `PrimOp { args: [v0, v0] }` should produce
 /// exactly 1 `RcDec`, not 2 (double-free).
@@ -2547,7 +2547,7 @@ fn duplicate_invoke_borrowed_arg_single_cleanup() {
     );
 }
 
-// ── Type resolution in annotation tests ────────────────
+// Type resolution in annotation tests
 
 /// Consuming-receiver override through a linked type variable.
 ///

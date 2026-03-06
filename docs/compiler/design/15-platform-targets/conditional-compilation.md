@@ -66,7 +66,7 @@ The distinction matters because they operate at different times, on different so
 
 ## What Makes Ori's Approach Distinctive
 
-Ori's conditional compilation borrows ideas from Rust and Zig but combines them in a way shaped by its own design goals: expression-based syntax, mandatory testing, and capability-based effects.
+Ori's conditional compilation borrows ideas from Rust and Zig but combines them in a way shaped by its own design goals: expression-based syntax, smart testing, and capability-based effects.
 
 **Attribute-based, not preprocessor-based.** Like Rust, Ori uses structured attributes (`#target(...)`, `#cfg(...)`) rather than textual preprocessing. This means the parser always sees well-formed syntax, and attributes attach to specific items (functions, types, constants) rather than arbitrary lines of text.
 

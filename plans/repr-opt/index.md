@@ -77,11 +77,19 @@ merge_triviality, cycle detection, FxHashSet, visiting
 ```
 ValueRange, interval, range analysis, VRP, value range propagation
 abstract interpretation, lattice, join, meet, widen, narrow
-transfer function, fixed point, fixpoint iteration
+transfer function, fixed point, fixpoint iteration, range_fixpoint
 conditional refinement, branch condition, if x < N
+BranchRefinement, refine_from_branch, conditional.rs
+block parameters, phi handling, predecessor map, build_predecessor_map
+ArcTerminator, Invoke dst, Switch u64 cases, Branch refinement
+RangeAnalysisConfig, max_iterations, max_blocks, WIDEN_THRESHOLD
+compute_rpo, compute_postorder, successor_block_ids, RPO
+FunctionRangeInfo, ParamRange, call-site range, signatures.rs
+SCC, CallGraph, compute_sccs, interprocedural fixpoint
+ReprPlan handoff, function_var_ranges, var_range query
 CorrelatedValuePropagation, LazyValueInfo, tree-vrp
 Roc NumericRange, LLVM VRP, GCC VRP
-range_add, range_sub, range_mul, range_literal
+range_add, range_sub, range_mul, range_literal, transfer_primop
 ```
 
 ---

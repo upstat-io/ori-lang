@@ -41,8 +41,8 @@
 //!   → RC insertion (RcInc/RcDec)
 //!   → reset/reuse detection → expansion
 //!   → RC identity propagation (Project roots)
-//!   → RC elimination (dataflow-based)
-//!   → cross-block RC elimination
+//!   → RC elimination (intra-block + cross-block, dataflow-based)
+//!   → tail call detection + loop lowering (self-recursive → loops)
 //!   → block merge (post-lowering CFG simplification)
 //!   → drop hints (unique-collection drop optimization)
 //!   → FBIP enforcement (#fbip functions)
@@ -74,6 +74,7 @@ pub mod rc_elim;
 pub mod rc_identity;
 pub mod rc_insert;
 pub mod reset_reuse;
+pub mod tail_call;
 pub mod uniqueness;
 
 #[cfg(test)]
@@ -128,7 +129,8 @@ pub use uniqueness::{
 ///
 /// Pipeline order: var reprs → derived ownership → liveness →
 /// **uniqueness + COW annotation** → RC insertion → reset/reuse →
-/// expansion → RC identity → RC elimination → FBIP enforcement.
+/// expansion → RC identity → RC elimination → tail call detection +
+/// loop lowering → block merge → drop hints → FBIP enforcement.
 ///
 /// **Prerequisite:** [`annotate_arg_ownership`] must be called before this
 /// function. It populates per-argument ownership on `Apply`/`Invoke`
@@ -199,6 +201,14 @@ pub fn run_arc_pipeline(
     rc_identity::propagate_rc_identity(func, &identity_map, pool);
 
     rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
+
+    // Tail call detection + loop lowering: identify self-recursive tail calls
+    // and rewrite them as loop back-edges. Runs AFTER RC elimination (all RC
+    // ops are in final positions — we can verify RcDec hoisting safety) and
+    // BEFORE block merge (which cleans up dead merge blocks left by the rewrite
+    // and renumbers blocks).
+    func.tail_calls = tail_call::detect_tail_calls(func);
+    tail_call::rewrite_tail_calls(func);
 
     // Block merge: eliminate redundant blocks created by invoke splitting.
     // Runs AFTER RC elimination (all RC ops are final) but BEFORE drop hints
