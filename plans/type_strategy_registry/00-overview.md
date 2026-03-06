@@ -234,8 +234,8 @@ Phase 1 ─ Foundation
 Phase 2 ─ Type Definitions (parallelizable)
   ├─ 03: Primitive types (int, float, bool, byte, char)
   ├─ 04: String type (str — complex, many methods, RuntimeCall operators)
-  ├─ 05: Compound types (Duration, Size, Ordering, Error, Channel)
-  ├─ 06: Collection & wrapper types (List, Map, Set, Range, Tuple, Option, Result)
+  ├─ 05: Compound types (Duration, Size, Ordering, Error)
+  ├─ 06: Collection & wrapper types (List, Map, Set, Range, Tuple, Option, Result, Channel)
   ├─ 07: Iterator types (Iterator, DoubleEndedIterator)
   └─ 08: Query API (BUILTIN_TYPES, find_type, find_method, helpers)
   Gate: cargo c -p ori_registry passes, all types defined, query API works
@@ -261,8 +261,8 @@ Phase 4 ─ Enforcement & Exit
 | 02 Crate Scaffolding | ~100 (lib.rs, query.rs, stubs) | Low | 01 |
 | 03 Primitive Types | ~510 (~5 types, 124 methods total using const fn helper at ~1 line/method + OpDefs + tests) | Low | 01, 02 |
 | 04 String Type | ~450 (~43 methods incl. spec §8.1.6 + associated fns, ~1 line/method with const fn helper + OpDefs) | Medium-High | 01, 02 |
-| 05 Compound Types | ~550 (~5 types as directory modules with const fn helpers at ~1 line/method + sibling tests.rs files) | Medium | 01, 02 |
-| 06 Collection & Wrapper Types | ~500 (7 types, many methods each) | Medium | 01, 02 |
+| 05 Compound Types | ~450 (~4 types as directory modules with const fn helpers at ~1 line/method + sibling tests.rs files) | Medium | 01, 02 |
+| 06 Collection & Wrapper Types | ~600 (8 types incl. Channel, many methods each) | Medium | 01, 02 |
 | 07 Iterator Types | ~350 (~24 methods, 10 lines/method + DEI metadata) | Medium-High | 01, 02 |
 | 08 Query API | ~80 (query.rs) | Low | 01, 02 |
 | 09 Wire Type Checker | ~+250 new / ~-800 deleted = ~-550 net | **High** | 03-08 |

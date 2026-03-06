@@ -21,13 +21,19 @@ complexity: medium
 ## Purpose
 
 Define the complete behavioral specification for all generic collection and wrapper
-types: **List**, **Map**, **Set**, **Range**, **Tuple**, **Option**, **Result**.
+types: **List**, **Map**, **Set**, **Range**, **Tuple**, **Option**, **Result**, **Channel**.
 
-These seven types are the `COLLECTION_TYPES` gap in `consistency.rs` (lines 13-25) --
+These eight types are the `COLLECTION_TYPES` gap in `consistency.rs` (lines 13-25) --
 the types with methods in the type checker (`ori_types`) and evaluator (`ori_eval`)
 but **not** in the `ori_ir` builtin method registry. This section closes that gap by
 declaring every method, its parameters, return type, ownership semantics, and trait
 association as pure `const` data in `ori_registry`.
+
+**Channel** was moved here from Section 05 (Compound Types) because it is structurally
+a generic container — `Channel<T>` with `TypeParamArity::Fixed(1)`, using the same
+single-child-in-data pool pattern as Option, Set, and Range. Its methods return
+`Option<T>` via `ReturnTag::OptionOf(TypeProjection::Element)`, the same projection
+machinery as the other generic types in this section.
 
 ### Why This Is the Hardest Section
 
@@ -52,8 +58,9 @@ provide the vocabulary; this section is the stress test.
 | Tuple | `resolve_tuple_method` (5 methods) | `EVAL_BUILTIN_METHODS` (6 methods) | Not present |
 | Option | `resolve_option_method` (16 methods) | `EVAL_BUILTIN_METHODS` (12 methods) | Not present |
 | Result | `resolve_result_method` (17 methods) | `EVAL_BUILTIN_METHODS` (11 methods) | Not present |
+| Channel | `resolve_channel_method` (9 methods) | Not present | Not present |
 
-**Total: ~113 methods across 7 types, all absent from the IR registry.**
+**Total: ~122 methods across 8 types, all absent from the IR registry.**
 
 ### Consistency Allowlists That Track These Gaps
 
@@ -604,7 +611,124 @@ the closure transforms).
 
 ---
 
-## 06.9 Handling Generic Types in the Registry
+## 06.9 Channel TypeDef
+
+**File:** `compiler/ori_registry/src/defs/channel/mod.rs` (tests: `channel/tests.rs`)
+
+**Moved from Section 05.** Channel is structurally a generic container — `Channel<T>`
+uses `TypeParamArity::Fixed(1)` and the same single-child-in-data pool pattern as
+Option, Set, and Range. Its methods return `Option<T>` via
+`ReturnTag::OptionOf(TypeProjection::Element)`, the same projection machinery as
+List/Option in this section.
+
+### Representation
+
+```rust
+pub const CHANNEL: TypeDef = TypeDef {
+    tag: TypeTag::Channel,
+    name: "Channel",
+    memory: MemoryStrategy::Arc, // shared channel handle
+    methods: &CHANNEL_METHODS,
+    operators: OpDefs::UNSUPPORTED,
+    type_params: TypeParamArity::Fixed(1), // Channel<T>
+};
+```
+
+Channel is a generic Arc type used for concurrency communication (send/receive).
+It has no operators. Unlike Duration/Size/Ordering, Channel does NOT have a
+pre-interned `TypeId` constant in `ori_ir` — it is represented as `Tag::Channel`
+(value 19) in the type pool.
+
+### Instance Methods
+
+| Method | Params | Returns | Receiver | Trait | Notes |
+|--------|--------|---------|----------|-------|-------|
+| `send` | `(T)` | `()` | Borrow | — | Send value into channel |
+| `recv` / `receive` | — | `Option<T>` | Borrow | — | Blocking receive |
+| `try_recv` / `try_receive` | — | `Option<T>` | Borrow | — | Non-blocking receive |
+| `close` | — | `()` | Borrow | — | Close the channel |
+| `is_closed` | — | `bool` | Borrow | — | Whether channel is closed |
+| `is_empty` | — | `bool` | Borrow | — | Whether channel has no pending items |
+| `len` | — | `int` | Borrow | — | Number of pending items |
+
+### Current Coverage Matrix
+
+| Method | ori_types | ori_eval (dispatch) | ori_ir | ori_llvm | Registry |
+|--------|-----------|---------------------|--------|----------|----------|
+| `send` | Y | — | — | — | Planned |
+| `recv` | Y | — | — | — | Planned |
+| `receive` | Y | — | — | — | Planned |
+| `try_recv` | Y | — | — | — | Planned |
+| `try_receive` | Y | — | — | — | Planned |
+| `close` | Y | — | — | — | Planned |
+| `is_closed` | Y | — | — | — | Planned |
+| `is_empty` | Y | — | — | — | Planned |
+| `len` | Y | — | — | — | Planned |
+
+**Observations:**
+- Channel exists ONLY in typeck (`resolve_channel_method`). Zero eval/IR/LLVM coverage.
+- All 9 methods are in `TYPECK_METHODS_NOT_IN_EVAL` allowlist.
+- No `Value::Channel` variant exists in `ori_patterns`.
+- Channel is listed in `COLLECTION_TYPES` and `WELL_KNOWN_GENERIC_TYPES`.
+
+### Sendable Constraint on T
+
+Per the Ori spec, `Channel<T>` requires `T: Sendable`. This constraint is enforced by
+the type checker during channel construction (`channel<T>(buffer:)` requires
+`T: Sendable`), NOT by the registry. The registry's `TypeParamArity` describes arity,
+not bounds on type params.
+
+### Traits Not Covered (Channel-specific)
+
+- **`Default`** — No. Channels must be explicitly constructed with `channel<T>(buffer:)`.
+- **`Eq`/`Comparable`/`Hashable`/`Clone`** — No. Channels are mutable shared-state primitives.
+- **`Sendable`** — No. Channel itself contains shared mutable state.
+- **`Formattable`/`Printable`/`Debug`** — No. No meaningful string representation.
+
+### MethodDef Frozen Field Defaults (Channel)
+
+| Field | Value | Rationale |
+|-------|-------|-----------|
+| `pure` | `false` | All Channel methods have side effects (shared-state mutation) |
+| `backend_required` | `false` | Eval, IR, LLVM coverage is all zero |
+| `kind` | `MethodKind::Instance` | `channel<T>(buffer:)` constructor is a free function, not an associated function |
+| `dei_only` | `false` | Not iterator methods |
+| `dei_propagation` | `NotApplicable` | Not iterator methods |
+
+**Note:** Channel is the only type in Section 06 with `pure: false`. All other
+collection/wrapper types use persistent data structures with no side effects.
+
+### Parameter Ownership for `send`
+
+The `send` method takes ownership of the value being sent (`Ownership::Owned`). The
+value is moved into the channel — the caller cannot use it after sending:
+`ParamDef { name: "value", ty: ReturnTag::ElementType, ownership: Ownership::Owned }`.
+
+### Tasks
+
+- [ ] Define `CHANNEL_METHODS: &[MethodDef]` with all 9 methods (send, recv, receive, try_recv, try_receive, close, is_closed, is_empty, len — each alias is a separate entry)
+- [ ] Use `type_params: TypeParamArity::Fixed(1)` for `Channel<T>`
+- [ ] Use `ReturnTag::OptionOf(TypeProjection::Element)` for `recv`/`try_recv`/`receive`/`try_receive`
+- [ ] Use `ReturnTag::Unit` for `send`, `close` return types
+- [ ] Set `pure: false` on ALL Channel methods (side effects from shared-state mutation)
+- [ ] Set `backend_required: false` on all methods (zero backend coverage)
+- [ ] Set `send` parameter ownership to `Ownership::Owned` (value moved into channel)
+- [ ] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
+- [ ] Document `T: Sendable` constraint (enforced by type checker, not registry)
+- [ ] Register in `defs/mod.rs`: add `mod channel;` and `pub use self::channel::CHANNEL;`
+- [ ] Verify against spec §8.5 (Channel Types — §8.5.1 constructors, §8.5.2 Producer, §8.5.3 Consumer)
+- [ ] Create `channel/tests.rs` with `#[cfg(test)] mod tests;` in `channel/mod.rs`
+- [ ] Unit test: all 9 methods present with correct return types
+- [ ] Unit test: no method has `backend_required: true`
+- [ ] Unit test: all methods have `pure: false`
+- [ ] Unit test: `send` parameter has `Ownership::Owned`
+- [ ] Unit test: `OpDefs` is `UNSUPPORTED`
+- [ ] Unit test: `type_params` is `TypeParamArity::Fixed(1)`
+- [ ] Unit test: all 10 frozen fields present on every MethodDef
+
+---
+
+## 06.10 Handling Generic Types in the Registry
 
 ### Summary of Required Type-Projection Vocabulary
 
@@ -661,7 +785,7 @@ checker maps it to `pool.iterator(elem)`.
 
 ---
 
-## 06.10 Cross-Reference & Validation
+## 06.11 Cross-Reference & Validation
 
 ### Method Count by Type
 
@@ -674,19 +798,20 @@ checker maps it to `pool.iterator(elem)`.
 | Tuple | 6 | 6 | 0 | 6 |
 | Option | 16 | 12 | 7 unimplemented | 16 |
 | Result | 17 | 11 | 10 unimplemented | 17 |
-| **Total** | **129** | **61** | **75** | **129** |
+| Channel | 9 | 0 | 9 unimplemented | 9 |
+| **Total** | **138** | **61** | **84** | **138** |
 
 ### Allowlist Entries Eliminated by This Section
 
 | Allowlist | Current Entries for Collection Types | After Section 06 |
 |-----------|-------------------------------------|------------------|
-| `COLLECTION_TYPES` | 11 entries (entire list) | Reduced by 7 (list, map, Set, range, tuple, Option, Result) |
-| `TYPECK_METHODS_NOT_IN_EVAL` (collection portion) | 72 entries | **Eliminated** (tracked by registry status) |
+| `COLLECTION_TYPES` | 11 entries (entire list) | Reduced by 8 (list, map, Set, range, tuple, Option, Result, Channel) |
+| `TYPECK_METHODS_NOT_IN_EVAL` (collection portion) | 81 entries (72 + 9 Channel) | **Eliminated** (tracked by registry status) |
 
-Note: `COLLECTION_TYPES` also contains `Channel`, `DoubleEndedIterator`, `Iterator`,
-and `error`. Channel is covered in Section 05 (Compound Types). Iterator/DEI are
-covered in Section 07. Error is covered in Section 05. Once all sections are complete,
-`COLLECTION_TYPES` is **fully eliminated**.
+Note: `COLLECTION_TYPES` also contains `DoubleEndedIterator`, `Iterator`,
+and `error`. Channel is now covered in this section (moved from Section 05).
+Iterator/DEI are covered in Section 07. Error is covered in Section 05. Once all
+sections are complete, `COLLECTION_TYPES` is **fully eliminated**.
 
 ### Consistency Test Impact
 
@@ -713,7 +838,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 
 ---
 
-## 06.10a MethodDef Frozen Field Defaults (All Collection & Wrapper Types)
+## 06.11a MethodDef Frozen Field Defaults (All Collection & Wrapper Types)
 
 
 Per frozen decision 13 (Section 00), every `MethodDef` must specify all 10 fields. The
@@ -722,7 +847,7 @@ remaining 5 fields follow these defaults for collection and wrapper types:
 
 | Field | Default | Exceptions |
 |-------|---------|------------|
-| `pure` | `true` | None — all collection/wrapper methods are pure (no side effects). Even `push`/`insert` return new values (persistent data structures). |
+| `pure` | `true` | **Channel is the exception**: all Channel methods are `pure: false` (shared-state mutation). All other collection/wrapper methods are pure — even `push`/`insert` return new values (persistent data structures). |
 | `backend_required` | `true` | Higher-order methods (`map`, `filter`, `fold`, `find`, `any`, `all`, `for_each`, `flat_map`, `reduce`, `take_while`, `skip_while`, `min_by`, `max_by`, `sort_by`, `group_by`, `partition`, `and_then`, `or_else`, `map_err`) are `false` — they are typeck+eval only (LLVM deferred). |
 | `kind` | `MethodKind::Instance` | None — all collection/wrapper methods are instance methods. No associated functions on these types. |
 | `dei_only` | `false` | None — `dei_only` applies only to Iterator methods (Section 07). |
@@ -735,7 +860,7 @@ and higher-order methods (false) is critical for LLVM wiring (Section 12).
 
 ---
 
-## 06.10b Traits Not Covered by the Registry (Collection & Wrapper Types)
+## 06.11b Traits Not Covered by the Registry (Collection & Wrapper Types)
 
 
 Following the precedent from Section 03 (Primitive Types), certain traits are handled
@@ -774,6 +899,7 @@ the registry for these types.
 | Tuple | Conditional | `Sendable` if all element types are `Sendable` |
 | Option | Conditional | `Sendable` if `T: Sendable` |
 | Result | Conditional | `Sendable` if `T: Sendable` and `E: Sendable` |
+| Channel | No | Contains shared mutable state |
 
 **Rationale:** Sendable is a marker trait auto-derived by the compiler based on field
 types. The registry does not declare it — the type checker infers it structurally.
@@ -789,6 +915,7 @@ types. The registry does not declare it — the type checker infers it structura
 | Tuple | Conditional | Value if all elements are Value |
 | Option | Conditional | Value if T is Value |
 | Result | Conditional | Value if T and E are Value |
+| Channel | No | Arc memory strategy, shared mutable state |
 
 ### Into Trait
 
@@ -797,7 +924,7 @@ types. The registry does not declare it — the type checker infers it structura
 
 ---
 
-## 06.10c Ownership Semantics Summary
+## 06.11c Ownership Semantics Summary
 
 
 The ownership distinction between `Borrow` and `Own` is critical for ARC correctness
@@ -812,6 +939,7 @@ The ownership distinction between `Borrow` and `Own` is critical for ARC correct
 | Tuple | All methods | None | Same pattern |
 | Option | `is_some`, `is_none`, `map`, `filter`, `and_then`, `flat_map`, `iter`, trait methods | `unwrap`, `expect`, `unwrap_or`, `ok_or`, `or`, `or_else` | Consuming methods take ownership |
 | Result | `is_ok`, `is_err`, `ok`, `err`, `map`, `map_err`, `and_then`, `or_else`, `has_trace`, `trace`, `trace_entries`, trait methods | `unwrap`, `expect`, `unwrap_or`, `unwrap_err`, `expect_err` | Same consuming pattern |
+| Channel | `recv`, `try_recv`, `close`, `is_closed`, `is_empty`, `len` | `send` (value param, not receiver) | `send` takes ownership of the *value*, not the channel |
 
 **Key insight:** Option and Result are the only collection/wrapper types with `Ownership::Owned`
 methods. These are methods that consume the wrapper to extract the inner value. All other
@@ -908,11 +1036,24 @@ returns a new value.
 - [ ] Test: `find_method(TypeTag::Result, "ok")` returns `OptionOf(Ok)`
 - [ ] Test: `find_method(TypeTag::Result, "err")` returns `OptionOf(Err)`
 
-### 06.9 Integration
+### 06.9 Channel TypeDef
 
-- [ ] All 7 TypeDefs compile with `cargo c -p ori_registry`
+- [ ] Define `CHANNEL` const with all 9 methods (see Section 06.9 above)
+- [ ] Set `type_params: TypeParamArity::Fixed(1)`
+- [ ] Verify `recv`/`try_recv` return `OptionOf(Element)`
+- [ ] Set `pure: false` on ALL Channel methods (unique among Section 06 types)
+- [ ] Set `backend_required: false` on all methods (zero backend coverage)
+- [ ] Verify `send` parameter ownership is `Owned`
+- [ ] Set all 10 frozen fields on every MethodDef
+- [ ] Verify against spec §8.5
+- [ ] Test: `CHANNEL.methods.len() == 9`
+- [ ] Test: `find_method(TypeTag::Channel, "recv")` returns `OptionOf(Element)`
+
+### 06.10 Integration
+
+- [ ] All 8 TypeDefs compile with `cargo c -p ori_registry`
 - [ ] All TypeDefs are included in `BUILTIN_TYPES` array
-- [ ] Total method count across all 7 collection types matches the sum of per-type counts from method tables (verify at implementation time — counts include both inherent and trait methods)
+- [ ] Total method count across all 8 collection/wrapper types matches the sum of per-type counts from method tables (verify at implementation time — counts include both inherent and trait methods)
 - [ ] No duplicate method names within a single TypeDef
 - [ ] All method names are sorted alphabetically within each TypeDef
 - [ ] Purity test passes (no dependencies, no logic, all const)
@@ -921,12 +1062,12 @@ returns a new value.
 
 ## Exit Criteria
 
-1. **Seven TypeDef constants** (`LIST`, `MAP`, `SET`, `RANGE`, `TUPLE`, `OPTION`,
-   `RESULT`) are defined in `ori_registry` with complete method tables.
+1. **Eight TypeDef constants** (`LIST`, `MAP`, `SET`, `RANGE`, `TUPLE`, `OPTION`,
+   `RESULT`, `CHANNEL`) are defined in `ori_registry` with complete method tables.
 
 2. **Every method** currently in `TYPECK_BUILTIN_METHODS` for these types has a
    corresponding `MethodDef` in the registry. Count verification:
-   - list: 50, map: 17, Set: 15, range: 8, tuple: 6, Option: 16, Result: 17
+   - list: 50, map: 17, Set: 15, range: 8, tuple: 6, Option: 16, Result: 17, Channel: 9
 
 3. **ReturnTag** is expressive enough to represent all return type patterns found in
    `resolve_*_method()` functions, including generic projections and higher-order flows.
@@ -935,7 +1076,7 @@ returns a new value.
    their contents (Tuple, Option, Result).
 
 5. **`type_params` field** on each TypeDef matches the arity: List=1, Map=2, Set=1,
-   Range=1, Tuple=variadic, Option=1, Result=2.
+   Range=1, Tuple=variadic, Option=1, Result=2, Channel=1.
 
 6. **`cargo c -p ori_registry`** passes with no warnings.
 
@@ -947,7 +1088,7 @@ returns a new value.
    `dei_only`, `dei_propagation`.
 
 9. **`pure` is `true`** for all collection/wrapper methods (persistent data structures,
-   no side effects).
+   no side effects), **except Channel** (`pure: false` — side effects from shared-state mutation).
 
 10. **`backend_required` is correct**: `true` for simple methods (len, is_empty,
     contains, first, last, iter, trait methods), `false` for higher-order methods

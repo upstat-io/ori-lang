@@ -414,3 +414,48 @@ fn test_tail_recursive_gcd_has_no_self_call() {
         "expected `phi i64` for loop parameters in tail-recursive gcd.\nIR:\n{fn_ir}"
     );
 }
+
+// String constant deduplication
+
+/// Each unique overflow message should appear exactly once in the IR.
+///
+/// When multiple arithmetic operations of the same kind exist (e.g., two
+/// additions), the overflow panic message ("integer overflow on addition")
+/// should be deduplicated to a single global constant — not emitted once
+/// per operation site.
+#[test]
+fn test_overflow_string_dedup_single_global_per_message() {
+    let ir = compile_and_capture_ir(
+        r"
+@main () -> int = {
+    let a = 1 + 2;
+    let b = 3 + 4;
+    let c = a * b;
+    let d = 5 * 6;
+    c + d
+}
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // Count occurrences of the addition overflow message.
+    // With dedup, "integer overflow on addition" appears exactly once as
+    // a global constant, even though there are 3 addition sites.
+    let add_msg_count = ir.matches("integer overflow on addition").count();
+    assert_eq!(
+        add_msg_count, 1,
+        "expected exactly 1 global for addition overflow message, found {add_msg_count}.\n\
+         Deduplication should collapse multiple identical messages into one global."
+    );
+
+    // Similarly, multiplication overflow message appears once despite 2 mul sites.
+    let mul_msg_count = ir.matches("integer overflow on multiplication").count();
+    assert_eq!(
+        mul_msg_count, 1,
+        "expected exactly 1 global for multiplication overflow message, found {mul_msg_count}."
+    );
+}

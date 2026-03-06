@@ -10,7 +10,7 @@ use inkwell::module::Module;
 use inkwell::types::{AnyTypeEnum, BasicTypeEnum};
 use inkwell::values::InstructionOpcode;
 
-use crate::codegen::runtime_decl::runtime_functions::{Attr, RT_FUNCTIONS};
+use crate::codegen::runtime_decl::runtime_functions::{Attr, Ty, RT_FUNCTIONS};
 
 use super::report::{AuditFinding, AuditReport, FindingKind, Severity};
 use super::AuditOptions;
@@ -164,7 +164,11 @@ fn check_runtime_arg_count(
     report: &mut AuditReport,
 ) {
     if let Some(spec) = RT_FUNCTIONS.iter().find(|f| f.name == callee) {
-        let expected = spec.params.len();
+        let mut expected = spec.params.len();
+        // Sret return types add an extra pointer parameter at position 0
+        if spec.ret.is_some_and(Ty::needs_sret) {
+            expected += 1;
+        }
         // Operand count includes the callee itself as the last operand
         let actual = inst.get_num_operands().saturating_sub(1) as usize;
         if actual != expected {

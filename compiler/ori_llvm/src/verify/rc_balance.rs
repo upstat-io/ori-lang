@@ -165,11 +165,20 @@ fn check_function(
     while let Some(bb) = block {
         let mut inst = bb.get_first_instruction();
         while let Some(i) = inst {
-            if matches!(
-                i.get_opcode(),
-                InstructionOpcode::Call | InstructionOpcode::Invoke
-            ) {
-                process_call(&fn_name, i, &mut tracker, options, report);
+            match i.get_opcode() {
+                InstructionOpcode::Call | InstructionOpcode::Invoke => {
+                    process_call(&fn_name, i, &mut tracker, options, report);
+                }
+                InstructionOpcode::InsertValue => {
+                    // Embedding a tracked pointer into a struct (e.g., for
+                    // closure return) transfers ownership — not a leak.
+                    if let Some(ptr_name) = operand_name(i, 1) {
+                        if tracker.states.contains_key(&ptr_name) {
+                            tracker.states.insert(ptr_name, PtrState::Decremented);
+                        }
+                    }
+                }
+                _ => {}
             }
             inst = i.get_next_instruction();
         }

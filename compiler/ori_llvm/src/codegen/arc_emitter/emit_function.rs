@@ -174,19 +174,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // block, causing entry blocks to gain predecessors and terminators
         // to appear mid-block. Block merging should instead be done as a
         // pre-emission ARC IR pass (option (b) in section-01-block-merging).
-        self.block_map = func
-            .blocks
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                if dead_unwind.contains(&i) {
-                    None
-                } else {
-                    let name = format!("bb{i}");
-                    Some(self.builder.append_block(self.current_function, &name))
-                }
-            })
-            .collect();
+        // LLVM requires the first appended block to be the function entry.
+        // Create the entry block first, then the rest in order.
+        let entry_idx = func.entry.index();
+        let mut block_map: Vec<Option<_>> = vec![None; func.blocks.len()];
+        block_map[entry_idx] = Some(
+            self.builder
+                .append_block(self.current_function, &format!("bb{entry_idx}")),
+        );
+        for (i, _) in func.blocks.iter().enumerate() {
+            if i == entry_idx || dead_unwind.contains(&i) {
+                continue;
+            }
+            block_map[i] = Some(
+                self.builder
+                    .append_block(self.current_function, &format!("bb{i}")),
+            );
+        }
+        self.block_map = block_map;
 
         // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
