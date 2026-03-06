@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "README Rewrite"
-status: not-started
+status: complete
 goal: "Rewrite README.md to lead with the memory model, reframe testing as smart opt-in"
 depends_on: ["01"]
 sections:

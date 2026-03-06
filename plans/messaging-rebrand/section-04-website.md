@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Website Landing Page"
-status: not-started
+status: complete
 goal: "Update website landing page to match new positioning"
 depends_on: ["01", "03"]
 sections:

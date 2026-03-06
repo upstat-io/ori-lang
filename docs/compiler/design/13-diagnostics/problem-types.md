@@ -201,7 +201,7 @@ impl<'a> TypeErrorRenderer<'a> {
 | `ImportedItemNotFound { span, item, module }` | |
 | `ImmutableMutation { span, name, binding_span }` | secondary label at binding |
 | `UseBeforeInit { span, name }` | |
-| `MissingTest { span, func_name }` | **active in production** |
+| `MissingTest { span, func_name }` | **severity-configurable** (off/warn/error) |
 | `TestTargetNotFound { span, test_name, target_name }` | |
 | `BreakOutsideLoop { span }` | |
 | `ContinueOutsideLoop { span }` | |
@@ -217,7 +217,7 @@ impl<'a> TypeErrorRenderer<'a> {
 
 Warning variants are `UnusedVariable`, `UnusedFunction`, `UnreachableCode`, and `RedundantPattern`. All others are errors.
 
-Currently, only `MissingTest` is produced in production code — by `check_test_coverage()` during the `ori check` command. Most other variants are implemented and tested but are reserved for a future dedicated semantic analysis pass. Some overlap with `TypeCheckError`: `UnknownIdentifier`, `DuplicateDefinition`, and similar variants are currently handled by the type checker's own error reporting. `SemanticProblem` provides clean infrastructure for when a dedicated semantic pass is added.
+Currently, only `MissingTest` is produced in production code — by `check_test_coverage()` during the `ori check` command. Its severity is controlled by the `test-enforcement` setting: `off` (suppressed, default), `warn` (warning), or `error` (compilation error). Most other variants are implemented and tested but are reserved for a future dedicated semantic analysis pass. Some overlap with `TypeCheckError`: `UnknownIdentifier`, `DuplicateDefinition`, and similar variants are currently handled by the type checker's own error reporting. `SemanticProblem` provides clean infrastructure for when a dedicated semantic pass is added.
 
 The `DefinitionKind` enum (`Function`, `Variable`, `Config`, `Type`, `Test`, `Import`) provides grammatically consistent error messages for variants that reference named items.
 

@@ -121,6 +121,9 @@ static DOCS: &[(ErrorCode, &str)] = &[
     (ErrorCode::E3001, include_str!("E3001.md")),
     (ErrorCode::E3002, include_str!("E3002.md")),
     (ErrorCode::E3003, include_str!("E3003.md")),
+    // Semantic / lint errors (E3xxx — test coverage)
+    (ErrorCode::E3010, include_str!("E3010.md")),
+    (ErrorCode::E3011, include_str!("E3011.md")),
     // Internal errors (E9xxx)
     (ErrorCode::E9001, include_str!("E9001.md")),
     (ErrorCode::E9002, include_str!("E9002.md")),

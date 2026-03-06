@@ -330,10 +330,12 @@ impl SemanticProblem {
 
             SemanticProblem::MissingTest { span, func_name } => {
                 let func_name = interner.lookup(*func_name);
-                Diagnostic::error(ErrorCode::E3001)
+                Diagnostic::error(ErrorCode::E3010)
                     .with_message(format!("function `@{func_name}` has no tests"))
                     .with_label(*span, "missing test")
-                    .with_note("every function requires at least one test")
+                    .with_note(format!(
+                        "add a test with `@test_{func_name} tests @{func_name} () -> void`"
+                    ))
             }
 
             SemanticProblem::TestTargetNotFound {
@@ -343,7 +345,7 @@ impl SemanticProblem {
             } => {
                 let test_name = interner.lookup(*test_name);
                 let target_name = interner.lookup(*target_name);
-                Diagnostic::error(ErrorCode::E3001)
+                Diagnostic::error(ErrorCode::E3011)
                     .with_message(format!(
                         "test `@{test_name}` targets unknown function `@{target_name}`"
                     ))
@@ -448,64 +450,9 @@ impl SemanticProblem {
     }
 }
 
-/// Convert an [`ori_canon::PatternProblem`] into a [`Diagnostic`] via [`SemanticProblem`].
-///
-/// Pattern problems originate from the canonicalizer's exhaustiveness/redundancy
-/// checker. This function centralizes the mapping so all consumers (check command,
-/// test runner, future commands) use the same conversion.
-#[cold]
-pub fn pattern_problem_to_diagnostic(
-    problem: &ori_canon::PatternProblem,
-    interner: &StringInterner,
-) -> Diagnostic {
-    let semantic = match problem {
-        ori_canon::PatternProblem::NonExhaustive {
-            match_span,
-            missing,
-        } => SemanticProblem::NonExhaustiveMatch {
-            span: *match_span,
-            missing_patterns: missing.clone(),
-        },
-        ori_canon::PatternProblem::RedundantArm {
-            arm_span,
-            match_span,
-            ..
-        } => SemanticProblem::RedundantPattern {
-            span: *arm_span,
-            covered_by_span: *match_span,
-        },
-    };
-    semantic.into_diagnostic(interner)
-}
+mod test_coverage;
 
-/// Check that every function (except `@main`) has at least one test targeting it.
-///
-/// Returns a `SemanticProblem::MissingTest` for each untested function. This
-/// centralizes test coverage analysis so all consumers (check command, test runner,
-/// future `ori lint`) use the same logic.
-pub fn check_test_coverage(
-    module: &crate::ir::Module,
-    interner: &StringInterner,
-) -> Vec<SemanticProblem> {
-    let main_name = interner.intern("main");
-
-    let mut tested: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
-    for test in &module.tests {
-        for target in &test.targets {
-            tested.insert(*target);
-        }
-    }
-
-    module
-        .functions
-        .iter()
-        .filter(|f| f.name != main_name && !tested.contains(&f.name))
-        .map(|f| SemanticProblem::MissingTest {
-            span: f.span,
-            func_name: f.name,
-        })
-        .collect()
-}
+pub use test_coverage::{check_test_coverage, pattern_problem_to_diagnostic};
 
 #[cfg(test)]
 mod tests;

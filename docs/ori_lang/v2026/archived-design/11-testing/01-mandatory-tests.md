@@ -1,5 +1,7 @@
 # Mandatory Tests
 
+> **NOTE:** This document predates configurable test enforcement (2026-03-05). References to "mandatory testing" describe the `test-enforcement = "error"` mode, which is no longer the default. Test enforcement is now configurable: `off` (default), `warn`, or `error`.
+
 This document covers Ori's mandatory testing requirements: why testing is required, what's exempt, how the compiler enforces it, and why this matters for AI-authored code.
 
 ---

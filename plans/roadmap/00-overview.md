@@ -8,7 +8,7 @@ Reroute metadata lives in each plan's `index.md` frontmatter (`reroute: true`, `
 
 From CLAUDE.md — Ori's core tenets:
 
-1. **Code that proves itself** — Mandatory tests bound to functions
+1. **Code that proves itself** — Smart tests bound to functions, configurable enforcement
 2. **Dependency-aware integrity** — Change propagates to tests automatically
 3. **Explicit effects** — Capabilities make side effects visible and mockable
 4. **Lean core** — Only essentials in compiler; rest in stdlib

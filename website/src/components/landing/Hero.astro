@@ -9,9 +9,9 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
   <div class="hero-inner">
     <div class="hero-text">
       <span class="status-badge">v{version}</span>
-      <h1 class="hero-title">Code That Proves Itself</h1>
+      <h1 class="hero-title">Functional Code.<br />Imperative Speed.</h1>
       <p class="hero-subtitle">
-        Every function tested. Every change traced. Every effect explicit.
+        A statically-typed language where value semantics compile to in-place mutations. No garbage collector. No borrow checker. No compromise.
       </p>
       <div class="hero-actions">
         <a href="/guide/01-getting-started" class="btn btn-primary">Read Docs</a>
@@ -72,6 +72,9 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
     color: var(--color-text-secondary);
     line-height: var(--leading-relaxed);
     margin-bottom: var(--space-8);
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .hero-actions {
@@ -83,7 +86,7 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
 
   .hero-playground {
     height: 581px;
-    width: 65%;
+    width: 78%;
     margin: 0 auto;
   }
 

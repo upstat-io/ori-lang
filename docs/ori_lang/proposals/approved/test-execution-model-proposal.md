@@ -6,6 +6,8 @@
 **Approved:** 2026-01-29
 **Affects:** `compiler/oric/`, `compiler/ori_ir/`, CLI interface, `.ori/cache/`
 
+> **NOTE:** This document predates configurable test enforcement (2026-03-05). References to "mandatory testing" describe the `test-enforcement = "error"` mode, which is no longer the default.
+
 ## Summary
 
 Define the complete test execution model for Ori: when tests run, which tests run, and how the compiler integrates test execution into the build process. This proposal consolidates and extends the approved [Dependency-Aware Testing](../approved/dependency-aware-testing-proposal.md) and [Incremental Test Execution](../approved/incremental-test-execution-proposal.md) proposals into an implementable specification.
