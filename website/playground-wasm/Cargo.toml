@@ -1,6 +1,6 @@
 [package]
 name = "ori-playground-wasm"
-version = "2026.2.28-alpha.1"
+version = "2026.3.6-alpha.1"
 edition = "2021"
 description = "WebAssembly bindings for the Ori language playground"
 
