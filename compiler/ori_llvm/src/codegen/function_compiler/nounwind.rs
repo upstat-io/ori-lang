@@ -9,7 +9,7 @@
 //! 3. **Emit**: Emit LLVM IR using the complete nounwind set, ensuring
 //!    callers of nounwind callees use `call` instead of `invoke`.
 //!
-//! # Known limitation
+//! # Known limitations
 //!
 //! Impl methods are compiled via the old immediate-emit path
 //! ([`FunctionCompiler::emit_arc_function`]) **before** the two-pass analysis
@@ -17,6 +17,14 @@
 //! use `invoke` instead of `call`, even if the callee is trivially nounwind.
 //! This is safe (using `invoke` is always correct) but generates unnecessary
 //! overhead. A future refactor could fold impl methods into the two-pass batch.
+//!
+//! # NOTE: Derived methods handled separately (§02.3)
+//!
+//! Derived trait methods (`$eq`, `$compare`, `$hash`, `$clone`, `$default`)
+//! are emitted by `derive_codegen` outside this two-pass pipeline. Pure
+//! derives are marked `nounwind` directly in `setup_derive_function()` using
+//! `DerivedTrait::is_nounwind_derived()`. Impure derives (`$to_str`, `$debug`)
+//! are left unmarked.
 
 use ori_arc::lower_function_can;
 use ori_ir::canon::CanonResult;
@@ -30,9 +38,7 @@ use crate::codegen::abi::FunctionAbi;
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::value_id::FunctionId;
 
-// ---------------------------------------------------------------------------
 // Prepared function types
-// ---------------------------------------------------------------------------
 
 /// A function fully processed through the ARC pipeline, ready for nounwind
 /// analysis and LLVM emission.
@@ -45,6 +51,7 @@ use crate::codegen::value_id::FunctionId;
 ///
 /// This ensures monomorphized callee nounwind status is available when
 /// analyzing callers, preventing unnecessary `invoke` + landing pad overhead.
+#[derive(Debug)]
 pub struct PreparedFunction {
     pub(super) name: Name,
     pub(super) func_id: FunctionId,
@@ -58,6 +65,7 @@ pub struct PreparedFunction {
 /// The lambda's LLVM function is already declared and registered in
 /// `CodegenContext::functions` during preparation — only the body emission
 /// is deferred to [`FunctionCompiler::emit_prepared_functions`].
+#[derive(Debug)]
 pub(super) struct PreparedLambda {
     pub(super) name: Name,
     pub(super) func_id: FunctionId,
@@ -65,9 +73,7 @@ pub(super) struct PreparedLambda {
     pub(super) arc_func: ori_arc::ArcFunction,
 }
 
-// ---------------------------------------------------------------------------
 // Prepare phase
-// ---------------------------------------------------------------------------
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Lower all non-generic functions through the ARC pipeline without
@@ -268,9 +274,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Analyze phase
-    // -----------------------------------------------------------------------
 
     /// Build the complete nounwind function set from all prepared functions.
     ///
@@ -351,9 +355,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         );
     }
 
-    // -----------------------------------------------------------------------
     // Emit phase
-    // -----------------------------------------------------------------------
 
     /// Emit LLVM IR for all prepared functions using the complete nounwind set.
     ///

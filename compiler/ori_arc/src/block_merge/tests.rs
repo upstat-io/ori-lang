@@ -4,8 +4,8 @@ use ori_ir::Name;
 use ori_types::{Idx, Pool};
 
 use crate::ir::{
-    ArcBlock, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue, PrimOp,
-    RcStrategy,
+    ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue,
+    PrimOp, RcStrategy,
 };
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::uniqueness::CowMode;
@@ -14,7 +14,7 @@ use super::merge_blocks;
 use super::select::{fold_select_diamonds, is_trivial_body};
 use super::single_pred_phi::eliminate_single_pred_params;
 
-// ── Phase 2: Invoke Downgrade ───────────────────────────────────────
+// Phase 2: Invoke Downgrade
 
 /// Trivial invoke (empty unwind + Resume, single-pred normal, no params)
 /// should be downgraded to Apply + Jump.
@@ -369,7 +369,7 @@ fn invoke_normal_equals_unwind_not_downgraded() {
     assert!(has_invoke, "invoke with normal==unwind should be preserved");
 }
 
-// ── Phase 3: Jump Chain Merge ───────────────────────────────────────
+// Phase 3: Jump Chain Merge
 
 /// Single-predecessor Jump merge (no params).
 #[test]
@@ -651,7 +651,7 @@ fn transitive_chain_merge() {
     ));
 }
 
-// ── Phase 1: Dead Block Compaction ──────────────────────────────────
+// Phase 1: Dead Block Compaction
 
 /// Dead block compaction removes unreachable blocks and remaps IDs.
 #[test]
@@ -745,7 +745,7 @@ fn dead_cycle_compaction() {
     ));
 }
 
-// ── Span Consistency ────────────────────────────────────────────────
+// Span Consistency
 
 /// Span entries match instruction count after merge.
 #[test]
@@ -793,7 +793,7 @@ fn spans_consistent_after_merge() {
     }
 }
 
-// ── COW Annotation Preservation ─────────────────────────────────────
+// COW Annotation Preservation
 
 /// COW annotations survive body Apply merge.
 #[test]
@@ -1036,7 +1036,7 @@ fn auto_fbip_preserved_after_merge() {
     assert_eq!(func.cow_annotations.get(0, 1), CowMode::StaticUnique);
 }
 
-// ── Drop Hints Stability ────────────────────────────────────────────
+// Drop Hints Stability
 
 /// Drop hints computed after merge have valid coordinates.
 #[test]
@@ -1102,7 +1102,7 @@ fn drop_hints_valid_after_merge() {
     }
 }
 
-// ── Full Pipeline: Invoke Downgrade + Merge ─────────────────────────
+// Full Pipeline: Invoke Downgrade + Merge
 
 /// 3 sequential calls: invoke/normal/invoke/normal/invoke/normal → single block.
 #[test]
@@ -1208,7 +1208,7 @@ fn three_sequential_calls_merge_to_single_block() {
     ));
 }
 
-// ── Phase 3: Select Diamond Folding — is_trivial_body ───────────────
+// Phase 3: Select Diamond Folding — is_trivial_body
 
 /// Empty body is trivial.
 #[test]
@@ -1284,7 +1284,7 @@ fn trivial_body_mixed_instructions() {
     ]));
 }
 
-// ── Phase 3: Select Diamond Folding — Positive (fold occurs) ────────
+// Phase 3: Select Diamond Folding — Positive (fold occurs)
 
 /// Configuration for a 4-block diamond test pattern.
 struct DiamondConfig {
@@ -1801,7 +1801,7 @@ fn select_fold_preserves_branch_block_cow_annotations() {
     );
 }
 
-// ── Phase 3: Select Diamond Folding — Negative (fold does NOT occur) ─
+// Phase 3: Select Diamond Folding — Negative (fold does NOT occur)
 
 /// Arm has Apply instruction → Branch preserved.
 #[test]
@@ -2113,7 +2113,7 @@ fn select_not_folded_chained_let() {
     );
 }
 
-// ── Phase 5: Single-Predecessor Phi Elimination ─────────────────────
+// Phase 5: Single-Predecessor Phi Elimination
 
 /// Jump predecessor with params → params cleared, Let bindings added.
 #[test]
@@ -2427,5 +2427,197 @@ fn phase5_branch_both_arms_same_target() {
     assert!(
         func.blocks[1].params.is_empty(),
         "params should be cleared when Branch targets same block for both arms"
+    );
+}
+
+// Phase 6: Dead Block Param Elimination
+
+/// Build a non-diamond two-path-to-merge pattern (avoids select folding).
+///
+/// Returns a function with the shape:
+///   bb0: Branch(cond1, bb1, bb2)
+///   bb1: Jump(bb4, `break1_args`)
+///   bb2: Branch(cond2, bb3, bb5)
+///   bb3: Jump(bb4, `break2_args`)
+///   bb4: params [(v10,..), (v11,..), ...], body, `Return(ret_var)`
+///   bb5: Return(v9) — alternate exit
+fn make_two_path_merge(
+    exit_params: Vec<(ArcVarId, Idx)>,
+    break1_args: Vec<ArcVarId>,
+    break2_args: Vec<ArcVarId>,
+    exit_body: Vec<ArcInstr>,
+    ret_var: ArcVarId,
+) -> ArcFunction {
+    make_func(
+        vec![owned_param(0, Idx::BOOL)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    bool_let(1, false),
+                    int_let(3, 42),
+                    int_let(4, 0),
+                    int_let(5, 100),
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(0),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(4),
+                    args: break1_args,
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![
+                    int_let(6, -1),
+                    int_let(7, 0),
+                    int_let(8, 100),
+                    int_let(9, 0),
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: b(3),
+                    else_block: b(5),
+                },
+            },
+            ArcBlock {
+                id: b(3),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(4),
+                    args: break2_args,
+                },
+            },
+            ArcBlock {
+                id: b(4),
+                params: exit_params,
+                body: exit_body,
+                terminator: ArcTerminator::Return { value: ret_var },
+            },
+            ArcBlock {
+                id: b(5),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(9) },
+            },
+        ],
+        // v0..v12 + v13 for add result
+        vec![
+            Idx::BOOL,
+            Idx::BOOL,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+            Idx::INT,
+        ],
+    )
+}
+
+fn int_let(dst: u32, value: i64) -> ArcInstr {
+    ArcInstr::Let {
+        dst: v(dst),
+        ty: Idx::INT,
+        value: ArcValue::Literal(LitValue::Int(value)),
+    }
+}
+
+fn bool_let(dst: u32, value: bool) -> ArcInstr {
+    ArcInstr::Let {
+        dst: v(dst),
+        ty: Idx::BOOL,
+        value: ArcValue::Literal(LitValue::Bool(value)),
+    }
+}
+
+/// Multi-predecessor exit with dead params: only v10 (result) used.
+///
+/// v11 (i) and v12 (total) are dead → eliminated by Phase 6.
+#[test]
+fn dead_param_multi_pred_exit_block() {
+    let mut func = make_two_path_merge(
+        vec![(v(10), Idx::INT), (v(11), Idx::INT), (v(12), Idx::INT)],
+        vec![v(3), v(4), v(5)],
+        vec![v(6), v(7), v(8)],
+        vec![],
+        v(10),
+    );
+
+    merge_blocks(&mut func);
+
+    let exit = func
+        .blocks
+        .iter()
+        .find(|bl| matches!(bl.terminator, ArcTerminator::Return { value } if value == v(10)));
+    let exit = exit.unwrap_or_else(|| panic!("no return block for v10"));
+
+    assert_eq!(
+        exit.params.len(),
+        1,
+        "dead i/total removed. Got: {:?}",
+        exit.params
+    );
+
+    for bl in &func.blocks {
+        if let ArcTerminator::Jump { target, args } = &bl.terminator {
+            if target == &exit.id {
+                assert_eq!(args.len(), 1, "Jump args trimmed. Got: {args:?}");
+            }
+        }
+    }
+}
+
+/// All params live: dead-param elimination preserves everything.
+///
+/// Both v10 and v11 are used in the exit block body (v10 + v11).
+#[test]
+fn dead_param_all_live_preserved() {
+    let mut func = make_two_path_merge(
+        vec![(v(10), Idx::INT), (v(11), Idx::INT)],
+        vec![v(3), v(4)],
+        vec![v(6), v(7)],
+        vec![ArcInstr::Let {
+            dst: v(13),
+            ty: Idx::INT,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(ori_ir::BinaryOp::Add),
+                args: vec![v(10), v(11)],
+            },
+        }],
+        v(13),
+    );
+
+    merge_blocks(&mut func);
+
+    let exit = func
+        .blocks
+        .iter()
+        .find(|bl| matches!(bl.terminator, ArcTerminator::Return { value } if value == v(13)));
+    let exit = exit.unwrap_or_else(|| panic!("no return block for v13"));
+
+    assert_eq!(
+        exit.params.len(),
+        2,
+        "both params live — preserved. Got: {:?}",
+        exit.params
     );
 }

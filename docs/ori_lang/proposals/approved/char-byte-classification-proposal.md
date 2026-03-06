@@ -1,8 +1,9 @@
 # Proposal: Character and Byte Classification Methods
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with Claude)
 **Created:** 2026-03-05
+**Approved:** 2026-03-05
 
 ---
 
@@ -63,14 +64,14 @@ The Ori archived design doc (`03-type-system/01-primitive-types.md`) already lis
 
 ## Design
 
-### Char Methods
+### Char Methods (Unicode)
 
 Methods on `char` operate on full Unicode:
 
 | Method | Description | Unicode Category |
 |--------|-------------|-----------------|
 | `is_alphabetic()` | Letter | `L*` (Letter) |
-| `is_digit()` | Decimal digit | `Nd` (Decimal Number) |
+| `is_digit()` | Decimal digit | `Nd` (Decimal Number) — includes digits from all scripts |
 | `is_alphanumeric()` | Letter or digit | `L*` or `Nd` |
 | `is_whitespace()` | Whitespace | `Zs`, `\t`, `\n`, `\r`, `\u{000B}`, `\u{000C}`, `\u{0085}`, `\u{2028}`, `\u{2029}` |
 | `is_uppercase()` | Uppercase letter | `Lu` |
@@ -80,9 +81,29 @@ Methods on `char` operate on full Unicode:
 
 All return `bool`. All are pure (no self-mutation).
 
+### Char Methods (ASCII)
+
+ASCII-scoped methods on `char` for when Unicode classification is not desired:
+
+| Method | Description | Range |
+|--------|-------------|-------|
+| `is_ascii_alphabetic()` | ASCII letter | `a-z`, `A-Z` |
+| `is_ascii_digit()` | ASCII digit | `0-9` |
+| `is_ascii_alphanumeric()` | ASCII letter or digit | `a-z`, `A-Z`, `0-9` |
+| `is_ascii_whitespace()` | ASCII whitespace | `' '`, `\t`, `\n`, `\r`, `\x0B`, `\x0C` |
+| `is_ascii_uppercase()` | ASCII uppercase | `A-Z` |
+| `is_ascii_lowercase()` | ASCII lowercase | `a-z` |
+| `is_ascii_hex_digit()` | Hex digit | `0-9`, `a-f`, `A-F` |
+| `is_ascii_punctuation()` | ASCII punctuation | `!-/`, `:-@`, `[-`\``, `{-~` |
+| `is_ascii_control()` | ASCII control | 0x00..0x1F, 0x7F |
+
+These return `false` for any `char` outside the ASCII range (U+0080 and above). This mirrors Rust's `char::is_ascii_*()` family.
+
+**Rationale:** Without ASCII-scoped methods on `char`, checking if a character is an ASCII digit requires `ch.is_ascii() && (ch as byte).is_digit()` which is awkward. Lexers and parsers frequently work with `char` values but only care about ASCII.
+
 ### Byte Methods
 
-Methods on `byte` operate on ASCII only (0–127). Bytes outside ASCII range return `false` for all classification methods except where noted:
+Methods on `byte` operate on ASCII only (0-127). Bytes outside ASCII range return `false` for all classification methods except where noted:
 
 | Method | Description | Range |
 |--------|-------------|-------|
@@ -113,6 +134,8 @@ For conciseness in byte-heavy code (lexers), short aliases are provided:
 
 **Rationale:** `byte` is an 8-bit unsigned integer. It has no Unicode semantics. The `is_ascii_*` prefix is redundant for bytes — all byte classification is inherently ASCII. The short aliases remove this noise.
 
+**No short aliases on `char`.** `char` methods use full names (`is_alphabetic()`, not `is_alpha()`) to reinforce that they operate on full Unicode. The naming distinction between `char.is_alphabetic()` (Unicode) and `byte.is_alpha()` (ASCII) signals the semantic difference.
+
 ### Conversion Methods
 
 | Method | On | Returns | Description |
@@ -128,6 +151,23 @@ b'a'.to_ascii_uppercase()    // b'A'
 'z'.to_digit(radix: 10)      // None
 ```
 
+#### `to_digit` Radix Rules
+
+The `radix` parameter shall be in the range 2..=36 (inclusive). Values outside this range panic:
+
+```ori
+'a'.to_digit(radix: 16)      // Some(10)
+'a'.to_digit(radix: 10)      // None ('a' is not a base-10 digit)
+'a'.to_digit(radix: 0)       // panic: radix must be in range 2..=36
+'a'.to_digit(radix: 37)      // panic: radix must be in range 2..=36
+```
+
+For radices > 10, letters `a-z` / `A-Z` represent digit values 10-35 (case-insensitive).
+
+#### Full Unicode Case Conversion
+
+Full Unicode case conversion (`to_uppercase()`, `to_lowercase()`) is deferred. These are complex (locale-sensitive, one-to-many mappings like `ß` -> `SS`) and will be addressed in a future proposal if needed. The ASCII conversion methods cover the common case.
+
 ---
 
 ## Implementation
@@ -139,6 +179,8 @@ Unicode-aware methods use lookup tables generated from the Unicode Character Dat
 - `Nd` (Decimal Number) category
 - `Zs` (Space Separator) category
 - `Lu`, `Ll` (Upper/Lowercase Letter)
+
+ASCII-scoped methods on `char` compile to simple range checks (same as byte methods, with an additional `ch <= '\x7F'` guard).
 
 ### Byte Methods
 
@@ -162,12 +204,15 @@ These are inherent methods on primitive types, defined in the prelude:
 impl char {
     @is_alphabetic (self) -> bool = ...;
     @is_digit (self) -> bool = ...;
+    @is_ascii_alphabetic (self) -> bool = ...;
+    @is_ascii_digit (self) -> bool = ...;
     // ...
 }
 
 impl byte {
     @is_ascii (self) -> bool = ...;
-    @is_alpha (self) -> bool = ...;
+    @is_ascii_alpha (self) -> bool = ...;
+    @is_alpha (self) -> bool = ...;       // alias for is_ascii_alpha
     // ...
 }
 ```
@@ -181,11 +226,9 @@ impl byte {
 
 ---
 
-## Open Questions
+## Depends On
 
-1. **Naming:** `is_digit()` vs `is_numeric()` — `is_digit` is more precise (only `0-9`), `is_numeric` could include Unicode numeric characters. Recommend `is_digit()`.
-2. **`is_alpha()` on char?** Should `char` also have `is_alpha()` as a short alias for `is_alphabetic()`? Or keep them distinct to emphasize that char methods are Unicode-aware?
-3. **Additional methods:** `is_printable()`, `is_graphic()`? Defer until needed.
+- `byte-literals-proposal.md` [approved] — uses byte literals in examples and implementations
 
 ---
 
@@ -201,3 +244,4 @@ impl byte {
 ## Changelog
 
 - 2026-03-05: Initial draft
+- 2026-03-05: Approved — added ASCII-scoped methods on `char`; resolved `to_digit` radix rules (panic on invalid, 2..=36); no short aliases on `char`; deferred full Unicode case conversion; resolved all open questions

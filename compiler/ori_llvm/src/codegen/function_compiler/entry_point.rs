@@ -63,6 +63,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .declare_function("main", &c_main_params, i32_ty);
         self.builder.set_ccc(c_main_id);
 
+        // The C main wrapper is nounwind if the Ori @main is nounwind —
+        // all calls it makes (including _ori_main) are proven non-unwinding.
+        if self.codegen_ctx.nounwind_functions.contains(&main_name) {
+            self.builder.add_nounwind_attribute(c_main_id);
+        }
+
         let entry = self.builder.append_block(c_main_id, "entry");
         self.builder.position_at_end(entry);
         self.builder.set_current_function(c_main_id);

@@ -1,10 +1,12 @@
 # Proposal: Value Trait — ARC-Free Value Types
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-03-05
+**Approved:** 2026-03-05
 **Affects:** Compiler (type checker, ARC pipeline, LLVM codegen), type system, memory model, spec
 **Related:** `capability-unification-generics-proposal.md` (approved), `memory-model-edge-cases-proposal.md` (approved), `sendable-interior-mutability-proposal.md` (approved), `clone-trait-proposal.md` (approved)
+**Supersedes:** `Copy` trait slot from `copy-semantics-and-reserved-keywords-proposal.md`, `inline type` approach from `low-level-future-proofing-proposal.md`
 
 ---
 
@@ -167,25 +169,32 @@ type Tree: Value, Eq = {     // ERROR: recursive type cannot be Value
 
 ### Rule 4: Size Limit
 
-Value types must fit within a reasonable inline size threshold. Types exceeding **128 bytes** produce a warning; types exceeding **256 bytes** produce an error:
+Value types must fit within a reasonable inline size threshold. Types exceeding **256 bytes** produce a warning; types exceeding **512 bytes** produce an error:
 
 ```ori
 type TooLarge: Value, Eq = {
-    matrix: (float, float, float, float,
-             float, float, float, float,
-             float, float, float, float,
-             float, float, float, float,
-             float, float, float, float,
-             float, float, float, float,
-             float, float, float, float,
-             float, float, float, float,
-             float, float, float, float)
+    data: (float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float,
+           float, float, float, float)
 }
-// ERROR: Value type exceeds 256 bytes (288 bytes)
+// ERROR: Value type exceeds 512 bytes (512 bytes)
 // help: consider using a heap-allocated type instead
 ```
 
-**Rationale**: Excessively large value types cause stack overflow risk and poor cache performance from frequent large copies. The 128/256-byte thresholds are conservative — most value types (points, colors, quaternions, small matrices) are well under 64 bytes.
+**Rationale**: Excessively large value types cause stack overflow risk and poor cache performance from frequent large copies. The 256/512-byte thresholds accommodate common use cases like 4×4 float matrices (128 bytes) and 4×4 double matrices (256 bytes), while preventing truly excessive inline types.
 
 ### Rule 5: Automatic `Clone` Satisfaction
 
@@ -366,11 +375,11 @@ error[E2041]: `Value` type `Handle` cannot implement `Drop`
 ### Size Exceeded
 
 ```
-error[E2042]: `Value` type `HugeMatrix` exceeds maximum size (256 bytes)
+error[E2042]: `Value` type `HugeMatrix` exceeds maximum size (512 bytes)
   --> src/types.ori:1:1
    |
 1  | type HugeMatrix: Value, Eq = { ... }
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ size is 512 bytes
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ size is 1024 bytes
    |
    = note: Value types are copied on every assignment — large values
            cause stack pressure and poor cache performance
@@ -380,14 +389,14 @@ error[E2042]: `Value` type `HugeMatrix` exceeds maximum size (256 bytes)
 ### Size Warning
 
 ```
-warning[W2040]: `Value` type `Matrix4x4` is large (128 bytes)
+warning[W2040]: `Value` type `LargeStruct` is large (384 bytes)
   --> src/types.ori:1:1
    |
-1  | type Matrix4x4: Value, Eq = { ... }
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ consider whether heap allocation is more appropriate
+1  | type LargeStruct: Value, Eq = { ... }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ consider whether heap allocation is more appropriate
    |
    = note: Value types are copied on every assignment
-   = help: types over 128 bytes often perform better with reference counting
+   = help: types over 256 bytes often perform better with reference counting
 ```
 
 ### Generic Bound Violation
@@ -611,9 +620,9 @@ No grammar changes needed — `Value` uses the existing `:` syntax from the capa
 |------|-------------|
 | E2040 | Field of `Value` type does not satisfy `Value` |
 | E2041 | `Value` type cannot implement `Drop` |
-| E2042 | `Value` type exceeds maximum size (256 bytes) |
+| E2042 | `Value` type exceeds maximum size (512 bytes) |
 | E2043 | Type does not satisfy `Value` bound |
-| W2040 | `Value` type is large (>128 bytes) |
+| W2040 | `Value` type is large (>256 bytes) |
 
 ---
 
@@ -627,7 +636,7 @@ No grammar changes needed — `Value` uses the existing `:` syntax from the capa
 
 4. **No manual impl** — Same rationale as `Sendable`: `Value` is a safety property verified by the compiler. Manual implementation could cause misclassification in the ARC pipeline, leading to use-after-free or leaks.
 
-5. **Size limits** — Excessively large value types defeat the purpose (stack pressure, cache misses from large copies). The 128/256-byte thresholds are conservative and match typical cache line multiples. Most real-world value types (Vec3, Color, Quaternion, Matrix4) are well under 128 bytes.
+5. **Size limits** — Excessively large value types defeat the purpose (stack pressure, cache misses from large copies). The 256/512-byte thresholds accommodate common use cases (4×4 float matrices at 128 bytes, 4×4 double matrices at 256 bytes) while preventing truly excessive inline types. Most real-world value types (Vec3, Color, Quaternion) are well under 128 bytes.
 
 6. **`str` excluded** — Strings are reference-counted in Ori (including SSO for ≤23 bytes). Even though short strings are inline, the `str` type itself participates in ARC at the type level. Mixing SSO with `Value` semantics creates confusion about when copies are free vs expensive.
 
@@ -637,15 +646,51 @@ No grammar changes needed — `Value` uses the existing `:` syntax from the capa
 
 ---
 
-## Open Questions
+## Relationship to Existing Proposals
 
-1. **Should `Value` imply `Eq`, or should they be independent?** The current design makes `Eq` a supertrait. Alternative: `Value` is independent, and you can have `type Point: Value = { ... }` without `Eq`. This would allow `Value` types with fields that don't support equality (e.g., value wrappers around opaque data).
+### Supersedes: `Copy` Trait Slot
 
-2. **Should the size limit be configurable per type?** For example, `type BigMatrix: Value(max_size: 512), Eq = { ... }`. This adds complexity but handles legitimate large-but-inline use cases (e.g., 4x4 matrices = 128 bytes).
+The `copy-semantics-and-reserved-keywords-proposal` (approved 2026-02-02) reserved a `Copy` trait slot:
 
-3. **Should `Value` types automatically derive `Eq`?** Since `Eq` is a supertrait, every `Value` type needs an `Eq` implementation. Should the compiler auto-derive it (like Sendable), or should the user explicitly write `: Value, Eq`?
+```rust
+pub trait Copy: Clone {}
+```
 
-4. **Should `[T, max N]` satisfy `Value` when `T: Value`?** This is deferred in this proposal but is a natural extension. The main concern is whether fixed-capacity list internals (capacity tracking, length field) complicate the "always bitwise-copyable" guarantee.
+`Value` supersedes this reservation. Both traits serve the same purpose (bitwise-copyable, implies Clone, no Drop), but `Value` is strictly stronger (also requires `Eq`). Having both `Copy` and `Value` as separate traits would create confusion — `Value` is the single concept Ori uses for this purpose.
+
+The `Copy` trait slot in `copy-semantics-and-reserved-keywords-proposal` should be considered retired. The reserved keywords (`union`, `static`, `asm`) from that proposal remain unchanged.
+
+### Supersedes: `inline type` Approach
+
+The `low-level-future-proofing-proposal` (approved 2026-02-02) reserved the `inline` keyword and `ValueCategory::Inline` for stack-allocated types:
+
+```ori
+inline type Vec3 = { x: float, y: float, z: float }
+```
+
+`Value` replaces this approach with a trait-based design:
+
+```ori
+type Vec3: Value, Eq = { x: float, y: float, z: float }
+```
+
+A trait is more composable than a keyword — it supports generic bounds (`T: Value`), conditional satisfaction, and integrates naturally with the capability-unification syntax. The `inline` keyword remains reserved for potential future fine-grained control (e.g., forcing inline storage for non-Value types in specific contexts). `ValueCategory::Inline` in the IR maps to types with the `Value` trait.
+
+### Updates: Memory Model Edge Cases
+
+The `memory-model-edge-cases-proposal` states "Ori doesn't distinguish Copy vs Clone at the language level." The `Value` trait introduces this distinction — `Value` types are trivially copyable (bitwise copy satisfies Clone), while non-Value types may require deep cloning. An erratum will be added to that proposal.
+
+---
+
+## Resolved Questions
+
+1. **`Value` implies `Eq` (supertrait).** Value types have no identity, only value — equality by value is fundamental. `float` already has an `Eq` impl in Ori (NaN == NaN returns false, which is valid). Users must explicitly write `: Value, Eq` to get both traits.
+
+2. **Size limits are fixed, not configurable per type.** 256-byte warning and 512-byte error thresholds cover 99% of use cases. Types exceeding 512 bytes should use heap allocation.
+
+3. **`Value` does NOT auto-derive `Eq`.** Users must explicitly write `: Value, Eq`. This makes the Eq impl visible and explicit, consistent with how other derived traits work.
+
+4. **`[T, max N]` is deferred.** Fixed-capacity lists could satisfy `Value` when `T: Value`, but representation details need to settle first. A follow-up proposal can add this.
 
 ---
 
@@ -686,7 +731,7 @@ let $palette: [RGBA, max 256] = embed("palette.bin")
 | Supertrait | `Clone + Eq` |
 | Fields | All must satisfy `Value` |
 | Drop | Prohibited |
-| Size | Warning >128 bytes, error >256 bytes |
+| Size | Warning >256 bytes, error >512 bytes |
 | Sendable | Automatically satisfied |
 | Manual impl | Prohibited |
 | Primitives | Implicitly `Value` |

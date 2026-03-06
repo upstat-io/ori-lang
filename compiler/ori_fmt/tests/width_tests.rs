@@ -128,7 +128,11 @@ fn check_line_widths(formatted: &str, max_width: usize) -> (Vec<String>, Vec<Str
                 width,
                 max_width,
                 if line.len() > 60 {
-                    format!("{}...", &line[..60])
+                    let mut end = 60;
+                    while !line.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    format!("{}...", &line[..end])
                 } else {
                     line.to_string()
                 }

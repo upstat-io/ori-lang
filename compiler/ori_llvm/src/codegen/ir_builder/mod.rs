@@ -19,6 +19,7 @@
 //! | Constants | `constants` |
 //! | Memory | `memory` |
 //! | Arithmetic | `arithmetic` |
+//! | Checked arithmetic | `checked_ops` |
 //! | Comparisons | `comparisons` |
 //! | Conversions | `conversions` |
 //! | Control flow | `control_flow` |
@@ -32,6 +33,7 @@ mod aggregates;
 mod arithmetic;
 mod attributes;
 mod calls;
+mod checked_ops;
 mod comparisons;
 mod constants;
 mod control_flow;
@@ -120,6 +122,11 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// memory instruction, ensuring correctness on strict-alignment
     /// architectures (ARM, RISC-V).
     target_data: Option<TargetData>,
+    /// Cache: string content → already-emitted global string pointer.
+    ///
+    /// Deduplicates identical string constants (e.g., overflow panic messages)
+    /// so each unique string is emitted as a single LLVM global per module.
+    global_strings: FxHashMap<String, ValueId>,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -168,6 +175,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             mode,
             eh_model,
             target_data: None,
+            global_strings: FxHashMap::default(),
         }
     }
 
@@ -295,6 +303,63 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
                 | BasicValueEnum::FloatValue(_)
                 | BasicValueEnum::PointerValue(_)
         )
+    }
+
+    /// Check if an LLVM type is a single-slot scalar (fits in one i64 payload slot).
+    ///
+    /// Returns `true` for integer, float, and pointer types. Returns `false`
+    /// for struct, array, and vector types (multi-word aggregates).
+    ///
+    /// Used by enum payload extraction to decide between the `extractvalue`
+    /// path (scalar fields) and the alloca+GEP+load path (multi-word fields).
+    pub fn is_single_slot_type(&self, ty: LLVMTypeId) -> bool {
+        let raw = self.arena.get_type(ty);
+        matches!(
+            raw,
+            BasicTypeEnum::IntType(_) | BasicTypeEnum::FloatType(_) | BasicTypeEnum::PointerType(_)
+        )
+    }
+
+    /// Check if a value is a struct (SSA aggregate), not a pointer or scalar.
+    pub fn is_struct_value(&self, val: ValueId) -> bool {
+        matches!(self.arena.get_value(val), BasicValueEnum::StructValue(_))
+    }
+
+    /// Reinterpret raw `i64` bits as the target type.
+    ///
+    /// Enum payloads store all fields as `i64` in a `[N x i64]` array.
+    /// After `extractvalue`, we get the raw `i64` and need to reinterpret
+    /// the bits as the actual field type:
+    /// - `i64 → i64`: identity (no-op)
+    /// - `i64 → double`: `bitcast`
+    /// - `i64 → i1/i8/i32`: `trunc`
+    /// - `i64 → ptr`: `inttoptr`
+    pub fn reinterpret_from_i64(
+        &mut self,
+        val: ValueId,
+        target_ty: LLVMTypeId,
+        name: &str,
+    ) -> ValueId {
+        let raw = self.arena.get_type(target_ty);
+        match raw {
+            BasicTypeEnum::IntType(it) => {
+                if it.get_bit_width() == 64 {
+                    val
+                } else {
+                    self.trunc(val, target_ty, name)
+                }
+            }
+            BasicTypeEnum::FloatType(_) => self.bitcast(val, target_ty, name),
+            BasicTypeEnum::PointerType(_) => self.int_to_ptr(val, name),
+            _ => {
+                tracing::error!(
+                    ?raw,
+                    "reinterpret_from_i64: unexpected non-scalar target type"
+                );
+                self.record_codegen_error();
+                val
+            }
+        }
     }
 
     /// Check if a struct type's field at the given index is an array type.

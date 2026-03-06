@@ -86,42 +86,42 @@ Function-level `pre()` and `post()` contract declarations for defensive programm
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker: Validate `pre()` condition is `bool`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — pre type validation
+  - [ ] **Rust Tests**: `ori_types/src/check/function.rs` — pre type validation
   - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_not_bool.ori`
   - [ ] **LLVM Support**: LLVM codegen for pre type validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre type validation codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker: Validate `post()` is `T -> bool` lambda
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — post type validation
+  - [ ] **Rust Tests**: `ori_types/src/check/function.rs` — post type validation
   - [ ] **Ori Tests**: `tests/compile-fail/checks/post_not_lambda.ori`
   - [ ] **LLVM Support**: LLVM codegen for post type validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — post type validation codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker: Error when `post()` used on void-returning function
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — void return error
+  - [ ] **Rust Tests**: `ori_types/src/check/function.rs` — void return error
   - [ ] **Ori Tests**: `tests/compile-fail/checks/post_void_return.ori`
   - [ ] **LLVM Support**: LLVM codegen for void return error
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — void return error codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Scope checker: `pre()` can only access parameters and module-level bindings
-  - [ ] **Rust Tests**: `oric/src/resolve/scope.rs` — pre scope validation
+  - [ ] **Rust Tests**: `ori_types/src/check/scope.rs` — pre scope validation
   - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_scope.ori`
   - [ ] **LLVM Support**: LLVM codegen for pre scope validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre scope validation codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Codegen: Desugar to conditional checks and panics at function entry/exit
-  - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — contract desugaring
+  - [ ] **Rust Tests**: `ori_types/src/check/checks.rs` — contract desugaring
   - [ ] **Ori Tests**: `tests/spec/patterns/checks_desugaring.ori`
   - [ ] **LLVM Support**: LLVM codegen for contract desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract desugaring codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Codegen: Embed source text for default error messages
-  - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — source text embedding
+  - [ ] **Rust Tests**: `ori_types/src/check/checks.rs` — source text embedding
   - [ ] **Ori Tests**: `tests/spec/patterns/checks_error_messages.ori`
   - [ ] **LLVM Support**: LLVM codegen for source text embedding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — source text embedding codegen
@@ -173,21 +173,21 @@ let y = value as float
 ### Type Checker
 
 - [ ] **Implement**: Validate `as` only used with `As<T>` trait implementations
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/as_expr.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/as_expr.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/as_not_implemented.ori`
   - [ ] **LLVM Support**: LLVM codegen for As<T> trait validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — As<T> trait validation codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Validate `as?` only used with `TryAs<T>` trait implementations
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/as_expr.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/as_expr.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/try_as_not_implemented.ori`
   - [ ] **LLVM Support**: LLVM codegen for TryAs<T> trait validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — TryAs<T> trait validation codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error when using `as` for fallible conversion (must use `as?`)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/as_expr.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/as_expr.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/as_fallible_conversion.ori`
   - [ ] **LLVM Support**: LLVM codegen for fallible conversion error
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — fallible conversion error codegen
@@ -299,14 +299,14 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [x] **LLVM Rust Tests**: N/A — mutability is a type-checker concern, not codegen
 
 - [ ] **Implement**: Prevent `$x` and `x` coexisting in same scope
-  - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — same-name conflict detection
+  - [ ] **Rust Tests**: `ori_types/src/check/binding.rs` — same-name conflict detection
   - [ ] **Ori Tests**: `tests/compile-fail/dollar_and_non_dollar_conflict.ori`
   - [ ] **LLVM Support**: LLVM codegen for same-name conflict detection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — same-name conflict detection codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Enforce module-level bindings require `$` prefix
-  - [ ] **Rust Tests**: `oric/src/resolve/module.rs` — module binding immutability
+  - [ ] **Rust Tests**: `ori_types/src/check/module.rs` — module binding immutability
   - [ ] **Ori Tests**: `tests/compile-fail/module_level_mutable.ori`
   - [ ] **LLVM Support**: LLVM codegen for module binding immutability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — module binding immutability codegen
@@ -321,14 +321,14 @@ let $timeout = 30s // module-level constant (let and $ required)
 ### Imports
 
 - [ ] **Implement**: Require `$` in import statements for immutable bindings
-  - [ ] **Rust Tests**: `oric/src/resolve/import.rs` — import with dollar
+  - [ ] **Rust Tests**: `ori_types/src/check/import.rs` — import with dollar
   - [ ] **Ori Tests**: `tests/spec/modules/import_immutable.ori`
   - [ ] **LLVM Support**: LLVM codegen for import with dollar
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — import with dollar codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error when importing `$x` as `x` or vice versa
-  - [ ] **Rust Tests**: `oric/src/resolve/import.rs` — import modifier mismatch
+  - [ ] **Rust Tests**: `ori_types/src/check/import.rs` — import modifier mismatch
   - [ ] **Ori Tests**: `tests/compile-fail/import_dollar_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for import modifier mismatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — import modifier mismatch codegen
@@ -337,7 +337,7 @@ let $timeout = 30s // module-level constant (let and $ required)
 ### Shadowing
 
 - [ ] **Implement**: Allow shadowing to change mutability
-  - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — shadowing mutability change
+  - [ ] **Rust Tests**: `ori_types/src/check/binding.rs` — shadowing mutability change
   - [ ] **Ori Tests**: `tests/spec/expressions/shadow_mutability.ori`
   - [ ] **LLVM Support**: LLVM codegen for shadowing mutability change
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — shadowing mutability change codegen
@@ -400,14 +400,14 @@ let items: [Serializable] = ...
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker distinguishes `item: Trait` (trait object) vs `<T: Trait>` (generic bound)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/trait_objects.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/trait_objects.rs`
   - [ ] **Ori Tests**: `tests/spec/types/trait_vs_bound.ori`
   - [ ] **LLVM Support**: LLVM codegen for trait object vs bound distinction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Object safety validation with clear error messages
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/object_safety.rs`
+  - [ ] **Rust Tests**: `ori_types/src/check/object_safety.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/non_object_safe_trait.ori`
   - [ ] **LLVM Support**: LLVM codegen for object safety validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`

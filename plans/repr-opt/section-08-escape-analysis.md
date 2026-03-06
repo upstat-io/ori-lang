@@ -44,6 +44,14 @@ The ori_arc pipeline currently uses liveness-based analysis for RC insertion, bu
 
 **Depends on:** §02 (triviality classification helps escape analysis — trivial values don't need escape tracking).
 
+**Risk warning (VERY HIGH COMPLEXITY):** This is the largest (~1,500 lines) and most dangerous section. Key risks:
+1. Connection graph escape analysis is interprocedural — requires whole-module fixed-point iteration that interacts with `ori_arc`'s existing borrow inference.
+2. Stack promotion (§08.3) changes allocation semantics — a bug means use-after-free. Requires the most thorough Valgrind testing of any section.
+3. Bump allocation (§08.4) adds a new runtime allocation scheme to `ori_rt` that must integrate with existing COW, slice, and RC infrastructure.
+4. §08.5 modifies `run_arc_pipeline()` parameters — the most sensitive function in the compiler.
+
+**Recommended approach:** Implement §08.1 (intraprocedural) first as a standalone pass. Ship it, measure, and verify with Valgrind before attempting §08.2 (interprocedural) or §08.4 (bump allocation).
+
 ---
 
 ## 08.1 Intraprocedural Escape Analysis
@@ -95,7 +103,7 @@ Start with per-function analysis (no cross-function information). This catches t
 
 - [ ] Implement escape propagation:
   ```rust
-  pub fn analyze_escapes(func: &CanFunction, pool: &Pool) -> EscapeInfo {
+  pub fn analyze_escapes(func: &ArcFunction, pool: &Pool) -> EscapeInfo {
       let mut graph = build_connection_graph(func, pool);
 
       // Fixed-point: propagate escape states through edges
@@ -274,6 +282,8 @@ This directly closes the "custom allocators" gap with Zig: Zig lets programmers 
 
 Feed escape information into the ARC pipeline so it can skip RC operations.
 
+**Call site warning:** `run_arc_pipeline()` is called from `ori_arc/src/lib.rs` (`run_arc_pipeline_all`), `ori_llvm evaluator/compile.rs`, and `ori_llvm codegen/function_compiler`. Adding a parameter requires updating ALL call sites in the same commit.
+
 - [ ] Add `EscapeInfo` to `run_arc_pipeline()` parameters:
   ```rust
   pub fn run_arc_pipeline(
@@ -285,6 +295,7 @@ Feed escape information into the ARC pipeline so it can skip RC operations.
       escape_info: &EscapeInfo,  // NEW
   ) -> ArcResult { ... }
   ```
+  **WARNING:** This function already has 5 parameters. Adding a 6th triggers the >3-4 params guideline. Consider a config struct (`ArcPipelineConfig` or passing `&ReprPlan` which includes escape info) to avoid accumulating parameters as later sections add more.
 
 - [ ] In `insert_rc_ops_with_ownership()`:
   - Skip `RcInc`/`RcDec` for variables whose allocation site is `NoEscape`
@@ -305,6 +316,7 @@ Feed escape information into the ARC pipeline so it can skip RC operations.
 - [ ] Values returned from functions are NOT stack/bump-promoted (correctly identified as escaping)
 - [ ] Closures that capture values correctly mark those values as escaping
 - [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean (no use-after-free from premature stack deallocation or bump region reuse)
 - [ ] `./diagnostics/dual-exec-verify.sh` passes (eval and AOT produce identical results)
 - [ ] Zero `ori_rc_alloc` calls for functions that only use non-escaping values

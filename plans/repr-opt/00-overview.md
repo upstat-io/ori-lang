@@ -5,7 +5,7 @@ status: not-started
 supersedes:
   - "docs/ori_lang/proposals/approved/representation-optimization-proposal.md (implements)"
 references:
-  - "docs/ori_lang/v2026/spec/22-system-considerations.md"
+  - "docs/ori_lang/v2026/spec/annex-e-system-considerations.md"
   - "docs/ori_lang/proposals/approved/representation-optimization-proposal.md"
   - "plans/value-semantics-optimization/"
   - "compiler/ori_arc/src/lib.rs"
@@ -82,11 +82,12 @@ This plan implements the full 3-tier framework from the approved representation-
               └───────────────────────┘
 ```
 
+
 ## Design Principles
 
 ### 1. Semantic Contract Inviolability
 
-The programmer's mental model must NEVER break. `int` is always [-2⁶³, 2⁶³-1]. `float` is always IEEE 754 double. No optimization may produce a different result than the canonical representation for any conforming program. This is enforced by the spec (§22) and tested by dual-execution verification (§12).
+The programmer's mental model must NEVER break. `int` is always [-2⁶³, 2⁶³-1]. `float` is always IEEE 754 double. No optimization may produce a different result than the canonical representation for any conforming program. This is enforced by the spec (Annex E — System Considerations) and tested by dual-execution verification (§12).
 
 **Why this matters:** If narrowing ever changes semantics, the entire premise of hidden representations collapses. Every optimization must include a proof obligation (either formal or test-based) that semantic equivalence holds.
 
@@ -104,18 +105,29 @@ All narrowing decisions are recorded in a `ReprPlan` data structure between type
 
 ```
 Information flow — each stage enriches the ReprPlan:
-  Pool (semantic) → ReprPlan (empty)
-    → §02 Triviality (marks trivial types)
-      → §03 Range (adds interval bounds)
-        → §04 Integer narrowing (sets MachineInt variants)
-          → §05 Float narrowing (sets MachineFloat variants)
-            → §06 Struct layout (computes field order + padding)
-              → §07 Enum repr (fills niches, computes tag type)
-                → §08 Escape (marks stack-promotable allocations)
-                  → §09 ARC header (sets RC width per allocation)
-                    → §10 Thread-local (marks non-atomic RC)
-                      → §11 Collection (sets backing store strategy)
-                        → ori_llvm reads final ReprPlan
+
+  Phase A — Early type-level decisions (before ARC lowering, on Pool only):
+    Pool (semantic) → ReprPlan (empty)
+      → §01 Canonical (populates canonical representations for all types)
+        → §02 Triviality (marks trivial types — recursive Pool walk)
+
+  Phase B — Function-level analysis (after ARC lowering, on ArcFunction):
+    ArcFunction → §03 Range analysis (adds interval bounds per ArcVarId)
+      → §04 Integer narrowing (sets MachineInt variants for struct fields/locals)
+        → §05 Float narrowing (sets MachineFloat variants)
+
+  Phase C — Layout decisions (uses narrowed types from Phase B):
+    ReprPlan (with narrowed types) →
+      → §06 Struct layout (computes field order + padding — uses narrowed field sizes)
+        → §07 Enum repr (fills niches, computes tag type — uses narrowed discriminants)
+          → §11 Collection (sets backing store strategy — uses narrowed element types)
+
+  Phase D — ARC intelligence (after ARC lowering, on ArcFunction):
+    ArcFunction →
+      → §08 Escape analysis (marks stack-promotable allocations)
+        → §09 ARC header (sets RC width per allocation)
+          → §10 Thread-local (marks non-atomic RC)
+            → ori_llvm reads final ReprPlan
 ```
 
 ## Section Dependency Graph
@@ -157,7 +169,10 @@ Information flow — each stage enriches the ReprPlan:
 **Cross-section interactions (must be co-implemented):**
 - **§04 + §06**: Integer narrowing changes field sizes, which changes struct layout. If narrowing lands without layout update, struct padding wastes the savings.
 - **§08 + §09**: Escape analysis determines which allocations are stack-local (no RC header) vs heap (need RC header). If escape analysis lands without header compression, heap allocations still use i64 headers unnecessarily.
-- **§02 + ori_arc pipeline**: Transitive triviality must agree with `ori_arc::classify::ArcClassifier`. If they disagree, codegen either emits unnecessary RC ops or skips needed ones. Both must use the same classification.
+- **§02 + ori_arc pipeline**: Transitive triviality must agree with `ori_arc::ArcClassifier` (defined in `ori_arc/src/classify/mod.rs`, re-exported at crate root). If they disagree, codegen either emits unnecessary RC ops or skips needed ones. Both must use the same classification — `ori_types::triviality::classify_triviality()` is the single source of truth.
+- **§01.7 + §06**: `#repr` attributes (c, packed, transparent, aligned) are stored in ReprPlan by §01 but consumed by §06's layout algorithm. The layout pass must check `repr_attrs` before reordering fields. If §01 stores attrs but §06 ignores them, C-ABI structs get silently reordered → FFI bugs.
+- **§02 + ori_eval**: The evaluator (`ori_eval`) does NOT use triviality classification and is NOT affected by §02 or any other section in this plan. `ori_eval` uses Rust-native reference counting (no `ori_rc_*` calls). All representation optimizations are confined to the `ori_types → ori_arc → ori_repr → ori_llvm` pipeline.
+- **§02 standalone viability**: The core algorithm (`classify_triviality()` in `ori_types`) and the `ArcClassifier` delegation can be implemented and tested before §01 (ReprPlan) is complete. Only the `TypeInfoStore::is_trivial()` delegation to `ReprPlan` blocks on §01. This means §02 can begin implementation in parallel with §01.
 
 ## Implementation Sequence
 
@@ -175,16 +190,16 @@ Phase 2 — Core Narrowing (parallel)
   └─ §05: Float narrowing (f64 → f32 where safe)
   Gate: narrowed types visible in LLVM IR, dual-exec shows identical results
 
-Phase 3 — Layout Optimization (parallel)
-  ├─ §06: Struct field reordering + padding minimization
-  ├─ §07: Enum niche filling + discriminant narrowing
-  └─ §11: Collection specialization (SSO, SVO, packed arrays)
+Phase 3 — Layout Optimization (partially parallel)
+  ├─ §06: Struct field reordering + padding minimization  ─┐
+  ├─ §07: Enum niche filling + discriminant narrowing       │ (§06 ∥ §07)
+  └─ §11: Collection specialization (SSO, SVO, packed arrays) ← after §06
   Gate: sizeof() measurements show reduced footprint, Valgrind clean
 
-Phase 4 — ARC Intelligence  [CRITICAL PATH]
-  ├─ §08: Escape analysis → stack promotion
-  ├─ §09: ARC header compression (i64 → i32/i16/i8 refcounts)
-  └─ §10: Thread-local non-atomic RC
+Phase 4 — ARC Intelligence  [CRITICAL PATH — sequential, NOT parallel]
+  §08: Escape analysis → stack promotion
+    → §09: ARC header compression (i64 → i32/i16/i8 refcounts) [depends on §08]
+      → §10: Thread-local non-atomic RC [depends on §08, §09]
   Gate: benchmark programs show measurable speedup, Valgrind clean, no leaks
 
 Phase 5 — Verification
@@ -196,6 +211,7 @@ Phase 5 — Verification
 - Phase 0 is pure infrastructure — no behavioral changes, just adds the ReprPlan data structure
 - Phase 1 must precede Phase 2 because narrowing decisions consume range analysis results and triviality info
 - Phase 2 must precede Phase 3 because struct layout needs narrowed field types
+- Within Phase 3: §06 and §07 can be parallel, but §11 must come after §06 (§11 uses layout info from §06)
 - Phase 4 is the critical path because ARC optimizations have the highest performance impact but are the most dangerous (incorrect RC = use-after-free or leak)
 - Phase 5 gates the release — nothing ships without full verification
 
@@ -207,24 +223,29 @@ None expected. Each section is additive — the current system works correctly w
 
 | Crate | Production LOC | Test LOC | Total |
 |-------|---------------|----------|-------|
-| `ori_arc` | ~4,500 | ~1,800 | ~6,300 |
-| `ori_llvm` (type_info) | ~800 | ~200 | ~1,000 |
-| `ori_llvm` (arc_emitter) | ~1,200 | ~400 | ~1,600 |
-| `ori_rt` | ~600 | ~100 | ~700 |
-| **Total existing** | **~7,100** | **~2,500** | **~9,600** |
+| `ori_arc` | ~17,700 | ~21,100 | ~38,800 |
+| `ori_llvm` (type_info) | ~1,160 | ~1,360 | ~2,520 |
+| `ori_llvm` (arc_emitter) | ~12,070 | ~1,890 | ~13,960 |
+| `ori_rt` | ~9,620 | ~9,710 | ~19,330 |
+| **Total existing** | **~40,550** | **~34,060** | **~74,610** |
 
 ## Estimated Effort
 
 | Section | Est. Lines | Complexity | Depends On |
 |---------|-----------|------------|------------|
-| 01 ReprPlan IR | ~600 | Medium | — |
-| 02 Transitive Triviality | ~400 | Medium | §01 |
-|   ↳ 02.1 Classification sync | ~150 | Low | §01 |
-|   ↳ 02.2 ARC elision codegen | ~200 | Medium | §01 |
-| 03 Range Analysis | ~1,200 | High | §01 |
+| 01 ReprPlan IR | ~1,130 (6 files, all <500 lines) | Medium-High | — |
+| 02 Transitive Triviality | ~500 | Medium | §01 |
+|   ↳ 02.1 Unify triviality classification | ~100 | Low | §01 |
+|   ↳ 02.2 Transitive walk with cycle detection | ~150 | Medium | §01 |
+|   ↳ 02.3 ARC elision in ori_arc pipeline | ~100 | Medium | §01 |
+|   ↳ 02.4 Drop function elision | ~50 | Low | §01 |
+|   ↳ 02.5 Newtype & FFI types | ~30 | Low | §01 |
+|   ↳ 02.6 Generic type interaction | ~20 | Low | §01 |
+|   ↳ 02.7 Completion checklist & tests | ~50 | Low | §01 |
+| 03 Range Analysis | ~1,200 (5 files in `range/` submodule) | **High** | §01 |
 |   ↳ 03.1 Interval lattice | ~300 | Medium | §01 |
-|   ↳ 03.2 Transfer functions | ~500 | High | §01 |
-|   ↳ 03.3 Widening/narrowing | ~200 | High | §01 |
+|   ↳ 03.2 Transfer functions | ~500 | **High** — mul/div corner cases | §01 |
+|   ↳ 03.3 Widening/narrowing | ~200 | **High** — termination guarantees | §01 |
 | 04 Integer Narrowing | ~800 | High | §03 |
 |   ↳ 04.1 Width selection | ~200 | Medium | §03 |
 |   ↳ 04.2 ABI boundary widening | ~150 | Medium | §03 |
@@ -237,18 +258,18 @@ None expected. Each section is additive — the current system works correctly w
 |   ↳ 07.1 Niche filling | ~400 | High | §04 |
 |   ↳ 07.2 Discriminant narrowing | ~200 | Medium | §04 |
 |   ↳ 07.3 Tagged pointers | ~300 | High | §04 |
-| 08 Escape Analysis | ~1,500 | Very High | §02 |
+| 08 Escape Analysis | ~1,500 (5+ files in `escape/` submodule) | Very High | §02 |
 |   ↳ 08.1 Intraprocedural escape | ~500 | High | §02 |
 |   ↳ 08.2 Interprocedural escape | ~600 | Very High | §02 |
 |   ↳ 08.3 Stack promotion codegen | ~400 | High | §02 |
 | 09 ARC Header Compression | ~600 | High | §02, §08 |
 | 10 Thread-Local ARC | ~500 | High | §08, §09 |
-| 11 Collection Specialization | ~1,000 | High | §04, §06 |
+| 11 Collection Specialization | ~1,000 (SSO already exists in `ori_rt/src/string/`) | High | §04, §06 |
 |   ↳ 11.1 Small string optimization | ~400 | High | — |
 |   ↳ 11.2 Small vector optimization | ~300 | High | §04 |
 |   ↳ 11.3 Packed bool arrays | ~300 | Medium | — |
 | 12 Verification | ~800 | Medium | ALL |
-| **Total new** | **~9,500** | | |
+| **Total new** | **~10,130** | | |
 | **Total deleted** | **~200** | | |
 
 ## Quick Reference

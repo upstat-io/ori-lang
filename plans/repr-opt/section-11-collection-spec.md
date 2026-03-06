@@ -43,9 +43,12 @@ sections:
 
 ## 11.1 Small String Optimization (SSO)
 
-**File(s):** `compiler/ori_rt/src/string.rs` (NEW), `compiler/ori_llvm/src/codegen/type_info/info.rs`
+**File(s):** `compiler/ori_rt/src/string/` (existing module — SSO already implemented), `compiler/ori_llvm/src/codegen/type_info/info.rs`
 
-Current `str` representation: `{ len: i64, data: *const u8 }` (16 bytes, heap-allocated data).
+**NOTE:** SSO is already implemented in `ori_rt/src/string/` using `OriStrSSO` (inline <=23 bytes) / `OriStrHeap` (heap mode) with `SSO_FLAG` and `SSO_MAX_LEN`. This section is an **audit and completion task**, not greenfield implementation. Remaining work: (1) verify SSO is fully integrated with LLVM codegen, (2) ensure all string operations preserve SSO mode when possible, (3) measure actual SSO hit rates on real programs.
+
+Current `str` representation: SSO-enabled `OriStr` union (24 bytes, inline ≤23 bytes / heap for longer strings).
+Previous representation was `{ len: i64, data: *const u8 }` (16 bytes, heap-allocated data).
 
 SSO representation: 24 bytes total, dual-mode:
 - **Inline mode** (len ≤ 22): data stored directly in the struct
@@ -68,14 +71,14 @@ SSO representation: 24 bytes total, dual-mode:
   24 bytes total (reuses same space)
   ```
 
-- [ ] Implement runtime SSO functions:
+- [ ] Verify existing runtime SSO functions (already in `ori_rt/src/string/ops.rs`):
   ```rust
-  // ori_rt additions:
-  extern "C" fn ori_str_new(data: *const u8, len: usize) -> OriStr { ... }
-  extern "C" fn ori_str_len(s: *const OriStr) -> usize { ... }
-  extern "C" fn ori_str_data(s: *const OriStr) -> *const u8 { ... }
-  extern "C" fn ori_str_is_inline(s: *const OriStr) -> bool { ... }
-  extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr { ... }
+  // Already implemented — audit for correctness and completeness:
+  extern "C" fn ori_str_len(s: *const OriStr) -> i64;
+  extern "C" fn ori_str_data(s: *const OriStr) -> *const u8;
+  extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr;
+  // If missing, add:
+  extern "C" fn ori_str_is_inline(s: *const OriStr) -> bool;
   ```
 
 - [ ] LLVM codegen changes:
@@ -93,7 +96,7 @@ SSO representation: 24 bytes total, dual-mode:
 
 ## 11.2 Small Vector Optimization (SVO)
 
-**File(s):** `compiler/ori_rt/src/list.rs` (NEW), `compiler/ori_llvm/src/codegen/type_info/info.rs`
+**File(s):** `compiler/ori_rt/src/list/` (existing module — add SVO support), `compiler/ori_llvm/src/codegen/type_info/info.rs`
 
 Current `[T]` representation: `{ len: i64, cap: i64, data: *mut u8 }` (24 bytes, heap-allocated data).
 
@@ -199,6 +202,7 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
 - [ ] SSO strings correctly handle concat, slice, and iteration
 - [ ] SVO lists correctly handle push, pop, and growth
 - [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Performance: string-heavy benchmarks show measurable improvement from SSO
 

@@ -373,15 +373,32 @@ Private key types (`SecretKey`, `SigningPrivateKey`, `EncryptionPrivateKey`, `Ke
 
 ### 20.8.4 Intrinsics capability
 
-The `Intrinsics` capability provides low-level SIMD operations, bit manipulation, and hardware feature detection:
+The `Intrinsics` capability provides generic SIMD operations, bit manipulation, and hardware feature detection. Operations are generic over lane type `T` and width `$N`; the compiler monomorphizes based on the fixed-capacity list type at the call site.
 
 ```ori
 trait Intrinsics {
-    // SIMD operations (examples for 4-wide float)
-    @simd_add_f32x4 (a: [float, max 4], b: [float, max 4]) -> [float, max 4];
-    @simd_mul_f32x4 (a: [float, max 4], b: [float, max 4]) -> [float, max 4];
-    @simd_sum_f32x4 (a: [float, max 4]) -> float;
-    // ... additional widths: f32x8, f32x16, i64x2, i64x4
+    // Generic SIMD operations (T = byte, int, or float; N = lane count)
+    @simd_load<T, $N: int> (data: [T], offset: int) -> [T, max N];
+    @simd_load_aligned<T, $N: int> (data: [T], offset: int) -> [T, max N];
+    @simd_add<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N];
+    @simd_sub<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N];
+    @simd_mul<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N];
+    @simd_div<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N]; // float only
+    @simd_sqrt<T, $N: int> (a: [T, max N]) -> [T, max N];               // float only
+    @simd_abs<T, $N: int> (a: [T, max N]) -> [T, max N];                 // float only
+    @simd_cmpeq<T, $N: int> (a: [T, max N], b: [T, max N]) -> Mask<N>;
+    @simd_cmplt<T, $N: int> (a: [T, max N], b: [T, max N]) -> Mask<N>;
+    @simd_cmpgt<T, $N: int> (a: [T, max N], b: [T, max N]) -> Mask<N>;
+    @simd_min<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N];
+    @simd_max<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N];
+    @simd_sum<T, $N: int> (a: [T, max N]) -> T;
+    @simd_splat<T, $N: int> (value: T) -> [T, max N];
+    @simd_and<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N];  // byte, int
+    @simd_or<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N];   // byte, int
+    @simd_xor<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N];  // byte, int
+    @simd_andnot<T, $N: int> (a: [T, max N], b: [T, max N]) -> [T, max N]; // byte, int
+    @simd_select<T, $N: int> (mask: Mask<N>, a: [T, max N], b: [T, max N]) -> [T, max N];
+    @simd_shuffle<$N: int> (v: [byte, max N], idx: [byte, max N]) -> [byte, max N]; // byte only
 
     // Bit operations
     @count_ones (value: int) -> int;
@@ -395,21 +412,51 @@ trait Intrinsics {
 }
 ```
 
-SIMD operations work on fixed-capacity lists representing vector registers:
+#### 20.8.4.1 Valid type and width combinations
 
-| Width | Float Type | Int Type | Platforms |
-|-------|------------|----------|-----------|
-| 128-bit | `[float, max 4]` | `[int, max 2]` | SSE, NEON, SIMD128 |
-| 256-bit | `[float, max 8]` | `[int, max 4]` | AVX, AVX2 |
-| 512-bit | `[float, max 16]` | — | AVX-512 |
+SIMD operations work on fixed-capacity lists representing vector registers. The compiler shall reject invalid `T x N` combinations with error E1063.
+
+| Type | Lane width | 128-bit | 256-bit | 512-bit |
+|------|-----------|---------|---------|---------|
+| `byte` | 8-bit | `max 16` | `max 32` | `max 64` |
+| `int` | 64-bit | `max 2` | `max 4` | `max 8` |
+| `float` | 64-bit | `max 2` | `max 4` | `max 8` |
+
+NOTE  Ori's `float` type is 64-bit (f64). `[float, max 2]` represents a 128-bit vector of two f64 lanes.
+
+#### 20.8.4.2 Mask type
+
+Comparison operations return `Mask<$N>` — an opaque type representing N boolean lanes. `Mask<$N>` provides methods for extracting positional information and supports bitwise operators (`&`, `|`, `~`) for combining masks.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `bits()` | `int` | Bitmask: bit _i_ = 1 if lane _i_ is true |
+| `any()` | `bool` | True if any lane is true |
+| `all()` | `bool` | True if all lanes are true |
+| `count()` | `int` | Number of true lanes |
+| `first_set()` | `Option<int>` | Index of first true lane |
+
+#### 20.8.4.3 Platform support
+
+| Width | x86_64 SSE2 | x86_64 AVX2 | x86_64 AVX-512 | aarch64 NEON | wasm SIMD128 |
+|-------|------------|-------------|----------------|--------------|--------------|
+| 128-bit | Native | Native | Native | Native | Native |
+| 256-bit | Emulated | Native | Native | Emulated | Emulated |
+| 512-bit | Emulated | Emulated | Native | Emulated | Emulated |
 
 The default `def impl Intrinsics` uses native SIMD instructions when available and falls back to scalar emulation otherwise. For testing, `EmulatedIntrinsics` always uses scalar operations.
+
+`simd_load_aligned` shall panic if the data offset is not aligned to the vector width boundary (16/32/64 bytes for 128/256/512-bit respectively).
+
+NOTE  NEON lacks native `movemask`. The `Mask.bits()` implementation on aarch64 uses a polyfill (~4 instructions).
+
+#### 20.8.4.4 Feature detection
 
 Feature detection via `cpu_has_feature` accepts platform-specific feature strings:
 
 | Platform | Features |
 |----------|----------|
-| x86_64 | `"sse"`, `"sse2"`, `"sse3"`, `"sse4.1"`, `"sse4.2"`, `"avx"`, `"avx2"`, `"avx512f"` |
+| x86_64 | `"sse"`, `"sse2"`, `"sse3"`, `"ssse3"`, `"sse4.1"`, `"sse4.2"`, `"avx"`, `"avx2"`, `"avx512f"`, `"avx512bw"` |
 | aarch64 | `"neon"` |
 | wasm32 | `"simd128"` |
 

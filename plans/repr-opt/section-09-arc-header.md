@@ -176,7 +176,9 @@ Map sharing bounds to RC header widths.
 
 The runtime must support multiple header widths without code bloat.
 
-**Module placement:** The width-specific functions MUST live inside `rc/` (e.g., `rc/narrow.rs` with `mod narrow;` in `rc/mod.rs`). This is required because they call `call_drop_fn` and `rc_underflow_abort`, which are `pub(super)` — visible within `rc/` but not from `lib.rs` or other modules.
+**Module placement:** The width-specific functions MUST live inside `rc/` (e.g., `rc/narrow.rs` with `mod narrow;` in `rc/mod.rs`). This is required because they call `call_drop_fn` and `rc_underflow_abort`, which are `pub(super)` — visible within `rc/` but not from `lib.rs` or other modules. Tests go in `rc/narrow/tests.rs` (sibling convention) if the file becomes a directory module, or in `rc/tests.rs` if narrow.rs stays as a leaf file and tests are co-located with the existing `rc/` test module.
+
+**Risk warning:** The macro-generated RC operations below use raw pointer arithmetic and `unsafe`. Every `unsafe` block MUST have a `// SAFETY:` comment. The `padded_header` alignment logic is subtle — a bug causes data corruption in EVERY narrow-header allocation. Property-based testing with varying `(size, align)` pairs is essential. Note: `ori_rt` is a crate where `unsafe` IS allowed, so `#![deny(unsafe_code)]` does NOT apply here.
 
 - [ ] Implement generic RC operations parameterized by header width:
   ```rust
@@ -303,6 +305,7 @@ The runtime must support multiple header widths without code bloat.
 - [ ] Header overflow in release mode → immortal (never freed, no crash)
 - [ ] Header overflow in debug mode → trap with diagnostic
 - [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Memory measurement: per-object overhead reduced from 8 bytes to 1-4 bytes for bounded types
 

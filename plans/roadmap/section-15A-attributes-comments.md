@@ -76,7 +76,7 @@ Change attribute syntax from `#[name(...)]` to `#name(...)`. Attributes are now 
   - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — generalized attribute end-to-end
 
 - [ ] **Implement**: Attribute validation (which attributes valid for which declarations)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/attr.rs` — attribute validation
+  - [ ] **Rust Tests**: `ori_types/src/check/attr.rs` — attribute validation
   - [ ] **Ori Tests**: `tests/compile-fail/invalid_attribute_target.ori`
   - [ ] **LLVM Support**: LLVM codegen for attribute validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — attribute validation codegen

@@ -20,13 +20,14 @@ From CLAUDE.md — Ori's core tenets:
 
 ## Section Overview
 
-### Tier 0: Parser Foundation (Section 0)
+### Tier 0: Independent Foundations (Sections 0, 23)
 
-Independent section — can be worked on at any time. Ensures the parser handles all spec syntax.
+Independent sections — can be worked on at any time, no dependencies on other sections.
 
 | Section | Focus |
 |-------|-------|
 | 0 | Full Parser Support |
+| 23 | Full Evaluator Support |
 
 ### Tier 1: Foundation (Sections 1-5)
 
@@ -82,7 +83,7 @@ Platform support, testing framework, and syntax finalization.
 | 15A | Attributes & Comments |
 | 15B | Function Syntax |
 | 15C | Literals & Operators |
-| 15D | Bindings & Types |
+| 15D | Bindings & Types (escalated to Tier 1) |
 
 ### Tier 6: Async & Concurrency (Sections 16-17)
 
@@ -117,9 +118,10 @@ Power-user features and tooling.
 
 ## Dependency Graph
 
-**Independent Section** (no dependencies, can run in parallel with anything):
+**Independent Sections** (no dependencies, can run in parallel with anything):
 ```
 Section 0 (Parser) — Full syntax support for all spec grammar
+Section 23 (Evaluator) — Full evaluator support for all spec semantics
 ```
 
 **Main Sequence** (dependency-ordered for sequential execution):
@@ -179,7 +181,7 @@ Milestones align with tiers for consistent tracking.
 
 | Milestone | Tier | Sections | Exit Criteria |
 |-----------|------|--------|---------------|
-| **M0: Parser Complete** | 0 | 0 | All spec syntax parses correctly |
+| **M0: Independent Foundations** | 0 | 0, 23 | All spec syntax parses correctly; evaluator covers all spec semantics |
 | **M1: Foundation** | 1 | 1-5 | Types, inference, traits, modules, type declarations |
 | **M2: Capabilities & Stdlib** | 2 | 6-7 | Capability system, standard library |
 | **M3: Core Patterns** | 3 | 8-10 | Pattern evaluation, match, control flow |
@@ -196,7 +198,8 @@ Milestones align with tiers for consistent tracking.
 | Document | Purpose |
 |----------|---------|
 | `plan.md` | How to use this plan |
-| `priority-and-tracking.md` | Current status and tracking |
+| `index.md` | Keyword index for finding sections |
+| (section frontmatter) | Current status per section |
 | `section-XX-*.md` | Individual section details |
 
 ### Source References

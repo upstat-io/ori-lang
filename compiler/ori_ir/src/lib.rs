@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! Ori IR - Intermediate Representation Types
 //!
 //! This crate contains the core data structures for the Ori compiler:
