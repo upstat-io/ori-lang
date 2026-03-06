@@ -56,6 +56,7 @@ Before running verification, lock down the environment so results are reproducib
 - [ ] Verify target mode is `-O0` for IR/asm quality checks
 - [ ] Preserve prior baseline artifacts at `build/codegen-purity/baseline/` for before/after comparison
 - [ ] Verify all sections §01-§09 frontmatter shows `status: complete` (or `deferred` with rationale in §10.8)
+- [ ] Verify `__recurse` sentinel is resolved (no unresolved `__recurse` in ARC IR) — this is a §09 prerequisite that fixes a latent AOT bug
 
 ```bash
 set -euo pipefail
@@ -128,12 +129,14 @@ For each journey, dump the `-O0` assembly and verify it reads like hand-written 
 - [ ] Panic paths have no normal continuation after panic call (IR: `call` + `unreachable`; asm may appear as trap or fallthrough-free sequence)
 - [ ] String constants: each unique string appears exactly once in `.rodata`
 - [ ] Tail-recursive functions compiled as loops (no `call` to self)
-- [ ] Loop bodies: no duplicate arithmetic, no invariant value reloads
+- [ ] Loop bodies: no duplicate arithmetic (§08.1 — count checked_add calls in body block)
+- [ ] Loop headers: no invariant block params / phi nodes (§08.2 — verify all phis change across iterations)
+- [ ] Range loops: specialized bounds checks where applicable (§08.3 — `icmp slt`/`sle`/`sgt`/`sge` for known step/inclusive)
 
 Use `build/codegen-purity/current/asm/*.s` from 10.1 plus targeted checks:
 
 ```bash
-rg -n "musttail|select|ori_panic|unreachable" build/codegen-purity/current/ir
+rg -n "musttail|tail call|select|ori_panic|unreachable" build/codegen-purity/current/ir
 rg -n "jmp" build/codegen-purity/current/asm
 rg -n ' = .*c"integer overflow on (addition|subtraction|multiplication|negation)\\00"' build/codegen-purity/current/ir
 ```
@@ -217,8 +220,16 @@ Convert key findings into permanent `ir_quality.rs` tests to prevent regressions
 - [ ] Add test: struct parameter loading — only referenced fields loaded (§06)
 - [ ] Add test: no single-predecessor phi nodes in simple programs (§01) — **note: 4 tests already exist per §01.3 completion**
 - [ ] Add test: `select` for trivial if/else (§01) — **note: already exists per §01.2 completion**
-- [ ] Add test: loop body computes `i+1` once (§08, if implemented)
-- [ ] Add test: tail-recursive function compiles to loop (§09, if implemented)
+- [ ] Add test: loop body computes `i+1` once — count `@llvm.sadd.with.overflow.i64` calls in body block (§08.1, if implemented)
+- [ ] Add test: loop with pre-loop mutable binding not modified in body — no block param (ARC) / no phi (LLVM) for that binding (§08.2, if implemented)
+- [ ] Add test: `for i in 0..n` emits `icmp slt` only (not 8-instruction general check) (§08.3, if implemented)
+- [ ] Add test: `for i in 0..=n` emits `icmp sle` only (§08.3, if implemented)
+- [ ] Add test: `for i in n..0 by -1` emits `icmp sgt` only (§08.3, if implemented)
+- [ ] Add test: `for i in 0..n by k` (variable step) uses general check (§08.3 negative test, if implemented)
+- [ ] Add test: tail-recursive function compiles to loop — no `call @_ori_gcd` in IR, has back-edge `br label %loop` (§09, if implemented)
+- [ ] Add test: tail-recursive function with RC-managed args — no leak under `ORI_CHECK_LEAKS=1` (§09, if implemented)
+- [ ] Add test: `recurse()` pattern compiles to loop (§09 — verify `__recurse` sentinel is resolved)
+- [ ] Add test: deep tail recursion (>= 100,000 depth) runs without stack overflow (§09, if implemented)
 - [ ] Add test: C `main` wrapper has `nounwind` (§02, if applicable)
 - [ ] Add test: `noundef` on integer parameters (§02)
 
@@ -277,11 +288,11 @@ Populate this table during final verification. Every finding ID from `00-overvie
 | L-3 | §02 | | | |
 | L-4 | §07 | | | |
 | L-5 | §06 | | | |
-| L-6 | §08 | | | |
+| L-6 | §08.1 | | CSE eliminates duplicate `i+1` in loop body | `test_loop_cse_single_checked_add` (planned) |
 | L-7 | §06 | | | |
-| L-8 | §08 | | | |
-| L-9 | §08 | | | |
-| L-10 | §09 | | | |
+| L-8 | §08.2 | | Invariant block param eliminated from loop header | `test_loop_invariant_param_eliminated` (planned) |
+| L-9 | §08.3 | | Range specialization: `1..=n` emits `icmp sle` | `test_range_specialization_icmp_sle` (planned) |
+| L-10 | §09 | | Loop lowering: no `call @_ori_gcd` in IR; `run_arc_pipeline` updated; `__recurse` resolved | `test_tail_recursive_gcd_emits_loop` (planned), `test_deep_tail_recursion_no_stack_overflow` (planned) |
 | L-11 | §02 | | | |
 | L-12 | §02 | | | |
 
@@ -312,7 +323,7 @@ Track any finding ID that is not fully closed at verification time. Empty table 
 
 Not all sections may complete in a single cycle. The verification strategy should accommodate partial completion:
 
-1. **Sections that are safe to defer:** §08 (Loop IR Quality) and §09 (Tail Call Optimization) are quality improvements with no correctness implications. They can be deferred to a follow-up cycle.
+1. **Sections that are safe to defer:** §08 (Loop IR Quality) is a quality improvement with no correctness implications. §09 (Tail Call Optimization) is a **spec conformance requirement** (Annex E guarantees TCO, Clause 15.3 guarantees `recurse` compiles to O(1) stack) — deferral is acceptable only with explicit rationale in §10.8. Both can be deferred to a follow-up cycle if needed.
 2. **Sections that MUST complete:** §02 (Function Attributes) — noreturn is needed by §06. §06 (Dead Code Pruning) depends on §02. §05 and §07 are independent and low-risk.
 3. **Partial verification is acceptable** if the §10.8 unresolved ledger is fully populated with concrete follow-up plans.
 
