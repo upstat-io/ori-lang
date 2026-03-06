@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Testing Policy — Configurable Enforcement"
-status: not-started
+status: in-progress
 goal: "Make test enforcement a project-level configuration, not a hard compiler requirement"
 depends_on: []
 sections:
@@ -62,9 +62,9 @@ ori check --test-enforcement=error file.ori   # Override for CI
 ori check --test-enforcement=off file.ori     # Override for quick checks
 ```
 
-- [ ] Confirm three-mode design (off/warn/error)
-- [ ] Confirm default is `"off"` for new projects
-- [ ] Confirm CLI override flag name
+- [x] Confirm three-mode design (off/warn/error) — **confirmed**
+- [x] Confirm default is `"off"` for new projects — **confirmed, immediate (no transition)**
+- [x] Confirm CLI override flag name — `--test-enforcement=off|warn|error`
 
 ---
 
@@ -117,15 +117,15 @@ Two sub-options for Option A:
 
 **Note:** This requires building `oripk.toml` config parsing infrastructure from scratch. No project config system exists in the compiler today.
 
-- [x] Locate the exact diagnostic code for "function missing tests" — **E3001** (`SemanticProblem::MissingTest` in `oric/src/problem/semantic/mod.rs`)
-- [ ] **PREREQUISITE**: Split `semantic/mod.rs` — extract `check_test_coverage()` and test-related variants into `semantic/test_coverage.rs`
-- [ ] Implement severity switch (approach A2): callers in check.rs/watch.rs decide severity based on `TestEnforcement` config enum; add `Diagnostic::with_severity(Severity)` to override level after construction
-- [ ] Add `--test-enforcement=off|warn|error` CLI flag to clap definitions in `oric`
-- [ ] Thread `TestEnforcement` config from CLI flag (and eventually `oripk.toml`) to check.rs and watch.rs call sites
-- [ ] Verify `ori check` and `ori watch` respect the setting (the two callers of check_test_coverage)
-- [ ] Verify `ori test` is unaffected (it does not enforce coverage, only runs tests)
+- [x] Locate the exact diagnostic code for "function missing tests" — **E3010** (was E3001; collision resolved)
+- [x] **PREREQUISITE**: Split `semantic/mod.rs` — extracted `check_test_coverage()` and `pattern_problem_to_diagnostic()` into `semantic/test_coverage.rs` (mod.rs: 511→456 lines)
+- [x] Implement severity switch (approach A2): callers in check.rs/watch.rs decide severity based on `TestEnforcement` config enum; add `Diagnostic::with_severity(Severity)` to override level after construction
+- [x] Add `--test-enforcement=off|warn|error` CLI flag (manual arg parsing in `main.rs`, not clap — oric uses manual parsing throughout)
+- [x] Thread `TestEnforcement` config from CLI flag to check.rs and watch.rs call sites
+- [x] Verify `ori check` and `ori watch` respect the setting (the two callers of check_test_coverage)
+- [x] Verify `ori test` is unaffected (it does not enforce coverage, only runs tests) — **confirmed: test runner doesn't call check_test_coverage**
 - [ ] Verify `ori test --coverage` report behavior with each enforcement level
-- [ ] Update `SemanticProblem::is_warning()` to conditionally include `MissingTest` when enforcement is `"warn"` (or remove dependency on `is_warning()` for test coverage problems entirely)
+- [x] `SemanticProblem::is_warning()` does NOT need updating — severity override via `with_severity()` happens at the call site, not in the SemanticProblem type
 
 ### Error Code Collision: E3001
 
@@ -140,14 +140,13 @@ This is an error code collision that violates the project's error code stability
 > **Note:** E3xxx is classified as "Pattern errors" by `is_pattern_error()`. Using E3010/E3011
 > for test coverage preserves the status quo (they already use E3001) but is semantically
 > imprecise. Decide whether to accept this or create a new range (e.g., E7xxx for "Lint/Semantic").
-- [ ] Assign a dedicated error code for `MissingTest` (e.g., E3010 or E7001)
-- [ ] Assign a dedicated error code for `TestTargetNotFound` (e.g., E3011 or E7002)
-- [ ] Create `compiler/ori_diagnostic/src/errors/E3010.md` and `E3011.md` documenting the new codes
-- [ ] Update `SemanticProblem::MissingTest` in `mod.rs` to emit the new MissingTest code instead of E3001
-- [ ] Update `SemanticProblem::TestTargetNotFound` in `mod.rs` to emit the new TestTargetNotFound code instead of E3001
-- [ ] Update `compiler/oric/src/reporting/tests.rs` (line 100) which asserts `ErrorCode::E3001` for MissingTest
-- [ ] Review `compiler/ori_diagnostic/src/emitter/sarif/tests.rs` and `json/tests.rs` — both use E3001 in test fixtures (these use E3001 for generic test data, not MissingTest specifically, so they may not need changing — but verify)
-- [ ] Update spec clause 19 error examples to reference the new code (not E0500 or E3001)
+- [x] Assign E3010 for `MissingTest`, E3011 for `TestTargetNotFound`
+- [x] Create `compiler/ori_diagnostic/src/errors/E3010.md` and `E3011.md`
+- [x] Update `SemanticProblem::MissingTest` to emit E3010
+- [x] Update `SemanticProblem::TestTargetNotFound` to emit E3011
+- [x] Update `compiler/oric/src/reporting/tests.rs` assertion from E3001 to E3010
+- [x] Verified: `sarif/tests.rs` and `json/tests.rs` use E3001 as generic test data — no change needed
+- [x] Update spec clause 19 error examples to reference E3010 (was E0500)
 
 ### Success Message Update
 
@@ -157,9 +156,9 @@ OK: path (N functions, N tests, 100% coverage)
 ```
 
 When enforcement is `"off"`, this message is misleading — files with zero tests would print "100% coverage" (vacuously). Changes needed:
-- [ ] When enforcement is `"off"`: print `"OK: path (N functions, N tests)"` (no coverage claim)
-- [ ] When enforcement is `"warn"`: print `"OK: path (N functions, N tests, M uncovered)"` with warning count
-- [ ] When enforcement is `"error"`: keep current behavior (100% coverage confirmed)
+- [x] When enforcement is `"off"`: print `"OK: path (N functions, N tests)"` (no coverage claim)
+- [x] When enforcement is `"warn"`: print `"OK: path (N functions, N tests, M uncovered)"` with warning count
+- [x] When enforcement is `"error"`: keep current behavior (100% coverage confirmed)
 
 ### `ori test --coverage` Impact
 

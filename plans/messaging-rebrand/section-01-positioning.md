@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Positioning Strategy"
-status: not-started
+status: complete
 goal: "Finalize Ori's public identity: tagline, feature hierarchy, tone, and narrative arc"
 depends_on: []
 sections:
@@ -59,8 +59,8 @@ Ori's genuinely unique features, ranked by competitive differentiation:
 
 **Decision:** Tier 1 features lead. Tier 2 features support. Tier 3 features are mentioned but not headlined.
 
-- [ ] Confirm feature hierarchy with user
-- [ ] Decide whether "no GC, no borrow checker" (Tier 2, item 4) should be promoted to headline position (it's the most immediately graspable claim even though the pipeline is the deeper differentiator)
+- [x] Confirm feature hierarchy with user — **confirmed**: Tier 1 leads, Tier 2 supports, Tier 3 mentioned
+- [x] "No GC, no borrow checker" **promoted to headline position** alongside 8-layer pipeline
 
 ---
 
@@ -91,7 +91,7 @@ The tagline appears in the HTML `<title>`, the hero `<h1>`, and social media car
 - Appeals to PL enthusiasts and language nerds
 - Risk: "value semantics" is jargon; non-PL developers won't understand
 
-- [ ] Select tagline (user decision)
+- [x] **Selected**: "Functional Code. Imperative Speed."
 
 ### Hero Subtitle Options
 
@@ -105,7 +105,7 @@ The subtitle appears below the tagline in smaller text. 1-2 sentences.
 
 **Proposed C:** "Write the code you want to write. The compiler writes the code you need to run."
 
-- [ ] Select hero subtitle (user decision)
+- [x] **Selected**: "No garbage collector. No borrow checker. Eight compiler optimizations turn functional code into in-place mutations — automatically."
 
 ---
 
@@ -129,8 +129,8 @@ The website shows 4 feature cards. Current order: Invisible Memory, Mandatory Ve
 
 Note: Card 2 renamed from "Explicit Effects" to "Effects You Can See" — more conversational. Card 4 reframed from "Mandatory Verification" to "Smart Testing" — empowering rather than prescriptive.
 
-- [ ] Confirm card order and copy
-- [ ] Decide whether to add a 5th card or keep 4
+- [x] **Confirmed**: Memory → Effects → Compounding → Testing (4 cards)
+- [x] Keep 4 cards
 
 ---
 
@@ -152,18 +152,18 @@ The story the README and website tell, in order:
 
 This puts the strongest unique feature first (memory model), explains why it enables the other features (effects, mocking, testing), and ends with the unifying design insight.
 
-- [ ] Confirm narrative arc
-- [ ] Decide how much of the 8-layer pipeline to show in README vs linking to docs
+- [x] Narrative arc confirmed (as proposed)
+- [x] Full 8-layer pipeline shown in README (it's strong content), link to ARC docs for details
 
 ---
 
 ## 01.5 Completion Checklist
 
-- [ ] Tagline selected and documented
-- [ ] Hero subtitle selected and documented
-- [ ] Feature card order and copy finalized
-- [ ] Narrative arc confirmed
-- [ ] Feature hierarchy confirmed
-- [ ] All decisions documented in this file for Sections 03-04 to consume
+- [x] Tagline selected and documented
+- [x] Hero subtitle selected and documented
+- [x] Feature card order and copy finalized
+- [x] Narrative arc confirmed
+- [x] Feature hierarchy confirmed
+- [x] All decisions documented in this file for Sections 03-04 to consume
 
 **Exit Criteria:** A single document (this file) with all positioning decisions locked in, ready for Section 03 (README) and Section 04 (Website) to implement without ambiguity.

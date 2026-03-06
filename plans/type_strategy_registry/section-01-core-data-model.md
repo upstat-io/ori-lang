@@ -162,7 +162,10 @@ pub enum TypeTag {
 - [ ] Add `/// ` doc comment on every variant
 - [ ] Add `//!` module doc on `tags.rs`
 - [ ] Add size assertion: `const _: () = assert!(size_of::<TypeTag>() == 1);` (enforces `#[repr(u8)]`)
-- [ ] Write unit tests: `all()` returns correct count, `name()` round-trips, no duplicate discriminants, `base_type()` idempotent for non-DEI tags
+- [ ] Write unit test: `TypeTag::all()` returns exactly 23 variants
+- [ ] Write unit test: `TypeTag::name()` returns the correct Ori-level name for every variant (e.g., `Int.name() == "int"`, `DoubleEndedIterator.name() == "DoubleEndedIterator"`)
+- [ ] Write unit test: no duplicate discriminants in `TypeTag::all()`
+- [ ] Write unit test: `base_type()` returns `self` for all non-DEI variants, returns `Iterator` for `DoubleEndedIterator`
 
 ---
 
@@ -340,7 +343,8 @@ pub enum Ownership {
 - [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
 - [ ] Document each variant with concrete Ori method examples
 - [ ] Add size assertion: `const _: () = assert!(size_of::<Ownership>() == 1);`
-- [ ] Write unit tests: verify `Borrow != Owned != Copy`, basic equality checks
+- [ ] Write unit test: `Ownership::Borrow != Ownership::Owned`, `Ownership::Owned != Ownership::Copy`, `Ownership::Copy != Ownership::Borrow`
+- [ ] Write unit test: each variant is `const`-constructible
 
 ---
 
@@ -1146,15 +1150,15 @@ pub struct TypeDef {
 
 ### What It Replaces
 
-| Current Location | What It Replaces |
-|---|---|
-| All 20 `resolve_*_method()` functions in `ori_types/infer/expr/methods/resolve_by_type.rs` | `TypeDef.methods` lookup by name |
-| `TYPECK_BUILTIN_METHODS` (390 entries) | `BUILTIN_TYPES.flat_map(\|td\| td.methods.iter().map(\|m\| (td.name, m.name)))` |
-| `EVAL_BUILTIN_METHODS` | Same enumeration |
-| `ori_ir::BUILTIN_METHODS` (123 entries) | Consolidated `TypeDef.methods` |
-| `declare_builtins!` entries in `ori_llvm` | `TypeDef.methods` with `receiver: Ownership` |
-| `emit_binary_op()` type guard chains | `TypeDef.operators` field dispatch |
-| `ArcClassifier::classify_primitive()` | `TypeDef.memory` field |
+| Current Location | Current Form | Registry Form |
+|---|---|---|
+| `ori_types/infer/expr/methods/resolve_by_type.rs` | 20 `resolve_*_method()` functions | `TypeDef.methods` lookup by name |
+| `ori_types/infer/expr/methods/mod.rs` | `TYPECK_BUILTIN_METHODS` (390 entries) | `BUILTIN_TYPES.flat_map(\|td\| td.methods.iter().map(\|m\| (td.name, m.name)))` |
+| `ori_eval/methods/helpers/mod.rs` | `EVAL_BUILTIN_METHODS` | Same enumeration |
+| `ori_ir/builtin_methods/mod.rs` | `BUILTIN_METHODS` (123 entries) | Consolidated `TypeDef.methods` |
+| `ori_llvm/codegen/arc_emitter/builtins/*.rs` | `declare_builtins!` entries | `TypeDef.methods` with `receiver: Ownership` |
+| `ori_llvm/codegen/arc_emitter/operators.rs` | `emit_binary_op()` type guard chains | `TypeDef.operators` field dispatch |
+| `ori_arc/classify/mod.rs` | `ArcClassifier::classify_primitive()` | `TypeDef.memory` field |
 
 ### Consuming Phases
 
@@ -1326,7 +1330,8 @@ pub enum DeiPropagation {
 - [ ] Define `DeiPropagation` in `ori_registry/src/tags.rs`
 - [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
 - [ ] Document all 3 variants
-- [ ] Unit test: `DeiPropagation::default()` is not provided (force explicit choice)
+- [ ] Verify: `DeiPropagation` does NOT implement `Default` (no derive or manual impl -- forces explicit choice at every use site)
+- [ ] Write unit test: all 3 variants are distinct and `const`-constructible
 
 ---
 

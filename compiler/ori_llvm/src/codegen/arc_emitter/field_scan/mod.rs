@@ -7,6 +7,9 @@
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+#[cfg(test)]
+mod tests;
+
 /// Scan an ARC function to determine which fields of each variable are accessed.
 ///
 /// Returns a map from variable ID to the set of field indices accessed via
@@ -25,6 +28,7 @@ pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option
             var = src;
             depth += 1;
             if depth > 100 {
+                debug_assert!(false, "alias cycle detected for var {var:?}");
                 break;
             }
         }
@@ -75,11 +79,13 @@ pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option
                 ArcInstr::Project { value, field, .. } => {
                     let root = resolve(&aliases, *value);
                     if !matches!(usage.get(&root), Some(None)) {
-                        usage
+                        if let Some(s) = usage
                             .entry(root)
                             .or_insert_with(|| Some(FxHashSet::default()))
                             .as_mut()
-                            .map(|s| s.insert(*field));
+                        {
+                            s.insert(*field);
+                        }
                     }
                 }
 

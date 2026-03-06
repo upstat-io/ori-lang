@@ -19,8 +19,8 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 
 const {
   title,
-  description = 'Ori is a statically-typed programming language with mandatory testing, dependency-aware integrity, and explicit effects. Every function tested. Every change traced.',
-  keywords = 'Ori programming language, static typing, mandatory testing, type inference, dependency tracking, code verification, compiler, functional programming',
+  description = 'Ori is a statically-typed programming language with value semantics, explicit effects, and smart testing. No garbage collector, no borrow checker — eight optimizations turn functional code into in-place mutations.',
+  keywords = 'Ori programming language, static typing, smart testing, value semantics, ARC memory management, type inference, dependency tracking, effect system, capabilities, functional programming',
   ogImage = '/og-image.svg',
   ogType = 'website',
   noindex = false,
@@ -30,7 +30,7 @@ const {
 } = Astro.props;
 
 const siteName = 'Ori Programming Language';
-const siteTagline = 'Code That Proves Itself';
+const siteTagline = 'Functional Code. Imperative Speed.';
 const twitterHandle = '@upaborern';
 const currentYear = new Date().getFullYear();
 
@@ -109,11 +109,11 @@ const softwareSchema = {
     url: 'https://ori-lang.com',
   },
   featureList: [
+    'Eight-layer ARC optimization pipeline',
+    'Value semantics with no GC or borrow checker',
     'Static typing with type inference',
-    'Mandatory testing for all functions',
-    'Dependency-aware test execution',
     'Explicit effect system with capabilities',
-    'Automatic Reference Counting (ARC)',
+    'Smart dependency-aware testing',
     'Pattern matching',
     'First-class functions',
   ],

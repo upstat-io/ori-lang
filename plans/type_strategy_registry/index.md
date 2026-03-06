@@ -33,7 +33,7 @@ enum, struct, static, compile-time, zero-cost
 receiver, borrow, owned, copy, arc
 IntInstr, FloatInstr, UnsignedCmp, BoolLogic, RuntimeCall, Unsupported
 schema, contract, specification, declaration
-SelfType, Iterator, Void, return type, NextResult, Fresh
+SelfType, Iterator, Unit (not Void), return type, NextResult, Fresh
 extensibility, future fields, IterationDef, HashStrategy, DisplayStrategy
 size assertion, documentation, operator coverage
 pow, matmul, as, as?, not, bit_not, neg

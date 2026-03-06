@@ -151,6 +151,10 @@ define_error_codes! {
     E3002, "Invalid pattern arguments";
     E3003, "Pattern type error";
 
+    // Semantic / Lint Errors (E3xxx — test coverage)
+    E3010, "Function has no tests";
+    E3011, "Test targets unknown function";
+
     // ARC Analysis Errors (E4xxx)
     E4001, "Unsupported expression in ARC IR lowering";
     E4002, "Unsupported pattern in ARC IR lowering";

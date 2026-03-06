@@ -7,7 +7,7 @@ section: "Language"
 
 # 19 Testing
 
-Ori enforces mandatory verification: every function shall have at least one test. Tests are first-class constructs bound to their targets via the `tests` keyword. The compiler executes affected tests automatically during compilation.
+Tests are first-class constructs bound to their targets via the `tests` keyword. The compiler tracks test coverage and executes affected tests automatically during compilation. Test enforcement is configurable per project (see §19.2).
 
 > **Grammar:** See [grammar.ebnf](grammar.md) § DECLARATIONS (test, attribute)
 >
@@ -77,23 +77,35 @@ All tests shall:
 @test_bad tests @bad () -> int = ...;  // error
 ```
 
-## 19.2 Test coverage requirement
+## 19.2 Test coverage enforcement
 
-Every function shall have at least one attached test. It is a compile-time error if a function has no tests.
+A conforming implementation shall support test enforcement at three levels:
+
+| Level | Behavior |
+|-------|----------|
+| `"off"` | No enforcement. Missing tests produce no diagnostic. |
+| `"warn"` | Missing tests produce a warning (E3010). |
+| `"error"` | Missing tests produce a compile-time error (E3010). |
+
+The default enforcement level shall be `"off"`.
+
+NOTE  The enforcement level can be set via the `--test-enforcement` command-line flag or the `test-enforcement` key in project configuration. In single-file mode (no project configuration), enforcement shall be `"off"`.
+
+When enforcement is `"warn"` or `"error"`, the compiler shall report a diagnostic for each function declaration that has no attached test:
 
 ```
-error[E0500]: function @multiply has no tests
+error[E3010]: function `@multiply` has no tests
   --> src/math.ori:15:1
    |
 15 | @multiply (a: int, b: int) -> int = a * b
-   | ^^^^^^^^^ untested function
+   | ^^^^^^^^^ missing test
    |
    = help: add a test with `@test_multiply tests @multiply () -> void = ...`
 ```
 
 ### 19.2.1 Exemptions
 
-The following declarations are exempt from the test coverage requirement:
+The following declarations are exempt from the test coverage requirement regardless of enforcement level:
 
 - `@main` — program entry point
 - Test functions — tests do not require tests
@@ -420,7 +432,7 @@ src/
 ```
 
 ```
-error[E0501]: test defined outside _test/ directory
+error: test defined outside _test/ directory
   --> src/math.ori:5:1
    |
  5 | @test_add tests @add () -> void = ...
@@ -428,6 +440,8 @@ error[E0501]: test defined outside _test/ directory
    |
    = help: move this test to src/_test/math.test.ori
 ```
+
+NOTE  The error code for this diagnostic is reserved but not yet assigned. The `_test/` directory convention is not yet enforced by the compiler.
 
 This convention cleanly separates test code from production code. Test files are excluded from compiled output by directory path alone — no conditional compilation flags or build-time stripping required.
 
@@ -484,6 +498,8 @@ Compiles source files and runs affected attached tests:
 ori check [OPTIONS] <PATH>
 
 Options:
+    --test-enforcement=off|warn|error
+                  Set test coverage enforcement level (default: off)
     --no-test     Compile only, skip test execution
     --strict      Fail build on any test failure
     --verbose     Show all test results, not just failures

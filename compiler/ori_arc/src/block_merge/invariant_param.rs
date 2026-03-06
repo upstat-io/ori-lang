@@ -96,7 +96,7 @@ fn find_invariant_params(func: &ArcFunction) -> SmallVec<[(usize, usize, ArcVarI
 
             // Invariant: exactly one unique non-self value.
             if non_self_values.len() == 1 {
-                // SAFETY: len == 1 checked above, so iter().next() is always Some.
+                // Invariant: len == 1 ensures iter().next() is Some.
                 let Some(&replacement) = non_self_values.iter().next() else {
                     unreachable!("len == 1 but iter empty");
                 };
@@ -117,13 +117,15 @@ fn find_invariant_params(func: &ArcFunction) -> SmallVec<[(usize, usize, ArcVarI
 
 /// Collect incoming Jump args for a target block.
 ///
-/// Returns a vec of arg lists — one per predecessor Jump targeting `target_id`.
-fn collect_incoming_args(func: &ArcFunction, target_id: ArcBlockId) -> Vec<Vec<ArcVarId>> {
+/// Returns a vec of arg slices — one per predecessor Jump targeting `target_id`.
+/// Borrows from `func.blocks[..].terminator`, safe because `find_invariant_params`
+/// holds an immutable borrow on `func` for the entire call.
+fn collect_incoming_args(func: &ArcFunction, target_id: ArcBlockId) -> Vec<&[ArcVarId]> {
     let mut incoming = Vec::new();
     for block in &func.blocks {
         if let ArcTerminator::Jump { target, args } = &block.terminator {
             if *target == target_id {
-                incoming.push(args.clone());
+                incoming.push(args.as_slice());
             }
         }
     }

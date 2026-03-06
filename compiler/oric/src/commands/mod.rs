@@ -31,6 +31,35 @@ mod targets;
 mod test;
 mod watch;
 
+/// Test enforcement level — controls whether missing tests are errors, warnings, or ignored.
+///
+/// Configurable via `--test-enforcement=off|warn|error` CLI flag.
+/// Default is `Off` (tests optional). See spec §19.2.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
+pub enum TestEnforcement {
+    /// No enforcement. Missing tests produce no diagnostic.
+    #[default]
+    Off,
+    /// Missing tests produce a warning (E3010).
+    Warn,
+    /// Missing tests produce a compile-time error (E3010).
+    Error,
+}
+
+impl TestEnforcement {
+    /// Parse from a CLI flag value.
+    ///
+    /// Returns `None` for unrecognized values.
+    pub fn parse_flag(s: &str) -> Option<Self> {
+        match s {
+            "off" => Some(TestEnforcement::Off),
+            "warn" => Some(TestEnforcement::Warn),
+            "error" => Some(TestEnforcement::Error),
+            _ => None,
+        }
+    }
+}
+
 // Public types and functions for external use (tests, library consumers)
 pub use build_options::{
     parse_build_options, BuildOptions, DebugLevel, EmitType, LinkMode, LtoMode, OptLevel,

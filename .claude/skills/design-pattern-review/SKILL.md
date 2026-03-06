@@ -185,7 +185,7 @@ reference compilers, adapted to Ori's unique constraints:
 - ARC memory management (no GC, no borrow checker)
 - Capability-based effects
 - Salsa-based incremental compilation
-- Mandatory tests for all functions
+- Configurable test enforcement (off/warn/error)
 
 Write the proposal to: plans/dpr_{DOMAIN}_{MMDDYYYY}.md
 

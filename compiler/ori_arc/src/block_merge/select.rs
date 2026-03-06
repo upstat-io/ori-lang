@@ -31,7 +31,7 @@ struct SelectDiamond {
 
 /// Fold trivial if/else diamond patterns into `Select` instructions.
 #[tracing::instrument(skip_all, name = "phase3_select")]
-pub(crate) fn fold_select_diamonds(func: &mut ArcFunction) {
+pub(super) fn fold_select_diamonds(func: &mut ArcFunction) {
     let pred_counts = compute_pred_counts(func);
 
     for block_idx in 0..func.blocks.len() {
@@ -53,7 +53,7 @@ pub(crate) fn fold_select_diamonds(func: &mut ArcFunction) {
 ///
 /// This ensures the arm body has no side effects and no chained local
 /// references that would require topological renaming.
-pub(crate) fn is_trivial_body(body: &[ArcInstr]) -> bool {
+pub(super) fn is_trivial_body(body: &[ArcInstr]) -> bool {
     // Collect all vars defined in this body — SmallVec avoids heap for
     // typically 0-2 element arm bodies.
     let local_defs: SmallVec<[ArcVarId; 4]> =

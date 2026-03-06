@@ -97,5 +97,5 @@ fn test_semantic_problems_into_diagnostics() {
     .into_diagnostic(&interner);
 
     assert_eq!(diag1.code, ErrorCode::E2003);
-    assert_eq!(diag2.code, ErrorCode::E3001);
+    assert_eq!(diag2.code, ErrorCode::E3010);
 }

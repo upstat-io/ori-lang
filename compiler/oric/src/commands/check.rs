@@ -1,18 +1,24 @@
-//! The `check` command: type-check an Ori source file and verify test coverage.
+//! The `check` command: type-check an Ori source file and optionally verify test coverage.
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+use ori_diagnostic::Severity;
 use oric::problem::semantic::{check_test_coverage, pattern_problem_to_diagnostic};
 use oric::{CompilerDb, Db, SourceFile};
 use std::path::PathBuf;
 
 use super::read_file;
 use super::report_frontend_errors;
+use super::TestEnforcement;
 
-/// Type-check a file and verify that every function has test coverage.
+/// Type-check a file and verify test coverage based on enforcement level.
 ///
 /// Accumulates all errors (parse, type, and coverage) before exiting, giving
 /// the user a complete picture of issues rather than stopping at the first error.
-pub fn check_file(path: &str) {
+/// Test coverage enforcement is controlled by the `enforcement` parameter:
+/// - `Off`: skip test coverage check entirely
+/// - `Warn`: emit missing-test diagnostics as warnings
+/// - `Error`: emit missing-test diagnostics as errors (strict mode)
+pub fn check_file(path: &str, enforcement: TestEnforcement) {
     let content = read_file(path);
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
@@ -50,11 +56,24 @@ pub fn check_file(path: &str) {
         emitter.flush();
     }
 
-    // Check test coverage: every function (except @main) must have at least one test.
-    let interner = db.interner();
-    for problem in check_test_coverage(&parse_result.module, interner) {
-        emitter.emit(&problem.into_diagnostic(interner));
-        has_errors = true;
+    // Check test coverage — severity controlled by enforcement level.
+    // Spec: Clause 19.2 — configurable test enforcement (off/warn/error).
+    let mut has_coverage_issues = false;
+    if enforcement != TestEnforcement::Off {
+        let interner = db.interner();
+        let severity = match enforcement {
+            TestEnforcement::Warn => Severity::Warning,
+            TestEnforcement::Error => Severity::Error,
+            TestEnforcement::Off => unreachable!(),
+        };
+        for problem in check_test_coverage(&parse_result.module, interner) {
+            let diag = problem.into_diagnostic(interner).with_severity(severity);
+            emitter.emit(&diag);
+            has_coverage_issues = true;
+            if enforcement == TestEnforcement::Error {
+                has_errors = true;
+            }
+        }
     }
 
     // Exit if any errors occurred
@@ -62,7 +81,21 @@ pub fn check_file(path: &str) {
         std::process::exit(1);
     }
 
+    // Success message — varies by enforcement level
     let func_count = parse_result.module.functions.len();
     let test_count = parse_result.module.tests.len();
-    println!("OK: {path} ({func_count} functions, {test_count} tests, 100% coverage)");
+    match enforcement {
+        TestEnforcement::Off => {
+            println!("OK: {path} ({func_count} functions, {test_count} tests)");
+        }
+        TestEnforcement::Warn if has_coverage_issues => {
+            let uncovered = func_count.saturating_sub(test_count);
+            println!(
+                "OK: {path} ({func_count} functions, {test_count} tests, {uncovered} uncovered)"
+            );
+        }
+        TestEnforcement::Warn | TestEnforcement::Error => {
+            println!("OK: {path} ({func_count} functions, {test_count} tests, 100% coverage)");
+        }
+    }
 }
