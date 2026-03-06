@@ -24,8 +24,13 @@ env:
 
 jobs:
   build:
-    # Only deploy if Auto Release succeeded (or if manually triggered)
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Deploy if Auto Release succeeded OR was skipped (the bot's version-bump
+    # commit re-triggers Auto Release which self-skips to prevent loops — that
+    # skipped run races the successful deploy via cancel-in-progress).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success' ||
+      github.event.workflow_run.conclusion == 'skipped'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
