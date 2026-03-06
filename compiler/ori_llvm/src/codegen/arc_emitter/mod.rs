@@ -23,6 +23,7 @@
 //! - [`context`] — shared types: `CodegenContext`, `EmittedValue`, `InvokeMode`, `is_boxed_enum_field`
 //! - [`drop_gen`] — per-type LLVM drop function generation (cached by mangled name)
 //! - [`emit_function`] — function-level emission orchestration
+//! - [`field_scan`] — field usage scanning for surgical struct loading
 //! - [`instr_dispatch`] — per-instruction dispatch (`emit_instr`, `emit_project`)
 //! - [`operators`] — binary and unary operator emission (primitive + trait dispatch)
 //! - [`rc_helpers`] — RC data pointer extraction and inline enum cleanup
@@ -43,6 +44,7 @@ mod drop_gen;
 mod element_fn_gen;
 mod emit_function;
 mod emitter_utils;
+mod field_scan;
 mod instr_dispatch;
 mod operators;
 mod rc_buffer_ops;

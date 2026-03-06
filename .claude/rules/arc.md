@@ -38,7 +38,7 @@ CanExpr → lower → ArcFunction
 | `ArcClass` | `classify/` | `Scalar` / `DefiniteRef` / `PossibleRef` — drives all RC decisions |
 | `ArcFunction` | `ir/` | Basic-block IR: params, blocks, var_types |
 | `ArcInstr` | `ir/` | Instructions: Apply, PartialApply, Construct, Project, RcInc, RcDec, Set, etc. |
-| `ArcTerminator` | `ir/` | Block exits: Return, Branch, CondBranch, Switch, Unreachable |
+| `ArcTerminator` | `ir/` | Block exits: Return, Jump, Branch, Switch, Invoke, Resume, Unreachable |
 | `Ownership` | `ownership/` | `Owned` / `Borrowed` — borrow inference output |
 | `DerivedOwnership` | `ownership/` | Per-variable ownership for all locals |
 | `AnnotatedSig` | `ownership/` | Function signature with ownership annotations |

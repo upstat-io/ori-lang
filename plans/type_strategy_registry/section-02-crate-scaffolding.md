@@ -86,11 +86,13 @@ workspace = true
 compiler/ori_registry/
 ├── Cargo.toml
 └── src/
-    ├── lib.rs              # Crate root: re-exports, BUILTIN_TYPES, find_type(), find_method()
-    ├── core.rs             # TypeTag, MemoryStrategy, Ownership, OpStrategy enums
+    ├── lib.rs              # Crate root: mod declarations + pub use re-exports ONLY
+    ├── tags.rs             # TypeTag, MemoryStrategy, Ownership, OpStrategy, TypeProjection,
+    │                       #   TypeParamArity, MethodKind, DeiPropagation enums + ReturnTag
     ├── method.rs           # MethodDef, ParamDef structs
     ├── operator.rs         # OpDefs struct
     ├── type_def.rs         # TypeDef struct — the central aggregate
+    ├── query.rs            # BUILTIN_TYPES, find_type(), find_method(), convenience iterators
     ├── tests.rs            # Purity enforcement tests (#[cfg(test)])
     └── defs/
         ├── mod.rs          # pub use of all type constants (INT, FLOAT, STR, etc.)
@@ -108,19 +110,20 @@ Each file has a single, clear responsibility:
 
 | File | Contains | Approx Lines |
 |------|----------|-------------|
-| `lib.rs` | Module declarations, re-exports, `BUILTIN_TYPES` array, `find_type()`, `find_method()` | ~40 |
-| `core.rs` | `TypeTag`, `MemoryStrategy`, `Ownership`, `OpStrategy` enums with derives | ~60 |
-| `method.rs` | `MethodDef`, `ParamDef` structs with derives | ~30 |
-| `operator.rs` | `OpDefs` struct with derives | ~20 |
-| `type_def.rs` | `TypeDef` struct — aggregates methods, operators, memory strategy, tag | ~20 |
+| `lib.rs` | Module declarations + `pub use` re-exports ONLY (no function bodies) | ~25 |
+| `tags.rs` | `TypeTag`, `MemoryStrategy`, `Ownership`, `OpStrategy`, `ReturnTag`, `TypeProjection`, `TypeParamArity`, `MethodKind`, `DeiPropagation` enums | ~200 |
+| `method.rs` | `MethodDef`, `ParamDef` structs with derives | ~60 |
+| `operator.rs` | `OpDefs` struct with derives + `UNSUPPORTED` const | ~60 |
+| `type_def.rs` | `TypeDef` struct — aggregates methods, operators, memory strategy, tag | ~30 |
+| `query.rs` | `BUILTIN_TYPES` array, `find_type()`, `find_method()`, convenience iterators | ~80 |
 | `tests.rs` | All purity enforcement tests | ~80 |
-| `defs/mod.rs` | `pub use` re-exports for all type constants | ~15 |
-| `defs/int.rs` | `pub const INT: TypeDef = ...` with all int methods and operators | ~40 |
-| `defs/float.rs` | `pub const FLOAT: TypeDef = ...` with all float methods and operators | ~35 |
-| `defs/str.rs` | `pub const STR: TypeDef = ...` with all string methods and operators | ~50 |
-| `defs/bool.rs` | `pub const BOOL: TypeDef = ...` with all bool methods and operators | ~20 |
-| `defs/byte.rs` | `pub const BYTE: TypeDef = ...` with all byte methods and operators | ~20 |
-| `defs/char.rs` | `pub const CHAR: TypeDef = ...` with all char methods and operators | ~25 |
+| `defs/mod.rs` | `pub use` re-exports for all type constants | ~30 |
+| `defs/int.rs` | `pub static INT: TypeDef` with all int methods (~15 methods x ~10 lines) and operators | ~200 |
+| `defs/float.rs` | `pub static FLOAT: TypeDef` with all float methods and operators | ~180 |
+| `defs/str.rs` | `pub static STR: TypeDef` with all string methods (~30+ methods) and operators | ~350 |
+| `defs/bool.rs` | `pub static BOOL: TypeDef` with all bool methods and operators | ~60 |
+| `defs/byte.rs` | `pub static BYTE: TypeDef` with all byte methods and operators | ~100 |
+| `defs/char.rs` | `pub static CHAR: TypeDef` with all char methods and operators | ~120 |
 
 ### Skeleton file contents
 
@@ -142,34 +145,41 @@ Each file has a single, clear responsibility:
 //! No IO, no allocation, no side effects, no `unsafe`.
 //! All data is `const`-constructible and baked into `.rodata`.
 
-mod core;
+mod tags;
 mod method;
 mod operator;
 mod type_def;
+mod query;
 pub mod defs;
 
-pub use self::core::{MemoryStrategy, OpStrategy, Ownership, TypeTag};
+pub use self::tags::{
+    DeiPropagation, MemoryStrategy, MethodKind, OpStrategy, Ownership,
+    ReturnTag, TypeParamArity, TypeProjection, TypeTag,
+};
 pub use self::method::{MethodDef, ParamDef};
 pub use self::operator::OpDefs;
 pub use self::type_def::TypeDef;
-
-// Query API — populated in Section 08
-// pub const BUILTIN_TYPES: &[&TypeDef] = &[ ... ];
-// pub const fn find_type(tag: TypeTag) -> Option<&'static TypeDef> { ... }
-// pub const fn find_method(tag: TypeTag, name: &str) -> Option<&'static MethodDef> { ... }
+// BUILTIN_TYPES is assembled in defs/mod.rs (close to type definitions)
+pub use self::defs::BUILTIN_TYPES;
+// Query functions live in query.rs (no function bodies in lib.rs)
+pub use self::query::{
+    borrowing_methods, find_method, find_type, has_method, method_names_for,
+    methods_for,
+};
 
 #[cfg(test)]
 mod tests;
 ```
 
-**`src/core.rs`:**
+**`src/tags.rs`:**
 ```rust
 //! Core enums for type behavioral specifications.
 //!
 //! These enums are the vocabulary shared by all compiler phases.
 //! Every enum is `Copy` — they are tags, not containers.
 
-// TypeTag, MemoryStrategy, Ownership, OpStrategy
+// TypeTag, MemoryStrategy, Ownership, OpStrategy,
+// ReturnTag, TypeProjection, TypeParamArity, MethodKind, DeiPropagation
 // (exact definitions from Section 01)
 ```
 
@@ -201,17 +211,40 @@ mod tests;
 
 **`src/defs/mod.rs`:**
 ```rust
-//! Builtin type definitions — one const per type.
+//! Builtin type definitions — one `pub static` per type.
 //!
-//! Each submodule exports a single `pub const` `TypeDef`.
-//! As new builtin types are added, add a new file here.
+//! Each submodule exports a single `pub static TypeDef`.
+//! As new builtin types are added (Sections 05-07), add a new
+//! file here and update BUILTIN_TYPES.
 
+// Primitives (Section 03)
 mod int;
 mod float;
-mod str;
 mod bool;
 mod byte;
 mod char;
+
+// String (Section 04)
+mod str;
+
+// Compound types (Section 05) — added when Section 05 is implemented
+// mod duration;
+// mod size;
+// mod ordering;
+// mod error;
+// mod channel;
+
+// Collections & wrappers (Section 06) — added when Section 06 is implemented
+// mod list;   // May be a directory (list/mod.rs + list/methods.rs) if >500 lines
+// mod map;
+// mod set;
+// mod range;
+// mod tuple;
+// mod option;
+// mod result;
+
+// Iterators (Section 07) — added when Section 07 is implemented
+// mod iterator;
 
 pub use self::bool::BOOL;
 pub use self::byte::BYTE;
@@ -225,20 +258,40 @@ pub use self::str::STR;
 ```rust
 //! `int` type definition.
 
-use crate::{MethodDef, OpDefs, OpStrategy, Ownership, TypeDef, TypeTag, MemoryStrategy};
+use crate::{
+    MemoryStrategy, OpDefs, OpStrategy, TypeDef, TypeParamArity, TypeTag,
+};
 
-pub const INT: TypeDef = TypeDef {
+/// Method definitions populated in Section 03.
+static INT_METHODS: [crate::MethodDef; 0] = [];
+
+pub static INT: TypeDef = TypeDef {
     tag: TypeTag::Int,
+    name: "int",
     memory: MemoryStrategy::Copy,
-    methods: &[
-        // ... populated in Section 03
-    ],
+    type_params: TypeParamArity::Fixed(0),
+    methods: &INT_METHODS,
     operators: OpDefs {
-        arithmetic: OpStrategy::IntInstr,
-        comparison: OpStrategy::IntInstr,
-        equality: OpStrategy::IntInstr,
-        bitwise: OpStrategy::IntInstr,
-        logical: OpStrategy::Unsupported,
+        add: OpStrategy::IntInstr,
+        sub: OpStrategy::IntInstr,
+        mul: OpStrategy::IntInstr,
+        div: OpStrategy::IntInstr,
+        rem: OpStrategy::IntInstr,
+        floor_div: OpStrategy::IntInstr,
+        eq: OpStrategy::IntInstr,
+        neq: OpStrategy::IntInstr,
+        lt: OpStrategy::IntInstr,
+        gt: OpStrategy::IntInstr,
+        lt_eq: OpStrategy::IntInstr,
+        gt_eq: OpStrategy::IntInstr,
+        neg: OpStrategy::IntInstr,
+        not: OpStrategy::Unsupported,
+        bit_and: OpStrategy::IntInstr,
+        bit_or: OpStrategy::IntInstr,
+        bit_xor: OpStrategy::IntInstr,
+        bit_not: OpStrategy::IntInstr,
+        shl: OpStrategy::IntInstr,
+        shr: OpStrategy::IntInstr,
     },
 };
 ```
@@ -254,11 +307,12 @@ No other files change. No other crates need modification for the declaration its
 
 ### Checklist
 
-- [ ] Create `src/lib.rs` with module declarations and re-exports
-- [ ] Create `src/core.rs` with enums from Section 01
+- [ ] Create `src/lib.rs` with module declarations and `pub use` re-exports ONLY (no function bodies)
+- [ ] Create `src/tags.rs` with all enums from Section 01 (TypeTag, MemoryStrategy, Ownership, OpStrategy, ReturnTag, TypeProjection, TypeParamArity, MethodKind, DeiPropagation)
 - [ ] Create `src/method.rs` with `MethodDef` and `ParamDef` from Section 01
 - [ ] Create `src/operator.rs` with `OpDefs` from Section 01
 - [ ] Create `src/type_def.rs` with `TypeDef` from Section 01
+- [ ] Create `src/query.rs` with `BUILTIN_TYPES`, `find_type()`, `find_method()`, convenience iterators (Section 08)
 - [ ] Create `src/tests.rs` (purity enforcement — see 02.3)
 - [ ] Create `src/defs/mod.rs` with re-exports
 - [ ] Create `src/defs/int.rs` with empty-methods placeholder `INT`
@@ -329,11 +383,11 @@ fn purity_core_enums_are_copy() {
     assert_copy::<MemoryStrategy>();
     assert_copy::<Ownership>();
     assert_copy::<OpStrategy>();
+    assert_copy::<MethodDef>();
+    assert_copy::<ParamDef>();
+    assert_copy::<OpDefs>();
 
-    // Structs with slice references are Clone but not Copy
-    assert_clone::<MethodDef>();
-    assert_clone::<ParamDef>();
-    assert_clone::<OpDefs>();
+    // TypeDef is intentionally Clone-only (520 bytes — too large for implicit Copy)
     assert_clone::<TypeDef>();
 }
 ```
@@ -689,7 +743,7 @@ Every file gets a module-level `//!` doc comment explaining its purpose and its 
 ### Documentation requirements
 
 - [ ] `lib.rs`: Full crate-level doc comment explaining mission, purity contract, and usage pattern
-- [ ] `core.rs`: Doc comment explaining the enum vocabulary shared by all phases
+- [ ] `tags.rs`: Doc comment explaining the enum vocabulary shared by all phases
 - [ ] `method.rs`: Doc comment explaining `MethodDef` as the unit of method specification
 - [ ] `operator.rs`: Doc comment explaining `OpDefs` as operator strategy declarations
 - [ ] `type_def.rs`: Doc comment explaining `TypeDef` as the central aggregate

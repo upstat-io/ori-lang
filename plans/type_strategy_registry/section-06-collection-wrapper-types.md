@@ -12,7 +12,7 @@ blocks:
   - "10"  # Wire Evaluator
   - "11"  # Wire ARC & Borrow Pass
   - "12"  # Wire LLVM Backend
-estimated_lines: ~300
+estimated_lines: ~800
 complexity: medium
 ---
 
@@ -36,6 +36,8 @@ A method like `List.first()` does not return a fixed type -- it returns `Option<
 where `T` is the list's element type. The registry's `ReturnTag` must express these
 relationships without importing any type-pool machinery. Section 01's data model must
 provide the vocabulary; this section is the stress test.
+
+**File size note:** List has 57 methods at ~10 lines per `MethodDef` literal = ~570 lines, exceeding the 500-line limit. Split `defs/list.rs` into `defs/list/mod.rs` (TypeDef, OpDefs) + `defs/list/methods.rs` (methods array). Same pattern may apply to Map (22+ methods).
 
 ## Current State Inventory
 
