@@ -39,6 +39,7 @@ fn stub_function(name: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -296,6 +297,7 @@ fn calling_function(name: Name, callee: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -738,6 +740,7 @@ fn pure_reader(name: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -774,6 +777,7 @@ fn param_storer(name: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -811,6 +815,7 @@ fn param_forwarder(name: Name, callee: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -861,6 +866,7 @@ fn modified_reader(name: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -1222,6 +1228,7 @@ fn incremental_mutual_recursion_body_change_same_sig() {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     };
 
     let mut new_funcs = vec![

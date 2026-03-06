@@ -11,7 +11,7 @@ depends_on: ["04"]
 sections:
   - id: "09.1"
     title: "Tail Call Detection"
-    status: in-progress
+    status: complete
   - id: "09.2"
     title: "Loop Lowering (Primary) or musttail Emission (Fallback)"
     status: not-started
@@ -121,41 +121,41 @@ For TCO detection, `__recurse` must be resolved to the current function name. Tw
 
 - [x] **PREREQUISITE:** Resolve `__recurse` sentinel to actual function name. **Option 1 (preferred):** (a) Add `pub(crate) func_name: Name` field to `ArcLowerer` in `lower/expr/mod.rs`. (b) Set it from `name` parameter in `lower_function_can()` at `lower/mod.rs:153`. (c) In `lower/constructs.rs:lower_exp_recurse()`, replace `self.interner.intern("__recurse")` with `self.func_name`. If Option 2, add `resolve_recurse_sentinel()` helper as first step of detection pass. (2026-03-06: Also fixed `self(...)` calls — parser emits `Ident("self")` not `SelfRef`, resolved to `func_name` in `lower_ident` and `lower_call`. Also fixed `lower_exp_recurse` to emit conditional control flow instead of eager evaluation.)
 - [x] **PREREQUISITE:** Verify that `recurse()` pattern programs compile and run correctly via AOT before and after the sentinel resolution fix (this may expose a latent AOT bug — see note above). (2026-03-06: Confirmed — before fix, AOT panicked with "unresolved function `self`". After fix, factorial(5)=120 and gcd(48,18)=6 both work correctly in AOT. All 4164 spec tests pass.)
-- [ ] Add tail call detection pass as a NEW function (not extending `check_tail_call()` — different purpose, different phase). Detection must trace cross-block patterns: `Return(v)` → predecessor `Jump(merge, [v])` → `Apply { dst: v, func: self_name }` in predecessor block.
-- [ ] Confirm pipeline placement in `run_arc_pipeline()`: AFTER `rc_identity` + `rc_elim` (all RC ops finalized) and BEFORE `block_merge` (as specified in §09.2's pipeline code sample). Document placement with comment in `run_arc_pipeline()`. Update `lib.rs` pipeline ordering documentation.
-- [ ] Handle: for RC-managed functions, the ARC pipeline inserts `RcDec` between the tail call `Apply` and the `Jump` terminator — these must be hoisted before the call for TCO to work
-- [ ] Safety check: all hoisted `RcDec` targets are NOT among the arguments to the recursive `Apply` (would be use-after-free). Formally: for each `RcDec { var: v }` between Apply and Jump, assert `v` is not in `Apply.args`.
-- [ ] **Annotation format:** Choose one of: (a) new field `tail_calls: Vec<(ArcBlockId, usize)>` on `ArcFunction` (block + instruction index), (b) new `ArcInstr::TailApply` variant (replaces `Apply` for eligible calls), or (c) bitflag on `ArcInstr::Apply`. **Recommendation: (a)** — sidecar annotation, no ARC IR variant changes, minimal disruption. If (b) is chosen, ALL passes that match on `ArcInstr::Apply` must also handle `TailApply` (grep for `ArcInstr::Apply` across all of `ori_arc` to enumerate).
-- [ ] **Multi-clause functions:** Ori functions with multiple clauses (e.g., `@f (0: int) -> int = 1` then `@f (n) = n * f(n-1)`) are lowered to a single ARC function with pattern-matching dispatch. The recursive `Apply @f(...)` uses the actual function name. Verify detection works for multi-clause functions (the Apply is inside a match arm block, which then Jumps to the merge).
-- [ ] **Mutual recursion exclusion:** Only self-recursion is eligible: `Apply.func == arc_func.name`. Mutual recursion (A calls B calls A) requires the callee's stack frame to be compatible, which is not guaranteed. Verify that `Apply.func != arc_func.name` correctly excludes mutual recursion. Also exclude `ApplyIndirect` (closure calls — callee identity unknown at compile time).
-- [ ] Document in `tail_call/mod.rs` module doc: `ApplyIndirect` tail calls (closure-based mutual recursion) are out of scope — callee identity unknown at compile time, cannot verify stack frame compatibility
+- [x] Add tail call detection pass as a NEW function (not extending `check_tail_call()` — different purpose, different phase). Detection must trace cross-block patterns: `Return(v)` → predecessor `Jump(merge, [v])` → `Apply { dst: v, func: self_name }` in predecessor block. (2026-03-06: `tail_call::detect_tail_calls()` in `ori_arc/src/tail_call/mod.rs`)
+- [x] Confirm pipeline placement in `run_arc_pipeline()`: AFTER `rc_identity` + `rc_elim` (all RC ops finalized) and BEFORE `block_merge` (as specified in §09.2's pipeline code sample). Document placement with comment in `run_arc_pipeline()`. Update `lib.rs` pipeline ordering documentation. (2026-03-06: placed at line ~205 with ordering comment, pipeline doc updated)
+- [x] Handle: for RC-managed functions, the ARC pipeline inserts `RcDec` between the tail call `Apply` and the `Jump` terminator — these must be hoisted before the call for TCO to work (2026-03-06: detection verifies all post-Apply instructions are RcDec; actual hoisting deferred to §09.2 rewrite)
+- [x] Safety check: all hoisted `RcDec` targets are NOT among the arguments to the recursive `Apply` (would be use-after-free). Formally: for each `RcDec { var: v }` between Apply and Jump, assert `v` is not in `Apply.args`. (2026-03-06: `find_tail_apply_in_block()` builds arg_set and rejects if any RcDec target overlaps)
+- [x] **Annotation format:** Choose one of: (a) new field `tail_calls: Vec<(ArcBlockId, usize)>` on `ArcFunction` (block + instruction index), (b) new `ArcInstr::TailApply` variant (replaces `Apply` for eligible calls), or (c) bitflag on `ArcInstr::Apply`. **Recommendation: (a)** — sidecar annotation, no ARC IR variant changes, minimal disruption. If (b) is chosen, ALL passes that match on `ArcInstr::Apply` must also handle `TailApply` (grep for `ArcInstr::Apply` across all of `ori_arc` to enumerate). (2026-03-06: chose option (a) — `tail_calls: Vec<TailCallSite>` on ArcFunction with `TailCallSite { call_block, call_instr_idx }`)
+- [x] **Multi-clause functions:** Ori functions with multiple clauses (e.g., `@f (0: int) -> int = 1` then `@f (n) = n * f(n-1)`) are lowered to a single ARC function with pattern-matching dispatch. The recursive `Apply @f(...)` uses the actual function name. Verify detection works for multi-clause functions (the Apply is inside a match arm block, which then Jumps to the merge). (2026-03-06: tests `multi_clause_tail_recursive_arm_detected` and `multi_clause_function_detected` verify both cases)
+- [x] **Mutual recursion exclusion:** Only self-recursion is eligible: `Apply.func == arc_func.name`. Mutual recursion (A calls B calls A) requires the callee's stack frame to be compatible, which is not guaranteed. Verify that `Apply.func != arc_func.name` correctly excludes mutual recursion. Also exclude `ApplyIndirect` (closure calls — callee identity unknown at compile time). (2026-03-06: detection checks `func != func_name` and only matches `ArcInstr::Apply`, excluding ApplyIndirect)
+- [x] Document in `tail_call/mod.rs` module doc: `ApplyIndirect` tail calls (closure-based mutual recursion) are out of scope — callee identity unknown at compile time, cannot verify stack frame compatibility (2026-03-06: documented in module doc)
 
 ### 09.1 Completion Checklist
 
 - [x] `__recurse` sentinel resolved to actual function name (no unresolved `__recurse` in ARC IR post-lowering) (2026-03-06)
-- [ ] Tail call detection correctly identifies self-recursive tail calls across the cross-block pattern (Apply → Jump → Return)
-- [ ] Detection accounts for `RcDec` operations between Apply and Jump (verifies hoisting is safe; actual hoisting is in §09.2)
-- [ ] Non-tail calls (result transformed, intervening side effects) are correctly excluded
-- [ ] Mutual recursion is correctly excluded (self-recursion only for this section)
-- [ ] `ApplyIndirect` calls are excluded (callee identity unknown)
-- [ ] Multi-clause functions with self-recursive calls in match arms are detected
+- [x] Tail call detection correctly identifies self-recursive tail calls across the cross-block pattern (Apply → Jump → Return) (2026-03-06)
+- [x] Detection accounts for `RcDec` operations between Apply and Jump (verifies hoisting is safe; actual hoisting is in §09.2) (2026-03-06)
+- [x] Non-tail calls (result transformed, intervening side effects) are correctly excluded (2026-03-06)
+- [x] Mutual recursion is correctly excluded (self-recursion only for this section) (2026-03-06)
+- [x] `ApplyIndirect` calls are excluded (callee identity unknown) (2026-03-06)
+- [x] Multi-clause functions with self-recursive calls in match arms are detected (2026-03-06)
 - [x] `recurse()` pattern calls (formerly `__recurse` sentinel) are detected (2026-03-06: resolved at lowering time — emits Apply @func_name(...) directly)
-- [ ] Annotation format chosen and implemented (sidecar on `ArcFunction` or IR variant)
-- [ ] `run_arc_pipeline()` updated with new pass placement and ordering comment
-- [ ] `//!` module doc on `tail_call/mod.rs` describing pass purpose, inputs, outputs
-- [ ] `///` doc comments on all `pub`/`pub(crate)` functions in the new module
-- [ ] `#[tracing::instrument(skip_all)]` on pass entry point
-- [ ] All new source files (excluding tests) under 500 lines
-- [ ] `tracing::debug!` at pass entry/exit (function name, whether tail call found, how many rewritten)
-- [ ] ARC IR unit test: self-recursive tail call detected (scalar args)
-- [ ] ARC IR unit test: self-recursive tail call detected (RC-managed args, RcDec hoisted)
-- [ ] ARC IR unit test: non-tail call (result used in addition) NOT detected
-- [ ] ARC IR unit test: mutual recursion NOT detected (Apply to different function name)
-- [ ] ARC IR unit test: `RcDec` target used as arg to recursive call — NOT eligible (safety check)
-- [ ] All tests in sibling `tests.rs` files (not inline `#[cfg(test)]` blocks with test bodies)
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] `./fmt-all.sh` green
+- [x] Annotation format chosen and implemented (sidecar on `ArcFunction` or IR variant) (2026-03-06: option (a) — `TailCallSite` struct with `call_block` + `call_instr_idx`)
+- [x] `run_arc_pipeline()` updated with new pass placement and ordering comment (2026-03-06)
+- [x] `//!` module doc on `tail_call/mod.rs` describing pass purpose, inputs, outputs (2026-03-06)
+- [x] `///` doc comments on all `pub`/`pub(crate)` functions in the new module (2026-03-06)
+- [x] `#[tracing::instrument(skip_all)]` on pass entry point (2026-03-06)
+- [x] All new source files (excluding tests) under 500 lines (2026-03-06: mod.rs ~170 lines)
+- [x] `tracing::debug!` at pass entry/exit (function name, whether tail call found, how many rewritten) (2026-03-06)
+- [x] ARC IR unit test: self-recursive tail call detected (scalar args) (2026-03-06)
+- [x] ARC IR unit test: self-recursive tail call detected (RC-managed args, RcDec hoisted) (2026-03-06)
+- [x] ARC IR unit test: non-tail call (result used in addition) NOT detected (2026-03-06)
+- [x] ARC IR unit test: mutual recursion NOT detected (Apply to different function name) (2026-03-06)
+- [x] ARC IR unit test: `RcDec` target used as arg to recursive call — NOT eligible (safety check) (2026-03-06)
+- [x] All tests in sibling `tests.rs` files (not inline `#[cfg(test)]` blocks with test bodies) (2026-03-06)
+- [x] `./test-all.sh` green (2026-03-06: 12,125 tests passing)
+- [x] `./clippy-all.sh` green (2026-03-06)
+- [x] `./fmt-all.sh` green (2026-03-06)
 
 ---
 

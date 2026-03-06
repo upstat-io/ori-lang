@@ -245,6 +245,7 @@ fn compute_var_reprs_matches_types() {
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
+        tail_calls: Vec::new(),
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -279,6 +280,7 @@ fn compute_var_reprs_empty_function() {
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
+        tail_calls: Vec::new(),
     };
 
     let classifier = ArcClassifier::new(&pool);
