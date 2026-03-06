@@ -1,5 +1,5 @@
 use super::*;
-use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, LitValue, RcStrategy};
+use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcValue, LitValue, RcStrategy};
 use crate::test_helpers::{b, make_func_named, owned_param, v};
 use ori_ir::StringInterner;
 use ori_types::Idx;
@@ -578,4 +578,339 @@ fn non_rc_dec_instruction_after_apply_blocks_detection() {
         sites.is_empty(),
         "non-RcDec after Apply should block detection"
     );
+}
+
+// Rewrite tests
+
+/// Helper: detect + rewrite in one step.
+fn detect_and_rewrite(func: &mut ArcFunction) {
+    func.tail_calls = detect_tail_calls(func);
+    rewrite_tail_calls(func);
+}
+
+/// Check that no block body contains an Apply to `func_name`.
+fn has_self_apply(func: &ArcFunction, func_name: Name) -> bool {
+    func.blocks.iter().any(|block| {
+        block
+            .body
+            .iter()
+            .any(|i| matches!(i, ArcInstr::Apply { func, .. } if *func == func_name))
+    })
+}
+
+#[test]
+fn rewrite_creates_loop_structure() {
+    // gcd(a, b) — same structure as scalar_self_recursive_tail_call_detected
+    let interner = StringInterner::new();
+    let gcd = interner.intern("gcd");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(2)],
+            terminator: ArcTerminator::Branch {
+                cond: v(2),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(0)],
+            },
+        },
+        ArcBlock {
+            id: b(2),
+            params: vec![],
+            body: vec![let_int(3), apply(4, gcd, vec![v(1), v(3)])],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+    ];
+
+    let mut func = make_func_named(
+        gcd,
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 6],
+    );
+
+    detect_and_rewrite(&mut func);
+
+    // Entry is the new trampoline (not the original bb0).
+    assert_ne!(func.entry, ArcBlockId::new(0));
+
+    // Trampoline jumps to the header (old entry, bb0).
+    let trampoline = &func.blocks[func.entry.index()];
+    let ArcTerminator::Jump { target, args } = &trampoline.terminator else {
+        panic!("trampoline should have Jump terminator");
+    };
+    assert_eq!(*target, ArcBlockId::new(0));
+    assert_eq!(args, &[v(0), v(1)]);
+
+    // Header (old entry) has block params matching function params.
+    let header = &func.blocks[0];
+    assert_eq!(header.params.len(), 2);
+    assert_eq!(header.params[0], (v(0), Idx::INT));
+    assert_eq!(header.params[1], (v(1), Idx::INT));
+
+    // Tail-call block (bb2) now jumps to header with call args, not to merge.
+    let tail_block = &func.blocks[2];
+    let ArcTerminator::Jump { target, args } = &tail_block.terminator else {
+        panic!("tail call block should have Jump terminator");
+    };
+    assert_eq!(*target, ArcBlockId::new(0)); // back-edge to header
+    assert_eq!(args, &[v(1), v(3)]); // gcd(b, rem) args
+
+    // No Apply @gcd remains in any block.
+    assert!(!has_self_apply(&func, gcd));
+
+    // tail_calls consumed (emptied).
+    assert!(func.tail_calls.is_empty());
+}
+
+#[test]
+fn rewrite_preserves_rc_decs() {
+    // f(x) with RcDec(x) after tail call — RcDec should survive the rewrite.
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(1)],
+            terminator: ArcTerminator::Branch {
+                cond: v(1),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(2)],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(2)],
+            },
+        },
+        ArcBlock {
+            id: b(2),
+            params: vec![],
+            body: vec![
+                let_int(3),
+                apply(4, f, vec![v(3)]),
+                rc_dec(0), // safe RcDec — target not in call args
+            ],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+    ];
+
+    let mut func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 6],
+    );
+
+    detect_and_rewrite(&mut func);
+
+    // Tail-call block should still have the RcDec.
+    let tail_block = &func.blocks[2];
+    let has_rc_dec = tail_block
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::RcDec { var, .. } if *var == v(0)));
+    assert!(has_rc_dec, "RcDec should be preserved after rewrite");
+
+    // Apply should be removed.
+    let has_apply = tail_block
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Apply { .. }));
+    assert!(!has_apply, "Apply should be removed after rewrite");
+
+    // Terminator should be back-edge to header.
+    let ArcTerminator::Jump { target, args } = &tail_block.terminator else {
+        panic!("expected Jump terminator");
+    };
+    assert_eq!(*target, ArcBlockId::new(0));
+    assert_eq!(args, &[v(3)]);
+}
+
+#[test]
+fn rewrite_handles_direct_tail_call() {
+    // Apply + Return in same block (no merge block).
+    // f(x) = f(x) (infinite loop, but structurally valid)
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![ArcBlock {
+        id: b(0),
+        params: vec![],
+        body: vec![apply(1, f, vec![v(0)])],
+        terminator: ArcTerminator::Return { value: v(1) },
+    }];
+
+    let mut func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 2],
+    );
+
+    detect_and_rewrite(&mut func);
+
+    // Apply removed from header.
+    assert!(!has_self_apply(&func, f));
+
+    // Header terminator is now Jump(header, args) — a self-loop.
+    let header = &func.blocks[0];
+    let ArcTerminator::Jump { target, args } = &header.terminator else {
+        panic!("expected Jump terminator on header");
+    };
+    assert_eq!(*target, ArcBlockId::new(0));
+    assert_eq!(args, &[v(0)]);
+}
+
+#[test]
+fn rewrite_does_not_modify_non_tail_function() {
+    // f(x) = x + 1 — no recursion, no changes.
+    let blocks = vec![ArcBlock {
+        id: b(0),
+        params: vec![],
+        body: vec![let_int(1)],
+        terminator: ArcTerminator::Return { value: v(1) },
+    }];
+
+    let mut func = make_func_named(
+        Name::from_raw(1),
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 2],
+    );
+
+    let original_block_count = func.blocks.len();
+    detect_and_rewrite(&mut func);
+
+    // No trampoline created, no structural changes.
+    assert_eq!(func.blocks.len(), original_block_count);
+    assert_eq!(func.entry, ArcBlockId::new(0));
+}
+
+#[test]
+fn rewrite_handles_multiple_tail_call_sites() {
+    // f(a, b) = match ... { arm1 -> f(x, y), arm2 -> f(p, q), arm3 -> base }
+    //
+    // bb0: Switch ? bb1 / bb2 / bb3
+    // bb1: %r1 = Apply @f(v10, v11); Jump bb4(%r1)
+    // bb2: %r2 = Apply @f(v20, v21); Jump bb4(%r2)
+    // bb3: Jump bb4(base)
+    // bb4(%ret): Return %ret
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_int(2)],
+            terminator: ArcTerminator::Switch {
+                scrutinee: v(2),
+                cases: vec![(0, b(1)), (1, b(2))],
+                default: b(3),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(3), let_int(4), apply(5, f, vec![v(3), v(4)])],
+            terminator: ArcTerminator::Jump {
+                target: b(4),
+                args: vec![v(5)],
+            },
+        },
+        ArcBlock {
+            id: b(2),
+            params: vec![],
+            body: vec![let_int(6), let_int(7), apply(8, f, vec![v(6), v(7)])],
+            terminator: ArcTerminator::Jump {
+                target: b(4),
+                args: vec![v(8)],
+            },
+        },
+        ArcBlock {
+            id: b(3),
+            params: vec![],
+            body: vec![let_int(9)],
+            terminator: ArcTerminator::Jump {
+                target: b(4),
+                args: vec![v(9)],
+            },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![(v(10), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(10) },
+        },
+    ];
+
+    let mut func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 11],
+    );
+
+    detect_and_rewrite(&mut func);
+
+    // Both tail call blocks should now jump to header.
+    let header_id = ArcBlockId::new(0);
+    for block_idx in [1, 2] {
+        let ArcTerminator::Jump { target, .. } = &func.blocks[block_idx].terminator else {
+            panic!("block {block_idx} should have Jump terminator");
+        };
+        assert_eq!(
+            *target, header_id,
+            "block {block_idx} should back-edge to header"
+        );
+    }
+
+    // No Apply @f remains.
+    assert!(!has_self_apply(&func, f));
+
+    // Base case block (bb3) still jumps to merge (bb4), unchanged.
+    let ArcTerminator::Jump { target, .. } = &func.blocks[3].terminator else {
+        panic!("base case block should have Jump terminator");
+    };
+    assert_eq!(*target, ArcBlockId::new(4));
 }

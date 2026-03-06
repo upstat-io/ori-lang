@@ -32,6 +32,10 @@
 //! Mutual recursion (A calls B calls A) is excluded — callee stack frame
 //! compatibility cannot be verified at compile time.
 
+mod rewrite;
+
+pub(crate) use rewrite::rewrite_tail_calls;
+
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use ori_ir::Name;
 use rustc_hash::FxHashSet;

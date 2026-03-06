@@ -1,0 +1,55 @@
+use std.testing { assert_eq }
+
+// Tail-recursive gcd: the classic TCO test case.
+@gcd (a: int, b: int) -> int = {
+    if b == 0 then a else gcd(a: b, b: a % b)
+};
+
+@test_gcd tests @gcd () -> void = {
+    assert_eq(actual: gcd(a: 48, b: 18), expected: 6);
+    assert_eq(actual: gcd(a: 100, b: 75), expected: 25);
+    assert_eq(actual: gcd(a: 17, b: 13), expected: 1);
+    assert_eq(actual: gcd(a: 0, b: 5), expected: 5);
+    assert_eq(actual: gcd(a: 7, b: 0), expected: 7)
+}
+
+// Tail-recursive countdown with accumulator.
+@countdown (n: int, acc: int) -> int = {
+    if n <= 0 then acc else countdown(n: n - 1, acc: acc + 1)
+};
+
+@test_countdown tests @countdown () -> void = {
+    assert_eq(actual: countdown(n: 0, acc: 0), expected: 0);
+    assert_eq(actual: countdown(n: 100, acc: 0), expected: 100)
+}
+
+// Moderate depth — stays within interpreter recursion limit (500).
+// Deep TCO tests (>100K) are in the AOT test suite.
+@test_moderate_countdown tests @countdown () -> void = {
+    assert_eq(actual: countdown(n: 400, acc: 0), expected: 400)
+}
+
+// Tail-recursive factorial with accumulator.
+@fact (n: int, acc: int) -> int = {
+    if n <= 1 then acc else fact(n: n - 1, acc: acc * n)
+};
+
+@test_factorial tests @fact () -> void = {
+    assert_eq(actual: fact(n: 1, acc: 1), expected: 1);
+    assert_eq(actual: fact(n: 5, acc: 1), expected: 120);
+    assert_eq(actual: fact(n: 10, acc: 1), expected: 3628800)
+}
+
+// Tail-recursive Collatz sequence step counter.
+@collatz (n: int, steps: int) -> int = {
+    if n == 1 then steps
+    else if n % 2 == 0 then collatz(n: n / 2, steps: steps + 1)
+    else collatz(n: n * 3 + 1, steps: steps + 1)
+};
+
+@test_collatz tests @collatz () -> void = {
+    assert_eq(actual: collatz(n: 1, steps: 0), expected: 0);
+    assert_eq(actual: collatz(n: 27, steps: 0), expected: 111)
+}
+
+@main () -> void = ();
