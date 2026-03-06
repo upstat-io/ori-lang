@@ -1,66 +1,104 @@
-# Code Journeys -- Overview
+# Code Journeys — Overview
 
 Code journeys trace a single Ori program through the entire compiler pipeline (lexer, parser, typeck, canonicalization, interpreter, LLVM codegen, AOT binary) and perform deep scrutiny on the generated output. Each journey tests a specific language feature set.
 
 ## Journey Index
 
-| # | Name | Features | Expected | Eval | AOT | Score | Issues |
-|---|------|----------|----------|------|-----|-------|--------|
-| J1 | "I am arithmetic" | int literals, let bindings, arithmetic ops, function call | 33 | PASS | PASS | 8.8/10 | M1: redundant branch, M2: missing noreturn |
-| J2 | "I am a branch" | if/else, comparison ops, boolean logic, nested conditionals, unary minus | 17 | PASS | PASS | -- | Results file exists, no scored scrutiny |
-| J3 | "I am recursive" | recursion, equality, modulo, boolean operators | 61 | PASS | PASS | -- | Results file exists, no scored scrutiny |
-| J4 | "I am a struct" | struct types, construction, field access, nested structs | 57 | PASS | PASS | 9.0/10 | M1: dead struct field loads, M2: overflow msg dedup |
-| J5 | "I am a closure" | lambdas, higher-order functions, closures capturing variables | 27 | PASS | PASS | 8.0/10 | M1: redundant branches, M2: missing noreturn, M3: closure env RC leak |
-| J6 | "I am a match" | sum types, pattern matching, match expressions, variant destructuring | 41 | PASS | PASS | 8.5/10 | M1: redundant branches, NEW: payload extraction via alloca |
-| J7 | "I am a loop" | loop/break, for..in, ranges, mutable let, compound assignment | 30 | PASS | PASS | 8.5/10 | M1: duplicate i+1 CSE, M2: redundant break bridge blocks, L1: 6x overflow msg dedup, L2: dead code after panic |
-| J8 | "I am generic" | generic functions, generic structs, type inference, monomorphization | 57 | PASS | PASS | 9.5/10 | L1: sequential block merging, L2: overflow msg dedup (both pre-existing) |
-| J9 | "I am a string" | boolean ops (`&&`/`||`), string literals, `.length()`, ARC lifecycle, SSO | 13 | PASS | PASS | 9.0/10 | L1: overflow msg dedup, L2: missing nounwind on `ori_str_from_raw` |
-| J10 | "I am a list" | list literals, list length, list as parameter, for..in list, ARC | 33 | PASS | PASS | 9.0/10 | L1: dead list field loads, L2: loop-invariant phi, P1: static uniqueness opt, P2: exception-safe ARC |
-| J11 | "I am a derived trait" | #derive(Eq), struct equality, sum type equality, == and != | 33 | PASS | PASS | 9.0/10 | L1: missing nounwind on derived $eq, L2: alloca round-trip in enum $eq; C3 FIX confirmed |
-| J12 | "I am an option" | Option, Some/None, match on Option, ? propagation | 33 | PASS | PASS | 8.8/10 | No new findings; C4 FIX confirmed |
+| # | Name | Features | Expected | Eval | AOT | Score | Key Findings |
+|---|------|----------|----------|------|-----|-------|--------------|
+| J1 | "I am arithmetic" | arithmetic, function_calls, let_bindings | 33 | PASS | PASS | 9.8/10 | OPTIMAL codegen on both functions, zero ARC ops |
+| J2 | "I am a branch" | branching, comparison | 17 | PASS | PASS | 9.2/10 | Branchless select for value selection, 5 CF defects (empty blocks) |
+| J3 | "I am recursive" | recursion, comparison, arithmetic | 61 | PASS | PASS | 8.9/10 | Tail-call optimization on gcd, 77.8% attribute compliance |
+| J4 | "I am a struct" | struct_construction, field_access, nested_structs | 57 | PASS | PASS | 8.5/10 | Redundant insertvalue/extractvalue round-trip, missing constant folding |
+| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 8.8/10 | Clean {ptr, ptr} representation, 60% attribute compliance (structural) |
+| J6 | "I am a match" | pattern_matching, sum_types, destructuring | 41 | PASS | PASS | 9.7/10 | Branchless select chains for tag-only enums, near-perfect codegen |
+| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 9.2/10 | Correct phi-based loop lowering, empty trampoline blocks |
+| J8 | "I am generic" | generics, monomorphization, generic_structs | 57 | PASS | PASS | 9.8/10 | Zero-cost monomorphization, all functions at 1.00x ratio |
+| J9 | "I am a string" | strings, string_methods, arc | 13 | PASS | PASS | 7.5/10 | SSO gating correct, ARC false-positive from metrics tool |
+| J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 8.2/10 | Borrow elision, unnecessary invoke/landing pad (HIGH) |
+| J11 | "I am a derived trait" | derived_traits, trait_methods, sum_types | 33 | PASS | PASS | 9.8/10 | All 7 functions OPTIMAL, three distinct Eq patterns |
+| J12 | "I am an option" | option_type, pattern_matching, error_propagation | 33 | PASS | PASS | 9.1/10 | ? operator zero-overhead, 3 empty blocks |
 
-## Resolved Critical Issues
+**All 12 journeys pass on both eval and AOT backends.** No behavioral mismatches, no crashes, no wrong results.
 
-### C1: AOT closure crash (Journey 5) -- FIXED
-
-Previously, Journey 5 triggered a crash in the AOT backend when compiling closures. This has been resolved. Both interpreter and LLVM native now produce the correct result (27). The closure representation uses a clean two-tier design: non-capturing lambdas are zero-cost (`ptr null` environment), capturing closures use RC-managed heap environments with a dispatcher/destructor pair.
-
-### C3: Payload sum type `$eq` not generated (Journey 11) -- FIXED
-
-Previously, `#[derive(Eq)]` on sum types with payload variants (record fields) did not generate the `$eq` method, causing AOT failures. Now fixed: `_ori_Shape$eq` is correctly emitted with tag-first comparison, switch dispatch to variant-specific blocks, and per-variant short-circuit field comparison. Both eval and AOT return 33.
-
-### C4: Option match tag inversion in decision tree (Journey 12) -- FIXED
-
-Previously, Option match arms were swapped in the decision tree: `Some` mapped to tag 1 and `None` to tag 0, but construction used `Some=0, None=1`. This caused silent miscompilation -- any `match` on `Option<T>` returned the wrong arm's value. Fixed in commit `77fe984c` across 3 locations: `flatten.rs` (decision tree compilation), `emit.rs` (variant field lookup), and the eval decision tree walker. Resolved 114 previously-failing spec tests. Both eval and AOT now return 33.
-
-## Recurring Issues Across Journeys
+## Recurring Issues
 
 | Issue | Severity | Journeys | Description |
 |-------|----------|----------|-------------|
-| Redundant unconditional branches | MEDIUM | J1, J5, J6, J7, J8, J12 | `br label %bbN` emitted at let-binding boundaries, loop break paths, and `?` propagation continuations; LLVM backend eliminates them |
-| Missing `noreturn` on `ori_panic_cstr` | MEDIUM | J1, J5 | Only marked `cold`, should also be `noreturn` |
-| Missing `nounwind` on `main` wrapper | LOW | J1, J5, J6 | Transitively nounwind from `_ori_main` |
-| Closure env RC leak | MEDIUM | J5 | ARC pipeline does not emit `ori_rc_dec` at end of closure live range |
-| Dead struct/list field loads | LOW | J4, J10 | Full aggregate loaded before extracting single field (J4: Rect fields, J10: list len/cap/ptr); DCE removes at -O1+ |
-| Overflow message dedup | LOW | J4, J6, J7, J9, J10, J12 | Identical overflow message constants not deduplicated (2x in J4, 6x in J7, 7x in J9, 6x in J10, 6x in J12) |
-| Duplicate subexpression in loops | LOW | J7 | `i + 1` computed twice per iteration (for `total += i+1` and `i += 1`); CSE opportunity |
-| Dead code after noreturn call | LOW | J7 | RC cleanup code emitted after `ori_panic()` which never returns |
-| Payload extraction via alloca | MEDIUM | J6 | Record variant destructuring uses alloca+store+GEP+load (5 instr/arm) where extractvalue (2 instr) would suffice; ~2.5x IR overhead |
-| Missing nounwind on runtime decls | LOW | J9 | `ori_str_from_raw` declared without `nounwind`, blocks propagation to callers like `check_strings` |
-| Missing nounwind on derived methods | LOW | J11 | Derived `$eq` methods emitted by `derive_codegen` lack `nounwind`; not included in nounwind fixed-point analysis |
-| Alloca round-trip in enum derived methods | LOW | J11 | Enum `$eq` loads params into SSA, stores to alloca, then GEPs back; SROA eliminates at -O1+ |
+| Empty trampoline/passthrough blocks | LOW | J2, J3, J5, J7, J9, J10, J12 | Blocks containing only `br label %next` — could be eliminated at emission time |
+| Missing `uwtable` on C main wrapper | LOW | J1, J11 | The `@main` entry wrapper uses attribute group without `uwtable` |
+| Missing `noundef` on some parameters | LOW | J6, J8 | Struct-typed and Box-typed params missing `noundef` annotation |
+| Missing `memory(...)` annotations | LOW-MEDIUM | J2, J4, J12 | Pure read-only or side-effect-free functions lack `memory(read)` or `memory(none)` |
+| Redundant entry block branch | LOW | J3, J7 | TCO loop lowering and loop/for emit an entry block with only `br label %loop.header` |
+| Missing `nounwind` on `ori_panic_cstr` | LOW | J7 | Runtime panic function declaration missing `nounwind` in some journeys |
+| Attribute compliance below 80% | LOW | J3 (77.8%), J5 (60%) | Structural issue — closures' indirect call targets and recursive functions have lower compliance |
+
+### Highest-Severity Finding
+
+**HIGH — Unnecessary invoke/landing pad for non-unwinding functions** (J10): The compiler emits `invoke` + landing pad infrastructure for calls to `count_items`, which provably never unwinds. This adds code size and prevents inlining optimizations. Root cause: nounwind analysis doesn't propagate through simple read-only user functions.
+
+## Resolved Issues
+
+### `noreturn` on `ori_panic_cstr` — FIXED
+**First seen**: Previous journey run
+**Fixed in**: Current run (J1 confirms)
+**Description**: The `ori_panic_cstr` runtime function declaration now correctly has both `cold` and `noreturn` attributes, allowing LLVM to optimize code paths after panic calls.
+
+### `nounwind` on user functions — FIXED
+**First seen**: Previous journey run (J1 originally missing)
+**Fixed in**: J2 confirms all user functions have `nounwind`
+**Description**: User-defined functions now correctly propagate `nounwind` via attribute groups.
+
+### `noundef` on function parameters — FIXED
+**First seen**: Previous journey run
+**Fixed in**: J1 confirms `noundef` present on params and returns
+**Description**: Function parameters and return values now carry `noundef` annotations for integer types.
+
+## Score Trend
+
+| Difficulty | Journeys | Avg Score | Range |
+|------------|----------|-----------|-------|
+| Simple (J1-J4) | 4 | 9.1 | 8.5–9.8 |
+| Moderate (J5-J8) | 4 | 9.2 | 8.8–9.8 |
+| Complex (J9-J12) | 4 | 8.7 | 7.5–9.8 |
+| **Overall** | **12** | **9.0** | **7.5–9.8** |
+
+### Score Distribution
+
+- **9.5+** (near-perfect): J1 (9.8), J6 (9.7), J8 (9.8), J11 (9.8) — arithmetic, pattern matching, generics, derived traits
+- **9.0–9.4** (strong): J2 (9.2), J7 (9.2), J12 (9.1) — branching, loops, options
+- **8.5–8.9** (solid): J3 (8.9), J4 (8.5), J5 (8.8) — recursion, structs, closures
+- **< 8.5** (room to improve): J9 (7.5), J10 (8.2) — strings, lists (heap-allocated types with ARC)
+
+### Observations
+
+- **Scalar-only journeys score highest** — when no ARC is needed, the compiler's codegen is near-perfect (J1, J6, J8, J11 all 9.7+)
+- **Heap-allocated types drop scores** — strings (J9: 7.5) and lists (J10: 8.2) introduce ARC complexity that surfaces attribute and control flow issues
+- **Attribute compliance is the most common deduction** — across all journeys, missing attributes (memory, noundef, readonly) are the primary source of non-NOTE findings
+- **Instruction efficiency is excellent** — 8 of 12 journeys have average instruction ratio ≤ 1.03x, with 5 at exactly 1.00x (OPTIMAL)
+
+## Tooling Notes
+
+### `extract-metrics.py` — Quoted Function Names
+The `_FUNC_NAME_RE` regex in `ir_parser.py` cannot parse LLVM quoted function names like `@"_ori_first$24m$24int_int"` produced by monomorphized generics. Journey 8 (generics) works around this because `extract-metrics.py` still extracts enough functions to compute scores, but a proper fix should update the regex to handle `@"..."` names.
+
+### `extract-metrics.py` — ARC False Positive on Strings
+Journey 9's ARC score (3/10) reflects a metrics tool false positive: 0 `rc_inc` / 3 `rc_dec` appears unbalanced, but the initial RC increment is hidden inside `ori_str_from_raw` (a runtime function, not visible in the IR). The actual runtime behavior is leak-free and correctly balanced. The metrics tool should be taught to recognize paired runtime construction/destruction patterns.
+
+### Multi-line Switch Parsing — FIXED
+The `ir_parser.py` was splitting multi-line LLVM `switch` instructions into separate instructions, causing `extract_branch_targets` to miss case labels. This produced false `cf_incorrect: true` flags. Fixed during this journey run by joining continuation lines between `[` and `]`.
 
 ## Results Files
 
-- [Journey 1 Results](journey1-results.md)
-- [Journey 2 Results](journey2-results.md)
-- [Journey 3 Results](journey3-results.md)
-- [Journey 4 Results](journey4-results.md)
-- [Journey 5 Results](journey5-results.md)
-- [Journey 6 Results](journey6-results.md)
-- [Journey 7 Results](journey7-results.md)
-- [Journey 8 Results](journey8-results.md)
-- [Journey 9 Results](journey9-results.md)
-- [Journey 10 Results](journey10-results.md)
-- [Journey 11 Results](journey11-results.md)
-- [Journey 12 Results](journey12-results.md)
+- [Journey 1: "I am arithmetic"](01-arithmetic-results.md)
+- [Journey 2: "I am a branch"](02-branching-results.md)
+- [Journey 3: "I am recursive"](03-recursion-results.md)
+- [Journey 4: "I am a struct"](04-structs-results.md)
+- [Journey 5: "I am a closure"](05-closures-results.md)
+- [Journey 6: "I am a match"](06-pattern-matching-results.md)
+- [Journey 7: "I am a loop"](07-loops-results.md)
+- [Journey 8: "I am generic"](08-generics-results.md)
+- [Journey 9: "I am a string"](09-strings-results.md)
+- [Journey 10: "I am a list"](10-lists-results.md)
+- [Journey 11: "I am a derived trait"](11-derived-traits-results.md)
+- [Journey 12: "I am an option"](12-options-results.md)

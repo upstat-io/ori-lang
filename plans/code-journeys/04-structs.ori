@@ -1,6 +1,8 @@
 // Journey 4: "I am a struct"
-// Features: struct types, construction, field access, nested structs
-// Expected: p.x + p.y + r.width * r.height = 3 + 4 + 10 * 5 = 57
+// Slug: structs
+// Difficulty: simple
+// Features: struct_construction, field_access, nested_structs, function_calls
+// Expected: p.x + p.y + area(r) = 3 + 4 + 10 * 5 = 57
 
 type Point = { x: int, y: int }
 type Rect = { origin: Point, width: int, height: int }

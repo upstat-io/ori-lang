@@ -1,5 +1,7 @@
 // Journey 8: "I am generic"
-// Features: generic functions, generic structs, type inference, monomorphization
+// Slug: generics
+// Difficulty: moderate
+// Features: generics, monomorphization, generic_structs, type_inference
 // Expected: identity(42) + first(10, 20) + get_value(Box { value: 5 }) = 42 + 10 + 5 = 57
 
 type Box<T> = { value: T }

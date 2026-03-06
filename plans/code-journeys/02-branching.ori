@@ -1,5 +1,7 @@
 // Journey 2: "I am a branch"
-// Features: if/else, comparison ops, boolean logic, nested conditionals, unary minus
+// Slug: branching
+// Difficulty: simple
+// Features: branching, comparison, function_calls, multiple_functions
 // Expected: my_abs(-7) + my_max(3, 10) + my_sign(0) = 7 + 10 + 0 = 17
 
 @my_abs (n: int) -> int = if n < 0 then -n else n;

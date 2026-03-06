@@ -1,5 +1,7 @@
 // Journey 11: "I am a derived trait"
-// Features: #[derive(Eq)], struct equality, sum type equality, == and !=
+// Slug: derived-traits
+// Difficulty: complex
+// Features: derived_traits, trait_methods, struct_construction, sum_types, pattern_matching
 // Expected: check_struct_eq() + check_sum_eq() + check_nested() = 7 + 11 + 15 = 33
 
 #[derive(Eq)]
