@@ -66,7 +66,7 @@ Extend escape analysis (§08) to track thread boundaries.
 - [ ] Propagate thread-locality:
   ```rust
   pub fn analyze_thread_locality(
-      func: &CanFunction,
+      func: &ArcFunction,
       escape_info: &EscapeInfo,
       pool: &Pool,
   ) -> FxHashMap<AllocId, ThreadLocality> {
@@ -105,7 +105,9 @@ Extend escape analysis (§08) to track thread boundaries.
 
 **File(s):** `compiler/ori_rt/src/rc/nonatomic.rs` (new file inside `rc/` module)
 
-**Module placement:** Must live inside `rc/` (e.g., `rc/nonatomic.rs` with `mod nonatomic;` in `rc/mod.rs`) to access `call_drop_fn` and `rc_underflow_abort` which are `pub(super)`.
+**Module placement:** Must live inside `rc/` (e.g., `rc/nonatomic.rs` with `mod nonatomic;` in `rc/mod.rs`) to access `call_drop_fn` and `rc_underflow_abort` which are `pub(super)`. Note: `ori_rt` allows `unsafe` (it is NOT in the `#![deny(unsafe_code)]` list). Every `unsafe` block MUST have a `// SAFETY:` comment.
+
+**Risk warning:** Non-atomic RC on a value that IS actually shared across threads causes data races (undefined behavior). The soundness of this entire section depends on §08's escape analysis and §10.1's thread escape analysis being correct. If the analysis is unsound, this creates UB that Valgrind (memcheck) will not catch — only helgrind/TSAN will. This section must be gated on §08 being fully verified first.
 
 - [ ] Implement non-atomic RC operations:
   ```rust
@@ -198,6 +200,7 @@ If a value transitions from thread-local to thread-shared (e.g., sent on a chann
 - [ ] Non-atomic RC operations are measurably faster (benchmark)
 - [ ] No data races: run `valgrind --tool=helgrind` directly on AOT binaries (NOTE: `valgrind-aot.sh` does not currently accept `--tool=` passthrough; either extend the script or invoke helgrind manually)
 - [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/dual-exec-verify.sh` passes
 
 **Exit Criteria:** A single-threaded benchmark program shows 0 atomic RC operations in LLVM IR (all `ori_rc_*_nonatomic`). Performance benchmark shows ≥20% improvement in RC-heavy workloads vs. atomic-only baseline.

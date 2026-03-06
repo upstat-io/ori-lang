@@ -59,6 +59,12 @@ Build a comprehensive test matrix covering every optimization through the full p
   - Nested: `Option<Option<int>>` — trivial
   - Recursive struct — non-trivial
   - Struct with all scalar fields — trivial
+  - Newtype `type UserId = int` — trivial (resolves through Named)
+  - Newtype `type Name = str` — non-trivial
+  - FFI type `CPtr` — trivial (opaque pointer, no RC)
+  - Generic `Pair<int>` — trivial vs `Pair<str>` — non-trivial
+  - All primitive tags covered (exhaustive — 12 variants)
+  - Iterator/DoubleEndedIterator — trivial (Box-allocated, no RC header)
 
 - [ ] **§04 Integer Narrowing:**
   - Loop counter `for i in 0..100` → i8
@@ -76,7 +82,10 @@ Build a comprehensive test matrix covering every optimization through the full p
 - [ ] **§06 Struct Layout:**
   - `{ bool, int, bool }` → reordered (int first)
   - `{ int, int }` → unchanged (already optimal)
-  - `#[repr(C)]` struct → declaration order preserved
+  - `#repr("c")` struct → declaration order preserved
+  - `#repr("transparent")` newtype → same layout as inner field
+  - `#repr("aligned", 16)` struct → alignment ≥ 16
+  - `#repr("packed")` struct → no padding, alignment = 1
   - Tuple `(bool, int, bool)` → reordered
 
 - [ ] **§07 Enum Repr:**
@@ -132,11 +141,12 @@ Verify that optimized code produces identical results to unoptimized code.
   - Float comparisons must also be bit-identical — no ULP tolerance. The §05
     narrowing guarantee is "zero precision loss", so any output difference
     indicates a narrowing bug or a printing bug, both of which must be caught.
-    (If a future optimization allows lossy narrowing via opt-in `#[repr(f32)]`,
+    (If a future optimization allows lossy narrowing via opt-in `#repr("f32")`,
     those specific tests can use ULP tolerance, but the default must be exact.)
 
 - [ ] Run comparison on benchmark programs:
-  - `tests/benchmarks/fibonacci.ori`
+  - `tests/benchmarks/bench_small.ori`
+  - `tests/benchmarks/bench_medium.ori`
   - `tests/benchmarks/` (all)
   - Results must match exactly (bit-identical for both integer and float benchmarks,
     consistent with the zero-precision-loss guarantee in §05)
@@ -199,7 +209,7 @@ Verify that optimized code produces identical results to unoptimized code.
   |--------|------------|--------|
   | Compile time | `time ori build` | < 10% regression |
   | AOT binary size | `ls -la output` | ≤ 5% increase from extra codepaths |
-  | Runtime (fibonacci) | `time ./fibonacci` | ≥ 10% improvement |
+  | Runtime (bench_medium) | `time ./bench_medium` | ≥ 10% improvement |
   | Runtime (string-heavy) | `time ./string_bench` | ≥ 30% improvement (SSO) |
   | Memory (struct-heavy) | peak RSS | ≥ 20% reduction (narrowing) |
   | Memory (collection-heavy) | peak RSS | ≥ 30% reduction (SVO + SSO) |
@@ -240,10 +250,14 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
 
 - [ ] Update CLAUDE.md with:
   - `ori_repr` crate description and key paths
-  - New runtime functions (`ori_rc_*_nonatomic`, SSO, SVO)
+  - `MachineRepr` enum variant summary
+  - `ReprPlan` query interface and tracing
+  - `ReprAttribute` enum and `#repr` attribute interaction
+  - New runtime functions (`ori_rc_*_nonatomic`, `ori_rc_*_i8/i16/i32`, SSO, SVO)
   - `--no-repr-opt` flag documentation
+  - `ori_repr` dependency chain: `ori_types → ori_arc → ori_repr → ori_llvm`
 
-- [ ] Update spec (`docs/ori_lang/v2026/spec/22-system-considerations.md`):
+- [ ] Update spec (`docs/ori_lang/v2026/spec/annex-e-system-considerations.md`):
   - Mark implemented optimizations as "implemented" vs "future"
   - Add SSO/SVO to the built-in type representations table
 
