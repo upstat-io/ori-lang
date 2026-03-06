@@ -264,7 +264,7 @@ fn empty_function() {
     assert!(dom.idom.is_empty());
 }
 
-// ── Post-dominator tree tests ────────────────────────────────
+// Post-dominator tree tests
 
 /// Linear chain: B0 → B1 → B2 (Return). C post-dominates B0 and B1.
 #[test]

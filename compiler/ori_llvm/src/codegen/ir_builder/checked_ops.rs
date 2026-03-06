@@ -134,15 +134,17 @@ impl IrBuilder<'_, '_> {
         }
 
         // 1. Get or declare the overflow intrinsic.
-        let intrinsic = Intrinsic::find(intrinsic_name).unwrap_or_else(|| {
-            panic!("LLVM intrinsic `{intrinsic_name}` not found");
-        });
+        let Some(intrinsic) = Intrinsic::find(intrinsic_name) else {
+            tracing::error!(intrinsic_name, "LLVM intrinsic not found");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        };
         let i64_ty = self.scx.llcx.i64_type();
-        let func_val = intrinsic
-            .get_declaration(&self.scx.llmod, &[i64_ty.into()])
-            .unwrap_or_else(|| {
-                panic!("failed to declare `{intrinsic_name}.i64`");
-            });
+        let Some(func_val) = intrinsic.get_declaration(&self.scx.llmod, &[i64_ty.into()]) else {
+            tracing::error!(intrinsic_name, "failed to declare intrinsic");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        };
 
         // 2. Call the intrinsic: returns { i64, i1 }.
         let lhs_int = l.into_int_value();
@@ -158,7 +160,9 @@ impl IrBuilder<'_, '_> {
 
         // 3. Extract result (index 0) and overflow flag (index 1).
         let BasicValueEnum::StructValue(sv) = result_struct else {
-            panic!("overflow intrinsic did not return struct");
+            tracing::error!(intrinsic_name, "overflow intrinsic did not return struct");
+            self.record_codegen_error();
+            return self.const_i64(0);
         };
         let result = self
             .builder
@@ -183,7 +187,9 @@ impl IrBuilder<'_, '_> {
 
         // 5. Branch: overflow → panic, else → continue.
         let BasicValueEnum::IntValue(ovf_flag) = overflow else {
-            panic!("overflow flag is not i1");
+            tracing::error!(intrinsic_name, "overflow flag is not i1");
+            self.record_codegen_error();
+            return self.const_i64(0);
         };
         self.builder
             .build_conditional_branch(ovf_flag, panic_bb, continue_bb)

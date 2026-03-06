@@ -11,7 +11,7 @@
 
 use crate::util::assert_aot_success;
 
-// ─── Basic recursion ───
+// Basic recursion
 
 #[test]
 fn test_rec_factorial() {
@@ -99,7 +99,7 @@ fn test_rec_gcd() {
     );
 }
 
-// ─── Tail-recursive patterns (accumulator) ───
+// Tail-recursive patterns (accumulator)
 
 #[test]
 fn test_rec_factorial_acc() {
@@ -150,7 +150,29 @@ fn test_rec_count_digits() {
     );
 }
 
-// ─── Mutual recursion ───
+// Mutual recursion
+
+#[test]
+fn test_mutual_recursion_not_lowered_moderate_depth() {
+    // Mutual recursion is NOT loop-lowered — it uses normal calls.
+    // Moderate depth (1000) to verify correctness without stack overflow.
+    assert_aot_success(
+        r#"
+@is_even (n: int) -> bool = {
+    if n == 0 then true else is_odd(n: n - 1)
+};
+
+@is_odd (n: int) -> bool = {
+    if n == 0 then false else is_even(n: n - 1)
+};
+
+@main () -> int = {
+    if is_even(n: 1000) && !is_odd(n: 1000) then 0 else 1
+}
+"#,
+        "mutual_rec_moderate_depth",
+    );
+}
 
 #[test]
 fn test_rec_is_even_odd() {
@@ -193,7 +215,7 @@ fn test_rec_mutual_countdown() {
     );
 }
 
-// ─── Recursion with Result ───
+// Recursion with Result
 
 #[test]
 fn test_rec_safe_divide() {
@@ -222,7 +244,7 @@ fn test_rec_safe_divide() {
     );
 }
 
-// ─── Recursion with match ───
+// Recursion with match
 
 #[test]
 fn test_rec_match_countdown() {
@@ -266,7 +288,7 @@ fn test_rec_match_collatz() {
     );
 }
 
-// ─── Recursion depth ───
+// Recursion depth
 
 #[test]
 fn test_rec_depth_100() {
@@ -300,7 +322,7 @@ fn test_rec_depth_1000() {
     );
 }
 
-// ─── Recursion with structs ───
+// Recursion with structs
 
 #[test]
 fn test_rec_struct_param() {
@@ -327,7 +349,7 @@ type Point = { x: int, y: int };
     );
 }
 
-// ─── Recursive computation patterns ───
+// Recursive computation patterns
 
 #[test]
 fn test_rec_binary_search() {
@@ -390,7 +412,7 @@ fn test_rec_tower_of_hanoi_count() {
     );
 }
 
-// ─── Deep tail recursion (TCO stress tests) ───
+// Deep tail recursion (TCO stress tests)
 
 #[test]
 fn test_tail_rec_gcd_correct() {
@@ -493,7 +515,7 @@ fn test_tail_rec_factorial_acc_deep() {
     );
 }
 
-// ─── Tail recursion: `recurse()` pattern ───
+// Tail recursion: `recurse()` pattern
 
 #[test]
 fn test_tail_rec_recurse_pattern() {
@@ -540,7 +562,7 @@ fn test_tail_rec_recurse_deep() {
     );
 }
 
-// ─── Tail recursion: RC-managed args ───
+// Tail recursion: RC-managed args
 
 #[test]
 fn test_tail_rec_with_list_param() {
@@ -581,7 +603,7 @@ fn test_tail_rec_with_string_param() {
     );
 }
 
-// ─── Tail recursion: mixed tail/non-tail ───
+// Tail recursion: mixed tail/non-tail
 
 #[test]
 fn test_tail_rec_mixed_tail_and_nontail() {
@@ -608,7 +630,7 @@ fn test_tail_rec_mixed_tail_and_nontail() {
     );
 }
 
-// ─── Recursion with Option ───
+// Recursion with Option
 
 #[test]
 fn test_rec_find_first_above() {

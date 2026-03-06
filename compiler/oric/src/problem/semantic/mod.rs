@@ -313,11 +313,11 @@ impl SemanticProblem {
                 binding_span,
             } => {
                 let name = interner.lookup(*name);
-                Diagnostic::error(ErrorCode::E2003)
+                Diagnostic::error(ErrorCode::E2039)
                     .with_message(format!("cannot mutate immutable binding `{name}`"))
                     .with_label(*span, "cannot mutate")
                     .with_secondary_label(*binding_span, "defined as immutable here")
-                    .with_suggestion("use `let mut` for mutable bindings")
+                    .with_suggestion("remove the `$` prefix to make this binding mutable")
             }
 
             SemanticProblem::UseBeforeInit { span, name } => {

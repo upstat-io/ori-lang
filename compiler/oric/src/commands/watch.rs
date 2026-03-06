@@ -9,14 +9,14 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use notify::{EventKind, RecursiveMode, Watcher};
-use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
-use ori_diagnostic::Severity;
-use oric::problem::semantic::{check_test_coverage, pattern_problem_to_diagnostic};
-use oric::{CompilerDb, Db, SourceFile};
+use ori_diagnostic::emitter::{ColorMode, TerminalEmitter};
+use oric::{CompilerDb, SourceFile};
 use salsa::Setter;
 
+use super::print_check_success;
 use super::read_file;
 use super::report_frontend_errors;
+use super::run_post_frontend_checks;
 use super::TestEnforcement;
 
 /// Debounce window — drain events for this long after the first event.
@@ -128,68 +128,13 @@ fn run_check(db: &CompilerDb, file: SourceFile, path: &str, enforcement: TestEnf
         eprintln!("internal error: Pool not cached after type checking");
         return;
     };
-    let mut has_errors = frontend.has_errors();
-    let parse_result = frontend.parse_result;
-    let type_result = frontend.type_result;
-    let pool = frontend.pool;
 
-    // Pattern exhaustiveness
-    if !parse_result.has_errors() {
-        let shared_canon =
-            oric::query::canonicalize_cached(db, file, &parse_result, &type_result, &pool);
-        for problem in &shared_canon.problems {
-            let diag = pattern_problem_to_diagnostic(problem, db.interner());
-            emitter.emit(&diag);
-            has_errors = true;
-        }
-    }
-
-    if has_errors {
-        emitter.flush();
-    }
-
-    // Test coverage — severity controlled by enforcement level.
-    // Spec: Clause 19.2 — configurable test enforcement (off/warn/error).
-    let mut has_coverage_issues = false;
-    if enforcement != TestEnforcement::Off {
-        let interner = db.interner();
-        let severity = match enforcement {
-            TestEnforcement::Warn => Severity::Warning,
-            TestEnforcement::Error => Severity::Error,
-            TestEnforcement::Off => unreachable!(),
-        };
-        for problem in check_test_coverage(&parse_result.module, interner) {
-            let diag = problem.into_diagnostic(interner).with_severity(severity);
-            emitter.emit(&diag);
-            has_coverage_issues = true;
-            if enforcement == TestEnforcement::Error {
-                has_errors = true;
-            }
-        }
-    }
-
-    if has_errors {
-        emitter.flush();
+    let result = run_post_frontend_checks(db, file, &frontend, enforcement, &mut emitter);
+    if result.has_errors {
         return;
     }
 
-    // Success message — varies by enforcement level
-    let func_count = parse_result.module.functions.len();
-    let test_count = parse_result.module.tests.len();
-    match enforcement {
-        TestEnforcement::Off => {
-            println!("OK: {path} ({func_count} functions, {test_count} tests)");
-        }
-        TestEnforcement::Warn if has_coverage_issues => {
-            let uncovered = func_count.saturating_sub(test_count);
-            println!(
-                "OK: {path} ({func_count} functions, {test_count} tests, {uncovered} uncovered)"
-            );
-        }
-        TestEnforcement::Warn | TestEnforcement::Error => {
-            println!("OK: {path} ({func_count} functions, {test_count} tests, 100% coverage)");
-        }
-    }
+    print_check_success(path, enforcement, &result);
 }
 
 /// Check if a notify event is relevant to our watched file.

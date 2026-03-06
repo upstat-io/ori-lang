@@ -5,7 +5,6 @@ use ori_arc::ir::{
     CtorKind,
 };
 use ori_arc::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
-use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -21,7 +20,6 @@ use crate::db::{CompilerDb, Db};
 fn stub_function(name: Name) -> ArcFunction {
     ArcFunction {
         name,
-        params: vec![],
         return_type: Idx::UNIT,
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
@@ -31,15 +29,9 @@ fn stub_function(name: Name) -> ArcFunction {
                 value: ArcVarId::new(0),
             },
         }],
-        entry: ArcBlockId::new(0),
         var_types: vec![Idx::UNIT],
-        var_reprs: vec![],
         spans: vec![],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: CowAnnotations::default(),
-        drop_hints: DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -273,7 +265,6 @@ fn arc_module_input_functions_accessor() {
 fn calling_function(name: Name, callee: Name) -> ArcFunction {
     ArcFunction {
         name,
-        params: vec![],
         return_type: Idx::UNIT,
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
@@ -289,15 +280,9 @@ fn calling_function(name: Name, callee: Name) -> ArcFunction {
                 value: ArcVarId::new(0),
             },
         }],
-        entry: ArcBlockId::new(0),
         var_types: vec![Idx::UNIT],
-        var_reprs: vec![],
         spans: vec![],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: CowAnnotations::default(),
-        drop_hints: DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -732,15 +717,9 @@ fn pure_reader(name: Name) -> ArcFunction {
                 value: ArcVarId::new(1),
             },
         }],
-        entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::INT],
-        var_reprs: vec![],
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: CowAnnotations::default(),
-        drop_hints: DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -769,15 +748,9 @@ fn param_storer(name: Name) -> ArcFunction {
                 value: ArcVarId::new(1),
             },
         }],
-        entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::UNIT],
-        var_reprs: vec![],
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: CowAnnotations::default(),
-        drop_hints: DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -807,15 +780,9 @@ fn param_forwarder(name: Name, callee: Name) -> ArcFunction {
                 value: ArcVarId::new(1),
             },
         }],
-        entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::STR],
-        var_reprs: vec![],
         spans: vec![vec![None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: CowAnnotations::default(),
-        drop_hints: DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -858,15 +825,9 @@ fn modified_reader(name: Name) -> ArcFunction {
                 value: ArcVarId::new(2),
             },
         }],
-        entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::INT, Idx::INT],
-        var_reprs: vec![],
         spans: vec![vec![None, None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: CowAnnotations::default(),
-        drop_hints: DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -1220,15 +1181,9 @@ fn incremental_mutual_recursion_body_change_same_sig() {
                 value: ArcVarId::new(2),
             },
         }],
-        entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::INT, Idx::STR],
-        var_reprs: vec![],
         spans: vec![vec![None, None]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: CowAnnotations::default(),
-        drop_hints: DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     };
 
     let mut new_funcs = vec![

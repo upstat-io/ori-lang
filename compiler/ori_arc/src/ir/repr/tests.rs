@@ -14,7 +14,7 @@ use crate::ArcClass;
 
 use super::*;
 
-// ── from_arc_class: Scalar ──────────────────────────────────────
+// from_arc_class: Scalar
 
 #[test]
 fn scalar_class_yields_scalar_repr() {
@@ -37,7 +37,7 @@ fn scalar_class_yields_scalar_repr() {
     }
 }
 
-// ── from_arc_class: FatValue (str, function) ────────────────────
+// from_arc_class: FatValue (str, function)
 
 #[test]
 fn str_yields_fat_value() {
@@ -58,7 +58,7 @@ fn function_yields_fat_value() {
     );
 }
 
-// ── from_arc_class: RcPointer (list, map, set, channel) ─────────
+// from_arc_class: RcPointer (list, map, set, channel)
 
 #[test]
 fn list_yields_rc_pointer() {
@@ -100,7 +100,7 @@ fn channel_yields_rc_pointer() {
     );
 }
 
-// ── from_arc_class: Aggregate (tuple, struct, enum, result, option) ──
+// from_arc_class: Aggregate (tuple, struct, enum, result, option)
 
 #[test]
 fn tuple_with_ref_yields_aggregate() {
@@ -168,7 +168,7 @@ fn enum_with_ref_variant_yields_aggregate() {
     );
 }
 
-// ── PossibleRef uses same tag-based classification ──────────────
+// PossibleRef uses same tag-based classification
 
 #[test]
 fn possible_ref_list_yields_rc_pointer() {
@@ -189,7 +189,7 @@ fn possible_ref_str_yields_fat_value() {
     );
 }
 
-// ── compute_var_reprs ───────────────────────────────────────────
+// compute_var_reprs
 
 #[test]
 fn compute_var_reprs_matches_types() {
@@ -288,7 +288,7 @@ fn compute_var_reprs_empty_function() {
     assert!(reprs.is_empty());
 }
 
-// ── RcStrategy::from_var ────────────────────────────────────────
+// RcStrategy::from_var
 
 #[test]
 fn rc_strategy_str_is_fat_pointer() {

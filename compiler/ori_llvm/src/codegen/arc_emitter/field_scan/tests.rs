@@ -1,7 +1,6 @@
 use ori_arc::ir::{
     ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue,
 };
-use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_arc::ArcFunction;
 use ori_ir::Name;
 use ori_types::Idx;
@@ -21,11 +20,7 @@ fn make_test_func(blocks: Vec<ArcBlock>) -> ArcFunction {
         var_types: Vec::new(),
         var_reprs: Vec::new(),
         spans: vec![Vec::new(); span_count],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: CowAnnotations::default(),
-        drop_hints: DropHints::default(),
-        tail_calls: Vec::new(),
+        ..Default::default()
     }
 }
 

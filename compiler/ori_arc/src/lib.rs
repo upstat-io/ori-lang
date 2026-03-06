@@ -41,8 +41,7 @@
 //!   → RC insertion (RcInc/RcDec)
 //!   → reset/reuse detection → expansion
 //!   → RC identity propagation (Project roots)
-//!   → RC elimination (dataflow-based)
-//!   → cross-block RC elimination
+//!   → RC elimination (intra-block + cross-block, dataflow-based)
 //!   → tail call detection + loop lowering (self-recursive → loops)
 //!   → block merge (post-lowering CFG simplification)
 //!   → drop hints (unique-collection drop optimization)
@@ -119,7 +118,6 @@ pub use rc_insert::{
     annotate_arg_ownership, insert_external_invoke_cleanup, insert_rc_ops_with_ownership,
 };
 pub use reset_reuse::detect_reset_reuse_cfg;
-pub use tail_call::TailCallSite;
 pub use uniqueness::inter::{analyze_program, build_cow_summaries};
 pub use uniqueness::intra::{analyze_intraprocedural, analyze_with_summaries, UniquenessResult};
 pub use uniqueness::{
@@ -131,7 +129,8 @@ pub use uniqueness::{
 ///
 /// Pipeline order: var reprs → derived ownership → liveness →
 /// **uniqueness + COW annotation** → RC insertion → reset/reuse →
-/// expansion → RC identity → RC elimination → FBIP enforcement.
+/// expansion → RC identity → RC elimination → tail call detection +
+/// loop lowering → block merge → drop hints → FBIP enforcement.
 ///
 /// **Prerequisite:** [`annotate_arg_ownership`] must be called before this
 /// function. It populates per-argument ownership on `Apply`/`Invoke`

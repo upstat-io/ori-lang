@@ -33,7 +33,7 @@ pub(crate) struct LoopContext {
 ///
 /// Borrows the `ArcIrBuilder` and contextual data (arena, canon result,
 /// interner, pool) needed to lower each expression variant.
-pub struct ArcLowerer<'a> {
+pub(crate) struct ArcLowerer<'a> {
     pub(crate) builder: &'a mut ArcIrBuilder,
     pub(crate) arena: &'a CanArena,
     pub(crate) canon: &'a CanonResult,
