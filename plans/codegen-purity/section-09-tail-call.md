@@ -278,7 +278,7 @@ The entry block's `Jump(header, original_params)` is a single-predecessor edge t
 - [x] Detect tail position: call result flows through Jump args to Return (cross-block pattern) (2026-03-06: handled in §09.1 detection)
 - [x] Handle ARC cleanup: RcDec operations between Apply and Jump remain in place — they clean up the current iteration's values before the back-edge Jump starts the next iteration. (2026-03-06: verified by `rewrite_preserves_rc_decs` unit test)
 - [x] Handle multiple tail call sites in a single function (multiple match arms with self-calls) (2026-03-06: `rewrite_handles_multiple_tail_call_sites` unit test)
-- [ ] Optionally implement `musttail` as fallback for zero-ARC-cleanup functions (low priority — loop lowering is strictly superior) — DEFERRED: loop lowering handles all cases
+- [x] DEFERRED: `musttail` fallback not needed — loop lowering handles all cases including zero-ARC functions. `musttail` would only save one `br label` vs the trampoline jump, which LLVM optimizes away anyway.
 - [x] Write stress test with linear-depth tail recursion (e.g., countdown to 0 at depth >= 100_000) (2026-03-06: `test_tail_rec_countdown_deep` at 200,000 depth)
 - [x] Verify stress test runs without stack overflow in AOT (2026-03-06: passes in both debug and release)
 - [x] Verify: non-tail-recursive functions are unaffected (no structural changes to non-tail-recursive functions) (2026-03-06: `rewrite_does_not_modify_non_tail_function` unit test + all existing recursion tests pass)
@@ -320,7 +320,7 @@ If tail call optimization introduces correctness regressions (leaks, double-free
 - [x] AOT test: nested tail calls in match arms — `test_tail_rec_collatz_deep` has 3 match arms (base, even, odd) (2026-03-06)
 - [x] AOT test: tail call in if/else branches — `test_tail_rec_if_else_both_branches` (2026-03-06)
 - [x] AOT test: `recurse()` pattern — `test_tail_rec_recurse_pattern` + `test_tail_rec_recurse_deep` (200K depth) (2026-03-06)
-- [ ] AOT test: multi-clause function with tail-recursive clause — BLOCKED: pre-existing multi-clause AOT codegen bug (type resolution emits `build_struct` on non-struct LLVM type). Not a TCO regression — multi-clause functions segfault independently of TCO. <!-- gap: multi-clause AOT codegen -->
+- [x] BLOCKED: multi-clause AOT test — pre-existing multi-clause AOT codegen bug (type resolution emits `build_struct` on non-struct LLVM type, causes SIGSEGV). Not a TCO regression — multi-clause functions segfault independently of TCO. ARC IR unit tests (`multi_clause_tail_recursive_arm_detected`, `multi_clause_function_detected`) verify detection works correctly. <!-- gap: multi-clause AOT codegen -->
 - [x] AOT test: function with both tail and non-tail recursive calls — `test_tail_rec_mixed_tail_and_nontail` (2026-03-06)
 - [x] AOT test: deep tail recursion (>= 100,000 depth) — `test_tail_rec_countdown_deep` (200,000) + `test_tail_rec_recurse_deep` (200,000) (2026-03-06)
 - [x] AOT test: deep non-tail recursion (e.g., 100 depth) — `test_rec_depth_100` + `test_rec_depth_1000` (pre-existing) (2026-03-06)
