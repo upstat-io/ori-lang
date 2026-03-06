@@ -5,7 +5,7 @@ status: not-started
 tier: 4
 goal: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
 spec:
-  - spec/23-ffi.md
+  - spec/26-ffi.md
 sections:
   - id: "11.1"
     title: Extern Block Syntax
@@ -50,6 +50,19 @@ sections:
 
 **Proposal**: `proposals/approved/platform-ffi-proposal.md`
 
+**Dependencies**: Section 6 (Capabilities — `uses FFI` capability system must be in place)
+
+### Sync Points: CPtr and C ABI Types (multi-crate sync required)
+
+
+Adding `CPtr` and C ABI types requires updates across these crates:
+
+1. **`ori_ir`** — Add `CPtr` type variant, C type aliases (`c_int`, `c_long`, etc.)
+2. **`ori_types`** — Register CPtr type, FFI-safety validation, `Option<CPtr>` nullability handling
+3. **`ori_eval`** — CPtr runtime value representation, pointer operations in unsafe blocks
+4. **`ori_llvm`** — CPtr maps to LLVM opaque `ptr` type, C calling convention codegen
+5. **`library/std/ffi.ori`** — CPtr type definition, FfiError type (for Deep FFI)
+
 ---
 
 ## Design Decisions (Approved)
@@ -68,7 +81,7 @@ sections:
 
 ## 11.1 Extern Block Syntax
 
-**Spec section**: `spec/23-ffi.md § Extern Blocks`
+**Spec section**: `spec/26-ffi.md § Extern Blocks`
 
 ### Native (C ABI)
 
@@ -94,7 +107,7 @@ extern "js" from "./utils.js" {
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/23-ffi.md` with extern block syntax
+- [ ] **Spec**: Add `spec/26-ffi.md` with extern block syntax
   - [ ] Define extern block grammar
   - [ ] Define calling conventions ("c", "js")
   - [ ] Define linkage semantics
@@ -133,7 +146,7 @@ extern "js" from "./utils.js" {
 
 ## 11.2 C ABI Types
 
-**Spec section**: `spec/23-ffi.md § C Types`
+**Spec section**: `spec/26-ffi.md § C Types`
 
 ### Primitive Mappings
 
@@ -194,7 +207,7 @@ extern "c" from "foo" {
 
 ## 11.3 #repr Attribute
 
-**Spec section**: `spec/24-ffi.md § C Structs`
+**Spec section**: `spec/26-ffi.md § C Structs`
 **Proposal**: `proposals/approved/repr-extensions-proposal.md`
 
 ### Syntax
@@ -266,7 +279,7 @@ type CacheAligned = { value: int }
 
 ## 11.4 Unsafe Expressions
 
-**Spec section**: `spec/24-ffi.md § Unsafe Expressions`
+**Spec section**: `spec/26-ffi.md § Unsafe Expressions`
 
 ### Syntax
 
@@ -320,7 +333,7 @@ Inside `unsafe`:
 
 ## 11.5 FFI Capability
 
-**Spec section**: `spec/23-ffi.md § FFI Capability`
+**Spec section**: `spec/26-ffi.md § FFI Capability`
 
 ### Design
 
@@ -370,7 +383,7 @@ Inside `unsafe`:
 
 ## 11.6 Callbacks (Native)
 
-**Spec section**: `spec/23-ffi.md § Callbacks`
+**Spec section**: `spec/26-ffi.md § Callbacks`
 
 ### Syntax
 
@@ -416,7 +429,7 @@ qsort(base: data, nmemb: len, size: 4, compar: compare_ints)
 
 ## 11.7 Build System Integration
 
-**Spec section**: `spec/23-ffi.md § Linking`
+**Spec section**: `spec/26-ffi.md § Linking`
 
 ### ori.toml Configuration
 
@@ -464,7 +477,10 @@ libraries = ["msvcrt"]
 
 ## 11.8 compile_error Built-in
 
-**Spec section**: `spec/11-built-in-functions.md § Compile-Time Functions`
+> **CROSS-REFERENCE**: Section 13.10 also covers `compile_error` in the context of conditional compilation.
+> Implementation should be done once and shared; avoid duplicate work.
+
+**Spec section**: `spec/annex-c-built-in-functions.md § Compile-Time Functions`
 
 ### Syntax
 
@@ -659,7 +675,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
 ## Section Completion Checklist
 
 - [ ] All items above have checkboxes marked `[ ]`
-- [ ] Spec file `spec/23-ffi.md` complete
+- [ ] Spec file `spec/26-ffi.md` complete
 - [ ] CLAUDE.md updated with FFI syntax
 - [ ] grammar.ebnf updated with extern blocks
 - [ ] Can call libc functions (strlen, malloc, free)

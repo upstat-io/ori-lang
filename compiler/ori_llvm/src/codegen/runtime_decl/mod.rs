@@ -23,9 +23,7 @@ use runtime_functions::{Attr, RtFn, Ty, RT_FUNCTIONS};
 use super::ir_builder::IrBuilder;
 use super::value_id::{FunctionId, LLVMTypeId};
 
-// ---------------------------------------------------------------------------
 // Type and attribute resolution
-// ---------------------------------------------------------------------------
 
 /// Resolve a type descriptor to an LLVM type ID.
 fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
@@ -65,6 +63,7 @@ fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
 fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr) {
     match attr {
         Attr::Nounwind => builder.add_nounwind_attribute(func),
+        Attr::Noreturn => builder.add_noreturn_attribute(func),
         Attr::Cold => builder.add_cold_attribute(func),
         Attr::NoaliasReturn => builder.add_noalias_return_attribute(func),
         Attr::MemArgmemRW => builder.add_memory_argmem_readwrite_attribute(func),
@@ -117,9 +116,7 @@ fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
     id
 }
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 /// Declare a single runtime function by name (lazy, on first use).
 ///
@@ -190,9 +187,7 @@ pub fn count() -> usize {
     RT_FUNCTIONS.len()
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests;

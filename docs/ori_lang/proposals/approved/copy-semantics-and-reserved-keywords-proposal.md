@@ -347,3 +347,7 @@ These questions don't need answers now. The reserved slots support any direction
 ## Errata (added 2026-02-20)
 
 > **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.
+
+## Errata (added 2026-03-05)
+
+> **Copy trait slot superseded by [value-trait-proposal](value-trait-proposal.md)**: The `Copy` trait slot reserved in this proposal is superseded by the `Value` marker trait. `Value` serves the same purpose (bitwise-copyable, implies Clone, no Drop) with the addition of an `Eq` supertrait. The `Copy` trait slot should be considered retired. The reserved keywords (`union`, `static`, `asm`) from this proposal remain unchanged.

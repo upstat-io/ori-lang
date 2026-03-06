@@ -6,11 +6,16 @@
 //! instead of phi nodes for SSA merge.
 
 mod emission;
+#[cfg(test)]
+mod tests;
 
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId};
+use crate::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
+    LitValue,
+};
 
 /// In-progress basic block being constructed.
 pub(super) struct BlockBuilder {
@@ -149,6 +154,58 @@ impl ArcIrBuilder {
         } else {
             Idx::UNIT
         }
+    }
+
+    // Literal queries
+
+    /// Look up whether `var` resolves to a literal integer constant.
+    ///
+    /// Traces through SSA definitions to find the ultimate literal value:
+    /// - Direct: `Let { dst: var, value: Literal(Int(n)) }` → `Some(n)`
+    /// - Through projection: `Project { dst: var, value: src, field: f }`
+    ///   → `Construct { dst: src, args }` → `get_literal_int(args[f])`
+    ///
+    /// Used by range specialization to detect compile-time-constant step
+    /// and inclusive flags, enabling single-instruction bounds checks at -O0.
+    pub fn get_literal_int(&self, var: ArcVarId) -> Option<i64> {
+        for block in &self.blocks {
+            for instr in &block.body {
+                match instr {
+                    ArcInstr::Let {
+                        dst,
+                        value: ArcValue::Literal(LitValue::Int(n)),
+                        ..
+                    } if *dst == var => return Some(*n),
+
+                    ArcInstr::Project {
+                        dst,
+                        value: src,
+                        field,
+                        ..
+                    } if *dst == var => {
+                        return self.get_construct_arg(*src, *field);
+                    }
+
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+
+    /// Trace a `Construct` instruction to get the literal int of one of its args.
+    fn get_construct_arg(&self, construct_var: ArcVarId, field: u32) -> Option<i64> {
+        for block in &self.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Construct { dst, args, .. } = instr {
+                    if *dst == construct_var {
+                        let arg = *args.get(field as usize)?;
+                        return self.get_literal_int(arg);
+                    }
+                }
+            }
+        }
+        None
     }
 
     // Terminators

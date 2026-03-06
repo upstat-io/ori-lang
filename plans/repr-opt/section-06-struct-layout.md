@@ -28,7 +28,7 @@ sections:
 
 # Section 06: Struct & Tuple Layout Optimization
 
-**Context:** The spec (§22) explicitly permits struct field reordering: "Struct field order in memory may differ from declaration order." This is a non-guarantee. Rust's `repr(Rust)` does exactly this — it reorders fields by alignment to minimize padding. Ori should do the same.
+**Context:** The spec (Annex E — System Considerations) explicitly permits struct field reordering: "Struct field order in memory may differ from declaration order." This is a non-guarantee. Rust's `repr(Rust)` does exactly this — it reorders fields by alignment to minimize padding. Ori should do the same.
 
 **Reference implementations:**
 - **Rust** `compiler/rustc_abi/src/layout.rs`: Fields sorted by descending alignment, then by descending size
@@ -133,15 +133,28 @@ sections:
 
 For FFI interop, users need control over memory layout.
 
-- [ ] Support `#[repr(C)]` attribute:
+- [ ] Support `#repr("c")` attribute:
   - Fields in declaration order (C struct layout rules)
   - Platform-specific alignment (matches target C ABI)
   - No field reordering, no narrowing of field types
 
-- [ ] Support `#[repr(packed)]` attribute:
+- [ ] Support `#repr("packed")` attribute:
   - No padding between fields
   - Alignment = 1
   - May require unaligned loads (performance cost)
+
+- [ ] Support `#repr("transparent")` attribute:
+  - Struct must have exactly one non-ZST field
+  - Struct has same layout as that single field (no tag, no padding)
+  - Used for newtypes with guaranteed ABI compatibility
+  - Validate: error if struct has 0 or 2+ non-ZST fields
+
+- [ ] Support `#repr("aligned", N)` attribute:
+  - N must be a power of two (validate at parse/check time)
+  - Struct alignment = max(computed_alignment, N)
+  - May combine with `#repr("c")` → `CAligned(N)` in `ReprAttribute`
+  - Must NOT combine with `#repr("packed")` or `#repr("transparent")` (spec restriction)
+  - Trailing padding adjusted for new alignment
 
 - [ ] Default behavior (no attribute):
   - Reorder fields for optimal alignment
@@ -172,10 +185,16 @@ Tuples are anonymous structs. Apply the same optimization.
 - [ ] `struct { a: bool, b: int, c: bool }` uses 16 bytes not 24 (field storage = 10, rounded to max_align 8 = 16)
 - [ ] `struct { x: int, y: int }` uses 16 bytes (no change — already optimal)
 - [ ] `(bool, int, bool)` uses same layout as the equivalent struct
-- [ ] `#[repr(C)]` structs use C layout (no reordering)
+- [ ] `#repr("c")` structs use C layout (no reordering)
+- [ ] `#repr("transparent")` newtype struct has same size/align as inner field
+- [ ] `#repr("aligned", 16)` struct has alignment ≥ 16 even if fields don't require it
+- [ ] `#repr("aligned", N)` combined with `#repr("c")` works correctly
+- [ ] `#repr("transparent")` with >1 non-ZST field produces compile error
+- [ ] `#repr("packed")` combined with `#repr("aligned")` produces compile error
 - [ ] Field access codegen uses correct offsets from `StructRepr`
 - [ ] Pattern matching on structs works correctly with reordered fields
 - [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 
 **Exit Criteria:** `sizeof` for `struct { a: bool, b: int, c: bool, d: byte }` is 16 bytes (i64 + i8 + i8 + i8 + 5 trailing padding to align 8) instead of 32 bytes, verified in LLVM IR. All struct-related spec tests pass.

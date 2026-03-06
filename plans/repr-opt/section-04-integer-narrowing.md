@@ -200,6 +200,7 @@ The LLVM backend must emit narrowed types and insert sign-extension/truncation a
 - [ ] Overflow guards inserted where narrowed arithmetic might overflow
 - [ ] No semantic change: `./diagnostics/dual-exec-verify.sh` passes (eval and AOT produce identical results)
 - [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Performance: struct sizes measurably smaller for bounded-range fields
 

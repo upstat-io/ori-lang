@@ -131,6 +131,68 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         agg
     }
 
+    /// Load a struct from a pointer, but only load fields in `used_fields`.
+    ///
+    /// Unused fields are left as `undef` (zero-initialized) in the aggregate.
+    /// The aggregate shape is unchanged — downstream code sees the same type.
+    /// This avoids loading fields that will never be read, reducing dead loads.
+    ///
+    /// Falls back to `load_struct_per_field` if `used_fields` is `None` (all needed).
+    pub fn load_struct_selective(
+        &mut self,
+        struct_ty_id: LLVMTypeId,
+        ptr: ValueId,
+        used_fields: Option<&rustc_hash::FxHashSet<u32>>,
+        name: &str,
+    ) -> ValueId {
+        let llvm_ty = self.arena.get_type(struct_ty_id);
+        let BasicTypeEnum::StructType(st) = llvm_ty else {
+            // Not a struct — fall back to normal load.
+            return self.load(struct_ty_id, ptr, name);
+        };
+
+        let num_fields = st.count_fields();
+        if num_fields == 0 {
+            return self.load(struct_ty_id, ptr, name);
+        }
+
+        let Some(fields) = used_fields else {
+            // All fields needed — use full per-field loading.
+            return self.load_struct_per_field(struct_ty_id, st, ptr, name);
+        };
+
+        if fields.len() as u32 >= num_fields {
+            // All (or more) fields used — full load.
+            return self.load_struct_per_field(struct_ty_id, st, ptr, name);
+        }
+
+        let raw = self.arena.get_value(ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(
+                val_type = ?raw.get_type(),
+                "load_struct_selective from non-pointer — returning zero"
+            );
+            self.record_codegen_error();
+            return self.const_zero(BasicTypeEnum::StructType(st));
+        }
+
+        // Start with undef aggregate, only load used fields.
+        let mut agg = self.const_zero(BasicTypeEnum::StructType(st));
+
+        for f in 0..num_fields {
+            if !fields.contains(&f) {
+                continue;
+            }
+            let field_ty = st.get_field_type_at_index(f).expect("field index in range");
+            let field_ty_id = self.register_type(field_ty);
+            let field_ptr = self.struct_gep(struct_ty_id, ptr, f, &format!("{name}.f{f}.ptr"));
+            let field_val = self.load(field_ty_id, field_ptr, &format!("{name}.f{f}"));
+            agg = self.insert_value(agg, field_val, f, &format!("{name}.s{f}"));
+        }
+
+        agg
+    }
+
     /// Build a store to a pointer.
     ///
     /// Defensive: if `ptr` is not a pointer value, records a codegen error

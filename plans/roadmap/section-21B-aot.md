@@ -114,7 +114,7 @@ sections:
   - [ ] WASM output (WebAssembly)
   - [ ] **Rust Tests**: `ori_llvm/src/aot/object.rs` (12 tests)
 
-- [ ] **Implement**: Symbol mangling
+- [ ] **Implement**: Symbol mangling — `_ori_<module>$<function>` scheme in `ori_llvm/src/aot/mangle.rs`
   - [ ] `_ori_<module>_<function>` scheme
   - [ ] Type suffixes for overloads (generic mangling)
   - [ ] Trait method mangling
@@ -195,7 +195,7 @@ sections:
   - [ ] Function pass pipeline (via module adapters)
   - [ ] **Rust Tests**: `ori_llvm/src/aot/passes.rs` (25 tests)
 
-- [ ] **Implement**: Optimization levels
+- [ ] **Implement**: Optimization levels — O0/O1/O2/O3/Os/Oz pass pipeline selection in `ori_llvm/src/aot/passes.rs`
   - [ ] O0: No optimization (fastest compile)
   - [ ] O1: Basic optimization (CSE, SimplifyCFG, DCE)
   - [ ] O2: Standard optimization (LICM, GVN, inlining)
@@ -233,7 +233,7 @@ sections:
 
 ## 21B.5 Linking
 
-- [ ] **Implement**: Linker driver
+- [ ] **Implement**: Platform linker driver — `ori_llvm/src/aot/linker/` dispatch to cc/clang/link.exe/lld
   - [ ] Linux: invoke via `cc` or `ld`
   - [ ] macOS: invoke via `clang` or `ld64`
   - [ ] Windows: invoke `link.exe` or `lld-link`
@@ -293,26 +293,26 @@ sections:
 
 ## 21B.6 Incremental Compilation
 
-- [ ] **Implement**: Source hashing
+- [ ] **Implement**: Source hashing — content-based change detection in `ori_llvm/src/aot/incremental/hash.rs`
   - [ ] Content hash per source file (FxHash algorithm)
   - [ ] Store hashes in `build/cache/`
   - [ ] Detect hash mismatches
   - [ ] **Rust Tests**: `ori_llvm/src/aot/incremental/hash.rs` (14 tests)
 
-- [ ] **Implement**: Dependency tracking
+- [ ] **Implement**: Dependency tracking — import graph for incremental invalidation in `ori_llvm/src/aot/incremental/deps.rs`
   - [ ] Import graph analysis
   - [ ] Transitive dependency detection
   - [ ] Topological ordering for compilation
   - [ ] **Rust Tests**: `ori_llvm/src/aot/incremental/deps.rs` (12 tests)
 
-- [ ] **Implement**: Cache management
+- [ ] **Implement**: Compilation cache management — validation/hit/miss/parallel access in `ori_llvm/src/aot/incremental/cache.rs`
   - [ ] Cache validation (source + deps + flags + version)
   - [ ] Cache hit: skip recompilation
   - [ ] Cache miss: recompile and update cache
   - [ ] Parallel cache access
   - [ ] **Rust Tests**: `ori_llvm/src/aot/incremental/cache.rs` (11 tests)
 
-- [ ] **Implement**: Parallel compilation
+- [ ] **Implement**: Parallel compilation — thread pool for multi-module builds in `ori_llvm/src/aot/incremental/parallel.rs`
   - [ ] `--jobs=N` flag
   - [ ] Auto-detect core count (`--jobs=auto`)
   - [ ] Thread pool for module compilation
@@ -582,7 +582,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
   - [ ] Add `Backend::AOT` enum variant
   - [ ] Add `--backend=aot` CLI flag
   - [ ] Wire up `run_file_aot()` in test runner
-  - [ ] **Rust Tests**: `oric/src/test/runner_aot_tests.rs`
+  - [ ] **Rust Tests**: `oric/src/test/runner/tests.rs`
 
 ### 21B.10.2 End-to-End Test Scenarios
 
@@ -601,7 +601,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 
 - [ ] **Test**: Spec test validation
   - [ ] Run `tests/spec/` through `--backend=aot`
-  - [ ] Compare results: Interpreter vs JIT vs AOT
+  - [ ] Compare results: Evaluator vs JIT vs AOT
   - [ ] Document any backend-specific differences
 
 ---
@@ -722,7 +722,7 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
   - [ ] `diff_output` - output comparison
   - [ ] `run_make_support` - composable test helpers
 
-- [ ] **Implement**: Test infrastructure
+- [ ] **Implement**: AOT test infrastructure — parameterized tests, platform skip, multi-language overlays
   - [ ] Parameterized tests with Options
   - [ ] Platform skip directives
   - [ ] Overlay system for multi-language tests

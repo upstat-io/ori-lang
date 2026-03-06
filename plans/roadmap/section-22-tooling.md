@@ -54,7 +54,7 @@ sections:
 ## 22.1 Formatter
 
 > **CRATE**: `compiler/ori_fmt/` — Width calculation, rendering engine
-> **SPEC**: `docs/ori_lang/v2026/spec/16-formatting.md` — 100-scenario QA-approved spec
+> **SPEC**: `docs/ori_lang/v2026/spec/annex-d-formatting.md` — formatting spec
 > **DOCUMENTATION**: `docs/tooling/formatter/` — User guide, integration, troubleshooting, style guide
 
 **Status**: Partial
@@ -170,11 +170,11 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
   - [ ] **Rust Tests**: `ori_lsp/src/handlers/definition.rs` — go to definition
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_goto.ori`
 
-- [ ] **Implement**: Find references
+- [ ] **Implement**: Find references — LSP `textDocument/references` handler in `ori_lsp`
   - [ ] **Rust Tests**: `ori_lsp/src/handlers/references.rs` — find references
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_references.ori`
 
-- [ ] **Implement**: Hover information
+- [ ] **Implement**: Hover information — LSP `textDocument/hover` with type signatures and docs in `ori_lsp`
   - [ ] **Rust Tests**: `ori_lsp/src/handlers/hover.rs` — hover information
   - [ ] **Ori Tests**: `tests/spec/tooling/lsp_hover.ori`
 
@@ -191,23 +191,23 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
 ## 22.3 Edit Operations
 
 - [ ] **Implement**: `set`, `add`, `remove`, `rename`, `move` — design/12-tooling/index.md:56-62
-  - [ ] **Rust Tests**: `oric/src/lsp/edit_ops.rs` — edit operations
+  - [ ] **Rust Tests**: `oric/src/edit/edit_ops.rs` — edit operations
   - [ ] **Ori Tests**: `tests/spec/tooling/edit_ops.ori`
 
 ---
 
 ## 22.4 REPL
 
-- [ ] **Implement**: Interactive evaluation
-  - [ ] **Rust Tests**: `oric/src/cli/repl.rs` — REPL evaluation
+- [ ] **Implement**: REPL interactive evaluation — `ori repl` command with expression eval and result display
+  - [ ] **Rust Tests**: `oric/src/commands/repl.rs` — REPL evaluation
   - [ ] **Ori Tests**: `tests/spec/tooling/repl.ori`
 
 - [ ] **Implement**: History and completion
-  - [ ] **Rust Tests**: `oric/src/cli/repl.rs` — history/completion
+  - [ ] **Rust Tests**: `oric/src/commands/repl.rs` — history/completion
   - [ ] **Ori Tests**: `tests/spec/tooling/repl.ori`
 
 - [ ] **Implement**: Multi-line input
-  - [ ] **Rust Tests**: `oric/src/cli/repl.rs` — multi-line input
+  - [ ] **Rust Tests**: `oric/src/commands/repl.rs` — multi-line input
   - [ ] **Ori Tests**: `tests/spec/tooling/repl.ori`
 
 ---
@@ -220,43 +220,43 @@ When the user deliberately writes a stacked/multi-line layout that happens to fi
 > testing requirements and manages test dependencies.
 
 - [ ] **Implement**: `ori test` command — run all tests — design/11-testing/index.md
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — test command
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — test command
   - [ ] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
 
 - [ ] **Implement**: `ori test file.test.ori` — run specific test file
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — file filtering
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — file filtering
   - [ ] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
 
 - [ ] **Implement**: `ori test path/` — run all tests in directory
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — directory scanning
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — directory scanning
   - [ ] **Ori Tests**: `tests/spec/tooling/test_runner.ori`
 
-- [ ] **Implement**: `ori check file.ori` — check test coverage without running — spec/13-testing.md § Coverage Enforcement
-  - [ ] **Rust Tests**: `oric/src/cli/check.rs` — coverage check
+- [ ] **Implement**: `ori check file.ori` — check test coverage without running — spec/19-testing.md § Coverage Enforcement
+  - [ ] **Rust Tests**: `oric/src/commands/check.rs` — coverage check
   - [ ] **Ori Tests**: `tests/spec/tooling/test_check.ori`
 
-- [ ] **Implement**: Parallel test execution — spec/13-testing.md § Test Isolation
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — parallel execution
+- [ ] **Implement**: Parallel test execution — spec/19-testing.md § Test Isolation
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — parallel execution
   - [ ] **Ori Tests**: `tests/spec/tooling/test_parallel.ori`
 
 - [ ] **Implement**: Test filtering by name pattern (e.g., `ori test --filter "auth"`)
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — name filtering
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — name filtering
   - [ ] **Ori Tests**: `tests/spec/tooling/test_filter.ori`
 
 - [ ] **Implement**: Test output formatting (pass/fail/skip counts, timing)
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — output formatting
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — output formatting
   - [ ] **Ori Tests**: `tests/spec/tooling/test_output.ori`
 
 - [ ] **Implement**: Verbose mode for detailed output (`--verbose`)
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — verbose mode
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — verbose mode
   - [ ] **Ori Tests**: `tests/spec/tooling/test_output.ori`
 
 - [ ] **Implement**: Coverage report generation
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — coverage report
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — coverage report
   - [ ] **Ori Tests**: `tests/spec/tooling/test_coverage.ori`
 
 - [ ] **Implement**: Exit codes (0 = all pass, 1 = failures, 2 = no tests found)
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — exit codes
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — exit codes
   - [ ] **Ori Tests**: `tests/spec/tooling/test_exit.ori`
 
 ---
@@ -273,16 +273,16 @@ Expose Salsa's dependency tracking to users for debugging and impact analysis.
   - [ ] Direct dependents (functions that call target)
   - [ ] Transitive dependents (recursive callers)
   - [ ] Summary count of affected functions
-  - [ ] **Rust Tests**: `oric/src/cli/impact.rs` — impact command
+  - [ ] **Rust Tests**: `oric/src/commands/impact.rs` — impact command
   - [ ] **Ori Tests**: `tests/spec/tooling/impact_basic.ori`
 
 - [ ] **Implement**: `ori impact @target --verbose` — Show call sites
-  - [ ] **Rust Tests**: `oric/src/cli/impact.rs` — verbose output
+  - [ ] **Rust Tests**: `oric/src/commands/impact.rs` — verbose output
   - [ ] **Ori Tests**: `tests/spec/tooling/impact_verbose.ori`
 
 - [ ] **Implement**: `ori impact @Type` — Impact analysis for type changes
   - [ ] Functions using type, returning type, accepting type
-  - [ ] **Rust Tests**: `oric/src/cli/impact.rs` — type impact
+  - [ ] **Rust Tests**: `oric/src/commands/impact.rs` — type impact
   - [ ] **Ori Tests**: `tests/spec/tooling/impact_type.ori`
 
 ### 22.6.2 `ori why` Command
@@ -290,28 +290,28 @@ Expose Salsa's dependency tracking to users for debugging and impact analysis.
 - [ ] **Implement**: `ori why @target` — Trace why target is dirty/broken
   - [ ] Show causality chain from changed input to target
   - [ ] Concise output by default
-  - [ ] **Rust Tests**: `oric/src/cli/why.rs` — why command
+  - [ ] **Rust Tests**: `oric/src/commands/why.rs` — why command
   - [ ] **Ori Tests**: `tests/spec/tooling/why_basic.ori`
 
 - [ ] **Implement**: `ori why @target --verbose` — Detailed causality chain
   - [ ] Full path through dependency graph
   - [ ] Source locations for each change
-  - [ ] **Rust Tests**: `oric/src/cli/why.rs` — verbose causality
+  - [ ] **Rust Tests**: `oric/src/commands/why.rs` — verbose causality
   - [ ] **Ori Tests**: `tests/spec/tooling/why_verbose.ori`
 
 - [ ] **Implement**: `ori why @target --diff` — Show actual code changes
-  - [ ] **Rust Tests**: `oric/src/cli/why.rs` — diff output
+  - [ ] **Rust Tests**: `oric/src/commands/why.rs` — diff output
   - [ ] **Ori Tests**: `tests/spec/tooling/why_diff.ori`
 
 - [ ] **Implement**: `ori why @target --graph` — Tree visualization
-  - [ ] **Rust Tests**: `oric/src/cli/why.rs` — graph visualization
+  - [ ] **Rust Tests**: `oric/src/commands/why.rs` — graph visualization
   - [ ] **Ori Tests**: `tests/spec/tooling/why_graph.ori`
 
 ### 22.6.3 Test Runner Integration
 
 - [ ] **Implement**: Hint on test failure suggesting `ori why`
   - [ ] "Hint: This test is dirty due to changes in @X"
-  - [ ] **Rust Tests**: `oric/src/cli/test.rs` — why hint
+  - [ ] **Rust Tests**: `oric/src/commands/test.rs` — why hint
   - [ ] **Ori Tests**: `tests/spec/tooling/why_hint.ori`
 
 ---
@@ -429,7 +429,7 @@ Currently `ErrorCode` has three manually-synchronized representations: the enum 
   - [ ] Type conversion: `x as int`, `x as float`
   - [ ] Missing wrapper: `Some(x)`, `Ok(x)`
   - [ ] Assign `MaybeIncorrect` applicability
-  - [ ] **Rust Tests**: `oric/src/reporting/type_errors.rs` — structured suggestions
+  - [ ] **Rust Tests**: `oric/src/reporting/typeck/tests.rs` — structured suggestions
 
 - [ ] **Implement**: Convert pattern validation suggestions to structured suggestions
   - [ ] Unknown argument typos
@@ -523,11 +523,11 @@ Package management for Ori projects with registry support.
   - [ ] Checksum-based integrity verification
   - [ ] **Rust Tests**: `ori_pkg/src/lock_tests.rs`
 
-- [ ] **Implement**: Version resolution
+- [ ] **Implement**: Version resolution — exact-version-only dependency solving in `ori_pkg`
   - [ ] Exact versions only, single version policy
   - [ ] **Rust Tests**: `ori_pkg/src/resolution_tests.rs`
 
-- [ ] **Implement**: Package cache
+- [ ] **Implement**: Package cache — global download cache at `~/.ori/cache/` in `ori_pkg`
   - [ ] Global cache at `~/.ori/cache/`
   - [ ] **Rust Tests**: `ori_pkg/src/cache_tests.rs`
 
@@ -545,7 +545,7 @@ Package management for Ori projects with registry support.
 ### Registry
 
 - [ ] **Implement**: Registry protocol (Cloudflare-based)
-- [ ] **Implement**: Registry client
+- [ ] **Implement**: Registry client — HTTP client for package registry API in `ori_pkg`
 - [ ] **Deploy**: Production registry infrastructure
 
 ---

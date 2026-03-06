@@ -5,8 +5,8 @@ status: not-started
 tier: 4
 goal: Enable functions with variable number of arguments
 spec:
-  - spec/08-declarations.md
-  - spec/23-ffi.md
+  - spec/10-declarations.md
+  - spec/26-ffi.md
 sections:
   - id: "12.1"
     title: Homogeneous Variadics
@@ -31,9 +31,19 @@ sections:
 
 **Criticality**: Medium — API design flexibility, required for C interop
 
-**Dependencies**: Section 11 (FFI) for C variadic interop
+**Dependencies**: Section 11 (FFI — C variadic interop in 12.4), Section 3 (Traits — trait bounds on variadics in 12.3)
 
 **Proposal**: `proposals/approved/variadic-functions-proposal.md`
+
+### Sync Points: Variadic Parameter Type (multi-crate sync required)
+
+Adding variadic parameter support requires updates across these crates:
+
+1. **`ori_ir`** — Add `ParamKind::Variadic(Type)` or `is_variadic` flag on `Param` in AST
+2. **`ori_parse`** — Parse `...T` in parameter position, `...expr` spread in call position
+3. **`ori_types`** — Convert `...T` to `[T]` internally, validate spread type compatibility, enforce "last param only" rule
+4. **`ori_eval`** — Collect variadic args into list at call site, expand spread operator
+5. **`ori_llvm`** — Codegen for variadic arg collection (stack allocation or heap list), C variadic ABI (`va_list`) for extern functions
 
 ---
 
@@ -76,7 +86,7 @@ Rust doesn't have variadic functions in the language; uses macros instead.
 
 ## 12.1 Homogeneous Variadics
 
-**Spec section**: `spec/08-declarations.md § Variadic Parameters`
+**Spec section**: `spec/10-declarations.md § Variadic Parameters`
 
 ### Syntax
 
@@ -158,7 +168,7 @@ SpreadExpr       = '...' Expression ;
 
 ## 12.2 Minimum Argument Count
 
-**Spec section**: `spec/08-declarations.md § Variadic Constraints`
+**Spec section**: `spec/10-declarations.md § Variadic Constraints`
 
 ### Syntax
 
@@ -204,7 +214,7 @@ max()          // Error: max requires at least 1 argument
 
 ## 12.3 Trait Bounds on Variadics
 
-**Spec section**: `spec/08-declarations.md § Variadic Trait Bounds`
+**Spec section**: `spec/10-declarations.md § Variadic Trait Bounds`
 
 ### Syntax
 
@@ -251,7 +261,7 @@ print_any(1, "hello", true)     // OK: all Printable
 
 ## 12.4 C Variadic Interop
 
-**Spec section**: `spec/23-ffi.md § C Variadics`
+**Spec section**: `spec/26-ffi.md § C Variadics`
 
 ### Syntax
 
@@ -306,7 +316,7 @@ unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
 
 ## 12.5 Variadic in Patterns
 
-**Spec section**: `spec/10-patterns.md § Variadic Patterns`
+**Spec section**: `spec/15-patterns.md § Variadic Patterns`
 
 ### Consideration
 
@@ -329,7 +339,7 @@ Defer to future consideration. Current section focuses on function parameters on
 ## Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[ ]`
-- [ ] Spec updated: `spec/08-declarations.md` variadic section complete
+- [ ] Spec updated: `spec/10-declarations.md` variadic section complete
 - [ ] CLAUDE.md updated with variadic syntax
 - [ ] Homogeneous variadics work
 - [ ] Spread operator works

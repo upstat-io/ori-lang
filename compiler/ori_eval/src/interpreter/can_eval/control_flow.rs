@@ -215,6 +215,14 @@ impl Interpreter<'_> {
     ) -> EvalResult {
         use crate::exec::control::{to_loop_action, LoopAction};
 
+        // Zero-step guard: panic if iterating a range with step == 0.
+        // Matches the ARC/LLVM path's guard in `for_range.rs`.
+        if let Value::Range(r) = iter_val {
+            if r.step == 0 {
+                return Err(EvalError::new("range step cannot be zero").into());
+            }
+        }
+
         // Convert to functional iterator via Iterable trait
         let mut current_iter = IteratorValue::from_value(iter_val)
             .ok_or_else(|| ControlAction::from(crate::errors::for_requires_iterable()))?;

@@ -211,7 +211,7 @@ fn rc_functions_have_arc_safe_attributes() {
 }
 
 #[test]
-fn panic_functions_have_cold_nounwind() {
+fn panic_functions_have_cold_and_noreturn() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_panic_attrs");
     let mut builder = IrBuilder::new(&scx);
@@ -220,10 +220,62 @@ fn panic_functions_have_cold_nounwind() {
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // Panic functions should have cold + nounwind
+    // Panic functions should have cold + noreturn but NOT nounwind
     assert!(
         ir.contains("cold"),
         "panic functions should have cold attribute in IR:\n{ir}"
+    );
+    assert!(
+        ir.contains("noreturn"),
+        "panic functions should have noreturn attribute in IR:\n{ir}"
+    );
+}
+
+#[test]
+fn panic_functions_noreturn_not_nounwind() {
+    use runtime_functions::is_rt_fn_noreturn;
+
+    // ori_panic_cstr: noreturn = true, nounwind = false
+    assert_eq!(
+        runtime_functions::is_rt_fn_nounwind("ori_panic_cstr"),
+        Some(false),
+        "ori_panic_cstr must NOT be nounwind (must unwind for RC cleanup)"
+    );
+    assert_eq!(
+        is_rt_fn_noreturn("ori_panic_cstr"),
+        Some(true),
+        "ori_panic_cstr must be noreturn (never returns to caller)"
+    );
+
+    // ori_panic: same — noreturn + not nounwind
+    assert_eq!(
+        runtime_functions::is_rt_fn_nounwind("ori_panic"),
+        Some(false),
+        "ori_panic must NOT be nounwind"
+    );
+    assert_eq!(
+        is_rt_fn_noreturn("ori_panic"),
+        Some(true),
+        "ori_panic must be noreturn"
+    );
+
+    // ori_rc_inc: nounwind but not noreturn
+    assert_eq!(
+        runtime_functions::is_rt_fn_nounwind("ori_rc_inc"),
+        Some(true),
+        "ori_rc_inc should be nounwind"
+    );
+    assert_eq!(
+        is_rt_fn_noreturn("ori_rc_inc"),
+        Some(false),
+        "ori_rc_inc should not be noreturn"
+    );
+
+    // Unknown function: None for both
+    assert_eq!(
+        is_rt_fn_noreturn("not_a_real_fn"),
+        None,
+        "unknown function should return None"
     );
 }
 
@@ -275,6 +327,53 @@ fn jit_symbol_mappings_match_jit_allowed() {
     assert!(
         extra.is_empty(),
         "in jit_symbol_mappings() but not jit_allowed: {extra:?}"
+    );
+}
+
+/// Validates that every runtime function has either `Nounwind` or documented
+/// justification for omitting it.
+///
+/// After the §02.4 audit, only `extern "C-unwind"` functions (assertions,
+/// `list_get`, and panic functions) should lack `Nounwind`. All `extern "C"`
+/// functions cannot unwind by ABI contract and must have `Nounwind`.
+#[test]
+fn all_non_unwinding_functions_have_nounwind() {
+    // These functions are extern "C-unwind" and intentionally lack nounwind
+    // because they call ori_panic on failure (assertions, OOB access).
+    // Panic functions have Noreturn instead.
+    let may_unwind: &[&str] = &[
+        "ori_assert",
+        "ori_assert_eq_int",
+        "ori_assert_eq_bool",
+        "ori_assert_eq_float",
+        "ori_assert_eq_str",
+        "ori_list_get",
+        "ori_panic",
+        "ori_panic_cstr",
+    ];
+
+    let mut missing_nounwind = Vec::new();
+    for spec in RT_FUNCTIONS {
+        if may_unwind.contains(&spec.name) {
+            // Verify these do NOT have nounwind
+            let has_nounwind = spec.attrs.iter().any(|a| matches!(a, Attr::Nounwind));
+            assert!(
+                !has_nounwind,
+                "{} is extern \"C-unwind\" and should NOT have Nounwind",
+                spec.name
+            );
+            continue;
+        }
+
+        let has_nounwind = spec.attrs.iter().any(|a| matches!(a, Attr::Nounwind));
+        if !has_nounwind {
+            missing_nounwind.push(spec.name);
+        }
+    }
+
+    assert!(
+        missing_nounwind.is_empty(),
+        "extern \"C\" runtime functions missing Nounwind (§02.4 audit): {missing_nounwind:?}"
     );
 }
 

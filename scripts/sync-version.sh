@@ -226,7 +226,6 @@ main() {
 
     # Website package.json files use NPM-compatible version (no pre-release)
     update_npm_version "$ROOT_DIR/website/package.json" "$npm_version" || failed=true
-    update_npm_version "$ROOT_DIR/website/src/wasm/package.json" "$npm_version" || failed=true
     update_npm_version "$ROOT_DIR/editors/vscode-ori/package.json" "$npm_version" || failed=true
 
     echo ""

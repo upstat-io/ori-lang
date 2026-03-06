@@ -9,7 +9,7 @@
 //! if/else expressions with trivial arm bodies can be folded into `Select`
 //! instructions.
 //!
-//! # Five-Phase Transform
+//! # Six-Phase Transform
 //!
 //! 1. **Compact** — remove blocks unreachable from the entry (dead unwind
 //!    blocks, orphaned blocks from earlier passes).
@@ -27,6 +27,10 @@
 //!    exactly one predecessor, converting Jump args to Let bindings or
 //!    dropping dead params from non-Jump predecessors. Safety net for
 //!    patterns that Phase 4's fixed-point didn't reach.
+//! 6. **Dead param elimination** — remove block params whose defined
+//!    variables are never used anywhere in the function. Targets
+//!    multi-predecessor blocks (e.g., loop exit blocks with unused
+//!    mutable variable params).
 //!
 //! # Pipeline Placement
 //!
@@ -37,6 +41,7 @@
 //! [`compute_drop_hints`]: crate::uniqueness::compute_drop_hints
 
 mod compact;
+mod dead_param;
 mod downgrade;
 mod merge;
 mod select;
@@ -50,8 +55,8 @@ use crate::uniqueness::DropHints;
 
 /// Run the full block merge pass on a function.
 ///
-/// Calls the five phases in order: compact → downgrade → select-fold →
-/// merge → single-pred-phi.
+/// Calls the six phases in order: compact → downgrade → select-fold →
+/// merge → single-pred-phi → dead-param.
 ///
 /// # Precondition
 ///
@@ -82,6 +87,12 @@ pub(crate) fn merge_blocks(func: &mut ArcFunction) {
     // predecessors and ordering artifacts may leave blocks with dead params
     // that would produce redundant LLVM phis.
     single_pred_phi::eliminate_single_pred_params(func);
+
+    // Phase 6: eliminate dead block params on multi-predecessor blocks.
+    // Loop exit blocks receive mutable variable values via break jumps,
+    // but those variables may be unused after the loop. Remove the dead
+    // params and their corresponding Jump args.
+    dead_param::eliminate_dead_params(func);
 }
 
 /// Convert a `usize` block index to an `ArcBlockId`.
