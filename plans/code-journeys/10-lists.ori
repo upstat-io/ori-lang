@@ -1,5 +1,7 @@
 // Journey 10: "I am a list"
-// Features: list literals, list length, list as parameter, for..in list, ARC for lists
+// Slug: lists
+// Difficulty: complex
+// Features: lists, list_methods, loops, arc, function_calls
 // Expected: check_length() + check_iteration() + check_passing() = 13 + 15 + 5 = 33
 
 @count_items (xs: [int]) -> int = xs.length();

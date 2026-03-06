@@ -1,5 +1,7 @@
 // Journey 3: "I am recursive"
-// Features: recursion, equality (==), modulo, boolean operators
+// Slug: recursion
+// Difficulty: simple
+// Features: recursion, comparison, arithmetic, function_calls
 // Expected: fib(10) + gcd(48, 18) = 55 + 6 = 61
 
 @fib (n: int) -> int =

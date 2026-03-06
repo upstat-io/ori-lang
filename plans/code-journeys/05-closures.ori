@@ -1,5 +1,7 @@
 // Journey 5: "I am a closure"
-// Features: lambdas, higher-order functions, closures capturing variables
+// Slug: closures
+// Difficulty: moderate
+// Features: closures, higher_order, capture, function_calls
 // Expected: apply(double, 5) + make_adder(10)(7) = 10 + 17 = 27
 
 @apply (f: (int) -> int, x: int) -> int = f(x);

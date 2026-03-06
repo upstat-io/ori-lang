@@ -1,5 +1,7 @@
 // Journey 6: "I am a match"
-// Features: sum types, pattern matching, match expressions
+// Slug: pattern-matching
+// Difficulty: moderate
+// Features: pattern_matching, sum_types, destructuring, exhaustiveness
 // Expected: extract(Success(42)) + extract(Failure(-1)) + to_code(Pending) = 42 + (-1) + 0 = 41
 
 type Status = Pending | Running | Completed;

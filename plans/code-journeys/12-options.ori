@@ -1,5 +1,7 @@
 // Journey 12: "I am an option"
-// Features: Option<T>, Some/None, match on Option, ? propagation
+// Slug: options
+// Difficulty: complex
+// Features: option_type, pattern_matching, error_propagation, function_calls
 // Expected: check_some() + check_none() + check_chain() + check_prop() = 20 + 5 + 8 + 0 = 33
 
 @safe_div (a: int, b: int) -> Option<int> =

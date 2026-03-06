@@ -1,5 +1,7 @@
 // Journey 7: "I am a loop"
-// Features: loop/break, for..in, ranges, mutable let, compound assignment
+// Slug: loops
+// Difficulty: moderate
+// Features: loops, ranges, break_continue, let_bindings
 // Expected: sum_loop(5) + sum_for(5) = 15 + 15 = 30
 
 @sum_loop (n: int) -> int = {
