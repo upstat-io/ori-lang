@@ -91,11 +91,17 @@ fn test_alias_resolution() {
     let set = fields.as_ref().expect("v0 should have specific fields");
     assert!(set.contains(&1));
 
-    // v1 (the alias) should NOT be in the map — it resolved to v0.
-    assert!(
-        !usage.contains_key(&v(1)),
-        "alias v1 should not appear as a separate key"
-    );
+    // v1 (the alias) should ALSO be in the map — Phase 3 propagates
+    // the root's entry back to alias sources so that callers looking up
+    // the alias directly (e.g., for function parameter binding in TCO
+    // functions) find the correct usage info.
+    let v1_fields = usage
+        .get(&v(1))
+        .expect("alias v1 should inherit root's entry");
+    let v1_set = v1_fields
+        .as_ref()
+        .expect("v1 should have same fields as v0");
+    assert!(v1_set.contains(&1), "v1 should inherit field 1 from v0");
 }
 
 /// Non-projection use of a var (e.g., `Apply { args: [var] }`) sets
@@ -249,5 +255,72 @@ fn test_whole_variable_overrides_projection() {
     assert!(
         entry.is_none(),
         "whole-variable use should override prior projections"
+    );
+}
+
+/// TCO scenario: a function parameter (%0) aliased by a Let binding
+/// (`%0 = Var(%13)`) from TCO loop-header rewriting. The trampoline
+/// block passes %0 through a Jump arg. The scan should mark BOTH %13
+/// (the root) and %0 (the alias source) as needing all fields.
+#[test]
+fn test_tco_alias_propagation() {
+    // Simulates TCO-rewritten function:
+    //   bb0 (header, block param %13):
+    //     Let %0 = Var(%13)   ← alias: %0 → %13
+    //     Project %2 = %0.field(0)  ← uses %0 (resolves to %13)
+    //     Return %2
+    //   bb1 (trampoline, entry):
+    //     Jump bb0(%0)        ← uses %0 as whole value
+    let func = make_test_func(vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![(v(13), Idx::INT)],
+            body: vec![
+                ArcInstr::Let {
+                    dst: v(0),
+                    ty: Idx::INT,
+                    value: ArcValue::Var(v(13)),
+                },
+                ArcInstr::Project {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    value: v(0),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(2) },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(0),
+                args: vec![v(0)],
+            },
+        },
+    ]);
+
+    let usage = super::scan_used_fields(&func);
+
+    // %13 (root) should be in the map — Jump resolves %0 → %13 and
+    // marks it as needing all fields.
+    let root_entry = usage
+        .get(&v(13))
+        .expect("%13 (root) should be in usage map");
+    assert!(
+        root_entry.is_none(),
+        "%13 should need all fields (whole-variable from Jump)"
+    );
+
+    // %0 (alias source / function param) should ALSO be in the map
+    // via Phase 3 propagation — this is what the parameter binding
+    // code looks up.
+    let param_entry = usage
+        .get(&v(0))
+        .expect("%0 (alias source) should be in usage map after propagation");
+    assert!(
+        param_entry.is_none(),
+        "%0 should inherit all-fields from %13"
     );
 }

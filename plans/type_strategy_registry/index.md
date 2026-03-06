@@ -2,7 +2,7 @@
 reroute: true
 name: "Type Registry"
 full_name: "Type Strategy Registry"
-status: queued
+status: active
 order: 1
 ---
 
@@ -111,13 +111,12 @@ operator overloading, add operator on strings
 **File:** `section-05-compound-types.md` | **Status:** Not Started
 
 ```
-Duration, Size, Ordering, Error, Channel
-Duration.from_secs, Duration.from_millis, Duration.secs, Duration.millis
-Size.bytes, Size.kb, Size.mb, Size.gb
+Duration, Size, Ordering, Error
+Duration.from_seconds, Duration.from_millis, Duration.nanoseconds, Duration.as_seconds
+Size.bytes, Size.kilobytes, Size.from_kb, Size.to_kb
 Ordering.Less, Ordering.Equal, Ordering.Greater, Ordering.then_with
-error.message, error.trace
-Channel.send, Channel.recv, Channel.close
-compound types, special types, unit types
+Error.message, Error.trace, Error.trace_entries, Error.with_trace
+compound types, measurement types, Duration/Size pattern
 register_builtin_types, builtin_types.rs
 const fn helper, MethodDef::compound, MethodDef::associated
 directory module, sibling tests.rs, frozen fields
@@ -133,7 +132,8 @@ MemoryStrategy::Copy, MemoryStrategy::Arc
 **File:** `section-06-collection-wrapper-types.md` | **Status:** Not Started
 
 ```
-List, Map, Set, Range, Tuple, Option, Result
+List, Map, Set, Range, Tuple, Option, Result, Channel
+Channel.send, Channel.recv, Channel.close, Channel.try_recv
 list.len, list.push, list.pop, list.get, list.iter
 map.len, map.get, map.insert, map.keys, map.values
 set.len, set.contains, set.insert

@@ -99,7 +99,7 @@ fn scalar_self_recursive_tail_call_detected() {
     let sites = detect_tail_calls(&func);
     assert_eq!(sites.len(), 1);
     assert_eq!(sites[0].call_block, b(2));
-    assert_eq!(sites[0].call_instr_idx, 1);
+    assert_eq!(sites[0].kind, TailCallKind::Apply { instr_idx: 1 });
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn tail_call_with_safe_rc_decs_detected() {
     let sites = detect_tail_calls(&func);
     assert_eq!(sites.len(), 1);
     assert_eq!(sites[0].call_block, b(2));
-    assert_eq!(sites[0].call_instr_idx, 1);
+    assert_eq!(sites[0].kind, TailCallKind::Apply { instr_idx: 1 });
 }
 
 #[test]
@@ -489,7 +489,7 @@ fn direct_tail_call_same_block() {
     let sites = detect_tail_calls(&func);
     assert_eq!(sites.len(), 1);
     assert_eq!(sites[0].call_block, b(0));
-    assert_eq!(sites[0].call_instr_idx, 0);
+    assert_eq!(sites[0].kind, TailCallKind::Apply { instr_idx: 0 });
 }
 
 #[test]
@@ -662,11 +662,35 @@ fn rewrite_creates_loop_structure() {
     assert_eq!(*target, ArcBlockId::new(0));
     assert_eq!(args, &[v(0), v(1)]);
 
-    // Header (old entry) has block params matching function params.
+    // Header (old entry) has block params with FRESH var IDs (not func param IDs).
+    // This prevents block merge Phase 7 from mistaking the trampoline's
+    // initial-value pass for a self-referencing back-edge.
     let header = &func.blocks[0];
     assert_eq!(header.params.len(), 2);
-    assert_eq!(header.params[0], (v(0), Idx::INT));
-    assert_eq!(header.params[1], (v(1), Idx::INT));
+    assert_ne!(
+        header.params[0].0,
+        v(0),
+        "header param must use fresh var ID"
+    );
+    assert_ne!(
+        header.params[1].0,
+        v(1),
+        "header param must use fresh var ID"
+    );
+    assert_eq!(header.params[0].1, Idx::INT);
+    assert_eq!(header.params[1].1, Idx::INT);
+
+    // Header body starts with Let bindings: original param vars ← fresh block params.
+    assert!(matches!(
+        &header.body[0],
+        ArcInstr::Let { dst, value: ArcValue::Var(src), .. }
+            if *dst == v(0) && *src == header.params[0].0
+    ));
+    assert!(matches!(
+        &header.body[1],
+        ArcInstr::Let { dst, value: ArcValue::Var(src), .. }
+            if *dst == v(1) && *src == header.params[1].0
+    ));
 
     // Tail-call block (bb2) now jumps to header with call args, not to merge.
     let tail_block = &func.blocks[2];
@@ -790,8 +814,23 @@ fn rewrite_handles_direct_tail_call() {
     // Apply removed from header.
     assert!(!has_self_apply(&func, f));
 
-    // Header terminator is now Jump(header, args) — a self-loop.
+    // Header has fresh block param and Let binding bridging to original.
     let header = &func.blocks[0];
+    assert_eq!(header.params.len(), 1);
+    assert_ne!(
+        header.params[0].0,
+        v(0),
+        "header param must use fresh var ID"
+    );
+
+    // Header body starts with Let binding: v(0) ← fresh block param.
+    assert!(matches!(
+        &header.body[0],
+        ArcInstr::Let { dst, value: ArcValue::Var(src), .. }
+            if *dst == v(0) && *src == header.params[0].0
+    ));
+
+    // Header terminator is now Jump(header, args) — a self-loop.
     let ArcTerminator::Jump { target, args } = &header.terminator else {
         panic!("expected Jump terminator on header");
     };
@@ -913,4 +952,397 @@ fn rewrite_handles_multiple_tail_call_sites() {
         panic!("base case block should have Jump terminator");
     };
     assert_eq!(*target, ArcBlockId::new(4));
+}
+
+// Invoke tail call tests — user function calls are lowered as Invoke terminators
+
+fn invoke_block(
+    id: u32,
+    body: Vec<ArcInstr>,
+    dst: u32,
+    func: Name,
+    args: Vec<ArcVarId>,
+    normal: u32,
+    unwind: u32,
+) -> ArcBlock {
+    ArcBlock {
+        id: b(id),
+        params: vec![],
+        body,
+        terminator: ArcTerminator::Invoke {
+            dst: v(dst),
+            ty: Idx::INT,
+            func,
+            args,
+            arg_ownership: vec![],
+            normal: b(normal),
+            unwind: b(unwind),
+        },
+    }
+}
+
+#[test]
+fn invoke_tail_call_cross_block_detected() {
+    // gcd(a, b) lowered with Invoke (real-world pattern):
+    //
+    // bb0: Branch (b == 0) ? bb1 : bb2
+    // bb1: Jump bb3(a)
+    // bb2: Invoke @gcd(b, rem) → normal: bb4, unwind: bb5
+    // bb3(%ret): Return %ret
+    // bb4: Jump bb3(%dst)
+    // bb5: Resume
+    let interner = StringInterner::new();
+    let gcd = interner.intern("gcd");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(2), let_int(3)],
+            terminator: ArcTerminator::Branch {
+                cond: v(2),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(0)],
+            },
+        },
+        invoke_block(2, vec![], 4, gcd, vec![v(1), v(3)], 4, 5),
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(5),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let func = make_func_named(
+        gcd,
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 6],
+    );
+
+    let sites = detect_tail_calls(&func);
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sites[0].call_block, b(2));
+    assert_eq!(sites[0].kind, TailCallKind::Invoke);
+}
+
+#[test]
+fn invoke_tail_call_with_rc_decs_in_normal_block() {
+    // Invoke with RcDec in normal block — still eligible if decs don't
+    // target the invoke args.
+    //
+    // bb0: Branch ? bb1 : bb2
+    // bb1: Jump bb3(base)
+    // bb2: Invoke @f(y) → normal: bb4, unwind: bb5
+    // bb3(%ret): Return %ret
+    // bb4: RcDec(x); Jump bb3(%dst)   — x not in invoke args, safe
+    // bb5: Resume
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(1), let_int(2)],
+            terminator: ArcTerminator::Branch {
+                cond: v(1),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(3)],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(3)],
+            },
+        },
+        invoke_block(2, vec![], 4, f, vec![v(2)], 4, 5),
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![],
+            body: vec![rc_dec(0)], // RcDec(x) — x not in invoke args
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(5),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 6],
+    );
+
+    let sites = detect_tail_calls(&func);
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sites[0].kind, TailCallKind::Invoke);
+}
+
+#[test]
+fn invoke_tail_call_unsafe_rc_dec_rejected() {
+    // Invoke where the normal block RcDec targets an invoke arg — unsafe.
+    //
+    // bb2: Invoke @f(x) → normal: bb4, unwind: bb5
+    // bb4: RcDec(x); Jump bb3(%dst)   — x IS in invoke args, UNSAFE
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(1)],
+            terminator: ArcTerminator::Branch {
+                cond: v(1),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(2)],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(2)],
+            },
+        },
+        invoke_block(2, vec![], 3, f, vec![v(0)], 4, 5),
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(4), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(4) },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![],
+            body: vec![rc_dec(0)], // RcDec(x=v(0)) — v(0) IS in invoke args
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(3)],
+            },
+        },
+        ArcBlock {
+            id: b(5),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 5],
+    );
+
+    let sites = detect_tail_calls(&func);
+    assert!(
+        sites.is_empty(),
+        "RcDec target in invoke args should exclude tail call"
+    );
+}
+
+#[test]
+fn invoke_rewrite_creates_loop_structure() {
+    // Same as invoke_tail_call_cross_block_detected but also tests rewrite.
+    let interner = StringInterner::new();
+    let gcd = interner.intern("gcd");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(2), let_int(3)],
+            terminator: ArcTerminator::Branch {
+                cond: v(2),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(0)],
+            },
+        },
+        invoke_block(2, vec![], 4, gcd, vec![v(1), v(3)], 4, 5),
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(5),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let mut func = make_func_named(
+        gcd,
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 6],
+    );
+
+    detect_and_rewrite(&mut func);
+
+    // Tail call block (bb2) now jumps to header with invoke args.
+    let tail_block = &func.blocks[2];
+    let ArcTerminator::Jump { target, args } = &tail_block.terminator else {
+        panic!("tail call block should have Jump terminator after rewrite");
+    };
+    assert_eq!(*target, ArcBlockId::new(0));
+    assert_eq!(args, &[v(1), v(3)]);
+
+    // No Invoke remains for self-recursive calls.
+    let has_invoke = func.blocks.iter().any(|block| {
+        matches!(
+            &block.terminator,
+            ArcTerminator::Invoke { func, .. } if *func == gcd
+        )
+    });
+    assert!(!has_invoke, "self-recursive Invoke should be removed");
+}
+
+#[test]
+fn invoke_rewrite_moves_rc_decs_from_normal_block() {
+    // Invoke with RcDec in normal block — rewrite should move decs to call block.
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(1), let_int(2)],
+            terminator: ArcTerminator::Branch {
+                cond: v(1),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(3)],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(3)],
+            },
+        },
+        invoke_block(2, vec![], 4, f, vec![v(2)], 4, 5),
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![],
+            body: vec![rc_dec(0)], // will be moved to call block
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(5),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let mut func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 6],
+    );
+
+    detect_and_rewrite(&mut func);
+
+    // Call block (bb2) should now contain the RcDec from the normal block.
+    let call_block = &func.blocks[2];
+    let has_rc_dec = call_block
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::RcDec { var, .. } if *var == v(0)));
+    assert!(
+        has_rc_dec,
+        "RcDec should be moved from normal block to call block"
+    );
+
+    // Normal block (bb4) body should be empty (decs were drained).
+    assert!(
+        func.blocks[4].body.is_empty(),
+        "normal block body should be empty after drain"
+    );
 }
