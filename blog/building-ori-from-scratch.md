@@ -100,13 +100,13 @@ type Status = Pending | Running(progress: int) | Done;
 
 Ori makes three bets that most languages don't:
 
-### 1. Tests Are Mandatory
+### 1. Tests Are Smart
 
-Every function (except `@main`) must have at least one test or the program doesn't compile. Period.
+The compiler understands your tests. It tracks which tests target which functions. If you change `sum_tree`, the compiler knows that `test_sum_tree` needs to run. This is built into the dependency graph, not bolted on as a CI step.
 
-This is the most controversial design choice. People hear it and immediately think "that would be annoying." And for human-only coding, maybe it would be. But for AI-generated code, it's the difference between "trust me, it works" and "here's proof it works."
+Test enforcement is configurable: `off` (default), `warn` (flags untested functions), or `error` (untested functions fail compilation). Even at the default level, the infrastructure is always there -- dependency tracking, automatic test discovery, and incremental execution.
 
-The compiler doesn't just check that tests exist. It tracks which tests target which functions. If you change `sum_tree`, the compiler knows that `test_sum_tree` needs to run. This is built into the dependency graph, not bolted on as a CI step.
+For AI-generated code, this is the difference between "trust me, it works" and "here's proof it works." Turn enforcement to `error` and the compiler won't produce a binary until every function has a test.
 
 ### 2. No Garbage Collector, No Borrow Checker
 

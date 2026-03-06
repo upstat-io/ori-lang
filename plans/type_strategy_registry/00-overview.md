@@ -18,12 +18,12 @@ Eliminate cross-phase drift permanently by creating a single, pure-data crate (`
 
 Every phase of the Ori compiler independently encodes knowledge about builtin types:
 
-- **ori_types** (`infer/expr/methods/mod.rs`): 380 entries in `TYPECK_BUILTIN_METHODS`, 20 type-specific `resolve_*_method()` functions with hard-coded return types
-- **ori_eval** (`methods/helpers/mod.rs`): 193-entry `EVAL_BUILTIN_METHODS` array, `BuiltinMethodNames` struct (74 interned fields), 24-entry `ITERATOR_METHOD_NAMES`
-- **ori_ir** (`builtin_methods/mod.rs`): 121 entries in `BUILTIN_METHODS` with `MethodDef` structs
-- **ori_llvm** (`codegen/arc_emitter/builtins/`): 163 entries across 7 submodules via `declare_builtins!` macro, `BuiltinRegistration` with `receiver_borrowed`
-- **ori_arc** (`borrow/mod.rs`): `borrowing_builtins` parameter injected via `oric` from ori_llvm's `borrowing_builtin_names()`
-- **Consistency tests** (`oric/src/eval/tests/methods/consistency.rs`): 506 entries across 6 allowlists tracking intentional gaps
+- **ori_types** (`infer/expr/methods/mod.rs` + `resolve_by_type.rs`): 390 entries in `TYPECK_BUILTIN_METHODS`, 20 type-specific `resolve_*_method()` functions (in `resolve_by_type.rs`) with hard-coded return types
+- **ori_eval** (`methods/helpers/mod.rs`): 230-entry `EVAL_BUILTIN_METHODS` array, `BuiltinMethodNames` struct (97 interned fields), 24-entry `ITERATOR_METHOD_NAMES`
+- **ori_ir** (`builtin_methods/mod.rs`): 123 entries in `BUILTIN_METHODS` with `MethodDef` structs
+- **ori_llvm** (`codegen/arc_emitter/builtins/`): 206 entries across 7 submodules via `declare_builtins!` macro, `BuiltinRegistration` with `receiver_borrowed`
+- **ori_arc** (`borrow/builtins/mod.rs`): `borrowing_builtin_names()` builds `FxHashSet<Name>` from `BORROWING_METHOD_NAMES` string list
+- **Consistency tests** (`oric/src/eval/tests/methods/consistency.rs`): 448 entries across 6 allowlists tracking intentional gaps
 
 These are all **different projections of the same underlying facts** about the same types. When one changes, the others must be manually updated. When someone forgets, bugs appear silently — like the string ordering bug where `<`, `>`, `<=`, `>=` had no `is_str` guards in `emit_binary_op`, or the `Idx::ERROR` propagation bug where missing method return types in the type checker caused phantom types to reach LLVM codegen.
 
@@ -53,7 +53,7 @@ What **none** of these do is centralize **per-type method signatures with return
 
 The remaining compilers (Rust, Go, TypeScript, Gleam, Elm, Koka, Lean 4) distribute builtin knowledge across phases without centralization. This is fine for languages where primitives have few methods (Go), use traits for everything (Rust), or define builtins in the source language itself (TypeScript via lib.d.ts, Lean via Prelude.lean).
 
-Ori is uniquely positioned: rich builtin methods on primitive types (380+ type-checker entries), ARC ownership semantics per method, dual backends (interpreter + LLVM), and a small enough team that registry drift is immediately painful.
+Ori is uniquely positioned: rich builtin methods on primitive types (390 type-checker entries), ARC ownership semantics per method, dual backends (interpreter + LLVM), and a small enough team that registry drift is immediately painful.
 
 ## Architecture
 
@@ -117,14 +117,14 @@ The `ori_registry` crate MUST maintain these invariants permanently:
 
 | Current Location | Current Form | Registry Form | Phase Reads |
 |---|---|---|---|
-| `ori_types/methods.rs` resolve_str_method match arms | `"length" => Some(Idx::INT)` | `MethodDef { returns: ReturnTag::Concrete(TypeTag::Int) }` | `find_method(Str, "length").returns` |
-| `ori_types/methods.rs` TYPECK_BUILTIN_METHODS | `[("str", "length"), ...]` | `STR.methods` iterator | `BUILTIN_TYPES.methods` enumeration |
-| `ori_llvm/codegen/arc_emitter/mod.rs` emit_binary_op is_str guards | `if self.is_str(lhs) { emit_str_cmp }` | `STR.operators.lt = RuntimeCall { fn_name: "ori_str_compare", returns_bool: true }` (each comparison field independently) | `find_type(ty).operators.lt` → match strategy |
+| `ori_types/infer/expr/methods/resolve_by_type.rs` resolve_str_method match arms | `"length" => Some(Idx::INT)` | `MethodDef { returns: ReturnTag::Concrete(TypeTag::Int) }` | `find_method(Str, "length").returns` |
+| `ori_types/infer/expr/methods/mod.rs` TYPECK_BUILTIN_METHODS | `[("str", "length"), ...]` | `STR.methods` iterator | `BUILTIN_TYPES.methods` enumeration |
+| `ori_llvm/codegen/arc_emitter/operators.rs` emit_binary_op is_str guards | `if is_str { emit_str_runtime_call(...) }` | `STR.operators.lt = RuntimeCall { fn_name: "ori_str_compare", returns_bool: true }` (each comparison field independently) | `find_type(ty).operators.lt` → match strategy |
 | `ori_llvm/codegen/arc_emitter/builtins/` receiver_borrowed | `("str", "length", borrow: true)` | `MethodDef { receiver: Ownership::Borrow }` | `find_method(Str, "length").receiver` |
 | `ori_ir/builtin_methods/` BUILTIN_METHODS | `MethodDef { receiver_borrows: true, ... }` | `MethodDef { receiver: Ownership::Borrow }` | `find_method(ty, name).receiver` |
-| `ori_arc/borrow/` borrowing_builtins | `FxHashSet<Name>` injected via oric | `BUILTIN_TYPES.methods.filter(borrow)` | `find_method(ty, name).receiver == Borrow` |
-| `consistency.rs` TYPECK_METHODS_NOT_IN_IR (142 entries) | Allowlist tracking gaps | **Eliminated** | Registry IS the source of truth |
-| `consistency.rs` EVAL_METHODS_NOT_IN_TYPECK (62 entries) | Allowlist tracking gaps | **Eliminated** | Registry IS the source of truth |
+| `ori_arc/borrow/builtins/` borrowing_builtin_names | `FxHashSet<Name>` built from `BORROWING_METHOD_NAMES` | `BUILTIN_TYPES.methods.filter(borrow)` | `find_method(ty, name).receiver == Borrow` |
+| `consistency.rs` TYPECK_METHODS_NOT_IN_IR (130 entries) | Allowlist tracking gaps | **Eliminated** | Registry IS the source of truth |
+| `consistency.rs` EVAL_METHODS_NOT_IN_TYPECK (55 entries) | Allowlist tracking gaps | **Eliminated** | Registry IS the source of truth |
 
 ## Section Dependency Graph
 
@@ -142,13 +142,16 @@ The `ori_registry` crate MUST maintain these invariants permanently:
                               │    ┌─────────────────────────────┘
                               │    │  (all type defs + query API complete)
                               │    │
-                              │    ├──→ 09 Wire Type Checker ────┐
-                              │    ├──→ 10 Wire Evaluator ───────┤
-                              │    ├──→ 11 Wire ARC/Borrow ──────┤
-                              │    ├──→ 12 Wire LLVM Backend ────┤
-                              │    └──→ 13 Migrate ori_ir ───────┤
-                              │                                  │
-                              │    ┌─────────────────────────────┘
+                              │    ├──→ 09 Wire Type Checker ─────┐
+                              │    │         │                     │
+                              │    │         ├──→ 11 Wire ARC ─────┤
+                              │    │         │         │           │
+                              │    │         └─────────┴──→ 12 Wire LLVM
+                              │    │                               │
+                              │    ├──→ 10 Wire Evaluator ─────────┤  (independent)
+                              │    └──→ 13 Migrate ori_ir ─────────┤  (independent)
+                              │                                    │
+                              │    ┌───────────────────────────────┘
                               │    │  (all wiring complete)
                               │    │
                               └────┴──→ 14 Enforcement & Exit ──→ DONE
@@ -161,7 +164,7 @@ The `ori_registry` crate MUST maintain these invariants permanently:
 
 **Parallelism within gates:**
 - Sections 03-07 are fully independent (different types, different files)
-- Sections 09-13 are largely independent (different crates)
+- Sections 09-13 have constrained parallelism: ori_eval (10) and ori_ir (13) are independent; ori_arc (11) must follow ori_types (09); ori_llvm (12) must follow ori_types (09) and ori_arc (11)
 
 ## Schema Freeze (Pre-Implementation Checkpoint)
 
@@ -169,11 +172,11 @@ Before any type definition (Sections 03-07) or wiring (Sections 09-13) begins, t
 
 ### Frozen Decisions
 
-1. **TypeTag**: 24 concrete builtin type variants. **No `SelfType`, `Fresh`, or `Void`** — these are signature-level concepts on `ReturnTag` only.
+1. **TypeTag**: 23 concrete builtin type variants. **No `SelfType`, `Fresh`, or `Void`** — these are signature-level concepts on `ReturnTag` only.
 
-2. **ReturnTag**: Separate enum for method signature type positions. `ReturnTag::SelfType`, `ReturnTag::Fresh`, `ReturnTag::Concrete(TypeTag)`, plus projection-based variants (`ElementType`, `OptionOf(TypeProjection)`, `IteratorOf(TypeProjection)`, etc.) and fixed parameterized variants (`List(TypeTag)`, `Option(TypeTag)`). Convenience `From<TypeTag> for ReturnTag` wraps concrete types. **Canonical name is `ReturnTag`** — not `ReturnType`.
+2. **ReturnTag**: 22-variant enum for method signature type positions. Concrete: `Concrete(TypeTag)`, `SelfType`, `Unit`, `Fresh`. Direct projections: `ElementType`, `KeyType`, `ValueType`, `OkType`, `ErrType`. Fixed wrappers: `List(TypeTag)`, `Option(TypeTag)`, `DoubleEndedIterator(TypeTag)`. Projection wrappers: `OptionOf(TypeProjection)`, `ListOf(TypeProjection)`, `IteratorOf(TypeProjection)`, `DoubleEndedIteratorOf(TypeProjection)`. Composite: `ListKeyValue`, `ListOfTupleIntElement`, `MapIterator`, `IteratorOfTupleIntElement`. Protocol: `NextResult` for `(Option<T>, Self)`, `ResultOfProjectionFresh(TypeProjection)` for `Result<T, E>` with fresh E. Convenience `From<TypeTag> for ReturnTag` wraps concrete types. **Canonical name is `ReturnTag`** -- not `ReturnType`.
 
-3. **OpDefs**: 19 fields (expanded schema). Arithmetic: `add`, `sub`, `mul`, `div`, `rem`, `floor_div`. Comparison: `eq`, `neq`, `lt`, `gt`, `lt_eq`, `gt_eq`. Unary: `neg`. Bitwise: `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `shl`, `shr`. **No compact `cmp` field** — each comparison operator is independent.
+3. **OpDefs**: 20 fields (expanded schema). Arithmetic: `add`, `sub`, `mul`, `div`, `rem`, `floor_div`. Comparison: `eq`, `neq`, `lt`, `gt`, `lt_eq`, `gt_eq`. Unary: `neg`, `not`. Bitwise: `bit_and`, `bit_or`, `bit_xor`, `bit_not`, `shl`, `shr`. **No compact `cmp` field** — each comparison operator is independent.
 
 4. **OpStrategy**: 6 variants: `IntInstr`, `FloatInstr`, `UnsignedCmp`, `BoolLogic`, `RuntimeCall { fn_name, returns_bool }`, `Unsupported`. **Canonical name is `BoolLogic`** — not `BoolInstr`.
 
@@ -185,7 +188,7 @@ Before any type definition (Sections 03-07) or wiring (Sections 09-13) begins, t
 
 8. **TypeParamArity**: `TypeDef` includes `type_params: TypeParamArity` — `Fixed(0)` for primitives, `Fixed(1)` for `List<T>`/`Option<T>`/etc., `Fixed(2)` for `Map<K,V>`/`Result<T,E>`, `Variadic` for tuples.
 
-9. **MethodKind**: `MethodDef` includes `kind: MethodKind` — `Instance` (default) or `Associated` (for factory functions like `Duration.from_seconds()`). Needed by Sections 05/06 for compound types with static constructors.
+9. **MethodKind**: `MethodDef` includes `kind: MethodKind` — `Instance` (default) or `Associated` (for associated functions like `Duration.from_seconds()`). Needed by Sections 04/05 for str, Duration, and Size associated functions.
 
 10. **TypeProjection**: `TypeProjection` enum (`Element | Key | Value | Ok | Err | Fixed(TypeTag)`) is part of the core model. Used by parameterized `ReturnTag` variants (`OptionOf`, `ListOf`, `IteratorOf`, `DoubleEndedIteratorOf`) to express generic return types relative to receiver type parameters.
 
@@ -197,6 +200,14 @@ Before any type definition (Sections 03-07) or wiring (Sections 09-13) begins, t
 
 14. **`TypeTag::base_type()`**: `DoubleEndedIterator.base_type()` returns `Iterator`; all other variants return `self`. This is the DEI aliasing mechanism used by the query API (Section 08) to look up the single Iterator `TypeDef` for both `TypeTag::Iterator` and `TypeTag::DoubleEndedIterator`. Defined in Section 01.1.
 
+15. **Function type**: `TypeTag::Function` is in the registry with `methods: &[]` (no methods), `operators: OpDefs::UNSUPPORTED`, `memory: MemoryStrategy::Arc`, `type_params: TypeParamArity::Variadic`. Its value is memory classification, not method registration.
+
+16. **Operator exclusions**: `pow`/`**` (desugared to `Pow.power()` trait method before IR), `matmul`/`@` (always trait-dispatched via `BinaryOp::MatMul`), `as`/`as?` (`Expr::Cast`, not an operator), `&&`/`||` (short-circuit control flow, subsumed by `BoolLogic` on `bit_and`/`bit_or`), `..`/`..=`/`??`/`?` (desugared) — none of these have `OpDefs` fields. Documented in Section 01.7 design decisions 5-10.
+
+17. **Purity semantics**: `pure: true` means "no observable side effects (no IO, no mutation, no global state) but MAY panic on invalid input." Matches Swift's `readnone` and Lean's model. The optimizer MAY reorder, CSE, and hoist pure calls, but MUST NOT eliminate them if reachable (panic must fire). All primitive methods are `pure: true`. A future `may_panic` flag can be added as a separate field without changing `pure` semantics.
+
+18. **Primitive receiver ownership**: All primitive type method receivers use `Ownership::Borrow`, not `Ownership::Copy`. The `Copy` variant exists but is reserved for future use. Rationale: the ARC pass checks `receiver == Borrow` to skip RC ops; using `Copy` would require updating every check to `== Borrow || == Copy`. `Borrow` is semantically correct (the receiver IS borrowed; it happens to be trivially copyable). See Section 03 design decisions.
+
 ## Incremental Execution Principles
 
 The full implementation is the goal. The path to it is incremental, with each step production-safe.
@@ -205,7 +216,7 @@ The full implementation is the goal. The path to it is incremental, with each st
 
 2. **Vertical Slices**: Type definitions (Sections 03-07) and wiring (Sections 09-13) can be landed in slices (e.g., primitives first, then compound types, then collections/iterators). Each slice must leave the build green.
 
-3. **Consumer Sequence**: Wire consumers in order: ori_types → ori_eval → ori_arc → ori_llvm → ori_ir. Earlier consumers establish the pattern; later consumers follow it.
+3. **Consumer Sequence**: Wire consumers in order: ori_types → ori_eval → ori_arc → ori_llvm → ori_ir. Earlier consumers establish the pattern; later consumers follow it. **Dependency constraint**: ori_arc (11) MUST follow ori_types (09) because `ori_arc` imports from `ori_types`. ori_llvm (12) MUST follow both ori_types (09) and ori_arc (11). ori_eval (10) and ori_ir (13) are independent of the others.
 
 4. **Temporary Adapters**: Short-lived bridge code is allowed during migration (e.g., `tag_to_type_tag()` bridge functions). Each adapter has an expiry: "remove when Section X is complete." No adapter survives past Section 14.
 
@@ -223,8 +234,8 @@ Phase 1 ─ Foundation
 Phase 2 ─ Type Definitions (parallelizable)
   ├─ 03: Primitive types (int, float, bool, byte, char)
   ├─ 04: String type (str — complex, many methods, RuntimeCall operators)
-  ├─ 05: Compound types (Duration, Size, Ordering, Error, Channel)
-  ├─ 06: Collection & wrapper types (List, Map, Set, Range, Tuple, Option, Result)
+  ├─ 05: Compound types (Duration, Size, Ordering, Error)
+  ├─ 06: Collection & wrapper types (List, Map, Set, Range, Tuple, Option, Result, Channel)
   ├─ 07: Iterator types (Iterator, DoubleEndedIterator)
   └─ 08: Query API (BUILTIN_TYPES, find_type, find_method, helpers)
   Gate: cargo c -p ori_registry passes, all types defined, query API works
@@ -244,25 +255,25 @@ Phase 4 ─ Enforcement & Exit
 
 ## Estimated Effort
 
-| Section | Est. Lines | Complexity | Depends On |
+| Section | Est. Lines (new) | Complexity | Depends On |
 |---------|-----------|------------|------------|
-| 01 Core Data Model | ~120 | Low | — |
-| 02 Crate Scaffolding | ~80 | Low | 01 |
-| 03 Primitive Types | ~200 | Low | 01, 02 |
-| 04 String Type | ~150 | Medium | 01, 02 |
-| 05 Compound Types | ~250 | Medium | 01, 02 |
-| 06 Collection & Wrapper Types | ~300 | Medium | 01, 02 |
-| 07 Iterator Types | ~200 | Medium-High | 01, 02 |
-| 08 Query API | ~60 | Low | 01, 02 |
-| 09 Wire Type Checker | ~-300 (net deletion) | Medium-High | 03-08 |
+| 01 Core Data Model | ~200 (tags.rs) | Low | — |
+| 02 Crate Scaffolding | ~100 (lib.rs, query.rs, stubs) | Low | 01 |
+| 03 Primitive Types | ~510 (~5 types, 124 methods total using const fn helper at ~1 line/method + OpDefs + tests) | Low | 01, 02 |
+| 04 String Type | ~450 (~43 methods incl. spec §8.1.6 + associated fns, ~1 line/method with const fn helper + OpDefs) | Medium-High | 01, 02 |
+| 05 Compound Types | ~450 (~4 types as directory modules with const fn helpers at ~1 line/method + sibling tests.rs files) | Medium | 01, 02 |
+| 06 Collection & Wrapper Types | ~600 (8 types incl. Channel, many methods each) | Medium | 01, 02 |
+| 07 Iterator Types | ~350 (~24 methods, 10 lines/method + DEI metadata) | Medium-High | 01, 02 |
+| 08 Query API | ~80 (query.rs) | Low | 01, 02 |
+| 09 Wire Type Checker | ~+250 new / ~-800 deleted = ~-550 net | **High** | 03-08 |
 | 10 Wire Evaluator | ~-200 (net deletion) | Medium | 03-08 |
-| 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08 |
-| 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08 |
+| 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08, 09 |
+| 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 |
 | 13 Migrate ori_ir | ~-400 (net deletion) | Medium | 03-08 |
 | 14 Enforcement & Exit | ~200 | Medium | 09-13 |
-| **Total new (ori_registry)** | **~1,360** | | |
-| **Total deleted (legacy)** | **~-1,100** | | |
-| **Net change** | **~+260** | | |
+| **Total new (ori_registry)** | **~2,730** | | |
+| **Total deleted (legacy)** | **~-1,600** | | |
+| **Net change** | **~+1,130** | | |
 
 ## Sync Points Eliminated
 
@@ -270,22 +281,22 @@ This plan eliminates ALL of the following manual sync mechanisms:
 
 | Sync Mechanism | Entries | Location | Replaced By |
 |---|---|---|---|
-| `TYPECK_BUILTIN_METHODS` | 380 | `ori_types/infer/expr/methods/mod.rs` | `BUILTIN_TYPES` enumeration |
-| `resolve_str_method()` + 19 siblings | ~445 lines | `ori_types/infer/expr/methods/mod.rs` | `find_method(tag, name).returns` |
-| `EVAL_BUILTIN_METHODS` | 193 | `ori_eval/methods/helpers/mod.rs` | `BUILTIN_TYPES` enumeration |
+| `TYPECK_BUILTIN_METHODS` | 390 | `ori_types/infer/expr/methods/mod.rs` | `BUILTIN_TYPES` enumeration |
+| `resolve_*_method()` (20 functions) | ~431 lines | `ori_types/infer/expr/methods/resolve_by_type.rs` | `find_method(tag, name).returns` |
+| `EVAL_BUILTIN_METHODS` | 230 | `ori_eval/methods/helpers/mod.rs` | `BUILTIN_TYPES` enumeration |
 | `ITERATOR_METHOD_NAMES` | 24 | `ori_eval/interpreter/resolvers/mod.rs` | `find_type(Iterator).methods` |
 | `DEI_ONLY_METHODS` | 5 | `ori_types/infer/expr/methods/mod.rs` | Registry-based DEI flag |
-| `BUILTIN_METHODS` (ori_ir) | 121 | `ori_ir/builtin_methods/mod.rs` | Consolidated into ori_registry |
-| `BuiltinRegistration.receiver_borrowed` | 163 | `ori_llvm/codegen/arc_emitter/builtins/*.rs` | `find_method().receiver` |
-| `borrowing_builtin_names()` | ~21 lines | `ori_llvm/codegen/arc_emitter/builtins/mod.rs` | `find_method().receiver == Borrow` |
-| `TYPECK_METHODS_NOT_IN_IR` | 142 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| `EVAL_METHODS_NOT_IN_TYPECK` | 62 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| `TYPECK_METHODS_NOT_IN_EVAL` | 259 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| `EVAL_METHODS_NOT_IN_IR` | 22 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
+| `BUILTIN_METHODS` (ori_ir) | 123 | `ori_ir/builtin_methods/mod.rs` | Consolidated into ori_registry |
+| `BuiltinRegistration.receiver_borrowed` | 206 | `ori_llvm/codegen/arc_emitter/builtins/*.rs` | `find_method().receiver` |
+| `borrowing_builtin_names()` | ~6 lines | `ori_arc/borrow/builtins/mod.rs` | `find_method().receiver == Borrow` |
+| `TYPECK_METHODS_NOT_IN_IR` | 130 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
+| `EVAL_METHODS_NOT_IN_TYPECK` | 55 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
+| `TYPECK_METHODS_NOT_IN_EVAL` | 216 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
+| `EVAL_METHODS_NOT_IN_IR` | 26 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
 | `IR_METHODS_DISPATCHED_VIA_RESOLVERS` | 10 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
 | `COLLECTION_TYPES` | 11 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| Hard-coded is_str/is_float guards | ~19 | `ori_llvm/codegen/arc_emitter/mod.rs` | OpStrategy dispatch |
-| Hard-coded method names in calls.rs | ~25 lines | `ori_types/infer/expr/calls/mod.rs` | Stays in type checker (inference logic, not registry data) |
+| Hard-coded is_str/is_float guards | ~19 | `ori_llvm/codegen/arc_emitter/operators.rs` | OpStrategy dispatch |
+| Hard-coded method names in method_call.rs | ~25 lines | `ori_types/infer/expr/calls/method_call.rs` | Stays in type checker (inference logic, not registry data) |
 | **Total eliminated** | **~1,902** | | |
 
 ## Structural Guarantees (Post-Implementation)

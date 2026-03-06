@@ -1,0 +1,17 @@
+// Journey 5: "I am a closure"
+// Slug: closures
+// Difficulty: moderate
+// Features: closures, higher_order, capture, function_calls
+// Expected: apply(double, 5) + make_adder(10)(7) = 10 + 17 = 27
+
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@make_adder (n: int) -> (int) -> int = x -> x + n;
+
+@main () -> int = {
+    let double = x -> x * 2;
+    let a = apply(f: double, x: 5);   // = 10
+    let add10 = make_adder(n: 10);
+    let b = add10(7);                  // = 17
+    a + b                              // = 27
+}

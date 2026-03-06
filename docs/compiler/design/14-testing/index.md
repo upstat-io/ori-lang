@@ -12,7 +12,7 @@ sidebar_path: "/docs/compiler-design/14-testing"
 
 Testing in a compiler is fundamentally different from testing in an application. An application test checks that a known input produces a known output. A compiler test must verify that an entire language --- its syntax, type system, evaluation semantics, and code generation --- behaves correctly across an unbounded space of programs. Every program a user might write is a potential test case. Every error message the compiler might produce is a contract. The testing system is not a peripheral concern bolted onto the compiler; it is the mechanism by which the compiler earns trust.
 
-This chapter examines compiler testing through the lens of the Ori compiler, which takes an unusually strong position: testing is not optional. Every function (with a few structural exceptions) must have at least one test, and the compiler enforces this as a compilation requirement. The design consequences of this decision ripple through the entire system --- from how tests are represented in the AST, to how the test runner shares interned strings across files, to how incremental execution skips tests whose targets have not changed.
+This chapter examines compiler testing through the lens of the Ori compiler, which integrates testing deeply into the language. Tests are bound to functions via first-class syntax, tracked in the dependency graph, and executed incrementally. Test enforcement is configurable --- from silent (default) to strict (compilation error) --- allowing teams to choose the level that fits their workflow. The design consequences of this integration ripple through the entire system --- from how tests are represented in the AST, to how the test runner shares interned strings across files, to how incremental execution skips tests whose targets have not changed.
 
 ## Conceptual Foundations
 
@@ -32,35 +32,41 @@ The history of testing in compiled languages follows a clear progression toward 
 
 **Doctest-style testing** (Python, Rust, Elixir) embeds tests in documentation comments. These serve double duty as both tests and examples. The tradeoff is that doctests are typically limited to simple expressions and cannot test complex interactions.
 
-### The Spectrum from Optional to Mandatory
+### The Spectrum from Optional to Strict
 
 Most languages treat tests as optional. You can write a Rust program with no `#[test]` functions and `cargo build` will succeed without complaint. You can ship a Go package with no `_test.go` files. Python, JavaScript, C, C++ --- in all of these, tests are a social convention enforced by code review and CI pipelines, not by the language itself.
 
 A few languages nudge harder. Rust's `#[warn(missing_docs)]` lint warns about undocumented public items but does not require tests. Go's `go vet` checks for common mistakes but does not enforce test coverage. These are recommendations, not requirements.
 
-Ori takes the final step: testing is mandatory. Every function (except `@main`, test functions themselves, constants, type definitions, trait definitions, and implementations) must have at least one attached test. A function without tests is a compilation error, not a lint warning. This is not a style choice that teams can opt out of; it is a property of the language.
+Ori provides configurable test enforcement with three levels:
 
-### Why Mandatory Testing
+- **`off`** (default) --- tests run when present, but missing tests are not flagged. This is the most permissive mode, suitable for prototyping and exploratory coding.
+- **`warn`** --- the compiler warns about untested functions. This nudges toward coverage without blocking compilation.
+- **`error`** --- untested functions are compilation errors (`E0500`). This is the strictest mode, ensuring every function has at least one attached test.
 
-The decision to make testing mandatory rests on several observations.
+The exemption list is the same at all levels: `@main`, test functions themselves, constants, type definitions, trait definitions, and implementations.
 
-First, the cost of writing a test rises exponentially with time. A test written alongside the function it verifies is trivial --- the author knows exactly what the function should do, what edge cases exist, and what the invariants are. A test written six months later by a different developer requires archaeology: reading the code, inferring intent, guessing at edge cases, and hoping the function still does what its author intended. Mandatory testing eliminates this deferred cost by making the test part of the function's definition.
+### Why Configurable Enforcement
 
-Second, mandatory testing changes the economics of API design. When every function must be tested, developers naturally write smaller, more focused functions --- because smaller functions are easier to test. The testing requirement acts as a constant pressure toward better decomposition.
+The decision to make test enforcement configurable rests on several observations.
 
-Third, mandatory testing enables features that optional testing cannot. Because the compiler knows which functions are tested by which tests, it can build a dependency graph and execute only affected tests when code changes. This incremental execution makes mandatory testing practical: the developer does not pay the cost of running all tests on every change, only the tests that matter.
+First, the cost of writing a test rises exponentially with time. A test written alongside the function it verifies is trivial --- the author knows exactly what the function should do, what edge cases exist, and what the invariants are. A test written six months later by a different developer requires archaeology. Configurable enforcement lets teams ratchet up strictness as their codebase matures.
+
+Second, strict enforcement changes the economics of API design. When every function must be tested, developers naturally write smaller, more focused functions --- because smaller functions are easier to test. The enforcement requirement acts as a constant pressure toward better decomposition.
+
+Third, the testing infrastructure enables features regardless of enforcement level. Because the compiler knows which functions are tested by which tests, it can build a dependency graph and execute only affected tests when code changes. This incremental execution makes even strict enforcement practical: the developer does not pay the cost of running all tests on every change, only the tests that matter.
 
 ### Attached vs. Floating Tests
 
 Ori distinguishes between two kinds of tests. An **attached test** declares which function or functions it verifies using the `tests` keyword: `@test_add tests @add () -> void`. This creates an explicit, compiler-tracked relationship between the test and its target. A **floating test** uses `tests _` to indicate that it tests no specific function --- it is an integration or infrastructure test that exercises the system as a whole.
 
-This distinction is not merely organizational. Attached tests satisfy the mandatory coverage requirement for their targets. Floating tests do not. Attached tests participate in incremental execution: if none of a test's targets have changed, the test can be skipped. Floating tests always run when explicitly requested via `ori test` but never run during normal compilation.
+This distinction is not merely organizational. Attached tests satisfy the coverage requirement for their targets (when enforcement is enabled). Floating tests do not. Attached tests participate in incremental execution: if none of a test's targets have changed, the test can be skipped. Floating tests always run when explicitly requested via `ori test` but never run during normal compilation.
 
 ## What Makes Ori's Testing Distinctive
 
 Several properties of Ori's testing system, taken together, distinguish it from the approaches described above.
 
-**Mandatory verification as a compilation requirement.** A function without tests does not produce a warning or a lint violation. It produces a compilation error (`E0500`). The compiler will not proceed until every non-exempt function has at least one attached test. This makes untested code impossible to ship, not merely discouraged.
+**Configurable test enforcement.** Test enforcement is configurable: `off` (default), `warn`, or `error`. At the `error` level, a function without tests produces compilation error `E0500`, making untested code impossible to ship. At `warn`, the compiler flags untested functions without blocking compilation. At `off`, the infrastructure remains available but enforcement is silent.
 
 **Attached tests with dependency tracking.** The `tests` keyword creates a first-class relationship in the AST between a test and the functions it verifies. The compiler uses these relationships to build a dependency graph, determine which tests are affected by a code change, and skip unaffected tests during incremental execution. No external tool or convention is needed to maintain this mapping --- it is part of the language syntax.
 
@@ -128,7 +134,7 @@ An attached test declares the function it verifies using the `tests` keyword:
     assert_eq(actual: add(a: 2, b: 3), expected: 5)
 ```
 
-The `tests @add` clause creates a compile-time link between `@test_add` and `@add`. This link serves three purposes: it satisfies the mandatory coverage requirement for `@add`, it registers `@test_add` in the dependency graph for incremental execution, and it documents intent --- a reader can see at a glance which function this test is meant to verify.
+The `tests @add` clause creates a compile-time link between `@test_add` and `@add`. This link serves three purposes: it satisfies the coverage requirement for `@add` (when enforcement is enabled), it registers `@test_add` in the dependency graph for incremental execution, and it documents intent --- a reader can see at a glance which function this test is meant to verify.
 
 ### Multi-Target Tests
 
@@ -142,7 +148,7 @@ A test can declare multiple targets by repeating the `tests` keyword:
 }
 ```
 
-This test satisfies the coverage requirement for both `@parse` and `@format`. If either target changes, the test will run during incremental execution. Multi-target tests are common for functions that form a logical pair (encode/decode, parse/format, serialize/deserialize) where the most meaningful verification exercises both directions.
+This test covers both `@parse` and `@format`. If either target changes, the test will run during incremental execution. When enforcement is enabled, it satisfies the coverage requirement for both targets. Multi-target tests are common for functions that form a logical pair (encode/decode, parse/format, serialize/deserialize) where the most meaningful verification exercises both directions.
 
 ### Floating Tests
 
@@ -261,13 +267,13 @@ Every test execution produces a `TestOutcome` that classifies what happened:
 
 **LlvmCompileFail(String)** --- the test could not execute because LLVM compilation of its file failed. This is distinct from `Failed`: it indicates a backend problem, not a test logic problem. These outcomes are tracked separately in the summary and displayed as LLVM compilation issues rather than test failures. This separation prevents a single LLVM bug from marking dozens of unrelated tests as failed.
 
-## The Mandatory Testing Philosophy
+## The Testing Philosophy
 
-Mandatory testing is not merely a rule; it is a design philosophy with consequences throughout the system.
+Testing in Ori is not an afterthought; it is a design philosophy with consequences throughout the system.
 
-### Coverage as a Compilation Requirement
+### Coverage Enforcement
 
-When the compiler encounters a function without tests, it emits error `E0500`:
+When test enforcement is enabled and the compiler encounters a function without tests, it emits diagnostic `E0500`:
 
 ```
 error[E0500]: function @multiply has no tests
@@ -279,21 +285,21 @@ error[E0500]: function @multiply has no tests
    = help: add a test with `@test_multiply tests @multiply () -> void = ...`
 ```
 
-This is not a warning that can be suppressed. It is a compilation error on the same level as a type mismatch or a syntax error. The function cannot be used, compiled, or shipped until it has a test.
+The severity depends on the enforcement level: at `error`, this blocks compilation like a type mismatch; at `warn`, it produces a warning; at `off` (the default), it is silent.
 
-The exemption list is deliberately minimal: `@main` (the entry point has no meaningful unit test), test functions themselves (tests do not need tests), constants (`let $name = ...`), type definitions, trait definitions, and implementations. Everything else --- every function the developer writes --- must be tested.
+The exemption list is deliberately minimal: `@main` (the entry point has no meaningful unit test), test functions themselves (tests do not need tests), constants (`let $name = ...`), type definitions, trait definitions, and implementations.
 
 ### Dependency Graphs and Incremental Execution
 
 The `tests` keyword creates edges in a dependency graph. When function `@parse` changes, the compiler computes the reverse transitive closure of `@parse` --- the set of all functions that directly or transitively depend on it --- and runs every test whose target falls in that set.
 
-This makes mandatory testing practical. A project with 500 functions and 500 tests does not run all 500 tests on every change. If the developer modifies `@parse`, only the tests targeting `@parse` and the functions that call it need to run. The rest are skipped with the `SkippedUnchanged` outcome.
+This makes even strict enforcement practical. A project with 500 functions and 500 tests does not run all 500 tests on every change. If the developer modifies `@parse`, only the tests targeting `@parse` and the functions that call it need to run. The rest are skipped with the `SkippedUnchanged` outcome.
 
 The `TestRunCache` stores function content hashes and test results from the previous run. On the next run, the cache is consulted to determine which functions have changed. The cache is keyed by content hash, not by timestamp, so touching a file without changing its content does not invalidate the cache.
 
 ### Interaction with the Capability System
 
-Ori's capability system (`uses Http`, `uses FileSystem`) poses a challenge for mandatory testing: how do you test a function that performs I/O without actually performing I/O? The answer is capability mocking via `with...in`:
+Ori's capability system (`uses Http`, `uses FileSystem`) poses a challenge for testing: how do you test a function that performs I/O without actually performing I/O? The answer is capability mocking via `with...in`:
 
 ```ori
 @fetch_data (url: str) -> Result<str, Error> uses Http =
@@ -312,7 +318,7 @@ The `with...in` expression replaces the `Http` capability with a mock handler fo
 
 ### The Tradeoff
 
-Mandatory testing imposes real upfront friction. A developer cannot write a quick prototype without also writing tests. This is the intended tradeoff: more friction at the point of creation, in exchange for a codebase where every function has at least one verified behavior. Whether this tradeoff is worthwhile depends on the project's priorities. Ori bets that for systems where correctness matters --- and compilers are a prime example --- the upfront cost is repaid many times over.
+Strict test enforcement (`error` mode) imposes real upfront friction. A developer cannot write a quick prototype without also writing tests. This is the intended tradeoff: more friction at the point of creation, in exchange for a codebase where every function has at least one verified behavior. Whether this tradeoff is worthwhile depends on the project's priorities --- which is why enforcement is configurable. Teams working on systems where correctness matters can set `error` mode; teams prototyping can use `off` and ratchet up later.
 
 ### Test Organization
 
@@ -324,25 +330,25 @@ Test files can import private items from their source files using the `::` prefi
 
 ## Prior Art
 
-**Rust** provides the most familiar comparison. Rust's `#[test]` attribute marks functions that should run under `cargo test`, and `#[cfg(test)]` gates test-only code. Tests live in the same file as the code they test (in a `mod tests` block) or in a separate `tests/` directory for integration tests. The system is well-designed and widely used, but it is entirely optional: `cargo build` succeeds regardless of test coverage. Rust has no built-in mechanism linking a test to the function it verifies, so incremental test execution based on code changes requires external tools like [cargo-nextest](https://nexte.st/). Ori's attached test syntax (`tests @target`) and mandatory coverage requirement are direct responses to these gaps.
+**Rust** provides the most familiar comparison. Rust's `#[test]` attribute marks functions that should run under `cargo test`, and `#[cfg(test)]` gates test-only code. Tests live in the same file as the code they test (in a `mod tests` block) or in a separate `tests/` directory for integration tests. The system is well-designed and widely used, but it is entirely optional: `cargo build` succeeds regardless of test coverage. Rust has no built-in mechanism linking a test to the function it verifies, so incremental test execution based on code changes requires external tools like [cargo-nextest](https://nexte.st/). Ori's attached test syntax (`tests @target`) and configurable coverage enforcement are direct responses to these gaps.
 
-**Zig** integrates tests more deeply into the language. A `test "descriptive name" { ... }` block is first-class syntax that the compiler understands natively. Zig also provides `comptime` assertions that execute during compilation, catching errors before any code is generated. However, Zig tests are optional --- a file without tests compiles without issue. Zig's approach influenced Ori's decision to make tests a language construct rather than an annotation, but Ori goes further by making them mandatory and by adding the target-linking mechanism.
+**Zig** integrates tests more deeply into the language. A `test "descriptive name" { ... }` block is first-class syntax that the compiler understands natively. Zig also provides `comptime` assertions that execute during compilation, catching errors before any code is generated. However, Zig tests are optional --- a file without tests compiles without issue. Zig's approach influenced Ori's decision to make tests a language construct rather than an annotation, but Ori goes further with configurable enforcement and the target-linking mechanism.
 
 **D** includes `unittest` blocks as a language feature. These blocks are compiled and executed when the `-unittest` flag is passed. D's approach is notable for its simplicity: a `unittest` block is just code that runs before `main`. However, like Zig, D tests are optional, and there is no mechanism for declaring which function a `unittest` block is meant to verify.
 
 **Go** takes a convention-based approach: test files end in `_test.go`, test functions start with `Test`, and the `testing.T` argument provides assertion and logging methods. Go's approach is deliberately simple and requires no special syntax --- tests are just functions with a naming convention. The tradeoff is that the compiler knows nothing about tests; all test logic lives in the `go test` tool. Go has no mechanism for linking tests to functions or for incremental test execution based on code changes.
 
-**Elm** prioritizes testability through its type system: pure functions with immutable data are inherently easy to test. The [elm-test](https://github.com/elm-explorations/test) package provides a test runner, but testing is not enforced by the language. Elm's influence on Ori is indirect: Ori's expression-based, immutable-by-default design makes functions easier to test, which makes mandatory testing less burdensome.
+**Elm** prioritizes testability through its type system: pure functions with immutable data are inherently easy to test. The [elm-test](https://github.com/elm-explorations/test) package provides a test runner, but testing is not enforced by the language. Elm's influence on Ori is indirect: Ori's expression-based, immutable-by-default design makes functions easier to test, which makes strict test enforcement less burdensome.
 
 **Roc** shares Ori's philosophy of testability-by-design. [Roc's](https://www.roc-lang.org/) pure functional core and effect system make functions inherently testable, and the language's design decisions consistently favor properties that make testing easier. Roc's `expect` keyword provides inline assertions that are checked during development, blurring the line between tests and contracts. While Roc's testing infrastructure differs in specifics, the shared conviction that language design should serve testability is a clear point of alignment.
 
 ## Design Tradeoffs
 
-**Mandatory vs. optional testing.** Mandatory testing guarantees that every function has at least one verified behavior. Optional testing allows faster prototyping and exploratory coding. Ori chose mandatory because the incremental execution system mitigates the cost: developers pay for tests at creation time but do not pay a runtime cost proportional to the total number of tests. The exemption list (`@main`, test functions, types, traits, impls) prevents the requirement from becoming absurd --- you do not need a test for a type definition.
+**Configurable enforcement vs. fixed policy.** Strict enforcement (`error` mode) guarantees that every function has at least one verified behavior. Permissive enforcement (`off` mode) allows faster prototyping and exploratory coding. Ori chose configurable enforcement because different projects have different needs, but the incremental execution system mitigates the cost of strict mode: developers pay for tests at creation time but do not pay a runtime cost proportional to the total number of tests. The exemption list (`@main`, test functions, types, traits, impls) prevents strict enforcement from becoming absurd --- you do not need a test for a type definition.
 
-**Attached (targeted) vs. free-form tests.** Attached tests (`tests @target`) create a compiler-tracked relationship that enables incremental execution and coverage checking. Free-form tests (like Rust's `#[test]`) offer more flexibility but provide less information to the compiler. Ori supports both (attached and floating), but only attached tests satisfy coverage requirements, strongly incentivizing the targeted form.
+**Attached (targeted) vs. free-form tests.** Attached tests (`tests @target`) create a compiler-tracked relationship that enables incremental execution and coverage checking. Free-form tests (like Rust's `#[test]`) offer more flexibility but provide less information to the compiler. Ori supports both (attached and floating), but only attached tests satisfy coverage requirements (when enforcement is enabled), strongly incentivizing the targeted form.
 
-**Language-integrated vs. external test harness.** Integrating tests into the language syntax gives the compiler full visibility into test structure: it can parse test attributes, link tests to targets, and separate compile-fail from regular tests during compilation. An external harness (like pytest or Jest) is more flexible and can evolve independently of the language, but it cannot participate in compilation or type checking. Ori chose integration because the mandatory testing requirement demands compiler cooperation --- the compiler must know about tests to enforce coverage.
+**Language-integrated vs. external test harness.** Integrating tests into the language syntax gives the compiler full visibility into test structure: it can parse test attributes, link tests to targets, and separate compile-fail from regular tests during compilation. An external harness (like pytest or Jest) is more flexible and can evolve independently of the language, but it cannot participate in compilation or type checking. Ori chose integration because the testing infrastructure --- dependency tracking, incremental execution, coverage enforcement --- demands compiler cooperation.
 
 **Skip requiring type-check vs. unconditional skip.** Ori requires `#skip` tests to type-check cleanly. An unconditional skip would be simpler and would allow developers to skip tests with type errors. Ori chose the stricter option because unconditional skips enable test rot: a skipped test with type errors will silently remain broken as the codebase evolves, and the developer will not learn about the breakage until they remove the skip. The type-check requirement ensures that skipped tests remain compilable.
 

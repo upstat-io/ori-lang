@@ -40,36 +40,6 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .map(|v| self.arena.push_value(v))
     }
 
-    /// Build a direct function call marked as a tail call.
-    ///
-    /// Sets the `tail` attribute on the call instruction, which tells LLVM
-    /// that this call is in tail position. Combined with `fastcc`, LLVM will
-    /// perform tail call optimization (reusing the caller's stack frame).
-    ///
-    /// Returns `None` for void-returning functions.
-    pub fn call_tail(
-        &mut self,
-        callee: FunctionId,
-        args: &[ValueId],
-        name: &str,
-    ) -> Option<ValueId> {
-        let func = self.arena.get_function(callee);
-        let arg_vals: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = args
-            .iter()
-            .map(|&id| self.arena.get_value(id).into())
-            .collect();
-        let call_val = self
-            .builder
-            .build_call(func, &arg_vals, name)
-            .expect("call_tail");
-        call_val.set_tail_call(true);
-        call_val.set_call_convention(func.get_call_conventions());
-        call_val
-            .try_as_basic_value()
-            .basic()
-            .map(|v| self.arena.push_value(v))
-    }
-
     /// Build an indirect call through a function pointer.
     ///
     /// `return_type` is the function's return type; `param_types` are the

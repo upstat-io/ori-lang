@@ -9,147 +9,12 @@ use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::context::EmittedValue;
+use super::field_scan::scan_used_fields;
 use super::ArcIrEmitter;
 use super::FuncletPadKind;
 use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use crate::codegen::eh_model::EhModel;
 use crate::codegen::value_id::ValueId;
-
-/// Scan an ARC function to determine which fields of each variable are accessed.
-///
-/// Returns a map from variable ID to the set of field indices accessed via
-/// `Project`. Variables used in any other context (Apply args, Return,
-/// Construct, etc.) are marked as needing ALL fields loaded — represented
-/// by `None` in the map. Variables not in the map at all have no field
-/// accesses (they may be scalars or unused).
-///
-/// This enables surgical struct loading: only fields that are actually
-/// projected are loaded from memory. Unused fields get `undef`.
-fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option<FxHashSet<u32>>> {
-    /// Resolve a variable through alias chains to its root.
-    fn resolve(aliases: &FxHashMap<ArcVarId, ArcVarId>, mut var: ArcVarId) -> ArcVarId {
-        let mut depth = 0;
-        while let Some(&src) = aliases.get(&var) {
-            var = src;
-            depth += 1;
-            if depth > 100 {
-                break;
-            }
-        }
-        var
-    }
-
-    /// Mark a variable (resolved through aliases) as needing all fields.
-    fn mark_all(
-        aliases: &FxHashMap<ArcVarId, ArcVarId>,
-        usage: &mut FxHashMap<ArcVarId, Option<FxHashSet<u32>>>,
-        var: ArcVarId,
-    ) {
-        usage.insert(resolve(aliases, var), None);
-    }
-
-    /// Mark each variable in a slice as needing all fields.
-    fn mark_all_slice(
-        aliases: &FxHashMap<ArcVarId, ArcVarId>,
-        usage: &mut FxHashMap<ArcVarId, Option<FxHashSet<u32>>>,
-        vars: &[ArcVarId],
-    ) {
-        for v in vars {
-            mark_all(aliases, usage, *v);
-        }
-    }
-
-    // Phase 1: Build alias map (Let { Var } chains).
-    let mut aliases: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ori_arc::ir::ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                aliases.insert(*dst, *src);
-            }
-        }
-    }
-
-    // Phase 2: Collect field usage, resolving through aliases.
-    let mut usage: FxHashMap<ArcVarId, Option<FxHashSet<u32>>> = FxHashMap::default();
-
-    for block in &func.blocks {
-        for instr in &block.body {
-            match instr {
-                ArcInstr::Project { value, field, .. } => {
-                    let root = resolve(&aliases, *value);
-                    if !matches!(usage.get(&root), Some(None)) {
-                        usage
-                            .entry(root)
-                            .or_insert_with(|| Some(FxHashSet::default()))
-                            .as_mut()
-                            .map(|s| s.insert(*field));
-                    }
-                }
-
-                // PrimOp uses its args as whole values (e.g., string concat).
-                ArcInstr::Let {
-                    value: ori_arc::ir::ArcValue::PrimOp { args, .. },
-                    ..
-                } => mark_all_slice(&aliases, &mut usage, args),
-
-                // Let { Var } is an alias (phase 1), Let { Literal } has no var refs.
-                ArcInstr::Let { .. } => {}
-
-                ArcInstr::Apply { args, .. }
-                | ArcInstr::PartialApply { args, .. }
-                | ArcInstr::Construct { args, .. }
-                | ArcInstr::Reuse { args, .. } => {
-                    mark_all_slice(&aliases, &mut usage, args);
-                }
-                ArcInstr::ApplyIndirect { closure, args, .. } => {
-                    mark_all(&aliases, &mut usage, *closure);
-                    mark_all_slice(&aliases, &mut usage, args);
-                }
-                ArcInstr::CollectionReuse { old_var, args, .. } => {
-                    mark_all(&aliases, &mut usage, *old_var);
-                    mark_all_slice(&aliases, &mut usage, args);
-                }
-                ArcInstr::Set { base, value, .. } => {
-                    mark_all(&aliases, &mut usage, *base);
-                    mark_all(&aliases, &mut usage, *value);
-                }
-                ArcInstr::SetTag { base, .. } => mark_all(&aliases, &mut usage, *base),
-                ArcInstr::Select {
-                    cond,
-                    true_val,
-                    false_val,
-                    ..
-                } => {
-                    mark_all(&aliases, &mut usage, *cond);
-                    mark_all(&aliases, &mut usage, *true_val);
-                    mark_all(&aliases, &mut usage, *false_val);
-                }
-                ArcInstr::RcInc { var, .. }
-                | ArcInstr::RcDec { var, .. }
-                | ArcInstr::IsShared { var, .. }
-                | ArcInstr::Reset { var, .. } => mark_all(&aliases, &mut usage, *var),
-            }
-        }
-
-        // Terminators that use whole variables.
-        match &block.terminator {
-            ArcTerminator::Return { value } => mark_all(&aliases, &mut usage, *value),
-            ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
-                mark_all_slice(&aliases, &mut usage, args);
-            }
-            ArcTerminator::Branch { cond, .. } => mark_all(&aliases, &mut usage, *cond),
-            ArcTerminator::Switch { scrutinee, .. } => mark_all(&aliases, &mut usage, *scrutinee),
-            ArcTerminator::Resume | ArcTerminator::Unreachable => {}
-        }
-    }
-
-    usage
-}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Check if an Invoke callee will be intercepted by a builtin handler.
@@ -309,19 +174,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // block, causing entry blocks to gain predecessors and terminators
         // to appear mid-block. Block merging should instead be done as a
         // pre-emission ARC IR pass (option (b) in section-01-block-merging).
-        self.block_map = func
-            .blocks
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                if dead_unwind.contains(&i) {
-                    None
-                } else {
-                    let name = format!("bb{i}");
-                    Some(self.builder.append_block(self.current_function, &name))
-                }
-            })
-            .collect();
+        // LLVM requires the first appended block to be the function entry.
+        // Create the entry block first, then the rest in order.
+        let entry_idx = func.entry.index();
+        let mut block_map: Vec<Option<_>> = vec![None; func.blocks.len()];
+        block_map[entry_idx] = Some(
+            self.builder
+                .append_block(self.current_function, &format!("bb{entry_idx}")),
+        );
+        for (i, _) in func.blocks.iter().enumerate() {
+            if i == entry_idx || dead_unwind.contains(&i) {
+                continue;
+            }
+            block_map[i] = Some(
+                self.builder
+                    .append_block(self.current_function, &format!("bb{i}")),
+            );
+        }
+        self.block_map = block_map;
 
         // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
@@ -470,6 +340,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let block = &func.blocks[block_idx];
 
             self.builder.position_at_end(self.block(block.id));
+
+            // Clear CSE cache at ARC block boundary. Each ARC block gets
+            // an independent cache — the LLVM phi node for loop variables
+            // produces new SSA values each iteration, naturally preventing
+            // cross-iteration staleness.
+            self.builder.clear_cse_cache();
 
             // Live unwind blocks: emit EH prelude (landingpad or SEH pad).
             // On SEH, catch-type blocks are skipped (handled by ori_try_call).

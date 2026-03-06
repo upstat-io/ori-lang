@@ -4,7 +4,7 @@ use ori_types::{EnumVariant, Idx, Pool};
 
 use super::*;
 
-// ── Primitive types ─────────────────────────────────────────────
+// Primitive types
 
 #[test]
 fn primitives_are_scalar() {
@@ -55,7 +55,7 @@ fn none_sentinel_is_scalar() {
     assert_eq!(cls.arc_class(Idx::NONE), ArcClass::Scalar);
 }
 
-// ── Heap-allocated containers ───────────────────────────────────
+// Heap-allocated containers
 
 #[test]
 fn list_is_definite_ref() {
@@ -102,7 +102,7 @@ fn function_is_definite_ref() {
     assert_eq!(cls.arc_class(func), ArcClass::DefiniteRef);
 }
 
-// ── Option (transitive) ─────────────────────────────────────────
+// Option (transitive)
 
 #[test]
 fn option_of_scalar_is_scalar() {
@@ -132,7 +132,7 @@ fn option_of_list_is_definite_ref() {
     assert_eq!(cls.arc_class(opt_list), ArcClass::DefiniteRef);
 }
 
-// ── Result (transitive) ─────────────────────────────────────────
+// Result (transitive)
 
 #[test]
 fn result_of_scalars_is_scalar() {
@@ -161,7 +161,7 @@ fn result_with_ref_err_is_definite_ref() {
     assert_eq!(cls.arc_class(res), ArcClass::DefiniteRef);
 }
 
-// ── Range (transitive) ──────────────────────────────────────────
+// Range (transitive)
 
 #[test]
 fn range_of_scalar_is_scalar() {
@@ -172,7 +172,7 @@ fn range_of_scalar_is_scalar() {
     assert_eq!(cls.arc_class(range), ArcClass::Scalar);
 }
 
-// ── Tuple (transitive) ──────────────────────────────────────────
+// Tuple (transitive)
 
 #[test]
 fn tuple_of_scalars_is_scalar() {
@@ -203,7 +203,7 @@ fn empty_tuple_is_unit_and_scalar() {
     assert_eq!(cls.arc_class(tup), ArcClass::Scalar);
 }
 
-// ── Struct (transitive) ─────────────────────────────────────────
+// Struct (transitive)
 
 #[test]
 fn struct_all_scalar_fields_is_scalar() {
@@ -229,7 +229,7 @@ fn struct_with_ref_field_is_definite_ref() {
     assert_eq!(cls.arc_class(struct_idx), ArcClass::DefiniteRef);
 }
 
-// ── Enum (transitive) ───────────────────────────────────────────
+// Enum (transitive)
 
 #[test]
 fn enum_all_unit_variants_is_scalar() {
@@ -301,7 +301,7 @@ fn enum_with_scalar_payloads_is_scalar() {
     assert_eq!(cls.arc_class(enum_idx), ArcClass::Scalar);
 }
 
-// ── Type variables ──────────────────────────────────────────────
+// Type variables
 
 #[test]
 fn type_variable_is_possible_ref() {
@@ -314,7 +314,7 @@ fn type_variable_is_possible_ref() {
     assert!(cls.needs_rc(var));
 }
 
-// ── Named type resolution ───────────────────────────────────────
+// Named type resolution
 
 #[test]
 fn named_type_resolved_to_scalar_struct() {
@@ -354,7 +354,7 @@ fn unresolved_named_type_is_possible_ref() {
     assert_eq!(cls.arc_class(named_idx), ArcClass::PossibleRef);
 }
 
-// ── Nested compound types ───────────────────────────────────────
+// Nested compound types
 
 #[test]
 fn nested_option_of_scalar_tuple_is_scalar() {
@@ -376,7 +376,7 @@ fn nested_result_of_option_str_is_definite_ref() {
     assert_eq!(cls.arc_class(res), ArcClass::DefiniteRef);
 }
 
-// ── Compound with type variable ─────────────────────────────────
+// Compound with type variable
 
 #[test]
 fn option_of_type_variable_is_possible_ref() {
@@ -409,7 +409,7 @@ fn tuple_with_ref_and_variable_is_definite_ref() {
     assert_eq!(cls.arc_class(tup), ArcClass::DefiniteRef);
 }
 
-// ── Caching ─────────────────────────────────────────────────────
+// Caching
 
 #[test]
 fn classification_is_cached() {
@@ -425,7 +425,7 @@ fn classification_is_cached() {
     assert!(cls.cache.borrow().contains_key(&tup));
 }
 
-// ── Rigid and bound variables ───────────────────────────────────
+// Rigid and bound variables
 
 #[test]
 fn rigid_var_is_possible_ref() {
@@ -436,7 +436,7 @@ fn rigid_var_is_possible_ref() {
     assert_eq!(cls.arc_class(var), ArcClass::PossibleRef);
 }
 
-// ── Cache export/import ─────────────────────────────────────────
+// Cache export/import
 
 #[test]
 fn export_cache_captures_computed_classifications() {

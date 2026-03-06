@@ -49,7 +49,7 @@ impl BlockBuilder {
 /// Follows the same "position at a block, emit instructions, terminate"
 /// pattern as LLVM's `IRBuilder`. The key difference is that ARC IR uses
 /// block parameters instead of phi nodes for SSA merge.
-pub struct ArcIrBuilder {
+pub(crate) struct ArcIrBuilder {
     pub(super) blocks: Vec<BlockBuilder>,
     pub(super) current_block: ArcBlockId,
     next_var: u32,
@@ -117,6 +117,10 @@ impl ArcIrBuilder {
 
     /// Get the entry block (always block 0).
     #[inline]
+    #[expect(
+        clippy::unused_self,
+        reason = "method API: callers use builder.entry_block()"
+    )]
     pub fn entry_block(&self) -> ArcBlockId {
         ArcBlockId::new(0)
     }
@@ -379,6 +383,7 @@ impl ArcIrBuilder {
             num_captures: 0,
             cow_annotations: crate::uniqueness::CowAnnotations::default(),
             drop_hints: crate::uniqueness::DropHints::default(),
+            tail_calls: Vec::new(),
         }
     }
 }

@@ -574,37 +574,6 @@ fn declare_extern_function_idempotent() {
 // -- Tail calls --
 
 #[test]
-fn call_tail_marks_instruction() {
-    let ctx = Context::create();
-    let scx = test_scx(&ctx);
-    let mut irb = IrBuilder::new(&scx);
-
-    let i64_ty = irb.i64_type();
-
-    // Declare a fastcc function that calls itself
-    let func = irb.declare_function("recursive_fn", &[i64_ty], i64_ty);
-    irb.set_fastcc(func);
-    let entry = irb.append_block(func, "entry");
-    irb.set_current_function(func);
-    irb.position_at_end(entry);
-
-    // Build a tail call to itself
-    let arg = irb.const_i64(1);
-    let result = irb.call_tail(func, &[arg], "recurse");
-    assert!(result.is_some());
-
-    irb.ret(result.unwrap());
-
-    // Verify the IR contains "tail call"
-    let ir = scx.llmod.print_to_string().to_string();
-    assert!(
-        ir.contains("tail call"),
-        "Expected 'tail call' in IR, got:\n{ir}"
-    );
-    drop(irb);
-}
-
-#[test]
 fn call_without_tail_has_no_tail_attribute() {
     let ctx = Context::create();
     let scx = test_scx(&ctx);

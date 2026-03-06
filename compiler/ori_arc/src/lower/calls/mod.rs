@@ -88,6 +88,16 @@ impl ArcLowerer<'_> {
                 );
                 self.emit_call_or_invoke(ty, name, arg_vars, span)
             }
+            CanExpr::SelfRef => {
+                // Self-recursive call: resolve to the enclosing function name.
+                // This enables TCO detection (Apply.func == arc_func.name).
+                tracing::trace!(
+                    func = self.name_str(self.func_name),
+                    args = arg_vars.len(),
+                    "call: self-recursive (SelfRef)"
+                );
+                self.emit_call_or_invoke(ty, self.func_name, arg_vars, span)
+            }
             CanExpr::Ident(name) if self.scope.lookup(name).is_some() => {
                 // Local variable holding a closure — indirect call through
                 // the closure fat pointer {fn_ptr, env_ptr}.
@@ -119,9 +129,21 @@ impl ArcLowerer<'_> {
                         Some(span),
                     );
                 }
-                // Not in local scope — top-level function reference.
+
+                // Resolve `self` to the enclosing function name only when
+                // `self` is NOT a local variable. In impl methods, `self` is
+                // a parameter — calling `self(...)` would be an indirect call
+                // through a closure value. In recurse() step expressions, the
+                // parser emits `Ident("self")` for self-recursive calls.
+                let self_name = self.interner.intern("self");
+                let resolved = if name == self_name && self.scope.lookup(self_name).is_none() {
+                    self.func_name
+                } else {
+                    name
+                };
+
                 tracing::trace!(
-                    func = self.name_str(name),
+                    func = self.name_str(resolved),
                     args = arg_vars.len(),
                     "call: direct (Ident)"
                 );
@@ -131,11 +153,11 @@ impl ArcLowerer<'_> {
                 // participate in Perceus ownership.
                 if arg_vars.len() == 1 {
                     let arg_ty = self.expr_type(arg_ids[0]);
-                    if let Some(var) = self.emit_tag_check(name, arg_vars[0], arg_ty, span) {
+                    if let Some(var) = self.emit_tag_check(resolved, arg_vars[0], arg_ty, span) {
                         return var;
                     }
                 }
-                self.emit_call_or_invoke(ty, name, arg_vars, span)
+                self.emit_call_or_invoke(ty, resolved, arg_vars, span)
             }
             _ => {
                 // Other expressions (field access, method result, etc.) —

@@ -6,7 +6,7 @@ use oric::commands::{
     add_target, build_file, check_file, demangle_symbol, explain_error, lex_file,
     list_installed_targets, list_targets, parse_build_options, parse_file, remove_target, run_file,
     run_file_compiled, run_format, run_tests, watch_file, BuildOptions, TargetFilter,
-    TargetSubcommand,
+    TargetSubcommand, TestEnforcement,
 };
 use oric::test::TestRunnerConfig;
 
@@ -162,10 +162,34 @@ fn real_main() {
         }
         "check" => {
             if args.len() < 3 {
-                eprintln!("Usage: ori check <file.ori>");
+                eprintln!("Usage: ori check <file.ori> [--test-enforcement=off|warn|error]");
                 std::process::exit(1);
             }
-            check_file(&args[2]);
+
+            let mut file_path = None;
+            let mut enforcement = TestEnforcement::Off;
+
+            for arg in args.iter().skip(2) {
+                if let Some(val) = arg.strip_prefix("--test-enforcement=") {
+                    if let Some(e) = TestEnforcement::parse_flag(val) {
+                        enforcement = e;
+                    } else {
+                        eprintln!("error: invalid test enforcement level '{val}'");
+                        eprintln!("Valid values: off, warn, error");
+                        std::process::exit(1);
+                    }
+                } else if !arg.starts_with('-') && file_path.is_none() {
+                    file_path = Some(arg.as_str());
+                }
+            }
+
+            let Some(path) = file_path else {
+                eprintln!("error: missing file path");
+                eprintln!("Usage: ori check <file.ori> [--test-enforcement=off|warn|error]");
+                std::process::exit(1);
+            };
+
+            check_file(path, enforcement);
         }
         "fmt" => {
             run_format(&args[2..]);
@@ -259,10 +283,34 @@ fn real_main() {
         }
         "watch" => {
             if args.len() < 3 {
-                eprintln!("Usage: ori watch <file.ori>");
+                eprintln!("Usage: ori watch <file.ori> [--test-enforcement=off|warn|error]");
                 std::process::exit(1);
             }
-            watch_file(&args[2]);
+
+            let mut file_path = None;
+            let mut enforcement = TestEnforcement::Off;
+
+            for arg in args.iter().skip(2) {
+                if let Some(val) = arg.strip_prefix("--test-enforcement=") {
+                    if let Some(e) = TestEnforcement::parse_flag(val) {
+                        enforcement = e;
+                    } else {
+                        eprintln!("error: invalid test enforcement level '{val}'");
+                        eprintln!("Valid values: off, warn, error");
+                        std::process::exit(1);
+                    }
+                } else if !arg.starts_with('-') && file_path.is_none() {
+                    file_path = Some(arg.as_str());
+                }
+            }
+
+            let Some(path) = file_path else {
+                eprintln!("error: missing file path");
+                eprintln!("Usage: ori watch <file.ori> [--test-enforcement=off|warn|error]");
+                std::process::exit(1);
+            };
+
+            watch_file(path, enforcement);
         }
         "--explain" | "explain" => {
             if args.len() < 3 {
@@ -329,6 +377,9 @@ fn print_usage() {
     println!("  --wasm              Build for WebAssembly");
     println!("  --lto=<mode>        Link-time optimization: off, thin, full");
     println!();
+    println!("Check/Watch options:");
+    println!("  --test-enforcement=<level>  Test enforcement: off (default), warn, error");
+    println!();
     println!("Test options:");
     println!("  --filter=<pattern>  Only run tests matching pattern");
     println!("  --verbose, -v       Show detailed output");
@@ -356,6 +407,7 @@ fn print_usage() {
     println!("  ori test tests/spec/patterns/");
     println!("  ori test --filter=map");
     println!("  ori check lib.ori");
+    println!("  ori check lib.ori --test-enforcement=error");
     println!("  ori targets                     # List supported targets");
     println!("  ori target list                 # List installed targets");
     println!("  ori target add wasm32-wasi      # Install WASI target");

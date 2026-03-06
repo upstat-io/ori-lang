@@ -1,22 +1,23 @@
 ---
 title: "Testing"
-description: "Mandatory testing, assertions, mocking, and test organization."
+description: "Smart testing, assertions, mocking, and test organization."
 order: 12
 part: "Program Structure"
 ---
 
 # Testing
 
-Testing isn't optional in Ori — it's part of compilation. Every function (except `@main`) must have at least one test. This guide covers comprehensive testing strategies.
+Testing in Ori is integrated into compilation. Tests are bound to functions, tracked in the dependency graph, and run automatically when code changes. Test enforcement is configurable — from silent to strict.
 
 ## The Philosophy
 
-Ori enforces what discipline alone cannot. If code compiles:
-- It has tests
-- Those tests pass
-- Changing code tells you what broke
+Ori provides the infrastructure to make testing seamless:
+- Tests are bound to specific functions via `tests @target`
+- Changing code automatically runs affected tests
+- Dependency tracking catches cascading breakage
+- Enforcement level is configurable: `off` (default), `warn`, or `error`
 
-This isn't about process or policy — it's about the compiler refusing to produce code it can't verify.
+This isn't about forcing tests — it's about making testing so integrated that skipping it is the harder path.
 
 ## Test Declaration
 

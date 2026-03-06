@@ -51,7 +51,7 @@ sections:
 - `ori_ir::builtin_methods::has_method()` -- replaced by `ori_registry::find_method().is_some()`
 - `ori_ir::builtin_methods::method_borrows_receiver()` -- subsumed by `find_method().receiver`
 
-**File:** `compiler/ori_registry/src/lib.rs` (query functions), `compiler/ori_registry/src/defs/mod.rs` (BUILTIN_TYPES assembly)
+**File:** `compiler/ori_registry/src/query.rs` (query functions, re-exported from `lib.rs`), `compiler/ori_registry/src/defs/mod.rs` (BUILTIN_TYPES assembly)
 
 ---
 
@@ -163,7 +163,7 @@ A `HashMap<TypeTag, &TypeDef>` would add ~200 bytes of metadata, require `LazyLo
 
 ### Implementation tasks
 
-- [ ] Implement `find_type()` as `const fn` in `lib.rs`
+- [ ] Implement `find_type()` as `const fn` in `query.rs`
 - [ ] Unit test: every `BUILTIN_TYPES` entry is findable by its tag
 - [ ] Unit test: non-registry tags (`TypeTag::Unit`, `TypeTag::Never`, `TypeTag::Function`) return `None`
 - [ ] Unit test: determinism -- calling twice returns same pointer
@@ -214,7 +214,7 @@ pub fn find_method(tag: TypeTag, name: &str) -> Option<&'static MethodDef> {
 
 ### Implementation tasks
 
-- [ ] Implement `find_method()` in `lib.rs`
+- [ ] Implement `find_method()` in `query.rs`
 - [ ] Unit test: known methods return correct MethodDef (check name, returns, receiver fields)
 - [ ] Unit test: unknown method name on known type returns `None`
 - [ ] Unit test: any method name on unknown type returns `None`
@@ -310,10 +310,10 @@ This keeps the registry free of `Name` (which lives in `ori_ir`) and free of `Fx
 
 ### Implementation tasks
 
-- [ ] Implement `methods_for()` in `lib.rs`
-- [ ] Implement `method_names_for()` in `lib.rs`
-- [ ] Implement `borrowing_methods()` in `lib.rs`
-- [ ] Implement `has_method()` in `lib.rs`
+- [ ] Implement `methods_for()` in `query.rs`
+- [ ] Implement `method_names_for()` in `query.rs`
+- [ ] Implement `borrowing_methods()` in `query.rs`
+- [ ] Implement `has_method()` in `query.rs`
 - [ ] Unit test: `methods_for` on known type returns non-empty iterator
 - [ ] Unit test: `methods_for` on unknown type returns empty iterator
 - [ ] Unit test: `method_names_for` returns all expected names for a type (spot-check int, str)
@@ -420,7 +420,7 @@ pub fn find_type_by_name(name: &str) -> Option<&'static TypeDef> {
 
 ### Implementation tasks
 
-- [ ] Implement `find_type_by_name()` in `lib.rs`
+- [ ] Implement `find_type_by_name()` in `query.rs`
 - [ ] Unit test: every `BUILTIN_TYPES` entry is findable by its `.name` field
 - [ ] Unit test: unknown name returns `None`
 - [ ] Unit test: case sensitivity -- `"Int"` does not find `int` (whose name is `"int"`)

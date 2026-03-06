@@ -2,7 +2,7 @@
 reroute: true
 name: "Type Registry"
 full_name: "Type Strategy Registry"
-status: queued
+status: active
 order: 1
 ---
 
@@ -27,13 +27,16 @@ order: 1
 ```
 TypeTag, MemoryStrategy, Ownership, OpStrategy
 ParamDef, MethodDef, OpDefs, TypeDef
+ReturnTag, TypeProjection, TypeParamArity, MethodKind, DeiPropagation
 pure data, no behavior, no dependencies, const-constructible
 enum, struct, static, compile-time, zero-cost
 receiver, borrow, owned, copy, arc
 IntInstr, FloatInstr, UnsignedCmp, BoolLogic, RuntimeCall, Unsupported
 schema, contract, specification, declaration
-SelfType, Iterator, Void, return type
+SelfType, Iterator, Unit (not Void), return type, NextResult, Fresh
 extensibility, future fields, IterationDef, HashStrategy, DisplayStrategy
+size assertion, documentation, operator coverage
+pow, matmul, as, as?, not, bit_not, neg
 ```
 
 ---
@@ -43,13 +46,15 @@ extensibility, future fields, IterationDef, HashStrategy, DisplayStrategy
 
 ```
 ori_registry, Cargo.toml, workspace, crate DAG
-module structure, lib.rs, core.rs, method.rs, operator.rs, type_def.rs
+module structure, lib.rs, tags.rs, method.rs, operator.rs, type_def.rs, query.rs
 defs/, defs/mod.rs, defs/int.rs, defs/str.rs
+directory module, sibling tests.rs, const fn helper
 purity, no behavior, no logic, no trait impls with logic
 no dependencies, zero deps, foundation crate, bottom of DAG
 const, static, compile-time construction
 enforcement test, purity test, no functions with side effects
 workspace members, cargo check, cargo test
+ori_llvm excluded from workspace, path dependency
 ```
 
 ---
@@ -62,13 +67,21 @@ int, float, bool, byte, char
 INT, FLOAT, BOOL, BYTE, CHAR
 MemoryStrategy::Copy, value type, bitwise copy
 IntInstr, FloatInstr, UnsignedCmp, BoolLogic
-int.f, int.byte, int.abs, int.to_str
+Ownership::Borrow, receiver ownership, Copy vs Borrow
+ReturnTag::SelfType, operator trait methods
+ParamDef, Param::SelfType, abbreviated MethodDef::new
+MethodDef::primitive, const fn helper, 500-line limit
+int.f, int.byte, int.abs, int.to_str, int.into, int.pow
 float.floor, float.ceil, float.round, float.abs, float.to_str
-bool.to_str
-byte.to_int, byte.to_char, byte.to_str
-char.to_int, char.to_str, char.is_alpha, char.is_digit
+float return type discrepancy, ori_ir SelfType bug
+bool.to_str, bool.not, BoolLogic
+byte.to_int, byte.to_char, byte.to_str, byte bitwise operators
+char.to_int, char.to_str, char.is_alpha, char.is_digit, char.to_byte
 resolve_int_method, resolve_float_method, resolve_bool_method
 resolve_byte_method, resolve_char_method
+cross-reference table, method count summary, signed vs unsigned
+trait methods as MethodDefs, operator methods as MethodDefs
+Default, Formattable, Value, Sendable (not in registry)
 ```
 
 ---
@@ -77,12 +90,17 @@ resolve_byte_method, resolve_char_method
 **File:** `section-04-string-type.md` | **Status:** Not Started
 
 ```
-str, STR, string, MemoryStrategy::Arc
+str, STR, string, MemoryStrategy::Arc, SSO, Small String Optimization
 RuntimeCall, ori_str_concat, ori_str_eq, ori_str_compare
 str.length, str.concat, str.to_upper, str.to_lower, str.trim
 str.contains, str.starts_with, str.ends_with
 str.slice, str.replace, str.split, str.chars
 str.to_str, str.repeat, str.bytes
+str.as_bytes, str.to_bytes, str.from_utf8, str.from_utf8_unchecked
+str.into, Into trait, str -> Error
+alias, length/len, substring/slice, parse_int/to_int, parse_float/to_float
+associated function, MethodKind::Associated
+Formattable, blanket impl, Iterable, DoubleEndedIterator
 resolve_str_method, string comparison, string ordering
 operator overloading, add operator on strings
 ```
@@ -93,14 +111,19 @@ operator overloading, add operator on strings
 **File:** `section-05-compound-types.md` | **Status:** Not Started
 
 ```
-Duration, Size, Ordering, Error, Channel
-Duration.from_secs, Duration.from_millis, Duration.secs, Duration.millis
-Size.bytes, Size.kb, Size.mb, Size.gb
+Duration, Size, Ordering, Error
+Duration.from_seconds, Duration.from_millis, Duration.nanoseconds, Duration.as_seconds
+Size.bytes, Size.kilobytes, Size.from_kb, Size.to_kb
 Ordering.Less, Ordering.Equal, Ordering.Greater, Ordering.then_with
-error.message, error.trace
-Channel.send, Channel.recv, Channel.close
-compound types, special types, unit types
+Error.message, Error.trace, Error.trace_entries, Error.with_trace
+compound types, measurement types, Duration/Size pattern
 register_builtin_types, builtin_types.rs
+const fn helper, MethodDef::compound, MethodDef::associated
+directory module, sibling tests.rs, frozen fields
+associated function, MethodKind::Associated
+heterogeneous operators, operator alias, canonical name
+format spec types, FormatType, Alignment, Sign, FormatSpec
+MemoryStrategy::Copy, MemoryStrategy::Arc
 ```
 
 ---
@@ -109,7 +132,8 @@ register_builtin_types, builtin_types.rs
 **File:** `section-06-collection-wrapper-types.md` | **Status:** Not Started
 
 ```
-List, Map, Set, Range, Tuple, Option, Result
+List, Map, Set, Range, Tuple, Option, Result, Channel
+Channel.send, Channel.recv, Channel.close, Channel.try_recv
 list.len, list.push, list.pop, list.get, list.iter
 map.len, map.get, map.insert, map.keys, map.values
 set.len, set.contains, set.insert
@@ -169,7 +193,7 @@ resolve_float_method, resolve_bool_method, resolve_byte_method
 resolve_char_method, resolve_list_method, resolve_option_method
 resolve_result_method, resolve_map_method, resolve_set_method
 TYPECK_BUILTIN_METHODS, return_tag_to_idx, return type
-unify_higher_order_constraints (stays in ori_types), calls.rs
+unify_higher_order_constraints (stays in ori_types), calls/method_call.rs
 DEI_ONLY_METHODS, well_known_generic_types
 infer/expr/methods/mod.rs, check/well_known/mod.rs
 Tag, Idx, InferEngine, type pool
@@ -220,7 +244,7 @@ BuiltinRegistration, receiver_borrowed, declare_builtins! macro
 ARC_PIPELINE_METHODS, BuiltinTable
 borrowing_builtin_names, delete function
 simplify macro, remove borrow: syntax
-arc_emitter/mod.rs, builtins/mod.rs, builtins/traits.rs
+arc_emitter/operators.rs, arc_emitter/mod.rs, builtins/mod.rs, builtins/traits.rs
 emit_str_cmp_predicate, CmpPredicate, ori_str_compare
 ```
 
