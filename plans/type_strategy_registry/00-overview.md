@@ -188,7 +188,7 @@ Before any type definition (Sections 03-07) or wiring (Sections 09-13) begins, t
 
 8. **TypeParamArity**: `TypeDef` includes `type_params: TypeParamArity` — `Fixed(0)` for primitives, `Fixed(1)` for `List<T>`/`Option<T>`/etc., `Fixed(2)` for `Map<K,V>`/`Result<T,E>`, `Variadic` for tuples.
 
-9. **MethodKind**: `MethodDef` includes `kind: MethodKind` — `Instance` (default) or `Associated` (for factory functions like `Duration.from_seconds()`). Needed by Sections 05/06 for compound types with static constructors.
+9. **MethodKind**: `MethodDef` includes `kind: MethodKind` — `Instance` (default) or `Associated` (for associated functions like `Duration.from_seconds()`). Needed by Sections 04/05 for str, Duration, and Size associated functions.
 
 10. **TypeProjection**: `TypeProjection` enum (`Element | Key | Value | Ok | Err | Fixed(TypeTag)`) is part of the core model. Used by parameterized `ReturnTag` variants (`OptionOf`, `ListOf`, `IteratorOf`, `DoubleEndedIteratorOf`) to express generic return types relative to receiver type parameters.
 
@@ -203,6 +203,10 @@ Before any type definition (Sections 03-07) or wiring (Sections 09-13) begins, t
 15. **Function type**: `TypeTag::Function` is in the registry with `methods: &[]` (no methods), `operators: OpDefs::UNSUPPORTED`, `memory: MemoryStrategy::Arc`, `type_params: TypeParamArity::Variadic`. Its value is memory classification, not method registration.
 
 16. **Operator exclusions**: `pow`/`**` (desugared to `Pow.power()` trait method before IR), `matmul`/`@` (always trait-dispatched via `BinaryOp::MatMul`), `as`/`as?` (`Expr::Cast`, not an operator), `&&`/`||` (short-circuit control flow, subsumed by `BoolLogic` on `bit_and`/`bit_or`), `..`/`..=`/`??`/`?` (desugared) — none of these have `OpDefs` fields. Documented in Section 01.7 design decisions 5-10.
+
+17. **Purity semantics**: `pure: true` means "no observable side effects (no IO, no mutation, no global state) but MAY panic on invalid input." Matches Swift's `readnone` and Lean's model. The optimizer MAY reorder, CSE, and hoist pure calls, but MUST NOT eliminate them if reachable (panic must fire). All primitive methods are `pure: true`. A future `may_panic` flag can be added as a separate field without changing `pure` semantics.
+
+18. **Primitive receiver ownership**: All primitive type method receivers use `Ownership::Borrow`, not `Ownership::Copy`. The `Copy` variant exists but is reserved for future use. Rationale: the ARC pass checks `receiver == Borrow` to skip RC ops; using `Copy` would require updating every check to `== Borrow || == Copy`. `Borrow` is semantically correct (the receiver IS borrowed; it happens to be trivially copyable). See Section 03 design decisions.
 
 ## Incremental Execution Principles
 
@@ -255,9 +259,9 @@ Phase 4 ─ Enforcement & Exit
 |---------|-----------|------------|------------|
 | 01 Core Data Model | ~200 (tags.rs) | Low | — |
 | 02 Crate Scaffolding | ~100 (lib.rs, query.rs, stubs) | Low | 01 |
-| 03 Primitive Types | ~600 (~5 types, ~15 methods each, 10 lines/method + OpDefs) | Low | 01, 02 |
-| 04 String Type | ~350 (~30+ methods, 10 lines/method + OpDefs) | Medium | 01, 02 |
-| 05 Compound Types | ~400 (~5 types with varied method counts) | Medium | 01, 02 |
+| 03 Primitive Types | ~510 (~5 types, 124 methods total using const fn helper at ~1 line/method + OpDefs + tests) | Low | 01, 02 |
+| 04 String Type | ~450 (~43 methods incl. spec §8.1.6 + associated fns, ~1 line/method with const fn helper + OpDefs) | Medium-High | 01, 02 |
+| 05 Compound Types | ~550 (~5 types as directory modules with const fn helpers at ~1 line/method + sibling tests.rs files) | Medium | 01, 02 |
 | 06 Collection & Wrapper Types | ~500 (7 types, many methods each) | Medium | 01, 02 |
 | 07 Iterator Types | ~350 (~24 methods, 10 lines/method + DEI metadata) | Medium-High | 01, 02 |
 | 08 Query API | ~80 (query.rs) | Low | 01, 02 |
@@ -267,9 +271,9 @@ Phase 4 ─ Enforcement & Exit
 | 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 |
 | 13 Migrate ori_ir | ~-400 (net deletion) | Medium | 03-08 |
 | 14 Enforcement & Exit | ~200 | Medium | 09-13 |
-| **Total new (ori_registry)** | **~2,580** | | |
+| **Total new (ori_registry)** | **~2,730** | | |
 | **Total deleted (legacy)** | **~-1,600** | | |
-| **Net change** | **~+980** | | |
+| **Net change** | **~+1,130** | | |
 
 ## Sync Points Eliminated
 
