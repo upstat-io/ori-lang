@@ -9,7 +9,7 @@
 //! if/else expressions with trivial arm bodies can be folded into `Select`
 //! instructions.
 //!
-//! # Six-Phase Transform
+//! # Seven-Phase Transform
 //!
 //! 1. **Compact** — remove blocks unreachable from the entry (dead unwind
 //!    blocks, orphaned blocks from earlier passes).
@@ -31,6 +31,10 @@
 //!    variables are never used anywhere in the function. Targets
 //!    multi-predecessor blocks (e.g., loop exit blocks with unused
 //!    mutable variable params).
+//! 7. **Invariant param elimination** — remove block params where all
+//!    incoming values agree (after filtering self-references). Targets
+//!    loop-invariant mutable bindings carried through loop headers
+//!    without modification.
 //!
 //! # Pipeline Placement
 //!
@@ -43,6 +47,7 @@
 mod compact;
 mod dead_param;
 mod downgrade;
+mod invariant_param;
 mod merge;
 mod select;
 mod single_pred_phi;
@@ -55,8 +60,8 @@ use crate::uniqueness::DropHints;
 
 /// Run the full block merge pass on a function.
 ///
-/// Calls the six phases in order: compact → downgrade → select-fold →
-/// merge → single-pred-phi → dead-param.
+/// Calls the seven phases in order: compact → downgrade → select-fold →
+/// merge → single-pred-phi → dead-param → invariant-param.
 ///
 /// # Precondition
 ///
@@ -93,6 +98,12 @@ pub(crate) fn merge_blocks(func: &mut ArcFunction) {
     // but those variables may be unused after the loop. Remove the dead
     // params and their corresponding Jump args.
     dead_param::eliminate_dead_params(func);
+
+    // Phase 7: eliminate invariant block params on loop headers.
+    // A param is invariant when all non-self incoming values agree on a
+    // single ArcVarId — the mutable binding was never modified inside
+    // the loop. Replace uses with the common value, remove the param.
+    invariant_param::eliminate_invariant_params(func);
 }
 
 /// Convert a `usize` block index to an `ArcBlockId`.
