@@ -46,14 +46,17 @@ In practice, this means float narrowing is mostly useful for:
 
 **File(s):** `compiler/ori_repr/src/narrowing/float.rs`
 
+**Note:** `f64` does not implement `Eq` or `Hash`. If `FloatRange` is ever used as a map key or Salsa query input, the `Constant` variant must store bits as `u64` or use `OrderedFloat<f64>`.
+
 - [ ] Define `FloatRange`:
   ```rust
+  #[derive(Debug, Clone, Copy, PartialEq)]
   pub enum FloatRange {
       /// No info (keep f64)
       Top,
       /// All values are exactly representable in f32
       F32Exact,
-      /// Value is a known constant
+      /// Value is a known constant (stored as bits for Hash/Eq if needed)
       Constant(f64),
       /// All values are integers in [-2²⁴, 2²⁴] (f32-exact integer range)
       IntegerValued { lo: i64, hi: i64 },
@@ -113,7 +116,7 @@ Float narrowing is only applied under very strict conditions to avoid precision 
   - All stored values are f32-exact (e.g., from parsing f32 input data)
   - Narrowing saves memory without affecting computation
 
-- [ ] Arithmetic narrowing (aggressive, opt-in via `#[repr(f32)]` attribute):
+- [ ] Arithmetic narrowing (aggressive, opt-in via `#repr("f32")` attribute):
   - Future: allow the programmer to annotate that f32 precision is acceptable
   - This is a semantic change (different rounding) — requires explicit opt-in
   - Not part of the automatic optimization pipeline
@@ -148,5 +151,6 @@ Float narrowing is only applied under very strict conditions to avoid precision 
 - [ ] `fpext`/`fptrunc` visible at load/store boundaries in LLVM IR
 - [ ] `./diagnostics/dual-exec-verify.sh` passes (no precision differences)
 - [ ] `./test-all.sh` green
+- [ ] `./clippy-all.sh` green
 
 **Exit Criteria:** A program storing constant `0.5` in a struct field uses `float` (f32) in LLVM IR instead of `double` (f64), verified by inspecting generated IR. All floating-point spec tests continue to pass with bit-identical results.

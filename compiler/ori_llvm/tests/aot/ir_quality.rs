@@ -1314,3 +1314,235 @@ fn test_checked_binop_overflow_still_has_unreachable() {
         next_meaningful.trim()
     );
 }
+
+// Range specialization (Section 08.3)
+
+/// Ascending exclusive range (`0..n`): single `icmp slt` in header.
+///
+/// With step=1 and inclusive=0 known at compile time, the general
+/// 8-instruction boolean condition reduces to a single comparison.
+#[test]
+fn test_range_ascending_exclusive_single_icmp() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_up (n: int) -> int = {
+    let count = 0;
+    for i in 0..n do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_up(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_up");
+
+    // Header block: exactly 1 icmp (the `slt` condition), not 8 boolean ops.
+    // Find the header by looking for the block with phi + icmp + br pattern.
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+    assert_eq!(
+        icmp_count, 1,
+        "expected exactly 1 icmp in specialized header (step=1, excl), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+    assert!(
+        header.contains("icmp slt"),
+        "expected `icmp slt` for ascending exclusive range.\nHeader:\n{header}"
+    );
+
+    // No zero-step guard: step=1 is known non-zero.
+    assert!(
+        !fn_ir.contains("range step cannot be zero"),
+        "expected no zero-step guard for literal step=1.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Ascending inclusive range (`0..=n`): single `icmp sle` in header.
+#[test]
+fn test_range_ascending_inclusive_single_icmp() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_incl (n: int) -> int = {
+    let count = 0;
+    for i in 0..=n do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_incl(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_incl");
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+    assert_eq!(
+        icmp_count, 1,
+        "expected exactly 1 icmp in specialized header (step=1, incl), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+    assert!(
+        header.contains("icmp sle"),
+        "expected `icmp sle` for ascending inclusive range.\nHeader:\n{header}"
+    );
+}
+
+/// Descending exclusive range (`n..0 by -1`): single `icmp sgt` in header.
+#[test]
+fn test_range_descending_exclusive_single_icmp() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_down (n: int) -> int = {
+    let count = 0;
+    for i in n..0 by -1 do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_down(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_down");
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+    assert_eq!(
+        icmp_count, 1,
+        "expected exactly 1 icmp in specialized header (step=-1, excl), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+    assert!(
+        header.contains("icmp sgt"),
+        "expected `icmp sgt` for descending exclusive range.\nHeader:\n{header}"
+    );
+}
+
+/// Descending inclusive range (`n..=0 by -1`): single `icmp sge` in header.
+#[test]
+fn test_range_descending_inclusive_single_icmp() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_down_incl (n: int) -> int = {
+    let count = 0;
+    for i in n..=0 by -1 do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_down_incl(n: 10);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_down_incl");
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+    assert_eq!(
+        icmp_count, 1,
+        "expected exactly 1 icmp in specialized header (step=-1, incl), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+    assert!(
+        header.contains("icmp sge"),
+        "expected `icmp sge` for descending inclusive range.\nHeader:\n{header}"
+    );
+}
+
+/// Variable step (`0..n by s`): falls back to general 8-instruction condition.
+#[test]
+fn test_range_variable_step_general_condition() {
+    let ir = compile_and_capture_ir(
+        r"
+@count_step (n: int, s: int) -> int = {
+    let count = 0;
+    for i in 0..n by s do {
+        count += 1
+    };
+    count
+}
+
+@main () -> int = count_step(n: 10, s: 2);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_count_step");
+    let header = find_loop_header(fn_ir);
+    let icmp_count = header.matches("icmp").count();
+
+    // General path: 6 icmp instructions (step>0, step<0, incl>0, i<end, i>end, i==end).
+    assert!(
+        icmp_count >= 4,
+        "expected >= 4 icmp in general header (variable step), got {icmp_count}.\n\
+         Header:\n{header}"
+    );
+
+    // Zero-step guard should be present.
+    assert!(
+        fn_ir.contains("range step cannot be zero")
+            || fn_ir.contains("ori_panic_cstr")
+            || fn_ir.contains("ori_panic"),
+        "expected zero-step guard for variable step.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Find the loop header block in LLVM IR (block with phi nodes + conditional branch).
+fn find_loop_header(fn_ir: &str) -> String {
+    let mut in_header = false;
+    let mut header_lines = Vec::new();
+
+    for line in fn_ir.lines() {
+        let trimmed = line.trim();
+        // Start of a new block
+        if trimmed.ends_with(':') || (trimmed.contains(':') && trimmed.contains("preds")) {
+            if in_header {
+                break; // We were in the header, now hit the next block
+            }
+            // Check if this block has phi nodes (next lines)
+            in_header = false;
+            header_lines.clear();
+            header_lines.push(line.to_string());
+            continue;
+        }
+        if in_header
+            || (!header_lines.is_empty() && trimmed.starts_with('%') && trimmed.contains("= phi "))
+        {
+            in_header = true;
+            header_lines.push(line.to_string());
+        } else if !in_header && !header_lines.is_empty() {
+            // This block didn't start with phi — not the header
+            header_lines.clear();
+        }
+    }
+
+    header_lines.join("\n")
+}

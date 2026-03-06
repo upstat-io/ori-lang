@@ -36,9 +36,15 @@ Use `/benchmark short` after modifying hot paths.
 ```
 MachineRepr, ReprPlan, ReprDecision, DecisionSource, DecisionReason
 IntWidth, FloatWidth, StructRepr, EnumRepr, TupleRepr, RcRepr
+FatRepr, ClosureRepr, VariantRepr, FieldRepr, ReprAttribute, RcStrategy
 ori_repr crate, representation plan, narrowing decision
-TypeLayoutResolver, TypeInfo, storage_type
+TypeLayoutResolver, TypeInfo, storage_type, TypeInfoStore
 canonical representation, machine representation, semantic contract
+Char, Byte, Duration, Size, Ordering, Range, FatPointer, OpaquePtr
+generic type, monomorphization, type variable, resolve_fully
+Salsa integration, incremental, invalidation, JIT hot-reload
+#repr("c"), #repr("packed"), #repr("transparent"), #repr("aligned", N)
+migration, TypeInfoStore → ReprPlan, Phase A/B/C
 Lean4 LCNF, Zig InternPool, Roc STLayoutInterner
 ```
 
@@ -50,10 +56,17 @@ Lean4 LCNF, Zig InternPool, Roc STLayoutInterner
 ```
 Triviality, trivial, non-trivial, ARC elision, RC elision
 ArcClassifier, ArcClass, Scalar, DefiniteRef, PossibleRef
-is_trivial, classify_triviality, transitive walk
+is_trivial, classify_triviality, classify_recursive, transitive walk
+triviality/mod.rs, triviality/tests.rs, directory module
 Option<int>, (int, float), Result<int, Ordering>, struct Point
-drop function elision, no RC, zero overhead
-ori_arc::classify, TypeInfoStore::is_trivial
+drop function elision, no RC, zero overhead, compute_drop_info
+ori_arc::ArcClassifier, ori_types::triviality, TypeInfoStore::is_trivial
+newtype, UserId, Named, resolve_fully, TypeKind::Newtype
+CPtr, JsValue, c_int, FFI type, opaque pointer
+generic type, monomorphization, Pair<T>, type variable
+Salsa, caching, RefCell, FxHashMap, incremental
+ori_eval, evaluator, not affected
+merge_triviality, cycle detection, FxHashSet, visiting
 ```
 
 ---
@@ -108,7 +121,8 @@ IEEE 754, double to float, f32 representable
 struct layout, field reordering, padding minimization
 StructRepr, FieldRepr, alignment, offset, padding
 sort by alignment, descending alignment, descending size
-#[repr(C)], #[repr(packed)], ABI stable, FFI interop
+#repr("c"), #repr("packed"), #repr("transparent"), #repr("aligned", N), ABI stable, FFI interop
+ReprAttribute, Default, C, Packed, Transparent, Aligned
 tuple layout, anonymous struct, optimize_tuple_layout
 Rust repr(Rust), Zig struct layout, LLVM DataLayout
 ```

@@ -75,6 +75,13 @@ Source (.ori)
     ▼
 ┌─────────────────────────────────────────────┐
 │  Compiler Frontend (parse → typeck → ARC)   │
+│                                              │
+│  ┌─────────────────────────────────────┐    │
+│  │ ori_arc pipeline (run_arc_pipeline)  │    │
+│  │  §01 block merging                  │    │
+│  │  §04 closure lifecycle              │    │
+│  │  §09 tail call loop lowering        │    │
+│  └─────────────────────────────────────┘    │
 └─────────────┬───────────────────────────────┘
               │
               ▼
@@ -83,8 +90,7 @@ Source (.ori)
 │                                              │
 │  ┌─────────────┐  ┌──────────────────────┐  │
 │  │ arc_emitter  │  │ function_compiler    │  │
-│  │  §01 blocks  │  │  §02 attributes     │  │
-│  │  §03 arith   │  │  §09 tail calls     │  │
+│  │  §03 arith   │  │  §02 attributes     │  │
 │  │  §05 payload │  │                      │  │
 │  │  §06 dead    │  │                      │  │
 │  │  §08 loops   │  │                      │  │
@@ -132,19 +138,22 @@ Source (.ori)
                                   └─ §09 Tail Calls ───────┘
 ```
 
-- `§03`, `§05`, and `§07` are mostly independent and can start immediately.
-- `§02` should land before `§06` so noreturn/nounwind metadata is available for dead-path pruning.
-- `§04` and `§09` should be coordinated because tail-call eligibility depends on ARC cleanup placement.
-- `§08` benefits from `§01` block/phi simplification first.
-- `§10` requires sections 01–09 to be complete.
+- ~~`§03`, `§05`, and `§07` are mostly independent and can start immediately.~~ §03 and §05 complete; §07 can start immediately.
+- ~~`§02` should land before `§06` so noreturn/nounwind metadata is available for dead-path pruning.~~ Both complete.
+- `§04` and `§09` should be coordinated because tail-call eligibility depends on ARC cleanup placement. §04 complete; §09 pending.
+- `§08` benefits from `§01` block param simplification first. §01 complete; §08 can start.
+- `§10` requires sections 01–09 to be complete. Sections 01–06 complete; 07–09 pending.
 
 **Roadmap integration:** Codegen-purity is a vertical quality pass across roadmap sections 21A (LLVM Backend) and 21B (AOT Compilation). It is tracked separately but contributes to both completion checkpoints.
 
 **Cross-section interactions (must be coordinated)**
-- **`§02` + `§06`**: `noreturn` on panic declarations is required for reliable "emit `unreachable` and stop" behavior.
-- **`§04` + `§09`**: Tail-call lowering must not regress closure/environment lifetime correctness.
-- **`§01` + `§08`**: Loop phi cleanup and block-merging touch the same CFG construction path.
-- **`§07` + `§03`**: §07 refactors `emit_checked_binop()` in `arithmetic.rs` to use the IrBuilder wrapper for string dedup. This touches the same code that §03 modified for checked negation. Verify §03's overflow paths still work after §07's refactoring.
+- **`§02` + `§06`**: `noreturn` on panic declarations is required for reliable "emit `unreachable` and stop" behavior. (Both complete.)
+- **`§04` + `§09`**: Tail-call lowering must not regress closure/environment lifetime correctness. (§04 complete; §09 pending — coordination still required.) Additionally, the `__recurse` sentinel from `recurse()` pattern lowering (`ori_arc/src/lower/constructs.rs:171`) must be resolved to the actual function name before or during §09's detection pass. This is a prerequisite for both TCO detection and correct AOT compilation of `recurse()` programs.
+- **`§09` + `block_merge`**: §09's loop lowering pass runs BEFORE `block_merge` in `run_arc_pipeline()`. Block merge Phase 1 (compact) removes dead merge blocks created by the rewrite. Phase 4 does NOT merge loop headers (multi-predecessor). No conflict.
+- **`§01` + `§08`**: Block param cleanup and block-merging touch the same CFG construction path. (§01 complete; §08 pending.) Block merging (§01) merges sequential blocks within loop bodies, which can make duplicate computations co-resident in a single block — this HELPS 08.1 CSE (more opportunities). Block merging does NOT affect loop headers (multi-predecessor blocks are never merged). §08.2's invariant-param elimination extends Phase 6 (dead params) in `block_merge/` — same infrastructure, compatible.
+- **`§08` + `§09`**: TCO-generated loops have the same structure as source-level loops (header + body + back-edge). §08's optimizations (CSE, invariant-param elimination, range specialization) apply to TCO-generated loops automatically via `block_merge`. Implement §08 before §09 so the loop optimization infrastructure is tested on simpler loops first.
+- **`§06` + `§08`**: Dead code after break/continue (§06) and loop body optimizations (§08) are independent. §06.2's noreturn pruning handles `panic()` inside loop bodies. §06.1's surgical loading operates on function params, not loop iteration variables. No conflict.
+- **`§07` + `§03`**: §07 refactors `emit_checked_binop()` in `checked_ops.rs` (extracted from `arithmetic.rs`) to use the IrBuilder wrapper for string dedup. §03 is complete, so verify §03's overflow paths still work after §07's refactoring.
 - **`§02` + `§02.3`**: Derived methods bypass the two-pass nounwind pipeline (compiled before `compute_nounwind_set`). Any future pipeline refactoring must account for this ordering.
 
 ## Implementation Sequence
@@ -155,25 +164,28 @@ Phase 0 - Baseline & Instrumentation
   └─ Record baseline finding counts by ID (table below)
   Gate: Baseline artifacts committed under build/codegen-purity/baseline/; regression comparisons possible
 
-Phase 1 - Correctness (fix wrong behavior first)
-  └─ §03: Unary negation overflow check
-  └─ §04: Closure environment RC leak
+Phase 1 - Correctness (fix wrong behavior first) ✓ COMPLETE
+  └─ §03: Unary negation overflow check ✓
+  └─ §04: Closure environment RC leak ✓
   Gate: `-INT_MIN` parity tests pass; closure leak checks and RC accounting pass
 
-Phase 2 - IR Structure (eliminate redundant IR constructs)
-  └─ §01: Block merging, select lowering, phi simplification
-  └─ §05: extractvalue for sum type payloads
+Phase 2 - IR Structure (eliminate redundant IR constructs) ✓ COMPLETE
+  └─ §01: Block merging, select lowering, phi simplification ✓
+  └─ §05: extractvalue for sum type payloads ✓
   Gate: No avoidable bridge blocks in target functions; no SSA-to-stack roundtrip for targeted payload extraction paths
 
-Phase 3 - Attributes, Constants, and Dead-Path Pruning
-  └─ §02: noreturn, nounwind, noundef on all applicable functions
-  └─ §06: Dead field loads, dead code after noreturn (§06.2 requires §02.1 first)
-  └─ §07: Overflow message string deduplication (PREREQUISITE: split arithmetic.rs first — 513 lines, over limit)
+Phase 3 - Attributes, Constants, and Dead-Path Pruning (§07 remaining)
+  └─ §02: noreturn, nounwind, noundef on all applicable functions ✓
+  └─ §06: Dead field loads, dead code after noreturn (§06.2 requires §02.1 first) ✓
+  └─ §07: Overflow message string deduplication (prerequisite split of arithmetic.rs already done — now 352 lines + checked_ops.rs 162 lines)
   Gate: Attribute assertions pass; 0 duplicate targeted overflow strings; no post-noreturn emission in audited paths
 
 Phase 4 - Loop Quality (optimize loop IR patterns)
-  └─ §08: CSE for compound assignment, loop-invariant phi, range specialization
-  └─ §09: Tail call optimization via musttail or loop lowering
+  └─ §08: CSE for compound assignment, loop-invariant block param elimination, range specialization
+  │   Recommended sub-order: 08.3 (range specialization, lowest risk, highest impact on J7)
+  │                         → 08.2 (invariant block params, extends existing block_merge infra)
+  │                         → 08.1 (CSE, highest complexity, may be deferred if 08.3 makes it moot)
+  └─ §09: Tail call optimization via loop lowering (musttail as fallback)
   Gate: Journey loop findings resolved; tail-recursive stress test is stack-safe
 
 Phase 5 - Verification
@@ -189,10 +201,10 @@ Phase 5 - Verification
 - Phase 5 is the final gate — nothing ships without re-verification.
 
 **Crate dependency ordering:** Within each phase, changes to `ori_arc` (upstream) MUST land before changes to `ori_llvm` (downstream). `ori_arc` has NO LLVM dependency. Specifically:
-- §01 (block merging): `ori_arc/src/block_merge/` first → `ori_llvm` emission changes second
-- §07 (constant dedup): **must split `arithmetic.rs` (513 lines, BLOAT)** before refactoring it
-- §08 (loop IR quality): `ori_arc/src/lower/control_flow/` first (08.2, 08.3) → `ori_llvm` emission second (08.1 if LLVM-level CSE)
-- §09 (tail call): `ori_arc/src/` detection/rewriting first → `ori_llvm` emission second. These are coordinated but `ori_arc` changes are independent of `ori_llvm`.
+- ~~§01 (block merging): `ori_arc/src/block_merge/` first → `ori_llvm` emission changes second~~ **Complete**
+- §07 (constant dedup): `arithmetic.rs` already split (352 lines + `checked_ops.rs` 162 lines) — no prerequisite work needed.
+- §08 (loop IR quality): **08.2** (invariant block params): `ori_arc/src/block_merge/` (extend Phase 6 or add Phase 7) — ARC-only, no `emit_function.rs` changes. **08.3** (range specialization): `ori_arc/src/lower/control_flow/for_loops/for_range.rs` + new `get_literal_int()` on `ArcIrBuilder` — ARC-only. **08.1** (CSE): cache in `IrBuilder` (`ori_llvm/src/codegen/ir_builder/checked_ops.rs`), NOT in `ArcIrEmitter`. **BLOAT:** `emit_function.rs` is 579 lines (limit 500) — must split before any modifications (extract `scan_used_fields()` into `field_scan.rs`). Recommended order: 08.3 → 08.2 → 08.1 (simplest first, most impactful first, highest risk last).
+- §09 (tail call): `ori_arc/src/` detection/rewriting first → `ori_llvm` emission second. These are coordinated but `ori_arc` changes are independent of `ori_llvm`. **Pipeline placement:** New pass in `run_arc_pipeline()` AFTER `rc_identity` + `rc_elim` and BEFORE `block_merge` — the rewrite needs RC ops in final positions (after identity normalization and dead-pair elimination), and block_merge cleans up dead blocks from the rewrite. **Prerequisite:** `__recurse` sentinel resolution — add `func_name: Name` field to `ArcLowerer` (Option 1, preferred) or resolve as first step of detection pass (Option 2). **New module:** `compiler/ori_arc/src/tail_call/` (detection + rewrite + sibling `tests.rs`). Must follow module hygiene: `//!` docs, `pub(crate)` visibility, `#[tracing::instrument]`, `///` doc comments, 500-line limit per file. **`lib.rs` exception:** `ori_arc/src/lib.rs` already contains pipeline function bodies (382 lines) — adding a single call is acceptable, but if it exceeds ~450 lines, extract pipeline into `pipeline.rs`.
 
 ## Known Failing Tests (Expected Until Completion)
 
@@ -200,14 +212,15 @@ These are expected to fail until their owning section lands; do not patch around
 
 - ~~Unary negation overflow parity tests (`-INT_MIN`) until `§03` is complete.~~ **Resolved** — §03 complete.
 - ~~Leak-check closure lifecycle tests until `§04` is complete.~~ **Resolved** — §04 complete.
-- IR-quality assertions for select lowering/payload extraction/loop simplification until `§01`, `§05`, `§08` are complete.
+- ~~IR-quality assertions for select lowering/payload extraction until `§01`, `§05` are complete.~~ **Resolved** — §01, §05 complete.
+- IR-quality assertions for loop simplification until `§08` is complete.
 
 **Pre-existing `#[ignore]` tests in `compiler/ori_llvm/tests/aot/ir_quality.rs`:**
-These 4 tests document the exact issues this plan targets. Un-ignore as owning sections complete:
-- `test_nounwind_program_has_no_unreachable_blocks` → §02 (nounwind attributes)
-- `test_nounwind_generic_call_no_unreachable` → §02 (nounwind attributes)
-- `test_mixed_calls_no_dead_unreachable` → §02 (nounwind attributes)
-- `test_constant_main_minimal_ir` → §01 + §02 (block merging + attributes)
+These 4 tests document the exact issues this plan targets. **ACTION NEEDED**: Their owning sections (§01, §02, §06) are now complete. These tests should be un-ignored and verified:
+- `test_nounwind_program_has_no_unreachable_blocks` → §02 + §06 (nounwind + dead block pruning) — **both complete**
+- `test_nounwind_generic_call_no_unreachable` → §02 + §06 — **both complete**
+- `test_mixed_calls_no_dead_unreachable` → §02 + §06 — **both complete**
+- `test_constant_main_minimal_ir` → §01 + §02 (block merging + attributes) — **both complete**
 
 **Journeys 13–19:** Previously existed but were removed. Only journeys 1–12 are active verification targets.
 
@@ -229,7 +242,7 @@ These 4 tests document the exact issues this plan targets. Un-ignore as owning s
 | L-5 | LOW | Dead | All struct/list fields loaded when only some needed | J4, J10 |
 | L-6 | LOW | Loop | `i+1` computed twice per loop iteration | J7 |
 | L-7 | LOW | Dead | Cleanup code after noreturn `ori_panic` | J7 |
-| L-8 | LOW | Loop | Unchanging value carried through loop phi | J10 |
+| L-8 | LOW | Loop | Unchanging value carried through loop block param (invariant phi in LLVM IR) | J10 |
 | L-9 | LOW | Loop | 8-instruction bounds check for common `1..=n` case | J7 |
 | L-10 | LOW | TCO | Tail-recursive gcd not optimized to loop | J3 |
 | L-11 | LOW | Attrs | Missing `noundef` on i64 parameters | J1 |
@@ -247,18 +260,18 @@ These 4 tests document the exact issues this plan targets. Un-ignore as owning s
 | L-5, L-7 | §06 | IR assertions: no unused field loads, no post-panic emission |
 | L-4 | §07 | IR global string uniqueness assertions |
 | L-6, L-8, L-9 | §08 | Loop IR pattern assertions + execution parity |
-| L-10 | §09 | Tail recursion stress test + IR check (`musttail` or loop lowering) |
+| L-10 | §09 | Tail recursion stress test + IR check (loop lowering; `musttail` fallback) |
 
 ## Metrics (Current State)
 
 | Metric | Baseline | Target |
 |--------|----------|--------|
 | Journey functional correctness (eval vs AOT) | 12/12 pass | 12/12 pass (no regressions) |
-| Medium-severity purity findings | 7 (5 IDs + 2 sub-IDs: M-1b, M-1c) | 0 |
-| Low-severity purity findings | 12 | 0 unresolved |
-| Findings with permanent regression tests | 4/19 (M-1 via §01.1; M-1b via §01.2; M-5 via §03; M-3 via §04) | 19/19 |
+| Medium-severity purity findings | ~~7~~ 0 (all owning sections §01-§05 complete) | 0 |
+| Low-severity purity findings | 12 → 5 remaining: L-4 (§07), L-6/L-8/L-9 (§08), L-10 (§09) | 0 unresolved |
+| Findings with permanent regression tests | Needs audit — §01-§06 complete, verify tests exist | 19/19 |
 | Journey artifacts captured (IR/asm/audit) | 0/12 | 12/12 |
-| Sections complete | 2/10 (§03, §04; §01 in progress — 3/4 subsections done) | 10/10 |
+| Sections complete | 6/10 (§01, §02, §03, §04, §05, §06) | 10/10 |
 
 ## Estimated Effort
 
@@ -271,8 +284,8 @@ These 4 tests document the exact issues this plan targets. Un-ignore as owning s
 | 05 Payload Extraction | ~90-170 | Medium | — |
 | 06 Dead Code Pruning | ~120-220 | **High** (06.1 is ABI-level) | 02 |
 | 07 Constant Deduplication | ~50-120 | Low | — |
-| 08 Loop IR Quality | ~180-320 | **Very High** (08.1 CSE + 08.3 specialization) | 01 |
-| 09 Tail Call Optimization | ~300-500 | **Very High** (ARC interaction is research-grade) | 04 (coordination) |
+| 08 Loop IR Quality | ~220-380 | **Very High** (08.1 CSE cache + 08.2 invariant block params + 08.3 range specialization + `emit_function.rs` split prerequisite) | 01 |
+| 09 Tail Call Optimization | ~400-600 | **Very High** (ARC interaction is research-grade; `block_merge` — a comparable CFG transform — is ~600 lines excl. tests; budget 2-3x) | 04 (coordination) |
 | 10 Verification | ~120-200 (tests/docs) | Medium | 01-09 |
 
 ## Risk Register
@@ -284,10 +297,13 @@ These 4 tests document the exact issues this plan targets. Un-ignore as owning s
 | Tail-call work conflicts with ARC cleanup | Incorrect drops or no TCO | Treat `§04` and `§09` as coordinated landing; require dedicated recursion tests |
 | Over-specialized loop paths | Behavioral regressions on uncommon ranges | Keep general fallback path and add property-style tests for range variants |
 | Verification drift over time | Plan appears complete but gaps reappear | Section 10 requires artifact regeneration and explicit unresolved-ID accounting before close |
-| §07 pushes `arithmetic.rs` over 500 lines | BLOAT finding; already at 513 lines | Split `arithmetic.rs` before §07 work (extract checked-binop to submodule) |
+| ~~§07 pushes `arithmetic.rs` over 500 lines~~ | ~~BLOAT finding~~ | ~~Split already done~~: `arithmetic.rs` (352 lines) + `checked_ops.rs` (162 lines) |
+| §08 requires modifying `emit_function.rs` (579 lines) | BLOAT finding | Must split before modifications: extract `scan_used_fields()` (~190 lines) into `field_scan.rs`. Note: 08.2 does NOT modify this file (fix is in ori_arc); only 08.1 may need it if cache-clearing hooks are added. |
 | §06.1 changes struct param loading ABI | Could break all struct-passing codegen | Requires extensive AOT test coverage; implement behind feature flag initially |
-| §08.1 CSE invalidation correctness | Stale cache entries cause miscompilation | Restrict to single-block, invalidate on any side effect; add negative tests |
+| §08.1 CSE invalidation correctness | Stale cache entries cause miscompilation | Cache in `IrBuilder` (not `ArcIrEmitter`). Clear via explicit `clear_cse_cache()` at ARC block boundaries — do NOT clear on internal `position_at_end` calls within `emit_checked_binop` (which creates panic/continue blocks). Key on LLVM `ValueId`, only cache checked arithmetic intrinsics; add negative tests for cross-block, side-effect, and nested-loop scenarios |
 | §09 ARC+TCO interaction | Hoisting RcDec before tail call may cause use-after-free | Safety proof required per-variable; conservative fallback (no TCO) if proof fails |
+| §09 `__recurse` sentinel unresolved in AOT | `recurse()` programs fail in AOT compilation (unresolved function) | Resolve sentinel to actual function name at lowering time or as first step of TCO detection pass — prerequisite for §09, fixes latent AOT bug |
+| §09 cross-block tail call detection | Existing `check_tail_call()` only checks same-block Apply→Return, misses the actual Apply→Jump→Return pattern | New detection pass must trace through Jump terminators; do not extend existing `check_tail_call()` (different purpose/phase) |
 
 ## Sign-Off Requirements
 
@@ -303,12 +319,12 @@ Before marking this plan `complete`, all of these must be true:
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Block Merging & CFG Simplification | `section-01-block-merging.md` | In Progress |
-| 02 | Function Attributes | `section-02-function-attributes.md` | Not Started |
+| 01 | Block Merging & CFG Simplification | `section-01-block-merging.md` | Complete |
+| 02 | Function Attributes | `section-02-function-attributes.md` | Complete |
 | 03 | Arithmetic Correctness | `section-03-arithmetic-correctness.md` | Complete |
 | 04 | ARC Closure Lifecycle | `section-04-arc-closure-lifecycle.md` | Complete |
-| 05 | Sum Type Payload Extraction | `section-05-payload-extraction.md` | Not Started |
-| 06 | Dead Code Pruning | `section-06-dead-code-pruning.md` | Not Started |
+| 05 | Sum Type Payload Extraction | `section-05-payload-extraction.md` | Complete |
+| 06 | Dead Code Pruning | `section-06-dead-code-pruning.md` | Complete |
 | 07 | Constant Deduplication | `section-07-constant-dedup.md` | Not Started |
 | 08 | Loop IR Quality | `section-08-loop-ir-quality.md` | Not Started |
 | 09 | Tail Call Optimization | `section-09-tail-call.md` | Not Started |
