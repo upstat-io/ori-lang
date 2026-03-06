@@ -162,6 +162,7 @@ pub fn lower_function_can(
         lambdas: &mut lambdas,
         hash_length: None,
         block_let_names: rustc_hash::FxHashSet::default(),
+        func_name: name,
         variant_ctors: &variant_ctors,
         type_subst,
     };
