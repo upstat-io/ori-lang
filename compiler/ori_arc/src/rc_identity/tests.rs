@@ -21,9 +21,7 @@ fn project(dst: ArcVarId, value: ArcVarId, field: u32) -> ArcInstr {
     }
 }
 
-// ---------------------------------------------------------------------------
 // RcIdentityMap::build
-// ---------------------------------------------------------------------------
 
 /// Simple projection: `v1 = Project(v0, 0)` → identity[v1] == v0.
 #[test]
@@ -163,9 +161,7 @@ fn identity_mixed() {
     assert_eq!(map.normalized_count(), 2);
 }
 
-// ---------------------------------------------------------------------------
 // propagate_rc_identity (without Pool — strategy-less tests)
-// ---------------------------------------------------------------------------
 
 /// `RcInc` on a projected var is not normalized when `var_reprs` is empty
 /// (test-only: no strategy update available → safety guard returns None).
@@ -298,9 +294,7 @@ fn propagation_leaves_owned_vars_unchanged() {
     ));
 }
 
-// ---------------------------------------------------------------------------
 // Integration: identity propagation enables more elimination
-// ---------------------------------------------------------------------------
 
 /// Demonstrates the core value proposition of RC identity propagation.
 ///

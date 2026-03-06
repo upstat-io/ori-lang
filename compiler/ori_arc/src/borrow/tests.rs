@@ -9,7 +9,7 @@ use crate::ArcClassifier;
 
 use super::infer_borrows_scc;
 
-// ── Pure function: all params should stay Borrowed ──────
+// Pure function: all params should stay Borrowed
 
 #[test]
 fn pure_function_all_borrowed() {
@@ -45,7 +45,7 @@ fn pure_function_all_borrowed() {
     assert_eq!(sig.params[1].ownership, Ownership::Borrowed);
 }
 
-// ── Return a parameter: must be Owned ───────────────────
+// Return a parameter: must be Owned
 
 #[test]
 fn return_param_becomes_owned() {
@@ -72,7 +72,7 @@ fn return_param_becomes_owned() {
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
 }
 
-// ── Store param in Construct: must be Owned ─────────────
+// Store param in Construct: must be Owned
 
 #[test]
 fn construct_param_becomes_owned() {
@@ -105,7 +105,7 @@ fn construct_param_becomes_owned() {
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
 }
 
-// ── Scalar params stay Owned (skipped by inference) ─────
+// Scalar params stay Owned (skipped by inference)
 
 #[test]
 fn scalar_param_stays_owned() {
@@ -134,7 +134,7 @@ fn scalar_param_stays_owned() {
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
 }
 
-// ── ApplyIndirect: all args Owned ───────────────────────
+// ApplyIndirect: all args Owned
 
 #[test]
 fn apply_indirect_all_args_owned() {
@@ -169,7 +169,7 @@ fn apply_indirect_all_args_owned() {
     assert_eq!(sig.params[1].ownership, Ownership::Owned);
 }
 
-// ── PartialApply: captured args Owned ───────────────────
+// PartialApply: captured args Owned
 
 #[test]
 fn partial_apply_captures_owned() {
@@ -202,7 +202,7 @@ fn partial_apply_captures_owned() {
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
 }
 
-// ── Projection propagation ──────────────────────────────
+// Projection propagation
 
 #[test]
 fn projection_propagates_ownership() {
@@ -236,7 +236,7 @@ fn projection_propagates_ownership() {
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
 }
 
-// ── Mixed: some borrowed, some owned ────────────────────
+// Mixed: some borrowed, some owned
 
 #[test]
 fn mixed_borrowed_and_owned() {
@@ -281,7 +281,7 @@ fn mixed_borrowed_and_owned() {
     assert_eq!(sig.params[1].ownership, Ownership::Owned); // b: stored
 }
 
-// ── Mutual recursion converges ──────────────────────────
+// Mutual recursion converges
 
 #[test]
 fn mutual_recursion_converges() {
@@ -344,7 +344,7 @@ fn mutual_recursion_converges() {
     assert_eq!(sig_g.params[0].ownership, Ownership::Borrowed);
 }
 
-// ── Mutual recursion with storing ───────────────────────
+// Mutual recursion with storing
 
 #[test]
 fn mutual_recursion_with_store_propagates() {
@@ -409,7 +409,7 @@ fn mutual_recursion_with_store_propagates() {
     assert_eq!(sig_f.params[0].ownership, Ownership::Owned); // f passes to g's Owned
 }
 
-// ── Empty function (no params) ──────────────────────────
+// Empty function (no params)
 
 #[test]
 fn empty_function_no_params() {
@@ -438,7 +438,7 @@ fn empty_function_no_params() {
     assert!(sig.params.is_empty());
 }
 
-// ── Tail call preservation ──────────────────────────────
+// Tail call preservation
 
 #[test]
 fn tail_call_promotes_borrowed_to_owned() {
@@ -502,7 +502,7 @@ fn tail_call_promotes_borrowed_to_owned() {
     );
 }
 
-// ── Unknown callee (not in function set) ────────────────
+// Unknown callee (not in function set)
 
 #[test]
 fn unknown_callee_marks_args_owned() {
@@ -537,7 +537,7 @@ fn unknown_callee_marks_args_owned() {
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
 }
 
-// ── apply_borrows writes results back to ArcFunction ────
+// apply_borrows writes results back to ArcFunction
 
 #[test]
 fn apply_borrows_updates_params() {
@@ -595,7 +595,7 @@ fn apply_borrows_updates_params() {
     assert_eq!(funcs[0].params[1].ownership, Ownership::Owned); // b: stored
 }
 
-// ── DerivedOwnership tests ──────────────────────────────────
+// DerivedOwnership tests
 
 use super::infer_derived_ownership;
 use crate::ownership::DerivedOwnership;
@@ -870,7 +870,7 @@ fn derived_block_params_are_owned() {
     assert_eq!(ownership[1], DerivedOwnership::Owned);
 }
 
-// ── Per-SCC inference: infer_borrow_single ──────────────
+// Per-SCC inference: infer_borrow_single
 
 use super::{extract_callees, infer_borrow_fixed_point, infer_borrow_single};
 use rustc_hash::FxHashMap;
@@ -1066,7 +1066,7 @@ fn single_with_callee_borrowed_stays_borrowed() {
     assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
 }
 
-// ── Per-SCC inference: infer_borrow_fixed_point ─────────
+// Per-SCC inference: infer_borrow_fixed_point
 
 #[test]
 fn fixed_point_mutual_recursion() {
@@ -1206,7 +1206,7 @@ fn fixed_point_with_external_callee() {
     );
 }
 
-// ── extract_callees ─────────────────────────────────────
+// extract_callees
 
 #[test]
 fn extract_callees_finds_apply_and_partial() {

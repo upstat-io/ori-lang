@@ -5,13 +5,14 @@
 
 use ori_arc::ir::{ArcFunction, ArcTerminator, ArcVarId};
 use ori_ir::Name;
+use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
 use super::context::{EmittedValue, InvokeMode};
 use super::ArcIrEmitter;
-use crate::codegen::abi::{FunctionAbi, ReturnPassing};
+use crate::codegen::abi::{FunctionAbi, ParamAbi, ReturnPassing};
 use crate::codegen::eh_model::EhModel;
-use crate::codegen::value_id::{BlockId, ValueId};
+use crate::codegen::value_id::{BlockId, FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an `ArcTerminator` as LLVM control flow.
@@ -261,56 +262,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let arg_vals: Vec<ValueId> = arc_args.iter().map(|a| self.var(*a)).collect();
 
-        // Method dispatch chain:
-        // 1. Receiver-based: use first arg's type (instance methods like eq/hash)
-        // 2. Return-type-based: use dst's type (static methods like default)
-        // 3. Unqualified: bare function name (free functions)
-        // 4. Monomorphized generic: match arg types → mangled specialization
-        // 5. Diagnostic fallback: logs warning, returns None
-        let resolved = self
-            .lookup_method_by_receiver(callee, arc_args, arc_func)
-            .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
-            .or_else(|| self.ctx.functions.get(&callee))
-            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
-            .or_else(|| self.lookup_method_fallback(callee))
-            .map(|(fid, abi)| {
-                (
-                    *fid,
-                    abi.params.clone(),
-                    abi.return_abi.passing,
-                    abi.return_abi.ty,
-                )
-            });
+        let resolved = self.resolve_invoke_callee(callee, arc_args, dst, arc_func);
 
         if let Some((func_id, params, ret_passing, ret_ty_idx)) = resolved {
-            let passed_args = self.apply_param_passing(&arg_vals, &params);
-            let result = match &ret_passing {
-                ReturnPassing::Sret { .. } => {
-                    let ret_ty = self.resolve_type(ret_ty_idx);
-                    let sret_alloca =
-                        self.builder
-                            .create_entry_alloca(self.current_function, "sret.tmp", ret_ty);
-                    let mut full_args = vec![sret_alloca];
-                    full_args.extend_from_slice(&passed_args);
-                    self.call_or_invoke_llvm(func_id, &full_args, mode, "call");
-                    self.builder.position_at_end(mode.normal_block());
-                    Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
-                }
-                ReturnPassing::Direct | ReturnPassing::Void => {
-                    let result = self.call_or_invoke_llvm(func_id, &passed_args, mode, "call");
-                    self.builder.position_at_end(mode.normal_block());
-                    result
-                }
-            };
-            if let Some(val) = result {
-                self.def_var_repr(dst, val, arc_func);
-            } else {
-                // Void-returning call: ARC IR still expects dst to be defined
-                // (uniform SSA — every Invoke produces a variable). Bind to a
-                // unit constant so successor blocks can reference it.
-                let unit = self.builder.const_i64(0);
-                self.def_var(dst, EmittedValue::Immediate(unit));
-            }
+            self.emit_abi_resolved_call(
+                dst,
+                func_id,
+                &params,
+                ret_passing,
+                ret_ty_idx,
+                &arg_vals,
+                mode,
+                arc_func,
+            );
         } else if let Some(val) = self.try_emit_builtin_method(callee, arc_args, arc_func) {
             // Builtin method handled inline — branch to normal block
             // (the current block needs a terminator since we skipped invoke)
@@ -318,32 +282,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
         } else if let Some(func_id) = self.builder.try_runtime_fn(func_name_str) {
-            // Runtime function fallback with aggregate coercion.
-            // Runtime functions take ptr params, but ARC IR passes aggregate
-            // structs (Str, List, etc.) by value — coerce as needed.
-            let is_list_push = func_name_str == "ori_list_push";
-            let coerced_args: Vec<ValueId> = arc_args
-                .iter()
-                .zip(arg_vals.iter())
-                .enumerate()
-                .map(|(i, (arc_var, &val))| {
-                    let arg_ty = arc_func.var_type(*arc_var);
-                    if is_list_push && i == 1 {
-                        self.coerce_any_to_ptr(val, arg_ty)
-                    } else {
-                        self.coerce_aggregate_to_ptr(val, arg_ty)
-                    }
-                })
-                .collect();
-            if let Some(val) = self.call_or_invoke_llvm(func_id, &coerced_args, mode, "call") {
-                self.builder.position_at_end(mode.normal_block());
-                self.def_var_repr(dst, val, arc_func);
-            } else {
-                // Void-returning runtime function: bind dst to unit constant
-                self.builder.position_at_end(mode.normal_block());
-                let unit = self.builder.const_i64(0);
-                self.def_var(dst, EmittedValue::Immediate(unit));
-            }
+            self.emit_runtime_fn_call(
+                dst,
+                func_id,
+                func_name_str,
+                arc_args,
+                &arg_vals,
+                mode,
+                arc_func,
+            );
         } else {
             let msg =
                 format!("unresolved function `{func_name_str}` in invoke — missing mono instance?");
@@ -356,6 +303,124 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let unit = self.builder.const_i64(0);
             self.def_var(dst, EmittedValue::Immediate(unit));
             self.builder.record_codegen_error_with_msg(msg);
+        }
+    }
+
+    /// Resolve the callee for an Invoke terminator via the 5-step dispatch chain.
+    ///
+    /// Tries: receiver-based → return-type-based → unqualified → monomorphized → fallback.
+    fn resolve_invoke_callee(
+        &self,
+        callee: Name,
+        arc_args: &[ArcVarId],
+        dst: ArcVarId,
+        arc_func: &ArcFunction,
+    ) -> Option<(FunctionId, Vec<ParamAbi>, ReturnPassing, Idx)> {
+        self.lookup_method_by_receiver(callee, arc_args, arc_func)
+            .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
+            .or_else(|| self.ctx.functions.get(&callee))
+            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
+            .or_else(|| self.lookup_method_fallback(callee))
+            .map(|(fid, abi)| {
+                (
+                    *fid,
+                    abi.params.clone(),
+                    abi.return_abi.passing,
+                    abi.return_abi.ty,
+                )
+            })
+    }
+
+    /// Emit an ABI-aware call/invoke for a resolved callee.
+    ///
+    /// Handles sret return passing (stack-allocated return slot), direct returns,
+    /// and void returns. Defines the destination variable with the appropriate
+    /// representation.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "ABI dispatch requires all parameters"
+    )]
+    fn emit_abi_resolved_call(
+        &mut self,
+        dst: ArcVarId,
+        func_id: FunctionId,
+        params: &[ParamAbi],
+        ret_passing: ReturnPassing,
+        ret_ty_idx: Idx,
+        arg_vals: &[ValueId],
+        mode: InvokeMode,
+        arc_func: &ArcFunction,
+    ) {
+        let passed_args = self.apply_param_passing(arg_vals, params);
+        let result = match &ret_passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(ret_ty_idx);
+                let sret_alloca =
+                    self.builder
+                        .create_entry_alloca(self.current_function, "sret.tmp", ret_ty);
+                let mut full_args = vec![sret_alloca];
+                full_args.extend_from_slice(&passed_args);
+                self.call_or_invoke_llvm(func_id, &full_args, mode, "call");
+                self.builder.position_at_end(mode.normal_block());
+                Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                let result = self.call_or_invoke_llvm(func_id, &passed_args, mode, "call");
+                self.builder.position_at_end(mode.normal_block());
+                result
+            }
+        };
+        if let Some(val) = result {
+            self.def_var_repr(dst, val, arc_func);
+        } else {
+            // Void-returning call: ARC IR still expects dst to be defined
+            // (uniform SSA — every Invoke produces a variable). Bind to a
+            // unit constant so successor blocks can reference it.
+            let unit = self.builder.const_i64(0);
+            self.def_var(dst, EmittedValue::Immediate(unit));
+        }
+    }
+
+    /// Emit a runtime function call with aggregate-to-pointer coercion.
+    ///
+    /// Runtime functions (`ori_*`) take `ptr` params, but ARC IR passes aggregate
+    /// structs (Str, List, etc.) by value — this helper coerces each arg as needed.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "runtime call dispatch requires all parameters"
+    )]
+    fn emit_runtime_fn_call(
+        &mut self,
+        dst: ArcVarId,
+        func_id: FunctionId,
+        func_name_str: &str,
+        arc_args: &[ArcVarId],
+        arg_vals: &[ValueId],
+        mode: InvokeMode,
+        arc_func: &ArcFunction,
+    ) {
+        let is_list_push = func_name_str == "ori_list_push";
+        let coerced_args: Vec<ValueId> = arc_args
+            .iter()
+            .zip(arg_vals.iter())
+            .enumerate()
+            .map(|(i, (arc_var, &val))| {
+                let arg_ty = arc_func.var_type(*arc_var);
+                if is_list_push && i == 1 {
+                    self.coerce_any_to_ptr(val, arg_ty)
+                } else {
+                    self.coerce_aggregate_to_ptr(val, arg_ty)
+                }
+            })
+            .collect();
+        if let Some(val) = self.call_or_invoke_llvm(func_id, &coerced_args, mode, "call") {
+            self.builder.position_at_end(mode.normal_block());
+            self.def_var_repr(dst, val, arc_func);
+        } else {
+            // Void-returning runtime function: bind dst to unit constant
+            self.builder.position_at_end(mode.normal_block());
+            let unit = self.builder.const_i64(0);
+            self.def_var(dst, EmittedValue::Immediate(unit));
         }
     }
 }

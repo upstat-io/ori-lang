@@ -70,27 +70,30 @@ pub(crate) fn rewrite_tail_calls(func: &mut ArcFunction) {
         let block_idx = site.call_block.index();
         let instr_idx = site.call_instr_idx;
 
-        // Extract the recursive call's arguments.
-        let apply_args = match &func.blocks[block_idx].body[instr_idx] {
-            ArcInstr::Apply { args, .. } => args.clone(),
+        // Remove the Apply instruction and extract its args. The detection
+        // pass guarantees this is an Apply — the else branch is defensive.
+        // RcDec operations that followed it remain in place — they clean up
+        // the current iteration's values before the back-edge jump.
+        let apply_args = match func.blocks[block_idx].body.remove(instr_idx) {
+            ArcInstr::Apply { args, .. } => args,
             other => {
                 tracing::warn!(
                     ?other,
                     block = ?site.call_block,
                     instr_idx,
-                    "expected Apply at tail call site"
+                    "expected Apply at tail call site — re-inserting"
                 );
+                func.blocks[block_idx].body.insert(instr_idx, other);
                 continue;
             }
         };
-
-        // Remove the Apply instruction. RcDec operations that followed it
-        // remain in place — they clean up the current iteration's values
-        // before the back-edge jump starts the next iteration.
-        func.blocks[block_idx].body.remove(instr_idx);
         if instr_idx < func.spans[block_idx].len() {
             func.spans[block_idx].remove(instr_idx);
         }
+        // cow_annotations remain valid after the index shift: the removed
+        // instruction is a self-recursive Apply (no cow_annotation entry),
+        // and instructions after it are RcDec ops (not COW methods), so no
+        // cow_annotation keys are invalidated.
 
         // Replace the terminator with a back-edge to the loop header,
         // passing the recursive call's arguments as the next iteration's

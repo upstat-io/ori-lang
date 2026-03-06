@@ -166,7 +166,7 @@ fn type_mismatch_missed() {
     assert!(!report.is_fbip);
 }
 
-// ── check_fbip_enforcement ──────────────────────────────────────
+// check_fbip_enforcement
 
 /// Compliant function: Reset/Reuse pair → no violation.
 #[test]
