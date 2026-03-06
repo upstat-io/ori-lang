@@ -4,6 +4,11 @@
 //! (`llvm.sadd.with.overflow`, etc.) that panic on overflow. This matches
 //! Ori's spec (overflow = panic) and avoids LLVM UB. For compile-time
 //! constant operands, LLVM constant-folds the overflow branch away entirely.
+//!
+//! A per-ARC-block CSE cache eliminates redundant checked operations within
+//! a single block. For example, `total += i + 1; i += 1` computes `i + 1`
+//! once and reuses the result. The cache is cleared at ARC block boundaries
+//! via [`IrBuilder::clear_cse_cache`].
 
 use inkwell::intrinsics::Intrinsic;
 use inkwell::values::BasicValueEnum;
@@ -11,7 +16,35 @@ use inkwell::values::BasicValueEnum;
 use super::IrBuilder;
 use crate::codegen::value_id::ValueId;
 
+/// Normalized operand for CSE cache keys.
+///
+/// Two different `ValueId`s may represent the same LLVM constant (e.g.,
+/// two separate `const_i64(1)` calls). This enum normalizes constants
+/// so they match in the cache, while SSA values use their `ValueId` identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum CseOperand {
+    /// A compile-time integer constant, normalized by value.
+    ConstInt(u64),
+    /// An SSA value (phi, instruction result), identified by `ValueId`.
+    Ssa(ValueId),
+}
+
 impl IrBuilder<'_, '_> {
+    /// Normalize a `ValueId` to a `CseOperand` for cache keying.
+    ///
+    /// If the value is a compile-time integer constant, returns
+    /// `ConstInt(bits)` so that two different `ValueId`s for the same
+    /// constant will match. Otherwise returns `Ssa(id)`.
+    fn cse_operand(&self, id: ValueId) -> CseOperand {
+        let val = self.arena.get_value(id);
+        if let BasicValueEnum::IntValue(iv) = val {
+            if let Some(c) = iv.get_zero_extended_constant() {
+                return CseOperand::ConstInt(c);
+            }
+        }
+        CseOperand::Ssa(id)
+    }
+
     /// Build checked integer addition: panics on overflow.
     ///
     /// Emits `llvm.sadd.with.overflow.i64`, extracts the result and overflow
@@ -69,14 +102,26 @@ impl IrBuilder<'_, '_> {
     /// Calls the named overflow intrinsic, extracts `{ result, overflow_flag }`,
     /// branches to a panic block on overflow, and returns the result in the
     /// continue block.
+    ///
+    /// Uses the CSE cache to avoid emitting duplicate checked operations
+    /// within the same ARC block. The cache key normalizes constant operands
+    /// so that two different `ValueId`s for the same constant (e.g., two
+    /// separate `const_i64(1)` calls) will hit the same cache entry.
     fn emit_checked_binop(
         &mut self,
-        intrinsic_name: &str,
+        intrinsic_name: &'static str,
         lhs: ValueId,
         rhs: ValueId,
         name: &str,
         panic_msg: &str,
     ) -> ValueId {
+        // CSE cache lookup: normalize operands so identical constants
+        // match regardless of which ValueId they were assigned.
+        let cache_key = (intrinsic_name, self.cse_operand(lhs), self.cse_operand(rhs));
+        if let Some(&cached) = self.cse_cache.get(&cache_key) {
+            return cached;
+        }
+
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
         if !l.is_int_value() || !r.is_int_value() {
@@ -89,15 +134,17 @@ impl IrBuilder<'_, '_> {
         }
 
         // 1. Get or declare the overflow intrinsic.
-        let intrinsic = Intrinsic::find(intrinsic_name).unwrap_or_else(|| {
-            panic!("LLVM intrinsic `{intrinsic_name}` not found");
-        });
+        let Some(intrinsic) = Intrinsic::find(intrinsic_name) else {
+            tracing::error!(intrinsic_name, "LLVM intrinsic not found");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        };
         let i64_ty = self.scx.llcx.i64_type();
-        let func_val = intrinsic
-            .get_declaration(&self.scx.llmod, &[i64_ty.into()])
-            .unwrap_or_else(|| {
-                panic!("failed to declare `{intrinsic_name}.i64`");
-            });
+        let Some(func_val) = intrinsic.get_declaration(&self.scx.llmod, &[i64_ty.into()]) else {
+            tracing::error!(intrinsic_name, "failed to declare intrinsic");
+            self.record_codegen_error();
+            return self.const_i64(0);
+        };
 
         // 2. Call the intrinsic: returns { i64, i1 }.
         let lhs_int = l.into_int_value();
@@ -113,7 +160,9 @@ impl IrBuilder<'_, '_> {
 
         // 3. Extract result (index 0) and overflow flag (index 1).
         let BasicValueEnum::StructValue(sv) = result_struct else {
-            panic!("overflow intrinsic did not return struct");
+            tracing::error!(intrinsic_name, "overflow intrinsic did not return struct");
+            self.record_codegen_error();
+            return self.const_i64(0);
         };
         let result = self
             .builder
@@ -138,7 +187,9 @@ impl IrBuilder<'_, '_> {
 
         // 5. Branch: overflow → panic, else → continue.
         let BasicValueEnum::IntValue(ovf_flag) = overflow else {
-            panic!("overflow flag is not i1");
+            tracing::error!(intrinsic_name, "overflow flag is not i1");
+            self.record_codegen_error();
+            return self.const_i64(0);
         };
         self.builder
             .build_conditional_branch(ovf_flag, panic_bb, continue_bb)
@@ -157,6 +208,11 @@ impl IrBuilder<'_, '_> {
         // Track current block for save/restore.
         let continue_block_id = self.arena.push_block(continue_bb);
         self.current_block = Some(continue_block_id);
-        self.arena.push_value(result)
+        let result_id = self.arena.push_value(result);
+
+        // 8. Store in CSE cache for reuse within this ARC block.
+        self.cse_cache.insert(cache_key, result_id);
+
+        result_id
     }
 }

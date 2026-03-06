@@ -10,11 +10,15 @@
 plans/code-journeys/
   NN-slug.ori                 # Source file (e.g., 01-arithmetic.ori)
   NN-slug-results.md          # Results file (e.g., 01-arithmetic-results.md)
+  overview.md                 # Cross-journey summary (generated after all journeys)
 
 .claude/skills/code-journey/
   SKILL.md                    # Execution logic
   SCHEMA.md                   # This file (format specification)
-  score.py                    # Deterministic scoring script
+  extract-metrics.py          # Deterministic metric extraction from LLVM IR
+  score.py                    # Deterministic scoring from metrics
+  extract_ir_from_results.py  # Extract LLVM IR from results markdown
+  rescore-all.sh              # Re-score all existing journeys
 ```
 
 - `NN` = zero-padded journey number (01, 02, ... 99)
@@ -89,24 +93,24 @@ score_breakdown:                   # per-category scores (0-10), from score.py o
   ir_quality: 7
   binary_quality: 8
   other_findings: 10
-score_metrics:                     # raw inputs to score.py — source of truth for re-scoring
-  instruction_ratio: 1.25
-  instruction_ratio_max: 1.50
-  arc_violations: 0
-  arc_has_unbalanced: false
-  arc_has_scalar_rc: false
-  attr_applicable: 10
-  attr_correct: 8
-  attr_has_wrong: false
-  cf_defects: 1
-  cf_incorrect: false
-  ir_unjustified: 3
-  ir_incorrect: false
-  bin_defects: 0
-  bin_hard_fail: false
-  other_critical: 0
-  other_high: 0
-  other_low: 0
+score_metrics:                     # raw inputs to score.py — computed by extract-metrics.py
+  instruction_ratio: 1.25          # float — from extract-metrics.py (algorithmic)
+  instruction_ratio_max: 1.50      # float — from extract-metrics.py (algorithmic)
+  arc_violations: 0                # int — from extract-metrics.py (algorithmic)
+  arc_has_unbalanced: false        # bool — from extract-metrics.py (algorithmic)
+  arc_has_scalar_rc: false         # bool — from extract-metrics.py (algorithmic)
+  attr_applicable: 10              # int — from extract-metrics.py (algorithmic)
+  attr_correct: 8                  # int — from extract-metrics.py (algorithmic)
+  attr_has_wrong: false            # bool — from extract-metrics.py (algorithmic)
+  cf_defects: 1                    # int — from extract-metrics.py (algorithmic)
+  cf_incorrect: false              # bool — from extract-metrics.py (algorithmic)
+  ir_unjustified: 3                # int — from extract-metrics.py (algorithmic)
+  ir_incorrect: false              # bool — from extract-metrics.py (algorithmic)
+  bin_defects: 0                   # int — from extract-metrics.py (algorithmic)
+  bin_hard_fail: false             # bool — from extract-metrics.py (algorithmic)
+  other_critical: 0                # int — AI-determined (not from extract-metrics.py)
+  other_high: 0                    # int — AI-determined (not from extract-metrics.py)
+  other_low: 0                     # int — AI-determined (not from extract-metrics.py)
 overflow_check: PASS               # enum: PASS | FAIL
 
 # Bug history (optional — only if bugs were found/fixed)
@@ -1107,18 +1111,20 @@ panic:
 **First seen**: Journey 1
 **Found in**: Attributes & Calling Convention (Category 3)
 
+<!-- reviewed: accuracy fix — weights must match score.py (15/20/10/10/20/10/15), added missing "Other Findings" category -->
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 20% | 8/10 | Overflow adds justified overhead |
+| Instruction Efficiency | 15% | 8/10 | Overflow adds justified overhead |
 | ARC Correctness | 20% | 10/10 | No heap values, zero RC ops |
-| Attributes & Safety | 15% | 8/10 | Missing nounwind |
-| Control Flow | 15% | 10/10 | Clean control flow |
+| Attributes & Safety | 10% | 8/10 | Missing nounwind |
+| Control Flow | 10% | 10/10 | Clean control flow |
 | IR Quality | 20% | 8/10 | Overflow justified, nounwind missing |
 | Binary Quality | 10% | 9/10 | Compact user code |
+| Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 8.8 / 10**
+**Overall: 9.0 / 10**
 
 ## Verdict
 

@@ -37,9 +37,9 @@ use crate::classify::ArcClassifier;
 use crate::ir::{self, ArcFunction, ArcParam};
 use crate::Ownership;
 
-pub use self::builder::ArcIrBuilder;
-pub use self::expr::ArcLowerer;
-pub use self::scope::ArcScope;
+pub(crate) use self::builder::ArcIrBuilder;
+pub(crate) use self::expr::ArcLowerer;
+pub(crate) use self::scope::ArcScope;
 
 // Variant constructor lookup
 
@@ -162,6 +162,7 @@ pub fn lower_function_can(
         lambdas: &mut lambdas,
         hash_length: None,
         block_let_names: rustc_hash::FxHashSet::default(),
+        func_name: name,
         variant_ctors: &variant_ctors,
         type_subst,
     };

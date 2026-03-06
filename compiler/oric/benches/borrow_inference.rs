@@ -40,7 +40,7 @@ use salsa::Setter;
 
 const BENCH_PATH: &str = "/bench/borrow.ori";
 
-// ── Synthetic function generators ────────────────────────────────────
+// Synthetic function generators
 
 /// Create a standalone function (no calls) that reads its `str` param.
 ///
@@ -77,6 +77,7 @@ fn standalone_reader(name: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -112,6 +113,7 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -146,6 +148,7 @@ fn storer_function(name: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
@@ -192,10 +195,11 @@ fn modified_reader(name: Name) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 
-// ── Module topology generators ───────────────────────────────────────
+// Module topology generators
 
 /// Generate N standalone functions (no calls between them).
 ///
@@ -260,7 +264,7 @@ fn gen_deep_recursion(
     funcs
 }
 
-// ── Setup helpers ────────────────────────────────────────────────────
+// Setup helpers
 
 fn setup_pool(db: &CompilerDb) {
     db.pool_cache().store(Path::new(BENCH_PATH), Pool::new());
@@ -284,7 +288,7 @@ fn query_all_sccs(db: &dyn Db, module: ArcModuleInput) {
     }
 }
 
-// ── Benchmark: Cold compile ──────────────────────────────────────────
+// Benchmark: Cold compile
 
 fn bench_cold_compile(c: &mut Criterion) {
     let mut group = c.benchmark_group("borrow/cold");
@@ -334,7 +338,7 @@ fn bench_cold_compile(c: &mut Criterion) {
     group.finish();
 }
 
-// ── Benchmark: SCC standalone baseline (no Salsa) ────────────────────
+// Benchmark: SCC standalone baseline (no Salsa)
 
 fn bench_scc_standalone(c: &mut Criterion) {
     let mut group = c.benchmark_group("borrow/scc_standalone");
@@ -380,7 +384,7 @@ fn bench_scc_standalone(c: &mut Criterion) {
     group.finish();
 }
 
-// ── Benchmark: Warm compile (incremental) ────────────────────────────
+// Benchmark: Warm compile (incremental)
 
 fn bench_warm_compile(c: &mut Criterion) {
     let mut group = c.benchmark_group("borrow/incremental");
@@ -460,7 +464,7 @@ fn bench_warm_compile(c: &mut Criterion) {
     group.finish();
 }
 
-// ── Benchmark: SCC computation overhead ──────────────────────────────
+// Benchmark: SCC computation overhead
 
 fn bench_scc_computation(c: &mut Criterion) {
     let mut group = c.benchmark_group("borrow/scc_overhead");
@@ -498,7 +502,7 @@ fn bench_scc_computation(c: &mut Criterion) {
     group.finish();
 }
 
-// ── Benchmark: Memory profile ────────────────────────────────────────
+// Benchmark: Memory profile
 
 fn bench_memory_profile(c: &mut Criterion) {
     let mut group = c.benchmark_group("borrow/memory");
@@ -537,7 +541,7 @@ fn bench_memory_profile(c: &mut Criterion) {
     group.finish();
 }
 
-// ── Regression gate ──────────────────────────────────────────────────
+// Regression gate
 
 /// Print a summary comparing SCC standalone vs Salsa-tracked SCC queries.
 ///

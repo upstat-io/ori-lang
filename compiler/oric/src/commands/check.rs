@@ -1,18 +1,24 @@
-//! The `check` command: type-check an Ori source file and verify test coverage.
+//! The `check` command: type-check an Ori source file and optionally verify test coverage.
 
-use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
-use oric::problem::semantic::{check_test_coverage, pattern_problem_to_diagnostic};
-use oric::{CompilerDb, Db, SourceFile};
+use ori_diagnostic::emitter::{ColorMode, TerminalEmitter};
+use oric::{CompilerDb, SourceFile};
 use std::path::PathBuf;
 
+use super::print_check_success;
 use super::read_file;
 use super::report_frontend_errors;
+use super::run_post_frontend_checks;
+use super::TestEnforcement;
 
-/// Type-check a file and verify that every function has test coverage.
+/// Type-check a file and verify test coverage based on enforcement level.
 ///
 /// Accumulates all errors (parse, type, and coverage) before exiting, giving
 /// the user a complete picture of issues rather than stopping at the first error.
-pub fn check_file(path: &str) {
+/// Test coverage enforcement is controlled by the `enforcement` parameter:
+/// - `Off`: skip test coverage check entirely
+/// - `Warn`: emit missing-test diagnostics as warnings
+/// - `Error`: emit missing-test diagnostics as errors (strict mode)
+pub fn check_file(path: &str, enforcement: TestEnforcement) {
     let content = read_file(path);
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
@@ -27,42 +33,12 @@ pub fn check_file(path: &str) {
     let Some(frontend) = report_frontend_errors(&db, file, &mut emitter) else {
         std::process::exit(1);
     };
-    let mut has_errors = frontend.has_errors();
-    let parse_result = frontend.parse_result;
-    let type_result = frontend.type_result;
-    let pool = frontend.pool;
 
-    // Check pattern exhaustiveness via canonicalization.
-    // Skip if parse errors exist (AST may be malformed), but run even with
-    // type errors — pattern problems are independent of type mismatches.
-    // Store in CanonCache for session-scoped reuse by downstream consumers.
-    if !parse_result.has_errors() {
-        let shared_canon =
-            oric::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
-        for problem in &shared_canon.problems {
-            let diag = pattern_problem_to_diagnostic(problem, db.interner());
-            emitter.emit(&diag);
-            has_errors = true;
-        }
-    }
+    let result = run_post_frontend_checks(&db, file, &frontend, enforcement, &mut emitter);
 
-    if has_errors {
-        emitter.flush();
-    }
-
-    // Check test coverage: every function (except @main) must have at least one test.
-    let interner = db.interner();
-    for problem in check_test_coverage(&parse_result.module, interner) {
-        emitter.emit(&problem.into_diagnostic(interner));
-        has_errors = true;
-    }
-
-    // Exit if any errors occurred
-    if has_errors {
+    if result.has_errors {
         std::process::exit(1);
     }
 
-    let func_count = parse_result.module.functions.len();
-    let test_count = parse_result.module.tests.len();
-    println!("OK: {path} ({func_count} functions, {test_count} tests, 100% coverage)");
+    print_check_success(path, enforcement, &result);
 }

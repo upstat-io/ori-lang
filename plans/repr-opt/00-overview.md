@@ -242,10 +242,13 @@ None expected. Each section is additive — the current system works correctly w
 |   ↳ 02.5 Newtype & FFI types | ~30 | Low | §01 |
 |   ↳ 02.6 Generic type interaction | ~20 | Low | §01 |
 |   ↳ 02.7 Completion checklist & tests | ~50 | Low | §01 |
-| 03 Range Analysis | ~1,200 (5 files in `range/` submodule) | **High** | §01 |
-|   ↳ 03.1 Interval lattice | ~300 | Medium | §01 |
-|   ↳ 03.2 Transfer functions | ~500 | **High** — mul/div corner cases | §01 |
-|   ↳ 03.3 Widening/narrowing | ~200 | **High** — termination guarantees | §01 |
+| 03 Range Analysis | ~1,400 (5 files in `range/` submodule) | **High** | §01 |
+|   ↳ 03.1 Interval lattice | ~250 | Medium | §01 |
+|   ↳ 03.2 Transfer functions | ~450 | **High** — mul/div corner cases | §01 |
+|   ↳ 03.3 Widening/narrowing + fixpoint | ~350 | **High** — block params, terminators, termination | §01 |
+|   ↳ 03.4 Conditional refinement | ~150 | Medium — 6 comparison operators | §01 |
+|   ↳ 03.5 Interprocedural (DEFERRABLE) | ~150 | **High** — SCC fixpoint | §01 |
+|   ↳ 03.6 Config, tests, integration | ~50 | Low | §01 |
 | 04 Integer Narrowing | ~800 | High | §03 |
 |   ↳ 04.1 Width selection | ~200 | Medium | §03 |
 |   ↳ 04.2 ABI boundary widening | ~150 | Medium | §03 |
@@ -269,7 +272,7 @@ None expected. Each section is additive — the current system works correctly w
 |   ↳ 11.2 Small vector optimization | ~300 | High | §04 |
 |   ↳ 11.3 Packed bool arrays | ~300 | Medium | — |
 | 12 Verification | ~800 | Medium | ALL |
-| **Total new** | **~10,130** | | |
+| **Total new** | **~10,330** | | |
 | **Total deleted** | **~200** | | |
 
 ## Quick Reference

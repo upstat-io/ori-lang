@@ -365,7 +365,7 @@ fn fresh_token_id() {
     }
 }
 
-// ── Cross-block reset/reuse tests ──────────────────────────
+// Cross-block reset/reuse tests
 
 use crate::graph::{DominatorTree, PostDominatorTree};
 use crate::liveness::compute_refined_liveness;

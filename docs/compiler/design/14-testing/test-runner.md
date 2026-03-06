@@ -496,8 +496,9 @@ one targeting test. The `is_complete()` method checks whether all functions have
 The `untested()` iterator yields the names of uncovered functions, providing an actionable
 checklist.
 
-This is a coarser measure than line coverage or branch coverage, but it aligns with Ori's mandatory
-testing philosophy: every function (except `@main`) should have at least one test. Finer-grained
+This is a coarser measure than line coverage or branch coverage, but it aligns with Ori's testing
+philosophy: every function (except `@main`) should have at least one test (enforced when
+`test-enforcement` is set to `warn` or `error`). Finer-grained
 coverage (line-level, branch-level) would require instrumentation at the evaluator or LLVM codegen
 level --- a potential future enhancement. The function-level approach has the advantage of being
 entirely static: it requires only parsing, not test execution, making it fast even for large

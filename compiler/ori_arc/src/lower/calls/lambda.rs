@@ -4,7 +4,7 @@
 //! parameters followed by user parameters. The call site emits `PartialApply`
 //! to pack the captured outer variables into a closure.
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 use ori_ir::canon::{CanExpr, CanId, CanParamRange};
 use ori_ir::{Name, Span};
@@ -37,7 +37,7 @@ impl ArcLowerer<'_> {
 
         // Step 1: Capture analysis — find free variables in the lambda body
         let mut captures = Vec::new();
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         self.collect_captures(body, &param_names, &mut captures, &mut seen);
         tracing::debug!(
             params = param_names.len(),
@@ -99,6 +99,7 @@ impl ArcLowerer<'_> {
                 lambdas: self.lambdas,
                 hash_length: None,
                 block_let_names: rustc_hash::FxHashSet::default(),
+                func_name: self.func_name,
                 variant_ctors: self.variant_ctors,
                 type_subst: self.type_subst,
             };
@@ -141,7 +142,7 @@ impl ArcLowerer<'_> {
         expr_id: CanId,
         params: &[Name],
         captures: &mut Vec<(Name, ArcVarId)>,
-        seen: &mut HashSet<Name>,
+        seen: &mut FxHashSet<Name>,
     ) {
         if !expr_id.is_valid() {
             return;

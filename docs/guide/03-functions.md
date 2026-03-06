@@ -454,9 +454,9 @@ A call is in tail position if it's the last thing before the function returns:
     if n == 0 then 0 else n + sum_regular(n: n - 1);
 ```
 
-## Tests Are Required
+## Tests
 
-Every function needs at least one test:
+Every function can have tests bound to it. When test enforcement is enabled (`warn` or `error`), the compiler flags untested functions:
 
 ```ori
 @add (a: int, b: int) -> int = a + b;

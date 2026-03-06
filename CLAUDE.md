@@ -18,14 +18,14 @@
 
 ## Ori Language
 
-- **Ori**: statically-typed expression-based, HM inference, ARC memory, capability effects, mandatory tests. Targets LLVM/WASM. Compiler in Rust (Salsa-based).
+- **Ori**: statically-typed expression-based, HM inference, ARC memory, capability effects, smart testing. Targets LLVM/WASM. Compiler in Rust (Salsa-based).
 - **NO `return`**: last expression = block value. Exit via `?`/`break`/`panic`. Similar to Rust, Gleam, Roc.
 - **Syntax ref**: `.claude/rules/ori-syntax.md` (auto-loaded for `.ori` files) | `/ori-syntax` skill
 - **Spec authoritative**: `docs/ori_lang/v2026/spec/` (`grammar.ebnf`, `operator-rules.md`)
 
 ### Design Pillars
 1. **Expression-based**: everything is expression; last expr = block value; no `return`
-2. **Mandatory verification**: functions need tests; contracts (`pre()`/`post()`)
+2. **Smart verification**: configurable test enforcement (`--test-enforcement=off|warn|error`, default `off`); contracts (`pre()`/`post()`)
 3. **Dependency-aware**: tests in dep graph; changes propagate
 4. **Explicit effects**: capabilities (`uses Http`); mocking (`with Http = Mock in`)
 5. **ARC-safe**: no GC/borrow checker; capture by value; no shared mutable refs
@@ -102,7 +102,7 @@ CalVer — see `docs/ori_lang/versioning.md` | `docs/development/versioning.md` 
 
 ## Files & Tests
 
-`.ori` source | Tests in `_test/`: `foo.ori` → `_test/foo.test.ori` | Attached: `@test tests @target () -> void` | Floating: `tests _` | Private: `::` prefix | Every function (except `@main`) requires tests
+`.ori` source | Tests in `_test/`: `foo.ori` → `_test/foo.test.ori` | Attached: `@test tests @target () -> void` | Floating: `tests _` | Private: `::` prefix | Test enforcement configurable via `--test-enforcement=off|warn|error` (default: `off`)
 
 ## Entry Points
 

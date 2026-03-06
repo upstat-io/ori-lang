@@ -1,0 +1,24 @@
+{
+  "instruction_efficiency": 10,
+  "arc_correctness": 10,
+  "attributes_safety": 8,
+  "control_flow": 10,
+  "ir_quality": 10,
+  "binary_quality": 10,
+  "other_findings": 10,
+  "overall": 9.8,
+  "gates_applied": [],
+  "metrics": {
+    "instruction_ratio": 1.0,
+    "instruction_ratio_max": 1.0,
+    "arc_violation_count": 0,
+    "attribute_compliance_pct": 92.3,
+    "control_flow_defects": 0,
+    "ir_unjustified_count": 0,
+    "binary_defect_count": 0,
+    "other_critical": 0,
+    "other_high": 0,
+    "other_low": 0
+  },
+  "markdown": "## Codegen Quality Score\n\n| Category | Weight | Score | Notes |\n|----------|--------|-------|-------|\n| Instruction Efficiency | 15% | 10/10 | 1.00x \u2014 OPTIMAL |\n| ARC Correctness | 20% | 10/10 | 0 violations |\n| Attributes & Safety | 10% | 8/10 | 92.3% compliance |\n| Control Flow | 10% | 10/10 | 0 defects |\n| IR Quality | 20% | 10/10 | 0 unjustified instructions |\n| Binary Quality | 10% | 10/10 | 0 defects |\n| Other Findings | 15% | 10/10 | No uncategorized findings |\n\n**Overall: 9.8 / 10**"
+}

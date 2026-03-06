@@ -369,7 +369,7 @@ fn invoke_normal_equals_unwind_not_downgraded() {
     assert!(has_invoke, "invoke with normal==unwind should be preserved");
 }
 
-// Phase 3: Jump Chain Merge
+// Phase 4: Jump Chain Merge
 
 /// Single-predecessor Jump merge (no params).
 #[test]
@@ -2620,4 +2620,262 @@ fn dead_param_all_live_preserved() {
         "both params live — preserved. Got: {:?}",
         exit.params
     );
+}
+
+// Phase 7: Invariant param elimination
+
+/// Helper: build a function with a loop whose header has an invariant param.
+///
+/// Structure:
+/// ```text
+/// bb0 (entry):
+///   Jump bb1(init_total, init_limit, init_i)
+///
+/// bb1 (header): (total: int, limit: int, i: int)
+///   Branch (i >= 10) ? bb2 : bb3
+///
+/// bb2 (exit):
+///   Return total
+///
+/// bb3 (body):
+///   new_total = total + limit
+///   new_i = i + 1
+///   Jump bb1(new_total, limit, new_i)   ← limit is invariant (self-reference)
+/// ```
+#[expect(
+    clippy::too_many_lines,
+    reason = "test helper — data-heavy ARC IR construction"
+)]
+fn make_loop_with_invariant_param() -> ArcFunction {
+    make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        vec![
+            // bb0: entry — jump to header with initial values
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(0)),
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::INT,
+                        value: ArcValue::Var(v(0)),
+                    },
+                    ArcInstr::Let {
+                        dst: v(3),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(0)),
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: b(1),
+                    args: vec![v(1), v(2), v(3)],
+                },
+            },
+            // bb1: header — params: total, limit, i
+            ArcBlock {
+                id: b(1),
+                params: vec![(v(4), Idx::INT), (v(5), Idx::INT), (v(6), Idx::INT)],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(7),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(10)),
+                    },
+                    ArcInstr::Let {
+                        dst: v(8),
+                        ty: Idx::BOOL,
+                        value: ArcValue::PrimOp {
+                            op: PrimOp::Binary(ori_ir::BinaryOp::GtEq),
+                            args: vec![v(6), v(7)],
+                        },
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(8),
+                    then_block: b(2),
+                    else_block: b(3),
+                },
+            },
+            // bb2: exit — return total
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(4) },
+            },
+            // bb3: body — total += limit, i += 1, jump to header
+            ArcBlock {
+                id: b(3),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(9),
+                        ty: Idx::INT,
+                        value: ArcValue::PrimOp {
+                            op: PrimOp::Binary(ori_ir::BinaryOp::Add),
+                            args: vec![v(4), v(5)],
+                        },
+                    },
+                    ArcInstr::Let {
+                        dst: v(10),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(1)),
+                    },
+                    ArcInstr::Let {
+                        dst: v(11),
+                        ty: Idx::INT,
+                        value: ArcValue::PrimOp {
+                            op: PrimOp::Binary(ori_ir::BinaryOp::Add),
+                            args: vec![v(6), v(10)],
+                        },
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: b(1),
+                    args: vec![v(9), v(5), v(11)],
+                },
+            },
+        ],
+        vec![
+            Idx::INT,  // v0: param
+            Idx::INT,  // v1: init_total
+            Idx::INT,  // v2: init_limit
+            Idx::INT,  // v3: init_i
+            Idx::INT,  // v4: total (header param)
+            Idx::INT,  // v5: limit (header param — invariant)
+            Idx::INT,  // v6: i (header param)
+            Idx::INT,  // v7: const 10
+            Idx::BOOL, // v8: cond
+            Idx::INT,  // v9: new_total
+            Idx::INT,  // v10: const 1
+            Idx::INT,  // v11: new_i
+        ],
+    )
+}
+
+/// Invariant param (all predecessors pass same value or self) is removed.
+///
+/// `limit` (v5) is passed as v2 from entry and v5 from the back-edge.
+/// The back-edge value v5 == the param itself (self-reference).
+/// After filtering self-references, only v2 remains → invariant.
+/// All uses of v5 should be replaced with v2.
+#[test]
+fn invariant_param_same_value_removed() {
+    let mut func = make_loop_with_invariant_param();
+
+    // Before: header (bb1) has 3 params: total(v4), limit(v5), i(v6).
+    assert_eq!(func.blocks[1].params.len(), 3);
+
+    merge_blocks(&mut func);
+
+    // After: header should have 2 params (limit removed).
+    let header = &func.blocks[1];
+    assert_eq!(
+        header.params.len(),
+        2,
+        "invariant param (limit) should be removed. Got: {:?}",
+        header.params
+    );
+
+    // The remaining params should be total and i (not limit/v5).
+    let param_vars: Vec<ArcVarId> = header.params.iter().map(|(var, _)| *var).collect();
+    assert!(
+        !param_vars.contains(&v(5)),
+        "v5 (limit) should not be in header params. Got: {param_vars:?}"
+    );
+
+    // Uses of v5 should be replaced with v2 (the init_limit from entry).
+    // Check the body block (bb3) where v5 was used in `total + limit`.
+    let body = &func.blocks[3];
+    let add_instr = body
+        .body
+        .iter()
+        .find(|i| matches!(i, ArcInstr::Let { dst, .. } if *dst == v(9)));
+    match add_instr {
+        Some(ArcInstr::Let {
+            value: ArcValue::PrimOp { args, .. },
+            ..
+        }) => {
+            assert!(
+                args.contains(&v(2)),
+                "v5 should be replaced with v2 in add operands. Got: {args:?}"
+            );
+            assert!(
+                !args.contains(&v(5)),
+                "v5 should not appear in add operands after replacement. Got: {args:?}"
+            );
+        }
+        _ => panic!("expected add instruction for v9"),
+    }
+}
+
+/// Non-invariant params (predecessors pass different values) are preserved.
+///
+/// `total` (v4) receives v1 from entry and v9 from the back-edge — different
+/// values, so it's NOT invariant and must be preserved.
+#[test]
+fn non_invariant_param_preserved() {
+    let mut func = make_loop_with_invariant_param();
+
+    merge_blocks(&mut func);
+
+    let header = &func.blocks[1];
+    let param_vars: Vec<ArcVarId> = header.params.iter().map(|(var, _)| *var).collect();
+
+    // total (v4) and i (v6) are NOT invariant — they change each iteration.
+    assert!(
+        param_vars.contains(&v(4)),
+        "v4 (total) is not invariant — must be preserved. Got: {param_vars:?}"
+    );
+    assert!(
+        param_vars.contains(&v(6)),
+        "v6 (i) is not invariant — must be preserved. Got: {param_vars:?}"
+    );
+}
+
+/// Mixed invariant and non-invariant params: only invariant ones removed.
+///
+/// From `make_loop_with_invariant_param`: v4 (total, non-invariant),
+/// v5 (limit, invariant), v6 (i, non-invariant). Only v5 should be removed.
+#[test]
+fn mixed_invariant_only_invariant_removed() {
+    let mut func = make_loop_with_invariant_param();
+
+    merge_blocks(&mut func);
+
+    let header = &func.blocks[1];
+    assert_eq!(
+        header.params.len(),
+        2,
+        "only 1 invariant param removed, 2 should remain. Got: {:?}",
+        header.params
+    );
+
+    // Jump args from entry (bb0) should have 2 args (not 3).
+    if let ArcTerminator::Jump { args, .. } = &func.blocks[0].terminator {
+        assert_eq!(
+            args.len(),
+            2,
+            "entry Jump args should be trimmed to 2. Got: {args:?}"
+        );
+    } else {
+        panic!("expected Jump terminator in bb0");
+    }
+
+    // Jump args from body (bb3) should also have 2 args.
+    if let ArcTerminator::Jump { args, .. } = &func.blocks[3].terminator {
+        assert_eq!(
+            args.len(),
+            2,
+            "body Jump args should be trimmed to 2. Got: {args:?}"
+        );
+    } else {
+        panic!("expected Jump terminator in bb3");
+    }
 }

@@ -151,6 +151,10 @@ define_error_codes! {
     E3002, "Invalid pattern arguments";
     E3003, "Pattern type error";
 
+    // Semantic / Lint Errors (E3xxx — test coverage)
+    E3010, "Function has no tests";
+    E3011, "Test targets unknown function";
+
     // ARC Analysis Errors (E4xxx)
     E4001, "Unsupported expression in ARC IR lowering";
     E4002, "Unsupported pattern in ARC IR lowering";
@@ -209,9 +213,7 @@ define_error_codes! {
     W2001, "Infinite iterator consumed without bound";
 }
 
-// ---------------------------------------------------------------------------
 // Phase classification (derived from naming convention)
-// ---------------------------------------------------------------------------
 
 impl ErrorCode {
     /// Check if this is a lexer error (E0xxx range).
@@ -260,9 +262,7 @@ impl ErrorCode {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Display and FromStr
-// ---------------------------------------------------------------------------
 
 impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

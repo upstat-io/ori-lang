@@ -576,6 +576,7 @@ fn collect_deduplicates_types() {
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
+        tail_calls: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -628,6 +629,7 @@ fn collect_multiple_types() {
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
+        tail_calls: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -677,6 +679,7 @@ fn collect_skips_scalar_rc_dec() {
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
+        tail_calls: Vec::new(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);

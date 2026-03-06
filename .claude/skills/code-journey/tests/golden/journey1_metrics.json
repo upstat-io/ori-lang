@@ -1,0 +1,71 @@
+{
+  "instruction_ratio": 1.0,
+  "instruction_ratio_max": 1.0,
+  "arc_violations": 0,
+  "arc_has_unbalanced": false,
+  "arc_has_scalar_rc": false,
+  "attr_applicable": 13,
+  "attr_correct": 12,
+  "attr_has_wrong": false,
+  "cf_defects": 0,
+  "cf_incorrect": false,
+  "ir_unjustified": 0,
+  "ir_incorrect": false,
+  "bin_defects": 0,
+  "bin_hard_fail": false,
+  "other_critical": null,
+  "other_high": null,
+  "other_low": null,
+  "parse_errors": null,
+  "per_function": {
+    "@_ori_add": {
+      "instruction": {
+        "actual": 7,
+        "unjustified": 0,
+        "ideal": 7,
+        "ratio": 1.0,
+        "verdict": "OPTIMAL"
+      },
+      "arc": {
+        "rc_inc": 0,
+        "rc_dec": 0,
+        "balanced": true,
+        "has_scalar_rc": false
+      },
+      "control_flow": {
+        "blocks": 3,
+        "empty": 0,
+        "redundant_br": 0,
+        "trivial_phi": 0
+      }
+    },
+    "@_ori_main": {
+      "instruction": {
+        "actual": 14,
+        "unjustified": 0,
+        "ideal": 14,
+        "ratio": 1.0,
+        "verdict": "OPTIMAL"
+      },
+      "arc": {
+        "rc_inc": 0,
+        "rc_dec": 0,
+        "balanced": true,
+        "has_scalar_rc": false
+      },
+      "control_flow": {
+        "blocks": 5,
+        "empty": 0,
+        "redundant_br": 0,
+        "trivial_phi": 0
+      }
+    }
+  },
+  "binary_info": {
+    "eval_exit": 33,
+    "aot_exit": 33,
+    "binary_size": null,
+    "text_size": null,
+    "rodata_size": null
+  }
+}

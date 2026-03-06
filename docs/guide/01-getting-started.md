@@ -8,7 +8,7 @@ order: 1
 
 # Getting Started
 
-Ori is a general-purpose language where **if your code compiles, it works**. The compiler enforces testing, tracks dependencies, and makes side effects explicit.
+Ori is a general-purpose language where **if your code compiles, it works**. The compiler supports smart testing, tracks dependencies, and makes side effects explicit.
 
 ## Installation
 
@@ -234,7 +234,7 @@ error: function 'greet' has no tests
    | ^^^^^ untested function
 ```
 
-This is Ori's **mandatory testing** at work. Every function needs at least one test.
+This is Ori's **smart testing** at work. When test enforcement is enabled, every function needs at least one test.
 
 Add a test for `greet`:
 
@@ -282,18 +282,22 @@ Running tests...
 Hello, Alice!
 ```
 
-### Why Mandatory Testing?
+### Why Smart Testing?
 
-You might wonder: "Why force me to write tests?"
+You might wonder: "Why does the compiler care about tests?"
 
-Ori is designed around a principle: **code that compiles should work**. Testing isn't optional — it's part of the compilation process.
+Ori is designed around a principle: **code that compiles should work**. Testing is integrated into the compilation process, with configurable enforcement:
 
-The benefits compound:
+- `test-enforcement = "off"` (default) — tests run but missing tests are not flagged
+- `test-enforcement = "warn"` — warns about untested functions
+- `test-enforcement = "error"` — untested functions fail compilation
+
+The benefits compound regardless of enforcement level:
 
 1. **Change a function?** Its tests run automatically
 2. **Tests pass?** The function probably works
 3. **Tests fail?** You find out immediately, not in production
-4. **No untested code** can sneak into your project
+4. **Dependency tracking** catches cascading breakage across your codebase
 
 This isn't about bureaucracy — it's about catching bugs early when they're cheap to fix.
 
