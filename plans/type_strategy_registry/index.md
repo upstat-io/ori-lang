@@ -48,11 +48,13 @@ pow, matmul, as, as?, not, bit_not, neg
 ori_registry, Cargo.toml, workspace, crate DAG
 module structure, lib.rs, tags.rs, method.rs, operator.rs, type_def.rs, query.rs
 defs/, defs/mod.rs, defs/int.rs, defs/str.rs
+directory module, sibling tests.rs, const fn helper
 purity, no behavior, no logic, no trait impls with logic
 no dependencies, zero deps, foundation crate, bottom of DAG
 const, static, compile-time construction
 enforcement test, purity test, no functions with side effects
 workspace members, cargo check, cargo test
+ori_llvm excluded from workspace, path dependency
 ```
 
 ---
@@ -65,13 +67,21 @@ int, float, bool, byte, char
 INT, FLOAT, BOOL, BYTE, CHAR
 MemoryStrategy::Copy, value type, bitwise copy
 IntInstr, FloatInstr, UnsignedCmp, BoolLogic
-int.f, int.byte, int.abs, int.to_str
+Ownership::Borrow, receiver ownership, Copy vs Borrow
+ReturnTag::SelfType, operator trait methods
+ParamDef, Param::SelfType, abbreviated MethodDef::new
+MethodDef::primitive, const fn helper, 500-line limit
+int.f, int.byte, int.abs, int.to_str, int.into, int.pow
 float.floor, float.ceil, float.round, float.abs, float.to_str
-bool.to_str
-byte.to_int, byte.to_char, byte.to_str
-char.to_int, char.to_str, char.is_alpha, char.is_digit
+float return type discrepancy, ori_ir SelfType bug
+bool.to_str, bool.not, BoolLogic
+byte.to_int, byte.to_char, byte.to_str, byte bitwise operators
+char.to_int, char.to_str, char.is_alpha, char.is_digit, char.to_byte
 resolve_int_method, resolve_float_method, resolve_bool_method
 resolve_byte_method, resolve_char_method
+cross-reference table, method count summary, signed vs unsigned
+trait methods as MethodDefs, operator methods as MethodDefs
+Default, Formattable, Value, Sendable (not in registry)
 ```
 
 ---
@@ -80,12 +90,17 @@ resolve_byte_method, resolve_char_method
 **File:** `section-04-string-type.md` | **Status:** Not Started
 
 ```
-str, STR, string, MemoryStrategy::Arc
+str, STR, string, MemoryStrategy::Arc, SSO, Small String Optimization
 RuntimeCall, ori_str_concat, ori_str_eq, ori_str_compare
 str.length, str.concat, str.to_upper, str.to_lower, str.trim
 str.contains, str.starts_with, str.ends_with
 str.slice, str.replace, str.split, str.chars
 str.to_str, str.repeat, str.bytes
+str.as_bytes, str.to_bytes, str.from_utf8, str.from_utf8_unchecked
+str.into, Into trait, str -> Error
+alias, length/len, substring/slice, parse_int/to_int, parse_float/to_float
+associated function, MethodKind::Associated
+Formattable, blanket impl, Iterable, DoubleEndedIterator
 resolve_str_method, string comparison, string ordering
 operator overloading, add operator on strings
 ```
@@ -104,6 +119,12 @@ error.message, error.trace
 Channel.send, Channel.recv, Channel.close
 compound types, special types, unit types
 register_builtin_types, builtin_types.rs
+const fn helper, MethodDef::compound, MethodDef::associated
+directory module, sibling tests.rs, frozen fields
+associated function, MethodKind::Associated
+heterogeneous operators, operator alias, canonical name
+format spec types, FormatType, Alignment, Sign, FormatSpec
+MemoryStrategy::Copy, MemoryStrategy::Arc
 ```
 
 ---

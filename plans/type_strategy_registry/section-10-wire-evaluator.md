@@ -10,7 +10,6 @@ depends_on:
   - "06"
   - "07"
   - "08"
-  - "08"
 sections:
   - id: "10.1"
     title: "Replace EVAL_BUILTIN_METHODS"

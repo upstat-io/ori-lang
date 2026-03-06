@@ -118,12 +118,13 @@ Each file has a single, clear responsibility:
 | `query.rs` | `BUILTIN_TYPES` array, `find_type()`, `find_method()`, convenience iterators | ~80 |
 | `tests.rs` | All purity enforcement tests | ~80 |
 | `defs/mod.rs` | `pub use` re-exports for all type constants | ~30 |
-| `defs/int.rs` | `pub static INT: TypeDef` with all int methods (~15 methods x ~10 lines) and operators | ~200 |
-| `defs/float.rs` | `pub static FLOAT: TypeDef` with all float methods and operators | ~180 |
-| `defs/str.rs` | `pub static STR: TypeDef` with all string methods (~30+ methods) and operators | ~350 |
-| `defs/bool.rs` | `pub static BOOL: TypeDef` with all bool methods and operators | ~60 |
-| `defs/byte.rs` | `pub static BYTE: TypeDef` with all byte methods and operators | ~100 |
-| `defs/char.rs` | `pub static CHAR: TypeDef` with all char methods and operators | ~120 |
+<!-- With const fn helper (~1 line/method): manageable. Without helper (~12 lines/method): float.rs exceeds 500-line limit. -->
+| `defs/int.rs` | `pub const INT: TypeDef` with 35 methods (using `const fn` helper) and operators | ~120 |
+| `defs/float.rs` | `pub const FLOAT: TypeDef` with 42 methods (using `const fn` helper) and operators | ~140 |
+| `defs/str.rs` | `pub const STR: TypeDef` with all string methods (~45+ methods) and operators | ~180 |
+| `defs/bool.rs` | `pub const BOOL: TypeDef` with 8 methods and operators | ~70 |
+| `defs/byte.rs` | `pub const BYTE: TypeDef` with 23 methods and operators | ~100 |
+| `defs/char.rs` | `pub const CHAR: TypeDef` with 16 methods and operators | ~80 |
 
 ### Skeleton file contents
 
@@ -299,9 +300,10 @@ pub static INT: TypeDef = TypeDef {
 ### Extensibility
 
 When future types are added (Duration, Size, Ordering, etc.), the process is:
-1. Create `src/defs/duration.rs` with `pub const DURATION: TypeDef = ...`
-2. Add `mod duration;` and `pub use self::duration::DURATION;` to `src/defs/mod.rs`
-3. Add `&defs::DURATION` to `BUILTIN_TYPES` in `lib.rs`
+1. Create `src/defs/duration/mod.rs` with `pub const DURATION: TypeDef = ...` and `#[cfg(test)] mod tests;` at the bottom
+2. Create `src/defs/duration/tests.rs` with unit tests (sibling test file per hygiene rules)
+3. Add `mod duration;` and `pub use self::duration::DURATION;` to `src/defs/mod.rs`
+4. Add `&defs::DURATION` to `BUILTIN_TYPES` in `lib.rs`
 
 No other files change. No other crates need modification for the declaration itself.
 

@@ -498,6 +498,69 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 
 ---
 
+## 07.5a Traits Not Covered by the Registry (Iterator Types)
+
+
+Following the precedent from Section 03 (Primitive Types) and Section 05 (Compound Types),
+certain traits are handled outside the registry for Iterator and DoubleEndedIterator.
+
+### Default Trait
+
+Neither Iterator nor DoubleEndedIterator implements Default. Iterators are always
+constructed from a source (list.iter(), range.iter(), repeat(value), etc.).
+
+### Formattable / Printable / Debug Traits
+
+Iterators do NOT implement Printable, Debug, or Formattable. Iterators are opaque
+lazy sequences — printing them would consume them. No `to_str` or `debug` MethodDef
+in the registry.
+
+### Sendable Trait
+
+Iterators are NOT Sendable. They capture internal state (position, closures, source
+references) that cannot be safely shared across threads. The type checker enforces this.
+
+### Clone Trait
+
+Iterators do NOT implement Clone. Cloning a lazy iterator with internal state is
+semantically ambiguous (shared position? independent position?). Not in the registry.
+
+### Eq / Comparable / Hashable Traits
+
+Iterators do NOT implement Eq, Comparable, or Hashable. These traits require consuming
+the entire iterator to compare/hash, which would be destructive. Not in the registry.
+
+### Value Trait
+
+Iterators are NOT Value types. They use `MemoryStrategy::Arc` (opaque heap handle).
+
+**Summary:** Iterator types have NO trait methods in the registry. All 24 methods are
+either protocol methods (next, next_back), adapter methods (map, filter, etc.), or
+consumer methods (fold, collect, count, etc.). This is unique among all builtin types.
+
+---
+
+## 07.5b MethodDef Frozen Field Defaults (Iterator Types)
+
+
+Per frozen decision 13 (Section 00), every `MethodDef` must specify all 10 fields. The
+code sketch in 07.1.2 already shows all 10 fields. This subsection documents the defaults
+and exceptions for reference.
+
+| Field | Default | Exceptions |
+|-------|---------|------------|
+| `pure` | `true` | None — all iterator methods are pure (adapters create new iterators, consumers produce values). Even `for_each` is pure at the type level (the side effect is in the closure). |
+| `backend_required` | `false` | `next` is `true` (LLVM uses `__iter_next` protocol). Adapter methods (`map`, `filter`, `take`, `skip`, `chain`, `zip`, `enumerate`) that have LLVM support are `true`. Consumer methods with LLVM support (`fold`, `count`, `find`, `any`, `all`, `for_each`, `collect`) are `true`. See 07.5.1 LLVM Coverage Gaps for which methods lack LLVM support. |
+| `kind` | `MethodKind::Instance` | None — all iterator methods are instance methods. |
+| `dei_only` | `false` | `true` for: `next_back`, `rev`, `last`, `rfind`, `rfold` (5 methods). |
+| `dei_propagation` | `DeiPropagation::NotApplicable` | `Propagate` for: `map`, `filter`. `Downgrade` for: `take`, `skip`, `chain`, `zip`, `enumerate`, `flatten`, `flat_map`, `cycle`. See 07.4.1 for full rules. |
+
+**Implementation note:** The `backend_required` field for iterator methods should be
+verified against the LLVM Coverage Gaps table (07.5.2). Methods NOT in `ori_llvm` should
+have `backend_required: false`. Methods with LLVM support should have `backend_required: true`.
+
+---
+
 ## 07.6 Implementation Steps
 
 ### Step 1: Define MethodDef entries
@@ -519,7 +582,6 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
   - `Fresh` — creates a fresh type variable (for higher-order methods)
   - `ElementType` — the T in Iterator<T>
   - `SelfType` — same type as the receiver
-- [ ] Verify all 24 methods' return types are expressible
 
 ### Step 3: Verify const-constructibility
 
@@ -543,6 +605,10 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 - [ ] Test: every adapter method has a `dei_propagation` that is `Propagate` or `Downgrade`
 - [ ] Test: every consumer method has `dei_propagation == NotApplicable`
 - [ ] Test: `ITERATOR_METHODS` is sorted by name (for binary search / deterministic iteration)
+- [ ] Test: every MethodDef has all 10 frozen fields from decision 13
+- [ ] Test: `backend_required` matches LLVM Coverage Gaps table (07.5.2) — methods NOT in ori_llvm have `false`
+- [ ] Verify all 24 method names, parameter names, return types against spec (`docs/ori_lang/v2026/spec/`)
+- [ ] Test: no Iterator methods have `trait_name` set (Iterator has no trait methods in registry)
 
 ---
 
@@ -576,3 +642,10 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 - [ ] No dependencies added to `ori_registry` (purity maintained)
 - [ ] Return types for all methods are expressible in Section 01's `ReturnTag` enum without hacks
 - [ ] DeiPropagation assignments match the exact branching in current `resolve_iterator_method()`
+- [ ] Every MethodDef has all 10 frozen fields from frozen decision 13
+- [ ] `pure` is `true` for all 24 methods
+- [ ] `backend_required` matches the LLVM Coverage Gaps table (07.5.2): methods with LLVM support = `true`, methods without = `false`
+- [ ] `kind` is `MethodKind::Instance` for all 24 methods
+- [ ] No `trait_name` is set on any Iterator method (Iterator has no trait methods in the registry — trait dispatch is handled separately)
+- [ ] Traits not covered (Default, Formattable, Sendable, Clone, Eq, Comparable, Hashable, Value) are documented per 07.5a
+- [ ] Every method cross-referenced against spec for name, parameters, and return type accuracy
