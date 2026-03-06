@@ -227,6 +227,8 @@ pub enum MemoryStrategy {
 
 4. **No `Inline` or `Stack` variant**: Some type systems distinguish stack-allocated aggregates from register scalars. Ori does not need this distinction in the registry -- both are `Copy` from the ARC perspective. The LLVM backend's distinction between register scalars and stack aggregates is a codegen concern handled by `TypeInfo`/`ValueRepr`, not a type property.
 
+5. **`Structural` variant deferred to Section 06**: Tuple, Option, and Result have memory strategies that depend on their type parameters (e.g., `(int, bool)` is Copy but `(str, [int])` contains Arc types). Section 06 introduces `MemoryStrategy::Structural` to express "determined by element types at instantiation time." When Section 06 is implemented, add `Structural` as a third variant to this enum and update the Rust definition above.
+
 ### What It Replaces
 
 | Current Location | Current Form | Registry Form |
@@ -1228,7 +1230,7 @@ pub enum TypeParamArity {
 
 ### Purpose
 
-`MethodKind` distinguishes instance methods (which take `self`) from associated functions (which do not). Duration and Size have static constructors (`Duration.from_seconds(ns:)`, `Size.from_bytes(b:)`) that are associated functions, not instance methods. Without this field, the registry cannot express them.
+`MethodKind` distinguishes instance methods (which take `self`) from associated functions (which do not). Duration, Size, and str have associated functions (`Duration.from_seconds(ns:)`, `Size.from_bytes(b:)`, `str.from_utf8(bytes:)`) that are called on the type itself, not on an instance. Without this field, the registry cannot express them.
 
 ### Rust Definition
 
@@ -1261,11 +1263,11 @@ pub struct MethodDef {
 }
 ```
 
-For associated functions, `receiver: Ownership` is irrelevant (there is no receiver). By convention, associated functions use `receiver: Ownership::Copy` as a placeholder.
+For associated functions, `receiver: Ownership` is irrelevant (there is no receiver). By convention, associated functions use `receiver: Ownership::Borrow` as a placeholder — consistent with frozen decision 18 (all primitive receivers use `Borrow`) and Sections 04/05 (str and Duration/Size associated functions).
 
 ### Design Notes
 
-- Only Duration and Size currently need `MethodKind::Associated` (for factory functions like `from_seconds`, `from_bytes`). All other builtin methods are `Instance`.
+- str, Duration, and Size currently need `MethodKind::Associated` (for associated functions like `from_utf8`, `from_seconds`, `from_bytes`). All other builtin methods are `Instance`.
 - Adding `kind` to `MethodDef` is a required field, not optional. This ensures every method declaration is explicit about its calling convention.
 
 ### Checklist

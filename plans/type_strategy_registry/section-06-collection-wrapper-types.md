@@ -518,17 +518,17 @@ pub enum MemoryStrategy {
 |--------|--------|---------|----------|-------|----------------|
 | `is_some` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
 | `is_none` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
-| `unwrap` | -- | `Element` | Own | -- | typeck, eval |
-| `expect` | `(Str)` | `Element` | Own | -- | typeck only |
-| `unwrap_or` | `(Element)` | `Element` | Own | -- | typeck, eval |
-| `ok_or` | `(Any)` | `Fresh` | Own | -- | typeck, eval |
+| `unwrap` | -- | `Element` | Owned | -- | typeck, eval |
+| `expect` | `(Str)` | `Element` | Owned | -- | typeck only |
+| `unwrap_or` | `(Element)` | `Element` | Owned | -- | typeck, eval |
+| `ok_or` | `(Any)` | `Fresh` | Owned | -- | typeck, eval |
 | `iter` | -- | `IteratorOf(Element)` | Borrow | Iterable | typeck, eval |
 | `map` | `(Closure)` | `ClosureDriven(MapLike)` | Borrow | -- | typeck only |
 | `and_then` | `(Closure)` | `ClosureDriven(FlatMapLike)` | Borrow | -- | typeck only |
 | `flat_map` | `(Closure)` | `ClosureDriven(FlatMapLike)` | Borrow | -- | typeck only |
 | `filter` | `(Closure)` | `SelfType` | Borrow | -- | typeck only |
-| `or` | `(SelfType)` | `SelfType` | Own | -- | typeck only |
-| `or_else` | `(Closure)` | `ClosureDriven(...)` | Own | -- | typeck only |
+| `or` | `(SelfType)` | `SelfType` | Owned | -- | typeck only |
+| `or_else` | `(Closure)` | `ClosureDriven(...)` | Owned | -- | typeck only |
 | **Trait: Eq** |
 | `equals` | `(SelfType)` | `Concrete(Bool)` | Borrow | Eq | typeck, eval |
 | **Trait: Comparable** |
@@ -561,11 +561,11 @@ critical for the ARC pass: borrowing methods do not decrement the refcount.
 |--------|--------|---------|----------|-------|----------------|
 | `is_ok` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
 | `is_err` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
-| `unwrap` | -- | `OkType` | Own | -- | typeck, eval |
-| `expect` | `(Str)` | `OkType` | Own | -- | typeck only |
-| `unwrap_or` | `(OkType)` | `OkType` | Own | -- | typeck only |
-| `unwrap_err` | -- | `ErrType` | Own | -- | typeck only |
-| `expect_err` | `(Str)` | `ErrType` | Own | -- | typeck only |
+| `unwrap` | -- | `OkType` | Owned | -- | typeck, eval |
+| `expect` | `(Str)` | `OkType` | Owned | -- | typeck only |
+| `unwrap_or` | `(OkType)` | `OkType` | Owned | -- | typeck only |
+| `unwrap_err` | -- | `ErrType` | Owned | -- | typeck only |
+| `expect_err` | `(Str)` | `ErrType` | Owned | -- | typeck only |
 | `ok` | -- | `OptionOf(Ok)` | Borrow | -- | typeck only |
 | `err` | -- | `OptionOf(Err)` | Borrow | -- | typeck only |
 | `map` | `(Closure)` | `ClosureDriven(MapLike)` | Borrow | -- | typeck only |
@@ -713,6 +713,113 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 
 ---
 
+## 06.10a MethodDef Frozen Field Defaults (All Collection & Wrapper Types)
+
+
+Per frozen decision 13 (Section 00), every `MethodDef` must specify all 10 fields. The
+method tables above show `name`, `params`, `returns`, `receiver`, and `trait_name`. The
+remaining 5 fields follow these defaults for collection and wrapper types:
+
+| Field | Default | Exceptions |
+|-------|---------|------------|
+| `pure` | `true` | None — all collection/wrapper methods are pure (no side effects). Even `push`/`insert` return new values (persistent data structures). |
+| `backend_required` | `true` | Higher-order methods (`map`, `filter`, `fold`, `find`, `any`, `all`, `for_each`, `flat_map`, `reduce`, `take_while`, `skip_while`, `min_by`, `max_by`, `sort_by`, `group_by`, `partition`, `and_then`, `or_else`, `map_err`) are `false` — they are typeck+eval only (LLVM deferred). |
+| `kind` | `MethodKind::Instance` | None — all collection/wrapper methods are instance methods. No associated functions on these types. |
+| `dei_only` | `false` | None — `dei_only` applies only to Iterator methods (Section 07). |
+| `dei_propagation` | `DeiPropagation::NotApplicable` | None — DEI propagation applies only to Iterator adapter methods (Section 07). |
+
+**Implementation note:** The Rust definition sketches above use `MethodDef::new()` which
+only takes 5 fields. The actual implementation MUST use struct literals with all 10 fields
+per frozen decision 13. The `backend_required` distinction between simple methods (true)
+and higher-order methods (false) is critical for LLVM wiring (Section 12).
+
+---
+
+## 06.10b Traits Not Covered by the Registry (Collection & Wrapper Types)
+
+
+Following the precedent from Section 03 (Primitive Types), certain traits are handled
+outside the registry. This subsection documents them for all 7 collection/wrapper types.
+
+### Default Trait
+
+| Type | Default Value | Handled By |
+|------|--------------|------------|
+| List | `[]` (empty list) | `well_known` in ori_types |
+| Map | `{}` (empty map) | `well_known` in ori_types |
+| Set | `Set()` (empty set) | `well_known` in ori_types |
+| Range | No Default | N/A |
+| Tuple | `()` (unit) for 0-tuple only | `well_known` in ori_types |
+| Option | `None` | `well_known` in ori_types |
+| Result | No Default | N/A |
+
+**Rationale:** Default values are type-level constants, not method behavior. The registry
+declares methods; the type checker's `well_known` module handles Default construction.
+
+### Formattable Trait
+
+All 7 types use the **blanket impl** from Printable — they implement `to_str` (registered
+as a trait method in the method tables above under Debug/Printable), and the blanket
+`Formattable` impl delegates to `to_str()`. No explicit `format` MethodDef is needed in
+the registry for these types.
+
+### Sendable Trait
+
+| Type | Sendable? | Reason |
+|------|-----------|--------|
+| List | Conditional | `Sendable` if `T: Sendable` |
+| Map | Conditional | `Sendable` if `K: Sendable` and `V: Sendable` |
+| Set | Conditional | `Sendable` if `T: Sendable` |
+| Range | Yes | Copy type (start + end + step are value types) |
+| Tuple | Conditional | `Sendable` if all element types are `Sendable` |
+| Option | Conditional | `Sendable` if `T: Sendable` |
+| Result | Conditional | `Sendable` if `T: Sendable` and `E: Sendable` |
+
+**Rationale:** Sendable is a marker trait auto-derived by the compiler based on field
+types. The registry does not declare it — the type checker infers it structurally.
+
+### Value Trait
+
+| Type | Value? | Reason |
+|------|--------|--------|
+| List | No | Arc memory strategy |
+| Map | No | Arc memory strategy |
+| Set | No | Arc memory strategy |
+| Range | Yes | Copy type, all fields are value types |
+| Tuple | Conditional | Value if all elements are Value |
+| Option | Conditional | Value if T is Value |
+| Result | Conditional | Value if T and E are Value |
+
+### Into Trait
+
+- `Set.into()` -> `[T]` (Set to List conversion) — registered as a method in the Set table
+- No other collection/wrapper types have standard `Into` conversions in the registry
+
+---
+
+## 06.10c Ownership Semantics Summary
+
+
+The ownership distinction between `Borrow` and `Own` is critical for ARC correctness
+(Section 11). This table summarizes the ownership pattern across all 7 types:
+
+| Type | Borrowing Methods | Owning Methods | Pattern |
+|------|-------------------|----------------|---------|
+| List | All query/transform methods | None | All operations return new values |
+| Map | All query/transform methods | None | Same pattern |
+| Set | All query/transform methods | None | Same pattern |
+| Range | All methods | None | Copy type — borrow is trivial |
+| Tuple | All methods | None | Same pattern |
+| Option | `is_some`, `is_none`, `map`, `filter`, `and_then`, `flat_map`, `iter`, trait methods | `unwrap`, `expect`, `unwrap_or`, `ok_or`, `or`, `or_else` | Consuming methods take ownership |
+| Result | `is_ok`, `is_err`, `ok`, `err`, `map`, `map_err`, `and_then`, `or_else`, `has_trace`, `trace`, `trace_entries`, trait methods | `unwrap`, `expect`, `unwrap_or`, `unwrap_err`, `expect_err` | Same consuming pattern |
+
+**Key insight:** Option and Result are the only collection/wrapper types with `Ownership::Owned`
+methods. These are methods that consume the wrapper to extract the inner value. All other
+types use persistent/functional semantics where every operation borrows the receiver and
+returns a new value.
+
+---
+
 ## Implementation Checklist
 
 ### 06.1 Data Model Extensions (prerequisite: Section 01 finalized)
@@ -733,6 +840,10 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 - [ ] Verify method names match `TYPECK_BUILTIN_METHODS` entries for `"list"`
 - [ ] Verify trait methods match `EVAL_BUILTIN_METHODS` entries for `"list"`
 - [ ] Document which methods use `ReturnTag::Fresh` (higher-order inference)
+- [ ] Replace all `ClosureDriven(...)` references in method table with `Fresh` (ClosureFlow was removed — see 06.1 NOTE)
+- [ ] Set all 10 frozen fields on every MethodDef (per frozen decision 13)
+- [ ] Set `backend_required: false` on higher-order methods (map, filter, fold, find, any, all, for_each, flat_map, reduce, take_while, skip_while, min_by, max_by, sort_by, group_by, partition)
+- [ ] Verify against spec: all 50 method names, parameter names, return types
 - [ ] Test: `find_method(TypeTag::List, "len")` returns expected MethodDef
 - [ ] Test: `LIST.methods.len() == 50`
 
@@ -740,6 +851,8 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 
 - [ ] Define `MAP` const with all 17 methods
 - [ ] Verify key/value projection usage is correct for each method
+- [ ] Set all 10 frozen fields on every MethodDef
+- [ ] Verify against spec: all 17 method names, parameter names, return types
 - [ ] Test: `find_method(TypeTag::Map, "get")` returns `OptionOf(Value)`
 - [ ] Test: `find_method(TypeTag::Map, "keys")` returns `ListOf(Key)`
 
@@ -747,6 +860,8 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 
 - [ ] Define `SET` const with all 15 methods
 - [ ] Verify `iter` returns `IteratorOf` (not DEI)
+- [ ] Set all 10 frozen fields on every MethodDef
+- [ ] Verify against spec: all 15 method names, parameter names, return types
 - [ ] Test: `find_method(TypeTag::Set, "iter")` returns `IteratorOf(Element)`
 
 ### 06.5 Range TypeDef
@@ -754,6 +869,8 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 - [ ] Define `RANGE` const with all 8 methods
 - [ ] Document Range<float> iteration guard (not encoded in registry)
 - [ ] Verify `iter` returns `DoubleEndedIteratorOf` (not plain Iterator)
+- [ ] Set all 10 frozen fields on every MethodDef
+- [ ] Verify against spec: all 8 method names, parameter names, return types
 - [ ] Test: `find_method(TypeTag::Range, "iter")` returns `DoubleEndedIteratorOf(Element)`
 
 ### 06.6 Tuple TypeDef
@@ -761,22 +878,33 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 - [ ] Define `TUPLE` const with all 6 methods
 - [ ] Set `MemoryStrategy::Structural`
 - [ ] Document that field access (._0, ._1) is NOT modeled as methods
+- [ ] Set all 10 frozen fields on every MethodDef
+- [ ] Verify against spec: all 6 method names, parameter names, return types
 - [ ] Test: `TUPLE.methods.len() == 6`
 
 ### 06.7 Option TypeDef
 
-- [ ] Define `OPTION` const with all 16 methods
+- [ ] Define `OPTION` const with all 18 methods (13 inherent + 5 trait: equals, compare, hash, clone, debug)
 - [ ] Set `MemoryStrategy::Structural`
-- [ ] Verify ownership semantics: unwrap/expect/unwrap_or = Own, others = Borrow
-- [ ] Test: `find_method(TypeTag::Option, "unwrap")` has `Ownership::Own`
+- [ ] Verify ownership semantics: unwrap/expect/unwrap_or/ok_or/or/or_else = Owned, others = Borrow
+- [ ] Replace all `ClosureDriven(...)` references in method table with `Fresh`
+- [ ] Set all 10 frozen fields on every MethodDef
+- [ ] Set `backend_required: false` on higher-order methods (map, and_then, flat_map, filter, or_else)
+- [ ] Verify against spec: all 18 method names, parameter names, return types
+- [ ] Test: `find_method(TypeTag::Option, "unwrap")` has `Ownership::Owned`
 - [ ] Test: `find_method(TypeTag::Option, "is_some")` has `Ownership::Borrow`
 
 ### 06.8 Result TypeDef
 
-- [ ] Define `RESULT` const with all 17 methods
+- [ ] Define `RESULT` const with all 21 methods (16 inherent + 5 trait: equals, compare, hash, clone, debug)
 - [ ] Set `MemoryStrategy::Structural`
 - [ ] Verify ok/err projection distinction: ok() -> OptionOf(Ok), err() -> OptionOf(Err)
 - [ ] Verify `map_err` uses `ReturnTag::Fresh` (closure inference in type checker)
+- [ ] Replace all `ClosureDriven(...)` references in method table with `Fresh`
+- [ ] Set all 10 frozen fields on every MethodDef
+- [ ] Set `backend_required: false` on higher-order methods (map, map_err, and_then, or_else)
+- [ ] Verify ownership: unwrap/expect/unwrap_or/unwrap_err/expect_err = Owned, others = Borrow
+- [ ] Verify against spec: all 21 method names, parameter names, return types
 - [ ] Test: `find_method(TypeTag::Result, "ok")` returns `OptionOf(Ok)`
 - [ ] Test: `find_method(TypeTag::Result, "err")` returns `OptionOf(Err)`
 
@@ -784,7 +912,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 
 - [ ] All 7 TypeDefs compile with `cargo c -p ori_registry`
 - [ ] All TypeDefs are included in `BUILTIN_TYPES` array
-- [ ] Total method count across all collection types matches expected (129)
+- [ ] Total method count across all 7 collection types matches the sum of per-type counts from method tables (verify at implementation time — counts include both inherent and trait methods)
 - [ ] No duplicate method names within a single TypeDef
 - [ ] All method names are sorted alphabetically within each TypeDef
 - [ ] Purity test passes (no dependencies, no logic, all const)
@@ -812,6 +940,36 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 6. **`cargo c -p ori_registry`** passes with no warnings.
 
 7. **Unit tests** verify lookup by name for at least 3 representative methods per type.
+
+
+8. **Every MethodDef has all 10 frozen fields** from frozen decision 13: `name`,
+   `params`, `returns`, `receiver`, `trait_name`, `pure`, `backend_required`, `kind`,
+   `dei_only`, `dei_propagation`.
+
+9. **`pure` is `true`** for all collection/wrapper methods (persistent data structures,
+   no side effects).
+
+10. **`backend_required` is correct**: `true` for simple methods (len, is_empty,
+    contains, first, last, iter, trait methods), `false` for higher-order methods
+    (map, filter, fold, find, any, all, for_each, etc.).
+
+11. **`kind` is `MethodKind::Instance`** for all collection/wrapper methods (no
+    associated functions).
+
+12. **`dei_only` is `false`** and **`dei_propagation` is `NotApplicable`** for all
+    collection/wrapper methods (DEI semantics are Section 07 only).
+
+13. **Ownership semantics correct**: Option/Result consuming methods (`unwrap`,
+    `expect`, `unwrap_or`, `or`, etc.) use `Ownership::Owned`; all other methods
+    use `Ownership::Borrow`.
+
+14. **Every method cross-referenced against spec** (`docs/ori_lang/v2026/spec/`)
+    for name, parameters, and return type accuracy.
+
+15. **`ClosureDriven` references resolved**: Method tables use `ReturnTag::Fresh`
+    (not `ClosureDriven`) for higher-order methods — `ClosureDriven` was removed
+    from the plan; the type checker handles closure inference via
+    `unify_higher_order_constraints()`.
 
 ---
 
