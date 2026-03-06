@@ -95,7 +95,7 @@ arc_emitter, instr_dispatch.rs, emit_function.rs, apply.rs, aggregates.rs
 ---
 
 ### Section 07: Constant Deduplication
-**File:** `section-07-constant-dedup.md` | **Status:** Not Started
+**File:** `section-07-constant-dedup.md` | **Status:** Complete
 
 ```
 string constant, global, overflow message, unnamed_addr, deduplication
@@ -106,7 +106,7 @@ ir_builder, constants.rs
 ---
 
 ### Section 08: Loop IR Quality
-**File:** `section-08-loop-ir-quality.md` | **Status:** Not Started
+**File:** `section-08-loop-ir-quality.md` | **Status:** Complete
 
 ```
 loop, CSE, common subexpression, duplicate computation, cse_cache, checked_ops.rs, emit_checked_binop
@@ -162,7 +162,7 @@ build/codegen-purity/current, artifact capture, opt-21 verify
 | 04 | ARC Closure Lifecycle | `section-04-arc-closure-lifecycle.md` | Complete |
 | 05 | Sum Type Payload Extraction | `section-05-payload-extraction.md` | Complete |
 | 06 | Dead Code Pruning | `section-06-dead-code-pruning.md` | Complete |
-| 07 | Constant Deduplication | `section-07-constant-dedup.md` | Not Started |
-| 08 | Loop IR Quality | `section-08-loop-ir-quality.md` | Not Started |
+| 07 | Constant Deduplication | `section-07-constant-dedup.md` | Complete |
+| 08 | Loop IR Quality | `section-08-loop-ir-quality.md` | Complete |
 | 09 | Tail Call Optimization | `section-09-tail-call.md` | Not Started |
 | 10 | Verification | `section-10-verification.md` | Not Started |

@@ -4,8 +4,13 @@ title: "Wire ARC & Borrow Pass (ori_arc)"
 status: not-started
 goal: "Replace all borrowing_builtins construction with ori_registry as the single source of truth, fix dependency direction, and preserve iterator exclusion semantics"
 depends_on:
+  - "03"
+  - "04"
+  - "05"
+  - "06"
+  - "07"
   - "08"
-  - "02"
+  - "09"
 sections:
   - id: "11.1"
     title: "Add ori_registry::borrowing_method_names() helper"

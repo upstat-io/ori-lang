@@ -41,11 +41,11 @@ subsections:
 
 ## Overview
 
-This is the most complex wiring section. The type checker (`ori_types`) is the primary consumer of builtin type knowledge in the compiler. It hard-codes method resolution for 20+ types across 18 `resolve_*_method()` functions, maintains a 426-entry `TYPECK_BUILTIN_METHODS` array, and uses a 5-entry `DEI_ONLY_METHODS` constant for DoubleEndedIterator gating.
+This is the most complex wiring section. The type checker (`ori_types`) is the primary consumer of builtin type knowledge in the compiler. It hard-codes method resolution across 20 `resolve_*_method()` functions, maintains a 390-entry `TYPECK_BUILTIN_METHODS` array, and uses a 5-entry `DEI_ONLY_METHODS` constant for DoubleEndedIterator gating.
 
 All of this gets replaced by `ori_registry` lookups. The key challenge is that the type checker doesn't just need method *names* -- it needs to construct `Idx` return types in the pool, which requires bridging between the registry's `TypeTag` enum and the pool's `Idx` handles. Two bridge functions (`tag_to_type_tag` and `return_tag_to_idx`) mediate this translation.
 
-**Net effect:** ~800 lines of hard-coded method resolution deleted, replaced by ~80 lines of bridge + lookup code.
+**Net effect:** ~800 lines of hard-coded method resolution deleted, replaced by ~200-250 lines of bridge + lookup + helper code (more than the original ~80 line estimate due to ReturnTag variant coverage and special-case logic preservation).
 
 ## Design Decisions
 
@@ -66,7 +66,7 @@ These cannot be replaced by a simple `find_method().returns -> return_tag_to_idx
 
 ### TYPECK_BUILTIN_METHODS eliminated, not replaced
 
-The 426-entry `TYPECK_BUILTIN_METHODS` array currently serves one purpose: cross-crate consistency tests. After migration, the registry IS the source of truth. The consistency tests iterate `BUILTIN_TYPES` directly. There is no need for a separate array.
+The 390-entry `TYPECK_BUILTIN_METHODS` array currently serves one purpose: cross-crate consistency tests. After migration, the registry IS the source of truth. The consistency tests iterate `BUILTIN_TYPES` directly. There is no need for a separate array.
 
 ### resolve_named_type_method stays outside the registry
 
@@ -284,7 +284,6 @@ pub(crate) fn return_tag_to_idx(
         ReturnTag::SelfType => receiver_ty,
         ReturnTag::Fresh => engine.pool_mut().fresh_var(),
         ReturnTag::Unit => Idx::UNIT,
-        ReturnTag::Ordering => Idx::ORDERING,
 
         // === Container-relative types ===
         ReturnTag::ElementType => extract_elem(engine, receiver_ty),
@@ -314,6 +313,16 @@ pub(crate) fn return_tag_to_idx(
             let tuple = engine.pool_mut().tuple(vec![key_ty, value_ty]);
             engine.pool_mut().list(tuple)
         }
+
+        // Additional arms required (8 variants from Section 01.5):
+        // ReturnTag::List(TypeTag)               — e.g., str.split() -> [str]
+        // ReturnTag::Option(TypeTag)              — e.g., str.to_int() -> Option<int>
+        // ReturnTag::DoubleEndedIterator(TypeTag)  — e.g., str.iter() -> DEI<char>
+        // ReturnTag::ListOfTupleIntElement        — e.g., list.enumerate() -> [(int, T)]
+        // ReturnTag::MapIterator                  — e.g., map.iter() -> Iterator<(K, V)>
+        // ReturnTag::IteratorOfTupleIntElement    — e.g., iterator.enumerate()
+        // ReturnTag::NextResult                   — e.g., iterator.next() -> (Option<T>, Self)
+        // ReturnTag::ResultOfProjectionFresh(proj) — e.g., option.ok_or()
     }
 }
 

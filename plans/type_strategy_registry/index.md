@@ -27,13 +27,16 @@ order: 1
 ```
 TypeTag, MemoryStrategy, Ownership, OpStrategy
 ParamDef, MethodDef, OpDefs, TypeDef
+ReturnTag, TypeProjection, TypeParamArity, MethodKind, DeiPropagation
 pure data, no behavior, no dependencies, const-constructible
 enum, struct, static, compile-time, zero-cost
 receiver, borrow, owned, copy, arc
 IntInstr, FloatInstr, UnsignedCmp, BoolLogic, RuntimeCall, Unsupported
 schema, contract, specification, declaration
-SelfType, Iterator, Void, return type
+SelfType, Iterator, Void, return type, NextResult, Fresh
 extensibility, future fields, IterationDef, HashStrategy, DisplayStrategy
+size assertion, documentation, operator coverage
+pow, matmul, as, as?, not, bit_not, neg
 ```
 
 ---
@@ -43,7 +46,7 @@ extensibility, future fields, IterationDef, HashStrategy, DisplayStrategy
 
 ```
 ori_registry, Cargo.toml, workspace, crate DAG
-module structure, lib.rs, core.rs, method.rs, operator.rs, type_def.rs
+module structure, lib.rs, tags.rs, method.rs, operator.rs, type_def.rs, query.rs
 defs/, defs/mod.rs, defs/int.rs, defs/str.rs
 purity, no behavior, no logic, no trait impls with logic
 no dependencies, zero deps, foundation crate, bottom of DAG
@@ -169,7 +172,7 @@ resolve_float_method, resolve_bool_method, resolve_byte_method
 resolve_char_method, resolve_list_method, resolve_option_method
 resolve_result_method, resolve_map_method, resolve_set_method
 TYPECK_BUILTIN_METHODS, return_tag_to_idx, return type
-unify_higher_order_constraints (stays in ori_types), calls.rs
+unify_higher_order_constraints (stays in ori_types), calls/method_call.rs
 DEI_ONLY_METHODS, well_known_generic_types
 infer/expr/methods/mod.rs, check/well_known/mod.rs
 Tag, Idx, InferEngine, type pool
@@ -220,7 +223,7 @@ BuiltinRegistration, receiver_borrowed, declare_builtins! macro
 ARC_PIPELINE_METHODS, BuiltinTable
 borrowing_builtin_names, delete function
 simplify macro, remove borrow: syntax
-arc_emitter/mod.rs, builtins/mod.rs, builtins/traits.rs
+arc_emitter/operators.rs, arc_emitter/mod.rs, builtins/mod.rs, builtins/traits.rs
 emit_str_cmp_predicate, CmpPredicate, ori_str_compare
 ```
 
