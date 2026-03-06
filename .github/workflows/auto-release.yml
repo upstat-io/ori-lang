@@ -7,6 +7,10 @@ name: Auto Release
 # merges on the same day correctly get .1, .2, .3, etc.
 #
 # Flow: bump-build.sh → sync-version.sh → commit → tag → release
+#
+# REQUIRES: The ori-release-bot GitHub App must be a bypass actor in the
+# master branch ruleset, so this workflow can push version-bump commits directly.
+# Secrets: RELEASE_APP_ID, RELEASE_APP_PRIVATE_KEY (from the GitHub App)
 
 on:
   push:
@@ -31,10 +35,17 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
           ref: master
 
@@ -90,8 +101,8 @@ jobs:
           ./scripts/sync-version.sh
 
           # Commit if anything changed (BUILD_NUMBER and/or manifests)
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "ori-release-bot[bot]"
+          git config user.email "${{ secrets.RELEASE_APP_ID }}+ori-release-bot[bot]@users.noreply.github.com"
           git add BUILD_NUMBER Cargo.toml compiler/ori_llvm/Cargo.toml compiler/ori_rt/Cargo.toml \
                   tools/ori-lsp/Cargo.toml website/playground-wasm/Cargo.toml \
                   website/src/layouts/BaseLayout.astro \
@@ -112,7 +123,7 @@ jobs:
         if: steps.tag.outputs.skip != 'true'
         id: commits
         env:
-          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
 
@@ -265,7 +276,7 @@ jobs:
       - name: Create release
         if: steps.tag.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           NOTES=$(cat /tmp/release-notes.txt)
