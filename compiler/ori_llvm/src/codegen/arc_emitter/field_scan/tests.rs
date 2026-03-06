@@ -25,6 +25,7 @@ fn make_test_func(blocks: Vec<ArcBlock>) -> ArcFunction {
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
     }
 }
 

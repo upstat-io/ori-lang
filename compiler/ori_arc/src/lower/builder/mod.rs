@@ -379,6 +379,7 @@ impl ArcIrBuilder {
             num_captures: 0,
             cow_annotations: crate::uniqueness::CowAnnotations::default(),
             drop_hints: crate::uniqueness::DropHints::default(),
+            tail_calls: Vec::new(),
         }
     }
 }
