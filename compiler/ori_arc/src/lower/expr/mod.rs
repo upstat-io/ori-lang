@@ -58,6 +58,13 @@ pub struct ArcLowerer<'a> {
     ///
     /// Saved/restored around each `lower_block` so nesting works correctly.
     pub(crate) block_let_names: FxHashSet<Name>,
+    /// The name of the function currently being lowered.
+    ///
+    /// Used by `lower_exp_recurse()` to emit `Apply @func_name(...)` instead
+    /// of a sentinel. This enables TCO detection (which checks
+    /// `Apply.func == arc_func.name`) and fixes AOT compilation of
+    /// `recurse()` patterns.
+    pub(crate) func_name: Name,
     /// Reverse lookup from variant name to enum constructor info.
     ///
     /// Shared by reference from [`lower_function_can`](super::lower_function_can).
@@ -204,8 +211,14 @@ impl ArcLowerer<'_> {
                 self.lower_ident(name, ty, span)
             }
             CanExpr::SelfRef => {
+                // In impl methods, `self` is a parameter — look it up in scope.
+                // In recurse() patterns, `self` means the enclosing function.
                 let self_name = self.interner.intern("self");
-                self.lower_ident(self_name, ty, span)
+                if self.scope.lookup(self_name).is_some() {
+                    self.lower_ident(self_name, ty, span)
+                } else {
+                    self.lower_ident(self.func_name, ty, span)
+                }
             }
 
             // Binary / Unary operators

@@ -4,7 +4,7 @@
 //! - `FunctionExp`: `print(...)`, `panic(...)`, `todo`, `recurse`, etc.
 //! - `FormatWith`: template string format specs (`{value:>10.2f}`)
 
-use ori_ir::canon::CanNamedExprRange;
+use ori_ir::canon::{CanId, CanNamedExprRange};
 use ori_ir::{FunctionExpKind, Name, Span};
 use ori_types::Idx;
 
@@ -32,7 +32,7 @@ impl ArcLowerer<'_> {
             FunctionExpKind::Panic => self.lower_exp_panic(props, span),
             FunctionExpKind::Todo => self.lower_exp_todo(span),
             FunctionExpKind::Unreachable => self.lower_exp_unreachable(span),
-            FunctionExpKind::Recurse => self.lower_exp_recurse(props, span),
+            FunctionExpKind::Recurse => self.lower_exp_recurse(props, ty, span),
             FunctionExpKind::Cache => self.lower_exp_cache(props, span),
             FunctionExpKind::Catch => self.lower_exp_catch(props, ty, span),
             // Post-2026 — rejected by type checker (E2040), never reaches lowerer
@@ -152,25 +152,34 @@ impl ArcLowerer<'_> {
 
     // Recurse
 
-    /// Lower `recurse(args...)` — tail call to current function.
+    /// Lower `recurse(condition:, base:, step:)` to conditional control flow.
     ///
-    /// In ARC IR, this is a regular `Apply` to the enclosing function.
-    /// The ARC pipeline and LLVM backend handle tail call optimization.
-    fn lower_exp_recurse(&mut self, props: CanNamedExprRange, span: Span) -> ArcVarId {
+    /// Semantics match the interpreter's `RecursePattern::evaluate()`:
+    /// `if condition then base else step`. The `step` expression may contain
+    /// `self(...)` calls (lowered as `Apply @func_name(...)` via `SelfRef`),
+    /// which create the actual recursive calls.
+    fn lower_exp_recurse(&mut self, props: CanNamedExprRange, ty: Idx, span: Span) -> ArcVarId {
         let named_exprs = self.arena.get_named_exprs(props);
-        let mut arg_vars = Vec::with_capacity(named_exprs.len());
+        let condition_name = self.interner.intern("condition");
+        let base_name = self.interner.intern("base");
+        let step_name = self.interner.intern("step");
+
+        let mut cond_id = CanId::INVALID;
+        let mut base_id = CanId::INVALID;
+        let mut step_id = CanId::INVALID;
+
         for ne in named_exprs {
-            arg_vars.push(self.lower_expr(ne.value));
+            if ne.name == condition_name {
+                cond_id = ne.value;
+            } else if ne.name == base_name {
+                base_id = ne.value;
+            } else if ne.name == step_name {
+                step_id = ne.value;
+            }
         }
 
-        // The function name is available through the ARC IR builder's
-        // function context. For recurse, we use the enclosing function name.
-        // Since ARC IR doesn't track the current function name in the lowerer,
-        // emit as an Apply to a special `__recurse` sentinel that the emitter
-        // will resolve to the current function.
-        let recurse_name = self.interner.intern("__recurse");
-        self.builder
-            .emit_apply(Idx::UNIT, recurse_name, arg_vars, Some(span))
+        // Lower as: if condition then base else step
+        self.lower_if(cond_id, base_id, step_id, ty, span)
     }
 
     // Cache, Catch
