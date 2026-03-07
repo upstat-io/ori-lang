@@ -13,15 +13,13 @@
 //! [`resolve_named_type_method`] directly.
 
 mod computed_returns;
-mod resolve_by_type;
 
 use ori_registry::ReturnTag;
 
 use crate::infer::InferEngine;
-use crate::{Idx, Tag};
+use crate::{Idx, Tag, TypeKind};
 
 use super::registry_bridge;
-use resolve_by_type::resolve_named_type_method;
 
 /// Methods that require iteration and are therefore invalid on `Range<float>`.
 ///
@@ -42,7 +40,8 @@ pub(crate) fn resolve_builtin_method(
     tag: Tag,
     method_name: &str,
 ) -> Option<Idx> {
-    // Named/Applied types: user-defined, not in registry
+    // Named/Applied types: user-defined, not in registry.
+    // Supports newtype `.unwrap()`/`.inner()`/`.value()` and common trait methods.
     if matches!(tag, Tag::Named | Tag::Applied) {
         return resolve_named_type_method(engine, receiver_ty, method_name);
     }
@@ -76,4 +75,30 @@ pub(crate) fn resolve_builtin_method(
 fn is_float_range_iteration(engine: &InferEngine<'_>, receiver_ty: Idx, method: &str) -> bool {
     RANGE_FLOAT_ITERATION_METHODS.contains(&method)
         && engine.pool().range_elem(receiver_ty) == Idx::FLOAT
+}
+
+/// Resolve methods on Named/Applied types (user-defined structs, enums, newtypes).
+///
+/// For newtypes, supports `.unwrap()` to extract the inner value.
+fn resolve_named_type_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method_name: &str,
+) -> Option<Idx> {
+    // Check type registry for newtype unwrap
+    if method_name == "unwrap" || method_name == "inner" || method_name == "value" {
+        if let Some(type_registry) = engine.type_registry() {
+            if let Some(entry) = type_registry.get_by_idx(receiver_ty) {
+                if let TypeKind::Newtype { underlying } = &entry.kind {
+                    return Some(*underlying);
+                }
+            }
+        }
+    }
+
+    // Common methods on any user-defined type
+    match method_name {
+        "to_str" | "debug" => Some(Idx::STR),
+        _ => None,
+    }
 }

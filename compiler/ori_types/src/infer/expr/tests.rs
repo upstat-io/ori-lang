@@ -2714,3 +2714,158 @@ fn into_not_on_named_types_via_builtins() {
         "Named types should not resolve .into() via builtins (uses TraitRegistry)"
     );
 }
+
+// ========================================================================
+// Registry Migration Validation (§09.9)
+// ========================================================================
+
+/// Every instance method in the registry resolves via `resolve_builtin_method`.
+///
+/// This is the forward-coverage test: iterates all `BUILTIN_TYPES` from the
+/// registry and verifies that every non-associated method resolves to `Some(_)`.
+/// Supersedes the old `TYPECK_BUILTIN_METHODS` constant — the registry is now
+/// the single source of truth.
+#[test]
+fn registry_method_coverage_complete() {
+    use ori_registry::{TypeTag, BUILTIN_TYPES};
+
+    test_engine!(pool, engine);
+
+    // Build receiver types for parameterized containers
+    let list_int = engine.pool_mut().list(Idx::INT);
+    let map_str_int = engine.pool_mut().map(Idx::STR, Idx::INT);
+    let set_int = engine.pool_mut().set(Idx::INT);
+    let option_int = engine.pool_mut().option(Idx::INT);
+    let result_int_err = engine.pool_mut().result(Idx::INT, Idx::ERROR);
+    let range_int = engine.pool_mut().range(Idx::INT);
+    let channel_int = engine.pool_mut().channel(Idx::INT);
+    let iter_int = engine.pool_mut().iterator(Idx::INT);
+    let dei_int = engine.pool_mut().double_ended_iterator(Idx::INT);
+    let tuple_int_str = engine.pool_mut().tuple(&[Idx::INT, Idx::STR]);
+
+    let mut failures = Vec::new();
+
+    for type_def in BUILTIN_TYPES {
+        // Map TypeTag -> (Tag, receiver Idx)
+        let (tag, receiver) = match type_def.tag {
+            TypeTag::Int => (Tag::Int, Idx::INT),
+            TypeTag::Float => (Tag::Float, Idx::FLOAT),
+            TypeTag::Bool => (Tag::Bool, Idx::BOOL),
+            TypeTag::Str => (Tag::Str, Idx::STR),
+            TypeTag::Char => (Tag::Char, Idx::CHAR),
+            TypeTag::Byte => (Tag::Byte, Idx::BYTE),
+            TypeTag::Duration => (Tag::Duration, Idx::DURATION),
+            TypeTag::Size => (Tag::Size, Idx::SIZE),
+            TypeTag::Ordering => (Tag::Ordering, Idx::ORDERING),
+            TypeTag::Error => (Tag::Error, Idx::ERROR),
+            TypeTag::List => (Tag::List, list_int),
+            TypeTag::Map => (Tag::Map, map_str_int),
+            TypeTag::Set => (Tag::Set, set_int),
+            TypeTag::Option => (Tag::Option, option_int),
+            TypeTag::Result => (Tag::Result, result_int_err),
+            TypeTag::Range => (Tag::Range, range_int),
+            TypeTag::Channel => (Tag::Channel, channel_int),
+            TypeTag::Tuple => (Tag::Tuple, tuple_int_str),
+            TypeTag::Iterator => (Tag::Iterator, iter_int),
+            TypeTag::DoubleEndedIterator => (Tag::DoubleEndedIterator, dei_int),
+            _ => continue,
+        };
+
+        for method in type_def.methods {
+            // Skip DEI-only methods on Iterator — they're filtered by find_method
+            // and only available on DoubleEndedIterator receivers
+            if method.dei_only && type_def.tag == TypeTag::Iterator {
+                continue;
+            }
+
+            let result = resolve_builtin_method(&mut engine, receiver, tag, method.name);
+            if result.is_none() {
+                failures.push(format!("{}.{}", type_def.name, method.name));
+            }
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "Registry methods not resolvable via resolve_builtin_method:\n  {}",
+        failures.join("\n  ")
+    );
+}
+
+/// `str.as_bytes()` resolves to `[byte]` via the registry.
+#[test]
+fn str_as_bytes_resolves() {
+    test_engine!(pool, engine);
+
+    let result = resolve_builtin_method(&mut engine, Idx::STR, Tag::Str, "as_bytes");
+    assert!(result.is_some(), "str.as_bytes() should resolve");
+    let ret_ty = result.unwrap();
+    assert_eq!(engine.pool().tag(ret_ty), Tag::List);
+    assert_eq!(engine.pool().list_elem(ret_ty), Idx::BYTE);
+}
+
+/// `str.to_bytes()` resolves to `[byte]` via the registry.
+#[test]
+fn str_to_bytes_resolves() {
+    test_engine!(pool, engine);
+
+    let result = resolve_builtin_method(&mut engine, Idx::STR, Tag::Str, "to_bytes");
+    assert!(result.is_some(), "str.to_bytes() should resolve");
+    let ret_ty = result.unwrap();
+    assert_eq!(engine.pool().tag(ret_ty), Tag::List);
+    assert_eq!(engine.pool().list_elem(ret_ty), Idx::BYTE);
+}
+
+/// `str.from_utf8()` resolves to `Result<str, Error>` via the registry.
+///
+/// Although it's an associated function (`MethodKind::Associated`), the type
+/// checker resolves it through `resolve_builtin_method` — the registry does not
+/// distinguish instance vs associated for return type resolution.
+#[test]
+fn str_from_utf8_resolves() {
+    use ori_registry::{find_method, MethodKind, TypeTag};
+
+    // Verify the registry classifies it as associated
+    let method =
+        find_method(TypeTag::Str, "from_utf8").expect("str.from_utf8 should exist in registry");
+    assert_eq!(method.kind, MethodKind::Associated);
+
+    // It still resolves via resolve_builtin_method for return type inference
+    test_engine!(pool, engine);
+    let result = resolve_builtin_method(&mut engine, Idx::STR, Tag::Str, "from_utf8");
+    assert!(result.is_some(), "str.from_utf8 should resolve");
+    let ret_ty = result.unwrap();
+    // Returns Result<str, fresh> — str ok type, fresh error type
+    assert_eq!(engine.pool().tag(ret_ty), Tag::Result);
+    assert_eq!(engine.pool().result_ok(ret_ty), Idx::STR);
+}
+
+/// `is_dei_only` returns true for exactly the 5 DEI-only methods.
+#[test]
+fn dei_only_methods_correct() {
+    let dei_methods: Vec<&str> = ori_registry::dei_only_methods().collect();
+
+    // These are the 5 methods that are only available on DoubleEndedIterator
+    let expected = ["last", "next_back", "rev", "rfind", "rfold"];
+    assert_eq!(
+        dei_methods.len(),
+        expected.len(),
+        "Expected exactly {} DEI-only methods, got {}: {:?}",
+        expected.len(),
+        dei_methods.len(),
+        dei_methods,
+    );
+
+    for name in &expected {
+        assert!(
+            ori_registry::is_dei_only(name),
+            "'{name}' should be DEI-only"
+        );
+    }
+
+    // Verify non-DEI methods return false
+    assert!(!ori_registry::is_dei_only("map"));
+    assert!(!ori_registry::is_dei_only("filter"));
+    assert!(!ori_registry::is_dei_only("next"));
+    assert!(!ori_registry::is_dei_only("collect"));
+}

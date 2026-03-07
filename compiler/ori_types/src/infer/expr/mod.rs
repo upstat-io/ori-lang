@@ -474,4 +474,6 @@ fn validate_format_spec(
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#[expect(clippy::expect_used, reason = "Tests use expect for clarity")]
 mod tests;
