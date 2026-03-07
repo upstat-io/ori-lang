@@ -1,6 +1,6 @@
 use super::*;
 
-// === EvalMode policy tests ===
+// EvalMode policy tests
 
 #[test]
 fn interpret_allows_io() {
@@ -102,7 +102,7 @@ fn default_is_interpret() {
     assert_eq!(EvalMode::default(), EvalMode::Interpret);
 }
 
-// === EvalMode Salsa compatibility ===
+// EvalMode Salsa compatibility
 
 #[test]
 fn eval_mode_is_copy() {
@@ -125,7 +125,7 @@ fn eval_mode_is_hashable() {
     assert_eq!(set.len(), 3);
 }
 
-// === ModeState tests ===
+// ModeState tests
 
 #[test]
 fn mode_state_interpret_no_budget() {
@@ -156,7 +156,7 @@ fn mode_state_budget_exceeded_has_correct_values() {
     assert_eq!(err.calls, 2);
 }
 
-// === EvalCounters integration tests ===
+// EvalCounters integration tests
 
 #[test]
 fn counters_disabled_by_default() {
@@ -199,7 +199,7 @@ fn counter_noop_when_disabled() {
     assert!(state.counters().is_none());
 }
 
-// === Child mode state tests ===
+// Child mode state tests
 
 #[test]
 fn child_inherits_profiling_enablement() {

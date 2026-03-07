@@ -1,48 +1,14 @@
 //! Thread-safe shared registry wrappers.
 //!
-//! Provides thread-safe access to registries using `Arc` and `Arc<RwLock>`.
+//! Provides thread-safe mutable access to registries using `Arc<RwLock>`.
 
-// Arc is the implementation - all usage goes through the newtype
 #![expect(
     clippy::disallowed_types,
-    reason = "Arc is the implementation of SharedRegistry"
+    reason = "Arc is the implementation of SharedMutableRegistry"
 )]
 
 use std::fmt;
 use std::sync::Arc;
-
-/// Thread-safe shared registry wrapper (immutable).
-///
-/// Uses `Arc` internally for thread-safe reference counting.
-/// The wrapped registry is immutable after creation.
-pub struct SharedRegistry<T>(Arc<T>);
-
-impl<T> SharedRegistry<T> {
-    /// Create a new shared registry from an owned registry.
-    pub fn new(registry: T) -> Self {
-        SharedRegistry(Arc::new(registry))
-    }
-}
-
-impl<T> Clone for SharedRegistry<T> {
-    fn clone(&self) -> Self {
-        SharedRegistry(Arc::clone(&self.0))
-    }
-}
-
-impl<T> std::ops::Deref for SharedRegistry<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for SharedRegistry<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SharedRegistry({:?})", &*self.0)
-    }
-}
 
 /// Thread-safe mutable shared registry wrapper.
 ///

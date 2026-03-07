@@ -10,19 +10,7 @@ use std::collections::BTreeSet;
 
 use ori_eval::interpreter::resolvers::CollectionMethod;
 use ori_ir::builtin_methods::BUILTIN_METHODS;
-
-/// Map registry `PascalCase` type names to the legacy lowercase convention
-/// used by `BUILTIN_METHODS` (IR) and LLVM codegen.
-fn legacy_type_name(registry_name: &str) -> &str {
-    match registry_name {
-        "Error" => "error",
-        "List" => "list",
-        "Map" => "map",
-        "Range" => "range",
-        "Tuple" => "tuple",
-        other => other,
-    }
-}
+use ori_registry::legacy_type_name;
 
 /// Build the set of `(type_name, method_name)` pairs from the registry.
 ///
@@ -53,7 +41,9 @@ fn ir_method_set() -> BTreeSet<(&'static str, &'static str)> {
 }
 
 /// Collection types that have registry methods but are not yet in the
-/// `ori_ir` builtin method registry. Names match registry convention.
+/// `ori_ir` builtin method registry. Names use legacy lowercase convention
+/// for mapped types (error, list, map, range, tuple) and `PascalCase` for
+/// types not yet mapped (Channel, Iterator, etc.).
 const COLLECTION_TYPES: &[&str] = &[
     "Channel",
     "DoubleEndedIterator",
@@ -70,6 +60,10 @@ const COLLECTION_TYPES: &[&str] = &[
 
 /// Registry/typeck methods for primitive types not yet in the IR registry.
 /// These need to be added to `ori_ir/src/builtin_methods/mod.rs`.
+///
+/// **Cross-reference:** `METHODS_NOT_YET_IN_EVAL` in `dispatch_coverage.rs`
+/// covers a similar but broader gap (registry methods not in eval). Both
+/// allowlists will be eliminated by `plans/type_strategy_registry/` Section 13.
 ///
 /// Kept until Section 13 consolidates `BUILTIN_METHODS` into the registry.
 const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[

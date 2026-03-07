@@ -1,7 +1,7 @@
 //! Tests for the Evaluator.
 
 #![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
-#![allow(
+#![expect(
     clippy::semicolon_if_nothing_returned,
     clippy::items_after_statements,
     clippy::unnecessary_wraps,

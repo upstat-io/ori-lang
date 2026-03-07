@@ -132,12 +132,12 @@ pub enum CollectionMethod {
 }
 
 impl CollectionMethod {
-    /// Try to identify a collection method by name.
+    /// Try to identify a collection method by name (test-only).
     ///
     /// Returns Some(method) if the name matches a known collection method.
-    /// Currently used primarily for testing; the `CollectionMethodResolver`
-    /// performs matching directly.
-    pub fn from_name(name: &str) -> Option<Self> {
+    /// The production `CollectionMethodResolver` uses direct Name comparison.
+    #[cfg(test)]
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
         match name {
             "map" => Some(Self::Map),
             "filter" => Some(Self::Filter),

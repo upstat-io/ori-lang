@@ -32,14 +32,12 @@ mod eval_mode;
 pub mod exec;
 mod function_val;
 pub mod interpreter;
-mod method_key;
 mod methods;
 pub mod module_registration;
 mod operators;
 mod print_handler;
 mod shared;
 mod unary_operators;
-mod user_methods;
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
@@ -54,11 +52,10 @@ pub use ori_patterns::{
 pub use diagnostics::{CallFrame, CallStack, EvalCounters};
 pub use environment::{AssignError, Environment, LocalScope, Mutability, Scope};
 pub use eval_mode::{BudgetExceeded, EvalMode, ModeState};
-pub use method_key::MethodKey;
 pub use methods::dispatch_builtin_method_str;
 pub use operators::evaluate_binary;
+pub use ori_patterns::{MethodEntry, UserMethod, UserMethodRegistry};
 pub use unary_operators::evaluate_unary;
-pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
 
 pub use derives::{process_derives, DefaultFieldTypeRegistry};
 pub use function_val::{
@@ -71,7 +68,7 @@ pub use print_handler::{
     buffer_handler, silent_handler, stdout_handler, BufferPrintHandler, PrintHandlerImpl,
     SharedPrintHandler, StdoutPrintHandler,
 };
-pub use shared::{SharedMutableRegistry, SharedRegistry};
+pub use shared::SharedMutableRegistry;
 
 // Re-export module registration functions for CLI and Playground
 pub use module_registration::{

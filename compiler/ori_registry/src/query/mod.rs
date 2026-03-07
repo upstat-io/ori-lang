@@ -230,5 +230,22 @@ pub fn is_dei_only(method: &str) -> bool {
         .is_some_and(|m| m.dei_only)
 }
 
+/// Map registry `PascalCase` type names to the legacy lowercase convention
+/// used by `BUILTIN_METHODS` (IR) and LLVM codegen.
+///
+/// This exists as a compatibility layer until the IR registry (`BUILTIN_METHODS`)
+/// migrates to `PascalCase` naming (Section 13 of `type_strategy_registry` plan).
+#[must_use]
+pub fn legacy_type_name(registry_name: &str) -> &str {
+    match registry_name {
+        "Error" => "error",
+        "List" => "list",
+        "Map" => "map",
+        "Range" => "range",
+        "Tuple" => "tuple",
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests;
