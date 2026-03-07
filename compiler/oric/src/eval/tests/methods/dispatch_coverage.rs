@@ -8,7 +8,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ori_eval::{RangeValue, Value};
-use ori_ir::SharedInterner;
 use ori_patterns::EvalErrorKind;
 use ori_registry::{TypeTag, BUILTIN_TYPES};
 
@@ -16,6 +15,10 @@ use ori_registry::{TypeTag, BUILTIN_TYPES};
 ///
 /// This list must shrink monotonically. Adding entries requires justification.
 /// Removing entries (= implementing methods) is always welcome.
+///
+/// **Cross-reference:** `TYPECK_METHODS_NOT_IN_IR` in `consistency.rs` covers
+/// the narrower registry-vs-IR gap. Both allowlists will be eliminated by
+/// `plans/type_strategy_registry/` Section 13.
 ///
 /// Type names use **registry convention** (`PascalCase` for composite types).
 const METHODS_NOT_YET_IN_EVAL: &[(&str, &str)] = &[
@@ -295,7 +298,7 @@ fn minimal_value_for(tag: TypeTag) -> Option<Value> {
 /// `UndefinedMethod` is not (unless the method is in a known allowlist).
 #[test]
 fn every_registry_method_has_eval_dispatch_handler() {
-    let interner = SharedInterner::default();
+    let interner = super::test_interner();
 
     let not_yet: BTreeSet<(&str, &str)> = METHODS_NOT_YET_IN_EVAL.iter().copied().collect();
     let collection: BTreeSet<(&str, &str)> = COLLECTION_RESOLVER_METHODS.iter().copied().collect();
@@ -353,5 +356,20 @@ fn every_registry_method_has_eval_dispatch_handler() {
         "Methods in allowlists now have dispatch handlers — \
          remove from METHODS_NOT_YET_IN_EVAL or COLLECTION_RESOLVER_METHODS: \
          {unexpectedly_present:#?}"
+    );
+}
+
+/// Ensure the not-yet-implemented allowlist does not grow.
+///
+/// If you are adding a method to the allowlist, this test will fail.
+/// Implement the method instead, or get explicit approval to raise
+/// the ceiling.
+#[test]
+fn methods_not_yet_in_eval_does_not_grow() {
+    assert!(
+        METHODS_NOT_YET_IN_EVAL.len() <= 189,
+        "METHODS_NOT_YET_IN_EVAL grew to {} entries (ceiling: 189). \
+         Implement the method or get approval to raise the ceiling.",
+        METHODS_NOT_YET_IN_EVAL.len()
     );
 }

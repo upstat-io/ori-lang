@@ -26,8 +26,10 @@ const FIELD_NAMES: &[&str] = &[
     "contains_key",
     "debug",
     "difference",
+    "div",
     "divide",
     "drop",
+    "ends_with",
     "entries",
     "equals",
     "escape",
@@ -61,6 +63,7 @@ const FIELD_NAMES: &[&str] = &[
     "message",
     "microseconds",
     "milliseconds",
+    "minutes",
     "mul",
     "multiply",
     "nanoseconds",
@@ -105,9 +108,6 @@ const FIELD_NAMES: &[&str] = &[
     "unwrap_or",
     "values",
     "with_trace",
-    "div",
-    "ends_with",
-    "minutes",
 ];
 
 /// Compile-time exhaustive destructure of `BuiltinMethodNames`.

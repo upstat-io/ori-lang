@@ -276,6 +276,21 @@ fn borrowing_methods_subset_of_all_methods() {
     }
 }
 
+// legacy_type_name tests
+
+#[test]
+fn legacy_type_name_maps_pascal_to_lowercase() {
+    use super::legacy_type_name;
+
+    assert_eq!(legacy_type_name("Error"), "error");
+    assert_eq!(legacy_type_name("List"), "list");
+    assert_eq!(legacy_type_name("Map"), "map");
+    assert_eq!(legacy_type_name("Range"), "range");
+    assert_eq!(legacy_type_name("Tuple"), "tuple");
+    assert_eq!(legacy_type_name("int"), "int");
+    assert_eq!(legacy_type_name("str"), "str");
+}
+
 // const fn find_type test
 
 #[test]

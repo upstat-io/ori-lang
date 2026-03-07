@@ -14,20 +14,9 @@ use std::collections::HashSet;
 
 use ori_ir::StringInterner;
 
-use super::{borrowing_names_from_table, builtin_table};
+use ori_registry::legacy_type_name;
 
-/// Map registry `PascalCase` type names to the legacy lowercase convention
-/// used by `BuiltinTable` registrations and LLVM codegen.
-fn legacy_type_name(registry_name: &str) -> &str {
-    match registry_name {
-        "Error" => "error",
-        "List" => "list",
-        "Map" => "map",
-        "Range" => "range",
-        "Tuple" => "tuple",
-        other => other,
-    }
-}
+use super::{borrowing_names_from_table, builtin_table};
 
 /// Build the set of `(type_name, method_name)` pairs from the registry.
 ///

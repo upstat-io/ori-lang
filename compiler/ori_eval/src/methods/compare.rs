@@ -8,7 +8,7 @@ use ori_patterns::{EvalError, OrderingValue, Value};
 /// Compare two Option values.
 ///
 /// Per spec: None < Some(_). When both are Some, compare inner values.
-pub fn compare_option_values(
+pub(crate) fn compare_option_values(
     a: &Value,
     b: &Value,
     interner: &StringInterner,
@@ -25,7 +25,7 @@ pub fn compare_option_values(
 /// Compare two values of the same type.
 ///
 /// Used for comparing inner values of Option and other compound types.
-pub fn compare_values(
+pub(crate) fn compare_values(
     a: &Value,
     b: &Value,
     interner: &StringInterner,
@@ -65,7 +65,7 @@ pub fn compare_values(
 ///
 /// Compares element by element. First difference determines the result.
 /// If one is a prefix of the other, the shorter list is less.
-pub fn compare_lists(
+pub(crate) fn compare_lists(
     a: &[Value],
     b: &[Value],
     interner: &StringInterner,
@@ -83,7 +83,7 @@ pub fn compare_lists(
 /// Compare two Result values.
 ///
 /// Per spec: Ok(_) < Err(_). When both are same variant, compare inner values.
-pub fn compare_result_values(
+pub(crate) fn compare_result_values(
     a: &Value,
     b: &Value,
     interner: &StringInterner,
@@ -101,7 +101,7 @@ pub fn compare_result_values(
 /// Convert Rust Ordering to Ori Ordering value.
 ///
 /// Creates a first-class `Value::Ordering` value.
-pub fn ordering_to_value(ord: Ordering) -> Value {
+pub(crate) fn ordering_to_value(ord: Ordering) -> Value {
     Value::ordering_from_cmp(ord)
 }
 
@@ -114,7 +114,11 @@ pub fn ordering_to_value(ord: Ordering) -> Value {
     clippy::only_used_in_recursion,
     reason = "interner needed for future struct/newtype deep equality via method dispatch"
 )]
-pub fn equals_values(a: &Value, b: &Value, interner: &StringInterner) -> Result<bool, EvalError> {
+pub(crate) fn equals_values(
+    a: &Value,
+    b: &Value,
+    interner: &StringInterner,
+) -> Result<bool, EvalError> {
     match (a, b) {
         (Value::Int(a), Value::Int(b)) => Ok(a == b),
         #[expect(
@@ -194,18 +198,18 @@ pub fn equals_values(a: &Value, b: &Value, interner: &StringInterner) -> Result<
 ///
 /// Must match `FNV_OFFSET_BASIS` in `ori_llvm/codegen/derive_codegen/mod.rs`
 /// and `ori_rt/src/lib.rs` (`ori_str_hash`).
-pub const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
+pub(crate) const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
 
 /// FNV-1a prime (64-bit).
 ///
 /// Must match `FNV_PRIME` in `ori_llvm/codegen/derive_codegen/mod.rs`
 /// and `ori_rt/src/lib.rs` (`ori_str_hash`).
-pub const FNV_PRIME: u64 = 1_099_511_628_211;
+pub(crate) const FNV_PRIME: u64 = 1_099_511_628_211;
 
 /// FNV-1a hash over a byte slice.
 ///
 /// Matches the runtime's `ori_str_hash` and the LLVM backend's string hash.
-pub fn fnv1a_hash(bytes: &[u8]) -> i64 {
+pub(crate) fn fnv1a_hash(bytes: &[u8]) -> i64 {
     let mut hash = FNV_OFFSET_BASIS;
     for &byte in bytes {
         hash ^= u64::from(byte);
@@ -219,7 +223,7 @@ pub fn fnv1a_hash(bytes: &[u8]) -> i64 {
 /// Uses the golden ratio constant `0x9e3779b9` to mix bits, providing good
 /// distribution across the hash space. This is the same algorithm exposed
 /// to Ori users as the `hash_combine` prelude function.
-pub fn hash_combine(seed: i64, value: i64) -> i64 {
+pub(crate) fn hash_combine(seed: i64, value: i64) -> i64 {
     seed ^ (value
         .wrapping_add(0x9e37_79b9_i64)
         .wrapping_add(seed << 6)
@@ -232,7 +236,7 @@ pub fn hash_combine(seed: i64, value: i64) -> i64 {
 /// `DefaultHasher` (str). For compound types, combines element hashes
 /// with `hash_combine`. Float normalization ensures `-0.0` and `+0.0`
 /// produce the same hash, and all NaN representations hash identically.
-pub fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError> {
+pub(crate) fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError> {
     match v {
         Value::Int(n) => Ok(n.raw()),
         Value::Float(f) => Ok(hash_float(*f)),
@@ -340,7 +344,7 @@ pub(super) fn hash_float(f: f64) -> i64 {
 }
 
 /// Extract `OrderingValue` from `Value::Ordering`.
-pub fn extract_ordering(value: &Value) -> Option<OrderingValue> {
+pub(crate) fn extract_ordering(value: &Value) -> Option<OrderingValue> {
     match value {
         Value::Ordering(ord) => Some(*ord),
         _ => None,
