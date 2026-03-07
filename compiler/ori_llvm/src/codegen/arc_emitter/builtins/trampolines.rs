@@ -67,6 +67,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Generate a trampoline function.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "trampoline emits sequential LLVM IR for runtime builtins"
+    )]
     fn generate_trampoline_fn(
         &mut self,
         elem_ty: Idx,

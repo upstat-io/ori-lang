@@ -1,11 +1,9 @@
 //! `char` type definition.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeTag,
+    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ReturnTag, TypeDef, TypeParamArity,
+    TypeTag, ONE_SELF_COPY,
 };
-
-static SELF_PARAM: [ParamDef; 1] = [ParamDef::SELF_TYPE];
 
 static CHAR_METHODS: &[MethodDef] = &[
     MethodDef::primitive(
@@ -17,7 +15,7 @@ static CHAR_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "compare",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Ordering),
         Some("Comparable"),
         Ownership::Borrow,
@@ -31,7 +29,7 @@ static CHAR_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Bool),
         Some("Eq"),
         Ownership::Borrow,

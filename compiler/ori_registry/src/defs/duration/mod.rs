@@ -6,17 +6,10 @@
 
 use crate::{
     MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeTag,
+    TypeParamArity, TypeTag, ONE_SELF_COPY,
 };
 
 // Shared parameter arrays
-
-/// `(other: Self)` — for trait methods and homogeneous operators.
-static SELF_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "other",
-    ty: ReturnTag::SelfType,
-    ownership: Ownership::Copy,
-}];
 
 /// `(val: int)` — for associated factory functions.
 static INT_PARAM: [ParamDef; 1] = [ParamDef {
@@ -47,7 +40,14 @@ const NB: bool = false;
 // All 41 methods alphabetically sorted.
 static DURATION_METHODS: &[MethodDef] = &[
     MethodDef::compound("abs", &[], SELF, None, Ownership::Borrow, NB),
-    MethodDef::compound("add", &SELF_PARAM, SELF, Some("Add"), Ownership::Borrow, B),
+    MethodDef::compound(
+        "add",
+        &ONE_SELF_COPY,
+        SELF,
+        Some("Add"),
+        Ownership::Borrow,
+        B,
+    ),
     MethodDef::compound("as_micros", &[], FLOAT, None, Ownership::Borrow, NB),
     MethodDef::compound("as_millis", &[], FLOAT, None, Ownership::Borrow, NB),
     MethodDef::compound("as_nanos", &[], FLOAT, None, Ownership::Borrow, NB),
@@ -55,7 +55,7 @@ static DURATION_METHODS: &[MethodDef] = &[
     MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, B),
     MethodDef::compound(
         "compare",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ORD,
         Some("Comparable"),
         Ownership::Borrow,
@@ -72,7 +72,7 @@ static DURATION_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
@@ -113,9 +113,23 @@ static DURATION_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound("nanoseconds", &[], INT, None, Ownership::Borrow, B),
     MethodDef::compound("neg", &[], SELF, Some("Neg"), Ownership::Borrow, B),
-    MethodDef::compound("rem", &SELF_PARAM, SELF, Some("Rem"), Ownership::Borrow, B),
+    MethodDef::compound(
+        "rem",
+        &ONE_SELF_COPY,
+        SELF,
+        Some("Rem"),
+        Ownership::Borrow,
+        B,
+    ),
     MethodDef::compound("seconds", &[], INT, None, Ownership::Borrow, B),
-    MethodDef::compound("sub", &SELF_PARAM, SELF, Some("Sub"), Ownership::Borrow, B),
+    MethodDef::compound(
+        "sub",
+        &ONE_SELF_COPY,
+        SELF,
+        Some("Sub"),
+        Ownership::Borrow,
+        B,
+    ),
     MethodDef::compound("to_micros", &[], FLOAT, None, Ownership::Borrow, NB),
     MethodDef::compound("to_millis", &[], FLOAT, None, Ownership::Borrow, NB),
     MethodDef::compound("to_nanos", &[], FLOAT, None, Ownership::Borrow, NB),

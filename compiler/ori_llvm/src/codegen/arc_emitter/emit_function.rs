@@ -83,6 +83,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Pre-creates all LLVM blocks, binds function parameters, emits each
     /// block's instructions and terminator, then patches phi nodes.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "function emission orchestrates blocks, params, phis, and terminators"
+    )]
     pub fn emit_function(&mut self, func: &ArcFunction, abi: &FunctionAbi) {
         // Pre-scan: find dead unwind blocks. With nounwind analysis,
         // Invoke terminators calling known-nounwind functions are downgraded

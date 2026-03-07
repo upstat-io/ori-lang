@@ -70,6 +70,10 @@ pub(super) fn emit_enum_lexicographic<'a>(
 }
 
 /// Emit per-variant lexicographic comparison via switch on tag.
+#[expect(
+    clippy::too_many_lines,
+    reason = "enum payload comparison emits per-variant switch + field ops"
+)]
 fn emit_enum_payload_cmp<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     setup: &DeriveSetup,

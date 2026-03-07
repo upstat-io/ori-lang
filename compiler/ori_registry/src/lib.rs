@@ -65,7 +65,9 @@ mod tags;
 mod type_def;
 
 pub use defs::BUILTIN_TYPES;
-pub use method::{MethodDef, ParamDef};
+pub use method::{
+    MethodDef, ParamDef, ONE_SELF_BORROW, ONE_SELF_COPY, ONE_SELF_OWNED, TWO_SELF_COPY,
+};
 pub use operator::OpDefs;
 pub use query::{
     borrowing_methods, dei_only_methods, find_method, find_type, find_type_by_name, has_method,

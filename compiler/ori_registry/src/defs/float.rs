@@ -1,12 +1,9 @@
 //! `float` type definition.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeTag,
+    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ReturnTag, TypeDef, TypeParamArity,
+    TypeTag, ONE_SELF_COPY, TWO_SELF_COPY,
 };
-
-static SELF_PARAM: [ParamDef; 1] = [ParamDef::SELF_TYPE];
-static TWO_SELF_PARAMS: [ParamDef; 2] = [ParamDef::SELF_TYPE, ParamDef::SELF_TYPE];
 
 static FLOAT_METHODS: &[MethodDef] = &[
     MethodDef::primitive(
@@ -25,7 +22,7 @@ static FLOAT_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "add",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Add"),
         Ownership::Borrow,
@@ -46,7 +43,7 @@ static FLOAT_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "atan2",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Float),
         None,
         Ownership::Borrow,
@@ -67,7 +64,7 @@ static FLOAT_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "clamp",
-        &TWO_SELF_PARAMS,
+        &TWO_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Float),
         None,
         Ownership::Borrow,
@@ -81,7 +78,7 @@ static FLOAT_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "compare",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Ordering),
         Some("Comparable"),
         Ownership::Borrow,
@@ -102,14 +99,14 @@ static FLOAT_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "div",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Div"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Bool),
         Some("Eq"),
         Ownership::Borrow,
@@ -207,21 +204,21 @@ static FLOAT_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "max",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Float),
         None,
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "min",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Float),
         None,
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "mul",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Mul"),
         Ownership::Borrow,
@@ -235,14 +232,14 @@ static FLOAT_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "pow",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Float),
         None,
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "rem",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Rem"),
         Ownership::Borrow,
@@ -277,7 +274,7 @@ static FLOAT_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "sub",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Sub"),
         Ownership::Borrow,

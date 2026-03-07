@@ -168,6 +168,31 @@ impl MethodDef {
             dei_propagation: DeiPropagation::NotApplicable,
         }
     }
+
+    /// Convenience constructor for associated functions requiring both backends.
+    ///
+    /// Like [`associated`](Self::associated) but with `backend_required: true`.
+    /// Used for associated functions that have eval and LLVM implementations
+    /// (e.g., `str.from_utf8`, `str.from_utf8_unchecked`).
+    #[must_use]
+    pub const fn associated_backend(
+        name: &'static str,
+        params: &'static [ParamDef],
+        returns: ReturnTag,
+    ) -> Self {
+        Self {
+            name,
+            receiver: Ownership::Borrow,
+            params,
+            returns,
+            trait_name: None,
+            pure: true,
+            backend_required: true,
+            kind: MethodKind::Associated,
+            dei_only: false,
+            dei_propagation: DeiPropagation::NotApplicable,
+        }
+    }
 }
 
 impl ParamDef {
@@ -180,7 +205,39 @@ impl ParamDef {
         ty: ReturnTag::SelfType,
         ownership: Ownership::Copy,
     };
+
+    /// Common parameter for binary operations on reference types.
+    ///
+    /// Name `"other"`, type `ReturnTag::SelfType`, ownership `Borrow`.
+    /// Used by `equals`, `compare` on str, list, map, set.
+    pub const SELF_BORROW: Self = Self {
+        name: "other",
+        ty: ReturnTag::SelfType,
+        ownership: Ownership::Borrow,
+    };
+
+    /// Common parameter for binary operations on structural types.
+    ///
+    /// Name `"other"`, type `ReturnTag::SelfType`, ownership `Owned`.
+    /// Used by `equals`, `compare` on option, result, tuple.
+    pub const SELF_OWNED: Self = Self {
+        name: "other",
+        ty: ReturnTag::SelfType,
+        ownership: Ownership::Owned,
+    };
 }
+
+/// One `Self`-typed parameter with `Copy` ownership.
+pub static ONE_SELF_COPY: [ParamDef; 1] = [ParamDef::SELF_TYPE];
+
+/// Two `Self`-typed parameters with `Copy` ownership.
+pub static TWO_SELF_COPY: [ParamDef; 2] = [ParamDef::SELF_TYPE, ParamDef::SELF_TYPE];
+
+/// One `Self`-typed parameter with `Borrow` ownership.
+pub static ONE_SELF_BORROW: [ParamDef; 1] = [ParamDef::SELF_BORROW];
+
+/// One `Self`-typed parameter with `Owned` ownership.
+pub static ONE_SELF_OWNED: [ParamDef; 1] = [ParamDef::SELF_OWNED];
 
 // MethodDef: two fat pointers (name + params) = 32, ReturnTag ~4,
 // Option<&str> = 16, Ownership + MethodKind + DeiPropagation + 2 bools = ~5,

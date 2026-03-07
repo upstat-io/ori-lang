@@ -17,7 +17,7 @@ use ori_registry::{ReturnTag, TypeProjection, TypeTag};
 
 use crate::{Idx, Tag};
 
-use super::super::InferEngine;
+use crate::infer::InferEngine;
 
 /// Map the type checker's [`Tag`] to the registry's [`TypeTag`].
 ///
@@ -83,6 +83,7 @@ pub(crate) fn tag_to_type_tag(tag: Tag) -> Option<TypeTag> {
 /// `receiver_ty` is the resolved receiver type (e.g., `List<int>`,
 /// `Iterator<str>`). Used to extract inner type parameters when the
 /// return type is parameterized.
+#[must_use]
 pub(crate) fn return_tag_to_idx(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,

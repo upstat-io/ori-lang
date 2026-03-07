@@ -43,10 +43,6 @@
     reason = "workspace equivalent — codegen uses similar names intentionally"
 )]
 #![allow(
-    clippy::too_many_lines,
-    reason = "workspace equivalent — codegen dispatch functions are long"
-)]
-#![allow(
     clippy::cognitive_complexity,
     reason = "workspace equivalent — codegen match arms are complex"
 )]

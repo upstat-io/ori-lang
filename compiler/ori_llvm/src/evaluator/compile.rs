@@ -24,7 +24,7 @@ use crate::context::SimpleCx;
 use super::runtime_mappings;
 use super::{llvm_dump_requested, CompiledTestModule, ImportedFunctionForCodegen, LLVMEvalError};
 
-impl super::OwnedLLVMEvaluator<'_> {
+impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
     /// Compile an entire module with all its tests using the V2 pipeline.
     ///
     /// This is the recommended way to run multiple tests from the same module.
@@ -96,146 +96,20 @@ impl super::OwnedLLVMEvaluator<'_> {
             // SAFETY: Detached reference to scx — see comment above.
             let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
-            // 2. Type infrastructure
-            let store = TypeInfoStore::new(self.pool);
-            let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
-
-            // 3. IR builder
-            let mut builder = IrBuilder::new_jit(scx_ref);
-
-            // 4. Runtime functions: declared lazily via builder.runtime_fn()
-            // (no eager declare_runtime() call needed)
-
-            // 5. Register user-defined types
-            type_registration::register_user_types(&resolver, user_types);
-
-            // 5b. ARC classifier for type classification during codegen
-            let classifier = ori_arc::ArcClassifier::new(self.pool);
-
-            // 5c. Collect monomorphized generic functions (needed for declaration)
-            let mono_functions = crate::monomorphize::collect_mono_functions(
-                mono_instances,
+            self.compile_all_functions(
+                scx_ref,
+                module,
+                tests,
+                canon,
+                interner,
                 function_sigs,
-                interner,
-                self.pool,
-            );
-
-            // 5d. Interprocedural uniqueness analysis (COW check elimination).
-            let uniqueness_summaries = {
-                let all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
-                    .values()
-                    .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-                    .cloned()
-                    .collect();
-                ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
-            };
-
-            // 6. Two-pass function compilation
-            debug!("declaring functions (phase 1)");
-            let mut fc = FunctionCompiler::new(
-                &mut builder,
-                &store,
-                &resolver,
-                interner,
-                self.pool,
-                "",
+                user_types,
+                impl_sigs,
+                imported_functions,
+                mono_instances,
                 annotated_sigs,
-                &classifier,
-                None, // No debug info for JIT
-                uniqueness_summaries,
-            );
-            fc.declare_all(&module.functions, function_sigs);
-
-            // 6b. Declare imported functions (phase 1)
-            // Imported functions must be declared before function body emission
-            // so that call sites in the main module can resolve references to them.
-            if !imported_functions.is_empty() {
-                debug!(
-                    count = imported_functions.len(),
-                    "declaring imported functions"
-                );
-                for imp_fn in imported_functions {
-                    fc.declare_all(
-                        std::slice::from_ref(imp_fn.function),
-                        std::slice::from_ref(&imp_fn.sig),
-                    );
-                }
-            }
-
-            // 6c. Declare monomorphized generic functions (phase 1)
-            if !mono_functions.is_empty() {
-                debug!(
-                    count = mono_functions.len(),
-                    "declaring monomorphized functions"
-                );
-                fc.declare_mono_functions(&mono_functions);
-            }
-
-            // 7. Compile impl methods (declare + define)
-            // Impl methods still lower inline — they use type-qualified canon
-            // lookup paths and are not pre-lowered for borrow inference.
-            if !module.impls.is_empty() {
-                debug!("compiling impl methods");
-                fc.compile_impls(&module.impls, impl_sigs, canon, &module.traits);
-            }
-
-            // 7b. Compile derived trait methods
-            if module.types.iter().any(|t| !t.derives.is_empty()) {
-                debug!("compiling derived trait methods");
-                fc.compile_derives(module, user_types);
-            }
-
-            // 8. Two-pass function compilation for sound nounwind analysis:
-            //    a) Lower all functions to ARC IR (no LLVM emission)
-            //    b) Build complete nounwind set via fixed-point analysis
-            //    c) Emit LLVM IR using the complete nounwind set
-            //
-            // This ensures monomorphized callee nounwind status is available
-            // when analyzing callers, preventing unnecessary invoke+landingpad.
-            debug!("preparing function bodies (phase 2a, ARC pipeline)");
-            let mut prepared =
-                fc.prepare_all_cached(&module.functions, function_sigs, canon, &mut arc_cache);
-
-            // 8b. Prepare imported function bodies
-            if !imported_functions.is_empty() {
-                debug!(
-                    count = imported_functions.len(),
-                    "preparing imported function bodies"
-                );
-                for imp_fn in imported_functions {
-                    prepared.extend(fc.prepare_all_cached(
-                        std::slice::from_ref(imp_fn.function),
-                        std::slice::from_ref(&imp_fn.sig),
-                        imp_fn.canon,
-                        &mut arc_cache,
-                    ));
-                }
-            }
-
-            // 8c. Prepare monomorphized function bodies
-            if !mono_functions.is_empty() {
-                debug!(
-                    count = mono_functions.len(),
-                    "preparing monomorphized function bodies"
-                );
-                prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, &mut arc_cache));
-            }
-
-            // 8d. Build complete nounwind set and emit LLVM IR
-            fc.compute_nounwind_set(&prepared);
-            fc.emit_prepared_functions(prepared);
-
-            // 9. Compile test wrappers
-            debug!("compiling test wrappers");
-            let wrappers = fc.compile_tests(tests, canon);
-
-            // Drop fc to release &mut builder borrow
-            drop(fc);
-
-            let errors = builder.codegen_error_count();
-            let descriptions = builder.codegen_error_descriptions();
-            (wrappers, errors, descriptions)
-            // builder, resolver, store dropped here
+                &mut arc_cache,
+            )
         };
 
         Self::finalize_jit(
@@ -244,6 +118,144 @@ impl super::OwnedLLVMEvaluator<'_> {
             codegen_errors,
             &codegen_error_descriptions,
         )
+    }
+
+    /// Compile all functions, impls, derives, and test wrappers into the LLVM module.
+    ///
+    /// Returns `(test_wrappers, codegen_error_count, codegen_error_descriptions)`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "JIT compilation — all params are required data flow inputs"
+    )]
+    fn compile_all_functions(
+        &self,
+        scx_ref: &'tcx SimpleCx<'tcx>,
+        module: &Module,
+        tests: &[&TestDef],
+        canon: &CanonResult,
+        interner: &StringInterner,
+        function_sigs: &[FunctionSig],
+        user_types: &[TypeEntry],
+        impl_sigs: &[(Name, FunctionSig)],
+        imported_functions: &[ImportedFunctionForCodegen<'_>],
+        mono_instances: &[ori_types::MonoInstance],
+        annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
+        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+    ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
+        // Type infrastructure
+        let store = TypeInfoStore::new(self.pool);
+        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
+        let mut builder = IrBuilder::new_jit(scx_ref);
+        type_registration::register_user_types(&resolver, user_types);
+        let classifier = ori_arc::ArcClassifier::new(self.pool);
+
+        let mono_functions = crate::monomorphize::collect_mono_functions(
+            mono_instances,
+            function_sigs,
+            interner,
+            self.pool,
+        );
+
+        // Interprocedural uniqueness analysis (COW check elimination)
+        let uniqueness_summaries = {
+            let all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
+                .values()
+                .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+                .cloned()
+                .collect();
+            ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
+        };
+
+        // Two-pass function compilation
+        debug!("declaring functions (phase 1)");
+        let mut fc = FunctionCompiler::new(
+            &mut builder,
+            &store,
+            &resolver,
+            interner,
+            self.pool,
+            "",
+            annotated_sigs,
+            &classifier,
+            None, // No debug info for JIT
+            uniqueness_summaries,
+        );
+        fc.declare_all(&module.functions, function_sigs);
+
+        // Declare imported functions
+        if !imported_functions.is_empty() {
+            debug!(
+                count = imported_functions.len(),
+                "declaring imported functions"
+            );
+            for imp_fn in imported_functions {
+                fc.declare_all(
+                    std::slice::from_ref(imp_fn.function),
+                    std::slice::from_ref(&imp_fn.sig),
+                );
+            }
+        }
+
+        // Declare monomorphized generic functions
+        if !mono_functions.is_empty() {
+            debug!(
+                count = mono_functions.len(),
+                "declaring monomorphized functions"
+            );
+            fc.declare_mono_functions(&mono_functions);
+        }
+
+        // Compile impl methods
+        if !module.impls.is_empty() {
+            debug!("compiling impl methods");
+            fc.compile_impls(&module.impls, impl_sigs, canon, &module.traits);
+        }
+
+        // Compile derived trait methods
+        if module.types.iter().any(|t| !t.derives.is_empty()) {
+            debug!("compiling derived trait methods");
+            fc.compile_derives(module, user_types);
+        }
+
+        // Prepare bodies (ARC pipeline), compute nounwind set, emit LLVM IR
+        debug!("preparing function bodies (phase 2a, ARC pipeline)");
+        let mut prepared =
+            fc.prepare_all_cached(&module.functions, function_sigs, canon, arc_cache);
+
+        if !imported_functions.is_empty() {
+            debug!(
+                count = imported_functions.len(),
+                "preparing imported function bodies"
+            );
+            for imp_fn in imported_functions {
+                prepared.extend(fc.prepare_all_cached(
+                    std::slice::from_ref(imp_fn.function),
+                    std::slice::from_ref(&imp_fn.sig),
+                    imp_fn.canon,
+                    arc_cache,
+                ));
+            }
+        }
+
+        if !mono_functions.is_empty() {
+            debug!(
+                count = mono_functions.len(),
+                "preparing monomorphized function bodies"
+            );
+            prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, arc_cache));
+        }
+
+        fc.compute_nounwind_set(&prepared);
+        fc.emit_prepared_functions(prepared);
+
+        // Compile test wrappers
+        debug!("compiling test wrappers");
+        let wrappers = fc.compile_tests(tests, canon);
+        drop(fc);
+
+        let errors = builder.codegen_error_count();
+        let descriptions = builder.codegen_error_descriptions();
+        (wrappers, errors, descriptions)
     }
 
     /// Validate compiled IR and create the JIT execution engine.

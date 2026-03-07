@@ -1,3 +1,8 @@
+#![allow(
+    clippy::too_many_lines,
+    reason = "test setup for LLVM IR requires many sequential steps"
+)]
+
 use super::*;
 use inkwell::context::Context;
 
