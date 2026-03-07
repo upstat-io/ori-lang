@@ -242,7 +242,7 @@ Phase 2 ─ Type Definitions (parallelizable)
 
 Phase 3 ─ Wiring (parallelizable per crate)
   ├─ 09: Wire ori_types — replace resolve_*_method, TYPECK_BUILTIN_METHODS
-  ├─ 10: Wire ori_eval — replace EVAL_BUILTIN_METHODS, dispatch tables
+  ├─ 10: Wire ori_eval — replace EVAL_BUILTIN_METHODS, ITERATOR_METHOD_NAMES, rewrite consistency tests
   ├─ 11: Wire ori_arc — replace borrowing_builtins, fix dependency direction
   ├─ 12: Wire ori_llvm — replace emit_binary_op guards, simplify BuiltinRegistration
   └─ 13: Migrate ori_ir — consolidate BUILTIN_METHODS, DerivedTrait, format specs

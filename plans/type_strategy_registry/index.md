@@ -213,11 +213,15 @@ as_bytes, to_bytes, from_utf8, from_utf8_unchecked, str methods
 ori_eval, evaluator, interpreter, dispatch
 EVAL_BUILTIN_METHODS, BuiltinMethodNames, method dispatch
 ITERATOR_METHOD_NAMES, CollectionMethod, CollectionMethodResolver
-BuiltinMethodResolver, method_dispatch
-function_val.rs, interpreter/mod.rs, resolvers/
-register_prelude, register_function_val
+BuiltinMethodResolver, method_dispatch, FxHashSet
+eval_type_name, name mapping, PascalCase, type name convention
+dispatch_coverage.rs, METHODS_NOT_YET_IN_EVAL, COLLECTION_RESOLVER_METHODS
+consistency.rs, iterator_methods_match_registry, dispatch_coverage
+every_registry_method_has_eval_dispatch_handler
+builtin_method_names_match_registry, exhaustive destructure
 format variant sync, FormatType, Alignment, Sign
-methods/helpers/mod.rs, methods/mod.rs
+methods/helpers/mod.rs, methods/mod.rs, methods/tests.rs
+resolvers/mod.rs, all_iterator_variants, from_name
 ```
 
 ---
