@@ -60,6 +60,10 @@ pub(super) fn emit_enum_all_true<'a>(
 }
 
 /// Emit per-variant payload comparison for Eq via switch on tag.
+#[expect(
+    clippy::too_many_lines,
+    reason = "enum Eq emits per-variant switch with field comparisons"
+)]
 fn emit_enum_payload_eq<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     setup: &DeriveSetup,

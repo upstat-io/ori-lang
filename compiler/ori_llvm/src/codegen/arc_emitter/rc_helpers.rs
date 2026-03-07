@@ -150,6 +150,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// appropriate variant's RC fields.
     ///
     /// For `Result<int, str>`: tag 0 (Ok) → nothing; tag 1 (Err) → Dec str.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "enum dec emits per-variant switch with RC field drops"
+    )]
     pub(super) fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
         // Collect per-variant RC field info
         let variant_rc_fields: Vec<Vec<(u32, Idx)>> = match pool_tag {

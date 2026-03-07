@@ -139,6 +139,10 @@ fn mangle_mono_name(
 /// Encode a type as a compact string for name mangling.
 ///
 /// See `plans/monomorphization/00-overview.md` § Name Mangling Scheme.
+#[expect(
+    clippy::too_many_lines,
+    reason = "type encoding dispatch over all Tag variants for name mangling"
+)]
 fn encode_type(ty: Idx, pool: &Pool, interner: &StringInterner, out: &mut String) {
     let resolved = pool.resolve_fully(ty);
     let tag = pool.tag(resolved);

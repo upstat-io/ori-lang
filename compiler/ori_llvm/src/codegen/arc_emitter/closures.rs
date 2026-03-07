@@ -253,6 +253,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///   ret ret_type %result
     /// }
     /// ```
+    #[expect(
+        clippy::too_many_lines,
+        reason = "closure wrapper emits sequential LLVM IR setup"
+    )]
     fn generate_closure_wrapper(
         &mut self,
         callee_func_id: FunctionId,

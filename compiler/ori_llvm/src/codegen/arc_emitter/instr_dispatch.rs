@@ -135,6 +135,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit a single `ArcInstr` as LLVM IR.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "ARC instruction dispatch over all ArcInstr variants"
+    )]
     pub(super) fn emit_instr(&mut self, instr: &ArcInstr, func: &ArcFunction) {
         tracing::trace!(?instr, "emit_instr");
         match instr {

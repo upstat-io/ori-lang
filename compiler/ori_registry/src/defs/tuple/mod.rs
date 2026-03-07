@@ -14,16 +14,9 @@
 //! rather than through the general trait machinery.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeTag,
+    MemoryStrategy, MethodDef, OpDefs, Ownership, ReturnTag, TypeDef, TypeParamArity, TypeTag,
+    ONE_SELF_OWNED,
 };
-
-/// `(other: Self)` — for `equals`, `compare`.
-static SELF_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "other",
-    ty: ReturnTag::SelfType,
-    ownership: Ownership::Owned,
-}];
 
 // Helper aliases
 const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
@@ -43,7 +36,7 @@ static TUPLE_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound(
         "compare",
-        &SELF_PARAM,
+        &ONE_SELF_OWNED,
         ORD,
         Some("Comparable"),
         Ownership::Borrow,
@@ -52,7 +45,7 @@ static TUPLE_METHODS: &[MethodDef] = &[
     MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
     MethodDef::compound(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_OWNED,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,

@@ -7,17 +7,10 @@
 
 use crate::{
     MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeTag, VariantSpec,
+    TypeParamArity, TypeTag, VariantSpec, ONE_SELF_COPY,
 };
 
 // Shared parameter arrays
-
-/// `(other: Self)` — for `equals`, `compare`.
-static SELF_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "other",
-    ty: ReturnTag::SelfType,
-    ownership: Ownership::Copy,
-}];
 
 /// `(other: Ordering)` — for `then`.
 static ORDERING_PARAM: [ParamDef; 1] = [ParamDef {
@@ -52,7 +45,7 @@ static ORDERING_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound(
         "compare",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ORD,
         Some("Comparable"),
         Ownership::Borrow,
@@ -61,7 +54,7 @@ static ORDERING_METHODS: &[MethodDef] = &[
     MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, true),
     MethodDef::compound(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,

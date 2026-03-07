@@ -1,23 +1,21 @@
 //! `byte` type definition.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeTag,
+    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ReturnTag, TypeDef, TypeParamArity,
+    TypeTag, ONE_SELF_COPY,
 };
-
-static SELF_PARAM: [ParamDef; 1] = [ParamDef::SELF_TYPE];
 
 static BYTE_METHODS: &[MethodDef] = &[
     MethodDef::primitive(
         "add",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Add"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "bit_and",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("BitAnd"),
         Ownership::Borrow,
@@ -31,14 +29,14 @@ static BYTE_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "bit_or",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("BitOr"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "bit_xor",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("BitXor"),
         Ownership::Borrow,
@@ -52,7 +50,7 @@ static BYTE_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "compare",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Ordering),
         Some("Comparable"),
         Ownership::Borrow,
@@ -66,14 +64,14 @@ static BYTE_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "div",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Div"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::Concrete(TypeTag::Bool),
         Some("Eq"),
         Ownership::Borrow,
@@ -115,35 +113,35 @@ static BYTE_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "mul",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Mul"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "rem",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Rem"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "shl",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Shl"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "shr",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Shr"),
         Ownership::Borrow,
     ),
     MethodDef::primitive(
         "sub",
-        &SELF_PARAM,
+        &ONE_SELF_COPY,
         ReturnTag::SelfType,
         Some("Sub"),
         Ownership::Borrow,
