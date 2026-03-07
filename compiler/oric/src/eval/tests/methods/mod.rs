@@ -6,6 +6,7 @@
 use crate::ir::StringInterner;
 
 mod consistency;
+mod dispatch_coverage;
 mod edge_cases;
 mod list;
 mod option;

@@ -2,7 +2,7 @@
 plan: "type_strategy_registry"
 section: "09"
 title: "Wire Type Checker (ori_types)"
-status: in-progress
+status: complete
 depends_on:
   - "03"
   - "04"
@@ -28,7 +28,7 @@ subsections:
     status: complete
   - id: "09.6"
     title: "Associated Function Dispatch"
-    status: in-progress
+    status: complete
   - id: "09.7"
     title: "DEI_ONLY_METHODS Migration"
     status: complete
@@ -1239,7 +1239,7 @@ For `str.from_utf8()` and `str.from_utf8_unchecked()`, these are new methods in 
 
 - [x] Verify Duration/Size associated functions (factory methods) still resolve after migration (4169 spec tests pass)
 - [x] Verify `str.from_utf8()` and `str.from_utf8_unchecked()` resolve through the new path (type-checks OK)
-- [ ] Add spec test: `str.from_utf8(bytes: [104, 105])` returns `Result<str, Error>` <!-- blocked: eval doesn't implement str.from_utf8 yet (Section 10) -->
+- [x] ~~Add spec test~~ — deferred to roadmap Section 7A (eval doesn't implement `str.from_utf8` yet; tracked at `plans/roadmap/section-07A-core-builtins.md:553`)
 - [x] No code changes needed in this subsection -- behavior falls out of 09.3 changes
 
 ---
