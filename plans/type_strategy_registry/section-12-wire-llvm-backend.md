@@ -3,6 +3,7 @@ plan: "type_strategy_registry"
 section: "12"
 title: "Wire LLVM Backend (ori_llvm) — OpStrategy Dispatch & Builtin Simplification"
 status: not-started
+reviewed: false
 depends_on:
   - "03"
   - "04"
