@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Compound Type Definitions"
-status: not-started
+status: complete
 goal: "Define complete TypeDef specifications for Duration, Size, Ordering, Error, and format spec types in ori_registry"
 depends_on:
   - "01"
@@ -9,22 +9,22 @@ depends_on:
 sections:
   - id: "05.1"
     title: "Duration TypeDef"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "Size TypeDef"
-    status: not-started
+    status: complete
   - id: "05.3"
     title: "Ordering TypeDef"
-    status: not-started
+    status: complete
   - id: "05.4"
     title: "Error TypeDef"
-    status: not-started
+    status: complete
   - id: "05.5"
     title: "Format Spec Types"
-    status: not-started
+    status: complete
   - id: "05.6"
     title: "Cross-Reference & Validation"
-    status: not-started
+    status: complete
 ---
 
 # Section 05: Compound Type Definitions
@@ -287,26 +287,26 @@ Both are represented as **separate `MethodDef` entries** with identical signatur
 
 ### Tasks
 
-- [ ] Define `DURATION_METHODS: &[MethodDef]` with all 41 methods (35 from typeck + 6 operator methods: add, sub, mul, div, rem, neg)
-- [ ] Define `DURATION_OPS: OpDefs` with IntInstr for all arithmetic operators
-- [ ] Set `kind: MethodKind::Associated` on all associated functions (from_nanoseconds, from_nanos, from_microseconds, from_micros, from_milliseconds, from_millis, from_seconds, from_minutes, from_hours, zero)
-- [ ] Mark conversion aliases (as_*, to_*) returning `float` with appropriate `ReturnTag`
-- [ ] Document heterogeneous operators: mul/div take `int`, not `Self`
-- [ ] Set operator method params: `add`/`sub`/`rem` take `ParamDef { ty: SelfType }`, `mul`/`div` take `ParamDef { ty: Concrete(Int) }`
-- [ ] Set `pure: true` on all Duration methods
-- [ ] Set `backend_required: false` on typeck-only methods (is_zero, is_positive, is_negative, abs, as_*, to_*, format, zero)
-- [ ] Set `backend_required: false` on all associated functions (from_*, zero)
-- [ ] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
-- [ ] Register in `defs/mod.rs`: add `mod duration;` and `pub use self::duration::DURATION;`
-- [ ] Verify against spec (`docs/ori_lang/v2026/spec/`) that Duration method list matches spec §8.1.2
-- [ ] Create `duration/tests.rs` with `#[cfg(test)] mod tests;` in `duration/mod.rs`
-- [ ] Unit test: method count matches expected (41)
-- [ ] Unit test: all trait methods have correct trait_name
-- [ ] Unit test: all associated functions have `kind == MethodKind::Associated`
-- [ ] Unit test: no method has `dei_only: true`
-- [ ] Unit test: all 10 frozen fields present on every MethodDef (name, receiver, params, returns, trait_name, pure, backend_required, kind, dei_only, dei_propagation)
-- [ ] Unit test: `mul` and `div` operator methods take `Concrete(Int)` param, not `SelfType`
-- [ ] Unit test: operator methods have correct `trait_name` (Add, Sub, Mul, Div, Rem, Neg)
+- [x] Define `DURATION_METHODS: &[MethodDef]` with all 41 methods (35 from typeck + 6 operator methods: add, sub, mul, div, rem, neg)
+- [x] Define `DURATION_OPS: OpDefs` with IntInstr for all arithmetic operators
+- [x] Set `kind: MethodKind::Associated` on all associated functions (from_nanoseconds, from_nanos, from_microseconds, from_micros, from_milliseconds, from_millis, from_seconds, from_minutes, from_hours, zero)
+- [x] Mark conversion aliases (as_*, to_*) returning `float` with appropriate `ReturnTag`
+- [x] Document heterogeneous operators: mul/div take `int`, not `Self`
+- [x] Set operator method params: `add`/`sub`/`rem` take `ParamDef { ty: SelfType }`, `mul`/`div` take `ParamDef { ty: Concrete(Int) }`
+- [x] Set `pure: true` on all Duration methods
+- [x] Set `backend_required: false` on typeck-only methods (is_zero, is_positive, is_negative, abs, as_*, to_*, format, zero)
+- [x] Set `backend_required: false` on all associated functions (from_*, zero)
+- [x] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
+- [x] Register in `defs/mod.rs`: add `mod duration;` and `pub use self::duration::DURATION;`
+- [x] Verify against spec (`docs/ori_lang/v2026/spec/`) that Duration method list matches spec §8.1.2
+- [x] Create `duration/tests.rs` with `#[cfg(test)] mod tests;` in `duration/mod.rs`
+- [x] Unit test: method count matches expected (41)
+- [x] Unit test: all trait methods have correct trait_name
+- [x] Unit test: all associated functions have `kind == MethodKind::Associated`
+- [x] Unit test: no method has `dei_only: true`
+- [x] Unit test: all 10 frozen fields present on every MethodDef (name, receiver, params, returns, trait_name, pure, backend_required, kind, dei_only, dei_propagation)
+- [x] Unit test: `mul` and `div` operator methods take `Concrete(Int)` param, not `SelfType`
+- [x] Unit test: operator methods have correct `trait_name` (Add, Sub, Mul, Div, Rem, Neg)
 
 ---
 
@@ -487,27 +487,27 @@ The naming drift between eval (canonical) and typeck (`to_*`/`as_*`) must be res
 
 ### Tasks
 
-- [ ] Define `SIZE_METHODS: &[MethodDef]` with all 34 methods (24 from typeck + 5 canonical accessors from eval: bytes, kilobytes, megabytes, gigabytes, terabytes + 5 operator methods: add, sub, mul, div, rem)
-- [ ] Define `SIZE_OPS: OpDefs` with IntInstr for add/sub/mul/div/rem (no neg)
-- [ ] Resolve naming drift: decide canonical names for accessors (e.g., `bytes` vs `to_bytes` vs `as_bytes`); declare ALL name variants as separate `MethodDef` entries
-- [ ] Set `kind: MethodKind::Associated` on all associated functions (from_bytes, from_kilobytes, from_kb, from_megabytes, from_mb, from_gigabytes, from_gb, from_terabytes, from_tb, zero)
-- [ ] Document heterogeneous operators: mul/div take `int`, not `Self`
-- [ ] Set operator method params: `add`/`sub`/`rem` take `ParamDef { ty: SelfType }`, `mul`/`div` take `ParamDef { ty: Concrete(Int) }`
-- [ ] Document non-negative invariant (sub can fail, no neg operator)
-- [ ] Set `pure: true` on all Size methods
-- [ ] Set `backend_required: false` on typeck-only methods (to_*, as_*, is_zero, format, zero)
-- [ ] Set `backend_required: false` on all associated functions (from_*, zero)
-- [ ] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
-- [ ] Register in `defs/mod.rs`: add `mod size;` and `pub use self::size::SIZE;`
-- [ ] Verify against spec (`docs/ori_lang/v2026/spec/`) that Size method list matches spec §8.1.3
-- [ ] Create `size/tests.rs` with `#[cfg(test)] mod tests;` in `size/mod.rs`
-- [ ] Unit test: method count matches expected (34)
-- [ ] Unit test: no `neg` operator defined
-- [ ] Unit test: OpDefs has `Unsupported` for `neg`
-- [ ] Unit test: all associated functions have `kind == MethodKind::Associated`
-- [ ] Unit test: all 10 frozen fields present on every MethodDef
-- [ ] Unit test: `mul` and `div` operator methods take `Concrete(Int)` param, not `SelfType`
-- [ ] Unit test: operator methods have correct `trait_name` (Add, Sub, Mul, Div, Rem)
+- [x] Define `SIZE_METHODS: &[MethodDef]` with all 34 methods (24 from typeck + 5 canonical accessors from eval: bytes, kilobytes, megabytes, gigabytes, terabytes + 5 operator methods: add, sub, mul, div, rem)
+- [x] Define `SIZE_OPS: OpDefs` with IntInstr for add/sub/mul/div/rem (no neg)
+- [x] Resolve naming drift: decide canonical names for accessors (e.g., `bytes` vs `to_bytes` vs `as_bytes`); declare ALL name variants as separate `MethodDef` entries
+- [x] Set `kind: MethodKind::Associated` on all associated functions (from_bytes, from_kilobytes, from_kb, from_megabytes, from_mb, from_gigabytes, from_gb, from_terabytes, from_tb, zero)
+- [x] Document heterogeneous operators: mul/div take `int`, not `Self`
+- [x] Set operator method params: `add`/`sub`/`rem` take `ParamDef { ty: SelfType }`, `mul`/`div` take `ParamDef { ty: Concrete(Int) }`
+- [x] Document non-negative invariant (sub can fail, no neg operator)
+- [x] Set `pure: true` on all Size methods
+- [x] Set `backend_required: false` on typeck-only methods (to_*, as_*, is_zero, format, zero)
+- [x] Set `backend_required: false` on all associated functions (from_*, zero)
+- [x] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
+- [x] Register in `defs/mod.rs`: add `mod size;` and `pub use self::size::SIZE;`
+- [x] Verify against spec (`docs/ori_lang/v2026/spec/`) that Size method list matches spec §8.1.3
+- [x] Create `size/tests.rs` with `#[cfg(test)] mod tests;` in `size/mod.rs`
+- [x] Unit test: method count matches expected (34)
+- [x] Unit test: no `neg` operator defined
+- [x] Unit test: OpDefs has `Unsupported` for `neg`
+- [x] Unit test: all associated functions have `kind == MethodKind::Associated`
+- [x] Unit test: all 10 frozen fields present on every MethodDef
+- [x] Unit test: `mul` and `div` operator methods take `Concrete(Int)` param, not `SelfType`
+- [x] Unit test: operator methods have correct `trait_name` (Add, Sub, Mul, Div, Rem)
 
 ---
 
@@ -650,27 +650,27 @@ Ordering's `ORDERING_OPS` declares `IntInstr` for `eq` and `neq` only. All compa
 
 ### Tasks
 
-- [ ] Define `ORDERING_METHODS: &[MethodDef]` with all 14 methods (5 predicates + 3 combinators + 6 trait methods; `to_int` excluded — LLVM-only, see exclusion section above)
-- [ ] Define `ORDERING_OPS: OpDefs` with IntInstr for eq/neq only; all other ops `Unsupported`
-- [ ] Define `ORDERING_VARIANTS` with tag values (**Prerequisite:** `VariantSpec` struct must be defined in `ori_registry` — see note above. If not yet in Section 01/02, add it there first.)
-- [ ] Define `then_with` closure parameter as `ParamDef { ty: ReturnTag::Fresh, ownership: Ownership::Copy }` per Section 01 decision 4 (no `Closure` variant). **Note:** `then_with`'s return type is static (`Ordering`), so the registry return is correct. However, closure parameter validation (constraining the arg to `() -> Ordering`) requires adding a `then_with` arm to `unify_higher_order_constraints` in `method_call.rs` — the current function only handles iterator methods. This is a pre-existing typeck gap, not blocking for registry migration, but should be tracked as a follow-up task.
-- [ ] Document the no-comparison-operators constraint (no `<`/`>` on Ordering itself)
-- [ ] Set `pure: true` on all Ordering methods
-- [ ] Set `backend_required: false` on `then_with` (typeck-only)
-- [ ] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
-- [ ] Register in `defs/mod.rs`: add `mod ordering;` and `pub use self::ordering::ORDERING;`
-- [ ] Verify against spec (`docs/ori_lang/v2026/spec/`) that Ordering method list matches spec §8.4.1
-- [ ] Create `ordering/tests.rs` with `#[cfg(test)] mod tests;` in `ordering/mod.rs`
-- [ ] Unit test: variant count == 3
-- [ ] Unit test: all predicate methods return bool
-- [ ] Unit test: all methods have `kind == MethodKind::Instance`
-- [ ] Unit test: `to_int` is NOT in `ORDERING_METHODS` (LLVM-only exclusion)
-- [ ] Unit test: `format` is NOT in `ORDERING_METHODS` (blanket from Printable)
-- [ ] Unit test: OpDefs has `Unsupported` for lt, gt, lt_eq, gt_eq
-- [ ] Unit test: all 10 frozen fields present on every MethodDef
+- [x] Define `ORDERING_METHODS: &[MethodDef]` with all 14 methods (5 predicates + 3 combinators + 6 trait methods; `to_int` excluded — LLVM-only, see exclusion section above)
+- [x] Define `ORDERING_OPS: OpDefs` with IntInstr for eq/neq only; all other ops `Unsupported`
+- [x] Define `ORDERING_VARIANTS` with tag values (**Prerequisite:** `VariantSpec` struct must be defined in `ori_registry` — see note above. If not yet in Section 01/02, add it there first.)
+- [x] Define `then_with` closure parameter as `ParamDef { ty: ReturnTag::Fresh, ownership: Ownership::Copy }` per Section 01 decision 4 (no `Closure` variant). **Note:** `then_with`'s return type is static (`Ordering`), so the registry return is correct. However, closure parameter validation (constraining the arg to `() -> Ordering`) requires adding a `then_with` arm to `unify_higher_order_constraints` in `method_call.rs` — the current function only handles iterator methods. This is a pre-existing typeck gap, not blocking for registry migration, but should be tracked as a follow-up task.
+- [x] Document the no-comparison-operators constraint (no `<`/`>` on Ordering itself)
+- [x] Set `pure: true` on all Ordering methods
+- [x] Set `backend_required: false` on `then_with` (typeck-only)
+- [x] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
+- [x] Register in `defs/mod.rs`: add `mod ordering;` and `pub use self::ordering::ORDERING;`
+- [x] Verify against spec (`docs/ori_lang/v2026/spec/`) that Ordering method list matches spec §8.4.1
+- [x] Create `ordering/tests.rs` with `#[cfg(test)] mod tests;` in `ordering/mod.rs`
+- [x] Unit test: variant count == 3
+- [x] Unit test: all predicate methods return bool
+- [x] Unit test: all methods have `kind == MethodKind::Instance`
+- [x] Unit test: `to_int` is NOT in `ORDERING_METHODS` (LLVM-only exclusion)
+- [x] Unit test: `format` is NOT in `ORDERING_METHODS` (blanket from Printable)
+- [x] Unit test: OpDefs has `Unsupported` for lt, gt, lt_eq, gt_eq
+- [x] Unit test: all 10 frozen fields present on every MethodDef
 
 **Section 09 follow-up (NOT blocking Section 05):**
-- [ ] *(Section 09)* Add `then_with` arm to `unify_higher_order_constraints` (method_call.rs:165) constraining the closure param to `() -> Ordering`. Current function only handles iterator methods — `then_with` hits the `_ => {}` no-op. **WARNING (complexity):** This is a cross-phase change in `ori_types` (not `ori_registry`). It requires understanding the unification engine's constraint propagation.
+- → *(Section 09)* Add `then_with` arm to `unify_higher_order_constraints` (method_call.rs:165) constraining the closure param to `() -> Ordering`. Current function only handles iterator methods — `then_with` hits the `_ => {}` no-op. **WARNING (complexity):** This is a cross-phase change in `ori_types` (not `ori_registry`). It requires understanding the unification engine's constraint propagation.
 
 ---
 
@@ -762,29 +762,29 @@ Per frozen decision 13, every `MethodDef` has 10 fields. For Error methods:
 
 ### Tasks
 
-- [ ] Define `ERROR_METHODS: &[MethodDef]` with all 8 methods (message, trace, trace_entries, has_trace, with_trace, to_str, debug, clone)
-- [ ] Use `name: "Error"` (capitalized, matching resolved naming decision — see design question 3)
-- [ ] Use `ParamDef { ty: ReturnTag::Fresh, ownership: Ownership::Owned }` for TraceEntry parameter (`with_trace`)
-- [ ] Use `ReturnTag::Fresh` for `trace_entries` return
-- [ ] Document Arc memory strategy implications
-- [ ] Note: no operators, no LLVM coverage (planned for AOT Error support phase)
-- [ ] Set `pure: true` on ALL Error methods (per frozen decision 17, allocation is not an observable side effect)
-- [ ] Set `backend_required: false` on ALL Error methods (no LLVM coverage)
-- [ ] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
-- [ ] Register in `defs/mod.rs`: add `mod error;` and `pub use self::error::ERROR;`
-- [ ] Verify against spec (`docs/ori_lang/v2026/spec/`) that Error method list matches spec §17 (Errors and Panics — §17.1 recoverable errors, §17.6 error conventions, §17.7 error return traces)
-- [ ] Create `error/tests.rs` with `#[cfg(test)] mod tests;` in `error/mod.rs`
-- [ ] Unit test: all methods borrow receiver
-- [ ] Unit test: no method has `backend_required: true`
-- [ ] Unit test: all methods have `kind == MethodKind::Instance`
-- [ ] Unit test: all methods have `pure: true` (allocation is not observable)
-- [ ] Unit test: `OpDefs` is `UNSUPPORTED` (Error has no operators)
-- [ ] Unit test: `format` is NOT in `ERROR_METHODS` (blanket from Printable)
-- [ ] Unit test: all 10 frozen fields present on every MethodDef
+- [x] Define `ERROR_METHODS: &[MethodDef]` with all 8 methods (message, trace, trace_entries, has_trace, with_trace, to_str, debug, clone)
+- [x] Use `name: "Error"` (capitalized, matching resolved naming decision — see design question 3)
+- [x] Use `ParamDef { ty: ReturnTag::Fresh, ownership: Ownership::Owned }` for TraceEntry parameter (`with_trace`)
+- [x] Use `ReturnTag::Fresh` for `trace_entries` return
+- [x] Document Arc memory strategy implications
+- [x] Note: no operators, no LLVM coverage (planned for AOT Error support phase)
+- [x] Set `pure: true` on ALL Error methods (per frozen decision 17, allocation is not an observable side effect)
+- [x] Set `backend_required: false` on ALL Error methods (no LLVM coverage)
+- [x] Set `dei_only: false` and `dei_propagation: NotApplicable` on all methods
+- [x] Register in `defs/mod.rs`: add `mod error;` and `pub use self::error::ERROR;`
+- [x] Verify against spec (`docs/ori_lang/v2026/spec/`) that Error method list matches spec §17 (Errors and Panics — §17.1 recoverable errors, §17.6 error conventions, §17.7 error return traces)
+- [x] Create `error/tests.rs` with `#[cfg(test)] mod tests;` in `error/mod.rs`
+- [x] Unit test: all methods borrow receiver
+- [x] Unit test: no method has `backend_required: true`
+- [x] Unit test: all methods have `kind == MethodKind::Instance`
+- [x] Unit test: all methods have `pure: true` (allocation is not observable)
+- [x] Unit test: `OpDefs` is `UNSUPPORTED` (Error has no operators)
+- [x] Unit test: `format` is NOT in `ERROR_METHODS` (blanket from Printable)
+- [x] Unit test: all 10 frozen fields present on every MethodDef
 
 **Section 09 follow-ups (NOT blocking Section 05):**
-- [ ] *(Section 09)* Add explicit type resolution for `trace_entries` in the type checker — construct `[TraceEntry]` via `intern_name` -> `named` -> `list` instead of unconstrained `fresh_var()` (current gap at `resolve_by_type.rs:310`). **Prerequisite:** Section 09 test infrastructure task must land first. **WARNING (complexity):** Requires constructing a concrete `[TraceEntry]` type from the interned struct registration. The type checker must look up `TraceEntry` by name, which introduces a dependency on type registration order. Test with both `ori check` and `ori run`.
-- [ ] *(Section 09)* Add `with_trace` parameter enforcement — constrain the argument to `TraceEntry`. Current builtin dispatch only returns the method's return type (`Idx::ERROR` at resolve_by_type.rs:309); the parameter type is unchecked. Requires extending `unify_higher_order_constraints` or adding a separate builtin-param validation pass.
+- → *(Section 09)* Add explicit type resolution for `trace_entries` in the type checker — construct `[TraceEntry]` via `intern_name` -> `named` -> `list` instead of unconstrained `fresh_var()` (current gap at `resolve_by_type.rs:310`). **Prerequisite:** Section 09 test infrastructure task must land first. **WARNING (complexity):** Requires constructing a concrete `[TraceEntry]` type from the interned struct registration. The type checker must look up `TraceEntry` by name, which introduces a dependency on type registration order. Test with both `ori check` and `ori run`.
+- → *(Section 09)* Add `with_trace` parameter enforcement — constrain the argument to `TraceEntry`. Current builtin dispatch only returns the method's return type (`Idx::ERROR` at resolve_by_type.rs:309); the parameter type is unchecked. Requires extending `unify_higher_order_constraints` or adding a separate builtin-param validation pass.
 
 ---
 
@@ -824,10 +824,10 @@ Format spec types are fundamentally different from the other types in this secti
 
 ### Tasks
 
-- [ ] Decide: format spec types stay outside registry (recommended) or get minimal entries
-- [ ] If outside: document exclusion rationale in registry docs
-- [ ] If outside: add variant-count enforcement test to Section 14
-- [ ] If inside: create stub TypeDefs with empty method lists
+- [x] Decide: format spec types stay outside registry (recommended) or get minimal entries
+- [x] If outside: document exclusion rationale in registry docs
+- → *(Section 14)* Add variant-count enforcement test
+- ~~If inside: create stub TypeDefs with empty method lists~~ (N/A — decided outside)
 
 ---
 
@@ -902,34 +902,34 @@ Within this section, types should be implemented in this order. The order follow
 
 ### Exit Criteria
 
-- [ ] All 4 compound types have `TypeDef` entries in `ori_registry`
-- [ ] `cargo check -p ori_registry` passes
-- [ ] Each TypeDef declares the complete method set as SSOT (union of all phases, excluding LLVM-only codegen aliases per Section 03 precedent): Duration=41, Size=34, Ordering=14, Error=8
-- [ ] Operator methods (add, sub, mul, div, rem, neg) included as MethodDef entries with correct `trait_name` (Add, Sub, Mul, Div, Rem, Neg) — not just in OpDefs
-- [ ] Operator methods specify correct OpStrategy in OpDefs (IntInstr for Duration/Size arithmetic)
-- [ ] Memory strategy is correct (Copy for Duration/Size/Ordering, Arc for Error)
-- [ ] Associated functions are distinguishable from instance methods (`kind: MethodKind::Associated`)
-- [ ] Heterogeneous operator parameter types (int for Duration.mul/div, Size.mul/div) are expressible and tested
-- [ ] Format spec types have a documented exclusion rationale or stub entries
-- [ ] Unit tests verify method counts, trait associations, receiver ownership, and return types
-- [ ] All existing tests pass: `cargo test -p ori_registry`
-- [ ] Every `MethodDef` has all 10 frozen fields populated (name, receiver, params, returns, trait_name, pure, backend_required, kind, dei_only, dei_propagation)
-- [ ] `pure` is correctly set: `true` for all compound type methods (all are side-effect free; may panic)
-- [ ] `backend_required` is correctly set: `false` for Error methods and typeck-only methods
-- [ ] `dei_only` is `false` on all compound type methods (none are iterator methods)
-- [ ] `dei_propagation` is `NotApplicable` on all compound type methods
-- [ ] Conversion aliases (as_*/to_*) are declared as separate `MethodDef` entries with identical signatures within each alias pair (e.g., `as_seconds` and `to_seconds` have the same signature)
-- [ ] Size naming drift resolved: canonical accessors (`bytes`, `kilobytes`, etc.) AND aliases (`to_bytes`, `as_bytes`, `to_kb`, etc.) all declared as separate entries
-- [ ] Each subsection's method list verified against the authoritative spec (`docs/ori_lang/v2026/spec/`)
-- [ ] All 4 type definitions are directory modules (`type/mod.rs` + `type/tests.rs`)
-- [ ] Each `mod.rs` has `#[cfg(test)] mod tests;` at the bottom (not inline tests)
-- [ ] `const fn` helpers (`MethodDef::compound()`, `MethodDef::associated()`) are defined in `method.rs` before Section 05 implementation begins
-- [ ] Associated function receivers use `Ownership::Borrow` (consistent with Section 04's str associated functions)
-- [ ] All 4 types registered in `defs/mod.rs` with `mod` declaration and `pub use` re-export
-- [ ] LLVM-only method exclusions documented for each applicable type: Duration (5 comparison predicates), Size (5 comparison predicates), Ordering (`to_int`)
-- [ ] `default()` is NOT a MethodDef for any compound type (handled by `well_known::type_satisfies_trait()`)
-- [ ] `format` is correctly included for Duration/Size (explicit `Formattable`) and excluded for Ordering/Error (blanket from Printable or not implemented)
-- [ ] Ordering `OpDefs` has `Unsupported` for lt, gt, lt_eq, gt_eq (no comparison operators on Ordering itself)
-- [ ] Error `OpDefs` is `UNSUPPORTED` (no operators)
-- [ ] Ordering `ORDERING_VARIANTS` defines 3 variants (Less=0, Equal=1, Greater=2) using `VariantSpec`
-- [ ] Error `TypeDef` uses `name: "Error"` (capitalized, per resolved naming decision)
+- [x] All 4 compound types have `TypeDef` entries in `ori_registry`
+- [x] `cargo check -p ori_registry` passes
+- [x] Each TypeDef declares the complete method set as SSOT (union of all phases, excluding LLVM-only codegen aliases per Section 03 precedent): Duration=41, Size=34, Ordering=14, Error=8
+- [x] Operator methods (add, sub, mul, div, rem, neg) included as MethodDef entries with correct `trait_name` (Add, Sub, Mul, Div, Rem, Neg) — not just in OpDefs
+- [x] Operator methods specify correct OpStrategy in OpDefs (IntInstr for Duration/Size arithmetic)
+- [x] Memory strategy is correct (Copy for Duration/Size/Ordering, Arc for Error)
+- [x] Associated functions are distinguishable from instance methods (`kind: MethodKind::Associated`)
+- [x] Heterogeneous operator parameter types (int for Duration.mul/div, Size.mul/div) are expressible and tested
+- [x] Format spec types have a documented exclusion rationale or stub entries
+- [x] Unit tests verify method counts, trait associations, receiver ownership, and return types
+- [x] All existing tests pass: `cargo test -p ori_registry`
+- [x] Every `MethodDef` has all 10 frozen fields populated (name, receiver, params, returns, trait_name, pure, backend_required, kind, dei_only, dei_propagation)
+- [x] `pure` is correctly set: `true` for all compound type methods (all are side-effect free; may panic)
+- [x] `backend_required` is correctly set: `false` for Error methods and typeck-only methods
+- [x] `dei_only` is `false` on all compound type methods (none are iterator methods)
+- [x] `dei_propagation` is `NotApplicable` on all compound type methods
+- [x] Conversion aliases (as_*/to_*) are declared as separate `MethodDef` entries with identical signatures within each alias pair (e.g., `as_seconds` and `to_seconds` have the same signature)
+- [x] Size naming drift resolved: canonical accessors (`bytes`, `kilobytes`, etc.) AND aliases (`to_bytes`, `as_bytes`, `to_kb`, etc.) all declared as separate entries
+- [x] Each subsection's method list verified against the authoritative spec (`docs/ori_lang/v2026/spec/`)
+- [x] All 4 type definitions are directory modules (`type/mod.rs` + `type/tests.rs`)
+- [x] Each `mod.rs` has `#[cfg(test)] mod tests;` at the bottom (not inline tests)
+- [x] `const fn` helpers (`MethodDef::compound()`, `MethodDef::associated()`) are defined in `method.rs` before Section 05 implementation begins
+- [x] Associated function receivers use `Ownership::Borrow` (consistent with Section 04's str associated functions)
+- [x] All 4 types registered in `defs/mod.rs` with `mod` declaration and `pub use` re-export
+- [x] LLVM-only method exclusions documented for each applicable type: Duration (5 comparison predicates), Size (5 comparison predicates), Ordering (`to_int`)
+- [x] `default()` is NOT a MethodDef for any compound type (handled by `well_known::type_satisfies_trait()`)
+- [x] `format` is correctly included for Duration/Size (explicit `Formattable`) and excluded for Ordering/Error (blanket from Printable or not implemented)
+- [x] Ordering `OpDefs` has `Unsupported` for lt, gt, lt_eq, gt_eq (no comparison operators on Ordering itself)
+- [x] Error `OpDefs` is `UNSUPPORTED` (no operators) — verified by error tests
+- [x] Ordering `ORDERING_VARIANTS` defines 3 variants (Less=0, Equal=1, Greater=2) using `VariantSpec` — verified by ordering tests
+- [x] Error `TypeDef` uses `name: "Error"` (capitalized, per resolved naming decision) — verified in error/mod.rs

@@ -46,6 +46,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         });
 
         let name = c"catchswitch";
+        // SAFETY: Builder is positioned at a valid insertion point. parent, unwind_bb,
+        // and name are valid LLVM refs (or null for optional params) within this module.
         let cs = unsafe {
             LLVMBuildCatchSwitch(
                 self.builder.as_mut_ptr(),
@@ -58,9 +60,11 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
 
         for &handler_id in handlers {
             let handler_bb = self.arena.get_block(handler_id);
+            // SAFETY: cs is the non-null catchswitch just built; handler_bb is a valid block in this function.
             unsafe { LLVMAddHandler(cs, handler_bb.as_mut_ptr()) };
         }
 
+        // SAFETY: cs is a non-null instruction value returned by LLVMBuildCatchSwitch.
         let inst = unsafe { InstructionValue::new(cs) };
         self.arena.push_token(inst)
     }
@@ -80,6 +84,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .collect();
         let name = c"catchpad";
 
+        // SAFETY: Builder is positioned at a valid insertion point. parent is a valid
+        // catchswitch token from the arena. arg_vals are valid LLVM values in this module.
         let pad = unsafe {
             LLVMBuildCatchPad(
                 self.builder.as_mut_ptr(),
@@ -90,6 +96,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             )
         };
 
+        // SAFETY: pad is a non-null instruction value returned by LLVMBuildCatchPad.
         let inst = unsafe { InstructionValue::new(pad) };
         self.arena.push_token(inst)
     }
@@ -109,6 +116,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .collect();
         let name = c"cleanuppad";
 
+        // SAFETY: Builder is positioned at a valid insertion point. parent is a valid
+        // token (or null for outermost cleanup). arg_vals are valid LLVM values.
         let pad = unsafe {
             LLVMBuildCleanupPad(
                 self.builder.as_mut_ptr(),
@@ -119,6 +128,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             )
         };
 
+        // SAFETY: pad is a non-null instruction value returned by LLVMBuildCleanupPad.
         let inst = unsafe { InstructionValue::new(pad) };
         self.arena.push_token(inst)
     }
@@ -132,6 +142,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     pub fn catchret(&mut self, pad: TokenId, dest: BlockId) {
         let pad_val = self.arena.get_token(pad).as_value_ref();
         let dest_bb = self.arena.get_block(dest);
+        // SAFETY: Builder is positioned at a valid insertion point. pad_val is a valid
+        // catchpad token and dest_bb is a valid block, both from the arena.
         unsafe {
             LLVMBuildCatchRet(self.builder.as_mut_ptr(), pad_val, dest_bb.as_mut_ptr());
         }
@@ -147,6 +159,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         let unwind_bb: LLVMBasicBlockRef = unwind_dest.map_or(std::ptr::null_mut(), |id| {
             self.arena.get_block(id).as_mut_ptr()
         });
+        // SAFETY: Builder is positioned at a valid insertion point. pad_val is a valid
+        // cleanuppad token. unwind_bb is a valid block or null (unwind to caller).
         unsafe {
             LLVMBuildCleanupRet(self.builder.as_mut_ptr(), pad_val, unwind_bb);
         }
@@ -232,6 +246,9 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         let c_name = CString::new(effective_name).unwrap_or_default();
         let mut bundles = [bundle.as_mut_ptr()];
 
+        // SAFETY: Builder is positioned at a valid insertion point. fn_ty, func, args,
+        // then_bb, catch_bb are valid LLVM refs from the arena. The funclet operand bundle
+        // is valid for the lifetime of this call. c_name is a valid null-terminated C string.
         let invoke_val = unsafe {
             LLVMBuildInvokeWithOperandBundles(
                 self.builder.as_mut_ptr(),
@@ -251,6 +268,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         // But we used `as_mut_ptr()` which doesn't consume the OperandBundle,
         // so Drop will run and clean up.
 
+        // SAFETY: invoke_val is a non-null invoke instruction returned by LLVMBuildInvokeWithOperandBundles.
         let call_site = unsafe { inkwell::values::CallSiteValue::new(invoke_val) };
         // CC copy — critical for fastcc inside funclets
         call_site.set_call_convention(func.get_call_conventions());
@@ -311,6 +329,9 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         let c_name = CString::new(effective_name).unwrap_or_default();
         let mut bundles = [bundle.as_mut_ptr()];
 
+        // SAFETY: Builder is positioned at a valid insertion point. func_ty and raw (fn_ptr)
+        // are valid LLVM refs. arg_vals are valid values. The funclet operand bundle is valid
+        // for the lifetime of this call. c_name is a valid null-terminated C string.
         let call_val = unsafe {
             LLVMBuildCallWithOperandBundles(
                 self.builder.as_mut_ptr(),
@@ -324,6 +345,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             )
         };
 
+        // SAFETY: call_val is a non-null call instruction returned by LLVMBuildCallWithOperandBundles.
         let call_site = unsafe { inkwell::values::CallSiteValue::new(call_val) };
         self.last_call_site = Some(call_site);
 

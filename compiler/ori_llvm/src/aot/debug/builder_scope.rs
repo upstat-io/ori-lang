@@ -239,6 +239,9 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         use llvm_sys::debuginfo::LLVMDIBuilderInsertDeclareRecordAtEnd;
 
         let expr = self.create_expression();
+        // SAFETY: All arguments are valid LLVM refs from inkwell's type-safe wrappers:
+        // inner (DIBuilder), alloca (pointer value), var (DILocalVariable), expr (DIExpression),
+        // loc (DILocation), block (BasicBlock). All belong to the same LLVM context.
         unsafe {
             LLVMDIBuilderInsertDeclareRecordAtEnd(
                 self.inner.as_mut_ptr(),
@@ -282,6 +285,9 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         use llvm_sys::debuginfo::LLVMDIBuilderInsertDbgValueRecordAtEnd;
 
         let expr = self.create_expression();
+        // SAFETY: All arguments are valid LLVM refs from inkwell's type-safe wrappers:
+        // inner (DIBuilder), value (BasicValueEnum), var (DILocalVariable), expr (DIExpression),
+        // loc (DILocation), block (BasicBlock). All belong to the same LLVM context.
         unsafe {
             LLVMDIBuilderInsertDbgValueRecordAtEnd(
                 self.inner.as_mut_ptr(),

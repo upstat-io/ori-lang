@@ -1,15 +1,47 @@
-//! Tests for consistency between evaluator builtin methods, type checker
-//! builtin methods, and the `ori_ir` builtin method registry.
+//! Tests for consistency between evaluator builtin methods, the `ori_registry`
+//! type definitions, and the `ori_ir` builtin method registry.
 
 use std::collections::BTreeSet;
 
 use ori_eval::{EVAL_BUILTIN_METHODS, ITERATOR_METHOD_NAMES};
 use ori_ir::builtin_methods::BUILTIN_METHODS;
-use ori_types::TYPECK_BUILTIN_METHODS;
+
+/// Map registry `PascalCase` type names to the legacy lowercase convention
+/// used by `EVAL_BUILTIN_METHODS`, `BUILTIN_METHODS` (IR), and LLVM codegen.
+fn legacy_type_name(registry_name: &str) -> &str {
+    match registry_name {
+        "Error" => "error",
+        "List" => "list",
+        "Map" => "map",
+        "Range" => "range",
+        "Tuple" => "tuple",
+        other => other,
+    }
+}
+
+/// Build the set of `(type_name, method_name)` pairs from the registry.
+///
+/// DEI-only methods are listed under `"DoubleEndedIterator"` to match the
+/// naming convention used by `EVAL_BUILTIN_METHODS`. Type names are normalized
+/// to the legacy lowercase convention via [`legacy_type_name()`].
+fn registry_method_pairs() -> BTreeSet<(&'static str, &'static str)> {
+    let mut set = BTreeSet::new();
+    for td in ori_registry::BUILTIN_TYPES {
+        let type_name = legacy_type_name(td.name);
+        for m in td.methods {
+            if m.dei_only {
+                set.insert(("DoubleEndedIterator", m.name));
+            } else {
+                set.insert((type_name, m.name));
+            }
+        }
+    }
+    set
+}
 
 /// Collection types that have eval/typeck methods but are not yet in the
 /// `ori_ir` builtin method registry. These are tracked as a gap to fix.
-/// Names match `EVAL_BUILTIN_METHODS`/`TYPECK_BUILTIN_METHODS` convention.
+/// Names match `EVAL_BUILTIN_METHODS`/`ori_registry` convention.
 const COLLECTION_TYPES: &[&str] = &[
     "Channel",
     "DoubleEndedIterator",
@@ -278,11 +310,22 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("Size", "zero"),
     // bool — typeck has conversions that IR doesn't list yet
     ("bool", "to_int"),
-    // byte — typeck has conversions and predicates not in IR
+    // byte — arithmetic operators and predicates not in IR
+    ("byte", "add"),
+    ("byte", "bit_and"),
+    ("byte", "bit_not"),
+    ("byte", "bit_or"),
+    ("byte", "bit_xor"),
+    ("byte", "div"),
     ("byte", "is_ascii"),
     ("byte", "is_ascii_alpha"),
     ("byte", "is_ascii_digit"),
     ("byte", "is_ascii_whitespace"),
+    ("byte", "mul"),
+    ("byte", "rem"),
+    ("byte", "shl"),
+    ("byte", "shr"),
+    ("byte", "sub"),
     ("byte", "to_char"),
     ("byte", "to_int"),
     // char — typeck has conversions and predicates not in IR
@@ -329,6 +372,7 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("float", "log10"),
     ("float", "log2"),
     ("float", "pow"),
+    ("float", "rem"),
     ("float", "signum"),
     ("float", "sin"),
     ("float", "tan"),
@@ -349,10 +393,13 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("int", "to_byte"),
     ("int", "to_float"),
     // str — typeck has many methods not in IR
+    ("str", "as_bytes"),
     ("str", "byte_len"),
     ("str", "bytes"),
     ("str", "chars"),
     ("str", "concat"),
+    ("str", "from_utf8"),
+    ("str", "from_utf8_unchecked"),
     ("str", "index_of"),
     ("str", "into"),
     ("str", "iter"),
@@ -368,6 +415,7 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("str", "slice"),
     ("str", "split"),
     ("str", "substring"),
+    ("str", "to_bytes"),
     ("str", "to_float"),
     ("str", "to_int"),
     ("str", "to_str"),
@@ -486,11 +534,23 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Size", "zero"),
     // bool
     ("bool", "to_int"),
+    // byte — arithmetic operators (from registry, dispatched via operator traits)
+    ("byte", "add"),
+    ("byte", "bit_and"),
+    ("byte", "bit_not"),
+    ("byte", "bit_or"),
+    ("byte", "bit_xor"),
+    ("byte", "div"),
     // byte — predicates and conversions
     ("byte", "is_ascii"),
     ("byte", "is_ascii_alpha"),
     ("byte", "is_ascii_digit"),
     ("byte", "is_ascii_whitespace"),
+    ("byte", "mul"),
+    ("byte", "rem"),
+    ("byte", "shl"),
+    ("byte", "shr"),
+    ("byte", "sub"),
     ("byte", "to_char"),
     ("byte", "to_int"),
     // char — predicates and conversions
@@ -530,6 +590,7 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("float", "max"),
     ("float", "min"),
     ("float", "pow"),
+    ("float", "rem"),
     ("float", "round"),
     ("float", "signum"),
     ("float", "sin"),
@@ -602,9 +663,12 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("range", "step_by"),
     ("range", "to_list"),
     // str — many methods not in eval
+    ("str", "as_bytes"),
     ("str", "byte_len"),
     ("str", "bytes"),
     ("str", "chars"),
+    ("str", "from_utf8"),
+    ("str", "from_utf8_unchecked"),
     ("str", "index_of"),
     ("str", "last_index_of"),
     ("str", "length"),
@@ -613,33 +677,38 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("str", "pad_start"),
     ("str", "parse_float"),
     ("str", "parse_int"),
+    ("str", "to_bytes"),
     ("str", "to_float"),
     ("str", "to_int"),
     ("str", "trim_end"),
     ("str", "trim_start"),
 ];
 
-/// The typeck method list must be sorted for reliable comparison.
+/// Registry methods must be sorted alphabetically within each `TypeDef`.
 #[test]
-fn typeck_method_list_is_sorted() {
-    for window in TYPECK_BUILTIN_METHODS.windows(2) {
-        assert!(
-            window[0] <= window[1],
-            "TYPECK_BUILTIN_METHODS not sorted: {:?} > {:?}",
-            window[0],
-            window[1]
-        );
+fn registry_methods_sorted_per_type() {
+    for td in ori_registry::BUILTIN_TYPES {
+        for window in td.methods.windows(2) {
+            assert!(
+                window[0].name <= window[1].name,
+                "Registry methods not sorted for {}: {:?} > {:?}",
+                td.name,
+                window[0].name,
+                window[1].name
+            );
+        }
     }
 }
 
-/// Every typeck method for primitive types should be in the IR registry.
+/// Every registry method for primitive types should be in the IR registry.
 #[test]
-fn typeck_primitive_methods_in_ir() {
+fn registry_primitive_methods_in_ir() {
     let ir_set = ir_method_set();
     let known_set: BTreeSet<_> = TYPECK_METHODS_NOT_IN_IR.iter().copied().collect();
+    let registry_set = registry_method_pairs();
 
     let mut missing = Vec::new();
-    for &(ty, method) in TYPECK_BUILTIN_METHODS {
+    for &(ty, method) in &registry_set {
         // Skip collection types (not yet in IR registry)
         if COLLECTION_TYPES.contains(&ty) {
             continue;
@@ -651,45 +720,46 @@ fn typeck_primitive_methods_in_ir() {
 
     assert!(
         missing.is_empty(),
-        "Type checker has primitive methods not in IR registry: {missing:?}\n\
+        "Registry has primitive methods not in IR registry: {missing:?}\n\
          Add method definitions in ori_ir/src/builtin_methods/mod.rs or \
          add to TYPECK_METHODS_NOT_IN_IR"
     );
 }
 
-/// Every eval method should be recognized by the type checker.
-/// If typeck doesn't recognize a method, it will report a type error
-/// for code that would actually work at runtime.
+/// Every eval method should be recognized by the registry.
+/// If the registry doesn't have a method, the type checker will report
+/// a type error for code that would actually work at runtime.
 #[test]
-fn eval_methods_recognized_by_typeck() {
-    let typeck_set: BTreeSet<_> = TYPECK_BUILTIN_METHODS.iter().copied().collect();
+fn eval_methods_recognized_by_registry() {
+    let registry_set = registry_method_pairs();
     let known_set: BTreeSet<_> = EVAL_METHODS_NOT_IN_TYPECK.iter().copied().collect();
 
     let mut missing = Vec::new();
     for &(ty, method) in EVAL_BUILTIN_METHODS {
-        if !typeck_set.contains(&(ty, method)) && !known_set.contains(&(ty, method)) {
+        if !registry_set.contains(&(ty, method)) && !known_set.contains(&(ty, method)) {
             missing.push((ty, method));
         }
     }
 
     assert!(
         missing.is_empty(),
-        "Evaluator has methods not recognized by type checker: {missing:?}\n\
-         Add to TYPECK_BUILTIN_METHODS in ori_types/src/infer/expr/methods.rs or \
+        "Evaluator has methods not in registry: {missing:?}\n\
+         Add to the appropriate TypeDef in ori_registry/src/defs/ or \
          add to EVAL_METHODS_NOT_IN_TYPECK"
     );
 }
 
-/// Every typeck method should be implemented in the evaluator (or explicitly
+/// Every registry method should be implemented in the evaluator (or explicitly
 /// listed as not-yet-implemented). This catches methods that type-check
 /// successfully but fail at runtime with "no such method".
 #[test]
-fn typeck_methods_implemented_in_eval() {
+fn registry_methods_implemented_in_eval() {
     let eval_set: BTreeSet<_> = EVAL_BUILTIN_METHODS.iter().copied().collect();
     let known_set: BTreeSet<_> = TYPECK_METHODS_NOT_IN_EVAL.iter().copied().collect();
+    let registry_set = registry_method_pairs();
 
     let mut missing = Vec::new();
-    for &(ty, method) in TYPECK_BUILTIN_METHODS {
+    for &(ty, method) in &registry_set {
         if !eval_set.contains(&(ty, method)) && !known_set.contains(&(ty, method)) {
             missing.push((ty, method));
         }
@@ -697,41 +767,45 @@ fn typeck_methods_implemented_in_eval() {
 
     assert!(
         missing.is_empty(),
-        "Type checker recognizes methods not implemented in evaluator: {missing:?}\n\
+        "Registry has methods not implemented in evaluator: {missing:?}\n\
          Either implement in ori_eval or add to TYPECK_METHODS_NOT_IN_EVAL"
     );
 }
 
 // ── Iterator cross-crate consistency ─────────────────────────────────
 
-/// Every Iterator/DoubleEndedIterator method in typeck must have a corresponding
-/// eval resolver entry, and vice versa. The eval resolver dispatches all
-/// iterator methods through `ITERATOR_METHOD_NAMES` regardless of whether they
-/// require `DoubleEndedIterator` at the type level — runtime gating happens in
-/// the eval methods via `is_double_ended()` checks.
+/// Every Iterator/DoubleEndedIterator method in the registry must have a
+/// corresponding eval resolver entry, and vice versa. The eval resolver
+/// dispatches all iterator methods through `ITERATOR_METHOD_NAMES` regardless
+/// of whether they require `DoubleEndedIterator` at the type level — runtime
+/// gating happens in the eval methods via `is_double_ended()` checks.
 #[test]
-fn iterator_typeck_methods_match_eval_resolver() {
-    // Combine Iterator + DoubleEndedIterator entries from typeck
-    let typeck_iter_methods: BTreeSet<&str> = TYPECK_BUILTIN_METHODS
-        .iter()
-        .filter(|(ty, _)| *ty == "Iterator" || *ty == "DoubleEndedIterator")
-        .map(|(_, method)| *method)
-        .collect();
+fn iterator_registry_methods_match_eval_resolver() {
+    // All methods on the Iterator TypeDef (includes DEI-only methods)
+    let registry_iter_methods: BTreeSet<&str> =
+        ori_registry::methods_for(ori_registry::TypeTag::Iterator)
+            .iter()
+            .map(|m| m.name)
+            .collect();
 
     let eval_iter_methods: BTreeSet<&str> = ITERATOR_METHOD_NAMES.iter().copied().collect();
 
-    let in_typeck_not_eval: Vec<_> = typeck_iter_methods.difference(&eval_iter_methods).collect();
-    let in_eval_not_typeck: Vec<_> = eval_iter_methods.difference(&typeck_iter_methods).collect();
+    let in_registry_not_eval: Vec<_> = registry_iter_methods
+        .difference(&eval_iter_methods)
+        .collect();
+    let in_eval_not_registry: Vec<_> = eval_iter_methods
+        .difference(&registry_iter_methods)
+        .collect();
 
     assert!(
-        in_typeck_not_eval.is_empty(),
-        "Iterator methods in typeck but missing from eval resolver: {in_typeck_not_eval:?}\n\
+        in_registry_not_eval.is_empty(),
+        "Iterator methods in registry but missing from eval resolver: {in_registry_not_eval:?}\n\
          Add to ITERATOR_METHOD_NAMES in ori_eval/src/interpreter/resolvers/mod.rs"
     );
     assert!(
-        in_eval_not_typeck.is_empty(),
-        "Iterator methods in eval resolver but missing from typeck: {in_eval_not_typeck:?}\n\
-         Add to TYPECK_BUILTIN_METHODS in ori_types/src/infer/expr/methods.rs"
+        in_eval_not_registry.is_empty(),
+        "Iterator methods in eval resolver but missing from registry: {in_eval_not_registry:?}\n\
+         Add to the Iterator TypeDef in ori_registry/src/defs/iterator/"
     );
 }
 
