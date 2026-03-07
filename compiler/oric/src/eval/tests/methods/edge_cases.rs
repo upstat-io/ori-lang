@@ -30,21 +30,21 @@ mod string_edge_cases {
     #[test]
     fn len_unicode_bytes_vs_chars() {
         let interner = test_interner();
-        // "café" is 5 bytes in UTF-8 but 4 chars
-        // Note: our len returns byte length, not char count
+        // "café" is 5 bytes in UTF-8: 'c'(1) + 'a'(1) + 'f'(1) + 'e'(1) + U+0301(2)
+        // Per spec, str.len() returns byte count
         let result =
             dispatch_builtin_method(Value::string("café"), "len", vec![], &interner).unwrap();
-        // Check if it returns byte length (5) or char count (4)
-        assert!(matches!(result, Value::Int(n) if n.raw() == 4 || n.raw() == 5));
+        assert_eq!(result, Value::int(5));
     }
 
     #[test]
     fn len_emoji() {
         let interner = test_interner();
-        // Single emoji can be 4 bytes
+        // Single emoji 😀 is 4 bytes in UTF-8
+        // Per spec, str.len() returns byte count
         let result =
             dispatch_builtin_method(Value::string("😀"), "len", vec![], &interner).unwrap();
-        assert!(matches!(result, Value::Int(n) if n.raw() == 1 || n.raw() == 4));
+        assert_eq!(result, Value::int(4));
     }
 
     #[test]

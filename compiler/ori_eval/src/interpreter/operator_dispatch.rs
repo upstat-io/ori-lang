@@ -8,11 +8,12 @@ use ori_patterns::Value;
 
 use super::OpNames;
 
-/// Check if a value is a primitive type that uses built-in operator evaluation.
+/// Check if a value is a built-in type that uses direct operator evaluation.
 ///
-/// Primitive types (int, float, bool, str, char, byte, Duration, Size) use direct
-/// evaluation via `evaluate_binary`. User-defined types dispatch through operator
-/// trait methods (`Add::add`, `Sub::subtract`, `Mul::multiply`, etc.).
+/// Built-in types (int, float, bool, str, char, byte, Duration, Size, List,
+/// Tuple, Map, Set, Range, Option variants, Result variants) use direct
+/// evaluation via `evaluate_binary`. User-defined types dispatch through
+/// operator trait methods (`Add::add`, `Sub::subtract`, etc.).
 pub(super) fn is_primitive_value(value: &Value) -> bool {
     matches!(
         value,
@@ -32,6 +33,7 @@ pub(super) fn is_primitive_value(value: &Value) -> bool {
             | Value::Ok(_)
             | Value::Err(_)
             | Value::Range(_)
+            | Value::Set(_)
     )
 }
 

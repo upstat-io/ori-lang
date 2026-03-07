@@ -116,7 +116,7 @@ impl Interpreter<'_> {
                 let span = self.can_span(can_id);
                 expr::eval_ident(name, &self.env, self.interner)
                     .or_else(|e| {
-                        // FIXME(canonicalization): Type reference resolution should
+                        // TODO(canonicalization): Type reference resolution should
                         // happen in ori_canon, not here. This fallback exists because
                         // cross-module type refs aren't yet resolved during
                         // canonicalization. Remove once ori_canon handles imported

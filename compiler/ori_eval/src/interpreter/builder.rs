@@ -3,7 +3,7 @@
 // Arc<String> is used here for source file path and source text that are shared
 // across child interpreters (clone-per-child). Heap<T> is not suitable because
 // its constructor is pub(super) to the value module.
-#![allow(
+#![expect(
     clippy::disallowed_types,
     reason = "Arc<String> shared across child interpreters"
 )]
