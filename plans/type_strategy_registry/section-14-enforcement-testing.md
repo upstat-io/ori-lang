@@ -3,6 +3,7 @@ plan: "type_strategy_registry"
 section: "14"
 title: "Enforcement Tests, Testing Matrix & Exit Criteria"
 status: not-started
+reviewed: false
 goal: "Make cross-phase drift structurally impossible via enforcement tests, eliminate all allowlists, remove all legacy code, and define exhaustive exit criteria for the entire plan"
 depends_on:
   - "09"

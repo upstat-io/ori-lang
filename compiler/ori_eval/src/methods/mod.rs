@@ -25,10 +25,11 @@ mod ordering;
 mod units;
 mod variants;
 
+#[cfg(test)]
+mod tests;
+
 use ori_ir::{Name, StringInterner};
 use ori_patterns::{no_such_method, EvalResult, Value};
-
-pub use helpers::EVAL_BUILTIN_METHODS;
 
 /// Pre-interned method names for builtin method dispatch.
 ///

@@ -1,7 +1,7 @@
 ---
 section: "10"
 title: "Wire Evaluator (ori_eval)"
-status: not-started
+status: complete
 goal: "Replace all hardcoded method enumerations in ori_eval with registry-derived data, while preserving existing dispatch performance (O(1) Name comparison) and the resolver chain architecture"
 depends_on:
   - "03"
@@ -13,25 +13,25 @@ depends_on:
 sections:
   - id: "10.1"
     title: "Replace EVAL_BUILTIN_METHODS"
-    status: not-started
+    status: complete
   - id: "10.2"
     title: "Replace ITERATOR_METHOD_NAMES"
-    status: not-started
+    status: complete
   - id: "10.3"
     title: "BuiltinMethodNames assertion test"
-    status: not-started
+    status: complete
   - id: "10.4"
     title: "Method dispatch validation"
-    status: not-started
+    status: complete
   - id: "10.5"
     title: "Format variant sync"
-    status: not-started
+    status: complete
   - id: "10.6"
     title: "Evaluator enforcement test"
-    status: not-started
+    status: complete
   - id: "10.7"
     title: "Validation & regression"
-    status: not-started
+    status: complete
 ---
 
 # Section 10: Wire Evaluator (ori_eval)
@@ -150,13 +150,13 @@ The array is eliminated. Both consumers switch to registry queries:
 
 ### Migration Steps
 
-- [ ] Add `eval_type_name()` mapping function to `resolvers/builtin/mod.rs`
-- [ ] In `BuiltinMethodResolver::new()`, replace `crate::methods::EVAL_BUILTIN_METHODS.iter()` with `ori_registry::BUILTIN_TYPES.iter().flat_map(...)` using `eval_type_name()`
-- [ ] Remove `pub const EVAL_BUILTIN_METHODS` from `methods/helpers/mod.rs`
-- [ ] Remove `pub use helpers::EVAL_BUILTIN_METHODS` from `methods/mod.rs` (line 31)
-- [ ] Update `lib.rs` line 58: change `pub use methods::{dispatch_builtin_method_str, EVAL_BUILTIN_METHODS}` to `pub use methods::dispatch_builtin_method_str`
-- [ ] Verify `cargo check -p ori_eval` passes
-- [ ] **Atomic commit:** Steps 10.1, 10.2, 10.4, and 10.6 MUST be in a single commit because `consistency.rs` is the only external consumer of `EVAL_BUILTIN_METHODS` and `ITERATOR_METHOD_NAMES`, and `TYPECK_METHODS_NOT_IN_EVAL` (removed in 10.6) is the source data for `METHODS_NOT_YET_IN_EVAL` (created in 10.4)
+- [x] Add `eval_type_name()` mapping function to `resolvers/builtin/mod.rs`
+- [x] In `BuiltinMethodResolver::new()`, replace `crate::methods::EVAL_BUILTIN_METHODS.iter()` with `ori_registry::BUILTIN_TYPES.iter().flat_map(...)` using `eval_type_name()`
+- [x] Remove `pub const EVAL_BUILTIN_METHODS` from `methods/helpers/mod.rs`
+- [x] Remove `pub use helpers::EVAL_BUILTIN_METHODS` from `methods/mod.rs` (line 31)
+- [x] Update `lib.rs` line 58: change `pub use methods::{dispatch_builtin_method_str, EVAL_BUILTIN_METHODS}` to `pub use methods::dispatch_builtin_method_str`
+- [x] Verify `cargo check -p ori_eval` passes
+- [x] **Atomic commit:** Steps 10.1, 10.2, 10.4, and 10.6 MUST be in a single commit because `consistency.rs` is the only external consumer of `EVAL_BUILTIN_METHODS` and `ITERATOR_METHOD_NAMES`, and `TYPECK_METHODS_NOT_IN_EVAL` (removed in 10.6) is the source data for `METHODS_NOT_YET_IN_EVAL` (created in 10.4)
 
 ### What Does NOT Change
 
@@ -199,10 +199,10 @@ pub const ITERATOR_METHOD_NAMES: &[&str] = &[
 
 ### Migration Steps
 
-- [ ] Remove `pub const ITERATOR_METHOD_NAMES` from `resolvers/mod.rs`
-- [ ] Remove `pub use interpreter::resolvers::ITERATOR_METHOD_NAMES` from `lib.rs` line 68
-- [ ] Verify `cargo check -p ori_eval` passes
-- [ ] **Atomic commit:** Done in the same commit as 10.1, 10.4, and 10.6 (see 10.1 ordering note)
+- [x] Remove `pub const ITERATOR_METHOD_NAMES` from `resolvers/mod.rs`
+- [x] Remove `pub use interpreter::resolvers::ITERATOR_METHOD_NAMES` from `lib.rs` line 68
+- [x] Verify `cargo check -p ori_eval` passes
+- [x] **Atomic commit:** Done in the same commit as 10.1, 10.4, and 10.6 (see 10.1 ordering note)
 
 ### What Does NOT Change
 
@@ -392,12 +392,12 @@ The test must ALSO validate at runtime that each field name corresponds to a reg
 
 ### Migration Steps
 
-- [ ] Add `#[cfg(test)] mod tests;` at the bottom of `compiler/ori_eval/src/methods/mod.rs`
-- [ ] Create `compiler/ori_eval/src/methods/tests.rs`
-- [ ] Add `builtin_method_names_match_registry` test containing both the exhaustive destructure (compile-time check) AND the registry comparison (runtime check)
-- [ ] Verify the test passes: `cargo test -p ori_eval -- builtin_method_names`
-- [ ] No changes to the `BuiltinMethodNames` struct itself
-- [ ] No changes to `DispatchCtx` or any `dispatch_*_method` function
+- [x] Add `#[cfg(test)] mod tests;` at the bottom of `compiler/ori_eval/src/methods/mod.rs`
+- [x] Create `compiler/ori_eval/src/methods/tests.rs`
+- [x] Add `builtin_method_names_match_registry` test containing both the exhaustive destructure (compile-time check) AND the registry comparison (runtime check)
+- [x] Verify the test passes: `cargo test -p ori_eval -- builtin_method_names`
+- [x] No changes to the `BuiltinMethodNames` struct itself
+- [x] No changes to `DispatchCtx` or any `dispatch_*_method` function
 
 ---
 
@@ -540,14 +540,14 @@ Add these to a `COLLECTION_RESOLVER_METHODS` filter set in the test, or build th
 
 ### Migration Steps
 
-- [ ] Create `compiler/oric/src/eval/tests/methods/dispatch_coverage.rs`
-- [ ] Add `mod dispatch_coverage;` to `compiler/oric/src/eval/tests/methods/mod.rs`
-- [ ] Migrate all 232 entries from `TYPECK_METHODS_NOT_IN_EVAL` in `consistency.rs` into `METHODS_NOT_YET_IN_EVAL` in `dispatch_coverage.rs`, applying `eval_type_name()` mapping (5 types change case: List->list, Map->map, Range->range, Tuple->tuple, Error->error)
-- [ ] Add `COLLECTION_RESOLVER_METHODS` filter set listing methods dispatched by `CollectionMethodResolver` for non-Iterator types (see table above)
-- [ ] Implement `minimal_value_for()` helper with exhaustive `TypeTag` match
-- [ ] Implement `every_registry_method_has_eval_dispatch_handler` test that skips methods in both filter sets
-- [ ] Verify test passes: `cargo test -p oric -- every_registry_method_has_eval_dispatch`
-- [ ] For any unexpected "no such method" failure: determine whether it is a missing eval handler (fix the handler) or a registry method that should be filtered (add to appropriate filter set with justification)
+- [x] Create `compiler/oric/src/eval/tests/methods/dispatch_coverage.rs`
+- [x] Add `mod dispatch_coverage;` to `compiler/oric/src/eval/tests/methods/mod.rs`
+- [x] Migrate all 232 entries from `TYPECK_METHODS_NOT_IN_EVAL` in `consistency.rs` into `METHODS_NOT_YET_IN_EVAL` in `dispatch_coverage.rs`, applying `eval_type_name()` mapping (5 types change case: List->list, Map->map, Range->range, Tuple->tuple, Error->error)
+- [x] Add `COLLECTION_RESOLVER_METHODS` filter set listing methods dispatched by `CollectionMethodResolver` for non-Iterator types (see table above)
+- [x] Implement `minimal_value_for()` helper with exhaustive `TypeTag` match
+- [x] Implement `every_registry_method_has_eval_dispatch_handler` test that skips methods in both filter sets
+- [x] Verify test passes: `cargo test -p oric -- every_registry_method_has_eval_dispatch`
+- [x] For any unexpected "no such method" failure: determine whether it is a missing eval handler (fix the handler) or a registry method that should be filtered (add to appropriate filter set with justification)
 
 **Atomic commit:** 10.4 must be in the same commit as 10.1, 10.2, and 10.6 because `TYPECK_METHODS_NOT_IN_EVAL` (removed in 10.6) is the source data for `METHODS_NOT_YET_IN_EVAL` (created in 10.4).
 
@@ -591,10 +591,10 @@ If a future iteration of the registry adds support for enum variant declarations
 
 ### Migration Steps
 
-- [ ] No code changes to `register_format_variants()` in `interpreter/prelude.rs`
-- [ ] No code changes to `consistency.rs` format variant sync tests
-- [ ] Document in Section 14 that format variant sync is a candidate for future registry extension
-- [ ] Verify existing format variant tests still pass: `cargo test -p oric -- format_type_variants`
+- [x] No code changes to `register_format_variants()` in `interpreter/prelude.rs`
+- [x] No code changes to `consistency.rs` format variant sync tests
+- [x] Document in Section 14 that format variant sync is a candidate for future registry extension
+- [x] Verify existing format variant tests still pass: `cargo test -p oric -- format_type_variants`
 
 ---
 
@@ -696,55 +696,55 @@ fn iterator_methods_match_registry() {
 
 **Prerequisites (can be done in a preparatory commit):**
 
-- [ ] Remove `#[cfg(test)]` from `CollectionMethod::all_iterator_variants()` in `resolvers/mod.rs` (line 192) and make it `pub`
-- [ ] Remove `#[cfg(test)]` from `CollectionMethod::from_name()` in `resolvers/mod.rs` (line 140) and make it `pub`
+- [x] Remove `#[cfg(test)]` from `CollectionMethod::all_iterator_variants()` in `resolvers/mod.rs` (line 192) and make it `pub`
+- [x] Remove `#[cfg(test)]` from `CollectionMethod::from_name()` in `resolvers/mod.rs` (line 140) and make it `pub`
 
 **Tests to remove from `consistency.rs`:**
 
-- [ ] Remove `ir_methods_implemented_in_eval` test
-- [ ] Remove `eval_primitive_methods_in_ir` test
-- [ ] Remove `eval_method_list_is_sorted` test
-- [ ] Remove `eval_methods_recognized_by_registry` test
-- [ ] Remove `registry_methods_implemented_in_eval` test
-- [ ] Remove `eval_iterator_method_names_sorted` test
+- [x] Remove `ir_methods_implemented_in_eval` test
+- [x] Remove `eval_primitive_methods_in_ir` test
+- [x] Remove `eval_method_list_is_sorted` test
+- [x] Remove `eval_methods_recognized_by_registry` test
+- [x] Remove `registry_methods_implemented_in_eval` test
+- [x] Remove `eval_iterator_method_names_sorted` test
 
 **Allowlists to remove from `consistency.rs`:**
 
-- [ ] Remove `COLLECTION_TYPES`
-- [ ] Remove `IR_METHODS_DISPATCHED_VIA_RESOLVERS`
-- [ ] Remove `EVAL_METHODS_NOT_IN_IR`
-- [ ] Remove `EVAL_METHODS_NOT_IN_TYPECK`
-- [ ] Remove `TYPECK_METHODS_NOT_IN_EVAL` (content migrated to `METHODS_NOT_YET_IN_EVAL` in 10.4's `dispatch_coverage.rs`)
+- [x] Remove `COLLECTION_TYPES`
+- [x] Remove `IR_METHODS_DISPATCHED_VIA_RESOLVERS`
+- [x] Remove `EVAL_METHODS_NOT_IN_IR`
+- [x] Remove `EVAL_METHODS_NOT_IN_TYPECK`
+- [x] Remove `TYPECK_METHODS_NOT_IN_EVAL` (content migrated to `METHODS_NOT_YET_IN_EVAL` in 10.4's `dispatch_coverage.rs`)
 
 **Helpers to remove from `consistency.rs`:**
 
-- [ ] Remove `ir_method_set()` (lines 122-127) -- only used by tests being removed
-- [ ] Remove `legacy_type_name()` (lines 11-20) if no remaining test uses it; otherwise keep
-- [ ] Remove `registry_method_pairs()` (lines 27-40) if no remaining test uses it; otherwise keep
+- [x] Remove `ir_method_set()` (lines 122-127) -- only used by tests being removed
+- [x] Remove `legacy_type_name()` (lines 11-20) if no remaining test uses it; otherwise keep
+- [x] Remove `registry_method_pairs()` (lines 27-40) if no remaining test uses it; otherwise keep
 
 **Allowlist to keep:**
 
-- [ ] Keep `TYPECK_METHODS_NOT_IN_IR` until Section 13 (used by `registry_primitive_methods_in_ir` test)
+- [x] Keep `TYPECK_METHODS_NOT_IN_IR` until Section 13 (used by `registry_primitive_methods_in_ir` test)
 
 **New test and imports:**
 
-- [ ] Add `iterator_methods_match_registry` test (see code above), filtering `__`-prefixed protocol methods from the eval side
-- [ ] Remove `use ori_eval::EVAL_BUILTIN_METHODS` import from `consistency.rs`
-- [ ] Remove `use ori_eval::ITERATOR_METHOD_NAMES` import from `consistency.rs`
-- [ ] Add `use ori_eval::interpreter::resolvers::CollectionMethod` import to `consistency.rs`
-- [ ] Confirm `use ori_registry::{BUILTIN_TYPES, TypeTag}` is already present (added during Sections 03-08)
+- [x] Add `iterator_methods_match_registry` test (see code above), filtering `__`-prefixed protocol methods from the eval side
+- [x] Remove `use ori_eval::EVAL_BUILTIN_METHODS` import from `consistency.rs`
+- [x] Remove `use ori_eval::ITERATOR_METHOD_NAMES` import from `consistency.rs`
+- [x] Add `use ori_eval::interpreter::resolvers::CollectionMethod` import to `consistency.rs`
+- [x] Confirm `use ori_registry::{BUILTIN_TYPES, TypeTag}` is already present (added during Sections 03-08)
 
 **Tests to keep unchanged:**
 
-- [ ] All format variant sync tests (see 10.5)
-- [ ] `well_known_generic_types_consistent`
-- [ ] `registry_methods_sorted_per_type`
-- [ ] `registry_primitive_methods_in_ir` (until Section 13)
+- [x] All format variant sync tests (see 10.5)
+- [x] `well_known_generic_types_consistent`
+- [x] `registry_methods_sorted_per_type`
+- [x] `registry_primitive_methods_in_ir` (until Section 13)
 
 **Verification:**
 
-- [ ] Verify all remaining tests pass: `cargo test -p oric -- consistency`
-- [ ] Verify `consistency.rs` is under 500 lines after cleanup
+- [x] Verify all remaining tests pass: `cargo test -p oric -- consistency`
+- [x] Verify `consistency.rs` is under 500 lines after cleanup
 
 ### Coordination with Section 09
 
@@ -764,12 +764,12 @@ Regardless of ordering:
 
 Execute in this order. Each command must pass before proceeding to the next.
 
-- [ ] `cargo check -p ori_eval` — evaluator compiles with registry dependency
-- [ ] `cargo test -p ori_eval` — all evaluator unit tests pass
-- [ ] `cargo test -p oric -- consistency` — rewritten consistency tests pass
-- [ ] `cargo test -p oric -- dispatch_coverage` — new dispatch coverage test passes
-- [ ] `cargo st` — all spec tests pass (spec tests exercise the evaluator end-to-end)
-- [ ] `./test-all.sh` — full test suite passes (includes clippy, fmt, all crates)
+- [x] `cargo check -p ori_eval` — evaluator compiles with registry dependency
+- [x] `cargo test -p ori_eval` — all evaluator unit tests pass
+- [x] `cargo test -p oric -- consistency` — rewritten consistency tests pass
+- [x] `cargo test -p oric -- dispatch_coverage` — new dispatch coverage test passes
+- [x] `cargo st` — all spec tests pass (spec tests exercise the evaluator end-to-end)
+- [x] `./test-all.sh` — full test suite passes (includes clippy, fmt, all crates)
 
 ### Specific Regressions to Watch
 
