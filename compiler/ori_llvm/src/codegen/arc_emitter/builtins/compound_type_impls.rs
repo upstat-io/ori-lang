@@ -16,9 +16,7 @@ use crate::codegen::value_id::ValueId;
 use super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    // -----------------------------------------------------------------------
     // Option trait methods
-    // -----------------------------------------------------------------------
 
     /// `Option<T>.equals(other) -> bool`
     ///
@@ -107,9 +105,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.select(is_none, zero, some_hash, "opt_hash"))
     }
 
-    // -----------------------------------------------------------------------
     // Result trait methods
-    // -----------------------------------------------------------------------
 
     /// `Result<Ok, Err>.equals(other) -> bool`
     ///
@@ -180,9 +176,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.emit_hash_combine(tag, payload_hash))
     }
 
-    // -----------------------------------------------------------------------
     // Tuple trait methods
-    // -----------------------------------------------------------------------
 
     /// `Tuple.equals(other) -> bool`
     ///
@@ -268,9 +262,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(result)
     }
 
-    // -----------------------------------------------------------------------
     // String helpers (exposed for compound trait use)
-    // -----------------------------------------------------------------------
 
     /// Call `ori_str_compare(ptr, ptr) -> i8` for string comparison.
     pub(super) fn emit_str_compare_call(&mut self, lhs: ValueId, rhs: ValueId) -> Option<ValueId> {

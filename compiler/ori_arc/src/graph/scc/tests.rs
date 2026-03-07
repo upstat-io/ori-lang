@@ -88,7 +88,7 @@ fn find_scc(sccs: &[Scc], name: Name) -> Option<&Scc> {
     sccs.iter().find(|scc| scc.members.contains(&name))
 }
 
-// --- Tests ---
+// Tests
 
 #[test]
 fn no_functions() {

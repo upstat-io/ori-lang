@@ -3,7 +3,6 @@
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::super::InferEngine;
-use super::super::methods::DEI_ONLY_METHODS;
 use super::super::{infer_expr, resolve_builtin_method};
 use super::impl_lookup::{
     emit_into_not_implemented, lookup_impl_method, resolve_impl_signature, ImplMethodSig,
@@ -334,7 +333,7 @@ fn resolve_receiver_and_builtin(
     // 1b. Reject DoubleEndedIterator methods on plain Iterator receivers
     if tag == Tag::Iterator {
         if let Some(name_str) = method_str {
-            if DEI_ONLY_METHODS.contains(&name_str) {
+            if ori_registry::is_dei_only(name_str) {
                 engine.push_error(TypeCheckError::unsatisfied_bound(
                     span,
                     format!(

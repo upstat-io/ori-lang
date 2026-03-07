@@ -147,9 +147,7 @@ fn emit_fallback<'a>(
     }
 }
 
-// ---------------------------------------------------------------------------
 // String runtime helpers (alloca+store+call pattern)
-// ---------------------------------------------------------------------------
 
 /// Call `ori_str_eq(a: ptr, b: ptr) -> bool` via alloca+store pattern.
 fn emit_str_eq_call<'a>(

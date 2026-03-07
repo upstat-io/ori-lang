@@ -289,9 +289,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(list_ty, out_alloca, "set.to_list.val"))
     }
 
-    // -----------------------------------------------------------------------
     // Range methods
-    // -----------------------------------------------------------------------
 
     /// Emit `range.iter()` — call `ori_iter_from_range(start, end, step, inclusive)`.
     ///

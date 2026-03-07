@@ -241,6 +241,10 @@ impl<'pool> ArcClassifier<'pool> {
 
 impl ArcClassification for ArcClassifier<'_> {
     fn arc_class(&self, idx: Idx) -> ArcClass {
+        debug_assert!(
+            self.classifying.borrow().is_empty(),
+            "classifying set should be empty at top-level arc_class() entry"
+        );
         self.classify(idx)
     }
 }

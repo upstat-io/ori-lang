@@ -17,9 +17,7 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue, InstructionValue};
 
-// ---------------------------------------------------------------------------
 // ID newtypes
-// ---------------------------------------------------------------------------
 
 /// Opaque handle to an LLVM value stored in a `ValueArena`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -133,9 +131,7 @@ impl TokenId {
     }
 }
 
-// ---------------------------------------------------------------------------
 // ValueArena
-// ---------------------------------------------------------------------------
 
 /// Stores LLVM values behind opaque IDs, hiding the `'ctx` lifetime.
 ///
@@ -277,9 +273,7 @@ impl<'ctx> ValueArena<'ctx> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests;

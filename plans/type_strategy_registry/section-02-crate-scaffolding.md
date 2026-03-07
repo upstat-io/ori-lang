@@ -1,26 +1,26 @@
 ---
 section: "02"
 title: "Crate Scaffolding & Purity Enforcement"
-status: not-started
+status: complete
 goal: "Create ori_registry crate with zero dependencies, correct module structure, workspace integration, and compile/test-time purity enforcement"
 depends_on:
   - "01"
 sections:
   - id: "02.1"
     title: "Create crate directory & Cargo.toml"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Module structure"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "Purity enforcement tests"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Workspace integration"
-    status: not-started
+    status: complete
   - id: "02.5"
     title: "Crate documentation"
-    status: not-started
+    status: complete
 ---
 
 # Section 02: Crate Scaffolding & Purity Enforcement
@@ -35,9 +35,9 @@ sections:
 
 **Path:** `compiler/ori_registry/`
 
-- [ ] Create directory `compiler/ori_registry/src/`
-- [ ] Create `compiler/ori_registry/src/defs/`
-- [ ] Create `compiler/ori_registry/Cargo.toml` with the exact contents below
+- [x] Create directory `compiler/ori_registry/src/`
+- [x] Create `compiler/ori_registry/src/defs/`
+- [x] Create `compiler/ori_registry/Cargo.toml` with the exact contents below
 
 ### Cargo.toml (exact contents)
 
@@ -70,11 +70,11 @@ workspace = true
 
 ### Verification
 
-- [ ] `[dependencies]` section is present but empty
-- [ ] `[dev-dependencies]` contains only `pretty_assertions`
-- [ ] No `[features]` section
-- [ ] No `[build-dependencies]` section
-- [ ] `edition.workspace = true` resolves to `"2021"`
+- [x] `[dependencies]` section is present but empty
+- [x] `[dev-dependencies]` contains only `pretty_assertions`
+- [x] No `[features]` section
+- [x] No `[build-dependencies]` section
+- [x] `edition.workspace = true` resolves to `"2021"`
 
 ---
 
@@ -309,22 +309,22 @@ No other files change. No other crates need modification for the declaration its
 
 ### Checklist
 
-- [ ] Create `src/lib.rs` with module declarations and `pub use` re-exports ONLY (no function bodies)
-- [ ] Create `src/tags.rs` with all enums from Section 01 (TypeTag, MemoryStrategy, Ownership, OpStrategy, ReturnTag, TypeProjection, TypeParamArity, MethodKind, DeiPropagation)
-- [ ] Create `src/method.rs` with `MethodDef` and `ParamDef` from Section 01
-- [ ] Create `src/operator.rs` with `OpDefs` from Section 01
-- [ ] Create `src/type_def.rs` with `TypeDef` from Section 01
-- [ ] Create `src/query.rs` with `BUILTIN_TYPES`, `find_type()`, `find_method()`, convenience iterators (Section 08)
-- [ ] Create `src/tests.rs` (purity enforcement — see 02.3)
-- [ ] Create `src/defs/mod.rs` with re-exports
-- [ ] Create `src/defs/int.rs` with empty-methods placeholder `INT`
-- [ ] Create `src/defs/float.rs` with empty-methods placeholder `FLOAT`
-- [ ] Create `src/defs/str.rs` with empty-methods placeholder `STR`
-- [ ] Create `src/defs/bool.rs` with empty-methods placeholder `BOOL`
-- [ ] Create `src/defs/byte.rs` with empty-methods placeholder `BYTE`
-- [ ] Create `src/defs/char.rs` with empty-methods placeholder `CHAR`
-- [ ] Verify `cargo check -p ori_registry` passes
-- [ ] Verify no file exceeds 100 lines (target: each file is small and focused)
+- [x] Create `src/lib.rs` with module declarations and `pub use` re-exports ONLY (no function bodies)
+- [x] Create `src/tags.rs` with all enums from Section 01 (TypeTag, MemoryStrategy, Ownership, OpStrategy, ReturnTag, TypeProjection, TypeParamArity, MethodKind, DeiPropagation)
+- [x] Create `src/method.rs` with `MethodDef` and `ParamDef` from Section 01
+- [x] Create `src/operator.rs` with `OpDefs` from Section 01
+- [x] Create `src/type_def.rs` with `TypeDef` from Section 01
+- [x] Create `src/query.rs` with `BUILTIN_TYPES`, `find_type()`, `find_method()`, convenience iterators (Section 08)
+- [x] Create `src/tests.rs` (purity enforcement — see 02.3)
+- [x] Create `src/defs/mod.rs` with re-exports
+- [x] Create `src/defs/int.rs` with empty-methods placeholder `INT`
+- [x] Create `src/defs/float.rs` with empty-methods placeholder `FLOAT`
+- [x] Create `src/defs/str.rs` with empty-methods placeholder `STR`
+- [x] Create `src/defs/bool.rs` with empty-methods placeholder `BOOL`
+- [x] Create `src/defs/byte.rs` with empty-methods placeholder `BYTE`
+- [x] Create `src/defs/char.rs` with empty-methods placeholder `CHAR`
+- [x] Verify `cargo check -p ori_registry` passes
+- [x] Verify no file exceeds 100 lines (target: each file is small and focused)
 
 ---
 
@@ -592,14 +592,14 @@ fn purity_no_heap_allocation_types() {
 
 ### Checklist
 
-- [ ] Create `src/tests.rs` with all 6 enforcement tests
-- [ ] `purity_cargo_toml_has_no_dependencies` — parses Cargo.toml, asserts empty `[dependencies]`
-- [ ] `purity_core_enums_are_copy` — compile-time Copy/Clone assertion
-- [ ] `purity_type_defs_are_const` — compile-time const-constructibility proof
-- [ ] `purity_no_unsafe_code` — source scan for `unsafe` keyword
-- [ ] `purity_no_mutable_api` — source scan for `&mut` in public function signatures
-- [ ] `purity_no_heap_allocation_types` — source scan for `String`, `Vec<`, `Box<`, `Arc<`, etc.
-- [ ] Verify `cargo test -p ori_registry` passes with all 6 tests green
+- [x] Create `src/tests.rs` with all 6 enforcement tests
+- [x] `purity_cargo_toml_has_no_dependencies` — parses Cargo.toml, asserts empty `[dependencies]`
+- [x] `purity_core_enums_are_copy` — compile-time Copy/Clone assertion
+- [x] `purity_type_defs_are_const` — compile-time const-constructibility proof
+- [x] `purity_no_unsafe_code` — source scan for `unsafe` keyword
+- [x] `purity_no_mutable_api` — source scan for `&mut` in public function signatures
+- [x] `purity_no_heap_allocation_types` — source scan for `String`, `Vec<`, `Box<`, `Arc<`, etc.
+- [x] Verify `cargo test -p ori_registry` passes with all 6 tests green
 
 ---
 
@@ -707,34 +707,34 @@ ori_types = { path = "../ori_types", features = ["cache"] }
 
 ### Step 4: Verify builds
 
-- [ ] `cargo check -p ori_registry` passes
-- [ ] `cargo test -p ori_registry` passes (6 purity tests)
-- [ ] `cargo check --workspace` passes (all workspace members)
-- [ ] `cargo b` passes (LLVM build with ori_registry)
-- [ ] `./test-all.sh` passes (no regressions)
+- [x] `cargo check -p ori_registry` passes
+- [x] `cargo test -p ori_registry` passes (6 purity tests)
+- [x] `cargo check --workspace` passes (all workspace members)
+- [x] `cargo b` passes (LLVM build with ori_registry)
+- [x] `./test-all.sh` passes (no regressions)
 
 ### Step 5: Verify dependency graph
 
-- [ ] `ori_registry` depends on nothing (zero edges inward)
-- [ ] `ori_types`, `ori_eval`, `ori_arc`, `ori_llvm`, `oric` all depend on `ori_registry`
-- [ ] No cycles introduced — verify with `cargo tree -p ori_registry` (should show zero deps)
-- [ ] Verify with `cargo tree -p ori_types -i ori_registry` (should show ori_registry as leaf)
+- [x] `ori_registry` depends on nothing (zero edges inward)
+- [x] `ori_types`, `ori_eval`, `ori_arc`, `ori_llvm`, `oric` all depend on `ori_registry`
+- [x] No cycles introduced — verify with `cargo tree -p ori_registry` (should show zero deps)
+- [x] Verify with `cargo tree -p ori_types -i ori_registry` (should show ori_registry as leaf)
 
 ### Checklist
 
-- [ ] Add `"compiler/ori_registry"` to workspace members (after `ori_ir`)
-- [ ] Add `ori_registry = { path = "compiler/ori_registry" }` to workspace dependencies
-- [ ] Add `ori_registry.workspace = true` to `ori_types/Cargo.toml`
-- [ ] Add `ori_registry.workspace = true` to `ori_eval/Cargo.toml`
-- [ ] Add `ori_registry.workspace = true` to `ori_arc/Cargo.toml`
-- [ ] Add `ori_registry = { path = "../ori_registry" }` to `ori_llvm/Cargo.toml`
-- [ ] Add `ori_registry.workspace = true` to `oric/Cargo.toml`
-- [ ] `cargo check -p ori_registry` passes
-- [ ] `cargo test -p ori_registry` passes
-- [ ] `cargo check --workspace` passes
-- [ ] `cargo b` passes
-- [ ] `./test-all.sh` passes
-- [ ] `cargo tree -p ori_registry` shows zero dependencies
+- [x] Add `"compiler/ori_registry"` to workspace members (after `ori_ir`)
+- [x] Add `ori_registry = { path = "compiler/ori_registry" }` to workspace dependencies
+- [x] Add `ori_registry.workspace = true` to `ori_types/Cargo.toml`
+- [x] Add `ori_registry.workspace = true` to `ori_eval/Cargo.toml`
+- [x] Add `ori_registry.workspace = true` to `ori_arc/Cargo.toml`
+- [x] Add `ori_registry = { path = "../ori_registry" }` to `ori_llvm/Cargo.toml`
+- [x] Add `ori_registry.workspace = true` to `oric/Cargo.toml`
+- [x] `cargo check -p ori_registry` passes
+- [x] `cargo test -p ori_registry` passes
+- [x] `cargo check --workspace` passes
+- [x] `cargo b` passes
+- [x] `./test-all.sh` passes
+- [x] `cargo tree -p ori_registry` shows zero dependencies
 
 ---
 
@@ -744,15 +744,15 @@ Every file gets a module-level `//!` doc comment explaining its purpose and its 
 
 ### Documentation requirements
 
-- [ ] `lib.rs`: Full crate-level doc comment explaining mission, purity contract, and usage pattern
-- [ ] `tags.rs`: Doc comment explaining the enum vocabulary shared by all phases
-- [ ] `method.rs`: Doc comment explaining `MethodDef` as the unit of method specification
-- [ ] `operator.rs`: Doc comment explaining `OpDefs` as operator strategy declarations
-- [ ] `type_def.rs`: Doc comment explaining `TypeDef` as the central aggregate
-- [ ] `defs/mod.rs`: Doc comment explaining the one-file-per-type organization
-- [ ] Each `defs/*.rs` file: Doc comment naming the type it defines
-- [ ] All `pub` items have `///` doc comments
-- [ ] No `#[allow(missing_docs)]` — every public item documented
+- [x] `lib.rs`: Full crate-level doc comment explaining mission, purity contract, and usage pattern
+- [x] `tags.rs`: Doc comment explaining the enum vocabulary shared by all phases
+- [x] `method.rs`: Doc comment explaining `MethodDef` as the unit of method specification
+- [x] `operator.rs`: Doc comment explaining `OpDefs` as operator strategy declarations
+- [x] `type_def.rs`: Doc comment explaining `TypeDef` as the central aggregate
+- [x] `defs/mod.rs`: Doc comment explaining the one-file-per-type organization
+- [x] Each `defs/*.rs` file: Doc comment naming the type it defines
+- [x] All `pub` items have `///` doc comments
+- [x] No `#[allow(missing_docs)]` — every public item documented
 
 ### Documentation style
 

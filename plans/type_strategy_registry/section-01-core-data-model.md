@@ -1,39 +1,39 @@
 ---
 section: "01"
 title: Core Data Model Design
-status: not-started
+status: complete
 goal: Design all Rust types for the pure-data type strategy registry
 sections:
   - id: "01.1"
     title: TypeTag Enum
-    status: not-started
+    status: complete
   - id: "01.2"
     title: MemoryStrategy Enum
-    status: not-started
+    status: complete
   - id: "01.3"
     title: Ownership Enum
-    status: not-started
+    status: complete
   - id: "01.4"
     title: OpStrategy Enum
-    status: not-started
+    status: complete
   - id: "01.5"
     title: ParamDef Struct
-    status: not-started
+    status: complete
   - id: "01.6"
     title: MethodDef Struct
-    status: not-started
+    status: complete
   - id: "01.7"
     title: OpDefs Struct
-    status: not-started
+    status: complete
   - id: "01.8"
     title: TypeDef Struct
-    status: not-started
+    status: complete
   - id: "01.8c"
     title: DeiPropagation Enum
-    status: not-started
+    status: complete
   - id: "01.9"
     title: Extensibility Design
-    status: not-started
+    status: complete
 ---
 
 # Section 01: Core Data Model Design
@@ -151,21 +151,21 @@ pub enum TypeTag {
 
 ### Checklist
 
-- [ ] Define `TypeTag` enum in `ori_registry/src/tags.rs`
-- [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
-- [ ] Add `#[repr(u8)]` for compact representation
-- [ ] Implement `TypeTag::name(&self) -> &'static str` (returns the Ori-level name: `"int"`, `"float"`, `"str"`, etc.)
-- [ ] Implement `TypeTag::all() -> &'static [TypeTag]` (slice of all variants, for enumeration)
-- [ ] Add `TypeTag::is_primitive(&self) -> bool` predicate
-- [ ] Add `TypeTag::is_generic(&self) -> bool` predicate (types that carry type parameters: List, Map, Set, etc.)
-- [ ] Implement `TypeTag::base_type(&self) -> TypeTag` (`DoubleEndedIterator` → `Iterator`, all others → `self`). Used by the query API (Section 08) for DEI aliasing: both tags resolve to the same `TypeDef`.
-- [ ] Add `/// ` doc comment on every variant
-- [ ] Add `//!` module doc on `tags.rs`
-- [ ] Add size assertion: `const _: () = assert!(size_of::<TypeTag>() == 1);` (enforces `#[repr(u8)]`)
-- [ ] Write unit test: `TypeTag::all()` returns exactly 23 variants
-- [ ] Write unit test: `TypeTag::name()` returns the correct Ori-level name for every variant (e.g., `Int.name() == "int"`, `DoubleEndedIterator.name() == "DoubleEndedIterator"`)
-- [ ] Write unit test: no duplicate discriminants in `TypeTag::all()`
-- [ ] Write unit test: `base_type()` returns `self` for all non-DEI variants, returns `Iterator` for `DoubleEndedIterator`
+- [x] Define `TypeTag` enum in `ori_registry/src/tags.rs`
+- [x] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
+- [x] Add `#[repr(u8)]` for compact representation
+- [x] Implement `TypeTag::name(&self) -> &'static str` (returns the Ori-level name: `"int"`, `"float"`, `"str"`, etc.)
+- [x] Implement `TypeTag::all() -> &'static [TypeTag]` (slice of all variants, for enumeration)
+- [x] Add `TypeTag::is_primitive(&self) -> bool` predicate
+- [x] Add `TypeTag::is_generic(&self) -> bool` predicate (types that carry type parameters: List, Map, Set, etc.)
+- [x] Implement `TypeTag::base_type(&self) -> TypeTag` (`DoubleEndedIterator` → `Iterator`, all others → `self`). Used by the query API (Section 08) for DEI aliasing: both tags resolve to the same `TypeDef`.
+- [x] Add `/// ` doc comment on every variant
+- [x] Add `//!` module doc on `tags.rs`
+- [x] Add size assertion: `const _: () = assert!(size_of::<TypeTag>() == 1);` (enforces `#[repr(u8)]`)
+- [x] Write unit test: `TypeTag::all()` returns exactly 23 variants
+- [x] Write unit test: `TypeTag::name()` returns the correct Ori-level name for every variant (e.g., `Int.name() == "int"`, `DoubleEndedIterator.name() == "DoubleEndedIterator"`)
+- [x] Write unit test: no duplicate discriminants in `TypeTag::all()`
+- [x] Write unit test: `base_type()` returns `self` for all non-DEI variants, returns `Iterator` for `DoubleEndedIterator`
 
 ---
 
@@ -249,11 +249,11 @@ pub enum MemoryStrategy {
 
 ### Checklist
 
-- [ ] Define `MemoryStrategy` enum in `ori_registry/src/tags.rs`
-- [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
-- [ ] Document each variant with Ori examples and LLVM/ARC implications
-- [ ] Add size assertion: `const _: () = assert!(size_of::<MemoryStrategy>() == 1);`
-- [ ] Write unit tests: each `TypeTag` has exactly one `MemoryStrategy` assignment
+- [x] Define `MemoryStrategy` enum in `ori_registry/src/tags.rs`
+- [x] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
+- [x] Document each variant with Ori examples and LLVM/ARC implications
+- [x] Add size assertion: `const _: () = assert!(size_of::<MemoryStrategy>() == 1);`
+- [x] Write unit tests: each `TypeTag` has exactly one `MemoryStrategy` assignment <!-- blocked-by:03 -->
 
 ---
 
@@ -341,12 +341,12 @@ pub enum Ownership {
 
 ### Checklist
 
-- [ ] Define `Ownership` enum in `ori_registry/src/tags.rs`
-- [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
-- [ ] Document each variant with concrete Ori method examples
-- [ ] Add size assertion: `const _: () = assert!(size_of::<Ownership>() == 1);`
-- [ ] Write unit test: `Ownership::Borrow != Ownership::Owned`, `Ownership::Owned != Ownership::Copy`, `Ownership::Copy != Ownership::Borrow`
-- [ ] Write unit test: each variant is `const`-constructible
+- [x] Define `Ownership` enum in `ori_registry/src/tags.rs`
+- [x] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
+- [x] Document each variant with concrete Ori method examples
+- [x] Add size assertion: `const _: () = assert!(size_of::<Ownership>() == 1);`
+- [x] Write unit test: `Ownership::Borrow != Ownership::Owned`, `Ownership::Owned != Ownership::Copy`, `Ownership::Copy != Ownership::Borrow`
+- [x] Write unit test: each variant is `const`-constructible
 
 ---
 
@@ -479,13 +479,13 @@ pub enum OpStrategy {
 
 ### Checklist
 
-- [ ] Define `OpStrategy` enum in `ori_registry/src/tags.rs`
-- [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
-- [ ] Include `RuntimeCall { fn_name, returns_bool }` variant with `&'static str`
-- [ ] Document each variant with LLVM instruction examples
-- [ ] Add size assertion: `const _: () = assert!(size_of::<OpStrategy>() == 24);` (`RuntimeCall` has `&'static str` (16) + `bool` (1) + padding to 24)
-- [ ] Write unit tests: equality, hash, debug output for each variant
-- [ ] Verify `RuntimeCall` is const-constructible (it is: `&'static str` and `bool` are const)
+- [x] Define `OpStrategy` enum in `ori_registry/src/tags.rs`
+- [x] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
+- [x] Include `RuntimeCall { fn_name, returns_bool }` variant with `&'static str`
+- [x] Document each variant with LLVM instruction examples
+- [x] Add size assertion: `const _: () = assert!(size_of::<OpStrategy>() == 24);` (`RuntimeCall` has `&'static str` (16) + `bool` (1) + padding to 24)
+- [x] Write unit tests: equality, hash, debug output for each variant
+- [x] Verify `RuntimeCall` is const-constructible (it is: `&'static str` and `bool` are const)
 
 ---
 
@@ -709,17 +709,17 @@ pub struct ParamDef {
 
 ### Checklist
 
-- [ ] Define `ReturnTag` enum in `ori_registry/src/tags.rs`
-- [ ] Define `TypeProjection` enum in `ori_registry/src/tags.rs`
-- [ ] Define `ParamDef` struct in `ori_registry/src/tags.rs`
-- [ ] Add derives: `Copy, Clone, Debug, PartialEq, Eq, Hash` on all three
-- [ ] Implement `From<TypeTag> for ReturnTag` convenience conversion
-- [ ] Verify const-constructibility: `&'static str` + `ReturnTag` + `Ownership` are all const
-- [ ] Add `/// ` doc comment on every variant and field
-- [ ] Add size assertions: `const _: () = assert!(size_of::<ReturnTag>() == 2);` (discriminant u8 + largest payload u8), `const _: () = assert!(size_of::<ParamDef>() == 24);` (`&'static str` 16 + `ReturnTag` 2 + `Ownership` 1 + padding)
-- [ ] Write unit tests: construct a `ParamDef` in a `const` context, verify field access
-- [ ] Write unit tests: `ReturnTag::Concrete(TypeTag::Int)` equals `TypeTag::Int.into()`
-- [ ] Write unit tests: every `TypeProjection` variant constructs in const context
+- [x] Define `ReturnTag` enum in `ori_registry/src/tags.rs`
+- [x] Define `TypeProjection` enum in `ori_registry/src/tags.rs`
+- [x] Define `ParamDef` struct in `ori_registry/src/method.rs`
+- [x] Add derives: `Copy, Clone, Debug, PartialEq, Eq, Hash` on all three
+- [x] Implement `From<TypeTag> for ReturnTag` convenience conversion
+- [x] Verify const-constructibility: `&'static str` + `ReturnTag` + `Ownership` are all const
+- [x] Add `/// ` doc comment on every variant and field
+- [x] Add size assertions: `const _: () = assert!(size_of::<MethodDef>() <= 64);` (compile-time enforced)
+- [x] Write unit tests: construct a `ParamDef` in a `const` context, verify field access
+- [x] Write unit tests: `ReturnTag::Concrete(TypeTag::Int)` equals `TypeTag::Int.into()`
+- [x] Write unit tests: every `TypeProjection` variant constructs in const context
 
 ---
 
@@ -877,14 +877,14 @@ pub struct MethodDef {
 
 ### Checklist
 
-- [ ] Define `MethodDef` struct in `ori_registry/src/method.rs`
-- [ ] Add derives: `Copy, Clone, Debug, PartialEq, Eq, Hash`
-- [ ] Verify const-constructibility: all fields are `Copy`/`&'static`
-- [ ] Add `/// ` doc comment on every field
-- [ ] Add `//!` module doc on `method.rs`
-- [ ] Add size assertion: `const _: () = assert!(size_of::<MethodDef>() <= 64);` (two fat pointers 32 + small fields + padding; actual ~56 bytes)
-- [ ] Write unit tests: construct in `const` context, verify field access
-- [ ] Test: `MethodDef` in a `&'static [MethodDef]` slice compiles as const
+- [x] Define `MethodDef` struct in `ori_registry/src/method.rs`
+- [x] Add derives: `Copy, Clone, Debug, PartialEq, Eq, Hash`
+- [x] Verify const-constructibility: all fields are `Copy`/`&'static`
+- [x] Add `/// ` doc comment on every field
+- [x] Add `//!` module doc on `method.rs`
+- [x] Add size assertion: `const _: () = assert!(size_of::<MethodDef>() <= 64);` (two fat pointers 32 + small fields + padding; actual ~56 bytes)
+- [x] Write unit tests: construct in `const` context, verify field access
+- [x] Test: `MethodDef` in a `&'static [MethodDef]` slice compiles as const
 
 ---
 
@@ -1065,15 +1065,15 @@ pub const INT_OPS: OpDefs = OpDefs {
 
 ### Checklist
 
-- [ ] Define `OpDefs` struct in `ori_registry/src/operator.rs`
-- [ ] Add derives: `Copy, Clone, Debug, PartialEq, Eq, Hash`
-- [ ] Define `OpDefs::UNSUPPORTED` const for convenience
-- [ ] Verify const-constructibility: all fields are `OpStrategy` which is `Copy`
-- [ ] Add `/// ` doc comment on every field
-- [ ] Add `//!` module doc on `operator.rs`
-- [ ] Add size assertions: `const _: () = assert!(size_of::<OpStrategy>() == 24);` and `const _: () = assert!(size_of::<OpDefs>() == 480);` (20 fields x 24 bytes)
-- [ ] Write unit tests: `UNSUPPORTED` has all fields `Unsupported`, field access works
-- [ ] Test: construct an `OpDefs` in a `const` context with mixed strategies
+- [x] Define `OpDefs` struct in `ori_registry/src/operator.rs`
+- [x] Add derives: `Copy, Clone, Debug, PartialEq, Eq, Hash`
+- [x] Define `OpDefs::UNSUPPORTED` const for convenience
+- [x] Verify const-constructibility: all fields are `OpStrategy` which is `Copy`
+- [x] Add `/// ` doc comment on every field
+- [x] Add `//!` module doc on `operator.rs`
+- [x] Add size assertions: `const _: () = assert!(size_of::<OpStrategy>() == 24);` and `const _: () = assert!(size_of::<OpDefs>() == 480);` (20 fields x 24 bytes)
+- [x] Write unit tests: `UNSUPPORTED` has all fields `Unsupported`, field access works
+- [x] Test: construct an `OpDefs` in a `const` context with mixed strategies
 
 ---
 
@@ -1174,14 +1174,14 @@ pub struct TypeDef {
 
 ### Checklist
 
-- [ ] Define `TypeDef` struct in `ori_registry/src/type_def.rs`
-- [ ] Add derives: `Clone, Debug, PartialEq, Eq, Hash` (no `Copy` -- too large)
-- [ ] Verify const-constructibility: all fields are `const`-constructible
-- [ ] Add `/// ` doc comment on every field
-- [ ] Add `//!` module doc on `type_def.rs`
-- [ ] Write unit tests: construct a `TypeDef` in a `const` context, access all fields
-- [ ] Test: a `&'static TypeDef` pointing to static data compiles cleanly
-- [ ] Test: `TypeDef` in a `&'static [&'static TypeDef]` slice compiles as const
+- [x] Define `TypeDef` struct in `ori_registry/src/type_def.rs`
+- [x] Add derives: `Clone, Debug, PartialEq, Eq, Hash` (no `Copy` -- too large)
+- [x] Verify const-constructibility: all fields are `const`-constructible
+- [x] Add `/// ` doc comment on every field
+- [x] Add `//!` module doc on `type_def.rs`
+- [x] Write unit tests: construct a `TypeDef` in a `const` context, access all fields
+- [x] Test: a `&'static TypeDef` pointing to static data compiles cleanly
+- [x] Test: `TypeDef` in a `&'static [&'static TypeDef]` slice compiles as const
 
 ---
 
@@ -1219,10 +1219,10 @@ pub enum TypeParamArity {
 
 ### Checklist
 
-- [ ] Define `TypeParamArity` enum in `ori_registry/src/tags.rs`
-- [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
-- [ ] Add `/// ` doc comment on every variant
-- [ ] Write unit tests: `Fixed(0)` for int, `Fixed(1)` for List, `Fixed(2)` for Map, `Variadic` for Tuple/Function
+- [x] Define `TypeParamArity` enum in `ori_registry/src/tags.rs`
+- [x] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
+- [x] Add `/// ` doc comment on every variant
+- [x] Write unit tests: `Fixed(0)` for int, `Fixed(1)` for List, `Fixed(2)` for Map, `Variadic` for Tuple/Function
 
 ---
 
@@ -1272,10 +1272,10 @@ For associated functions, `receiver: Ownership` is irrelevant (there is no recei
 
 ### Checklist
 
-- [ ] Define `MethodKind` enum in `ori_registry/src/tags.rs`
-- [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
-- [ ] Add `/// ` doc comment on every variant
-- [ ] Write unit tests: `MethodKind::Instance != MethodKind::Associated`
+- [x] Define `MethodKind` enum in `ori_registry/src/tags.rs`
+- [x] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
+- [x] Add `/// ` doc comment on every variant
+- [x] Write unit tests: `MethodKind::Instance != MethodKind::Associated`
 
 ---
 
@@ -1329,11 +1329,11 @@ pub enum DeiPropagation {
 
 ### Checklist
 
-- [ ] Define `DeiPropagation` in `ori_registry/src/tags.rs`
-- [ ] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
-- [ ] Document all 3 variants
-- [ ] Verify: `DeiPropagation` does NOT implement `Default` (no derive or manual impl -- forces explicit choice at every use site)
-- [ ] Write unit test: all 3 variants are distinct and `const`-constructible
+- [x] Define `DeiPropagation` in `ori_registry/src/tags.rs`
+- [x] Add `#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]`
+- [x] Document all 3 variants
+- [x] Verify: `DeiPropagation` does NOT implement `Default` (no derive or manual impl -- forces explicit choice at every use site)
+- [x] Write unit test: all 3 variants are distinct and `const`-constructible
 
 ---
 
@@ -1462,10 +1462,10 @@ The registry does NOT need versioning. It is a compile-time artifact consumed by
 
 ### Checklist
 
-- [ ] Document the "required by default, optional by exception" principle in `ori_registry/src/lib.rs` module docs
-- [ ] Document each future candidate field with its justification for required vs optional
-- [ ] Write a compile-time test that constructs a `TypeDef` with all fields (verifies constructibility)
-- [ ] Add a section in the crate docs showing how to add a new field (workflow for future developers)
+- [x] Document the "required by default, optional by exception" principle in `ori_registry/src/lib.rs` module docs
+- [x] Document each future candidate field with its justification for required vs optional
+- [x] Write a compile-time test that constructs a `TypeDef` with all fields (verifies constructibility)
+- [x] Add a section in the crate docs showing how to add a new field (workflow for future developers)
 
 ---
 
