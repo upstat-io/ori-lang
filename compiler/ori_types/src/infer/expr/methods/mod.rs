@@ -17,11 +17,17 @@ mod resolve_by_type;
 
 use ori_registry::ReturnTag;
 
-use super::super::InferEngine;
-use super::registry_bridge;
+use crate::infer::InferEngine;
 use crate::{Idx, Tag};
 
+use super::registry_bridge;
 use resolve_by_type::resolve_named_type_method;
+
+/// Methods that require iteration and are therefore invalid on `Range<float>`.
+///
+/// Float ranges are not `Iterable` — these methods must be rejected even though
+/// the registry defines them (the registry is type-parameter agnostic).
+pub(crate) const RANGE_FLOAT_ITERATION_METHODS: &[&str] = &["collect", "iter", "to_list"];
 
 /// Resolve a built-in method call on a known type tag.
 ///
@@ -68,6 +74,6 @@ pub(crate) fn resolve_builtin_method(
 /// rejected even though the registry defines them (the registry is type-parameter
 /// agnostic).
 fn is_float_range_iteration(engine: &InferEngine<'_>, receiver_ty: Idx, method: &str) -> bool {
-    matches!(method, "iter" | "to_list" | "collect")
+    RANGE_FLOAT_ITERATION_METHODS.contains(&method)
         && engine.pool().range_elem(receiver_ty) == Idx::FLOAT
 }

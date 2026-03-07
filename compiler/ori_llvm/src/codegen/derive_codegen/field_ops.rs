@@ -92,28 +92,7 @@ pub(super) fn emit_field_operation<'a>(
         },
 
         TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
-            let trait_kind = match op {
-                FieldOp::Equals => DerivedTrait::Eq,
-                FieldOp::Compare => DerivedTrait::Comparable,
-                FieldOp::Hash => DerivedTrait::Hashable,
-            };
-            let nested_name = fc.type_idx_to_name(field_type);
-            let method = fc.intern(trait_kind.method_name());
-            if let Some(type_name) = nested_name {
-                if let Some((fid, abi)) = fc.get_method_function(type_name, method) {
-                    return match op {
-                        FieldOp::Hash => emit_method_call_for_derive(fc, fid, &abi, &[lhs], name),
-                        _ => emit_method_call_for_derive(
-                            fc,
-                            fid,
-                            &abi,
-                            &[lhs, expect_rhs(rhs)],
-                            name,
-                        ),
-                    };
-                }
-            }
-            emit_fallback(fc, op, lhs, rhs, name)
+            emit_user_type_field_op(fc, op, lhs, rhs, field_type, name)
         }
 
         _ => {
@@ -145,6 +124,34 @@ fn emit_fallback<'a>(
         FieldOp::Compare => fc.builder_mut().const_i8(1), // Equal
         FieldOp::Hash => fc.builder_mut().const_i64(0),
     }
+}
+
+/// Emit a field op for a user-defined type (struct or enum) by calling its
+/// derived trait method (e.g., `equals`, `compare`, `hash`).
+fn emit_user_type_field_op<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    op: FieldOp,
+    lhs: ValueId,
+    rhs: Option<ValueId>,
+    field_type: Idx,
+    name: &str,
+) -> ValueId {
+    let trait_kind = match op {
+        FieldOp::Equals => DerivedTrait::Eq,
+        FieldOp::Compare => DerivedTrait::Comparable,
+        FieldOp::Hash => DerivedTrait::Hashable,
+    };
+    let nested_name = fc.type_idx_to_name(field_type);
+    let method = fc.intern(trait_kind.method_name());
+    if let Some(type_name) = nested_name {
+        if let Some((fid, abi)) = fc.get_method_function(type_name, method) {
+            return match op {
+                FieldOp::Hash => emit_method_call_for_derive(fc, fid, &abi, &[lhs], name),
+                _ => emit_method_call_for_derive(fc, fid, &abi, &[lhs, expect_rhs(rhs)], name),
+            };
+        }
+    }
+    emit_fallback(fc, op, lhs, rhs, name)
 }
 
 // String runtime helpers (alloca+store+call pattern)

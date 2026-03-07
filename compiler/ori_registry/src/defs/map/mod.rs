@@ -9,7 +9,7 @@
 
 use crate::{
     MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag,
+    TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 // Parameter arrays
@@ -34,13 +34,6 @@ static INSERT_PARAMS: [ParamDef; 2] = [
         ownership: Ownership::Owned,
     },
 ];
-
-/// `(other: Self)` — for `merge`, `equals`.
-static SELF_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "other",
-    ty: ReturnTag::SelfType,
-    ownership: Ownership::Borrow,
-}];
 
 /// `(key: K, f: closure)` — for `update`.
 static UPDATE_PARAMS: [ParamDef; 2] = [
@@ -92,7 +85,7 @@ static MAP_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_BORROW,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
@@ -134,7 +127,14 @@ static MAP_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound("len", &[], INT, None, Ownership::Borrow, false),
     MethodDef::compound("length", &[], INT, None, Ownership::Borrow, false),
-    MethodDef::compound("merge", &SELF_PARAM, SELF, None, Ownership::Borrow, false),
+    MethodDef::compound(
+        "merge",
+        &ONE_SELF_BORROW,
+        SELF,
+        None,
+        Ownership::Borrow,
+        false,
+    ),
     MethodDef::compound(
         "remove",
         &KEY_BORROW_PARAM,

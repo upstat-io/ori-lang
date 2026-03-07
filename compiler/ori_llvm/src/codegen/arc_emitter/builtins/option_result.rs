@@ -147,7 +147,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// This handles the case where the storage type of `field` differs from
     /// the actual variant's payload type (e.g., `int` stored in a `{i64, ptr}`
     /// slot of `Result<int, str>`).
-    fn extract_tagged_union_payload(
+    pub(in crate::codegen::arc_emitter) fn extract_tagged_union_payload(
         &mut self,
         receiver: ValueId,
         receiver_ty: Idx,

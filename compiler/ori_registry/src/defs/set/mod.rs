@@ -7,7 +7,7 @@
 
 use crate::{
     MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag,
+    TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 // Parameter arrays
@@ -24,13 +24,6 @@ static ELEMENT_OWNED_PARAM: [ParamDef; 1] = [ParamDef {
     name: "value",
     ty: ReturnTag::ElementType,
     ownership: Ownership::Owned,
-}];
-
-/// `(other: Self)` — set param for `union`, `intersection`, `difference`, `equals`.
-static SELF_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "other",
-    ty: ReturnTag::SelfType,
-    ownership: Ownership::Borrow,
 }];
 
 // Helper aliases
@@ -53,7 +46,7 @@ static SET_METHODS: &[MethodDef] = &[
     MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
     MethodDef::compound(
         "difference",
-        &SELF_PARAM,
+        &ONE_SELF_BORROW,
         SELF,
         None,
         Ownership::Borrow,
@@ -61,7 +54,7 @@ static SET_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_BORROW,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
@@ -78,7 +71,7 @@ static SET_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound(
         "intersection",
-        &SELF_PARAM,
+        &ONE_SELF_BORROW,
         SELF,
         None,
         Ownership::Borrow,
@@ -119,7 +112,14 @@ static SET_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("union", &SELF_PARAM, SELF, None, Ownership::Borrow, false),
+    MethodDef::compound(
+        "union",
+        &ONE_SELF_BORROW,
+        SELF,
+        None,
+        Ownership::Borrow,
+        false,
+    ),
 ];
 
 pub static SET: TypeDef = TypeDef {

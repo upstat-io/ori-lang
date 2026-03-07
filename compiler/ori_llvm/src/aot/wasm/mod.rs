@@ -379,18 +379,23 @@ export function init(
 
         if export.return_type == WasmType::Void {
             let _ = writeln!(code, "    {call};");
-        } else if export.return_type == WasmType::String {
+        } else {
             let _ = writeln!(code, "    const _result = {call};");
+        }
+
+        // Cleanup allocated string parameters for ALL return types.
+        for ptr in &cleanup {
+            let _ = writeln!(code, "    free({ptr});");
+        }
+
+        if export.return_type == WasmType::Void {
+            // No return value needed.
+        } else if export.return_type == WasmType::String {
             code.push_str(
                 "    // TODO(roadmap/section-24): Decode string result from WASM memory\n",
             );
             code.push_str("    return _result;\n");
         } else {
-            let _ = writeln!(code, "    const _result = {call};");
-            // Cleanup allocated strings
-            for ptr in &cleanup {
-                let _ = writeln!(code, "    free({ptr});");
-            }
             code.push_str("    return _result;\n");
         }
 

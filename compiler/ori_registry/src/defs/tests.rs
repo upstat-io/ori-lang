@@ -228,6 +228,44 @@ fn primitive_method_counts_match_plan() {
     assert_eq!(CHAR.methods.len(), 16, "CHAR should have 16 methods");
 }
 
+// Primitive trait method coverage
+
+/// Every primitive must have the 5 core trait methods.
+#[test]
+fn all_primitives_have_core_trait_methods() {
+    let core_methods = ["clone", "compare", "debug", "equals", "hash", "to_str"];
+    for type_def in PRIMITIVE_TYPES {
+        for method in core_methods {
+            assert!(
+                type_def.methods.iter().any(|m| m.name == method),
+                "primitive `{}` is missing core method `{}`",
+                type_def.name,
+                method
+            );
+        }
+    }
+}
+
+/// Bool-specific method verification.
+#[test]
+fn bool_has_expected_methods() {
+    let expected = [
+        "clone", "compare", "debug", "equals", "hash", "not", "to_int", "to_str",
+    ];
+    for method in expected {
+        assert!(
+            BOOL.methods.iter().any(|m| m.name == method),
+            "bool should have method `{method}`"
+        );
+    }
+    assert_eq!(
+        BOOL.methods.len(),
+        expected.len(),
+        "bool should have exactly {} methods",
+        expected.len()
+    );
+}
+
 // 04.5 STR type definition tests
 
 #[test]

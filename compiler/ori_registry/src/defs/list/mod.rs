@@ -10,7 +10,7 @@
 
 use crate::{
     MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag,
+    TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 // Parameter arrays
@@ -26,13 +26,6 @@ static ELEMENT_OWNED_PARAM: [ParamDef; 1] = [ParamDef {
 static ELEMENT_BORROW_PARAM: [ParamDef; 1] = [ParamDef {
     name: "value",
     ty: ReturnTag::ElementType,
-    ownership: Ownership::Borrow,
-}];
-
-/// `(other: Self)` — for `append`, `concat`, `equals`, `compare`.
-static SELF_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "other",
-    ty: ReturnTag::SelfType,
     ownership: Ownership::Borrow,
 }];
 
@@ -106,17 +99,17 @@ const OPT_ELEM: ReturnTag = ReturnTag::OptionOf(TypeProjection::Element);
 static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("all",        &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
     MethodDef::compound("any",        &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
-    MethodDef::compound("append",     &SELF_PARAM,           SELF,  None,                Ownership::Borrow, false),
+    MethodDef::compound("append",     &ONE_SELF_BORROW,           SELF,  None,                Ownership::Borrow, false),
     MethodDef::compound("chunk",      &INT_PARAM,            FRESH, None,                Ownership::Borrow, false),
     MethodDef::compound("clone",      &[],                   SELF,  Some("Clone"),        Ownership::Borrow, false),
-    MethodDef::compound("compare",    &SELF_PARAM,           ORD,   Some("Comparable"),   Ownership::Borrow, false),
-    MethodDef::compound("concat",     &SELF_PARAM,           SELF,  None,                Ownership::Borrow, false),
+    MethodDef::compound("compare",    &ONE_SELF_BORROW,           ORD,   Some("Comparable"),   Ownership::Borrow, false),
+    MethodDef::compound("concat",     &ONE_SELF_BORROW,           SELF,  None,                Ownership::Borrow, false),
     MethodDef::compound("contains",   &ELEMENT_BORROW_PARAM, BOOL,  None,                Ownership::Borrow, false),
     MethodDef::compound("count",      &[],                   INT,   None,                Ownership::Borrow, false),
     MethodDef::compound("debug",      &[],                   STR,   Some("Debug"),        Ownership::Borrow, false),
     MethodDef::compound("drop",       &INT_PARAM,            SELF,  None,                Ownership::Borrow, false),
     MethodDef::compound("enumerate",  &[],                   ReturnTag::ListOfTupleIntElement, None, Ownership::Borrow, false),
-    MethodDef::compound("equals",     &SELF_PARAM,           BOOL,  Some("Eq"),           Ownership::Borrow, false),
+    MethodDef::compound("equals",     &ONE_SELF_BORROW,           BOOL,  Some("Eq"),           Ownership::Borrow, false),
     MethodDef::compound("filter",     &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
     MethodDef::compound("find",       &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
     MethodDef::compound("first",      &[],                   OPT_ELEM, None,             Ownership::Borrow, false),

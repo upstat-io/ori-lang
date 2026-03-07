@@ -9,17 +9,10 @@
 
 use crate::{
     MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag,
+    TypeProjection, TypeTag, ONE_SELF_OWNED,
 };
 
 // Parameter arrays
-
-/// `(other: Self)` — for `equals`, `compare`.
-static SELF_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "other",
-    ty: ReturnTag::SelfType,
-    ownership: Ownership::Owned,
-}];
 
 /// `(default: T)` — for `unwrap_or`.
 static DEFAULT_PARAM: [ParamDef; 1] = [ParamDef {
@@ -78,7 +71,7 @@ static OPTION_METHODS: &[MethodDef] = &[
     MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
     MethodDef::compound(
         "compare",
-        &SELF_PARAM,
+        &ONE_SELF_OWNED,
         ORD,
         Some("Comparable"),
         Ownership::Borrow,
@@ -87,7 +80,7 @@ static OPTION_METHODS: &[MethodDef] = &[
     MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
     MethodDef::compound(
         "equals",
-        &SELF_PARAM,
+        &ONE_SELF_OWNED,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,

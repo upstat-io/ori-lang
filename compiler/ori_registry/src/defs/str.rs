@@ -5,18 +5,11 @@
 //! stored inline). All operators delegate to `ori_rt` runtime functions.
 
 use crate::{
-    DeiPropagation, MemoryStrategy, MethodDef, MethodKind, OpDefs, OpStrategy, Ownership, ParamDef,
-    ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag,
+    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
+    TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 // Shared parameter arrays
-
-/// `(other: Self)` — borrowed for trait methods on Arc types.
-static SELF_PARAM_BORROW: [ParamDef; 1] = [ParamDef {
-    name: "other",
-    ty: ReturnTag::SelfType,
-    ownership: Ownership::Borrow,
-}];
 
 /// `(substr: str)` — for `contains`, `index_of`, `last_index_of`.
 static SUBSTR_PARAM: [ParamDef; 1] = [ParamDef {
@@ -148,7 +141,7 @@ static STR_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "compare",
-        &SELF_PARAM_BORROW,
+        &ONE_SELF_BORROW,
         ReturnTag::Concrete(TypeTag::Ordering),
         Some("Comparable"),
         Ownership::Borrow,
@@ -175,37 +168,19 @@ static STR_METHODS: &[MethodDef] = &[
     ),
     MethodDef::primitive(
         "equals",
-        &SELF_PARAM_BORROW,
+        &ONE_SELF_BORROW,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
     ),
     MethodDef::primitive("escape", &[], ReturnTag::SelfType, None, Ownership::Borrow),
-    // Associated functions — full struct syntax required (MethodKind::Associated)
-    MethodDef {
-        name: "from_utf8",
-        receiver: Ownership::Borrow,
-        params: &BYTES_PARAM,
-        returns: ReturnTag::ResultOfProjectionFresh(TypeProjection::Fixed(TypeTag::Str)),
-        trait_name: None,
-        pure: true,
-        backend_required: true,
-        kind: MethodKind::Associated,
-        dei_only: false,
-        dei_propagation: DeiPropagation::NotApplicable,
-    },
-    MethodDef {
-        name: "from_utf8_unchecked",
-        receiver: Ownership::Borrow,
-        params: &BYTES_PARAM,
-        returns: ReturnTag::SelfType,
-        trait_name: None,
-        pure: true,
-        backend_required: true,
-        kind: MethodKind::Associated,
-        dei_only: false,
-        dei_propagation: DeiPropagation::NotApplicable,
-    },
+    // Associated functions
+    MethodDef::associated_backend(
+        "from_utf8",
+        &BYTES_PARAM,
+        ReturnTag::ResultOfProjectionFresh(TypeProjection::Fixed(TypeTag::Str)),
+    ),
+    MethodDef::associated_backend("from_utf8_unchecked", &BYTES_PARAM, ReturnTag::SelfType),
     MethodDef::primitive("hash", &[], INT, Some("Hashable"), Ownership::Borrow),
     MethodDef::primitive(
         "index_of",

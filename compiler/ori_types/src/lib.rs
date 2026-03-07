@@ -81,9 +81,7 @@ pub use type_error::{
 pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 pub use value_category::ValueCategory;
 
-// =============================================================================
 // Compile-time Salsa compatibility assertions
-// =============================================================================
 //
 // Salsa query results must implement Clone + Eq + PartialEq + Hash + Debug.
 // These static assertions catch missing derives at compile time rather than
