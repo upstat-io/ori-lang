@@ -74,8 +74,6 @@ impl super::OwnedLLVMEvaluator<'_> {
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
         mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
-        use inkwell::OptimizationLevel;
-
         // --- V2 pipeline ---
 
         // 1. Create LLVM module context.
@@ -240,17 +238,32 @@ impl super::OwnedLLVMEvaluator<'_> {
             // builder, resolver, store dropped here
         };
 
+        Self::finalize_jit(
+            scx,
+            test_wrappers,
+            codegen_errors,
+            &codegen_error_descriptions,
+        )
+    }
+
+    /// Validate compiled IR and create the JIT execution engine.
+    ///
+    /// Checks for codegen errors, optionally dumps IR, verifies the module,
+    /// runs the RC audit, registers runtime symbols, and creates the engine.
+    fn finalize_jit<'a>(
+        scx: ManuallyDrop<SimpleCx<'a>>,
+        test_wrappers: FxHashMap<Name, String>,
+        codegen_errors: u32,
+        codegen_error_descriptions: &[String],
+    ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
+        use inkwell::OptimizationLevel;
+
         // Bail out early if codegen produced type-mismatch errors.
         // Feeding malformed IR to LLVM's verifier or JIT can cause
         // heap corruption (SIGABRT) that kills the entire process.
         if codegen_errors > 0 {
-            // Drop scx to free the LLVM Module while the Context (owned by
-            // self) is still alive. Previously this was leaked (ManuallyDrop
-            // suppressed drop), but that caused the Module's LLVM-internal
-            // pointers to dangle when the Context was freed — accumulating
-            // leaked modules across many files eventually corrupted LLVM's heap.
-            // SAFETY: The Module was created from self.context which is still
-            // alive, so LLVMDisposeModule can safely clean up.
+            // SAFETY: The Module was created from a Context that is still alive,
+            // so LLVMDisposeModule can safely clean up.
             drop(ManuallyDrop::into_inner(scx));
             let details = if codegen_error_descriptions.is_empty() {
                 String::new()
@@ -262,23 +275,21 @@ impl super::OwnedLLVMEvaluator<'_> {
             )));
         }
 
-        // 10. Debug: print IR if requested (supports both new and legacy flag)
+        // Debug: print IR if requested
         if llvm_dump_requested() {
-            eprintln!("=== LLVM IR for compiled module ===");
+            eprintln!("LLVM IR:");
             eprintln!("{}", scx.llmod.print_to_string());
-            eprintln!("=== END IR ===");
         }
 
-        // 11. Verify IR
+        // Verify IR
         if let Err(msg) = scx.llmod.verify() {
-            // Drop scx to free the Module while Context is alive (see codegen_errors note).
             drop(ManuallyDrop::into_inner(scx));
             return Err(LLVMEvalError::new(format!(
                 "LLVM IR verification failed: {msg}"
             )));
         }
 
-        // 11.5. RC audit (gated on ORI_AUDIT_CODEGEN=1)
+        // RC audit (gated on ORI_AUDIT_CODEGEN=1)
         if crate::verify::audit_requested() {
             let audit_report = crate::verify::audit_module(&scx.llmod);
             audit_report.emit_to_stderr();
@@ -289,12 +300,13 @@ impl super::OwnedLLVMEvaluator<'_> {
             }
         }
 
-        // 12. Register runtime symbols + create JIT execution engine
+        // Register runtime symbols + create JIT execution engine.
         // Symbols must be registered BEFORE engine creation so MCJIT's
         // RuntimeDyld can resolve them during module compilation.
         runtime_mappings::ensure_runtime_symbols_registered();
 
-        // SAFETY: Same detached-reference pattern as above — see step 1 comment.
+        // SAFETY: Detached reference to scx.llmod — the Module was created
+        // from a Context that is still alive. See compile_module_with_tests.
         debug!("creating JIT execution engine");
         let engine = unsafe {
             let module = &*std::ptr::addr_of!(scx.llmod);

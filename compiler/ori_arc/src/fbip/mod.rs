@@ -23,43 +23,56 @@ use crate::liveness::RefinedLiveness;
 use crate::ArcClassification;
 
 /// Summary of FBIP analysis for a single function.
-pub struct FbipReport {
+pub(crate) struct FbipReport {
     /// Successfully paired Reset/Reuse — allocation is reused in-place.
-    pub achieved: Vec<ReuseOpportunity>,
+    pub(crate) achieved: Vec<ReuseOpportunity>,
     /// Unpaired `RcDec` + `Construct` that could have been reuse but weren't.
-    pub missed: Vec<MissedReuse>,
+    pub(crate) missed: Vec<MissedReuse>,
     /// `true` if the function achieves full FBIP (all allocations reused).
-    pub is_fbip: bool,
+    #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
+    pub(crate) is_fbip: bool,
 }
 
 /// A successfully achieved reuse opportunity.
-pub struct ReuseOpportunity {
+#[expect(
+    dead_code,
+    reason = "diagnostic output — inner fields for future detailed FBIP reporting"
+)]
+pub(crate) struct ReuseOpportunity {
     /// The variable whose allocation is recycled.
-    pub reset_var: ArcVarId,
+    pub(crate) reset_var: ArcVarId,
     /// The constructor that reuses the allocation.
-    pub reuse_dst: ArcVarId,
+    pub(crate) reuse_dst: ArcVarId,
     /// The type being reused.
-    pub ty: Idx,
+    pub(crate) ty: Idx,
     /// Block where the reuse occurs.
-    pub block: ArcBlockId,
+    pub(crate) block: ArcBlockId,
 }
 
 /// A missed reuse opportunity.
-pub struct MissedReuse {
+#[expect(
+    dead_code,
+    reason = "diagnostic output — inner fields for future detailed FBIP reporting"
+)]
+pub(crate) struct MissedReuse {
     /// The variable being decremented (potential allocation to reuse).
-    pub dec_var: ArcVarId,
+    pub(crate) dec_var: ArcVarId,
     /// Block where the `RcDec` occurs.
-    pub dec_block: ArcBlockId,
+    pub(crate) dec_block: ArcBlockId,
     /// The Construct destination that could have reused the allocation.
-    pub construct_dst: Option<ArcVarId>,
+    pub(crate) construct_dst: Option<ArcVarId>,
     /// Block where the Construct occurs.
-    pub construct_block: Option<ArcBlockId>,
+    pub(crate) construct_block: Option<ArcBlockId>,
     /// Why the reuse couldn't be achieved.
-    pub reason: MissedReuseReason,
+    pub(crate) reason: MissedReuseReason,
 }
 
 /// Reasons why an allocation reuse opportunity was missed.
-pub enum MissedReuseReason {
+#[expect(
+    dead_code,
+    reason = "diagnostic output — variant fields for future detailed FBIP reporting"
+)]
+pub(crate) enum MissedReuseReason {
     /// The decrement and construct have different types.
     TypeMismatch { dec_type: Idx, construct_type: Idx },
     /// The decremented variable is still used between the Dec and Construct.
@@ -84,7 +97,7 @@ pub enum MissedReuseReason {
 /// * `classifier` — type classifier for RC checks.
 /// * `dom_tree` — dominator tree for dominance queries.
 /// * `refined` — refined liveness for aliasing checks.
-pub fn analyze_fbip(
+pub(crate) fn analyze_fbip(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     dom_tree: &DominatorTree,

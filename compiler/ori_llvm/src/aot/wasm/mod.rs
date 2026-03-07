@@ -381,7 +381,9 @@ export function init(
             let _ = writeln!(code, "    {call};");
         } else if export.return_type == WasmType::String {
             let _ = writeln!(code, "    const _result = {call};");
-            code.push_str("    // TODO: Decode string result from WASM memory\n");
+            code.push_str(
+                "    // TODO(roadmap/section-24): Decode string result from WASM memory\n",
+            );
             code.push_str("    return _result;\n");
         } else {
             let _ = writeln!(code, "    const _result = {call};");

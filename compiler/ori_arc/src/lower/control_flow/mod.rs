@@ -13,6 +13,8 @@ use ori_ir::{Name, Span};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
+use super::ArcProblem;
+
 mod for_loops;
 mod for_yield;
 mod loops;
@@ -323,23 +325,30 @@ impl ArcLowerer<'_> {
             }
             CanExpr::Field { receiver, field: _ } => {
                 let _recv = self.lower_expr(receiver);
-                // TODO(section-03): field assignment in ARC lowering — blocked on COW
-                // codegen. `__set_field` does not exist as a runtime function or LLVM
-                // intrinsic. The evaluator desugars `obj.field = val` into
+                // TODO(roadmap/section-05): field assignment in ARC lowering — blocked
+                // on COW codegen. The evaluator desugars `obj.field = val` into
                 // `obj = { ...obj, field: val }` before it reaches ARC lowering, so
                 // this arm should be unreachable once desugaring is complete.
-                tracing::warn!("field assignment not yet supported in ARC lowering");
+                self.problems.push(ArcProblem::UnsupportedPattern {
+                    kind: "field assignment",
+                    span,
+                });
             }
             CanExpr::Index { receiver, index } => {
                 let _recv = self.lower_expr(receiver);
                 let _idx_var = self.lower_expr(index);
-                // TODO(section-03): index assignment in ARC lowering — blocked on COW
-                // codegen. `__set_index` does not exist as a runtime function or LLVM
-                // intrinsic. See field assignment comment above.
-                tracing::warn!("index assignment not yet supported in ARC lowering");
+                // TODO(roadmap/section-05): index assignment in ARC lowering — blocked
+                // on COW codegen. See field assignment comment above.
+                self.problems.push(ArcProblem::UnsupportedPattern {
+                    kind: "index assignment",
+                    span,
+                });
             }
             _ => {
-                tracing::warn!("unsupported assignment target in ARC IR");
+                self.problems.push(ArcProblem::UnsupportedPattern {
+                    kind: "assignment target",
+                    span,
+                });
             }
         }
 

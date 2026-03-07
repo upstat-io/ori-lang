@@ -2,9 +2,10 @@
 //!
 //! Handles `length`/`len`, `is_empty`, `concat`, `iter` for List, Str, Map, Set, Range.
 //!
-//! This file is exempt from the 500-line limit: it is a pure `declare_builtins!`
-//! dispatch table with no branching logic — splitting would fragment the lookup
-//! surface with no readability gain.
+//! This file is exempt from the 500-line limit (currently ~530 lines): it is a
+//! pure `declare_builtins!` macro invocation generating a single `match`
+//! dispatch — splitting would fragment the lookup surface. The macro cannot be
+//! split across files. Method implementations live in sub-modules.
 
 mod hash_thunks;
 mod list_builtins;
@@ -477,9 +478,7 @@ use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
 use super::super::ArcIrEmitter;
 
-// ---------------------------------------------------------------------------
 // Shared helpers used by multiple collection type modules
-// ---------------------------------------------------------------------------
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Alloca+store a string value and return the pointer.

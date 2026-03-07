@@ -13,6 +13,7 @@ repository = "https://github.com/upstat-io/ori-lang"
 # Ori crates
 ori_arc = { path = "../ori_arc", features = ["cache"] }
 ori_ir = { path = "../ori_ir", features = ["cache"] }
+ori_registry = { path = "../ori_registry" }
 ori_rt = { path = "../ori_rt" }
 ori_stack.workspace = true
 ori_types = { path = "../ori_types", features = ["cache"] }

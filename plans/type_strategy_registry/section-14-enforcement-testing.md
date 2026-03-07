@@ -52,7 +52,7 @@ subsections:
 - 6 allowlist arrays totaling 560+ entries
 - 2 exported constant arrays (`EVAL_BUILTIN_METHODS`, `TYPECK_BUILTIN_METHODS`)
 - 1 exported constant array (`ITERATOR_METHOD_NAMES`)
-- All `resolve_*_method()` functions (18 functions in ori_types)
+- All `resolve_*_method()` functions (19 functions in ori_types, excluding `resolve_named_type_method`)
 
 ---
 
@@ -1243,7 +1243,7 @@ These `resolve_*_method()` functions in `ori_types` are replaced by registry loo
 
 | Function | File | Lines | Replacement |
 |----------|------|-------|-------------|
-| `resolve_int_method()` | `ori_types/src/infer/expr/methods/mod.rs` | ~15 | `find_method(Int, name).returns` |
+| `resolve_int_method()` | `ori_types/src/infer/expr/methods/resolve_by_type.rs` | ~15 | `find_method(Int, name).returns` |
 | `resolve_float_method()` | same | ~15 | `find_method(Float, name).returns` |
 | `resolve_bool_method()` | same | ~10 | `find_method(Bool, name).returns` |
 | `resolve_byte_method()` | same | ~15 | `find_method(Byte, name).returns` |
@@ -1259,10 +1259,11 @@ These `resolve_*_method()` functions in `ori_types` are replaced by registry loo
 | `resolve_range_method()` | same | ~10 | `find_method(Range, name).returns` |
 | `resolve_option_method()` | same | ~12 | `find_method(Option, name).returns` |
 | `resolve_result_method()` | same | ~15 | `find_method(Result, name).returns` |
-| `resolve_iterator_method()` | same | ~20 | `find_method(Iterator, name).returns` |
-| `resolve_dei_method()` | same | ~10 | `find_method(DoubleEndedIterator, name).returns` |
+| `resolve_channel_method()` | same | ~15 | `find_method(Channel, name).returns` |
+| `resolve_iterator_method()` | same | ~65 | `find_method(Iterator, name).returns` (handles both Iterator and DEI) |
+| `resolve_tuple_method()` | same | ~10 | `find_method(Tuple, name).returns` |
 
-**Estimated deletion:** ~280 lines of match-arm-heavy resolve functions.
+**Estimated deletion:** ~430 lines of match-arm-heavy resolve functions (19 functions; `resolve_named_type_method` is kept).
 
 ### 14.6.3 Grep Verification Checklist
 

@@ -9,6 +9,25 @@ use ori_ir::{
 // Test Helpers
 // ========================================================================
 
+/// Create test components with interner always set.
+///
+/// Two-arg form: `test_engine!(pool, engine)` — interner is created but not exposed.
+/// Three-arg form: `test_engine!(interner, pool, engine)` — exposes interner for `intern()`.
+macro_rules! test_engine {
+    ($pool:ident, $engine:ident) => {
+        let __test_interner = StringInterner::new();
+        let mut $pool = Pool::new();
+        let mut $engine = InferEngine::new(&mut $pool);
+        $engine.set_interner(&__test_interner);
+    };
+    ($interner:ident, $pool:ident, $engine:ident) => {
+        let $interner = StringInterner::new();
+        let mut $pool = Pool::new();
+        let mut $engine = InferEngine::new(&mut $pool);
+        $engine.set_interner(&$interner);
+    };
+}
+
 /// Create a Name from a raw u32 for testing.
 fn name(n: u32) -> Name {
     Name::from_raw(n)
@@ -38,8 +57,7 @@ fn alloc(arena: &mut ExprArena, kind: ExprKind) -> ExprId {
 
 #[test]
 fn test_infer_literal_int() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let expr_id = alloc(&mut arena, ExprKind::Int(42));
@@ -51,8 +69,7 @@ fn test_infer_literal_int() {
 
 #[test]
 fn test_infer_literal_float() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let expr_id = alloc(&mut arena, ExprKind::Float(3_14_f64.to_bits()));
@@ -64,8 +81,7 @@ fn test_infer_literal_float() {
 
 #[test]
 fn test_infer_literal_bool() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let true_id = alloc(&mut arena, ExprKind::Bool(true));
@@ -78,8 +94,7 @@ fn test_infer_literal_bool() {
 
 #[test]
 fn test_infer_literal_str() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let expr_id = alloc(&mut arena, ExprKind::String(name(1)));
@@ -91,8 +106,7 @@ fn test_infer_literal_str() {
 
 #[test]
 fn test_infer_literal_char() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let expr_id = alloc(&mut arena, ExprKind::Char('a'));
@@ -104,8 +118,7 @@ fn test_infer_literal_char() {
 
 #[test]
 fn test_infer_literal_unit() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let expr_id = alloc(&mut arena, ExprKind::Unit);
@@ -117,8 +130,7 @@ fn test_infer_literal_unit() {
 
 #[test]
 fn test_infer_literal_duration() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let expr_id = alloc(
@@ -136,8 +148,7 @@ fn test_infer_literal_duration() {
 
 #[test]
 fn test_infer_literal_size() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let expr_id = alloc(
@@ -159,8 +170,7 @@ fn test_infer_literal_size() {
 
 #[test]
 fn test_infer_binary_arithmetic_int() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::Int(10));
@@ -182,8 +192,7 @@ fn test_infer_binary_arithmetic_int() {
 
 #[test]
 fn test_infer_binary_arithmetic_float() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::Float(1_5_f64.to_bits()));
@@ -205,8 +214,7 @@ fn test_infer_binary_arithmetic_float() {
 
 #[test]
 fn test_infer_binary_comparison() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::Int(10));
@@ -228,8 +236,7 @@ fn test_infer_binary_comparison() {
 
 #[test]
 fn test_infer_binary_equality() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::String(name(1)));
@@ -251,8 +258,7 @@ fn test_infer_binary_equality() {
 
 #[test]
 fn test_infer_binary_boolean_and() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::Bool(true));
@@ -274,8 +280,7 @@ fn test_infer_binary_boolean_and() {
 
 #[test]
 fn test_infer_binary_boolean_or() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::Bool(true));
@@ -297,8 +302,7 @@ fn test_infer_binary_boolean_or() {
 
 #[test]
 fn test_infer_binary_bitwise() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::Int(0xFF));
@@ -320,8 +324,7 @@ fn test_infer_binary_bitwise() {
 
 #[test]
 fn test_infer_binary_range() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::Int(1));
@@ -343,8 +346,7 @@ fn test_infer_binary_range() {
 
 #[test]
 fn test_infer_binary_type_mismatch_reports_error() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let left = alloc(&mut arena, ExprKind::Int(10));
@@ -369,8 +371,7 @@ fn test_infer_binary_type_mismatch_reports_error() {
 
 #[test]
 fn test_infer_unary_neg_int() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let operand = alloc(&mut arena, ExprKind::Int(42));
@@ -390,8 +391,7 @@ fn test_infer_unary_neg_int() {
 
 #[test]
 fn test_infer_unary_neg_float() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let operand = alloc(&mut arena, ExprKind::Float(3_14_f64.to_bits()));
@@ -411,8 +411,7 @@ fn test_infer_unary_neg_float() {
 
 #[test]
 fn test_infer_unary_not() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let operand = alloc(&mut arena, ExprKind::Bool(true));
@@ -432,8 +431,7 @@ fn test_infer_unary_not() {
 
 #[test]
 fn test_infer_unary_bitnot() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let operand = alloc(&mut arena, ExprKind::Int(0xFF));
@@ -453,8 +451,7 @@ fn test_infer_unary_bitnot() {
 
 #[test]
 fn test_infer_unary_try_option() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'opt' to Option<int>
@@ -478,8 +475,7 @@ fn test_infer_unary_try_option() {
 
 #[test]
 fn test_infer_unary_try_result() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'res' to Result<str, int>
@@ -507,8 +503,7 @@ fn test_infer_unary_try_result() {
 
 #[test]
 fn test_infer_empty_list() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let list = arena.alloc_expr_list_inline(&[]);
@@ -525,8 +520,7 @@ fn test_infer_empty_list() {
 
 #[test]
 fn test_infer_list_homogeneous() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let e1 = alloc(&mut arena, ExprKind::Int(1));
@@ -545,8 +539,7 @@ fn test_infer_list_homogeneous() {
 
 #[test]
 fn test_infer_list_heterogeneous_error() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let e1 = alloc(&mut arena, ExprKind::Int(1));
@@ -564,8 +557,7 @@ fn test_infer_list_heterogeneous_error() {
 
 #[test]
 fn test_infer_tuple() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let e1 = alloc(&mut arena, ExprKind::Int(42));
@@ -587,8 +579,7 @@ fn test_infer_tuple() {
 
 #[test]
 fn test_infer_empty_map() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let entries = arena.alloc_map_entries(std::iter::empty());
@@ -602,8 +593,7 @@ fn test_infer_empty_map() {
 
 #[test]
 fn test_infer_map_with_entries() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let k1 = alloc(&mut arena, ExprKind::String(name(1)));
@@ -641,8 +631,7 @@ fn test_infer_map_with_entries() {
 
 #[test]
 fn test_infer_if_with_else() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let cond = alloc(&mut arena, ExprKind::Bool(true));
@@ -666,8 +655,7 @@ fn test_infer_if_with_else() {
 
 #[test]
 fn test_infer_if_without_else() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let cond = alloc(&mut arena, ExprKind::Bool(true));
@@ -690,8 +678,7 @@ fn test_infer_if_without_else() {
 
 #[test]
 fn test_infer_if_branch_mismatch() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let cond = alloc(&mut arena, ExprKind::Bool(true));
@@ -717,8 +704,7 @@ fn test_infer_if_branch_mismatch() {
 
 #[test]
 fn test_infer_if_non_bool_condition() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let cond = alloc(&mut arena, ExprKind::Int(1)); // Not a bool!
@@ -747,8 +733,7 @@ fn test_infer_if_non_bool_condition() {
 
 #[test]
 fn test_infer_match_simple() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let scrutinee = alloc(&mut arena, ExprKind::Int(42));
@@ -784,8 +769,7 @@ fn test_infer_match_simple() {
 
 #[test]
 fn test_infer_match_with_binding() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let scrutinee = alloc(&mut arena, ExprKind::Int(42));
@@ -817,8 +801,7 @@ fn test_infer_match_with_binding() {
 
 #[test]
 fn test_infer_match_arm_type_mismatch() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let scrutinee = alloc(&mut arena, ExprKind::Int(42));
@@ -858,8 +841,7 @@ fn test_infer_match_arm_type_mismatch() {
 
 #[test]
 fn test_infer_for_do() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'list' to [int]
@@ -890,8 +872,7 @@ fn test_infer_for_do() {
 
 #[test]
 fn test_infer_for_yield() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'list' to [int]
@@ -929,8 +910,7 @@ fn test_infer_for_yield() {
 
 #[test]
 fn test_infer_for_with_guard() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'list' to [int]
@@ -962,8 +942,7 @@ fn test_infer_for_with_guard() {
 
 #[test]
 fn test_infer_for_guard_not_bool() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let list_ty = engine.infer_list(Idx::INT);
@@ -997,8 +976,7 @@ fn test_infer_for_guard_not_bool() {
 
 #[test]
 fn test_infer_infinite_loop() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let body = alloc(&mut arena, ExprKind::Unit);
@@ -1023,8 +1001,7 @@ fn test_infer_infinite_loop() {
 
 #[test]
 fn test_infer_ident_bound() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     engine.env_mut().bind(name(1), Idx::INT);
@@ -1038,11 +1015,11 @@ fn test_infer_ident_bound() {
 
 #[test]
 fn test_infer_ident_unbound() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
-    let expr_id = alloc(&mut arena, ExprKind::Ident(name(999)));
+    let unbound_name = interner.intern("nonexistent");
+    let expr_id = alloc(&mut arena, ExprKind::Ident(unbound_name));
     let ty = infer_expr(&mut engine, &arena, expr_id);
 
     assert_eq!(ty, Idx::ERROR);
@@ -1058,8 +1035,7 @@ fn test_infer_ident_unbound() {
 
 #[test]
 fn test_infer_call_simple() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'f' to (int) -> str
@@ -1080,8 +1056,7 @@ fn test_infer_call_simple() {
 
 #[test]
 fn test_infer_call_arity_mismatch() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'f' to (int, int) -> str (expects 2 args)
@@ -1101,8 +1076,7 @@ fn test_infer_call_arity_mismatch() {
 
 #[test]
 fn test_infer_call_arg_type_mismatch() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'f' to (int) -> str
@@ -1124,8 +1098,7 @@ fn test_infer_call_arg_type_mismatch() {
 
 #[test]
 fn test_infer_call_not_callable() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'x' to int (not callable)
@@ -1150,8 +1123,7 @@ fn test_infer_call_not_callable() {
 
 #[test]
 fn test_infer_lambda_simple() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // |x| x (identity function)
@@ -1186,8 +1158,7 @@ fn test_infer_lambda_simple() {
 
 #[test]
 fn test_infer_lambda_with_body_int() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // |x| 42 (constant function returning int)
@@ -1224,8 +1195,7 @@ fn test_infer_lambda_with_body_int() {
 
 #[test]
 fn test_infer_block_empty() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let stmts = arena.alloc_stmt_range(0, 0);
@@ -1245,8 +1215,7 @@ fn test_infer_block_empty() {
 
 #[test]
 fn test_infer_block_with_result() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let result_expr = alloc(&mut arena, ExprKind::Int(42));
@@ -1267,8 +1236,7 @@ fn test_infer_block_with_result() {
 
 #[test]
 fn test_infer_block_with_let() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // { let x = 42; x }
@@ -1305,8 +1273,7 @@ fn test_infer_block_with_let() {
 
 #[test]
 fn test_infer_block_let_with_type_annotation() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // { let x: int = 42; x }
@@ -1348,8 +1315,7 @@ fn test_infer_block_let_with_type_annotation() {
 
 #[test]
 fn test_infer_block_let_annotation_list_type() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // { let xs: [int] = [1, 2, 3]; xs }
@@ -1399,8 +1365,7 @@ fn test_infer_block_let_annotation_list_type() {
 
 #[test]
 fn test_infer_block_let_annotation_type_mismatch() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // { let x: str = 42; x }
@@ -1448,8 +1413,7 @@ fn test_infer_block_let_annotation_type_mismatch() {
 
 #[test]
 fn test_infer_some() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let inner = alloc(&mut arena, ExprKind::Int(42));
@@ -1465,8 +1429,7 @@ fn test_infer_some() {
 
 #[test]
 fn test_infer_none() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let none = alloc(&mut arena, ExprKind::None);
@@ -1482,8 +1445,7 @@ fn test_infer_none() {
 
 #[test]
 fn test_infer_ok() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let inner = alloc(&mut arena, ExprKind::String(name(1)));
@@ -1499,8 +1461,7 @@ fn test_infer_ok() {
 
 #[test]
 fn test_infer_err() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let inner = alloc(&mut arena, ExprKind::String(name(1)));
@@ -1520,8 +1481,7 @@ fn test_infer_err() {
 
 #[test]
 fn test_infer_range_explicit() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let start = alloc(&mut arena, ExprKind::Int(1));
@@ -1551,8 +1511,7 @@ fn test_infer_range_explicit() {
 
 #[test]
 fn test_infer_assign() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'x' to int
@@ -1570,8 +1529,7 @@ fn test_infer_assign() {
 
 #[test]
 fn test_infer_assign_type_mismatch() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     engine.env_mut().bind(name(1), Idx::INT);
@@ -1594,8 +1552,7 @@ fn test_infer_assign_type_mismatch() {
 
 #[test]
 fn test_infer_break() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let break_expr = alloc(
@@ -1613,8 +1570,7 @@ fn test_infer_break() {
 
 #[test]
 fn test_infer_continue() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let continue_expr = alloc(
@@ -1636,8 +1592,7 @@ fn test_infer_continue() {
 
 #[test]
 fn test_infer_error_expr() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     let error = alloc(&mut arena, ExprKind::Error);
@@ -1653,8 +1608,7 @@ fn test_infer_error_expr() {
 
 #[test]
 fn test_infer_coalesce() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // Bind 'opt' to Option<int>
@@ -1684,8 +1638,7 @@ fn test_infer_coalesce() {
 
 #[test]
 fn test_infer_function_exp_print() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // print(value: "hello")
@@ -1713,8 +1666,7 @@ fn test_infer_function_exp_print() {
 
 #[test]
 fn test_infer_function_exp_panic() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // panic(message: "oops")
@@ -1742,8 +1694,7 @@ fn test_infer_function_exp_panic() {
 
 #[test]
 fn test_infer_function_exp_todo() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // todo() - no properties required
@@ -1766,8 +1717,7 @@ fn test_infer_function_exp_todo() {
 
 #[test]
 fn test_infer_function_exp_unreachable() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // unreachable()
@@ -1790,12 +1740,8 @@ fn test_infer_function_exp_unreachable() {
 
 #[test]
 fn test_infer_function_exp_catch() {
-    let interner = ori_ir::StringInterner::new();
+    test_engine!(interner, pool, engine);
     let expr_name = interner.intern("expr");
-
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
     let mut arena = ExprArena::new();
 
     // catch(expr: 42) → Result<int, str>
@@ -1840,8 +1786,7 @@ fn test_infer_function_exp_catch() {
 
 #[test]
 fn test_infer_function_exp_timeout_rejected() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // timeout is a post-0.1 concurrency feature — rejected at type checking (E2040)
@@ -1883,8 +1828,7 @@ fn test_infer_function_exp_timeout_rejected() {
 
 #[test]
 fn test_resolve_primitive_int() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let arena = ExprArena::new();
 
     let parsed = ParsedType::Primitive(ori_ir::TypeId::INT);
@@ -1895,8 +1839,7 @@ fn test_resolve_primitive_int() {
 
 #[test]
 fn test_resolve_primitive_void_to_unit() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let arena = ExprArena::new();
 
     // TypeId::VOID (6) should map to Idx::UNIT (6)
@@ -1908,8 +1851,7 @@ fn test_resolve_primitive_void_to_unit() {
 
 #[test]
 fn test_resolve_primitive_duration() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let arena = ExprArena::new();
 
     let parsed = ParsedType::Primitive(ori_ir::TypeId::DURATION);
@@ -1920,8 +1862,7 @@ fn test_resolve_primitive_duration() {
 
 #[test]
 fn test_resolve_primitive_size() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let arena = ExprArena::new();
 
     let parsed = ParsedType::Primitive(ori_ir::TypeId::SIZE);
@@ -1932,8 +1873,7 @@ fn test_resolve_primitive_size() {
 
 #[test]
 fn test_resolve_list_type() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // [int]
@@ -1947,8 +1887,7 @@ fn test_resolve_list_type() {
 
 #[test]
 fn test_resolve_tuple_type() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // (int, str)
@@ -1967,8 +1906,7 @@ fn test_resolve_tuple_type() {
 
 #[test]
 fn test_resolve_function_type() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // (int, int) -> bool
@@ -1992,8 +1930,7 @@ fn test_resolve_function_type() {
 
 #[test]
 fn test_resolve_map_type() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
     // {str: int}
@@ -2012,8 +1949,7 @@ fn test_resolve_map_type() {
 
 #[test]
 fn test_resolve_infer_creates_fresh_var() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let arena = ExprArena::new();
 
     let parsed = ParsedType::Infer;
@@ -2028,8 +1964,7 @@ fn test_resolve_infer_creates_fresh_var() {
 
 #[test]
 fn test_resolve_self_type_creates_fresh_var() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let arena = ExprArena::new();
 
     let parsed = ParsedType::SelfType;
@@ -2041,80 +1976,13 @@ fn test_resolve_self_type_creates_fresh_var() {
 
 #[test]
 fn test_resolve_empty_tuple_is_unit() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
     let arena = ExprArena::new();
 
     let parsed = ParsedType::unit();
     let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
 
     assert_eq!(ty, Idx::UNIT);
-}
-
-// ========================================================================
-// TYPECK_BUILTIN_METHODS ↔ resolve_builtin_method Consistency
-// ========================================================================
-
-/// Verify every `(type_name, method_name)` in `TYPECK_BUILTIN_METHODS` is actually
-/// resolvable by `resolve_builtin_method()`. Catches drift where an entry is added
-/// to the const but the corresponding resolver match arm is missing.
-#[test]
-fn typeck_builtin_methods_all_resolve() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-
-    // Build concrete receiver types for container/generic types.
-    // Element types are arbitrary — we only care that the resolver returns Some.
-    let list_ty = engine.pool_mut().list(Idx::INT);
-    let map_ty = engine.pool_mut().map(Idx::STR, Idx::INT);
-    let set_ty = engine.pool_mut().set(Idx::INT);
-    let option_ty = engine.pool_mut().option(Idx::INT);
-    let result_ty = engine.pool_mut().result(Idx::INT, Idx::STR);
-    let range_ty = engine.pool_mut().range(Idx::INT);
-    let iterator_ty = engine.pool_mut().iterator(Idx::INT);
-    let dei_ty = engine.pool_mut().double_ended_iterator(Idx::INT);
-    let channel_ty = engine.pool_mut().channel(Idx::INT);
-    let tuple_ty = engine.pool_mut().tuple(&[Idx::INT, Idx::STR]);
-
-    let mut failures = Vec::new();
-
-    for &(type_name, method_name) in TYPECK_BUILTIN_METHODS {
-        let (tag, receiver_ty) = match type_name {
-            "int" => (Tag::Int, Idx::INT),
-            "float" => (Tag::Float, Idx::FLOAT),
-            "bool" => (Tag::Bool, Idx::BOOL),
-            "str" => (Tag::Str, Idx::STR),
-            "char" => (Tag::Char, Idx::CHAR),
-            "byte" => (Tag::Byte, Idx::BYTE),
-            "Duration" => (Tag::Duration, Idx::DURATION),
-            "Size" => (Tag::Size, Idx::SIZE),
-            "Ordering" => (Tag::Ordering, Idx::ORDERING),
-            "list" => (Tag::List, list_ty),
-            "map" => (Tag::Map, map_ty),
-            "Set" => (Tag::Set, set_ty),
-            "Option" => (Tag::Option, option_ty),
-            "Result" => (Tag::Result, result_ty),
-            "range" => (Tag::Range, range_ty),
-            "Iterator" => (Tag::Iterator, iterator_ty),
-            "DoubleEndedIterator" => (Tag::DoubleEndedIterator, dei_ty),
-            "Channel" => (Tag::Channel, channel_ty),
-            "error" => (Tag::Error, Idx::ERROR),
-            "tuple" => (Tag::Tuple, tuple_ty),
-            other => panic!("unknown type name in TYPECK_BUILTIN_METHODS: {other:?}"),
-        };
-
-        let result = resolve_builtin_method(&mut engine, receiver_ty, tag, method_name);
-        if result.is_none() {
-            failures.push(format!("  ({type_name}, {method_name})"));
-        }
-    }
-
-    assert!(
-        failures.is_empty(),
-        "resolve_builtin_method() returned None for {} entries in TYPECK_BUILTIN_METHODS:\n{}",
-        failures.len(),
-        failures.join("\n"),
-    );
 }
 
 // ========================================================================
@@ -2393,10 +2261,7 @@ fn bounded_range(arena: &mut ExprArena) -> ExprId {
 
 #[test]
 fn find_infinite_source_repeat() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // repeat(42)
@@ -2407,10 +2272,7 @@ fn find_infinite_source_repeat() {
 
 #[test]
 fn find_infinite_source_unbounded_range() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // (0..)
@@ -2421,10 +2283,7 @@ fn find_infinite_source_unbounded_range() {
 
 #[test]
 fn find_infinite_source_bounded_range_returns_none() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // (0..10) — finite, no warning
@@ -2435,10 +2294,7 @@ fn find_infinite_source_bounded_range_returns_none() {
 
 #[test]
 fn find_infinite_source_cycle() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // [1,2,3].iter().cycle()
@@ -2454,10 +2310,7 @@ fn find_infinite_source_cycle() {
 
 #[test]
 fn find_infinite_source_repeat_with_map_adapter() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // repeat(42).map(...)
@@ -2470,10 +2323,7 @@ fn find_infinite_source_repeat_with_map_adapter() {
 
 #[test]
 fn find_infinite_source_repeat_with_filter_adapter() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // repeat(42).filter(...)
@@ -2486,10 +2336,7 @@ fn find_infinite_source_repeat_with_filter_adapter() {
 
 #[test]
 fn find_infinite_source_repeat_with_take_returns_none() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // repeat(42).take(10) — bounded, no warning
@@ -2502,10 +2349,7 @@ fn find_infinite_source_repeat_with_take_returns_none() {
 
 #[test]
 fn find_infinite_source_cycle_with_take_returns_none() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // [1,2,3].iter().cycle().take(10)
@@ -2522,10 +2366,7 @@ fn find_infinite_source_cycle_with_take_returns_none() {
 
 #[test]
 fn find_infinite_source_repeat_map_filter_enumerate() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // repeat(42).map(...).filter(...).enumerate()
@@ -2544,10 +2385,7 @@ fn find_infinite_source_repeat_map_filter_enumerate() {
 
 #[test]
 fn find_infinite_source_unbounded_range_iter() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // (0..).iter()
@@ -2564,10 +2402,7 @@ fn find_infinite_source_unbounded_range_iter() {
 
 #[test]
 fn find_infinite_source_finite_list_returns_none() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // [1,2,3].iter()
@@ -2582,10 +2417,7 @@ fn find_infinite_source_finite_list_returns_none() {
 
 #[test]
 fn find_infinite_source_unknown_method_returns_none() {
-    let interner = ori_ir::StringInterner::new();
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    engine.set_interner(&interner);
+    test_engine!(interner, pool, engine);
     let mut arena = ExprArena::new();
 
     // something.custom_method()
@@ -2793,8 +2625,7 @@ fn printable_satisfaction_primitives_and_compounds() {
 /// `int.into()` resolves to `float` via `resolve_builtin_method`.
 #[test]
 fn into_int_resolves_to_float() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
 
     let result = resolve_builtin_method(&mut engine, Idx::INT, Tag::Int, "into");
     assert_eq!(
@@ -2807,8 +2638,7 @@ fn into_int_resolves_to_float() {
 /// `str.into()` resolves to `Error` — wraps string as error message.
 #[test]
 fn into_str_resolves_to_error() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
 
     let result = resolve_builtin_method(&mut engine, Idx::STR, Tag::Str, "into");
     assert_eq!(
@@ -2821,10 +2651,12 @@ fn into_str_resolves_to_error() {
 /// `Set<int>.into()` resolves to `[int]` — set converts to list.
 #[test]
 fn into_set_resolves_to_list() {
+    let interner = StringInterner::new();
     let mut pool = Pool::new();
     let set_ty = pool.set(Idx::INT);
     let expected_list = pool.list(Idx::INT);
     let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
 
     let result = resolve_builtin_method(&mut engine, set_ty, Tag::Set, "into");
     assert_eq!(
@@ -2837,10 +2669,12 @@ fn into_set_resolves_to_list() {
 /// Set's `.into()` preserves the element type parameter.
 #[test]
 fn into_set_preserves_element_type() {
+    let interner = StringInterner::new();
     let mut pool = Pool::new();
     let set_ty = pool.set(Idx::STR);
     let expected_list = pool.list(Idx::STR);
     let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
 
     let result = resolve_builtin_method(&mut engine, set_ty, Tag::Set, "into");
     assert_eq!(
@@ -2853,8 +2687,7 @@ fn into_set_preserves_element_type() {
 /// `Ordering.then_with()` resolves to `Ordering` via `resolve_builtin_method`.
 #[test]
 fn then_with_ordering_resolves_to_ordering() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
+    test_engine!(pool, engine);
 
     let result = resolve_builtin_method(&mut engine, Idx::ORDERING, Tag::Ordering, "then_with");
     assert_eq!(
@@ -2868,11 +2701,12 @@ fn then_with_ordering_resolves_to_ordering() {
 /// custom Into impls are dispatched through the `TraitRegistry`.
 #[test]
 fn into_not_on_named_types_via_builtins() {
-    let mut pool = Pool::new();
     let interner = StringInterner::new();
+    let mut pool = Pool::new();
     let user_type_name = interner.intern("Celsius");
     let user_ty = pool.named(user_type_name);
     let mut engine = InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
 
     let result = resolve_builtin_method(&mut engine, user_ty, Tag::Named, "into");
     assert_eq!(

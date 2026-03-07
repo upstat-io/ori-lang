@@ -158,9 +158,7 @@ use crate::codegen::value_id::ValueId;
 use super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    // -----------------------------------------------------------------------
     // Recursive element dispatch
-    // -----------------------------------------------------------------------
 
     /// Emit `lhs.equals(rhs)` for any type, dispatching recursively.
     pub(crate) fn emit_element_equals(

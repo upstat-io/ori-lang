@@ -365,7 +365,7 @@ fn integration_identity_enables_pair_elimination() {
         DerivedOwnership::Fresh,              // v2: fresh from Apply
     ];
 
-    // --- Without identity propagation ---
+    // Without identity propagation
     let mut func_without = base_func.clone();
     let rc_before = count_rc_ops(&func_without);
     assert_eq!(rc_before, 2, "starts with RcInc + RcDec");
@@ -380,7 +380,7 @@ fn integration_identity_enables_pair_elimination() {
         "without identity propagation: Phase 2 removes Inc, Dec stays"
     );
 
-    // --- With identity propagation ---
+    // With identity propagation
     let mut func_with = base_func;
     // Populate var_reprs so root_strategy can compute the new strategy.
     // RcPointer → HeapPointer, no pool query needed.
