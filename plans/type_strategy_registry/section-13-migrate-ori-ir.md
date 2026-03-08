@@ -3,6 +3,7 @@ plan: "type_strategy_registry"
 section: "13"
 title: "Migrate ori_ir & Legacy Consolidation"
 status: not-started
+reviewed: false
 goal: "Replace ori_ir::builtin_methods with ori_registry, consolidate all method metadata into the registry, deprecate superseded types, and update all consumers — without breaking any tests"
 depends_on:
   - "03"

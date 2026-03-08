@@ -20,6 +20,10 @@ mod tests;
 ///
 /// This enables surgical struct loading: only fields that are actually
 /// projected are loaded from memory. Unused fields get `undef`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "field scan walks all instructions tracking projection usage"
+)]
 pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option<FxHashSet<u32>>> {
     /// Resolve a variable through alias chains to its root.
     fn resolve(aliases: &FxHashMap<ArcVarId, ArcVarId>, mut var: ArcVarId) -> ArcVarId {

@@ -1,3 +1,8 @@
+#![allow(
+    clippy::too_many_lines,
+    reason = "test setup for LLVM IR requires many sequential steps"
+)]
+
 use super::*;
 use inkwell::context::Context;
 
@@ -81,7 +86,6 @@ fn composite_sizes() {
         Some(24)
     );
     assert_eq!(TypeInfo::Range.size(), Some(32));
-    assert_eq!(TypeInfo::Option { inner: Idx::INT }.size(), Some(16));
     assert_eq!(TypeInfo::Channel { element: Idx::INT }.size(), Some(8));
     assert_eq!(
         TypeInfo::Function {
@@ -98,6 +102,15 @@ fn dynamic_sizes_are_none() {
     assert_eq!(
         TypeInfo::Tuple {
             elements: vec![Idx::INT, Idx::STR]
+        }
+        .size(),
+        None
+    );
+    assert_eq!(TypeInfo::Option { inner: Idx::INT }.size(), None);
+    assert_eq!(
+        TypeInfo::Result {
+            ok: Idx::INT,
+            err: Idx::STR
         }
         .size(),
         None
@@ -124,7 +137,6 @@ fn alignment_values() {
 #[test]
 fn loadable_types() {
     assert!(TypeInfo::Int.is_loadable());
-    assert!(TypeInfo::Option { inner: Idx::INT }.is_loadable()); // 16 bytes
 }
 
 #[test]
@@ -929,7 +941,7 @@ fn benchmark_type_info_store_lookup() {
     use std::hint::black_box;
     use std::time::Instant;
 
-    // --- Build a representative type workload ---
+    // Build a representative type workload
     let mut pool = Pool::new();
     let mut all_indices: Vec<Idx> = Vec::new();
 
@@ -1042,7 +1054,7 @@ fn benchmark_type_info_store_lookup() {
 
     let type_count = all_indices.len();
 
-    // --- Cold lookups: first access (compute + cache) ---
+    // Cold lookups: first access (compute + cache)
     let store = TypeInfoStore::new(&pool);
     let iterations = 1000;
 
@@ -1058,7 +1070,7 @@ fn benchmark_type_info_store_lookup() {
     let cold_per_lookup_ns =
         cold_elapsed.as_nanos() as f64 / (iterations as f64 * type_count as f64);
 
-    // --- Hot lookups: cached access ---
+    // Hot lookups: cached access
     // Warm up the cache
     for &idx in &all_indices {
         store.get(idx);
@@ -1075,7 +1087,7 @@ fn benchmark_type_info_store_lookup() {
     let hot_per_lookup_ns =
         hot_elapsed.as_nanos() as f64 / (hot_iterations as f64 * type_count as f64);
 
-    // --- Triviality classification ---
+    // Triviality classification
     let triv_iterations = 10_000;
     let triv_start = Instant::now();
     for _ in 0..triv_iterations {
@@ -1087,7 +1099,7 @@ fn benchmark_type_info_store_lookup() {
     let triv_per_lookup_ns =
         triv_elapsed.as_nanos() as f64 / (triv_iterations as f64 * type_count as f64);
 
-    // --- Report ---
+    // Report
     eprintln!("\n=== TypeInfoStore Benchmark ===");
     eprintln!("Types: {type_count}");
     eprintln!("Cold lookup (compute+cache): {cold_per_lookup_ns:.1} ns/lookup");
@@ -1118,10 +1130,10 @@ fn integration_compile_through_type_system() {
 
     let mut pool = Pool::new();
 
-    // --- Primitives ---
+    // Primitives
     // Already interned; just verify they resolve.
 
-    // --- Collections ---
+    // Collections
     let list_int = pool.list(Idx::INT);
     let map_str_int = pool.map(Idx::STR, Idx::INT);
     let set_float = pool.set(Idx::FLOAT);
@@ -1131,17 +1143,17 @@ fn integration_compile_through_type_system() {
     let res_int_str = pool.result(Idx::INT, Idx::STR);
     let chan_byte = pool.channel(Idx::BYTE);
 
-    // --- Composites ---
+    // Composites
     let tup_if = pool.tuple(&[Idx::INT, Idx::FLOAT]);
     let func_ii = pool.function(&[Idx::INT], Idx::INT);
 
-    // --- User-defined struct: Point { x: int, y: int } ---
+    // User-defined struct: Point { x: int, y: int }
     let point_name = Name::from_raw(500);
     let x_name = Name::from_raw(501);
     let y_name = Name::from_raw(502);
     let point = pool.struct_type(point_name, &[(x_name, Idx::INT), (y_name, Idx::INT)]);
 
-    // --- User-defined enum: Color = Red | Green | Blue ---
+    // User-defined enum: Color = Red | Green | Blue
     let color_name = Name::from_raw(510);
     let red = Name::from_raw(511);
     let green = Name::from_raw(512);
@@ -1164,7 +1176,7 @@ fn integration_compile_through_type_system() {
         ],
     );
 
-    // --- Enum with payloads: Shape = Circle(float) | Rect(float, float) ---
+    // Enum with payloads: Shape = Circle(float) | Rect(float, float)
     let shape_name = Name::from_raw(520);
     let circle = Name::from_raw(521);
     let rect = Name::from_raw(522);
@@ -1182,7 +1194,7 @@ fn integration_compile_through_type_system() {
         ],
     );
 
-    // --- Recursive enum: Tree = Leaf(int) | Node(Tree, Tree) ---
+    // Recursive enum: Tree = Leaf(int) | Node(Tree, Tree)
     let tree_name = Name::from_raw(530);
     let leaf = Name::from_raw(531);
     let node = Name::from_raw(532);
@@ -1202,23 +1214,23 @@ fn integration_compile_through_type_system() {
     );
     pool.set_resolution(tree_named, tree_enum);
 
-    // --- Named type alias: MyPoint -> Point ---
+    // Named type alias: MyPoint -> Point
     let my_point_name = Name::from_raw(540);
     let my_point = pool.named(my_point_name);
     pool.set_resolution(my_point, point);
 
-    // --- Nested: option[Point], [Shape], result[Tree, str] ---
+    // Nested: option[Point], [Shape], result[Tree, str]
     let opt_point = pool.option(point);
     let list_shape = pool.list(shape);
     let res_tree_str = pool.result(tree_named, Idx::STR);
 
-    // === Build TypeInfoStore and TypeLayoutResolver ===
+    // Build TypeInfoStore and TypeLayoutResolver
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "integration_test");
     let resolver = TypeLayoutResolver::new(&store, &scx, None);
 
-    // === Verify all types resolve without panic ===
+    // Verify all types resolve without panic
     let all_types = [
         // Primitives
         Idx::INT,
@@ -1274,7 +1286,7 @@ fn integration_compile_through_type_system() {
         let _ = black_box(llvm_ty);
     }
 
-    // === Verify specific type properties ===
+    // Verify specific type properties
 
     // Primitives: correct storage types
     assert_eq!(resolver.resolve(Idx::INT), scx.type_i64().into());
@@ -1332,7 +1344,7 @@ fn integration_compile_through_type_system() {
         other => panic!("MyPoint alias should resolve to StructType, got {other:?}"),
     }
 
-    // === Verify triviality classification ===
+    // Verify triviality classification
     assert!(store.is_trivial(Idx::INT), "int should be trivial");
     assert!(!store.is_trivial(Idx::STR), "str should NOT be trivial");
     assert!(
@@ -1353,7 +1365,7 @@ fn integration_compile_through_type_system() {
         "option[str] should NOT be trivial"
     );
 
-    // === Sentinel handling ===
+    // Sentinel handling
     assert!(matches!(store.get(Idx::NONE), TypeInfo::Error));
     assert_eq!(resolver.resolve(Idx::NONE), scx.type_i64().into());
 }

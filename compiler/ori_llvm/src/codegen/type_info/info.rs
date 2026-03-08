@@ -129,14 +129,11 @@ impl TypeInfo {
                 )
                 .into(),
 
-            // Tagged unions: {i8 tag, payload}
-            // Option uses the inner type directly as payload.
-            // Result uses the larger of ok/err — for now, uses ok type.
-            // TODO: Result should use max(ok, err) size for correct layout.
+            // Tagged unions: {i64 tag, i64 payload} placeholder.
+            // This is a fallback for contexts without Pool access. The real
+            // type (with correct max(ok, err) payload) is computed by
+            // TypeInfoStore::resolve() which has access to inner types.
             Self::Option { inner } => {
-                // Payload type depends on inner type. Since we don't have
-                // the store here, use i64 as a uniform payload representation.
-                // The actual payload coercion happens at emit time.
                 let _ = inner;
                 scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
                     .into()
@@ -213,8 +210,7 @@ impl TypeInfo {
 
             // 16-byte types:
             // Function: fat-pointer closure { ptr, ptr }
-            // Option/Result: {i64, T} — uniform i64 tag + payload = 16 bytes
-            Self::Function { .. } | Self::Option { .. } | Self::Result { .. } => Some(16),
+            Self::Function { .. } => Some(16),
 
             // 24-byte types:
             // Str: SSO layout {i64 len, i64 cap, ptr data}
@@ -224,18 +220,24 @@ impl TypeInfo {
             // Range: {i64 start, i64 end, i64 step, i64 inclusive} = 32 bytes
             Self::Range => Some(32),
 
-            // Dynamic-size types: depend on element/field types
-            Self::Tuple { .. } | Self::Struct { .. } | Self::Enum { .. } => None,
+            // Dynamic-size types: depend on element/field types.
+            // Option/Result payloads vary by inner type (e.g. Option<str> = 32 bytes).
+            // Actual size computed by abi_size_inner() via TypeInfoStore.
+            Self::Option { .. }
+            | Self::Result { .. }
+            | Self::Tuple { .. }
+            | Self::Struct { .. }
+            | Self::Enum { .. } => None,
         }
     }
 
-    /// The type name matching `TYPECK_BUILTIN_METHODS` convention.
+    /// The type name matching `ori_registry` convention.
     ///
     /// Returns `Some("int")` for `TypeInfo::Int`, `Some("Option")` for
     /// `TypeInfo::Option { .. }`, etc. Returns `None` for types without
     /// builtin methods (Unit, Never, user-defined structs/enums).
     ///
-    /// Naming convention follows `TYPECK_BUILTIN_METHODS`: lowercase for
+    /// Naming convention follows `ori_registry`: lowercase for
     /// primitive syntax types (`int`, `str`, `list`, `map`, `range`, `tuple`),
     /// `PascalCase` for named/standard types (`Option`, `Result`, `Set`,
     /// `Iterator`, `Channel`, `Duration`, `Size`, `Ordering`).

@@ -11,6 +11,7 @@ cache = ["ori_ir/cache", "ori_types/cache", "serde", "bincode"]
 
 [dependencies]
 ori_ir.workspace = true
+ori_registry.workspace = true
 ori_types.workspace = true
 rustc-hash.workspace = true
 smallvec.workspace = true

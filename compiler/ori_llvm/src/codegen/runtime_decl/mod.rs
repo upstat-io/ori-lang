@@ -17,6 +17,7 @@
 //! that need the full set available in the LLVM module.
 
 pub(crate) mod runtime_functions;
+mod types;
 
 use runtime_functions::{Attr, RtFn, Ty, RT_FUNCTIONS};
 
@@ -131,9 +132,7 @@ fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
 ///
 /// Panics if `name` is not a known runtime function.
 pub fn declare_single(builder: &mut IrBuilder, name: &str) -> FunctionId {
-    let spec = RT_FUNCTIONS
-        .iter()
-        .find(|f| f.name == name)
+    let spec = runtime_functions::lookup(name)
         .unwrap_or_else(|| panic!("unknown runtime function: {name}"));
     declare_spec(builder, spec)
 }
@@ -148,7 +147,7 @@ pub fn try_declare_single(
     builder: &mut IrBuilder,
     name: &str,
 ) -> Option<(&'static str, FunctionId)> {
-    let spec = RT_FUNCTIONS.iter().find(|f| f.name == name)?;
+    let spec = runtime_functions::lookup(name)?;
     let id = declare_spec(builder, spec);
     Some((spec.name, id))
 }
@@ -175,10 +174,7 @@ pub fn all_names() -> impl Iterator<Item = &'static str> {
 /// Used by `emit_apply`'s runtime function fallback path to decide between
 /// `call` (direct return) and `call_with_sret` (pointer-based return).
 pub fn rt_fn_needs_sret(name: &str) -> bool {
-    RT_FUNCTIONS
-        .iter()
-        .find(|f| f.name == name)
-        .is_some_and(|spec| spec.ret.is_some_and(Ty::needs_sret))
+    runtime_functions::lookup(name).is_some_and(|spec| spec.ret.is_some_and(Ty::needs_sret))
 }
 
 /// Returns the number of runtime functions in the table.

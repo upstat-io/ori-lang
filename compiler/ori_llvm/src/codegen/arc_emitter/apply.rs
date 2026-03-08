@@ -321,9 +321,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Format call decomposition
-    // -----------------------------------------------------------------------
 
     /// Intercept `ori_format_*` calls and decompose the string spec argument.
     ///
@@ -382,9 +380,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call_with_sret(func_id, &[value_arg, spec_ptr, spec_len], str_ty, "fmt")
     }
 
-    // -----------------------------------------------------------------------
     // String runtime call helpers
-    // -----------------------------------------------------------------------
 
     /// Call a string runtime function: `ori_str_concat`, `ori_str_eq`, `ori_str_ne`.
     ///

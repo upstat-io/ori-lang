@@ -320,6 +320,9 @@ impl ArcLowerer<'_> {
 
 /// Recursive store-size computation from Pool type information.
 ///
+/// TODO(type_strategy_registry/section-11): Extract shared type layout logic to `ori_ir`.
+/// This function duplicates `ori_llvm::codegen::type_info::TypeLayoutResolver::type_store_size()`.
+///
 /// Sums field sizes without alignment padding. This must stay in sync with
 /// `TypeLayoutResolver::type_store_size()` in `ori_llvm` — both compute the
 /// same logical size for every type, just at different abstraction levels

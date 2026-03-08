@@ -119,9 +119,7 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
 // All body generators live in an impl block so they inherit the correct
 // lifetime bounds from ArcIrEmitter's declaration (`'scx: 'ctx`).
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    // -------------------------------------------------------------------
     // Body generators
-    // -------------------------------------------------------------------
 
     /// Emit drop body for struct/tuple/closure-env with specific RC'd fields.
     fn emit_drop_fields(&mut self, data_ptr: ValueId, ty: Idx, fields: &[(u32, Idx)]) {
@@ -291,9 +289,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(loop_done);
     }
 
-    // -------------------------------------------------------------------
     // Runtime call helpers
-    // -------------------------------------------------------------------
 
     /// Emit `ori_rc_dec` for a child field value.
     ///

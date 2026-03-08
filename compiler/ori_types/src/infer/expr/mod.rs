@@ -43,6 +43,7 @@ mod control_flow;
 mod identifiers;
 mod methods;
 mod operators;
+mod registry_bridge;
 mod sequences;
 mod structs;
 mod type_resolution;
@@ -61,7 +62,6 @@ pub(super) use sequences::*;
 pub(super) use structs::*;
 // Public re-exports for the crate's public API
 // (re-exported through infer/mod.rs)
-pub use methods::TYPECK_BUILTIN_METHODS;
 pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub use type_resolution::resolve_parsed_type;
 
@@ -474,4 +474,6 @@ fn validate_format_spec(
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#[expect(clippy::expect_used, reason = "Tests use expect for clarity")]
 mod tests;

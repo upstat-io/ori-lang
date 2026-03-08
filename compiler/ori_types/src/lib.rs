@@ -34,10 +34,7 @@ pub use check::{
 };
 pub use flags::{TypeCategory, TypeFlags};
 pub use idx::Idx;
-pub use infer::{
-    check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv,
-    TYPECK_BUILTIN_METHODS,
-};
+pub use infer::{check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv};
 pub use item::Item;
 pub use lifetime::LifetimeId;
 pub use ori_ir::{PatternKey, PatternResolution};
@@ -84,9 +81,7 @@ pub use type_error::{
 pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 pub use value_category::ValueCategory;
 
-// =============================================================================
 // Compile-time Salsa compatibility assertions
-// =============================================================================
 //
 // Salsa query results must implement Clone + Eq + PartialEq + Hash + Debug.
 // These static assertions catch missing derives at compile time rather than

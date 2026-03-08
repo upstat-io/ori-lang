@@ -26,9 +26,7 @@ use rustc_hash::FxHashSet;
 
 use super::type_info::TypeInfoStore;
 
-// ---------------------------------------------------------------------------
 // Passing mode enums
-// ---------------------------------------------------------------------------
 
 /// How a parameter is passed to the callee.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,9 +65,7 @@ pub enum CallConv {
     C,
 }
 
-// ---------------------------------------------------------------------------
 // ABI descriptors
-// ---------------------------------------------------------------------------
 
 /// Physical ABI for a single parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,9 +102,7 @@ pub struct FunctionAbi {
     pub call_conv: CallConv,
 }
 
-// ---------------------------------------------------------------------------
 // ABI computation
-// ---------------------------------------------------------------------------
 
 /// Compute the ABI size of a type in bytes.
 ///
@@ -146,6 +140,16 @@ fn abi_size_inner(ty: Idx, store: &TypeInfoStore<'_>, visiting: &mut FxHashSet<I
     // Will need the proper fix (querying LLVM TargetData for actual struct
     // layout size) when mixed-alignment user-defined structs land in Pool.
     let result = match &info {
+        TypeInfo::Option { inner } => {
+            // {i64 tag, payload}
+            8 + abi_size_inner(*inner, store, visiting)
+        }
+        TypeInfo::Result { ok, err } => {
+            // {i64 tag, max(ok, err) payload}
+            let ok_size = abi_size_inner(*ok, store, visiting);
+            let err_size = abi_size_inner(*err, store, visiting);
+            8 + ok_size.max(err_size)
+        }
         TypeInfo::Tuple { elements } => elements
             .iter()
             .map(|&e| abi_size_inner(e, store, visiting))
@@ -265,9 +269,7 @@ pub fn compute_function_abi(sig: &FunctionSig, store: &TypeInfoStore<'_>) -> Fun
     }
 }
 
-// ---------------------------------------------------------------------------
 // ARC borrow-aware ABI computation
-// ---------------------------------------------------------------------------
 
 /// Compute parameter passing with ownership annotation from borrow inference.
 ///
@@ -350,9 +352,7 @@ pub fn compute_function_abi_with_ownership(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests;

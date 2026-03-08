@@ -12,6 +12,10 @@ use crate::codegen::value_id::ValueId;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a `Construct` instruction.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "construct dispatch over struct/enum/closure/tuple types"
+    )]
     pub(super) fn emit_construct(
         &mut self,
         ty: Idx,

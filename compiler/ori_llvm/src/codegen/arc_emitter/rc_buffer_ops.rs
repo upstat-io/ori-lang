@@ -16,9 +16,7 @@ use ori_types::Tag;
 use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    // -----------------------------------------------------------------------
     // Buffer RC dec helpers
-    // -----------------------------------------------------------------------
 
     /// Emit `ori_buffer_rc_dec` for a list or set value.
     ///
@@ -106,9 +104,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
     }
 
-    // -----------------------------------------------------------------------
     // Unique-drop handlers (skip atomic RC dec for provably unique collections)
-    // -----------------------------------------------------------------------
 
     /// Emit `ori_buffer_drop_unique` / `ori_set_buffer_drop_unique` for a
     /// provably unique list or set.
@@ -196,9 +192,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
     }
 
-    // -----------------------------------------------------------------------
     // FatPointer handlers (SSO-aware string RC)
-    // -----------------------------------------------------------------------
 
     /// Inc a fat value (str = `{i64 len, i64 cap, ptr data}`).
     ///

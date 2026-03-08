@@ -26,6 +26,7 @@ salsa.workspace = true
 
 # Ori crates
 ori_ir.workspace = true
+ori_registry.workspace = true
 ori_diagnostic.workspace = true
 ori_lexer.workspace = true
 ori_types.workspace = true
