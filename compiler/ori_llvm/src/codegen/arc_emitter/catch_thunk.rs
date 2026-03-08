@@ -35,6 +35,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///    real function, and stores the result.
     /// 2. A call to `ori_try_call(thunk_ptr, ctx_ptr)` → i64 (1=ok, 0=caught).
     /// 3. A conditional branch: success → normal block, caught → unwind block.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "SEH catch/invoke emits thunk + try_call + branch"
+    )]
     pub(super) fn emit_seh_catch_invoke(
         &mut self,
         dst: ArcVarId,

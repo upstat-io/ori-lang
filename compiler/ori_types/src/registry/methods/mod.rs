@@ -2,8 +2,7 @@
 //!
 //! Built-in method resolution for the type checker is handled by
 //! [`resolve_builtin_method()`](crate::infer::expr::methods) using
-//! direct string matching, with the method manifest in
-//! [`TYPECK_BUILTIN_METHODS`](crate::TYPECK_BUILTIN_METHODS).
+//! `ori_registry::BUILTIN_TYPES` as the method manifest.
 //!
 //! This registry is reserved for future use when method resolution
 //! needs to integrate inherent impls and trait impls with builtin methods.

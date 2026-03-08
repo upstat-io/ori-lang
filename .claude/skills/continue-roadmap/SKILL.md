@@ -78,6 +78,41 @@ This outputs:
 - One line per section: `[done]` or `[open]` with progress stats
 - Detail block for the **first incomplete section**: subsection statuses (with blocked counts), first 5 **unblocked** items, blocker summary, and blocker chain
 
+### Step 1.5: Fix Stale Frontmatter
+
+The scanner detects frontmatter/body mismatches (`!! MISMATCH` annotations) at both section and subsection level. **When mismatches are found, fix them immediately** — do not proceed to the focus section with stale data.
+
+**Auto-fix rules (no user prompt needed):**
+
+1. **`frontmatter=complete` but unchecked items exist** — Set frontmatter to `in-progress` (or `not-started` if 0 checked)
+2. **`frontmatter=not-started` but checked items exist** — Set frontmatter to `in-progress` (or `complete` if 0 unchecked)
+3. **`frontmatter=in-progress` but all items checked** — Set frontmatter to `complete`
+4. **`frontmatter=in-progress` but 0 items checked** — Set frontmatter to `not-started`
+5. **Subsection status stale** — Apply the same rules per subsection, then recalculate section status
+6. **Section status stale after subsection fix** — If all subsections are `complete`, set section to `complete`
+
+**When to ask instead of auto-fix:**
+
+- If a section shows `complete` but has many unchecked items (>5), use AskUserQuestion — the checkboxes may be stale rather than the frontmatter
+- If items are marked `[ ]` but have a `<!-- blocked:` or `<!-- deferred:` comment indicating they were intentionally left open, call them out and ask whether to mark complete or leave as-is
+
+After fixing, briefly note what was corrected (e.g., "Fixed stale frontmatter: Section 09 status updated to `complete` (all subsections done)").
+
+### Step 1.7: Unreviewed Plan Gate
+
+After the scanner identifies the focus section, **check its frontmatter for `reviewed: false`**. This flag means `/review-plan` has NOT been run on this section — the plan may contain errors, missing steps, or architectural problems.
+
+**If `reviewed: false` is present on the focus section:**
+
+1. **STOP** — do not begin implementation
+2. **Warn the user** via AskUserQuestion:
+   - "Section N has `reviewed: false` — /review-plan has not been run on this section. Implementing an unreviewed plan risks wasted work if the plan has errors."
+   - Options: **Run /review-plan now (Recommended)** | **Proceed anyway** | **Pick a different section**
+3. **If user chooses to review**: Run `/review-plan` on the section, then remove `reviewed: false` from the frontmatter (or set `reviewed: true`) after the review completes
+4. **If user chooses to proceed**: Continue, but note the risk in the summary output
+
+**If `reviewed: false` is NOT present** (field absent or `reviewed: true`), proceed normally.
+
 ### Step 2: Determine Focus Section
 
 **If argument provided**, find the matching section file and skip to Step 3.
@@ -342,6 +377,8 @@ sections:
 ### Why This Matters
 
 The website dynamically loads roadmap data from these YAML frontmatter blocks. Incorrect status values cause the roadmap page to show wrong progress information.
+
+**Catch-all:** If frontmatter drifts despite these rules, Step 1.5 (Stale Frontmatter Auto-Fix) catches and corrects it at the start of every `/continue-roadmap` invocation.
 
 ---
 

@@ -2,6 +2,10 @@
 //!
 //! Verifies that drop functions are generated with correct LLVM IR structure
 //! for each `DropKind` variant, and that caching / edge cases work.
+#![allow(
+    clippy::too_many_lines,
+    reason = "test setup for LLVM IR requires many sequential steps"
+)]
 
 use std::mem::ManuallyDrop;
 

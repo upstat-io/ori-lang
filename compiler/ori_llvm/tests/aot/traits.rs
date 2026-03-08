@@ -1181,6 +1181,88 @@ fn test_aot_result_hash() {
     );
 }
 
+// -- Result equals (heterogeneous: Ok=int, Err=str) --
+
+#[test]
+fn test_aot_result_equals_heterogeneous() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let ok1: Result<int, str> = Ok(42);
+    let ok2: Result<int, str> = Ok(42);
+    let ok3: Result<int, str> = Ok(99);
+    let err1: Result<int, str> = Err("hello");
+    let err2: Result<int, str> = Err("hello");
+    let err3: Result<int, str> = Err("world");
+    // Same Ok values are equal
+    let r1 = ok1.equals(ok2);
+    // Different Ok values are not equal
+    let r2 = !ok1.equals(ok3);
+    // Same Err strings are equal
+    let r3 = err1.equals(err2);
+    // Different Err strings are not equal
+    let r4 = !err1.equals(err3);
+    // Ok != Err
+    let r5 = !ok1.equals(err1);
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+}
+"#,
+        "result_equals_heterogeneous",
+    );
+}
+
+// -- Result compare (heterogeneous: Ok=int, Err=str) --
+
+#[test]
+fn test_aot_result_compare_heterogeneous() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let ok1: Result<int, str> = Ok(10);
+    let ok2: Result<int, str> = Ok(20);
+    let err_a: Result<int, str> = Err("aaa");
+    let err_b: Result<int, str> = Err("bbb");
+    // Ok < Err
+    let r1 = ok1.compare(err_a).is_less();
+    // Ok(10) < Ok(20)
+    let r2 = ok1.compare(ok2).is_less();
+    // Err("aaa") < Err("bbb") — string comparison
+    let r3 = err_a.compare(err_b).is_less();
+    // Err > Ok
+    let r4 = err_a.compare(ok1).is_greater();
+    // Err("bbb") > Err("aaa")
+    let r5 = err_b.compare(err_a).is_greater();
+    if r1 && r2 && r3 && r4 && r5 then 0 else 1
+}
+"#,
+        "result_compare_heterogeneous",
+    );
+}
+
+// -- Result hash (heterogeneous: Ok=int, Err=str) --
+
+#[test]
+fn test_aot_result_hash_heterogeneous() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let err1: Result<int, str> = Err("hello");
+    let err2: Result<int, str> = Err("hello");
+    let err3: Result<int, str> = Err("world");
+    let ok1: Result<int, str> = Ok(42);
+    // Same Err strings → same hash
+    let r1 = err1.hash() == err2.hash();
+    // Different Err strings → different hash (not guaranteed but overwhelmingly likely)
+    let r2 = err1.hash() != err3.hash();
+    // Ok vs Err with same-ish content → different hash
+    let r3 = ok1.hash() != err1.hash();
+    if r1 && r2 && r3 then 0 else 1
+}
+"#,
+        "result_hash_heterogeneous",
+    );
+}
+
 // -- Tuple compare --
 
 #[test]

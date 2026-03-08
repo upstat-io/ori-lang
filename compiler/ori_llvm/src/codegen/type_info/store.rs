@@ -239,6 +239,10 @@ impl<'tcx> TypeInfoStore<'tcx> {
     }
 
     /// Inner implementation of type info computation, separated for cycle guard.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "type info dispatch table over all Tag variants"
+    )]
     fn compute_type_info_inner(&self, idx: Idx) -> TypeInfo {
         match self.pool.tag(idx) {
             // Primitives (should already be pre-populated, but handle gracefully)

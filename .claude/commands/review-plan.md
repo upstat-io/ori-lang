@@ -99,12 +99,17 @@ You may add new sections, restructure, or expand scope if the plan has genuine g
 After editing, list what you changed and why.
 ```
 
-#### Agent 3: Hygiene & Feasibility Review
+#### Agent 3: Hygiene & Feasibility Review (Codebase-Aware)
 
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
 
+Your job is twofold: (1) ensure the plan itself follows hygiene rules, and (2) scan the actual codebase areas the plan will touch to find existing issues that should be cleaned up along the way. The principle: every plan section should leave the code better and cleaner than before.
+
 INSTRUCTIONS:
+
+## Part 1: Plan-Level Hygiene
+
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
 2. Read the hygiene rules at .claude/rules/impl-hygiene.md and compiler guidelines at .claude/rules/compiler.md
 3. Review the plan against these rules:
@@ -113,13 +118,37 @@ INSTRUCTIONS:
    - Does it follow the test file conventions (sibling tests.rs)?
    - Are implementation steps ordered correctly (upstream before downstream)?
    - Are there steps that are impractical or underestimate complexity?
-4. For every hygiene violation or feasibility concern, EDIT the plan files directly to fix them
-5. Reorder steps if they violate crate dependency ordering
-6. Add warnings for steps that are particularly complex or risky
-7. Add a brief comment near each change: <!-- reviewed: hygiene fix -->
+4. Reorder steps if they violate crate dependency ordering
+5. Add warnings for steps that are particularly complex or risky
 
-You may expand scope, add sections, or restructure if needed to satisfy hygiene and feasibility requirements.
-After editing, list what you changed and why.
+## Part 2: Codebase Scan — "Leave It Better Than You Found It"
+
+6. Extract from the plan every file path, crate, and module that will be touched (look for file:line references, crate names, module paths in checklist items and prose)
+7. Actually READ those files (up to 30 files; prioritize files mentioned in multiple sections or that are core to the plan's goal)
+8. Audit each file against the hygiene rules, looking for existing issues:
+   - **BLOAT**: Files over 500 lines that the plan will touch but doesn't plan to split
+   - **WASTE**: Unnecessary clones, allocations, stale comments, dead code, commented-out code
+   - **DRIFT**: Registration sync points that are already out of sync
+   - **EXPOSURE**: Internal state leaking through boundary types
+   - **LEAK**: Phase bleeding in files the plan modifies
+   - **STYLE**: Missing docs on pub items, bare TODOs, decorative banners, inline test modules
+   - Any other violations from impl-hygiene.md
+9. For each finding, identify which plan section touches that file/area
+10. EDIT the plan files to weave "fix along the way" checklist items into the appropriate sections, using this format:
+    - [ ] **[BLOAT]** `file:line` — Split into submodules (currently N lines, exceeds 500-line limit)
+    - [ ] **[WASTE]** `file:line` — Remove stale comment / dead code / unnecessary clone
+    - [ ] **[DRIFT]** `file:line` — Sync missing variant with parallel location at `other_file:line`
+    Place these items near the existing checklist items that touch the same file, so the implementer fixes them in the same pass. Group them under a "Cleanup" sub-heading within the section if there are 3+ findings for that section.
+11. If findings cluster (5+ in one module), add a note: "⚠ Clustered findings suggest deeper design issue — consider architectural review before proceeding"
+12. Do NOT fabricate findings. Every finding must reference a real file:line with a real issue. If the touched code is already clean, say so.
+
+## Output
+
+Add a brief comment near each change: <!-- reviewed: hygiene fix -->
+After editing, list:
+- Plan-level fixes made (reordering, warnings, etc.)
+- Codebase findings woven in, by category (e.g., 3 BLOAT, 2 WASTE, 1 DRIFT)
+- Files scanned vs files with findings
 ```
 
 #### Agent 4: Clarity & Consistency Review

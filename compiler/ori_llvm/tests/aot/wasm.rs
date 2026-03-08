@@ -717,6 +717,66 @@ fn test_js_binding_generator() {
     let _ = std::fs::remove_file(&dts_path);
 }
 
+/// Test: JS wrapper frees encoded string params for ALL return types.
+///
+/// Regression test: previously, only the non-void/non-string return branch
+/// included cleanup calls. Void-return and String-return branches leaked.
+#[test]
+fn test_js_wrapper_string_param_cleanup() {
+    use ori_llvm::aot::wasm::{JsBindingGenerator, WasmExport, WasmType};
+
+    // Void-return function with string param.
+    let void_export = WasmExport {
+        ori_name: "log_msg".to_string(),
+        wasm_name: "_ori_log_msg_s".to_string(),
+        params: vec![WasmType::String],
+        return_type: WasmType::Void,
+        is_async: false,
+    };
+    // String-return function with string param.
+    let str_export = WasmExport {
+        ori_name: "transform".to_string(),
+        wasm_name: "_ori_transform_s".to_string(),
+        params: vec![WasmType::String],
+        return_type: WasmType::String,
+        is_async: false,
+    };
+    // Non-void/non-string return with string param (was already correct).
+    let int_export = WasmExport {
+        ori_name: "count".to_string(),
+        wasm_name: "_ori_count_s".to_string(),
+        params: vec![WasmType::String],
+        return_type: WasmType::I32,
+        is_async: false,
+    };
+
+    let gen = JsBindingGenerator::new("test", vec![void_export, str_export, int_export]);
+    let temp_dir = std::env::temp_dir();
+    let js_path = temp_dir.join("test_cleanup.js");
+    gen.generate_js(&js_path).expect("generate JS");
+    let js = std::fs::read_to_string(&js_path).unwrap();
+
+    // Extract each function's body and verify cleanup is present.
+    let assert_has_free = |fn_name: &str| {
+        let fn_start = js
+            .find(&format!("function {fn_name}("))
+            .unwrap_or_else(|| panic!("function {fn_name} not found in generated JS"));
+        let fn_body = &js[fn_start..];
+        let fn_end = fn_body.find("\n}\n").unwrap_or(fn_body.len());
+        let body = &fn_body[..fn_end];
+        assert!(
+            body.contains("free("),
+            "{fn_name}: generated wrapper must free encoded string params.\nBody:\n{body}"
+        );
+    };
+
+    assert_has_free("log_msg");
+    assert_has_free("transform");
+    assert_has_free("count");
+
+    let _ = std::fs::remove_file(&js_path);
+}
+
 /// Test: `WasmType` TypeScript mappings
 #[test]
 fn test_wasm_type_mappings() {

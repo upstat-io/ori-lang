@@ -130,7 +130,7 @@ fn indirect_call_func(name: Name, var_count: usize) -> ArcFunction {
     )
 }
 
-// --- Tests ---
+// Tests
 
 #[test]
 fn empty_graph() {

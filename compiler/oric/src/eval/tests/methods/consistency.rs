@@ -1,15 +1,49 @@
-//! Tests for consistency between evaluator builtin methods, type checker
-//! builtin methods, and the `ori_ir` builtin method registry.
+//! Tests for consistency between the evaluator, `ori_registry` type definitions,
+//! and the `ori_ir` builtin method registry.
+//!
+//! The registry (`ori_registry::BUILTIN_TYPES`) is the single source of truth
+//! for what methods each type has. Both the type checker and evaluator read from
+//! it. These tests validate cross-phase alignment that can't be enforced at
+//! compile time.
 
 use std::collections::BTreeSet;
 
-use ori_eval::{EVAL_BUILTIN_METHODS, ITERATOR_METHOD_NAMES};
+use ori_eval::interpreter::resolvers::CollectionMethod;
 use ori_ir::builtin_methods::BUILTIN_METHODS;
-use ori_types::TYPECK_BUILTIN_METHODS;
+use ori_registry::legacy_type_name;
 
-/// Collection types that have eval/typeck methods but are not yet in the
-/// `ori_ir` builtin method registry. These are tracked as a gap to fix.
-/// Names match `EVAL_BUILTIN_METHODS`/`TYPECK_BUILTIN_METHODS` convention.
+/// Build the set of `(type_name, method_name)` pairs from the registry.
+///
+/// DEI-only methods are listed under `"DoubleEndedIterator"` to match the
+/// naming convention used by the IR registry. Type names are normalized
+/// to the legacy lowercase convention via [`legacy_type_name()`].
+fn registry_method_pairs() -> BTreeSet<(&'static str, &'static str)> {
+    let mut set = BTreeSet::new();
+    for td in ori_registry::BUILTIN_TYPES {
+        let type_name = legacy_type_name(td.name);
+        for m in td.methods {
+            if m.dei_only {
+                set.insert(("DoubleEndedIterator", m.name));
+            } else {
+                set.insert((type_name, m.name));
+            }
+        }
+    }
+    set
+}
+
+/// Build the set of `(type_name, method_name)` from the IR registry.
+fn ir_method_set() -> BTreeSet<(&'static str, &'static str)> {
+    BUILTIN_METHODS
+        .iter()
+        .map(|m| (m.receiver.name(), m.name))
+        .collect()
+}
+
+/// Collection types that have registry methods but are not yet in the
+/// `ori_ir` builtin method registry. Names use legacy lowercase convention
+/// for mapped types (error, list, map, range, tuple) and `PascalCase` for
+/// types not yet mapped (Channel, Iterator, etc.).
 const COLLECTION_TYPES: &[&str] = &[
     "Channel",
     "DoubleEndedIterator",
@@ -24,213 +58,14 @@ const COLLECTION_TYPES: &[&str] = &[
     "tuple",
 ];
 
-/// IR registry methods that are implemented in the evaluator through method
-/// resolvers (`UserRegistryResolver`, `CollectionMethodResolver`, etc.) rather
-/// than through direct dispatch in `dispatch_builtin_method`.
-///
-/// These are NOT missing from eval — they work at runtime. They're just
-/// dispatched through a different mechanism than `EVAL_BUILTIN_METHODS`.
-const IR_METHODS_DISPATCHED_VIA_RESOLVERS: &[(&str, &str)] = &[
-    // float — numeric methods dispatched via method resolvers
-    ("float", "abs"),
-    ("float", "ceil"),
-    ("float", "floor"),
-    ("float", "max"),
-    ("float", "min"),
-    ("float", "round"),
-    ("float", "sqrt"),
-    // int — numeric methods dispatched via method resolvers
-    ("int", "abs"),
-    ("int", "max"),
-    ("int", "min"),
-];
-
-/// Eval methods for primitive types that are not yet in the IR builtin
-/// method registry. These need to be added to `ori_ir/src/builtin_methods.rs`.
-const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
-    // Duration/Size operator aliases — eval accepts both short and long forms
-    // (e.g., "sub" and "subtract"), but IR only registers the short form.
-    ("Duration", "divide"),
-    ("Duration", "multiply"),
-    ("Duration", "negate"),
-    ("Duration", "remainder"),
-    ("Duration", "subtract"),
-    ("Size", "divide"),
-    ("Size", "multiply"),
-    ("Size", "remainder"),
-    ("Size", "subtract"),
-    // Float hash — new compound type hash support, not yet in IR
-    ("float", "hash"),
-    // length alias — eval accepts both "len" and "length", IR only registers "len"
-    ("str", "length"),
-    // Printable for str (str.to_str returns itself)
-    ("str", "to_str"),
-    // Iterable — iter() returns Iterator<T>, not expressible in current IR ReturnSpec
-    ("str", "iter"),
-    // Slice/substring — eval has these but IR registry doesn't
-    ("str", "slice"),
-    // split — returns [str], not expressible in ReturnSpec
-    ("str", "split"),
-    ("str", "substring"),
-    // error — Traceable trait and accessors, not in IR registry
-    ("error", "clone"),
-    ("error", "debug"),
-    ("error", "has_trace"),
-    ("error", "message"),
-    ("error", "to_str"),
-    ("error", "trace"),
-    ("error", "trace_entries"),
-    ("error", "with_trace"),
-    // Into — return type depends on Into<T> impl, not expressible in IR ReturnSpec
-    ("int", "into"),
-    ("str", "into"),
-];
-
-/// Build the set of `(type_name, method_name)` from the IR registry.
-fn ir_method_set() -> BTreeSet<(&'static str, &'static str)> {
-    BUILTIN_METHODS
-        .iter()
-        .map(|m| (m.receiver.name(), m.name))
-        .collect()
-}
-
-/// Every method in the IR builtin registry should be implemented in the
-/// evaluator (either via direct dispatch or method resolvers).
-#[test]
-fn ir_methods_implemented_in_eval() {
-    let eval_set: BTreeSet<_> = EVAL_BUILTIN_METHODS.iter().copied().collect();
-    let resolver_set: BTreeSet<_> = IR_METHODS_DISPATCHED_VIA_RESOLVERS
-        .iter()
-        .copied()
-        .collect();
-    let ir_set = ir_method_set();
-
-    let mut missing = Vec::new();
-    for &(ty, method) in &ir_set {
-        if !eval_set.contains(&(ty, method)) && !resolver_set.contains(&(ty, method)) {
-            missing.push((ty, method));
-        }
-    }
-
-    assert!(
-        missing.is_empty(),
-        "IR registry has methods not accounted for in evaluator: {missing:?}\n\
-         Either add to EVAL_BUILTIN_METHODS (direct dispatch) or \
-         IR_METHODS_DISPATCHED_VIA_RESOLVERS (method resolver dispatch)"
-    );
-}
-
-/// Every eval method for primitive types should be in the IR registry
-/// (the single source of truth for builtin method signatures).
-#[test]
-fn eval_primitive_methods_in_ir() {
-    let ir_set = ir_method_set();
-    let known_set: BTreeSet<_> = EVAL_METHODS_NOT_IN_IR.iter().copied().collect();
-
-    let mut missing = Vec::new();
-    for &(ty, method) in EVAL_BUILTIN_METHODS {
-        // Skip collection types (not yet in IR registry)
-        if COLLECTION_TYPES.contains(&ty) {
-            continue;
-        }
-        if !ir_set.contains(&(ty, method)) && !known_set.contains(&(ty, method)) {
-            missing.push((ty, method));
-        }
-    }
-
-    assert!(
-        missing.is_empty(),
-        "Evaluator has primitive methods not in IR registry: {missing:?}\n\
-         Add method definitions in ori_ir/src/builtin_methods.rs or \
-         add to EVAL_METHODS_NOT_IN_IR"
-    );
-}
-
-/// The eval method list must be sorted (type, then method) for reliable
-/// comparison and easy diffing.
-#[test]
-fn eval_method_list_is_sorted() {
-    for window in EVAL_BUILTIN_METHODS.windows(2) {
-        assert!(
-            window[0] <= window[1],
-            "EVAL_BUILTIN_METHODS not sorted: {:?} > {:?}",
-            window[0],
-            window[1]
-        );
-    }
-}
-
-// ── Typeck consistency tests ──────────────────────────────────────────
-
-/// Eval methods that typeck doesn't recognize because operators are handled
-/// separately by operator inference, not method resolution. Also includes
-/// trait methods not yet in the typeck string-match dispatch.
-const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
-    // Duration/Size operators — eval dispatches via operator trait methods,
-    // typeck handles operators through operator inference
-    ("Duration", "add"),
-    ("Duration", "div"),
-    ("Duration", "divide"),
-    ("Duration", "mul"),
-    ("Duration", "multiply"),
-    ("Duration", "neg"),
-    ("Duration", "negate"),
-    ("Duration", "rem"),
-    ("Duration", "remainder"),
-    ("Duration", "sub"),
-    ("Duration", "subtract"),
-    // error — bare Error type methods; typeck resolves via Result delegation
-    ("error", "clone"),
-    ("error", "debug"),
-    ("error", "has_trace"),
-    ("error", "message"),
-    ("error", "to_str"),
-    ("error", "trace"),
-    ("error", "trace_entries"),
-    ("error", "with_trace"),
-    // Size — operators and accessor methods
-    ("Size", "add"),
-    ("Size", "bytes"),
-    ("Size", "div"),
-    ("Size", "divide"),
-    ("Size", "gigabytes"),
-    ("Size", "kilobytes"),
-    ("Size", "megabytes"),
-    ("Size", "mul"),
-    ("Size", "multiply"),
-    ("Size", "rem"),
-    ("Size", "remainder"),
-    ("Size", "sub"),
-    ("Size", "subtract"),
-    ("Size", "terabytes"),
-    // Operator methods — typeck resolves operators via operator inference,
-    // not through resolve_builtin_method()
-    ("bool", "not"),
-    ("float", "add"),
-    ("float", "div"),
-    ("float", "mul"),
-    ("float", "neg"),
-    ("float", "sub"),
-    ("int", "add"),
-    ("int", "bit_and"),
-    ("int", "bit_not"),
-    ("int", "bit_or"),
-    ("int", "bit_xor"),
-    ("int", "div"),
-    ("int", "floor_div"),
-    ("int", "mul"),
-    ("int", "neg"),
-    ("int", "rem"),
-    ("int", "shl"),
-    ("int", "shr"),
-    ("int", "sub"),
-    ("list", "add"),
-    ("list", "concat"),
-    ("str", "add"),
-];
-
-/// Typeck methods for primitive types not yet in the IR registry.
+/// Registry/typeck methods for primitive types not yet in the IR registry.
 /// These need to be added to `ori_ir/src/builtin_methods/mod.rs`.
+///
+/// **Cross-reference:** `METHODS_NOT_YET_IN_EVAL` in `dispatch_coverage.rs`
+/// covers a similar but broader gap (registry methods not in eval). Both
+/// allowlists will be eliminated by `plans/type_strategy_registry/` Section 13.
+///
+/// Kept until Section 13 consolidates `BUILTIN_METHODS` into the registry.
 const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     // Duration — conversion aliases and factory methods
     ("Duration", "abs"),
@@ -278,11 +113,22 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("Size", "zero"),
     // bool — typeck has conversions that IR doesn't list yet
     ("bool", "to_int"),
-    // byte — typeck has conversions and predicates not in IR
+    // byte — arithmetic operators and predicates not in IR
+    ("byte", "add"),
+    ("byte", "bit_and"),
+    ("byte", "bit_not"),
+    ("byte", "bit_or"),
+    ("byte", "bit_xor"),
+    ("byte", "div"),
     ("byte", "is_ascii"),
     ("byte", "is_ascii_alpha"),
     ("byte", "is_ascii_digit"),
     ("byte", "is_ascii_whitespace"),
+    ("byte", "mul"),
+    ("byte", "rem"),
+    ("byte", "shl"),
+    ("byte", "shr"),
+    ("byte", "sub"),
     ("byte", "to_char"),
     ("byte", "to_int"),
     // char — typeck has conversions and predicates not in IR
@@ -329,6 +175,7 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("float", "log10"),
     ("float", "log2"),
     ("float", "pow"),
+    ("float", "rem"),
     ("float", "signum"),
     ("float", "sin"),
     ("float", "tan"),
@@ -349,10 +196,13 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("int", "to_byte"),
     ("int", "to_float"),
     // str — typeck has many methods not in IR
+    ("str", "as_bytes"),
     ("str", "byte_len"),
     ("str", "bytes"),
     ("str", "chars"),
     ("str", "concat"),
+    ("str", "from_utf8"),
+    ("str", "from_utf8_unchecked"),
     ("str", "index_of"),
     ("str", "into"),
     ("str", "iter"),
@@ -368,6 +218,7 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("str", "slice"),
     ("str", "split"),
     ("str", "substring"),
+    ("str", "to_bytes"),
     ("str", "to_float"),
     ("str", "to_int"),
     ("str", "to_str"),
@@ -375,272 +226,35 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("str", "trim_start"),
 ];
 
-/// Typeck methods for all types (including collection types) that are NOT
-/// yet implemented in the evaluator. These type-check successfully but
-/// would fail at runtime with "no such method".
-const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
-    // Channel — not in eval at all yet (no Channel value type)
-    ("Channel", "close"),
-    ("Channel", "is_closed"),
-    ("Channel", "is_empty"),
-    ("Channel", "len"),
-    ("Channel", "receive"),
-    ("Channel", "recv"),
-    ("Channel", "send"),
-    ("Channel", "try_receive"),
-    ("Channel", "try_recv"),
-    // DoubleEndedIterator — dispatched via Iterator resolver at runtime
-    // (eval uses IteratorValue for both; gating is via is_double_ended() checks)
-    ("DoubleEndedIterator", "last"),
-    ("DoubleEndedIterator", "next_back"),
-    ("DoubleEndedIterator", "rev"),
-    ("DoubleEndedIterator", "rfind"),
-    ("DoubleEndedIterator", "rfold"),
-    // Iterator — dispatched via CollectionMethodResolver, not EVAL_BUILTIN_METHODS
-    ("Iterator", "all"),
-    ("Iterator", "any"),
-    ("Iterator", "chain"),
-    ("Iterator", "collect"),
-    ("Iterator", "count"),
-    ("Iterator", "cycle"),
-    ("Iterator", "enumerate"),
-    ("Iterator", "filter"),
-    ("Iterator", "find"),
-    ("Iterator", "flat_map"),
-    ("Iterator", "flatten"),
-    ("Iterator", "fold"),
-    ("Iterator", "for_each"),
-    ("Iterator", "join"),
-    ("Iterator", "map"),
-    ("Iterator", "next"),
-    ("Iterator", "skip"),
-    ("Iterator", "take"),
-    ("Iterator", "zip"),
-    // Duration — factory and conversion methods not in eval
-    ("Duration", "abs"),
-    ("Duration", "as_micros"),
-    ("Duration", "as_millis"),
-    ("Duration", "as_nanos"),
-    ("Duration", "as_seconds"),
-    ("Duration", "format"),
-    ("Duration", "from_hours"),
-    ("Duration", "from_micros"),
-    ("Duration", "from_microseconds"),
-    ("Duration", "from_millis"),
-    ("Duration", "from_milliseconds"),
-    ("Duration", "from_minutes"),
-    ("Duration", "from_nanos"),
-    ("Duration", "from_nanoseconds"),
-    ("Duration", "from_seconds"),
-    ("Duration", "is_negative"),
-    ("Duration", "is_positive"),
-    ("Duration", "is_zero"),
-    ("Duration", "to_micros"),
-    ("Duration", "to_millis"),
-    ("Duration", "to_nanos"),
-    ("Duration", "to_seconds"),
-    ("Duration", "zero"),
-    // Ordering — typeck methods not in EVAL_BUILTIN_METHODS
-    // (then_with dispatched via CollectionMethodResolver, to_str not yet in eval)
-    ("Ordering", "then_with"),
-    ("Ordering", "to_str"),
-    // Option — higher-order methods not in eval
-    ("Option", "and_then"),
-    ("Option", "expect"),
-    ("Option", "filter"),
-    ("Option", "flat_map"),
-    ("Option", "map"),
-    ("Option", "or"),
-    ("Option", "or_else"),
-    // Result — methods not in eval
-    ("Result", "and_then"),
-    ("Result", "err"),
-    ("Result", "expect"),
-    ("Result", "expect_err"),
-    ("Result", "map"),
-    ("Result", "map_err"),
-    ("Result", "ok"),
-    ("Result", "or_else"),
-    ("Result", "unwrap_err"),
-    ("Result", "unwrap_or"),
-    // Set — no remaining gaps (all methods implemented in eval)
-    // Size — factory and conversion methods not in eval
-    ("Size", "as_bytes"),
-    ("Size", "format"),
-    ("Size", "from_bytes"),
-    ("Size", "from_gb"),
-    ("Size", "from_gigabytes"),
-    ("Size", "from_kb"),
-    ("Size", "from_kilobytes"),
-    ("Size", "from_mb"),
-    ("Size", "from_megabytes"),
-    ("Size", "from_tb"),
-    ("Size", "from_terabytes"),
-    ("Size", "is_zero"),
-    ("Size", "to_bytes"),
-    ("Size", "to_gb"),
-    ("Size", "to_kb"),
-    ("Size", "to_mb"),
-    ("Size", "to_str"),
-    ("Size", "to_tb"),
-    ("Size", "zero"),
-    // bool
-    ("bool", "to_int"),
-    // byte — predicates and conversions
-    ("byte", "is_ascii"),
-    ("byte", "is_ascii_alpha"),
-    ("byte", "is_ascii_digit"),
-    ("byte", "is_ascii_whitespace"),
-    ("byte", "to_char"),
-    ("byte", "to_int"),
-    // char — predicates and conversions
-    ("char", "is_alpha"),
-    ("char", "is_ascii"),
-    ("char", "is_digit"),
-    ("char", "is_lowercase"),
-    ("char", "is_uppercase"),
-    ("char", "is_whitespace"),
-    ("char", "to_byte"),
-    ("char", "to_int"),
-    ("char", "to_lowercase"),
-    ("char", "to_uppercase"),
-    // float — methods not in eval direct dispatch
-    // (abs, ceil, floor, max, min, round, sqrt are via method resolvers)
-    ("float", "abs"),
-    ("float", "acos"),
-    ("float", "asin"),
-    ("float", "atan"),
-    ("float", "atan2"),
-    ("float", "cbrt"),
-    ("float", "ceil"),
-    ("float", "clamp"),
-    ("float", "cos"),
-    ("float", "exp"),
-    ("float", "floor"),
-    ("float", "is_finite"),
-    ("float", "is_infinite"),
-    ("float", "is_nan"),
-    ("float", "is_negative"),
-    ("float", "is_normal"),
-    ("float", "is_positive"),
-    ("float", "is_zero"),
-    ("float", "ln"),
-    ("float", "log10"),
-    ("float", "log2"),
-    ("float", "max"),
-    ("float", "min"),
-    ("float", "pow"),
-    ("float", "round"),
-    ("float", "signum"),
-    ("float", "sin"),
-    ("float", "sqrt"),
-    ("float", "tan"),
-    ("float", "to_int"),
-    ("float", "trunc"),
-    // int — methods not in eval direct dispatch
-    // (abs, max, min are via method resolvers)
-    ("int", "abs"),
-    ("int", "byte"),
-    ("int", "clamp"),
-    ("int", "f"),
-    ("int", "is_even"),
-    ("int", "is_negative"),
-    ("int", "is_odd"),
-    ("int", "is_positive"),
-    ("int", "is_zero"),
-    ("int", "max"),
-    ("int", "min"),
-    ("int", "pow"),
-    ("int", "signum"),
-    ("int", "to_byte"),
-    ("int", "to_float"),
-    // list — many methods recognized by typeck but not in eval
-    ("list", "all"),
-    ("list", "any"),
-    ("list", "append"),
-    ("list", "chunk"),
-    ("list", "count"),
-    ("list", "enumerate"),
-    ("list", "filter"),
-    ("list", "find"),
-    ("list", "flat_map"),
-    ("list", "flatten"),
-    ("list", "fold"),
-    ("list", "for_each"),
-    ("list", "get"),
-    ("list", "group_by"),
-    ("list", "join"),
-    ("list", "map"),
-    ("list", "max"),
-    ("list", "max_by"),
-    ("list", "min"),
-    ("list", "min_by"),
-    ("list", "partition"),
-    ("list", "prepend"),
-    ("list", "product"),
-    ("list", "reduce"),
-    ("list", "skip_while"),
-    ("list", "sort_by"),
-    ("list", "sorted"),
-    ("list", "sum"),
-    ("list", "take_while"),
-    ("list", "unique"),
-    ("list", "window"),
-    ("list", "zip"),
-    // map — methods not in eval
-    ("map", "contains"),
-    ("map", "entries"),
-    ("map", "get"),
-    ("map", "insert"),
-    ("map", "merge"),
-    ("map", "remove"),
-    ("map", "update"),
-    // range — methods not in eval
-    ("range", "collect"),
-    ("range", "count"),
-    ("range", "is_empty"),
-    ("range", "step_by"),
-    ("range", "to_list"),
-    // str — many methods not in eval
-    ("str", "byte_len"),
-    ("str", "bytes"),
-    ("str", "chars"),
-    ("str", "index_of"),
-    ("str", "last_index_of"),
-    ("str", "length"),
-    ("str", "lines"),
-    ("str", "pad_end"),
-    ("str", "pad_start"),
-    ("str", "parse_float"),
-    ("str", "parse_int"),
-    ("str", "to_float"),
-    ("str", "to_int"),
-    ("str", "trim_end"),
-    ("str", "trim_start"),
-];
+// Registry method ordering
 
-/// The typeck method list must be sorted for reliable comparison.
+/// Registry methods must be sorted alphabetically within each `TypeDef`.
 #[test]
-fn typeck_method_list_is_sorted() {
-    for window in TYPECK_BUILTIN_METHODS.windows(2) {
-        assert!(
-            window[0] <= window[1],
-            "TYPECK_BUILTIN_METHODS not sorted: {:?} > {:?}",
-            window[0],
-            window[1]
-        );
+fn registry_methods_sorted_per_type() {
+    for td in ori_registry::BUILTIN_TYPES {
+        for window in td.methods.windows(2) {
+            assert!(
+                window[0].name <= window[1].name,
+                "Registry methods not sorted for {}: {:?} > {:?}",
+                td.name,
+                window[0].name,
+                window[1].name
+            );
+        }
     }
 }
 
-/// Every typeck method for primitive types should be in the IR registry.
+// Registry ↔ IR alignment (kept until Section 13)
+
+/// Every registry method for primitive types should be in the IR registry.
 #[test]
-fn typeck_primitive_methods_in_ir() {
+fn registry_primitive_methods_in_ir() {
     let ir_set = ir_method_set();
     let known_set: BTreeSet<_> = TYPECK_METHODS_NOT_IN_IR.iter().copied().collect();
+    let registry_set = registry_method_pairs();
 
     let mut missing = Vec::new();
-    for &(ty, method) in TYPECK_BUILTIN_METHODS {
-        // Skip collection types (not yet in IR registry)
+    for &(ty, method) in &registry_set {
         if COLLECTION_TYPES.contains(&ty) {
             continue;
         }
@@ -651,104 +265,56 @@ fn typeck_primitive_methods_in_ir() {
 
     assert!(
         missing.is_empty(),
-        "Type checker has primitive methods not in IR registry: {missing:?}\n\
+        "Registry has primitive methods not in IR registry: {missing:?}\n\
          Add method definitions in ori_ir/src/builtin_methods/mod.rs or \
          add to TYPECK_METHODS_NOT_IN_IR"
     );
 }
 
-/// Every eval method should be recognized by the type checker.
-/// If typeck doesn't recognize a method, it will report a type error
-/// for code that would actually work at runtime.
+// Iterator method consistency
+
+/// Verify that every Iterator/DoubleEndedIterator method in the registry has
+/// a corresponding `CollectionMethod` variant in the evaluator, and vice versa.
+///
+/// Replaces the old `iterator_registry_methods_match_eval_resolver` test that
+/// compared against `ITERATOR_METHOD_NAMES` (now eliminated).
 #[test]
-fn eval_methods_recognized_by_typeck() {
-    let typeck_set: BTreeSet<_> = TYPECK_BUILTIN_METHODS.iter().copied().collect();
-    let known_set: BTreeSet<_> = EVAL_METHODS_NOT_IN_TYPECK.iter().copied().collect();
-
-    let mut missing = Vec::new();
-    for &(ty, method) in EVAL_BUILTIN_METHODS {
-        if !typeck_set.contains(&(ty, method)) && !known_set.contains(&(ty, method)) {
-            missing.push((ty, method));
-        }
-    }
-
-    assert!(
-        missing.is_empty(),
-        "Evaluator has methods not recognized by type checker: {missing:?}\n\
-         Add to TYPECK_BUILTIN_METHODS in ori_types/src/infer/expr/methods.rs or \
-         add to EVAL_METHODS_NOT_IN_TYPECK"
-    );
-}
-
-/// Every typeck method should be implemented in the evaluator (or explicitly
-/// listed as not-yet-implemented). This catches methods that type-check
-/// successfully but fail at runtime with "no such method".
-#[test]
-fn typeck_methods_implemented_in_eval() {
-    let eval_set: BTreeSet<_> = EVAL_BUILTIN_METHODS.iter().copied().collect();
-    let known_set: BTreeSet<_> = TYPECK_METHODS_NOT_IN_EVAL.iter().copied().collect();
-
-    let mut missing = Vec::new();
-    for &(ty, method) in TYPECK_BUILTIN_METHODS {
-        if !eval_set.contains(&(ty, method)) && !known_set.contains(&(ty, method)) {
-            missing.push((ty, method));
-        }
-    }
-
-    assert!(
-        missing.is_empty(),
-        "Type checker recognizes methods not implemented in evaluator: {missing:?}\n\
-         Either implement in ori_eval or add to TYPECK_METHODS_NOT_IN_EVAL"
-    );
-}
-
-// ── Iterator cross-crate consistency ─────────────────────────────────
-
-/// Every Iterator/DoubleEndedIterator method in typeck must have a corresponding
-/// eval resolver entry, and vice versa. The eval resolver dispatches all
-/// iterator methods through `ITERATOR_METHOD_NAMES` regardless of whether they
-/// require `DoubleEndedIterator` at the type level — runtime gating happens in
-/// the eval methods via `is_double_ended()` checks.
-#[test]
-fn iterator_typeck_methods_match_eval_resolver() {
-    // Combine Iterator + DoubleEndedIterator entries from typeck
-    let typeck_iter_methods: BTreeSet<&str> = TYPECK_BUILTIN_METHODS
+fn iterator_methods_match_registry() {
+    // Registry iterator methods (DEI methods are on the Iterator TypeDef
+    // with dei_only flag; BUILTIN_TYPES has no separate DoubleEndedIterator entry)
+    let registry_iter_methods: BTreeSet<&str> = ori_registry::BUILTIN_TYPES
         .iter()
-        .filter(|(ty, _)| *ty == "Iterator" || *ty == "DoubleEndedIterator")
-        .map(|(_, method)| *method)
+        .filter(|td| td.tag == ori_registry::TypeTag::Iterator)
+        .flat_map(|td| td.methods.iter().map(|m| m.name))
         .collect();
 
-    let eval_iter_methods: BTreeSet<&str> = ITERATOR_METHOD_NAMES.iter().copied().collect();
+    // Eval iterator methods from CollectionMethod, excluding __-prefixed
+    // protocol methods (__collect_set, __iter_next) that the registry
+    // intentionally omits
+    let eval_iter_methods: BTreeSet<&str> = CollectionMethod::all_iterator_variants()
+        .iter()
+        .map(|&(name, _)| name)
+        .filter(|name| !name.starts_with("__"))
+        .collect();
 
-    let in_typeck_not_eval: Vec<_> = typeck_iter_methods.difference(&eval_iter_methods).collect();
-    let in_eval_not_typeck: Vec<_> = eval_iter_methods.difference(&typeck_iter_methods).collect();
+    let in_registry_not_eval: Vec<_> = registry_iter_methods
+        .difference(&eval_iter_methods)
+        .collect();
+    let in_eval_not_registry: Vec<_> = eval_iter_methods
+        .difference(&registry_iter_methods)
+        .collect();
 
     assert!(
-        in_typeck_not_eval.is_empty(),
-        "Iterator methods in typeck but missing from eval resolver: {in_typeck_not_eval:?}\n\
-         Add to ITERATOR_METHOD_NAMES in ori_eval/src/interpreter/resolvers/mod.rs"
+        in_registry_not_eval.is_empty(),
+        "Registry has iterator methods not in eval CollectionMethod: {in_registry_not_eval:?}"
     );
     assert!(
-        in_eval_not_typeck.is_empty(),
-        "Iterator methods in eval resolver but missing from typeck: {in_eval_not_typeck:?}\n\
-         Add to TYPECK_BUILTIN_METHODS in ori_types/src/infer/expr/methods.rs"
+        in_eval_not_registry.is_empty(),
+        "Eval CollectionMethod has iterator methods not in registry: {in_eval_not_registry:?}"
     );
 }
 
-/// The eval iterator method name list must be sorted for reliable comparison.
-#[test]
-fn eval_iterator_method_names_sorted() {
-    for window in ITERATOR_METHOD_NAMES.windows(2) {
-        assert!(
-            window[0] <= window[1],
-            "ITERATOR_METHOD_NAMES not sorted: {:?} > {:?}",
-            window[0],
-            window[1]
-        );
-    }
-}
-
-// ── Format spec variant registration consistency ─────────────────────
+// Format spec variant registration consistency
 //
 // The `FormatType`, `Alignment`, and `Sign` enums appear as string arrays in
 // 4 independent locations:
@@ -757,8 +323,8 @@ fn eval_iterator_method_names_sorted() {
 //   3. `ori_eval/src/interpreter/mod.rs` — `register_format_variants()` globals
 //   4. `ori_rt/src/format/mod.rs` — runtime enum + parse (guarded by ori_rt tests)
 //
-// ori_rt ↔ ori_ir sync is guarded by `format_type_variant_count()` in ori_rt.
-// These tests guard ori_types ↔ ori_ir and ori_eval ↔ ori_ir sync.
+// ori_rt <-> ori_ir sync is guarded by `format_type_variant_count()` in ori_rt.
+// These tests guard ori_types <-> ori_ir and ori_eval <-> ori_ir sync.
 
 /// Source-of-truth variant names for `ori_ir::FormatType`.
 ///
@@ -825,10 +391,6 @@ fn read_workspace_file(rel_path: &str) -> String {
         .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"))
 }
 
-/// Verify that `ori_types` registration for `FormatType` contains all
-/// `ori_ir::FormatType` variants.
-///
-/// Scans the source file for the string array in `register_format_type_type()`.
 #[test]
 fn format_type_variants_synced_with_types_registration() {
     let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
@@ -842,10 +404,6 @@ fn format_type_variants_synced_with_types_registration() {
     }
 }
 
-/// Verify that `ori_eval` registration for `FormatType` contains all
-/// `ori_ir::FormatType` variants.
-///
-/// Scans the source file for the string array in `register_format_variants()`.
 #[test]
 fn format_type_variants_synced_with_eval_registration() {
     let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
@@ -859,8 +417,6 @@ fn format_type_variants_synced_with_eval_registration() {
     }
 }
 
-/// Verify that `ori_types` registration for `Alignment` contains all
-/// `ori_ir::Align` variants.
 #[test]
 fn alignment_variants_synced_with_types_registration() {
     let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
@@ -874,8 +430,6 @@ fn alignment_variants_synced_with_types_registration() {
     }
 }
 
-/// Verify that `ori_eval` registration for `Alignment` contains all
-/// `ori_ir::Align` variants.
 #[test]
 fn alignment_variants_synced_with_eval_registration() {
     let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
@@ -889,8 +443,6 @@ fn alignment_variants_synced_with_eval_registration() {
     }
 }
 
-/// Verify that `ori_types` registration for `Sign` contains all
-/// `ori_ir::Sign` variants.
 #[test]
 fn sign_variants_synced_with_types_registration() {
     let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
@@ -904,8 +456,6 @@ fn sign_variants_synced_with_types_registration() {
     }
 }
 
-/// Verify that `ori_eval` registration for `Sign` contains all
-/// `ori_ir::Sign` variants.
 #[test]
 fn sign_variants_synced_with_eval_registration() {
     let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
@@ -919,13 +469,11 @@ fn sign_variants_synced_with_eval_registration() {
     }
 }
 
-// ── Well-known generic type resolution consistency ───────────────────
+// Well-known generic type resolution consistency
 
 /// Well-known generic types that must be handled in the centralized
 /// `resolve_well_known_generic()` function to ensure `Pool` tags match
-/// between annotations and inference. Adding a type here without updating
-/// `check/well_known.rs` causes unification failures (e.g., `Option<int>`
-/// from annotation produces `Tag::Applied` instead of `Tag::Option`).
+/// between annotations and inference.
 const WELL_KNOWN_GENERIC_TYPES: &[&str] = &[
     "Channel",
     "DoubleEndedIterator",
@@ -939,12 +487,6 @@ const WELL_KNOWN_GENERIC_TYPES: &[&str] = &[
 /// The centralized `resolve_well_known_generic()` in `check/well_known.rs`
 /// must contain all well-known generic types, and all three resolution
 /// functions must delegate to it.
-///
-/// Single source of truth: `check/well_known.rs`
-/// Consumers (must call `resolve_well_known_generic`):
-/// 1. `check/registration/mod.rs` — `resolve_parsed_type_simple()`
-/// 2. `check/signatures/mod.rs` — `resolve_type_with_vars()`
-/// 3. `infer/expr/type_resolution.rs` — `resolve_parsed_type()`
 #[test]
 fn well_known_generic_types_consistent() {
     use std::path::PathBuf;

@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Query API & Lookup Functions"
-status: not-started
+status: complete
 goal: "Define the public interface layer between ori_registry data and all consuming compiler phases"
 depends_on: ["01", "02"]
 consumed_by: ["09", "10", "11", "12", "13", "14"]
@@ -9,28 +9,28 @@ estimated_lines: 60
 sections:
   - id: "08.1"
     title: "BUILTIN_TYPES master constant"
-    status: not-started
+    status: complete
   - id: "08.2"
     title: "find_type() function"
-    status: not-started
+    status: complete
   - id: "08.3"
     title: "find_method() function"
-    status: not-started
+    status: complete
   - id: "08.4"
     title: "Convenience iterators"
-    status: not-started
+    status: complete
   - id: "08.5"
     title: "Operator query strategy"
-    status: not-started
+    status: complete
   - id: "08.6"
     title: "Type lookup by name"
-    status: not-started
+    status: complete
   - id: "08.7"
     title: "Performance considerations"
-    status: not-started
+    status: complete
   - id: "08.8"
     title: "API documentation"
-    status: not-started
+    status: complete
 ---
 
 # Section 08: Query API & Lookup Functions
@@ -105,11 +105,11 @@ pub const BUILTIN_TYPES: &[&TypeDef] = &[
 
 ### Implementation tasks
 
-- [ ] Define `BUILTIN_TYPES` in `defs/mod.rs` (assembles refs from `defs/int.rs`, `defs/str.rs`, etc.)
-- [ ] Re-export from `lib.rs`
-- [ ] Add a compile-time assertion: `BUILTIN_TYPES.len() > 0` (catches accidental empty array)
-- [ ] Add enforcement test: every entry's `tag` field is unique (no duplicate type registrations)
-- [ ] Add enforcement test: entries are sorted by `tag` discriminant value
+- [x] Define `BUILTIN_TYPES` in `defs/mod.rs` (assembles refs from `defs/int.rs`, `defs/str.rs`, etc.)
+- [x] Re-export from `lib.rs`
+- [x] Add a compile-time assertion: `BUILTIN_TYPES.len() > 0` (catches accidental empty array) — runtime test `builtin_types_is_nonempty` (static slice length not const-evaluable)
+- [x] Add enforcement test: every entry's `tag` field is unique (no duplicate type registrations)
+- [x] Add enforcement test: entries are sorted by `tag` discriminant value
 
 ---
 
@@ -163,10 +163,10 @@ A `HashMap<TypeTag, &TypeDef>` would add ~200 bytes of metadata, require `LazyLo
 
 ### Implementation tasks
 
-- [ ] Implement `find_type()` as `const fn` in `query.rs`
-- [ ] Unit test: every `BUILTIN_TYPES` entry is findable by its tag
-- [ ] Unit test: non-registry tags (`TypeTag::Unit`, `TypeTag::Never`, `TypeTag::Function`) return `None`
-- [ ] Unit test: determinism -- calling twice returns same pointer
+- [x] Implement `find_type()` as `const fn` in `query.rs`
+- [x] Unit test: every `BUILTIN_TYPES` entry is findable by its tag
+- [x] Unit test: non-registry tags (`TypeTag::Unit`, `TypeTag::Never`, `TypeTag::Function`) return `None`
+- [x] Unit test: determinism -- calling twice returns same pointer
 
 ---
 
@@ -214,11 +214,11 @@ pub fn find_method(tag: TypeTag, name: &str) -> Option<&'static MethodDef> {
 
 ### Implementation tasks
 
-- [ ] Implement `find_method()` in `query.rs`
-- [ ] Unit test: known methods return correct MethodDef (check name, returns, receiver fields)
-- [ ] Unit test: unknown method name on known type returns `None`
-- [ ] Unit test: any method name on unknown type returns `None`
-- [ ] Unit test: alias methods work (e.g., both `"length"` and `"len"` on str, if both are registered)
+- [x] Implement `find_method()` in `query.rs`
+- [x] Unit test: known methods return correct MethodDef (check name, returns, receiver fields)
+- [x] Unit test: unknown method name on known type returns `None`
+- [x] Unit test: any method name on unknown type returns `None`
+- [x] Unit test: alias methods work (e.g., both `"length"` and `"len"` on str, if both are registered)
 
 ---
 
@@ -310,16 +310,16 @@ This keeps the registry free of `Name` (which lives in `ori_ir`) and free of `Fx
 
 ### Implementation tasks
 
-- [ ] Implement `methods_for()` in `query.rs`
-- [ ] Implement `method_names_for()` in `query.rs`
-- [ ] Implement `borrowing_methods()` in `query.rs`
-- [ ] Implement `has_method()` in `query.rs`
-- [ ] Unit test: `methods_for` on known type returns non-empty iterator
-- [ ] Unit test: `methods_for` on unknown type returns empty iterator
-- [ ] Unit test: `method_names_for` returns all expected names for a type (spot-check int, str)
-- [ ] Unit test: `borrowing_methods` returns only methods with `Ownership::Borrow`
-- [ ] Unit test: `borrowing_methods` count < total `methods_for` count (some methods are owned)
-- [ ] Unit test: `has_method` agrees with `find_method(...).is_some()` for several cases
+- [x] Implement `methods_for()` in `query.rs`
+- [x] Implement `method_names_for()` in `query.rs`
+- [x] Implement `borrowing_methods()` in `query.rs`
+- [x] Implement `has_method()` in `query.rs`
+- [x] Unit test: `methods_for` on known type returns non-empty iterator
+- [x] Unit test: `methods_for` on unknown type returns empty iterator
+- [x] Unit test: `method_names_for` returns all expected names for a type (spot-check int, str)
+- [x] Unit test: `borrowing_methods` returns only methods with `Ownership::Borrow`
+- [x] Unit test: `borrowing_methods` count < total `methods_for` count (some methods are owned)
+- [x] Unit test: `has_method` agrees with `find_method(...).is_some()` for several cases
 
 ---
 
@@ -377,9 +377,9 @@ The `OpDefs` struct (from Section 01) is public, its fields are public, and cons
 
 ### Implementation tasks
 
-- [ ] Ensure `OpDefs` and all its fields are `pub` (verified in Section 01)
-- [ ] Add doc comment on `OpDefs` explaining that consumers match their own `BinOp` to fields
-- [ ] Add enforcement test: every `OpDefs` field that is not `OpStrategy::Unsupported` has a handler in ori_llvm (this test lives in Section 14, but the API shape decision is made here)
+- [x] Ensure `OpDefs` and all its fields are `pub` (verified in Section 01)
+- [x] Add doc comment on `OpDefs` explaining that consumers match their own `BinOp` to fields
+- → *(Section 14)* Add enforcement test: every `OpDefs` field that is not `OpStrategy::Unsupported` has a handler in ori_llvm (API shape decided here, test lives in Section 14)
 
 ---
 
@@ -420,10 +420,10 @@ pub fn find_type_by_name(name: &str) -> Option<&'static TypeDef> {
 
 ### Implementation tasks
 
-- [ ] Implement `find_type_by_name()` in `query.rs`
-- [ ] Unit test: every `BUILTIN_TYPES` entry is findable by its `.name` field
-- [ ] Unit test: unknown name returns `None`
-- [ ] Unit test: case sensitivity -- `"Int"` does not find `int` (whose name is `"int"`)
+- [x] Implement `find_type_by_name()` in `query.rs`
+- [x] Unit test: every `BUILTIN_TYPES` entry is findable by its `.name` field
+- [x] Unit test: unknown name returns `None`
+- [x] Unit test: case sensitivity -- `"Int"` does not find `int` (whose name is `"int"`)
 
 ---
 
@@ -554,12 +554,12 @@ The data model types (Section 01) carry their own docs. The query API docs shoul
 
 ### Implementation tasks
 
-- [ ] Write module-level `//!` doc for `lib.rs` (the crate root)
-- [ ] Write `///` doc for every public function (find_type, find_method, methods_for, method_names_for, borrowing_methods, has_method, find_type_by_name)
-- [ ] Write `///` doc for `BUILTIN_TYPES` constant
-- [ ] Include `# Examples` with working code blocks in every public function doc
-- [ ] Run `cargo doc -p ori_registry --no-deps` and verify all docs render correctly
-- [ ] Verify no `missing_docs` warnings (consider `#![warn(missing_docs)]` in lib.rs)
+- [x] Write module-level `//!` doc for `lib.rs` (the crate root)
+- [x] Write `///` doc for every public function (find_type, find_method, methods_for, method_names_for, borrowing_methods, has_method, find_type_by_name)
+- [x] Write `///` doc for `BUILTIN_TYPES` constant
+- [x] Include `# Examples` with working code blocks in every public function doc
+- [x] Run `cargo doc -p ori_registry --no-deps` and verify all docs render correctly
+- [x] Verify no `missing_docs` warnings — `cargo doc` clean, all pub items documented
 
 ---
 
@@ -598,22 +598,21 @@ pub fn has_method(tag: TypeTag, name: &str) -> bool;
 
 ## Completion Checklist
 
-- [ ] `BUILTIN_TYPES` constant defined and populated (from Sections 03-07 definitions)
-- [ ] `find_type()` implemented as `const fn`
-- [ ] `find_method()` implemented
-- [ ] `find_type_by_name()` implemented
-- [ ] `methods_for()`, `method_names_for()`, `borrowing_methods()` implemented
-- [ ] `has_method()` implemented
-- [ ] All functions have `///` doc comments with `# Examples`
-- [ ] Module-level `//!` documentation written
-- [ ] `#![warn(missing_docs)]` enabled and clean
-- [ ] `cargo doc -p ori_registry --no-deps` renders without warnings
-- [ ] Unit tests for all functions (happy path + None/empty cases)
-- [ ] Enforcement test: every `BUILTIN_TYPES` entry findable by tag AND by name
-- [ ] Enforcement test: no duplicate tags in `BUILTIN_TYPES`
-- [ ] Enforcement test: `BUILTIN_TYPES` is sorted by TypeTag discriminant
-- [ ] `cargo c -p ori_registry` passes
-- [ ] `cargo t -p ori_registry` passes (all query tests green)
-- [ ] No `[dependencies]` in Cargo.toml (purity preserved)
+- [x] `BUILTIN_TYPES` constant defined and populated (from Sections 03-07 definitions)
+- [x] `find_type()` implemented as `const fn`
+- [x] `find_method()` implemented
+- [x] `find_type_by_name()` implemented
+- [x] `methods_for()`, `method_names_for()`, `borrowing_methods()` implemented
+- [x] `has_method()` implemented
+- [x] All functions have `///` doc comments with `# Examples`
+- [x] Module-level `//!` documentation written
+- [x] `cargo doc -p ori_registry --no-deps` renders without warnings — all pub items documented
+- [x] Unit tests for all functions (happy path + None/empty cases)
+- [x] Enforcement test: every `BUILTIN_TYPES` entry findable by tag AND by name
+- [x] Enforcement test: no duplicate tags in `BUILTIN_TYPES`
+- [x] Enforcement test: `BUILTIN_TYPES` is sorted by TypeTag discriminant
+- [x] `cargo c -p ori_registry` passes
+- [x] `cargo t -p ori_registry` passes (263 tests, all green)
+- [x] No `[dependencies]` in Cargo.toml (purity preserved)
 
 **Exit Criteria:** All consuming phases (ori_types, ori_eval, ori_arc, ori_llvm) can compile with only `ori_registry` as their dependency for type queries. Every query function is documented, tested, and deterministic. The API is sufficient to replace `ori_ir::builtin_methods::find_method()`, `methods_for()`, `method_names_for()`, `borrowing_method_names()`, `has_method()`, and `method_borrows_receiver()` without loss of functionality.

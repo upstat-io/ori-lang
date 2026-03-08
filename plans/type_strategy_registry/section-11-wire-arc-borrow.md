@@ -2,6 +2,7 @@
 section: "11"
 title: "Wire ARC & Borrow Pass (ori_arc)"
 status: not-started
+reviewed: false
 goal: "Replace all borrowing_builtins construction with ori_registry as the single source of truth, fix dependency direction, and preserve iterator exclusion semantics"
 depends_on:
   - "03"
@@ -42,6 +43,7 @@ sections:
 ---
 
 # Section 11: Wire ARC & Borrow Pass (ori_arc)
+
 
 **Context:** The ARC borrow inference pass (`ori_arc::infer_borrows`) needs to know which builtin methods borrow their receiver so it can skip RC operations at their call sites. Currently this data flows through two different functions depending on which code path constructs it:
 

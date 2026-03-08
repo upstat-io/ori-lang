@@ -294,6 +294,123 @@ class TestEdgeCases:
         assert not m.functions["@_ori_add"].is_llvm_intrinsic
 
 
+# ---------------------------------------------------------------------------
+# Quoted function names (Section 04.1)
+# ---------------------------------------------------------------------------
+
+_QUOTED_IR = textwrap.dedent("""\
+    define fastcc i64 @"_ori_first$24m$24int_int"(i64 %0) #0 {
+    entry:
+      ret i64 %0
+    }
+
+    declare void @"ori_str_from_raw"(ptr, ptr, i64)
+
+    attributes #0 = { nounwind }
+""")
+
+
+class TestQuotedFunctionNames:
+    def test_no_parse_errors(self):
+        m = parse_module(_QUOTED_IR)
+        assert not m.parse_errors, f"Parse errors: {m.parse_errors}"
+
+    def test_quoted_definition_parsed(self):
+        m = parse_module(_QUOTED_IR)
+        assert '@"_ori_first$24m$24int_int"' in m.functions
+
+    def test_quoted_name_property(self):
+        m = parse_module(_QUOTED_IR)
+        func = m.functions['@"_ori_first$24m$24int_int"']
+        # .name should be the clean identifier without @ or quotes
+        assert func.name == '_ori_first$24m$24int_int'
+
+    def test_quoted_raw_name_property(self):
+        m = parse_module(_QUOTED_IR)
+        func = m.functions['@"_ori_first$24m$24int_int"']
+        assert func.raw_name == '@"_ori_first$24m$24int_int"'
+
+    def test_quoted_is_user_function(self):
+        m = parse_module(_QUOTED_IR)
+        func = m.functions['@"_ori_first$24m$24int_int"']
+        # Starts with _ori_ so it's a user function
+        assert func.is_user_function
+
+    def test_quoted_declaration_parsed(self):
+        m = parse_module(_QUOTED_IR)
+        assert '@"ori_str_from_raw"' in m.functions
+
+    def test_quoted_decl_is_runtime(self):
+        m = parse_module(_QUOTED_IR)
+        func = m.functions['@"ori_str_from_raw"']
+        assert func.is_runtime_decl
+
+    def test_quoted_function_blocks(self):
+        m = parse_module(_QUOTED_IR)
+        func = m.functions['@"_ori_first$24m$24int_int"']
+        assert len(func.blocks) == 1
+        assert func.blocks[0].label == "entry"
+        assert func.instruction_count == 1
+
+    def test_mixed_bare_and_quoted(self):
+        ir = textwrap.dedent("""\
+            define fastcc i64 @_ori_bare(i64 %0) {
+            entry:
+              ret i64 %0
+            }
+            define fastcc i64 @"_ori_quoted$gen"(i64 %0) {
+            entry:
+              ret i64 %0
+            }
+        """)
+        m = parse_module(ir)
+        assert "@_ori_bare" in m.functions
+        assert '@"_ori_quoted$gen"' in m.functions
+        user = m.user_functions()
+        assert len(user) == 2
+
+
+# ---------------------------------------------------------------------------
+# Invoke instructions (Section 04.2)
+# ---------------------------------------------------------------------------
+
+_INVOKE_IR = textwrap.dedent("""\
+    define fastcc void @_ori_f(ptr %0) #0 {
+    entry:
+      %result = invoke fastcc i64 @_ori_g(i64 42) to label %normal unwind label %cleanup
+
+    normal:
+      ret void
+
+    cleanup:
+      %lp = landingpad { ptr, i32 } cleanup
+      resume { ptr, i32 } %lp
+    }
+
+    declare fastcc i64 @_ori_g(i64)
+    attributes #0 = { nounwind uwtable }
+""")
+
+
+class TestInvokeInstructions:
+    def test_invoke_parsed_as_instruction(self):
+        m = parse_module(_INVOKE_IR)
+        f = m.functions["@_ori_f"]
+        entry = f.blocks[0]
+        invoke_instr = entry.instructions[0]
+        assert invoke_instr.opcode == "invoke"
+        assert invoke_instr.result == "%result"
+
+    def test_invoke_branch_targets(self):
+        from ir_utils import extract_branch_targets
+        m = parse_module(_INVOKE_IR)
+        f = m.functions["@_ori_f"]
+        entry = f.blocks[0]
+        invoke_instr = entry.instructions[0]
+        targets = extract_branch_targets(invoke_instr.text)
+        assert set(targets) == {"normal", "cleanup"}
+
+
 _SWITCH_IR = textwrap.dedent("""\
     define fastcc i64 @_ori_to_code(i64 %0) #0 {
     bb0:

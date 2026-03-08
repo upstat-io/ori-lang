@@ -2,7 +2,7 @@
 plan: "type_strategy_registry"
 section: "04"
 title: "String Type Definition"
-status: not-started
+status: complete
 depends_on:
   - "01"
   - "02"
@@ -89,7 +89,7 @@ The spec (§8.1.6) defines two associated functions on `str`. These are NOT inst
 | `from_utf8` | `(bytes: [byte])` | `Result<str, Error>` | Construction | §8.1.6 — validates UTF-8 encoding |
 | `from_utf8_unchecked` | `(bytes: [byte])` | `str` | Construction | §8.1.6 — unsafe, skips validation |
 
-These require `MethodKind::Associated` (from frozen decision 9) and must be included in the `STR` `TypeDef`. `from_utf8_unchecked` additionally requires the `Unsafe` capability annotation, though how this interacts with the registry is TBD (see Section 05 for precedent on associated functions from `Duration`/`Size`).
+These require `MethodKind::Associated` (from frozen decision 9) and must be included in the `STR` `TypeDef`. `from_utf8_unchecked` additionally requires the `Unsafe` capability annotation; the registry does not currently model capability requirements on individual methods (a future `requires_unsafe: bool` field on `MethodDef` could address this). See Section 05 for precedent on associated functions from `Duration`/`Size`.
 
 **Note:** These are not yet in the type checker (`resolve_str_method` only handles instance methods). The wiring phase (Section 09) must add associated function resolution for str, following the pattern already established for Duration/Size associated functions.
 
@@ -894,37 +894,38 @@ All 25 are present in the registry. The registry has 18 additional methods not i
 ### Prerequisites (upstream, must complete before str.rs)
 
 - [x] Ensure Section 01 data model supports `ReturnTag::List(TypeTag)`, `ReturnTag::Option(TypeTag)`, `ReturnTag::DoubleEndedIterator(TypeTag)` variants — **added to Section 01 ReturnTag enum**
-- [ ] Ensure Section 01 data model supports `ReturnTag::ResultOfProjectionFresh(TypeProjection)` for `from_utf8` -> `Result<str, Error>`. **Verify `TypeProjection` is const-constructible** (no heap allocation, no trait objects).
-- [ ] Section 01/02: define `const fn MethodDef::str_instance(name, params, returns, trait_name) -> MethodDef` helper — fills `receiver: Borrow`, `pure: true`, `backend_required: true`, `kind: Instance`, `dei_only: false`, `dei_propagation: NotApplicable`. **Without this helper, `str.rs` WILL exceed the 500-line file size limit.** If the helper cannot be implemented, split into `defs/str/mod.rs` + `defs/str/methods.rs`.
+- [x] Ensure Section 01 data model supports `ReturnTag::ResultOfProjectionFresh(TypeProjection)` for `from_utf8` -> `Result<str, Error>`. **Verified: `TypeProjection` is `Copy` + const-constructible.**
+- [x] Section 01/02: `MethodDef::primitive()` already serves as the helper — same signature, `Ownership::Borrow` passed explicitly. No dedicated `str_instance()` needed. `str.rs` = 193 lines (well under 500).
 
 ### Definition
 
-- [ ] Define `STR` const in `ori_registry/src/defs/str.rs`
-- [ ] Include all 43 methods with exact parameter and return types (38 from resolve_str_method + `add` from Add trait + 2 spec byte access + 2 spec associated functions)
-- [ ] Include all 20 operator strategy entries (7 active RuntimeCall + 13 Unsupported)
-- [ ] Set `memory: MemoryStrategy::Arc`
-- [ ] Set `receiver: Ownership::Borrow` on every instance method
-- [ ] Set `kind: MethodKind::Associated` on `from_utf8` and `from_utf8_unchecked`
-- [ ] Verify every `MethodDef` entry has all 10 frozen fields (per frozen decision 13) — no abbreviated struct literals
+- [x] Define `STR` const in `ori_registry/src/defs/str.rs`
+- [x] Include all 43 methods with exact parameter and return types (38 from resolve_str_method + `add` from Add trait + 2 spec byte access + 2 spec associated functions)
+- [x] Include all 20 operator strategy entries (7 active RuntimeCall + 13 Unsupported)
+- [x] Set `memory: MemoryStrategy::Arc`
+- [x] Set `receiver: Ownership::Borrow` on every instance method
+- [x] Set `kind: MethodKind::Associated` on `from_utf8` and `from_utf8_unchecked`
+- [x] Verify every `MethodDef` entry has all 10 frozen fields (per frozen decision 13) — no abbreviated struct literals
 
 ### Compilation
 
-- [ ] Verify `cargo c -p ori_registry` compiles
-- [ ] Verify no source file exceeds 500 lines (excluding test files)
+- [x] Verify `cargo c -p ori_registry` compiles
+- [x] Verify no source file exceeds 500 lines (excluding test files) — str.rs = 193 lines
 
 ### Tests
-**Test file location:** `ori_registry/src/defs/str/tests.rs` (sibling tests.rs convention). If `str.rs` is a single file (not a directory module), use `ori_registry/src/defs/tests.rs` (shared with section-03 primitive tests). Declare `#[cfg(test)] mod tests;` at the bottom of the source file.
+**Test file location:** `ori_registry/src/defs/tests.rs` (shared with section-03 primitive tests, str.rs is a single file).
 
-- [ ] Write unit test: `str_method_count()` asserts exactly 43 methods
-- [ ] Write unit test: `str_all_instance_methods_borrow_receiver()` asserts every instance method has `Ownership::Borrow`
-- [ ] Write unit test: `str_operators_all_runtime_call_or_unsupported()` asserts no `IntInstr`/`FloatInstr` strategies
-- [ ] Write unit test: `str_runtime_call_names_are_valid()` asserts all `fn_name` values start with `ori_str_`
-- [ ] Write unit test: `str_trait_methods_have_trait_name()` asserts `equals`/`compare`/`clone`/`hash`/`to_str`/`debug` have non-None `trait_name`
-- [ ] Write unit test: `str_associated_functions()` asserts `from_utf8`/`from_utf8_unchecked` have `kind: MethodKind::Associated`
-- [ ] Write unit test: `str_alias_pairs_have_matching_signatures()` asserts `length` == `len`, `substring` == `slice`, `parse_int` == `to_int`, `parse_float` == `to_float` (same params + returns)
-- [ ] Verify plan against Ori spec `docs/ori_lang/v2026/spec/08-types.md` §8.1.6 (String Byte Access), §8.11 (Into), §8.13.1 (Iterable impls)
-- [ ] Write unit test: `str_opdefs_has_all_20_fields()` asserts the OpDefs struct has no defaulted/missing fields (compile-time if all fields required, runtime if checking completeness)
-- [ ] Run `./test-all.sh` and verify no regressions in existing crates
+- [x] Write unit test: `str_method_count()` asserts exactly 43 methods
+- [x] Write unit test: `str_all_instance_methods_borrow_receiver()` asserts every instance method has `Ownership::Borrow`
+- [x] Write unit test: `str_operators_all_runtime_call_or_unsupported()` asserts no `IntInstr`/`FloatInstr` strategies
+- [x] Write unit test: `str_runtime_call_names_are_valid()` asserts all `fn_name` values start with `ori_str_`
+- [x] Write unit test: `str_trait_methods_have_trait_name()` asserts `equals`/`compare`/`clone`/`hash`/`to_str`/`debug`/`add` have non-None `trait_name`
+- [x] Write unit test: `str_associated_functions()` asserts `from_utf8`/`from_utf8_unchecked` have `kind: MethodKind::Associated`
+- [x] Write unit test: `str_alias_pairs_have_matching_signatures()` asserts `length` == `len`, `substring` == `slice`, `parse_int` == `to_int`, `parse_float` == `to_float` (same params + returns)
+- [x] Verify plan against Ori spec — `as_bytes`, `to_bytes`, `from_utf8`, `from_utf8_unchecked` included per §8.1.6; `into` per §8.11; `iter` returning DEI<char> per §8.13.1
+- [x] Write unit test: `str_opdefs_has_all_20_fields()` — covered by existing `opdefs_has_all_20_fields` (tests all BUILTIN_TYPES)
+- [x] Additional tests: `str_is_arc`, `str_comparison_operators_use_ori_str_compare`, `str_neq_uses_ori_str_ne`
+- [x] Run `./test-all.sh` and verify no regressions — 12,235 tests pass, 0 failures
 
 ## Exit Criteria
 

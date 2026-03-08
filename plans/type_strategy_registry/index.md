@@ -22,7 +22,7 @@ order: 1
 ## Keyword Clusters by Section
 
 ### Section 01: Core Data Model Design
-**File:** `section-01-core-data-model.md` | **Status:** Not Started
+**File:** `section-01-core-data-model.md` | **Status:** Complete
 
 ```
 TypeTag, MemoryStrategy, Ownership, OpStrategy
@@ -42,7 +42,7 @@ pow, matmul, as, as?, not, bit_not, neg
 ---
 
 ### Section 02: Crate Scaffolding & Purity Enforcement
-**File:** `section-02-crate-scaffolding.md` | **Status:** Not Started
+**File:** `section-02-crate-scaffolding.md` | **Status:** Complete
 
 ```
 ori_registry, Cargo.toml, workspace, crate DAG
@@ -60,7 +60,7 @@ ori_llvm excluded from workspace, path dependency
 ---
 
 ### Section 03: Primitive Type Definitions
-**File:** `section-03-primitive-types.md` | **Status:** Not Started
+**File:** `section-03-primitive-types.md` | **Status:** Complete
 
 ```
 int, float, bool, byte, char
@@ -87,7 +87,7 @@ Default, Formattable, Value, Sendable (not in registry)
 ---
 
 ### Section 04: String Type Definition
-**File:** `section-04-string-type.md` | **Status:** Not Started
+**File:** `section-04-string-type.md` | **Status:** Complete
 
 ```
 str, STR, string, MemoryStrategy::Arc, SSO, Small String Optimization
@@ -108,7 +108,7 @@ operator overloading, add operator on strings
 ---
 
 ### Section 05: Compound Type Definitions
-**File:** `section-05-compound-types.md` | **Status:** Not Started
+**File:** `section-05-compound-types.md` | **Status:** Complete
 
 ```
 Duration, Size, Ordering, Error
@@ -129,7 +129,7 @@ MemoryStrategy::Copy, MemoryStrategy::Arc
 ---
 
 ### Section 06: Collection & Wrapper Types
-**File:** `section-06-collection-wrapper-types.md` | **Status:** Not Started
+**File:** `section-06-collection-wrapper-types.md` | **Status:** Complete
 
 ```
 List, Map, Set, Range, Tuple, Option, Result, Channel
@@ -149,7 +149,7 @@ resolve_result_method, resolve_map_method, resolve_set_method
 ---
 
 ### Section 07: Iterator Type Definitions
-**File:** `section-07-iterator-types.md` | **Status:** Not Started
+**File:** `section-07-iterator-types.md` | **Status:** Complete
 
 ```
 Iterator, DoubleEndedIterator, DEI
@@ -168,7 +168,7 @@ higher-order methods, closure parameter
 ---
 
 ### Section 08: Query API & Lookup Functions
-**File:** `section-08-query-api.md` | **Status:** Not Started
+**File:** `section-08-query-api.md` | **Status:** Complete
 
 ```
 BUILTIN_TYPES, find_type, find_method
@@ -197,6 +197,11 @@ unify_higher_order_constraints (stays in ori_types), calls/method_call.rs
 DEI_ONLY_METHODS, well_known_generic_types
 infer/expr/methods/mod.rs, check/well_known/mod.rs
 Tag, Idx, InferEngine, type pool
+resolve_receiver_and_builtin, check_range_float_iteration
+check_infinite_iterator_consumed, associated function, MethodKind::Associated
+tag_to_type_tag, type_tag_to_idx, resolve_projection, registry_bridge.rs
+computed_returns.rs, resolve_computed_return, computed_list_return
+as_bytes, to_bytes, from_utf8, from_utf8_unchecked, str methods
 ```
 
 ---
@@ -208,11 +213,15 @@ Tag, Idx, InferEngine, type pool
 ori_eval, evaluator, interpreter, dispatch
 EVAL_BUILTIN_METHODS, BuiltinMethodNames, method dispatch
 ITERATOR_METHOD_NAMES, CollectionMethod, CollectionMethodResolver
-BuiltinMethodResolver, method_dispatch
-function_val.rs, interpreter/mod.rs, resolvers/
-register_prelude, register_function_val
+BuiltinMethodResolver, method_dispatch, FxHashSet
+eval_type_name, name mapping, PascalCase, type name convention
+dispatch_coverage.rs, METHODS_NOT_YET_IN_EVAL, COLLECTION_RESOLVER_METHODS
+consistency.rs, iterator_methods_match_registry, dispatch_coverage
+every_registry_method_has_eval_dispatch_handler
+builtin_method_names_match_registry, exhaustive destructure
 format variant sync, FormatType, Alignment, Sign
-methods/helpers/mod.rs, methods/mod.rs
+methods/helpers/mod.rs, methods/mod.rs, methods/tests.rs
+resolvers/mod.rs, all_iterator_variants, from_name
 ```
 
 ---
@@ -291,14 +300,14 @@ progressive complexity, phase boundary, end-to-end verification
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Core Data Model Design | `section-01-core-data-model.md` | Not Started |
-| 02 | Crate Scaffolding & Purity Enforcement | `section-02-crate-scaffolding.md` | Not Started |
-| 03 | Primitive Type Definitions | `section-03-primitive-types.md` | Not Started |
-| 04 | String Type Definition | `section-04-string-type.md` | Not Started |
-| 05 | Compound Type Definitions | `section-05-compound-types.md` | Not Started |
-| 06 | Collection & Wrapper Types | `section-06-collection-wrapper-types.md` | Not Started |
-| 07 | Iterator Type Definitions | `section-07-iterator-types.md` | Not Started |
-| 08 | Query API & Lookup Functions | `section-08-query-api.md` | Not Started |
+| 01 | Core Data Model Design | `section-01-core-data-model.md` | Complete |
+| 02 | Crate Scaffolding & Purity Enforcement | `section-02-crate-scaffolding.md` | Complete |
+| 03 | Primitive Type Definitions | `section-03-primitive-types.md` | Complete |
+| 04 | String Type Definition | `section-04-string-type.md` | Complete |
+| 05 | Compound Type Definitions | `section-05-compound-types.md` | Complete |
+| 06 | Collection & Wrapper Types | `section-06-collection-wrapper-types.md` | Complete |
+| 07 | Iterator Type Definitions | `section-07-iterator-types.md` | Complete |
+| 08 | Query API & Lookup Functions | `section-08-query-api.md` | Complete |
 | 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Not Started |
 | 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Not Started |
 | 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Not Started |

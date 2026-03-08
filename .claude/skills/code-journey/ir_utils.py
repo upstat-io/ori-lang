@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 
 from ir_parser import BasicBlock, Instruction
+from ir_parser_internal import INVOKE_TARGETS_RE
 
 _BR_LABEL_RE = re.compile(r'br\s+label\s+%(\S+)')
 _BR_COND_RE = re.compile(
@@ -43,6 +44,11 @@ def extract_branch_targets(text: str) -> list[str]:
     # Switch instruction
     if text.strip().startswith('switch'):
         return _SWITCH_LABELS_RE.findall(text)
+
+    # Invoke instruction: to label %normal unwind label %cleanup
+    invoke_match = INVOKE_TARGETS_RE.search(text)
+    if invoke_match:
+        return [invoke_match.group(1), invoke_match.group(2)]
 
     return []
 

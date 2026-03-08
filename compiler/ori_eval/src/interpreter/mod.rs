@@ -61,7 +61,7 @@ mod scope_guard;
 pub use builder::InterpreterBuilder;
 pub use scope_guard::ScopedInterpreter;
 
-#[allow(
+#[expect(
     clippy::disallowed_types,
     reason = "Arc<String> shared across child interpreters"
 )]
@@ -103,7 +103,7 @@ pub(crate) enum ScopeOwnership {
 /// - `Interpret` — full I/O for `ori run`
 /// - `ConstEval` — budget-limited, no I/O, deterministic
 /// - `TestRun` — captures output, collects test results
-#[allow(
+#[expect(
     clippy::disallowed_types,
     reason = "Arc<String> for source metadata shared across children"
 )]

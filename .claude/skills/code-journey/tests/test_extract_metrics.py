@@ -97,6 +97,67 @@ class TestEmptyIR:
         assert m["bin_hard_fail"] is False
 
 
+class TestV2Fields:
+    """Tests for V2 integration fields (effect summaries, ownership, attributes)."""
+
+    def test_module_balanced_field(self):
+        m = extract_metrics(_load_journey1_ir(), eval_exit=33, aot_exit=33, expected=33)
+        assert "arc_module_balanced" in m
+        assert m["arc_module_balanced"] is True
+
+    def test_ownership_transfers_field(self):
+        m = extract_metrics(_load_journey1_ir(), eval_exit=33, aot_exit=33, expected=33)
+        assert "arc_ownership_transfers" in m
+        assert m["arc_ownership_transfers"] == 0
+
+    def test_per_function_attribute_detail(self):
+        m = extract_metrics(_load_journey1_ir(), eval_exit=33, aot_exit=33, expected=33)
+        add = m["per_function"]["@_ori_add"]
+        assert "attribute" in add
+        assert "checks" in add["attribute"]
+        assert add["attribute"]["checks"] > 0
+
+    def test_ownership_transfer_annotation(self):
+        """Ownership transfer detection: producer/consumer pair."""
+        ir = """
+define fastcc void @_ori_producer() #0 {
+entry:
+  call void @ori_rc_inc(ptr null)
+  ret void
+}
+define fastcc void @_ori_consumer() #0 {
+entry:
+  call void @ori_rc_dec(ptr null, ptr null)
+  ret void
+}
+declare void @ori_rc_inc(ptr)
+declare void @ori_rc_dec(ptr, ptr)
+attributes #0 = { nounwind uwtable }
+"""
+        m = extract_metrics(ir, eval_exit=0, aot_exit=0, expected=0)
+        # Module is balanced (1 inc, 1 dec across functions)
+        assert m["arc_module_balanced"] is True
+        # Individual functions are unbalanced → ownership transfers
+        assert m["arc_ownership_transfers"] > 0
+
+    def test_effect_summary_balances_allocation(self):
+        """ori_str_from_raw counted as +1 balances buffer_rc_dec -1."""
+        ir = """
+define fastcc void @_ori_f(ptr %0) #0 {
+entry:
+  call void @ori_str_from_raw(ptr %sret, ptr %src, i64 5)
+  call void @ori_buffer_rc_dec(ptr %data, i64 5, i64 8, i64 1, ptr null)
+  ret void
+}
+declare void @ori_str_from_raw(ptr, ptr, i64)
+declare void @ori_buffer_rc_dec(ptr, i64, i64, i64, ptr)
+attributes #0 = { nounwind uwtable }
+"""
+        m = extract_metrics(ir, eval_exit=0, aot_exit=0, expected=0)
+        assert m["arc_violations"] == 0
+        assert m["arc_has_unbalanced"] is False
+
+
 class TestReproducibility:
     def test_same_output_10_times(self):
         """Determinism: same input → identical output."""

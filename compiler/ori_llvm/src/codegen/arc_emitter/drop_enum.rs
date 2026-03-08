@@ -191,9 +191,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Free helpers (no &mut self needed)
-// ---------------------------------------------------------------------------
 
 /// Compute byte offsets for each field within a general enum variant.
 ///

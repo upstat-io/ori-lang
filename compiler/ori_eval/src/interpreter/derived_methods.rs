@@ -42,7 +42,7 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── ForEachField strategy ───────────────────────────────────────────
+    // ForEachField strategy
 
     /// Apply a per-field operation and combine results.
     ///
@@ -267,7 +267,7 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── FormatFields strategy ───────────────────────────────────────────
+    // FormatFields strategy
 
     /// Format struct/variant fields into a string representation.
     ///
@@ -294,7 +294,7 @@ impl Interpreter<'_> {
             if include_names {
                 crate::methods::helpers::debug_value(val)
             } else {
-                self.format_value_printable(val)
+                self.format_value_printable(val, 0)
             }
         };
 
@@ -365,7 +365,10 @@ impl Interpreter<'_> {
     /// - Chars: character directly (no quotes)
     /// - Structs: `TypeName(val1, val2)` via recursive lookup
     /// - Other values: standard Display format
-    fn format_value_printable(&self, val: &Value) -> String {
+    fn format_value_printable(&self, val: &Value, depth: usize) -> String {
+        if depth > 256 {
+            return "...".to_string();
+        }
         match val {
             Value::Str(s) => (**s).to_string(),
             Value::Char(c) => c.to_string(),
@@ -389,7 +392,9 @@ impl Interpreter<'_> {
                                 result.push_str(", ");
                             }
                             first = false;
-                            result.push_str(&self.format_value_printable(fv));
+                            result.push_str(
+                                &self.format_value_printable(fv, depth.saturating_add(1)),
+                            );
                         }
                     }
                 }
@@ -412,7 +417,7 @@ impl Interpreter<'_> {
                         if i > 0 {
                             result.push_str(", ");
                         }
-                        result.push_str(&self.format_value_printable(fv));
+                        result.push_str(&self.format_value_printable(fv, depth.saturating_add(1)));
                     }
                     result.push(')');
                     result
@@ -422,7 +427,7 @@ impl Interpreter<'_> {
         }
     }
 
-    // ── DefaultConstruct strategy ───────────────────────────────────────
+    // DefaultConstruct strategy
 
     /// Construct a struct with all fields set to their type's default value.
     ///
