@@ -2,6 +2,7 @@
 section: "02"
 title: "Transitive Triviality & ARC Elision"
 status: not-started
+reviewed: false
 goal: "Classify compound types as trivial when all transitive children are scalar, eliding all ARC operations for these types"
 inspired_by:
   - "Swift SIL trivial type classification (lib/SIL/SILType.cpp)"

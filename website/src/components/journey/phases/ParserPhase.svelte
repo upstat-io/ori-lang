@@ -48,7 +48,7 @@
   h2 {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: 0 0 var(--space-4, 16px) 0;
   }
 
@@ -56,7 +56,7 @@
     display: flex;
     gap: 2px;
     margin-bottom: var(--space-4, 16px);
-    background: var(--color-bg-tertiary, #1a1b23);
+    background: var(--color-bg-tertiary, #242424);
     border-radius: var(--radius-md, 8px);
     padding: 2px;
     width: fit-content;
@@ -67,7 +67,7 @@
     background: none;
     border: none;
     border-radius: var(--radius-sm, 4px);
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
@@ -75,18 +75,18 @@
   }
 
   .view-toggle button.active {
-    background: var(--color-bg-secondary, #13141a);
-    color: var(--color-text-primary, #e5e7eb);
+    background: var(--color-bg-secondary, #161616);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .view-toggle button:hover:not(.active) {
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
   }
 
   .tree-container {
-    border: 1px solid var(--color-border, #2a2b35);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
-    background: var(--color-bg-code, #0d0e12);
+    background: var(--color-bg-code, #111111);
     max-height: 600px;
     overflow: auto;
   }

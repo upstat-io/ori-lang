@@ -40,10 +40,10 @@ const d = entry.data;
 const scoreColor = d.score >= 9 ? 'var(--color-success)' :
                    d.score >= 7 ? 'var(--color-accent)' :
                    d.score >= 5 ? 'var(--color-warning)' :
-                   'var(--color-error, #ef4444)';
+                   'var(--color-error, #e84040)';
 
 const difficultyLabel = { simple: 'Simple', moderate: 'Moderate', complex: 'Complex' }[d.difficulty];
-const difficultyColor = { simple: 'var(--color-success)', moderate: 'var(--color-warning)', complex: 'var(--color-error, #ef4444)' }[d.difficulty];
+const difficultyColor = { simple: 'var(--color-text-muted)', moderate: 'var(--color-accent)', complex: 'var(--color-primary)' }[d.difficulty];
 
 const statusPassed = d.status === 'PASS';
 const openBugs = d.bugs_found.filter(b => b.status === 'OPEN').length;
@@ -98,7 +98,7 @@ const breadcrumbs = [
         <span class="journey-number">Journey #{String(d.journey).padStart(2, '0')}</span>
         <span class="difficulty-badge" style={`--badge-color: ${difficultyColor}`}>{difficultyLabel}</span>
       </div>
-      <h1>{d.theme}</h1>
+      <h1 class="gradient-title">{d.theme}</h1>
       <p class="hero-description">{d.feature_description}</p>
       <time class="hero-date" datetime={d.date.toISOString()}>
         {formatDate(d.date)}
@@ -160,7 +160,7 @@ const breadcrumbs = [
           const barColor = value >= 9 ? 'var(--color-success)' :
                            value >= 7 ? 'var(--color-accent)' :
                            value >= 5 ? 'var(--color-warning)' :
-                           'var(--color-error, #ef4444)';
+                           'var(--color-error, #e84040)';
           const anchor = scoreAnchors[key];
           const Tag = anchor ? 'a' : 'div';
           return (
@@ -263,10 +263,6 @@ const breadcrumbs = [
   .journey-hero h1 {
     font-size: var(--text-4xl);
     font-weight: var(--weight-bold);
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
     margin-bottom: var(--space-4);
     line-height: 1.15;
   }
@@ -331,13 +327,13 @@ const breadcrumbs = [
   }
 
   .status-badge.pass {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
   .status-badge.fail {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--color-error, #ef4444);
+    background: rgba(232, 64, 64, 0.15);
+    color: var(--color-error, #e84040);
   }
 
   .overflow-badge {
@@ -349,13 +345,13 @@ const breadcrumbs = [
   }
 
   .overflow-badge.pass {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
   .overflow-badge.fail {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--color-error, #ef4444);
+    background: rgba(232, 64, 64, 0.15);
+    color: var(--color-error, #e84040);
   }
 
   /* Score ring (large) */
@@ -398,8 +394,8 @@ const breadcrumbs = [
   .learning-objectives {
     margin-bottom: var(--space-6);
     padding: var(--space-4) var(--space-5);
-    background: rgba(86, 156, 214, 0.05);
-    border: 1px solid rgba(86, 156, 214, 0.15);
+    background: rgba(126, 183, 166, 0.05);
+    border: 1px solid rgba(126, 183, 166, 0.15);
     border-radius: var(--radius-lg);
   }
 
@@ -455,7 +451,7 @@ const breadcrumbs = [
 
   .breakdown-item:hover {
     border-color: var(--color-accent);
-    background: rgba(86, 156, 214, 0.08);
+    background: rgba(126, 183, 166, 0.08);
   }
 
   .breakdown-header {
@@ -529,7 +525,7 @@ const breadcrumbs = [
 
   .phase-link:hover {
     border-color: var(--color-accent);
-    background: rgba(86, 156, 214, 0.08);
+    background: rgba(126, 183, 166, 0.08);
   }
 
   .phase-icon {
@@ -537,7 +533,7 @@ const breadcrumbs = [
     font-size: 0.625rem;
     font-weight: var(--weight-bold);
     color: var(--color-accent);
-    background: rgba(86, 156, 214, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     width: 20px;
     height: 20px;
     display: flex;
@@ -664,7 +660,7 @@ const breadcrumbs = [
     margin-bottom: var(--space-4);
     padding: var(--space-3) var(--space-4);
     border-left: 3px solid var(--color-accent);
-    background: rgba(86, 156, 214, 0.05);
+    background: rgba(126, 183, 166, 0.05);
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     color: var(--color-text-secondary);
     font-size: var(--text-sm);
@@ -673,7 +669,7 @@ const breadcrumbs = [
   .journey-content :global(code) {
     font-family: var(--font-mono);
     font-size: 0.9em;
-    background: var(--color-bg-code, rgba(110, 118, 129, 0.15));
+    background: var(--color-bg-code, rgba(22, 22, 22, 0.3));
     padding: 0.125rem 0.375rem;
     border-radius: var(--radius-sm);
   }

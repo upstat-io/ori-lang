@@ -2,6 +2,7 @@
 section: "08"
 title: "Escape Analysis & Stack Promotion"
 status: not-started
+reviewed: false
 goal: "Determine which heap allocations never escape their defining function and promote them to stack allocations, eliminating ARC overhead entirely"
 inspired_by:
   - "Go escape analysis (cmd/compile/internal/escape/)"

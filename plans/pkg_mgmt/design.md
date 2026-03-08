@@ -1,3 +1,8 @@
+---
+status: draft
+reviewed: false
+---
+
 # Proposal: Ori Package Management System
 
 **Status:** Draft

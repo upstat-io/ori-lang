@@ -314,8 +314,9 @@ pub enum Ownership {
     /// is a value type (`MemoryStrategy::Copy`), not a reference type
     /// that happens to be borrowed.
     ///
-    /// Reserved for future use. Current convention: all primitive type
-    /// method receivers use `Ownership::Borrow` (frozen decision 18).
+    /// Used for non-receiver parameters of value types (e.g., `int`
+    /// params in factory functions). Receiver ownership for primitives
+    /// uses `Ownership::Borrow` (frozen decision 18).
     Copy,
 }
 

@@ -13,41 +13,17 @@ use crate::{
     TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
+use super::params::{
+    CLOSURE_PARAM, ELEMENT_BORROW_PARAM, ELEMENT_OWNED_PARAM, INT_RANGE_PARAMS, SEPARATOR_PARAM,
+};
+
 // Parameter arrays
-
-/// `(value: T)` — element param for `push`, `prepend` (takes ownership).
-static ELEMENT_OWNED_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "value",
-    ty: ReturnTag::ElementType,
-    ownership: Ownership::Owned,
-}];
-
-/// `(value: T)` — element param for `contains` (borrows).
-static ELEMENT_BORROW_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "value",
-    ty: ReturnTag::ElementType,
-    ownership: Ownership::Borrow,
-}];
 
 /// `(n: int)` — for `get`, `remove`, `take`, `skip`, `drop`, `chunk`, `window`.
 static INT_PARAM: [ParamDef; 1] = [ParamDef {
     name: "n",
     ty: ReturnTag::Concrete(TypeTag::Int),
     ownership: Ownership::Copy,
-}];
-
-/// `(separator: str)` — for `join`.
-static SEPARATOR_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "separator",
-    ty: ReturnTag::Concrete(TypeTag::Str),
-    ownership: Ownership::Borrow,
-}];
-
-/// `(f: closure)` — for higher-order methods.
-static CLOSURE_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "f",
-    ty: ReturnTag::Fresh,
-    ownership: Ownership::Owned,
 }];
 
 /// `(other: ?)` — for `zip` (different element type).
@@ -68,20 +44,6 @@ static INDEX_ELEMENT_PARAMS: [ParamDef; 2] = [
         name: "value",
         ty: ReturnTag::ElementType,
         ownership: Ownership::Owned,
-    },
-];
-
-/// `(start: int, end: int)` — for `slice`.
-static SLICE_PARAMS: [ParamDef; 2] = [
-    ParamDef {
-        name: "start",
-        ty: ReturnTag::Concrete(TypeTag::Int),
-        ownership: Ownership::Copy,
-    },
-    ParamDef {
-        name: "end",
-        ty: ReturnTag::Concrete(TypeTag::Int),
-        ownership: Ownership::Copy,
     },
 ];
 
@@ -143,7 +105,7 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("set",        &INDEX_ELEMENT_PARAMS,  SELF,  None,                Ownership::Borrow, false),
     MethodDef::compound("skip",       &INT_PARAM,            SELF,  None,                Ownership::Borrow, false),
     MethodDef::compound("skip_while", &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
-    MethodDef::compound("slice",      &SLICE_PARAMS,         SELF,  None,                Ownership::Borrow, false),
+    MethodDef::compound("slice",      &INT_RANGE_PARAMS,     SELF,  None,                Ownership::Borrow, false),
     MethodDef::compound("sort",       &[],                   SELF,  None,                Ownership::Borrow, false),
     MethodDef::compound("sort_by",    &CLOSURE_PARAM,        FRESH, None,                Ownership::Borrow, false),
     MethodDef::compound("sort_stable",&[],                   SELF,  None,                Ownership::Borrow, false),

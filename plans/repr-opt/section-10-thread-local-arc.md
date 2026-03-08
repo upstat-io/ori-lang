@@ -2,6 +2,7 @@
 section: "10"
 title: "Thread-Local Non-Atomic ARC"
 status: not-started
+reviewed: false
 goal: "Use non-atomic (plain load/store) reference counting for values that are provably never shared across threads, eliminating atomic operation overhead"
 inspired_by:
   - "Swift isUniquelyReferenced + non-atomic path (stdlib/public/core/ManagedBuffer.swift)"

@@ -5,9 +5,9 @@
   let { data }: { data: JourneyData } = $props();
 
   const difficultyColor: Record<string, string> = {
-    simple: 'var(--color-success, #4ade80)',
-    moderate: 'var(--color-warning, #fbbf24)',
-    complex: 'var(--color-error, #ef4444)',
+    simple: 'var(--color-success, #7eb7a6)',
+    moderate: 'var(--color-warning, #db844b)',
+    complex: 'var(--color-error, #e84040)',
   };
 </script>
 
@@ -15,7 +15,7 @@
   <div class="phase-header">
     <h2>Source Code</h2>
     <div class="meta-chips">
-      <span class="chip" style="--chip-color: {difficultyColor[data.meta.difficulty] || '#9ca3af'}">
+      <span class="chip" style="--chip-color: {difficultyColor[data.meta.difficulty] || '#aca9a3'}">
         {data.meta.difficulty}
       </span>
       {#each data.meta.features as feature}
@@ -71,7 +71,7 @@
   .phase-header h2 {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: 0 0 var(--space-3, 12px) 0;
   }
 
@@ -94,14 +94,14 @@
   }
 
   .chip.feature {
-    --chip-color: var(--color-text-muted, #636874);
+    --chip-color: var(--color-text-muted, #908f8b);
     text-transform: none;
     font-weight: 500;
   }
 
   .description {
     font-size: 0.875rem;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     line-height: 1.6;
     margin-bottom: var(--space-4, 16px);
   }
@@ -109,15 +109,15 @@
   .objectives {
     margin-bottom: var(--space-4, 16px);
     padding: var(--space-3, 12px) var(--space-4, 16px);
-    background: rgba(86, 156, 214, 0.05);
-    border: 1px solid rgba(86, 156, 214, 0.12);
+    background: rgba(126, 183, 166, 0.05);
+    border: 1px solid rgba(126, 183, 166, 0.12);
     border-radius: var(--radius-md, 8px);
   }
 
   .objectives h3 {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-accent, #569cd6);
+    color: var(--color-accent, #7eb7a6);
     margin: 0 0 var(--space-2, 8px) 0;
   }
 
@@ -128,7 +128,7 @@
 
   .objectives li {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     line-height: 1.6;
     margin-bottom: var(--space-1, 4px);
   }
@@ -140,7 +140,7 @@
   .exec-results h3 {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: 0 0 var(--space-3, 12px) 0;
   }
 
@@ -155,8 +155,8 @@
     align-items: center;
     gap: var(--space-3, 12px);
     padding: var(--space-3, 12px) var(--space-4, 16px);
-    background: var(--color-bg-secondary, #13141a);
-    border: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-secondary, #161616);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
     min-width: 160px;
   }
@@ -164,7 +164,7 @@
   .result-backend {
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     text-transform: uppercase;
   }
 
@@ -172,7 +172,7 @@
     font-family: var(--font-mono, monospace);
     font-size: 1.125rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .result-badge {
@@ -184,12 +184,12 @@
   }
 
   .result-badge.pass {
-    background: rgba(74, 222, 128, 0.15);
-    color: #4ade80;
+    background: rgba(126, 183, 166, 0.15);
+    color: #7eb7a6;
   }
 
   .result-badge.fail {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
+    background: rgba(232, 64, 64, 0.15);
+    color: #e84040;
   }
 </style>

@@ -2,6 +2,7 @@
 section: 0
 title: Full Parser Support
 status: in-progress
+reviewed: false
 tier: 0
 goal: Complete parser support for entire Ori spec grammar (parsing only, not evaluation)
 spec:

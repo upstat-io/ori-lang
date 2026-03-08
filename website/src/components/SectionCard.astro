@@ -47,12 +47,14 @@ const fillWidth = status === 'complete' ? 100 : pct;
     display: flex;
     flex-direction: column;
     height: 140px;
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: var(--space-4);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all var(--transition-medium);
     text-align: left;
     text-decoration: none;
     color: inherit;
@@ -64,9 +66,9 @@ const fillWidth = status === 'complete' ? 100 : pct;
   }
 
   .section-card:hover {
-    background: var(--color-bg-tertiary);
     border-color: var(--color-border-hover, var(--color-border));
-    transform: translateY(-1px);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
   }
 
   .section-card.complete {
@@ -100,16 +102,16 @@ const fillWidth = status === 'complete' ? 100 : pct;
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
     padding: 2px 6px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-full);
   }
 
   .section-status.success {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
   .section-status.warning {
-    background: rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.15);
     color: var(--color-warning);
   }
 
@@ -190,17 +192,17 @@ const fillWidth = status === 'complete' ? 100 : pct;
   }
 
   @keyframes highlight-flash-success {
-    0%, 30% { background: rgba(74, 222, 128, 0.2); }
-    100% { background: var(--color-bg-secondary); }
+    0%, 30% { background: rgba(126, 183, 166, 0.2); }
+    100% { background: var(--glass-bg-alt); }
   }
 
   @keyframes highlight-flash-warning {
-    0%, 30% { background: rgba(251, 191, 36, 0.2); }
-    100% { background: var(--color-bg-secondary); }
+    0%, 30% { background: rgba(219, 132, 75, 0.2); }
+    100% { background: var(--glass-bg-alt); }
   }
 
   @keyframes highlight-flash-muted {
-    0%, 30% { background: rgba(160, 160, 160, 0.15); }
-    100% { background: var(--color-bg-secondary); }
+    0%, 30% { background: rgba(164, 161, 157, 0.15); }
+    100% { background: var(--glass-bg-alt); }
   }
 </style>

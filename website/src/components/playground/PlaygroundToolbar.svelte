@@ -22,6 +22,35 @@
     onexample?: (name: string) => void;
     shareLabel?: string;
   } = $props();
+
+  let dropdownOpen = $state(false);
+  let dropdownRef: HTMLDivElement | undefined = $state();
+
+  function selectExample(key: string) {
+    dropdownOpen = false;
+    onexample?.(key);
+  }
+
+  function handleClickOutside(e: MouseEvent) {
+    if (dropdownRef && !dropdownRef.contains(e.target as Node)) {
+      dropdownOpen = false;
+    }
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') dropdownOpen = false;
+  }
+
+  $effect(() => {
+    if (dropdownOpen) {
+      document.addEventListener('click', handleClickOutside);
+      document.addEventListener('keydown', handleKeydown);
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+        document.removeEventListener('keydown', handleKeydown);
+      };
+    }
+  });
 </script>
 
 <div class="toolbar">
@@ -40,19 +69,30 @@
       <button class="btn btn-secondary" onclick={onshare}>{shareLabel}</button>
     {/if}
     {#if enableExamples}
-      <select
-        class="select"
-        value={selectedExample}
-        onchange={(e) => {
-          const target = e.target as HTMLSelectElement;
-          onexample?.(target.value);
-        }}
-      >
-        <option value="">Examples...</option>
-        {#each Object.entries(EXAMPLES) as [key, example]}
-          <option value={key}>{example.label}</option>
-        {/each}
-      </select>
+      <div class="dropdown" bind:this={dropdownRef}>
+        <button
+          class="btn btn-secondary dropdown-trigger"
+          onclick={() => dropdownOpen = !dropdownOpen}
+        >
+          Examples
+          <svg class="chevron" class:open={dropdownOpen} width="10" height="6" viewBox="0 0 10 6" fill="currentColor">
+            <path d="M0 0l5 6 5-6z"/>
+          </svg>
+        </button>
+        {#if dropdownOpen}
+          <div class="dropdown-menu">
+            {#each Object.entries(EXAMPLES) as [key, example]}
+              <button
+                class="dropdown-item"
+                class:active={selectedExample === key}
+                onclick={() => selectExample(key)}
+              >
+                {example.label}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     {/if}
   </div>
 </div>
@@ -63,8 +103,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.5rem 1rem;
-    background: var(--color-bg-elevated, #21222c);
-    border-bottom: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-elevated, #282828);
+    border-bottom: 1px solid var(--color-border, #333333);
     flex-shrink: 0;
   }
 
@@ -75,7 +115,7 @@
 
   .file-label {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary, #9ca0ab);
+    color: var(--color-text-secondary, #aca9a3);
   }
 
   .toolbar-right {
@@ -95,46 +135,48 @@
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
 
   .btn-primary {
-    background: var(--color-accent, #569cd6);
-    color: #fff;
+    background: var(--color-primary, #d1a847);
+    color: var(--color-primary-text, #181010);
   }
 
   .btn-primary:hover {
-    background: var(--color-accent-hover, #6cb6ff);
+    background: var(--color-primary-hover, #d9bd7d);
   }
 
   .btn-primary:disabled {
-    background: var(--color-text-muted, #636874);
+    background: var(--color-text-muted, #908f8b);
     cursor: not-allowed;
   }
 
   .btn-secondary {
-    background: var(--color-bg-tertiary, #1a1b23);
-    color: var(--color-text-primary, #e2e4e9);
-    border: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-tertiary, #242424);
+    color: var(--color-text-primary, #cccbc7);
+    border: 1px solid var(--color-border, #333333);
   }
 
   .btn-secondary:hover {
-    background: var(--color-border-hover, #3c3d4a);
+    background: var(--color-border-hover, #3d3d3d);
   }
 
   .btn-outline {
     background: transparent;
-    color: var(--color-accent, #569cd6);
-    border: 1px solid var(--color-accent, #569cd6);
+    color: var(--color-primary, #d1a847);
+    border: 1px solid var(--color-primary, #d1a847);
   }
 
   .btn-outline:hover {
-    background: rgba(86, 156, 214, 0.1);
+    background: var(--color-primary-subtle, rgba(209, 168, 71, 0.12));
+    color: var(--color-primary-hover, #d9bd7d);
+    border-color: var(--color-primary-hover, #d9bd7d);
   }
 
   .btn-outline:disabled {
-    color: var(--color-text-muted, #636874);
-    border-color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
+    border-color: var(--color-text-muted, #908f8b);
     cursor: not-allowed;
   }
 
@@ -142,25 +184,64 @@
     font-size: 0.75rem;
   }
 
-  .select {
-    appearance: none;
-    -webkit-appearance: none;
-    padding: 0.5rem 2rem 0.5rem 0.75rem;
-    background: var(--color-bg-tertiary, #1a1b23) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%239ca0ab' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E") no-repeat right 0.625rem center;
-    color: var(--color-text-primary, #e2e4e9);
-    border: 1px solid var(--color-border, #2a2b35);
+  /* Custom dropdown */
+  .dropdown {
+    position: relative;
+  }
+
+  .dropdown-trigger {
+    gap: 0.5rem;
+  }
+
+  .chevron {
+    transition: transform 0.15s ease;
+    opacity: 0.6;
+  }
+
+  .chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .dropdown-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 180px;
+    background: var(--color-bg-secondary, #161616);
+    border: 1px solid var(--color-border, #333333);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    padding: 0.25rem;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 0.4rem 0.75rem;
+    background: transparent;
+    border: none;
     border-radius: 4px;
+    color: var(--color-text-secondary, #aca9a3);
     font-family: inherit;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-align: left;
     cursor: pointer;
-    outline: none;
+    transition: all 0.15s ease;
+    white-space: nowrap;
   }
 
-  .select:hover {
-    border-color: var(--color-text-muted, #636874);
+  .dropdown-item:hover {
+    color: var(--color-text-primary, #cccbc7);
+    background: rgba(255, 255, 255, 0.06);
   }
 
-  .select:focus {
-    border-color: var(--color-accent, #569cd6);
+  .dropdown-item.active {
+    color: var(--color-accent, #6ba591);
+    background: var(--color-accent-subtle, rgba(126, 183, 166, 0.15));
   }
 </style>

@@ -51,8 +51,8 @@
   .progress-bar {
     flex-shrink: 0;
     padding: var(--space-3, 12px) var(--space-4, 16px);
-    background: var(--color-bg-secondary, #13141a);
-    border-bottom: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-secondary, #161616);
+    border-bottom: 1px solid var(--color-border, #333333);
     overflow-x: auto;
     scrollbar-width: thin;
   }
@@ -68,12 +68,12 @@
     flex: 0 0 auto;
     width: 24px;
     height: 2px;
-    background: var(--color-bg-tertiary, #1a1b23);
+    background: var(--color-bg-tertiary, #242424);
     transition: background 0.2s ease;
   }
 
   .connector.active {
-    background: var(--color-accent, #569cd6);
+    background: var(--color-accent, #7eb7a6);
   }
 
   .phase-step {
@@ -90,7 +90,7 @@
   }
 
   .phase-step:hover {
-    background: var(--color-bg-tertiary, #1a1b23);
+    background: var(--color-bg-tertiary, #242424);
   }
 
   .step-circle {
@@ -103,38 +103,38 @@
     font-size: 0.6875rem;
     font-weight: 600;
     font-family: var(--font-mono, monospace);
-    background: var(--color-bg-tertiary, #1a1b23);
-    color: var(--color-text-muted, #636874);
+    background: var(--color-bg-tertiary, #242424);
+    color: var(--color-text-muted, #908f8b);
     border: 2px solid transparent;
     transition: all 0.2s ease;
     flex-shrink: 0;
   }
 
   .phase-step.current .step-circle {
-    background: rgba(86, 156, 214, 0.15);
-    color: var(--color-accent, #569cd6);
-    border-color: var(--color-accent, #569cd6);
+    background: rgba(126, 183, 166, 0.15);
+    color: var(--color-accent, #7eb7a6);
+    border-color: var(--color-accent, #7eb7a6);
   }
 
   .phase-step.visited .step-circle {
-    background: rgba(74, 222, 128, 0.15);
-    color: var(--color-success, #4ade80);
+    background: rgba(126, 183, 166, 0.15);
+    color: var(--color-success, #7eb7a6);
   }
 
   .step-label {
     font-size: 0.6875rem;
     font-weight: 500;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     white-space: nowrap;
   }
 
   .phase-step.current .step-label {
-    color: var(--color-accent, #569cd6);
+    color: var(--color-accent, #7eb7a6);
     font-weight: 600;
   }
 
   .phase-step.visited .step-label {
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
   }
 
   /* Mobile: hide labels, scrollable */

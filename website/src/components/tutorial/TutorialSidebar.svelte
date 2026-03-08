@@ -73,8 +73,8 @@
     flex-direction: column;
     width: 220px;
     min-width: 220px;
-    background: var(--color-bg-secondary, #13141a);
-    border-right: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-secondary, #161616);
+    border-right: 1px solid var(--color-border, #333333);
     overflow: hidden;
   }
 
@@ -83,15 +83,15 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.75rem 1rem;
-    background: var(--color-bg-elevated, #21222c);
-    border-bottom: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-elevated, #282828);
+    border-bottom: 1px solid var(--color-border, #333333);
     flex-shrink: 0;
   }
 
   .sidebar-title {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-text-primary, #e2e4e9);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .collapse-btn {
@@ -100,7 +100,7 @@
     justify-content: center;
     background: none;
     border: none;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     cursor: pointer;
     padding: 0.25rem;
     border-radius: 3px;
@@ -108,8 +108,8 @@
   }
 
   .collapse-btn:hover {
-    color: var(--color-text-primary, #e2e4e9);
-    background: var(--color-bg-tertiary, #1a1b23);
+    color: var(--color-text-primary, #cccbc7);
+    background: var(--color-bg-tertiary, #242424);
   }
 
   .sidebar-nav {
@@ -128,7 +128,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
   }
 
   .lesson-list {
@@ -147,24 +147,24 @@
     border: none;
     font-family: inherit;
     font-size: 0.8125rem;
-    color: var(--color-text-secondary, #9ca0ab);
+    color: var(--color-text-secondary, #aca9a3);
     cursor: pointer;
     text-align: left;
     transition: all 0.15s ease;
   }
 
   .lesson-link:hover {
-    color: var(--color-text-primary, #e2e4e9);
-    background: var(--color-bg-tertiary, #1a1b23);
+    color: var(--color-text-primary, #cccbc7);
+    background: var(--color-bg-tertiary, #242424);
   }
 
   .lesson-link.active {
-    color: var(--color-accent, #569cd6);
-    background: rgba(86, 156, 214, 0.1);
+    color: var(--color-primary, #d1a847);
+    background: rgba(126, 183, 166, 0.1);
   }
 
   .lesson-link.completed .lesson-status {
-    color: var(--color-success, #4ec9b0);
+    color: var(--color-success, #6ba591);
   }
 
   .lesson-status {
@@ -180,11 +180,11 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--color-text-muted, #636874);
+    background: var(--color-text-muted, #908f8b);
   }
 
   .lesson-link.active .lesson-dot {
-    background: var(--color-accent, #569cd6);
+    background: var(--color-primary, #d1a847);
   }
 
   .lesson-title {
@@ -199,17 +199,17 @@
     align-items: center;
     justify-content: center;
     width: 28px;
-    background: var(--color-bg-secondary, #13141a);
+    background: var(--color-bg-secondary, #161616);
     border: none;
-    border-right: 1px solid var(--color-border, #2a2b35);
-    color: var(--color-text-muted, #636874);
+    border-right: 1px solid var(--color-border, #333333);
+    color: var(--color-text-muted, #908f8b);
     cursor: pointer;
     transition: all 0.15s ease;
   }
 
   .expand-btn:hover {
-    color: var(--color-text-primary, #e2e4e9);
-    background: var(--color-bg-tertiary, #1a1b23);
+    color: var(--color-text-primary, #cccbc7);
+    background: var(--color-bg-tertiary, #242424);
   }
 
   /* Scrollbar */
@@ -220,7 +220,7 @@
     background: transparent;
   }
   .sidebar-nav::-webkit-scrollbar-thumb {
-    background: var(--color-text-muted, #636874);
+    background: var(--color-text-muted, #908f8b);
     border-radius: 2px;
   }
 </style>

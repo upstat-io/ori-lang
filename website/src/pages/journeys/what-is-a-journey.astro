@@ -21,7 +21,7 @@ const breadcrumbs = [
     </a>
 
     <section class="hero">
-      <h1>What is a Code Journey?</h1>
+      <h1 class="gradient-title">What is a Code Journey?</h1>
       <p class="hero-summary">
         A new kind of compiler testing — AI traces your code through every phase and scores the output.
       </p>
@@ -287,10 +287,6 @@ const breadcrumbs = [
   .hero h1 {
     font-size: var(--text-4xl);
     font-weight: var(--weight-bold);
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
     margin-bottom: var(--space-4);
     line-height: 1.15;
   }
@@ -370,7 +366,7 @@ const breadcrumbs = [
   .content code {
     font-family: var(--font-mono);
     font-size: 0.9em;
-    background: var(--color-bg-code, rgba(110, 118, 129, 0.15));
+    background: var(--color-bg-code, rgba(22, 22, 22, 0.3));
     padding: 0.125rem 0.375rem;
     border-radius: var(--radius-sm);
   }
@@ -452,7 +448,7 @@ const breadcrumbs = [
     font-size: var(--text-xs);
     font-weight: var(--weight-semibold);
     color: var(--color-accent);
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(89, 134, 124, 0.1);
     padding: 0.125rem 0.375rem;
     border-radius: var(--radius-sm);
     align-self: flex-start;
@@ -527,7 +523,7 @@ const breadcrumbs = [
   .tier-excellent { background: var(--color-success); }
   .tier-good { background: var(--color-accent); }
   .tier-fair { background: var(--color-warning); }
-  .tier-poor { background: var(--color-error, #ef4444); }
+  .tier-poor { background: var(--color-error, #e84040); }
 
   /* CTA section */
   .cta-section {
@@ -561,7 +557,7 @@ const breadcrumbs = [
 
   .cta-link:hover {
     background: var(--color-accent);
-    color: var(--color-bg-primary, #0d1117);
+    color: var(--color-bg-primary, #0b0b0b);
   }
 
   @media (max-width: 768px) {

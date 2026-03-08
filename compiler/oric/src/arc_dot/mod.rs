@@ -57,6 +57,7 @@ pub fn emit_arc_dot(
             interner,
             pool,
             &builtins,
+            std::env::var("ORI_VERIFY_ARC").is_ok(),
         );
 
         for func in &funcs {

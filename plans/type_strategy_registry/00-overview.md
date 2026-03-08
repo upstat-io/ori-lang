@@ -2,6 +2,7 @@
 plan: "type_strategy_registry"
 title: "Type Strategy Registry: Pure-Data Behavioral Contract for All Compiler Phases"
 status: in-progress
+reviewed: false
 supersedes:
   - "plans/builtin_ownership_ssot/"
 ---
@@ -122,7 +123,7 @@ The `ori_registry` crate MUST maintain these invariants permanently:
 | `ori_llvm/codegen/arc_emitter/operators.rs` emit_binary_op is_str guards | `if is_str { emit_str_runtime_call(...) }` | `STR.operators.lt = RuntimeCall { fn_name: "ori_str_compare", returns_bool: true }` (each comparison field independently) | `find_type(ty).operators.lt` → match strategy |
 | `ori_llvm/codegen/arc_emitter/builtins/` receiver_borrowed | `("str", "length", borrow: true)` | `MethodDef { receiver: Ownership::Borrow }` | `find_method(Str, "length").receiver` |
 | `ori_ir/builtin_methods/` BUILTIN_METHODS | `MethodDef { receiver_borrows: true, ... }` | `MethodDef { receiver: Ownership::Borrow }` | `find_method(ty, name).receiver` |
-| `ori_arc/borrow/builtins/` borrowing_builtin_names | `FxHashSet<Name>` built from `BORROWING_METHOD_NAMES` | `BUILTIN_TYPES.methods.filter(borrow)` | `find_method(ty, name).receiver == Borrow` |
+| `ori_arc/borrow/builtins/` BORROWING_METHOD_NAMES | `FxHashSet<Name>` built from const `&[&str]` | `ori_registry::borrowing_method_names()` (derived from `BUILTIN_TYPES`) | `borrowing_method_names().iter()` + intern |
 | `consistency.rs` TYPECK_METHODS_NOT_IN_IR (130 entries) | Allowlist tracking gaps | **Eliminated** | Registry IS the source of truth |
 | `consistency.rs` EVAL_METHODS_NOT_IN_TYPECK (55 entries) | Allowlist tracking gaps | **Eliminated** | Registry IS the source of truth |
 
@@ -243,7 +244,7 @@ Phase 2 ─ Type Definitions (parallelizable)
 Phase 3 ─ Wiring (parallelizable per crate)
   ├─ 09: Wire ori_types — replace resolve_*_method, TYPECK_BUILTIN_METHODS
   ├─ 10: Wire ori_eval — replace EVAL_BUILTIN_METHODS, ITERATOR_METHOD_NAMES, rewrite consistency tests
-  ├─ 11: Wire ori_arc — replace borrowing_builtins, fix dependency direction
+  ├─ 11: Wire ori_arc — replace BORROWING_METHOD_NAMES with registry data
   ├─ 12: Wire ori_llvm — replace emit_binary_op guards, simplify BuiltinRegistration
   └─ 13: Migrate ori_ir — consolidate BUILTIN_METHODS, DerivedTrait, format specs
   Gate: ./test-all.sh passes, ./llvm-test.sh passes
@@ -288,7 +289,7 @@ This plan eliminates ALL of the following manual sync mechanisms:
 | `DEI_ONLY_METHODS` | 5 | `ori_types/infer/expr/methods/mod.rs` | Registry-based DEI flag |
 | `BUILTIN_METHODS` (ori_ir) | 123 | `ori_ir/builtin_methods/mod.rs` | Consolidated into ori_registry |
 | `BuiltinRegistration.receiver_borrowed` | 206 | `ori_llvm/codegen/arc_emitter/builtins/*.rs` | `find_method().receiver` |
-| `borrowing_builtin_names()` | ~6 lines | `ori_arc/borrow/builtins/mod.rs` | `find_method().receiver == Borrow` |
+| `BORROWING_METHOD_NAMES` + `borrowing_builtin_names()` | ~47 + ~6 lines | `ori_arc/borrow/builtins/mod.rs` | `ori_registry::borrowing_method_names()` (derived from `BUILTIN_TYPES`) |
 | `TYPECK_METHODS_NOT_IN_IR` | 130 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
 | `EVAL_METHODS_NOT_IN_TYPECK` | 55 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
 | `TYPECK_METHODS_NOT_IN_EVAL` | 216 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |

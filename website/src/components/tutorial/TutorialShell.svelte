@@ -339,7 +339,7 @@
     bottom: 0;
     display: flex;
     flex-direction: column;
-    background: var(--color-bg-secondary, #13141a);
+    background: var(--color-bg-secondary, #161616);
     overflow: hidden;
     z-index: 1;
   }
@@ -349,7 +349,7 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     font-size: 0.875rem;
   }
 
@@ -385,7 +385,7 @@
     flex-direction: column;
     min-width: 0;
     overflow: hidden;
-    border-right: 1px solid var(--color-border, #2a2b35);
+    border-right: 1px solid var(--color-border, #333333);
   }
 
   .resize-handle {
@@ -399,7 +399,7 @@
 
   .resize-handle:hover,
   .panels.resizing .resize-handle {
-    background: var(--color-accent, #569cd6);
+    background: var(--color-primary, #d1a847);
   }
 
   .editor-area {
@@ -427,7 +427,7 @@
       flex: 0 0 auto !important;
       max-height: 40vh;
       border-right: none;
-      border-bottom: 1px solid var(--color-border, #2a2b35);
+      border-bottom: 1px solid var(--color-border, #333333);
     }
 
     .resize-handle {

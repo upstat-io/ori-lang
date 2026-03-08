@@ -64,7 +64,7 @@
   h2 {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: 0 0 var(--space-4, 16px) 0;
   }
 
@@ -73,21 +73,21 @@
     align-items: center;
     gap: var(--space-2, 8px);
     padding: var(--space-3, 12px) var(--space-4, 16px);
-    background: rgba(74, 222, 128, 0.08);
-    border: 1px solid rgba(74, 222, 128, 0.2);
+    background: rgba(126, 183, 166, 0.08);
+    border: 1px solid rgba(126, 183, 166, 0.2);
     border-radius: var(--radius-md, 8px);
     margin-bottom: var(--space-4, 16px);
   }
 
   .badge-icon {
-    color: #4ade80;
+    color: #7eb7a6;
     font-size: 1rem;
     font-weight: 700;
   }
 
   .badge-text {
     font-size: 0.8125rem;
-    color: #4ade80;
+    color: #7eb7a6;
     font-weight: 500;
   }
 
@@ -100,17 +100,17 @@
 
   .fn-card {
     padding: var(--space-3, 12px) var(--space-4, 16px);
-    background: var(--color-bg-secondary, #13141a);
-    border: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-secondary, #161616);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
   }
 
   .fn-card.balanced {
-    border-color: rgba(74, 222, 128, 0.2);
+    border-color: rgba(126, 183, 166, 0.2);
   }
 
   .fn-card.unbalanced {
-    border-color: rgba(239, 68, 68, 0.3);
+    border-color: rgba(232, 64, 64, 0.3);
   }
 
   .fn-header {
@@ -124,7 +124,7 @@
     font-family: var(--font-mono, monospace);
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-accent, #569cd6);
+    color: var(--color-accent, #7eb7a6);
   }
 
   .balance-badge {
@@ -135,13 +135,13 @@
   }
 
   .balance-badge.pass {
-    background: rgba(74, 222, 128, 0.15);
-    color: #4ade80;
+    background: rgba(126, 183, 166, 0.15);
+    color: #7eb7a6;
   }
 
   .balance-badge.fail {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
+    background: rgba(232, 64, 64, 0.15);
+    color: #e84040;
   }
 
   .fn-metrics {
@@ -157,34 +157,34 @@
 
   .rc-label {
     font-size: 0.6875rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
   }
 
   .rc-value {
     font-family: var(--font-mono, monospace);
     font-size: 0.875rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .fn-notes {
     margin: var(--space-2, 8px) 0 0;
     font-size: 0.75rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     font-style: italic;
   }
 
   .raw-annotations {
     margin-top: var(--space-4, 16px);
-    border: 1px solid var(--color-border, #2a2b35);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
   }
 
   .raw-annotations summary {
     padding: var(--space-2, 8px) var(--space-3, 12px);
-    background: var(--color-bg-secondary, #13141a);
+    background: var(--color-bg-secondary, #161616);
     font-size: 0.75rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     cursor: pointer;
   }
 
@@ -195,6 +195,6 @@
     font-size: 0.75rem;
     line-height: 1.5;
     overflow-x: auto;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
   }
 </style>

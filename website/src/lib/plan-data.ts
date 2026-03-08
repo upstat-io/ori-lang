@@ -246,15 +246,20 @@ export function parseYamlFrontmatter(yaml: string): YamlFrontmatter | null {
         // Inline empty array syntax
         result[key] = [];
         inArray = false;
-      } else if (value.startsWith('[') && value.endsWith(']')) {
-        // Inline array syntax: ["a", "b"] or [a, b]
-        const inner = value.slice(1, -1).trim();
-        if (inner === '') {
-          result[key] = [];
+      } else if (value.startsWith('[')) {
+        // Inline array syntax: ["a", "b"] or [a, b] — strip trailing YAML comments
+        const lastBracket = value.lastIndexOf(']');
+        if (lastBracket !== -1) {
+          const inner = value.slice(1, lastBracket).trim();
+          if (inner === '') {
+            result[key] = [];
+          } else {
+            result[key] = inner.split(',').map(item =>
+              item.trim().replace(/^["']|["']$/g, '')
+            );
+          }
         } else {
-          result[key] = inner.split(',').map(item =>
-            item.trim().replace(/^["']|["']$/g, '')
-          );
+          result[key] = [];
         }
         inArray = false;
       } else {
