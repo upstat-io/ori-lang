@@ -1,5 +1,0 @@
-{
-  "expected_output": "Hello, Ori!",
-  "output_match": "contains",
-  "hints": ["Try changing the string inside the quotes to say \"Hello, Ori!\""]
-}
