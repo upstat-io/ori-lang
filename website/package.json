@@ -1,7 +1,7 @@
 {
   "name": "ori-website",
   "type": "module",
-  "version": "2026.3.7",
+  "version": "2026.3.8",
   "scripts": {
     "dev": "astro dev",
     "prebuild": "cp ../install.sh public/install.sh && bash scripts/copy-wasm.sh && bash scripts/generate-changelog.sh && node scripts/build-tutorial.mjs",
