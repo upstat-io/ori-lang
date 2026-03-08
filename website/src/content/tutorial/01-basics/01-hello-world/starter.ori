@@ -1,3 +1,0 @@
-@main () -> void = {
-    print(msg: "Hello, World!");
-}
