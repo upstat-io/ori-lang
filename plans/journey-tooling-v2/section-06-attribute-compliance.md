@@ -1,19 +1,19 @@
 ---
 section: "06"
 title: "Attribute Compliance Improvements"
-status: not-started
+status: complete
 goal: "Reduce false attribute violations by teaching the checker about closures, indirect calls, and structural patterns"
 depends_on: []
 sections:
   - id: "06.1"
     title: "Closure-Aware Attribute Rules"
-    status: not-started
+    status: complete
   - id: "06.2"
     title: "Memory Attribute Analysis"
-    status: not-started
+    status: complete
   - id: "06.3"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 06: Attribute Compliance Improvements

@@ -77,6 +77,7 @@ pub mod rc_insert;
 pub mod reset_reuse;
 pub mod tail_call;
 pub mod uniqueness;
+pub(crate) mod verify;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

@@ -2,7 +2,7 @@
 journey: 7
 slug: loops
 theme: "I am a loop"
-date: 2026-03-06
+date: 2026-03-07
 status: PASS
 expected: 30
 eval_result: 30
@@ -562,13 +562,13 @@ All 5 addition operations are overflow-checked. Each uses the `llvm.sadd.with.ov
 | Binary size | 6.25 MiB (debug) |
 | .text section | 868.8 KiB |
 | .rodata section | 133.5 KiB |
-| User code (@sum_loop) | 154 bytes (39 instructions) |
-| User code (@sum_for) | 166 bytes (42 instructions) |
-| User code (@main) | 80 bytes (17 instructions) |
-| Total user code | 400 bytes |
+| User code (@sum_loop) | 154 bytes (38 instructions) |
+| User code (@sum_for) | 170 bytes (41 instructions) |
+| User code (@main) | 72 bytes (17 instructions) |
+| Total user code | 396 bytes |
 | Runtime | >99% of binary |
 
-The user code compiles to 400 bytes of machine code across 3 functions. The native code uses stack spills heavily (debug mode, no register allocation optimization), but the structure is correct. Overflow checks compile to `jo` (jump on overflow) instructions, which is the optimal x86 encoding.
+The user code compiles to 396 bytes of machine code across 3 functions. The native code uses stack spills heavily (debug mode, no register allocation optimization), but the structure is correct. Overflow checks compile to `jo` (jump on overflow) instructions, which is the optimal x86 encoding.
 
 #### Disassembly: @sum_loop
 

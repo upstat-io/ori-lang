@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "CFG-Aware RC Balance Checking"
-status: not-started
+status: complete
 goal: "Replace per-function linear RC counting with per-SSA-value state tracking through the control flow graph"
 inspired_by:
   - "Swift TopDownRefCountState/BottomUpRefCountState (lib/SILOptimizer/ARC/RefCountState.h) — bidirectional RC state machine"
@@ -11,16 +11,16 @@ depends_on: ["01", "04"]
 sections:
   - id: "02.1"
     title: "RC State Machine"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Basic Block State Tracking"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "CFG Join Semantics"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 02: CFG-Aware RC Balance Checking

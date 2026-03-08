@@ -2,7 +2,7 @@
 journey: 1
 slug: arithmetic
 theme: "I am arithmetic"
-date: 2026-03-06
+date: 2026-03-07
 status: PASS
 expected: 33
 eval_result: 33
@@ -490,11 +490,11 @@ The panic messages are operation-specific (not generic), which is good for debug
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (6,554,584 bytes, debug) |
-| .text section | 868 KiB (889,377 bytes) |
-| .rodata section | 134 KiB (136,778 bytes) |
+| .text section | 868 KiB (889,409 bytes) |
+| .rodata section | 134 KiB (136,772 bytes) |
 | .debug_info | 1.56 MiB (1,638,828 bytes) |
-| .debug_str | 1.72 MiB (1,803,885 bytes) |
-| .eh_frame | 109 KiB (111,952 bytes) |
+| .debug_str | 1.72 MiB (1,803,891 bytes) |
+| .eh_frame | 109 KiB (111,956 bytes) |
 | User code (@add) | 31 bytes (0x1b100-0x1b11f) |
 | User code (@main) | 93 bytes (0x1b120-0x1b17d) |
 | User code (main wrapper) | 8 bytes (0x1b180-0x1b188) |
@@ -702,9 +702,9 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW      | Attributes | Missing `uwtable` on main wrapper | NEW | J1 |
-| 2 | NOTE     | Attributes | `noreturn` now present on `ori_panic_cstr` | FIXED | J1 |
-| 3 | NOTE     | Attributes | `noundef` added to user function params and returns | NEW | J1 |
+| 1 | LOW      | Attributes | Missing `uwtable` on main wrapper | CONFIRMED | J1 |
+| 2 | NOTE     | Attributes | `noreturn` present on `ori_panic_cstr` | CONFIRMED | J1 |
+| 3 | NOTE     | Attributes | `noundef` on user function params and returns | CONFIRMED | J1 |
 | 4 | NOTE     | Instruction Purity | Let bindings eliminated to direct SSA -- O1-quality at O0 | CONFIRMED | J1 |
 | 5 | NOTE     | Instruction Purity | Both user functions match ideal IR exactly -- OPTIMAL | CONFIRMED | J1 |
 
@@ -714,15 +714,16 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 **Impact**: Without `uwtable`, LLVM may not generate a proper `.eh_frame` unwind table entry for the C entry point wrapper. This could impact debugger stack traces if a panic occurs during `@_ori_main`. The practical impact is minimal since the function is trivial (3 instructions: call, trunc, ret) and any panic would unwind from inside `@_ori_main` or `@_ori_add`, both of which have `uwtable`.
 **Fix**: Add `uwtable` to the main wrapper's attribute group. The attribute group should be `{ nounwind uwtable }`. This should be changed in `compiler/ori_llvm/src/codegen/function_compiler/entry_point.rs` where the C `main()` wrapper is generated.
 **First seen**: Journey 1
+**Status**: Still present -- confirmed on re-run.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-2: `noreturn` now present on `ori_panic_cstr`
+### NOTE-2: `noreturn` present on `ori_panic_cstr`
 
 **Location**: `declare void @ori_panic_cstr(ptr) #2` where `#2 = { cold noreturn }`
-**Impact**: Positive. The `noreturn` attribute was previously missing (only `cold` was present). Adding `noreturn` allows LLVM to fully optimize code paths after panic calls and improve branch layouts. Combined with the `unreachable` instruction at each call site, this provides redundant but complete non-return semantics.
+**Impact**: Positive. Both `cold` and `noreturn` are present. The `noreturn` attribute allows LLVM to fully optimize code paths after panic calls and improve branch layouts. Combined with the `unreachable` instruction at each call site, this provides redundant but complete non-return semantics.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-3: `noundef` added to user function parameters and returns
+### NOTE-3: `noundef` on user function parameters and returns
 
 **Location**: `@_ori_add` params (`i64 noundef %0, i64 noundef %1`) and return (`noundef i64`); `@_ori_main` return (`noundef i64`)
 **Impact**: Positive. The `noundef` attribute tells LLVM that these values are always well-defined (not `undef` or `poison`). This enables additional LLVM optimizations -- particularly for signed overflow checking, where undefined behavior semantics are critical. For Ori's `int` type (which is always initialized), this is always correct.
@@ -744,7 +745,7 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
+| Instruction Efficiency | 15% | 10/10 | 1.00x avg ratio |
 | ARC Correctness | 20% | 10/10 | 0 violations |
 | Attributes & Safety | 10% | 8/10 | 92.3% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
@@ -756,4 +757,4 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 ## Verdict
 
-Journey 1's arithmetic codegen is near-perfect. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction -- zero overhead beyond mandatory overflow checking. The `noreturn` attribute on `ori_panic_cstr` has been fixed since the previous run, and `noundef` annotations are now present on function parameters and returns. The sole remaining gap is a missing `uwtable` on the C `main()` wrapper, which has negligible practical impact.
+Journey 1's arithmetic codegen is near-perfect. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction -- zero overhead beyond mandatory overflow checking. Attributes are strong: `nounwind`, `uwtable`, `noundef`, `cold`, and `noreturn` are all correctly applied where needed. The sole remaining gap is a missing `uwtable` on the C `main()` wrapper, which has negligible practical impact. Score is stable at 9.8/10 across re-runs.

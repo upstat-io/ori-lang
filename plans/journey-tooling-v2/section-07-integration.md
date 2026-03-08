@@ -1,22 +1,22 @@
 ---
 section: "07"
 title: "Integration and Re-scoring"
-status: not-started
+status: complete
 goal: "Wire all improvements together, re-score all 12 journeys, and validate zero false positive regressions"
 depends_on: ["01", "02", "03", "04", "06"]  # Excludes 05 (Rust verifier, independent track)
 sections:
   - id: "07.1"
     title: "Pipeline Integration"
-    status: not-started
+    status: complete
   - id: "07.2"
     title: "Re-score All Journeys"
-    status: not-started
+    status: complete
   - id: "07.3"
     title: "Regression Test Suite"
-    status: not-started
+    status: complete
   - id: "07.4"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 07: Integration and Re-scoring
