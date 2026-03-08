@@ -103,7 +103,7 @@ const rejectedCount = countProposals('rejected');
 >
   <main class="roadmap-page">
     <section class="roadmap-hero">
-      <h1>Compiler Roadmap</h1>
+      <h1 class="gradient-title">Compiler Roadmap</h1>
       <p class="roadmap-subtitle">
         {allSections.length} sections. Click any section to view full details.
       </p>
@@ -351,10 +351,6 @@ const rejectedCount = countProposals('rejected');
   .roadmap-hero h1 {
     font-size: var(--text-5xl);
     font-weight: var(--weight-bold);
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
     margin-bottom: var(--space-4);
   }
 
@@ -373,11 +369,19 @@ const rejectedCount = countProposals('rejected');
 
   .stat {
     text-align: center;
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     padding: var(--space-5) var(--space-8);
     width: 160px;
+    transition: border-color var(--transition-medium), transform var(--transition-medium);
+  }
+
+  .stat:hover {
+    border-color: var(--color-border-hover);
+    transform: translateY(-2px);
   }
 
   .stat-value {
@@ -435,12 +439,12 @@ const rejectedCount = countProposals('rejected');
 
   /* In Progress Section */
   .in-progress-section details {
-    background: rgba(251, 191, 36, 0.02);
-    border: 1px solid rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.02);
+    border: 1px solid rgba(219, 132, 75, 0.15);
   }
 
   .in-progress-section details[open] {
-    background: rgba(251, 191, 36, 0.03);
+    background: rgba(219, 132, 75, 0.03);
   }
 
   .status-header.in-progress h2 {
@@ -448,7 +452,7 @@ const rejectedCount = countProposals('rejected');
   }
 
   .status-header.in-progress .status-icon {
-    background: rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.15);
     color: var(--color-warning);
   }
 
@@ -458,12 +462,12 @@ const rejectedCount = countProposals('rejected');
 
   /* Planned Section */
   .planned-section details {
-    background: rgba(148, 163, 184, 0.02);
-    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(164, 161, 157, 0.02);
+    border: 1px solid rgba(164, 161, 157, 0.12);
   }
 
   .planned-section details[open] {
-    background: rgba(148, 163, 184, 0.03);
+    background: rgba(164, 161, 157, 0.03);
   }
 
   .status-header.planned h2 {
@@ -471,18 +475,18 @@ const rejectedCount = countProposals('rejected');
   }
 
   .status-header.planned .status-icon {
-    background: rgba(148, 163, 184, 0.15);
+    background: rgba(164, 161, 157, 0.15);
     color: var(--color-text-secondary);
   }
 
   /* Completed Section */
   .completed-section details {
-    background: rgba(74, 222, 128, 0.02);
-    border: 1px solid rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.02);
+    border: 1px solid rgba(126, 183, 166, 0.15);
   }
 
   .completed-section details[open] {
-    background: rgba(74, 222, 128, 0.03);
+    background: rgba(126, 183, 166, 0.03);
   }
 
   .status-header.completed h2 {
@@ -490,7 +494,7 @@ const rejectedCount = countProposals('rejected');
   }
 
   .status-header.completed .status-icon {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
@@ -608,11 +612,19 @@ const rejectedCount = countProposals('rejected');
   }
 
   .result-card {
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     padding: var(--space-5);
     text-align: center;
+    transition: border-color var(--transition-medium), transform var(--transition-medium);
+  }
+
+  .result-card:hover {
+    border-color: var(--color-border-hover);
+    transform: translateY(-2px);
   }
 
   .result-value {
@@ -638,13 +650,13 @@ const rejectedCount = countProposals('rejected');
   }
 
   .result-status.success {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
   .result-status.failing {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
+    background: rgba(232, 64, 64, 0.15);
+    color: #e84040;
   }
 
   .result-status.muted {
@@ -653,7 +665,7 @@ const rejectedCount = countProposals('rejected');
   }
 
   .result-status.lcfail {
-    background: rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.15);
     color: var(--color-warning);
   }
 
@@ -669,11 +681,11 @@ const rejectedCount = countProposals('rejected');
   }
 
   .result-card.crashed {
-    border-color: #ef4444;
+    border-color: #e84040;
   }
 
   .result-card.has-failures {
-    border-color: #ef4444;
+    border-color: #e84040;
   }
 
   .results-total {
@@ -683,9 +695,11 @@ const rejectedCount = countProposals('rejected');
     gap: var(--space-3);
     margin-top: var(--space-4);
     padding: var(--space-3) var(--space-5);
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
   }
 
   .results-total-label {
@@ -702,7 +716,7 @@ const rejectedCount = countProposals('rejected');
   }
 
   .results-total-value.failing {
-    color: #ef4444;
+    color: #e84040;
   }
 
   .results-total-value.muted {
@@ -724,7 +738,9 @@ const rejectedCount = countProposals('rejected');
   .roadmap-cta {
     text-align: center;
     padding: var(--space-12) var(--space-6);
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-radius: var(--radius-xl);
     border: 1px solid var(--color-border);
   }
@@ -762,21 +778,25 @@ const rejectedCount = countProposals('rejected');
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-6);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-full);
     font-size: var(--text-base);
     font-weight: var(--weight-semibold);
     text-decoration: none;
-    transition: all var(--transition-fast);
+    transition: all var(--transition-medium);
   }
 
   .btn-primary {
-    background: var(--color-accent);
-    color: #fff;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
   }
 
   .btn-primary:hover {
-    background: var(--color-accent-hover);
-    color: #fff;
+    background: var(--color-primary-hover);
+    color: var(--color-primary-text);
+  }
+
+  .btn-primary:active {
+    background: var(--color-primary-muted);
   }
 
   .btn-secondary {
@@ -827,18 +847,18 @@ const rejectedCount = countProposals('rejected');
   }
 
   .proposal-stat.approved {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
   .proposal-stat.draft {
-    background: rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.15);
     color: var(--color-warning);
   }
 
   .proposal-stat.rejected {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--color-error, #ef4444);
+    background: rgba(232, 64, 64, 0.15);
+    color: var(--color-error, #e84040);
   }
 
   @media (max-width: 768px) {

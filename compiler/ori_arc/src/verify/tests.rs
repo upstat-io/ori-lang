@@ -55,7 +55,7 @@ fn use_before_def_detected() {
     assert_eq!(errors.len(), 1);
     assert!(matches!(
         &errors[0],
-        VerifyError::UseBeforeDef { var, block }
+        VerifyError::UseBeforeDef { var, block, .. }
         if *var == v(5) && *block == b(0)
     ));
 }

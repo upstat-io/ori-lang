@@ -19,7 +19,7 @@ const scoreColor = score >= 9 ? 'var(--color-success)' :
                    'var(--color-error)';
 
 const difficultyLabel = { simple: 'Simple', moderate: 'Moderate', complex: 'Complex' }[difficulty];
-const difficultyColor = { simple: 'var(--color-success)', moderate: 'var(--color-warning)', complex: 'var(--color-error)' }[difficulty];
+const difficultyColor = { simple: 'var(--color-text-muted)', moderate: 'var(--color-accent)', complex: 'var(--color-primary)' }[difficulty];
 
 const statusPassed = status === 'PASS';
 ---
@@ -66,12 +66,14 @@ const statusPassed = status === 'PASS';
   .journey-card {
     display: flex;
     flex-direction: column;
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     padding: var(--space-5);
     text-decoration: none;
-    transition: all var(--transition-fast);
+    transition: all var(--transition-medium);
     position: relative;
     overflow: hidden;
   }
@@ -89,9 +91,9 @@ const statusPassed = status === 'PASS';
   }
 
   .journey-card:hover {
-    background: var(--color-bg-tertiary);
     border-color: var(--color-border-hover);
     transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
   }
 
   .journey-card:hover::before {
@@ -219,12 +221,12 @@ const statusPassed = status === 'PASS';
   }
 
   .status-indicator.pass {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
   .status-indicator.fail {
-    background: rgba(239, 68, 68, 0.15);
+    background: rgba(232, 64, 64, 0.15);
     color: var(--color-error);
   }
 

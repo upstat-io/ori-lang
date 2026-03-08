@@ -2,6 +2,7 @@
 section: "11"
 title: "Collection Specialization"
 status: not-started
+reviewed: false
 goal: "Optimize collection representations: small string optimization (SSO), small vector optimization (SVO), packed bool arrays, and narrow-element backing stores"
 inspired_by:
   - "C++ std::string SSO (libstdc++ basic_string.h — 15-byte inline buffer)"

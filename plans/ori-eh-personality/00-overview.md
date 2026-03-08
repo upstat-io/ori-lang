@@ -2,6 +2,7 @@
 plan: "ori-eh-personality"
 title: "Ori Exception Handling Personality: Exhaustive Implementation Plan"
 status: not-started
+reviewed: false
 references:
   - "plans/code-journeys/journey3-results.md"
   - "compiler/ori_llvm/src/codegen/eh_model/mod.rs"

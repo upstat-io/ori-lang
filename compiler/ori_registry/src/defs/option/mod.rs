@@ -12,6 +12,8 @@ use crate::{
     TypeProjection, TypeTag, ONE_SELF_OWNED,
 };
 
+use super::params::{CLOSURE_PARAM, MESSAGE_PARAM};
+
 // Parameter arrays
 
 /// `(default: T)` — for `unwrap_or`.
@@ -19,13 +21,6 @@ static DEFAULT_PARAM: [ParamDef; 1] = [ParamDef {
     name: "default",
     ty: ReturnTag::ElementType,
     ownership: Ownership::Owned,
-}];
-
-/// `(message: str)` — for `expect`.
-static MESSAGE_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "message",
-    ty: ReturnTag::Concrete(TypeTag::Str),
-    ownership: Ownership::Borrow,
 }];
 
 /// `(err: E)` — for `ok_or` (fresh error type).
@@ -39,13 +34,6 @@ static ERR_PARAM: [ParamDef; 1] = [ParamDef {
 static OR_PARAM: [ParamDef; 1] = [ParamDef {
     name: "other",
     ty: ReturnTag::SelfType,
-    ownership: Ownership::Owned,
-}];
-
-/// `(f: closure)` — for higher-order methods.
-static CLOSURE_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "f",
-    ty: ReturnTag::Fresh,
     ownership: Ownership::Owned,
 }];
 

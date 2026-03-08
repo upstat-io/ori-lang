@@ -2,6 +2,7 @@
 section: "21B"
 title: AOT Compilation
 status: in-progress
+reviewed: false
 tier: 8
 goal: Generate native executables and WebAssembly from Ori source code
 sections:

@@ -835,26 +835,6 @@ pub fn find_method(receiver: BuiltinType, name: &str) -> Option<&'static MethodD
         .find(|m| m.receiver == receiver && m.name == name)
 }
 
-/// All builtin method names whose receiver is borrowed.
-///
-/// Used by `ori_arc` borrow inference to build the `borrowing_builtins` set.
-/// Yields deduplicated names (multiple types may share a method name like
-/// `"clone"`, but the iterator yields it once per `MethodDef`).
-pub fn borrowing_method_names() -> impl Iterator<Item = &'static str> {
-    BUILTIN_METHODS
-        .iter()
-        .filter(|m| m.receiver_borrows)
-        .map(|m| m.name)
-}
-
-/// Check if a specific method borrows its receiver.
-///
-/// Returns `None` if the method doesn't exist in the registry.
-#[must_use]
-pub fn method_borrows_receiver(receiver: BuiltinType, name: &str) -> Option<bool> {
-    find_method(receiver, name).map(|m| m.receiver_borrows)
-}
-
 /// Get all methods for a given receiver type.
 ///
 /// Returns an iterator over all methods defined on the type.

@@ -2,6 +2,7 @@
 section: 5
 title: Type Declarations
 status: in-progress
+reviewed: false
 tier: 1
 goal: User-defined types
 spec:

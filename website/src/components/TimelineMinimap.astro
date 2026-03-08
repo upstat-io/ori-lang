@@ -212,39 +212,39 @@ function nodeStatusClass(status: string): string {
   }
 
   .timeline-node.complete .tooltip {
-    background: #1a1a1a;
+    background: var(--color-bg-secondary);
     color: var(--color-success);
-    border: 1px solid rgba(74, 222, 128, 0.4);
+    border: 1px solid rgba(126, 183, 166, 0.4);
   }
 
   .timeline-node.complete .tooltip::after {
-    background: #1a1a1a;
-    border-right: 1px solid rgba(74, 222, 128, 0.4);
-    border-bottom: 1px solid rgba(74, 222, 128, 0.4);
+    background: var(--color-bg-secondary);
+    border-right: 1px solid rgba(126, 183, 166, 0.4);
+    border-bottom: 1px solid rgba(126, 183, 166, 0.4);
   }
 
   .timeline-node.in-progress .tooltip {
-    background: #1a1a1a;
-    color: var(--color-warning);
-    border: 1px solid rgba(251, 191, 36, 0.4);
+    background: var(--color-bg-secondary);
+    color: #db844b;
+    border: 1px solid rgba(219, 132, 75, 0.4);
   }
 
   .timeline-node.in-progress .tooltip::after {
-    background: #1a1a1a;
-    border-right: 1px solid rgba(251, 191, 36, 0.4);
-    border-bottom: 1px solid rgba(251, 191, 36, 0.4);
+    background: var(--color-bg-secondary);
+    border-right: 1px solid rgba(219, 132, 75, 0.4);
+    border-bottom: 1px solid rgba(219, 132, 75, 0.4);
   }
 
   .timeline-node.planned .tooltip {
-    background: #1a1a1a;
+    background: var(--color-bg-secondary);
     color: var(--color-text-muted);
-    border: 1px solid rgba(160, 160, 160, 0.3);
+    border: 1px solid rgba(164, 161, 157, 0.3);
   }
 
   .timeline-node.planned .tooltip::after {
-    background: #1a1a1a;
-    border-right: 1px solid rgba(160, 160, 160, 0.3);
-    border-bottom: 1px solid rgba(160, 160, 160, 0.3);
+    background: var(--color-bg-secondary);
+    border-right: 1px solid rgba(164, 161, 157, 0.3);
+    border-bottom: 1px solid rgba(164, 161, 157, 0.3);
   }
 
   .timeline-node:hover .tooltip {
@@ -253,24 +253,24 @@ function nodeStatusClass(status: string): string {
   }
 
   .timeline-node.complete {
-    background: rgba(74, 222, 128, 0.2);
+    background: rgba(126, 183, 166, 0.2);
     color: var(--color-success);
-    border: 1px solid rgba(74, 222, 128, 0.4);
+    border: 1px solid rgba(126, 183, 166, 0.4);
   }
 
   .timeline-node.complete:hover {
-    background: rgba(74, 222, 128, 0.35);
+    background: rgba(126, 183, 166, 0.35);
     border-color: var(--color-success);
   }
 
   .timeline-node.in-progress {
-    background: rgba(251, 191, 36, 0.2);
-    color: var(--color-warning);
-    border: 1px solid rgba(251, 191, 36, 0.4);
+    background: rgba(219, 132, 75, 0.2);
+    color: #db844b;
+    border: 1px solid rgba(219, 132, 75, 0.4);
   }
 
   .timeline-node.in-progress:hover {
-    background: rgba(251, 191, 36, 0.35);
+    background: rgba(219, 132, 75, 0.35);
     border-color: var(--color-warning);
   }
 
@@ -379,78 +379,79 @@ function nodeStatusClass(status: string): string {
 
   /* Active track — teal/cyan */
   .timeline-track.active {
-    background: rgba(78, 201, 176, 0.2);
+    background: rgba(126, 183, 166, 0.2);
     color: rgb(78, 201, 176);
-    border: 1px solid rgba(78, 201, 176, 0.5);
+    border: 1px solid rgba(126, 183, 166, 0.5);
   }
 
   .timeline-track.active:hover {
-    background: rgba(78, 201, 176, 0.35);
+    background: rgba(126, 183, 166, 0.35);
     border-color: rgb(78, 201, 176);
   }
 
   .timeline-track.active .tooltip {
-    background: #1a1a1a;
+    background: var(--color-bg-secondary);
     color: rgb(78, 201, 176);
-    border: 1px solid rgba(78, 201, 176, 0.4);
+    border: 1px solid rgba(126, 183, 166, 0.4);
   }
 
   .timeline-track.active .tooltip::after {
-    background: #1a1a1a;
-    border-right: 1px solid rgba(78, 201, 176, 0.4);
-    border-bottom: 1px solid rgba(78, 201, 176, 0.4);
+    background: var(--color-bg-secondary);
+    border-right: 1px solid rgba(126, 183, 166, 0.4);
+    border-bottom: 1px solid rgba(126, 183, 166, 0.4);
   }
 
   /* Queued track — dashed, muted */
   .timeline-track.queued {
     background: transparent;
     color: var(--color-text-muted);
-    border: 1px dashed rgba(148, 163, 184, 0.4);
+    border: 1px dashed rgba(164, 161, 157, 0.4);
   }
 
   .timeline-track.queued:hover {
-    background: rgba(148, 163, 184, 0.08);
-    border-color: rgba(148, 163, 184, 0.6);
+    background: rgba(164, 161, 157, 0.08);
+    border-color: rgba(164, 161, 157, 0.6);
     color: var(--color-text-secondary);
   }
 
   .timeline-track.queued .tooltip {
-    background: #1a1a1a;
+    background: var(--color-bg-secondary);
     color: var(--color-text-muted);
-    border: 1px solid rgba(160, 160, 160, 0.3);
+    border: 1px solid rgba(164, 161, 157, 0.3);
   }
 
   .timeline-track.queued .tooltip::after {
-    background: #1a1a1a;
-    border-right: 1px solid rgba(160, 160, 160, 0.3);
-    border-bottom: 1px solid rgba(160, 160, 160, 0.3);
+    background: var(--color-bg-secondary);
+    border-right: 1px solid rgba(164, 161, 157, 0.3);
+    border-bottom: 1px solid rgba(164, 161, 157, 0.3);
   }
 
   /* Resolved track — faded success */
   .timeline-track.resolved {
-    background: rgba(74, 222, 128, 0.08);
-    color: rgba(74, 222, 128, 0.5);
-    border: 1px solid rgba(74, 222, 128, 0.2);
+    background: rgba(126, 183, 166, 0.08);
+    color: rgba(126, 183, 166, 0.5);
+    border: 1px solid rgba(126, 183, 166, 0.2);
     opacity: 0.7;
   }
 
   .timeline-track.resolved:hover {
-    background: rgba(74, 222, 128, 0.15);
-    border-color: rgba(74, 222, 128, 0.4);
+    background: rgba(126, 183, 166, 0.15);
+    border-color: rgba(126, 183, 166, 0.4);
     opacity: 1;
   }
 
   .timeline-track.resolved .tooltip {
-    background: #1a1a1a;
+    background: var(--color-bg-secondary);
     color: var(--color-success);
-    border: 1px solid rgba(74, 222, 128, 0.4);
+    border: 1px solid rgba(126, 183, 166, 0.4);
   }
 
   .timeline-track.resolved .tooltip::after {
-    background: #1a1a1a;
-    border-right: 1px solid rgba(74, 222, 128, 0.4);
-    border-bottom: 1px solid rgba(74, 222, 128, 0.4);
+    background: var(--color-bg-secondary);
+    border-right: 1px solid rgba(126, 183, 166, 0.4);
+    border-bottom: 1px solid rgba(126, 183, 166, 0.4);
   }
+
 
   /* Legend */
   .timeline-legend {
@@ -476,12 +477,12 @@ function nodeStatusClass(status: string): string {
   }
 
   .legend-dot.complete {
-    background: rgba(74, 222, 128, 0.4);
+    background: rgba(126, 183, 166, 0.4);
     border: 1px solid var(--color-success);
   }
 
   .legend-dot.in-progress {
-    background: rgba(251, 191, 36, 0.4);
+    background: rgba(219, 132, 75, 0.4);
     border: 1px solid var(--color-warning);
   }
 
@@ -491,14 +492,15 @@ function nodeStatusClass(status: string): string {
   }
 
   .legend-dot.track-active {
-    background: rgba(78, 201, 176, 0.4);
-    border: 1px solid rgba(78, 201, 176, 0.7);
+    background: rgba(126, 183, 166, 0.4);
+    border: 1px solid rgba(126, 183, 166, 0.7);
   }
 
   .legend-dot.track-queued {
     background: transparent;
     border: 1px dashed var(--color-text-muted);
   }
+
 
   .legend-divider {
     width: 1px;

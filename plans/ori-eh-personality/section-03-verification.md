@@ -2,6 +2,7 @@
 section: "03"
 title: "Verification"
 status: not-started
+reviewed: false
 goal: "Full test suite green, Ori-generated LLVM IR references only ori_eh_personality, no behavioral regressions"
 depends_on: ["01", "02"]
 sections:

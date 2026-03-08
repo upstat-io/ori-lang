@@ -2,6 +2,7 @@
 section: 19
 title: Existential Types (impl Trait)
 status: not-started
+reviewed: false
 tier: 7
 goal: Enable returning opaque types that implement a trait without exposing concrete type
 spec:

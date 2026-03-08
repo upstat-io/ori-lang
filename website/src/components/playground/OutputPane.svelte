@@ -70,10 +70,10 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.5rem 1rem;
-    background: var(--color-bg-elevated, #21222c);
-    border-bottom: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-elevated, #282828);
+    border-bottom: 1px solid var(--color-border, #333333);
     font-size: 0.8125rem;
-    color: var(--color-text-secondary, #9ca0ab);
+    color: var(--color-text-secondary, #aca9a3);
     flex-shrink: 0;
   }
 
@@ -86,15 +86,15 @@
     line-height: 1.5;
     white-space: pre-wrap;
     word-wrap: break-word;
-    color: var(--color-text-secondary, #9ca0ab);
+    color: var(--color-text-secondary, #aca9a3);
   }
 
   .output.error {
-    color: var(--color-error, #f14c4c);
+    color: var(--color-error, #e84040);
   }
 
   .output.success {
-    color: var(--color-text-primary, #e2e4e9);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .status {
@@ -104,31 +104,31 @@
   }
 
   .status.running {
-    background: var(--color-warning, #cca700);
+    background: var(--color-warning, #db844b);
     color: #000;
   }
 
   .status.success {
-    background: var(--color-success, #4ec9b0);
+    background: var(--color-success, #6ba591);
     color: #000;
   }
 
   .status.error {
-    background: var(--color-error, #f14c4c);
+    background: var(--color-error, #e84040);
     color: #fff;
   }
 
   .timing-line {
     margin-top: 1rem;
     font-size: 0.8125rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
   }
 
   .timing-duration {
-    color: var(--color-success, #4ec9b0);
+    color: var(--color-success, #6ba591);
   }
 
   .timing-label {
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
   }
 </style>

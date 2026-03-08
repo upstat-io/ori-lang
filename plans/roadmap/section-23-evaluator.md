@@ -2,6 +2,7 @@
 section: 23
 title: Full Evaluator Support
 status: in-progress
+reviewed: false
 tier: 0
 goal: Complete evaluator support for entire Ori spec semantics
 spec:

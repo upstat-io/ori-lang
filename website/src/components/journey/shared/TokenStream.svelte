@@ -82,10 +82,10 @@
     top: var(--space-2, 8px);
     right: var(--space-2, 8px);
     padding: var(--space-1, 4px) var(--space-3, 12px);
-    background: var(--color-bg-tertiary, #1a1b23);
-    border: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-tertiary, #242424);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     font-size: 0.6875rem;
     cursor: pointer;
     z-index: 1;
@@ -93,8 +93,8 @@
   }
 
   .show-all-btn:hover {
-    background: var(--color-bg-elevated, #22232d);
-    color: var(--color-text-primary, #e5e7eb);
+    background: var(--color-bg-elevated, #282828);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .tokens {
@@ -140,8 +140,8 @@
 
   /* Color categories */
   .token.keyword {
-    background: rgba(86, 156, 214, 0.15);
-    color: #569cd6;
+    background: rgba(126, 183, 166, 0.15);
+    color: #72c2de;
   }
 
   .token.identifier {
@@ -165,7 +165,7 @@
   }
 
   .token.default {
-    background: rgba(156, 163, 175, 0.08);
-    color: #9ca3af;
+    background: rgba(164, 161, 157, 0.08);
+    color: #aca9a3;
   }
 </style>

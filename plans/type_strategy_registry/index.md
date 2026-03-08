@@ -3,6 +3,7 @@ reroute: true
 name: "Type Registry"
 full_name: "Type Strategy Registry"
 status: active
+reviewed: false
 order: 1
 ---
 
@@ -184,7 +185,7 @@ future optimization, performance, cache-friendly
 ---
 
 ### Section 09: Wire Type Checker (ori_types)
-**File:** `section-09-wire-type-checker.md` | **Status:** Not Started
+**File:** `section-09-wire-type-checker.md` | **Status:** Complete
 
 ```
 ori_types, type checker, inference, type resolution
@@ -207,7 +208,7 @@ as_bytes, to_bytes, from_utf8, from_utf8_unchecked, str methods
 ---
 
 ### Section 10: Wire Evaluator (ori_eval)
-**File:** `section-10-wire-evaluator.md` | **Status:** Not Started
+**File:** `section-10-wire-evaluator.md` | **Status:** Complete
 
 ```
 ori_eval, evaluator, interpreter, dispatch
@@ -227,17 +228,22 @@ resolvers/mod.rs, all_iterator_variants, from_name
 ---
 
 ### Section 11: Wire ARC & Borrow Pass (ori_arc)
-**File:** `section-11-wire-arc-borrow.md` | **Status:** Not Started
+**File:** `section-11-wire-arc-borrow.md` | **Status:** Complete
 
 ```
 ori_arc, ARC, borrow, borrow inference, ownership
-borrowing_builtins, FxHashSet, infer_borrows
-borrowing_method_names, borrowing_builtin_names
-dependency direction, dependency inversion
-ori_ir → ori_arc, backwards dependency fix
-MemoryStrategy, RC increment, RC decrement
-receiver borrows, parameter ownership
-borrow/mod.rs, rc_insert/mod.rs, RcContext
+BuiltinOwnershipSets, BORROWING_METHOD_NAMES, infer_borrows_scc
+borrowing_builtin_names, borrowing_method_names, LazyLock
+ori_arc/borrow/builtins/mod.rs, BuiltinOwnershipSets::new, BuiltinOwnershipSets::empty
+MemoryStrategy, RC increment, RC decrement, ArcClassification
+receiver borrows, parameter ownership, consuming receiver, COW exclusion
+iterator exclusion, derived-value exclusion, TypeTag::Iterator, ".iter()"
+protocol builtins, ProtocolBuiltin, __index, ProtocolArgOwnership
+CONSUMING_RECEIVER_METHOD_NAMES, SHARING_METHOD_NAMES, COW arrays
+purity test, purity_no_heap_allocation_types, fixed-size array
+borrow/mod.rs, borrow/builtins/mod.rs, rc_insert/annotate.rs
+arc_queries/mod.rs, function_compiler/mod.rs, define_phase.rs
+ori_ir/builtin_methods/mod.rs, method_borrows_receiver, borrowing_names_from_table
 ```
 
 ---
@@ -308,9 +314,9 @@ progressive complexity, phase boundary, end-to-end verification
 | 06 | Collection & Wrapper Types | `section-06-collection-wrapper-types.md` | Complete |
 | 07 | Iterator Type Definitions | `section-07-iterator-types.md` | Complete |
 | 08 | Query API & Lookup Functions | `section-08-query-api.md` | Complete |
-| 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Not Started |
-| 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Not Started |
-| 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Not Started |
+| 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Complete |
+| 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Complete |
+| 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Complete |
 | 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Not Started |
 | 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Not Started |
 | 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Not Started |

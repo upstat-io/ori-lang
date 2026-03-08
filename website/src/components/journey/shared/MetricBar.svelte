@@ -56,7 +56,7 @@
 
   .bar-label {
     font-size: 0.75rem;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     text-transform: capitalize;
   }
 
@@ -68,7 +68,7 @@
 
   .bar-track {
     height: 4px;
-    background: var(--color-bg-tertiary, #1a1b23);
+    background: var(--color-bg-tertiary, #242424);
     border-radius: 9999px;
     overflow: hidden;
   }
