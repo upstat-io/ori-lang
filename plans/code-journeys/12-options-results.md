@@ -2,7 +2,7 @@
 journey: 12
 slug: options
 theme: "I am an option"
-date: 2026-03-06
+date: 2026-03-07
 status: PASS
 expected: 33
 eval_result: 33
@@ -655,7 +655,7 @@ _ori_main:
 | # | Function | Actual | Ideal | Ratio | Verdict |
 |---|----------|--------|-------|-------|---------|
 | 1 | @safe_div | 8 | 7 | 1.14x | NEAR-OPTIMAL |
-| 2 | @unwrap_or | 11 | 11 | 1.00x | OPTIMAL |
+| 2 | @unwrap_or | 8 | 8 | 1.00x | OPTIMAL |
 | 3 | @check_some | 3 | 3 | 1.00x | OPTIMAL |
 | 4 | @check_none | 3 | 3 | 1.00x | OPTIMAL |
 | 5 | @check_chain | 11 | 11 | 1.00x | OPTIMAL |
@@ -740,7 +740,7 @@ All arithmetic additions use `llvm.sadd.with.overflow.i64` with proper panic on 
 | Binary size | 6.25 MiB (debug) |
 | .text section | 869.2 KiB |
 | .rodata section | 133.5 KiB |
-| User code | 738 bytes (8 functions) |
+| User code | 746 bytes (8 functions + wrapper) |
 | Runtime | 99.9% of binary |
 
 Per-function native code sizes:
@@ -748,15 +748,15 @@ Per-function native code sizes:
 | Function | Bytes | Instructions (approx) |
 |----------|-------|-----------------------|
 | @safe_div | 75 | 21 |
-| @unwrap_or | 49 | 14 |
+| @unwrap_or | 48 | 14 |
 | @check_some | 33 | 9 |
 | @check_none | 33 | 9 |
-| @check_chain | 111 | 28 |
+| @check_chain | 112 | 28 |
 | @try_div | 59 | 15 |
 | @check_prop | 214 | 48 |
 | @main | 164 | 38 |
 
-The user code is very compact at 738 bytes. The `{i64, i64}` Option representation maps efficiently to the (rax, rdx) return convention, avoiding any heap allocation or indirection.
+The user code is very compact at 746 bytes. The `{i64, i64}` Option representation maps efficiently to the (rax, rdx) return convention, avoiding any heap allocation or indirection.
 
 ### 7. Optimal IR Comparison
 
@@ -825,7 +825,7 @@ The `?` operator lowering is OPTIMAL: check discriminant, branch on Some/None, e
 | Function | Ideal | Actual | Delta | Justified | Verdict |
 |----------|-------|--------|-------|-----------|---------|
 | @safe_div | 7 | 8 | +1 | NO (empty block) | NEAR-OPTIMAL |
-| @unwrap_or | 11 | 11 | +0 | N/A | OPTIMAL |
+| @unwrap_or | 8 | 8 | +0 | N/A | OPTIMAL |
 | @check_some | 3 | 3 | +0 | N/A | OPTIMAL |
 | @check_none | 3 | 3 | +0 | N/A | OPTIMAL |
 | @check_chain | 11 | 11 | +0 | N/A | OPTIMAL |

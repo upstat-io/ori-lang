@@ -2,7 +2,8 @@ use crate::*;
 
 #[test]
 fn purity_cargo_toml_has_no_dependencies() {
-    let cargo_toml = include_str!("../Cargo.toml");
+    // Normalize CRLF → LF so this test works on Windows (git autocrlf).
+    let cargo_toml = include_str!("../Cargo.toml").replace("\r\n", "\n");
 
     // Find the [dependencies] section header on its own line
     // (not embedded in a comment like "zero [dependencies].")

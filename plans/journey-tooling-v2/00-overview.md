@@ -1,7 +1,7 @@
 ---
 plan: "journey-tooling-v2"
 title: "Journey Tooling V2: Eliminating False Positives and Adopting Compiler-Grade Verification"
-status: not-started
+status: complete
 references:
   - "plans/journey-scoring-algorithms/"
   - "plans/code-journeys/overview.md"

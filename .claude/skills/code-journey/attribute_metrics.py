@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Attribute metrics — Section 04.
+"""Attribute metrics -- Section 04.
 
 Deterministically checks which LLVM attributes are applicable to each function
 and whether they are correctly applied, producing compliance percentage.
+
+Closure-aware rules (Section 06): functions with indirect calls (closures)
+skip fastcc and nounwind applicability checks since these are structurally
+impossible. Memory attribute checks are skipped for non-leaf functions.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from ir_parser import Function, Module
@@ -19,6 +24,9 @@ NOALIAS_RETURN_FUNCTIONS = frozenset({"ori_rc_alloc"})
 
 # Functions that must NOT be nounwind (they need to unwind for RC cleanup)
 MUST_NOT_BE_NOUNWIND = frozenset({"ori_panic_cstr", "ori_panic"})
+
+# Indirect call detection (closures, function pointers)
+_INDIRECT_CALL_RE = re.compile(r'(?:call|invoke)\b[^@]*%\w+\s*\(')
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +45,7 @@ class AttributeCheck:
 class FunctionAttributeMetrics:
     name: str
     checks: list[AttributeCheck]
+    not_applicable_reason: str | None = None
 
 
 @dataclass
@@ -49,44 +58,86 @@ class AttributeMetrics:
 
 
 # ---------------------------------------------------------------------------
+# Closure & Leaf Detection
+# ---------------------------------------------------------------------------
+
+def _has_indirect_calls(func: Function) -> bool:
+    """True if function contains indirect call/invoke (closure, fn pointer)."""
+    return any(
+        _INDIRECT_CALL_RE.search(instr.text)
+        for block in func.blocks
+        for instr in block.instructions
+    )
+
+
+def _is_closure_function(func: Function) -> bool:
+    """Detect functions related to closure implementation.
+
+    Patterns:
+    - Name contains "$lambda" or "$closure" or "$partial"
+    - Function body contains indirect calls (call/invoke through %reg)
+    """
+    name_hints = ("$lambda", "$closure", "$partial")
+    if any(hint in func.name for hint in name_hints):
+        return True
+    return _has_indirect_calls(func)
+
+
+def _is_leaf_function(func: Function, module: Module) -> bool:
+    """True if function makes no calls to other user functions.
+
+    Calls to runtime (ori_*) and LLVM intrinsics (llvm.*) don't count.
+    """
+    for block in func.blocks:
+        for instr in block.instructions:
+            if instr.opcode not in ("call", "invoke"):
+                continue
+            # Check if it calls a user function
+            text = instr.text
+            if "@_ori_" in text:
+                return False
+            # Indirect calls count as non-leaf
+            if _INDIRECT_CALL_RE.search(text):
+                return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Attribute Rules
 # ---------------------------------------------------------------------------
 
 def _is_attr_present(func: Function, attr: str) -> bool:
-    """Check if an attribute is present on a function.
-
-    For calling conventions (fastcc), checks func.calling_convention.
-    For all other attributes, checks func.attributes (resolved set).
-    """
+    """Check if an attribute is present on a function."""
     if attr == "fastcc":
         return func.calling_convention == "fastcc"
     return attr in func.attributes
 
 
 # Each rule: (attr_name, applicable_when, description)
+# The applicable_when function takes (func, is_closure) -> bool.
 _ATTRIBUTE_RULES: list[tuple[str, callable, str]] = [
     ("fastcc",
-     lambda f: f.is_user_function and not f.is_entry_called,
-     "Internal user function (not entry-called)"),
+     lambda f, c: f.is_user_function and not f.is_entry_called and not c,
+     "Internal user function (not entry-called, not closure)"),
 
     ("nounwind",
-     lambda f: f.is_definition,
-     "All defined functions (panic paths end in unreachable)"),
+     lambda f, c: f.is_definition and not c,
+     "Defined functions without indirect calls"),
 
     ("uwtable",
-     lambda f: f.is_definition and f.raw_name != "@main",
+     lambda f, c: f.is_definition and f.raw_name != "@main",
      "User-defined functions (not @main wrapper)"),
 
     ("noundef",
-     lambda f: f.is_definition and f.return_type != "void",
+     lambda f, c: f.is_definition and f.return_type != "void",
      "Non-void return type (Ori values are always defined)"),
 
     ("noreturn",
-     lambda f: f.is_runtime_decl and f.name in NORETURN_FUNCTIONS,
+     lambda f, c: f.is_runtime_decl and f.name in NORETURN_FUNCTIONS,
      "Functions that never return (panic/abort)"),
 
     ("cold",
-     lambda f: f.is_runtime_decl and f.name in COLD_FUNCTIONS,
+     lambda f, c: f.is_runtime_decl and f.name in COLD_FUNCTIONS,
      "Error/panic path functions"),
 ]
 
@@ -128,7 +179,6 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
     total_correct = 0
     any_wrong = False
 
-    # Check attribute rules on all functions (definitions + runtime decls)
     functions_to_check = [
         f for f in module.functions.values()
         if f.is_definition or f.is_runtime_decl
@@ -136,9 +186,11 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
 
     for func in functions_to_check:
         checks: list[AttributeCheck] = []
+        is_closure = _is_closure_function(func)
+        reason = "closure (indirect calls)" if is_closure else None
 
         for attr, applicable_fn, desc in _ATTRIBUTE_RULES:
-            applicable = applicable_fn(func)
+            applicable = applicable_fn(func, is_closure)
             present = _is_attr_present(func, attr)
 
             if applicable:
@@ -151,7 +203,7 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
                 description=desc,
             ))
 
-        # Also check per-parameter noundef
+        # Per-parameter noundef
         for i, pattrs in enumerate(func.param_attributes):
             ptype = func.param_types[i] if i < len(func.param_types) else "?"
             applicable = func.is_definition and ptype not in ("void",)
@@ -174,7 +226,10 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
         if wrongs:
             any_wrong = True
 
-        results.append(FunctionAttributeMetrics(name=func.raw_name, checks=checks))
+        results.append(FunctionAttributeMetrics(
+            name=func.raw_name, checks=checks,
+            not_applicable_reason=reason,
+        ))
 
     compliance_pct = (
         (total_correct / total_applicable * 100.0) if total_applicable > 0

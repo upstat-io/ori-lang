@@ -1,22 +1,22 @@
 ---
 section: "04"
 title: "IR Parser Hardening"
-status: not-started
+status: complete
 goal: "Fix known parsing failures in ir_parser.py so all 12 journeys produce complete, correct parse results"
 depends_on: []
 sections:
   - id: "04.0"
     title: "Prerequisite: Split ir_parser.py"
-    status: not-started
+    status: complete
   - id: "04.1"
     title: "Quoted Function Names"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Multi-line Instruction Handling"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 04: IR Parser Hardening

@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "ARC IR-Level Verification"
-status: not-started
+status: complete
 goal: "Add a structural verification pass at the ARC IR level (before LLVM lowering) that catches RC bugs where all information is still visible"
 inspired_by:
   - "Lean 4 Checker.lean (Compiler/IR/Checker.lean) — structural IR verification: variable scope, type consistency, jump validity"
@@ -11,16 +11,16 @@ depends_on: []
 sections:
   - id: "05.1"
     title: "Structural Invariants"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "RC Balance by Construction"
-    status: not-started
+    status: complete
   - id: "05.3"
     title: "Pipeline Integration"
-    status: not-started
+    status: complete
   - id: "05.4"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 05: ARC IR-Level Verification

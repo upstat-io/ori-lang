@@ -4,6 +4,8 @@
   "arc_violations": 0,
   "arc_has_unbalanced": false,
   "arc_has_scalar_rc": false,
+  "arc_module_balanced": true,
+  "arc_ownership_transfers": 0,
   "attr_applicable": 13,
   "attr_correct": 12,
   "attr_has_wrong": false,
@@ -32,6 +34,9 @@
         "balanced": true,
         "has_scalar_rc": false
       },
+      "attribute": {
+        "checks": 8
+      },
       "control_flow": {
         "blocks": 3,
         "empty": 0,
@@ -53,11 +58,24 @@
         "balanced": true,
         "has_scalar_rc": false
       },
+      "attribute": {
+        "checks": 6
+      },
       "control_flow": {
         "blocks": 5,
         "empty": 0,
         "redundant_br": 0,
         "trivial_phi": 0
+      }
+    },
+    "@ori_panic_cstr": {
+      "attribute": {
+        "checks": 7
+      }
+    },
+    "@main": {
+      "attribute": {
+        "checks": 6
       }
     }
   },

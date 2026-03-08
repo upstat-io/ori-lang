@@ -147,10 +147,18 @@ def extract_metrics(
             "ideal": fm.ideal, "ratio": fm.ratio, "verdict": fm.verdict,
         }
     for fm in am.per_function:
-        per_function.setdefault(fm.name, {})["arc"] = {
+        arc_detail: dict = {
             "rc_inc": fm.rc_inc, "rc_dec": fm.rc_dec,
             "balanced": fm.balanced, "has_scalar_rc": fm.has_scalar_rc,
         }
+        if fm.is_ownership_transfer:
+            arc_detail["is_ownership_transfer"] = True
+        per_function.setdefault(fm.name, {})["arc"] = arc_detail
+    for fm in atm.per_function:
+        attr_detail: dict = {"checks": len(fm.checks)}
+        if fm.not_applicable_reason:
+            attr_detail["not_applicable_reason"] = fm.not_applicable_reason
+        per_function.setdefault(fm.name, {})["attribute"] = attr_detail
     for fm in cfm.per_function:
         per_function.setdefault(fm.name, {})["control_flow"] = {
             "blocks": fm.block_count, "empty": fm.empty_blocks,
@@ -163,6 +171,8 @@ def extract_metrics(
         "arc_violations": am.total_violations,
         "arc_has_unbalanced": am.has_unbalanced,
         "arc_has_scalar_rc": am.has_scalar_rc,
+        "arc_module_balanced": am.module_balanced,
+        "arc_ownership_transfers": am.ownership_transfers,
         "attr_applicable": atm.total_applicable,
         "attr_correct": atm.total_correct,
         "attr_has_wrong": atm.has_wrong,

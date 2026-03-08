@@ -124,15 +124,14 @@ mkdir -p /tmp/journey_N
 
 **Run both paths, capturing exit codes and output to files (NOT to context):**
 
+**IMPORTANT**: Ori programs return their result as the process exit code (e.g., `@main () -> int` returning 33 = exit code 33). Always use `; echo $? > file; true` or chain with `; true` to prevent the Bash tool from treating non-zero program results as errors and cancelling parallel calls.
+
 ```bash
 # Eval path
-cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/eval_stdout.txt 2> /tmp/journey_N/eval_stderr.txt
-echo $? > /tmp/journey_N/eval_exit.txt
+cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/eval_stdout.txt 2> /tmp/journey_N/eval_stderr.txt; echo $? > /tmp/journey_N/eval_exit.txt; true
 
 # AOT path
-rm -rf ~/.cache/ori 2>/dev/null
-./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/aot_stdout.txt 2> /tmp/journey_N/aot_stderr.txt
-echo $? > /tmp/journey_N/aot_exit.txt
+rm -rf ~/.cache/ori 2>/dev/null; ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/aot_stdout.txt 2> /tmp/journey_N/aot_stderr.txt; echo $? > /tmp/journey_N/aot_exit.txt; true
 ```
 
 **Read ONLY the exit codes and stdout results back into context:**
@@ -147,40 +146,38 @@ This gives you just the 4 key values: eval exit code, AOT exit code, eval output
 
 **Run ALL trace commands, redirecting everything to temp files. Do NOT read the output into context.**
 
+**IMPORTANT**: Every command MUST end with `; true` because Ori programs return their computed result as the process exit code (e.g., `@main () -> int` returning 33 = exit code 33). Without `; true`, the Bash tool treats non-zero exit codes as errors and cancels parallel calls.
+
 ```bash
 # Lexer trace
-ORI_LOG=ori_lexer=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/lexer.txt 2>&1
+ORI_LOG=ori_lexer=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/lexer.txt 2>&1; true
 
 # Parser trace
-ORI_LOG=ori_parse=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/parser.txt 2>&1
+ORI_LOG=ori_parse=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/parser.txt 2>&1; true
 
 # Type checker trace
-ORI_LOG=ori_types=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/typeck.txt 2>&1
+ORI_LOG=ori_types=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/typeck.txt 2>&1; true
 
 # Canonicalizer trace
-ORI_LOG=ori_canon=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/canon.txt 2>&1
+ORI_LOG=ori_canon=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/canon.txt 2>&1; true
 
 # Eval trace
-ORI_LOG=ori_eval=trace cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/eval_trace.txt 2>&1
+ORI_LOG=ori_eval=trace cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/eval_trace.txt 2>&1; true
 
 # Prelude overhead
-ORI_LOG=ori_lexer=debug,ori_parse=debug,ori_types=debug,ori_canon=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/prelude.txt 2>&1
+ORI_LOG=ori_lexer=debug,ori_parse=debug,ori_types=debug,ori_canon=debug cargo run -- run plans/code-journeys/NN-slug.ori > /tmp/journey_N/prelude.txt 2>&1; true
 
 # LLVM IR dump (unoptimized — this is what OUR codegen emits)
-rm -rf ~/.cache/ori 2>/dev/null
-ORI_DUMP_AFTER_LLVM=1 ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/llvm_ir.txt 2>&1
+rm -rf ~/.cache/ori 2>/dev/null; ORI_DUMP_AFTER_LLVM=1 ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/llvm_ir.txt 2>&1; true
 
 # LLVM warnings
-rm -rf ~/.cache/ori 2>/dev/null
-ORI_LOG=warn ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/llvm_warn.txt 2>&1
+rm -rf ~/.cache/ori 2>/dev/null; ORI_LOG=warn ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/llvm_warn.txt 2>&1; true
 
 # ARC analysis trace (borrow inference, RC operations)
-rm -rf ~/.cache/ori 2>/dev/null
-ORI_LOG=ori_llvm=debug ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/arc_trace.txt 2>&1
+rm -rf ~/.cache/ori 2>/dev/null; ORI_LOG=ori_llvm=debug ./target/debug/ori run --compile plans/code-journeys/NN-slug.ori > /tmp/journey_N/arc_trace.txt 2>&1; true
 
 # AOT binary build + analysis (if compilation succeeds)
-rm -rf ~/.cache/ori 2>/dev/null
-./target/debug/ori build plans/code-journeys/NN-slug.ori -o /tmp/journey_N/binary > /tmp/journey_N/build_stdout.txt 2> /tmp/journey_N/build_stderr.txt && ls -la /tmp/journey_N/binary > /tmp/journey_N/binary_size.txt 2>&1 && nm --print-size --size-sort /tmp/journey_N/binary > /tmp/journey_N/symbols.txt 2>&1 && size /tmp/journey_N/binary > /tmp/journey_N/sections.txt 2>&1 && size -A /tmp/journey_N/binary >> /tmp/journey_N/sections.txt 2>&1 && objdump -d /tmp/journey_N/binary | grep -A 100 '<_ori_' > /tmp/journey_N/disasm.txt 2>&1
+rm -rf ~/.cache/ori 2>/dev/null; ./target/debug/ori build plans/code-journeys/NN-slug.ori -o /tmp/journey_N/binary > /tmp/journey_N/build_stdout.txt 2> /tmp/journey_N/build_stderr.txt && ls -la /tmp/journey_N/binary > /tmp/journey_N/binary_size.txt 2>&1 && nm --print-size --size-sort /tmp/journey_N/binary > /tmp/journey_N/symbols.txt 2>&1 && size /tmp/journey_N/binary > /tmp/journey_N/sections.txt 2>&1 && size -A /tmp/journey_N/binary >> /tmp/journey_N/sections.txt 2>&1 && objdump -d /tmp/journey_N/binary | grep -A 100 '<_ori_' > /tmp/journey_N/disasm.txt 2>&1; true
 ```
 
 Run as many of these in parallel as possible (they are independent).
