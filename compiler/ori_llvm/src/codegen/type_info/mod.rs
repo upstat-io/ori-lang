@@ -43,9 +43,7 @@ use ori_types::{Idx, Tag};
 
 use crate::context::SimpleCx;
 
-// ---------------------------------------------------------------------------
 // TypeLayoutResolver — recursive LLVM type resolution
-// ---------------------------------------------------------------------------
 
 /// Resolves `Idx` → `BasicTypeEnum` with cycle-safe two-phase struct creation.
 ///
@@ -418,9 +416,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[allow(

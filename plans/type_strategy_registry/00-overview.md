@@ -1,7 +1,7 @@
 ---
 plan: "type_strategy_registry"
 title: "Type Strategy Registry: Pure-Data Behavioral Contract for All Compiler Phases"
-status: not-started
+status: in-progress
 supersedes:
   - "plans/builtin_ownership_ssot/"
 ---
@@ -242,7 +242,7 @@ Phase 2 ─ Type Definitions (parallelizable)
 
 Phase 3 ─ Wiring (parallelizable per crate)
   ├─ 09: Wire ori_types — replace resolve_*_method, TYPECK_BUILTIN_METHODS
-  ├─ 10: Wire ori_eval — replace EVAL_BUILTIN_METHODS, dispatch tables
+  ├─ 10: Wire ori_eval — replace EVAL_BUILTIN_METHODS, ITERATOR_METHOD_NAMES, rewrite consistency tests
   ├─ 11: Wire ori_arc — replace borrowing_builtins, fix dependency direction
   ├─ 12: Wire ori_llvm — replace emit_binary_op guards, simplify BuiltinRegistration
   └─ 13: Migrate ori_ir — consolidate BUILTIN_METHODS, DerivedTrait, format specs
@@ -255,25 +255,25 @@ Phase 4 ─ Enforcement & Exit
 
 ## Estimated Effort
 
-| Section | Est. Lines (new) | Complexity | Depends On |
-|---------|-----------|------------|------------|
-| 01 Core Data Model | ~200 (tags.rs) | Low | — |
-| 02 Crate Scaffolding | ~100 (lib.rs, query.rs, stubs) | Low | 01 |
-| 03 Primitive Types | ~510 (~5 types, 124 methods total using const fn helper at ~1 line/method + OpDefs + tests) | Low | 01, 02 |
-| 04 String Type | ~450 (~43 methods incl. spec §8.1.6 + associated fns, ~1 line/method with const fn helper + OpDefs) | Medium-High | 01, 02 |
-| 05 Compound Types | ~450 (~4 types as directory modules with const fn helpers at ~1 line/method + sibling tests.rs files) | Medium | 01, 02 |
-| 06 Collection & Wrapper Types | ~600 (8 types incl. Channel, many methods each) | Medium | 01, 02 |
-| 07 Iterator Types | ~350 (~24 methods, 10 lines/method + DEI metadata) | Medium-High | 01, 02 |
-| 08 Query API | ~80 (query.rs) | Low | 01, 02 |
-| 09 Wire Type Checker | ~+250 new / ~-800 deleted = ~-550 net | **High** | 03-08 |
-| 10 Wire Evaluator | ~-200 (net deletion) | Medium | 03-08 |
-| 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08, 09 |
-| 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 |
-| 13 Migrate ori_ir | ~-400 (net deletion) | Medium | 03-08 |
-| 14 Enforcement & Exit | ~200 | Medium | 09-13 |
-| **Total new (ori_registry)** | **~2,730** | | |
-| **Total deleted (legacy)** | **~-1,600** | | |
-| **Net change** | **~+1,130** | | |
+| Section | Lines (new) | Complexity | Depends On | Status |
+|---------|-----------|------------|------------|--------|
+| 01 Core Data Model | ~1,000 (tags/, type_def/, method/, operator/) | Low | — | Complete |
+| 02 Crate Scaffolding | ~170 (lib.rs, defs/mod.rs) | Low | 01 | Complete |
+| 03 Primitive Types | ~510 (5 type defs + tests) | Low | 01, 02 | Complete |
+| 04 String Type | ~590 (str.rs + tests) | Medium-High | 01, 02 | Complete |
+| 05 Compound Types | ~1,100 (4 directory modules + tests) | Medium | 01, 02 | In Progress |
+| 06 Collection & Wrapper Types | ~1,300 (8 types incl. Channel, directory modules + tests) | Medium | 01, 02 | Complete |
+| 07 Iterator Types | ~545 (iterator/ directory module + tests) | Medium-High | 01, 02 | Complete |
+| 08 Query API | ~510 (query/ directory module + tests) | Low | 01, 02 | Complete |
+| 09 Wire Type Checker | ~+320 new / ~-916 deleted = ~-500 to -550 net | **High** | 03-08 | Not Started |
+| 10 Wire Evaluator | ~-200 (net deletion) | Medium | 03-08 | Not Started |
+| 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08, 09 | Not Started |
+| 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 | Not Started |
+| 13 Migrate ori_ir | ~-400 (net deletion) | Medium | 03-08 | Not Started |
+| 14 Enforcement & Exit | ~200 | Medium | 09-13 | Not Started |
+| **Total new (ori_registry)** | **~6,300** (incl. ~2,000 test lines) | | | |
+| **Total deleted (legacy)** | **~-1,600** (estimated) | | | |
+| **Net change** | **~+4,700** (incl. tests) | | | |
 
 ## Sync Points Eliminated
 
@@ -336,14 +336,14 @@ A thorough study of 6 reference compilers (Swift, Zig, Roc, Rust, Go, Lean4) sur
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Core Data Model Design | `section-01-core-data-model.md` | Not Started |
-| 02 | Crate Scaffolding & Purity Enforcement | `section-02-crate-scaffolding.md` | Not Started |
-| 03 | Primitive Type Definitions | `section-03-primitive-types.md` | Not Started |
-| 04 | String Type Definition | `section-04-string-type.md` | Not Started |
-| 05 | Compound Type Definitions | `section-05-compound-types.md` | Not Started |
-| 06 | Collection & Wrapper Types | `section-06-collection-wrapper-types.md` | Not Started |
-| 07 | Iterator Type Definitions | `section-07-iterator-types.md` | Not Started |
-| 08 | Query API & Lookup Functions | `section-08-query-api.md` | Not Started |
+| 01 | Core Data Model Design | `section-01-core-data-model.md` | Complete |
+| 02 | Crate Scaffolding & Purity Enforcement | `section-02-crate-scaffolding.md` | Complete |
+| 03 | Primitive Type Definitions | `section-03-primitive-types.md` | Complete |
+| 04 | String Type Definition | `section-04-string-type.md` | Complete |
+| 05 | Compound Type Definitions | `section-05-compound-types.md` | In Progress |
+| 06 | Collection & Wrapper Types | `section-06-collection-wrapper-types.md` | Complete |
+| 07 | Iterator Type Definitions | `section-07-iterator-types.md` | Complete |
+| 08 | Query API & Lookup Functions | `section-08-query-api.md` | Complete |
 | 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Not Started |
 | 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Not Started |
 | 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Not Started |

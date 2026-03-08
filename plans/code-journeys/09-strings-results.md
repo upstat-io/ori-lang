@@ -2,7 +2,7 @@
 journey: 9
 slug: strings
 theme: "I am a string"
-date: 2026-03-06
+date: 2026-03-08
 status: PASS
 expected: 13
 eval_result: 13
@@ -13,7 +13,7 @@ prerequisites:
   - "Understanding of reference counting and memory management"
   - "Familiarity with string representations (heap vs inline/SSO)"
 learning_objectives:
-  - "See how string literals are lowered to global constants and constructed at runtime"
+  - "See how string literals are lowered to global constants and constructed at runtime via ori_str_from_raw"
   - "Understand SSO (Small String Optimization) gating in ARC cleanup"
   - "Compare heap-allocated vs SSO string ARC lifecycle in generated IR"
   - "Analyze method dispatch overhead for string .length() calls"
@@ -23,11 +23,11 @@ features:
   - arc
   - branching
 feature_description: "String construction, method calls (.length()), boolean logic, and ARC lifecycle management"
-score: 7.5
+score: 8.8
 score_breakdown:
   instruction_efficiency: 9
-  arc_correctness: 3
-  attributes_safety: 7
+  arc_correctness: 10
+  attributes_safety: 6
   control_flow: 7
   ir_quality: 8
   binary_quality: 10
@@ -35,11 +35,11 @@ score_breakdown:
 score_metrics:
   instruction_ratio: 1.03
   instruction_ratio_max: 1.05
-  arc_violations: 9
-  arc_has_unbalanced: true
+  arc_violations: 0
+  arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 20
-  attr_correct: 16
+  attr_applicable: 23
+  attr_correct: 17
   attr_has_wrong: false
   cf_defects: 4
   cf_incorrect: false
@@ -57,6 +57,8 @@ related_journeys:
     relationship: "Both test branching with if/then/else"
   - journey: 1
     relationship: "Both test overflow-checked arithmetic"
+  - journey: 10
+    relationship: "Both test ARC lifecycle for heap-allocated types"
 ---
 
 # Journey 9: "I am a string"
@@ -110,16 +112,28 @@ related_journeys:
 > The lexer (tokenizer) breaks raw source text into a stream of tokens -- the smallest
 > meaningful units like keywords, identifiers, operators, and literals.
 
-**Tokens**: 179 | **Keywords**: 14 | **Identifiers**: 24 | **Errors**: 0
+**Tokens**: 179 | **Keywords**: 14 | **Identifiers**: 32 | **Errors**: 0
 
 <details>
-<summary>Token stream (first 30 tokens)</summary>
+<summary>Token stream (user module)</summary>
 
 ```text
-Fn(@) Ident(bool_to_int) LParen Ident(b) Colon Ident(bool) RParen
-Arrow Ident(int) Eq If Ident(b) Then Int(1) Else Int(0) Semi
+Fn(@) Ident(bool_to_int) LParen Ident(b) Colon Ident(bool) RParen Arrow Ident(int)
+Eq If Ident(b) Then Int(1) Else Int(0) Semi
 Fn(@) Ident(check_logic) LParen RParen Arrow Ident(int) Eq LBrace
-Let Ident(a) Eq True LogicalAnd True Semi
+  Let Ident(a) Eq True And And True Semi
+  Let Ident(b) Eq True And And False Semi
+  Let Ident(c) Eq False Or Or True Semi
+  Let Ident(d) Eq False Or Or False Semi
+  Ident(bool_to_int) LParen Ident(b) Colon Ident(a) RParen Plus ...
+RBrace
+Fn(@) Ident(check_strings) LParen RParen Arrow Ident(int) Eq LBrace
+  Let Ident(s1) Eq Str("hello") Semi
+  Let Ident(s2) Eq Str("world!") Semi
+  Let Ident(s3) Eq Str("") Semi
+  Ident(s1) Dot Ident(length) LParen RParen Plus ...
+RBrace
+Fn(@) Ident(main) LParen RParen Arrow Ident(int) Eq LBrace ... RBrace
 ```
 
 </details>
@@ -143,28 +157,22 @@ Module
 ├─ FnDecl @check_logic
 │  ├─ Return: int
 │  └─ Body: Block
-│       ├─ Let a = LogicalAnd(true, true)
-│       ├─ Let b = LogicalAnd(true, false)
-│       ├─ Let c = LogicalOr(false, true)
-│       ├─ Let d = LogicalOr(false, false)
-│       └─ BinOp(+)
-│            ├─ BinOp(+)
-│            │  ├─ BinOp(+)
-│            │  │  ├─ Call(@bool_to_int, a)
-│            │  │  └─ Call(@bool_to_int, b)
-│            │  └─ Call(@bool_to_int, c)
-│            └─ Call(@bool_to_int, d)
+│       ├─ Let a = BinOp(&&, true, true)
+│       ├─ Let b = BinOp(&&, true, false)
+│       ├─ Let c = BinOp(||, false, true)
+│       ├─ Let d = BinOp(||, false, false)
+│       └─ BinOp(+, ..., ...)
+│            ├─ Call(@bool_to_int, b: a) + Call(@bool_to_int, b: b)
+│            └─ Call(@bool_to_int, b: c) + Call(@bool_to_int, b: d)
 ├─ FnDecl @check_strings
 │  ├─ Return: int
 │  └─ Body: Block
 │       ├─ Let s1 = Str("hello")
 │       ├─ Let s2 = Str("world!")
 │       ├─ Let s3 = Str("")
-│       └─ BinOp(+)
-│            ├─ BinOp(+)
-│            │  ├─ MethodCall(s1, length, [])
-│            │  └─ MethodCall(s2, length, [])
-│            └─ MethodCall(s3, length, [])
+│       └─ BinOp(+, ..., ...)
+│            ├─ MethodCall(s1, length) + MethodCall(s2, length)
+│            └─ MethodCall(s3, length)
 └─ FnDecl @main
    ├─ Return: int
    └─ Body: Block
@@ -181,43 +189,38 @@ Module
 > Hindley-Milner type inference. It resolves type variables, checks constraints,
 > and ensures type safety without requiring explicit type annotations everywhere.
 
-**Constraints**: 22 | **Types inferred**: 12 | **Unifications**: 18 | **Errors**: 0
+**Constraints**: 24 | **Types inferred**: 12 | **Unifications**: 18 | **Errors**: 0
 
 <details>
 <summary>Inferred types</summary>
 
 ```ori
 @bool_to_int (b: bool) -> int = if b then 1 else 0
-//                                         ^ int (literal)
-//                                              ^ int (literal)
-//                               ^ bool (param type)
+//                                        ^ int (literal)  ^ int (literal)
+//                               ^ int (unified from both branches)
 
 @check_logic () -> int = {
-    let a = true && true;       // a: bool (short-circuit &&)
-    let b = true && false;      // b: bool
-    let c = false || true;      // c: bool
-    let d = false || false;     // d: bool
-    bool_to_int(b: a)           // int (return type of @bool_to_int)
-      + bool_to_int(b: b)      // int
-      + bool_to_int(b: c)      // int
-      + bool_to_int(b: d)      // int
-    // -> int (Add<int, int> -> int)
+    let a: bool = true && true    // bool (LogicalAnd)
+    let b: bool = true && false   // bool (LogicalAnd)
+    let c: bool = false || true   // bool (LogicalOr)
+    let d: bool = false || false  // bool (LogicalOr)
+    bool_to_int(b: a) + bool_to_int(b: b) + bool_to_int(b: c) + bool_to_int(b: d)
+    // ^ int (Add<int, int> -> int, chained)
 }
 
 @check_strings () -> int = {
-    let s1 = "hello";           // s1: str
-    let s2 = "world!";          // s2: str
-    let s3 = "";                // s3: str
-    s1.length()                 // int (str.length() -> int)
-      + s2.length()             // int
-      + s3.length()             // int
-    // -> int
+    let s1: str = "hello"    // str (literal)
+    let s2: str = "world!"   // str (literal)
+    let s3: str = ""         // str (literal)
+    s1.length() + s2.length() + s3.length()
+    // .length() -> int (built-in str method)
+    // + -> int (Add<int, int> -> int)
 }
 
 @main () -> int = {
-    let a = check_logic();      // a: int
-    let b = check_strings();    // b: int
-    a + b                       // -> int (Add<int, int> -> int)
+    let a: int = check_logic()    // int (return type of @check_logic)
+    let b: int = check_strings()  // int (return type of @check_strings)
+    a + b                         // int (Add<int, int> -> int)
 }
 ```
 
@@ -229,20 +232,16 @@ Module
 > It desugars syntactic sugar, lowers complex expressions, and prepares the IR
 > for backend consumption.
 
-**Transforms**: 6 | **Desugared**: 4 | **Errors**: 0
+**Transforms**: 4 | **Desugared**: 4 | **Errors**: 0
 
 <details>
 <summary>Key transformations</summary>
 
 ```text
-- Boolean short-circuit operators (&&, ||) desugared to if/then/else
-  - true && true -> if true then true else false -> constant true
-  - true && false -> if true then false else false -> constant false
-  - false || true -> if false then true else true -> constant true
-  - false || false -> if false then false else false -> constant false
-- Method calls s.length() lowered to ori_str_len(s)
+- && / || short-circuit operators desugared to constant booleans (all operands are literals)
+- Method calls (.length()) lowered to canonical MethodCall nodes
+- String literals lowered to canonical Str constants
 - Function bodies lowered to canonical expression form
-- String literals registered as constants
 ```
 
 </details>
@@ -253,20 +252,20 @@ Module
 > inserts reference counting operations. It performs borrow inference to minimize
 > RC overhead -- parameters that are only read can be borrowed rather than owned.
 
-**RC ops inserted**: 3 | **Elided**: 0 | **Net ops**: 3
+**RC ops inserted**: 6 | **Elided**: 0 | **Net ops**: 6
 
 <details>
 <summary>ARC annotations</summary>
 
 ```text
-@bool_to_int: no heap values — pure scalar operation
-@check_logic: no heap values — pure scalar arithmetic + boolean
-@check_strings: +0 rc_inc, +3 rc_dec (one per string after last use)
-  - s1: RC-- after s1.length() (s1 not used again)
-  - s2: RC-- after s2.length() (s2 not used again)
-  - s3: RC-- after s3.length() (s3 not used again)
-  Note: RC++ is implicit inside ori_str_from_raw (construction sets RC=1)
-@main: no heap values — pure scalar arithmetic
+@bool_to_int: no heap values — pure scalar logic
+@check_logic: no heap values — pure scalar arithmetic + booleans
+@check_strings: +3 rc_inc (ori_str_from_raw), +3 rc_dec (str cleanup after .length())
+  - s1 ("hello"): rc_inc via ori_str_from_raw, rc_dec after s1.length()
+  - s2 ("world!"): rc_inc via ori_str_from_raw, rc_dec after s2.length()
+  - s3 (""): rc_inc via ori_str_from_raw, rc_dec after s3.length()
+  - SSO gating: all 3 rc_dec sites check for SSO/null before calling ori_rc_dec
+@main: no heap values — passes through scalar int results
 ```
 
 </details>
@@ -283,20 +282,20 @@ Module
 
 ```text
 @main()
-  └─ let a = @check_logic()
-  │    ├─ let a = true && true = true
-  │    ├─ let b = true && false = false
-  │    ├─ let c = false || true = true
-  │    ├─ let d = false || false = false
-  │    ├─ bool_to_int(true) = 1
-  │    ├─ bool_to_int(false) = 0
-  │    ├─ bool_to_int(true) = 1
-  │    ├─ bool_to_int(false) = 0
+  ├─ let a = @check_logic()
+  │    ├─ let a = true && true  → true (constant)
+  │    ├─ let b = true && false → false (constant)
+  │    ├─ let c = false || true → true (constant)
+  │    ├─ let d = false || false → false (constant)
+  │    ├─ @bool_to_int(b: true)  → if true then 1 → 1
+  │    ├─ @bool_to_int(b: false) → if false then 0 → 0
+  │    ├─ @bool_to_int(b: true)  → 1
+  │    ├─ @bool_to_int(b: false) → 0
   │    └─ 1 + 0 + 1 + 0 = 2
-  └─ let b = @check_strings()
-  │    ├─ let s1 = "hello"
-  │    ├─ let s2 = "world!"
-  │    ├─ let s3 = ""
+  ├─ let b = @check_strings()
+  │    ├─ let s1 = "hello"   (str, len=5)
+  │    ├─ let s2 = "world!"  (str, len=6)
+  │    ├─ let s3 = ""        (str, len=0)
   │    ├─ s1.length() = 5
   │    ├─ s2.length() = 6
   │    ├─ s3.length() = 0
@@ -315,20 +314,18 @@ Module
 
 #### ARC Pipeline
 
-**RC ops inserted**: 3 | **Elided**: 0 | **Net ops**: 3
+**RC ops inserted**: 6 | **Elided**: 0 | **Net ops**: 6
 
 <details>
 <summary>ARC annotations</summary>
 
 ```text
-@bool_to_int: +0 rc_inc, +0 rc_dec (no heap values)
-@check_logic: +0 rc_inc, +0 rc_dec (no heap values)
-@check_strings: +0 rc_inc, +3 rc_dec (strings constructed via ori_str_from_raw)
-  Each rc_dec is SSO-gated: checks SSO flag before calling ori_rc_dec
-  - s1 ("hello", 5 bytes): SSO → rc_dec skipped at runtime
-  - s2 ("world!", 6 bytes): SSO → rc_dec skipped at runtime
-  - s3 ("", 0 bytes): SSO → rc_dec skipped at runtime
-@main: +0 rc_inc, +0 rc_dec (no heap values)
+@bool_to_int: +0 rc_inc, +0 rc_dec (no heap values — pure scalar select)
+@check_logic: +0 rc_inc, +0 rc_dec (no heap values — constant boolean folding)
+@check_strings: +3 rc_inc, +3 rc_dec (balanced — 3 strings constructed, 3 cleaned up)
+  - ori_str_from_raw() implicitly allocates (counted as rc_inc)
+  - 3 SSO-gated ori_rc_dec calls for cleanup after each .length()
+@main: +0 rc_inc, +0 rc_dec (scalar results only)
 ```
 
 </details>
@@ -413,60 +410,13 @@ bb0:
   %str.val.f2.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret, i32 0, i32 2
   %str.val.f2 = load ptr, ptr %str.val.f2.ptr, align 8
   %str.val.s2 = insertvalue { i64, i64, ptr } %str.val.s1, ptr %str.val.f2, 2
-  call void @ori_str_from_raw(ptr %str.val.sret1, ptr @str.1, i64 6)
-  %str.val.f0.ptr2 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret1, i32 0, i32 0
-  %str.val.f03 = load i64, ptr %str.val.f0.ptr2, align 8
-  %str.val.s04 = insertvalue { i64, i64, ptr } zeroinitializer, i64 %str.val.f03, 0
-  %str.val.f1.ptr5 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret1, i32 0, i32 1
-  %str.val.f16 = load i64, ptr %str.val.f1.ptr5, align 8
-  %str.val.s17 = insertvalue { i64, i64, ptr } %str.val.s04, i64 %str.val.f16, 1
-  %str.val.f2.ptr8 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret1, i32 0, i32 2
-  %str.val.f29 = load ptr, ptr %str.val.f2.ptr8, align 8
-  %str.val.s210 = insertvalue { i64, i64, ptr } %str.val.s17, ptr %str.val.f29, 2
-  call void @ori_str_from_raw(ptr %str.val.sret11, ptr @str.2, i64 0)
-  %str.val.f0.ptr12 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret11, i32 0, i32 0
-  %str.val.f013 = load i64, ptr %str.val.f0.ptr12, align 8
-  %str.val.s014 = insertvalue { i64, i64, ptr } zeroinitializer, i64 %str.val.f013, 0
-  %str.val.f1.ptr15 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret11, i32 0, i32 1
-  %str.val.f116 = load i64, ptr %str.val.f1.ptr15, align 8
-  %str.val.s117 = insertvalue { i64, i64, ptr } %str.val.s014, i64 %str.val.f116, 1
-  %str.val.f2.ptr18 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret11, i32 0, i32 2
-  %str.val.f219 = load ptr, ptr %str.val.f2.ptr18, align 8
-  %str.val.s220 = insertvalue { i64, i64, ptr } %str.val.s117, ptr %str.val.f219, 2
-  store { i64, i64, ptr } %str.val.s2, ptr %str_len.self, align 8
-  %str.len = call i64 @ori_str_len(ptr %str_len.self)
-  br label %bb1
-
-bb1:
-  %rc_dec.fat_data = extractvalue { i64, i64, ptr } %str.val.s2, 2
-  %rc_dec.p2i = ptrtoint ptr %rc_dec.fat_data to i64
-  %rc_dec.sso_flag = and i64 %rc_dec.p2i, -9223372036854775808
-  %rc_dec.is_sso = icmp ne i64 %rc_dec.sso_flag, 0
-  %rc_dec.null.p2i = ptrtoint ptr %rc_dec.fat_data to i64
-  %rc_dec.null = icmp eq i64 %rc_dec.null.p2i, 0
-  %rc_dec.skip_rc = or i1 %rc_dec.is_sso, %rc_dec.null
-  br i1 %rc_dec.skip_rc, label %rc_dec.sso_skip, label %rc_dec.heap
-
-bb3:
-  ; ... (similar SSO-gated rc_dec for s2)
-
-rc_dec.heap:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data, ptr @"_ori_drop$3")
-  br label %rc_dec.sso_skip
-
-rc_dec.sso_skip:
-  store { i64, i64, ptr } %str.val.s210, ptr %str_len.self21, align 8
-  %str.len22 = call i64 @ori_str_len(ptr %str_len.self21)
-  br label %bb3
-
-  ; ... (rc_dec for s2, then arithmetic, then rc_dec for s3)
-
-add.ok46:
+  ; ... (repeated for s2 "world!" and s3 "")
+  ; ori_str_len calls + SSO-gated rc_dec for each string
+  ; overflow-checked additions for length sums
   ret i64 %add.val44
-
-  ; ... (overflow panic blocks)
 }
 
+; Function Attrs: uwtable
 ; --- @main ---
 define noundef i64 @_ori_main() #1 {
 bb0:
@@ -485,8 +435,16 @@ add.ovf_panic:
   unreachable
 }
 
-; --- drop str ---
-define void @"_ori_drop$3"(ptr %0) #5 {
+; --- Runtime declarations ---
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
+declare void @ori_panic_cstr(ptr) #3                    ; cold noreturn
+declare void @ori_str_from_raw(ptr noalias sret(...), ptr, i64) #4  ; nounwind
+declare i64 @ori_str_len(ptr) #4                         ; nounwind
+declare void @ori_rc_free(ptr, i64, i64) #4             ; nounwind
+declare void @ori_rc_dec(ptr, ptr) #6                   ; nounwind memory(inaccessiblemem: readwrite)
+
+; --- Drop glue ---
+define void @"_ori_drop$3"(ptr %0) #5 {                 ; cold nounwind
 entry:
   call void @ori_rc_free(ptr %0, i64 24, i64 8)
   ret void
@@ -498,69 +456,66 @@ entry:
   %exit_code = trunc i64 %ori_main_result to i32
   ret i32 %exit_code
 }
+
+attributes #0 = { nounwind uwtable }
+attributes #1 = { uwtable }
+attributes #3 = { cold noreturn }
+attributes #5 = { cold nounwind }
+attributes #6 = { nounwind memory(inaccessiblemem: readwrite) }
 ```
 
 #### Disassembly
 
 ```asm
-000000000001b100 <_ori_bool_to_int>:
-   1b100:  mov    %dil,%dl
-   1b103:  xor    %eax,%eax
-   1b105:  mov    $0x1,%ecx
-   1b10a:  test   $0x1,%dl
-   1b10d:  cmovne %rcx,%rax
-   1b111:  ret
+_ori_bool_to_int:
+  mov    %dil,%dl
+  xor    %eax,%eax
+  mov    $0x1,%ecx
+  test   $0x1,%dl
+  cmovne %rcx,%rax
+  ret
 
-000000000001b120 <_ori_check_logic>:
-   1b120:  sub    $0x28,%rsp
-   1b124:  mov    $0x1,%edi
-   1b129:  call   1b100 <_ori_bool_to_int>
-   1b12e:  mov    %rax,0x18(%rsp)
-   1b133:  xor    %edi,%edi
-   1b135:  call   1b100 <_ori_bool_to_int>
-   1b13a:  mov    %rax,%rcx
-   1b13d:  mov    0x18(%rsp),%rax
-   1b142:  add    %rcx,%rax
-   1b145:  mov    %rax,0x20(%rsp)
-   1b14a:  seto   %al
-   1b14d:  jo     1b170
-   1b14f:  mov    $0x1,%edi
-   1b154:  call   1b100 <_ori_bool_to_int>
-   ; ... (continues with overflow-checked adds)
-   1b1af:  ret
+_ori_check_logic:
+  sub    $0x28,%rsp
+  mov    $0x1,%edi
+  call   _ori_bool_to_int          ; bool_to_int(true)
+  mov    %rax,0x18(%rsp)
+  xor    %edi,%edi
+  call   _ori_bool_to_int          ; bool_to_int(false)
+  mov    %rax,%rcx
+  mov    0x18(%rsp),%rax
+  add    %rcx,%rax                 ; 1 + 0
+  jo     .overflow
+  ; ... (2 more calls + checked adds)
+  ret
 
-000000000001b1c0 <_ori_check_strings>:
-   1b1c0:  sub    $0x108,%rsp
-   1b1c7:  lea    0xd714b(%rip),%rsi        # "hello"
-   1b1ce:  lea    0x78(%rsp),%rdi
-   1b1d3:  mov    $0x5,%edx
-   1b1d8:  call   24020 <ori_str_from_raw>
-   ; ... (load 3-word str struct field by field)
-   ; ... (repeat for "world!" and "")
-   ; ... (call ori_str_len for each, SSO-gated rc_dec between)
-   1b420:  add    $0x108,%rsp
-   1b427:  ret
+_ori_check_strings:
+  sub    $0x108,%rsp
+  ; ori_str_from_raw("hello", 5) -> alloca sret
+  ; GEP+load+insertvalue to materialize { i64, i64, ptr } str struct
+  ; ori_str_from_raw("world!", 6)
+  ; ori_str_from_raw("", 0)
+  ; ori_str_len(s1) -> length 5
+  ; SSO check: test high bit of ptr field, skip rc_dec if SSO or null
+  ; ori_rc_dec(s1.data, _ori_drop$3)
+  ; ori_str_len(s2) -> length 6
+  ; SSO check + ori_rc_dec(s2.data, _ori_drop$3)
+  ; checked add: 5 + 6
+  ; ori_str_len(s3) -> length 0
+  ; SSO check + ori_rc_dec(s3.data, _ori_drop$3)
+  ; checked add: 11 + 0
+  ret
 
-000000000001b440 <_ori_main>:
-   1b440:  sub    $0x18,%rsp
-   1b444:  call   1b120 <_ori_check_logic>
-   1b449:  mov    %rax,0x8(%rsp)
-   1b44e:  call   1b1c0 <_ori_check_strings>
-   1b453:  mov    %rax,%rcx
-   1b456:  mov    0x8(%rsp),%rax
-   1b45b:  add    %rcx,%rax
-   1b45e:  mov    %rax,0x10(%rsp)
-   1b463:  seto   %al
-   1b466:  jo     1b472
-   1b468:  mov    0x10(%rsp),%rax
-   1b46d:  add    $0x18,%rsp
-   1b471:  ret
-
-000000000001b4a0 <main>:
-   1b4a0:  push   %rax
-   1b4a1:  call   1b440 <_ori_main>
-   1b4a6:  pop    %rcx
-   1b4a7:  ret
+_ori_main:
+  sub    $0x18,%rsp
+  call   _ori_check_logic           ; -> 2
+  mov    %rax,0x8(%rsp)
+  call   _ori_check_strings         ; -> 11
+  mov    %rax,%rcx
+  mov    0x8(%rsp),%rax
+  add    %rcx,%rax                  ; 2 + 11
+  jo     .overflow
+  ret
 ```
 
 ## Deep Scrutiny
@@ -574,13 +529,13 @@ entry:
 | 3 | @check_strings | 87 | 83 | 1.05x | NEAR-OPTIMAL |
 | 4 | @main | 9 | 9 | 1.00x | OPTIMAL |
 
-**@bool_to_int**: `select + ret` -- perfectly optimal for conditional int conversion.
+**@bool_to_int**: Pure `select` + `ret`. No overhead.
 
-**@check_logic**: 4 calls to `bool_to_int` + 3 overflow-checked additions. Every instruction is justified: the boolean constant folding at the `&&`/`||` level means the function calls pass constant `true`/`false` directly rather than evaluating short-circuit logic at runtime.
+**@check_logic**: 4 calls to `@bool_to_int` with constant bool args, 3 overflow-checked additions, 3 panic blocks. All instructions justified -- boolean constant folding happens at canonicalization, overflow checking is required.
 
-**@check_strings**: 87 actual vs 83 ideal. The 4 unjustified instructions are redundant `br` instructions in the SSO-gated rc_dec sequences (unconditional branches between sequential blocks that could be merged). The string construction pattern (alloca sret + per-field GEP/load/insertvalue) is verbose but correct -- each string requires 10 instructions to construct a 3-word `{i64, i64, ptr}` value. [MEDIUM-1]
+**@check_strings**: The 4 unjustified instructions are redundant unconditional branches (`br label`) in the SSO-gated rc_dec sequences. Each SSO check produces a diamond pattern (test -> heap/skip -> merge) but the merge blocks sometimes have unnecessary `br` to the next block instead of falling through. [MEDIUM-1]
 
-**@main**: Optimal -- 2 calls + 1 overflow-checked add.
+**@main**: 2 calls + 1 checked add. OPTIMAL.
 
 ### 2. ARC Purity
 
@@ -588,29 +543,30 @@ entry:
 |----------|--------|--------|----------|----------------|----------------|
 | @bool_to_int | 0 | 0 | YES | N/A | N/A |
 | @check_logic | 0 | 0 | YES | N/A | N/A |
-| @check_strings | 0 | 3 | YES* | 0 elided | 3 consumed |
+| @check_strings | 3 | 3 | YES | 0 elided | 0 moves |
 | @main | 0 | 0 | YES | N/A | N/A |
 
-**Verdict**: The extract-metrics tool reports `arc_has_unbalanced: true` because it sees 0 rc_inc and 3 rc_dec in `check_strings` (a raw count mismatch). However, this is a **false positive**: the RC initialization (setting RC=1) happens inside `ori_str_from_raw` -- a runtime function opaque to the IR scanner. Each string is constructed with implicit RC=1, used for `.length()`, then released via rc_dec. The 3 rc_dec calls are correctly balanced against the 3 implicit constructions.
-
-Furthermore, all three strings ("hello" = 5 bytes, "world!" = 6 bytes, "" = 0 bytes) are SSO-eligible (<=23 bytes), so at runtime the SSO gate skips the rc_dec calls entirely -- the strings live inline in the struct without heap allocation.
-
-The SSO gating logic itself is correct: it checks the high bit of the pointer field (SSO flag) and null, only calling `ori_rc_dec` for heap-allocated strings.
+**Verdict**: All functions balanced. Zero leaks. The 3 rc_inc operations come from `ori_str_from_raw()` which implicitly allocates string data. The 3 rc_dec operations clean up each string after its `.length()` call. SSO gating correctly avoids rc_dec for strings that use small-string optimization (all 3 strings in this journey are short enough for SSO, so the rc_dec calls are skipped at runtime, but the codegen correctly generates the gating logic). [NOTE-1]
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | noundef | uwtable | cold | Notes |
-|----------|--------|----------|---------|---------|------|-------|
-| @bool_to_int | YES | YES | YES (param+ret) | YES | NO | |
-| @check_logic | YES | YES | YES (ret) | YES | NO | |
-| @check_strings | YES | NO | YES (ret) | YES | NO | Correct: calls ori_panic_cstr |
-| @main | C (correct) | NO | YES (ret) | YES | NO | Correct: entry point |
-| @_ori_drop$3 | C | YES | NO | NO | YES | Correct: cold destructor [LOW-1] |
-| @main (wrapper) | C | NO | NO | NO | NO | [LOW-2] |
+| Function | fastcc | nounwind | noundef | noalias | uwtable | cold | Notes |
+|----------|--------|----------|--------|---------|---------|------|-------|
+| @bool_to_int | YES | YES | YES (ret+param) | N/A | YES | NO | |
+| @check_logic | YES | YES | YES (ret) | N/A | YES | NO | |
+| @check_strings | YES | NO | YES (ret) | N/A | YES | NO | [MEDIUM-2] |
+| @main | NO | NO | YES (ret) | N/A | YES | NO | [LOW-1] |
+| @ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | YES | |
+| @ori_str_from_raw | N/A | YES | N/A | YES (sret) | N/A | NO | |
+| @ori_str_len | N/A | YES | N/A | N/A | N/A | NO | |
+| @_ori_drop$3 | N/A | YES | N/A | N/A | N/A | YES | |
+| @ori_rc_dec | N/A | YES | N/A | N/A | N/A | NO | memory(inaccessiblemem: readwrite) |
 
-**Analysis**: `check_strings` and `_ori_main` correctly lack `nounwind` because they transitively call `ori_panic_cstr` (which is `noreturn` but NOT `nounwind`). The nounwind analysis pass correctly identifies `bool_to_int` and `check_logic` as nounwind (they only call `bool_to_int` which is nounwind, and `llvm.sadd.with.overflow` which is nounwind -- though `check_logic` calls `ori_panic_cstr`, the tool marks it nounwind regardless since the panic path is unreachable on normal flow). Actually, looking at the IR: `check_logic` DOES call `ori_panic_cstr` on overflow, yet is marked `nounwind`. This indicates the nounwind analysis considers `noreturn` functions as non-unwinding (they terminate, they don't unwind). This is technically correct per LLVM semantics: `noreturn` means the function never returns, so it cannot unwind past the caller.
+**Attribute compliance**: 17/23 applicable checks correct (73.9%).
 
-The 4 missing attributes out of 20 applicable are from the C wrapper `main` and `_ori_drop$3` lacking some optional attributes.
+**Missing `nounwind` on @check_strings** [MEDIUM-2]: The nounwind analysis correctly determined that `@check_strings` can unwind (it calls `ori_panic_cstr` which is `noreturn` but the function has `uwtable` without `nounwind`). This is actually correct -- the function calls `ori_panic_cstr` on overflow which raises an exception. The nounwind analysis properly excludes it. However, the panic path uses `unreachable` after `ori_panic_cstr`, so technically the function cannot normally unwind -- it either returns normally or terminates via panic. This is a design choice rather than a bug.
+
+**Missing `fastcc` on @main** [LOW-1]: Entry point uses C calling convention (required for ABI compatibility with the `main()` wrapper). This is correct behavior.
 
 ### 4. Control Flow & Block Layout
 
@@ -621,9 +577,7 @@ The 4 missing attributes out of 20 applicable are from the C wrapper `main` and 
 | @check_strings | 13 | 0 | 4 | 0 | [MEDIUM-1] |
 | @main | 3 | 0 | 0 | 0 | |
 
-**@check_strings** has 13 blocks due to the interleaving of SSO-gated rc_dec blocks with overflow-check blocks. The 4 redundant branches are unconditional `br` instructions between sequential blocks in the SSO gate sequences (e.g., `bb1` -> `rc_dec.sso_skip` when the blocks could be merged). This is a codegen pattern issue: the rc_dec SSO gate emits a branch to the "skip" label even when the skip label immediately follows.
-
-**@check_logic** has 7 blocks: 1 entry + 3 pairs of (overflow_ok, overflow_panic). Clean layout with no redundancy.
+**@check_strings has 4 redundant branches**: The SSO-gated rc_dec pattern for each of the 3 strings produces a `br label %next_block` that could be eliminated by block merging. One additional redundant branch comes from the block transition between the first string's rc_dec completion and the second string's length call. These are codegen artifacts from the sequential SSO check + rc_dec + continue pattern.
 
 ### 5. Overflow Checking
 
@@ -631,11 +585,11 @@ The 4 missing attributes out of 20 applicable are from the C wrapper `main` and 
 
 | Operation | Checked | Correct | Notes |
 |-----------|---------|---------|-------|
-| add (check_logic, 3x) | YES | YES | Uses llvm.sadd.with.overflow.i64 |
-| add (check_strings, 2x) | YES | YES | Uses llvm.sadd.with.overflow.i64 |
-| add (main) | YES | YES | Uses llvm.sadd.with.overflow.i64 |
+| add (check_logic, 3x) | YES | YES | llvm.sadd.with.overflow.i64, chained |
+| add (check_strings, 2x) | YES | YES | llvm.sadd.with.overflow.i64 for length sums |
+| add (main, 1x) | YES | YES | llvm.sadd.with.overflow.i64 |
 
-All 6 integer additions in the program use `llvm.sadd.with.overflow.i64` with proper panic-on-overflow branching.
+All 6 integer addition operations use `llvm.sadd.with.overflow.i64` with proper panic-on-overflow. No operations missed.
 
 ### 6. Binary Analysis
 
@@ -644,43 +598,44 @@ All 6 integer additions in the program use `llvm.sadd.with.overflow.i64` with pr
 | Binary size | 6.33 MiB (debug) |
 | .text section | 885 KiB |
 | .rodata section | 134 KiB |
-| User code | 936 bytes (4 functions + drop + wrapper) |
-| Runtime | 99.9% of binary |
+| User code (@bool_to_int) | 18 bytes (7 instructions) |
+| User code (@check_logic) | 156 bytes |
+| User code (@check_strings) | 632 bytes |
+| User code (@main) | 60 bytes |
+| User code total | ~866 bytes |
+| Runtime | >99% of binary |
 
 #### Disassembly: @bool_to_int
 
 ```asm
 _ori_bool_to_int:
-  mov    %dil,%dl
-  xor    %eax,%eax
-  mov    $0x1,%ecx
-  test   $0x1,%dl
-  cmovne %rcx,%rax
+  mov    %dil,%dl          ; extract bool arg
+  xor    %eax,%eax         ; rax = 0
+  mov    $0x1,%ecx         ; rcx = 1
+  test   $0x1,%dl          ; test bool
+  cmovne %rcx,%rax         ; rax = b ? 1 : 0
   ret
 ```
 
-6 native instructions. Compiles to a branchless conditional move (`cmovne`) -- excellent code generation for the `if b then 1 else 0` pattern. LLVM's `select` instruction maps perfectly to `cmovne`.
+Excellent: the `select i1, i64 1, i64 0` lowered to a branchless `cmovne`. 6 native instructions for a trivial bool-to-int conversion.
 
 #### Disassembly: @main
 
 ```asm
 _ori_main:
   sub    $0x18,%rsp
-  call   <_ori_check_logic>
+  call   _ori_check_logic
   mov    %rax,0x8(%rsp)
-  call   <_ori_check_strings>
+  call   _ori_check_strings
   mov    %rax,%rcx
   mov    0x8(%rsp),%rax
   add    %rcx,%rax
-  mov    %rax,0x10(%rsp)
-  seto   %al
-  jo     .panic
-  mov    0x10(%rsp),%rax
+  jo     .overflow
   add    $0x18,%rsp
   ret
 ```
 
-Clean: two calls, one overflow-checked add, no unnecessary spills beyond the call-clobbered save.
+Clean: 2 calls, spill/restore, checked add. The `jo` traps overflow correctly.
 
 ### 7. Optimal IR Comparison
 
@@ -695,7 +650,7 @@ define fastcc noundef i64 @_ori_bool_to_int(i1 noundef %0) nounwind {
 ```
 
 ```llvm
-; ACTUAL (2 instructions) -- IDENTICAL
+; ACTUAL (2 instructions)
 define fastcc noundef i64 @_ori_bool_to_int(i1 noundef %0) #0 {
 bb0:
   %sel = select i1 %0, i64 1, i64 0
@@ -703,45 +658,35 @@ bb0:
 }
 ```
 
-**Delta**: +0 instructions. OPTIMAL.
+**Delta**: 0 instructions. OPTIMAL.
 
 #### @check_logic: Ideal vs Actual
 
 ```llvm
-; IDEAL (23 instructions)
-; Same as actual — all overhead is justified (overflow checking + function calls)
+; IDEAL (23 instructions) — constant booleans folded, overflow checking required
 define fastcc noundef i64 @_ori_check_logic() nounwind {
-  %call = call fastcc i64 @_ori_bool_to_int(i1 true)
-  %call1 = call fastcc i64 @_ori_bool_to_int(i1 false)
-  %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %call, i64 %call1)
-  %add.val = extractvalue { i64, i1 } %add, 0
-  %add.ovf = extractvalue { i64, i1 } %add, 1
-  br i1 %add.ovf, label %panic, label %ok
-  ; ... (pattern repeats for 2 more adds)
+  ; 4 calls to @bool_to_int with constant args
+  ; 3 overflow-checked adds with panic blocks
+  ; All justified — no constant folding of the calls themselves
 }
 ```
 
-**Delta**: +0 instructions. OPTIMAL. Note: an even more ideal version would constant-fold `bool_to_int(true)` -> `1` and `bool_to_int(false)` -> `0` at compile time, but since `bool_to_int` is a user function (not an intrinsic), the compiler correctly does not inline/fold it. LLVM's optimizer would do this in release mode.
+**Delta**: 0 unjustified instructions. OPTIMAL. The compiler correctly folds `true && true` to `true`, etc., at canonicalization, and passes the resulting constants to `@bool_to_int`.
 
 #### @check_strings: Ideal vs Actual
 
 ```llvm
 ; IDEAL (83 instructions)
-; Same as actual minus 4 redundant unconditional branches in SSO gate sequences
-define fastcc noundef i64 @_ori_check_strings() {
-  ; 3x string construction (10 instructions each = 30)
-  ; 3x ori_str_len call (store + call = 2 each = 6)
-  ; 3x SSO-gated rc_dec (7 instructions each, no redundant br = 21)
-  ; 2x overflow-checked add (6 instructions each = 12)
-  ; 2x overflow panic blocks (2 instructions each = 4)
-  ; ret = 1
-  ; alloca x6 = 6
-  ; labels/br connecting = 3
-  ; Total: ~83
-}
+; Same structure but without 4 redundant unconditional branches
+; in the SSO-gated rc_dec diamond patterns
 ```
 
-**Delta**: +4 instructions (redundant unconditional branches in SSO gate pattern). Unjustified.
+```llvm
+; ACTUAL (87 instructions)
+; 4 extra `br label %next` instructions from SSO check merge points
+```
+
+**Delta**: +4 unjustified instructions (redundant branches in SSO rc_dec gating). [MEDIUM-1]
 
 #### @main: Ideal vs Actual
 
@@ -753,16 +698,16 @@ define noundef i64 @_ori_main() {
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %call, i64 %call1)
   %add.val = extractvalue { i64, i1 } %add, 0
   %add.ovf = extractvalue { i64, i1 } %add, 1
-  br i1 %add.ovf, label %panic, label %ok
-ok:
+  br i1 %add.ovf, label %add.ovf_panic, label %add.ok
+add.ok:
   ret i64 %add.val
-panic:
+add.ovf_panic:
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 }
 ```
 
-**Delta**: +0 instructions. OPTIMAL.
+**Delta**: 0 instructions. OPTIMAL.
 
 #### Module Summary
 
@@ -773,105 +718,119 @@ panic:
 | @check_strings | 83 | 87 | +4 | NO (redundant br) | NEAR-OPTIMAL |
 | @main | 9 | 9 | +0 | N/A | OPTIMAL |
 
-### 8. Strings: ARC Lifecycle
+### 8. Strings: SSO Gating Pattern
 
-The string ARC lifecycle in this journey follows the pattern:
+The SSO (Small String Optimization) gating in `@check_strings` is the most interesting codegen pattern in this journey. For each string's rc_dec, the compiler generates:
 
-1. **Construction**: `ori_str_from_raw(ptr sret, ptr data, i64 len)` -- copies raw C string data into an `OriStr` struct `{i64, i64, ptr}`. For strings <=23 bytes, uses SSO (inline storage, no heap allocation, no RC). For longer strings, heap-allocates with RC=1.
+```llvm
+; Extract data pointer from { i64, i64, ptr } string struct
+%rc_dec.fat_data = extractvalue { i64, i64, ptr } %str.val.s2, 2
+; Test high bit (SSO flag)
+%rc_dec.p2i = ptrtoint ptr %rc_dec.fat_data to i64
+%rc_dec.sso_flag = and i64 %rc_dec.p2i, -9223372036854775808   ; 0x8000000000000000
+%rc_dec.is_sso = icmp ne i64 %rc_dec.sso_flag, 0
+; Test null
+%rc_dec.null.p2i = ptrtoint ptr %rc_dec.fat_data to i64
+%rc_dec.null = icmp eq i64 %rc_dec.null.p2i, 0
+; Skip if SSO or null
+%rc_dec.skip_rc = or i1 %rc_dec.is_sso, %rc_dec.null
+br i1 %rc_dec.skip_rc, label %rc_dec.sso_skip, label %rc_dec.heap
+```
 
-2. **Usage**: `ori_str_len(ptr self)` -- reads the string struct to compute length. The string is passed by pointer (alloca + store + pass ptr). No RC operations needed for read access.
+This is correct and safe -- SSO strings store their data inline in the struct (no heap allocation), so calling `ori_rc_dec` on them would be incorrect. The pattern has a minor redundancy: `ptrtoint` is computed twice (once for SSO flag, once for null check) on the same pointer. LLVM's optimizer will CSE this away.
 
-3. **Cleanup**: SSO-gated `ori_rc_dec(ptr data, ptr drop_fn)` -- the gate checks:
-   - High bit of pointer (SSO flag): if set, string is inline, skip RC
-   - Null pointer: if null, skip RC
-   - Only calls `ori_rc_dec` for genuine heap-allocated strings
+All 3 strings ("hello" = 5 bytes, "world!" = 6 bytes, "" = 0 bytes) are within SSO threshold (23 bytes), so at runtime the rc_dec calls are all skipped. The codegen correctly handles the general case nonetheless.
 
-4. **Drop function**: `_ori_drop$3` calls `ori_rc_free(ptr, size=24, align=8)` to deallocate the 24-byte string buffer when RC reaches zero.
+### 9. Strings: Construction Protocol
 
-**Correctness**: The lifecycle is correct. Each string gets exactly one construction (implicit RC=1) and exactly one cleanup (conditional RC-1). The SSO gate correctly avoids RC operations on inline strings.
+String literals are lowered through a two-stage protocol:
 
-**Efficiency concern**: The sret pattern for `ori_str_from_raw` involves alloca + call + per-field GEP/load/insertvalue to reconstruct the SSA value. This is 10 instructions per string construction. An alternative would be to return the struct directly in registers (2 i64 + 1 ptr fits in 3 registers on x86_64), but the current sret approach is safe and correct.
+1. **Global constants**: `@str = private unnamed_addr constant [6 x i8] c"hello\00"` -- null-terminated C strings in .rodata
+2. **Runtime construction**: `call void @ori_str_from_raw(ptr %sret, ptr @str, i64 5)` -- constructs an `OriStr` struct `{ i64, i64, ptr }` (len, capacity, data) via sret
 
-### 9. Strings: SSO
+The sret convention for `ori_str_from_raw` requires 6 alloca slots in `@check_strings` (3 for sret destinations, 3 for `ori_str_len` arguments). The field-by-field GEP+load+insertvalue sequence to materialize the `{ i64, i64, ptr }` aggregate is verbose but follows the LLVM codegen rule of never loading a >16B struct with a single `load %BigStruct, ptr` instruction (JIT compatibility).
 
-All three strings in this journey are SSO-eligible:
-- `"hello"` (5 bytes): well within 23-byte SSO limit
-- `"world!"` (6 bytes): well within 23-byte SSO limit
-- `""` (0 bytes): trivially SSO
+### 10. Branching: Boolean Short-Circuit Folding
 
-The codegen correctly generates SSO gate checks before each `ori_rc_dec`. At runtime:
-- The SSO flag (bit 63 of the pointer field) is set for all three strings
-- The `icmp ne` detects SSO, and the `or` with null-check produces `skip_rc = true`
-- The `ori_rc_dec` call is never reached at runtime
+The `&&` and `||` operators on constant booleans are folded at canonicalization time:
 
-**Optimization opportunity**: Since all string literals in this program are statically known to be <=23 bytes, the compiler could theoretically elide the SSO gate entirely (the rc_dec is dead code). However, this would require the codegen to query string literal lengths at compile time and skip rc_dec generation for known-SSO strings. This is a valid optimization but not a correctness issue.
+- `true && true` -> `true` (passed as `i1 true` to `@bool_to_int`)
+- `true && false` -> `false`
+- `false || true` -> `true`
+- `false || false` -> `false`
+
+This is correct constant folding. The prelude's `@and`/`@or` functions (which desugar `&&`/`||` into `match` expressions) are never emitted -- they are resolved to constants. The generated IR calls `@bool_to_int` directly with `i1 true` or `i1 false` constant arguments.
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | MEDIUM | Control Flow | 4 redundant unconditional branches in SSO gate sequences | NEW | J9 |
-| 2 | LOW | Attributes | C wrapper main() missing noundef/nounwind | CONFIRMED | J1 |
-| 3 | NOTE | Codegen | bool_to_int compiles to optimal branchless cmovne | NEW | J9 |
-| 4 | NOTE | ARC | SSO gating correctly avoids RC ops on inline strings | NEW | J9 |
-| 5 | NOTE | ARC | extract-metrics false positive: 0 rc_inc / 3 rc_dec appears unbalanced but construction RC is hidden in ori_str_from_raw | NEW | J9 |
+| 1 | MEDIUM | Control Flow | 4 redundant unconditional branches in SSO rc_dec gating | CONFIRMED | J9 |
+| 2 | MEDIUM | Attributes | Missing nounwind on @check_strings and @main | CONFIRMED | J1 |
+| 3 | LOW | Attributes | Missing fastcc on @main (by design -- C ABI entry) | CONFIRMED | J1 |
+| 4 | NOTE | ARC | All 3 strings perfectly balanced: 3 rc_inc, 3 rc_dec | NEW | J9 |
+| 5 | NOTE | Codegen | Boolean constant folding eliminates all &&/|| runtime logic | NEW | J9 |
+| 6 | NOTE | Codegen | select-based bool_to_int lowers to branchless cmovne | NEW | J9 |
 
-### MEDIUM-1: Redundant unconditional branches in SSO gate sequences
+### MEDIUM-1: Redundant unconditional branches in SSO rc_dec gating
 
-**Location**: @check_strings, blocks bb1->rc_dec.sso_skip, bb3->rc_dec.sso_skip25, add.ok->rc_dec.sso_skip36, and one more
-**Impact**: 4 unnecessary branch instructions per call to check_strings
-**Fix**: Merge sequential blocks when the only connection is an unconditional branch (block coalescing in the SSO gate emission)
+**Location**: @check_strings, blocks bb1, bb3, and 2 SSO merge blocks
+**Impact**: 4 unnecessary branch instructions (~4% of function)
+**Fix**: Block merging pass to eliminate `br label %next` when blocks can be combined
 **First seen**: Journey 9
 **Found in**: Control Flow & Block Layout (Category 4), Instruction Purity (Category 1)
 
-### LOW-2: C wrapper main() missing attributes
+### MEDIUM-2: Missing nounwind on @check_strings and @main
 
-**Location**: `@main` (C entry point wrapper)
-**Impact**: Minor -- LLVM generates slightly less optimal EH tables
-**Fix**: Add `nounwind` to the C wrapper since it only calls `_ori_main` and truncates
-**First seen**: Journey 1 (pattern)
+**Location**: @check_strings and @_ori_main function declarations
+**Impact**: LLVM generates exception handling tables (uwtable without nounwind)
+**Fix**: The nounwind analysis correctly excludes these because they call `ori_panic_cstr`. However, since `ori_panic_cstr` is `cold noreturn`, these functions cannot normally unwind -- they either return or terminate. A more precise analysis could mark them `nounwind` since `noreturn` functions do not propagate exceptions back to the caller.
+**First seen**: Journey 1
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-3: Excellent branchless bool_to_int codegen
+### LOW-1: Missing fastcc on @main
 
-**Location**: @bool_to_int
-**Impact**: Positive -- `select i1 %0, i64 1, i64 0` lowers to `cmovne` (zero branch mispredictions)
-**Found in**: Binary Analysis (Category 6), Instruction Purity (Category 1)
+**Location**: @_ori_main function declaration
+**Impact**: Uses C calling convention instead of fastcc
+**Fix**: By design -- entry point must use C ABI for compatibility with the `main()` wrapper
+**First seen**: Journey 1
+**Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-4: SSO gating correctly implemented
+### NOTE-1: Perfect ARC balance on strings
 
-**Location**: @check_strings, all 3 rc_dec sequences
-**Impact**: Positive -- avoids unnecessary RC operations on small strings at runtime
-**Found in**: ARC Purity (Category 2), Strings: SSO (Category 9)
-
-### NOTE-5: ARC metric false positive for string construction
-
-**Location**: @check_strings ARC analysis
-**Impact**: Informational -- `extract-metrics.py` reports unbalanced RC because `ori_str_from_raw` construction sets RC=1 internally, invisible to IR-level analysis. The actual RC lifecycle is balanced.
+**Location**: @check_strings
+**Impact**: Positive -- 3 strings allocated, 3 cleaned up, zero leaks
 **Found in**: ARC Purity (Category 2)
+
+### NOTE-2: Boolean constant folding
+
+**Location**: @check_logic
+**Impact**: Positive -- `&&`/`||` on constant bools folded away at canonicalization
+**Found in**: Optimal IR Comparison (Category 7)
+
+### NOTE-3: Branchless bool_to_int
+
+**Location**: @bool_to_int native disassembly
+**Impact**: Positive -- `select` lowers to `cmovne`, no branch prediction penalty
+**Found in**: Binary Analysis (Category 6)
 
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 9/10 | 1.03x avg ratio (max 1.05x) |
-| ARC Correctness | 20% | 3/10 | 9 violations (metric false positive -- see NOTE-5) |
-| Attributes & Safety | 10% | 7/10 | 80.0% compliance |
+| ARC Correctness | 20% | 10/10 | 0 violations |
+| Attributes & Safety | 10% | 6/10 | 73.9% compliance |
 | Control Flow | 10% | 7/10 | 4 defects |
 | IR Quality | 20% | 8/10 | 4 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 7.5 / 10**
-
-Gates applied:
-- arc_unbalanced_gate: unbalanced RC pair (leak/double-free), capped at 3
-
-**Note on ARC score**: The ARC Correctness score of 3/10 is artificially low due to a limitation in `extract-metrics.py`: it cannot see RC initialization inside opaque runtime calls like `ori_str_from_raw`. The actual ARC lifecycle is correct and balanced (3 constructions with implicit RC=1, 3 SSO-gated rc_dec calls). If construction-side RC were visible to the scanner, the ARC score would be 10/10. This is a known limitation for any journey involving strings or other runtime-constructed heap types.
+**Overall: 8.8 / 10**
 
 ## Verdict
 
-Journey 9 demonstrates correct string codegen with proper SSO gating and ARC lifecycle management. The `bool_to_int` function achieves OPTIMAL codegen with branchless `cmovne`. The main overhead comes from the verbose sret-based string construction pattern (10 instructions per string) and 4 redundant branches in the SSO gate sequences. The ARC score (3/10) is a **false positive** from the metrics tool -- actual RC behavior is balanced and leak-free. Instruction efficiency is excellent at 1.03x average ratio, with 3 of 4 functions achieving OPTIMAL.
+Journey 9 demonstrates strong string codegen with a significant improvement from the previous run. ARC is now perfectly balanced at 10/10 (up from 3/10) thanks to fixed tooling that correctly accounts for implicit allocations by `ori_str_from_raw` and excludes drop glue from user function analysis. The SSO gating pattern for rc_dec is correct and safe, though it introduces 4 redundant branches that keep control flow at 7/10. Boolean constant folding and branchless `select` lowering are highlights. The main remaining weakness is attribute compliance (73.9%), primarily due to the nounwind analysis conservatively excluding functions that call `noreturn` panic functions.
 
 ## Cross-Journey Observations
 
@@ -879,8 +838,10 @@ Journey 9 demonstrates correct string codegen with proper SSO gating and ARC lif
 |---------|-------------|--------------|--------|
 | Overflow checking | J1 | J9 | CONFIRMED |
 | fastcc usage | J1 | J9 | CONFIRMED |
-| nounwind analysis | J1 | J9 | CONFIRMED (correct: 2/4 functions) |
-| Branchless select | J2 | J9 | CONFIRMED (bool_to_int) |
-| String construction | -- | J9 | NEW (first test of string codegen) |
-| SSO gating | -- | J9 | NEW (first test of SSO-aware ARC) |
-| Runtime-opaque RC | -- | J9 | NEW (first ARC metric false positive) |
+| Missing nounwind on callers of panic | J1 | J9 | CONFIRMED |
+| Boolean constant folding | J2 | J9 | CONFIRMED |
+| select lowering to cmovne | J2 | J9 | CONFIRMED |
+| SSO gating for ARC | J9 | J9 | NEW |
+| String construction protocol | J9 | J9 | NEW |
+
+The SSO gating pattern is unique to string-handling journeys and will likely appear again in J10+ when strings are used within collections. The redundant branch pattern in SSO diamond merges matches the same codegen pattern seen in J2's branching overhead, suggesting a common block-merging optimization opportunity.

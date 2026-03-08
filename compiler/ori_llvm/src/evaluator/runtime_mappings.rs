@@ -62,9 +62,16 @@ pub(crate) fn jit_symbol_mappings() -> Vec<(&'static str, usize)> {
 
 /// Resolve a runtime function name to its native address.
 ///
+/// TODO(codegen-purity/section-07): Generate this mapping from `RT_FUNCTIONS` data
+/// instead of maintaining a manual mirror. See plans/codegen-purity/ for details.
+///
 /// This is the single point where function names are mapped to Rust function
 /// pointers. Adding a new `jit_allowed: true` entry to `RT_FUNCTIONS` requires
 /// adding a corresponding arm here — the `_` arm panics to catch omissions.
+#[expect(
+    clippy::too_many_lines,
+    reason = "JIT symbol dispatch table — one arm per runtime function"
+)]
 fn lookup_jit_address(name: &str) -> usize {
     match name {
         // Print

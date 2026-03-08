@@ -2,7 +2,7 @@
 journey: 6
 slug: pattern-matching
 theme: "I am a match"
-date: 2026-03-06
+date: 2026-03-07
 status: PASS
 expected: 41
 eval_result: 41
@@ -52,7 +52,11 @@ score_metrics:
   other_low: 0
 overflow_check: PASS
 bugs_found: []
-related_journeys: []
+related_journeys:
+  - journey: 1
+    relationship: "Both confirm overflow checking and fastcc; noundef gap evolves from scalar to struct params"
+  - journey: 8
+    relationship: "Both test struct-typed parameters; J8 generics also show missing noundef on Box param"
 ---
 
 # Journey 6: "I am a match"
@@ -490,12 +494,12 @@ main:
 | # | Function | Actual | Ideal | Ratio | Verdict |
 |---|----------|--------|-------|-------|---------|
 | 1 | @to_code | 6 | 6 | 1.00x | OPTIMAL |
-| 2 | @extract | 14 | 3 | 4.67x | BLOATED |
+| 2 | @extract | 11 | 3 | 3.67x | BLOATED |
 | 3 | @main | 16 | 16 | 1.00x | OPTIMAL |
 
 **@to_code** (6 instructions): The branchless select-chain for a 3-way enum-to-int mapping is excellent. Extract the tag, compare against each variant, select the result. Every instruction earns its place.
 
-**@extract** (14 instructions): The switch-based dispatch with per-variant blocks and phi merge is correct but semantically redundant. Both `Success(v)` and `Failure(c)` arms extract the same payload field at the same struct offset (field 1, element 0). The compiler generates two identical extraction sequences in separate blocks (`bb2` and `bb3`), merged via a phi node. An ideal implementation would simply extract the payload without branching since both arms perform the identical operation. However, this is the **correct general-case lowering** for pattern matching -- the compiler cannot assume match arms will always extract the same fields. The decision tree compilation is structurally sound; the redundancy is an optimization opportunity (match arm deduplication), not a correctness issue. Marking the overhead as **justified** because the general-case algorithm must handle differing arm bodies.
+**@extract** (11 instructions): The switch-based dispatch with per-variant blocks and phi merge is correct but semantically redundant. Both `Success(v)` and `Failure(c)` arms extract the same payload field at the same struct offset (field 1, element 0). The compiler generates two identical extraction sequences in separate blocks (`bb2` and `bb3`), merged via a phi node. An ideal implementation would simply extract the payload without branching since both arms perform the identical operation. However, this is the **correct general-case lowering** for pattern matching -- the compiler cannot assume match arms will always extract the same fields. The decision tree compilation is structurally sound; the redundancy is an optimization opportunity (match arm deduplication), not a correctness issue. Marking the overhead as **justified** because the general-case algorithm must handle differing arm bodies.
 
 **@main** (16 instructions): Three function calls, two overflow-checked additions, and a return. All instructions serve a purpose. The overflow checking adds 10 instructions (2 additions x 5 instr each), which is justified for safety.
 
@@ -650,7 +654,7 @@ define fastcc noundef i64 @_ori_extract(%ori.Result2 %0) nounwind {
 ```
 
 ```llvm
-; ACTUAL (14 instructions)
+; ACTUAL (11 instructions)
 define fastcc noundef i64 @_ori_extract(%ori.Result2 %0) #0 {
 bb0:
   %proj.0 = extractvalue %ori.Result2 %0, 0
@@ -674,7 +678,7 @@ bb4:
 }
 ```
 
-**Delta**: +11 instructions. The general-case decision tree lowering does not detect that both arms perform identical operations. This is **justified** overhead -- the compiler generates the correct general-purpose lowering that handles arbitrary per-arm bodies. Match arm deduplication is a valid optimization opportunity but not a correctness issue. LLVM's optimization passes at `-O1`+ would collapse the duplicate blocks.
+**Delta**: +8 instructions. The general-case decision tree lowering does not detect that both arms perform identical operations. This is **justified** overhead -- the compiler generates the correct general-purpose lowering that handles arbitrary per-arm bodies. Match arm deduplication is a valid optimization opportunity but not a correctness issue. LLVM's optimization passes at `-O1`+ would collapse the duplicate blocks.
 
 #### @main: Ideal vs Actual
 
@@ -711,7 +715,7 @@ panic2:
 | Function | Ideal | Actual | Delta | Justified | Verdict |
 |----------|-------|--------|-------|-----------|---------|
 | @to_code | 6 | 6 | +0 | N/A | OPTIMAL |
-| @extract | 3 | 14 | +11 | YES (general-case decision tree) | ACCEPTABLE |
+| @extract | 3 | 11 | +8 | YES (general-case decision tree) | ACCEPTABLE |
 | @main | 16 | 16 | +0 | N/A | OPTIMAL |
 
 ### 8. Pattern Matching: Decision Trees
@@ -788,3 +792,15 @@ The compiler uses a tagged-union representation for sum types:
 ## Verdict
 
 Journey 6's pattern matching codegen is near-perfect. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. The only gap is missing `noundef` attributes on struct-typed parameters (82.4% attribute compliance). ARC is irrelevant -- all values are scalar integers, zero RC operations needed.
+
+## Cross-Journey Observations
+
+| Feature | First Tested | This Journey | Status |
+|---------|-------------|--------------|--------|
+| Overflow checking | J1 | J6 | CONFIRMED |
+| fastcc usage | J1 | J6 | CONFIRMED |
+| nounwind on user functions | J1 | J6 | CONFIRMED |
+| Missing noundef on params | J1 | J6 | CONFIRMED (struct-typed) |
+| Zero ARC for scalars | J1 | J6 | CONFIRMED |
+
+Journey 6 is the first to exercise sum types and pattern matching. The `nounwind` finding from J1 is now resolved -- all user functions carry `nounwind` via fixed-point analysis. The missing `noundef` pattern persists but manifests differently here: J1's scalar `int` parameters have `noundef`, but J6's struct-typed parameters (`%ori.Status`, `%ori.Result2`) do not. This suggests the compiler applies `noundef` to primitive-typed parameters but not to user-defined struct/enum types passed by value.

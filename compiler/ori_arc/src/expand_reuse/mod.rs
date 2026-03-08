@@ -204,32 +204,52 @@ fn try_expand_block(
         merge_id,
     };
 
-    // 6. Build fast-path block (§09.3 + §09.5 self-set elimination).
-    let fast_block = paths::build_fast_path(func, fast_id, &ctx, classifier, pool);
+    emit_expanded_blocks(
+        func, block_idx, &ctx, &suffix, fast_id, slow_id, classifier, pool,
+    );
+}
 
-    // 7. Build slow-path block (§09.3).
-    let slow_block = paths::build_slow_path(slow_id, &ctx, &suffix, pool, func);
+/// Build and wire expanded blocks (fast path, slow path, optional merge).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "expansion pipeline — all params are required data flow inputs"
+)]
+fn emit_expanded_blocks(
+    func: &mut ArcFunction,
+    block_idx: usize,
+    ctx: &ExpansionContext<'_>,
+    suffix: &[ArcInstr],
+    fast_id: ArcBlockId,
+    slow_id: ArcBlockId,
+    classifier: &dyn ArcClassification,
+    pool: Option<&ori_types::Pool>,
+) {
+    // Build fast-path block (§09.3 + §09.5 self-set elimination).
+    let fast_block = paths::build_fast_path(func, fast_id, ctx, classifier, pool);
 
-    // 8. Build merge block if needed.
-    let merge_block = merge_id.map(|mid| {
+    // Build slow-path block (§09.3).
+    let slow_block = paths::build_slow_path(slow_id, ctx, suffix, pool, func);
+
+    // Build merge block if needed.
+    let merge_block = ctx.merge_id.map(|mid| {
         paths::build_merge_block(
             func,
             mid,
-            &ctx,
-            &suffix,
-            &original_terminator,
+            ctx,
+            suffix,
+            ctx.original_terminator,
             classifier,
             pool,
         )
     });
 
-    // 9. Create IsShared variable and truncate original block.
+    // Create IsShared variable and truncate original block.
     let is_shared_var = func.fresh_var(ori_types::Idx::BOOL);
     let body = &mut func.blocks[block_idx].body;
-    body.truncate(pair.reset_idx);
+    body.truncate(ctx.pair.reset_idx);
     body.push(ArcInstr::IsShared {
         dst: is_shared_var,
-        var: pair.reset_var,
+        var: ctx.pair.reset_var,
     });
     func.blocks[block_idx].terminator = ArcTerminator::Branch {
         cond: is_shared_var,
@@ -237,16 +257,16 @@ fn try_expand_block(
         else_block: fast_id, // unique → fast path (fall-through)
     };
     // Update spans for truncated block.
-    func.spans[block_idx].truncate(pair.reset_idx);
+    func.spans[block_idx].truncate(ctx.pair.reset_idx);
     func.spans[block_idx].push(None); // IsShared span
 
-    // 10. Propagate merge substitution to all existing blocks.
+    // Propagate merge substitution to all existing blocks.
     if let Some(mb) = &merge_block {
         let merge_param = mb.params[0].0;
-        analysis::propagate_merge_substitution(func, merge_param, pair.reuse_dst);
+        analysis::propagate_merge_substitution(func, merge_param, ctx.pair.reuse_dst);
     }
 
-    // 11. Push new blocks.
+    // Push new blocks.
     func.push_block(fast_block);
     func.push_block(slow_block);
     if let Some(mb) = merge_block {

@@ -119,6 +119,7 @@ impl PassBuilderOptionsGuard {
     ///
     /// Returns `None` if LLVM fails to create the options.
     fn new() -> Option<Self> {
+        // SAFETY: LLVMCreatePassBuilderOptions has no preconditions; returns null on failure.
         let options = unsafe { llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions() };
         if options.is_null() {
             None
@@ -135,6 +136,8 @@ impl PassBuilderOptionsGuard {
 
 impl Drop for PassBuilderOptionsGuard {
     fn drop(&mut self) {
+        // SAFETY: self.options is a valid, non-null LLVMPassBuilderOptionsRef created
+        // in new() and not yet disposed. Each guard is dropped exactly once.
         unsafe {
             llvm_sys::transforms::pass_builder::LLVMDisposePassBuilderOptions(self.options);
         }
@@ -217,7 +220,8 @@ pub fn run_optimization_passes(
     let guard = PassBuilderOptionsGuard::new()
         .ok_or(OptimizationError::PassBuilderOptionsCreationFailed)?;
 
-    // Configure options based on config
+    // SAFETY: guard.as_ptr() is a valid, non-null LLVMPassBuilderOptionsRef.
+    // All setter functions take a valid options ref and a boolean/integer value.
     unsafe {
         LLVMPassBuilderOptionsSetLoopVectorization(
             guard.as_ptr(),
@@ -266,12 +270,15 @@ pub fn run_optimization_passes(
     let module_ref = module.as_mut_ptr();
     let tm_ref = target_machine.as_mut_ptr();
 
-    // Run the passes (guard is dropped automatically after this, cleaning up options)
+    // SAFETY: module_ref and tm_ref are valid LLVM refs from inkwell RAII wrappers.
+    // pipeline_cstr is a valid null-terminated C string. guard.as_ptr() is valid options.
     let error =
         unsafe { LLVMRunPasses(module_ref, pipeline_cstr.as_ptr(), tm_ref, guard.as_ptr()) };
 
     // Check for errors
     if !error.is_null() {
+        // SAFETY: error is a non-null LLVMErrorRef returned by LLVMRunPasses.
+        // extract_llvm_error_message consumes and disposes it.
         let message = unsafe { extract_llvm_error_message(error) };
         return Err(OptimizationError::PassesFailed { message });
     }
@@ -319,11 +326,13 @@ pub fn run_custom_pipeline(
     let module_ref = module.as_mut_ptr();
     let tm_ref = target_machine.as_mut_ptr();
 
-    // Run the passes (guard is dropped automatically after this, cleaning up options)
+    // SAFETY: module_ref and tm_ref are valid LLVM refs from inkwell RAII wrappers.
+    // pipeline_cstr is a valid null-terminated C string. guard.as_ptr() is valid options.
     let error =
         unsafe { LLVMRunPasses(module_ref, pipeline_cstr.as_ptr(), tm_ref, guard.as_ptr()) };
 
     if !error.is_null() {
+        // SAFETY: error is a non-null LLVMErrorRef returned by LLVMRunPasses.
         let message = unsafe { extract_llvm_error_message(error) };
         return Err(OptimizationError::PassesFailed { message });
     }
@@ -331,9 +340,7 @@ pub fn run_custom_pipeline(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // LTO Pipeline
-// ---------------------------------------------------------------------------
 
 /// Run the pre-link optimization phase for LTO.
 ///

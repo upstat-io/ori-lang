@@ -38,7 +38,7 @@ mod env;
 mod expr;
 
 pub use env::TypeEnv;
-pub use expr::{check_expr, infer_expr, resolve_parsed_type, TYPECK_BUILTIN_METHODS};
+pub use expr::{check_expr, infer_expr, resolve_parsed_type};
 
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};

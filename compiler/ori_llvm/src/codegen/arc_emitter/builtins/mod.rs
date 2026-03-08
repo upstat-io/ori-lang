@@ -12,7 +12,7 @@
 //!
 //! A [`BuiltinTable`] (lazily initialized singleton) aggregates all submodule
 //! registrations for O(1) lookup and sync-test enumeration against
-//! `TYPECK_BUILTIN_METHODS` in `ori_types`.
+//! `ori_registry::BUILTIN_TYPES`.
 //!
 //! # Migration
 //!
@@ -21,10 +21,8 @@
 //! The legacy dispatch (`legacy_dispatch()`) handles all types not yet
 //! migrated. Once all submodules are migrated, the legacy dispatch is removed.
 
-// ---------------------------------------------------------------------------
 // declare_builtins! macro — MUST appear before submodule `mod` declarations
 // for textual scoping (macro_rules! follow source order in Rust).
-// ---------------------------------------------------------------------------
 
 /// Declare builtin methods for a submodule.
 ///
@@ -99,9 +97,7 @@ use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-// ---------------------------------------------------------------------------
 // BuiltinRegistration
-// ---------------------------------------------------------------------------
 
 /// Metadata for a single builtin method codegen handler.
 ///
@@ -109,7 +105,7 @@ use crate::codegen::value_id::ValueId;
 /// Aggregated into [`BuiltinTable`] for O(1) lookup and sync testing.
 #[derive(Clone, Debug)]
 pub(crate) struct BuiltinRegistration {
-    /// Type name matching `TYPECK_BUILTIN_METHODS` convention.
+    /// Type name matching `ori_registry` convention.
     /// Lowercase for primitives (`"int"`), `PascalCase` for named types (`"Option"`).
     pub type_name: &'static str,
     /// Method name (e.g., `"abs"`, `"is_some"`, `"iter"`).
@@ -121,9 +117,7 @@ pub(crate) struct BuiltinRegistration {
     pub receiver_borrowed: bool,
 }
 
-// ---------------------------------------------------------------------------
 // BuiltinCtx
-// ---------------------------------------------------------------------------
 
 /// Context passed to submodule `dispatch()` functions.
 ///
@@ -151,9 +145,7 @@ pub(super) struct BuiltinCtx<'a> {
     pub arc_func: &'a ArcFunction,
 }
 
-// ---------------------------------------------------------------------------
 // BuiltinTable
-// ---------------------------------------------------------------------------
 
 /// Compiled dispatch table for O(1) builtin method lookup.
 ///
@@ -165,7 +157,7 @@ pub(super) struct BuiltinCtx<'a> {
 ///
 /// Used for:
 /// - Early rejection in `try_emit_builtin_method` (skip dispatch for non-builtins)
-/// - Enumeration in sync tests vs `TYPECK_BUILTIN_METHODS`
+/// - Enumeration in sync tests vs `ori_registry::BUILTIN_TYPES`
 /// - `receiver_borrowed` metadata for ARC ownership inference
 #[allow(
     dead_code,
@@ -284,9 +276,7 @@ fn borrowing_names_from_table(interner: &ori_ir::StringInterner) -> rustc_hash::
     names
 }
 
-// ---------------------------------------------------------------------------
 // Dispatch entry point
-// ---------------------------------------------------------------------------
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Try to emit inline IR for a builtin method call.

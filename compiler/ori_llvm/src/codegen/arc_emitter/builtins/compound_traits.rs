@@ -80,7 +80,7 @@ declare_builtins! { emitter, ctx;
     ("Result", "equals", borrow: true) => {
         if let TypeInfo::Result { ok, err } = ctx.type_info {
             if ctx.arg_vals.len() >= 2 {
-                emitter.emit_result_equals(ctx.arg_vals[0], ctx.arg_vals[1], *ok, *err)
+                emitter.emit_result_equals(ctx.arg_vals[0], ctx.arg_vals[1], ctx.receiver_ty, *ok, *err)
             } else {
                 None
             }
@@ -91,7 +91,7 @@ declare_builtins! { emitter, ctx;
     ("Result", "is_equal", borrow: true) => {
         if let TypeInfo::Result { ok, err } = ctx.type_info {
             if ctx.arg_vals.len() >= 2 {
-                emitter.emit_result_equals(ctx.arg_vals[0], ctx.arg_vals[1], *ok, *err)
+                emitter.emit_result_equals(ctx.arg_vals[0], ctx.arg_vals[1], ctx.receiver_ty, *ok, *err)
             } else {
                 None
             }
@@ -102,7 +102,7 @@ declare_builtins! { emitter, ctx;
     ("Result", "compare", borrow: true) => {
         if let TypeInfo::Result { ok, err } = ctx.type_info {
             if ctx.arg_vals.len() >= 2 {
-                emitter.emit_result_compare(ctx.arg_vals[0], ctx.arg_vals[1], *ok, *err)
+                emitter.emit_result_compare(ctx.arg_vals[0], ctx.arg_vals[1], ctx.receiver_ty, *ok, *err)
             } else {
                 None
             }
@@ -112,7 +112,7 @@ declare_builtins! { emitter, ctx;
     },
     ("Result", "hash", borrow: true) => {
         if let TypeInfo::Result { ok, err } = ctx.type_info {
-            emitter.emit_result_hash(ctx.arg_vals[0], *ok, *err)
+            emitter.emit_result_hash(ctx.arg_vals[0], ctx.receiver_ty, *ok, *err)
         } else {
             None
         }
@@ -158,9 +158,7 @@ use crate::codegen::value_id::ValueId;
 use super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    // -----------------------------------------------------------------------
     // Recursive element dispatch
-    // -----------------------------------------------------------------------
 
     /// Emit `lhs.equals(rhs)` for any type, dispatching recursively.
     pub(crate) fn emit_element_equals(
@@ -187,7 +185,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Result { ok, err } => {
                 let ok = *ok;
                 let err = *err;
-                self.emit_result_equals(lhs, rhs, ok, err)
+                self.emit_result_equals(lhs, rhs, elem_ty, ok, err)
             }
             TypeInfo::Tuple { elements } => self.emit_tuple_equals(lhs, rhs, elements),
             TypeInfo::List { element } => {
@@ -224,7 +222,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Result { ok, err } => {
                 let ok = *ok;
                 let err = *err;
-                self.emit_result_compare(lhs, rhs, ok, err)
+                self.emit_result_compare(lhs, rhs, elem_ty, ok, err)
             }
             TypeInfo::Tuple { elements } => self.emit_tuple_compare(lhs, rhs, elements),
             TypeInfo::List { element } => {
@@ -257,7 +255,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Result { ok, err } => {
                 let ok = *ok;
                 let err = *err;
-                self.emit_result_hash(val, ok, err)
+                self.emit_result_hash(val, elem_ty, ok, err)
             }
             TypeInfo::Tuple { elements } => self.emit_tuple_hash(val, elements),
             TypeInfo::List { element } => {

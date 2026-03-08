@@ -152,6 +152,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Returns `Some(FunctionId)` of the trampoline, or `None` if the `@panic`
     /// function was not declared.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "panic trampoline emits sequential LLVM IR for PanicInfo"
+    )]
     fn generate_panic_trampoline(&mut self, panic_name: Name) -> Option<FunctionId> {
         let Some(&(user_panic_id, _)) = self.codegen_ctx.functions.get(&panic_name) else {
             debug!("no @panic function declared — skipping trampoline");

@@ -1,0 +1,18 @@
+[package]
+name = "ori_registry"
+description = "Pure-data type behavioral registry for the Ori compiler — zero dependencies, const-constructible"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# PURITY CONTRACT: This crate MUST have zero [dependencies].
+# Only [dev-dependencies] are allowed (for tests).
+# Enforcement: see src/tests.rs — purity_cargo_toml_has_no_dependencies
+[dependencies]
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

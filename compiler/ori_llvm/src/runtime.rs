@@ -9,5 +9,6 @@
 //! This module re-exports `#[no_mangle]` functions for FFI compatibility with LLVM JIT.
 //! All functions are safe Rust but need stable symbol names.
 
-// Re-export everything from ori_rt
-pub use ori_rt::*;
+// Re-export ori_rt for crate-internal use (evaluator, tests).
+// No external consumers — kept pub(crate) to avoid leaking ori_rt's API surface.
+pub(crate) use ori_rt::*;

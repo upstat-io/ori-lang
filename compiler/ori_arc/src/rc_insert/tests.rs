@@ -1263,7 +1263,7 @@ fn no_edge_cleanup_symmetric() {
     assert_eq!(count_dec(&result, 2, v(0)), 0);
 }
 
-// --- insert_rc_ops_with_ownership tests ---
+// insert_rc_ops_with_ownership tests
 
 /// Run ownership-enhanced RC insertion on a function (empty sigs).
 fn run_rc_insert_enhanced(mut func: ArcFunction) -> ArcFunction {
@@ -1419,7 +1419,7 @@ fn enhanced_cross_block_borrow_inc() {
     );
 }
 
-// --- Closure capture analysis tests (Step 2.4) ---
+// Closure capture analysis tests (Step 2.4)
 
 /// Closure capturing borrowed-derived var at a Borrowed callee position:
 /// the Inc is skipped because the closure borrows (not owns) the value,
@@ -1893,7 +1893,7 @@ fn user_function_not_in_sigs_no_cleanup() {
     );
 }
 
-// --- Cross-block borrowing projection tests (Section 04.5) ---
+// Cross-block borrowing projection tests (Section 04.5)
 
 /// Try operator (`?`) pattern: scalar tag Project borrows scrut across the
 /// branch, consuming non-scalar Project on the error path transfers ownership.
@@ -2271,7 +2271,7 @@ fn chained_try_no_leak() {
 
     let result = run_rc_insert(func);
 
-    // --- First Result (v0) ---
+    // First Result (v0)
 
     // B0: v0 live-out (used in B1, B2) → no Dec.
     assert_eq!(
@@ -2292,7 +2292,7 @@ fn chained_try_no_leak() {
         "first scrut consumed by non-scalar Project in B2"
     );
 
-    // --- Second Result (v1) ---
+    // Second Result (v1)
 
     // B0: v1 live-out (used in B1, and transitively in B3/B4 via B1) → no Dec.
     assert_eq!(
@@ -2326,7 +2326,7 @@ fn chained_try_no_leak() {
     );
 }
 
-// --- List Binary(Add) consuming semantics ---
+// List Binary(Add) consuming semantics
 
 /// List `+` operator — operands must NOT get `RcDec` because the COW concat
 /// function (`ori_list_concat_cow`) consumes both the receiver and list2.

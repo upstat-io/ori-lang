@@ -13,9 +13,7 @@ use crate::codegen::value_id::ValueId;
 
 use super::super::super::ArcIrEmitter;
 
-// ---------------------------------------------------------------------------
 // Read-only accessors
-// ---------------------------------------------------------------------------
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `list.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
@@ -224,9 +222,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Private helpers
-// ---------------------------------------------------------------------------
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Extract list data pointer (field 2) and len (field 0) from receiver.

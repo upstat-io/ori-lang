@@ -16,6 +16,10 @@ use crate::codegen::value_id::{BlockId, FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an `ArcTerminator` as LLVM control flow.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "terminator dispatch over Return/Jump/Branch/Switch/Invoke"
+    )]
     pub(super) fn emit_terminator(
         &mut self,
         term: &ArcTerminator,

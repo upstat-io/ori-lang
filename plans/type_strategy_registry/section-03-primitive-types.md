@@ -2,44 +2,38 @@
 plan: "type_strategy_registry"
 section: "03"
 title: "Primitive Type Definitions (int, float, bool, byte, char)"
-status: not-started
+status: complete
 depends_on:
   - "01"
   - "02"
 subsections:
   - id: "03.1"
     title: "INT TypeDef"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "FLOAT TypeDef"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "BOOL TypeDef"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "BYTE TypeDef"
-    status: not-started
+    status: complete
   - id: "03.5"
     title: "CHAR TypeDef"
-    status: not-started
+    status: complete
   - id: "03.6"
     title: "Validation Against Current Codebase"
-    status: not-started
+    status: complete
   - id: "03.6a"
     title: "Registry-Internal Tests"
-    status: not-started
-  - id: "03.6b"
-    title: "Cross-Crate Validation Tests (DEFERRED to Section 09/14)"
-    status: not-started
+    status: complete
   - id: "03.6.1"
     title: "Operator Strategy Correctness Tests"
-    status: not-started
+    status: complete
   - id: "03.6.2"
     title: "OpDefs Field Coverage Tests"
-    status: not-started
-  - id: "03.6.3"
-    title: "Return Type Accuracy Tests (DEFERRED to Section 09)"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Primitive Type Definitions
@@ -815,49 +809,49 @@ The registry (125 entries) is the superset of TC + operator methods. It captures
 
 ### Prerequisites (must be complete before starting 03.1-03.5)
 
-- [ ] Section 01: `MethodDef` struct with all 10 fields defined
-- [ ] Section 01: `ParamDef` struct defined, plus `ParamDef::SELF_TYPE` convenience constant (used as `Param::SelfType` shorthand in this section's method definitions)
-- [ ] Section 01/02: `const fn MethodDef::primitive(name, params, returns, trait_name, receiver) -> MethodDef` helper defined — fills `pure: true`, `backend_required: true`, `kind: Instance`, `dei_only: false`, `dei_propagation: NotApplicable`. **Without this helper, `float.rs` will exceed the 500-line file size limit.**
-- [ ] Section 02: `ori_registry` crate scaffolding complete (`Cargo.toml`, `lib.rs`, `defs/mod.rs`)
+- [x] Section 01: `MethodDef` struct with all 10 fields defined
+- [x] Section 01: `ParamDef` struct defined, plus `ParamDef::SELF_TYPE` convenience constant (used as `Param::SelfType` shorthand in this section's method definitions)
+- [x] Section 01/02: `const fn MethodDef::primitive(name, params, returns, trait_name, receiver) -> MethodDef` helper defined — fills `pure: true`, `backend_required: true`, `kind: Instance`, `dei_only: false`, `dei_propagation: NotApplicable`. **Without this helper, `float.rs` will exceed the 500-line file size limit.**
+- [x] Section 02: `ori_registry` crate scaffolding complete (`Cargo.toml`, `lib.rs`, `defs/mod.rs`)
 
 ### 03.1 INT TypeDef
-- [ ] Create `ori_registry/src/defs/int.rs`
-- [ ] Define `pub const INT: TypeDef` with all 35 methods and `type_params: TypeParamArity::Fixed(0)`
-- [ ] Define `OpDefs` with all 20 fields: `IntInstr` for arithmetic/bitwise, `Unsupported` for `not`
-- [ ] Verify all methods from `resolve_int_method()` are present (cross-crate, deferred to Section 09)
-- [ ] Verify all int entries from `TYPECK_BUILTIN_METHODS` are present (cross-crate, deferred to Section 09)
+- [x] Create `ori_registry/src/defs/int.rs`
+- [x] Define `pub const INT: TypeDef` with all 35 methods and `type_params: TypeParamArity::Fixed(0)`
+- [x] Define `OpDefs` with all 20 fields: `IntInstr` for arithmetic/bitwise, `Unsupported` for `not`
+- → *(Section 09)* Verify all methods from `resolve_int_method()` are present
+- → *(Section 09)* Verify all int entries from `TYPECK_BUILTIN_METHODS` are present
 
 ### 03.2 FLOAT TypeDef
 
 > **WARNING (BLOAT):** `float.rs` has 42 methods — the most of any primitive. Without the `const fn` helper from Section 01/02, this file will be ~559 lines and violate the 500-line limit. If the helper cannot be implemented, split into `defs/float/mod.rs` + `defs/float/methods.rs`.
 
-- [ ] Create `ori_registry/src/defs/float.rs`
-- [ ] Define `pub const FLOAT: TypeDef` with all 43 methods and `type_params: TypeParamArity::Fixed(0)`
-- [ ] Define `OpDefs` with all 20 fields: `FloatInstr` for arithmetic/comparison/rem, `Unsupported` for bitwise/not/floor_div
-- [ ] Verify all methods from `resolve_float_method()` are present (cross-crate, deferred to Section 09)
-- [ ] Verify all float entries from `TYPECK_BUILTIN_METHODS` are present (cross-crate, deferred to Section 09)
-- [ ] Document floor/ceil/round return type discrepancy with ori_ir
+- [x] Create `ori_registry/src/defs/float.rs`
+- [x] Define `pub const FLOAT: TypeDef` with all 43 methods and `type_params: TypeParamArity::Fixed(0)`
+- [x] Define `OpDefs` with all 20 fields: `FloatInstr` for arithmetic/comparison/rem, `Unsupported` for bitwise/not/floor_div
+- → *(Section 09)* Verify all methods from `resolve_float_method()` are present
+- → *(Section 09)* Verify all float entries from `TYPECK_BUILTIN_METHODS` are present
+- [x] Document floor/ceil/round return type discrepancy with ori_ir
 
 ### 03.3 BOOL TypeDef
-- [ ] Create `ori_registry/src/defs/bool.rs`
-- [ ] Define `pub const BOOL: TypeDef` with all 8 methods and `type_params: TypeParamArity::Fixed(0)`
-- [ ] Define `OpDefs` with all 20 fields: `BoolLogic` for eq/neq/not, `UnsignedCmp` for ordering, `Unsupported` for arithmetic/bitwise
-- [ ] Verify all methods from `resolve_bool_method()` are present (cross-crate, deferred to Section 09)
-- [ ] Verify all bool entries from `TYPECK_BUILTIN_METHODS` are present (cross-crate, deferred to Section 09)
+- [x] Create `ori_registry/src/defs/bool.rs`
+- [x] Define `pub const BOOL: TypeDef` with all 8 methods and `type_params: TypeParamArity::Fixed(0)`
+- [x] Define `OpDefs` with all 20 fields: `BoolLogic` for eq/neq/not, `UnsignedCmp` for ordering, `Unsupported` for arithmetic/bitwise
+- → *(Section 09)* Verify all methods from `resolve_bool_method()` are present
+- → *(Section 09)* Verify all bool entries from `TYPECK_BUILTIN_METHODS` are present
 
 ### 03.4 BYTE TypeDef
-- [ ] Create `ori_registry/src/defs/byte.rs`
-- [ ] Define `pub const BYTE: TypeDef` with all 23 methods (12 direct/trait + 11 operator) and `type_params: TypeParamArity::Fixed(0)`
-- [ ] Define `OpDefs` with all 20 fields: `IntInstr` for arithmetic/bitwise, `UnsignedCmp` for ordering, `Unsupported` for floor_div/neg/not
-- [ ] Verify all methods from `resolve_byte_method()` are present (cross-crate, deferred to Section 09)
-- [ ] Verify all byte entries from `TYPECK_BUILTIN_METHODS` are present (cross-crate, deferred to Section 09)
+- [x] Create `ori_registry/src/defs/byte.rs`
+- [x] Define `pub const BYTE: TypeDef` with all 23 methods (12 direct/trait + 11 operator) and `type_params: TypeParamArity::Fixed(0)`
+- [x] Define `OpDefs` with all 20 fields: `IntInstr` for arithmetic/bitwise, `UnsignedCmp` for ordering, `Unsupported` for floor_div/neg/not
+- → *(Section 09)* Verify all methods from `resolve_byte_method()` are present
+- → *(Section 09)* Verify all byte entries from `TYPECK_BUILTIN_METHODS` are present
 
 ### 03.5 CHAR TypeDef
-- [ ] Create `ori_registry/src/defs/char.rs`
-- [ ] Define `pub const CHAR: TypeDef` with all 16 methods and `type_params: TypeParamArity::Fixed(0)`
-- [ ] Define `OpDefs` with all 20 fields: `IntInstr` for eq/neq, `UnsignedCmp` for ordering, `Unsupported` for arithmetic/bitwise/not
-- [ ] Verify all methods from `resolve_char_method()` are present (cross-crate, deferred to Section 09)
-- [ ] Verify all char entries from `TYPECK_BUILTIN_METHODS` are present (cross-crate, deferred to Section 09)
+- [x] Create `ori_registry/src/defs/char.rs`
+- [x] Define `pub const CHAR: TypeDef` with all 16 methods and `type_params: TypeParamArity::Fixed(0)`
+- [x] Define `OpDefs` with all 20 fields: `IntInstr` for eq/neq, `UnsignedCmp` for ordering, `Unsupported` for arithmetic/bitwise/not
+- → *(Section 09)* Verify all methods from `resolve_char_method()` are present
+- → *(Section 09)* Verify all char entries from `TYPECK_BUILTIN_METHODS` are present
 
 ### 03.6 Validation
 
@@ -867,13 +861,13 @@ The registry (125 entries) is the superset of TC + operator methods. It captures
 
 These tests verify internal consistency of the registry data and require NO cross-crate dependencies:
 
-- [ ] Write `#[test] fn no_duplicate_methods()` — verify no `TypeDef` has duplicate method names
-- [ ] Write `#[test] fn all_primitives_are_copy()` — verify `MemoryStrategy::Copy` for all five types
-- [ ] Write `#[test] fn all_primitives_have_zero_type_params()` — verify `TypeParamArity::Fixed(0)` for all five types
-- [ ] Write `#[test] fn all_methods_have_names()` — verify no method has an empty name string
-- [ ] Write `#[test] fn methods_alphabetically_sorted()` — verify methods within each TypeDef are sorted by name (matches `TYPECK_BUILTIN_METHODS` convention)
-- [ ] Verify `cargo c -p ori_registry` passes with all definitions
-- [ ] Verify `cargo test -p ori_registry` passes
+- [x] Write `#[test] fn no_duplicate_methods()` — verify no `TypeDef` has duplicate method names
+- [x] Write `#[test] fn all_primitives_are_copy()` — verify `MemoryStrategy::Copy` for all five types
+- [x] Write `#[test] fn all_primitives_have_zero_type_params()` — verify `TypeParamArity::Fixed(0)` for all five types
+- [x] Write `#[test] fn all_methods_have_names()` — verify no method has an empty name string
+- [x] Write `#[test] fn methods_alphabetically_sorted()` — verify methods within each TypeDef are sorted by name (matches `TYPECK_BUILTIN_METHODS` convention)
+- [x] Verify `cargo c -p ori_registry` passes with all definitions
+- [x] Verify `cargo test -p ori_registry` passes
 
 #### 03.6b Cross-Crate Validation Tests (DEFERRED to Section 09/14)
 
@@ -881,12 +875,12 @@ These tests verify internal consistency of the registry data and require NO cros
 
 The following tests are deferred to Section 09 (Wire Type Checker) or Section 14 (Enforcement):
 
-- [ ] Write `int_methods_match_typeck()` — iterate `INT.methods`, verify each name appears in `TYPECK_BUILTIN_METHODS` int entries **(Section 09 or 14, in `oric/tests/`)**
-- [ ] Write `float_methods_match_typeck()` — same for float **(Section 09 or 14)**
-- [ ] Write `bool_methods_match_typeck()` — same for bool **(Section 09 or 14)**
-- [ ] Write `byte_methods_match_typeck()` — same for byte **(Section 09 or 14)**
-- [ ] Write `char_methods_match_typeck()` — same for char **(Section 09 or 14)**
-- [ ] Write `all_typeck_primitives_in_registry()` — iterate `TYPECK_BUILTIN_METHODS` for int/float/bool/byte/char, verify each appears in the corresponding `TypeDef` **(Section 09 or 14)**
+- → *(Section 09/14)* Write `int_methods_match_typeck()` — iterate `INT.methods`, verify each name appears in `TYPECK_BUILTIN_METHODS` int entries
+- → *(Section 09/14)* Write `float_methods_match_typeck()` — same for float
+- → *(Section 09/14)* Write `bool_methods_match_typeck()` — same for bool
+- → *(Section 09/14)* Write `byte_methods_match_typeck()` — same for byte
+- → *(Section 09/14)* Write `char_methods_match_typeck()` — same for char
+- → *(Section 09/14)* Write `all_typeck_primitives_in_registry()` — iterate `TYPECK_BUILTIN_METHODS` for int/float/bool/byte/char, verify each appears in the corresponding `TypeDef`
 
 ### 03.6.1 Operator Strategy Correctness Tests
 
@@ -894,18 +888,18 @@ The following tests are deferred to Section 09 (Wire Type Checker) or Section 14
 
 These tests verify that the `OpDefs` entries produce correct LLVM semantics (signed vs unsigned comparison, correct instruction choice). They are critical because an incorrect strategy would silently generate wrong code.
 
-- [ ] Write `#[test] fn int_comparison_is_signed()` — verify `INT.operators.lt == IntInstr` (signed `icmp slt`, not `UnsignedCmp`)
-- [ ] Write `#[test] fn byte_comparison_is_unsigned()` — verify `BYTE.operators.lt == UnsignedCmp` (unsigned `icmp ult`, not `IntInstr`)
-- [ ] Write `#[test] fn char_comparison_is_unsigned()` — verify `CHAR.operators.lt == UnsignedCmp`
-- [ ] Write `#[test] fn bool_comparison_is_unsigned()` — verify `BOOL.operators.lt == UnsignedCmp` (false < true)
-- [ ] Write `#[test] fn bool_equality_is_bool_logic()` — verify `BOOL.operators.eq == BoolLogic`
-- [ ] Write `#[test] fn float_comparison_is_float_instr()` — verify `FLOAT.operators.lt == FloatInstr` (ordered `fcmp olt`)
-- [ ] Write `#[test] fn bool_not_is_bool_logic()` — verify `BOOL.operators.not == BoolLogic`
-- [ ] Write `#[test] fn non_bool_not_is_unsupported()` — verify `INT/FLOAT/BYTE/CHAR.operators.not == Unsupported`
-- [ ] Write `#[test] fn float_has_no_bitwise_ops()` — verify all bitwise OpDefs fields are `Unsupported` for float
-- [ ] Write `#[test] fn float_has_no_rem_or_floor_div()` — verify `FLOAT.operators.rem == Unsupported` and `FLOAT.operators.floor_div == Unsupported`
-- [ ] Write `#[test] fn char_has_no_arithmetic()` — verify add/sub/mul/div/rem/floor_div are all `Unsupported` for char
-- [ ] Write `#[test] fn byte_has_no_neg()` — verify `BYTE.operators.neg == Unsupported` (unsigned type)
+- [x] Write `#[test] fn int_comparison_is_signed()` — verify `INT.operators.lt == IntInstr` (signed `icmp slt`, not `UnsignedCmp`)
+- [x] Write `#[test] fn byte_comparison_is_unsigned()` — verify `BYTE.operators.lt == UnsignedCmp` (unsigned `icmp ult`, not `IntInstr`)
+- [x] Write `#[test] fn char_comparison_is_unsigned()` — verify `CHAR.operators.lt == UnsignedCmp`
+- [x] Write `#[test] fn bool_comparison_is_unsigned()` — verify `BOOL.operators.lt == UnsignedCmp` (false < true)
+- [x] Write `#[test] fn bool_equality_is_bool_logic()` — verify `BOOL.operators.eq == BoolLogic`
+- [x] Write `#[test] fn float_comparison_is_float_instr()` — verify `FLOAT.operators.lt == FloatInstr` (ordered `fcmp olt`)
+- [x] Write `#[test] fn bool_not_is_bool_logic()` — verify `BOOL.operators.not == BoolLogic`
+- [x] Write `#[test] fn non_bool_not_is_unsupported()` — verify `INT/FLOAT/BYTE/CHAR.operators.not == Unsupported`
+- [x] Write `#[test] fn float_has_no_bitwise_ops()` — verify all bitwise OpDefs fields are `Unsupported` for float
+- [x] Write `#[test] fn float_has_no_floor_div()` — verify `FLOAT.operators.floor_div == Unsupported` (rem is FloatInstr — proactive addition)
+- [x] Write `#[test] fn char_has_no_arithmetic()` — verify add/sub/mul/div/rem/floor_div are all `Unsupported` for char
+- [x] Write `#[test] fn byte_has_no_neg()` — verify `BYTE.operators.neg == Unsupported` (unsigned type)
 
 ### 03.6.2 OpDefs Field Coverage Tests
 
@@ -913,14 +907,14 @@ These tests ensure the registry's `OpDefs` correctly captures every operator tha
 
 #### Registry-internal (in `ori_registry/src/defs/tests.rs`):
 
-- [ ] Write `#[test] fn opdefs_has_all_20_fields()` — compile-time or runtime verification that every `OpDefs` block has exactly 20 fields (add, sub, mul, div, rem, floor_div, eq, neq, lt, gt, lt_eq, gt_eq, neg, not, bit_and, bit_or, bit_xor, bit_not, shl, shr)
+- [x] Write `#[test] fn opdefs_has_all_20_fields()` — compile-time or runtime verification that every `OpDefs` block has exactly 20 fields (add, sub, mul, div, rem, floor_div, eq, neq, lt, gt, lt_eq, gt_eq, neg, not, bit_and, bit_or, bit_xor, bit_not, shl, shr)
 
 #### Cross-crate (DEFERRED to Section 12 or 14, in `oric/tests/` or `ori_llvm/tests/`):
 
 > **IMPORTANT:** These tests reference LLVM backend internals (`emit_binary_op`, `emit_unary_op`) and cannot live in `ori_registry` (zero dependencies).
 
-- [ ] Write `non_unsupported_ops_match_llvm_emit_binary_op()` — for each type, collect all OpDefs fields that are NOT `Unsupported`, verify each has a corresponding handler in `emit_binary_op` (or `emit_unary_op`) in the LLVM backend. **(Section 12 or 14, in `oric/tests/` or `ori_llvm/tests/`)**
-- [ ] Write `llvm_handled_ops_not_unsupported_in_registry()` — inverse: for each type the LLVM backend handles in `emit_binary_op`, verify the registry does NOT mark that operator as `Unsupported`. **(Section 12 or 14)**
+- → *(Section 12/14)* Write `non_unsupported_ops_match_llvm_emit_binary_op()` — for each type, collect all OpDefs fields that are NOT `Unsupported`, verify each has a corresponding handler in `emit_binary_op` (or `emit_unary_op`) in the LLVM backend
+- → *(Section 12/14)* Write `llvm_handled_ops_not_unsupported_in_registry()` — inverse: for each type the LLVM backend handles in `emit_binary_op`, verify the registry does NOT mark that operator as `Unsupported`
 
 ### 03.6.3 Return Type Accuracy Tests
 
@@ -928,11 +922,11 @@ These tests verify that the registry's `returns` field matches the actual type c
 
 > **IMPORTANT:** These tests reference `resolve_*_method()` functions from `ori_types` and cannot live in `ori_registry` (zero dependencies). They must be implemented in Section 09 (Wire Type Checker) where the `ori_types` -> `ori_registry` dependency exists, or in `oric/tests/` integration tests.
 
-- [ ] Write `int_method_return_types_match_resolver()` — for each method in `INT.methods` that has a concrete `TypeTag` return, verify it matches `resolve_int_method(name)` mapping **(Section 09, in `ori_types/` or `oric/tests/`)**
-- [ ] Write `float_method_return_types_match_resolver()` — same for float (critical: verifies floor/ceil/round return `Int`) **(Section 09)**
-- [ ] Write `bool_method_return_types_match_resolver()` — same for bool **(Section 09)**
-- [ ] Write `byte_method_return_types_match_resolver()` — same for byte **(Section 09)**
-- [ ] Write `char_method_return_types_match_resolver()` — same for char **(Section 09)**
+- → *(Section 09)* Write `int_method_return_types_match_resolver()` — for each method in `INT.methods` that has a concrete `TypeTag` return, verify it matches `resolve_int_method(name)` mapping
+- → *(Section 09)* Write `float_method_return_types_match_resolver()` — same for float (critical: verifies floor/ceil/round return `Int`)
+- → *(Section 09)* Write `bool_method_return_types_match_resolver()` — same for bool
+- → *(Section 09)* Write `byte_method_return_types_match_resolver()` — same for byte
+- → *(Section 09)* Write `char_method_return_types_match_resolver()` — same for char
 
 ---
 
@@ -940,30 +934,30 @@ These tests verify that the registry's `returns` field matches the actual type c
 
 ### Section 03 Completion (verifiable at implementation time)
 
-- [ ] `cargo c -p ori_registry` compiles successfully
-- [ ] `cargo test -p ori_registry` passes (registry-internal tests only)
-- [ ] `./test-all.sh` passes (no regressions in existing crates)
-- [ ] All five `TypeDef` constants (`INT`, `FLOAT`, `BOOL`, `BYTE`, `CHAR`) are defined and exported
-- [ ] Every `TypeDef` has all 6 struct fields: `tag`, `name`, `memory`, `type_params`, `methods`, `operators`
-- [ ] Every `OpDefs` has all 20 fields (including `not`)
-- [ ] `OpDefs` correctly distinguishes `IntInstr` vs `FloatInstr` vs `UnsignedCmp` vs `BoolLogic` vs `Unsupported` for each operator on each type
-- [ ] `BOOL.operators.not == BoolLogic`; all other types have `not == Unsupported`
-- [ ] No duplicate method names within any `TypeDef`
-- [ ] All five types have `MemoryStrategy::Copy`
-- [ ] All five types have `TypeParamArity::Fixed(0)`
-- [ ] Operator strategy correctness tests pass (signed/unsigned/float semantics)
-- [ ] No source file exceeds 500 lines (excluding test files)
-- [ ] Test file uses sibling `tests.rs` convention (`ori_registry/src/defs/tests.rs`)
-- [ ] Cross-reference table in this document matches the implemented definitions
+- [x] `cargo c -p ori_registry` compiles successfully
+- [x] `cargo test -p ori_registry` passes (registry-internal tests only)
+- [x] `./test-all.sh` passes (no regressions in existing crates)
+- [x] All five `TypeDef` constants (`INT`, `FLOAT`, `BOOL`, `BYTE`, `CHAR`) are defined and exported
+- [x] Every `TypeDef` has all 6 struct fields: `tag`, `name`, `memory`, `type_params`, `methods`, `operators`
+- [x] Every `OpDefs` has all 20 fields (including `not`)
+- [x] `OpDefs` correctly distinguishes `IntInstr` vs `FloatInstr` vs `UnsignedCmp` vs `BoolLogic` vs `Unsupported` for each operator on each type
+- [x] `BOOL.operators.not == BoolLogic`; all other types have `not == Unsupported`
+- [x] No duplicate method names within any `TypeDef`
+- [x] All five types have `MemoryStrategy::Copy`
+- [x] All five types have `TypeParamArity::Fixed(0)`
+- [x] Operator strategy correctness tests pass (signed/unsigned/float semantics)
+- [x] No source file exceeds 500 lines (excluding test files)
+- [x] Test file uses sibling `tests.rs` convention (`ori_registry/src/defs/tests.rs`)
+- [x] Cross-reference table in this document matches the implemented definitions
 
 ### Deferred Exit Criteria (verified in Sections 09-14)
 
 The following require cross-crate dependencies and CANNOT be verified until wiring sections:
 
-- [ ] Every method from `resolve_int_method()` (22 methods) appears in `INT.methods` **(Section 09)**
-- [ ] Every method from `resolve_float_method()` (37 methods) appears in `FLOAT.methods`, plus 5 operator trait methods (add, div, mul, neg, sub) = 42 total **(Section 09)**
-- [ ] Every method from `resolve_bool_method()` (7 methods) appears in `BOOL.methods` **(Section 09)**
-- [ ] Every method from `resolve_byte_method()` (12 methods) appears in `BYTE.methods`, plus 11 operator trait methods (add, sub, mul, div, rem, bit_and, bit_or, bit_xor, bit_not, shl, shr) = 23 total **(Section 09)**
-- [ ] Every method from `resolve_char_method()` (16 methods) appears in `CHAR.methods` **(Section 09)**
-- [ ] All `TYPECK_BUILTIN_METHODS` entries for these five types are accounted for in the registry **(Section 09)**
-- [ ] Return type accuracy tests pass (registry matches `resolve_*_method()`) **(Section 09)**
+- → *(Section 09)* Every method from `resolve_int_method()` (22 methods) appears in `INT.methods`
+- → *(Section 09)* Every method from `resolve_float_method()` (37 methods) appears in `FLOAT.methods`, plus 5 operator trait methods (add, div, mul, neg, sub) = 42 total
+- → *(Section 09)* Every method from `resolve_bool_method()` (7 methods) appears in `BOOL.methods`
+- → *(Section 09)* Every method from `resolve_byte_method()` (12 methods) appears in `BYTE.methods`, plus 11 operator trait methods (add, sub, mul, div, rem, bit_and, bit_or, bit_xor, bit_not, shl, shr) = 23 total
+- → *(Section 09)* Every method from `resolve_char_method()` (16 methods) appears in `CHAR.methods`
+- → *(Section 09)* All `TYPECK_BUILTIN_METHODS` entries for these five types are accounted for in the registry
+- → *(Section 09)* Return type accuracy tests pass (registry matches `resolve_*_method()`)

@@ -2,7 +2,7 @@
 journey: 11
 slug: derived-traits
 theme: "I am a derived trait"
-date: 2026-03-06
+date: 2026-03-07
 status: PASS
 expected: 33
 eval_result: 33
@@ -24,11 +24,11 @@ features:
   - sum_types
   - pattern_matching
 feature_description: "Derived Eq trait on structs and sum types with field and tag-based equality"
-score: 9.8
+score: 9.7
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 7
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -39,8 +39,8 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 19
-  attr_correct: 18
+  attr_applicable: 37
+  attr_correct: 30
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
@@ -54,8 +54,10 @@ score_metrics:
 overflow_check: PASS
 bugs_found: []
 related_journeys:
+  - journey: 1
+    relationship: "Missing noundef on main wrapper confirmed in both"
   - journey: 2
-    relationship: "Both test branching codegen via if/then/else"
+    relationship: "Both test branching codegen via if/then/else select"
   - journey: 4
     relationship: "J4 tests struct construction; J11 tests derived Eq on structs"
 ---
@@ -163,46 +165,46 @@ Fn(@) Ident(check_struct_eq) LParen RParen Arrow Ident(int) Eq LBrace ...
 
 ```text
 Module
-├─ TypeDecl Point #derive(Eq)
-│  └─ Struct { x: int, y: int }
-├─ TypeDecl Color #derive(Eq)
-│  └─ Sum: Red | Green | Blue
-├─ TypeDecl Shape #derive(Eq)
-│  └─ Sum: Circle(radius: int) | Rect(w: int, h: int)
-├─ FnDecl @check_struct_eq
-│  ├─ Return: int
-│  └─ Body: Block
-│       ├─ Let p1 = Point { x: 10, y: 20 }
-│       ├─ Let p2 = Point { x: 10, y: 20 }
-│       ├─ Let p3 = Point { x: 10, y: 30 }
-│       ├─ Let same = If(p1 == p2, 3, 0)
-│       ├─ Let diff = If(p1 != p3, 4, 0)
-│       └─ BinOp(+): same + diff
-├─ FnDecl @check_sum_eq
-│  ├─ Return: int
-│  └─ Body: Block
-│       ├─ Let c1 = Red
-│       ├─ Let c2 = Red
-│       ├─ Let c3 = Blue
-│       ├─ Let unit_same = If(c1 == c2, 5, 0)
-│       ├─ Let unit_diff = If(c1 != c3, 6, 0)
-│       └─ BinOp(+): unit_same + unit_diff
-├─ FnDecl @check_nested
-│  ├─ Return: int
-│  └─ Body: Block
-│       ├─ Let s1 = Circle(radius: 10)
-│       ├─ Let s2 = Circle(radius: 10)
-│       ├─ Let s3 = Rect(w: 5, h: 8)
-│       ├─ Let payload_same = If(s1 == s2, 7, 0)
-│       ├─ Let payload_diff = If(s1 != s3, 8, 0)
-│       └─ BinOp(+): payload_same + payload_diff
-└─ FnDecl @main
-   ├─ Return: int
-   └─ Body: Block
-        ├─ Let a = Call(@check_struct_eq)
-        ├─ Let b = Call(@check_sum_eq)
-        ├─ Let c = Call(@check_nested)
-        └─ BinOp(+): BinOp(+): a + b + c
++-- TypeDecl Point #derive(Eq)
+|  +-- Struct { x: int, y: int }
++-- TypeDecl Color #derive(Eq)
+|  +-- Sum: Red | Green | Blue
++-- TypeDecl Shape #derive(Eq)
+|  +-- Sum: Circle(radius: int) | Rect(w: int, h: int)
++-- FnDecl @check_struct_eq
+|  +-- Return: int
+|  +-- Body: Block
+|       +-- Let p1 = Point { x: 10, y: 20 }
+|       +-- Let p2 = Point { x: 10, y: 20 }
+|       +-- Let p3 = Point { x: 10, y: 30 }
+|       +-- Let same = If(p1 == p2, 3, 0)
+|       +-- Let diff = If(p1 != p3, 4, 0)
+|       +-- BinOp(+): same + diff
++-- FnDecl @check_sum_eq
+|  +-- Return: int
+|  +-- Body: Block
+|       +-- Let c1 = Red
+|       +-- Let c2 = Red
+|       +-- Let c3 = Blue
+|       +-- Let unit_same = If(c1 == c2, 5, 0)
+|       +-- Let unit_diff = If(c1 != c3, 6, 0)
+|       +-- BinOp(+): unit_same + unit_diff
++-- FnDecl @check_nested
+|  +-- Return: int
+|  +-- Body: Block
+|       +-- Let s1 = Circle(radius: 10)
+|       +-- Let s2 = Circle(radius: 10)
+|       +-- Let s3 = Rect(w: 5, h: 8)
+|       +-- Let payload_same = If(s1 == s2, 7, 0)
+|       +-- Let payload_diff = If(s1 != s3, 8, 0)
+|       +-- BinOp(+): payload_same + payload_diff
++-- FnDecl @main
+   +-- Return: int
+   +-- Body: Block
+        +-- Let a = Call(@check_struct_eq)
+        +-- Let b = Call(@check_sum_eq)
+        +-- Let c = Call(@check_nested)
+        +-- BinOp(+): BinOp(+): a + b + c
 ```
 
 </details>
@@ -608,7 +610,7 @@ attributes #3 = { nounwind }
 #### Disassembly
 
 ```asm
-_ori_check_struct_eq:
+_ori_check_struct_eq:                    ; 144 bytes
   sub    $0x18,%rsp
   mov    $0xa,%edx
   mov    $0x14,%ecx
@@ -644,10 +646,10 @@ _ori_check_struct_eq:
   lea    ovf.msg(%rip),%rdi
   call   ori_panic_cstr
 
-_ori_Point$eq:
+_ori_Point$eq:                           ; 48 bytes
   mov    %rcx,-0x10(%rsp)
   mov    %rsi,-0x8(%rsp)
-  cmp    %rdx,%rdi           ; compare x fields
+  cmp    %rdx,%rdi              ; compare x fields
   je     .check_y
   jmp    .false
 .true:
@@ -659,12 +661,12 @@ _ori_Point$eq:
 .check_y:
   mov    -0x8(%rsp),%rax
   mov    -0x10(%rsp),%rcx
-  cmp    %rcx,%rax           ; compare y fields
+  cmp    %rcx,%rax              ; compare y fields
   je     .true
   jmp    .false
 
-_ori_Color$eq:
-  cmp    %rsi,%rdi           ; compare tags directly
+_ori_Color$eq:                           ; 16 bytes
+  cmp    %rsi,%rdi              ; compare tags directly
   jne    .false
   mov    $0x1,%al
   ret
@@ -672,14 +674,14 @@ _ori_Color$eq:
   xor    %eax,%eax
   ret
 
-_ori_Shape$eq:
-  mov    0x10(%rdi),%rax     ; load self payload[1]
-  mov    (%rdi),%rax         ; load self tag
-  mov    0x8(%rdi),%rcx      ; load self payload[0]
-  mov    0x10(%rsi),%rcx     ; load other payload[1]
-  mov    (%rsi),%rcx         ; load other tag
-  mov    0x8(%rsi),%rdx      ; load other payload[0]
-  cmp    %rcx,%rax           ; compare tags
+_ori_Shape$eq:                           ; 176 bytes
+  mov    0x10(%rdi),%rax        ; load self payload[1]
+  mov    (%rdi),%rax            ; load self tag
+  mov    0x8(%rdi),%rcx         ; load self payload[0]
+  mov    0x10(%rsi),%rcx        ; load other payload[1]
+  mov    (%rsi),%rcx            ; load other tag
+  mov    0x8(%rsi),%rdx         ; load other payload[0]
+  cmp    %rcx,%rax              ; compare tags
   je     .tags_match
   jmp    .false
   ; ... switch on tag, per-variant field comparison ...
@@ -717,19 +719,19 @@ All user functions and derived methods are OPTIMAL. The `check_*` functions effi
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | noundef | uwtable | cold | Notes |
-|----------|--------|----------|---------|---------|------|-------|
-| @check_struct_eq | YES | YES | YES | YES | NO | |
-| @check_sum_eq | YES | YES | YES | YES | NO | |
-| @check_nested | YES | YES | YES | YES | NO | |
-| @main | NO (C) | YES | YES | YES | NO | Correct: C entry point |
-| Point$eq | YES | YES | YES | YES | NO | |
-| Color$eq | YES | YES | YES | YES | NO | |
-| Shape$eq | YES | YES | YES | YES | NO | |
-| ori_panic_cstr | N/A | N/A | N/A | N/A | YES | `cold noreturn` -- correct |
-| main (wrapper) | NO (C) | YES | N/A | NO | NO | [LOW-1] |
+| Function | fastcc | nounwind | noundef(ret) | noundef(params) | uwtable | cold | Notes |
+|----------|--------|----------|-------------|-----------------|---------|------|-------|
+| @check_struct_eq | YES | YES | YES | (none) | YES | NO | |
+| @check_sum_eq | YES | YES | YES | (none) | YES | NO | |
+| @check_nested | YES | YES | YES | (none) | YES | NO | |
+| @main (ori) | NO (C) | YES | YES | (none) | YES | NO | Correct: C entry point |
+| Point$eq | YES | YES | YES | NO [LOW-2] | YES | NO | |
+| Color$eq | YES | YES | YES | NO [LOW-2] | YES | NO | |
+| Shape$eq | YES | YES | YES | NO [LOW-2] | YES | NO | |
+| ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | YES | `cold noreturn` -- correct |
+| main (wrapper) | NO (C) | YES | NO [LOW-1] | N/A | NO | NO | Missing `noundef` on i32 return |
 
-The `main()` C wrapper lacks `uwtable`. This is a minor gap since the wrapper is trivial (call + trunc + ret). All user functions and derived methods have the full attribute set. The `@_ori_main` correctly uses C calling convention rather than `fastcc` since it's the module entry point called from the C wrapper.
+**Attribute compliance**: 37 applicable checks, 30 correct. 81.1% compliance. 7 missing `noundef` attributes: 6 on derived method parameters (2 each for Point$eq, Color$eq, Shape$eq) and 1 on the main wrapper return type.
 
 ### 4. Control Flow & Block Layout
 
@@ -741,9 +743,9 @@ The `main()` C wrapper lacks `uwtable`. This is a minor gap since the wrapper is
 | @main | 5 | 0 | 0 | 0 | |
 | Point$eq | 4 | 0 | 0 | 0 | Short-circuit: 2 field checks |
 | Color$eq | 3 | 0 | 0 | 0 | Tag-only: 1 branch |
-| Shape$eq | 8 | 0 | 0 | 0 | Tag dispatch + per-variant checks |
+| Shape$eq | 7 | 0 | 0 | 0 | Tag dispatch + per-variant checks |
 
-Control flow is clean across all functions. The `@main` has 5 blocks due to two overflow-checked additions (a+b, then +c), each needing ok/panic paths. The derived `$eq` methods use an efficient branching structure: `Point$eq` short-circuits after the first field mismatch, `Color$eq` is a simple tag comparison, and `Shape$eq` uses a `switch` instruction for tag dispatch into per-variant comparison blocks.
+Control flow is clean across all functions. The `@main` has 5 blocks due to two overflow-checked additions (a+b, then +c), each needing ok/panic paths. The derived `$eq` methods use an efficient branching structure: `Point$eq` short-circuits after the first field mismatch, `Color$eq` is a simple tag comparison, and `Shape$eq` uses a `switch` instruction for tag dispatch into per-variant comparison blocks. Shape$eq has 7 blocks: entry (16 instructions for ptr-to-value reconstruction + tag compare), eq.true, eq.false, eq.tags.match (switch dispatch), eq.v.Circle, eq.v.Rect, eq.v1.f1 (second field of Rect).
 
 ### 5. Overflow Checking
 
@@ -763,21 +765,29 @@ All 5 addition operations are overflow-checked using LLVM intrinsics with proper
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.25 MiB (debug) |
-| .text section | 869 KiB |
-| .rodata section | 133 KiB |
-| User code | 819 bytes (all 7 functions + main wrapper) |
+| Binary size | 6.25 MiB (6,554,800 bytes, debug) |
+| .text section | 869 KiB (890,161 bytes) |
+| .rodata section | 134 KiB (136,708 bytes) |
+| User code (@check_struct_eq) | 144 bytes |
+| User code (@check_sum_eq) | 128 bytes |
+| User code (@check_nested) | 240 bytes |
+| User code (@main) | 128 bytes |
+| User code (Point$eq) | 48 bytes |
+| User code (Color$eq) | 16 bytes |
+| User code (Shape$eq) | 176 bytes |
+| User code (main wrapper) | 16 bytes |
+| User code total | 896 bytes |
 | Runtime | >99% of binary |
 
 #### Disassembly: Point$eq
 
 ```asm
-_ori_Point$eq:
-  mov    %rcx,-0x10(%rsp)     ; spill y fields
+_ori_Point$eq:                           ; 48 bytes, 14 instructions
+  mov    %rcx,-0x10(%rsp)        ; spill y fields
   mov    %rsi,-0x8(%rsp)
-  cmp    %rdx,%rdi             ; compare x fields (rdi=self.x, rdx=other.x)
-  je     .check_y              ; x equal -> check y
-  jmp    .false                ; x differ -> false
+  cmp    %rdx,%rdi               ; compare x fields (rdi=self.x, rdx=other.x)
+  je     .check_y                ; x equal -> check y
+  jmp    .false                  ; x differ -> false
 .true:
   mov    $0x1,%al
   ret
@@ -785,9 +795,9 @@ _ori_Point$eq:
   xor    %eax,%eax
   ret
 .check_y:
-  mov    -0x8(%rsp),%rax       ; reload self.y
-  mov    -0x10(%rsp),%rcx      ; reload other.y
-  cmp    %rcx,%rax             ; compare y fields
+  mov    -0x8(%rsp),%rax         ; reload self.y
+  mov    -0x10(%rsp),%rcx        ; reload other.y
+  cmp    %rcx,%rax               ; compare y fields
   je     .true
   jmp    .false
 ```
@@ -797,13 +807,13 @@ Point is passed by value in 4 registers (rdi=self.x, rsi=self.y, rdx=other.x, rc
 #### Disassembly: Color$eq
 
 ```asm
-_ori_Color$eq:
-  cmp    %rsi,%rdi             ; compare tags directly
+_ori_Color$eq:                           ; 16 bytes, 5 instructions
+  cmp    %rsi,%rdi               ; compare tags directly
   jne    .false
-  mov    $0x1,%al              ; true
+  mov    $0x1,%al                ; true
   ret
 .false:
-  xor    %eax,%eax             ; false
+  xor    %eax,%eax               ; false
   ret
 ```
 
@@ -887,6 +897,51 @@ false:
 ; Then tag compare, switch dispatch, per-variant field comparison
 ; The 12-instruction ptr reconstruction is necessary because Shape > 16B
 ; (24 bytes = i64 tag + [2 x i64] payload), so it's passed by pointer.
+define fastcc i1 @"_ori_Shape$eq"(ptr %0, ptr %1) nounwind {
+entry:
+  %p0.f0.ptr = getelementptr inbounds nuw %ori.Shape, ptr %0, i32 0, i32 0
+  %p0.f0 = load i64, ptr %p0.f0.ptr, align 8
+  %p0.s0 = insertvalue %ori.Shape zeroinitializer, i64 %p0.f0, 0
+  %p0.f1.ptr = getelementptr inbounds nuw %ori.Shape, ptr %0, i32 0, i32 1
+  %p0.f1 = load [2 x i64], ptr %p0.f1.ptr, align 8
+  %p0.s1 = insertvalue %ori.Shape %p0.s0, [2 x i64] %p0.f1, 1
+  %p1.f0.ptr = getelementptr inbounds nuw %ori.Shape, ptr %1, i32 0, i32 0
+  %p1.f0 = load i64, ptr %p1.f0.ptr, align 8
+  %p1.s0 = insertvalue %ori.Shape zeroinitializer, i64 %p1.f0, 0
+  %p1.f1.ptr = getelementptr inbounds nuw %ori.Shape, ptr %1, i32 0, i32 1
+  %p1.f1 = load [2 x i64], ptr %p1.f1.ptr, align 8
+  %p1.s1 = insertvalue %ori.Shape %p1.s0, [2 x i64] %p1.f1, 1
+  %tag.self = extractvalue %ori.Shape %p0.s1, 0
+  %tag.other = extractvalue %ori.Shape %p1.s1, 0
+  %tags.eq = icmp eq i64 %tag.self, %tag.other
+  br i1 %tags.eq, label %tags.match, label %false
+true:
+  ret i1 true
+false:
+  ret i1 false
+tags.match:
+  %self.payload = extractvalue %ori.Shape %p0.s1, 1
+  %other.payload = extractvalue %ori.Shape %p1.s1, 1
+  switch i64 %tag.self, label %false [
+    i64 0, label %v.Circle
+    i64 1, label %v.Rect
+  ]
+v.Circle:
+  %c.s0 = extractvalue [2 x i64] %self.payload, 0
+  %c.o0 = extractvalue [2 x i64] %other.payload, 0
+  %c.eq = icmp eq i64 %c.s0, %c.o0
+  br i1 %c.eq, label %true, label %false
+v.Rect:
+  %r.s0 = extractvalue [2 x i64] %self.payload, 0
+  %r.o0 = extractvalue [2 x i64] %other.payload, 0
+  %r.f0 = icmp eq i64 %r.s0, %r.o0
+  br i1 %r.f0, label %r.f1, label %false
+r.f1:
+  %r.s1 = extractvalue [2 x i64] %self.payload, 1
+  %r.o1 = extractvalue [2 x i64] %other.payload, 1
+  %r.eq = icmp eq i64 %r.s1, %r.o1
+  br i1 %r.eq, label %true, label %false
+}
 ```
 
 **Delta**: 0 instructions. The ptr-to-value reconstruction adds 12 instructions but is required by the calling convention for >16B aggregates.
@@ -902,6 +957,7 @@ false:
 | Point$eq | 10 | 10 | +0 | N/A | OPTIMAL |
 | Color$eq | 6 | 6 | +0 | N/A | OPTIMAL |
 | Shape$eq | 33 | 33 | +0 | N/A | OPTIMAL |
+| **Total** | **109** | **109** | **+0** | | |
 
 ### 8. Derived Traits: Eq Generation
 
@@ -944,32 +1000,42 @@ The compiler uses a consistent tagged-union representation:
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing `uwtable` on C main wrapper | NEW | J11 |
-| 2 | NOTE | Derived Traits | Excellent derived Eq generation -- all three patterns (struct, unit-sum, payload-sum) are OPTIMAL | NEW | J11 |
-| 3 | NOTE | Control Flow | Short-circuit field comparison avoids unnecessary work | NEW | J11 |
-| 4 | NOTE | Sum Types | Clean tagged-union layout with switch dispatch | NEW | J11 |
+| 1 | LOW | Attributes | Missing `noundef` on main wrapper return type | CONFIRMED | J1 |
+| 2 | LOW | Attributes | Missing `noundef` on derived $eq method parameters | NEW | J11 |
+| 3 | NOTE | Derived Traits | Excellent derived Eq generation -- all three patterns (struct, unit-sum, payload-sum) are OPTIMAL | NEW | J11 |
+| 4 | NOTE | Control Flow | Short-circuit field comparison avoids unnecessary work | NEW | J11 |
+| 5 | NOTE | Sum Types | Clean tagged-union layout with switch dispatch | NEW | J11 |
 
-### LOW-1: Missing uwtable on C main wrapper
+### LOW-1: Missing noundef on main wrapper return type
 
-**Location**: `define i32 @main() #3` where `#3 = { nounwind }` (no `uwtable`)
-**Impact**: The C entry wrapper lacks `uwtable`, meaning stack unwinding tables may not be generated for it. Impact is minimal since the wrapper is trivial (call + trunc + ret) and never unwinds.
-**Fix**: Add `uwtable` to the main wrapper's attribute group.
+**Location**: `define i32 @main() #3` -- the `i32` return lacks `noundef`
+**Impact**: LLVM cannot assume the return value is well-defined. Impact is negligible since the function is trivial (call + trunc + ret) and the caller is the OS.
+**Fix**: Add `noundef` to the main wrapper's return type in `compiler/ori_llvm/src/codegen/function_compiler/entry_point.rs`.
+**First seen**: Journey 1
+**Status**: Still present.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### LOW-2: Missing noundef on derived $eq method parameters
+
+**Location**: `Point$eq`, `Color$eq`, `Shape$eq` -- parameters lack `noundef`
+**Impact**: LLVM cannot assume the comparison parameters are well-defined, potentially missing some optimization opportunities. In practice, all Ori values are always initialized, so `noundef` would be correct. This affects 6 parameters total (2 per function).
+**Fix**: Add `noundef` to parameters when emitting derived method signatures in `compiler/ori_llvm/src/codegen/derive_codegen.rs`.
 **First seen**: Journey 11
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-2: Excellent derived Eq generation
+### NOTE-3: Excellent derived Eq generation
 
 **Location**: `Point$eq`, `Color$eq`, `Shape$eq`
 **Impact**: Positive -- all three derived Eq implementations achieve OPTIMAL instruction counts. The compiler correctly generates three distinct patterns: lexicographic short-circuit for structs, tag-only for unit enums, and tag-switch-then-field for payload enums.
 **Found in**: Derived Traits: Eq Generation (Category 8)
 
-### NOTE-3: Short-circuit field comparison
+### NOTE-4: Short-circuit field comparison
 
 **Location**: `Point$eq` entry block branches to `eq.field.1` or `eq.false`
 **Impact**: Positive -- if the first field differs, the second field comparison is entirely skipped. This is the correct optimization for derived Eq.
 **Found in**: Control Flow & Block Layout (Category 4)
 
-### NOTE-4: Clean tagged-union layout
+### NOTE-5: Clean tagged-union layout
 
 **Location**: `%ori.Shape = type { i64, [2 x i64] }`
 **Impact**: Positive -- the max-payload union layout is standard and efficient. The `switch` dispatch with default-to-false is robust. Unused payload bytes are zeroed.
@@ -981,17 +1047,17 @@ The compiler uses a consistent tagged-union representation:
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 94.7% compliance |
+| Attributes & Safety | 10% | 7/10 | 81.1% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.8 / 10**
+**Overall: 9.7 / 10**
 
 ## Verdict
 
-Journey 11's derived trait codegen is outstanding. The compiler generates three distinct and correct Eq implementations: short-circuit field comparison for structs, tag-only comparison for unit enums, and tag-switch-then-per-variant comparison for payload enums. All seven functions achieve OPTIMAL instruction counts with zero unjustified overhead. ARC is irrelevant (all-scalar types, zero RC ops). The only minor gap is a missing `uwtable` on the trivial C main wrapper. The tagged-union representation and switch dispatch for sum types are textbook quality.
+Journey 11's derived trait codegen is outstanding. The compiler generates three distinct and correct Eq implementations: short-circuit field comparison for structs, tag-only comparison for unit enums, and tag-switch-then-per-variant comparison for payload enums. All seven functions achieve OPTIMAL instruction counts with zero unjustified overhead. ARC is irrelevant (all-scalar types, zero RC ops). The attribute compliance is 81.1% due to missing `noundef` on derived method parameters (6 missing) and the main wrapper return (1 missing). The tagged-union representation and switch dispatch for sum types are textbook quality.
 
 ## Cross-Journey Observations
 
@@ -1000,7 +1066,8 @@ Journey 11's derived trait codegen is outstanding. The compiler generates three 
 | Overflow checking | J1 | J11 | CONFIRMED |
 | fastcc usage | J1 | J11 | CONFIRMED |
 | nounwind on user functions | J1 | J11 | FIXED (all have nounwind now) |
+| Missing noundef on main wrapper | J1 | J11 | CONFIRMED |
 | select for if/then/else | J2 | J11 | CONFIRMED |
 | Struct by-value passing | J4 | J11 | CONFIRMED |
 
-The `nounwind` attribute that was missing in J1 is now present on all user functions and derived methods. The `select` instruction pattern for branchless if/then/else (first seen in J2) is reused effectively here for conditional value selection based on equality results. Struct by-value passing (J4) is confirmed to work correctly for Point (16B, 2 registers) while Shape (24B) correctly switches to by-pointer passing.
+The `nounwind` attribute that was missing in J1 is now present on all user functions and derived methods. The `select` instruction pattern for branchless if/then/else (first seen in J2) is reused effectively here for conditional value selection based on equality results. Struct by-value passing (J4) is confirmed to work correctly for Point (16B, 2 registers) while Shape (24B) correctly switches to by-pointer passing. A new finding in this journey is missing `noundef` on derived method parameters -- the codegen emits `noundef` on return types but not on parameter types for generated $eq methods.

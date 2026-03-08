@@ -48,7 +48,7 @@ fn dispatch_hint(receiver_id: ExprId, typed: &TypedModule, pool: &Pool) -> Strin
 
 /// Map a Pool Tag to the type category string used in method dispatch.
 ///
-/// These names match the type names used in `TYPECK_BUILTIN_METHODS`.
+/// These names match the type names used in `ori_registry::BUILTIN_TYPES`.
 fn tag_to_method_category(tag: Tag) -> &'static str {
     match tag {
         Tag::Int => "int",

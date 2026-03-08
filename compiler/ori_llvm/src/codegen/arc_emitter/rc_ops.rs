@@ -44,9 +44,7 @@ use ori_types::Tag;
 use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    // -----------------------------------------------------------------------
     // Dispatch
-    // -----------------------------------------------------------------------
 
     /// Dispatch an RC increment to the appropriate per-strategy handler.
     pub(super) fn emit_rc_inc(
@@ -117,9 +115,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // HeapPointer handlers
-    // -----------------------------------------------------------------------
 
     /// Inc a heap-allocated collection (List, Map, Set, etc.).
     ///
@@ -195,9 +191,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // AggregateFields handlers
-    // -----------------------------------------------------------------------
 
     /// Inc a struct/tuple aggregate by traversing RC-typed fields.
     fn emit_rc_inc_aggregate(&mut self, var: ArcVarId, count: u32, func: &ArcFunction) {
@@ -213,9 +207,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.dec_value_rc(val, ty);
     }
 
-    // -----------------------------------------------------------------------
     // Closure handlers
-    // -----------------------------------------------------------------------
 
     /// Inc a closure (`{fn_ptr, env_ptr}`).
     ///
@@ -274,9 +266,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(skip);
     }
 
-    // -----------------------------------------------------------------------
     // InlineEnum handlers
-    // -----------------------------------------------------------------------
 
     /// Inc an inline enum — intentional no-op.
     ///
@@ -302,9 +292,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_inline_enum_dec(val, resolved, pool_tag);
     }
 
-    // -----------------------------------------------------------------------
     // Call helpers
-    // -----------------------------------------------------------------------
 
     /// Call `ori_rc_inc(ptr)` for each pointer, `count` times.
     pub(super) fn call_rc_inc_all(&mut self, ptrs: &[super::ValueId], count: u32) {

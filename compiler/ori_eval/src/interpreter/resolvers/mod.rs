@@ -132,13 +132,12 @@ pub enum CollectionMethod {
 }
 
 impl CollectionMethod {
-    /// Try to identify a collection method by name.
+    /// Try to identify a collection method by name (test-only).
     ///
     /// Returns Some(method) if the name matches a known collection method.
-    /// Currently used primarily for testing; the `CollectionMethodResolver`
-    /// performs matching directly.
+    /// The production `CollectionMethodResolver` uses direct Name comparison.
     #[cfg(test)]
-    pub fn from_name(name: &str) -> Option<Self> {
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
         match name {
             "map" => Some(Self::Map),
             "filter" => Some(Self::Filter),
@@ -189,7 +188,6 @@ impl CollectionMethod {
     /// Single source of truth for consistency tests — any new iterator method
     /// variant added to the enum must be added here, and the consistency test
     /// will verify it is also wired into the resolver and dispatcher.
-    #[cfg(test)]
     pub fn all_iterator_variants() -> &'static [(&'static str, CollectionMethod)] {
         &[
             ("next", Self::IterNext),
@@ -226,37 +224,9 @@ impl CollectionMethod {
     }
 }
 
-/// All Iterator method names recognized by the eval `CollectionMethodResolver`.
-///
-/// Used by cross-crate consistency tests in `oric` to verify that every Iterator
-/// method registered in typeck has a corresponding eval resolver entry, and vice
-/// versa. Sorted alphabetically.
-pub const ITERATOR_METHOD_NAMES: &[&str] = &[
-    "all",
-    "any",
-    "chain",
-    "collect",
-    "count",
-    "cycle",
-    "enumerate",
-    "filter",
-    "find",
-    "flat_map",
-    "flatten",
-    "fold",
-    "for_each",
-    "join",
-    "last",
-    "map",
-    "next",
-    "next_back",
-    "rev",
-    "rfind",
-    "rfold",
-    "skip",
-    "take",
-    "zip",
-];
+// ITERATOR_METHOD_NAMES array removed — iterator method consistency
+// is now validated via CollectionMethod::all_iterator_variants() against
+// ori_registry::BUILTIN_TYPES (Section 10.2).
 
 /// Trait for method resolvers in the chain of responsibility.
 ///

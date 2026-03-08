@@ -7,67 +7,26 @@
 //! This file is exempt from the 500-line limit: it is a pure static data table
 //! (no logic, no branching). Splitting would scatter the single source of truth
 //! across files, making audits harder and increasing sync risk.
+//!
+//! Type definitions (`Ty`, `Attr`, `RtFn`) live in the sibling `types` module.
 
-// Type and attribute descriptors
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
-/// Primitive type descriptor for runtime function signatures.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Ty {
-    I64,
-    I32,
-    I8,
-    F64,
-    Bool,
-    Ptr,
-    /// `{i64, i64, ptr}` — Ori string representation (len, cap, data).
-    Str,
-    /// `{i64, i64, ptr}` — Ori list/set representation.
-    List,
-    /// `{i64, i64, ptr}` — Ori map representation (len, cap, data).
-    Map,
-    /// `{i32, i64}` — char iteration result `{codepoint, next_offset}`.
-    CharResult,
-}
+pub(crate) use super::types::{Attr, RtFn, Ty};
 
-impl Ty {
-    /// Whether this return type exceeds the x86-64 `SysV` ABI register return
-    /// threshold (16 bytes) and must use `sret` convention.
-    ///
-    /// `Str` (24 bytes), `List` (24 bytes), and `Map` (24 bytes) all exceed it.
-    /// `CharResult` (16 bytes) fits exactly and uses direct return.
-    pub(crate) const fn needs_sret(self) -> bool {
-        matches!(self, Self::Str | Self::List | Self::Map)
-    }
-}
+/// O(1) lookup index for runtime functions by name.
+static RT_INDEX: LazyLock<HashMap<&'static str, &'static RtFn>> =
+    LazyLock::new(|| RT_FUNCTIONS.iter().map(|f| (f.name, f)).collect());
 
-/// Function attribute applied after declaration.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Attr {
-    Nounwind,
-    Noreturn,
-    Cold,
-    NoaliasReturn,
-    MemArgmemRW,
-}
-
-/// Runtime function specification: name, signature, and attributes.
-#[derive(Debug)]
-pub(crate) struct RtFn {
-    pub(crate) name: &'static str,
-    pub(crate) params: &'static [Ty],
-    pub(crate) ret: Option<Ty>,
-    pub(crate) attrs: &'static [Attr],
-    /// Whether this function is registered for JIT use via `LLVMAddSymbol`.
-    ///
-    /// `true` = available in both JIT and AOT. `false` = AOT-only.
-    /// This is the single source of truth — `jit_symbol_mappings()` derives
-    /// its list from entries where `jit_allowed == true`.
-    pub(crate) jit_allowed: bool,
+/// Look up a runtime function spec by name (O(1)).
+pub(crate) fn lookup(name: &str) -> Option<&'static RtFn> {
+    RT_INDEX.get(name).copied()
 }
 
 /// Check whether a runtime function is allowed in JIT mode.
 pub(crate) fn is_jit_allowed(name: &str) -> bool {
-    RT_FUNCTIONS.iter().any(|f| f.name == name && f.jit_allowed)
+    lookup(name).is_some_and(|f| f.jit_allowed)
 }
 
 /// Check whether a runtime function is known to be nounwind.
@@ -82,10 +41,7 @@ pub(crate) fn is_jit_allowed(name: &str) -> bool {
 /// `Nounwind` attribute may panic (e.g., `ori_list_get` on OOB, `ori_assert`
 /// on failure, allocating functions on OOM).
 pub(crate) fn is_rt_fn_nounwind(name: &str) -> Option<bool> {
-    RT_FUNCTIONS
-        .iter()
-        .find(|f| f.name == name)
-        .map(|spec| spec.attrs.iter().any(|a| matches!(a, Attr::Nounwind)))
+    lookup(name).map(|spec| spec.attrs.iter().any(|a| matches!(a, Attr::Nounwind)))
 }
 
 /// Check whether a runtime function is known to be noreturn.
@@ -96,10 +52,7 @@ pub(crate) fn is_rt_fn_nounwind(name: &str) -> Option<bool> {
 ///
 /// Used by §06.2 to skip codegen after noreturn calls.
 pub(crate) fn is_rt_fn_noreturn(name: &str) -> Option<bool> {
-    RT_FUNCTIONS
-        .iter()
-        .find(|f| f.name == name)
-        .map(|spec| spec.attrs.iter().any(|a| matches!(a, Attr::Noreturn)))
+    lookup(name).map(|spec| spec.attrs.iter().any(|a| matches!(a, Attr::Noreturn)))
 }
 
 /// Iterate over names of all JIT-allowed runtime functions.

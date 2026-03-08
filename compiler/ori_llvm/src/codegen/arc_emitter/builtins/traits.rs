@@ -190,9 +190,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // equals / is_equal
-    // -----------------------------------------------------------------------
 
     /// Emit `equals(self, other) -> bool`.
     fn emit_equals(&mut self, arg_vals: &[ValueId], type_info: &TypeInfo) -> Option<ValueId> {
@@ -214,9 +212,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // compare → Ordering (i8: Less=0, Equal=1, Greater=2)
-    // -----------------------------------------------------------------------
 
     /// Emit `compare(self, other) -> Ordering`.
     fn emit_compare(&mut self, arg_vals: &[ValueId], type_info: &TypeInfo) -> Option<ValueId> {
@@ -239,9 +235,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // hash → int (i64)
-    // -----------------------------------------------------------------------
 
     /// Emit `hash(self) -> int`.
     fn emit_hash(&mut self, arg_vals: &[ValueId], type_info: &TypeInfo) -> Option<ValueId> {
@@ -280,9 +274,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.bitcast(normalized, i64_ty, "hash")
     }
 
-    // -----------------------------------------------------------------------
     // Comparison predicates (is_less, is_greater, is_less_or_equal, etc.)
-    // -----------------------------------------------------------------------
 
     /// Emit a comparison predicate method.
     fn emit_comparison_predicate(
@@ -355,9 +347,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // -----------------------------------------------------------------------
     // String trait methods (delegate to runtime)
-    // -----------------------------------------------------------------------
 
     /// Emit string trait methods: equals, compare, hash.
     pub(crate) fn emit_str_trait_method(
