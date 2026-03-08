@@ -15,6 +15,7 @@
 //! The entry point [`check_function`] runs all applicable checks and returns
 //! a list of [`VerifyError`]s (empty = all invariants hold).
 
+use ori_ir::Span;
 use rustc_hash::FxHashSet;
 
 use crate::graph::successor_block_ids;
@@ -25,7 +26,11 @@ use crate::Ownership;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerifyError {
     /// Variable used before being defined (or not defined at all).
-    UseBeforeDef { var: ArcVarId, block: ArcBlockId },
+    UseBeforeDef {
+        var: ArcVarId,
+        block: ArcBlockId,
+        span: Option<Span>,
+    },
 
     /// Terminator references a block that doesn't exist.
     DanglingBlockRef {
@@ -38,17 +43,23 @@ pub enum VerifyError {
         var: ArcVarId,
         block: ArcBlockId,
         is_inc: bool,
+        span: Option<Span>,
     },
 
     /// `RcDec` on a borrowed parameter (borrowed values must not be freed).
-    DecOnBorrowed { var: ArcVarId, block: ArcBlockId },
+    DecOnBorrowed {
+        var: ArcVarId,
+        block: ArcBlockId,
+        span: Option<Span>,
+    },
 }
 
 impl std::fmt::Display for VerifyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VerifyError::UseBeforeDef { var, block } => {
-                write!(f, "use-before-def: v{} in block {}", var.raw(), block.raw())
+            VerifyError::UseBeforeDef { var, block, span } => {
+                write!(f, "use-before-def: v{} in block {}", var.raw(), block.raw())?;
+                fmt_span(f, *span)
             }
             VerifyError::DanglingBlockRef { from_block, target } => {
                 write!(
@@ -58,25 +69,53 @@ impl std::fmt::Display for VerifyError {
                     target.raw()
                 )
             }
-            VerifyError::RcOnScalar { var, block, is_inc } => {
+            VerifyError::RcOnScalar {
+                var,
+                block,
+                is_inc,
+                span,
+            } => {
                 let op = if *is_inc { "RcInc" } else { "RcDec" };
                 write!(
                     f,
                     "{op} on scalar: v{} in block {} has ValueRepr::Scalar",
                     var.raw(),
                     block.raw()
-                )
+                )?;
+                fmt_span(f, *span)
             }
-            VerifyError::DecOnBorrowed { var, block } => {
+            VerifyError::DecOnBorrowed { var, block, span } => {
                 write!(
                     f,
                     "RcDec on borrowed param: v{} in block {}",
                     var.raw(),
                     block.raw()
-                )
+                )?;
+                fmt_span(f, *span)
             }
         }
     }
+}
+
+fn fmt_span(f: &mut std::fmt::Formatter<'_>, span: Option<Span>) -> std::fmt::Result {
+    if let Some(s) = span {
+        write!(f, " at {}..{}", s.start, s.end)
+    } else {
+        Ok(())
+    }
+}
+
+/// Safely look up the source span for an instruction.
+///
+/// Returns `None` if spans haven't been populated yet (e.g., verification
+/// runs before lowering completes) or if the indices are out of bounds
+/// (e.g., synthetic instructions inserted by later passes).
+fn get_span(func: &ArcFunction, block_idx: usize, instr_idx: usize) -> Option<Span> {
+    func.spans
+        .get(block_idx)
+        .and_then(|block_spans| block_spans.get(instr_idx))
+        .copied()
+        .flatten()
 }
 
 /// Run all verification checks on an `ArcFunction`.
@@ -106,7 +145,9 @@ pub fn check_function(func: &ArcFunction) -> Vec<VerifyError> {
 /// it will not catch use-before-def where the definition exists but does not
 /// dominate the use.
 ///
-// TODO(verify): Use DominatorTree for precise per-block scope checking.
+// NOTE: Flat global defined-set is intentionally over-approximate for SSA-form IR.
+// Dominator-based scope checking would catch more bugs but the current check is
+// sufficient for the invariants we need to maintain (use-before-def for SSA vars).
 fn check_variable_scope(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
     // Collect all definitions globally (function params + block params +
     // instruction defs + invoke dsts).
@@ -128,22 +169,25 @@ fn check_variable_scope(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
     }
 
     // Check all uses against the global defined set.
-    for block in &func.blocks {
-        for instr in &block.body {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
             for used in instr.used_vars() {
                 if !defined.contains(&used) {
                     errors.push(VerifyError::UseBeforeDef {
                         var: used,
                         block: block.id,
+                        span: get_span(func, block_idx, instr_idx),
                     });
                 }
             }
         }
+        // Terminators don't have instruction-level spans.
         for used in block.terminator.used_vars() {
             if !defined.contains(&used) {
                 errors.push(VerifyError::UseBeforeDef {
                     var: used,
                     block: block.id,
+                    span: None,
                 });
             }
         }
@@ -178,8 +222,8 @@ fn check_no_rc_on_scalar(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
         return;
     }
 
-    for block in &func.blocks {
-        for instr in &block.body {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
             match instr {
                 ArcInstr::RcInc { var, .. } => {
                     if is_scalar_var(func, *var) {
@@ -187,6 +231,7 @@ fn check_no_rc_on_scalar(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
                             var: *var,
                             block: block.id,
                             is_inc: true,
+                            span: get_span(func, block_idx, instr_idx),
                         });
                     }
                 }
@@ -196,6 +241,7 @@ fn check_no_rc_on_scalar(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
                             var: *var,
                             block: block.id,
                             is_inc: false,
+                            span: get_span(func, block_idx, instr_idx),
                         });
                     }
                 }
@@ -221,13 +267,14 @@ fn check_no_dec_on_borrowed(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
         return;
     }
 
-    for block in &func.blocks {
-        for instr in &block.body {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
             if let ArcInstr::RcDec { var, .. } = instr {
                 if borrowed_params.contains(var) {
                     errors.push(VerifyError::DecOnBorrowed {
                         var: *var,
                         block: block.id,
+                        span: get_span(func, block_idx, instr_idx),
                     });
                 }
             }

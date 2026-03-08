@@ -73,7 +73,7 @@
   h2 {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: 0 0 var(--space-4, 16px) 0;
   }
 
@@ -83,21 +83,21 @@
     gap: var(--space-3, 12px);
     margin-bottom: var(--space-4, 16px);
     padding: var(--space-3, 12px) var(--space-4, 16px);
-    background: var(--color-bg-secondary, #13141a);
-    border: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-secondary, #161616);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
   }
 
   .result-label {
     font-size: 0.8125rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
   }
 
   .result-value {
     font-family: var(--font-mono, monospace);
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .status-badge {
@@ -109,13 +109,13 @@
   }
 
   .status-badge.pass {
-    background: rgba(74, 222, 128, 0.15);
-    color: #4ade80;
+    background: rgba(126, 183, 166, 0.15);
+    color: #7eb7a6;
   }
 
   .status-badge.fail {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
+    background: rgba(232, 64, 64, 0.15);
+    color: #e84040;
   }
 
   .trace-controls {
@@ -127,18 +127,18 @@
 
   .trace-controls button {
     padding: var(--space-1, 4px) var(--space-3, 12px);
-    background: var(--color-bg-tertiary, #1a1b23);
-    border: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-tertiary, #242424);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     font-size: 0.75rem;
     cursor: pointer;
     transition: all 0.15s ease;
   }
 
   .trace-controls button:hover:not(:disabled) {
-    background: var(--color-bg-elevated, #22232d);
-    border-color: var(--color-accent, #569cd6);
+    background: var(--color-bg-elevated, #282828);
+    border-color: var(--color-accent, #7eb7a6);
   }
 
   .trace-controls button:disabled {
@@ -148,15 +148,15 @@
 
   .step-counter {
     font-size: 0.6875rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     font-family: var(--font-mono, monospace);
     margin-left: auto;
   }
 
   .trace-view {
-    border: 1px solid var(--color-border, #2a2b35);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
-    background: var(--color-bg-code, #0d0e12);
+    background: var(--color-bg-code, #111111);
     overflow: auto;
     max-height: 500px;
   }
@@ -173,17 +173,17 @@
     display: block;
     padding: 1px var(--space-2, 8px);
     border-radius: var(--radius-sm, 4px);
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     transition: background 0.15s ease;
   }
 
   .trace-line.current {
-    background: rgba(86, 156, 214, 0.12);
-    color: var(--color-text-primary, #e5e7eb);
+    background: rgba(126, 183, 166, 0.12);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .trace-line.result-line {
-    color: #4ec9b0;
+    color: #6ba591;
     font-weight: 600;
   }
 </style>

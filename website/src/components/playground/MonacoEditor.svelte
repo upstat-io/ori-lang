@@ -101,12 +101,12 @@
     min-height: 0;
   }
 
-  /* Override Monaco's bracket matching - subtle blue accent */
+  /* Override Monaco's bracket matching - sage accent */
   .monaco-container :global(.monaco-editor .bracket-match),
   .monaco-container :global(.monaco-editor .matchingBracket),
   .monaco-container :global(.bracket-match) {
-    background-color: rgba(86, 156, 214, 0.2) !important;
-    border: 1px solid rgba(86, 156, 214, 0.6) !important;
+    background-color: rgba(126, 183, 166, 0.15) !important;
+    border: 1px solid rgba(126, 183, 166, 0.5) !important;
     box-sizing: border-box;
   }
 
@@ -116,19 +116,19 @@
   .monaco-container :global(.monaco-editor .selection),
   .monaco-container :global(.monaco-editor .focused .selected-text),
   .monaco-container :global(.monaco-editor .view-overlays .selected-text) {
-    background-color: rgba(86, 156, 214, 0.3) !important;
+    background-color: rgba(126, 183, 166, 0.3) !important;
   }
 
   .monaco-container :global(.monaco-editor .wordHighlight),
   .monaco-container :global(.monaco-editor .wordHighlightStrong),
   .monaco-container :global(.monaco-editor .wordHighlightText) {
-    background-color: rgba(86, 156, 214, 0.2) !important;
+    background-color: rgba(126, 183, 166, 0.2) !important;
     border: none !important;
   }
 
   .monaco-container :global(.monaco-editor .findMatch),
   .monaco-container :global(.monaco-editor .currentFindMatch) {
-    background-color: rgba(86, 156, 214, 0.4) !important;
+    background-color: rgba(126, 183, 166, 0.4) !important;
     border: none !important;
   }
 
@@ -137,26 +137,26 @@
   .monaco-container :global(.monaco-editor .selection-highlight),
   .monaco-container :global(.monaco-editor .focused .selectionHighlight),
   .monaco-container :global(.monaco-editor .view-overlays .selectionHighlight) {
-    background-color: rgba(86, 156, 214, 0.15) !important;
+    background-color: rgba(126, 183, 166, 0.15) !important;
     border: none !important;
   }
 
   /* Symbol occurrences highlighting */
   .monaco-container :global(.monaco-editor .occurrencesHighlight),
   .monaco-container :global(.monaco-editor .documentHighlight) {
-    background-color: rgba(86, 156, 214, 0.2) !important;
+    background-color: rgba(126, 183, 166, 0.2) !important;
     border: none !important;
   }
 
   /* Scrollbar CSS override - required due to Monaco bug #2650
      Theme colors don't apply to scrollbar, only minimap */
   .monaco-container :global(.monaco-editor .monaco-scrollable-element > .scrollbar > .slider) {
-    background: rgba(99, 104, 116, 0.3) !important;
+    background: rgba(164, 161, 157, 0.2) !important;
   }
   .monaco-container :global(.monaco-editor .monaco-scrollable-element > .scrollbar > .slider:hover) {
-    background: rgba(99, 104, 116, 0.5) !important;
+    background: rgba(164, 161, 157, 0.35) !important;
   }
   .monaco-container :global(.monaco-editor .monaco-scrollable-element > .scrollbar > .slider.active) {
-    background: rgba(99, 104, 116, 0.7) !important;
+    background: rgba(164, 161, 157, 0.5) !important;
   }
 </style>

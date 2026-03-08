@@ -2,6 +2,7 @@
 section: "15B"
 title: Function Syntax
 status: not-started
+reviewed: false
 tier: 5
 goal: Implement function-related syntax proposals
 sections:

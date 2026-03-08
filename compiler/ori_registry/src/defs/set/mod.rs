@@ -6,25 +6,11 @@
 //! inherent ordering).
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
+    MemoryStrategy, MethodDef, OpDefs, Ownership, ReturnTag, TypeDef, TypeParamArity,
     TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
-// Parameter arrays
-
-/// `(value: T)` — element param for `contains`, `remove`.
-static ELEMENT_BORROW_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "value",
-    ty: ReturnTag::ElementType,
-    ownership: Ownership::Borrow,
-}];
-
-/// `(value: T)` — element param for `insert` (takes ownership).
-static ELEMENT_OWNED_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "value",
-    ty: ReturnTag::ElementType,
-    ownership: Ownership::Owned,
-}];
+use super::params::{ELEMENT_BORROW_PARAM, ELEMENT_OWNED_PARAM};
 
 // Helper aliases
 const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);

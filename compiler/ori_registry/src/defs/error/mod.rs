@@ -7,8 +7,8 @@
 //! `TypeTag`).
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeTag,
+    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
+    TypeTag,
 };
 
 // Shared parameter arrays
@@ -78,28 +78,7 @@ pub static ERROR: TypeDef = TypeDef {
     memory: MemoryStrategy::Arc,
     type_params: TypeParamArity::Fixed(0),
     methods: ERROR_METHODS,
-    operators: OpDefs {
-        add: OpStrategy::Unsupported,
-        sub: OpStrategy::Unsupported,
-        mul: OpStrategy::Unsupported,
-        div: OpStrategy::Unsupported,
-        rem: OpStrategy::Unsupported,
-        floor_div: OpStrategy::Unsupported,
-        eq: OpStrategy::Unsupported,
-        neq: OpStrategy::Unsupported,
-        lt: OpStrategy::Unsupported,
-        gt: OpStrategy::Unsupported,
-        lt_eq: OpStrategy::Unsupported,
-        gt_eq: OpStrategy::Unsupported,
-        neg: OpStrategy::Unsupported,
-        not: OpStrategy::Unsupported,
-        bit_and: OpStrategy::Unsupported,
-        bit_or: OpStrategy::Unsupported,
-        bit_xor: OpStrategy::Unsupported,
-        bit_not: OpStrategy::Unsupported,
-        shl: OpStrategy::Unsupported,
-        shr: OpStrategy::Unsupported,
-    },
+    operators: OpDefs::UNSUPPORTED,
 };
 
 #[cfg(test)]

@@ -20,10 +20,10 @@
   let expandedFindings: Set<string> = $state(new Set());
 
   const scoreColor = $derived(
-    score.overall >= 9 ? '#4ade80' :
+    score.overall >= 9 ? '#7eb7a6' :
     score.overall >= 7 ? '#569cd6' :
-    score.overall >= 5 ? '#fbbf24' :
-    '#ef4444'
+    score.overall >= 5 ? '#db844b' :
+    '#e84040'
   );
 
   const dashArray = $derived(`${score.overall * 10}, 100`);
@@ -39,10 +39,10 @@
   }
 
   function scoreBarColor(value: number): string {
-    if (value >= 9) return '#4ade80';
+    if (value >= 9) return '#7eb7a6';
     if (value >= 7) return '#569cd6';
-    if (value >= 5) return '#fbbf24';
-    return '#ef4444';
+    if (value >= 5) return '#db844b';
+    return '#e84040';
   }
 
   onMount(() => {
@@ -151,14 +151,14 @@
   h2 {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: 0 0 var(--space-4, 16px) 0;
   }
 
   h3 {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: 0 0 var(--space-3, 12px) 0;
   }
 
@@ -185,7 +185,7 @@
 
   .ring-bg {
     fill: none;
-    stroke: var(--color-bg-tertiary, #1a1b23);
+    stroke: var(--color-bg-tertiary, #242424);
     stroke-width: 3;
   }
 
@@ -209,15 +209,15 @@
 
   .score-label {
     font-size: 0.875rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
   }
 
   /* Breakdown */
   .breakdown-section {
     margin-bottom: var(--space-6, 24px);
     padding: var(--space-4, 16px);
-    background: var(--color-bg-secondary, #13141a);
-    border: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-secondary, #161616);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
   }
 
@@ -230,13 +230,13 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    border: 1px solid var(--color-border, #2a2b35);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
     overflow: hidden;
   }
 
   .finding-item {
-    background: var(--color-bg-secondary, #13141a);
+    background: var(--color-bg-secondary, #161616);
   }
 
   .finding-header {
@@ -254,7 +254,7 @@
   }
 
   .finding-header:hover {
-    background: var(--color-bg-tertiary, #1a1b23);
+    background: var(--color-bg-tertiary, #242424);
   }
 
   .finding-severity {
@@ -267,22 +267,22 @@
     flex-shrink: 0;
   }
 
-  .finding-severity.severity-critical { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-  .finding-severity.severity-high     { background: rgba(249, 115, 22, 0.15); color: #f97316; }
-  .finding-severity.severity-medium   { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
-  .finding-severity.severity-low      { background: rgba(96, 165, 250, 0.15); color: #60a5fa; }
-  .finding-severity.severity-note     { background: rgba(156, 163, 175, 0.1); color: #9ca3af; }
+  .finding-severity.severity-critical { background: rgba(232, 64, 64, 0.15); color: #e84040; }
+  .finding-severity.severity-high     { background: rgba(219, 132, 75, 0.15); color: #db844b; }
+  .finding-severity.severity-medium   { background: rgba(219, 132, 75, 0.15); color: #db844b; }
+  .finding-severity.severity-low      { background: rgba(139, 168, 196, 0.15); color: #8ba8c4; }
+  .finding-severity.severity-note     { background: rgba(164, 161, 157, 0.1); color: #aca9a3; }
 
   .finding-id {
     font-family: var(--font-mono, monospace);
     font-size: 0.6875rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     flex-shrink: 0;
   }
 
   .finding-desc {
     flex: 1;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -291,20 +291,20 @@
   .finding-status {
     font-size: 0.625rem;
     font-weight: 600;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     flex-shrink: 0;
   }
 
   .finding-expand {
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     font-size: 0.625rem;
     flex-shrink: 0;
   }
 
   .finding-detail {
     padding: var(--space-3, 12px) var(--space-4, 16px);
-    border-top: 1px solid var(--color-border, #2a2b35);
-    background: var(--color-bg-code, #0d0e12);
+    border-top: 1px solid var(--color-border, #333333);
+    background: var(--color-bg-code, #111111);
   }
 
   .finding-detail pre {
@@ -312,7 +312,7 @@
     font-family: var(--font-mono, monospace);
     font-size: 0.75rem;
     line-height: 1.6;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     white-space: pre-wrap;
   }
 
@@ -323,23 +323,23 @@
 
   .scrutiny-cat {
     margin-bottom: var(--space-2, 8px);
-    border: 1px solid var(--color-border, #2a2b35);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
     overflow: hidden;
   }
 
   .scrutiny-cat summary {
     padding: var(--space-2, 8px) var(--space-3, 12px);
-    background: var(--color-bg-secondary, #13141a);
+    background: var(--color-bg-secondary, #161616);
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     cursor: pointer;
     transition: background 0.1s ease;
   }
 
   .scrutiny-cat summary:hover {
-    background: var(--color-bg-tertiary, #1a1b23);
+    background: var(--color-bg-tertiary, #242424);
   }
 
   .scrutiny-content {
@@ -349,7 +349,7 @@
   .scrutiny-prose {
     margin-top: var(--space-3, 12px);
     font-size: 0.8125rem;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     line-height: 1.6;
     white-space: pre-wrap;
   }
@@ -362,11 +362,11 @@
   .verdict-text {
     margin: 0;
     padding: var(--space-4, 16px);
-    border-left: 3px solid var(--color-accent, #569cd6);
-    background: rgba(86, 156, 214, 0.05);
+    border-left: 3px solid var(--color-accent, #7eb7a6);
+    background: rgba(126, 183, 166, 0.05);
     border-radius: 0 var(--radius-md, 8px) var(--radius-md, 8px) 0;
     font-size: 0.8125rem;
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
     line-height: 1.7;
   }
 </style>

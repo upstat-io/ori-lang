@@ -29,18 +29,18 @@
 
 <style>
   .code-block {
-    border: 1px solid var(--color-border, #2a2b35);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
     overflow: hidden;
-    background: var(--color-bg-code, #0d0e12);
+    background: var(--color-bg-code, #111111);
   }
 
   .code-header {
     display: flex;
     align-items: center;
     padding: var(--space-1, 4px) var(--space-3, 12px);
-    background: var(--color-bg-tertiary, #1a1b23);
-    border-bottom: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-tertiary, #242424);
+    border-bottom: 1px solid var(--color-border, #333333);
   }
 
   .code-lang {
@@ -48,7 +48,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
   }
 
   .code-pre {
@@ -70,7 +70,7 @@
   }
 
   .code-line.highlighted {
-    background: rgba(86, 156, 214, 0.1);
+    background: rgba(126, 183, 166, 0.1);
   }
 
   .ln {
@@ -78,7 +78,7 @@
     width: 3em;
     text-align: right;
     margin-right: 1em;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     opacity: 0.4;
     user-select: none;
   }

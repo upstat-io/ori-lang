@@ -8,14 +8,17 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
 <section class="hero">
   <div class="hero-inner">
     <div class="hero-text">
-      <span class="status-badge">v{version}</span>
-      <h1 class="hero-title">Functional Code.<br />Imperative Speed.</h1>
+      <span class="status-badge">
+        <span class="badge-dot" aria-hidden="true"></span>
+        v{version}
+      </span>
+      <h1 class="hero-title gradient-title">Functional Code.<br />Imperative Speed.</h1>
       <p class="hero-subtitle">
         A statically-typed language where value semantics compile to in-place mutations. No garbage collector. No borrow checker. No compromise.
       </p>
       <div class="hero-actions">
-        <a href="/guide/01-getting-started" class="btn btn-primary">Read Docs</a>
-        <a href="https://github.com/upstat-io/ori-lang" class="btn btn-secondary">GitHub</a>
+        <a href="/guide/01-getting-started" class="btn-glass primary">Read Docs <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+        <a href="https://github.com/upstat-io/ori-lang" class="btn-glass"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg> GitHub</a>
       </div>
     </div>
     <div class="hero-playground">
@@ -27,6 +30,25 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
 <style>
   .hero {
     padding: var(--space-16) 0;
+    position: relative;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -20%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(
+      circle,
+      rgba(126, 183, 166, 0.04) 0%,
+      rgba(209, 168, 71, 0.02) 40%,
+      transparent 70%
+    );
+    pointer-events: none;
+    z-index: 0;
   }
 
   .hero-inner {
@@ -43,27 +65,39 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
   }
 
   .status-badge {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
     padding: var(--space-1) var(--space-3);
     margin-bottom: var(--space-4);
+    font-family: var(--font-mono);
     font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    text-transform: uppercase;
+    font-weight: var(--weight-medium);
     letter-spacing: 0.05em;
-    color: var(--color-warning);
-    background: rgba(234, 179, 8, 0.1);
-    border: 1px solid rgba(234, 179, 8, 0.3);
+    color: var(--color-text-secondary);
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-top-color: rgba(255, 255, 255, 0.20);
     border-radius: var(--radius-full);
+    box-shadow:
+      var(--shadow-sm),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--sage-400);
   }
 
   .hero-title {
-    font-size: clamp(var(--text-4xl), 5vw, 4rem);
+    font-size: clamp(var(--text-4xl), 6vw, 4.5rem);
     font-weight: var(--weight-bold);
     line-height: 1.1;
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    letter-spacing: -0.02em;
     margin-bottom: var(--space-6);
   }
 
@@ -90,37 +124,45 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
     margin: 0 auto;
   }
 
-  .btn {
+  /* Glass buttons */
+  .btn-glass {
     display: inline-flex;
     align-items: center;
-    padding: var(--space-3) var(--space-6);
-    border-radius: var(--radius-md);
+    gap: var(--space-2);
+    padding: 0.75rem 1.75rem;
     font-size: var(--text-base);
     font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-full);
     text-decoration: none;
-    transition: all var(--transition-fast);
+    transition: all 0.25s ease;
+    cursor: pointer;
   }
 
-  .btn-primary {
-    background: var(--color-accent);
+  .btn-glass:hover {
+    border-color: var(--glass-border-hover);
+    color: var(--sage-300);
+    transform: translateY(-1px);
+  }
+
+  .btn-glass:active {
+    transform: translateY(0);
+  }
+
+  .btn-glass.primary {
+    background: rgba(50, 95, 86, 0.35);
+    color: var(--sage-200);
+    border-color: rgba(126, 183, 166, 0.15);
+  }
+
+  .btn-glass.primary:hover {
+    background: rgba(50, 95, 86, 0.5);
     color: #fff;
-  }
-
-  .btn-primary:hover {
-    background: var(--color-accent-hover);
-    color: #fff;
-  }
-
-  .btn-secondary {
-    background: var(--color-bg-tertiary);
-    color: var(--color-text-primary);
-    border: 1px solid var(--color-border);
-  }
-
-  .btn-secondary:hover {
-    background: var(--color-bg-elevated);
-    color: var(--color-text-primary);
-    border-color: var(--color-border-hover);
+    border-color: rgba(126, 183, 166, 0.25);
   }
 
   @media (max-width: 640px) {

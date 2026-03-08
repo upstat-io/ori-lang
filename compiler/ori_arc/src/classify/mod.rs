@@ -23,6 +23,12 @@ use crate::{ArcClass, ArcClassification};
 /// Uses `RefCell` for the cache and cycle-detection set because the
 /// [`ArcClassification`] trait takes `&self`. This is the same pattern
 /// used by `TypeInfoStore::is_trivial()`.
+//
+// NOTE: `ori_registry::MemoryStrategy` could provide a fast path for
+// builtin type classification (e.g., int → Copy, str → Arc) without
+// going through the Pool. This would require mapping Idx → TypeTag for
+// known builtins. Not needed for current workloads — tracked for a
+// future optimization pass.
 pub struct ArcClassifier<'pool> {
     pool: &'pool Pool,
     cache: RefCell<FxHashMap<Idx, ArcClass>>,
@@ -61,11 +67,20 @@ impl<'pool> ArcClassifier<'pool> {
         self.pool
     }
 
-    /// Export the classification cache for persistence across runs.
+    /// Consume the classifier and return its classification cache.
     ///
-    /// Returns a snapshot of all classifications computed so far. Feed this
-    /// back into [`with_cache`](Self::with_cache) on the next run to avoid
-    /// redundant type walks for unchanged modules.
+    /// Feed this back into [`with_cache`](Self::with_cache) on the next run
+    /// to avoid redundant type walks for unchanged modules. Prefer this over
+    /// [`export_cache`](Self::export_cache) when the classifier is no longer
+    /// needed, as it avoids cloning the entire map.
+    pub fn into_cache(self) -> FxHashMap<Idx, ArcClass> {
+        self.cache.into_inner()
+    }
+
+    /// Export a snapshot of the classification cache (clones).
+    ///
+    /// Use [`into_cache`](Self::into_cache) instead if the classifier is no
+    /// longer needed after export.
     pub fn export_cache(&self) -> FxHashMap<Idx, ArcClass> {
         self.cache.borrow().clone()
     }

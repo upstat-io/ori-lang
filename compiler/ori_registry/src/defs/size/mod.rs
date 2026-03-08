@@ -1,6 +1,6 @@
 //! `Size` type definition.
 //!
-//! Size is stored as `u64` bytes. Copy type with arithmetic operator support
+//! Size is stored as `i64` bytes (non-negative). Copy type with arithmetic operator support
 //! via `IntInstr`. Has heterogeneous `mul`/`div` operators (take `int`, not
 //! `Self`). No `neg` operator — Size is semantically non-negative.
 //! Includes `format` (explicit Formattable entry). SI units (1000-based).

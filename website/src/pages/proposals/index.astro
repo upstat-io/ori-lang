@@ -45,7 +45,7 @@ function formatDate(dateStr: string | undefined): string | undefined {
 >
   <main class="proposals-page">
     <section class="proposals-hero">
-      <h1>Language Proposals</h1>
+      <h1 class="gradient-title">Language Proposals</h1>
       <p class="proposals-subtitle">
         Design decisions and rationale for language features. Proposals go through draft review before approval or rejection.
       </p>
@@ -152,10 +152,6 @@ function formatDate(dateStr: string | undefined): string | undefined {
   .proposals-hero h1 {
     font-size: var(--text-5xl);
     font-weight: var(--weight-bold);
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
     margin-bottom: var(--space-4);
   }
 
@@ -181,18 +177,18 @@ function formatDate(dateStr: string | undefined): string | undefined {
   }
 
   .proposal-stat.approved {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
   .proposal-stat.draft {
-    background: rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.15);
     color: var(--color-warning);
   }
 
   .proposal-stat.rejected {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--color-error, #ef4444);
+    background: rgba(232, 64, 64, 0.15);
+    color: var(--color-error, #e84040);
   }
 
   .back-to-roadmap {
@@ -278,12 +274,12 @@ function formatDate(dateStr: string | undefined): string | undefined {
 
   /* Approved */
   .approved-proposals-section details {
-    background: rgba(74, 222, 128, 0.02);
-    border: 1px solid rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.02);
+    border: 1px solid rgba(126, 183, 166, 0.15);
   }
 
   .approved-proposals-section details[open] {
-    background: rgba(74, 222, 128, 0.03);
+    background: rgba(126, 183, 166, 0.03);
   }
 
   .status-header.approved-header h2 {
@@ -291,18 +287,18 @@ function formatDate(dateStr: string | undefined): string | undefined {
   }
 
   .status-header.approved-header .status-icon {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(126, 183, 166, 0.15);
     color: var(--color-success);
   }
 
   /* Draft */
   .draft-proposals-section details {
-    background: rgba(251, 191, 36, 0.02);
-    border: 1px solid rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.02);
+    border: 1px solid rgba(219, 132, 75, 0.15);
   }
 
   .draft-proposals-section details[open] {
-    background: rgba(251, 191, 36, 0.03);
+    background: rgba(219, 132, 75, 0.03);
   }
 
   .status-header.draft-header h2 {
@@ -310,27 +306,27 @@ function formatDate(dateStr: string | undefined): string | undefined {
   }
 
   .status-header.draft-header .status-icon {
-    background: rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.15);
     color: var(--color-warning);
   }
 
   /* Rejected */
   .rejected-proposals-section details {
-    background: rgba(239, 68, 68, 0.02);
-    border: 1px solid rgba(239, 68, 68, 0.15);
+    background: rgba(232, 64, 64, 0.02);
+    border: 1px solid rgba(232, 64, 64, 0.15);
   }
 
   .rejected-proposals-section details[open] {
-    background: rgba(239, 68, 68, 0.03);
+    background: rgba(232, 64, 64, 0.03);
   }
 
   .status-header.rejected-header h2 {
-    color: var(--color-error, #ef4444);
+    color: var(--color-error, #e84040);
   }
 
   .status-header.rejected-header .status-icon {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--color-error, #ef4444);
+    background: rgba(232, 64, 64, 0.15);
+    color: var(--color-error, #e84040);
   }
 
   /* Proposal grid & cards */
@@ -367,7 +363,7 @@ function formatDate(dateStr: string | undefined): string | undefined {
   }
 
   .proposal-card.rejected {
-    border-left: 3px solid var(--color-error, #ef4444);
+    border-left: 3px solid var(--color-error, #e84040);
   }
 
   .proposal-card h3 {

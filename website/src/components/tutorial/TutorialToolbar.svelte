@@ -57,8 +57,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.5rem 0.75rem;
-    background: var(--color-bg-elevated, #21222c);
-    border-bottom: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-elevated, #282828);
+    border-bottom: 1px solid var(--color-border, #333333);
     flex-shrink: 0;
     gap: 0.5rem;
   }
@@ -79,7 +79,7 @@
 
   .lesson-label {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary, #9ca0ab);
+    color: var(--color-text-secondary, #aca9a3);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -101,58 +101,60 @@
   }
 
   .btn-primary {
-    background: var(--color-accent, #569cd6);
-    color: #fff;
+    background: var(--color-primary, #d1a847);
+    color: var(--color-primary-text, #181010);
   }
 
   .btn-primary:hover {
-    background: var(--color-accent-hover, #6cb6ff);
+    background: var(--color-primary-hover, #d9bd7d);
   }
 
   .btn-primary:disabled {
-    background: var(--color-text-muted, #636874);
+    background: var(--color-text-muted, #908f8b);
     cursor: not-allowed;
   }
 
   .btn-outline {
     background: transparent;
-    color: var(--color-accent, #569cd6);
-    border: 1px solid var(--color-accent, #569cd6);
+    color: var(--color-primary-hover, #d9bd7d);
+    border: 1px solid var(--color-primary-hover, #d9bd7d);
   }
 
   .btn-outline:hover {
-    background: rgba(86, 156, 214, 0.1);
+    background: var(--color-primary-subtle, rgba(209, 168, 71, 0.12));
+    color: var(--color-primary, #d1a847);
+    border-color: var(--color-primary, #d1a847);
   }
 
   .btn-outline:disabled {
-    color: var(--color-text-muted, #636874);
-    border-color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
+    border-color: var(--color-text-muted, #908f8b);
     cursor: not-allowed;
   }
 
   .btn-ghost {
     background: transparent;
-    color: var(--color-text-secondary, #9ca0ab);
+    color: var(--color-text-secondary, #aca9a3);
   }
 
   .btn-ghost:hover {
-    color: var(--color-text-primary, #e2e4e9);
-    background: var(--color-bg-tertiary, #1a1b23);
+    color: var(--color-text-primary, #cccbc7);
+    background: var(--color-bg-tertiary, #242424);
   }
 
   .btn-nav {
     background: transparent;
-    color: var(--color-text-secondary, #9ca0ab);
+    color: var(--color-text-secondary, #aca9a3);
     padding: 0.375rem 0.5rem;
   }
 
   .btn-nav:hover:not(:disabled) {
-    color: var(--color-text-primary, #e2e4e9);
-    background: var(--color-bg-tertiary, #1a1b23);
+    color: var(--color-text-primary, #cccbc7);
+    background: var(--color-bg-tertiary, #242424);
   }
 
   .btn-nav:disabled {
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     opacity: 0.5;
     cursor: not-allowed;
   }

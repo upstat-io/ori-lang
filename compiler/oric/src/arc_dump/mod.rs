@@ -65,6 +65,7 @@ pub fn dump_arc_ir(
             interner,
             pool,
             &builtins,
+            std::env::var("ORI_VERIFY_ARC").is_ok(),
         );
 
         for func in &funcs {

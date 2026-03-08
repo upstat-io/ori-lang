@@ -2,6 +2,7 @@
 plan: "codegen-purity"
 title: "Codegen Purity: Hand-Written Assembly Quality at -O0"
 status: in-progress
+reviewed: false
 supersedes: []
 references:
   - "plans/code-journeys/overview.md"

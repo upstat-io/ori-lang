@@ -34,6 +34,7 @@ fn run_full_pipeline(
         pool,
         &interner,
         &uniqueness_summaries,
+        false,
     );
 }
 

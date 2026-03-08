@@ -31,7 +31,7 @@ const lastJourneyDate = totalJourneys > 0
 >
   <main class="journeys-page">
     <section class="journeys-hero">
-      <h1>Code Journeys</h1>
+      <h1 class="gradient-title">Code Journeys</h1>
       <p class="journeys-subtitle">
         Watch real Ori programs travel through the compiler pipeline — from source code to binary.
         Each journey traces lexing, parsing, type checking, ARC analysis, and codegen, exposing
@@ -169,10 +169,6 @@ const lastJourneyDate = totalJourneys > 0
   .journeys-hero h1 {
     font-size: var(--text-5xl);
     font-weight: var(--weight-bold);
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
     margin-bottom: var(--space-4);
   }
 
@@ -194,15 +190,15 @@ const lastJourneyDate = totalJourneys > 0
     text-decoration: none;
     padding: var(--space-2) var(--space-4);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-full);
     margin-bottom: var(--space-8);
-    transition: all var(--transition-fast);
+    transition: all var(--transition-medium);
   }
 
   .explainer-link:hover {
     border-color: var(--color-accent);
     color: var(--color-accent);
-    background: rgba(86, 156, 214, 0.08);
+    background: rgba(126, 183, 166, 0.08);
   }
 
   .stats {
@@ -214,11 +210,19 @@ const lastJourneyDate = totalJourneys > 0
 
   .stat {
     text-align: center;
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     padding: var(--space-4) var(--space-6);
     min-width: 120px;
+    transition: border-color var(--transition-medium), transform var(--transition-medium);
+  }
+
+  .stat:hover {
+    border-color: var(--color-border-hover);
+    transform: translateY(-2px);
   }
 
   .stat-value {
@@ -260,18 +264,18 @@ const lastJourneyDate = totalJourneys > 0
   }
 
   .difficulty-segment.simple {
-    background: rgba(74, 222, 128, 0.2);
-    color: var(--color-success);
+    background: rgba(144, 143, 139, 0.15);
+    color: var(--color-text-muted);
   }
 
   .difficulty-segment.moderate {
-    background: rgba(251, 191, 36, 0.2);
-    color: var(--color-warning);
+    background: rgba(126, 183, 166, 0.2);
+    color: var(--color-accent);
   }
 
   .difficulty-segment.complex {
-    background: rgba(239, 68, 68, 0.2);
-    color: var(--color-error, #ef4444);
+    background: rgba(209, 168, 71, 0.2);
+    color: var(--color-primary);
   }
 
   /* Journey card grid */
@@ -322,7 +326,9 @@ const lastJourneyDate = totalJourneys > 0
   .journeys-cta {
     text-align: center;
     padding: var(--space-10) var(--space-6);
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-radius: var(--radius-xl);
     border: 1px solid var(--color-border);
   }

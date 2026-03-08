@@ -27,67 +27,6 @@ use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin}
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-/// All builtin method names that borrow their receiver, sorted alphabetically.
-///
-/// Each method listed here borrows its receiver and produces a result that does
-/// not reference the receiver's data (i.e., the result is independent).
-///
-/// When adding a new builtin method to the LLVM backend's `declare_builtins!`
-/// with `borrow: true`, also add its name here (if not already present).
-const BORROWING_METHOD_NAMES: &[&str] = &[
-    "__index", // arr[i] / map[k] — reads receiver + key, produces independent result
-    "abs",
-    "byte",
-    "chars",
-    "clone",
-    "compare",
-    "concat",
-    "contains",
-    "contains_key",
-    "count",
-    "drop",
-    "ends_with",
-    "equals",
-    "f",
-    "first",
-    "get",
-    "hash",
-    "into",
-    "is_empty",
-    "is_equal",
-    "is_err",
-    "is_greater",
-    "is_greater_or_equal",
-    "is_less",
-    "is_less_or_equal",
-    "is_none",
-    "is_ok",
-    "is_some",
-    "keys",
-    "last",
-    "len",
-    "length",
-    "repeat",
-    "replace",
-    "reverse",
-    "slice",
-    "split",
-    "starts_with",
-    "substring",
-    "take",
-    "to_float",
-    "to_int",
-    "to_list",
-    "to_lowercase",
-    "to_str",
-    "to_uppercase",
-    "trim",
-    "unwrap",
-    "unwrap_err",
-    "unwrap_or",
-    "values",
-];
-
 /// Method names with **consuming receiver** semantics for list types.
 ///
 /// These are COW (Copy-on-Write) list methods that handle the old buffer's
@@ -142,6 +81,7 @@ const CONSUMING_SECOND_ARG_METHOD_NAMES: &[&str] = &[
 /// Sorted alphabetically.
 const CONSUMING_RECEIVER_ONLY_METHOD_NAMES: &[&str] = &[
     "difference",   // set.difference(other) — other is read-only
+    "insert",       // map/set.insert(key, val) — key/val are copied, not consumed
     "intersection", // set.intersection(other) — other is read-only
     "remove",       // map/set.remove(key) — key is comparison-only
     "union",        // set.union(other) — other is read-only
@@ -153,12 +93,33 @@ const CONSUMING_RECEIVER_ONLY_METHOD_NAMES: &[&str] = &[
 /// and RC insertion should treat as borrowing the receiver. This allows
 /// inline-compiled builtins to avoid unnecessary `rc_inc`/`rc_dec` pairs.
 ///
-/// See [`BORROWING_METHOD_NAMES`] for the full list and exclusion rules.
+/// The set is derived from two sources:
+/// 1. **Registry**: `ori_registry::borrowing_method_names()` — all builtin type
+///    methods with `receiver: Ownership::Borrow`, excluding Iterator methods
+///    and `.iter()`.
+/// 2. **Protocol builtins**: `ProtocolBuiltin::ALL` entries with all-borrowed
+///    args (currently only `__index`). These are ARC pipeline internals, not
+///    regular builtin methods, so they live in `ori_ir` rather than the registry.
 pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    BORROWING_METHOD_NAMES
+    // Base set from registry (type method definitions)
+    let mut names: FxHashSet<Name> = ori_registry::borrowing_method_names()
         .iter()
         .map(|name| interner.intern(name))
-        .collect()
+        .collect();
+
+    // Append all-borrowed protocol builtins (ARC pipeline internals,
+    // not in registry BUILTIN_TYPES). Currently only "__index".
+    for pb in ProtocolBuiltin::ALL {
+        if pb
+            .arg_ownership()
+            .iter()
+            .all(|o| *o == ProtocolArgOwnership::Borrowed)
+        {
+            names.insert(interner.intern(pb.name()));
+        }
+    }
+
+    names
 }
 
 /// Collect interned [`Name`]s for COW list methods with consuming receiver semantics.

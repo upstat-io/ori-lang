@@ -1,6 +1,7 @@
 //! Tests for the Error `TypeDef`.
 
 use super::*;
+use crate::OpStrategy;
 
 #[test]
 fn error_method_count() {

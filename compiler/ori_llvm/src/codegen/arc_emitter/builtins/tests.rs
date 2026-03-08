@@ -75,7 +75,7 @@ fn arc_pipeline_methods() -> Vec<(&'static str, &'static str)> {
     // __index is NOT here: it's an ARC borrowing intrinsic, not a pipeline method.
     for &pb in ProtocolBuiltin::ALL {
         if pb == ProtocolBuiltin::Index {
-            continue; // Handled in arc_borrowing_intrinsics()
+            continue; // ARC borrowing intrinsic, not a BuiltinTable method
         }
         methods.push(("Iterator", pb.name()));
     }
@@ -192,37 +192,16 @@ fn builtin_coverage_above_threshold() {
     );
 }
 
-/// ARC pipeline intrinsics that borrow their receiver but bypass the
-/// Protocol builtins with all-borrowed semantics that appear in
-/// `ori_arc::BORROWING_METHOD_NAMES` but bypass the `BuiltinTable`
-/// dispatch chain. These are intercepted at the `Apply` instruction
-/// level in `apply_protocols.rs`, not through `try_emit_builtin_method`.
+/// Every method the LLVM `BuiltinTable` marks as borrowing must also be
+/// in `ori_arc::borrowing_builtin_names()`.
 ///
-/// Derived from [`ProtocolBuiltin::ALL`] — adding a new all-borrowed
-/// protocol variant here is automatic.
-fn arc_borrowing_intrinsics() -> Vec<&'static str> {
-    use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
-    ProtocolBuiltin::ALL
-        .iter()
-        .filter(|pb| {
-            pb.arg_ownership()
-                .iter()
-                .all(|o| *o == ProtocolArgOwnership::Borrowed)
-        })
-        .map(|pb| pb.name())
-        .collect()
-}
-
-/// The canonical borrowing-builtin set in `ori_arc` must match the effective
-/// set derived from the LLVM `BuiltinTable`.
+/// The reverse is NOT required: `ori_arc` derives its borrowing set from
+/// `ori_registry`, which includes ALL builtin type methods with `Borrow`
+/// receiver. The LLVM `BuiltinTable` only covers methods with codegen
+/// support, so it is a subset.
 ///
-/// This catches drift: if a new builtin method is added to the table with
-/// `borrow: true` but not added to `ori_arc::BORROWING_METHOD_NAMES`, borrow
-/// inference won't know about it. Conversely, if a method is removed from the
-/// table but left in `ori_arc`, borrow inference will make incorrect assumptions.
-///
-/// ARC pipeline intrinsics (e.g., `__index`) are excluded — they borrow their
-/// receiver but are intercepted before `BuiltinTable` dispatch.
+/// ARC pipeline intrinsics (e.g., `__index`) are excluded from the
+/// comparison — they are intercepted before `BuiltinTable` dispatch.
 #[test]
 fn borrowing_builtins_sync_with_ori_arc() {
     let interner = StringInterner::default();
@@ -233,32 +212,17 @@ fn borrowing_builtins_sync_with_ori_arc() {
     // Set from ori_arc (canonical source for borrow inference)
     let arc_set = ori_arc::borrowing_builtin_names(&interner);
 
-    // Exclude ARC pipeline intrinsics from the arc_set for comparison
-    let borrowing_intrinsics = arc_borrowing_intrinsics();
-    let intrinsics: HashSet<_> = borrowing_intrinsics.iter().copied().collect();
-    let arc_set_filtered: rustc_hash::FxHashSet<_> = arc_set
-        .iter()
-        .filter(|n| !intrinsics.contains(interner.lookup(**n)))
-        .copied()
-        .collect();
-
-    // Find mismatches
+    // Every LLVM borrowing method must be in ori_arc's borrowing set.
+    // (The reverse is not required — ori_arc includes interpreter-only methods.)
     let in_table_not_arc: Vec<_> = table_set
-        .difference(&arc_set_filtered)
-        .map(|n| interner.lookup(*n).to_string())
-        .collect();
-
-    let in_arc_not_table: Vec<_> = arc_set_filtered
-        .difference(&table_set)
+        .difference(&arc_set)
         .map(|n| interner.lookup(*n).to_string())
         .collect();
 
     assert!(
-        in_table_not_arc.is_empty() && in_arc_not_table.is_empty(),
-        "Borrowing builtin sets out of sync!\n\
-         In LLVM BuiltinTable but not ori_arc: {in_table_not_arc:?}\n\
-         In ori_arc but not LLVM BuiltinTable: {in_arc_not_table:?}\n\
-         Update ori_arc::borrow::builtins::BORROWING_METHOD_NAMES to match.",
+        in_table_not_arc.is_empty(),
+        "LLVM BuiltinTable has borrowing methods not in ori_arc: {in_table_not_arc:?}\n\
+         Every LLVM borrowing method must be in ori_arc::borrowing_builtin_names().",
     );
 }
 

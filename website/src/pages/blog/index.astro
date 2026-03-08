@@ -19,7 +19,7 @@ function formatDate(date: Date): string {
 >
   <main class="blog-page">
     <section class="blog-header">
-      <h1>Blog</h1>
+      <h1 class="gradient-title">Blog</h1>
       <p class="blog-subtitle">Updates on language design, compiler progress, and release notes.</p>
     </section>
 
@@ -56,10 +56,6 @@ function formatDate(date: Date): string {
   .blog-header h1 {
     font-size: var(--text-5xl);
     font-weight: var(--weight-bold);
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
     margin-bottom: var(--space-4);
   }
 

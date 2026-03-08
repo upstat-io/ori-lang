@@ -42,7 +42,7 @@
   // Depth-based colors
   const depthColors = [
     '#569cd6', // blue
-    '#4ec9b0', // teal
+    '#6ba591', // teal
     '#dcdcaa', // yellow
     '#c586c0', // purple
     '#ce9178', // orange
@@ -126,7 +126,7 @@
   }
 
   .tree-node:hover {
-    background: rgba(86, 156, 214, 0.08);
+    background: rgba(126, 183, 166, 0.08);
   }
 
   .tree-node.expandable {
@@ -139,7 +139,7 @@
     justify-content: center;
     width: 14px;
     height: 14px;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     transition: transform 0.15s ease;
     flex-shrink: 0;
   }
@@ -151,7 +151,7 @@
   .leaf-icon {
     width: 14px;
     text-align: center;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     opacity: 0.4;
     flex-shrink: 0;
   }
@@ -163,8 +163,8 @@
 
   .child-count {
     font-size: 0.625rem;
-    color: var(--color-text-muted, #636874);
-    background: var(--color-bg-tertiary, #1a1b23);
+    color: var(--color-text-muted, #908f8b);
+    background: var(--color-bg-tertiary, #242424);
     padding: 0 6px;
     border-radius: var(--radius-full, 9999px);
     margin-left: var(--space-1, 4px);

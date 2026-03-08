@@ -2,6 +2,7 @@
 section: 11
 title: Foreign Function Interface (FFI)
 status: not-started
+reviewed: false
 tier: 4
 goal: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
 spec:

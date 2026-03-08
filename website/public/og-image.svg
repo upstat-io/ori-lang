@@ -10,15 +10,21 @@
   </defs>
   <rect width="1200" height="630" fill="url(#grid)" opacity="0.5"/>
 
-  <!-- Logo mark - larger version with dark background -->
+  <!-- Logo mark -->
   <g transform="translate(500, 120)">
-    <rect width="200" height="200" rx="30" fill="#21222c"/>
-    <circle cx="100" cy="100" r="70" stroke="#3b82f6" stroke-width="8" fill="none"/>
-    <path d="M70 100l20 20 40-40" stroke="#22c55e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <defs>
+      <linearGradient id="og-g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#362b12"/>
+        <stop offset="100%" stop-color="#152c2b"/>
+      </linearGradient>
+    </defs>
+    <rect width="200" height="200" rx="30" fill="url(#og-g)"/>
+    <path d="M55 55 L110 100 L55 145" stroke="#d1a847" stroke-width="18" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M105 55 L160 100 L105 145" stroke="#7eb7a6" stroke-width="18" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
   <!-- Wordmark -->
-  <text x="600" y="380" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="72" fill="#e2e4e9">Ori</text>
+  <text x="600" y="380" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="72" fill="#d1a847">Ori</text>
 
   <!-- Tagline -->
   <text x="600" y="440" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="28" fill="#9ca0ab">Functional Code. Imperative Speed.</text>
@@ -27,5 +33,5 @@
   <text x="600" y="500" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="20" fill="#636874">No GC · No borrow checker · Eight optimizations · Value semantics</text>
 
   <!-- URL -->
-  <text x="600" y="580" text-anchor="middle" font-family="monospace" font-weight="500" font-size="18" fill="#60a5fa">ori-lang.com</text>
+  <text x="600" y="580" text-anchor="middle" font-family="monospace" font-weight="500" font-size="18" fill="#4ec9b0">ori-lang.com</text>
 </svg>

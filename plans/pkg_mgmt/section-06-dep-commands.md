@@ -1,3 +1,39 @@
+---
+section: "06"
+title: "Dependency Commands"
+status: not-started
+goal: "CLI commands for dependency management"
+depends_on: ["05"]
+sections:
+  - id: "6.1"
+    title: "ori sync"
+    status: not-started
+  - id: "6.2"
+    title: "ori check"
+    status: not-started
+  - id: "6.3"
+    title: "ori install"
+    status: not-started
+  - id: "6.4"
+    title: "ori upgrade"
+    status: not-started
+  - id: "6.5"
+    title: "ori remove"
+    status: not-started
+  - id: "6.6"
+    title: "ori clean"
+    status: not-started
+  - id: "6.7"
+    title: "ori audit"
+    status: not-started
+  - id: "6.8"
+    title: "Analysis Commands"
+    status: not-started
+  - id: "6.9"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 6: Dependency Commands
 
 **Goal**: CLI commands for dependency management

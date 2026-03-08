@@ -1,3 +1,33 @@
+---
+section: "07"
+title: "Publishing"
+status: not-started
+goal: "Package publishing workflow"
+depends_on: ["06"]
+sections:
+  - id: "7.1"
+    title: "ori login"
+    status: not-started
+  - id: "7.2"
+    title: "Pre-publish Validation"
+    status: not-started
+  - id: "7.3"
+    title: "Archive Creation"
+    status: not-started
+  - id: "7.4"
+    title: "ori publish"
+    status: not-started
+  - id: "7.5"
+    title: "Version Management"
+    status: not-started
+  - id: "7.6"
+    title: "Version Bumping"
+    status: not-started
+  - id: "7.7"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 7: Publishing
 
 **Goal**: Package publishing workflow

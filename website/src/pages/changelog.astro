@@ -55,7 +55,7 @@ try {
 >
   <main class="changelog-page">
     <section class="changelog-hero">
-      <h1>Changelog</h1>
+      <h1 class="gradient-title">Changelog</h1>
       <p class="changelog-subtitle">
         Recent changes and updates to the Ori language and compiler.
       </p>
@@ -352,10 +352,6 @@ try {
   .changelog-hero h1 {
     font-size: clamp(var(--text-4xl), 5vw, 4rem);
     font-weight: var(--weight-bold);
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
     margin-bottom: var(--space-4);
   }
 
@@ -375,11 +371,19 @@ try {
 
   .stat {
     text-align: center;
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     padding: var(--space-4) var(--space-6);
     min-width: 120px;
+    transition: border-color var(--transition-medium), transform var(--transition-medium);
+  }
+
+  .stat:hover {
+    border-color: var(--color-border-hover);
+    transform: translateY(-2px);
   }
 
   .stat-value {
@@ -424,7 +428,7 @@ try {
   .filter-btn {
     padding: var(--space-2) var(--space-4);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-full);
     background: var(--color-bg-secondary);
     color: var(--color-text-secondary);
     font-size: var(--text-sm);
@@ -456,7 +460,7 @@ try {
   }
 
   .error {
-    color: var(--color-error, #ef4444);
+    color: var(--color-error, #e84040);
   }
 
   /* Dynamic content styles - must be global for JS-generated HTML */
@@ -504,12 +508,12 @@ try {
   }
 
   :global(.type-feat) {
-    background: rgba(59, 130, 246, 0.15);
+    background: rgba(89, 134, 124, 0.15);
     color: var(--color-accent);
   }
 
   :global(.type-fix) {
-    background: rgba(74, 222, 128, 0.15);
+    background: rgba(91, 155, 133, 0.2);
     color: var(--color-success);
   }
 
@@ -519,7 +523,7 @@ try {
   }
 
   :global(.type-refactor) {
-    background: rgba(251, 191, 36, 0.15);
+    background: rgba(219, 132, 75, 0.15);
     color: var(--color-warning);
   }
 
@@ -612,7 +616,9 @@ try {
   .changelog-cta {
     text-align: center;
     padding: var(--space-12) var(--space-6);
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-radius: var(--radius-xl);
     border: 1px solid var(--color-border);
     margin-top: var(--space-8);
@@ -641,21 +647,25 @@ try {
     display: inline-flex;
     align-items: center;
     padding: var(--space-3) var(--space-6);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-full);
     font-size: var(--text-base);
     font-weight: var(--weight-semibold);
     text-decoration: none;
-    transition: all var(--transition-fast);
+    transition: all var(--transition-medium);
   }
 
   .btn-primary {
-    background: var(--color-accent);
-    color: #fff;
+    background: var(--color-primary);
+    color: var(--color-primary-text);
   }
 
   .btn-primary:hover {
-    background: var(--color-accent-hover);
-    color: #fff;
+    background: var(--color-primary-hover);
+    color: var(--color-primary-text);
+  }
+
+  .btn-primary:active {
+    background: var(--color-primary-muted);
   }
 
   .btn-secondary {
@@ -684,9 +694,11 @@ try {
   }
 
   .release-card {
-    background: var(--color-bg-secondary);
+    background: var(--glass-bg-alt);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     margin-bottom: var(--space-4);
     transition: border-color var(--transition-fast);
   }
@@ -731,7 +743,7 @@ try {
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     color: var(--color-accent);
-    background: rgba(59, 130, 246, 0.1);
+    background: rgba(89, 134, 124, 0.1);
     padding: 2px 8px;
     border-radius: var(--radius-sm);
   }

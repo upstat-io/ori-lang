@@ -70,8 +70,9 @@ pub use method::{
 };
 pub use operator::OpDefs;
 pub use query::{
-    borrowing_methods, dei_only_methods, find_method, find_type, find_type_by_name, has_method,
-    is_dei_only, iterator_method_names, legacy_type_name, method_names_for, methods_for,
+    borrowing_method_names, borrowing_methods, dei_only_methods, find_method, find_type,
+    find_type_by_name, has_method, is_dei_only, iterator_method_names, legacy_type_name,
+    method_names_for, methods_for,
 };
 pub use tags::{
     DeiPropagation, MemoryStrategy, MethodKind, OpStrategy, Ownership, ReturnTag, TypeParamArity,

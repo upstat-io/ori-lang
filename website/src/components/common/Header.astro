@@ -38,9 +38,15 @@ const isLearnActive = allLearnLinks.some(link =>
   <div class="header-inner">
     <a href="/" class="logo">
       <svg class="logo-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="32" height="32" rx="6" fill="#21222c"/>
-        <circle cx="16" cy="16" r="9" stroke="#3b82f6" stroke-width="2.5" fill="none"/>
-        <path d="M12 16l2.5 2.5 5.5-5.5" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <defs>
+          <linearGradient id="logo-bg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#362b12"/>
+            <stop offset="100%" stop-color="#152c2b"/>
+          </linearGradient>
+        </defs>
+        <rect width="32" height="32" rx="8" fill="url(#logo-bg)"/>
+        <path d="M9 9 L17 16 L9 23" stroke="#d1a847" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M17 9 L25 16 L17 23" stroke="#7eb7a6" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       <span class="logo-text">Ori</span>
     </a>
@@ -199,8 +205,10 @@ const isLearnActive = allLearnLinks.some(link =>
     position: sticky;
     top: 0;
     z-index: 100;
-    background: var(--color-bg-secondary);
-    border-bottom: 1px solid var(--color-border);
+    background: rgba(30, 30, 30, 0.70);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--glass-border);
     height: var(--header-height);
   }
 
@@ -230,8 +238,8 @@ const isLearnActive = allLearnLinks.some(link =>
   .logo-text {
     font-size: var(--text-xl);
     font-weight: var(--weight-bold);
-    color: var(--color-accent);
     font-family: var(--font-mono);
+    color: #d1a847;
   }
 
   /* Menu toggle button */
@@ -302,12 +310,12 @@ const isLearnActive = allLearnLinks.some(link =>
 
   .nav-link:hover {
     color: var(--color-text-primary);
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
   }
 
   .nav-link.active {
-    color: var(--color-text-primary);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--sage-300);
+    background: rgba(89, 134, 124, 0.1);
   }
 
   /* Dropdown */
@@ -344,9 +352,9 @@ const isLearnActive = allLearnLinks.some(link =>
     left: 0;
     min-width: 180px;
     background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-md);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     padding: var(--space-2);
     display: flex;
     flex-direction: column;
@@ -380,12 +388,12 @@ const isLearnActive = allLearnLinks.some(link =>
 
   .dropdown-item:hover {
     color: var(--color-text-primary);
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .dropdown-item.active {
-    color: var(--color-text-primary);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--sage-300);
+    background: rgba(89, 134, 124, 0.1);
   }
 
   .dropdown-divider {
@@ -453,7 +461,7 @@ const isLearnActive = allLearnLinks.some(link =>
       width: 280px;
       height: 100vh;
       background: var(--color-bg-secondary);
-      border-left: 1px solid var(--color-border);
+      border-left: 1px solid var(--glass-border);
       flex-direction: column;
       align-items: stretch;
       padding: calc(var(--header-height) + var(--space-4)) var(--space-4) var(--space-4);

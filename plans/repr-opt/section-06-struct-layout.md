@@ -2,6 +2,7 @@
 section: "06"
 title: "Struct & Tuple Layout Optimization"
 status: not-started
+reviewed: false
 goal: "Reorder struct fields for optimal alignment and minimal padding, then record the layout in ReprPlan for codegen"
 inspired_by:
   - "Rust repr(Rust) layout algorithm (compiler/rustc_abi/src/layout.rs)"

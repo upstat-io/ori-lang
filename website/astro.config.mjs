@@ -14,6 +14,10 @@ const ebnfGrammar = JSON.parse(
   readFileSync('./src/shiki/ebnf.tmLanguage.json', 'utf-8')
 );
 
+const oriDarkTheme = JSON.parse(
+  readFileSync('./src/shiki/ori-dark-theme.json', 'utf-8')
+);
+
 const oriLanguage = {
   id: 'ori',
   scopeName: 'source.ori',
@@ -35,6 +39,7 @@ export default defineConfig({
     remarkPlugins: [remarkInclude, remarkMdLinks],
     shikiConfig: {
       langs: [oriLanguage, ebnfLanguage],
+      theme: oriDarkTheme,
     },
   },
   vite: {

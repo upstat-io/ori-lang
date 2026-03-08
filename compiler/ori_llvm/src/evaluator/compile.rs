@@ -179,6 +179,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             &classifier,
             None, // No debug info for JIT
             uniqueness_summaries,
+            false, // verification via cfg!(debug_assertions) only for JIT
         );
         fc.declare_all(&module.functions, function_sigs);
 

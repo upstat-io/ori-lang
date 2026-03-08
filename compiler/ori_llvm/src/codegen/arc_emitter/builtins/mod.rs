@@ -104,6 +104,10 @@ use crate::codegen::value_id::ValueId;
 /// Declared via [`declare_builtins!`] in each submodule's `REGISTERED` const.
 /// Aggregated into [`BuiltinTable`] for O(1) lookup and sync testing.
 #[derive(Clone, Debug)]
+#[allow(
+    dead_code,
+    reason = "test-only: REGISTERED arrays consumed by BuiltinTable sync tests"
+)]
 pub(crate) struct BuiltinRegistration {
     /// Type name matching `ori_registry` convention.
     /// Lowercase for primitives (`"int"`), `PascalCase` for named types (`"Option"`).
@@ -112,8 +116,7 @@ pub(crate) struct BuiltinRegistration {
     pub method_name: &'static str,
     /// Whether this method borrows its receiver (reads without consuming).
     /// Read by the sync test (`borrowing_builtins_sync_with_ori_arc`) to verify
-    /// the LLVM table matches `ori_arc::BORROWING_METHOD_NAMES`.
-    #[cfg_attr(not(test), allow(dead_code, reason = "read by sync test only"))]
+    /// the LLVM table is a subset of `ori_arc::borrowing_builtin_names()`.
     pub receiver_borrowed: bool,
 }
 
@@ -124,10 +127,6 @@ pub(crate) struct BuiltinRegistration {
 /// Carries all data any builtin handler might need. Handlers extract only
 /// what they require. This "superset context" pattern avoids per-handler
 /// signature variation — every handler sees the same interface.
-#[allow(
-    dead_code,
-    reason = "fields consumed by submodule dispatch during 05.2 migration"
-)]
 pub(super) struct BuiltinCtx<'a> {
     /// Type name from `TypeInfo::builtin_type_name()` (e.g., `"int"`, `"Option"`).
     pub type_name: &'static str,
@@ -159,19 +158,18 @@ pub(super) struct BuiltinCtx<'a> {
 /// - Early rejection in `try_emit_builtin_method` (skip dispatch for non-builtins)
 /// - Enumeration in sync tests vs `ori_registry::BUILTIN_TYPES`
 /// - `receiver_borrowed` metadata for ARC ownership inference
-#[allow(
-    dead_code,
-    reason = "used by sync tests in 05.3 and early-reject in 05.2"
-)]
+// NOTE: BuiltinTable and friends are test-only (called from tests.rs and
+// #[cfg(test)] helpers). Uses #[allow(dead_code)] (not #[expect]) because the
+// items are dead in non-test mode but alive in test mode — #[expect] would
+// trigger unfulfilled-lint-expectation errors under `clippy --tests`.
+// A future cleanup could move them under #[cfg(test)] instead.
+#[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
 pub(crate) struct BuiltinTable {
     /// Two-level map: `type_name` → (`method_name` → registration).
     entries: FxHashMap<&'static str, FxHashMap<&'static str, &'static BuiltinRegistration>>,
 }
 
-#[allow(
-    dead_code,
-    reason = "used by sync tests in 05.3 and early-reject in 05.2"
-)]
+#[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
 impl BuiltinTable {
     /// Build the table from all submodule registrations.
     fn build() -> Self {
@@ -214,7 +212,6 @@ impl BuiltinTable {
     }
 
     /// Look up the registration for a `(type_name, method_name)` pair.
-    #[allow(dead_code, reason = "used by sync tests in Section 05.3")]
     pub(crate) fn lookup(
         &self,
         type_name: &str,
@@ -240,11 +237,11 @@ impl BuiltinTable {
 ///
 /// Built once on first access from all submodule `REGISTERED` arrays.
 /// Thread-safe via `LazyLock`. All data is `'static`.
-#[allow(dead_code, reason = "used by sync tests in 05.3")]
+#[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
 static BUILTIN_TABLE: LazyLock<BuiltinTable> = LazyLock::new(BuiltinTable::build);
 
 /// Access the global builtin table.
-#[allow(dead_code, reason = "used by sync tests in 05.3")]
+#[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
 pub(crate) fn builtin_table() -> &'static BuiltinTable {
     &BUILTIN_TABLE
 }
@@ -253,8 +250,8 @@ pub(crate) fn builtin_table() -> &'static BuiltinTable {
 ///
 /// This is the codegen-derived set: all methods with `receiver_borrowed: true`,
 /// excluding Iterator methods (they consume/transform the iterator) and `.iter()`
-/// (creates dependent values). Used by the sync test to verify the canonical
-/// list in `ori_arc::borrowing_builtin_names` matches.
+/// (creates dependent values). Used by the sync test to verify this set is a
+/// subset of `ori_arc::borrowing_builtin_names()` (which derives from `ori_registry`).
 #[cfg(test)]
 fn borrowing_names_from_table(interner: &ori_ir::StringInterner) -> rustc_hash::FxHashSet<Name> {
     let table = builtin_table();

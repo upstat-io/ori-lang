@@ -332,6 +332,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
             uniqueness_summaries,
+            std::env::var("ORI_VERIFY_ARC").is_ok(),
         );
 
         // Declare imports (no-op when import_sigs is empty for single-file compilation)

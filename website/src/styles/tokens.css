@@ -1,27 +1,80 @@
 :root {
-  /* --- Colors --- */
-  --color-bg-primary: #0d0e11;
-  --color-bg-secondary: #13141a;
-  --color-bg-tertiary: #1a1b23;
-  --color-bg-elevated: #21222c;
-  --color-bg-code: #1e1e1e;
+  /* ── Neutral Backgrounds ── */
+  --color-bg-primary: #0b0b0b;
+  --color-bg-secondary: #161616;
+  --color-bg-tertiary: #242424;
+  --color-bg-elevated: #282828;
+  --color-bg-code: #111111;
 
-  --color-text-primary: #d1d3d8;
-  --color-text-secondary: #9ca0ab;
-  --color-text-muted: #636874;
+  /* ── Text (10% cool shift) ── */
+  --color-text-primary: #cccbc7;
+  --color-text-secondary: #aca9a3;
+  --color-text-muted: #908f8b;
 
-  --color-accent: #569cd6;
-  --color-accent-hover: #6cb6ff;
-  --color-accent-subtle: rgba(86, 156, 214, 0.15);
+  /* ── Amber Scale ── */
+  --copper-900: #362b12;
+  --copper-700: #6b5624;
+  --copper-500: #a68330;
+  --copper-400: #d1a847;
+  --copper-300: #d9bd7d;
+  --copper-200: #e0d1ae;
 
-  --color-success: #4ec9b0;
-  --color-error: #f14c4c;
-  --color-warning: #cca700;
+  /* ── Sage Scale ── */
+  --sage-900: #152c2b;
+  --sage-700: #2b574f;
+  --sage-500: #59867c;
+  --sage-400: #6ba591;
+  --sage-300: #7eb7a6;
+  --sage-200: #aad6c4;
 
-  --color-border: #2a2b35;
-  --color-border-hover: #3c3d4a;
+  /* ── Semantic Aliases ── */
+  --color-accent: var(--sage-300);
+  --color-accent-hover: var(--sage-200);
+  --color-accent-subtle: rgba(126, 183, 166, 0.10);
+  --color-primary: var(--copper-400);
+  --color-primary-hover: var(--copper-300);
+  --color-primary-text: #1a1608;
+  --color-primary-muted: var(--copper-500);
+  --color-primary-subtle: rgba(209, 168, 71, 0.10);
 
-  /* --- Typography --- */
+  /* ── Title Gradient ── */
+  --color-title-start: var(--sage-300);
+  --color-title-end: var(--copper-300);
+
+  /* ── Status ── */
+  --color-success: var(--sage-400);
+  --color-error: #e84040;
+  --color-warning: #db844b;
+
+  /* ── Glass ── */
+  --glass-bg: rgba(45, 45, 45, 0.45);
+  --glass-bg-alt: rgba(55, 55, 55, 0.40);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-border-hover: rgba(255, 255, 255, 0.22);
+  --glass-blur: 16px;
+  --glass-shine: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.02) 40%,
+    transparent 60%
+  );
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+
+  /* ── Elevation Shadows (layered for realism) ── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.3), 0 8px 32px rgba(0, 0, 0, 0.25);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04), inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+
+  /* ── Ambient Glow ── */
+  --glow-sage: 0 0 80px rgba(126, 183, 166, 0.06);
+  --glow-amber: 0 0 80px rgba(209, 168, 71, 0.06);
+
+  /* ── Legacy compat (used by existing components) ── */
+  --color-border: rgba(255, 255, 255, 0.14);
+  --color-border-hover: rgba(255, 255, 255, 0.22);
+
+  /* ── Typography ── */
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Consolas', 'Monaco', 'Fira Code', monospace;
 
@@ -44,7 +97,7 @@
   --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* --- Spacing --- */
+  /* ── Spacing ── */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -58,19 +111,21 @@
   --space-20: 5rem;
   --space-24: 6rem;
 
-  /* --- Layout --- */
+  /* ── Layout ── */
   --max-width: 1200px;
   --max-width-narrow: 800px;
   --sidebar-width: 260px;
   --header-height: 56px;
 
-  /* --- Border Radius --- */
+  /* ── Border Radius ── */
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 12px;
+  --radius-full: 9999px;
 
-  /* --- Transitions --- */
+  /* ── Transitions ── */
   --transition-fast: 0.15s ease;
   --transition-normal: 0.2s ease;
+  --transition-medium: 0.3s ease;
 }

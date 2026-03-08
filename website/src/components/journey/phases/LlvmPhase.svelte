@@ -95,14 +95,14 @@
   h2 {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: 0 0 var(--space-4, 16px) 0;
   }
 
   h3 {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text-primary, #e5e7eb);
+    color: var(--color-text-primary, #cccbc7);
     margin: var(--space-4, 16px) 0 var(--space-3, 12px) 0;
   }
 
@@ -110,7 +110,7 @@
     display: flex;
     gap: 2px;
     margin-bottom: var(--space-4, 16px);
-    background: var(--color-bg-tertiary, #1a1b23);
+    background: var(--color-bg-tertiary, #242424);
     border-radius: var(--radius-md, 8px);
     padding: 2px;
     width: fit-content;
@@ -121,7 +121,7 @@
     background: none;
     border: none;
     border-radius: var(--radius-sm, 4px);
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
@@ -129,12 +129,12 @@
   }
 
   .tab-bar button.active {
-    background: var(--color-bg-secondary, #13141a);
-    color: var(--color-text-primary, #e5e7eb);
+    background: var(--color-bg-secondary, #161616);
+    color: var(--color-text-primary, #cccbc7);
   }
 
   .tab-bar button:hover:not(.active) {
-    color: var(--color-text-secondary, #9ca3af);
+    color: var(--color-text-secondary, #aca9a3);
   }
 
   .comparisons {
@@ -144,7 +144,7 @@
   }
 
   .comparison-card {
-    border: 1px solid var(--color-border, #2a2b35);
+    border: 1px solid var(--color-border, #333333);
     border-radius: var(--radius-md, 8px);
     overflow: hidden;
   }
@@ -154,8 +154,8 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--space-3, 12px) var(--space-4, 16px);
-    background: var(--color-bg-secondary, #13141a);
-    border-bottom: 1px solid var(--color-border, #2a2b35);
+    background: var(--color-bg-secondary, #161616);
+    border-bottom: 1px solid var(--color-border, #333333);
     flex-wrap: wrap;
     gap: var(--space-2, 8px);
   }
@@ -164,7 +164,7 @@
     font-family: var(--font-mono, monospace);
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-accent, #569cd6);
+    color: var(--color-accent, #7eb7a6);
   }
 
   .cmp-stats {
@@ -175,7 +175,7 @@
 
   .cmp-count {
     font-size: 0.6875rem;
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     font-family: var(--font-mono, monospace);
   }
 
@@ -183,11 +183,11 @@
     font-family: var(--font-mono, monospace);
     font-size: 0.75rem;
     font-weight: 700;
-    color: var(--color-warning, #fbbf24);
+    color: var(--color-warning, #db844b);
   }
 
   .cmp-delta.optimal {
-    color: var(--color-success, #4ade80);
+    color: var(--color-success, #7eb7a6);
   }
 
   .cmp-verdict {
@@ -198,24 +198,24 @@
   }
 
   .cmp-verdict.verdict-optimal {
-    background: rgba(74, 222, 128, 0.15);
-    color: #4ade80;
+    background: rgba(126, 183, 166, 0.15);
+    color: #7eb7a6;
   }
 
   .cmp-verdict.verdict-near {
-    background: rgba(251, 191, 36, 0.12);
-    color: #fbbf24;
+    background: rgba(219, 132, 75, 0.12);
+    color: #db844b;
   }
 
   .cmp-panels {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1px;
-    background: var(--color-border, #2a2b35);
+    background: var(--color-border, #333333);
   }
 
   .cmp-panel {
-    background: var(--color-bg-code, #0d0e12);
+    background: var(--color-bg-code, #111111);
   }
 
   .panel-label {
@@ -225,15 +225,15 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--color-text-muted, #636874);
-    background: var(--color-bg-tertiary, #1a1b23);
-    border-bottom: 1px solid var(--color-border, #2a2b35);
+    color: var(--color-text-muted, #908f8b);
+    background: var(--color-bg-tertiary, #242424);
+    border-bottom: 1px solid var(--color-border, #333333);
   }
 
   .empty-state {
     text-align: center;
     padding: var(--space-8, 32px);
-    color: var(--color-text-muted, #636874);
+    color: var(--color-text-muted, #908f8b);
     font-size: 0.8125rem;
   }
 
