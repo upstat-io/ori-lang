@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Runtime Function Effect Summaries"
-status: not-started
+status: complete
 goal: "Eliminate ARC false positives from opaque runtime functions by teaching the scanner which functions allocate (+1) or consume (-1) RC objects"
 inspired_by:
   - "Clang RetainCountChecker — function effect summaries for CoreFoundation/Cocoa"
@@ -10,16 +10,16 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "Effect Summary Table"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Integration into arc_metrics.py"
-    status: not-started
+    status: complete
   - id: "01.3"
     title: "Integration into rc_balance.rs"
-    status: not-started
+    status: complete
   - id: "01.4"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: Runtime Function Effect Summaries

@@ -2,7 +2,7 @@
 journey: 8
 slug: generics
 theme: "I am generic"
-date: 2026-03-06
+date: 2026-03-07
 status: PASS
 expected: 57
 eval_result: 57
@@ -504,7 +504,7 @@ Both integer additions in `@main` are checked with `@llvm.sadd.with.overflow.i64
 | Binary size | 6.25 MiB (debug) |
 | .text section | 868.6 KiB |
 | .rodata section | 133.5 KiB |
-| User code | 137 bytes |
+| User code | 158 bytes (4 user fns + wrapper) |
 | Runtime | >99.9% of .text |
 
 #### Disassembly: @identity$m$int

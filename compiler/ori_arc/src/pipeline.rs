@@ -69,6 +69,9 @@ pub fn run_arc_pipeline(
     );
     crate::rc_insert::insert_external_invoke_cleanup(func, classifier, &liveness, pool);
 
+    // ARC IR verification after RC insertion.
+    run_verify(func, "after RC insertion");
+
     // Build dom/post-dom trees AFTER RC insertion. Edge cleanup can split
     // edges and append trampoline blocks, which invalidates any earlier
     // dominator analysis. Refined liveness is also recomputed so cross-block
@@ -93,6 +96,9 @@ pub fn run_arc_pipeline(
     crate::rc_identity::propagate_rc_identity(func, &identity_map, pool);
 
     crate::rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
+
+    // ARC IR verification after RC elimination.
+    run_verify(func, "after RC elimination");
 
     // Tail call detection + loop lowering: identify self-recursive tail calls
     // and rewrite them as loop back-edges. Runs AFTER RC elimination (all RC
@@ -228,4 +234,21 @@ pub fn run_uniqueness_analysis(
     }
 
     summaries
+}
+
+/// Run ARC IR verification if enabled.
+///
+/// Active under `debug_assertions` or when `ORI_VERIFY_ARC=1` is set.
+/// Logs warnings for each error but does not panic — this is diagnostic,
+/// not blocking.
+fn run_verify(func: &ArcFunction, phase: &str) {
+    let enabled = cfg!(debug_assertions) || std::env::var("ORI_VERIFY_ARC").is_ok();
+    if !enabled {
+        return;
+    }
+
+    let errors = crate::verify::check_function(func);
+    for e in &errors {
+        tracing::warn!(phase, "ARC IR verification: {e}");
+    }
 }

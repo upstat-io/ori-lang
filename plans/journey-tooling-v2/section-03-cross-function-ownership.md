@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Cross-Function Ownership Tracking"
-status: not-started
+status: complete
 goal: "Track RC ownership across function boundaries to eliminate false positives from allocation/consumption in different functions"
 inspired_by:
   - "Swift RCIdentityAnalysis (include/swift/SILOptimizer/Analysis/RCIdentityAnalysis.h) — RC identity through projections and across calls"
@@ -11,13 +11,13 @@ depends_on: ["01"]
 sections:
   - id: "03.1"
     title: "Module-Level Balance Check"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Ownership Convention Inference"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Cross-Function Ownership Tracking

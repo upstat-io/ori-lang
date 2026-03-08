@@ -2,7 +2,7 @@
 reroute: true
 name: "Journey Tooling"
 full_name: "Journey Tooling V2"
-status: queued
+status: complete
 order: 3
 ---
 
@@ -22,7 +22,7 @@ order: 3
 ## Keyword Clusters by Section
 
 ### Section 01: Runtime Function Effect Summaries
-**File:** `section-01-effect-summaries.md` | **Status:** Not Started
+**File:** `section-01-effect-summaries.md` | **Status:** Complete
 
 ```
 runtime effects, function summary, ori_str_from_raw, ori_list_alloc_data,
@@ -38,7 +38,7 @@ ori_list_empty, ori_set_empty, ori_catch_recover
 ---
 
 ### Section 02: CFG-Aware RC Balance Checking
-**File:** `section-02-cfg-rc-balance.md` | **Status:** Not Started
+**File:** `section-02-cfg-rc-balance.md` | **Status:** Complete
 
 ```
 control flow graph, CFG, dataflow, per-SSA-value, conditional RC,
@@ -50,7 +50,7 @@ RefCountState, bidirectional, lattice, rc_balance, false positive
 ---
 
 ### Section 03: Cross-Function Ownership Tracking
-**File:** `section-03-cross-function-ownership.md` | **Status:** Not Started
+**File:** `section-03-cross-function-ownership.md` | **Status:** Complete
 
 ```
 ownership transfer, cross-function, closure, environment, env_ptr,
@@ -61,7 +61,7 @@ borrow inference, parameter ownership, consume, return +1, J5 closures
 ---
 
 ### Section 04: IR Parser Hardening
-**File:** `section-04-ir-parser-hardening.md` | **Status:** Not Started
+**File:** `section-04-ir-parser-hardening.md` | **Status:** Complete
 
 ```
 ir_parser.py, ir_parser_internal.py, file split, quoted function names,
@@ -75,7 +75,7 @@ _RC_INVOKE_RE, indirect call
 ---
 
 ### Section 05: ARC IR-Level Verification
-**File:** `section-05-arc-ir-verification.md` | **Status:** Not Started
+**File:** `section-05-arc-ir-verification.md` | **Status:** Complete
 
 ```
 ARC IR, ori_arc, Construct, RcInc, RcDec, ArcFunction, ArcBlock, ArcInstr,
@@ -89,7 +89,7 @@ ArcTerminator, Invoke, Resume, Unreachable, used_vars, defined_var
 ---
 
 ### Section 06: Attribute Compliance Improvements
-**File:** `section-06-attribute-compliance.md` | **Status:** Not Started
+**File:** `section-06-attribute-compliance.md` | **Status:** Complete
 
 ```
 attribute_metrics.py, noundef, nounwind, uwtable, fastcc, cold,
@@ -101,7 +101,7 @@ closure detection, leaf function, indirect call detection
 ---
 
 ### Section 07: Integration and Re-scoring
-**File:** `section-07-integration.md` | **Status:** Not Started
+**File:** `section-07-integration.md` | **Status:** Complete
 
 ```
 extract-metrics.py, score.py, rescore, false positive elimination,
