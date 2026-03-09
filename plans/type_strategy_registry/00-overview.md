@@ -2,7 +2,7 @@
 plan: "type_strategy_registry"
 title: "Type Strategy Registry: Pure-Data Behavioral Contract for All Compiler Phases"
 status: in-progress
-reviewed: false
+reviewed: true
 supersedes:
   - "plans/builtin_ownership_ssot/"
 ---
@@ -24,7 +24,7 @@ Every phase of the Ori compiler independently encodes knowledge about builtin ty
 - **ori_ir** (`builtin_methods/mod.rs`): 123 entries in `BUILTIN_METHODS` with `MethodDef` structs
 - **ori_llvm** (`codegen/arc_emitter/builtins/`): 206 entries across 7 submodules via `declare_builtins!` macro, `BuiltinRegistration` with `receiver_borrowed`
 - **ori_arc** (`borrow/builtins/mod.rs`): `borrowing_builtin_names()` builds `FxHashSet<Name>` from `BORROWING_METHOD_NAMES` string list
-- **Consistency tests** (`oric/src/eval/tests/methods/consistency.rs`): 448 entries across 6 allowlists tracking intentional gaps
+- **Consistency tests** (`oric/src/eval/tests/methods/consistency.rs`): 157 entries across 2 remaining allowlists tracking intentional IR-registry gaps (reduced from original 6 allowlists during Sections 09-10)
 
 These are all **different projections of the same underlying facts** about the same types. When one changes, the others must be manually updated. When someone forgets, bugs appear silently — like the string ordering bug where `<`, `>`, `<=`, `>=` had no `is_str` guards in `emit_binary_op`, or the `Idx::ERROR` propagation bug where missing method return types in the type checker caused phantom types to reach LLVM codegen.
 
@@ -124,8 +124,8 @@ The `ori_registry` crate MUST maintain these invariants permanently:
 | `ori_llvm/codegen/arc_emitter/builtins/` receiver_borrowed | `("str", "length", borrow: true)` | `MethodDef { receiver: Ownership::Borrow }` | `find_method(Str, "length").receiver` |
 | `ori_ir/builtin_methods/` BUILTIN_METHODS | `MethodDef { receiver_borrows: true, ... }` | `MethodDef { receiver: Ownership::Borrow }` | `find_method(ty, name).receiver` |
 | `ori_arc/borrow/builtins/` BORROWING_METHOD_NAMES | `FxHashSet<Name>` built from const `&[&str]` | `ori_registry::borrowing_method_names()` (derived from `BUILTIN_TYPES`) | `borrowing_method_names().iter()` + intern |
-| `consistency.rs` TYPECK_METHODS_NOT_IN_IR (130 entries) | Allowlist tracking gaps | **Eliminated** | Registry IS the source of truth |
-| `consistency.rs` EVAL_METHODS_NOT_IN_TYPECK (55 entries) | Allowlist tracking gaps | **Eliminated** | Registry IS the source of truth |
+| `consistency.rs` TYPECK_METHODS_NOT_IN_IR (146 entries) | Allowlist tracking gaps | **Eliminated** (Section 13) | Registry IS the source of truth |
+| `consistency.rs` EVAL_METHODS_NOT_IN_TYPECK | *(already eliminated in Section 10)* | **Already done** | Registry IS the source of truth |
 
 ## Section Dependency Graph
 
@@ -246,7 +246,7 @@ Phase 3 ─ Wiring (parallelizable per crate)
   ├─ 10: Wire ori_eval — replace EVAL_BUILTIN_METHODS, ITERATOR_METHOD_NAMES, rewrite consistency tests
   ├─ 11: Wire ori_arc — replace BORROWING_METHOD_NAMES with registry data
   ├─ 12: Wire ori_llvm — replace emit_binary_op guards, simplify BuiltinRegistration
-  └─ 13: Migrate ori_ir — consolidate BUILTIN_METHODS, DerivedTrait, format specs
+  └─ 13: Migrate ori_ir — delete BUILTIN_METHODS module, update consumers, confirm DerivedTrait/format specs stay in ori_ir
   Gate: ./test-all.sh passes, ./llvm-test.sh passes
 
 Phase 4 ─ Enforcement & Exit
@@ -269,8 +269,8 @@ Phase 4 ─ Enforcement & Exit
 | 09 Wire Type Checker | ~+320 new / ~-916 deleted = ~-500 to -550 net | **High** | 03-08 | Complete |
 | 10 Wire Evaluator | ~-200 (net deletion) | Medium | 03-08 | Complete |
 | 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08, 09 | Complete |
-| 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 | Not Started |
-| 13 Migrate ori_ir | ~-400 (net deletion) | Medium | 03-08 | Not Started |
+| 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 | Complete |
+| 13 Migrate ori_ir | ~-945 (net deletion, builtin_methods module) | Medium | 03-08 | In Progress |
 | 14 Enforcement & Exit | ~200 | Medium | 09-13 | Not Started |
 | **Total new (ori_registry)** | **~6,300** (incl. ~2,000 test lines) | | | |
 | **Total deleted (legacy)** | **~-1,600** (estimated) | | | |
@@ -290,12 +290,12 @@ This plan eliminates ALL of the following manual sync mechanisms:
 | `BUILTIN_METHODS` (ori_ir) | 123 | `ori_ir/builtin_methods/mod.rs` | Consolidated into ori_registry |
 | `BuiltinRegistration.receiver_borrowed` | 206 | `ori_llvm/codegen/arc_emitter/builtins/*.rs` | `find_method().receiver` |
 | `BORROWING_METHOD_NAMES` + `borrowing_builtin_names()` | ~47 + ~6 lines | `ori_arc/borrow/builtins/mod.rs` | `ori_registry::borrowing_method_names()` (derived from `BUILTIN_TYPES`) |
-| `TYPECK_METHODS_NOT_IN_IR` | 130 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| `EVAL_METHODS_NOT_IN_TYPECK` | 55 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| `TYPECK_METHODS_NOT_IN_EVAL` | 216 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| `EVAL_METHODS_NOT_IN_IR` | 26 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| `IR_METHODS_DISPATCHED_VIA_RESOLVERS` | 10 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
-| `COLLECTION_TYPES` | 11 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** |
+| `TYPECK_METHODS_NOT_IN_IR` | 146 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** (Section 13) |
+| `COLLECTION_TYPES` | 11 | `oric/src/eval/tests/methods/consistency.rs` | **Eliminated** (Section 13) |
+| `EVAL_METHODS_NOT_IN_TYPECK` | *(already eliminated)* | *(removed during Section 10)* | **Already done** |
+| `TYPECK_METHODS_NOT_IN_EVAL` | *(already eliminated)* | *(removed during Section 10)* | **Already done** |
+| `EVAL_METHODS_NOT_IN_IR` | *(already eliminated)* | *(removed during Section 10)* | **Already done** |
+| `IR_METHODS_DISPATCHED_VIA_RESOLVERS` | *(already eliminated)* | *(removed during Section 10)* | **Already done** |
 | Hard-coded is_str/is_float guards | ~19 | `ori_llvm/codegen/arc_emitter/operators.rs` | OpStrategy dispatch |
 | Hard-coded method names in method_call.rs | ~25 lines | `ori_types/infer/expr/calls/method_call.rs` | Stays in type checker (inference logic, not registry data) |
 | **Total eliminated** | **~1,902** | | |
@@ -348,6 +348,6 @@ A thorough study of 6 reference compilers (Swift, Zig, Roc, Rust, Go, Lean4) sur
 | 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Complete |
 | 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Complete |
 | 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Complete |
-| 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Not Started |
-| 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Not Started |
+| 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Complete |
+| 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Complete |
 | 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Not Started |

@@ -379,7 +379,7 @@ When centralization is not possible because consuming crates add phase-specific 
 
 Manual mirroring, where a developer is expected to remember to update parallel lists in separate crates, is not a synchronization strategy. It is a bug waiting for a sufficiently busy afternoon.
 
-The principle extends beyond enums. Sorted lists that are validated by tests (such as `TYPECK_BUILTIN_METHODS`, which must be sorted alphabetically by type and method name) use test-time enforcement to prevent insertion-order drift. Error code registries, operator precedence tables, and keyword lists all follow the same pattern: one authoritative location, mechanical validation everywhere else.
+The principle extends beyond enums. Centralized registries that are validated by tests (such as `ori_registry::BUILTIN_TYPES`, which declares every built-in type and its methods in a single location consumed by the type checker, evaluator, and LLVM backend) use test-time enforcement to prevent drift between consumers. Error code registries, operator precedence tables, and keyword lists all follow the same pattern: one authoritative location, mechanical validation everywhere else.
 
 When adding a new cross-cutting feature (a new operator, a new derived trait, a new built-in function), the first step is to identify all the synchronization points. The second step is to update them all atomically, in a single commit that touches every affected location. The third step is to verify that the synchronization tests pass. If no synchronization test exists for the category of change being made, writing one is part of the feature work, not a follow-up task. A feature that adds a new variant without adding a synchronization test is incomplete.
 

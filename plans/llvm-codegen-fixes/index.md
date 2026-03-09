@@ -2,7 +2,7 @@
 reroute: true
 name: "LLVM Fixes"
 full_name: "LLVM Codegen Fixes"
-status: resolved
+status: complete
 ---
 
 # LLVM Codegen Fixes Index

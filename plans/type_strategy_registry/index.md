@@ -3,7 +3,7 @@ reroute: true
 name: "Type Registry"
 full_name: "Type Strategy Registry"
 status: active
-reviewed: false
+reviewed: true
 order: 1
 ---
 
@@ -249,7 +249,7 @@ ori_ir/builtin_methods/mod.rs, method_borrows_receiver, borrowing_names_from_tab
 ---
 
 ### Section 12: Wire LLVM Backend (ori_llvm)
-**File:** `section-12-wire-llvm-backend.md` | **Status:** Not Started
+**File:** `section-12-wire-llvm-backend.md` | **Status:** Complete
 
 ```
 ori_llvm, LLVM, codegen, emission, backend
@@ -270,17 +270,21 @@ unsigned comparison, signed comparison, byte, char, bool, correctness fix
 ---
 
 ### Section 13: Migrate ori_ir & Legacy Consolidation
-**File:** `section-13-migrate-ori-ir.md` | **Status:** Not Started
+**File:** `section-13-migrate-ori-ir.md` | **Status:** Complete
 
 ```
 ori_ir, BUILTIN_METHODS, MethodDef, consolidation
 builtin_methods/mod.rs, BuiltinType, ReturnSpec, ParamSpec
-receiver_borrows, ReturnTag, migration
+receiver_borrows, ReturnTag, migration, Ownership
 DerivedTrait, format spec, FormatType, Alignment, Sign
-migration, deprecation, re-export, compatibility
+migration, deletion, clean break, field mapping
 4-way sync, derived trait sync, format variant sync
-borrowing_method_names, method_borrows_receiver
-find_method, methods_for, has_method
+find_method, methods_for, has_method, method_names_for
+consistency.rs, ir_method_set, TYPECK_METHODS_NOT_IN_IR, COLLECTION_TYPES
+stale comment cleanup, legacy_type_name, dispatch_coverage.rs
+ir.md, cargo doc, intra-crate dependency check
+design docs, MEMORY.md, TYPECK_BUILTIN_METHODS, EVAL_BUILTIN_METHODS
+dead re-export, bridge function, builtin_type_to_tag
 ```
 
 ---
@@ -321,6 +325,6 @@ progressive complexity, phase boundary, end-to-end verification
 | 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Complete |
 | 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Complete |
 | 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Complete |
-| 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Not Started |
-| 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Not Started |
+| 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Complete |
+| 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Complete |
 | 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Not Started |

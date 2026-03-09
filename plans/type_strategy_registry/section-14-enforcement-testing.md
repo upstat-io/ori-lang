@@ -43,17 +43,16 @@ subsections:
 
 # Section 14: Enforcement Tests, Testing Matrix & Exit Criteria
 
-**Context:** Sections 09-13 wired all consuming phases (ori_types, ori_eval, ori_arc, ori_llvm, ori_ir) to read from ori_registry instead of maintaining independent type knowledge. This section is the final gate: it replaces the ~1,010-line `consistency.rs` (with its 560+ allowlist entries across 6 arrays) with a small set of structural enforcement tests that derive their expectations directly from the registry. No manual lists. No gap tracking. No "known missing" arrays. The registry IS the specification; the enforcement tests verify that every phase faithfully implements it.
+**Context:** Sections 09-13 wired all consuming phases (ori_types, ori_eval, ori_arc, ori_llvm, ori_ir) to read from ori_registry instead of maintaining independent type knowledge. This section is the final gate: it replaces the remaining ~323-line `consistency.rs` (post-Section 13, with zero allowlists) with a small set of structural enforcement tests that derive their expectations directly from the registry. No manual lists. No gap tracking. No "known missing" arrays. The registry IS the specification; the enforcement tests verify that every phase faithfully implements it.
 
-**Design rationale:** The old consistency tests were necessary because type knowledge was scattered: `TYPECK_BUILTIN_METHODS` (390 entries), `EVAL_BUILTIN_METHODS` (~165 entries), `BUILTIN_METHODS` in ori_ir (162 entries), `BuiltinTable` in ori_llvm (179 entries), and `borrowing_builtins` in ori_arc. The allowlists (`TYPECK_METHODS_NOT_IN_EVAL`, `EVAL_METHODS_NOT_IN_IR`, etc.) tracked intentional gaps between these independent lists. With the registry as single source of truth, these gaps become structural impossibilities -- a method either exists in the registry (and all phases must handle it) or it does not exist (and no phase references it). The enforcement tests verify this invariant at test time, while Rust's type system enforces it at compile time (adding a field to `TypeDef` is a compile error in every consuming phase).
+**Design rationale:** The old consistency tests were necessary because type knowledge was scattered: `TYPECK_BUILTIN_METHODS` (390 entries), `EVAL_BUILTIN_METHODS` (~165 entries), `BUILTIN_METHODS` in ori_ir (123 entries), `BuiltinTable` in ori_llvm (179 entries), and `borrowing_builtins` in ori_arc. The allowlists (`TYPECK_METHODS_NOT_IN_EVAL`, `EVAL_METHODS_NOT_IN_IR`, etc.) tracked intentional gaps between these independent lists. Sections 09-10 eliminated 4 of 6 allowlists; Section 13 eliminates the remaining 2. With the registry as single source of truth, these gaps become structural impossibilities -- a method either exists in the registry (and all phases must handle it) or it does not exist (and no phase references it). The enforcement tests verify this invariant at test time, while Rust's type system enforces it at compile time (adding a field to `TypeDef` is a compile error in every consuming phase).
 
-**What this section replaces:**
-- `compiler/oric/src/eval/tests/methods/consistency.rs` (~1,010 lines) -- entire file deleted
-- 9 main consistency tests + 6 format variant tests + 1 well-known test
-- 6 allowlist arrays totaling 560+ entries
-- 2 exported constant arrays (`EVAL_BUILTIN_METHODS`, `TYPECK_BUILTIN_METHODS`)
-- 1 exported constant array (`ITERATOR_METHOD_NAMES`)
-- All `resolve_*_method()` functions (19 functions in ori_types, excluding `resolve_named_type_method`)
+**What this section replaces (post-Section 13 state):**
+- `compiler/oric/src/eval/tests/methods/consistency.rs` (~323 lines remaining after Section 13) -- rewritten with enforcement tests
+- 9 remaining consistency tests (registry sorting, iterator consistency, 6 format spec tests, well-known generics)
+- `EVAL_BUILTIN_METHODS` and `TYPECK_BUILTIN_METHODS` (already eliminated in Sections 09-10)
+- `ITERATOR_METHOD_NAMES` (already eliminated in Section 10)
+- All `resolve_*_method()` functions (already eliminated in Section 09, 19 functions excluding `resolve_named_type_method`)
 
 ---
 
@@ -389,7 +388,7 @@ The test-time enforcement from 14.2 still provides value (verifying that per-met
 
 **File:** `compiler/oric/src/eval/tests/methods/consistency.rs` (complete replacement of existing file)
 
-These are THE critical tests. They replace ALL 9 existing consistency tests and ALL 6 allowlist arrays. Each test iterates the registry and verifies that the corresponding phase can handle every entry. No manual lists. No exceptions. No allowlists.
+These are THE critical tests. They replace the remaining consistency tests with registry-driven enforcement. Each test iterates the registry and verifies that the corresponding phase can handle every entry. No manual lists. No exceptions. No allowlists.
 
 ### Test 1: Every registry method has a type checker handler
 
@@ -1236,7 +1235,7 @@ error, list, map, range, tuple
 |------|-------|--------|
 | None (file is replaced, not deleted) | | `consistency.rs` is rewritten with enforcement tests, not deleted |
 
-The old `consistency.rs` (~1,010 lines) is not deleted as a file -- it is completely rewritten. The new version contains the enforcement tests from Section 14.2 and migrated tests from 14.2.6-7, with zero allowlists.
+The post-Section 13 `consistency.rs` (~323 lines) is not deleted as a file -- it is completely rewritten. The new version contains the enforcement tests from Section 14.2 and migrated tests from 14.2.6-7, with zero allowlists.
 
 ### 14.6.2 Functions to Delete
 
@@ -1302,20 +1301,21 @@ Every grep below must return 0 results. These verify that all legacy code has be
 
 ### 14.6.4 Lines of Code Impact
 
-| Component | Lines Deleted | Lines Added | Net |
-|-----------|--------------|-------------|-----|
-| `consistency.rs` (rewrite) | ~1,010 | ~300 (enforcement tests) | -710 |
-| `TYPECK_BUILTIN_METHODS` + resolve functions | ~700 | 0 | -700 |
-| `EVAL_BUILTIN_METHODS` + helpers | ~200 | 0 | -200 |
-| `ITERATOR_METHOD_NAMES` | ~35 | 0 | -35 |
-| `ori_ir BUILTIN_METHODS` | ~162 | 0 | -162 |
-| `ori_llvm receiver_borrowed` | ~179 | 0 | -179 |
-| `ori_llvm borrowing_builtin_names` | ~25 | 0 | -25 |
-| `ori_llvm type guards (is_str, is_float)` | ~20 | 0 | -20 |
-| `ori_arc borrowing_builtins parameter` | ~20 | 0 | -20 |
-| **Total** | **~2,351** | **~300** | **-2,051** |
+| Component | Section | Lines Deleted | Lines Added | Net |
+|-----------|---------|--------------|-------------|-----|
+| `TYPECK_BUILTIN_METHODS` + resolve functions | 09 | ~700 | 0 | -700 |
+| `EVAL_BUILTIN_METHODS` + helpers | 10 | ~200 | 0 | -200 |
+| `ITERATOR_METHOD_NAMES` | 10 | ~35 | 0 | -35 |
+| `ori_arc borrowing_builtins parameter` | 11 | ~20 | 0 | -20 |
+| `ori_llvm receiver_borrowed` | 12 | ~179 | 0 | -179 |
+| `ori_llvm borrowing_builtin_names` | 12 | ~25 | 0 | -25 |
+| `ori_llvm type guards (is_str, is_float)` | 12 | ~20 | 0 | -20 |
+| `ori_ir builtin_methods module` (123 entries, 945 lines) | 13 | ~945 | 0 | -945 |
+| `consistency.rs` allowlists + IR tests | 13 | ~215 | 0 | -215 |
+| `consistency.rs` (rewrite with enforcement tests) | 14 | ~323 | ~300 | -23 |
+| **Total** | | **~2,662** | **~300** | **-2,362** |
 
-Note: This is the combined impact of Sections 09-14. Section 14 itself adds ~300 lines of enforcement tests while all the deletions happen across Sections 09-13. The table documents the full plan impact.
+Note: This is the combined impact of Sections 09-14. Section 14 itself adds ~300 lines of enforcement tests while the deletions happen across Sections 09-13. The table documents the full plan impact.
 
 ---
 
@@ -1430,8 +1430,8 @@ These guarantees are enforced by the cross-phase enforcement tests. They hold as
 
 These guarantees are verified by running the grep commands from Section 14.6.3. All must return 0 results.
 
-- [ ] Zero matches for `TYPECK_BUILTIN_METHODS` in `compiler/`
-- [ ] Zero matches for `EVAL_BUILTIN_METHODS` in `compiler/`
+- [ ] Zero matches for `TYPECK_BUILTIN_METHODS` in `compiler/` (note: `ori_types/src/infer/expr/tests.rs:2726` has a historical "Supersedes the old" doc comment — delete or reword if this grep must return 0)
+- [ ] Zero matches for `EVAL_BUILTIN_METHODS` in `compiler/` (note: `ori_eval/src/methods/helpers/mod.rs:7` has a historical "array removed" comment — delete or reword if this grep must return 0)
 - [ ] Zero matches for `ITERATOR_METHOD_NAMES` in `compiler/`
 - [ ] Zero matches for `DEI_ONLY_METHODS` in `compiler/`
 - [ ] Zero matches for `TYPECK_METHODS_NOT_IN` in `compiler/`
@@ -1467,6 +1467,7 @@ These guarantees verify that the plan's output is documented and discoverable.
 - [ ] `.claude/rules/` updated with registry patterns (how to add a new type, how to add a new method, which tests to run)
 - [ ] `plans/builtin_ownership_ssot/` marked as SUPERSEDED by type_strategy_registry
 - [ ] `plans/roadmap/` sections updated to reference ori_registry where they previously referenced ori_ir BUILTIN_METHODS
+- [ ] `docs/compiler/design/` files updated to replace `TYPECK_BUILTIN_METHODS`, `EVAL_BUILTIN_METHODS`, and `ori_ir::builtin_methods` references with `ori_registry::BUILTIN_TYPES` (5 files identified in Section 13: `05-type-system/type-registry.md`, `05-type-system/index.md`, `10-llvm-backend/builtins-codegen.md`, `08-evaluator/index.md`, `appendices/E-coding-guidelines.md`)
 - [ ] This section (14) documents the complete elimination checklist
 - [ ] The index.md in `plans/type_strategy_registry/` is updated with final status
 
