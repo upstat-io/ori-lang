@@ -16,10 +16,6 @@ use ori_registry::{TypeTag, BUILTIN_TYPES};
 /// This list must shrink monotonically. Adding entries requires justification.
 /// Removing entries (= implementing methods) is always welcome.
 ///
-/// **Cross-reference:** `TYPECK_METHODS_NOT_IN_IR` in `consistency.rs` covers
-/// the narrower registry-vs-IR gap. Both allowlists will be eliminated by
-/// `plans/type_strategy_registry/` Section 13.
-///
 /// Type names use **registry convention** (`PascalCase` for composite types).
 const METHODS_NOT_YET_IN_EVAL: &[(&str, &str)] = &[
     // Channel — no Value representation yet
