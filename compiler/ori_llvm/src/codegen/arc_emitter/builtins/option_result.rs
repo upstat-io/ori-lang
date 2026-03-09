@@ -11,18 +11,18 @@
 
 declare_builtins! { emitter, ctx;
     // Option methods
-    ("Option", "is_some", borrow: true) => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Option", "is_none", borrow: true) => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Option", "unwrap", borrow: true) => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Option", "unwrap_or", borrow: true) => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Option", "clone", borrow: true) => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Option", "is_some") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Option", "is_none") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Option", "unwrap") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Option", "unwrap_or") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Option", "clone") => emitter.emit_option_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     // Result methods
-    ("Result", "is_ok", borrow: true) => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Result", "is_err", borrow: true) => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Result", "unwrap", borrow: true) => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Result", "unwrap_err", borrow: true) => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Result", "unwrap_or", borrow: true) => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Result", "clone", borrow: true) => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "is_ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "is_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "unwrap") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "unwrap_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "unwrap_or") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
+    ("Result", "clone") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
 }
 
 use ori_types::Idx;

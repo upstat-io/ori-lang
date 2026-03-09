@@ -262,13 +262,13 @@ Phase 4 ─ Enforcement & Exit
 | 02 Crate Scaffolding | ~170 (lib.rs, defs/mod.rs) | Low | 01 | Complete |
 | 03 Primitive Types | ~510 (5 type defs + tests) | Low | 01, 02 | Complete |
 | 04 String Type | ~590 (str.rs + tests) | Medium-High | 01, 02 | Complete |
-| 05 Compound Types | ~1,100 (4 directory modules + tests) | Medium | 01, 02 | In Progress |
+| 05 Compound Types | ~1,100 (4 directory modules + tests) | Medium | 01, 02 | Complete |
 | 06 Collection & Wrapper Types | ~1,300 (8 types incl. Channel, directory modules + tests) | Medium | 01, 02 | Complete |
 | 07 Iterator Types | ~545 (iterator/ directory module + tests) | Medium-High | 01, 02 | Complete |
 | 08 Query API | ~510 (query/ directory module + tests) | Low | 01, 02 | Complete |
-| 09 Wire Type Checker | ~+320 new / ~-916 deleted = ~-500 to -550 net | **High** | 03-08 | Not Started |
-| 10 Wire Evaluator | ~-200 (net deletion) | Medium | 03-08 | Not Started |
-| 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08, 09 | Not Started |
+| 09 Wire Type Checker | ~+320 new / ~-916 deleted = ~-500 to -550 net | **High** | 03-08 | Complete |
+| 10 Wire Evaluator | ~-200 (net deletion) | Medium | 03-08 | Complete |
+| 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08, 09 | Complete |
 | 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 | Not Started |
 | 13 Migrate ori_ir | ~-400 (net deletion) | Medium | 03-08 | Not Started |
 | 14 Enforcement & Exit | ~200 | Medium | 09-13 | Not Started |
@@ -341,13 +341,13 @@ A thorough study of 6 reference compilers (Swift, Zig, Roc, Rust, Go, Lean4) sur
 | 02 | Crate Scaffolding & Purity Enforcement | `section-02-crate-scaffolding.md` | Complete |
 | 03 | Primitive Type Definitions | `section-03-primitive-types.md` | Complete |
 | 04 | String Type Definition | `section-04-string-type.md` | Complete |
-| 05 | Compound Type Definitions | `section-05-compound-types.md` | In Progress |
+| 05 | Compound Type Definitions | `section-05-compound-types.md` | Complete |
 | 06 | Collection & Wrapper Types | `section-06-collection-wrapper-types.md` | Complete |
 | 07 | Iterator Type Definitions | `section-07-iterator-types.md` | Complete |
 | 08 | Query API & Lookup Functions | `section-08-query-api.md` | Complete |
-| 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Not Started |
-| 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Not Started |
-| 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Not Started |
+| 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Complete |
+| 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Complete |
+| 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Complete |
 | 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Not Started |
 | 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Not Started |
 | 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Not Started |

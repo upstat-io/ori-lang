@@ -1568,3 +1568,156 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
 
     drop(em);
 }
+
+// Idx-to-TypeTag bridge tests
+
+#[test]
+fn idx_to_type_tag_maps_all_primitive_constants() {
+    use ori_registry::TypeTag;
+
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_type_tag"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    // All 11 well-known Idx constants (excluding ERROR) must map correctly.
+    let cases: &[(Idx, TypeTag)] = &[
+        (Idx::INT, TypeTag::Int),
+        (Idx::FLOAT, TypeTag::Float),
+        (Idx::BOOL, TypeTag::Bool),
+        (Idx::STR, TypeTag::Str),
+        (Idx::CHAR, TypeTag::Char),
+        (Idx::BYTE, TypeTag::Byte),
+        (Idx::UNIT, TypeTag::Unit),
+        (Idx::NEVER, TypeTag::Never),
+        (Idx::DURATION, TypeTag::Duration),
+        (Idx::SIZE, TypeTag::Size),
+        (Idx::ORDERING, TypeTag::Ordering),
+    ];
+
+    for &(idx, expected_tag) in cases {
+        let result = em.idx_to_type_tag(idx);
+        assert_eq!(
+            result,
+            Some(expected_tag),
+            "Idx {idx:?} should map to TypeTag::{expected_tag:?}",
+        );
+    }
+
+    drop(em);
+}
+
+#[test]
+fn idx_to_type_tag_returns_error_tag_for_error_idx() {
+    use ori_registry::TypeTag;
+
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_error_tag"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    // ERROR idx (8) falls through to dynamic path → TypeInfo::Error → TypeTag::Error.
+    let result = em.idx_to_type_tag(Idx::ERROR);
+    assert_eq!(
+        result,
+        Some(TypeTag::Error),
+        "Idx::ERROR should map to TypeTag::Error via dynamic path",
+    );
+
+    drop(em);
+}
+
+#[test]
+fn idx_to_type_tag_maps_dynamic_list_type() {
+    use ori_registry::TypeTag;
+
+    let mut pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+
+    // Create a dynamic list type (Idx >= 64)
+    let list_idx = pool.list(Idx::INT);
+    assert!(
+        list_idx.raw() >= Idx::FIRST_DYNAMIC,
+        "list type should be dynamically allocated"
+    );
+
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_dynamic_tag"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let cl = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+    );
+
+    // Dynamic list type should map to TypeTag::List via TypeInfoStore
+    assert_eq!(em.idx_to_type_tag(list_idx), Some(TypeTag::List));
+
+    drop(em);
+}

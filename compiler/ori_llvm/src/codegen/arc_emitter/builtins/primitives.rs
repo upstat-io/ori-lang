@@ -4,38 +4,38 @@
 
 declare_builtins! { emitter, ctx;
     // int
-    ("int", "clone", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("int", "to_int", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("int", "byte", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("int", "f", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("int", "to_float", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("int", "into", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("int", "to_str", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("int", "abs", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "byte") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "f") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "to_float") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "into") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "abs") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // float
-    ("float", "clone", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("float", "to_int", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("float", "to_str", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("float", "abs", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("float", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("float", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("float", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("float", "abs") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // bool
-    ("bool", "clone", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("bool", "to_int", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("bool", "to_str", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("bool", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("bool", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("bool", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // char
-    ("char", "clone", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("char", "to_int", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("char", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("char", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // byte
-    ("byte", "clone", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("byte", "to_int", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("byte", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("byte", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // Duration
-    ("Duration", "clone", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("Duration", "to_str", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Duration", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Duration", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // Size
-    ("Size", "clone", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("Size", "to_str", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Size", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Size", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // Ordering
-    ("Ordering", "clone", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
-    ("Ordering", "to_int", borrow: true) => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Ordering", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("Ordering", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
 }
 
 use crate::codegen::type_info::TypeInfo;
