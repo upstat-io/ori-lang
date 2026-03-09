@@ -253,14 +253,18 @@ ori_ir/builtin_methods/mod.rs, method_borrows_receiver, borrowing_names_from_tab
 
 ```
 ori_llvm, LLVM, codegen, emission, backend
-emit_binary_op, is_str, is_float, type guards
-OpStrategy dispatch, strategy lookup, RuntimeCall
-BuiltinRegistration, receiver_borrowed, declare_builtins! macro
-ARC_PIPELINE_METHODS, BuiltinTable
-borrowing_builtin_names, delete function
-simplify macro, remove borrow: syntax
-arc_emitter/operators.rs, arc_emitter/mod.rs, builtins/mod.rs, builtins/traits.rs
+emit_binary_op, emit_unary_op, is_str, is_float, type guards
+OpStrategy dispatch, strategy lookup, RuntimeCall, IntInstr, FloatInstr, UnsignedCmp, BoolLogic
+idx_to_type_tag, TypeTag bridge, TypeInfo, Idx mapping
+BuiltinRegistration, receiver_borrowed, declare_builtins! macro, simplify macro
+arc_pipeline_methods, BuiltinTable, CODEGEN_ALIASES, TRAIT_DISPATCH_METHODS
+borrowing_names_from_table, delete function, test-only
+emit_int_binary_op, emit_float_binary_op, emit_unsigned_binary_op, emit_bool_binary_op
+emit_runtime_binary_op, emit_coalesce, op_strategy_for_binary, op_strategy_for_unary
+arc_emitter/operators.rs, builtins/mod.rs, builtins/traits.rs, builtins/tests.rs
 emit_str_cmp_predicate, CmpPredicate, ori_str_compare
+registry_covers_all_builtin_codegen, registry_op_strategies_cover_all_operators
+unsigned comparison, signed comparison, byte, char, bool, correctness fix
 ```
 
 ---
