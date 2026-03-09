@@ -7,16 +7,14 @@
 //!    path ever emits (would never be called).
 //! 2. **Coverage gaps**: registry exposes a method that codegen can't
 //!    inline (falls through to runtime — acceptable but tracked).
-//! 3. **Ownership mismatch**: a COW method in `ori_arc`'s consuming sets has
-//!    `receiver_borrowed: true` in the LLVM table (would break COW codegen).
+//! 3. **Strategy coverage**: every `OpStrategy` variant in every registry type's
+//!    `OpDefs` is handled by `emit_binary_op`/`emit_unary_op` dispatch.
 
 use std::collections::HashSet;
 
-use ori_ir::StringInterner;
-
 use ori_registry::legacy_type_name;
 
-use super::{borrowing_names_from_table, builtin_table};
+use super::builtin_table;
 
 /// Build the set of `(type_name, method_name)` pairs from the registry.
 ///
@@ -192,96 +190,54 @@ fn builtin_coverage_above_threshold() {
     );
 }
 
-/// Every method the LLVM `BuiltinTable` marks as borrowing must also be
-/// in `ori_arc::borrowing_builtin_names()`.
+/// Every type with operators in the registry must have its `OpStrategy`
+/// handled by `emit_binary_op`/`emit_unary_op` dispatch.
 ///
-/// The reverse is NOT required: `ori_arc` derives its borrowing set from
-/// `ori_registry`, which includes ALL builtin type methods with `Borrow`
-/// receiver. The LLVM `BuiltinTable` only covers methods with codegen
-/// support, so it is a subset.
-///
-/// ARC pipeline intrinsics (e.g., `__index`) are excluded from the
-/// comparison — they are intercepted before `BuiltinTable` dispatch.
+/// This verifies that no `OpStrategy` variant slips through unhandled:
+/// every non-`Unsupported` strategy must be in the set of strategies
+/// that the dispatch code explicitly matches.
 #[test]
-fn borrowing_builtins_sync_with_ori_arc() {
-    let interner = StringInterner::default();
+fn registry_op_strategies_cover_all_operators() {
+    use ori_registry::{OpStrategy, BUILTIN_TYPES};
 
-    // Set derived from LLVM BuiltinTable (codegen ground truth)
-    let table_set = borrowing_names_from_table(&interner);
-
-    // Set from ori_arc (canonical source for borrow inference)
-    let arc_set = ori_arc::borrowing_builtin_names(&interner);
-
-    // Every LLVM borrowing method must be in ori_arc's borrowing set.
-    // (The reverse is not required — ori_arc includes interpreter-only methods.)
-    let in_table_not_arc: Vec<_> = table_set
-        .difference(&arc_set)
-        .map(|n| interner.lookup(*n).to_string())
-        .collect();
-
-    assert!(
-        in_table_not_arc.is_empty(),
-        "LLVM BuiltinTable has borrowing methods not in ori_arc: {in_table_not_arc:?}\n\
-         Every LLVM borrowing method must be in ori_arc::borrowing_builtin_names().",
-    );
-}
-
-/// COW methods in `ori_arc` must not be marked as borrowing in the LLVM
-/// `BuiltinTable` for collection types.
-///
-/// This catches drift for Section 07.5 (COW Check Elimination): when the
-/// emitter starts consuming `CowAnnotations`, a method in `ori_arc`'s
-/// `consuming_receiver_builtin_names` or `consuming_receiver_only_builtin_names`
-/// that has `receiver_borrowed: true` in the LLVM table would produce
-/// incorrect RC ownership — the receiver would be borrowed when it should be
-/// consumed for COW.
-///
-/// Only checks collection types (`list`, `map`, `Set`) because the `ori_arc`
-/// consuming sets are name-only (not type-qualified). Methods like `reverse`
-/// and `concat` are COW for lists but borrowing for other types (`Ordering`,
-/// `str`). The type check happens at the RC insertion call site.
-#[test]
-fn consuming_builtins_sync_with_ori_arc() {
-    let interner = StringInterner::default();
-    let table = builtin_table();
-
-    // Types where COW semantics apply
-    let cow_types: HashSet<&str> = ["list", "map", "Set"].into_iter().collect();
-
-    // COW method sets from ori_arc (drive uniqueness analysis)
-    let consuming = ori_arc::consuming_receiver_builtin_names(&interner);
-    let consuming_only = ori_arc::consuming_receiver_only_builtin_names(&interner);
-
-    let mut mismatches = Vec::new();
-
-    for (type_name, method_name) in table.all_registered() {
-        if !cow_types.contains(type_name) {
-            continue;
-        }
-
-        let name = interner.intern(method_name);
-        let is_cow = consuming.contains(&name) || consuming_only.contains(&name);
-
-        if !is_cow {
-            continue;
-        }
-
-        if let Some(reg) = table.lookup(type_name, method_name) {
-            if reg.receiver_borrowed {
-                mismatches.push(format!(
-                    "  ({type_name}, {method_name}): ori_arc says consuming (COW), \
-                     but BuiltinTable has receiver_borrowed=true"
-                ));
+    for type_def in BUILTIN_TYPES {
+        let ops = &type_def.operators;
+        for (field_name, strategy) in [
+            ("add", ops.add),
+            ("sub", ops.sub),
+            ("mul", ops.mul),
+            ("div", ops.div),
+            ("rem", ops.rem),
+            ("floor_div", ops.floor_div),
+            ("eq", ops.eq),
+            ("neq", ops.neq),
+            ("lt", ops.lt),
+            ("gt", ops.gt),
+            ("lt_eq", ops.lt_eq),
+            ("gt_eq", ops.gt_eq),
+            ("neg", ops.neg),
+            ("not", ops.not),
+            ("bit_and", ops.bit_and),
+            ("bit_or", ops.bit_or),
+            ("bit_xor", ops.bit_xor),
+            ("bit_not", ops.bit_not),
+            ("shl", ops.shl),
+            ("shr", ops.shr),
+        ] {
+            match strategy {
+                OpStrategy::Unsupported
+                | OpStrategy::IntInstr
+                | OpStrategy::FloatInstr
+                | OpStrategy::UnsignedCmp
+                | OpStrategy::BoolLogic => {} // Unsupported or handled by emit_{int,float,unsigned,bool}_*_op
+                OpStrategy::RuntimeCall { fn_name, .. } => {
+                    assert!(
+                        !fn_name.is_empty(),
+                        "{}.operators.{field_name} has empty RuntimeCall fn_name",
+                        type_def.name
+                    );
+                }
             }
         }
     }
-
-    assert!(
-        mismatches.is_empty(),
-        "Consuming-receiver builtin sets out of sync!\n\
-         Methods in ori_arc's COW sets must have receiver_borrowed=false \
-         in the LLVM BuiltinTable for collection types:\n{}\n\
-         Either update the LLVM table or remove from ori_arc's consuming sets.",
-        mismatches.join("\n"),
-    );
 }

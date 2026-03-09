@@ -34,14 +34,14 @@
 /// - `pub(super) fn dispatch(emitter, ctx) -> Option<ValueId>` — match-based
 ///   handler dispatch on `(ctx.type_name, ctx.method)`
 /// - `pub(super) const REGISTERED: &[BuiltinRegistration]` — enumerable list
-///   of all `(type, method, receiver_borrowed)` triples
+///   of all `(type, method)` pairs
 ///
 /// # Usage
 ///
 /// ```ignore
 /// declare_builtins! { emitter, ctx;
-///     ("int", "abs", borrow: false) => emitter.emit_int_abs(ctx),
-///     ("int", "clone", borrow: true) => Some(ctx.arg_vals[0]),
+///     ("int", "abs") => emitter.emit_int_abs(ctx),
+///     ("int", "clone") => Some(ctx.arg_vals[0]),
 /// }
 /// ```
 ///
@@ -50,7 +50,7 @@
 /// macro hygiene context as the generated function parameters.
 /// Each handler must evaluate to `Option<ValueId>`.
 macro_rules! declare_builtins {
-    ($emitter:ident, $ctx:ident; $( ($type_name:expr, $method:expr, borrow: $borrow:expr) => $body:expr ),* $(,)?) => {
+    ($emitter:ident, $ctx:ident; $( ($type_name:expr, $method:expr) => $body:expr ),* $(,)?) => {
         #[allow(dead_code, unused_variables, reason = "macro-generated; not all handlers use every field")]
         pub(super) fn dispatch<'scx: 'ctx, 'ctx>(
             $emitter: &mut $crate::codegen::arc_emitter::ArcIrEmitter<'_, 'scx, 'ctx, '_>,
@@ -66,7 +66,6 @@ macro_rules! declare_builtins {
             $(super::BuiltinRegistration {
                 type_name: $type_name,
                 method_name: $method,
-                receiver_borrowed: $borrow,
             },)*
         ];
     };
@@ -114,10 +113,6 @@ pub(crate) struct BuiltinRegistration {
     pub type_name: &'static str,
     /// Method name (e.g., `"abs"`, `"is_some"`, `"iter"`).
     pub method_name: &'static str,
-    /// Whether this method borrows its receiver (reads without consuming).
-    /// Read by the sync test (`borrowing_builtins_sync_with_ori_arc`) to verify
-    /// the LLVM table is a subset of `ori_arc::borrowing_builtin_names()`.
-    pub receiver_borrowed: bool,
 }
 
 // BuiltinCtx
@@ -157,7 +152,6 @@ pub(super) struct BuiltinCtx<'a> {
 /// Used for:
 /// - Early rejection in `try_emit_builtin_method` (skip dispatch for non-builtins)
 /// - Enumeration in sync tests vs `ori_registry::BUILTIN_TYPES`
-/// - `receiver_borrowed` metadata for ARC ownership inference
 // NOTE: BuiltinTable and friends are test-only (called from tests.rs and
 // #[cfg(test)] helpers). Uses #[allow(dead_code)] (not #[expect]) because the
 // items are dead in non-test mode but alive in test mode — #[expect] would
@@ -244,33 +238,6 @@ static BUILTIN_TABLE: LazyLock<BuiltinTable> = LazyLock::new(BuiltinTable::build
 #[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
 pub(crate) fn builtin_table() -> &'static BuiltinTable {
     &BUILTIN_TABLE
-}
-
-/// Compute the set of borrowing method names from the LLVM builtin table.
-///
-/// This is the codegen-derived set: all methods with `receiver_borrowed: true`,
-/// excluding Iterator methods (they consume/transform the iterator) and `.iter()`
-/// (creates dependent values). Used by the sync test to verify this set is a
-/// subset of `ori_arc::borrowing_builtin_names()` (which derives from `ori_registry`).
-#[cfg(test)]
-fn borrowing_names_from_table(interner: &ori_ir::StringInterner) -> rustc_hash::FxHashSet<Name> {
-    let table = builtin_table();
-    let mut names = rustc_hash::FxHashSet::default();
-    for (&type_name, methods) in &table.entries {
-        if type_name == "Iterator" {
-            continue;
-        }
-        for (&method_name, reg) in methods {
-            if !reg.receiver_borrowed {
-                continue;
-            }
-            if method_name == "iter" {
-                continue;
-            }
-            names.insert(interner.intern(method_name));
-        }
-    }
-    names
 }
 
 // Dispatch entry point
