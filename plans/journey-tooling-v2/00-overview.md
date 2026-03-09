@@ -1,7 +1,7 @@
 ---
 plan: "journey-tooling-v2"
 title: "Journey Tooling V2: Eliminating False Positives and Adopting Compiler-Grade Verification"
-status: complete
+status: resolved
 references:
   - "plans/journey-scoring-algorithms/"
   - "plans/code-journeys/overview.md"
@@ -190,10 +190,10 @@ All working. Not targets of this plan.
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Runtime Function Effect Summaries | `section-01-effect-summaries.md` | Not Started |
-| 02 | CFG-Aware RC Balance Checking | `section-02-cfg-rc-balance.md` | Not Started |
-| 03 | Cross-Function Ownership Tracking | `section-03-cross-function-ownership.md` | Not Started |
-| 04 | IR Parser Hardening | `section-04-ir-parser-hardening.md` | Not Started |
-| 05 | ARC IR-Level Verification | `section-05-arc-ir-verification.md` | Not Started |
-| 06 | Attribute Compliance Improvements | `section-06-attribute-compliance.md` | Not Started |
-| 07 | Integration and Re-scoring | `section-07-integration.md` | Not Started |
+| 01 | Runtime Function Effect Summaries | `section-01-effect-summaries.md` | Complete |
+| 02 | CFG-Aware RC Balance Checking | `section-02-cfg-rc-balance.md` | Complete |
+| 03 | Cross-Function Ownership Tracking | `section-03-cross-function-ownership.md` | Complete |
+| 04 | IR Parser Hardening | `section-04-ir-parser-hardening.md` | Complete |
+| 05 | ARC IR-Level Verification | `section-05-arc-ir-verification.md` | Complete |
+| 06 | Attribute Compliance Improvements | `section-06-attribute-compliance.md` | Complete |
+| 07 | Integration and Re-scoring | `section-07-integration.md` | Complete |
