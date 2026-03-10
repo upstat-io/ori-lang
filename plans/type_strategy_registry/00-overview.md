@@ -270,7 +270,7 @@ Phase 4 ─ Enforcement & Exit
 | 10 Wire Evaluator | ~-200 (net deletion) | Medium | 03-08 | Complete |
 | 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08, 09 | Complete |
 | 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 | Complete |
-| 13 Migrate ori_ir | ~-945 (net deletion, builtin_methods module) | Medium | 03-08 | In Progress |
+| 13 Migrate ori_ir | ~-945 (net deletion, builtin_methods module) | Medium | 03-08 | Complete |
 | 14 Enforcement & Exit | ~200 | Medium | 09-13 | Not Started |
 | **Total new (ori_registry)** | **~6,300** (incl. ~2,000 test lines) | | | |
 | **Total deleted (legacy)** | **~-1,600** (estimated) | | | |

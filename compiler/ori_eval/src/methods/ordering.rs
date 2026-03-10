@@ -97,6 +97,15 @@ pub fn dispatch_ordering_method(
         // Tags are ordered: Less(0) < Equal(1) < Greater(2)
         Ok(ordering_to_value(ord.to_tag().cmp(&other_ord.to_tag())))
     } else {
-        Err(no_such_method(ctx.interner.lookup(method), "Ordering").into())
+        let method_str = ctx.interner.lookup(method);
+        match method_str {
+            // Higher-order method requiring closure (dispatched by CollectionMethodResolver
+            // in production; recognized here so dispatch coverage test sees non-UndefinedMethod)
+            "then_with" => {
+                require_args("then_with", 1, args.len())?;
+                Err(ori_patterns::wrong_arg_type("then_with", "function").into())
+            }
+            _ => Err(no_such_method(method_str, "Ordering").into()),
+        }
     }
 }

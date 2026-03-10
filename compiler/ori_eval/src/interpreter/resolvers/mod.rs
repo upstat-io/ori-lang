@@ -224,10 +224,6 @@ impl CollectionMethod {
     }
 }
 
-// ITERATOR_METHOD_NAMES array removed — iterator method consistency
-// is now validated via CollectionMethod::all_iterator_variants() against
-// ori_registry::BUILTIN_TYPES (Section 10.2).
-
 /// Trait for method resolvers in the chain of responsibility.
 ///
 /// Each resolver handles a specific category of methods and returns

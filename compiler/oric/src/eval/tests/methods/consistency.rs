@@ -33,8 +33,6 @@ fn registry_methods_sorted_per_type() {
 /// Verify that every Iterator/DoubleEndedIterator method in the registry has
 /// a corresponding `CollectionMethod` variant in the evaluator, and vice versa.
 ///
-/// Replaces the old `iterator_registry_methods_match_eval_resolver` test that
-/// compared against `ITERATOR_METHOD_NAMES` (now eliminated).
 #[test]
 fn iterator_methods_match_registry() {
     // Registry iterator methods (DEI methods are on the Iterator TypeDef
@@ -226,39 +224,350 @@ fn sign_variants_synced_with_eval_registration() {
     }
 }
 
+// Cross-phase enforcement tests (Section 14.2)
+//
+// These tests verify that every compiler phase faithfully implements all
+// methods declared in `ori_registry`. No manual lists. No allowlists.
+// The registry IS the specification.
+
+/// For each type in `BUILTIN_TYPES`, for each method, verify that the
+/// registry resolves it. Since the type checker uses
+/// `ori_registry::find_method()` directly (Section 09 wiring), method
+/// existence in the registry IS type checker recognition.
+///
+/// Replaces: `typeck_method_list_is_sorted`, `typeck_primitive_methods_in_ir`,
+/// `eval_methods_recognized_by_typeck`.
+#[test]
+fn every_registry_method_has_typeck_handler() {
+    use ori_registry::{find_method, BUILTIN_TYPES};
+
+    let mut missing = Vec::new();
+
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            // DEI-only methods are filtered out by find_method(Iterator, ...)
+            // by design — they're only visible on DoubleEndedIterator.
+            let lookup_tag = if method.dei_only {
+                ori_registry::TypeTag::DoubleEndedIterator
+            } else {
+                type_def.tag
+            };
+            if find_method(lookup_tag, method.name).is_none() {
+                missing.push((type_def.name, method.name));
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Registry methods not found by find_method ({} missing):\n{}",
+        missing.len(),
+        missing
+            .iter()
+            .map(|(ty, m)| format!("  {ty}.{m}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+}
+
+/// For each method in `ori_registry::borrowing_method_names()`, verify
+/// that `ori_arc::borrowing_builtin_names()` includes it.
+///
+/// After Section 11, `ori_arc` reads ownership directly from the registry
+/// via `ori_registry::borrowing_method_names()`. This test verifies the
+/// interned ARC set matches the registry-derived source set.
+#[cfg(feature = "llvm")]
+#[test]
+fn every_registry_borrowing_method_in_arc_set() {
+    let interner = super::test_interner();
+
+    // Registry-derived borrowing set (the source of truth)
+    let registry_borrowing: BTreeSet<&str> = ori_registry::borrowing_method_names()
+        .iter()
+        .copied()
+        .collect();
+
+    // ARC pipeline's borrowing set (interned)
+    let arc_borrowing: BTreeSet<String> = ori_arc::borrowing_builtin_names(&interner)
+        .iter()
+        .map(|name| interner.lookup(*name).to_string())
+        .collect();
+
+    // Every registry borrowing name should be in the ARC set
+    let mut missing = Vec::new();
+    for name in &registry_borrowing {
+        if !arc_borrowing.contains(*name) {
+            missing.push(*name);
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Registry borrowing methods not in ARC borrow set ({} missing):\n{}",
+        missing.len(),
+        missing.join(", "),
+    );
+}
+
+/// For each method with `backend_required: true`, verify that the
+/// evaluator has a handler (does not produce `UndefinedMethod`).
+///
+/// Methods with `backend_required: false` are intentionally exempt
+/// (e.g., associated functions not yet in eval, Channel methods).
+///
+/// Types without a `Value` representation (Channel, Iterator, DEI) are
+/// skipped — their methods are dispatched by specialized resolvers.
+#[test]
+fn backend_required_methods_in_eval() {
+    use ori_patterns::EvalErrorKind;
+    use ori_registry::BUILTIN_TYPES;
+
+    use super::dispatch_coverage::minimal_value_for;
+
+    let interner = super::test_interner();
+
+    let mut missing = Vec::new();
+
+    for type_def in BUILTIN_TYPES {
+        let Some(receiver) = minimal_value_for(type_def.tag) else {
+            continue;
+        };
+
+        for method in type_def.methods {
+            if !method.backend_required {
+                continue;
+            }
+
+            let result = ori_eval::dispatch_builtin_method_str(
+                receiver.clone(),
+                method.name,
+                vec![],
+                &interner,
+            );
+
+            let is_undefined = match &result {
+                Err(action) => {
+                    if let ori_patterns::ControlAction::Error(e) = action {
+                        matches!(e.kind, EvalErrorKind::UndefinedMethod { .. })
+                    } else {
+                        false
+                    }
+                }
+                Ok(_) => false,
+            };
+
+            if is_undefined {
+                missing.push((type_def.name, method.name));
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "backend_required methods missing from evaluator ({} missing):\n{}",
+        missing.len(),
+        missing
+            .iter()
+            .map(|(ty, m)| format!("  {ty}.{m}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+}
+
+/// Methods marked `pure: true` should not consume their receiver
+/// (`Ownership::Owned` implies mutation/consumption, contradicting purity).
+///
+/// Also verifies that at least 30% of methods are marked pure (catches
+/// the failure mode of someone defaulting everything to `pure: false`).
+#[test]
+fn pure_method_sanity() {
+    use ori_registry::{Ownership, BUILTIN_TYPES};
+
+    let mut total_methods = 0;
+    let mut pure_count = 0;
+
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            total_methods += 1;
+            if method.pure {
+                pure_count += 1;
+                assert_ne!(
+                    method.receiver,
+                    Ownership::Owned,
+                    "Method `{}.{}` is marked pure but has Ownership::Owned receiver. \
+                     Pure methods should borrow, not consume.",
+                    type_def.name,
+                    method.name,
+                );
+            }
+        }
+    }
+
+    let pure_pct = (pure_count * 100) / total_methods;
+    assert!(
+        pure_pct >= 30,
+        "Only {pure_pct}% ({pure_count}/{total_methods}) methods marked pure. \
+         Expected at least 30%. Check that pure is being set correctly.",
+    );
+}
+
+// Testing matrix (type x method x phase)
+
+/// Generate the testing matrix coverage counts.
+///
+/// Since the type checker reads directly from `ori_registry` (Section 09),
+/// typeck coverage is 100% by construction. Eval coverage uses
+/// `dispatch_builtin_method_str`. LLVM coverage must be checked in `ori_llvm`.
+/// ARC borrow coverage uses `ori_registry::borrowing_method_names()`.
+#[test]
+fn testing_matrix_coverage() {
+    use ori_patterns::EvalErrorKind;
+    use ori_registry::{Ownership, BUILTIN_TYPES};
+
+    use super::dispatch_coverage::minimal_value_for;
+
+    let interner = super::test_interner();
+
+    let mut total = 0;
+    let mut eval_count = 0;
+    let mut eval_skipped = 0;
+    let mut arc_borrow_count = 0;
+
+    let borrowing_names: BTreeSet<&str> = ori_registry::borrowing_method_names()
+        .iter()
+        .copied()
+        .collect();
+
+    let mut arc_borrow_expected = 0;
+
+    for type_def in BUILTIN_TYPES {
+        let receiver = minimal_value_for(type_def.tag);
+
+        for method in type_def.methods {
+            total += 1;
+
+            // Eval: check dispatch (skip types without Value representation)
+            if let Some(ref recv) = receiver {
+                let result = ori_eval::dispatch_builtin_method_str(
+                    recv.clone(),
+                    method.name,
+                    vec![],
+                    &interner,
+                );
+
+                let is_undefined = match &result {
+                    Err(action) => {
+                        if let ori_patterns::ControlAction::Error(e) = action {
+                            matches!(e.kind, EvalErrorKind::UndefinedMethod { .. })
+                        } else {
+                            false
+                        }
+                    }
+                    Ok(_) => false,
+                };
+
+                if !is_undefined {
+                    eval_count += 1;
+                }
+            } else {
+                eval_skipped += 1;
+            }
+
+            // ARC borrow: check if in borrowing set.
+            // `borrowing_method_names()` excludes Iterator TypeDef entirely
+            // (iterator methods are adapter-based, not borrowed from a
+            // concrete receiver) and excludes `iter` (creates derived value).
+            let skip_arc = type_def.tag == ori_registry::TypeTag::Iterator || method.name == "iter";
+            if method.receiver == Ownership::Borrow && !skip_arc {
+                arc_borrow_expected += 1;
+                if borrowing_names.contains(method.name) {
+                    arc_borrow_count += 1;
+                }
+            }
+        }
+    }
+
+    // Typeck is 100% by construction (reads from registry).
+    // LLVM coverage checked in ori_llvm tests.
+    let eval_pct = eval_count * 100 / total;
+    eprintln!(
+        "Testing matrix: {total} methods total, \
+         typeck={total} (by construction), \
+         eval={eval_count}/{total} ({eval_pct}%, {eval_skipped} skipped — no Value repr), \
+         arc_borrow={arc_borrow_count}/{arc_borrow_expected}",
+    );
+
+    // Eval coverage: all methods with a Value representation should be dispatched.
+    // Types without Value repr (Channel, Iterator, DEI) are skipped.
+    assert!(
+        eval_pct >= 80,
+        "Eval coverage dropped to {eval_pct}% ({eval_count}/{total}). \
+         Expected at least 80%.",
+    );
+
+    // ARC borrow: every Ownership::Borrow method's name should be in the
+    // borrowing set (borrowing_method_names() deduplicates across types).
+    // This verifies the ARC column matches registry Ownership annotations.
+    let mut arc_missing = Vec::new();
+    for type_def in BUILTIN_TYPES {
+        if type_def.tag == ori_registry::TypeTag::Iterator {
+            continue;
+        }
+        for method in type_def.methods {
+            if method.receiver == Ownership::Borrow
+                && method.name != "iter"
+                && !borrowing_names.contains(method.name)
+            {
+                arc_missing.push(format!("{}.{}", type_def.name, method.name));
+            }
+        }
+    }
+    assert!(
+        arc_missing.is_empty(),
+        "ARC borrow set missing {} methods with Ownership::Borrow:\n{}",
+        arc_missing.len(),
+        arc_missing.join("\n"),
+    );
+}
+
 // Well-known generic type resolution consistency
 
-/// Well-known generic types that must be handled in the centralized
-/// `resolve_well_known_generic()` function to ensure `Pool` tags match
-/// between annotations and inference.
-const WELL_KNOWN_GENERIC_TYPES: &[&str] = &[
-    "Channel",
-    "DoubleEndedIterator",
-    "Iterator",
-    "Option",
-    "Range",
-    "Result",
-    "Set",
-];
-
+/// Well-known generic types derived from the registry: types with generic
+/// type parameters (`TypeParamArity` != `Fixed(0)`).
+///
 /// The centralized `resolve_well_known_generic()` in `check/well_known.rs`
-/// must contain all well-known generic types, and all three resolution
-/// functions must delegate to it.
+/// must contain all these types, and all three resolution functions must
+/// delegate to it.
 #[test]
 fn well_known_generic_types_consistent() {
-    use std::path::PathBuf;
+    use ori_registry::TypeParamArity;
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let Some(workspace) = manifest_dir.parent() else {
-        panic!("oric crate should be inside compiler/");
-    };
+    // Derive expected list from registry: generic types resolved by name
+    // (not by syntax). List ([T]), Map ({K:V}), Tuple ((T,U)) use
+    // built-in syntax, not resolve_well_known_generic().
+    let syntax_builtin_tags = [
+        ori_registry::TypeTag::List,
+        ori_registry::TypeTag::Map,
+        ori_registry::TypeTag::Tuple,
+    ];
+    let well_known: Vec<&str> = ori_registry::BUILTIN_TYPES
+        .iter()
+        .filter(|td| {
+            !matches!(td.type_params, TypeParamArity::Fixed(0))
+                && !syntax_builtin_tags.contains(&td.tag)
+        })
+        .map(|td| td.name)
+        .collect();
+
+    assert!(
+        !well_known.is_empty(),
+        "No generic types found in registry — TypeParamArity filtering is broken"
+    );
 
     // 1. Verify the single source of truth contains all types.
-    let well_known_path = workspace.join("ori_types/src/check/well_known/mod.rs");
-    let well_known_src = std::fs::read_to_string(&well_known_path)
-        .unwrap_or_else(|e| panic!("failed to read well_known/mod.rs: {e}"));
+    let well_known_src = read_workspace_file("ori_types/src/check/well_known/mod.rs");
 
-    for &ty in WELL_KNOWN_GENERIC_TYPES {
+    for ty in &well_known {
         let pattern = format!("\"{ty}\"");
         assert!(
             well_known_src.contains(&pattern),
@@ -281,10 +590,7 @@ fn well_known_generic_types_consistent() {
     ];
 
     for &(label, rel_path) in consumers {
-        let path = workspace.join(rel_path);
-        let source = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
-
+        let source = read_workspace_file(rel_path);
         assert!(
             source.contains("resolve_well_known_generic"),
             "{label} ({rel_path}) does not call resolve_well_known_generic().\n\

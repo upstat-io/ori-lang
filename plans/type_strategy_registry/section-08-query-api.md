@@ -295,18 +295,7 @@ pub fn has_method(tag: TypeTag, name: &str) -> bool {
 
 **`methods_for` returns `impl Iterator`, not `&[MethodDef]`.** The caller cannot assume the internal storage layout. Today it is a flat slice on `TypeDef.methods`; in the future it could be segmented (e.g., inherent methods + trait methods). The iterator abstraction hides this.
 
-**No `all_borrowing_method_names()` global function.** The current `ori_ir::builtin_methods::borrowing_method_names()` iterates ALL types and yields deduplicated borrowing method names. This is used by `ori_arc` to build a `FxHashSet<Name>`. In the new design, `ori_arc` should query per-type (`borrowing_methods(tag)`) rather than building a global set. If a global set is still needed during migration, it can be constructed by the consumer:
-
-```rust
-// In ori_arc, during migration:
-let borrowing_set: FxHashSet<Name> = BUILTIN_TYPES
-    .iter()
-    .flat_map(|td| borrowing_methods(td.tag))
-    .map(|m| interner.intern(m.name))
-    .collect();
-```
-
-This keeps the registry free of `Name` (which lives in `ori_ir`) and free of `FxHashSet` (which is a runtime dependency).
+**`borrowing_method_names()` global function (added in Section 11).** Originally this section planned for no global borrowing function, expecting `ori_arc` to query per-type via `borrowing_methods(tag)`. During Section 11 implementation, a global `borrowing_method_names() -> &'static [&'static str]` was added to `ori_registry` because the ARC pass needs a flat set of all borrowing method names across all types (with iterator methods and `.iter()` excluded). This function returns `&'static str` slices (not `Name`), keeping the registry free of `ori_ir` dependencies. The consumer (`ori_arc`) interns the names into its own `FxHashSet<Name>`.
 
 ### Implementation tasks
 
@@ -581,6 +570,9 @@ pub fn methods_for(tag: TypeTag) -> impl Iterator<Item = &'static MethodDef>;
 pub fn method_names_for(tag: TypeTag) -> impl Iterator<Item = &'static str>;
 pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDef>;
 
+// === Global helpers (added in Section 11) ===
+pub fn borrowing_method_names() -> &'static [&'static str];
+
 // === Predicates ===
 pub fn has_method(tag: TypeTag, name: &str) -> bool;
 
@@ -590,7 +582,7 @@ pub fn has_method(tag: TypeTag, name: &str) -> bool;
 
 **Not included (and why):**
 - `operator_strategy(tag, op)` -- would require `BinOp` dependency; consumers access `OpDefs` fields directly (08.5)
-- `all_borrowing_method_names()` -- global deduplication belongs in the consumer, not the registry (08.4)
+- ~~`all_borrowing_method_names()`~~ -- Added during Section 11 as `borrowing_method_names() -> &'static [&'static str]` (see 08.4 update)
 - `find_method_across_types(name)` -- no use case; methods are always resolved on a known receiver type
 - Any function returning `Vec`, `HashMap`, or other allocated types -- the registry is allocation-free
 
