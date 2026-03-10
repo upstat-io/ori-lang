@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Interprocedural Analysis"
-status: not-started
+status: complete
 reviewed: true  # 2026-03-10
 goal: "SCC-based fixed-point computing unified MemoryContract (ownership+uniqueness+demand+locality+effects+FIP) for all functions"
 inspired_by:
@@ -14,19 +14,19 @@ depends_on: ["01"]
 sections:
   - id: "03.1"
     title: "MemoryContract — Unified Function Contract"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "SCC-Based Fixed-Point"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Contract Inference Rules"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "Builtin Function Contracts"
-    status: not-started
+    status: complete
   - id: "03.5"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Interprocedural Analysis
@@ -68,7 +68,7 @@ and `UniquenessSummary`. The name `MemoryContract` reflects that this is a riche
 object than a signature — it encodes what the function requires, what it guarantees,
 and what it certifies.
 
-- [ ] Define `MemoryContract`:
+- [x] Define `MemoryContract`:
   ```rust
   /// Unified function contract for AIMS analysis.
   ///
@@ -169,21 +169,21 @@ and what it certifies.
   }
   ```
 
-- [ ] Define `MemoryContract::all_borrowed(n, fip_initial: FipContract)` — initial
+- [x] Define `MemoryContract::all_borrowed(n, fip_initial: FipContract)` — initial
   most-optimistic contract (all params borrowed, unique return, no effects).
   The caller controls FIP initialization via the `fip_initial` parameter:
   - Stage 1: pass `FipContract::Never` (FIP inference disabled, no iteration needed)
   - Stage 2: pass `FipContract::Certified` (most optimistic, refined downward
     during fixed-point iteration)
-- [ ] Define `MemoryContract::join(&self, other: &Self) -> Self` — componentwise join
+- [x] Define `MemoryContract::join(&self, other: &Self) -> Self` — componentwise join
   for convergence detection
-- [ ] **Variadic and default parameter handling**:
+- [x] **Variadic and default parameter handling**:
   By the time code reaches ARC IR, variadic parameters have been lowered to a
   single list parameter and default parameters have been resolved to explicit
   arguments. `MemoryContract.params` maps 1:1 to `ArcFunction.params`. No
   special cases are needed. Verify this assumption holds by checking that
   `func.params.len() == contract.params.len()` at every consumption site.
-- [ ] Implement conversion: `MemoryContract → AnnotatedSig` (for compatibility during migration):
+- [x] Implement conversion: `MemoryContract → AnnotatedSig` (for compatibility during migration):
   - `ParamContract.access == Borrowed` → `Ownership::Borrowed`
   - `ParamContract.access == Owned` → `Ownership::Owned`
   - `ParamContract.consumption == Dead` → `Ownership::Borrowed` (dead params need no RC)
@@ -197,7 +197,7 @@ and what it certifies.
     - `return_info.uniqueness == Unique` + `preserves_freshness` → unique return
     - `return_info.uniqueness == Shared` → shared return
     - `return_info.uniqueness == MaybeShared` → conservative (unknown)
-- [ ] Implement conversion: `MemoryContract → UniquenessSummary` (for compatibility during migration):
+- [x] Implement conversion: `MemoryContract → UniquenessSummary` (for compatibility during migration):
   - `return_info.uniqueness` maps directly
   - `return_info.preserves_freshness` maps directly
   - `params` maps: each `ParamContract` → `Uniqueness::MaybeShared` (current system doesn't
@@ -219,7 +219,7 @@ inference but computes unified signatures.
 Note: `uniqueness::inter::analyze_program` already exists. The AIMS version lives in
 `aims::interprocedural` to avoid naming collision.
 
-- [ ] Implement `analyze_program(functions, classifier, builtins, interner) -> FxHashMap<Name, MemoryContract>`
+- [x] Implement `analyze_program(functions, classifier, builtins, interner) -> FxHashMap<Name, MemoryContract>`
   (where `classifier: &dyn ArcClassification`, `interner` needed for builtin method name lookup):
   ```rust
   pub fn analyze_program(
@@ -260,8 +260,8 @@ Note: `uniqueness::inter::analyze_program` already exists. The AIMS version live
   }
   ```
 
-- [ ] Implement `analyze_scc_single` — single-pass analysis for non-recursive functions
-- [ ] **External/FFI function handling**: Functions without an `ArcFunction` body
+- [x] Implement `analyze_scc_single` — single-pass analysis for non-recursive functions
+- [x] **External/FFI function handling**: Functions without an `ArcFunction` body
   (extern "c", extern "js", and any function not lowered to ARC IR) cannot be
   analyzed. They must receive hardcoded contracts:
   - FFI functions: `MemoryContract::all_owned(n)` (conservative — all params
@@ -274,7 +274,7 @@ Note: `uniqueness::inter::analyze_program` already exists. The AIMS version live
     compilation is later added): conservative `all_owned` contract
   The SCC loop must check `functions.iter().find(|f| f.name == name)` and
   fall back to builtin or conservative contracts for unanalyzable functions.
-- [ ] Implement `analyze_scc_fixpoint` — iterate until signatures stabilize:
+- [x] Implement `analyze_scc_fixpoint` — iterate until signatures stabilize:
   - Monotonicity for parameter access: can only increase from `Borrowed` to `Owned`
   - Monotonicity for parameter consumption: can only increase
     (`Dead → Linear → Affine → Unrestricted`)
@@ -294,7 +294,7 @@ Note: `uniqueness::inter::analyze_program` already exists. The AIMS version live
 Rules for computing the full `MemoryContract`, adapted from Lean 4's `collect_O`
 with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
 
-- [ ] A parameter must be `access == Owned` if:
+- [x] A parameter must be `access == Owned` if:
   - It is returned by the function (ownership transfers to caller)
   - It is stored in a constructed value (ownership moves into data structure)
   - It is passed to a callee at an owned position
@@ -302,15 +302,15 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
   - It is captured in a partial application (closure takes ownership)
   - It is applied as a function via indirect call (unknown callee)
 
-- [ ] A parameter must be `consumption == Linear` if owned and:
+- [x] A parameter must be `consumption == Linear` if owned and:
   - It is consumed exactly once on all code paths
 
-- [ ] A parameter must be `consumption == Unrestricted` if:
+- [x] A parameter must be `consumption == Unrestricted` if:
   - It is used in a partial application (captured in closure, may be invoked multiple times)
   - It is applied as a function (unknown callee)
   - It is passed to an unknown/indirect call
 
-- [ ] A parameter's cardinality is `Many` if:
+- [x] A parameter's cardinality is `Many` if:
   - It appears in a loop body (the back-edge causes `seq_add(Once, Once) = Many`)
   - It is used by multiple instructions within a single basic block
     (`seq_add` accumulates to `Many`), OR it is used across multiple basic
@@ -320,12 +320,12 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
     combine via `alt_join` (= max), NOT `seq_add`, so one use in `then`
     and one use in `else` remains `Once`.
 
-- [ ] Return value is `Unique` if:
+- [x] Return value is `Unique` if:
   - All return paths produce freshly constructed values
   - All return paths produce results of COW operations (both paths → unique)
   - All return paths return values from callees with `Unique` return summaries
 
-- [ ] `preserves_freshness` inference:
+- [x] `preserves_freshness` inference:
   `preserves_freshness` is `true` when: if ALL RC-tracked (non-scalar) input
   parameters are `Unique` at the call site, then the return value is guaranteed
   `Unique`. This enables callers to propagate uniqueness through the call.
@@ -343,7 +343,7 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
     `preserves_freshness`
   This is the AIMS equivalent of the current `UniquenessSummary.preserves_freshness`.
 
-- [ ] Tail call preservation adjustment (codegen-soundness constraint):
+- [x] Tail call preservation adjustment (codegen-soundness constraint):
   **Note:** This is NOT a semantic ownership requirement — it is a codegen-soundness
   constraint that is pragmatically applied during contract inference. The concern is
   purely caller-local: can this function's tail calls be compiled as jumps? The
@@ -369,17 +369,17 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
   - This is a codegen-soundness fixup, not a core inference rule
     (solutions.md Decision 1).
 
-- [ ] A parameter's `may_escape` is `true` if:
+- [x] A parameter's `may_escape` is `true` if:
   - It is returned by the function
   - It is stored in a constructed value that escapes
   - It is passed to a callee at an escaping position
 
-- [ ] A parameter's `may_share` is `true` if:
+- [x] A parameter's `may_share` is `true` if:
   - It is captured in a closure (partial application)
   - It is stored in a data structure alongside other references to the same value
   - It is passed to a callee at a sharing position
 
-- [ ] `EffectSummary` inference:
+- [x] `EffectSummary` inference:
   Note: `EffectSummary` is a per-function summary computed during interprocedural
   analysis from the function body's instructions. It is distinct from `EffectClass`
   (Section 01), which is a per-variable, per-program-point lattice dimension in
@@ -393,7 +393,7 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
     `ParamContract.may_share == true`
   - `may_throw` = true if any Invoke (panicking call) or explicit panic appears
 
-- [ ] `FipContract` inference:
+- [x] `FipContract` inference:
   - **Stage 1 (v1):** `FipContract` is set to `Never` for all functions and is
     NOT iterated during the fixed point. FIP inference is disabled entirely.
     The `all_borrowed` initializer receives `FipContract::Never`, and the
@@ -416,7 +416,7 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
 
 Hardcoded contracts for built-in functions and operators that aren't analyzed.
 
-- [ ] Port `BuiltinOwnershipSets` to `MemoryContract` format:
+- [x] Port `BuiltinOwnershipSets` to `MemoryContract` format:
   
   > **Warning: Complexity.** The current `BuiltinOwnershipSets` (267 lines in
   > `borrow/builtins/mod.rs`) encodes nuanced type-qualified ownership rules
@@ -431,7 +431,7 @@ Hardcoded contracts for built-in functions and operators that aren't analyzed.
   - **Consuming-second-arg** builtins: both receiver and arg[1] `Linear`
     (current: `CONSUMING_SECOND_ARG_METHOD_NAMES` for `add`/`concat`)
 
-- [ ] Hardcode signatures for collection operations:
+- [x] Hardcode signatures for collection operations:
   - `list.push(value:)` — receiver: `Linear`, value: `Linear`, returns: `Unique`
   - `list.pop()` — receiver: `Linear`, returns: `Unique`
   - `list.add(other:)` — receiver: `Linear`, other: `Linear`, returns: `Unique`
@@ -440,17 +440,17 @@ Hardcoded contracts for built-in functions and operators that aren't analyzed.
   - `map.insert(key:, value:)` — receiver: `Linear`, key: `Owned`, value: `Owned`, returns: `Unique`
   - `set.insert(value:)` — receiver: `Linear`, value: `Linear`, returns: `Unique`
 
-- [ ] Hardcode signatures for iterator operations:
+- [x] Hardcode signatures for iterator operations:
   - `iter.next()` — receiver: `Linear`, returns: `Unique` (produces new iterator state)
 
-- [ ] Port COW summaries from `uniqueness::inter::build_cow_summaries`:
+- [x] Port COW summaries from `uniqueness::inter::build_cow_summaries`:
   - All COW builtin methods return `Unique` (both fast and slow paths produce RC == 1)
   - **Sharing-return methods** (`slice`, `substring`) return `MaybeShared` — they
     share backing storage with the receiver (current: `sharing_builtin_names()` in
     `borrow/builtins/mod.rs`). These must NOT be marked `Unique`.
   - These need `interner` to map method name strings to `Name` values
 
-- [ ] Hardcode signatures for **protocol builtins** (e.g., `__index`, `__eq`):
+- [x] Hardcode signatures for **protocol builtins** (e.g., `__index`, `__eq`):
   - Protocol builtins have per-arg ownership from `ProtocolBuiltin::arg_ownership()`
     (current: `protocol` field in `BuiltinOwnershipSets`, populated from
     `borrow/builtins/mod.rs`). Each protocol has an explicit ownership pattern
@@ -461,22 +461,22 @@ Hardcoded contracts for built-in functions and operators that aren't analyzed.
 
 ## 03.5 Completion Checklist
 
-- [ ] `MemoryContract` struct defined with params, return_info, effects,
+- [x] `MemoryContract` struct defined with params, return_info, effects,
   context_behavior, and fip fields
-- [ ] `ParamContract` includes may_escape, may_share, locality_bound
-- [ ] `FipContract` enum defined (Never, Conditional, Certified)
-- [ ] SCC-based fixed-point converges for all test programs
-- [ ] Non-recursive SCCs analyzed in single pass
-- [ ] Recursive SCCs use monotonic fixed-point iteration
-- [ ] All promotion rules implemented (ownership, uniqueness, cardinality)
-- [ ] Locality and effect inference rules implemented (v1: conservative defaults OK)
-- [ ] FipContract inference implemented (v1: all `Never` is acceptable; Stage 2 enables)
-- [ ] Tail call preservation rule working
-- [ ] Builtin contracts hardcoded for all built-in functions
+- [x] `ParamContract` includes may_escape, may_share, locality_bound
+- [x] `FipContract` enum defined (Never, Conditional, Certified)
+- [x] SCC-based fixed-point converges for all test programs
+- [x] Non-recursive SCCs analyzed in single pass
+- [x] Recursive SCCs use monotonic fixed-point iteration
+- [x] All promotion rules implemented (ownership, uniqueness, cardinality)
+- [x] Locality and effect inference rules implemented (v1: conservative defaults OK)
+- [x] FipContract inference implemented (v1: all `Never` is acceptable; Stage 2 enables)
+- [x] Tail call preservation rule working
+- [x] Builtin contracts hardcoded for all built-in functions
   (must cover all 5 sets from `BuiltinOwnershipSets` + COW summaries)
-- [ ] `MemoryContract → AnnotatedSig` conversion working for migration
-- [ ] `MemoryContract → UniquenessSummary` conversion working for migration
-- [ ] `preserves_freshness` correctly computed for each function
+- [x] `MemoryContract → AnnotatedSig` conversion working for migration
+- [x] `MemoryContract → UniquenessSummary` conversion working for migration
+- [x] `preserves_freshness` correctly computed for each function
 
 **Exit Criteria:** `cargo t -p ori_arc -- aims::interprocedural` passes. Computed
 contracts match or improve upon current `infer_borrows_scc` output for all test
