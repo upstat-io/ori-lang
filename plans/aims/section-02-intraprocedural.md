@@ -198,7 +198,7 @@ Cardinality analysis on ARC IR CFGs requires two distinct operators, not just
 Process a single block backward: start from the block's exit state (from successors),
 walk instructions in reverse, applying transfer functions.
 
-- [ ] Implement `compute_block_entry_state(func, block_id, state_map, sigs)`:
+- [x] Implement `compute_block_entry_state(func, block_id, state_map, sigs)`:
   The analysis is BACKWARD: we compute the ENTRY state of a block from the
   EXIT states of the SAME block, which in turn come from the ENTRY states of
   SUCCESSOR blocks. "Successor" means CFG successor (control flow target),

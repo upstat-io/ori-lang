@@ -9,14 +9,16 @@
 //! - [`lattice`] — `AimsState` product lattice (7 dimensions), join,
 //!   canonicalization, query predicates
 //! - [`transfer`] — per-instruction transfer functions
-//! - [`transfer`] — per-instruction transfer functions
 //! - [`contract`] — `MemoryContract` per function
 //! - [`intraprocedural`] — backward dataflow analysis
-//! - `interprocedural` — SCC fixed-point loop (future)
+//! - [`interprocedural`] — SCC fixed-point loop
+//! - [`builtins`] — hardcoded contracts for builtin methods
 //! - `emit_rc/` — RC emission from converged state (future)
 //! - `emit_reuse/` — reuse emission (future)
 
+pub mod builtins;
 pub mod contract;
+pub mod interprocedural;
 pub mod intraprocedural;
 pub mod lattice;
 pub mod transfer;
