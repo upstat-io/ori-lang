@@ -2,7 +2,7 @@
 reroute: true
 name: "Type Registry"
 full_name: "Type Strategy Registry"
-status: active
+status: resolved
 reviewed: true
 order: 1
 ---
@@ -290,22 +290,40 @@ dead re-export, bridge function, builtin_type_to_tag
 ---
 
 ### Section 14: Enforcement Tests, Testing Matrix & Exit Criteria
-**File:** `section-14-enforcement-testing.md` | **Status:** Not Started
+**File:** `section-14-enforcement-testing.md` | **Status:** Complete
 
 ```
 enforcement test, testing matrix, exit criteria
+14.0 prerequisite functions, can_dispatch_builtin, has_builtin_handler, has_runtime_method
+14.1 registry integrity, no_duplicate_methods, no_empty_types, methods_sorted_by_name
+all_method_bearing_type_tags_present, no_unsupported_eq, operator_consistency
+self_type_returns_valid, all_receivers_documented
+14.1b _enforce_exhaustiveness, Roc pattern, compile-time guard, dead function
 every_registry_method_has_handler, every_codegen_builtin_has_registry_entry
-purity enforcement, no behavior test, no dependency test
+14.2 cross-phase enforcement, every_registry_method_has_typeck_handler
+every_registry_method_has_eval_handler, every_registry_method_has_llvm_handler
+every_registry_operator_has_llvm_handler, every_registry_borrowing_method_in_arc_set
+backend_required_methods_fully_implemented, pure_method_sanity
+format_spec_variants_synced, well_known_generic_types_consistent
+14.3 purity enforcement, no behavior test, no dependency test
+purity_cargo_toml_has_no_dependencies, purity_core_enums_are_copy
+purity_type_defs_are_const, LazyLock
 consistency.rs, allowlist elimination, gap list removal
+dispatch_coverage.rs, METHODS_NOT_YET_IN_EVAL, COLLECTION_RESOLVER_METHODS
 TYPECK_BUILTIN_METHODS removal, EVAL_BUILTIN_METHODS removal
-ARC_PIPELINE_METHODS removal, TYPECK_METHODS_NOT_IN_IR removal
+TYPECK_METHODS_NOT_IN_IR removal, COLLECTION_TYPES removal
 EVAL_METHODS_NOT_IN_TYPECK removal, TYPECK_METHODS_NOT_IN_EVAL removal
-grep verification, legacy removal, dead code check
-regression test, spec test, AOT test, full suite
+IR_METHODS_DISPATCHED_VIA_RESOLVERS removal, DEI_ONLY_METHODS removal
+CONSUMING_RECEIVER_METHOD_NAMES, SHARING_METHOD_NAMES, ARC COW lists
+CowBehavior, cow_semantics, ARC validation
+grep verification, legacy removal, dead code check, doc comment cleanup
+receiver_borrowed, borrowing_builtin_names, receiver_borrows
+regression test, spec test, AOT test, full suite, release verification
 compile-time enforcement, Rust exhaustiveness, struct field required
-type × method × phase matrix, cross-phase coverage
+type x method x phase matrix, cross-phase coverage, testing_matrix_coverage
 code journey, pipeline integration, differential testing, eval vs LLVM
 progressive complexity, phase boundary, end-to-end verification
+execution order, implementation steps, migration steps
 ```
 
 ---
@@ -327,4 +345,4 @@ progressive complexity, phase boundary, end-to-end verification
 | 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Complete |
 | 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Complete |
 | 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Complete |
-| 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Not Started |
+| 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Complete |

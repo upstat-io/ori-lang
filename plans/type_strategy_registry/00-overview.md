@@ -1,7 +1,7 @@
 ---
 plan: "type_strategy_registry"
 title: "Type Strategy Registry: Pure-Data Behavioral Contract for All Compiler Phases"
-status: in-progress
+status: complete
 reviewed: true
 supersedes:
   - "plans/builtin_ownership_ssot/"
@@ -25,6 +25,7 @@ Every phase of the Ori compiler independently encodes knowledge about builtin ty
 - **ori_llvm** (`codegen/arc_emitter/builtins/`): 206 entries across 7 submodules via `declare_builtins!` macro, `BuiltinRegistration` with `receiver_borrowed`
 - **ori_arc** (`borrow/builtins/mod.rs`): `borrowing_builtin_names()` builds `FxHashSet<Name>` from `BORROWING_METHOD_NAMES` string list
 - **Consistency tests** (`oric/src/eval/tests/methods/consistency.rs`): 157 entries across 2 remaining allowlists tracking intentional IR-registry gaps (reduced from original 6 allowlists during Sections 09-10)
+- **Dispatch coverage tests** (`oric/src/eval/tests/methods/dispatch_coverage.rs`): 205 entries across 2 allowlists (`METHODS_NOT_YET_IN_EVAL` 189 entries, `COLLECTION_RESOLVER_METHODS` 16 entries) tracking eval dispatch gaps
 
 These are all **different projections of the same underlying facts** about the same types. When one changes, the others must be manually updated. When someone forgets, bugs appear silently — like the string ordering bug where `<`, `>`, `<=`, `>=` had no `is_str` guards in `emit_binary_op`, or the `Idx::ERROR` propagation bug where missing method return types in the type checker caused phantom types to reach LLVM codegen.
 
@@ -250,7 +251,8 @@ Phase 3 ─ Wiring (parallelizable per crate)
   Gate: ./test-all.sh passes, ./llvm-test.sh passes
 
 Phase 4 ─ Enforcement & Exit
-  └─ 14: Enforcement tests, testing matrix, allowlist elimination, legacy removal
+  └─ 14: Prerequisite APIs, enforcement tests, testing matrix, allowlist elimination,
+         legacy removal, code journey verification
   Gate: All enforcement tests pass, all allowlists eliminated, grep verification clean
 ```
 
@@ -270,8 +272,8 @@ Phase 4 ─ Enforcement & Exit
 | 10 Wire Evaluator | ~-200 (net deletion) | Medium | 03-08 | Complete |
 | 11 Wire ARC/Borrow | ~-50 (net deletion) | Low-Medium | 03-08, 09 | Complete |
 | 12 Wire LLVM Backend | ~-150 (net deletion) | Medium | 03-08, 09, 11 | Complete |
-| 13 Migrate ori_ir | ~-945 (net deletion, builtin_methods module) | Medium | 03-08 | In Progress |
-| 14 Enforcement & Exit | ~200 | Medium | 09-13 | Not Started |
+| 13 Migrate ori_ir | ~-945 (net deletion, builtin_methods module) | Medium | 03-08 | Complete |
+| 14 Enforcement & Exit | ~300 | Medium | 09-13 | Complete |
 | **Total new (ori_registry)** | **~6,300** (incl. ~2,000 test lines) | | | |
 | **Total deleted (legacy)** | **~-1,600** (estimated) | | | |
 | **Net change** | **~+4,700** (incl. tests) | | | |
@@ -350,4 +352,4 @@ A thorough study of 6 reference compilers (Swift, Zig, Roc, Rust, Go, Lean4) sur
 | 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Complete |
 | 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Complete |
 | 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Complete |
-| 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Not Started |
+| 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Complete |
