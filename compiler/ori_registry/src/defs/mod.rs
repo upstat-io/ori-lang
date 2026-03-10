@@ -4,6 +4,9 @@
 //! As new builtin types are added (Sections 05-07), add a new
 //! file here and update `BUILTIN_TYPES`.
 
+// Shared parameter definitions used by multiple type def modules.
+pub mod params;
+
 // Primitives (Section 03)
 mod bool;
 mod byte;

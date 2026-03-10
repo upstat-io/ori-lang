@@ -72,6 +72,9 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     builtin_ownership: ori_arc::BuiltinOwnershipSets,
     /// Interprocedural uniqueness summaries for COW check elimination.
     uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
+    /// Whether to run ARC IR verification in release builds.
+    /// In debug builds, verification always runs regardless of this flag.
+    verify_arc: bool,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -95,6 +98,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
         uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
+        verify_arc: bool,
     ) -> Self {
         let builtin_ownership = ori_arc::BuiltinOwnershipSets::new(interner);
         Self {
@@ -112,6 +116,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             debug_context,
             builtin_ownership,
             uniqueness_summaries,
+            verify_arc,
         }
     }
 

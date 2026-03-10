@@ -2,6 +2,7 @@
 section: "01"
 title: "C Personality Function"
 status: in-progress
+reviewed: false
 goal: "ori_eh_personality exists in libori_rt.a and correctly handles cleanup + catch-all landing pads"
 inspired_by:
   - "GCC gcc_personality_v0.c (~/projects/reference_repos/lang_repos/zig/lib/libunwind/src/gcc_personality_v0.c)"

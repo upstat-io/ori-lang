@@ -2,6 +2,7 @@
 section: "12"
 title: "Verification & Benchmarks"
 status: not-started
+reviewed: false
 goal: "Prove correctness and measure performance of all representation optimizations through exhaustive testing, dual-execution verification, memory safety validation, and performance benchmarks"
 inspired_by:
   - "Rust crater (tools/crater) — whole-ecosystem regression testing"

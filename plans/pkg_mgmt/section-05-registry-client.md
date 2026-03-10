@@ -1,3 +1,30 @@
+---
+section: "05"
+title: "Registry Client"
+status: not-started
+goal: "Client-side registry communication"
+depends_on: ["04"]
+sections:
+  - id: "5.1"
+    title: "HTTP Client"
+    status: not-started
+  - id: "5.2"
+    title: "Package Fetching"
+    status: not-started
+  - id: "5.3"
+    title: "Search"
+    status: not-started
+  - id: "5.4"
+    title: "Package Info"
+    status: not-started
+  - id: "5.5"
+    title: "Multi-Registry Support"
+    status: not-started
+  - id: "5.6"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 5: Registry Client
 
 **Goal**: Client-side registry communication

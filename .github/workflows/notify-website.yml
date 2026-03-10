@@ -1,0 +1,23 @@
+name: Notify website of content change
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - 'plans/**'
+      - 'blog/**'
+      - 'library/std/**'
+      - 'install.sh'
+      - 'BUILD_NUMBER'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger website rebuild
+        run: |
+          gh api repos/upstat-io/ori-lang-website/dispatches \
+            -f event_type=ori-lang-content-updated
+        env:
+          GH_TOKEN: ${{ secrets.WEBSITE_PAT }}

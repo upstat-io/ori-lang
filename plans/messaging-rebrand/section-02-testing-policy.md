@@ -2,6 +2,7 @@
 section: "02"
 title: "Testing Policy — Configurable Enforcement"
 status: in-progress
+reviewed: false
 goal: "Make test enforcement a project-level configuration, not a hard compiler requirement"
 depends_on: []
 sections:

@@ -3,6 +3,7 @@ reroute: true
 name: "Type Registry"
 full_name: "Type Strategy Registry"
 status: active
+reviewed: true
 order: 1
 ---
 
@@ -184,7 +185,7 @@ future optimization, performance, cache-friendly
 ---
 
 ### Section 09: Wire Type Checker (ori_types)
-**File:** `section-09-wire-type-checker.md` | **Status:** Not Started
+**File:** `section-09-wire-type-checker.md` | **Status:** Complete
 
 ```
 ori_types, type checker, inference, type resolution
@@ -207,7 +208,7 @@ as_bytes, to_bytes, from_utf8, from_utf8_unchecked, str methods
 ---
 
 ### Section 10: Wire Evaluator (ori_eval)
-**File:** `section-10-wire-evaluator.md` | **Status:** Not Started
+**File:** `section-10-wire-evaluator.md` | **Status:** Complete
 
 ```
 ori_eval, evaluator, interpreter, dispatch
@@ -227,50 +228,63 @@ resolvers/mod.rs, all_iterator_variants, from_name
 ---
 
 ### Section 11: Wire ARC & Borrow Pass (ori_arc)
-**File:** `section-11-wire-arc-borrow.md` | **Status:** Not Started
+**File:** `section-11-wire-arc-borrow.md` | **Status:** Complete
 
 ```
 ori_arc, ARC, borrow, borrow inference, ownership
-borrowing_builtins, FxHashSet, infer_borrows
-borrowing_method_names, borrowing_builtin_names
-dependency direction, dependency inversion
-ori_ir → ori_arc, backwards dependency fix
-MemoryStrategy, RC increment, RC decrement
-receiver borrows, parameter ownership
-borrow/mod.rs, rc_insert/mod.rs, RcContext
+BuiltinOwnershipSets, BORROWING_METHOD_NAMES, infer_borrows_scc
+borrowing_builtin_names, borrowing_method_names, LazyLock
+ori_arc/borrow/builtins/mod.rs, BuiltinOwnershipSets::new, BuiltinOwnershipSets::empty
+MemoryStrategy, RC increment, RC decrement, ArcClassification
+receiver borrows, parameter ownership, consuming receiver, COW exclusion
+iterator exclusion, derived-value exclusion, TypeTag::Iterator, ".iter()"
+protocol builtins, ProtocolBuiltin, __index, ProtocolArgOwnership
+CONSUMING_RECEIVER_METHOD_NAMES, SHARING_METHOD_NAMES, COW arrays
+purity test, purity_no_heap_allocation_types, fixed-size array
+borrow/mod.rs, borrow/builtins/mod.rs, rc_insert/annotate.rs
+arc_queries/mod.rs, function_compiler/mod.rs, define_phase.rs
+ori_ir/builtin_methods/mod.rs, method_borrows_receiver, borrowing_names_from_table
 ```
 
 ---
 
 ### Section 12: Wire LLVM Backend (ori_llvm)
-**File:** `section-12-wire-llvm-backend.md` | **Status:** Not Started
+**File:** `section-12-wire-llvm-backend.md` | **Status:** Complete
 
 ```
 ori_llvm, LLVM, codegen, emission, backend
-emit_binary_op, is_str, is_float, type guards
-OpStrategy dispatch, strategy lookup, RuntimeCall
-BuiltinRegistration, receiver_borrowed, declare_builtins! macro
-ARC_PIPELINE_METHODS, BuiltinTable
-borrowing_builtin_names, delete function
-simplify macro, remove borrow: syntax
-arc_emitter/operators.rs, arc_emitter/mod.rs, builtins/mod.rs, builtins/traits.rs
+emit_binary_op, emit_unary_op, is_str, is_float, type guards
+OpStrategy dispatch, strategy lookup, RuntimeCall, IntInstr, FloatInstr, UnsignedCmp, BoolLogic
+idx_to_type_tag, TypeTag bridge, TypeInfo, Idx mapping
+BuiltinRegistration, receiver_borrowed, declare_builtins! macro, simplify macro
+arc_pipeline_methods, BuiltinTable, CODEGEN_ALIASES, TRAIT_DISPATCH_METHODS
+borrowing_names_from_table, delete function, test-only
+emit_int_binary_op, emit_float_binary_op, emit_unsigned_binary_op, emit_bool_binary_op
+emit_runtime_binary_op, emit_coalesce, op_strategy_for_binary, op_strategy_for_unary
+arc_emitter/operators.rs, builtins/mod.rs, builtins/traits.rs, builtins/tests.rs
 emit_str_cmp_predicate, CmpPredicate, ori_str_compare
+registry_covers_all_builtin_codegen, registry_op_strategies_cover_all_operators
+unsigned comparison, signed comparison, byte, char, bool, correctness fix
 ```
 
 ---
 
 ### Section 13: Migrate ori_ir & Legacy Consolidation
-**File:** `section-13-migrate-ori-ir.md` | **Status:** Not Started
+**File:** `section-13-migrate-ori-ir.md` | **Status:** Complete
 
 ```
 ori_ir, BUILTIN_METHODS, MethodDef, consolidation
 builtin_methods/mod.rs, BuiltinType, ReturnSpec, ParamSpec
-receiver_borrows, ReturnTag, migration
+receiver_borrows, ReturnTag, migration, Ownership
 DerivedTrait, format spec, FormatType, Alignment, Sign
-migration, deprecation, re-export, compatibility
+migration, deletion, clean break, field mapping
 4-way sync, derived trait sync, format variant sync
-borrowing_method_names, method_borrows_receiver
-find_method, methods_for, has_method
+find_method, methods_for, has_method, method_names_for
+consistency.rs, ir_method_set, TYPECK_METHODS_NOT_IN_IR, COLLECTION_TYPES
+stale comment cleanup, legacy_type_name, dispatch_coverage.rs
+ir.md, cargo doc, intra-crate dependency check
+design docs, MEMORY.md, TYPECK_BUILTIN_METHODS, EVAL_BUILTIN_METHODS
+dead re-export, bridge function, builtin_type_to_tag
 ```
 
 ---
@@ -308,9 +322,9 @@ progressive complexity, phase boundary, end-to-end verification
 | 06 | Collection & Wrapper Types | `section-06-collection-wrapper-types.md` | Complete |
 | 07 | Iterator Type Definitions | `section-07-iterator-types.md` | Complete |
 | 08 | Query API & Lookup Functions | `section-08-query-api.md` | Complete |
-| 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Not Started |
-| 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Not Started |
-| 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Not Started |
-| 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Not Started |
-| 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Not Started |
+| 09 | Wire Type Checker (ori_types) | `section-09-wire-type-checker.md` | Complete |
+| 10 | Wire Evaluator (ori_eval) | `section-10-wire-evaluator.md` | Complete |
+| 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Complete |
+| 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Complete |
+| 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Complete |
 | 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Not Started |

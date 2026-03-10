@@ -224,7 +224,7 @@ pub struct TypeCheckResult {
 
 Method calls resolve through a three-level dispatch, following the principle that more specific bindings take priority:
 
-1. **Built-in methods** — Compiler-defined methods on primitive and container types, dispatched on type tag + method name. The `TYPECK_BUILTIN_METHODS` constant array (sorted alphabetically by type and method name) serves as the manifest of all ~100+ built-in methods.
+1. **Built-in methods** — Compiler-defined methods on primitive and container types, dispatched on type tag + method name. The `ori_registry::BUILTIN_TYPES` array serves as the single source of truth for all ~100+ built-in methods, with each type's methods declared alongside their signatures and metadata.
 
 2. **Inherent methods** — `impl Type { ... }` blocks that add methods directly to a type without going through a trait.
 

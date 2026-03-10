@@ -2,6 +2,7 @@
 section: "15A"
 title: Attributes & Comments
 status: not-started
+reviewed: false
 tier: 5
 goal: Implement approved attribute syntax changes and comment restrictions
 sections:

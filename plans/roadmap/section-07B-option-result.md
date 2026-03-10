@@ -2,6 +2,7 @@
 section: 7B
 title: Option & Result
 status: in-progress
+reviewed: false
 tier: 2
 goal: Option and Result type methods
 spec:

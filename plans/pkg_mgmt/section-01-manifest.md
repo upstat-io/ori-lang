@@ -1,3 +1,30 @@
+---
+section: "01"
+title: "Manifest & Lock File"
+status: not-started
+goal: "Parse and validate oripk.toml and oripk.lock"
+depends_on: []
+sections:
+  - id: "1.1"
+    title: "Manifest Parsing (oripk.toml)"
+    status: not-started
+  - id: "1.2"
+    title: "Manifest Validation"
+    status: not-started
+  - id: "1.3"
+    title: "Lock File Parsing (oripk.lock)"
+    status: not-started
+  - id: "1.4"
+    title: "Lock File Generation"
+    status: not-started
+  - id: "1.5"
+    title: "Manifest Formatting"
+    status: not-started
+  - id: "1.6"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 1: Manifest & Lock File
 
 **Goal**: Parse and validate oripk.toml and oripk.lock

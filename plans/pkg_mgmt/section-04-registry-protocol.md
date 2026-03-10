@@ -1,3 +1,30 @@
+---
+section: "04"
+title: "Registry Protocol"
+status: not-started
+goal: "Define and implement registry HTTP API"
+depends_on: ["03"]
+sections:
+  - id: "4.1"
+    title: "API Endpoints"
+    status: not-started
+  - id: "4.2"
+    title: "Authentication"
+    status: not-started
+  - id: "4.3"
+    title: "Rate Limiting"
+    status: not-started
+  - id: "4.4"
+    title: "Package Archive Format"
+    status: not-started
+  - id: "4.5"
+    title: "Checksum Database"
+    status: not-started
+  - id: "4.6"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 4: Registry Protocol
 
 **Goal**: Define and implement registry HTTP API

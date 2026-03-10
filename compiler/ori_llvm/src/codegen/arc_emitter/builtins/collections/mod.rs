@@ -2,7 +2,7 @@
 //!
 //! Handles `length`/`len`, `is_empty`, `concat`, `iter` for List, Str, Map, Set, Range.
 //!
-//! This file is exempt from the 500-line limit (currently ~530 lines): it is a
+//! This file is exempt from the 500-line limit (currently ~528 lines): it is a
 //! pure `declare_builtins!` macro invocation generating a single `match`
 //! dispatch — splitting would fragment the lookup surface. The macro cannot be
 //! split across files. Method implementations live in sub-modules.
@@ -16,86 +16,86 @@ mod string_builtins;
 
 declare_builtins! { emitter, ctx;
     // str
-    ("str", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
-    ("str", "length", borrow: true) => emitter.emit_str_length(ctx.arg_vals[0]),
-    ("str", "len", borrow: true) => emitter.emit_str_length(ctx.arg_vals[0]),
-    ("str", "is_empty", borrow: true) => emitter.emit_str_is_empty(ctx.arg_vals[0]),
-    ("str", "concat", borrow: true) => {
+    ("str", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("str", "length") => emitter.emit_str_length(ctx.arg_vals[0]),
+    ("str", "len") => emitter.emit_str_length(ctx.arg_vals[0]),
+    ("str", "is_empty") => emitter.emit_str_is_empty(ctx.arg_vals[0]),
+    ("str", "concat") => {
         if ctx.arg_vals.len() >= 2 {
             Some(emitter.emit_str_runtime_call("ori_str_concat", ctx.arg_vals[0], ctx.arg_vals[1], true))
         } else {
             None
         }
     },
-    ("str", "to_str", borrow: true) => Some(ctx.arg_vals[0]),
-    ("str", "contains", borrow: true) => {
+    ("str", "to_str") => Some(ctx.arg_vals[0]),
+    ("str", "contains") => {
         if ctx.arg_vals.len() >= 2 {
             emitter.emit_str_bool_call("ori_str_contains", ctx.arg_vals[0], ctx.arg_vals[1])
         } else {
             None
         }
     },
-    ("str", "starts_with", borrow: true) => {
+    ("str", "starts_with") => {
         if ctx.arg_vals.len() >= 2 {
             emitter.emit_str_bool_call("ori_str_starts_with", ctx.arg_vals[0], ctx.arg_vals[1])
         } else {
             None
         }
     },
-    ("str", "ends_with", borrow: true) => {
+    ("str", "ends_with") => {
         if ctx.arg_vals.len() >= 2 {
             emitter.emit_str_bool_call("ori_str_ends_with", ctx.arg_vals[0], ctx.arg_vals[1])
         } else {
             None
         }
     },
-    ("str", "trim", borrow: true) => emitter.emit_str_unary_call("ori_str_trim", ctx.arg_vals[0]),
-    ("str", "substring", borrow: true) => {
+    ("str", "trim") => emitter.emit_str_unary_call("ori_str_trim", ctx.arg_vals[0]),
+    ("str", "substring") => {
         if ctx.arg_vals.len() >= 3 {
             emitter.emit_str_substring(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2])
         } else {
             None
         }
     },
-    ("str", "slice", borrow: true) => {
+    ("str", "slice") => {
         if ctx.arg_vals.len() >= 3 {
             emitter.emit_str_substring(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2])
         } else {
             None
         }
     },
-    ("str", "to_uppercase", borrow: true) => emitter.emit_str_unary_call("ori_str_to_uppercase", ctx.arg_vals[0]),
-    ("str", "to_lowercase", borrow: true) => emitter.emit_str_unary_call("ori_str_to_lowercase", ctx.arg_vals[0]),
-    ("str", "replace", borrow: true) => {
+    ("str", "to_uppercase") => emitter.emit_str_unary_call("ori_str_to_uppercase", ctx.arg_vals[0]),
+    ("str", "to_lowercase") => emitter.emit_str_unary_call("ori_str_to_lowercase", ctx.arg_vals[0]),
+    ("str", "replace") => {
         if ctx.arg_vals.len() >= 3 {
             emitter.emit_str_replace(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2])
         } else {
             None
         }
     },
-    ("str", "repeat", borrow: true) => {
+    ("str", "repeat") => {
         if ctx.arg_vals.len() >= 2 {
             emitter.emit_str_repeat(ctx.arg_vals[0], ctx.arg_vals[1])
         } else {
             None
         }
     },
-    ("str", "chars", borrow: true) => emitter.emit_str_chars(ctx.arg_vals[0]),
-    ("str", "split", borrow: true) => {
+    ("str", "chars") => emitter.emit_str_chars(ctx.arg_vals[0]),
+    ("str", "split") => {
         if ctx.arg_vals.len() >= 2 {
             emitter.emit_str_split(ctx.arg_vals[0], ctx.arg_vals[1])
         } else {
             None
         }
     },
-    ("str", "iter", borrow: true) => emitter.emit_str_iter(ctx.arg_vals[0]),
+    ("str", "iter") => emitter.emit_str_iter(ctx.arg_vals[0]),
     // list
-    ("list", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
-    ("list", "count", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
-    ("list", "length", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
-    ("list", "len", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
-    ("list", "is_empty", borrow: true) => emitter.emit_list_is_empty(ctx.arg_vals[0]),
-    ("list", "concat", borrow: false) => {
+    ("list", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("list", "count") => emitter.emit_list_length(ctx.arg_vals[0]),
+    ("list", "length") => emitter.emit_list_length(ctx.arg_vals[0]),
+    ("list", "len") => emitter.emit_list_length(ctx.arg_vals[0]),
+    ("list", "is_empty") => emitter.emit_list_is_empty(ctx.arg_vals[0]),
+    ("list", "concat") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -109,7 +109,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "add", borrow: false) => {
+    ("list", "add") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -123,7 +123,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "push", borrow: false) => {
+    ("list", "push") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -137,21 +137,21 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "first", borrow: true) => {
+    ("list", "first") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_first(ctx.arg_vals[0], *element)
         } else {
             None
         }
     },
-    ("list", "last", borrow: true) => {
+    ("list", "last") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_last(ctx.arg_vals[0], *element)
         } else {
             None
         }
     },
-    ("list", "pop", borrow: false) => {
+    ("list", "pop") => {
         if let TypeInfo::List { element } = ctx.type_info {
             // pop() returns Option<T> in the type checker — COW list mutation
             // for pop requires ARC pipeline cooperation (dual return: element + modified list).
@@ -161,7 +161,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "contains", borrow: true) => {
+    ("list", "contains") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 emitter.emit_list_contains(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -172,7 +172,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "reverse", borrow: false) => {
+    ("list", "reverse") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
             let r = emitter.emit_list_reverse_cow(ctx.arg_vals[0], *element, cm);
@@ -182,7 +182,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "sort", borrow: false) => {
+    ("list", "sort") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
             let r = emitter.emit_list_sort_cow(ctx.arg_vals[0], *element, cm);
@@ -192,7 +192,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "sort_stable", borrow: false) => {
+    ("list", "sort_stable") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
             let r = emitter.emit_list_sort_stable_cow(ctx.arg_vals[0], *element, cm);
@@ -202,7 +202,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "set", borrow: false) => {
+    ("list", "set") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -216,7 +216,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "insert", borrow: false) => {
+    ("list", "insert") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -230,7 +230,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "remove", borrow: false) => {
+    ("list", "remove") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -244,7 +244,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "slice", borrow: true) => {
+    ("list", "slice") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
                 emitter.emit_list_slice(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element)
@@ -255,7 +255,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "take", borrow: true) => {
+    ("list", "take") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 emitter.emit_list_take_slice(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -266,7 +266,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "drop", borrow: true) => {
+    ("list", "drop") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 emitter.emit_list_drop_slice(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -277,7 +277,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "iter", borrow: true) => {
+    ("list", "iter") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
         } else {
@@ -285,11 +285,11 @@ declare_builtins! { emitter, ctx;
         }
     },
     // map
-    ("map", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
-    ("map", "length", borrow: true) => emitter.emit_map_length(ctx.arg_vals[0]),
-    ("map", "len", borrow: true) => emitter.emit_map_length(ctx.arg_vals[0]),
-    ("map", "is_empty", borrow: true) => emitter.emit_map_is_empty(ctx.arg_vals[0]),
-    ("map", "contains_key", borrow: true) => {
+    ("map", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("map", "length") => emitter.emit_map_length(ctx.arg_vals[0]),
+    ("map", "len") => emitter.emit_map_length(ctx.arg_vals[0]),
+    ("map", "is_empty") => emitter.emit_map_is_empty(ctx.arg_vals[0]),
+    ("map", "contains_key") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, .. } = ctx.type_info {
                 emitter.emit_map_contains_key(ctx.arg_vals[0], ctx.arg_vals[1], *key)
@@ -300,21 +300,21 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("map", "keys", borrow: true) => {
+    ("map", "keys") => {
         if let TypeInfo::Map { key, .. } = ctx.type_info {
             emitter.emit_map_keys(ctx.arg_vals[0], *key)
         } else {
             None
         }
     },
-    ("map", "values", borrow: true) => {
+    ("map", "values") => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
             emitter.emit_map_values(ctx.arg_vals[0], *key, *value)
         } else {
             None
         }
     },
-    ("map", "get", borrow: true) => {
+    ("map", "get") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
                 emitter.emit_map_get(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value)
@@ -325,7 +325,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("map", "insert", borrow: false) => {
+    ("map", "insert") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -339,14 +339,14 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("map", "iter", borrow: true) => {
+    ("map", "iter") => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
             emitter.emit_map_iter(ctx.arg_vals[0], *key, *value)
         } else {
             None
         }
     },
-    ("map", "remove", borrow: false) => {
+    ("map", "remove") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -361,11 +361,11 @@ declare_builtins! { emitter, ctx;
         }
     },
     // Set
-    ("Set", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
-    ("Set", "length", borrow: true) => emitter.emit_set_length(ctx.arg_vals[0]),
-    ("Set", "len", borrow: true) => emitter.emit_set_length(ctx.arg_vals[0]),
-    ("Set", "is_empty", borrow: true) => emitter.emit_set_is_empty(ctx.arg_vals[0]),
-    ("Set", "contains", borrow: true) => {
+    ("Set", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("Set", "length") => emitter.emit_set_length(ctx.arg_vals[0]),
+    ("Set", "len") => emitter.emit_set_length(ctx.arg_vals[0]),
+    ("Set", "is_empty") => emitter.emit_set_is_empty(ctx.arg_vals[0]),
+    ("Set", "contains") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 emitter.emit_set_contains(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -376,7 +376,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "insert", borrow: false) => {
+    ("Set", "insert") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -390,7 +390,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "remove", borrow: false) => {
+    ("Set", "remove") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -404,7 +404,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "union", borrow: false) => {
+    ("Set", "union") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -418,7 +418,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "intersection", borrow: false) => {
+    ("Set", "intersection") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -432,7 +432,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "difference", borrow: false) => {
+    ("Set", "difference") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -446,21 +446,21 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "to_list", borrow: true) => {
+    ("Set", "to_list") => {
         if let TypeInfo::Set { element } = ctx.type_info {
             emitter.emit_set_to_list(ctx.arg_vals[0], *element)
         } else {
             None
         }
     },
-    ("Set", "into", borrow: true) => {
+    ("Set", "into") => {
         if let TypeInfo::Set { element } = ctx.type_info {
             emitter.emit_set_to_list(ctx.arg_vals[0], *element)
         } else {
             None
         }
     },
-    ("Set", "iter", borrow: true) => {
+    ("Set", "iter") => {
         if let TypeInfo::Set { element } = ctx.type_info {
             emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
         } else {
@@ -468,7 +468,7 @@ declare_builtins! { emitter, ctx;
         }
     },
     // range
-    ("range", "iter", borrow: true) => emitter.emit_range_iter(ctx.arg_vals[0]),
+    ("range", "iter") => emitter.emit_range_iter(ctx.arg_vals[0]),
 }
 
 use ori_types::Idx;

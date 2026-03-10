@@ -104,9 +104,7 @@ jobs:
           git config user.name "ori-release-bot[bot]"
           git config user.email "${{ secrets.RELEASE_APP_ID }}+ori-release-bot[bot]@users.noreply.github.com"
           git add BUILD_NUMBER Cargo.toml compiler/ori_llvm/Cargo.toml compiler/ori_rt/Cargo.toml \
-                  tools/ori-lsp/Cargo.toml website/playground-wasm/Cargo.toml \
-                  website/src/layouts/BaseLayout.astro \
-                  website/package.json editors/vscode-ori/package.json
+                  tools/ori-lsp/Cargo.toml editors/vscode-ori/package.json
           if git diff --cached --quiet; then
             echo "Versions already in sync — no commit needed"
           else

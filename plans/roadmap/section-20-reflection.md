@@ -2,6 +2,7 @@
 section: 20
 title: Runtime Reflection
 status: not-started
+reviewed: false
 tier: 8
 goal: Enable runtime type introspection and dynamic operations
 spec:

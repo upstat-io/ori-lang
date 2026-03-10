@@ -257,6 +257,95 @@ fn find_method_alias_methods_work() {
     assert!(find_method(TypeTag::Str, "len").is_some());
 }
 
+// borrowing_method_names tests
+
+#[test]
+fn borrowing_names_match_type_defs() {
+    // Derive the expected set directly from BUILTIN_TYPES
+    let derived: std::collections::HashSet<&str> = BUILTIN_TYPES
+        .iter()
+        .filter(|td| td.tag != TypeTag::Iterator)
+        .flat_map(|td| td.methods.iter())
+        .filter(|m| m.receiver == Ownership::Borrow && m.name != "iter")
+        .map(|m| m.name)
+        .collect();
+
+    let exported: std::collections::HashSet<&str> =
+        borrowing_method_names().iter().copied().collect();
+    assert_eq!(
+        derived, exported,
+        "borrowing_method_names() drifted from BUILTIN_TYPES"
+    );
+}
+
+#[test]
+fn borrowing_method_names_is_sorted() {
+    let names = borrowing_method_names();
+    for pair in names.windows(2) {
+        assert!(
+            pair[0] < pair[1],
+            "borrowing_method_names() not sorted: {:?} >= {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+}
+
+#[test]
+fn borrowing_method_names_excludes_iterator_methods() {
+    let names = borrowing_method_names();
+    // Iterator-exclusive methods should not appear (these names only exist
+    // on the Iterator TypeDef, not on collection types like List)
+    assert!(
+        !names.contains(&"next"),
+        "next is an iterator-exclusive method and should be excluded"
+    );
+    assert!(
+        !names.contains(&"chain"),
+        "chain is an iterator-exclusive method and should be excluded"
+    );
+    assert!(
+        !names.contains(&"next_back"),
+        "next_back is an iterator-exclusive method and should be excluded"
+    );
+    assert!(
+        !names.contains(&"cycle"),
+        "cycle is an iterator-exclusive method and should be excluded"
+    );
+    assert!(
+        !names.contains(&"cycle"),
+        "cycle is an iterator-exclusive method and should be excluded"
+    );
+}
+
+#[test]
+fn borrowing_method_names_excludes_iter() {
+    let names = borrowing_method_names();
+    assert!(
+        !names.contains(&"iter"),
+        "iter creates a derived value and should be excluded"
+    );
+}
+
+#[test]
+fn borrowing_method_names_has_no_duplicates() {
+    let names = borrowing_method_names();
+    let unique: std::collections::HashSet<&str> = names.iter().copied().collect();
+    assert_eq!(
+        names.len(),
+        unique.len(),
+        "borrowing_method_names() contains duplicates"
+    );
+}
+
+#[test]
+fn borrowing_method_names_nonempty() {
+    assert!(
+        !borrowing_method_names().is_empty(),
+        "borrowing_method_names() should not be empty"
+    );
+}
+
 // borrowing_methods count tests
 
 #[test]

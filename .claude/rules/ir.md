@@ -58,4 +58,5 @@ paths:
 - `ast/`: AST node definitions
 - `visitor/`: Visitor trait (`mod.rs`) + `walk_expr` expression walker (`walk_expr.rs`)
 - `derives/`: DerivedTrait enum (source of truth for all derivable traits)
-- `builtin_methods/`: Built-in method name constants
+- `builtin_type/`: BuiltinType enum (IR-level type identity, TypeId bridge)
+- `format_spec.rs`: Format spec parser (FormatType, Align, Sign, ParsedFormatSpec)

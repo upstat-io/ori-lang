@@ -2,6 +2,7 @@
 plan: "repr-opt"
 title: "Representation Optimization & ARC Intelligence: Exhaustive Implementation Plan"
 status: not-started
+reviewed: false
 supersedes:
   - "docs/ori_lang/proposals/approved/representation-optimization-proposal.md (implements)"
 references:

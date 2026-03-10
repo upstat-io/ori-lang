@@ -2,6 +2,7 @@
 section: 8
 title: Pattern Evaluation
 status: in-progress
+reviewed: false
 tier: 3
 goal: All patterns evaluate correctly
 spec:

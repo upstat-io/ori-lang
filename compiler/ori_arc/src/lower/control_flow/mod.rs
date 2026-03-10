@@ -13,8 +13,6 @@ use ori_ir::{Name, Span};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
-use super::ArcProblem;
-
 mod for_loops;
 mod for_yield;
 mod loops;
@@ -323,32 +321,21 @@ impl ArcLowerer<'_> {
                     );
                 }
             }
-            CanExpr::Field { receiver, field: _ } => {
-                let _recv = self.lower_expr(receiver);
-                // TODO(roadmap/section-05): field assignment in ARC lowering — blocked
-                // on COW codegen. The evaluator desugars `obj.field = val` into
-                // `obj = { ...obj, field: val }` before it reaches ARC lowering, so
-                // this arm should be unreachable once desugaring is complete.
-                self.problems.push(ArcProblem::UnsupportedPattern {
-                    kind: "field assignment",
-                    span,
-                });
+            CanExpr::Field { .. } => {
+                unreachable!(
+                    "field assignment should be desugared by evaluator before ARC lowering"
+                );
             }
-            CanExpr::Index { receiver, index } => {
-                let _recv = self.lower_expr(receiver);
-                let _idx_var = self.lower_expr(index);
-                // TODO(roadmap/section-05): index assignment in ARC lowering — blocked
-                // on COW codegen. See field assignment comment above.
-                self.problems.push(ArcProblem::UnsupportedPattern {
-                    kind: "index assignment",
-                    span,
-                });
+            CanExpr::Index { .. } => {
+                unreachable!(
+                    "index assignment should be desugared by evaluator before ARC lowering"
+                );
             }
             _ => {
-                self.problems.push(ArcProblem::UnsupportedPattern {
-                    kind: "assignment target",
-                    span,
-                });
+                unreachable!(
+                    "unexpected assignment target in ARC lowering: all complex targets \
+                     should be desugared by the evaluator"
+                );
             }
         }
 

@@ -45,16 +45,20 @@ fn compute_arg_ownership(
         {
             return vec![ArgOwnership::Borrowed; arg_count];
         }
-        // Builtin method with borrowing receiver (e.g., len, is_empty).
-        if borrowing_builtins.contains(&callee) {
-            return vec![ArgOwnership::Borrowed; arg_count];
-        }
-        // COW method consuming only the receiver (e.g., remove, union).
-        // Non-receiver args are borrowed (comparison keys, read-only sets).
+        // COW method consuming only the receiver (e.g., remove, union, insert
+        // for map/set). Non-receiver args are borrowed (comparison keys,
+        // read-only sets). Must be checked BEFORE borrowing_builtins because
+        // the registry marks these methods as borrowing (correct for type
+        // checking) but the runtime has consuming semantics (takes ownership
+        // of the receiver buffer).
         if consuming_receiver_only.contains(&callee) && arg_count > 0 {
             let mut ownership = vec![ArgOwnership::Borrowed; arg_count];
             ownership[0] = ArgOwnership::Owned;
             return ownership;
+        }
+        // Builtin method with borrowing receiver (e.g., len, is_empty).
+        if borrowing_builtins.contains(&callee) {
+            return vec![ArgOwnership::Borrowed; arg_count];
         }
         // Protocol builtins with explicit per-arg ownership.
         // Uses the ProtocolBuiltin::arg_ownership() table as source of truth.

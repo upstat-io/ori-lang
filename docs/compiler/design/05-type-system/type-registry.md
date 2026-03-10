@@ -288,18 +288,20 @@ The dual indexing supports both lookup directions efficiently:
 
 When a method is called on a value, the type checker searches three layers in priority order:
 
-1. **Built-in methods** — Compiler-defined methods on primitive and container types. Dispatched on type tag + method name via `resolve_builtin_method()`. The `TYPECK_BUILTIN_METHODS` constant array serves as the manifest:
+1. **Built-in methods** — Compiler-defined methods on primitive and container types. Dispatched on type tag + method name via `resolve_builtin_method()`. The `ori_registry::BUILTIN_TYPES` array serves as the manifest — each entry is a `TypeDef` containing the type name, its tag, and the full list of methods with their signatures and metadata:
 
 ```rust
-pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
-    ("Iterator", "all"),
-    ("Iterator", "any"),
-    // ... ~100+ entries, sorted alphabetically by (type, method)
-    ("str", "trim"),
+pub static BUILTIN_TYPES: &[TypeDef] = &[
+    TypeDef { name: "Iterator", tag: TypeTag::Iterator, methods: &[
+        MethodDef { name: "all", ... },
+        MethodDef { name: "any", ... },
+        // ...
+    ]},
+    // ... all built-in types with their methods
 ];
 ```
 
-This array is sorted, enabling binary search and serving as a single source of truth for all built-in methods. A test verifies the sorted order is maintained.
+This registry is the single source of truth for all built-in methods across the type checker, evaluator, and LLVM backend. Sync tests in each consumer verify coverage against it.
 
 2. **Inherent methods** — `impl Type { ... }` blocks. These are the type's "own" methods, not associated with any trait.
 

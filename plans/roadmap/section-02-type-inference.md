@@ -2,6 +2,7 @@
 section: 2
 title: Complete Type Inference
 status: in-progress
+reviewed: false
 tier: 1
 goal: Full Hindley-Milner type inference
 spec:
