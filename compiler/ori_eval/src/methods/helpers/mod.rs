@@ -4,9 +4,6 @@ use std::fmt::Write;
 
 use ori_patterns::{wrong_arg_count, wrong_arg_type, EvalError, EvalResult, ScalarInt, Value};
 
-// EVAL_BUILTIN_METHODS array removed — BuiltinMethodResolver now reads
-// from ori_registry::BUILTIN_TYPES directly (Section 10.1).
-
 /// Validate expected argument count.
 #[inline]
 pub fn require_args(method: &str, expected: usize, actual: usize) -> Result<(), EvalError> {

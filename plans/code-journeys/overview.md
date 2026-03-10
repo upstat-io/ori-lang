@@ -18,19 +18,21 @@ Code journeys trace a single Ori program through the entire compiler pipeline (l
 | J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 8.7/10 | Borrow elision works, ARC balanced, correct iterator protocol |
 | J11 | "I am a derived trait" | derived_traits, trait_methods, sum_types | 33 | PASS | PASS | 9.7/10 | Excellent derived Eq for structs/unit-sums/payload-sums |
 | J12 | "I am an option" | option_type, pattern_matching, error_propagation | 33 | PASS | PASS | 9.1/10 | ? operator zero overhead, zero ARC for scalar Options |
+| J13 | "I am an iterator" | iterators, iterator_adapters, lists, closures | 55 | PASS | PASS | 7.5/10 | Runtime delegation sound, dead null-env rc_dec caps ARC score |
 
-**All 12 journeys pass on both eval and AOT backends.** No behavioral mismatches, no crashes, no wrong results.
+**All 13 journeys pass on both eval and AOT backends.** No behavioral mismatches, no crashes, no wrong results.
 
 ## Recurring Issues
 
 | Issue | Severity | Journeys | Description |
 |-------|----------|----------|-------------|
-| Empty trampoline/passthrough blocks | LOW | J2, J3, J5, J7, J9, J10, J12 | Blocks containing only `br label %next` — could be eliminated at emission time |
+| Empty trampoline/passthrough blocks | LOW | J2, J3, J5, J7, J9, J10, J12, J13 | Blocks containing only `br label %next` — could be eliminated at emission time |
 | Missing `uwtable` on C main wrapper | LOW | J1, J2, J7, J8 | The `@main` entry wrapper uses attribute group without `uwtable` |
 | Missing `noundef` on some parameters | LOW | J4, J6, J8, J11 | Struct-typed and Box-typed params missing `noundef` annotation |
 | Missing `memory(...)` annotations | LOW | J5, J7, J12 | Pure read-only or side-effect-free functions lack `memory(read)` or `memory(none)` |
 | Redundant entry block branch | LOW | J3, J7, J12 | TCO loop lowering and loop/for emit an entry block with only `br label %loop.header` |
-| Attribute compliance below 80% | LOW | J3 (77.8%), J5 (~58%) | Closures' indirect call targets and recursive functions have lower compliance |
+| Attribute compliance below 80% | LOW | J3 (77.8%), J5 (~58%), J13 (~44%) | Closures' indirect call targets, recursive functions, and iterator trampolines have lower compliance |
+| Dead null-env rc_dec with `br i1 true` | MEDIUM | J13 | Non-capturing closures get null env pointers; ARC pipeline emits dead `ori_rc_dec` guarded by constant-true branch |
 ## Resolved Issues
 
 ### ARC metrics false-positive on heap types — FIXED
@@ -66,21 +68,22 @@ Code journeys trace a single Ori program through the entire compiler pipeline (l
 |------------|----------|-----------|-------|
 | Simple (J1-J4) | 4 | 9.4 | 8.9–9.8 |
 | Moderate (J5-J8) | 4 | 9.4 | 8.8–9.8 |
-| Complex (J9-J12) | 4 | 9.1 | 8.7–9.7 |
-| **Overall** | **12** | **9.3** | **8.7–9.8** |
+| Complex (J9-J13) | 5 | 8.8 | 7.5–9.7 |
+| **Overall** | **13** | **9.1** | **7.5–9.8** |
 
 ### Score Distribution
 
 - **9.5+** (near-perfect): J1 (9.8), J4 (9.7), J6 (9.7), J8 (9.8), J11 (9.7) — arithmetic, structs, pattern matching, generics, derived traits
 - **9.0–9.4** (strong): J2 (9.2), J7 (9.2), J12 (9.1) — branching, loops, options
 - **8.5–8.9** (solid): J3 (8.9), J5 (8.8), J9 (8.8), J10 (8.7) — recursion, closures, strings, lists
+- **7.0–8.4** (needs work): J13 (7.5) — iterators (dead null-env rc_dec caps ARC score)
 
 ### Observations
 
 - **Scalar-only journeys score highest** — when no ARC is needed, the compiler's codegen is near-perfect (J1, J4, J6, J8, J11 all 9.7+)
 - **Heap-allocated types now score well** — strings (J9: 8.8) and lists (J10: 8.7) score 10/10 ARC after tooling fixes (effect summaries + drop exclusion + landingpad exclusion); remaining deductions are attribute compliance and control flow
 - **Attribute compliance is the most common deduction** — across all journeys, missing attributes (memory, noundef, uwtable) are the primary source of non-NOTE findings
-- **Instruction efficiency is excellent** — 7 of 12 journeys have functions at exactly 1.00x ratio (OPTIMAL), and none exceed 1.14x maximum
+- **Instruction efficiency is excellent** — 8 of 13 journeys have functions at exactly 1.00x ratio (OPTIMAL), and none exceed 1.14x maximum
 - **Struct improvement** — J4 jumped from 8.5 to 9.7 since the previous run, confirming a codegen improvement in struct handling
 - **? operator is zero-overhead** — J12 confirms that `?` propagation compiles to the same code as manual match
 
@@ -111,3 +114,4 @@ The `ir_parser_internal.py` now handles both bare `@name` and quoted `@"name"` L
 - [Journey 10: "I am a list"](10-lists-results.md)
 - [Journey 11: "I am a derived trait"](11-derived-traits-results.md)
 - [Journey 12: "I am an option"](12-options-results.md)
+- [Journey 13: "I am an iterator"](13-iterators-results.md)

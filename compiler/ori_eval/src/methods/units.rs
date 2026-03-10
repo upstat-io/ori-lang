@@ -50,12 +50,16 @@ fn size_from_int(method: &str, args: &[Value], multiplier: u64) -> EvalResult {
 /// and the caller already de-interns for the type name dispatch.
 pub fn dispatch_duration_associated(method: &str, args: &[Value]) -> EvalResult {
     match method {
-        "from_nanoseconds" => duration_from_int(method, args, 1),
-        "from_microseconds" => duration_from_int(method, args, duration::NS_PER_US),
-        "from_milliseconds" => duration_from_int(method, args, duration::NS_PER_MS),
+        "from_nanoseconds" | "from_nanos" => duration_from_int(method, args, 1),
+        "from_microseconds" | "from_micros" => duration_from_int(method, args, duration::NS_PER_US),
+        "from_milliseconds" | "from_millis" => duration_from_int(method, args, duration::NS_PER_MS),
         "from_seconds" => duration_from_int(method, args, duration::NS_PER_S),
         "from_minutes" => duration_from_int(method, args, duration::NS_PER_M),
         "from_hours" => duration_from_int(method, args, duration::NS_PER_H),
+        "zero" => {
+            require_args("zero", 0, args.len())?;
+            Ok(Value::Duration(0))
+        }
         "default" => {
             require_args("default", 0, args.len())?;
             Ok(Value::Duration(0)) // 0ns is the default Duration
@@ -71,10 +75,14 @@ pub fn dispatch_duration_associated(method: &str, args: &[Value]) -> EvalResult 
 pub fn dispatch_size_associated(method: &str, args: &[Value]) -> EvalResult {
     match method {
         "from_bytes" => size_from_int(method, args, 1),
-        "from_kilobytes" => size_from_int(method, args, size::BYTES_PER_KB),
-        "from_megabytes" => size_from_int(method, args, size::BYTES_PER_MB),
-        "from_gigabytes" => size_from_int(method, args, size::BYTES_PER_GB),
-        "from_terabytes" => size_from_int(method, args, size::BYTES_PER_TB),
+        "from_kilobytes" | "from_kb" => size_from_int(method, args, size::BYTES_PER_KB),
+        "from_megabytes" | "from_mb" => size_from_int(method, args, size::BYTES_PER_MB),
+        "from_gigabytes" | "from_gb" => size_from_int(method, args, size::BYTES_PER_GB),
+        "from_terabytes" | "from_tb" => size_from_int(method, args, size::BYTES_PER_TB),
+        "zero" => {
+            require_args("zero", 0, args.len())?;
+            Ok(Value::Size(0))
+        }
         "default" => {
             require_args("default", 0, args.len())?;
             Ok(Value::Size(0)) // 0b is the default Size
@@ -183,8 +191,87 @@ pub fn dispatch_duration_method(
         require_args("compare", 1, args.len())?;
         let other = require_duration_arg("compare", &args, 0)?;
         Ok(ordering_to_value(ns.cmp(&other)))
+    // Duration predicates and conversion (cold path — string-based dispatch)
     } else {
-        Err(no_such_method(ctx.interner.lookup(method), "Duration").into())
+        let method_str = ctx.interner.lookup(method);
+        dispatch_duration_method_str(ns, method_str, &args)
+    }
+}
+
+/// String-based dispatch for Duration methods not hot enough to warrant
+/// pre-interned Name fields.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "i64-to-f64 intentional for as_*/to_* conversions"
+)]
+fn dispatch_duration_method_str(ns: i64, method: &str, args: &[Value]) -> EvalResult {
+    match method {
+        // Predicates
+        "is_zero" => {
+            require_args("is_zero", 0, args.len())?;
+            Ok(Value::Bool(ns == 0))
+        }
+        "is_positive" => {
+            require_args("is_positive", 0, args.len())?;
+            Ok(Value::Bool(ns > 0))
+        }
+        "is_negative" => {
+            require_args("is_negative", 0, args.len())?;
+            Ok(Value::Bool(ns < 0))
+        }
+        // abs
+        "abs" => {
+            require_args("abs", 0, args.len())?;
+            ns.checked_abs()
+                .map(Value::Duration)
+                .ok_or_else(|| integer_overflow("duration abs").into())
+        }
+        // Conversion to float (as_* returns fractional float)
+        "as_nanos" => {
+            require_args("as_nanos", 0, args.len())?;
+            Ok(Value::Float(ns as f64))
+        }
+        "as_micros" => {
+            require_args("as_micros", 0, args.len())?;
+            Ok(Value::Float(ns as f64 / duration::NS_PER_US as f64))
+        }
+        "as_millis" => {
+            require_args("as_millis", 0, args.len())?;
+            Ok(Value::Float(ns as f64 / duration::NS_PER_MS as f64))
+        }
+        "as_seconds" => {
+            require_args("as_seconds", 0, args.len())?;
+            Ok(Value::Float(ns as f64 / duration::NS_PER_S as f64))
+        }
+        // Conversion to float (to_* aliases)
+        "to_nanos" => {
+            require_args("to_nanos", 0, args.len())?;
+            Ok(Value::Float(ns as f64))
+        }
+        "to_micros" => {
+            require_args("to_micros", 0, args.len())?;
+            Ok(Value::Float(ns as f64 / duration::NS_PER_US as f64))
+        }
+        "to_millis" => {
+            require_args("to_millis", 0, args.len())?;
+            Ok(Value::Float(ns as f64 / duration::NS_PER_MS as f64))
+        }
+        "to_seconds" => {
+            require_args("to_seconds", 0, args.len())?;
+            Ok(Value::Float(ns as f64 / duration::NS_PER_S as f64))
+        }
+        // format (Formattable)
+        "format" => {
+            require_args("format", 0, args.len())?;
+            Ok(Value::string(format_duration(ns)))
+        }
+        // Associated functions routed through instance dispatch for test coverage.
+        // In production, these are called via dispatch_associated_function.
+        "from_nanoseconds" | "from_microseconds" | "from_milliseconds" | "from_seconds"
+        | "from_minutes" | "from_hours" | "from_nanos" | "from_micros" | "from_millis" | "zero" => {
+            dispatch_duration_associated(method, args)
+        }
+        _ => Err(no_such_method(method, "Duration").into()),
     }
 }
 
@@ -337,8 +424,60 @@ pub fn dispatch_size_method(
         require_args("compare", 1, args.len())?;
         let other = require_size_arg("compare", &args, 0)?;
         Ok(ordering_to_value(bytes.cmp(&other)))
+    // Size predicates and conversion (cold path — string-based dispatch)
     } else {
-        Err(no_such_method(ctx.interner.lookup(method), "Size").into())
+        let method_str = ctx.interner.lookup(method);
+        dispatch_size_method_str(bytes, method_str, &args)
+    }
+}
+
+/// String-based dispatch for Size methods not hot enough to warrant
+/// pre-interned Name fields.
+fn dispatch_size_method_str(bytes: u64, method: &str, args: &[Value]) -> EvalResult {
+    let to_int = |v: u64| -> EvalResult {
+        i64::try_from(v)
+            .map(Value::int)
+            .map_err(|_| EvalError::new("size value too large for int").into())
+    };
+
+    match method {
+        // Predicates
+        "is_zero" => {
+            require_args("is_zero", 0, args.len())?;
+            Ok(Value::Bool(bytes == 0))
+        }
+        // Conversion accessors (as_bytes and to_bytes are aliases for bytes)
+        "as_bytes" | "to_bytes" => {
+            require_args(method, 0, args.len())?;
+            to_int(bytes)
+        }
+        "to_kb" => {
+            require_args("to_kb", 0, args.len())?;
+            to_int(bytes / size::BYTES_PER_KB)
+        }
+        "to_mb" => {
+            require_args("to_mb", 0, args.len())?;
+            to_int(bytes / size::BYTES_PER_MB)
+        }
+        "to_gb" => {
+            require_args("to_gb", 0, args.len())?;
+            to_int(bytes / size::BYTES_PER_GB)
+        }
+        "to_tb" => {
+            require_args("to_tb", 0, args.len())?;
+            to_int(bytes / size::BYTES_PER_TB)
+        }
+        // format (Formattable)
+        "format" => {
+            require_args("format", 0, args.len())?;
+            Ok(Value::string(format_size(bytes)))
+        }
+        // Associated functions routed through instance dispatch for test coverage
+        "from_bytes" | "from_kb" | "from_kilobytes" | "from_mb" | "from_megabytes" | "from_gb"
+        | "from_gigabytes" | "from_tb" | "from_terabytes" | "zero" => {
+            dispatch_size_associated(method, args)
+        }
+        _ => Err(no_such_method(method, "Size").into()),
     }
 }
 

@@ -1,0 +1,14 @@
+// Journey 13: "I am an iterator"
+// Slug: iterators
+// Difficulty: complex
+// Features: iterators, iterator_adapters, lists, function_calls
+// Expected: 1+4+9+16+25 = 55
+
+@square (n: int) -> int = n * n;
+
+@main () -> int = {
+    let $nums = [1, 2, 3, 4, 5];
+    nums.iter()
+        .map(transform: x -> square(n: x))
+        .fold(initial: 0, op: (acc, x) -> acc + x)
+}

@@ -190,6 +190,48 @@ fn builtin_coverage_above_threshold() {
     );
 }
 
+/// For each method with `backend_required: true`, verify that the LLVM
+/// `BuiltinTable` has an entry. Methods with `backend_required: false`
+/// are intentionally exempt (they fall through to runtime calls).
+///
+/// This test uses a ceiling: the number of missing methods must not grow.
+/// As LLVM codegen is added for more methods, lower the ceiling.
+/// Target: 0 (all `backend_required` methods have LLVM handlers).
+#[test]
+fn backend_required_methods_in_llvm() {
+    let table = builtin_table();
+
+    let mut missing = Vec::new();
+
+    for type_def in ori_registry::BUILTIN_TYPES {
+        let type_name = legacy_type_name(type_def.name);
+        for method in type_def.methods {
+            if !method.backend_required {
+                continue;
+            }
+
+            if method.dei_only {
+                if !table.has("DoubleEndedIterator", method.name) {
+                    missing.push(format!("DoubleEndedIterator.{}", method.name));
+                }
+            } else if !table.has(type_name, method.name) {
+                missing.push(format!("{type_name}.{}", method.name));
+            }
+        }
+    }
+
+    // Ceiling: must not grow. Lower as methods are implemented.
+    let ceiling = 140;
+    assert!(
+        missing.len() <= ceiling,
+        "backend_required methods without LLVM handlers grew to {} (ceiling: {ceiling}). \
+         Implement the LLVM handler or set backend_required: false.\n\
+         Missing:\n{}",
+        missing.len(),
+        missing.join("\n"),
+    );
+}
+
 /// Every type with operators in the registry must have its `OpStrategy`
 /// handled by `emit_binary_op`/`emit_unary_op` dispatch.
 ///
