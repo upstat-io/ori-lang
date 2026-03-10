@@ -10,6 +10,15 @@
 //! (`next_back`, `rev`, `last`, `rfind`, `rfold`). For
 //! `TypeTag::DoubleEndedIterator`, all methods are visible. Both tags
 //! resolve to the same `TypeDef` via [`TypeTag::base_type()`].
+//!
+//! ## Method Lookup Behavior
+//!
+//! - [`find_method()`]: For `TypeTag::Iterator`, excludes DEI-only methods
+//!   (`next_back`, `rev`, `last`, `rfind`, `rfold`). Use this for type-checking
+//!   dispatch where only the receiver's actual trait determines visibility.
+//! - [`methods_for()`]: Returns all methods for a tag (including DEI methods
+//!   on Iterator). Use this for exhaustive listings (e.g., test assertions,
+//!   documentation generation).
 
 use std::sync::LazyLock;
 
@@ -293,6 +302,15 @@ pub fn is_dei_only(method: &str) -> bool {
 
 /// Map registry `PascalCase` type names to the lowercase convention
 /// used by LLVM codegen tests and eval consistency tests.
+///
+/// # Consumers
+///
+/// - `ori_llvm/src/codegen/arc_emitter/builtins/tests.rs` — AOT builtin tests
+///   use lowercase type names (e.g., `"list"` not `"List"`) matching the
+///   evaluator's naming convention
+/// - `ori_registry/src/query/tests.rs` — registry query tests
+///
+/// Only types with case differences are mapped; others pass through unchanged.
 #[must_use]
 pub fn legacy_type_name(registry_name: &str) -> &str {
     match registry_name {

@@ -312,10 +312,6 @@ fn borrowing_method_names_excludes_iterator_methods() {
         !names.contains(&"cycle"),
         "cycle is an iterator-exclusive method and should be excluded"
     );
-    assert!(
-        !names.contains(&"cycle"),
-        "cycle is an iterator-exclusive method and should be excluded"
-    );
 }
 
 #[test]

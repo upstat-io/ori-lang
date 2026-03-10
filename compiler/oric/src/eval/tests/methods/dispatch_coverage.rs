@@ -1,15 +1,14 @@
-//! Dispatch coverage test: every registry-declared method must have a dispatch
-//! handler in the evaluator.
+//! Eval dispatch gap tracking: methods declared in the registry but not yet
+//! implemented in the evaluator.
 //!
-//! This is a smoke test — it verifies dispatch routing, not behavior. Calling
-//! each method with zero args will produce argument errors (acceptable) but
-//! must NOT produce `UndefinedMethod`.
+//! `METHODS_NOT_YET_IN_EVAL` is a **shrinking allowlist**. Adding entries
+//! requires justification. Removing entries (= implementing methods) is always
+//! welcome. The ceiling test enforces monotonic decrease.
+//!
+//! Cross-phase enforcement (verifying every registry method has a handler)
+//! lives in `consistency.rs`. This file only tracks the known eval gaps.
 
-use std::collections::{BTreeMap, BTreeSet};
-
-use ori_eval::{RangeValue, Value};
-use ori_patterns::EvalErrorKind;
-use ori_registry::{TypeTag, BUILTIN_TYPES};
+use ori_registry::BUILTIN_TYPES;
 
 /// Methods declared in the registry but not yet implemented in eval dispatch.
 ///
@@ -17,7 +16,9 @@ use ori_registry::{TypeTag, BUILTIN_TYPES};
 /// Removing entries (= implementing methods) is always welcome.
 ///
 /// Type names use **registry convention** (`PascalCase` for composite types).
-const METHODS_NOT_YET_IN_EVAL: &[(&str, &str)] = &[
+///
+/// Referenced by `consistency.rs::every_registry_method_has_eval_handler`.
+pub(super) const METHODS_NOT_YET_IN_EVAL: &[(&str, &str)] = &[
     // Channel — no Value representation yet
     ("Channel", "close"),
     ("Channel", "is_closed"),
@@ -224,137 +225,6 @@ const METHODS_NOT_YET_IN_EVAL: &[(&str, &str)] = &[
     ("str", "trim_start"),
 ];
 
-/// Methods dispatched by `CollectionMethodResolver` for non-Iterator types.
-///
-/// These produce `UndefinedMethod` via `dispatch_builtin_method_str` because
-/// it only exercises the `BuiltinMethodResolver` path (priority 2), not the
-/// `CollectionMethodResolver` (priority 1).
-const COLLECTION_RESOLVER_METHODS: &[(&str, &str)] = &[
-    // List: map, filter, fold, find, any, all, join
-    ("List", "all"),
-    ("List", "any"),
-    ("List", "filter"),
-    ("List", "find"),
-    ("List", "fold"),
-    ("List", "join"),
-    ("List", "map"),
-    // Map: map, filter
-    ("Map", "filter"),
-    ("Map", "map"),
-    // Ordering: then_with
-    ("Ordering", "then_with"),
-    // Range: map, filter, fold, find, any, all, collect
-    ("Range", "all"),
-    ("Range", "any"),
-    ("Range", "collect"),
-    ("Range", "filter"),
-    ("Range", "find"),
-    ("Range", "fold"),
-    ("Range", "map"),
-];
-
-/// Construct the simplest possible `Value` for a `TypeTag`.
-///
-/// Returns `None` for types that have no `Value` representation or are
-/// dispatched by other resolvers (Iterator, DEI, Channel).
-fn minimal_value_for(tag: TypeTag) -> Option<Value> {
-    match tag {
-        TypeTag::Int => Some(Value::int(0)),
-        TypeTag::Float => Some(Value::Float(0.0)),
-        TypeTag::Bool => Some(Value::Bool(false)),
-        TypeTag::Str => Some(Value::string("")),
-        TypeTag::Char => Some(Value::Char(' ')),
-        TypeTag::Byte => Some(Value::Byte(0)),
-        TypeTag::Duration => Some(Value::Duration(0)),
-        TypeTag::Size => Some(Value::Size(0)),
-        TypeTag::Ordering => Some(Value::ordering_equal()),
-        TypeTag::Option => Some(Value::None),
-        TypeTag::Result => Some(Value::ok(Value::Void)),
-        TypeTag::List => Some(Value::list(vec![])),
-        TypeTag::Map => Some(Value::map(BTreeMap::default())),
-        TypeTag::Set => Some(Value::set(BTreeMap::default())),
-        TypeTag::Range => Some(Value::Range(RangeValue::exclusive(0, 0))),
-        TypeTag::Tuple => Some(Value::tuple(vec![])),
-        TypeTag::Error => Some(Value::error("test")),
-        // Types without a direct Value representation or dispatched elsewhere.
-        TypeTag::Unit
-        | TypeTag::Never
-        | TypeTag::Iterator
-        | TypeTag::DoubleEndedIterator
-        | TypeTag::Channel
-        | TypeTag::Function => None,
-    }
-}
-
-/// Every method the registry declares for a builtin type must be dispatchable
-/// by the evaluator without producing `UndefinedMethod`.
-///
-/// This test does NOT verify correct behavior — only that the dispatch chain
-/// routes to a handler. Argument errors (wrong count, wrong type) are acceptable;
-/// `UndefinedMethod` is not (unless the method is in a known allowlist).
-#[test]
-fn every_registry_method_has_eval_dispatch_handler() {
-    let interner = super::test_interner();
-
-    let not_yet: BTreeSet<(&str, &str)> = METHODS_NOT_YET_IN_EVAL.iter().copied().collect();
-    let collection: BTreeSet<(&str, &str)> = COLLECTION_RESOLVER_METHODS.iter().copied().collect();
-
-    let mut unexpected_missing = Vec::new();
-    let mut unexpectedly_present = Vec::new();
-
-    for type_def in BUILTIN_TYPES {
-        let receiver = minimal_value_for(type_def.tag);
-        let Some(receiver) = receiver else {
-            // Skip types without Value representation (Channel, Iterator, etc.)
-            continue;
-        };
-
-        for method in type_def.methods {
-            let pair = (type_def.name, method.name);
-
-            // Skip methods we know aren't yet implemented or are dispatched elsewhere
-            let is_allowlisted = not_yet.contains(&pair) || collection.contains(&pair);
-
-            let result = ori_eval::dispatch_builtin_method_str(
-                receiver.clone(),
-                method.name,
-                vec![],
-                &interner,
-            );
-
-            let is_undefined = match &result {
-                Err(action) => {
-                    if let ori_patterns::ControlAction::Error(e) = action {
-                        matches!(e.kind, EvalErrorKind::UndefinedMethod { .. })
-                    } else {
-                        false
-                    }
-                }
-                Ok(_) => false,
-            };
-
-            if is_undefined && !is_allowlisted {
-                unexpected_missing.push(format!("{}.{}", type_def.name, method.name));
-            } else if !is_undefined && is_allowlisted {
-                unexpectedly_present.push(format!("{}.{}", type_def.name, method.name));
-            }
-        }
-    }
-
-    assert!(
-        unexpected_missing.is_empty(),
-        "Registry declares methods with no eval dispatch handler \
-         (add handler or add to METHODS_NOT_YET_IN_EVAL): {unexpected_missing:#?}"
-    );
-
-    assert!(
-        unexpectedly_present.is_empty(),
-        "Methods in allowlists now have dispatch handlers — \
-         remove from METHODS_NOT_YET_IN_EVAL or COLLECTION_RESOLVER_METHODS: \
-         {unexpectedly_present:#?}"
-    );
-}
-
 /// Ensure the not-yet-implemented allowlist does not grow.
 ///
 /// If you are adding a method to the allowlist, this test will fail.
@@ -367,5 +237,22 @@ fn methods_not_yet_in_eval_does_not_grow() {
         "METHODS_NOT_YET_IN_EVAL grew to {} entries (ceiling: 189). \
          Implement the method or get approval to raise the ceiling.",
         METHODS_NOT_YET_IN_EVAL.len()
+    );
+}
+
+/// Total registry method count for sanity checking.
+///
+/// Ensures the enforcement test in consistency.rs is actually iterating
+/// over a non-trivial number of methods.
+#[test]
+fn registry_has_expected_method_count() {
+    let total: usize = BUILTIN_TYPES.iter().map(|td| td.methods.len()).sum();
+
+    // Registry should have 350+ methods across all types.
+    // If this drops significantly, the registry was likely corrupted.
+    assert!(
+        total >= 350,
+        "Registry has only {total} methods — expected 350+. \
+         Was a TypeDef accidentally emptied?"
     );
 }
