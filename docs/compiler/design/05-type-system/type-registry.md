@@ -309,20 +309,9 @@ This registry is the single source of truth for all built-in methods across the 
 
 This ordering follows the principle that more specific bindings take priority. A type's own methods shadow trait methods, and built-in methods (which are the primary interface for primitives) take highest priority.
 
-### Per-Type Built-in Resolvers
+### Built-in Method Resolution
 
-Built-in method resolution is dispatched to per-type resolver functions:
-
-| Resolver | Types | Example Methods |
-|----------|-------|----------------|
-| `resolve_str_method()` | `str` | `len`, `split`, `trim`, `contains`, `starts_with`, `upper` |
-| `resolve_list_method()` | `[T]` | `len`, `push`, `pop`, `get`, `map`, `filter`, `fold`, `sort` |
-| `resolve_map_method()` | `{K: V}` | `len`, `get`, `insert`, `remove`, `keys`, `values` |
-| `resolve_option_method()` | `Option<T>` | `map`, `unwrap_or`, `ok_or`, `and_then`, `filter` |
-| `resolve_result_method()` | `Result<T, E>` | `map`, `map_err`, `unwrap_or`, `ok`, `err` |
-| `resolve_iterator_method()` | `Iterator<T>` | `map`, `filter`, `fold`, `find`, `collect`, `count`, `zip` |
-
-Each resolver handles type inference for its methods — determining parameter types, return types, and any generic instantiation needed.
+Built-in method resolution uses `ori_registry::BUILTIN_TYPES` as the single source of truth. The type checker's `resolve_builtin_method()` function looks up `(TypeTag, method_name)` pairs in the registry to determine parameter types, return types, and generic instantiation. Per-type resolver functions (e.g., `resolve_str_method()`) were eliminated during the Type Strategy Registry migration — all built-in method metadata now lives in `ori_registry`.
 
 ## Registration Order
 

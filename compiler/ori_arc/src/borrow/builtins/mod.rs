@@ -19,9 +19,9 @@
 //!
 //! # Sync
 //!
-//! The LLVM backend maintains a parallel `BuiltinTable` with `receiver_borrowed`
-//! flags for codegen dispatch. A sync test in `ori_llvm` asserts that table's
-//! effective borrowing set matches this canonical list.
+//! The LLVM backend maintains a parallel `BuiltinTable` with ownership metadata
+//! for codegen dispatch. A sync test in `ori_llvm` asserts that table's
+//! effective borrowing set is consistent with `ori_registry::Ownership::Borrow`.
 
 use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
 use ori_ir::{Name, StringInterner};
