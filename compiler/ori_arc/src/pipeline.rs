@@ -42,6 +42,7 @@ pub fn run_arc_pipeline(
     pool: &Pool,
     interner: &ori_ir::StringInterner,
     uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
+    verify_arc: bool,
 ) -> Vec<ArcProblem> {
     // Compute value representations before any passes modify the function.
     func.var_reprs = crate::ir::compute_var_reprs(func, classifier, pool);
@@ -70,7 +71,7 @@ pub fn run_arc_pipeline(
     crate::rc_insert::insert_external_invoke_cleanup(func, classifier, &liveness, pool);
 
     // ARC IR verification after RC insertion.
-    run_verify(func, "after RC insertion");
+    run_verify(func, "after RC insertion", verify_arc);
 
     // Build dom/post-dom trees AFTER RC insertion. Edge cleanup can split
     // edges and append trampoline blocks, which invalidates any earlier
@@ -98,7 +99,7 @@ pub fn run_arc_pipeline(
     crate::rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
 
     // ARC IR verification after RC elimination.
-    run_verify(func, "after RC elimination");
+    run_verify(func, "after RC elimination", verify_arc);
 
     // Tail call detection + loop lowering: identify self-recursive tail calls
     // and rewrite them as loop back-edges. Runs AFTER RC elimination (all RC
@@ -165,6 +166,7 @@ pub fn run_arc_pipeline_all(
     interner: &ori_ir::StringInterner,
     pool: &Pool,
     builtins: &BuiltinOwnershipSets,
+    verify_arc: bool,
 ) -> Vec<ArcProblem> {
     crate::borrow::apply_borrows(functions, sigs);
 
@@ -183,6 +185,7 @@ pub fn run_arc_pipeline_all(
             pool,
             interner,
             &uniqueness_summaries,
+            verify_arc,
         );
         all_problems.extend(problems);
     }
@@ -238,11 +241,12 @@ pub fn run_uniqueness_analysis(
 
 /// Run ARC IR verification if enabled.
 ///
-/// Active under `debug_assertions` or when `ORI_VERIFY_ARC=1` is set.
+/// Active under `debug_assertions` or when the caller passes `verify: true`
+/// (typically from `ORI_VERIFY_ARC=1` read in `oric`).
 /// Logs warnings for each error but does not panic — this is diagnostic,
 /// not blocking.
-fn run_verify(func: &ArcFunction, phase: &str) {
-    let enabled = cfg!(debug_assertions) || std::env::var("ORI_VERIFY_ARC").is_ok();
+fn run_verify(func: &ArcFunction, phase: &str, verify: bool) {
+    let enabled = verify || cfg!(debug_assertions);
     if !enabled {
         return;
     }

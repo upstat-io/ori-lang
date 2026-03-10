@@ -134,7 +134,13 @@ run_wasm_build() {
         echo "skipped" > "$WASM_OUTPUT"
         return 0
     fi
-    if cargo build --manifest-path website/playground-wasm/Cargo.toml --target wasm32-unknown-unknown --release 2>&1 > "$WASM_OUTPUT"; then
+    local wasm_manifest="../ori-lang-website/playground-wasm/Cargo.toml"
+    if [ ! -f "$wasm_manifest" ]; then
+        echo "  (skipped - ori-lang-website repo not found as sibling)"
+        echo "skipped" > "$WASM_OUTPUT"
+        return 0
+    fi
+    if cargo build --manifest-path "$wasm_manifest" --target wasm32-unknown-unknown --release 2>&1 > "$WASM_OUTPUT"; then
         echo "  ✓ WASM build passed"
         return 0
     else

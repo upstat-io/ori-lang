@@ -5,11 +5,12 @@
 //! stored inline). All operators delegate to `ori_rt` runtime functions.
 
 use crate::{
+    defs::params::{COUNT_PARAM, INT_RANGE_PARAMS},
     MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
     TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
-// Shared parameter arrays
+// Parameter arrays
 
 /// `(substr: str)` — for `contains`, `index_of`, `last_index_of`.
 static SUBSTR_PARAM: [ParamDef; 1] = [ParamDef {
@@ -24,20 +25,6 @@ static OTHER_STR_PARAM: [ParamDef; 1] = [ParamDef {
     ty: ReturnTag::Concrete(TypeTag::Str),
     ownership: Ownership::Borrow,
 }];
-
-/// `(start: int, end: int)` — for `slice`, `substring`.
-static INT_RANGE_PARAMS: [ParamDef; 2] = [
-    ParamDef {
-        name: "start",
-        ty: ReturnTag::Concrete(TypeTag::Int),
-        ownership: Ownership::Copy,
-    },
-    ParamDef {
-        name: "end",
-        ty: ReturnTag::Concrete(TypeTag::Int),
-        ownership: Ownership::Copy,
-    },
-];
 
 /// `(width: int, fill: str)` — for `pad_start`, `pad_end`.
 static PAD_PARAMS: [ParamDef; 2] = [
@@ -74,13 +61,6 @@ static BYTES_PARAM: [ParamDef; 1] = [ParamDef {
     ownership: Ownership::Owned,
 }];
 
-/// `(count: int)` — for `repeat`.
-static COUNT_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "count",
-    ty: ReturnTag::Concrete(TypeTag::Int),
-    ownership: Ownership::Copy,
-}];
-
 /// `(sep: str)` — for `split`.
 static SEP_PARAM: [ParamDef; 1] = [ParamDef {
     name: "sep",
@@ -92,6 +72,8 @@ static SEP_PARAM: [ParamDef; 1] = [ParamDef {
 const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
 const STR_TAG: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
+const ORD: ReturnTag = ReturnTag::Concrete(TypeTag::Ordering);
+const ERROR_TAG: ReturnTag = ReturnTag::Concrete(TypeTag::Error);
 
 // Shorthand: all str instance methods share these 5 frozen defaults
 // via MethodDef::primitive(). See method/mod.rs.
@@ -142,7 +124,7 @@ static STR_METHODS: &[MethodDef] = &[
     MethodDef::primitive(
         "compare",
         &ONE_SELF_BORROW,
-        ReturnTag::Concrete(TypeTag::Ordering),
+        ORD,
         Some("Comparable"),
         Ownership::Borrow,
     ),
@@ -189,13 +171,7 @@ static STR_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
     ),
-    MethodDef::primitive(
-        "into",
-        &[],
-        ReturnTag::Concrete(TypeTag::Error),
-        None,
-        Ownership::Borrow,
-    ),
+    MethodDef::primitive("into", &[], ERROR_TAG, None, Ownership::Borrow),
     MethodDef::primitive("is_empty", &[], BOOL, None, Ownership::Borrow),
     MethodDef::primitive(
         "iter",

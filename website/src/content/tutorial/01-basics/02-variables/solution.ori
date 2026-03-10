@@ -1,6 +1,0 @@
-@main () -> void = {
-    let $language = "Ori";
-    let $version = 1;
-
-    print(msg: language + " v" + str(version));
-}

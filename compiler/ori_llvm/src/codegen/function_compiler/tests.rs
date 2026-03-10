@@ -88,6 +88,7 @@ fn declare_simple_function() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -126,6 +127,7 @@ fn declare_void_function() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -160,6 +162,7 @@ fn declare_sret_function() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -203,6 +206,7 @@ fn declare_main_uses_c_calling_convention() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -273,6 +277,7 @@ fn generic_functions_are_skipped() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_all(&[func], &[sig]);
 
@@ -330,6 +335,7 @@ fn function_map_returns_all_declared() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(add_name, &sig_add, Span::DUMMY);
     fc.declare_function(sub_name, &sig_sub, Span::DUMMY);
@@ -450,6 +456,7 @@ fn compile_impls_populates_method_functions_map() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
 
     // Compile Point impl first, then Line impl
@@ -543,6 +550,7 @@ fn module_path_appears_in_mangled_name() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -594,6 +602,7 @@ fn scalar_params_have_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -636,6 +645,7 @@ fn scalar_return_has_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -681,6 +691,7 @@ fn aggregate_params_no_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -739,6 +750,7 @@ fn mixed_params_selective_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
+        false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
 
@@ -782,6 +794,7 @@ fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         classifier,
         None,
         FxHashMap::default(),
+        false,
     )
 }
 

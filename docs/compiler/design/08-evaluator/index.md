@@ -225,7 +225,7 @@ Binary and unary operators use a **dual-dispatch** strategy for performance:
 
 ### Cross-Crate Method Consistency
 
-The evaluator exports an `EVAL_BUILTIN_METHODS` constant listing every `(type_name, method_name)` pair it handles. The type checker exports a corresponding `TYPECK_BUILTIN_METHODS`. A consistency test verifies that every eval method is known to the type checker. Known exceptions — operator methods that the type checker handles via trait lookup rather than builtin handlers — are tracked in a `KNOWN_EVAL_ONLY` list.
+The `ori_registry` crate provides `BUILTIN_TYPES` — the single source of truth listing every built-in `(type_name, method_name)` pair. Both the evaluator and the type checker consume this registry. Consistency tests verify that every method in `ori_registry::BUILTIN_TYPES` is handled by both the evaluator and the type checker. Known exceptions — operator methods that the type checker handles via trait lookup rather than builtin handlers — are tracked in a `KNOWN_EVAL_ONLY` list.
 
 ## Prior Art
 

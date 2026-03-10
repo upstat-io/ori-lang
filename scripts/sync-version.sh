@@ -129,31 +129,6 @@ check_workspace_version() {
     fi
 }
 
-# Update softwareVersion in BaseLayout.astro
-update_astro_version() {
-    local file="$1"
-    local version="$2"
-
-    if [[ ! -f "$file" ]]; then
-        return
-    fi
-
-    local current
-    current=$(grep -oP "softwareVersion:\s*'\K[^']+" "$file" || true)
-
-    if [[ "$current" != "$version" ]]; then
-        if $CHECK_MODE; then
-            echo -e "${RED}MISMATCH${NC}: $file has softwareVersion '$current', expected '$version'"
-            return 1
-        else
-            sed -i "s/softwareVersion: '[^']*'/softwareVersion: '$version'/" "$file"
-            echo -e "${GREEN}UPDATED${NC}: $file -> $version"
-        fi
-    else
-        echo -e "${GREEN}OK${NC}: $file ($version)"
-    fi
-}
-
 # Update version in a package.json file
 update_npm_version() {
     local file="$1"
@@ -212,20 +187,9 @@ main() {
     # ori-lsp (excluded from workspace)
     update_cargo_version "$ROOT_DIR/tools/ori-lsp/Cargo.toml" "$cargo_version" || failed=true
 
-    # playground-wasm (standalone)
-    update_cargo_version "$ROOT_DIR/website/playground-wasm/Cargo.toml" "$cargo_version" || failed=true
-
-    echo ""
-    echo "=== Astro layouts ==="
-
-    # BaseLayout.astro uses the Cargo version in softwareVersion schema field
-    update_astro_version "$ROOT_DIR/website/src/layouts/BaseLayout.astro" "$cargo_version" || failed=true
-
     echo ""
     echo "=== package.json files ==="
 
-    # Website package.json files use NPM-compatible version (no pre-release)
-    update_npm_version "$ROOT_DIR/website/package.json" "$npm_version" || failed=true
     update_npm_version "$ROOT_DIR/editors/vscode-ori/package.json" "$npm_version" || failed=true
 
     echo ""

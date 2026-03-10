@@ -2,6 +2,7 @@
 section: "05"
 title: "Float Narrowing Pipeline"
 status: not-started
+reviewed: false
 goal: "Lower float (semantic f64) to f32 when the compiler can prove zero precision loss for the specific values used"
 inspired_by:
   - "LLVM fptrunc/fpext analysis (lib/Transforms/InstCombine/InstCombineCasts.cpp)"

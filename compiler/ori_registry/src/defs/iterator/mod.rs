@@ -15,6 +15,8 @@ use crate::{
     TypeDef, TypeParamArity, TypeProjection, TypeTag,
 };
 
+use super::params::{COUNT_PARAM, SEPARATOR_PARAM};
+
 // Shared return tag constants
 
 const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
@@ -42,20 +44,6 @@ static ACTION_PARAM: [ParamDef; 1] = [ParamDef {
     name: "f",
     ty: ReturnTag::Fresh,
     ownership: Ownership::Owned,
-}];
-
-/// `(count: int)` — int param for take, skip.
-static COUNT_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "count",
-    ty: INT,
-    ownership: Ownership::Copy,
-}];
-
-/// `(separator: str)` — str param for join.
-static SEPARATOR_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "separator",
-    ty: STR,
-    ownership: Ownership::Borrow,
 }];
 
 /// `(other: Iterator<U>)` — iterator param for chain, zip.

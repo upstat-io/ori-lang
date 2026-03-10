@@ -1,3 +1,27 @@
+---
+section: "09"
+title: "Scripts"
+status: not-started
+goal: "Project-defined task runner"
+depends_on: ["08"]
+sections:
+  - id: "9.1"
+    title: "Script Parsing"
+    status: not-started
+  - id: "9.2"
+    title: "Script Execution"
+    status: not-started
+  - id: "9.3"
+    title: "Single-File Mode"
+    status: not-started
+  - id: "9.4"
+    title: "Script Stripping"
+    status: not-started
+  - id: "9.5"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 9: Scripts
 
 **Goal**: Project-defined task runner

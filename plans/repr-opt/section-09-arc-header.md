@@ -2,6 +2,7 @@
 section: "09"
 title: "ARC Header Compression"
 status: not-started
+reviewed: false
 goal: "Narrow the refcount header from i64 (8 bytes) to i32/i16/i8 based on proven sharing bounds, reducing per-object memory overhead"
 inspired_by:
   - "Swift refcount encoding (stdlib/public/SwiftShims/RefCount.h — uses bitfields)"

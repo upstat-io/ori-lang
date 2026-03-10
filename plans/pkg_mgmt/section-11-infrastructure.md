@@ -1,3 +1,36 @@
+---
+section: "11"
+title: "Registry Infrastructure"
+status: not-started
+goal: "Deploy registry on Cloudflare"
+depends_on: ["10"]
+sections:
+  - id: "11.1"
+    title: "Architecture"
+    status: not-started
+  - id: "11.2"
+    title: "Workers (Ori/WASM)"
+    status: not-started
+  - id: "11.3"
+    title: "Containers (Ori native)"
+    status: not-started
+  - id: "11.4"
+    title: "R2 Storage"
+    status: not-started
+  - id: "11.5"
+    title: "KV Storage"
+    status: not-started
+  - id: "11.6"
+    title: "Advisory Database"
+    status: not-started
+  - id: "11.7"
+    title: "Monitoring"
+    status: not-started
+  - id: "11.8"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 11: Registry Infrastructure
 
 **Goal**: Deploy registry on Cloudflare

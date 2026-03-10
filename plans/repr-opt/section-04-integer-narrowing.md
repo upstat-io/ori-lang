@@ -2,6 +2,7 @@
 section: "04"
 title: "Integer Narrowing Pipeline"
 status: not-started
+reviewed: false
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"

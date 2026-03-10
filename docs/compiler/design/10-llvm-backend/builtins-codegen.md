@@ -43,9 +43,9 @@ This dual-generation design makes an entire class of bugs impossible: you cannot
 
 ### Sync Testing Against the Type Checker
 
-The type checker maintains its own list of built-in methods (`TYPECK_BUILTIN_METHODS`) — the methods it allows to be called on built-in types without requiring an explicit `impl` block. The builtins codegen system maintains its own list of methods it can handle. If these lists drift — the type checker allows `str.reverse()` but codegen doesn't handle it, or codegen handles `int.clamp()` but the type checker doesn't allow it — the program will either fail at codegen (missing handler) or silently fall through to runtime dispatch (unnecessary overhead).
+The `ori_registry` crate maintains the single source of truth for built-in methods (`ori_registry::BUILTIN_TYPES`) — the methods that can be called on built-in types without requiring an explicit `impl` block. The type checker, evaluator, and builtins codegen system each consume this registry. If any consumer drifts — the type checker allows `str.reverse()` but codegen doesn't handle it, or codegen handles `int.clamp()` but the type checker doesn't know about it — the program will either fail at codegen (missing handler) or silently fall through to runtime dispatch (unnecessary overhead).
 
-Sync tests automatically iterate both lists and verify they match. Adding a new built-in method to one side without the other triggers a test failure. The `TYPECK_BUILTIN_METHODS` list must be sorted alphabetically by `(type, method)` — a constraint enforced by test — which prevents accidental duplicates and makes the list easy to search.
+Sync tests in each consumer automatically iterate `ori_registry::BUILTIN_TYPES` and verify that every registered method is handled. Adding a new built-in method to the registry without updating all consumers triggers a test failure.
 
 ### Receiver Borrowing Metadata
 
@@ -201,7 +201,7 @@ The `BuiltinTable` provides O(1) lookup for builtin existence and metadata. It i
 
 1. **Early rejection** — before attempting builtin dispatch, check if `(type, method)` is registered. This avoids entering the match cascade for methods that will definitely fall through.
 
-2. **Sync tests** — test infrastructure iterates the table to verify parity with `TYPECK_BUILTIN_METHODS`.
+2. **Sync tests** — test infrastructure iterates the table to verify parity with `ori_registry::BUILTIN_TYPES`.
 
 3. **Receiver metadata** — the `receiver_borrowed` flag drives ARC behavior at call sites.
 
@@ -213,7 +213,7 @@ Adding a new built-in method (for example, `str.repeat`) requires exactly four c
 
 2. **Register in `declare_builtins!`** within the same submodule: `("str", "repeat", emit_str_repeat, true)`. The macro handles dispatch routing and table registration.
 
-3. **Add to `TYPECK_BUILTIN_METHODS`** in the type checker. Must be alphabetically sorted by `(type, method)`.
+3. **Add to `ori_registry::BUILTIN_TYPES`** in the registry crate. Add a `MethodDef` entry to the appropriate `TypeDef`.
 
 4. **Add runtime function** (if needed) to `RT_FUNCTIONS` in `runtime_functions.rs` and implement it in `ori_rt`.
 

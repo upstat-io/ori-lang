@@ -2133,7 +2133,7 @@ fn borrowing_projection_cross_block_liveness() {
 ///   Return v11
 /// ```
 #[test]
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "integration test with complex multi-block CFG"
 )]

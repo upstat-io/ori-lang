@@ -2,6 +2,7 @@
 section: "01"
 title: "Representation IR & Decision Framework"
 status: not-started
+reviewed: false
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"

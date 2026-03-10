@@ -1,3 +1,27 @@
+---
+section: "03"
+title: "Cache & Installation"
+status: not-started
+goal: "Content-addressable cache and project linking"
+depends_on: ["02"]
+sections:
+  - id: "3.1"
+    title: "Global Cache Structure"
+    status: not-started
+  - id: "3.2"
+    title: "Project Linking"
+    status: not-started
+  - id: "3.3"
+    title: "Cache Operations"
+    status: not-started
+  - id: "3.4"
+    title: "Offline Mode"
+    status: not-started
+  - id: "3.5"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 3: Cache & Installation
 
 **Goal**: Content-addressable cache and project linking

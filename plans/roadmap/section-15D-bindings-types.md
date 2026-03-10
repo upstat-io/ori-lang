@@ -2,6 +2,7 @@
 section: "15D"
 title: Bindings & Types
 status: in-progress
+reviewed: false
 tier: 1
 goal: Implement binding syntax changes and type system simplifications
 priority_note: "15D.3 escalated from Tier 5 → Tier 1 (2026-02-19). Block syntax + semicolons + $ enforcement complete (2026-02-20). Remaining: mut keyword removal, module-level immutability, scope conflicts."
