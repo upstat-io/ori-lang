@@ -2,7 +2,7 @@
 reroute: true
 name: "Type Registry"
 full_name: "Type Strategy Registry"
-status: active
+status: resolved
 reviewed: true
 order: 1
 ---
@@ -290,22 +290,27 @@ dead re-export, bridge function, builtin_type_to_tag
 ---
 
 ### Section 14: Enforcement Tests, Testing Matrix & Exit Criteria
-**File:** `section-14-enforcement-testing.md` | **Status:** Not Started
+**File:** `section-14-enforcement-testing.md` | **Status:** Complete
 
 ```
 enforcement test, testing matrix, exit criteria
 every_registry_method_has_handler, every_codegen_builtin_has_registry_entry
 purity enforcement, no behavior test, no dependency test
-consistency.rs, allowlist elimination, gap list removal
+consistency.rs, dispatch_coverage.rs, allowlist elimination, gap list removal
 TYPECK_BUILTIN_METHODS removal, EVAL_BUILTIN_METHODS removal
-ARC_PIPELINE_METHODS removal, TYPECK_METHODS_NOT_IN_IR removal
+METHODS_NOT_YET_IN_EVAL elimination, COLLECTION_RESOLVER_METHODS elimination
+WELL_KNOWN_GENERIC_TYPES derivation, TYPECK_METHODS_NOT_IN_IR removal
 EVAL_METHODS_NOT_IN_TYPECK removal, TYPECK_METHODS_NOT_IN_EVAL removal
-grep verification, legacy removal, dead code check
+grep verification, legacy removal, dead code check, stale comment cleanup
 regression test, spec test, AOT test, full suite
 compile-time enforcement, Rust exhaustiveness, struct field required
+_enforce_exhaustiveness, Roc pattern, TypeTag variant guard
 type × method × phase matrix, cross-phase coverage
 code journey, pipeline integration, differential testing, eval vs LLVM
 progressive complexity, phase boundary, end-to-end verification
+COW method list validation, cow_method_lists_valid_against_registry
+Channel Value blocker, dispatch_builtin_method_str, ratchet strategy
+backend_required, pure_method_sanity, format_spec_variants_synced
 ```
 
 ---
@@ -327,4 +332,4 @@ progressive complexity, phase boundary, end-to-end verification
 | 11 | Wire ARC & Borrow Pass (ori_arc) | `section-11-wire-arc-borrow.md` | Complete |
 | 12 | Wire LLVM Backend (ori_llvm) | `section-12-wire-llvm-backend.md` | Complete |
 | 13 | Migrate ori_ir & Legacy Consolidation | `section-13-migrate-ori-ir.md` | Complete |
-| 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Not Started |
+| 14 | Enforcement Tests, Testing Matrix & Exit Criteria | `section-14-enforcement-testing.md` | Complete |

@@ -58,6 +58,7 @@
 //! (for `Name`, `BinaryOp`, `UnaryOp`, etc.). No LLVM dependency — ARC
 //! analysis is backend-independent.
 
+pub mod aims;
 mod block_merge;
 pub mod borrow;
 pub(crate) mod classify;

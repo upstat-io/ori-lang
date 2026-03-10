@@ -185,6 +185,8 @@ fn test_no_projections_returns_empty() {
 /// Constructs a circular alias chain: v0 → v1 → v0. The depth limit
 /// (100 iterations) should break the cycle. In debug builds, the
 /// `debug_assert!` fires — `should_panic` validates this.
+/// In release builds, `debug_assert!` is compiled out so the test is skipped.
+#[cfg(debug_assertions)]
 #[test]
 #[should_panic(expected = "alias cycle detected")]
 fn test_alias_cycle_terminates() {

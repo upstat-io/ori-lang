@@ -127,5 +127,26 @@ pub fn apply_borrows(functions: &mut [ArcFunction], sigs: &FxHashMap<Name, Annot
     }
 }
 
+/// NEVER CALLED. Exists solely so that Rust's exhaustive match checker
+/// forces updates to this crate when a new `TypeTag` variant is added.
+/// If you see a compile error pointing here, a new `TypeTag` was added
+/// to `ori_registry` without updating this crate's borrow inference.
+fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
+    use ori_registry::TypeTag;
+    #[expect(
+        clippy::match_same_arms,
+        reason = "exhaustiveness guard — each arm must be explicit"
+    )]
+    match tag {
+        TypeTag::Int | TypeTag::Float | TypeTag::Bool | TypeTag::Char | TypeTag::Byte => {}
+        TypeTag::Unit | TypeTag::Never => {}
+        TypeTag::Duration | TypeTag::Size | TypeTag::Ordering => {}
+        TypeTag::Str | TypeTag::Error => {}
+        TypeTag::List | TypeTag::Map | TypeTag::Set | TypeTag::Range => {}
+        TypeTag::Tuple | TypeTag::Option | TypeTag::Result | TypeTag::Channel => {}
+        TypeTag::Function | TypeTag::Iterator | TypeTag::DoubleEndedIterator => {}
+    }
+}
+
 #[cfg(test)]
 mod tests;
