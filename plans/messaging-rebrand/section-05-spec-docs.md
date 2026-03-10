@@ -2,6 +2,7 @@
 section: "05"
 title: "Spec & Documentation Updates"
 status: not-started
+reviewed: false
 goal: "Update spec, CLAUDE.md, rules files, guide, blog, design docs, proposals, skills, compiler comments, and diagnostic docs to reflect configurable test enforcement and new messaging"
 depends_on: ["01", "02"]
 sections:

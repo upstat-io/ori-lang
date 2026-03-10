@@ -1,3 +1,30 @@
+---
+section: "10"
+title: "Tooling"
+status: not-started
+goal: "Developer experience commands"
+depends_on: ["09"]
+sections:
+  - id: "10.1"
+    title: "REPL"
+    status: not-started
+  - id: "10.2"
+    title: "Documentation"
+    status: not-started
+  - id: "10.3"
+    title: "Project Creation"
+    status: not-started
+  - id: "10.4"
+    title: "System Commands"
+    status: not-started
+  - id: "10.5"
+    title: "Cleanup"
+    status: not-started
+  - id: "10.6"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 10: Tooling
 
 **Goal**: Developer experience commands

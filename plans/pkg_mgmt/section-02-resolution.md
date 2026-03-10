@@ -1,3 +1,33 @@
+---
+section: "02"
+title: "Version Resolution"
+status: not-started
+goal: "Resolve dependency graph with exact versions"
+depends_on: ["01"]
+sections:
+  - id: "2.1"
+    title: "Dependency Graph"
+    status: not-started
+  - id: "2.2"
+    title: "Version Matching"
+    status: not-started
+  - id: "2.3"
+    title: "Conflict Detection"
+    status: not-started
+  - id: "2.4"
+    title: "Feature Resolution"
+    status: not-started
+  - id: "2.5"
+    title: "Stdlib Handling"
+    status: not-started
+  - id: "2.6"
+    title: "Incremental Resolution"
+    status: not-started
+  - id: "2.7"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 2: Version Resolution
 
 **Goal**: Resolve dependency graph with exact versions

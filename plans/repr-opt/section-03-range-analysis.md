@@ -2,6 +2,7 @@
 section: "03"
 title: "Value Range Analysis Framework"
 status: not-started
+reviewed: false
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"

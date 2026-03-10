@@ -1,7 +1,5 @@
-//! Builtin type identification enum.
-//!
-//! Provides a single enum that represents all built-in types in Ori, enabling
-//! consistent type identification across compiler backends (typeck, eval, llvm).
+//! IR-level type identity enum, bridging `TypeId` indices to named variants
+//! within `ori_ir`.
 //!
 //! # Design
 //!

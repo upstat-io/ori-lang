@@ -15,26 +15,14 @@ use crate::{
     TypeProjection, TypeTag, ONE_SELF_OWNED,
 };
 
+use super::params::{CLOSURE_PARAM, MESSAGE_PARAM};
+
 // Parameter arrays
 
 /// `(default: T)` — for `unwrap_or`.
 static DEFAULT_PARAM: [ParamDef; 1] = [ParamDef {
     name: "default",
     ty: ReturnTag::OkType,
-    ownership: Ownership::Owned,
-}];
-
-/// `(message: str)` — for `expect`, `expect_err`.
-static MESSAGE_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "message",
-    ty: ReturnTag::Concrete(TypeTag::Str),
-    ownership: Ownership::Borrow,
-}];
-
-/// `(f: closure)` — for higher-order methods.
-static CLOSURE_PARAM: [ParamDef; 1] = [ParamDef {
-    name: "f",
-    ty: ReturnTag::Fresh,
     ownership: Ownership::Owned,
 }];
 

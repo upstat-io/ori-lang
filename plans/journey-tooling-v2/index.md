@@ -2,7 +2,7 @@
 reroute: true
 name: "Journey Tooling"
 full_name: "Journey Tooling V2"
-status: complete
+status: resolved
 order: 3
 ---
 

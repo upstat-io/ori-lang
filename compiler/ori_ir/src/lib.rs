@@ -38,7 +38,6 @@ macro_rules! static_assert_size {
 mod arena;
 pub mod ast;
 pub mod builtin_constants;
-pub mod builtin_methods;
 mod builtin_type;
 pub mod canon;
 mod comment;

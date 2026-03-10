@@ -7,7 +7,7 @@
 
 declare_builtins! { emitter, ctx;
     // Internal iteration protocol
-    ("Iterator", "__iter_next", borrow: true) => {
+    ("Iterator", "__iter_next") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iter_next(ctx.arg_vals[0], *element)
         } else {
@@ -15,35 +15,35 @@ declare_builtins! { emitter, ctx;
         }
     },
     // Simple adapters
-    ("Iterator", "take", borrow: true) => {
+    ("Iterator", "take") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "skip", borrow: true) => {
+    ("Iterator", "skip") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "chain", borrow: true) => {
+    ("Iterator", "chain") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "enumerate", borrow: true) => {
+    ("Iterator", "enumerate") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "zip", borrow: true) => {
+    ("Iterator", "zip") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
@@ -51,14 +51,14 @@ declare_builtins! { emitter, ctx;
         }
     },
     // Closure adapters
-    ("Iterator", "map", borrow: true) => {
+    ("Iterator", "map") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "filter", borrow: true) => {
+    ("Iterator", "filter") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
@@ -66,49 +66,49 @@ declare_builtins! { emitter, ctx;
         }
     },
     // Consumers
-    ("Iterator", "collect", borrow: true) => {
+    ("Iterator", "collect") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "count", borrow: true) => {
+    ("Iterator", "count") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "any", borrow: true) => {
+    ("Iterator", "any") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "all", borrow: true) => {
+    ("Iterator", "all") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "find", borrow: true) => {
+    ("Iterator", "find") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "for_each", borrow: true) => {
+    ("Iterator", "for_each") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {
             None
         }
     },
-    ("Iterator", "fold", borrow: true) => {
+    ("Iterator", "fold") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
             emitter.emit_iterator_method(ctx.method, ctx.arg_vals, ctx.arc_args, ctx.arc_func, *element)
         } else {

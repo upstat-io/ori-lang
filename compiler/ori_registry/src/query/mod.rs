@@ -11,6 +11,8 @@
 //! `TypeTag::DoubleEndedIterator`, all methods are visible. Both tags
 //! resolve to the same `TypeDef` via [`TypeTag::base_type()`].
 
+use std::sync::LazyLock;
+
 use crate::defs::BUILTIN_TYPES;
 use crate::{MethodDef, TypeDef, TypeTag};
 
@@ -174,6 +176,65 @@ pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDe
     })
 }
 
+/// Returns a sorted, deduplicated slice of builtin method names whose
+/// receiver is borrowed and whose result is independent of the receiver's
+/// lifetime.
+///
+/// Used by ARC borrow inference to skip RC operations at call sites for
+/// inline-compiled builtin methods (e.g., `len`, `is_empty`, `compare`).
+///
+/// **Excluded:** Iterator/DoubleEndedIterator methods and `.iter()` —
+/// these create derived values with hidden dependencies on the receiver.
+/// The ARC pipeline cannot model these dependencies, so they use Owned
+/// semantics (the runtime handles internal RC management).
+///
+/// **Note:** Protocol builtins (e.g., `__index`) are NOT included — they
+/// are ARC pipeline internals, not builtin type methods. The consuming
+/// crate (`ori_arc`) appends them after interning.
+///
+/// # Example
+///
+/// ```ignore
+/// let set: FxHashSet<Name> = ori_registry::borrowing_method_names()
+///     .iter()
+///     .map(|name| interner.intern(name))
+///     .collect();
+/// ```
+pub fn borrowing_method_names() -> &'static [&'static str] {
+    // Buffer holds pre-dedup entries (~412 as of 2026-03). Deduped result
+    // is ~232 unique names. 480 provides ~16% headroom for new methods.
+    static NAMES: LazyLock<([&'static str; 480], usize)> = LazyLock::new(|| {
+        let mut buf = [""; 480];
+        let mut len = 0;
+        for td in BUILTIN_TYPES {
+            if td.tag == TypeTag::Iterator {
+                continue;
+            }
+            for m in td.methods {
+                if m.receiver == crate::Ownership::Borrow && m.name != "iter" {
+                    assert!(
+                        len < 480,
+                        "borrowing_method_names overflow (capacity 480): increase array size"
+                    );
+                    buf[len] = m.name;
+                    len += 1;
+                }
+            }
+        }
+        buf[..len].sort_unstable();
+        // Deduplicate in place
+        let mut write = 1;
+        for read in 1..len {
+            if buf[read] != buf[write - 1] {
+                buf[write] = buf[read];
+                write += 1;
+            }
+        }
+        (buf, if len == 0 { 0 } else { write })
+    });
+    &NAMES.0[..NAMES.1]
+}
+
 /// Finds a [`TypeDef`] by its string name.
 ///
 /// Matches the `TypeDef.name` field: lowercase for primitives
@@ -230,11 +291,8 @@ pub fn is_dei_only(method: &str) -> bool {
         .is_some_and(|m| m.dei_only)
 }
 
-/// Map registry `PascalCase` type names to the legacy lowercase convention
-/// used by `BUILTIN_METHODS` (IR) and LLVM codegen.
-///
-/// This exists as a compatibility layer until the IR registry (`BUILTIN_METHODS`)
-/// migrates to `PascalCase` naming (Section 13 of `type_strategy_registry` plan).
+/// Map registry `PascalCase` type names to the lowercase convention
+/// used by LLVM codegen tests and eval consistency tests.
 #[must_use]
 pub fn legacy_type_name(registry_name: &str) -> &str {
     match registry_name {

@@ -2,6 +2,7 @@
 section: 7C
 title: Collections & Iteration
 status: in-progress
+reviewed: false
 tier: 2
 goal: Collection methods, iterator traits, and Debug trait
 spec:

@@ -2,6 +2,7 @@
 section: 4
 title: Module System
 status: in-progress
+reviewed: false
 tier: 1
 goal: Multi-file compilation
 spec:

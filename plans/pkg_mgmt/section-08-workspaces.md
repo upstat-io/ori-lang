@@ -1,3 +1,30 @@
+---
+section: "08"
+title: "Workspaces"
+status: not-started
+goal: "Monorepo support with shared dependencies"
+depends_on: ["07"]
+sections:
+  - id: "8.1"
+    title: "Workspace Configuration"
+    status: not-started
+  - id: "8.2"
+    title: "Workspace Resolution"
+    status: not-started
+  - id: "8.3"
+    title: "Workspace Scripts"
+    status: not-started
+  - id: "8.4"
+    title: "Workspace Commands"
+    status: not-started
+  - id: "8.5"
+    title: "Workspace Publishing"
+    status: not-started
+  - id: "8.6"
+    title: "Phase Completion Checklist"
+    status: not-started
+---
+
 # Phase 8: Workspaces
 
 **Goal**: Monorepo support with shared dependencies
