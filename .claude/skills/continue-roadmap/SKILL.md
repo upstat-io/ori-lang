@@ -290,7 +290,8 @@ Checking off items without verification defeats the purpose of the roadmap.
    - Run `./fmt-all.sh` to ensure formatter still works
 3. **Update section file** — Check off completed items with `[x]`
 4. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
-5. **Commit with clear message** — Reference the section and task
+5. **Update parent plan files** — If section status changed, update `00-overview.md` and `index.md` status tables (see "Updating Section File Frontmatter" § "Update the parent plan's overview and index")
+6. **Commit with clear message** — Reference the section and task
 
 ---
 
@@ -374,9 +375,25 @@ sections:
    - Any subsection in-progress → `status: in-progress`
    - All subsections not-started → `status: not-started`
 
+3. **Update the parent plan's overview and index** — this is MANDATORY when a section's status changes:
+   - **`00-overview.md`**: Update the section's status in BOTH the effort/status table AND the Quick Reference table. These are two separate tables that must stay in sync.
+   - **`index.md`**: Update the section's `**Status:**` line in its keyword cluster block, and the Status column in the Quick Reference table.
+   - **Plan-level status**: If all sections are now complete, update the plan's `status:` in `00-overview.md` frontmatter to `complete`.
+
+### When a Plan Completes
+
+When the final section of a plan is marked complete:
+
+1. **Update the plan's `00-overview.md` frontmatter**: `status: complete`
+2. **Update ALL status tables** in `00-overview.md` — effort table, Quick Reference, any other status tracking
+3. **Update `index.md`** — all section statuses, plan-level status in frontmatter
+4. **If the plan has a parent** (e.g., referenced by another plan's dependency list or the main roadmap), update the parent's references to reflect completion
+
+**Never leave overview/index status stale.** Section frontmatter, overview tables, and index entries must all agree. A section marked `complete` in its own frontmatter but `In Progress` in the overview is a bug.
+
 ### Why This Matters
 
-The website dynamically loads roadmap data from these YAML frontmatter blocks. Incorrect status values cause the roadmap page to show wrong progress information.
+The website dynamically loads roadmap data from these YAML frontmatter blocks. Incorrect status values cause the roadmap page to show wrong progress information. Overview and index files are the first thing read when resuming work — stale status there causes wasted time re-analyzing completed work.
 
 **Catch-all:** If frontmatter drifts despite these rules, Step 1.5 (Stale Frontmatter Auto-Fix) catches and corrects it at the start of every `/continue-roadmap` invocation.
 
@@ -437,6 +454,10 @@ When completing a roadmap item:
   - [ ] Check off completed items with `[x]`
   - [ ] Update subsection `status` in YAML frontmatter if subsection is now complete
   - [ ] Update section `status` in YAML frontmatter if all subsections are now complete
+- [ ] Update parent plan files (if section status changed):
+  - [ ] Update `00-overview.md` effort table and Quick Reference table
+  - [ ] Update `index.md` section status and Quick Reference table
+  - [ ] If plan complete: update plan-level `status:` frontmatter in both files
 - [ ] Commit with section reference in message
 
 ---
