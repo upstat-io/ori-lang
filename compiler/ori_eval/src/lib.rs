@@ -52,7 +52,7 @@ pub use ori_patterns::{
 pub use diagnostics::{CallFrame, CallStack, EvalCounters};
 pub use environment::{AssignError, Environment, LocalScope, Mutability, Scope};
 pub use eval_mode::{BudgetExceeded, EvalMode, ModeState};
-pub use methods::dispatch_builtin_method_str;
+pub use methods::{can_dispatch_builtin, dispatch_builtin_method_str};
 pub use operators::evaluate_binary;
 pub use ori_patterns::{MethodEntry, UserMethod, UserMethodRegistry};
 pub use unary_operators::evaluate_unary;
