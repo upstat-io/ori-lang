@@ -2723,8 +2723,8 @@ fn into_not_on_named_types_via_builtins() {
 ///
 /// This is the forward-coverage test: iterates all `BUILTIN_TYPES` from the
 /// registry and verifies that every non-associated method resolves to `Some(_)`.
-/// Supersedes the old `TYPECK_BUILTIN_METHODS` constant — the registry is now
-/// the single source of truth.
+/// Supersedes old per-phase method lists — `ori_registry::BUILTIN_TYPES`
+/// is now the single source of truth.
 #[test]
 fn registry_method_coverage_complete() {
     use ori_registry::{TypeTag, BUILTIN_TYPES};

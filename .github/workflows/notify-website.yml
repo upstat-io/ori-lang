@@ -20,4 +20,4 @@ jobs:
           gh api repos/upstat-io/ori-lang-website/dispatches \
             -f event_type=ori-lang-content-updated
         env:
-          GH_TOKEN: ${{ secrets.WEBSITE_PAT }}
+          GH_TOKEN: ${{ secrets.ORI_LANG_PAT }}

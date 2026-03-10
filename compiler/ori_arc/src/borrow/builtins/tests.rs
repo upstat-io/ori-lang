@@ -319,6 +319,31 @@ fn consuming_receiver_only_methods_exist_in_registry() {
     }
 }
 
+/// Every method in `SHARING_METHOD_NAMES` must exist as a method on at least one
+/// collection type (List, Str) in the registry.
+///
+/// These are methods that return views sharing the receiver's backing storage.
+/// If a method is removed from the registry but left here, uniqueness analysis
+/// would incorrectly mark the result as `MaybeShared` for a non-existent method.
+#[test]
+fn sharing_methods_exist_in_registry() {
+    use ori_registry::TypeTag;
+
+    let relevant_types = [TypeTag::List, TypeTag::Str];
+
+    for &method in SHARING_METHOD_NAMES {
+        let found = relevant_types
+            .iter()
+            .any(|&tag| ori_registry::has_method(tag, method));
+        assert!(
+            found,
+            "SHARING_METHOD_NAMES contains \"{method}\" but it does not \
+             exist as a method on List or Str in ori_registry. \
+             Was it renamed or removed?"
+        );
+    }
+}
+
 /// Protocol builtins with all-borrowed args must be in `borrowing_builtin_names()`,
 /// and protocol builtins with any Owned args must NOT be.
 ///
