@@ -1,4 +1,4 @@
-//! RC elimination pass for ARC IR (Section 08).
+//! RC elimination pass for ARC IR.
 //!
 //! Eliminates redundant `RcInc`/`RcDec` pairs using bidirectional intra-block
 //! dataflow analysis. An `RcInc` immediately followed by an `RcDec` on the
@@ -7,9 +7,9 @@
 //!
 //! # Pipeline Position
 //!
-//! This pass runs AFTER constructor reuse expansion (Section 09). Input is
-//! ARC IR with `RcInc`/`RcDec` from both RC insertion (07) and reuse
-//! expansion (09). Execution order: 07 → 09 → 08 (this pass).
+//! This pass runs AFTER constructor reuse expansion. Input is ARC IR with
+//! `RcInc`/`RcDec` from both RC insertion and reuse expansion.
+//! Execution order: RC insertion → reuse expansion → RC elimination (this pass).
 //!
 //! # Algorithm
 //!

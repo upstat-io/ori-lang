@@ -13,11 +13,13 @@
 //! - [`intraprocedural`] — backward dataflow analysis
 //! - [`interprocedural`] — SCC fixed-point loop
 //! - [`builtins`] — hardcoded contracts for builtin methods
-//! - `emit_rc/` — RC emission from converged state (future)
-//! - `emit_reuse/` — reuse emission (future)
+//! - [`emit_rc`] — RC emission from converged state
+//! - [`emit_reuse`] — reuse emission from converged state
 
 pub mod builtins;
 pub mod contract;
+pub mod emit_rc;
+pub mod emit_reuse;
 pub mod interprocedural;
 pub mod intraprocedural;
 pub mod lattice;

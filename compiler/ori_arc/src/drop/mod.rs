@@ -1,4 +1,4 @@
-//! Specialized drop descriptor generation (Section 07.4).
+//! Specialized drop descriptor generation.
 //!
 //! When a reference-counted value's refcount reaches zero, its memory must
 //! be cleaned up: all RC'd child fields must be decremented before the

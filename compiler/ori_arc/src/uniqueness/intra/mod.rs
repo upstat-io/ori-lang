@@ -1,4 +1,4 @@
-//! Intraprocedural uniqueness analysis (Section 07.2).
+//! Intraprocedural uniqueness analysis.
 //!
 //! Forward dataflow analysis that determines which variables are provably
 //! uniquely owned (RC == 1) at each program point within a single function.

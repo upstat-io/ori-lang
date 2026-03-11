@@ -1,6 +1,6 @@
-//! Reset/Reuse detection for ARC IR (Section 07.6).
+//! Reset/Reuse detection for ARC IR.
 //!
-//! After RC insertion (§07.2), identifies opportunities for in-place
+//! After RC insertion, identifies opportunities for in-place
 //! constructor reuse: when an `RcDec` is immediately followed by a
 //! `Construct` of the same type, the memory can be reused instead of
 //! freed and reallocated.

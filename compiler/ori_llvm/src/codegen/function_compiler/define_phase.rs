@@ -10,7 +10,9 @@ use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
-use tracing::{debug, trace, warn};
+#[cfg(not(feature = "aims"))]
+use tracing::warn;
+use tracing::{debug, trace};
 
 use super::FunctionCompiler;
 use crate::codegen::abi::{
@@ -256,6 +258,13 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
         // Without this, RC insertion generates unnecessary RcInc/RcDec for
         // params that borrow inference determined should be Borrowed.
+        //
+        // When AIMS is active, param ownership is set by
+        // aims::apply_ownership() (pipeline step 2) inside run_arc_pipeline.
+        // Skip the legacy annotation to avoid overwriting AIMS decisions.
+        #[cfg(feature = "aims")]
+        let _ = name;
+        #[cfg(not(feature = "aims"))]
         if let Some(sig) = self.annotated_sigs.get(&name) {
             for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
                 param.ownership = annotated.ownership;
