@@ -1,19 +1,15 @@
 name: Notify website of content change
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - 'docs/**'
-      - 'plans/**'
-      - 'blog/**'
-      - 'library/std/**'
-      - 'install.sh'
-      - 'BUILD_NUMBER'
+  workflow_run:
+    workflows: ["Auto Release"]
+    types: [completed]
 
 jobs:
   notify:
     runs-on: ubuntu-latest
+    # Only notify on success (skip if auto-release was skipped or failed)
+    if: github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Trigger website rebuild
         run: |
