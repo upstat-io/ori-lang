@@ -51,7 +51,7 @@ impl DropHints {
     }
 
     /// Mark an instruction as eligible for unique drop.
-    fn mark_unique(&mut self, block_idx: usize, instr_idx: usize) {
+    pub(crate) fn mark_unique(&mut self, block_idx: usize, instr_idx: usize) {
         self.unique_drops.insert((block_idx, instr_idx));
     }
 

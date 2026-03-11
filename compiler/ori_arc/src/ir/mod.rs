@@ -191,7 +191,7 @@ pub enum CtorKind {
 /// A function parameter in the ARC IR, annotated with ownership.
 ///
 /// Ownership starts as `Owned` for all ref-typed parameters and is
-/// refined to `Borrowed` by borrow inference (Section 06.2).
+/// refined to `Borrowed` by borrow inference.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArcParam {
@@ -299,9 +299,8 @@ impl ArcTerminator {
 
     /// Replace all occurrences of `old` with `new` in variable positions.
     ///
-    /// Used by constructor reuse expansion (Section 09) to substitute
-    /// `reuse_dst → reset_var` on the fast path, where the result IS
-    /// the original object.
+    /// Used by constructor reuse expansion to substitute `reuse_dst → reset_var`
+    /// on the fast path, where the result IS the original object.
     pub fn substitute_var(&mut self, old: ArcVarId, new: ArcVarId) {
         fn sub(v: &mut ArcVarId, old: ArcVarId, new: ArcVarId) {
             if *v == old {

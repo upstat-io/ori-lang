@@ -4,12 +4,14 @@ use ori_ir::Name;
 
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArgOwnership, CtorKind};
 use crate::ownership::Ownership;
-use crate::test_helpers::{b, count_rc_ops, make_func, v};
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
+use crate::test_helpers::count_rc_ops;
+use crate::test_helpers::{b, make_func, v};
 use rustc_hash::FxHashMap;
 
-use crate::{
-    compute_liveness, compute_refined_liveness, expand_reset_reuse, ArcClassifier, DominatorTree,
-};
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
+use crate::{compute_liveness, expand_reset_reuse};
+use crate::{compute_refined_liveness, ArcClassifier, DominatorTree};
 
 /// Run the full ARC pipeline via the public orchestration function.
 fn run_full_pipeline(
@@ -44,7 +46,11 @@ fn run_full_pipeline(
 /// new `RcInc`/`RcDec` instructions are generated (slow path `RcDec`, restored
 /// `RcInc`, fast path field `RcDec`). Running eliminate AFTER expansion
 /// ensures those ops are candidates for optimization.
+///
+/// This test exercises legacy pipeline passes (`rc_elim`, `expand_reuse`) which
+/// are gated behind `not(feature = "aims")`.
 #[test]
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 fn pipeline_order_expand_before_eliminate() {
     // fn foo(x: str) -> str
     //   head = Project(x, 0)       -- STR field

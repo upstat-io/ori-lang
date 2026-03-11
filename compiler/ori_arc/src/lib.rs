@@ -64,6 +64,7 @@ pub mod borrow;
 pub(crate) mod classify;
 pub mod decision_tree;
 pub mod drop;
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub mod expand_reuse;
 pub mod fbip;
 mod graph;
@@ -72,9 +73,12 @@ pub mod liveness;
 pub mod lower;
 pub mod ownership;
 mod pipeline;
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub mod rc_elim;
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub mod rc_identity;
 pub mod rc_insert;
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub mod reset_reuse;
 pub mod tail_call;
 pub mod uniqueness;
@@ -87,10 +91,14 @@ use ori_types::Idx;
 
 pub use pipeline::{run_arc_pipeline, run_arc_pipeline_all, run_uniqueness_analysis};
 
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub use borrow::{
-    all_cow_method_names, apply_borrows, borrowing_builtin_names, consuming_receiver_builtin_names,
-    consuming_receiver_only_builtin_names, extract_callees, infer_borrow_fixed_point,
-    infer_borrow_single, infer_borrows_scc, infer_derived_ownership, BuiltinOwnershipSets,
+    all_cow_method_names, apply_borrows, consuming_receiver_builtin_names,
+    consuming_receiver_only_builtin_names, infer_derived_ownership,
+};
+pub use borrow::{
+    borrowing_builtin_names, extract_callees, infer_borrow_fixed_point, infer_borrow_single,
+    infer_borrows_scc, BuiltinOwnershipSets,
 };
 pub use classify::ArcClassifier;
 pub use decision_tree::{
@@ -100,6 +108,7 @@ pub use decision_tree::{
 pub use drop::{
     collect_drop_infos, compute_closure_env_drop, compute_drop_info, DropInfo, DropKind,
 };
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub use expand_reuse::expand_reset_reuse;
 pub use fbip::check_fbip_enforcement;
 pub use graph::call_graph::CallGraph;
@@ -114,16 +123,21 @@ pub use liveness::{
 };
 pub use lower::{lower_function_can, ArcProblem};
 pub use ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub use rc_elim::eliminate_rc_ops_dataflow;
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub use rc_identity::{propagate_rc_identity, RcIdentityMap};
-pub use rc_insert::{
-    annotate_arg_ownership, insert_external_invoke_cleanup, insert_rc_ops_with_ownership,
-};
+pub use rc_insert::annotate_arg_ownership;
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
+pub use rc_insert::{insert_external_invoke_cleanup, insert_rc_ops_with_ownership};
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub use uniqueness::inter::{analyze_program, build_cow_summaries};
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub use uniqueness::intra::{analyze_intraprocedural, analyze_with_summaries, UniquenessResult};
+#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
+pub use uniqueness::{compute_cow_annotations, compute_drop_hints};
 pub use uniqueness::{
-    compute_cow_annotations, compute_drop_hints, CowAnnotations, CowMode, DropHints, Uniqueness,
-    UniquenessMap, UniquenessSummary,
+    CowAnnotations, CowMode, DropHints, Uniqueness, UniquenessMap, UniquenessSummary,
 };
 
 /// ARC classification for a type.
