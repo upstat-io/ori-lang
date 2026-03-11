@@ -10,6 +10,10 @@ order: 1
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
 
+> **No Deferrals.** Every checkbox in every section must be implemented. Do not
+> mark items as deferred, skip items, or move items to later stages. Work each
+> section's items in order until all checkboxes are checked.
+
 ## How to Use
 
 1. Search this file (Ctrl+F) for keywords

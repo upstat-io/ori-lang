@@ -1,0 +1,88 @@
+// AIMS golden corpus: Mixed borrowed/owned call patterns.
+// Tests that AIMS correctly infers ownership across call boundaries.
+
+use std.testing { assert_eq }
+
+// --- Pass-by-value (owned) ---
+
+@sum_list (items: [int]) -> int = {
+    let result = 0;
+    for x in items do {
+        result = result + x
+    };
+    result
+}
+
+@test_sum tests @sum_list () -> void = {
+    let list = [1, 2, 3, 4, 5];
+    assert_eq(actual: sum_list(list), expected: 15)
+}
+
+// --- Multiple uses of same value (forces RC) ---
+
+@use_twice (items: [int]) -> int = {
+    let a = sum_list(items);
+    let b = len(collection: items);
+    a + b
+}
+
+@test_use_twice tests @use_twice () -> void = {
+    assert_eq(actual: use_twice([1, 2, 3]), expected: 9)
+}
+
+// --- Borrowed read (no consumption) ---
+
+@read_first (items: [int]) -> Option<int> = {
+    items.first()
+}
+
+@test_read_first tests @read_first () -> void = {
+    assert_eq(actual: read_first([10, 20, 30]), expected: Some(10))
+}
+
+// --- Mixed: read then consume ---
+
+@read_then_consume (items: [int]) -> (Option<int>, int) = {
+    let first = items.first();
+    let sum = sum_list(items);
+    (first, sum)
+}
+
+@test_read_then_consume tests @read_then_consume () -> void = {
+    assert_eq(actual: read_then_consume([1, 2, 3]), expected: (Some(1), 6))
+}
+
+// --- Conditional consumption ---
+
+@maybe_consume (items: [int], take: bool) -> int = {
+    if take then sum_list(items) else 0
+}
+
+@test_maybe_consume_true tests @maybe_consume () -> void = {
+    assert_eq(actual: maybe_consume([1, 2, 3], true), expected: 6)
+}
+
+@test_maybe_consume_false tests @maybe_consume () -> void = {
+    assert_eq(actual: maybe_consume([1, 2, 3], false), expected: 0)
+}
+
+// --- Returning borrowed data ---
+
+@identity (x: int) -> int = { x }
+
+@test_identity tests @identity () -> void = {
+    assert_eq(actual: identity(42), expected: 42)
+}
+
+// --- Chain of owned calls ---
+
+@transform_chain (items: [int]) -> [int] = {
+    items
+        .map(transform: x -> x * 2)
+        .filter(predicate: x -> x > 4)
+        .map(transform: x -> x + 1)
+}
+
+@test_transform_chain tests @transform_chain () -> void = {
+    assert_eq(actual: transform_chain([1, 2, 3, 4, 5]), expected: [7, 9, 11])
+}

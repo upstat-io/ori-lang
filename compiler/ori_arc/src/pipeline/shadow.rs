@@ -10,6 +10,7 @@
 //! 1. **Param ownership**: AIMS `ParamContract.access` vs legacy `ArcParam.ownership`
 //! 2. **Return uniqueness**: AIMS `ReturnContract.uniqueness` vs legacy `UniquenessSummary.return_val`
 //! 3. **COW annotations**: AIMS-predicted `CowMode` counts vs legacy `CowAnnotations`
+//! 4. **RC operations**: AIMS `RcInc`/`RcDec` count vs legacy (fewer = better)
 //!
 //! # Gate criterion
 //!
@@ -27,6 +28,9 @@ use crate::lower::ArcProblem;
 use crate::ownership::{AnnotatedSig, Ownership};
 use crate::uniqueness::{CowAnnotations, UniquenessSummary};
 use crate::ArcClassification;
+
+use super::aims_pipeline::AimsPipelineConfig;
+use super::rc_count::{count_rc_ops, RcOpCount};
 
 // Comparison types
 
@@ -61,6 +65,7 @@ pub(crate) struct FunctionComparison {
     pub param_ownership: DimensionResult,
     pub return_uniqueness: DimensionResult,
     pub cow_annotations: DimensionResult,
+    pub rc_ops: DimensionResult,
 }
 
 /// Aggregate shadow comparison report.
@@ -77,6 +82,13 @@ pub(crate) struct ShadowComparisonReport {
     pub cow_matches: usize,
     pub cow_improvements: usize,
     pub cow_regressions: usize,
+    pub rc_matches: usize,
+    pub rc_improvements: usize,
+    pub rc_regressions: usize,
+    /// Total AIMS RC operations across all functions.
+    pub aims_rc_total: usize,
+    /// Total legacy RC operations across all functions.
+    pub legacy_rc_total: usize,
 }
 
 impl ShadowComparisonReport {
@@ -89,14 +101,16 @@ impl ShadowComparisonReport {
 struct AimsSnapshot {
     contract: Option<MemoryContract>,
     cow_annotations: CowAnnotations,
+    rc_ops: RcOpCount,
 }
 
 /// Run the shadow comparison pipeline.
 ///
 /// 1. Run AIMS analysis (read-only) on unmodified functions
-/// 2. Run legacy pipeline (mutating) — actual output
-/// 3. Compare AIMS predictions against legacy results
-/// 4. Log via tracing
+/// 2. Run full AIMS pipeline on cloned functions (RC op counting)
+/// 3. Run legacy pipeline (mutating) — actual output
+/// 4. Compare AIMS predictions and RC counts against legacy results
+/// 5. Log via tracing
 pub(crate) fn run_shadow_pipeline_all(
     functions: &mut [ArcFunction],
     classifier: &dyn ArcClassification,
@@ -127,9 +141,31 @@ pub(crate) fn run_shadow_pipeline_all(
             AimsSnapshot {
                 contract: contracts.get(&func.name).cloned(),
                 cow_annotations: aims_cow,
+                rc_ops: RcOpCount::default(), // filled in phase 2.5
             },
         );
     }
+
+    // Phase 2.5: Run full AIMS pipeline on cloned functions to count RC ops.
+    let mut aims_clones: Vec<ArcFunction> = functions.to_vec();
+    super::aims_pipeline::apply_aims_ownership(&mut aims_clones, &contracts);
+    let aims_config = AimsPipelineConfig {
+        classifier,
+        contracts: &contracts,
+        pool,
+        interner,
+        builtins,
+        verify_arc,
+    };
+    for clone in &mut aims_clones {
+        let _ = super::aims_pipeline::run_aims_pipeline(clone, &aims_config);
+    }
+    for clone in &aims_clones {
+        if let Some(snapshot) = aims_snapshots.get_mut(&clone.name) {
+            snapshot.rc_ops = count_rc_ops(clone);
+        }
+    }
+    drop(aims_clones);
 
     // Phase 3: Legacy interprocedural passes (mutating).
     crate::borrow::apply_borrows(functions, sigs);
@@ -151,8 +187,20 @@ pub(crate) fn run_shadow_pipeline_all(
         all_problems.extend(problems);
     }
 
+    // Phase 4.5: Count legacy RC ops (after legacy pipeline has mutated functions).
+    let legacy_rc_counts: FxHashMap<Name, RcOpCount> = functions
+        .iter()
+        .map(|f| (f.name, count_rc_ops(f)))
+        .collect();
+
     // Phase 5: Compare and report.
-    let report = compare_all(functions, &aims_snapshots, &uniqueness_summaries, interner);
+    let report = compare_all(
+        functions,
+        &aims_snapshots,
+        &legacy_rc_counts,
+        &uniqueness_summaries,
+        interner,
+    );
     log_report(&report);
 
     all_problems
@@ -163,6 +211,7 @@ pub(crate) fn run_shadow_pipeline_all(
 fn compare_all(
     functions: &[ArcFunction],
     aims_snapshots: &FxHashMap<Name, AimsSnapshot>,
+    legacy_rc_counts: &FxHashMap<Name, RcOpCount>,
     old_summaries: &FxHashMap<Name, UniquenessSummary>,
     interner: &StringInterner,
 ) -> ShadowComparisonReport {
@@ -178,14 +227,23 @@ fn compare_all(
         cow_matches: 0,
         cow_improvements: 0,
         cow_regressions: 0,
+        rc_matches: 0,
+        rc_improvements: 0,
+        rc_regressions: 0,
+        aims_rc_total: 0,
+        legacy_rc_total: 0,
     };
 
     for func in functions {
         let snapshot = aims_snapshots.get(&func.name);
         let old_summary = old_summaries.get(&func.name);
+        let legacy_rc = legacy_rc_counts
+            .get(&func.name)
+            .copied()
+            .unwrap_or_default();
         let name_str = interner.lookup(func.name).to_string();
 
-        let comparison = compare_function(func, snapshot, old_summary, name_str);
+        let comparison = compare_function(func, snapshot, old_summary, legacy_rc, name_str);
 
         tally_dimension(
             &comparison.param_ownership,
@@ -205,6 +263,17 @@ fn compare_all(
             &mut report.cow_improvements,
             &mut report.cow_regressions,
         );
+        tally_dimension(
+            &comparison.rc_ops,
+            &mut report.rc_matches,
+            &mut report.rc_improvements,
+            &mut report.rc_regressions,
+        );
+
+        if let Some(snap) = snapshot {
+            report.aims_rc_total += snap.rc_ops.total();
+        }
+        report.legacy_rc_total += legacy_rc.total();
 
         report.per_function.push(comparison);
     }
@@ -230,6 +299,7 @@ fn compare_function(
     func: &ArcFunction,
     snapshot: Option<&AimsSnapshot>,
     old_summary: Option<&UniquenessSummary>,
+    legacy_rc: RcOpCount,
     name_str: String,
 ) -> FunctionComparison {
     let Some(snapshot) = snapshot else {
@@ -239,6 +309,7 @@ fn compare_function(
             param_ownership: DimensionResult::Skipped("no AIMS contract".into()),
             return_uniqueness: DimensionResult::Skipped("no AIMS contract".into()),
             cow_annotations: DimensionResult::Skipped("no AIMS snapshot".into()),
+            rc_ops: DimensionResult::Skipped("no AIMS snapshot".into()),
         };
     };
 
@@ -247,6 +318,7 @@ fn compare_function(
         param_ownership: compare_param_ownership(func, snapshot),
         return_uniqueness: compare_return_uniqueness(snapshot, old_summary),
         cow_annotations: compare_cow_annotations(&snapshot.cow_annotations, &func.cow_annotations),
+        rc_ops: compare_rc_ops(snapshot.rc_ops, legacy_rc),
         name_str,
     }
 }
@@ -345,19 +417,35 @@ fn compare_cow_annotations(
     let aims_total = aims_cow.len();
     let legacy_total = legacy_cow.len();
 
-    if aims_su == legacy_su && aims_total == legacy_total {
-        DimensionResult::Match
-    } else if aims_su > legacy_su {
-        DimensionResult::Improvement(format!(
+    match aims_su.cmp(&legacy_su) {
+        std::cmp::Ordering::Equal => DimensionResult::Match,
+        std::cmp::Ordering::Greater => DimensionResult::Improvement(format!(
             "StaticUnique: AIMS={aims_su}, legacy={legacy_su} (total: AIMS={aims_total}, legacy={legacy_total})"
-        ))
-    } else if aims_su < legacy_su {
-        DimensionResult::Regression(format!(
+        )),
+        std::cmp::Ordering::Less => DimensionResult::Regression(format!(
             "StaticUnique: AIMS={aims_su}, legacy={legacy_su} (total: AIMS={aims_total}, legacy={legacy_total})"
-        ))
-    } else {
-        // Same StaticUnique count, different totals — not a meaningful regression
-        DimensionResult::Match
+        )),
+    }
+}
+
+/// Compare RC operation counts between AIMS and legacy pipelines.
+///
+/// Fewer total RC ops = better (less runtime overhead).
+/// AIMS < legacy = improvement; AIMS > legacy = regression.
+fn compare_rc_ops(aims: RcOpCount, legacy: RcOpCount) -> DimensionResult {
+    let aims_total = aims.total();
+    let legacy_total = legacy.total();
+
+    match aims_total.cmp(&legacy_total) {
+        std::cmp::Ordering::Equal => DimensionResult::Match,
+        std::cmp::Ordering::Less => DimensionResult::Improvement(format!(
+            "AIMS={aims} ({aims_total}), legacy={legacy} ({legacy_total}), saved {}",
+            legacy_total - aims_total,
+        )),
+        std::cmp::Ordering::Greater => DimensionResult::Regression(format!(
+            "AIMS={aims} ({aims_total}), legacy={legacy} ({legacy_total}), excess {}",
+            aims_total - legacy_total,
+        )),
     }
 }
 
@@ -401,44 +489,30 @@ fn log_report(report: &ShadowComparisonReport) {
         cow_match = report.cow_matches,
         cow_improve = report.cow_improvements,
         cow_regress = report.cow_regressions,
+        rc_match = report.rc_matches,
+        rc_improve = report.rc_improvements,
+        rc_regress = report.rc_regressions,
+        aims_rc_total = report.aims_rc_total,
+        legacy_rc_total = report.legacy_rc_total,
         "AIMS shadow comparison summary"
     );
 
-    // Log individual regressions as warnings.
+    // Log per-function details.
     for fc in &report.per_function {
-        if let DimensionResult::Regression(detail) = &fc.param_ownership {
-            tracing::warn!(function = %fc.name_str, dimension = "param_ownership", %detail,
-                "AIMS REGRESSION: weaker than legacy");
-        }
-        if let DimensionResult::Regression(detail) = &fc.return_uniqueness {
-            tracing::warn!(function = %fc.name_str, dimension = "return_uniqueness", %detail,
-                "AIMS REGRESSION: weaker than legacy");
-        }
-        if let DimensionResult::Regression(detail) = &fc.cow_annotations {
-            tracing::warn!(function = %fc.name_str, dimension = "cow_annotations", %detail,
-                "AIMS REGRESSION: weaker than legacy");
-        }
+        log_function_details(fc);
     }
 
-    // Log improvements at info level.
-    if report.param_improvements > 0
-        || report.return_improvements > 0
-        || report.cow_improvements > 0
-    {
-        for fc in &report.per_function {
-            if let DimensionResult::Improvement(detail) = &fc.param_ownership {
-                tracing::info!(function = %fc.name_str, dimension = "param_ownership", %detail,
-                    "AIMS improvement over legacy");
-            }
-            if let DimensionResult::Improvement(detail) = &fc.return_uniqueness {
-                tracing::info!(function = %fc.name_str, dimension = "return_uniqueness", %detail,
-                    "AIMS improvement over legacy");
-            }
-            if let DimensionResult::Improvement(detail) = &fc.cow_annotations {
-                tracing::info!(function = %fc.name_str, dimension = "cow_annotations", %detail,
-                    "AIMS improvement over legacy");
-            }
-        }
+    // RC totals summary.
+    if report.aims_rc_total != report.legacy_rc_total {
+        let saved = report.legacy_rc_total.saturating_sub(report.aims_rc_total);
+        let excess = report.aims_rc_total.saturating_sub(report.legacy_rc_total);
+        tracing::info!(
+            aims = report.aims_rc_total,
+            legacy = report.legacy_rc_total,
+            saved,
+            excess,
+            "AIMS RC operation total comparison"
+        );
     }
 
     if report.has_regressions() {
@@ -450,6 +524,41 @@ fn log_report(report: &ShadowComparisonReport) {
         );
     } else {
         tracing::info!("AIMS shadow comparison: no regressions — Stage 1A gate PASSED");
+    }
+
+    // RC regressions are tracked but don't fail the Stage 1A gate
+    // (Stage 1C accepts correctness-first with RC count regressions investigated).
+    if report.rc_regressions > 0 {
+        tracing::warn!(
+            rc_regressions = report.rc_regressions,
+            aims_total = report.aims_rc_total,
+            legacy_total = report.legacy_rc_total,
+            "AIMS RC count regressions detected — investigate per-function details above"
+        );
+    }
+}
+
+/// Log regressions and improvements for a single function comparison.
+fn log_function_details(fc: &FunctionComparison) {
+    let dimensions: &[(&str, &DimensionResult)] = &[
+        ("param_ownership", &fc.param_ownership),
+        ("return_uniqueness", &fc.return_uniqueness),
+        ("cow_annotations", &fc.cow_annotations),
+        ("rc_ops", &fc.rc_ops),
+    ];
+
+    for &(dim, result) in dimensions {
+        match result {
+            DimensionResult::Regression(detail) => {
+                tracing::warn!(function = %fc.name_str, dimension = dim, %detail,
+                    "AIMS REGRESSION");
+            }
+            DimensionResult::Improvement(detail) => {
+                tracing::info!(function = %fc.name_str, dimension = dim, %detail,
+                    "AIMS improvement over legacy");
+            }
+            DimensionResult::Match | DimensionResult::Skipped(_) => {}
+        }
     }
 }
 

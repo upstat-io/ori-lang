@@ -378,21 +378,32 @@ is separate from the struct Reset/Reuse system. It is emitted during lowering
 ## 05.5 Completion Checklist
 
 - [x] Reuse opportunities correctly detected from state map
-- [ ] Cross-block reuse detected (dominator-guided via ReusePlanner) <!-- deferred: Stage 2 -->
-- [ ] ReusePlanner builds dom/post-dom trees only when candidates exist <!-- deferred: Stage 2 -->
+- [ ] Cross-block reuse detected (dominator-guided via ReusePlanner)
+- [ ] ReusePlanner builds dom/post-dom trees only when candidates exist
 - [x] Static-unique reuse emitted without `IsShared` check
-- [ ] Dynamic reuse emitted with conditional branch <!-- deferred: Stage 2 -->
-- [ ] Reuse specialization skips unchanged fields <!-- deferred: Stage 2 -->
-- [ ] **RC/reuse coordination**: RC emission suppresses `RcDec` for reuse candidates;
-  reuse emission handles them (Reset if matched, fallback `RcDec` if unmatched) <!-- deferred: Stage 2 -->
-- [ ] Unmatched reuse candidates correctly fall back to `RcDec` <!-- deferred: Stage 2 -->
+- [x] Dynamic reuse emitted with conditional branch
+  Verified: `maybe_shared_emits_conditional_branch` test proves `MaybeShared` sources
+  get `IsShared` + `Branch` expansion with fast path (`Set` in-place) and slow path
+  (`RcDec` + `Construct`). Additional tests: `dynamic_reuse_moves_between_instructions`,
+  `dynamic_reuse_no_merge_block`, `dynamic_reuse_self_set_elimination`,
+  `dynamic_reuse_enum_variant`.
+- [x] Reuse specialization skips unchanged fields
+  Verified: `self_set_elimination_skips_unchanged_field` test proves self-set elimination.
+  `all_fields_self_set_no_sets` and `enum_self_set_with_tag_change` cover additional cases.
+- [x] **RC/reuse coordination**: RC emission emits `RcDec` for all deaths; reuse emission
+  removes matched `RcDec`s and replaces `Construct` with `Set` instructions (post-patch
+  approach — equivalent outcome to deferred-dec, simpler implementation).
+- [x] Unmatched reuse candidates correctly fall back to `RcDec`
+  Verified: unmatched deaths are never included in `opportunities` list, so their
+  `RcDec` remains in place. Tests `no_reuse_different_types`, `no_reuse_intervening_use`,
+  `no_reuse_shared_variable` confirm unmatched cases preserve the `RcDec`.
 - [x] `CollectionReuse` instructions preserved from lowering
 - [x] Emitted code passes `ori_arc::verify` checks
   Verified: verification runs after emission (steps 9, 13) in `aims_pipeline.rs`.
 - [x] FBIP enforcement (separate pass, step 14) still works on AIMS output
-- [ ] `FipContract` consulted during reuse emission (Stage 2) <!-- deferred: Stage 2 -->
-- [ ] FIP-guided fast paths emit static-unique reuse when preconditions hold <!-- deferred: Stage 2 -->
-- [ ] `FipGate` records captured in emission-phase artifact for verification <!-- deferred: Stage 2 -->
+- [ ] `FipContract` consulted during reuse emission (Stage 2)
+- [ ] FIP-guided fast paths emit static-unique reuse when preconditions hold
+- [ ] `FipGate` records captured in emission-phase artifact for verification
 
 **Exit Criteria:** `cargo t -p ori_arc -- aims::emit_reuse` passes. Reuse opportunities
 are found for all cases that the current `reset_reuse` finds, plus any new cases

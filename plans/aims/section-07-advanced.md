@@ -2,7 +2,7 @@
 section: "07"
 title: "Advanced Optimizations"
 status: not-started
-reviewed: true  # 2026-03-10
+reviewed: false
 goal: "Implement optimizations enabled by the unified lattice that were impossible with separate passes"
 inspired_by:
   - "Biased RC / PEP 703 (immortal objects)"
