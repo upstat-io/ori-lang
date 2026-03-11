@@ -1,0 +1,67 @@
+// AIMS golden corpus: Closure capture with multiple escaping variables.
+// Tests that AIMS correctly tracks ownership through closure boundaries.
+
+use std.testing { assert_eq }
+
+// --- Multiple captures escaping via closure ---
+
+@capture_two () -> int = {
+    let x = 42;
+    let y = 100;
+    let f = () -> int = x + y;
+    f()
+}
+
+@test_capture_two tests @capture_two () -> void = {
+    assert_eq(actual: capture_two(), expected: 142)
+}
+
+// --- Closure capturing a list (heap-allocated) ---
+
+@capture_list () -> [int] = {
+    let items = [1, 2, 3];
+    let f = () -> [int] = items;
+    f()
+}
+
+@test_capture_list tests @capture_list () -> void = {
+    assert_eq(actual: capture_list(), expected: [1, 2, 3])
+}
+
+// --- Closure returned from function (escaping) ---
+
+@make_adder (n: int) -> () -> int = {
+    () -> int = n + 10
+}
+
+@test_make_adder () -> void = {
+    let add = make_adder(5);
+    assert_eq(actual: add(), expected: 15)
+}
+
+// --- Closure capturing mutable state ---
+
+@capture_mutated () -> int = {
+    let counter = 0;
+    let counter = counter + 1;
+    let counter = counter + 1;
+    let f = () -> int = counter;
+    f()
+}
+
+@test_capture_mutated tests @capture_mutated () -> void = {
+    assert_eq(actual: capture_mutated(), expected: 2)
+}
+
+// --- Multiple closures sharing a capture ---
+
+@shared_capture () -> int = {
+    let x = 42;
+    let f = () -> int = x;
+    let g = () -> int = x + 1;
+    f() + g()
+}
+
+@test_shared_capture tests @shared_capture () -> void = {
+    assert_eq(actual: shared_capture(), expected: 85)
+}

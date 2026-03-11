@@ -333,9 +333,13 @@ fn collection_construct_not_reusable() {
     assert_eq!(result.static_reuses, 0, "collection construct not reusable");
 }
 
-/// `MaybeShared` reuse is detected but counted as dynamic (not applied in Stage 1).
+/// `MaybeShared` reuse emits `IsShared` + `Branch` with fast/slow paths.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "comprehensive structural validation of expanded CFG"
+)]
 #[test]
-fn maybe_shared_counts_as_dynamic() {
+fn maybe_shared_emits_conditional_branch() {
     let v0 = ArcVarId::new(0);
     let v1 = ArcVarId::new(1);
     let v2 = ArcVarId::new(2);
@@ -360,6 +364,7 @@ fn maybe_shared_counts_as_dynamic() {
     };
 
     let mut func = make_func(vec![block], 3);
+    func.spans = vec![vec![None; 2]];
 
     let mut state_map = AimsStateMap::new(&func);
     let blk = ArcBlockId::new(0);
@@ -385,9 +390,65 @@ fn maybe_shared_counts_as_dynamic() {
         "MaybeShared should count as dynamic"
     );
 
-    // Body should be unchanged (dynamic reuse not applied in Stage 1).
-    assert!(matches!(func.blocks[0].body[0], ArcInstr::RcDec { .. }));
-    assert!(matches!(func.blocks[0].body[1], ArcInstr::Construct { .. }));
+    // Original block should end with IsShared + Branch.
+    assert_eq!(
+        func.blocks[0].body.len(),
+        1,
+        "original block should have only IsShared"
+    );
+    assert!(
+        matches!(func.blocks[0].body[0], ArcInstr::IsShared { var, .. } if var == v0),
+        "expected IsShared on v0, got {:?}",
+        func.blocks[0].body[0]
+    );
+    assert!(
+        matches!(func.blocks[0].terminator, ArcTerminator::Branch { .. }),
+        "expected Branch terminator"
+    );
+
+    // Should have created 3 new blocks: fast, slow, merge (terminator uses v1).
+    assert_eq!(
+        func.blocks.len(),
+        4,
+        "expected 4 blocks (original + fast + slow + merge)"
+    );
+
+    // Fast path (block 1): Set for field 0 + Jump to merge.
+    let fast = &func.blocks[1];
+    assert_eq!(fast.body.len(), 1, "fast path: 1 Set instruction");
+    assert!(
+        matches!(fast.body[0], ArcInstr::Set { base, field: 0, value } if base == v0 && value == v2),
+        "expected Set {{ base: v0, field: 0, value: v2 }}"
+    );
+    assert!(
+        matches!(fast.terminator, ArcTerminator::Jump { target, ref args } if target == ArcBlockId::new(3) && args == &[v0]),
+        "fast path should Jump to merge with v0"
+    );
+
+    // Slow path (block 2): RcDec + Construct + Jump to merge.
+    let slow = &func.blocks[2];
+    assert_eq!(slow.body.len(), 2, "slow path: RcDec + Construct");
+    assert!(
+        matches!(slow.body[0], ArcInstr::RcDec { var, .. } if var == v0),
+        "slow path should RcDec v0"
+    );
+    assert!(
+        matches!(slow.body[1], ArcInstr::Construct { dst, .. } if dst == v1),
+        "slow path should Construct v1"
+    );
+    assert!(
+        matches!(slow.terminator, ArcTerminator::Jump { target, ref args } if target == ArcBlockId::new(3) && args == &[v1]),
+        "slow path should Jump to merge with v1"
+    );
+
+    // Merge block (block 3): receives result via param, returns it.
+    let merge = &func.blocks[3];
+    assert_eq!(merge.params.len(), 1, "merge should have 1 param");
+    let merge_param = merge.params[0].0;
+    assert!(
+        matches!(merge.terminator, ArcTerminator::Return { value } if value == merge_param),
+        "merge should Return the merge param"
+    );
 }
 
 // Self-set elimination tests (§09.5)
@@ -873,4 +934,319 @@ fn spans_rebuilt_correctly() {
     // Original spans for Project and Apply should be preserved.
     assert_eq!(func.spans[0][0], Some(span_a), "Project span preserved");
     assert_eq!(func.spans[0][1], Some(span_b), "Apply span preserved");
+}
+
+// Dynamic reuse tests
+
+/// Dynamic reuse with between instructions: they're moved before the split point.
+#[test]
+fn dynamic_reuse_moves_between_instructions() {
+    let v0 = ArcVarId::new(0);
+    let v1 = ArcVarId::new(1);
+    let v2 = ArcVarId::new(2);
+    let v3 = ArcVarId::new(3);
+    let struct_name = Name::new(0, 100);
+    let callee = Name::new(0, 300);
+
+    // v0 dies (RcDec), then an unrelated Apply, then Construct of same type.
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::RcDec {
+                var: v0,
+                strategy: crate::ir::RcStrategy::HeapPointer,
+            },
+            // "Between" instruction: doesn't use v0, safe to move.
+            ArcInstr::Apply {
+                dst: v2,
+                ty: Idx::NONE,
+                func: callee,
+                args: vec![v3],
+                arg_ownership: Vec::new(),
+            },
+            ArcInstr::Construct {
+                dst: v1,
+                ty: Idx::NONE,
+                ctor: CtorKind::Struct(struct_name),
+                args: vec![v2],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v1 },
+    };
+
+    let mut func = make_func(vec![block], 4);
+    func.spans = vec![vec![None; 3]];
+
+    let mut state_map = AimsStateMap::new(&func);
+    let blk = ArcBlockId::new(0);
+    let ms_entry = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..owned_unique_reusable(Cardinality::Once)
+    };
+    let ms_exit = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..owned_unique_reusable(Cardinality::Absent)
+    };
+    state_map.update_block_entry(blk, [(v0, ms_entry)].into_iter().collect());
+    state_map.update_block_exit(blk, [(v0, ms_exit)].into_iter().collect());
+
+    let pool = ori_types::Pool::new();
+    let result = emit_reuse(&mut func, &state_map, &pool);
+
+    assert_eq!(result.dynamic_reuses, 1);
+
+    // Original block: Apply (moved from between) + IsShared + Branch.
+    let body = &func.blocks[0].body;
+    assert_eq!(body.len(), 2, "expected Apply + IsShared");
+    assert!(
+        matches!(body[0], ArcInstr::Apply { .. }),
+        "between Apply should be moved before split"
+    );
+    assert!(
+        matches!(body[1], ArcInstr::IsShared { var, .. } if var == v0),
+        "IsShared should follow the moved between instruction"
+    );
+}
+
+/// Dynamic reuse without merge block: no suffix, terminator doesn't use dst.
+#[test]
+fn dynamic_reuse_no_merge_block() {
+    let v0 = ArcVarId::new(0);
+    let v1 = ArcVarId::new(1);
+    let v2 = ArcVarId::new(2);
+    let struct_name = Name::new(0, 100);
+
+    // Construct dst (v1) is NOT used by the terminator.
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::RcDec {
+                var: v0,
+                strategy: crate::ir::RcStrategy::HeapPointer,
+            },
+            ArcInstr::Construct {
+                dst: v1,
+                ty: Idx::NONE,
+                ctor: CtorKind::Struct(struct_name),
+                args: vec![v2],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v2 }, // uses v2, not v1
+    };
+
+    let mut func = make_func(vec![block], 3);
+    func.spans = vec![vec![None; 2]];
+
+    let mut state_map = AimsStateMap::new(&func);
+    let blk = ArcBlockId::new(0);
+    let ms_entry = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..owned_unique_reusable(Cardinality::Once)
+    };
+    let ms_exit = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..owned_unique_reusable(Cardinality::Absent)
+    };
+    state_map.update_block_entry(blk, [(v0, ms_entry)].into_iter().collect());
+    state_map.update_block_exit(blk, [(v0, ms_exit)].into_iter().collect());
+
+    let pool = ori_types::Pool::new();
+    let result = emit_reuse(&mut func, &state_map, &pool);
+
+    assert_eq!(result.dynamic_reuses, 1);
+
+    // No merge block needed: no suffix and terminator doesn't use v1.
+    assert_eq!(
+        func.blocks.len(),
+        3,
+        "expected 3 blocks (original + fast + slow, no merge)"
+    );
+
+    // Fast path should have Return with v2 (terminator copied, v1→v0 substitution
+    // doesn't affect v2).
+    assert!(
+        matches!(func.blocks[1].terminator, ArcTerminator::Return { value } if value == v2),
+        "fast path should Return v2"
+    );
+
+    // Slow path should also Return v2.
+    assert!(
+        matches!(func.blocks[2].terminator, ArcTerminator::Return { value } if value == v2),
+        "slow path should Return v2"
+    );
+}
+
+/// Dynamic reuse with self-set elimination on the fast path.
+#[test]
+fn dynamic_reuse_self_set_elimination() {
+    let v0 = ArcVarId::new(0);
+    let v1 = ArcVarId::new(1);
+    let v2 = ArcVarId::new(2);
+    let v3 = ArcVarId::new(3);
+    let v4 = ArcVarId::new(4);
+    let struct_name = Name::new(0, 100);
+    let callee = Name::new(0, 300);
+
+    // v1 = v0.field_0, v2 = v0.field_1
+    // v3 = f(v1)  (new field 0 value)
+    // dec(v0)
+    // Construct(v4, [v3, v2])  -- field 1 (v2) is self-set
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Project {
+                dst: v1,
+                ty: Idx::NONE,
+                value: v0,
+                field: 0,
+            },
+            ArcInstr::Project {
+                dst: v2,
+                ty: Idx::NONE,
+                value: v0,
+                field: 1,
+            },
+            ArcInstr::Apply {
+                dst: v3,
+                ty: Idx::NONE,
+                func: callee,
+                args: vec![v1],
+                arg_ownership: Vec::new(),
+            },
+            ArcInstr::RcDec {
+                var: v0,
+                strategy: crate::ir::RcStrategy::HeapPointer,
+            },
+            ArcInstr::Construct {
+                dst: v4,
+                ty: Idx::NONE,
+                ctor: CtorKind::Struct(struct_name),
+                args: vec![v3, v2],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v4 },
+    };
+
+    let mut func = make_func(vec![block], 5);
+    func.spans = vec![vec![None; 5]];
+
+    let mut state_map = AimsStateMap::new(&func);
+    let blk = ArcBlockId::new(0);
+    let ms_entry = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..owned_unique_reusable(Cardinality::Once)
+    };
+    let ms_exit = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..owned_unique_reusable(Cardinality::Absent)
+    };
+    state_map.update_block_entry(blk, [(v0, ms_entry)].into_iter().collect());
+    state_map.update_block_exit(blk, [(v0, ms_exit)].into_iter().collect());
+
+    let pool = ori_types::Pool::new();
+    let result = emit_reuse(&mut func, &state_map, &pool);
+
+    assert_eq!(result.dynamic_reuses, 1);
+    assert_eq!(
+        result.fields_skipped, 1,
+        "field 1 should be self-set on fast path"
+    );
+
+    // Fast path should only have Set for field 0 (field 1 is self-set).
+    let fast = &func.blocks[1];
+    assert_eq!(
+        fast.body.len(),
+        1,
+        "fast path: only 1 Set (field 1 self-set eliminated)"
+    );
+    assert!(
+        matches!(fast.body[0], ArcInstr::Set { base, field: 0, value } if base == v0 && value == v3),
+        "fast path Set for field 0 with new value v3"
+    );
+
+    // Slow path should have RcDec + Construct (with both fields).
+    let slow = &func.blocks[2];
+    assert_eq!(slow.body.len(), 2, "slow path: RcDec + Construct");
+    assert!(matches!(slow.body[0], ArcInstr::RcDec { var, .. } if var == v0));
+    if let ArcInstr::Construct { args, .. } = &slow.body[1] {
+        assert_eq!(args.len(), 2, "slow path Construct has both fields");
+    } else {
+        panic!("expected Construct on slow path");
+    }
+}
+
+/// Dynamic reuse with enum variant emits `SetTag` on fast path.
+#[test]
+fn dynamic_reuse_enum_variant() {
+    let v0 = ArcVarId::new(0);
+    let v1 = ArcVarId::new(1);
+    let v2 = ArcVarId::new(2);
+    let enum_name = Name::new(0, 100);
+
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::RcDec {
+                var: v0,
+                strategy: crate::ir::RcStrategy::HeapPointer,
+            },
+            ArcInstr::Construct {
+                dst: v1,
+                ty: Idx::NONE,
+                ctor: CtorKind::EnumVariant {
+                    enum_name,
+                    variant: 2,
+                },
+                args: vec![v2],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v1 },
+    };
+
+    let mut func = make_func(vec![block], 3);
+    func.spans = vec![vec![None; 2]];
+
+    let mut state_map = AimsStateMap::new(&func);
+    let blk = ArcBlockId::new(0);
+    let enum_state_entry = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        shape: ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
+        ..owned_unique_reusable(Cardinality::Once)
+    };
+    let enum_state_exit = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        shape: ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
+        ..owned_unique_reusable(Cardinality::Absent)
+    };
+    state_map.update_block_entry(blk, [(v0, enum_state_entry)].into_iter().collect());
+    state_map.update_block_exit(blk, [(v0, enum_state_exit)].into_iter().collect());
+
+    let pool = ori_types::Pool::new();
+    let result = emit_reuse(&mut func, &state_map, &pool);
+
+    assert_eq!(result.dynamic_reuses, 1);
+
+    // Fast path: Set for field 0 + SetTag.
+    let fast = &func.blocks[1];
+    assert_eq!(fast.body.len(), 2, "fast path: Set + SetTag");
+    assert!(matches!(fast.body[0], ArcInstr::Set { base, field: 0, .. } if base == v0));
+    assert!(
+        matches!(fast.body[1], ArcInstr::SetTag { base, tag: 2 } if base == v0),
+        "fast path SetTag with variant 2"
+    );
+
+    // Slow path: RcDec + Construct (with EnumVariant ctor).
+    let slow = &func.blocks[2];
+    assert!(matches!(slow.body[0], ArcInstr::RcDec { var, .. } if var == v0));
+    assert!(matches!(
+        slow.body[1],
+        ArcInstr::Construct {
+            ctor: CtorKind::EnumVariant { variant: 2, .. },
+            ..
+        }
+    ));
 }

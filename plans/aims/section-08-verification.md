@@ -2,7 +2,7 @@
 section: "08"
 title: "Verification & Validation"
 status: not-started
-reviewed: true  # 2026-03-10
+reviewed: false
 goal: "Prove AIMS correctness via behavioral equivalence, performance comparison, and safety verification"
 depends_on: ["06"]
 sections:

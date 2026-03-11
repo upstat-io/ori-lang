@@ -1,0 +1,77 @@
+// AIMS golden corpus: Deeply nested pattern match with cross-branch liveness.
+// Tests that AIMS correctly handles variable liveness across match arms.
+
+use std.testing { assert_eq }
+
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
+
+// --- Basic tree sum ---
+
+@tree_sum (t: Tree) -> int = {
+    match t {
+        Leaf(v) -> v,
+        Branch(l, r) -> tree_sum(l) + tree_sum(r),
+    }
+}
+
+@test_tree_sum tests @tree_sum () -> void = {
+    let tree = Branch(
+        left: Branch(left: Leaf(value: 1), right: Leaf(value: 2)),
+        right: Leaf(value: 3),
+    );
+    assert_eq(actual: tree_sum(tree), expected: 6)
+}
+
+// --- Pattern match with shared scrutinee ---
+
+@count_leaves (t: Tree) -> int = {
+    match t {
+        Leaf(_) -> 1,
+        Branch(l, r) -> count_leaves(l) + count_leaves(r),
+    }
+}
+
+@test_count_leaves tests @count_leaves () -> void = {
+    let tree = Branch(
+        left: Branch(left: Leaf(value: 1), right: Leaf(value: 2)),
+        right: Branch(left: Leaf(value: 3), right: Leaf(value: 4)),
+    );
+    assert_eq(actual: count_leaves(tree), expected: 4)
+}
+
+// --- Nested match with multiple bindings ---
+
+type Expr = Lit(n: int) | Add(a: Expr, b: Expr) | Neg(inner: Expr);
+
+@eval_expr (e: Expr) -> int = {
+    match e {
+        Lit(n) -> n,
+        Add(a, b) -> eval_expr(a) + eval_expr(b),
+        Neg(inner) -> 0 - eval_expr(inner),
+    }
+}
+
+@test_eval_expr tests @eval_expr () -> void = {
+    let expr = Add(
+        a: Lit(n: 10),
+        b: Neg(inner: Lit(n: 3)),
+    );
+    assert_eq(actual: eval_expr(expr), expected: 7)
+}
+
+// --- Option pattern match ---
+
+@unwrap_or_default (opt: Option<int>) -> int = {
+    match opt {
+        Some(v) -> v,
+        None -> 0,
+    }
+}
+
+@test_unwrap_some tests @unwrap_or_default () -> void = {
+    assert_eq(actual: unwrap_or_default(Some(42)), expected: 42)
+}
+
+@test_unwrap_none tests @unwrap_or_default () -> void = {
+    assert_eq(actual: unwrap_or_default(None), expected: 0)
+}

@@ -145,6 +145,10 @@ pub(crate) fn run_aims_pipeline(
 /// 1. Compute interprocedural contracts via `aims::analyze_program()`
 /// 2. Apply ownership to function parameters
 /// 3. Run per-function pipeline for each function
+#[cfg_attr(
+    feature = "aims-shadow",
+    expect(dead_code, reason = "used in pure AIMS mode, not shadow mode")
+)]
 pub(crate) fn run_aims_pipeline_all(
     functions: &mut [ArcFunction],
     classifier: &dyn ArcClassification,
@@ -171,10 +175,22 @@ pub(crate) fn run_aims_pipeline_all(
     };
 
     let mut all_problems = Vec::new();
-    for func in functions {
+    let mut total_rc = super::rc_count::RcOpCount::default();
+    for func in functions.iter_mut() {
         let problems = run_aims_pipeline(func, &config);
         all_problems.extend(problems);
+        let rc = super::rc_count::count_rc_ops(func);
+        total_rc.inc += rc.inc;
+        total_rc.dec += rc.dec;
     }
+
+    tracing::debug!(
+        functions = functions.len(),
+        rc_inc = total_rc.inc,
+        rc_dec = total_rc.dec,
+        rc_total = total_rc.total(),
+        "AIMS pipeline RC operation totals"
+    );
 
     all_problems
 }
@@ -183,7 +199,7 @@ pub(crate) fn run_aims_pipeline_all(
 ///
 /// Sets `ArcParam.ownership` on each function from its `MemoryContract`.
 /// Replaces `borrow::apply_borrows()` in the old pipeline.
-fn apply_aims_ownership(
+pub(crate) fn apply_aims_ownership(
     functions: &mut [ArcFunction],
     contracts: &FxHashMap<Name, MemoryContract>,
 ) {
@@ -192,7 +208,7 @@ fn apply_aims_ownership(
             continue;
         };
         for (param, pc) in func.params.iter_mut().zip(&contract.params) {
-            param.ownership = param_contract_to_ownership(pc);
+            param.ownership = param_contract_to_ownership(*pc);
         }
     }
 }
@@ -200,7 +216,7 @@ fn apply_aims_ownership(
 /// Convert a `ParamContract` access class to the `Ownership` enum used by
 /// `ArcParam`. This bridges the AIMS contract representation with the
 /// existing ARC IR parameter ownership field.
-fn param_contract_to_ownership(pc: &ParamContract) -> Ownership {
+fn param_contract_to_ownership(pc: ParamContract) -> Ownership {
     match pc.access {
         AccessClass::Borrowed => Ownership::Borrowed,
         AccessClass::Owned => Ownership::Owned,

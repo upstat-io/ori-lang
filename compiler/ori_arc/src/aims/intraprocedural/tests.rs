@@ -990,3 +990,261 @@ fn corpus_10_partial_apply_capture() {
         "v0 defined in block → entry is BOTTOM"
     );
 }
+
+// Sparse event table: reusable allocation candidates
+
+#[test]
+fn sparse_events_reusable_allocation_for_struct_construct() {
+    // v0 = Construct(Struct); return v0
+    // Construct with reusable ctor on non-scalar → ReusableAllocation event.
+    let func = ArcFunction {
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(0),
+                ty: ty(0),
+                ctor: CtorKind::Struct(Name::from_raw(10)),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+
+    let events = state_map.events_in_block(block_id(0));
+    let reusable: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
+        .collect();
+    assert_eq!(
+        reusable.len(),
+        1,
+        "Struct Construct should record ReusableAllocation"
+    );
+    let expected_block = block_id(0);
+    let expected_var = var(0);
+    assert!(matches!(
+        reusable[0],
+        super::state_map::AimsEvent::ReusableAllocation {
+            block,
+            instr: 0,
+            var,
+        } if *block == expected_block && *var == expected_var
+    ));
+}
+
+#[test]
+fn sparse_events_reusable_allocation_for_enum_construct() {
+    // v0 = Construct(EnumVariant); return v0
+    let func = ArcFunction {
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(0),
+                ty: ty(0),
+                ctor: CtorKind::EnumVariant {
+                    enum_name: Name::from_raw(20),
+                    variant: 0,
+                },
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+
+    let events = state_map.events_in_block(block_id(0));
+    let reusable: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
+        .collect();
+    assert_eq!(
+        reusable.len(),
+        1,
+        "EnumVariant Construct should record ReusableAllocation"
+    );
+}
+
+#[test]
+fn sparse_events_no_reusable_allocation_for_list_literal() {
+    // v0 = Construct(ListLiteral); return v0
+    // Collections are NOT reusable (they use CollectionReuse instead).
+    let func = ArcFunction {
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(0),
+                ty: ty(0),
+                ctor: CtorKind::ListLiteral,
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+
+    let events = state_map.events_in_block(block_id(0));
+    let reusable: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
+        .collect();
+    assert!(
+        reusable.is_empty(),
+        "ListLiteral should NOT record ReusableAllocation"
+    );
+}
+
+#[test]
+fn sparse_events_no_reusable_allocation_for_scalar() {
+    // v0 = Construct(Struct) but ty(0) is scalar → no event.
+    let func = ArcFunction {
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(0),
+                ty: ty(0),
+                ctor: CtorKind::Struct(Name::from_raw(10)),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(1).with_scalar(0);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+
+    let events = state_map.events_in_block(block_id(0));
+    assert!(
+        events.is_empty(),
+        "Scalar Construct should NOT record events"
+    );
+}
+
+#[test]
+fn sparse_events_multiple_constructs_in_block() {
+    // v0 = Construct(Struct); v1 = Construct(EnumVariant); return v1
+    // Both should produce ReusableAllocation events.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Construct {
+                    dst: var(1),
+                    ty: ty(1),
+                    ctor: CtorKind::EnumVariant {
+                        enum_name: Name::from_raw(20),
+                        variant: 0,
+                    },
+                    args: vec![],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+
+    let events = state_map.events_in_block(block_id(0));
+    let reusable: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
+        .collect();
+    assert_eq!(
+        reusable.len(),
+        2,
+        "Both Constructs should record ReusableAllocation"
+    );
+}
+
+// Sparse event table: local-allocation eligibility
+
+#[test]
+fn sparse_events_local_alloc_for_function_local_variable() {
+    // v0 = Construct(Struct); v1 = Project(v0, 0); return v1
+    // v0 is defined and consumed locally (only projected, never returned).
+    // Its converged exit state should have local Locality, producing a
+    // LocalAllocCandidate event.
+    //
+    // Note: whether Locality is FunctionLocal/BlockLocal depends on the
+    // transfer functions. This test verifies the event is recorded when
+    // the exit state has local locality. If the current transfer functions
+    // don't produce local locality for this pattern (Stage 1 conservative
+    // defaults may set Unknown), the test documents the expected behavior
+    // when locality inference is enabled.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+
+    // Check what Locality the converged state has for v0.
+    let exit_v0 = state_map.var_state_at_block_exit(block_id(0), var(0));
+    let events = state_map.events_in_block(block_id(0));
+    let local_alloc: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, super::state_map::AimsEvent::LocalAllocCandidate { .. }))
+        .collect();
+
+    // If locality is FunctionLocal or BlockLocal, we should have an event.
+    // If locality is Unknown/HeapEscaping (Stage 1 conservative), no event.
+    if matches!(
+        exit_v0.locality,
+        super::super::lattice::Locality::FunctionLocal
+            | super::super::lattice::Locality::BlockLocal
+    ) {
+        assert!(
+            !local_alloc.is_empty(),
+            "FunctionLocal/BlockLocal variable should record LocalAllocCandidate"
+        );
+    } else {
+        // Stage 1 conservative: document that no local-alloc events are
+        // produced when locality defaults to Unknown.
+        assert!(
+            local_alloc.is_empty(),
+            "Unknown/HeapEscaping locality should NOT record LocalAllocCandidate"
+        );
+    }
+}

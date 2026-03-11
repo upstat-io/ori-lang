@@ -1,0 +1,75 @@
+// AIMS golden corpus: COW chain (multiple sequential mutations).
+// Tests that AIMS correctly handles uniqueness through mutation chains.
+
+use std.testing { assert_eq }
+
+// --- Sequential list mutations (unique owner, in-place fast path) ---
+
+@chain_push () -> [int] = {
+    let list = [1];
+    let list = list.push(2);
+    let list = list.push(3);
+    let list = list.push(4);
+    let list = list.push(5);
+    list
+}
+
+@test_chain_push tests @chain_push () -> void = {
+    assert_eq(actual: chain_push(), expected: [1, 2, 3, 4, 5])
+}
+
+// --- Mixed mutations ---
+
+@chain_mixed () -> [int] = {
+    let list = [1, 2, 3, 4, 5];
+    let list = list.push(6);
+    let list = list.reverse();
+    let list = list.push(0);
+    list
+}
+
+@test_chain_mixed tests @chain_mixed () -> void = {
+    assert_eq(actual: chain_mixed(), expected: [6, 5, 4, 3, 2, 1, 0])
+}
+
+// --- COW with shared reference (forces copy) ---
+
+@chain_shared () -> (int, int) = {
+    let a = [1, 2, 3];
+    let b = a;
+    let a = a.push(4);
+    (len(collection: a), len(collection: b))
+}
+
+@test_chain_shared tests @chain_shared () -> void = {
+    assert_eq(actual: chain_shared(), expected: (4, 3))
+}
+
+// --- Map mutation chain ---
+
+@chain_map () -> {str: int} = {
+    let m = {"a": 1};
+    let m = m.insert("b", 2);
+    let m = m.insert("c", 3);
+    m
+}
+
+@test_chain_map tests @chain_map () -> void = {
+    let result = chain_map();
+    assert_eq(actual: result["a"], expected: Some(1));
+    assert_eq(actual: result["b"], expected: Some(2));
+    assert_eq(actual: result["c"], expected: Some(3))
+}
+
+// --- String mutation chain ---
+
+@chain_string () -> str = {
+    let s = "hello";
+    let s = s + " ";
+    let s = s + "world";
+    s
+}
+
+@test_chain_string tests @chain_string () -> void = {
+    assert_eq(actual: chain_string(), expected: "hello world")
+}
