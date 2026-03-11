@@ -38,11 +38,11 @@ pub use state_map::{AimsEvent, AimsStateMap, InvokeEdgeState};
 use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
-use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 use crate::ArcClassification;
 
 use super::contract::{ContextRegion, MemoryContract};
-use super::lattice::AimsState;
+use super::lattice::{AimsState, Locality};
 use super::transfer::transfer_def;
 
 /// Run backward dataflow analysis on a single function.
@@ -181,6 +181,12 @@ pub fn analyze_function(
     // instructions).
     populate_borrow_sources(&mut state_map, func);
 
+    // Post-convergence: populate sparse event table with reusable allocation
+    // candidates and local-allocation eligibility. These are derived from the
+    // converged state and instruction types, making the state map a
+    // self-contained fact source for downstream passes.
+    populate_sparse_events(&mut state_map, func);
+
     state_map
 }
 
@@ -205,6 +211,63 @@ fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFunction) {
             if let Some(def) = transfer_def(instr, &get_state) {
                 if let (Some(dst), Some(source)) = (instr.defined_var(), def.borrow_source) {
                     state_map.set_borrow_source(dst, source);
+                }
+            }
+        }
+    }
+}
+
+/// Populate the sparse event table after analysis converges.
+///
+/// Records two categories of events:
+///
+/// 1. **Reusable allocation candidates** (`AimsEvent::ReusableAllocation`):
+///    `Construct` instructions with reusable constructor kinds (`Struct`,
+///    `EnumVariant`) on non-scalar destinations. These mark allocation sites
+///    that the `ReusePlanner` can match against death events for cross-block
+///    reuse.
+///
+/// 2. **Local-allocation eligibility** (`AimsEvent::LocalAllocCandidate`):
+///    Variables whose converged exit state shows `Locality::FunctionLocal` or
+///    `BlockLocal`, indicating they never escape the function and may be
+///    eligible for stack allocation in a future optimization pass.
+fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR block counts fit in u32"
+        )]
+        let blk = ArcBlockId::new(block_idx as u32);
+
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            // Reusable allocation candidates: Construct with reusable ctor.
+            if let ArcInstr::Construct { dst, ctor, .. } = instr {
+                if !state_map.is_scalar(*dst)
+                    && matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. })
+                {
+                    state_map.record_event(AimsEvent::ReusableAllocation {
+                        block: blk,
+                        instr: instr_idx,
+                        var: *dst,
+                    });
+                }
+            }
+
+            // Local-allocation eligibility: variables with local exit state.
+            if let Some(dst) = instr.defined_var() {
+                if state_map.is_scalar(dst) {
+                    continue;
+                }
+                let exit_state = state_map.var_state_at_block_exit(blk, dst);
+                if matches!(
+                    exit_state.locality,
+                    Locality::FunctionLocal | Locality::BlockLocal
+                ) {
+                    state_map.record_event(AimsEvent::LocalAllocCandidate {
+                        block: blk,
+                        instr: instr_idx,
+                        var: dst,
+                    });
                 }
             }
         }

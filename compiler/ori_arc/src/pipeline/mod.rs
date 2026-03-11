@@ -327,11 +327,15 @@ fn run_legacy_pipeline_all(
 
 // AIMS pipeline (active when `aims` feature IS enabled)
 
-#[cfg(all(feature = "aims", not(feature = "aims-shadow")))]
+// AIMS pipeline (active when `aims` feature IS enabled — both pure and shadow)
+#[cfg(feature = "aims")]
 mod aims_pipeline;
 
-// Shadow comparison (active when `aims-shadow` feature IS enabled)
+// RC operation counting for pipeline comparison
+#[cfg(feature = "aims")]
+pub(crate) mod rc_count;
 
+// Shadow comparison (active when `aims-shadow` feature IS enabled)
 #[cfg(feature = "aims-shadow")]
 mod shadow;
 

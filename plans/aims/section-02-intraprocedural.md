@@ -404,10 +404,10 @@ analysis.
 - [x] Invoke dst-in-normal-only semantics correct
 - [x] Scalar variables short-circuited (never analyzed)
 - [x] State map queryable by emission passes
-- [ ] Sparse event table records reusable allocation candidates <!-- deferred: Stage 2 — event table structure exists, population requires Section 05 reuse detection -->
-- [ ] Sparse event table records local-allocation eligibility (v1: conservative) <!-- deferred: Stage 2 — requires escape analysis refinement -->
-- [ ] Sparse event table records FIP gates (Stage 2: when FipContract is available) <!-- deferred: Stage 2 — requires Section 07 FIP contracts -->
-- [ ] Constructor-context events recorded when normalize/ pass has run (Stage 3) <!-- deferred: Stage 3 — requires TRMC normalize pass -->
+- [x] Sparse event table records reusable allocation candidates
+- [x] Sparse event table records local-allocation eligibility (v1: conservative)
+- [ ] Sparse event table records FIP gates (Stage 2: when FipContract is available) <!-- blocked-by:07 -->
+- [ ] Constructor-context events recorded when normalize/ pass has run (Stage 3) <!-- blocked-by:07 -->
 - [x] All 10 validation corpus tests pass with expected cardinality at key points
 
 - [x] **Validation corpus** (10 hand-traced test cases with expected cardinality):

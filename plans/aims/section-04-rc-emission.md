@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "RC Emission"
-status: in-progress
+status: complete
 reviewed: true  # 2026-03-10
 goal: "Emit minimal RcInc/RcDec operations, COW annotations, and drop hints from converged AimsStateMap"
 inspired_by:
@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "04.6"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 04: RC Emission
@@ -382,9 +382,13 @@ pass may consume.
 - [x] Emitted `ArcFunction` passes `ori_arc::verify` checks
   Verified: `run_verify()` runs at steps 9 and 13 in `aims_pipeline.rs`. All
   1252 AOT tests and 3389 spec tests pass with `--features aims`.
-- [ ] RC operation count tracked and compared against current pipeline output <!-- blocked-by:06 -->
+- [x] RC operation count tracked and compared against current pipeline output <!-- blocked-by:06 -->
   (goal: equal or fewer; regressions investigated but not automatic blockers
   during Stage 1C — correctness gates are behavioral equivalence + verify)
+  Implemented: `pipeline/rc_count` module counts `RcInc`/`RcDec` in ARC IR.
+  Shadow comparison runs full AIMS pipeline on cloned functions and compares
+  RC counts as a 4th dimension. Pure AIMS mode logs aggregate counts via
+  `tracing::debug`. (2026-03-10)
 
 **Exit Criteria:** `cargo t -p ori_arc -- aims::emit_rc` passes. Emitted RC operations
 are verified correct by `verify::check_function`. RC operation counts are measured

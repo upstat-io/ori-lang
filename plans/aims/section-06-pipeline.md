@@ -10,7 +10,7 @@ depends_on: ["04", "05"]
 sections:
   - id: "06.1"
     title: "Feature-Flagged Dual Pipeline"
-    status: in-progress
+    status: complete
   - id: "06.2"
     title: "New Pipeline Flow"
     status: in-progress
@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "06.4"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 06: Pipeline Integration
@@ -146,7 +146,10 @@ During development, both pipelines coexist behind a feature flag.
   - `cargo clippy --workspace --features aims` — clean (warnings only, no errors)
   - LLVM release spec tests: deferred until release build is tested
   - Consider adding an `aims` variant to `test-all.sh` later once the pipeline is stable
-- [ ] Add CI job for `--features aims` (initially allowed to fail)
+- [x] Add CI job for `--features aims` (initially allowed to fail)
+  Added `test-aims` job to `.github/workflows/ci.yml` with `continue-on-error: true`.
+  Runs clippy, Rust unit tests, Ori spec tests, and LLVM AOT tests — all with
+  `--features aims`. Depends on format/clippy gates. (2026-03-10)
 - [x] **Shadow comparison reporting (Stage 1A)**:
   Implemented via `aims-shadow` feature flag (`ori_arc/Cargo.toml`,
   `ori_llvm/Cargo.toml`, `oric/Cargo.toml`). The `aims-shadow` feature
@@ -290,7 +293,7 @@ current ~22 steps. Steps 1-8 replace ~15 analysis/emission steps.
   (step 7) needs dominator trees for cross-block reuse detection (see Section 05
   ReusePlanner). Therefore: build dominator trees ONCE, between steps 6 and 7,
   after any CFG-modifying edge cleanup is complete. Do NOT build dom trees before
-  RC emission — they would be immediately invalidated. <!-- deferred: Stage 2 — cross-block reuse uses dom trees -->
+  RC emission — they would be immediately invalidated.
 - [x] Verify: no liveness recomputation needed (state map is complete)
   Verified: AIMS pipeline (`aims_pipeline.rs`) never calls `compute_refined_liveness`
   or `compute_liveness`. The `AimsStateMap` replaces liveness analysis entirely.
@@ -458,8 +461,13 @@ old analysis passes.
   everything else=owned). Result: 4169 passed, 0 failed, 42 skipped.
 - [x] `cargo test -p ori_llvm --features aims` passes (AOT tests)
 - [x] `./test-all.sh` passes WITHOUT `aims` feature (old pipeline unchanged)
-- [ ] RC operation count tracked: AIMS ≤ old is the goal for Stage 1D, but
-  Stage 1C accepts correctness-first with RC count regressions investigated
+- [x] RC operation count tracked: AIMS ≤ old is the goal for Stage 1D, but <!-- unblocks:04.6 -->
+  Stage 1C accepts correctness-first with RC count regressions investigated.
+  Implemented: `pipeline/rc_count` module (`RcOpCount`, `count_rc_ops()`) counts
+  `RcInc`/`RcDec` in ARC IR. Shadow comparison (`aims-shadow`) now runs full AIMS
+  pipeline on cloned functions and compares RC counts as a 4th dimension alongside
+  param ownership, return uniqueness, and COW annotations. Pure AIMS mode logs
+  aggregate RC counts via `tracing::debug`. (2026-03-10)
 - [x] No LLVM codegen changes needed (ARC IR interface is stable):
   Verified: 1252 AOT tests pass with `--features aims`, no `ori_llvm` changes.
   - `ArcFunction.cow_annotations` — semantically equivalent

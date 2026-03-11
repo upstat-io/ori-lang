@@ -1,0 +1,78 @@
+// AIMS golden corpus: Recursive tree traversal with reuse opportunities.
+// Tests that AIMS correctly handles reuse detection in recursive patterns.
+
+use std.testing { assert_eq }
+
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
+
+// --- Tree map (reuse opportunity: same structure, different values) ---
+
+@tree_map (t: Tree, f: (int) -> int) -> Tree = {
+    match t {
+        Leaf(v) -> Leaf(value: f(v)),
+        Branch(l, r) -> Branch(
+            left: tree_map(l, f),
+            right: tree_map(r, f),
+        ),
+    }
+}
+
+@test_tree_map tests @tree_map () -> void = {
+    let tree = Branch(
+        left: Leaf(value: 1),
+        right: Branch(left: Leaf(value: 2), right: Leaf(value: 3)),
+    );
+    let doubled = tree_map(tree, x -> x * 2);
+    assert_eq(actual: tree_sum(doubled), expected: 12)
+}
+
+// --- Tree filter (collect leaves matching predicate) ---
+
+@tree_collect (t: Tree, pred: (int) -> bool) -> [int] = {
+    match t {
+        Leaf(v) -> if pred(v) then [v] else [],
+        Branch(l, r) -> {
+            let left = tree_collect(l, pred);
+            let right = tree_collect(r, pred);
+            [...left, ...right]
+        },
+    }
+}
+
+@test_tree_collect tests @tree_collect () -> void = {
+    let tree = Branch(
+        left: Branch(left: Leaf(value: 1), right: Leaf(value: 4)),
+        right: Branch(left: Leaf(value: 2), right: Leaf(value: 5)),
+    );
+    let evens = tree_collect(tree, x -> x % 2 == 0);
+    assert_eq(actual: evens, expected: [4, 2])
+}
+
+// --- Tree depth ---
+
+@tree_depth (t: Tree) -> int = {
+    match t {
+        Leaf(_) -> 1,
+        Branch(l, r) -> {
+            let ld = tree_depth(l);
+            let rd = tree_depth(r);
+            1 + max(left: ld, right: rd)
+        },
+    }
+}
+
+@test_tree_depth tests @tree_depth () -> void = {
+    let tree = Branch(
+        left: Branch(left: Leaf(value: 1), right: Leaf(value: 2)),
+        right: Leaf(value: 3),
+    );
+    assert_eq(actual: tree_depth(tree), expected: 3)
+}
+
+// Helper used by tree_map test
+@tree_sum (t: Tree) -> int = {
+    match t {
+        Leaf(v) -> v,
+        Branch(l, r) -> tree_sum(l) + tree_sum(r),
+    }
+}
