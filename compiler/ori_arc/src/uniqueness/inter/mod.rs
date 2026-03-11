@@ -1,4 +1,4 @@
-//! Interprocedural uniqueness analysis (Section 07.3).
+//! Interprocedural uniqueness analysis.
 //!
 //! Extends intraprocedural uniqueness analysis to the whole program by
 //! computing [`UniquenessSummary`] for every function. Summaries capture

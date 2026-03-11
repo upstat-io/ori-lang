@@ -1,6 +1,6 @@
-//! Constructor Reuse Expansion (Section 09).
+//! Constructor Reuse Expansion.
 //!
-//! Expands `Reset`/`Reuse` intermediate instructions (inserted by Section 07.6)
+//! Expands `Reset`/`Reuse` intermediate instructions (inserted by reset/reuse detection)
 //! into conditional two-path code:
 //!
 //! - **`IsShared` check**: tests whether the value's refcount > 1.

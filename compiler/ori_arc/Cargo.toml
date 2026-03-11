@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [features]
+aims = []
+aims-shadow = ["aims"]
 cache = ["ori_ir/cache", "ori_types/cache", "serde", "bincode"]
 
 [dependencies]

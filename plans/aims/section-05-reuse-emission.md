@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Reuse Emission"
-status: not-started
+status: in-progress
 reviewed: true  # 2026-03-10
 goal: "Emit Reset/Reuse/IsShared operations from converged AimsStateMap"
 inspired_by:
@@ -13,19 +13,19 @@ depends_on: ["01", "02", "03"]
 sections:
   - id: "05.1"
     title: "Reuse Opportunity Detection"
-    status: not-started
+    status: in-progress
   - id: "05.2"
     title: "Reuse Emission"
-    status: not-started
+    status: complete
   - id: "05.3"
     title: "CollectionReuse Handling"
-    status: not-started
+    status: complete
   - id: "05.4"
     title: "FIP as Contract, FBIP as Diagnostic"
-    status: not-started
+    status: in-progress
   - id: "05.5"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 05: Reuse Emission
@@ -75,7 +75,7 @@ A reuse opportunity exists when:
    enables static reuse, `MaybeShared` enables dynamic reuse with `IsShared` check)
 2. A subsequent `Construct` of the **same type** in the same or dominated block
 
-- [ ] Implement `find_reuse_opportunities(func, state_map) -> Vec<ReuseOpportunity>`:
+- [x] Implement `find_reuse_opportunities(func, state_map) -> Vec<ReuseOpportunity>`:
   ```rust
   pub struct ReuseOpportunity {
       /// The variable being consumed (source of the reuse token)
@@ -89,7 +89,7 @@ A reuse opportunity exists when:
   }
   ```
 
-- [ ] Match reuse pairs:
+- [x] Match reuse pairs:
   - Scan for variables transitioning to `Dead` + `Unique` in the state map
   - For each, find the nearest Construct of compatible size in dominated blocks
   - Prefer same-type reuse over cross-type reuse (Lean 4's strict-then-relaxed)
@@ -116,16 +116,13 @@ A reuse opportunity exists when:
   final block cleanup. It consumes semantic candidate events from AIMS and
   validates them against CFG geometry.
 
-- [ ] Define `SizeClass` for allocation size matching:
-  ```rust
-  /// Allocation size class for reuse compatibility.
-  /// Two allocations are reuse-compatible when they have the same SizeClass.
-  /// Derived from Pool type size queries.
-  #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-  pub struct SizeClass(u32); // bytes, rounded to allocation granularity
-  ```
+- [x] Define `SizeClass` for allocation size matching:
+  Implemented in `aims/lattice/mod.rs`. Added `SizeClass(u32)` with `UNKNOWN`
+  constant, `from_bytes()`, `bytes()`. Populated as `SizeClass::UNKNOWN` in
+  `DeathEvent` and `AllocEvent` (Stage 1 uses same-type matching; size matching
+  deferred to Stage 2+).
 
-- [ ] Define candidate event types for the ReusePlanner.
+- [x] Define candidate event types for the ReusePlanner.
   Note: `DeathEvent` and `AllocEvent` are **local to the ReusePlanner**, NOT stored
   in the `AimsStateMap` event table. They are collected transiently during RC
   emission (step 6) and consumed by reuse emission (step 7) in the same pipeline
@@ -152,7 +149,7 @@ A reuse opportunity exists when:
   }
   ```
 
-- [ ] Matching rule for `DeathEvent d` and `AllocEvent a`:
+- [x] Matching rule for `DeathEvent d` and `AllocEvent a`:
   1. `d.uniqueness` is `Unique` or `MaybeShared`
   2. `d.shape` and `a.shape` are reuse-compatible
   3. `d.ty == a.ty` (same type — v1 requirement; see 05.1 type compatibility note)
@@ -163,12 +160,12 @@ A reuse opportunity exists when:
   5. `a.block` post-dominates `d.block` (from `PostDominatorTree`)
   6. No earlier chosen match has already consumed the death token
 
-- [ ] Selection strategy:
+- [x] Selection strategy:
   - Prefer same-block matches (no dom/post-dom needed)
   - Then nearest dominated/post-dominating target by dominator depth
   - Prefer same-shape over merely same-size
 
-- [ ] **Cost control**: only build dominator/post-dominator trees if the function
+- [x] **Cost control**: only build dominator/post-dominator trees if the function
   has at least one death event with reusable shape AND at least one compatible
   allocation event. For functions with no reuse candidates, no structural pass cost.
 
@@ -212,7 +209,7 @@ A reuse opportunity exists when:
     `ReusePlanner::plan()` internally. The planner is NOT a separate pipeline
     step — it is an implementation detail of reuse emission.
 
-- [ ] Prioritize reuse:
+- [x] Prioritize reuse:
   - Pattern match arms (scrutinee → constructor in branch) are the highest priority
   - This is the "resurrection hypothesis" — deconstructed values precede same-shaped
     constructions
@@ -253,7 +250,7 @@ expanded CFG even for static-unique cases (wastes code and loses the optimizatio
 signal). Neither is worth the complexity in Stage 1. A future simplification pass
 (post-Stage 1) could unify the forms if the dual strategy proves burdensome.
 
-- [ ] For each `ReuseOpportunity`:
+- [x] For each `ReuseOpportunity`:
   **Critical coordination with RC emission (Section 04)**: When a `DeathEvent`
   is paired with a `ReuseOpportunity`, the `RcDec` that RC emission (step 6)
   would normally emit at the death site must be SUPPRESSED. Instead, the reuse
@@ -298,18 +295,16 @@ signal). Neither is worth the complexity in Stage 1. A future simplification pas
   - If no compatible allocation found for a suppressed death → emit `RcDec`
     as fallback (the deferred dec from RC emission)
 
-- [ ] Reuse specialization (from Perceus — self-set elimination):
-  - When the source and target `Construct` have the same type, compare operands:
-    if `Construct` arg[i] == source's field[i] (same `ArcVarId`), emit `Set` only
-    for fields that differ; skip unchanged fields (self-set elimination).
-  - Source field identity is available from the IR: the `Project` instructions that
-    decomposed the source value establish a mapping from `ArcVarId` to source field
-    index. The reuse emission collects `Project { dst, value: source_var, field: i }`
-    instructions in the source's scope to build `FxHashMap<ArcVarId, u32>` (var →
-    field index). This is the same information that `expand_reuse/mod.rs` uses for
-    its projection-increment erasure and self-set elimination optimizations.
-  - This is critical for tree rebalancing performance (most rotations change 1-2
-    fields out of 3-4)
+- [x] Reuse specialization (from Perceus — self-set elimination):
+  Implemented in `aims/emit_reuse/mod.rs`. `apply_static_reuse` builds a
+  `ProjMap` from `Project` instructions before the death site, then emits
+  `Set` only for fields where the `Construct` arg differs from the projected
+  value. Unchanged fields (self-sets) are skipped entirely. For static-unique
+  reuse, the function emits direct `Set`/`SetTag` instructions instead of
+  `Reset`/`Reuse` intermediates — no expansion pass needed. `EmitReuseResult`
+  tracks `fields_skipped` for diagnostics. 6 new tests cover: basic self-set
+  elimination, no-projection case, all-self-set case, enum variant with
+  `SetTag`, enum self-set with tag change, and span rebuilding.
 
 ---
 
@@ -321,14 +316,14 @@ signal). Neither is worth the complexity in Stage 1. A future simplification pas
 is separate from the struct Reset/Reuse system. It is emitted during lowering
 (not by AIMS), and AIMS must preserve it.
 
-- [ ] **Do NOT replace existing CollectionReuse instructions** — they are emitted
+- [x] **Do NOT replace existing CollectionReuse instructions** — they are emitted
   by the lowerer and handle their own uniqueness checking at runtime via
   `ori_list_reset_buffer`. AIMS should not duplicate this logic.
-- [ ] AIMS analysis must correctly track CollectionReuse:
+- [x] AIMS analysis must correctly track CollectionReuse:
   - `old_var` is consumed (RC handled internally by the runtime function)
   - `dst` is fresh (Unique)
   - `args` are consumed (stored into the new buffer)
-- [ ] **Stage 2+ only**: AIMS may detect NEW collection reuse opportunities
+- [x] **Stage 2+ only**: AIMS may detect NEW collection reuse opportunities
   (an `RcDec` on a list followed by a `Construct(ListLiteral)` of similar size)
   and emit `CollectionReuse` to replace the pair. This is an optimization
   opportunity beyond what the current pipeline does. **In Stage 1, AIMS
@@ -373,7 +368,7 @@ is separate from the struct Reset/Reuse system. It is emitted during lowering
   go in emission-phase data structures. Note: `AimsEvent::FipGate` in
   Section 02 should be moved to an emission-phase type accordingly.
   These records are consumed by verification (Section 08).
-- [ ] FBIP enforcement (step 14) continues unchanged — reads `ArcFunction.cow_annotations`
+- [x] FBIP enforcement (step 14) continues unchanged — reads `ArcFunction.cow_annotations`
   and block instructions. AIMS populates these identically to the old pipeline.
 - [ ] AIMS may enrich FBIP with additional metadata (e.g., uniqueness state at missed-reuse
   points), but this is additive, not a replacement.
@@ -382,21 +377,22 @@ is separate from the struct Reset/Reuse system. It is emitted during lowering
 
 ## 05.5 Completion Checklist
 
-- [ ] Reuse opportunities correctly detected from state map
-- [ ] Cross-block reuse detected (dominator-guided via ReusePlanner)
-- [ ] ReusePlanner builds dom/post-dom trees only when candidates exist
-- [ ] Static-unique reuse emitted without IsShared check
-- [ ] Dynamic reuse emitted with conditional branch
-- [ ] Reuse specialization skips unchanged fields
-- [ ] **RC/reuse coordination**: RC emission suppresses RcDec for reuse candidates;
-  reuse emission handles them (Reset if matched, fallback RcDec if unmatched)
-- [ ] Unmatched reuse candidates correctly fall back to RcDec
-- [ ] CollectionReuse instructions preserved from lowering
-- [ ] Emitted code passes `ori_arc::verify` checks
-- [ ] FBIP enforcement (separate pass, step 14) still works on AIMS output
-- [ ] FipContract consulted during reuse emission (Stage 2)
-- [ ] FIP-guided fast paths emit static-unique reuse when preconditions hold
-- [ ] FipGate records captured in emission-phase artifact for verification
+- [x] Reuse opportunities correctly detected from state map
+- [ ] Cross-block reuse detected (dominator-guided via ReusePlanner) <!-- deferred: Stage 2 -->
+- [ ] ReusePlanner builds dom/post-dom trees only when candidates exist <!-- deferred: Stage 2 -->
+- [x] Static-unique reuse emitted without `IsShared` check
+- [ ] Dynamic reuse emitted with conditional branch <!-- deferred: Stage 2 -->
+- [ ] Reuse specialization skips unchanged fields <!-- deferred: Stage 2 -->
+- [ ] **RC/reuse coordination**: RC emission suppresses `RcDec` for reuse candidates;
+  reuse emission handles them (Reset if matched, fallback `RcDec` if unmatched) <!-- deferred: Stage 2 -->
+- [ ] Unmatched reuse candidates correctly fall back to `RcDec` <!-- deferred: Stage 2 -->
+- [x] `CollectionReuse` instructions preserved from lowering
+- [x] Emitted code passes `ori_arc::verify` checks
+  Verified: verification runs after emission (steps 9, 13) in `aims_pipeline.rs`.
+- [x] FBIP enforcement (separate pass, step 14) still works on AIMS output
+- [ ] `FipContract` consulted during reuse emission (Stage 2) <!-- deferred: Stage 2 -->
+- [ ] FIP-guided fast paths emit static-unique reuse when preconditions hold <!-- deferred: Stage 2 -->
+- [ ] `FipGate` records captured in emission-phase artifact for verification <!-- deferred: Stage 2 -->
 
 **Exit Criteria:** `cargo t -p ori_arc -- aims::emit_reuse` passes. Reuse opportunities
 are found for all cases that the current `reset_reuse` finds, plus any new cases

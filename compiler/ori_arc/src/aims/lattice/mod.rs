@@ -214,6 +214,37 @@ impl ShapeClass {
     }
 }
 
+// SizeClass (for cross-type reuse in Stage 2+)
+
+/// Allocation size class for reuse compatibility.
+///
+/// Two allocations are reuse-compatible when they have the same `SizeClass`.
+/// In Stage 1 (same-type matching), size compatibility is implied by type
+/// equality. In Stage 2+, `SizeClass` enables cross-type reuse when
+/// allocations have the same rounded size.
+///
+/// Derived from Pool type size queries, rounded to allocation granularity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SizeClass(u32);
+
+impl SizeClass {
+    /// Unknown size — used when Pool-based size queries are unavailable
+    /// or when size classification is deferred (Stage 1).
+    pub const UNKNOWN: Self = Self(0);
+
+    /// Create a size class from a byte count.
+    #[must_use]
+    pub fn from_bytes(bytes: u32) -> Self {
+        Self(bytes)
+    }
+
+    /// The byte count for this size class.
+    #[must_use]
+    pub fn bytes(self) -> u32 {
+        self.0
+    }
+}
+
 // EffectClass dimension (auxiliary)
 
 /// Memory effect classification for FIP certification.

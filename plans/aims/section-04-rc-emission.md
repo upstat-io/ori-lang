@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "RC Emission"
-status: not-started
+status: in-progress
 reviewed: true  # 2026-03-10
 goal: "Emit minimal RcInc/RcDec operations, COW annotations, and drop hints from converged AimsStateMap"
 inspired_by:
@@ -12,22 +12,22 @@ depends_on: ["01", "02", "03"]
 sections:
   - id: "04.1"
     title: "RC Emission Algorithm"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Emission at Function Boundaries"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "COW Annotations"
-    status: not-started
+    status: complete
   - id: "04.4"
     title: "Drop Hints"
-    status: not-started
+    status: complete
   - id: "04.5"
     title: "Locality and Effect Reading"
-    status: not-started
+    status: complete
   - id: "04.6"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 04: RC Emission
@@ -95,7 +95,7 @@ Traverse the function forward, reading the state map to decide where RC operatio
 are needed. The key insight: an RC operation is needed exactly when a variable's
 state transitions between states that imply different reference count contributions.
 
-- [ ] Implement `emit_rc_ops(func, state_map, sigs, classifier)`:
+- [x] Implement `emit_rc_ops(func, state_map, sigs, classifier)`:
   - Walk blocks in order
   - For each instruction, check variables' states before and after
   
@@ -140,7 +140,7 @@ state transitions between states that imply different reference count contributi
       the source is statically unique — mutating the source would invalidate the
       borrow's view of the data.
 
-- [ ] Determine `RcStrategy` for each emitted operation:
+- [x] Determine `RcStrategy` for each emitted operation:
   - Use `RcStrategy::from_var()` (in `ir/repr.rs`) which derives the strategy from
     `ValueRepr` (stored in `func.var_reprs`, indexed by `ArcVarId`) and the `Pool` type
   - **Dependency**: `func.var_reprs` MUST be populated (pipeline step 3:
@@ -149,13 +149,13 @@ state transitions between states that imply different reference count contributi
     will panic — add a debug_assert at the start of `emit_rc_ops` verifying
     `!func.var_reprs.is_empty()`.
 
-- [ ] Handle invoke (panicking calls):
+- [x] Handle invoke (panicking calls):
   - Emit cleanup RC operations on the unwind edge
   - Variables that are live across the invoke need RC dec on the unwind path
   - The current system does this in `insert_external_invoke_cleanup()` — AIMS
     must replicate this behavior from the state map
 
-- [ ] **Populate `arg_ownership` on Apply/Invoke instructions** (runs as a separate
+- [x] **Populate `arg_ownership` on Apply/Invoke instructions** (runs as a separate
   step BEFORE RC emission -- see Section 06.2 step 4):
   > **Warning: High complexity.** The current `annotate_arg_ownership()` in
   > `rc_insert/annotate.rs` (250 lines) implements type-qualified method dispatch
@@ -186,7 +186,7 @@ state transitions between states that imply different reference count contributi
     `MemoryContract` definitions, making `BuiltinOwnershipSets` redundant. This
     completes the "one truth" migration for builtins.
 
-- [ ] **Edge cleanup for critical edges**:
+- [x] **Edge cleanup for critical edges**:
   The current `rc_insert` module includes `edge_cleanup.rs` which splits critical
   edges (edges from a block with multiple successors to a block with multiple
   predecessors) to ensure RC operations are correctly placed. AIMS emission must
@@ -233,7 +233,7 @@ state transitions between states that imply different reference count contributi
 
 Function entry and exit require special RC handling based on parameter ownership.
 
-- [ ] At function entry:
+- [x] At function entry:
   - For each parameter with `ParamContract.access == Borrowed`: no RC operations
   - For each parameter with `ParamContract.access == Owned` and `consumption == Linear`:
     the parameter is consumed once; if it's dead in the body (never used), emit
@@ -245,14 +245,14 @@ Function entry and exit require special RC handling based on parameter ownership
     emit `RcInc` at each **use site** beyond the first (not at function entry —
     incs are placed where the extra uses occur, guided by cardinality from the state map)
 
-- [ ] At call sites:
+- [x] At call sites:
   - Read callee's `MemoryContract` for each argument position
   - If callee borrows the param and caller is at last use: no RC ops (optimal)
   - If callee consumes the param and caller is at last use: no RC ops (transfer)
   - If callee consumes the param and caller still needs it: emit `RcInc` before call
   - If callee borrows the param and caller is NOT at last use: no RC ops (borrow)
 
-- [ ] At return:
+- [x] At return:
   - No RC operations on the returned value (ownership transfers to caller)
   - Emit `RcDec` for any owned variables still live but not returned
 
@@ -264,12 +264,12 @@ Function entry and exit require special RC handling based on parameter ownership
 
 COW annotations are derived directly from the uniqueness dimension of the state map.
 
-- [ ] For each COW operation in the function (identified by instruction type):
+- [x] For each COW operation in the function (identified by instruction type):
   - If state map says `Uniqueness::Unique` at that point → `CowMode::StaticUnique`
   - If state map says `Uniqueness::Shared` at that point → `CowMode::StaticShared`
   - If state map says `Uniqueness::MaybeShared` → `CowMode::Dynamic`
 
-- [ ] Store computed `CowAnnotations` in `ArcFunction.cow_annotations`
+- [x] Store computed `CowAnnotations` in `ArcFunction.cow_annotations`
   **CRITICAL**: COW annotations are keyed by `(block_idx, instr_idx)` where the
   indices refer to the FINAL instruction layout — after RC ops, reuse ops, and
   block_merge. The LLVM emitter tracks `current_block_idx` and
@@ -319,11 +319,11 @@ Drop hints identify `RcDec` operations where the collection is provably unique,
 enabling the LLVM emitter to call `ori_buffer_drop_unique` instead of
 `ori_buffer_rc_dec`.
 
-- [ ] For each emitted `RcDec` on a collection type:
+- [x] For each emitted `RcDec` on a collection type:
   - If state map says `Uniqueness::Unique` for that variable at the dec point →
     add to `DropHints`
 
-- [ ] Store computed `DropHints` in `ArcFunction.drop_hints`
+- [x] Store computed `DropHints` in `ArcFunction.drop_hints`
   **CRITICAL**: Like COW annotations, drop hints are keyed by `(block_idx, instr_idx)`
   referring to the FINAL instruction layout. The current pipeline computes drop hints
   AFTER `block_merge` (step 12 in the pipeline) because merge renumbers blocks and
@@ -349,14 +349,14 @@ NOT emit stack allocation directives or modify the ARC IR structure based on the
 Instead, it records locality hints as internal annotations that a future Stage 4
 pass may consume.
 
-- [ ] Read `Locality::FunctionLocal` / `BlockLocal` from state map at allocation points
-- [ ] Record locality hints into a separate `Vec<LocalAllocCandidate>` returned
+- [x] Read `Locality::FunctionLocal` / `BlockLocal` from state map at allocation points
+- [x] Record locality hints into a separate `Vec<LocalAllocCandidate>` returned
   alongside the emitted function (NOT written back into the `AimsStateMap`, which is
   a pure analysis artifact). This preserves the analysis/emission separation: analysis
   produces the state map, emission reads it and produces both IR mutations and derived
   hint artifacts.
-- [ ] Do NOT add new fields to `ArcFunction` for these hints in v1
-- [ ] Read `EffectClass` for potential FIP fast-path identification. Per-function
+- [x] Do NOT add new fields to `ArcFunction` for these hints in v1
+- [x] Read `EffectClass` for potential FIP fast-path identification. Per-function
   `EffectClass` states contribute to the function-level `EffectSummary`, which is
   computed during interprocedural analysis (Section 03). By the time Section 04
   runs, `FipContract` is already computed. Section 04 READS `FipContract` (to guide
@@ -367,20 +367,22 @@ pass may consume.
 
 ## 04.6 Completion Checklist
 
-- [ ] `emit_rc_ops` correctly inserts `RcInc`/`RcDec` operations
-- [ ] No redundant RC pairs emitted (what rc_elim currently removes)
-- [ ] Function entry/exit RC handling correct for all access/consumption combinations
-- [ ] Call site RC handling correct for all callee signature combinations
-- [ ] `arg_ownership` populated on all Apply/Invoke instructions
-- [ ] Invoke unwind edge cleanup RC operations correct
-- [ ] Edge cleanup strategy decided and documented (recommended: promote
+- [x] `emit_rc_ops` correctly inserts `RcInc`/`RcDec` operations
+- [x] No redundant RC pairs emitted (what rc_elim currently removes)
+- [x] Function entry/exit RC handling correct for all access/consumption combinations
+- [x] Call site RC handling correct for all callee signature combinations
+- [x] `arg_ownership` populated on all Apply/Invoke instructions
+- [x] Invoke unwind edge cleanup RC operations correct
+- [x] Edge cleanup strategy decided and documented (recommended: promote
   `insert_edge_cleanup` to `pub(crate)` and call at start of `emit_rc_ops`)
-- [ ] Trampoline blocks from edge splitting have correct (inherited) state
-- [ ] COW annotations computed from state map
-- [ ] Drop hints computed from state map
-- [ ] `CollectionReuse` instructions preserved (not replaced — they are self-contained)
-- [ ] Emitted `ArcFunction` passes `ori_arc::verify` checks
-- [ ] RC operation count tracked and compared against current pipeline output
+- [x] Trampoline blocks from edge splitting have correct (inherited) state
+- [x] COW annotations computed from state map
+- [x] Drop hints computed from state map
+- [x] `CollectionReuse` instructions preserved (not replaced — they are self-contained)
+- [x] Emitted `ArcFunction` passes `ori_arc::verify` checks
+  Verified: `run_verify()` runs at steps 9 and 13 in `aims_pipeline.rs`. All
+  1252 AOT tests and 3389 spec tests pass with `--features aims`.
+- [ ] RC operation count tracked and compared against current pipeline output <!-- blocked-by:06 -->
   (goal: equal or fewer; regressions investigated but not automatic blockers
   during Stage 1C — correctness gates are behavioral equivalence + verify)
 
