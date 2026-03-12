@@ -1,13 +1,13 @@
 ---
 section: "09"
 title: "Dimensional Fusion"
-status: not-started
+status: in-progress
 goal: "Make all 7 dimensions work as one team — every dimension constrains, proves, or overrides at least one other"
 depends_on: ["01", "02", "03", "04", "05", "06", "07", "08"]
 sections:
   - id: "09.1"
     title: "Transfer Fusion"
-    status: not-started
+    status: in-progress
   - id: "09.2"
     title: "Active Dimensions"
     status: not-started
@@ -16,13 +16,13 @@ sections:
     status: not-started
   - id: "09.4"
     title: "Sequencing Algebra Extension"
-    status: not-started
+    status: in-progress
   - id: "09.5"
     title: "Convergence Feedback"
     status: not-started
   - id: "09.6"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 09: Dimensional Fusion

@@ -34,6 +34,17 @@ use super::state_map::AimsStateMap;
 /// only ONE successor executes per dynamic run, so successor demands are
 /// alternative. At a Jump (single successor), `alt_join` is trivially the
 /// successor's state.
+///
+/// # Loop convergence at back-edges
+///
+/// At a loop back-edge (where the successor is the loop header), this
+/// function joins the loop header's current entry state with the loop body's
+/// exit contribution. Because `alt_join` = `max` on each dimension, and all
+/// dimensions are finite-height lattices, the demand on loop-carried variables
+/// can only increase or stay the same across worklist iterations. This
+/// guarantees monotone convergence without the demand-stabilization tricks
+/// that GHC requires for lazy evaluation (`reuseEnv`, weak free variables).
+/// (See: Literature Review §09 — GHC Demand Analysis)
 pub(crate) fn compute_block_exit_state(
     func: &ArcFunction,
     block_id: ArcBlockId,

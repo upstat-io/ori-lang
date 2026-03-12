@@ -528,14 +528,14 @@ Comprehensive testing across all compiler features.
   function variant field offset computation.
 - [x] Memory usage: peak RSS within 20% of old pipeline on large programs.
   Verified (2026-03-11): 80,400 KB both pipelines (0% difference).
-- [ ] Compile-time breakdown documented (interprocedural, intraprocedural, emission percentages).
-  **Instrumentation approach**: Wrap each pipeline phase in `tracing::info_span!()` in
-  `run_aims_pipeline()` and `run_aims_pipeline_all()`. Report durations as percentage
-  of total ARC pipeline time. Phases to instrument: `analyze_program` (interprocedural),
-  `apply_ownership`, `compute_var_reprs`, `emit_arg_ownership`, `analyze_function`
-  (intraprocedural), `emit_rc_ops`, `emit_reuse`, `verify`, `tail_call`, `merge_blocks`,
-  `compute_aims_cow_annotations`, `compute_aims_drop_hints`. Use `ORI_LOG=ori_arc=info`
-  to display phase timings without requiring code changes at call sites.
+- [x] Compile-time breakdown documented (interprocedural, intraprocedural, emission percentages).
+  **Implementation**: All pipeline phases wrapped in `tracing::info_span!()` in
+  `run_aims_pipeline()` and `run_aims_pipeline_all()`. Instrumented phases:
+  `analyze_program`, `apply_ownership`, `compute_var_reprs`, `detect_immortals`,
+  `emit_arg_ownership`, `analyze_function`, `emit_rc_ops`, `emit_reuse`,
+  `verify_post_emission`, `aims_verify`, `tail_calls`, `merge_blocks`,
+  `compute_cow_annotations`, `compute_drop_hints`, `verify_final`.
+  Use `ORI_LOG=ori_arc=info` to display phase timings.
 - [x] Documentation: all design docs listed in Section 08.6 updated.
   Done (2026-03-11): All 5 documentation items in 08.6 completed.
 - [x] Same-compiler comparison methodology applied (Exploring Perceus for OCaml doctrine).
