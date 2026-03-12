@@ -327,7 +327,7 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
   at least `FunctionLocal`.
   (See: [Literature Review §01 — OxCaml](../aims-literature-review/section-01-oxidizing-ocaml.md), §01.2 K3, I3)
 
-- [ ] **Rule: HeapEscaping locality forces may_share effect.**
+- [x] **Rule: HeapEscaping locality forces may_share effect.**
   When a value transitions to `HeapEscaping` locality (e.g., stored in a
   heap-allocated structure), set `effect.may_share = true` on the current
   instruction's effect. This feeds back into interprocedural contracts — a
@@ -346,7 +346,7 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
 - [ ] Test: program where linear+once argument enables callee-side optimization
 - [ ] Test: program where closure-capture locality is FunctionLocal (non-escaping closure)
 - [ ] Test: program where once-closure capture preserves uniqueness of captured value
-- [ ] Test: program where heap escape propagates may_share effect to contract
+- [x] Test: program where heap escape propagates may_share effect to contract
 
 ---
 
@@ -611,10 +611,10 @@ constrains consumption and enables FIP certification naturally.
   requires non-in-place translation or skipping TRMC entirely.
   (See: [Literature Review §04 — TRMC](../aims-literature-review/section-04-trmc.md))
 
-- [ ] **EffectSummary in MemoryContract.**
-  Already exists (`MemoryContract.effects`). Make it precise instead of
-  conservative. Interprocedural fixed-point already handles effect propagation
-  through SCCs — just needs accurate per-instruction effect computation.
+- [x] **EffectSummary in MemoryContract.**
+  Already exists (`MemoryContract.effects`). Now precise: `extract_contract()`
+  reads `state_map.effect_summary()` instead of `EffectSummary::default()`.
+  `populate_effect_summary()` accumulates from Construct/Apply/Invoke/PartialApply.
 
 - [ ] Test: pure function call preserves caller uniqueness
 - [ ] Test: function with balanced alloc/consume gets FIP naturally
@@ -921,9 +921,8 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
   (backward semantics: uniqueness preserved in PRE-state when callee may_share==false)
 - [ ] Linear consumption at call site enables callee reuse — implemented and tested
   (requires interprocedural demand propagation: new analysis phase in analyze_program())
-- [ ] HeapEscaping forces may_share effect — implemented and tested
-  (backward: fires at transfer_construct() when argument's post-state has
-  locality != BlockLocal)
+- [x] HeapEscaping forces may_share effect — implemented and tested
+  (post-convergence replay: fires when Construct destination has locality > BlockLocal)
 - [ ] Closure-capture locality refined: FunctionLocal for non-escaping closures,
   HeapEscaping for escaping closures; once-closures preserve uniqueness
 - [ ] Each rule has a test program demonstrating measurable improvement (fewer RC ops
@@ -959,7 +958,9 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
   confirms canonicalize soundness with all 8 rules.
 
 **Step 2: Effect** (depends on precise Locality)
-- [ ] Effect: precise computation replaces conservative ALL defaults
+- [x] Effect: precise computation replaces conservative ALL defaults
+  (populate_effect_summary post-convergence: Construct→may_allocate, Invoke→may_throw,
+  Apply unions callee effects, HeapEscaping→may_share; extract_contract reads state_map)
 - [ ] Effect: backward-compatible semantics clarified (forward accumulation even
   in backward pass — per-block EffectClass accumulated into function EffectSummary)
 - [ ] Effect: may_share==false preserves caller uniqueness through call
@@ -973,7 +974,8 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
   net allocation (FIPTree's `fip(n)` pattern)
 - [ ] Effect: `is_fbip: bool` inferred metadata on MemoryContract (does NOT replace
   `#fbip` enforcement or change `is_auto_fbip()` — see 09.2 Effect Activation note)
-- [ ] Effect: EffectSummary precise in MemoryContract
+- [x] Effect: EffectSummary precise in MemoryContract
+  (extract_contract reads state_map.effect_summary() populated by populate_effect_summary)
 - [ ] Effect: TRMC soundness gate — may_share==false is precondition for in-place TRMC;
   normalize/verify.rs queries EffectSummary (see §04 TRMC literature review)
 - [ ] **GATE:** Effect tests green, FIP-natural detection works for balanced functions,
