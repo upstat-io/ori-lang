@@ -57,6 +57,23 @@ impl Consumption {
 /// Forward usage count. Inspired by GHC demand analysis (POPL 2014).
 ///
 /// Ordered: `Absent < Once < Many`. Chain height: 2.
+///
+/// ## Algebraic structure (QTT correspondence)
+///
+/// `(Cardinality, seq_add, Absent)` forms a commutative monoid analogous to
+/// QTT's 0-1-ω semiring (Atkey, LICS 2018):
+/// - [`seq_add`](Self::seq_add) = QTT's `+` (resource accumulation along one execution path)
+/// - [`alt_join`](Self::alt_join) = QTT's lub (branch join from mutually exclusive paths)
+/// - `seq_add` distributes over `alt_join` (verified exhaustively in tests)
+///
+/// GHC demand analysis uses three composition operations: `lubCard`, `plusCard`,
+/// `multCard`. AIMS needs only two: `alt_join` (= `lubCard`) and `seq_add`
+/// (= `plusCard`). The third, `multCard` (demand scaling), models nested
+/// evaluation contexts in lazy languages — a lambda called zero times zeros out
+/// inner demands, called many times multiplies them. In Ori's strict evaluation,
+/// every function body executes exactly once per call, so `multCard` is
+/// unnecessary. `seq_add` subsumes the sequential composition role that GHC
+/// splits between `plusCard` and `multCard`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Cardinality {
     /// Never used after this point.
@@ -68,23 +85,27 @@ pub enum Cardinality {
 }
 
 impl Cardinality {
-    /// Alternative control-flow join: `max` of the two.
+    /// Alternative control-flow join: lattice lub (idempotent).
     ///
     /// Used at control-flow merge points where only one path executes.
     /// `join(Once, Once) = Once` — a value used once in each branch of
     /// an `if` is still used once per execution.
+    ///
+    /// This is the lattice lub, NOT semiring addition — it is idempotent
+    /// (`a.alt_join(a) = a`), unlike [`seq_add`](Self::seq_add) which is
+    /// additive (`Once.seq_add(Once) = Many`).
     #[must_use]
     pub fn join(self, other: Self) -> Self {
         self.max(other)
     }
 
-    /// Alias for `join` — alternative control-flow join.
+    /// Alias for [`join`](Self::join) — alternative control-flow join (lattice lub).
     #[must_use]
     pub fn alt_join(self, other: Self) -> Self {
         self.join(other)
     }
 
-    /// Sequential composition along one execution path.
+    /// Sequential composition along one execution path (QTT's `+`, GHC's `plusCard`).
     ///
     /// `Absent + x = x`, `Once + Once = Many`, `Many + _ = Many`.
     ///
@@ -130,6 +151,17 @@ impl Uniqueness {
 ///
 /// Ordered: `BlockLocal` < `FunctionLocal` < `HeapEscaping` < `Unknown`.
 /// Chain height: 3.
+///
+/// ## Sequencing algebra
+///
+/// Both `seq_add` (sequential composition) and `alt_join` (branch join)
+/// coincide with [`join`](Self::join) (= max) for `Locality`. This is
+/// intentional, not accidental: locality tracks where a value *escapes to*,
+/// which widens monotonically. A value that escapes to the heap in one
+/// instruction stays heap-escaping regardless of subsequent instructions
+/// (`seq_add` = max). A value that escapes in either branch of a conditional
+/// escapes overall (`alt_join` = max). No separate methods are needed;
+/// use `join` for both operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Locality {
     /// Does not escape its defining basic block.
@@ -200,6 +232,18 @@ impl ShapeClass {
 /// Independent boolean flags — NOT a total order. Join is componentwise OR.
 ///
 /// Chain height: 3 (three independent booleans, each flips once).
+///
+/// ## Sequencing algebra
+///
+/// Both `seq_add` (sequential composition) and `alt_join` (branch join)
+/// coincide with [`join`](Self::join) (= componentwise OR) for `EffectClass`.
+/// This is a design choice: effects are boolean (has/hasn't), not counted
+/// (how many). Sequential effects accumulate via OR
+/// (`NONE.seq_add(MayAlloc) = MayAlloc`); branch effects join via OR
+/// (`MayAlloc.alt_join(MayThrow) = MayAlloc+MayThrow`). If effect *counts*
+/// were tracked (e.g., number of allocations), `seq_add` would be addition
+/// while `alt_join` would be max — but boolean flags make both operations
+/// identical. No separate methods are needed; use `join` for both operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EffectClass {
     /// May allocate heap memory (blocks FIP certification).

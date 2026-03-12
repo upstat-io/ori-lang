@@ -424,6 +424,57 @@ mod locality_tests {
             }
         }
     }
+
+    #[test]
+    fn block_local_is_identity() {
+        use Locality::*;
+        for a in all_locality() {
+            assert_eq!(BlockLocal.join(a), a, "left identity: {a:?}");
+            assert_eq!(a.join(BlockLocal), a, "right identity: {a:?}");
+        }
+    }
+
+    #[test]
+    fn unknown_absorbs() {
+        use Locality::*;
+        for a in all_locality() {
+            assert_eq!(Unknown.join(a), Unknown, "Unknown absorbs: {a:?}");
+            assert_eq!(a.join(Unknown), Unknown, "absorbed by Unknown: {a:?}");
+        }
+    }
+
+    /// Verify that `join` satisfies the sequencing algebra properties for
+    /// Locality: `seq_add` and `alt_join` both coincide with `join` (= max).
+    /// This is intentional — locality widens monotonically (see dimension docs).
+    #[test]
+    fn join_is_sequencing_algebra() {
+        // seq_add properties: commutative monoid (Absent=BlockLocal, absorption=Unknown)
+        // alt_join properties: idempotent, associative, commutative
+        // Both = join for Locality. The tests above already verify associativity,
+        // commutativity, idempotence, identity, and absorption — confirming that
+        // a single `join` serves as both seq_add and alt_join.
+        //
+        // Verify the key distinguishing property: idempotence.
+        // Cardinality's seq_add is NOT idempotent (Once.seq_add(Once) = Many),
+        // but Locality's would be (BlockLocal.join(BlockLocal) = BlockLocal).
+        // This is correct for escape analysis: escaping twice is still escaping.
+        for a in all_locality() {
+            assert_eq!(a.join(a), a, "seq_add idempotent for Locality: {a:?}");
+        }
+
+        // Verify distributivity (trivially holds when seq_add = alt_join = join,
+        // but document it explicitly):
+        // a.join(b.join(c)) == a.join(b).join(a.join(c))
+        for a in all_locality() {
+            for b in all_locality() {
+                for c in all_locality() {
+                    let lhs = a.join(b.join(c));
+                    let rhs = a.join(b).join(a.join(c));
+                    assert_eq!(lhs, rhs, "distributivity: {a:?}, {b:?}, {c:?}");
+                }
+            }
+        }
+    }
 }
 
 mod shape_class_tests {
@@ -529,6 +580,37 @@ mod effect_class_tests {
                 EffectClass::ALL,
                 "ALL absorbs: {a:?}"
             );
+        }
+    }
+
+    /// Verify that `join` satisfies the sequencing algebra properties for
+    /// `EffectClass`: `seq_add` and `alt_join` both coincide with `join`
+    /// (= componentwise OR). This is a design choice — effects are boolean
+    /// flags, not counts (see dimension docs).
+    #[test]
+    fn join_is_sequencing_algebra() {
+        // seq_add = alt_join = join for boolean effects.
+        // Key properties: idempotent (OR is idempotent), identity (NONE),
+        // absorption (ALL). Already tested above individually.
+        //
+        // Verify the distinguishing property: idempotence of seq_add.
+        // Unlike Cardinality (Once.seq_add(Once) = Many), Effect's seq_add
+        // would be idempotent (MayAlloc.join(MayAlloc) = MayAlloc).
+        // This is correct: allocating twice still means "may allocate."
+        for a in all_effect() {
+            assert_eq!(a.join(a), a, "seq_add idempotent for Effect: {a:?}");
+        }
+
+        // Verify distributivity:
+        // a.join(b.join(c)) == a.join(b).join(a.join(c))
+        for a in all_effect() {
+            for b in all_effect() {
+                for c in all_effect() {
+                    let lhs = a.join(b.join(c));
+                    let rhs = a.join(b).join(a.join(c));
+                    assert_eq!(lhs, rhs, "distributivity: {a:?}, {b:?}, {c:?}");
+                }
+            }
         }
     }
 }
