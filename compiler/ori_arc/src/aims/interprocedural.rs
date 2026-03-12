@@ -34,7 +34,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::ArcClassification;
 
 use super::contract::{
-    ContextBehavior, EffectSummary, FipContract, MemoryContract, ParamContract, ReturnContract,
+    ContextBehavior, FipContract, MemoryContract, ParamContract, ReturnContract,
 };
 use super::intraprocedural::analyze_function;
 use super::intraprocedural::AimsStateMap;
@@ -234,8 +234,9 @@ fn extract_contract(
     MemoryContract {
         params,
         return_info,
-        // v1: effect summary conservative — refined in 03.3
-        effects: EffectSummary::default(),
+        // Section 09.2: effect summary from converged analysis
+        // (populated by populate_effect_summary in intraprocedural/mod.rs).
+        effects: state_map.effect_summary(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
     }
