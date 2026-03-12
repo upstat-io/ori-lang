@@ -648,6 +648,99 @@ mod canonicalization {
         assert_eq!(s.shape, before_shape);
     }
 
+    // Rule 4: BlockLocal + Owned + ≤Once + MaybeShared → Unique
+
+    #[test]
+    fn rule4_block_local_owned_once_promotes_unique() {
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::Unique);
+    }
+
+    #[test]
+    fn rule4_does_not_fire_for_unknown_locality() {
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
+    }
+
+    #[test]
+    fn rule4_does_not_fire_for_function_local() {
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
+    }
+
+    #[test]
+    fn rule4_does_not_override_shared() {
+        // Shared is definite knowledge (RC > 1), Rule 4 must not override it
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Shared,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::Shared);
+    }
+
+    #[test]
+    fn rule4_does_not_fire_for_many_cardinality() {
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Unrestricted,
+            cardinality: Cardinality::Many,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
+    }
+
+    #[test]
+    fn rule4_does_not_fire_for_borrowed() {
+        let mut s = AimsState {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
+    }
+
     #[test]
     fn valid_states_unchanged() {
         // (Owned, Linear, Once, Unique) is valid — should not change
@@ -829,7 +922,7 @@ mod queries {
 
     #[test]
     fn locality_check() {
-        assert!(AimsState::FRESH.is_local()); // FunctionLocal
+        assert!(AimsState::FRESH.is_local()); // BlockLocal
         assert!(!AimsState::TOP.is_local()); // Unknown
 
         let block_local = AimsState {
@@ -843,6 +936,78 @@ mod queries {
             ..AimsState::FRESH
         };
         assert!(!heap.is_local());
+    }
+
+    #[test]
+    fn rc_skip_eligible_function_local_linear() {
+        // FunctionLocal + Owned + Linear → RC-skip eligible
+        let state = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        assert!(state.is_rc_skip_eligible());
+    }
+
+    #[test]
+    fn rc_skip_not_eligible_heap_escaping() {
+        let state = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        assert!(!state.is_rc_skip_eligible());
+    }
+
+    #[test]
+    fn rc_skip_not_eligible_unrestricted() {
+        let state = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Unrestricted,
+            cardinality: Cardinality::Many,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        assert!(!state.is_rc_skip_eligible());
+    }
+
+    #[test]
+    fn rc_skip_not_eligible_borrowed() {
+        let state = AimsState {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        assert!(!state.is_rc_skip_eligible());
+    }
+
+    #[test]
+    fn rc_skip_block_local_also_eligible() {
+        // BlockLocal is also local — RC-skip works for block-local too
+        let state = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        assert!(state.is_rc_skip_eligible());
     }
 }
 
@@ -1604,7 +1769,9 @@ fn fresh_is_optimistic_owned() {
     assert_eq!(f.consumption, Consumption::Linear);
     assert_eq!(f.cardinality, Cardinality::Once);
     assert_eq!(f.uniqueness, Uniqueness::Unique);
-    assert_eq!(f.locality, Locality::FunctionLocal);
+    // Section 09.2: FRESH starts BlockLocal (hasn't escaped the block).
+    // Cross-block flow widens to FunctionLocal; return widens to HeapEscaping.
+    assert_eq!(f.locality, Locality::BlockLocal);
     assert_eq!(f.shape, ShapeClass::NonReusable);
     assert_eq!(f.effect, EffectClass::NONE);
     assert!(f.is_rc_needed());

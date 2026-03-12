@@ -5,7 +5,8 @@
 //! more dimensions simultaneously.
 //!
 //! **Core**: [`AccessClass`], [`Consumption`], [`Cardinality`], [`Uniqueness`]
-//! **Auxiliary** (conservative in v1): [`Locality`], [`ShapeClass`], [`EffectClass`]
+//! **Active auxiliary**: [`Locality`] (precise since Section 09.2)
+//! **Conservative auxiliary** (v1): [`ShapeClass`], [`EffectClass`]
 //!
 //! Lattice properties: idempotent, commutative, associative join; monotonic
 //! transfer; finite height 15. See tests for exhaustive verification.
@@ -57,49 +58,6 @@ impl SizeClass {
     #[must_use]
     pub fn bytes(self) -> u32 {
         self.0
-    }
-}
-
-// EffectClass dimension (auxiliary)
-
-/// Memory effect classification for FIP certification.
-///
-/// Independent boolean flags — NOT a total order. Join is componentwise OR.
-///
-/// Chain height: 3 (three independent booleans, each flips once).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct EffectClass {
-    /// May allocate heap memory (blocks FIP certification).
-    pub may_alloc: bool,
-    /// May share references (refcount > 1).
-    pub may_share: bool,
-    /// May throw exceptions/panics.
-    pub may_throw: bool,
-}
-
-impl EffectClass {
-    /// Bottom: no effects.
-    pub const NONE: Self = Self {
-        may_alloc: false,
-        may_share: false,
-        may_throw: false,
-    };
-
-    /// Top: all effects possible.
-    pub const ALL: Self = Self {
-        may_alloc: true,
-        may_share: true,
-        may_throw: true,
-    };
-
-    /// Componentwise OR (each flag independently conservative).
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        Self {
-            may_alloc: self.may_alloc || other.may_alloc,
-            may_share: self.may_share || other.may_share,
-            may_throw: self.may_throw || other.may_throw,
-        }
     }
 }
 
@@ -180,12 +138,17 @@ impl AimsState {
     ///
     /// Transfer functions override `shape` based on the constructor kind.
     /// `FRESH` uses `NonReusable` as a default starting point.
+    ///
+    /// Locality starts at `BlockLocal`: a fresh allocation hasn't escaped
+    /// its defining block. Cross-block flow widens to `FunctionLocal`;
+    /// return or heap storage widens to `HeapEscaping`. This is the
+    /// precise locality computation from Section 09.2.
     pub const FRESH: Self = Self {
         access: AccessClass::Owned,
         consumption: Consumption::Linear,
         cardinality: Cardinality::Once,
         uniqueness: Uniqueness::Unique,
-        locality: Locality::FunctionLocal,
+        locality: Locality::BlockLocal,
         shape: ShapeClass::NonReusable,
         effect: EffectClass::NONE,
     };
@@ -225,11 +188,12 @@ impl AimsState {
     ///
     /// # Invariants enforced
     ///
-    /// - `Dead` ↔ `Absent`: dead means zero future uses, and vice versa
-    /// - `Linear` + `Absent` is infeasible → collapse to `Dead`
-    /// - `Shared` + reusable shape → collapse shape to `NonReusable`
+    /// 1. `Dead` ↔ `Absent`: dead means zero future uses, and vice versa
+    /// 2. `Linear` + `Absent` is infeasible → collapse to `Dead`
+    /// 3. `Shared` + reusable shape → collapse shape to `NonReusable`
+    /// 4. `BlockLocal` + `Owned` + `≤Once` → `Unique` (Section 09.2/09.3)
     pub fn canonicalize(&mut self) {
-        // Dead ↔ Absent bidirectional sync
+        // Rule 1: Dead ↔ Absent bidirectional sync
         if self.consumption == Consumption::Dead {
             self.cardinality = Cardinality::Absent;
         }
@@ -237,18 +201,36 @@ impl AimsState {
             self.consumption = Consumption::Dead;
         }
 
-        // Linear + Absent is infeasible (linear requires at least one use).
+        // Rule 2: Linear + Absent is infeasible (linear requires at least one use).
         // Already handled by the two rules above: Absent forces Dead,
         // so Linear + Absent → Dead + Absent. Guard explicitly for safety.
         if self.consumption == Consumption::Linear && self.cardinality == Cardinality::Absent {
             self.consumption = Consumption::Dead;
         }
 
-        // Shared values cannot be reused via constructor reset
+        // Rule 3: Shared values cannot be reused via constructor reset
         if self.uniqueness == Uniqueness::Shared
             && matches!(self.shape, ShapeClass::ReusableCtor(_))
         {
             self.shape = ShapeClass::NonReusable;
+        }
+
+        // Rule 4 (Section 09.2/09.3): BlockLocal + Owned + ≤Once → Unique.
+        // A block-local value that is owned and used at most once cannot have
+        // any other reference — the only way to create a second reference is
+        // via RcInc, which would violate the Once cardinality.
+        // Only promotes MaybeShared → Unique. Does NOT override Shared (which
+        // is definite knowledge of RC > 1, e.g. from Select join of branch
+        // states where one branch has a Shared source).
+        // Soundness: this rule requires precise locality (Section 09.2).
+        // BlockLocal implies precise locality — Unknown would never satisfy
+        // this condition.
+        if self.locality == Locality::BlockLocal
+            && self.access == AccessClass::Owned
+            && self.cardinality <= Cardinality::Once
+            && self.uniqueness == Uniqueness::MaybeShared
+        {
+            self.uniqueness = Uniqueness::Unique;
         }
     }
 
@@ -283,6 +265,24 @@ impl AimsState {
         self.access == AccessClass::Owned
             && self.uniqueness != Uniqueness::Shared
             && !matches!(self.shape, ShapeClass::NonReusable)
+    }
+
+    /// Whether this variable is eligible for RC-skip optimization.
+    ///
+    /// A function-local value that is owned and consumed linearly has a
+    /// refcount of 1 (unique due to linearity) and its lifetime is bounded
+    /// by the function. The `RcDec` at last use would free it (rc goes 1→0),
+    /// and the `RcInc` at entry is matched 1:1. Skip both — the value's
+    /// lifetime is precisely the function's lifetime.
+    ///
+    /// Requires precise locality (Section 09.2). `Unknown` locality never
+    /// qualifies.
+    #[must_use]
+    pub fn is_rc_skip_eligible(&self) -> bool {
+        self.is_local()
+            && self.access == AccessClass::Owned
+            && self.consumption == Consumption::Linear
+            && !self.is_scalar()
     }
 
     /// Whether this variable is local (does not escape its defining function).

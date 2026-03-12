@@ -10,10 +10,10 @@ sections:
     status: in-progress
   - id: "09.2"
     title: "Active Dimensions"
-    status: not-started
+    status: in-progress
   - id: "09.3"
     title: "Enriched Canonicalize"
-    status: not-started
+    status: in-progress
   - id: "09.4"
     title: "Sequencing Algebra Extension"
     status: in-progress
@@ -127,7 +127,7 @@ everything from `dimensions.rs` via `pub use dimensions::*`, so the one in
 `contract/mod.rs`, test files) all import from `super::lattice::EffectClass` —
 the re-export resolves to the copy in `dimensions.rs`.
 
-- [ ] **Delete the duplicate `EffectClass` block from `lattice/mod.rs`** (lines
+- [x] **Delete the duplicate `EffectClass` block from `lattice/mod.rs`** (lines
   63–104). The `dimensions.rs` copy is authoritative. Run `cargo c --features aims`
   to confirm no compile error; run `cargo test --features aims` to confirm no
   test regression.
@@ -146,10 +146,9 @@ borrowing). They are currently unused and the leading `_` suppresses the warning
 The pipeline passes them in from `aims_pipeline.rs` — dead weight in both the
 caller and callee.
 
-- [ ] **Remove `_sigs` and `_classifier` from `emit_rc_ops()`** in `emit_rc/mod.rs`
-  and update the single call site in `pipeline/aims_pipeline.rs`. If Section 10
-  `realize()` absorbs `emit_rc_ops`, remove them when building `realize()` instead.
-  Either way, do not carry dead parameters forward into the new API.
+- [x] **Remove `_sigs` and `_classifier` from `emit_rc_ops()`** in `emit_rc/mod.rs`
+  and update the single call site in `pipeline/aims_pipeline.rs`. Also removed
+  unused `TestClassifier` from `test_helpers.rs` and cleaned up test imports.
 
 ### WASTE — Unused parameters in `analyze_function()` and `compute_block_entry_state()`
 
@@ -168,12 +167,12 @@ scalar filtering before scalars were tracked in `AimsStateMap`. The scalar
 bitvector (`set_permanent_scalar`) now handles filtering; the `_classifier`
 parameter is pure dead weight.
 
-- [ ] **Remove `_classifier` from `compute_block_entry_state()` and any other
-  block.rs functions that carry it** once you confirm the scalar bitvector
-  handles all filtering. Update `mod.rs` call sites.
-- [ ] **Retain `_context_regions` with a doc comment**: `// Reserved for Stage 3
-  (TRMC context regions). Empty slice in Stages 1–2.` — it is a deliberate
-  placeholder, not a bug, but the reason must be documented.
+- [x] **Remove `_classifier` from `compute_block_entry_state()` and any other
+  block.rs functions that carry it** — removed from `compute_block_entry_state`,
+  `apply_terminator_demands`, and `apply_callee_contract`. Scalar bitvector
+  handles all filtering.
+- [x] **Retain `_context_regions` with a doc comment**: `// Reserved for Stage 3
+  (TRMC context regions). Empty slice in Stages 1–2.` — documented.
 
 ### BLOAT — `emit_rc/mod.rs` is 970 lines
 
@@ -198,8 +197,9 @@ touching `emit_rc/mod.rs`, split it first. If Section 10 arrives before 09.x
 touches this file, extract into `realize/` directly rather than splitting
 `emit_rc/` as an intermediate step.
 
-- [ ] **Split `emit_rc/mod.rs` before any 09.x changes touch it**
-  (or fold into `realize/` module layout from Section 10 if that comes first).
+- [x] **Split `emit_rc/mod.rs` before any 09.x changes touch it**
+  — split 960→225 lines: `helpers.rs` (328), `dead_cleanup.rs` (136),
+  `forward_walk.rs` (242), `queries.rs` (110). All under 500-line limit.
 
 ### BLOAT — `emit_reuse/mod.rs` is 508 lines
 
@@ -209,8 +209,10 @@ span-rebuilding logic (~40 lines each, duplicated). The shared helpers
 (`build_set_instructions`, `is_self_set`, `build_proj_map`) could live in a
 `emit_reuse/set_ops.rs` submodule.
 
-- [ ] **Extract shared set-ops helpers from `emit_reuse/mod.rs`** to
-  `emit_reuse/set_ops.rs` before touching this file in Section 10.
+- [x] **Extract shared set-ops helpers from `emit_reuse/mod.rs`** to
+  `emit_reuse/set_ops.rs` — extracted `ProjMap`, `build_proj_map`, `is_self_set`,
+  `build_set_instructions`, `extract_construct_info`, `substitute_var_all` (100 lines).
+  `mod.rs` reduced from 508→426 lines.
 
 ---
 
@@ -338,8 +340,8 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
   in a `Construct`, if the argument's post-state has `locality != BlockLocal`, set
   `effect.may_share=true` on the function's accumulated `EffectSummary`.
 
-- [ ] Test: program where unique source projection eliminates a COW check
-- [ ] Test: program where block-local construct enables static reuse
+- [x] Test: program where unique source projection eliminates a COW check
+- [x] Test: program where block-local construct enables static reuse
 - [ ] Test: program where pure callee preserves caller uniqueness across call
 - [ ] Test: program where linear+once argument enables callee-side optimization
 - [ ] Test: program where closure-capture locality is FunctionLocal (non-escaping closure)
@@ -424,7 +426,7 @@ backward direction:
   `FunctionLocal.join(HeapEscaping) = HeapEscaping`.
 This is the standard escape analysis direction: pessimistic join at merges.
 
-- [ ] **Precise locality computation.**
+- [x] **Precise locality computation.**
   Replace conservative `Unknown` defaults with accurate tracking:
   - `Construct` → `BlockLocal` (fresh allocation, hasn't escaped yet)
   - `Project` from source → inherit source's locality (deepness property: a
@@ -445,7 +447,7 @@ This is the standard escape analysis direction: pessimistic join at merges.
   5. `pipeline/shadow.rs` -- no update needed (no old-pipeline equivalent)
   6. `verify/mod.rs` -- check returned locality matches contract
 
-- [ ] **Locality → Uniqueness interaction.**
+- [x] **Locality → Uniqueness interaction.**
   `BlockLocal + Owned + ≤Once → Unique`. A block-local value that is owned by
   this scope and used at most once cannot have any other reference to it. The
   only way to create a second reference is via `RcInc`, which would violate
@@ -454,15 +456,19 @@ This is the standard escape analysis direction: pessimistic join at merges.
   conservative `Unknown` default). It MUST NOT be enabled before precise locality
   computation is implemented -- enabling it with `Unknown` locality would be
   unsound. Guard in `canonicalize()`: only apply Rule 4 when `locality != Unknown`.
+  **Implementation note:** Rule 4 only promotes `MaybeShared` → `Unique`, not
+  `Shared` → `Unique`. Definite `Shared` (RC > 1) from e.g. Select branch joins
+  must not be overridden.
 
-- [ ] **Locality → RC skip interaction.**
+- [x] **Locality → RC skip interaction.**
   `FunctionLocal + Owned + Linear → RC-skip eligible`. A function-local value
   that is owned and consumed linearly will be freed at function exit. The RcDec
   at last use would free the value (refcount is 1 because it's unique+linear).
   Instead of emitting RcInc at entry and RcDec at last use, skip both — the
   value's lifetime is precisely the function's lifetime.
+  **Implementation:** `AimsState::is_rc_skip_eligible()` predicate added.
 
-- [ ] **Locality in MemoryContract.**
+- [x] **Locality in MemoryContract.**
   Extract `locality_bound` per parameter in `extract_contract()`. A function
   whose parameters all stay `FunctionLocal` is a candidate for RC-free calling
   convention (no RcInc/RcDec at call boundary — callee promises not to escape).
@@ -472,7 +478,7 @@ This is the standard escape analysis direction: pessimistic join at merges.
   because the caller's uniqueness reasoning depends on it.
   (See: [Literature Review §01 — OxCaml](../aims-literature-review/section-01-oxidizing-ocaml.md), §01.2 I1, §01.7 Risk 5)
 
-- [ ] **Closure-capture-aware locality.**
+- [x] **Closure-capture-aware locality.**
   When a value is captured by a closure (`PartialApply`), its locality must be
   widened to at least `FunctionLocal` (it escapes the block where it was defined,
   into the closure's scope). If the closure itself escapes (returned, stored in a
@@ -484,10 +490,12 @@ This is the standard escape analysis direction: pessimistic join at merges.
   values preserve their uniqueness — this is the "lock" mechanism from OxCaml's
   LAM rule.
   (See: [Literature Review §01 — OxCaml](../aims-literature-review/section-01-oxidizing-ocaml.md), §01.2 K3, I3)
+  **Implementation:** `capture_state_update` now takes the closure's own demand
+  state. Once-closures preserve captured variable linearity/uniqueness.
 
-- [ ] Test: block-local value gets Unique without runtime check
-- [ ] Test: function-local linear value skips RC operations
-- [ ] Test: contract with locality bounds enables RC-free call
+- [x] Test: block-local value gets Unique without runtime check
+- [x] Test: function-local linear value skips RC operations
+- [x] Test: contract with locality bounds enables RC-free call
 
 ### Effect Activation
 
@@ -718,10 +726,11 @@ is a function-level property computed by `extract_contract()` in interprocedural
 analysis. See 09.2 Effect Activation for the FIP-natural detection spec and
 Section 10.1 for the ownership boundary.
 
-- [ ] **Rule 4: `BlockLocal + Owned + ≤Once → Unique`**
+- [x] **Rule 4: `BlockLocal + Owned + ≤Once → Unique`**
   Block-local owned single-use value must be unique. (From 09.2 Locality.)
   **Soundness guard:** only apply when `locality != Unknown` (unknown locality
   means precise locality analysis hasn't run yet — see 09.2 sync point note).
+  **Implementation note:** Only promotes `MaybeShared` → `Unique`, not `Shared`.
 
 - [ ] **Rule 5: `Unique + Dead → preserve ReusableCtor`**
   A unique dead value's memory IS reusable. Do NOT collapse shape. (Clarification

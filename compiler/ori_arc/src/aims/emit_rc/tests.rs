@@ -12,7 +12,6 @@ use rustc_hash::FxHashMap;
 use ori_ir::Name;
 use ori_types::Idx;
 
-use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::{
     AccessClass, AimsState, BorrowSource, Cardinality, Consumption, EffectClass, Locality,
@@ -22,7 +21,6 @@ use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
     ArgOwnership, LitValue, ValueRepr,
 };
-use crate::test_helpers::TestClassifier;
 use crate::uniqueness::drop_hints::DropHints;
 use crate::uniqueness::CowAnnotations;
 use crate::Ownership;
@@ -108,10 +106,7 @@ fn single_use_emits_dec_only() {
     state_map.update_block_exit(ArcBlockId::new(0), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // Expected: Let(v1 = v0), RcDec(v0), then Return(v1).
     let body = &func.blocks[0].body;
@@ -169,10 +164,7 @@ fn multi_use_emits_inc_before_second_use() {
     state_map.update_block_exit(ArcBlockId::new(0), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // Expected: RcInc(v0), Let(v1 = v0), Let(v2 = v0), RcDec(v0).
     // The first use (in Let v1) has a future use (Let v2) → RcInc.
@@ -232,10 +224,7 @@ fn body_and_terminator_use() {
     state_map.update_block_exit(ArcBlockId::new(0), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // body use of v0 has future use in terminator → RcInc.
     // Return transfers ownership → no RcDec.
@@ -282,10 +271,7 @@ fn scalar_variables_skipped() {
     state_map.set_permanent_scalar(v1);
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // No RC operations inserted.
     let body = &func.blocks[0].body;
@@ -343,10 +329,7 @@ fn borrowed_variables_skipped() {
     state_map.update_block_exit(ArcBlockId::new(0), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // No RC operations for borrowed v0.
     let body = &func.blocks[0].body;
@@ -395,10 +378,7 @@ fn dead_parameter_emits_dec_at_entry() {
     state_map.update_block_exit(ArcBlockId::new(0), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // Expected: Let(v1 = 42) then RcDec(v0).
     // The Let uses a literal (not v0), so the coalescing peephole
@@ -916,10 +896,7 @@ fn absent_param_no_rc_dec_at_entry() {
     state_map.update_block_exit(ArcBlockId::new(0), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // No RcDec for v0 — it's Absent, so the callee doesn't need to release it.
     let body = &func.blocks[0].body;
@@ -971,10 +948,7 @@ fn used_param_gets_rc_dec() {
     state_map.update_block_exit(ArcBlockId::new(0), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // v0 IS used (Once), so it should get RcDec after last use.
     let has_dec = func.blocks[0]
@@ -1075,6 +1049,219 @@ fn cross_dimension_synergy_cow_aware_borrowing() {
     );
 }
 
+// Transfer fusion tests (Section 09.1)
+
+/// Transfer Fusion Rule 1: Unique source projection eliminates COW check.
+///
+/// When a struct is `Unique` and a field is projected from it, `transfer_project`
+/// propagates the source's uniqueness to the projected field. This means a COW
+/// operation on the projected field gets `StaticUnique` — no runtime uniqueness
+/// check needed.
+///
+/// Without uniqueness propagation through Project, the projected field would
+/// default to `MaybeShared` (conservative for borrows) → `Dynamic` → runtime check.
+/// With the transfer rule, it inherits `Unique` from the source → `StaticUnique`.
+#[test]
+fn unique_source_projection_eliminates_cow_check() {
+    let v_src = ArcVarId::new(0); // Unique struct parameter
+    let v_field = ArcVarId::new(1); // Project(v_src, field 0)
+    let v_arg = ArcVarId::new(2); // literal arg for push
+    let v_result = ArcVarId::new(3); // result of push
+
+    let (interner, push_name) = make_cow_interner();
+
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            // v_field = Project(v_src, field 0)
+            ArcInstr::Project {
+                dst: v_field,
+                ty: Idx::NONE,
+                value: v_src,
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v_arg,
+                ty: Idx::NONE,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            },
+            // COW push on the projected field
+            ArcInstr::Apply {
+                dst: v_result,
+                ty: Idx::NONE,
+                func: push_name,
+                args: vec![v_field, v_arg],
+                arg_ownership: vec![],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_result },
+    };
+
+    let func = make_func(
+        vec![block],
+        4,
+        vec![ArcParam {
+            var: v_src,
+            ty: Idx::NONE,
+            ownership: Ownership::Owned,
+        }],
+        vec![
+            ValueRepr::RcPointer, // v_src: struct
+            ValueRepr::RcPointer, // v_field: projected list field
+            ValueRepr::Scalar,    // v_arg: int literal
+            ValueRepr::RcPointer, // v_result: push result
+        ],
+    );
+
+    // Source struct is Unique — only one reference exists.
+    let src_state = AimsState {
+        access: AccessClass::Owned,
+        consumption: Consumption::Linear,
+        cardinality: Cardinality::Once,
+        uniqueness: Uniqueness::Unique,
+        locality: Locality::FunctionLocal,
+        shape: ShapeClass::NonReusable,
+        effect: EffectClass::NONE,
+    };
+
+    // Projected field: Borrowed, Unique (inherited from source via transfer_project).
+    // This is exactly what transfer_project() produces when the source is Unique.
+    // Without the transfer rule, this would be MaybeShared → Dynamic COW.
+    let field_state = AimsState {
+        access: AccessClass::Borrowed,
+        consumption: Consumption::Linear,
+        cardinality: Cardinality::Once,
+        uniqueness: Uniqueness::Unique, // inherited from source
+        locality: Locality::FunctionLocal,
+        shape: ShapeClass::NonReusable,
+        effect: EffectClass::NONE,
+    };
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.update_block_entry(
+        ArcBlockId::new(0),
+        [(v_src, src_state), (v_field, field_state)]
+            .into_iter()
+            .collect(),
+    );
+
+    let annotations = compute_aims_cow_annotations(&func, &state_map, &interner);
+
+    // COW on v_field at (block 0, instr 2): Unique → StaticUnique.
+    // Without the unique-source-projection transfer rule, the projected field
+    // would have MaybeShared uniqueness → Dynamic → runtime check.
+    let mode = annotations.get(0, 2);
+    assert_eq!(
+        mode,
+        CowMode::StaticUnique,
+        "projected field from Unique source should get StaticUnique — \
+         transfer_project preserves source uniqueness, eliminating the COW check"
+    );
+}
+
+/// Contrast test: projected field from `MaybeShared` source gets `Dynamic` COW.
+///
+/// Same setup as `unique_source_projection_eliminates_cow_check`, but the
+/// source struct is `MaybeShared` instead of `Unique`. The projected field
+/// inherits `MaybeShared` → `Dynamic` → runtime check required.
+///
+/// This proves the optimization is specifically enabled by `transfer_project`
+/// propagating source uniqueness — it's not a blanket optimization on all
+/// projected fields.
+#[test]
+fn maybe_shared_source_projection_requires_cow_check() {
+    let v_src = ArcVarId::new(0); // MaybeShared struct parameter
+    let v_field = ArcVarId::new(1); // Project(v_src, field 0)
+    let v_arg = ArcVarId::new(2);
+    let v_result = ArcVarId::new(3);
+
+    let (interner, push_name) = make_cow_interner();
+
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::Project {
+                dst: v_field,
+                ty: Idx::NONE,
+                value: v_src,
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v_arg,
+                ty: Idx::NONE,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            },
+            ArcInstr::Apply {
+                dst: v_result,
+                ty: Idx::NONE,
+                func: push_name,
+                args: vec![v_field, v_arg],
+                arg_ownership: vec![],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_result },
+    };
+
+    let func = make_func(
+        vec![block],
+        4,
+        vec![ArcParam {
+            var: v_src,
+            ty: Idx::NONE,
+            ownership: Ownership::Owned,
+        }],
+        vec![
+            ValueRepr::RcPointer,
+            ValueRepr::RcPointer,
+            ValueRepr::Scalar,
+            ValueRepr::RcPointer,
+        ],
+    );
+
+    // Source is MaybeShared — other references may exist.
+    let src_state = AimsState {
+        access: AccessClass::Owned,
+        consumption: Consumption::Unrestricted,
+        cardinality: Cardinality::Many,
+        uniqueness: Uniqueness::MaybeShared,
+        locality: Locality::Unknown,
+        shape: ShapeClass::NonReusable,
+        effect: EffectClass::ALL,
+    };
+
+    // Projected field inherits MaybeShared from source.
+    let field_state = AimsState {
+        access: AccessClass::Borrowed,
+        consumption: Consumption::Linear,
+        cardinality: Cardinality::Once,
+        uniqueness: Uniqueness::MaybeShared, // inherited from MaybeShared source
+        locality: Locality::Unknown,
+        shape: ShapeClass::NonReusable,
+        effect: EffectClass::NONE,
+    };
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.update_block_entry(
+        ArcBlockId::new(0),
+        [(v_src, src_state), (v_field, field_state)]
+            .into_iter()
+            .collect(),
+    );
+
+    let annotations = compute_aims_cow_annotations(&func, &state_map, &interner);
+
+    // MaybeShared source → MaybeShared projected field → Dynamic COW
+    let mode = annotations.get(0, 2);
+    assert_eq!(
+        mode,
+        CowMode::Dynamic,
+        "projected field from MaybeShared source should get Dynamic — \
+         source's MaybeShared propagates through Project, requiring runtime check"
+    );
+}
+
 // Edge cleanup tests (borrowed Invoke arg RcDec)
 
 /// Borrowed Invoke arg whose last use is the Invoke terminator itself must
@@ -1146,10 +1333,7 @@ fn borrowed_invoke_arg_gets_rc_dec_on_both_edges() {
     state_map.update_block_exit(ArcBlockId::new(2), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // bb1 (normal) must have RcDec(v0) prepended.
     let bb1_has_dec = func.blocks[1]
@@ -1233,10 +1417,7 @@ fn owned_invoke_arg_no_extra_rc_dec() {
     state_map.update_block_exit(ArcBlockId::new(2), FxHashMap::default());
 
     let pool = ori_types::Pool::new();
-    let classifier = TestClassifier;
-    let sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-
-    emit_rc_ops(&mut func, &state_map, &sigs, &classifier, &pool);
+    emit_rc_ops(&mut func, &state_map, &pool);
 
     // Neither bb1 nor bb2 should have RcDec for v0 — ownership was transferred.
     for (idx, label) in [(1, "normal"), (2, "unwind")] {
