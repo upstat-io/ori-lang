@@ -1,8 +1,8 @@
 //! Tests for AIMS transfer functions.
 
 use crate::aims::lattice::{
-    AccessClass, AimsState, BorrowSource, Cardinality, Consumption, Locality, ReuseCtorKind,
-    ShapeClass, Uniqueness,
+    AccessClass, AimsState, BorrowSource, Cardinality, Consumption, EffectClass, Locality,
+    ReuseCtorKind, ShapeClass, Uniqueness,
 };
 use crate::ir::{ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, LitValue};
 
@@ -251,7 +251,16 @@ fn partial_apply_is_fresh_non_reusable() {
         args: vec![var(0), var(1)],
     };
     let result = transfer_def(&instr, &top_lookup).expect("should define a variable");
-    assert_eq!(result.state, AimsState::FRESH);
+    // PartialApply creates a closure → FRESH base with may_alloc effect
+    // (Section 09.2: precise effect computation).
+    let expected = AimsState {
+        effect: EffectClass {
+            may_alloc: true,
+            ..EffectClass::NONE
+        },
+        ..AimsState::FRESH
+    };
+    assert_eq!(result.state, expected);
     assert_eq!(result.state.shape, ShapeClass::NonReusable);
 }
 

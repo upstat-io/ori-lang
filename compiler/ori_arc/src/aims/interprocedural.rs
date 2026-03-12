@@ -231,14 +231,19 @@ fn extract_contract(
 
     let return_info = extract_return_info(func, classifier, sigs);
 
+    let effects = state_map.effect_summary();
+
+    // Section 09.2: FBIP inference from converged effect summary.
+    // A function is FBIP if it never allocates on any code path.
+    let is_fbip = !effects.may_allocate;
+
     MemoryContract {
         params,
         return_info,
-        // Section 09.2: effect summary from converged analysis
-        // (populated by populate_effect_summary in intraprocedural/mod.rs).
-        effects: state_map.effect_summary(),
+        effects,
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip,
     }
 }
 

@@ -507,7 +507,7 @@ This is the standard escape analysis direction: pessimistic join at merges.
 Effect tracks whether a function allocates, shares, or throws. When precise, it
 constrains consumption and enables FIP certification naturally.
 
-- [ ] **Precise effect computation.**
+- [x] **Precise effect computation.**
   Replace conservative `ALL` defaults with accurate tracking:
   - `Construct` → sets `may_alloc` (on `EffectClass`, the per-variable lattice dimension)
   - `Apply/Invoke` → union with callee contract's effect summary
@@ -534,13 +534,13 @@ constrains consumption and enables FIP certification naturally.
   Effects must NOT be written directly into `MemoryContract` during
   intraprocedural analysis — contracts are owned by the interprocedural layer.
 
-- [ ] **Effect → Consumption interaction.**
+- [x] **Effect → Consumption interaction.**
   If a function's effect summary has `may_share == false`, borrowed parameters
   preserve the caller's uniqueness through the call. This is because the callee
   can't create new references (no sharing effect), so the caller's reference
   count doesn't change.
 
-- [ ] **Effect → FIP natural detection.**
+- [ ] **Effect → FIP natural detection.** <!-- partial: is_fbip + FipContract::Bounded scaffolding done; token balance tracking TODO -->
   `may_alloc == false` AND all `Consume` matched by `Construct` (allocation
   balance = 0) → function is naturally FIP. This falls out of the converged
   effect state without a separate FIP certification pass. FipContract becomes
@@ -606,7 +606,7 @@ constrains consumption and enables FIP certification naturally.
   (`allocs - reuses = n`), not a user annotation.
   (See: [Literature Review §03 — FIPTree](../aims-literature-review/section-03-fiptree.md))
 
-- [ ] **Effect -> TRMC soundness gate.**
+- [x] **Effect -> TRMC soundness gate.**
   `may_share == false` is a PRECONDITION for in-place TRMC, not just a
   profitability signal. When `may_share == true`, the context variable `k` may
   be captured by an effect handler's resumption and used non-linearly, breaking
@@ -614,16 +614,19 @@ constrains consumption and enables FIP certification naturally.
   check. Stage 3 `normalize/verify.rs` must query `EffectSummary` to determine
   the path: `may_share == false` permits in-place TRMC; `may_share == true`
   requires non-in-place translation or skipping TRMC entirely.
+  Documented in `ContextBehavior` doc comment; actual gate deferred to Stage 3.
   (See: [Literature Review §04 — TRMC](../aims-literature-review/section-04-trmc.md))
 
 - [x] **EffectSummary in MemoryContract.**
   Already exists (`MemoryContract.effects`). Now precise: `extract_contract()`
   reads `state_map.effect_summary()` instead of `EffectSummary::default()`.
-  `populate_effect_summary()` accumulates from Construct/Apply/Invoke/PartialApply.
+  Effects accumulated during backward walk via `accumulate_instr_effects()`
+  and `accumulate_terminator_effects()` in `block.rs`. `populate_effect_summary()`
+  removed — effects now accumulated during analysis, not replayed post-convergence.
 
-- [ ] Test: pure function call preserves caller uniqueness
-- [ ] Test: function with balanced alloc/consume gets FIP naturally
-- [ ] Test: effect propagation through SCC converges correctly
+- [x] Test: pure function call preserves caller uniqueness
+- [x] Test: function with balanced alloc/consume gets FIP naturally
+- [x] Test: effect propagation through SCC converges correctly
 
 ### Shape Activation
 

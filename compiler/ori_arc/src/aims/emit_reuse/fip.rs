@@ -61,7 +61,9 @@ pub(super) fn apply_fip_upgrades(
     match fip {
         FipContract::Never => (opportunities, Vec::new()),
         FipContract::Certified => apply_certified_upgrades(opportunities),
-        FipContract::Conditional { .. } => apply_conditional_gates(opportunities),
+        FipContract::Conditional { .. } | FipContract::Bounded(_) => {
+            apply_conditional_gates(opportunities)
+        }
     }
 }
 

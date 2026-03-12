@@ -117,10 +117,17 @@ fn transfer_let(value: &ArcValue, get_state: &impl Fn(ArcVarId) -> AimsState) ->
 /// - `EnumVariant` → `ReusableCtor(EnumVariant)`
 /// - `ListLiteral`/`SetLiteral`/`MapLiteral` → `CollectionBuffer`
 /// - `Tuple`/`Closure` → `NonReusable`
+///
+/// Per-variable effect: `may_alloc = true` — construction allocates heap memory.
+/// (Section 09.2: precise effect computation.)
 fn transfer_construct(ctor: &CtorKind) -> DefTransfer {
     let shape = shape_from_ctor(ctor);
     let mut state = AimsState::FRESH;
     state.shape = shape;
+    state.effect = EffectClass {
+        may_alloc: true,
+        ..EffectClass::NONE
+    };
     state.canonicalize();
     DefTransfer::state(state)
 }
@@ -171,11 +178,19 @@ fn transfer_apply_conservative() -> DefTransfer {
 
 /// `PartialApply { func, args }` — create a closure capturing args.
 ///
-/// Destination gets `FRESH` (new closure allocation, `NonReusable`).
-/// The analysis engine (Section 02) separately updates captured args'
-/// states via [`capture_state_update`].
+/// Destination gets `FRESH` with `may_alloc` effect (closure environment
+/// allocation). The analysis engine (Section 02) separately updates
+/// captured args' states via [`capture_state_update`].
+///
+/// Per-variable effect: `may_alloc = true` — closure creation allocates.
+/// (Section 09.2: precise effect computation.)
 fn transfer_partial_apply() -> DefTransfer {
-    DefTransfer::state(AimsState::FRESH)
+    let mut state = AimsState::FRESH;
+    state.effect = EffectClass {
+        may_alloc: true,
+        ..EffectClass::NONE
+    };
+    DefTransfer::state(state)
 }
 
 /// `Select { cond, true_val, false_val }` — conditional value.
