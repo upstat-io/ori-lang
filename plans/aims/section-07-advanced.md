@@ -3,6 +3,7 @@ section: "07"
 title: "Advanced Optimizations"
 status: in-progress
 goal: "Implement optimizations enabled by the unified lattice that were impossible with separate passes"
+note: "4 FIP items blocked by Section 09.2 Effect Activation"
 inspired_by:
   - "Biased RC / PEP 703 (immortal objects)"
   - "Coalesced RC (Levanoni-Petrank, TOPLAS 2006)"
@@ -21,13 +22,13 @@ sections:
     status: complete
   - id: "07.3"
     title: "Cross-Optimization Synergies"
-    status: complete
+    status: in-progress
   - id: "07.4"
     title: "Future: Runtime and Representation Follow-ons"
     status: complete
   - id: "07.5"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 ---
 
 # Section 07: Advanced Optimizations

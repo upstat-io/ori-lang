@@ -17,10 +17,9 @@ use rustc_hash::FxHashMap;
 
 use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
-use crate::ArcClassification;
 
 use super::super::contract::MemoryContract;
-use super::super::lattice::{AimsState, Cardinality};
+use super::super::lattice::{AimsState, Cardinality, Locality};
 use super::super::transfer::{backward_demands, backward_terminator_demands, transfer_def};
 use super::state_map::AimsStateMap;
 
@@ -76,6 +75,16 @@ pub(crate) fn compute_block_exit_state(
         }
     }
 
+    // Cross-block locality widening (Section 09.2): variables demanded by
+    // successor blocks have crossed a block boundary, so their locality
+    // must be at least `FunctionLocal`. This converts `BlockLocal` values
+    // that flow to other blocks into `FunctionLocal`.
+    for state in exit_state.values_mut() {
+        if state.locality < Locality::FunctionLocal {
+            state.locality = Locality::FunctionLocal;
+        }
+    }
+
     exit_state
 }
 
@@ -94,7 +103,6 @@ pub(crate) fn compute_block_entry_state(
     func: &ArcFunction,
     block_id: ArcBlockId,
     state_map: &AimsStateMap,
-    classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
     invoke_defs: &FxHashMap<ArcBlockId, Vec<ArcVarId>>,
 ) -> FxHashMap<ArcVarId, AimsState> {
@@ -107,7 +115,19 @@ pub(crate) fn compute_block_entry_state(
         .unwrap_or_default();
 
     // Apply terminator backward demands.
-    apply_terminator_demands(&block.terminator, &mut current, state_map, classifier);
+    apply_terminator_demands(&block.terminator, &mut current, state_map);
+
+    // Return locality widening (Section 09.2): returned values escape the
+    // function, so their locality must be `HeapEscaping`.
+    if let ArcTerminator::Return { value } = &block.terminator {
+        if !state_map.is_excluded(*value) {
+            let entry = current.entry(*value).or_insert(AimsState::BOTTOM);
+            if entry.locality < Locality::HeapEscaping {
+                entry.locality = Locality::HeapEscaping;
+            }
+            entry.canonicalize();
+        }
+    }
 
     // Walk instructions in reverse order.
     for instr in block.body.iter().rev() {
@@ -125,6 +145,14 @@ pub(crate) fn compute_block_entry_state(
         };
 
         if def_transfer.is_some() {
+            // Capture the closure's downstream demand BEFORE removing dst,
+            // so closure-capture-aware locality can use it.
+            let closure_demand = if let crate::ir::ArcInstr::PartialApply { dst, .. } = instr {
+                Some(current.get(dst).copied().unwrap_or(AimsState::BOTTOM))
+            } else {
+                None
+            };
+
             // If the instruction defines a variable, the defined variable's
             // demand is consumed here (it's defined at this point, so
             // predecessors don't need to provide it). Remove from current state.
@@ -140,16 +168,22 @@ pub(crate) fn compute_block_entry_state(
                 ..
             } = instr
             {
-                apply_callee_contract(*dst, *callee, args, sigs, classifier, &mut current);
+                apply_callee_contract(*dst, *callee, args, sigs, &mut current);
                 // backward_demands still runs below to add operand demand.
             }
 
             // For PartialApply: update captured variables' states.
+            // Uses closure-aware locality (Section 09.2): the closure's own
+            // demand state determines captured variable locality.
             if let crate::ir::ArcInstr::PartialApply { args, .. } = instr {
+                let closure_state = closure_demand.unwrap_or(AimsState::BOTTOM);
                 for &arg in args {
                     if !state_map.is_excluded(arg) {
                         let arg_state = current.get(&arg).copied().unwrap_or(AimsState::BOTTOM);
-                        let updated = super::super::transfer::capture_state_update(&arg_state);
+                        let updated = super::super::transfer::capture_state_update(
+                            &arg_state,
+                            &closure_state,
+                        );
                         merge_demand(&mut current, arg, updated);
                     }
                 }
@@ -185,11 +219,15 @@ pub(crate) fn compute_block_entry_state(
 }
 
 /// Apply backward demands from a terminator.
+///
+/// In addition to cardinality demand, applies locality widening
+/// (Section 09.2):
+/// - Jump args → `FunctionLocal` (cross-block flow)
+/// - Invoke args → `FunctionLocal` (cross-block to callee)
 fn apply_terminator_demands(
     term: &ArcTerminator,
     current: &mut FxHashMap<ArcVarId, AimsState>,
     state_map: &AimsStateMap,
-    _classifier: &dyn ArcClassification,
 ) {
     let demands = backward_terminator_demands(term);
     for (var, card) in demands {
@@ -197,6 +235,20 @@ fn apply_terminator_demands(
             continue;
         }
         add_backward_demand(current, var, card);
+    }
+
+    // Cross-block locality widening for terminator arguments.
+    // Jump/Invoke args flow to a different block, so their locality
+    // must be at least FunctionLocal.
+    match term {
+        ArcTerminator::Jump { args, .. } | ArcTerminator::Invoke { args, .. } => {
+            for &arg in args {
+                if !state_map.is_excluded(arg) {
+                    widen_locality(current, arg, Locality::FunctionLocal);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -219,6 +271,19 @@ fn add_backward_demand(
     entry.canonicalize();
 }
 
+/// Widen a variable's locality to at least `min_locality`.
+fn widen_locality(
+    current: &mut FxHashMap<ArcVarId, AimsState>,
+    var: ArcVarId,
+    min_locality: Locality,
+) {
+    let entry = current.entry(var).or_insert(AimsState::BOTTOM);
+    if entry.locality < min_locality {
+        entry.locality = min_locality;
+    }
+    entry.canonicalize();
+}
+
 /// Merge a demand state into the current map for a variable.
 fn merge_demand(current: &mut FxHashMap<ArcVarId, AimsState>, var: ArcVarId, state: AimsState) {
     let entry = current.entry(var).or_insert(AimsState::BOTTOM);
@@ -235,16 +300,18 @@ fn apply_callee_contract(
     callee: Name,
     args: &[ArcVarId],
     sigs: &FxHashMap<Name, MemoryContract>,
-    _classifier: &dyn ArcClassification,
     current: &mut FxHashMap<ArcVarId, AimsState>,
 ) {
     if let Some(contract) = sigs.get(&callee) {
         // Use per-parameter contracts from interprocedural analysis.
+        // Includes locality_bound (Section 09.2): if the callee may store
+        // a parameter into a heap structure, the arg gets HeapEscaping locality.
         for (arg, param_contract) in args.iter().zip(contract.params.iter()) {
             let demand = AimsState {
                 access: param_contract.access,
                 consumption: param_contract.consumption,
                 cardinality: param_contract.cardinality,
+                locality: param_contract.locality_bound,
                 ..AimsState::BOTTOM
             };
             merge_demand(current, *arg, demand);
