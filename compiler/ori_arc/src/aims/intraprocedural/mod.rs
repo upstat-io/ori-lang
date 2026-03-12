@@ -63,6 +63,16 @@ use super::transfer::transfer_def;
 /// The lattice has finite chain height 15. Convergence is guaranteed in
 /// at most `15 × |variables| × |blocks|` iterations. If exceeded, a
 /// `tracing::warn!` is emitted and remaining variables are widened to TOP.
+///
+/// This is mathematically stronger than GHC's demand analysis, which uses an
+/// empirical `n > 10` iteration cutoff in `dmdFix` with `reuseEnv` demand
+/// stabilization for recursive bindings. AIMS derives its bound from the
+/// product lattice's finite chain height (15 = sum of per-dimension heights),
+/// giving a provable upper bound rather than an empirical safety net. GHC
+/// needs `reuseEnv` and weak-demand splitting to improve convergence in lazy
+/// contexts; AIMS's strict evaluation model avoids these because all demands
+/// are strict by definition.
+/// (See: Literature Review §09 — GHC Demand Analysis)
 #[expect(
     clippy::implicit_hasher,
     reason = "FxHashMap is the project-wide hasher; no generic needed"
