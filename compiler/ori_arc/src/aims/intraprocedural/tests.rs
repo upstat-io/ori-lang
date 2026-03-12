@@ -2230,3 +2230,117 @@ fn effect_summary_apply_unions_callee_effects() {
         "Apply (not Invoke) should not set may_throw when callee doesn't throw"
     );
 }
+
+// Closure-capture locality and uniqueness (Section 09.1)
+
+#[test]
+fn closure_capture_non_escaping_gets_function_local() {
+    // func(v0: ref):
+    //   v1 = PartialApply(f, [v0])   — captures v0
+    //   v2 = ApplyIndirect(v1, [])   — uses closure locally
+    //   return v2                     — v1 NOT returned (non-escaping)
+    //
+    // v0 is a parameter (captured by closure). The closure v1 is used once
+    // locally via ApplyIndirect and never returned, so v1's demand locality
+    // stays BlockLocal. capture_state_update widens captured v0's locality
+    // to max(closure_locality, FunctionLocal) = FunctionLocal.
+    use super::super::lattice::Consumption;
+
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::ir::ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: crate::Ownership::Owned,
+        }],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::PartialApply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: Name::from_raw(100),
+                    args: vec![var(0)],
+                },
+                ArcInstr::ApplyIndirect {
+                    dst: var(2),
+                    ty: ty(0),
+                    closure: var(1),
+                    args: vec![],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    let entry_v0 = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(
+        entry_v0.locality,
+        Locality::FunctionLocal,
+        "captured var in non-escaping closure should have FunctionLocal locality"
+    );
+    // Captured by a once-closure (used once via ApplyIndirect), so
+    // consumption should be Affine (may be dropped), not Unrestricted.
+    assert!(
+        entry_v0.consumption <= Consumption::Affine,
+        "captured var in once-closure should be at most Affine, got {:?}",
+        entry_v0.consumption
+    );
+}
+
+#[test]
+fn once_closure_capture_preserves_cardinality() {
+    // func(v0: ref):
+    //   v1 = PartialApply(f, [v0])   — captures v0
+    //   v2 = ApplyIndirect(v1, [])   — uses closure once (Once cardinality)
+    //   return v2
+    //
+    // The closure v1 has cardinality Once (used once by ApplyIndirect).
+    // capture_state_update with once-closure should preserve v0's
+    // cardinality as Once (not widen to Many). This is the OxCaml LAM
+    // "lock" mechanism: a once-closure cannot create multiple references
+    // to captured values because it is invoked at most once.
+
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::ir::ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: crate::Ownership::Owned,
+        }],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::PartialApply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: Name::from_raw(100),
+                    args: vec![var(0)],
+                },
+                ArcInstr::ApplyIndirect {
+                    dst: var(2),
+                    ty: ty(0),
+                    closure: var(1),
+                    args: vec![],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    let entry_v0 = state_map.var_state_at_block_entry(block_id(0), var(0));
+    // Once-closure: captured var used at most once through the closure.
+    assert_eq!(
+        entry_v0.cardinality,
+        Cardinality::Once,
+        "once-closure capture should preserve Once cardinality"
+    );
+}

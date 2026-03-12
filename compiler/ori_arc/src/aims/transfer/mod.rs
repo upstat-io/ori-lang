@@ -255,10 +255,13 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
             d
         }
 
-        // PartialApply: captured args may be used Many times
-        // (across multiple invocations of the closure).
-        ArcInstr::PartialApply { args, .. } => {
-            args.iter().map(|v| (*v, Cardinality::Many)).collect()
+        // PartialApply: captured arg demand is handled entirely by
+        // `capture_state_update` in block.rs, which sets precise
+        // access/consumption/cardinality/locality based on the closure's
+        // own demand state. Returning demand here would double-count.
+        // RC operations: AIMS outputs. During migration, no demand.
+        ArcInstr::PartialApply { .. } | ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. } => {
+            SmallVec::new()
         }
 
         // Project: one read of the source.
@@ -313,9 +316,6 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
             d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
             d
         }
-
-        // RC operations: AIMS outputs. During migration, no demand.
-        ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. } => SmallVec::new(),
     }
 }
 
@@ -417,10 +417,12 @@ pub fn can_mutate_in_place(state: &AimsState) -> bool {
 /// args get `HeapEscaping`. The closure's state comes from the backward
 /// analysis (how the closure variable is demanded downstream).
 ///
-/// If the closure is consumed linearly (`Once`, consumption `<= Linear`),
+/// If the closure is invoked at most once (`cardinality <= Once`),
 /// captured values preserve uniqueness — this is the `OxCaml` "lock"
 /// mechanism (LAM rule). A once-closure invokes captured values exactly
-/// once, so no duplication occurs.
+/// once, so no duplication occurs. The consumption dimension is
+/// orthogonal: a closure with `Affine` consumption (may be dropped
+/// without use) still only invokes captured values at most once.
 ///
 /// Returns the input unchanged for scalar variables.
 pub fn capture_state_update(current: &AimsState, closure_state: &AimsState) -> AimsState {
@@ -431,11 +433,12 @@ pub fn capture_state_update(current: &AimsState, closure_state: &AimsState) -> A
     state.access = AccessClass::Owned;
 
     // Once-closure optimization (OxCaml LAM rule): if the closure is
-    // consumed at most once, captured variables are used at most once
-    // through the closure, preserving linearity and uniqueness.
-    if closure_state.cardinality <= Cardinality::Once
-        && closure_state.consumption <= Consumption::Linear
-    {
+    // invoked at most once (cardinality <= Once), captured variables are
+    // used at most once through the closure, preserving linearity and
+    // uniqueness. The consumption dimension (whether the closure may be
+    // dropped) is orthogonal — a dropped closure uses captured vars
+    // zero times, not additionally.
+    if closure_state.cardinality <= Cardinality::Once {
         // Captured var is used through the closure at most once.
         // Keep consumption/cardinality from current state (don't widen).
         // Only ensure at least Affine (may be dropped if closure is dropped).
