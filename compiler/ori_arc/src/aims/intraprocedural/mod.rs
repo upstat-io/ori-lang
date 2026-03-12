@@ -177,11 +177,16 @@ pub fn analyze_function(
         }
     }
 
+    // Post-convergence: verify canonical fixed point and detect
+    // cross-dimension chaining (Section 09.5 Convergence Feedback).
+    verify_canonical_fixed_point(&mut state_map, func);
+
     tracing::debug!(
         func = ?func.name,
         iterations = iteration,
         blocks = func.blocks.len(),
         vars = func.var_types.len(),
+        cross_dimension = state_map.cross_dimension_detected(),
         "AIMS intraprocedural analysis converged"
     );
 
@@ -635,6 +640,77 @@ fn compute_block_fip_balance(
     }
 
     allocs.saturating_sub(deaths)
+}
+
+/// Verify that all converged states are at a canonical fixed point.
+///
+/// Runs [`AimsState::canonicalize_with_feedback`] on every block entry/exit
+/// state. Converged states should already be canonical (`rounds == 0`).
+/// If any state is NOT canonical (`rounds > 0`), this indicates a bug in
+/// the analysis — some path didn't call `canonicalize()` after a state
+/// update. If cross-dimension chaining is detected (`rounds > 1`), the
+/// `cross_dimension_detected` flag is set.
+///
+/// With current rules (Section 09.3), this should always pass.
+///
+/// Section 09.5 Convergence Feedback.
+fn verify_canonical_fixed_point(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    let mut max_rounds: u8 = 0;
+
+    for (block_idx, _) in func.blocks.iter().enumerate() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR block counts fit in u32"
+        )]
+        let block_id = ArcBlockId::new(block_idx as u32);
+
+        // Check entry states.
+        if let Some(entry) = state_map.block_entry_states(block_id) {
+            for (var, state) in entry {
+                let mut copy = *state;
+                let feedback = copy.canonicalize_with_feedback();
+                if feedback.rounds > max_rounds {
+                    max_rounds = feedback.rounds;
+                }
+                debug_assert_eq!(
+                    copy, *state,
+                    "converged state is not canonical: block={block_idx}, var={var:?}"
+                );
+            }
+        }
+
+        // Check exit states.
+        if let Some(exit) = state_map.block_exit_states(block_id) {
+            for (var, state) in exit {
+                let mut copy = *state;
+                let feedback = copy.canonicalize_with_feedback();
+                if feedback.rounds > max_rounds {
+                    max_rounds = feedback.rounds;
+                }
+                debug_assert_eq!(
+                    copy, *state,
+                    "converged state is not canonical: block={block_idx}, var={var:?}"
+                );
+            }
+        }
+    }
+
+    if max_rounds > 0 {
+        tracing::warn!(
+            func = ?func.name,
+            max_rounds,
+            "converged state was not canonical — analysis bug"
+        );
+    }
+
+    if max_rounds > 1 {
+        state_map.set_cross_dimension_detected();
+        tracing::warn!(
+            func = ?func.name,
+            max_rounds,
+            "cross-dimension canonicalize chaining detected in converged states"
+        );
+    }
 }
 
 /// Widen all non-converged variables to TOP (safety net for non-convergence).
