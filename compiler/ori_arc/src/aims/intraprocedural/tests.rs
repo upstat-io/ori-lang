@@ -1782,3 +1782,221 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
     assert_eq!(contract.params[0].locality_bound, Locality::FunctionLocal);
     assert!(!contract.params[0].may_escape);
 }
+
+// Section 09.1: Transfer Fusion — pure callee preserves caller uniqueness
+
+/// When callee has `may_share == false`, borrowed arguments preserve uniqueness.
+///
+/// A "pure" callee (one that doesn't create new references) cannot compromise
+/// the caller's uniqueness of a borrowed argument. The argument's pre-call
+/// uniqueness is preserved through the call.
+///
+/// Section 09.1 Transfer Fusion rule.
+#[test]
+fn pure_callee_preserves_borrowed_arg_uniqueness() {
+    use super::super::contract::{
+        ContextBehavior, EffectSummary, FipContract, ParamContract, ReturnContract,
+    };
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
+
+    let callee_name = Name::from_raw(100);
+
+    // func(p0): v1 = Apply(callee, [p0]); return v1
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(0),
+                func: callee_name,
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    // Callee borrows param 0, does NOT share (may_share: false).
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        MemoryContract {
+            params: vec![ParamContract {
+                access: AccessClass::Borrowed,
+                consumption: Consumption::Linear,
+                cardinality: Cardinality::Once,
+                may_escape: false,
+                may_share: false,
+                locality_bound: Locality::FunctionLocal,
+            }],
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary {
+                may_share: false,
+                ..EffectSummary::default()
+            },
+            context_behavior: ContextBehavior::default(),
+            fip: FipContract::Never,
+        },
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // p0's entry state should preserve Unique uniqueness — the callee
+    // doesn't share, so no new references are created.
+    let entry_p0 = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(
+        entry_p0.uniqueness,
+        Uniqueness::Unique,
+        "pure callee (may_share=false) should preserve borrowed arg uniqueness, got {:?}",
+        entry_p0.uniqueness
+    );
+}
+
+/// When callee has `may_share == true`, borrowed arguments get `MaybeShared`.
+///
+/// A callee that may create new references (`RcInc`) could compromise the
+/// caller's uniqueness of a borrowed argument. The backward demand widens
+/// the argument's uniqueness to `MaybeShared`.
+///
+/// Section 09.1 Transfer Fusion rule — contrast test.
+#[test]
+fn sharing_callee_widens_borrowed_arg_uniqueness() {
+    use super::super::contract::{
+        ContextBehavior, EffectSummary, FipContract, ParamContract, ReturnContract,
+    };
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
+
+    let callee_name = Name::from_raw(100);
+
+    // func(p0): v1 = Apply(callee, [p0]); return v1
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(0),
+                func: callee_name,
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    // Callee borrows param 0, but MAY share (may_share: true).
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        MemoryContract {
+            params: vec![ParamContract {
+                access: AccessClass::Borrowed,
+                consumption: Consumption::Linear,
+                cardinality: Cardinality::Once,
+                may_escape: false,
+                may_share: false,
+                locality_bound: Locality::FunctionLocal,
+            }],
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary {
+                may_share: true, // callee shares references
+                ..EffectSummary::default()
+            },
+            context_behavior: ContextBehavior::default(),
+            fip: FipContract::Never,
+        },
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // p0's entry state should have MaybeShared — the callee might create
+    // new references to the borrowed argument.
+    let entry_p0 = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(
+        entry_p0.uniqueness,
+        Uniqueness::MaybeShared,
+        "sharing callee (may_share=true) should widen borrowed arg uniqueness, got {:?}",
+        entry_p0.uniqueness
+    );
+}
+
+/// Owned params are not affected by callee's `may_share` — only borrowed params.
+///
+/// The uniqueness widening rule (Section 09.1) applies ONLY to borrowed
+/// parameters. Owned parameters transfer ownership to the callee; the
+/// caller's pre-call uniqueness is independent of whether the callee shares.
+///
+/// Section 09.1 Transfer Fusion rule — owned param contrast.
+#[test]
+fn owned_param_ignores_callee_may_share() {
+    use super::super::contract::{
+        ContextBehavior, EffectSummary, FipContract, ParamContract, ReturnContract,
+    };
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
+
+    let callee_name = Name::from_raw(100);
+
+    // func(p0): v1 = Apply(callee, [p0]); return v1
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(0),
+                func: callee_name,
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    // Callee takes ownership (Owned), and may share.
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        MemoryContract {
+            params: vec![ParamContract {
+                access: AccessClass::Owned,
+                consumption: Consumption::Linear,
+                cardinality: Cardinality::Once,
+                may_escape: false,
+                may_share: false,
+                locality_bound: Locality::FunctionLocal,
+            }],
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary {
+                may_share: true, // callee shares — but param is Owned
+                ..EffectSummary::default()
+            },
+            context_behavior: ContextBehavior::default(),
+            fip: FipContract::Never,
+        },
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // p0's entry state should preserve Unique — owned params are not
+    // affected by the may_share rule (it only applies to borrowed params).
+    let entry_p0 = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(
+        entry_p0.uniqueness,
+        Uniqueness::Unique,
+        "owned param should not be affected by callee may_share, got {:?}",
+        entry_p0.uniqueness
+    );
+}

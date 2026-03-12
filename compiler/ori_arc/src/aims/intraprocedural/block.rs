@@ -19,7 +19,7 @@ use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
 use super::super::contract::MemoryContract;
-use super::super::lattice::{AccessClass, AimsState, Cardinality, Locality};
+use super::super::lattice::{AccessClass, AimsState, Cardinality, Locality, Uniqueness};
 use super::super::transfer::{backward_demands, backward_terminator_demands, transfer_def};
 use super::state_map::AimsStateMap;
 
@@ -115,7 +115,7 @@ pub(crate) fn compute_block_entry_state(
         .unwrap_or_default();
 
     // Apply terminator backward demands.
-    apply_terminator_demands(&block.terminator, &mut current, state_map);
+    apply_terminator_demands(&block.terminator, &mut current, state_map, sigs);
 
     // Return widening (Section 09.2): returned values escape the function,
     // so their locality must be `HeapEscaping` and access must be `Owned`
@@ -223,14 +223,15 @@ pub(crate) fn compute_block_entry_state(
 
 /// Apply backward demands from a terminator.
 ///
-/// In addition to cardinality demand, applies locality widening
-/// (Section 09.2):
-/// - Jump args → `FunctionLocal` (cross-block flow)
-/// - Invoke args → `FunctionLocal` (cross-block to callee)
+/// In addition to cardinality demand, applies:
+/// - Locality widening (Section 09.2): Jump/Invoke args → `FunctionLocal`
+/// - Uniqueness handling (Section 09.1): Invoke args get contract-aware
+///   uniqueness demand (same rule as Apply in `apply_callee_contract`)
 fn apply_terminator_demands(
     term: &ArcTerminator,
     current: &mut FxHashMap<ArcVarId, AimsState>,
     state_map: &AimsStateMap,
+    sigs: &FxHashMap<Name, MemoryContract>,
 ) {
     let demands = backward_terminator_demands(term);
     for (var, card) in demands {
@@ -252,6 +253,24 @@ fn apply_terminator_demands(
             }
         }
         _ => {}
+    }
+
+    // Section 09.1: contract-aware uniqueness for Invoke args.
+    // Same rule as apply_callee_contract() for Apply instructions.
+    if let ArcTerminator::Invoke {
+        func: callee, args, ..
+    } = term
+    {
+        if let Some(contract) = sigs.get(callee) {
+            for (arg, param_contract) in args.iter().zip(contract.params.iter()) {
+                if state_map.is_excluded(*arg) {
+                    continue;
+                }
+                if contract.effects.may_share && param_contract.access == AccessClass::Borrowed {
+                    widen_uniqueness(current, *arg, Uniqueness::MaybeShared);
+                }
+            }
+        }
     }
 }
 
@@ -287,6 +306,23 @@ fn widen_locality(
     entry.canonicalize();
 }
 
+/// Widen a variable's uniqueness to at least `min_uniqueness`.
+///
+/// Used by the Section 09.1 Transfer Fusion rule: when a callee's
+/// `EffectSummary.may_share == true`, borrowed arguments' uniqueness
+/// is widened to `MaybeShared` (the callee might create new references).
+fn widen_uniqueness(
+    current: &mut FxHashMap<ArcVarId, AimsState>,
+    var: ArcVarId,
+    min_uniqueness: Uniqueness,
+) {
+    let entry = current.entry(var).or_insert(AimsState::BOTTOM);
+    if entry.uniqueness < min_uniqueness {
+        entry.uniqueness = min_uniqueness;
+    }
+    entry.canonicalize();
+}
+
 /// Merge a demand state into the current map for a variable.
 fn merge_demand(current: &mut FxHashMap<ArcVarId, AimsState>, var: ArcVarId, state: AimsState) {
     let entry = current.entry(var).or_insert(AimsState::BOTTOM);
@@ -298,6 +334,21 @@ fn merge_demand(current: &mut FxHashMap<ArcVarId, AimsState>, var: ArcVarId, sta
 /// If the callee has a `MemoryContract` in `sigs`, use it to set
 /// precise demand on arguments. Otherwise, fall back to conservative
 /// (all args Owned/Unrestricted/Many).
+///
+/// # Uniqueness handling (Section 09.1 — Transfer Fusion)
+///
+/// When the callee's `EffectSummary.may_share == true`, borrowed arguments
+/// might have their refcount incremented by the callee. In the backward
+/// direction, this widens the argument's uniqueness to `MaybeShared`.
+///
+/// When `may_share == false` (pure callee), borrowed arguments cannot have
+/// new references created — their uniqueness is preserved through the call.
+/// This is the "pure callee preserves caller uniqueness" rule.
+///
+/// Soundness (Marshall et al., ESOP 2022): this rule does NOT derive
+/// uniqueness from consumption or cardinality alone. It bridges the gap
+/// via the callee's `EffectSummary.may_share` — a past-facing fact about
+/// whether the callee has created new references.
 fn apply_callee_contract(
     _dst: ArcVarId,
     callee: Name,
@@ -310,10 +361,22 @@ fn apply_callee_contract(
         // Includes locality_bound (Section 09.2): if the callee may store
         // a parameter into a heap structure, the arg gets HeapEscaping locality.
         for (arg, param_contract) in args.iter().zip(contract.params.iter()) {
+            // Section 09.1: uniqueness demand based on callee effects.
+            // If the callee may share references AND this param is borrowed,
+            // the callee might RcInc the argument → widen to MaybeShared.
+            // If the callee is pure (may_share == false), borrowed args
+            // preserve uniqueness → no widening (Unique from BOTTOM).
+            let uniqueness_demand =
+                if contract.effects.may_share && param_contract.access == AccessClass::Borrowed {
+                    Uniqueness::MaybeShared
+                } else {
+                    Uniqueness::Unique // BOTTOM — no widening
+                };
             let demand = AimsState {
                 access: param_contract.access,
                 consumption: param_contract.consumption,
                 cardinality: param_contract.cardinality,
+                uniqueness: uniqueness_demand,
                 locality: param_contract.locality_bound,
                 ..AimsState::BOTTOM
             };

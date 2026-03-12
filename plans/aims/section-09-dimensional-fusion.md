@@ -253,7 +253,7 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
   **Already implemented** in `transfer_construct()`: uses `AimsState::FRESH` which
   sets `uniqueness = Unique`. No further action needed; verify via existing tests.
 
-- [ ] **Rule: Pure callee preserves caller uniqueness.**
+- [x] **Rule: Pure callee preserves caller uniqueness.**
   When processing `Apply/Invoke` where callee's contract has
   `effect_summary.may_share == false`, borrowed arguments preserve the caller's
   uniqueness state. Currently, borrowed args get conservative uniqueness at
@@ -342,7 +342,7 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
 
 - [x] Test: program where unique source projection eliminates a COW check
 - [x] Test: program where block-local construct enables static reuse
-- [ ] Test: program where pure callee preserves caller uniqueness across call
+- [x] Test: program where pure callee preserves caller uniqueness across call
 - [ ] Test: program where linear+once argument enables callee-side optimization
 - [ ] Test: program where closure-capture locality is FunctionLocal (non-escaping closure)
 - [ ] Test: program where once-closure capture preserves uniqueness of captured value
@@ -917,7 +917,7 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
 ### Transfer Fusion (09.1)
 - [x] Unique source projection preserves uniqueness — already implemented in transfer_project()
 - [x] Block-local construct is unique — already implemented via AimsState::FRESH in transfer_construct()
-- [ ] Pure callee preserves caller uniqueness — implemented and tested
+- [x] Pure callee preserves caller uniqueness — implemented and tested
   (backward semantics: uniqueness preserved in PRE-state when callee may_share==false)
 - [ ] Linear consumption at call site enables callee reuse — implemented and tested
   (requires interprocedural demand propagation: new analysis phase in analyze_program())
