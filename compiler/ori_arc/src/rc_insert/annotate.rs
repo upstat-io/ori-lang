@@ -4,22 +4,18 @@
 //! RC insertion, so that the Perceus pass can distinguish borrowed vs owned
 //! arguments without re-deriving callee signatures.
 //!
-//! When the `aims` feature is active, this module's annotation pass is
-//! skipped — AIMS handles `arg_ownership` in its own emission step
-//! (`aims::emit_rc::arg_ownership::emit_arg_ownership`).
+//! Both the legacy pipeline and the AIMS pipeline call
+//! [`annotate_arg_ownership`] — the AIMS path supplies `AnnotatedSig`s
+//! converted from `MemoryContract`s (see `aims::emit_rc::arg_ownership`).
+//! The builtin override logic (borrowing receivers, COW consuming methods,
+//! protocol builtins) runs in both cases.
 
-#[cfg(not(feature = "aims"))]
 use rustc_hash::{FxHashMap, FxHashSet};
 
-#[cfg(not(feature = "aims"))]
 use ori_ir::builtin_constants::protocol::ProtocolArgOwnership;
 
-#[cfg(not(feature = "aims"))]
-use crate::ir::{ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
-#[cfg(not(feature = "aims"))]
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
 use crate::ownership::Ownership;
-
-use crate::ir::ArcFunction;
 use ori_types::Pool;
 
 /// Compute per-argument ownership for a single call.
@@ -38,7 +34,6 @@ use ori_types::Pool;
 /// COW methods that consume only the receiver (e.g., `remove`, `union`) get
 /// `[Owned, Borrowed, ...]` — the receiver is consumed by the COW runtime,
 /// but other arguments (comparison keys, read-only collections) are borrowed.
-#[cfg(not(feature = "aims"))]
 fn compute_arg_ownership(
     callee: ori_ir::Name,
     arg_count: usize,
@@ -151,28 +146,6 @@ pub fn annotate_arg_ownership(
     builtins: &crate::BuiltinOwnershipSets,
     pool: &Pool,
 ) {
-    // When AIMS is active, arg_ownership is populated by
-    // aims::emit_rc::arg_ownership::emit_arg_ownership() (pipeline step 4).
-    // Skip the legacy annotation to avoid double work.
-    #[cfg(feature = "aims")]
-    let _ = (func, sigs, interner, builtins, pool);
-
-    #[cfg(not(feature = "aims"))]
-    annotate_arg_ownership_legacy(func, sigs, interner, builtins, pool);
-}
-
-/// Legacy `arg_ownership` annotation implementation.
-///
-/// Extracted so the entire body can be gated behind `#[cfg(not(feature = "aims"))]`,
-/// preventing dead-code warnings on the helper functions.
-#[cfg(not(feature = "aims"))]
-fn annotate_arg_ownership_legacy(
-    func: &mut ArcFunction,
-    sigs: &rustc_hash::FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
-    interner: &ori_ir::StringInterner,
-    builtins: &crate::BuiltinOwnershipSets,
-    pool: &Pool,
-) {
     let var_types = &func.var_types;
 
     for block in &mut func.blocks {
@@ -247,7 +220,6 @@ fn annotate_arg_ownership_legacy(
 ///
 /// Type-qualified: `"add"` and `"concat"` are shared names — borrowing for
 /// strings, consuming for lists. Only the list case is overridden here.
-#[cfg(not(feature = "aims"))]
 fn apply_consuming_overrides(
     callee: ori_ir::Name,
     args: &[ArcVarId],

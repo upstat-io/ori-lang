@@ -13,23 +13,46 @@ paths:
 
 ## Pipeline
 
-Canonical pass ordering (do NOT reorder or skip):
+Two pipelines exist, selected by feature flag. Default builds use legacy; `--features aims` uses AIMS.
+
+### AIMS Pipeline (unified lattice — `--features aims`)
 
 ```
 CanExpr → lower → ArcFunction
-  → borrow inference (param ownership: Owned/Borrowed)
-  → derived ownership (all locals, not just params)
-  → dominator tree
-  → liveness + refined liveness
-  → RC insertion (RcInc/RcDec)
-  → reset/reuse detection
-  → expand reset/reuse
-  → RC elimination (dataflow-based dead RC removal)
-  → cross-block RC elimination (inc/dec pairs across basic blocks)
+  Interprocedural (once):
+    1. analyze_program()         — MemoryContract per function (SCC fixpoint)
+    2. apply_ownership()         — Populate ArcParam.ownership
+  Per-function (steps 3–14):
+    3. compute_var_reprs()       — ValueRepr per variable
+    4. emit_arg_ownership()      — Apply/Invoke arg_ownership
+    5. analyze_function()        — Backward dataflow → AimsStateMap
+    6. emit_rc_ops()             — RcInc/RcDec from state map
+    7. emit_reuse()              — Reset/Reuse from state map
+    9. verify()                  — ARC IR sanity check
+   9a. run_aims_verify()         — AIMS-specific: contract vs IR consistency
+   10. detect/rewrite tail calls — CFG optimization
+   11. merge_blocks()            — CFG cleanup
+  11a. compute_aims_cow_annotations() — COW from state map (post-merge, ArcVarId lookup)
+   12. compute_aims_drop_hints()      — Drop hints from state map (post-merge, ArcVarId lookup)
+   13. verify()                       — Final sanity check
+   14. check_fbip_enforcement()       — Read-only diagnostic
 ```
 
-- Entry: `run_arc_pipeline()` (single fn) | `run_arc_pipeline_all()` (batch with borrow application)
-- Borrow sigs cached per session — unchanged function bodies reuse cached sigs
+Key constraint: steps 11a–12 use `AimsStateMap` via ArcVarId-keyed lookups (`var_state_at_block_entry`), not the position-keyed `entry_states`/`exit_states` maps (invalidated by merge_blocks). The state map is accessed by walking the post-merge IR block indices and using those as block IDs into the pre-merge state map — this works because merge_blocks() preserves entry block IDs.
+
+### Legacy Pipeline (default)
+
+```
+CanExpr → lower → ArcFunction
+  → borrow inference → derived ownership → liveness → COW annotations
+  → RC insertion → dominator tree → reset/reuse detection → expansion
+  → RC identity → RC elimination → drop hints
+```
+
+### Entry Points
+
+- `run_arc_pipeline()` (single fn) | `run_arc_pipeline_all()` (batch) — dispatch to AIMS or legacy based on feature flag
+- Shadow mode (`--features aims-shadow`): runs both, compares results
 
 ## Key Types
 
@@ -44,6 +67,11 @@ CanExpr → lower → ArcFunction
 | `AnnotatedSig` | `ownership/` | Function signature with ownership annotations |
 | `DropInfo` / `DropKind` | `drop/` | Per-type drop requirements: None, Scalar, RcDec, Struct, Enum, ClosureEnv |
 | `ArcClassifier` | `classify/` | Pool-backed classifier with caching |
+| `AimsState` | `aims/lattice/` | 7D product lattice: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass |
+| `MemoryContract` | `aims/contract/` | Per-function interprocedural summary (param contracts + return info + effects) |
+| `ParamContract` | `aims/contract/` | Per-parameter access, consumption, cardinality, locality_bound |
+| `AimsStateMap` | `aims/intraprocedural/` | Block-boundary analysis results (block_exit_states, block_entry_states, borrow_sources, events, scalars, immortals) |
+| `AimsPipelineConfig` | `pipeline/aims_pipeline` | Config bundle: classifier, contracts, pool, interner, builtins, verify flag |
 
 ## ARC IR Instructions
 
@@ -67,17 +95,28 @@ CanExpr → lower → ArcFunction
 | `ir/` | ARC IR definitions (ArcFunction, ArcBlock, ArcInstr, ArcVarId) |
 | `lower/` | CanExpr → ARC IR lowering (expressions, calls, control flow, patterns, collections) |
 | `classify/` | Type classification (Scalar/DefiniteRef/PossibleRef) |
-| `borrow/` | Borrow inference — determines Owned vs Borrowed for params |
-| `ownership/` | Ownership annotations, derived ownership for locals |
-| `liveness/` | Liveness analysis (standard + refined with dominator info) |
-| `rc_insert/` | Insert RcInc/RcDec based on ownership + liveness |
-| `rc_elim/` | Remove redundant RC operations via dataflow analysis |
-| `reset_reuse/` | Detect constructor reuse opportunities (Lean 4 pattern) |
-| `expand_reuse/` | Expand reuse tokens into concrete reuse instructions |
+| `borrow/` | Borrow inference — determines Owned vs Borrowed for params (legacy) |
+| `ownership/` | Ownership annotations, derived ownership for locals (legacy) |
+| `liveness/` | Liveness analysis (standard + refined with dominator info, legacy) |
+| `rc_insert/` | Insert RcInc/RcDec based on ownership + liveness (legacy) |
+| `rc_elim/` | Remove redundant RC operations via dataflow analysis (legacy) |
+| `reset_reuse/` | Detect constructor reuse opportunities (legacy) |
+| `expand_reuse/` | Expand reuse tokens into concrete reuse instructions (legacy) |
 | `drop/` | Per-type drop info computation (DropKind, ClosureEnv drops) |
 | `fbip/` | Functional-but-in-place analysis (Koka-inspired) |
 | `graph/` | Dominator tree construction |
 | `decision_tree/` | Pattern match compilation to decision trees |
+| `aims/lattice/` | 7D product lattice (AimsState) + dimension enums + join/meet/predicates |
+| `aims/transfer/` | Per-instruction transfer functions (backward dataflow) |
+| `aims/contract/` | MemoryContract, ParamContract, ReturnContract, EffectSummary |
+| `aims/intraprocedural/` | Per-function backward analysis + AimsStateMap + block-level computation |
+| `aims/interprocedural` | SCC-based fixpoint loop computing contracts across call graph |
+| `aims/emit_rc/` | RC emission from state map (inc/dec placement, arg ownership, COW, drop hints, coalescing) |
+| `aims/emit_reuse/` | Reuse emission (detect, plan, dynamic expansion, FIP checking) |
+| `aims/immortal/` | Heap-allocated constant detection (immortal objects skip RC) |
+| `aims/builtins/` | Builtin function ownership contracts |
+| `pipeline/aims_pipeline` | AIMS pipeline orchestration (AimsPipelineConfig, run_aims_pipeline) |
+| `pipeline/shadow/` | Shadow comparison: runs both pipelines, diffs 5 dimensions |
 
 ## ARC Emitter (ori_llvm)
 
@@ -108,6 +147,12 @@ CanExpr → lower → ArcFunction
   - Reset/reuse before expansion (detection before lowering)
   - RC elimination last (removes redundancies from earlier passes)
   - Do NOT add passes without updating `run_arc_pipeline()`. Do NOT call out of order.
+- **AIMS pipeline ordering** — additional constraints under `--features aims`:
+  - `analyze_program()` (interprocedural) must run before any per-function steps
+  - `analyze_function()` (step 5) must run before `emit_rc_ops()` (step 6) — state map drives emission
+  - `compute_aims_cow_annotations()` and `compute_aims_drop_hints()` must run AFTER `merge_blocks()` — they access `AimsStateMap` via ArcVarId-keyed lookups; position-keyed state map fields are stale after merge
+  - Position-keyed state maps (`entry_states`, `exit_states`, `instr_states`) are invalid after `merge_blocks()` — never query them post-merge
+  - AIMS and legacy passes must NOT be mixed — the feature flag selects one complete pipeline
 
 ## Debugging
 
@@ -115,6 +160,8 @@ CanExpr → lower → ArcFunction
 - **Phase dump**: `ORI_DUMP_AFTER_ARC=1 ori build file.ori` — ARC IR with RC strategy annotations
 - **Runtime RC**: `ORI_TRACE_RC=1 ./binary` | `ORI_RT_DEBUG=1 ./binary` | `ORI_CHECK_LEAKS=1 ./binary`
 - **Codegen audit**: `ORI_AUDIT_CODEGEN=1 ori build file.ori` (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
+- **AIMS comparison**: `diagnostics/aims-compare.sh [--behavioral-only|--rc-only] [--verbose] [--release]` — builds old + AIMS binaries, compares output + RC counts
+- **AIMS shadow**: `cargo b --features aims-shadow` — runs both pipelines per function, logs mismatches via `tracing::warn!`
 - **Diagnostic scripts**: `diagnostics/rc-stats.sh` | `codegen-audit.sh` | `diagnose-aot.sh` | `dual-exec-debug.sh` (see compiler.md for full list)
 - **Loop not terminating?** `ori_arc=debug` → break/continue jumps + mutable var counts
 - **Wrong var after if/match?** `ori_arc=trace` → mutable var merge divergence
@@ -149,9 +196,17 @@ Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instea
 | `ori_arc/src/ir/mod.rs` | ARC IR definitions |
 | `ori_arc/src/lower/mod.rs` | ArcLowerer + ArcIrBuilder |
 | `ori_arc/src/lower/calls/mod.rs` | Function call + lambda lowering |
-| `ori_arc/src/borrow/mod.rs` | Borrow inference |
-| `ori_arc/src/rc_insert/mod.rs` | RC operation insertion |
+| `ori_arc/src/borrow/mod.rs` | Borrow inference (legacy) |
+| `ori_arc/src/rc_insert/mod.rs` | RC operation insertion (legacy) |
 | `ori_arc/src/drop/mod.rs` | Drop info computation |
+| `ori_arc/src/aims/mod.rs` | AIMS module root (7D lattice framework) |
+| `ori_arc/src/aims/lattice/mod.rs` | AimsState product lattice + operations |
+| `ori_arc/src/aims/interprocedural.rs` | SCC fixpoint for MemoryContract |
+| `ori_arc/src/aims/intraprocedural/mod.rs` | Per-function backward dataflow |
+| `ori_arc/src/aims/emit_rc/mod.rs` | RC emission from state map |
+| `ori_arc/src/aims/emit_reuse/mod.rs` | Reuse emission (detect + plan + expand) |
+| `ori_arc/src/pipeline/aims_pipeline.rs` | AIMS pipeline orchestration |
+| `ori_arc/src/pipeline/shadow/mod.rs` | Shadow comparison (5 dimensions) |
 | `ori_llvm/src/codegen/arc_emitter/mod.rs` | ARC IR → LLVM emission |
 | `ori_llvm/src/codegen/arc_emitter/drop_gen.rs` | LLVM drop function generation |
 | `ori_llvm/tests/aot/arc.rs` | AOT integration tests for ARC |

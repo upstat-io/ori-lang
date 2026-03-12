@@ -42,6 +42,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut case_tags = Vec::new();
         let mut case_blocks = Vec::new();
         let mut case_fields: Vec<&[(u32, Idx)]> = Vec::new();
+        let mut case_variant_indices: Vec<usize> = Vec::new();
 
         for (i, variant_fields) in variants.iter().enumerate() {
             if variant_fields.is_empty() {
@@ -52,6 +53,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             case_tags.push(tag_const);
             case_blocks.push(block);
             case_fields.push(variant_fields.as_slice());
+            case_variant_indices.push(i);
         }
 
         // Emit switch (default = drop.done for variants without RC'd fields)
@@ -89,7 +91,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
                 // General enum: payload is [M x i64] at struct field 1
                 _ => {
-                    self.emit_drop_enum_variant_fields(data_ptr, ty, variant_fields);
+                    self.emit_drop_enum_variant_fields(
+                        data_ptr,
+                        ty,
+                        variant_fields,
+                        case_variant_indices[idx],
+                    );
                 }
             }
 
@@ -106,11 +113,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// General enums store payload as `[M x i64]` at struct field 1.
     /// Fields are accessed via byte-offset GEP into the payload area.
+    ///
+    /// `variant_idx` identifies which variant in the Pool's variant list
+    /// this cleanup block corresponds to, so field offsets are computed
+    /// from the correct variant's field types.
     pub(super) fn emit_drop_enum_variant_fields(
         &mut self,
         data_ptr: ValueId,
         ty: Idx,
         rc_fields: &[(u32, Idx)],
+        variant_idx: usize,
     ) {
         let enum_llvm_ty = self.resolve_type(ty);
         let payload_ptr = self
@@ -126,14 +138,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let all_field_lists: Vec<Vec<Idx>> =
                 all_variants.into_iter().map(|(_, fields)| fields).collect();
 
-            // Find which variant's field list matches (by first RC'd field index)
-            let variant_fields = rc_fields
-                .first()
-                .and_then(|&(fi, _)| {
-                    all_field_lists
-                        .iter()
-                        .find(|fields| fields.len() > fi as usize)
-                })
+            // Use the correct variant's field list for offset computation
+            let variant_fields = all_field_lists
+                .get(variant_idx)
                 .map_or(&[] as &[Idx], Vec::as_slice);
 
             // Compute byte offsets (fields packed at i64 alignment)

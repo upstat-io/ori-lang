@@ -11,22 +11,24 @@
 //! 2. **Return uniqueness**: AIMS `ReturnContract.uniqueness` vs legacy `UniquenessSummary.return_val`
 //! 3. **COW annotations**: AIMS-predicted `CowMode` counts vs legacy `CowAnnotations`
 //! 4. **RC operations**: AIMS `RcInc`/`RcDec` count vs legacy (fewer = better)
+//! 5. **Arg ownership**: per-call-site `Apply.arg_ownership` / `Invoke.arg_ownership`
 //!
 //! # Gate criterion
 //!
 //! Zero regressions (AIMS weaker than legacy). Improvements are expected and logged.
+
+mod compare;
 
 use ori_ir::{Name, StringInterner};
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
 use crate::aims::contract::MemoryContract;
-use crate::aims::lattice::AccessClass;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
-use crate::ownership::{AnnotatedSig, Ownership};
-use crate::uniqueness::{CowAnnotations, UniquenessSummary};
+use crate::ownership::AnnotatedSig;
+use crate::uniqueness::CowAnnotations;
 use crate::ArcClassification;
 
 use super::aims_pipeline::AimsPipelineConfig;
@@ -44,13 +46,7 @@ pub(crate) enum DimensionResult {
     /// AIMS is strictly weaker (worse optimization).
     Regression(String),
     /// Comparison not applicable (missing data, param count mismatch, etc.).
-    Skipped(
-        #[expect(
-            dead_code,
-            reason = "diagnostic detail for tracing; not read in production"
-        )]
-        String,
-    ),
+    Skipped(#[allow(dead_code, reason = "diagnostic detail for tracing; read in tests")] String),
 }
 
 /// Per-function comparison of AIMS vs legacy analysis.
@@ -66,6 +62,12 @@ pub(crate) struct FunctionComparison {
     pub return_uniqueness: DimensionResult,
     pub cow_annotations: DimensionResult,
     pub rc_ops: DimensionResult,
+    /// Per-call-site `arg_ownership` comparison (Apply/Invoke instructions).
+    pub arg_ownership: DimensionResult,
+    /// Number of RC operations skipped due to immortal variables in the AIMS
+    /// pipeline. When > 0, RC count improvements are partially or fully
+    /// attributable to immortal object optimization.
+    pub immortal_skips: usize,
 }
 
 /// Aggregate shadow comparison report.
@@ -85,15 +87,24 @@ pub(crate) struct ShadowComparisonReport {
     pub rc_matches: usize,
     pub rc_improvements: usize,
     pub rc_regressions: usize,
+    pub arg_ownership_matches: usize,
+    pub arg_ownership_improvements: usize,
+    pub arg_ownership_regressions: usize,
     /// Total AIMS RC operations across all functions.
     pub aims_rc_total: usize,
     /// Total legacy RC operations across all functions.
     pub legacy_rc_total: usize,
+    /// Total immortal variable count across all functions. When > 0, some RC
+    /// count improvements are attributable to immortal object optimization.
+    pub immortal_skips_total: usize,
 }
 
 impl ShadowComparisonReport {
     fn has_regressions(&self) -> bool {
-        self.param_regressions > 0 || self.return_regressions > 0 || self.cow_regressions > 0
+        self.param_regressions > 0
+            || self.return_regressions > 0
+            || self.cow_regressions > 0
+            || self.arg_ownership_regressions > 0
     }
 }
 
@@ -102,6 +113,16 @@ struct AimsSnapshot {
     contract: Option<MemoryContract>,
     cow_annotations: CowAnnotations,
     rc_ops: RcOpCount,
+    /// Per-call-site `arg_ownership` vectors extracted from the AIMS-processed
+    /// clone. Each entry is `(call_target, arg_ownership)` where `call_target`
+    /// is the function name for Apply/Invoke. Collected after AIMS pipeline
+    /// populates `arg_ownership` but before block-altering passes.
+    arg_ownership_sites: Vec<(Name, Vec<crate::ir::ArgOwnership>)>,
+    /// Number of immortal variables detected (heap-allocated constants that
+    /// skip all RC operations). Used to attribute RC count improvements in the
+    /// shadow comparison — when AIMS has fewer RC ops than legacy, immortal
+    /// skips explain part of the delta.
+    immortal_count: usize,
 }
 
 /// Run the shadow comparison pipeline.
@@ -130,10 +151,17 @@ pub(crate) fn run_shadow_pipeline_all(
         crate::aims::interprocedural::analyze_program(functions, classifier, builtins, interner);
 
     // Phase 2: AIMS per-function analysis + COW prediction (read-only).
+    // Stage 1: immortal set is empty (Vec::new()) to ensure shadow comparison
+    // compares equivalent pipelines. Stage 5 will enable immortal detection.
     let mut aims_snapshots: FxHashMap<Name, AimsSnapshot> = FxHashMap::default();
     for func in functions.iter() {
-        let state_map =
-            crate::aims::intraprocedural::analyze_function(func, classifier, &contracts, &[]);
+        let state_map = crate::aims::intraprocedural::analyze_function(
+            func,
+            classifier,
+            &contracts,
+            &[],
+            Vec::new(),
+        );
         let aims_cow =
             crate::aims::emit_rc::cow::compute_aims_cow_annotations(func, &state_map, interner);
         aims_snapshots.insert(
@@ -141,7 +169,9 @@ pub(crate) fn run_shadow_pipeline_all(
             AimsSnapshot {
                 contract: contracts.get(&func.name).cloned(),
                 cow_annotations: aims_cow,
-                rc_ops: RcOpCount::default(), // filled in phase 2.5
+                rc_ops: RcOpCount::default(),    // filled in phase 2.5
+                arg_ownership_sites: Vec::new(), // filled in phase 2.5
+                immortal_count: 0,               // filled in phase 2.5
             },
         );
     }
@@ -149,6 +179,18 @@ pub(crate) fn run_shadow_pipeline_all(
     // Phase 2.5: Run full AIMS pipeline on cloned functions to count RC ops.
     let mut aims_clones: Vec<ArcFunction> = functions.to_vec();
     super::aims_pipeline::apply_aims_ownership(&mut aims_clones, &contracts);
+
+    // Detect immortals per function before the pipeline mutates the clones.
+    // The pipeline internally detects immortals too, but we capture the count
+    // here to attribute RC improvements in the comparison.
+    let immortal_counts: FxHashMap<Name, usize> = aims_clones
+        .iter()
+        .map(|f| {
+            let immortals = crate::aims::immortal::detect_immortals(f, interner);
+            (f.name, crate::aims::immortal::count_immortals(&immortals))
+        })
+        .collect();
+
     let aims_config = AimsPipelineConfig {
         classifier,
         contracts: &contracts,
@@ -163,6 +205,8 @@ pub(crate) fn run_shadow_pipeline_all(
     for clone in &aims_clones {
         if let Some(snapshot) = aims_snapshots.get_mut(&clone.name) {
             snapshot.rc_ops = count_rc_ops(clone);
+            snapshot.arg_ownership_sites = compare::extract_arg_ownership_sites(clone);
+            snapshot.immortal_count = immortal_counts.get(&clone.name).copied().unwrap_or(0);
         }
     }
     drop(aims_clones);
@@ -194,7 +238,7 @@ pub(crate) fn run_shadow_pipeline_all(
         .collect();
 
     // Phase 5: Compare and report.
-    let report = compare_all(
+    let report = compare::compare_all(
         functions,
         &aims_snapshots,
         &legacy_rc_counts,
@@ -204,275 +248,6 @@ pub(crate) fn run_shadow_pipeline_all(
     log_report(&report);
 
     all_problems
-}
-
-// Comparison logic
-
-fn compare_all(
-    functions: &[ArcFunction],
-    aims_snapshots: &FxHashMap<Name, AimsSnapshot>,
-    legacy_rc_counts: &FxHashMap<Name, RcOpCount>,
-    old_summaries: &FxHashMap<Name, UniquenessSummary>,
-    interner: &StringInterner,
-) -> ShadowComparisonReport {
-    let mut report = ShadowComparisonReport {
-        per_function: Vec::new(),
-        total_functions: functions.len(),
-        param_matches: 0,
-        param_improvements: 0,
-        param_regressions: 0,
-        return_matches: 0,
-        return_improvements: 0,
-        return_regressions: 0,
-        cow_matches: 0,
-        cow_improvements: 0,
-        cow_regressions: 0,
-        rc_matches: 0,
-        rc_improvements: 0,
-        rc_regressions: 0,
-        aims_rc_total: 0,
-        legacy_rc_total: 0,
-    };
-
-    for func in functions {
-        let snapshot = aims_snapshots.get(&func.name);
-        let old_summary = old_summaries.get(&func.name);
-        let legacy_rc = legacy_rc_counts
-            .get(&func.name)
-            .copied()
-            .unwrap_or_default();
-        let name_str = interner.lookup(func.name).to_string();
-
-        let comparison = compare_function(func, snapshot, old_summary, legacy_rc, name_str);
-
-        tally_dimension(
-            &comparison.param_ownership,
-            &mut report.param_matches,
-            &mut report.param_improvements,
-            &mut report.param_regressions,
-        );
-        tally_dimension(
-            &comparison.return_uniqueness,
-            &mut report.return_matches,
-            &mut report.return_improvements,
-            &mut report.return_regressions,
-        );
-        tally_dimension(
-            &comparison.cow_annotations,
-            &mut report.cow_matches,
-            &mut report.cow_improvements,
-            &mut report.cow_regressions,
-        );
-        tally_dimension(
-            &comparison.rc_ops,
-            &mut report.rc_matches,
-            &mut report.rc_improvements,
-            &mut report.rc_regressions,
-        );
-
-        if let Some(snap) = snapshot {
-            report.aims_rc_total += snap.rc_ops.total();
-        }
-        report.legacy_rc_total += legacy_rc.total();
-
-        report.per_function.push(comparison);
-    }
-
-    report
-}
-
-fn tally_dimension(
-    result: &DimensionResult,
-    matches: &mut usize,
-    improvements: &mut usize,
-    regressions: &mut usize,
-) {
-    match result {
-        DimensionResult::Match => *matches += 1,
-        DimensionResult::Improvement(_) => *improvements += 1,
-        DimensionResult::Regression(_) => *regressions += 1,
-        DimensionResult::Skipped(_) => {}
-    }
-}
-
-fn compare_function(
-    func: &ArcFunction,
-    snapshot: Option<&AimsSnapshot>,
-    old_summary: Option<&UniquenessSummary>,
-    legacy_rc: RcOpCount,
-    name_str: String,
-) -> FunctionComparison {
-    let Some(snapshot) = snapshot else {
-        return FunctionComparison {
-            name: func.name,
-            name_str,
-            param_ownership: DimensionResult::Skipped("no AIMS contract".into()),
-            return_uniqueness: DimensionResult::Skipped("no AIMS contract".into()),
-            cow_annotations: DimensionResult::Skipped("no AIMS snapshot".into()),
-            rc_ops: DimensionResult::Skipped("no AIMS snapshot".into()),
-        };
-    };
-
-    FunctionComparison {
-        name: func.name,
-        param_ownership: compare_param_ownership(func, snapshot),
-        return_uniqueness: compare_return_uniqueness(snapshot, old_summary),
-        cow_annotations: compare_cow_annotations(&snapshot.cow_annotations, &func.cow_annotations),
-        rc_ops: compare_rc_ops(snapshot.rc_ops, legacy_rc),
-        name_str,
-    }
-}
-
-/// Compare parameter ownership: AIMS contracts vs legacy borrow inference.
-///
-/// AIMS `Borrowed` where legacy says `Owned` = improvement (fewer RC ops).
-/// AIMS `Owned` where legacy says `Borrowed` = regression (more RC ops).
-fn compare_param_ownership(func: &ArcFunction, snapshot: &AimsSnapshot) -> DimensionResult {
-    let Some(contract) = &snapshot.contract else {
-        return DimensionResult::Skipped("no AIMS contract".into());
-    };
-
-    if func.params.len() != contract.params.len() {
-        return DimensionResult::Skipped(format!(
-            "param count mismatch: legacy={}, AIMS={}",
-            func.params.len(),
-            contract.params.len()
-        ));
-    }
-
-    let mut improvements = Vec::new();
-    let mut regressions = Vec::new();
-
-    for (i, (param, pc)) in func.params.iter().zip(&contract.params).enumerate() {
-        let aims_ownership = match pc.access {
-            AccessClass::Borrowed => Ownership::Borrowed,
-            AccessClass::Owned => Ownership::Owned,
-        };
-
-        if aims_ownership == param.ownership {
-            continue;
-        }
-
-        if aims_ownership == Ownership::Borrowed {
-            improvements.push(format!("param {i}: AIMS=Borrowed, legacy=Owned"));
-        } else {
-            regressions.push(format!("param {i}: AIMS=Owned, legacy=Borrowed"));
-        }
-    }
-
-    if !regressions.is_empty() {
-        DimensionResult::Regression(regressions.join("; "))
-    } else if !improvements.is_empty() {
-        DimensionResult::Improvement(improvements.join("; "))
-    } else {
-        DimensionResult::Match
-    }
-}
-
-/// Compare return uniqueness: AIMS contract vs legacy `UniquenessSummary`.
-///
-/// AIMS `Unique` where legacy says `MaybeShared` = improvement.
-/// AIMS `MaybeShared` where legacy says `Unique` = regression.
-fn compare_return_uniqueness(
-    snapshot: &AimsSnapshot,
-    old_summary: Option<&UniquenessSummary>,
-) -> DimensionResult {
-    let Some(contract) = &snapshot.contract else {
-        return DimensionResult::Skipped("no AIMS contract".into());
-    };
-    let Some(old) = old_summary else {
-        return DimensionResult::Skipped("no legacy summary".into());
-    };
-
-    let aims_rank = uniqueness_rank_aims(contract.return_info.uniqueness);
-    let legacy_rank = uniqueness_rank_legacy(old.return_val);
-
-    match aims_rank.cmp(&legacy_rank) {
-        std::cmp::Ordering::Equal => DimensionResult::Match,
-        // Lower rank = tighter (more optimistic) = improvement
-        std::cmp::Ordering::Less => DimensionResult::Improvement(format!(
-            "AIMS={}, legacy={}",
-            aims_uniqueness_name(contract.return_info.uniqueness),
-            old.return_val,
-        )),
-        std::cmp::Ordering::Greater => DimensionResult::Regression(format!(
-            "AIMS={}, legacy={}",
-            aims_uniqueness_name(contract.return_info.uniqueness),
-            old.return_val,
-        )),
-    }
-}
-
-/// Compare COW annotations by counting `StaticUnique` optimizations.
-///
-/// More `StaticUnique` = better (more COW checks eliminated).
-/// Compares counts rather than per-operation matching because the two
-/// pipelines may use different block numbering.
-fn compare_cow_annotations(
-    aims_cow: &CowAnnotations,
-    legacy_cow: &CowAnnotations,
-) -> DimensionResult {
-    let aims_su = aims_cow.static_unique_count();
-    let legacy_su = legacy_cow.static_unique_count();
-    let aims_total = aims_cow.len();
-    let legacy_total = legacy_cow.len();
-
-    match aims_su.cmp(&legacy_su) {
-        std::cmp::Ordering::Equal => DimensionResult::Match,
-        std::cmp::Ordering::Greater => DimensionResult::Improvement(format!(
-            "StaticUnique: AIMS={aims_su}, legacy={legacy_su} (total: AIMS={aims_total}, legacy={legacy_total})"
-        )),
-        std::cmp::Ordering::Less => DimensionResult::Regression(format!(
-            "StaticUnique: AIMS={aims_su}, legacy={legacy_su} (total: AIMS={aims_total}, legacy={legacy_total})"
-        )),
-    }
-}
-
-/// Compare RC operation counts between AIMS and legacy pipelines.
-///
-/// Fewer total RC ops = better (less runtime overhead).
-/// AIMS < legacy = improvement; AIMS > legacy = regression.
-fn compare_rc_ops(aims: RcOpCount, legacy: RcOpCount) -> DimensionResult {
-    let aims_total = aims.total();
-    let legacy_total = legacy.total();
-
-    match aims_total.cmp(&legacy_total) {
-        std::cmp::Ordering::Equal => DimensionResult::Match,
-        std::cmp::Ordering::Less => DimensionResult::Improvement(format!(
-            "AIMS={aims} ({aims_total}), legacy={legacy} ({legacy_total}), saved {}",
-            legacy_total - aims_total,
-        )),
-        std::cmp::Ordering::Greater => DimensionResult::Regression(format!(
-            "AIMS={aims} ({aims_total}), legacy={legacy} ({legacy_total}), excess {}",
-            aims_total - legacy_total,
-        )),
-    }
-}
-
-// Helpers
-
-fn uniqueness_rank_aims(u: crate::aims::lattice::Uniqueness) -> u8 {
-    match u {
-        crate::aims::lattice::Uniqueness::Unique => 0,
-        crate::aims::lattice::Uniqueness::MaybeShared => 1,
-        crate::aims::lattice::Uniqueness::Shared => 2,
-    }
-}
-
-fn uniqueness_rank_legacy(u: crate::uniqueness::Uniqueness) -> u8 {
-    match u {
-        crate::uniqueness::Uniqueness::Unique => 0,
-        crate::uniqueness::Uniqueness::MaybeShared => 1,
-        crate::uniqueness::Uniqueness::Shared => 2,
-    }
-}
-
-fn aims_uniqueness_name(u: crate::aims::lattice::Uniqueness) -> &'static str {
-    match u {
-        crate::aims::lattice::Uniqueness::Unique => "Unique",
-        crate::aims::lattice::Uniqueness::MaybeShared => "MaybeShared",
-        crate::aims::lattice::Uniqueness::Shared => "Shared",
-    }
 }
 
 // Reporting
@@ -492,8 +267,12 @@ fn log_report(report: &ShadowComparisonReport) {
         rc_match = report.rc_matches,
         rc_improve = report.rc_improvements,
         rc_regress = report.rc_regressions,
+        arg_own_match = report.arg_ownership_matches,
+        arg_own_improve = report.arg_ownership_improvements,
+        arg_own_regress = report.arg_ownership_regressions,
         aims_rc_total = report.aims_rc_total,
         legacy_rc_total = report.legacy_rc_total,
+        immortal_skips = report.immortal_skips_total,
         "AIMS shadow comparison summary"
     );
 
@@ -520,6 +299,7 @@ fn log_report(report: &ShadowComparisonReport) {
             param = report.param_regressions,
             return_uniq = report.return_regressions,
             cow = report.cow_regressions,
+            arg_own = report.arg_ownership_regressions,
             "AIMS shadow comparison: REGRESSIONS DETECTED — Stage 1A gate FAILED"
         );
     } else {
@@ -545,6 +325,7 @@ fn log_function_details(fc: &FunctionComparison) {
         ("return_uniqueness", &fc.return_uniqueness),
         ("cow_annotations", &fc.cow_annotations),
         ("rc_ops", &fc.rc_ops),
+        ("arg_ownership", &fc.arg_ownership),
     ];
 
     for &(dim, result) in dimensions {
@@ -559,6 +340,14 @@ fn log_function_details(fc: &FunctionComparison) {
             }
             DimensionResult::Match | DimensionResult::Skipped(_) => {}
         }
+    }
+
+    if fc.immortal_skips > 0 {
+        tracing::info!(
+            function = %fc.name_str,
+            immortal_vars = fc.immortal_skips,
+            "AIMS immortal RC skips (RC improvement partially attributable to immortal objects)"
+        );
     }
 }
 

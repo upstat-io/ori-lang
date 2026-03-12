@@ -72,8 +72,12 @@ pub fn analyze_function(
     classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
     _context_regions: &[ContextRegion],
+    immortals: Vec<bool>,
 ) -> AimsStateMap {
     let mut state_map = AimsStateMap::new(func);
+
+    // Set immortal variables — excluded from analysis and emission.
+    state_map.set_immortals(immortals);
 
     // Mark scalar variables — excluded from analysis entirely.
     for (var_idx, &ty) in func.var_types.iter().enumerate() {
@@ -193,7 +197,7 @@ pub fn analyze_function(
 /// Populate the borrow source side table after analysis converges.
 ///
 /// Each variable defined by a `Project` instruction gets
-/// `BorrowSource::Exact(source_var)`. Block params that receive values
+/// `BorrowSource::exact_field(source_var, field)`. Block params that receive values
 /// from multiple predecessors are left without a source (implicitly
 /// `Unknown` if queried). In ARC IR's SSA form, each variable has exactly
 /// one definition point, so this is per-variable, not per-point.

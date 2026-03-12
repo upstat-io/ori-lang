@@ -156,15 +156,8 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             self.pool,
         );
 
-        // Interprocedural uniqueness analysis (COW check elimination)
-        let uniqueness_summaries = {
-            let all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
-                .values()
-                .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
-                .cloned()
-                .collect();
-            ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
-        };
+        let (uniqueness_summaries, aims_contracts) =
+            Self::run_interprocedural_analyses(arc_cache, &classifier, interner);
 
         // Two-pass function compilation
         debug!("declaring functions (phase 1)");
@@ -179,6 +172,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             &classifier,
             None, // No debug info for JIT
             uniqueness_summaries,
+            aims_contracts,
             false, // verification via cfg!(debug_assertions) only for JIT
         );
         fc.declare_all(&module.functions, function_sigs);
@@ -257,6 +251,31 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         let errors = builder.codegen_error_count();
         let descriptions = builder.codegen_error_descriptions();
         (wrappers, errors, descriptions)
+    }
+
+    /// Run interprocedural analyses: uniqueness (COW) and AIMS contracts (ownership).
+    fn run_interprocedural_analyses(
+        arc_cache: &FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+        classifier: &ori_arc::ArcClassifier,
+        interner: &StringInterner,
+    ) -> (
+        FxHashMap<Name, ori_arc::UniquenessSummary>,
+        FxHashMap<Name, ori_arc::MemoryContract>,
+    ) {
+        let all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
+            .values()
+            .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+            .cloned()
+            .collect();
+        let uniqueness_summaries =
+            ori_arc::run_uniqueness_analysis(&all_funcs, classifier, interner);
+
+        let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
+        let mut all_funcs_mut = all_funcs;
+        let aims_contracts =
+            ori_arc::compute_aims_contracts(&mut all_funcs_mut, classifier, interner, &builtins);
+
+        (uniqueness_summaries, aims_contracts)
     }
 
     /// Validate compiled IR and create the JIT execution engine.

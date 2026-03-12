@@ -60,6 +60,17 @@ pub(crate) fn run_aims_pipeline(
     // Step 3: compute value representations.
     func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
 
+    // Step 3.5: detect immortal variables (heap-allocated constants with MAX_REFCOUNT).
+    let immortals = crate::aims::immortal::detect_immortals(func, config.interner);
+    let immortal_count = crate::aims::immortal::count_immortals(&immortals);
+    if immortal_count > 0 {
+        tracing::debug!(
+            function = func.name.raw(),
+            immortal_count,
+            "immortal variables detected"
+        );
+    }
+
     // Step 4: populate arg_ownership on Apply/Invoke instructions.
     crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
         func,
@@ -75,6 +86,7 @@ pub(crate) fn run_aims_pipeline(
         config.classifier,
         config.contracts,
         &[], // context_regions: empty in Stage 1
+        immortals,
     );
 
     // Step 6: RC emission from state map.
@@ -86,11 +98,24 @@ pub(crate) fn run_aims_pipeline(
         config.pool,
     );
 
-    // Step 7: reuse emission from state map.
-    let _reuse_result = crate::aims::emit_reuse::emit_reuse(func, &state_map, config.pool);
+    // Step 7: reuse emission from state map (consults FipContract — Section 05.4).
+    let reuse_result =
+        crate::aims::emit_reuse::emit_reuse(func, &state_map, config.pool, config.contracts);
+    if !reuse_result.fip_gates.is_empty() {
+        tracing::debug!(
+            function = func.name.raw(),
+            fip_gates = reuse_result.fip_gates.len(),
+            "FIP gate records captured during reuse emission"
+        );
+    }
 
     // Step 9: ARC IR verification after emission.
     super::run_verify(func, "after AIMS emission", config.verify_arc);
+
+    // Step 9a: AIMS-specific consistency checks (contract vs IR).
+    if let Some(contract) = config.contracts.get(&func.name) {
+        super::run_aims_verify(func, contract, "after AIMS emission", config.verify_arc);
+    }
 
     // Step 10: tail call detection + loop lowering.
     func.tail_calls = crate::tail_call::detect_tail_calls(func);

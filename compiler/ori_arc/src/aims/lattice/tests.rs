@@ -1,3 +1,5 @@
+//! Tests for AIMS lattice types and semiring operators.
+
 use super::*;
 
 // Helpers to enumerate all variants
@@ -842,21 +844,21 @@ mod borrow_source {
     #[test]
     fn same_source_preserved() {
         let var = ArcVarId::new(42);
-        let a = BorrowSource::Exact(var);
-        let b = BorrowSource::Exact(var);
-        assert_eq!(a.join(b), BorrowSource::Exact(var));
+        let a = BorrowSource::exact(var);
+        let b = BorrowSource::exact(var);
+        assert_eq!(a.join(b), BorrowSource::exact(var));
     }
 
     #[test]
     fn different_sources_promote_to_unknown() {
-        let a = BorrowSource::Exact(ArcVarId::new(1));
-        let b = BorrowSource::Exact(ArcVarId::new(2));
+        let a = BorrowSource::exact(ArcVarId::new(1));
+        let b = BorrowSource::exact(ArcVarId::new(2));
         assert_eq!(a.join(b), BorrowSource::Unknown);
     }
 
     #[test]
     fn unknown_absorbs() {
-        let exact = BorrowSource::Exact(ArcVarId::new(1));
+        let exact = BorrowSource::exact(ArcVarId::new(1));
         assert_eq!(exact.join(BorrowSource::Unknown), BorrowSource::Unknown);
         assert_eq!(BorrowSource::Unknown.join(exact), BorrowSource::Unknown);
         assert_eq!(

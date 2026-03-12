@@ -662,3 +662,54 @@ fn test_catch_returns_heap_string() {
         "catch_heap_str",
     );
 }
+
+// Immortal empty string: codegen calls ori_str_empty() (no heap, no RC).
+
+#[test]
+fn test_immortal_empty_string_no_leak() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $a = "";
+    let $b = "";
+    let $c = "" + "";
+    if a == "" && b == "" && c == "" && a.is_empty() then 0 else 1
+}
+"#,
+        "immortal_empty_str_no_leak",
+    );
+}
+
+#[test]
+fn test_immortal_empty_string_passed_to_function() {
+    assert_aot_success(
+        r#"
+@check (s: str) -> bool = s.is_empty();
+
+@main () -> int = {
+    let $empty = "";
+    if check(s: empty) && check(s: "") then 0 else 1
+}
+"#,
+        "immortal_empty_str_passed",
+    );
+}
+
+#[test]
+fn test_immortal_empty_string_in_collection() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let items = ["", "a", "", "b", ""];
+    let count = 0;
+    for item in items do {
+        if item.is_empty() then {
+            count += 1;
+        }
+    };
+    if count == 3 then 0 else 1
+}
+"#,
+        "immortal_empty_str_collection",
+    );
+}

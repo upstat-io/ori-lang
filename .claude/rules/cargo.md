@@ -30,6 +30,18 @@ paths:
 ## Workspace Lints (deny level)
 `unsafe_code` (except `ori_rt`), `dead_code`, `unused`, `clippy::unwrap_used`, `clippy::expect_used`, `clippy::todo`, `clippy::unimplemented`, `clippy::dbg_macro`
 
+## Feature Flags
+
+| Feature | Crate | Purpose |
+|---------|-------|---------|
+| `aims` | `ori_arc` | Enable AIMS unified lattice pipeline (replaces legacy multi-pass ARC pipeline) |
+| `aims-shadow` | `ori_arc` | Enable AIMS + shadow comparison mode (runs both pipelines, compares results) |
+| `cache` | `ori_arc` | Serialization support for incremental compilation cache |
+
+- `aims-shadow` implies `aims` — shadow mode always activates the AIMS pipeline
+- Default builds (no feature flags) use the legacy pipeline
+- AIMS commands: `cargo t --features aims` | `cargo b --features aims` | `cargo cl --features aims`
+
 ## Key Files
 - `Cargo.toml` — workspace config
 - `.cargo/config.toml` — aliases, LLVM path

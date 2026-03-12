@@ -2,7 +2,6 @@
 section: "04"
 title: "RC Emission"
 status: complete
-reviewed: true  # 2026-03-10
 goal: "Emit minimal RcInc/RcDec operations, COW annotations, and drop hints from converged AimsStateMap"
 inspired_by:
   - "Perceus dup/drop insertion (Reinking et al., PLDI 2021)"
@@ -32,7 +31,7 @@ sections:
 
 # Section 04: RC Emission
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Read the converged `AimsStateMap` from Section 02 and emit the minimal
 set of `RcInc` and `RcDec` instructions into the `ArcFunction`. Also compute
 `CowAnnotations` and `DropHints` from the state map. This replaces `rc_insert`,
@@ -65,16 +64,17 @@ to the emitter's layout. This is a derivation, not a second source of truth.
 
 ## 04.1 RC Emission Algorithm
 
-**File(s):** `compiler/ori_arc/src/aims/emit_rc.rs` (NEW)
+**File(s):** `compiler/ori_arc/src/aims/emit_rc/mod.rs`
 
 > **Warning: File size.** This section covers RC emission, function boundary handling,
-> arg_ownership population, edge cleanup, COW annotations, and drop hints. Estimated
-> ~1,100 lines exceeds the 500-line limit. **Must split into submodules:**
-> - `aims/emit_rc/mod.rs` — `emit_rc_ops()` entry point (~200 lines)
-> - `aims/emit_rc/boundaries.rs` — function entry/exit/call-site RC (~200 lines, from 04.2)
-> - `aims/emit_rc/arg_ownership.rs` — `emit_arg_ownership()` (~250 lines, from 04.1)
-> - `aims/emit_rc/cow.rs` — COW annotation computation (~150 lines, from 04.3)
-> - `aims/emit_rc/drop_hints.rs` — drop hint computation (~100 lines, from 04.4)
+> arg_ownership population, edge cleanup, COW annotations, and drop hints.
+> **Actual submodule structure (implemented):**
+> - `aims/emit_rc/mod.rs` — `emit_rc_ops()` entry point + per-block RC logic
+> - `aims/emit_rc/arg_ownership.rs` — `emit_arg_ownership()`
+> - `aims/emit_rc/cow.rs` — COW annotation computation
+> - `aims/emit_rc/drop_hints.rs` — drop hint computation
+> - `aims/emit_rc/edge_cleanup.rs` — per-edge RcDec for variables dead on specific CFG edges
+> - `aims/emit_rc/coalesce/mod.rs` — static RC coalescing peephole pass
 
 **LLVM stability constraint (Change 5):** The first AIMS integration must preserve
 these stable LLVM-facing outputs unchanged:
@@ -175,14 +175,14 @@ state transitions between states that imply different reference count contributi
     the "one truth" principle applies to analysis RESULTS (the converged state map
     and contracts), not to how builtin signatures are SPECIFIED. During Stage 1,
     `BuiltinOwnershipSets` is the INPUT source for builtin ownership rules, and
-    `aims/builtins.rs` translates them into `MemoryContract` entries that feed
+    `aims/builtins/mod.rs` translates them into `MemoryContract` entries that feed
     into the unified analysis.
   - **Source of `BuiltinOwnershipSets`**: constructed once in
     `run_arc_pipeline_all` (or its AIMS equivalent) and passed through to
     `emit_arg_ownership`. The sets are populated from `borrow/builtins/mod.rs`
     which is RETAINED during AIMS migration (it encodes type-qualified ownership
     rules: e.g., `add`/`concat` are borrowing for `str` but consuming for `list`).
-  - **Post-Stage 1**: The sets should be absorbed into `aims/builtins.rs`
+  - **Post-Stage 1**: The sets should be absorbed into `aims/builtins/mod.rs`
     `MemoryContract` definitions, making `BuiltinOwnershipSets` redundant. This
     completes the "one truth" migration for builtins.
 
@@ -229,7 +229,7 @@ state transitions between states that imply different reference count contributi
 
 ## 04.2 Emission at Function Boundaries
 
-**File(s):** `compiler/ori_arc/src/aims/emit_rc.rs`
+**File(s):** `compiler/ori_arc/src/aims/emit_rc/mod.rs`
 
 Function entry and exit require special RC handling based on parameter ownership.
 
@@ -260,7 +260,7 @@ Function entry and exit require special RC handling based on parameter ownership
 
 ## 04.3 COW Annotations
 
-**File(s):** `compiler/ori_arc/src/aims/emit_rc.rs`
+**File(s):** `compiler/ori_arc/src/aims/emit_rc/cow.rs`
 
 COW annotations are derived directly from the uniqueness dimension of the state map.
 
@@ -313,7 +313,7 @@ COW annotations are derived directly from the uniqueness dimension of the state 
 
 ## 04.4 Drop Hints
 
-**File(s):** `compiler/ori_arc/src/aims/emit_rc.rs`
+**File(s):** `compiler/ori_arc/src/aims/emit_rc/drop_hints.rs`
 
 Drop hints identify `RcDec` operations where the collection is provably unique,
 enabling the LLVM emitter to call `ori_buffer_drop_unique` instead of
@@ -382,7 +382,7 @@ pass may consume.
 - [x] Emitted `ArcFunction` passes `ori_arc::verify` checks
   Verified: `run_verify()` runs at steps 9 and 13 in `aims_pipeline.rs`. All
   1252 AOT tests and 3389 spec tests pass with `--features aims`.
-- [x] RC operation count tracked and compared against current pipeline output <!-- blocked-by:06 -->
+- [x] RC operation count tracked and compared against current pipeline output (requires Section 06)
   (goal: equal or fewer; regressions investigated but not automatic blockers
   during Stage 1C — correctness gates are behavioral equivalence + verify)
   Implemented: `pipeline/rc_count` module counts `RcInc`/`RcDec` in ARC IR.

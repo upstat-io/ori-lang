@@ -62,6 +62,7 @@
 **Phase dumps**: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR, superset of `ORI_DEBUG_LLVM`) | `ORI_EMIT_ARC_DOT=1` (GraphViz DOT) — stderr, zero release overhead
 **Runtime debug**: `ORI_TRACE_RC=1` (RC log) | `ORI_RT_DEBUG=1` (assertions) | `ORI_CHECK_LEAKS=1` (leak report)
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
+**AIMS** (unified lattice ARC pipeline, feature-gated): `cargo b --features aims` | `cargo t --features aims` | `cargo cl --features aims` | `cargo b --features aims-shadow` (runs both pipelines, compares results) | `diagnostics/aims-compare.sh` (behavioral + RC comparison)
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh`
 **Diagnostic scripts** (`diagnostics/`) — all support `--help`, `--no-color`/`--color`:
@@ -71,6 +72,14 @@
 - `dual-exec-debug.sh` — interpreter vs AOT comparison; auto-dumps on mismatch (`--verbose`)
 - `valgrind-aot.sh [file.ori ...]` — Valgrind memory errors (defaults to `tests/valgrind/`, not in test-all.sh)
 - `dual-exec-verify.sh [test-path]` — batch interpreter vs LLVM (`--test-only`, `--main-only`, `--json`)
+
+## Feature Flags
+
+| Flag | Crate | Effect |
+|------|-------|--------|
+| `aims` | `ori_arc` | Replaces legacy multi-pass ARC pipeline with AIMS unified lattice. `run_arc_pipeline()` dispatches to AIMS when enabled. |
+| `aims-shadow` | `ori_arc` | Implies `aims`. Runs both pipelines and compares results (param ownership, arg ownership, COW annotations, return uniqueness, RC counts). Mismatches logged via `tracing::warn!`. |
+| `cache` | `ori_arc` | Enables serde/bincode serialization for incremental compilation cache. |
 
 ## Versioning
 

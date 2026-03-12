@@ -2,7 +2,6 @@
 section: "02"
 title: "Intraprocedural Analysis"
 status: in-progress
-reviewed: true  # 2026-03-10
 goal: "Single backward dataflow pass computing AimsState for every variable at every program point"
 inspired_by:
   - "GHC demand analysis backward pass (compiler/GHC/Core/Opt/DmdAnal.hs)"
@@ -41,7 +40,7 @@ sections:
 
 # Section 02: Intraprocedural Analysis
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Implement a single backward dataflow pass over an `ArcFunction` that
 computes an `AimsState` for every variable at every program point, consuming
 interprocedural signatures from Section 03. The analysis must converge in bounded
@@ -61,6 +60,19 @@ a value WILL be used (future demand) to decide what RC operations to emit NOW.
   traverses bottom-up, maintaining live variable set
 - **ori_arc** `liveness/mod.rs`: Current backward liveness analysis — the starting
   point for understanding the existing traversal
+
+**Code note (future):** The `intraprocedural/mod.rs` module doc should clarify the
+relationship between the backward analysis direction and the temporal direction of
+properties: the analysis walks BACKWARD through the CFG (from uses to definitions),
+but the properties it computes have different temporal orientations. Consumption and
+Cardinality are FUTURE-facing (what will happen to this value going forward?),
+which is why backward analysis is their natural direction — we learn future demand
+by walking from use sites backward to definitions. Uniqueness is PAST-facing (has
+this value been duplicated?), which means the backward pass propagates uniqueness
+constraints forward-in-time but backward-in-traversal: a use site that requires
+uniqueness constrains the definition site to have produced a unique value. This
+distinction matters for soundness — see Marshall et al. (ESOP 2022).
+(See: [Literature Review §06 — Linearity/Uniqueness](../aims-literature-review/section-06-linearity-uniqueness.md))
 
 **Depends on:** Section 01 (lattice definition).
 
@@ -117,17 +129,17 @@ them to the layout the LLVM emitter expects.
 
 ## 02.2 Backward Dataflow Framework
 
-**File(s):** `compiler/ori_arc/src/aims/intraprocedural.rs` (NEW)
+**File(s):** `compiler/ori_arc/src/aims/intraprocedural/mod.rs`
 
 > **Warning: File size.** This section covers state map, backward dataflow, block-level analysis,
 > merge points, pattern match handling, invoke semantics, and event tracking. Estimated ~1,200 lines
-> far exceeds the 500-line limit. **Must split into submodules from the start:**
-> - `aims/intraprocedural/mod.rs` — `analyze_function()` entry point, worklist loop (~200 lines)
-> - `aims/intraprocedural/state_map.rs` — `AimsStateMap` data structure + events (~200 lines, from 02.1)
-> - `aims/intraprocedural/block.rs` — per-block backward analysis (~300 lines, from 02.3)
-> - `aims/intraprocedural/merge.rs` — control flow join handling (~200 lines, from 02.4)
-> - `aims/intraprocedural/pattern.rs` — pattern match scrutinee/binding analysis (~150 lines, from 02.5)
-> - `aims/intraprocedural/events.rs` — sparse event recording (context holes, reuse candidates, FIP gates) (~100 lines)
+> far exceeds the 500-line limit. **Actual submodule structure (implemented):**
+> - `aims/intraprocedural/mod.rs` — `analyze_function()` entry point, worklist loop
+> - `aims/intraprocedural/state_map.rs` — `AimsStateMap` data structure + `AimsEvent` enum + `InvokeEdgeState`
+> - `aims/intraprocedural/block.rs` — per-block backward analysis (exits, terminators, instructions, merge logic)
+>
+> Control flow join handling, pattern match analysis, and event tracking are integrated
+> into `block.rs` and `state_map.rs` rather than separate files.
 
 The core analysis loop: iterate backward over blocks in reverse postorder until
 fixed-point convergence.
@@ -136,7 +148,7 @@ fixed-point convergence.
   in `compiler/ori_arc/src/aims/intraprocedural/mod.rs`. Marks scalar variables,
   computes postorder, iterates worklist until convergence or safety net triggers.
   Also created `contract.rs` with minimal `MemoryContract`, `ParamContract`,
-  `ReturnInfo`, and `ContextRegion` types for the API signature.
+  `ReturnContract`, and `ContextRegion` types for the API signature.
 
 - [x] Implement worklist with change tracking (avoid re-analyzing blocks whose
   predecessors haven't changed). Uses `AimsStateMap::reset_changed()` /
@@ -146,6 +158,25 @@ fixed-point convergence.
   Computed via `AimsState::iteration_limit()`.
 - [x] **Non-convergence safety net**: if iteration exceeds the bound, widen remaining
   variables to TOP and log a `tracing::warn!`. Implemented in `widen_to_top()`.
+- [ ] **Documentation plan (convergence strength):** The `intraprocedural/mod.rs`
+  convergence documentation should note that AIMS's convergence guarantee is
+  mathematically stronger than GHC's approach. GHC uses an empirical `n > 10`
+  iteration cutoff in `dmdFix` (with `reuseEnv` demand stabilization for recursive
+  bindings). AIMS derives its bound from the product lattice's finite chain height
+  (15 = sum of per-dimension heights), giving a provable upper bound rather than an
+  empirical safety net. GHC needs `reuseEnv` and weak-demand splitting to improve
+  convergence in lazy contexts; AIMS's strict evaluation model avoids these because
+  all demands are strict by definition.
+  (See: [Literature Review §09 — GHC Demand Analysis](../aims-literature-review/section-09-ghc-demand.md))
+- [ ] **Documentation plan (loop convergence at back-edges):** Document the loop
+  convergence argument in `compute_block_exit_state`: at a loop back-edge (successor
+  = loop header), the function joins the loop header's current entry state with the
+  loop body's exit contribution. Because `alt_join` = `max` on each dimension, and
+  all dimensions are finite-height lattices, the demand on loop-carried variables can
+  only increase or stay the same across worklist iterations. This guarantees monotone
+  convergence without the demand-stabilization tricks that GHC requires for lazy
+  evaluation (`reuseEnv`, weak free variables).
+  (See: [Literature Review §09 — GHC Demand Analysis](../aims-literature-review/section-09-ghc-demand.md))
 
 ---
 
@@ -154,7 +185,7 @@ fixed-point convergence.
 **File(s):** `compiler/ori_arc/src/aims/intraprocedural/block.rs`
 
 Cardinality analysis on ARC IR CFGs requires two distinct operators, not just
-`max` (solutions.md Decision 2):
+`max` (historical design decision):
 
 - [x] Implement `Cardinality::seq_add` — implemented in Section 01 (`lattice/mod.rs`).
   `Absent + x = x`, `Once + Once = Many`, `Many + _ = Many`.
@@ -175,11 +206,11 @@ Cardinality analysis on ARC IR CFGs requires two distinct operators, not just
 
 ## 02.2b Terminator Edge States for Invoke
 
-**File(s):** `compiler/ori_arc/src/aims/intraprocedural/merge.rs`
+**File(s):** `compiler/ori_arc/src/aims/intraprocedural/state_map.rs` (types), `compiler/ori_arc/src/aims/intraprocedural/block.rs` (logic)
 
-- [x] Define `TerminatorEdgeState` for Invoke handling:
-  Defined as `InvokeEdgeState` in `state_map.rs` (Section 02.1) with `normal`
-  and `unwind` fields, each `FxHashMap<ArcVarId, AimsState>`.
+- [x] Define `InvokeEdgeState` for Invoke handling:
+  Defined in `state_map.rs` (Section 02.1) with `normal` and `unwind` fields,
+  each `FxHashMap<ArcVarId, AimsState>`.
 
 - [x] Rules:
   - Normal successor sees `dst` as defined (from callee contract or conservative)
@@ -193,7 +224,7 @@ Cardinality analysis on ARC IR CFGs requires two distinct operators, not just
 
 ## 02.3 Block-Level Analysis
 
-**File(s):** `compiler/ori_arc/src/aims/intraprocedural.rs`
+**File(s):** `compiler/ori_arc/src/aims/intraprocedural/block.rs`
 
 Process a single block backward: start from the block's exit state (from successors),
 walk instructions in reverse, applying transfer functions.
@@ -210,8 +241,15 @@ walk instructions in reverse, applying transfer functions.
     `graph::successor_block_ids(&block.terminator)`, pub(crate) free fn.
   - **Use `alt_join` (max) for successor combination** — at a branch/switch,
     only ONE successor executes per dynamic run, so successor demands are
-    alternative (solutions.md Decision 2). At a Jump (single successor),
+    alternative (historical design decision). At a Jump (single successor),
     alt_join is trivially the successor's state.
+  - **Documentation plan:** `compute_block_exit_state` should document that
+    successor combination is *alternative* composition (GHC's `lubCard`, not
+    `plusCard`). The key invariant: `alt_join(Once, Once) = Once` — a variable
+    used once in each branch of an `if` is still used once per dynamic run,
+    not twice. This is verified by the test
+    `branch_value_used_in_both_arms_is_once`.
+    (See: [Literature Review §09 — GHC Demand Analysis](../aims-literature-review/section-09-ghc-demand.md))
   - This produces the block's EXIT state (demand at the end of the block).
   - Apply transfer function for the terminator (backward: terminator may
     add demand on its operands, e.g., Branch adds Once to cond).
@@ -220,6 +258,14 @@ walk instructions in reverse, applying transfer functions.
     is used once by this instruction AND by the remaining demand from later
     instructions — sequential composition).
   - **Use `seq_add` for within-block demand accumulation**
+  - **Documentation plan:** `add_backward_demand` should state explicitly that
+    this is GHC's `plusCard` adapted for a strict language (no `multCard` needed).
+    Algebraic identity: `Absent` (no prior demand changes nothing). Absorbing
+    element: `Many` (already saturated — further uses cannot increase demand).
+    Monotonicity: if `a <= b`, then `seq_add(a, x) <= seq_add(b, x)` (increasing
+    prior demand never decreases total demand). These properties are verified
+    exhaustively in `lattice/tests.rs`.
+    (See: [Literature Review §09 — GHC Demand Analysis](../aims-literature-review/section-09-ghc-demand.md))
   - Return the computed entry state for this block
 
 - [x] Handle each `ArcInstr` variant (field names match `ir/instr.rs`):
@@ -242,7 +288,13 @@ walk instructions in reverse, applying transfer functions.
     invoked multiple times). Captured vars' `locality` promoted to `HeapEscaping`
     (closure may outlive the defining function and escape to callers).
   - `Project { dst, ty, value, field }` — dst is `(Borrowed, Linear, Once, value.uniqueness)`
-    with `BorrowSource::Exact(value)`; value stays unchanged
+    with `BorrowSource::Exact(value)`; value stays unchanged.
+    **Locality note (Stage 2):** Currently, dst gets `Locality::Unknown` (from
+    `AimsState::TOP` defaults). OxCaml's deep mode property proves that locality
+    should propagate through projections: `dst.locality <= value.locality`. A
+    field of a `BlockLocal` value is at most `BlockLocal`. This is a transfer
+    function change activated in Section 09.2 Locality Activation.
+    (See: [Literature Review §01 — OxCaml](../aims-literature-review/section-01-oxidizing-ocaml.md), §01.2 K5, I4)
   - `Construct { dst, ty, ctor, args }` — dst is `FRESH` with shape from ctor kind;
     in backward analysis, adds demand on each arg via `seq_add(Once)` (each arg is
     consumed once by the constructor)
@@ -279,7 +331,7 @@ walk instructions in reverse, applying transfer functions.
 
 ## 02.4 Control Flow Merge Points
 
-**File(s):** `compiler/ori_arc/src/aims/intraprocedural.rs`
+**File(s):** `compiler/ori_arc/src/aims/intraprocedural/block.rs`
 
 In **backward** analysis, the merge direction is reversed from forward analysis:
 demand flows from successors to predecessors. A block's **exit state** (demand at the
@@ -312,7 +364,7 @@ backward-dataflow merge.
 
 ## 02.5 Pattern Match Handling
 
-**File(s):** `compiler/ori_arc/src/aims/intraprocedural.rs`
+**File(s):** `compiler/ori_arc/src/aims/intraprocedural/block.rs`
 
 Pattern matching (Switch terminator) requires careful handling: the scrutinee is
 NOT consumed by the Switch itself, and each case branch introduces new bindings
@@ -358,7 +410,7 @@ that borrow from the scrutinee.
 
 ## 02.6 Invoke Definition Handling
 
-**File(s):** `compiler/ori_arc/src/aims/intraprocedural.rs`
+**File(s):** `compiler/ori_arc/src/aims/intraprocedural/mod.rs` (invoke_defs collection), `compiler/ori_arc/src/aims/intraprocedural/block.rs` (edge state computation)
 
 `Invoke` instructions define their `dst` variable only in the `normal` successor
 block, not the `unwind` block. This requires special handling in the backward
@@ -388,10 +440,10 @@ analysis.
 - [x] `ArcValue` sub-variants handled (`Var`, `Literal`, `PrimOp`)
 - [x] Transfer functions set `access` (Borrowed/Owned) correctly for all instructions:
   `Project` → `Borrowed`, `Construct`/`PartialApply`/`Apply` → `Owned`,
-  `CollectionReuse` dst → `Owned` (solutions.md Decision 1)
+  `CollectionReuse` dst → `Owned` (historical design decision)
 - [x] Cardinality uses `seq_add` within blocks and `alt_join` at successor joins
-  (solutions.md Decision 2)
-- [x] `TerminatorEdgeState` for Invoke correctly separates normal/unwind edge states
+  (historical design decision)
+- [x] `InvokeEdgeState` for Invoke correctly separates normal/unwind edge states
 - [x] Loop back-edges handled correctly (states converge through iteration;
   loop-carried `Once` promotes to `Many` via `seq_add`)
 - [x] Pattern match scrutinee stays alive through Switch (tag read only); transitions
@@ -406,8 +458,8 @@ analysis.
 - [x] State map queryable by emission passes
 - [x] Sparse event table records reusable allocation candidates
 - [x] Sparse event table records local-allocation eligibility (v1: conservative)
-- [ ] Sparse event table records FIP gates (Stage 2: when FipContract is available) <!-- blocked-by:07 -->
-- [ ] Constructor-context events recorded when normalize/ pass has run (Stage 3) <!-- blocked-by:07 -->
+- [ ] Sparse event table records FIP gates (blocked by Stage 2: Section 03 FipContract extension)
+- [ ] Constructor-context events recorded when normalize/ pass has run (blocked by Stage 3: aims/normalize/ module)
 - [x] All 10 validation corpus tests pass with expected cardinality at key points
 
 - [x] **Validation corpus** (10 hand-traced test cases with expected cardinality):
