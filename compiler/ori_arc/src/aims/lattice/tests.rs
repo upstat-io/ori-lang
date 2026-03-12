@@ -2108,3 +2108,242 @@ fn fresh_is_optimistic_owned() {
     assert!(!f.needs_cow_check());
     assert!(!f.is_reuse_candidate()); // NonReusable shape
 }
+
+// Section 09.5: Convergence Feedback tests
+
+mod convergence_feedback {
+    use super::*;
+
+    #[test]
+    fn feedback_zero_rounds_for_canonical_state() {
+        // A state that is already canonical needs 0 changing rounds.
+        let mut s = AimsState::FRESH;
+        let feedback = s.canonicalize_with_feedback();
+        assert_eq!(feedback.rounds, 0);
+        assert!(!feedback.cross_dimension_fired());
+    }
+
+    #[test]
+    fn feedback_zero_rounds_for_top() {
+        let mut s = AimsState::TOP;
+        let feedback = s.canonicalize_with_feedback();
+        assert_eq!(feedback.rounds, 0);
+        assert!(!feedback.cross_dimension_fired());
+    }
+
+    #[test]
+    fn feedback_zero_rounds_for_bottom() {
+        let mut s = AimsState::BOTTOM;
+        let feedback = s.canonicalize_with_feedback();
+        // BOTTOM has Dead + Absent which canonicalize preserves (already valid).
+        assert_eq!(feedback.rounds, 0);
+        assert!(!feedback.cross_dimension_fired());
+    }
+
+    #[test]
+    fn feedback_one_round_after_rule_fires() {
+        // Rule 1 fires (Dead → Absent), but this doesn't trigger any other
+        // rule in a second pass. Should be 1 changing round.
+        let mut s = AimsState {
+            consumption: Consumption::Dead,
+            cardinality: Cardinality::Once, // will be fixed to Absent
+            ..AimsState::TOP
+        };
+        let feedback = s.canonicalize_with_feedback();
+        assert_eq!(feedback.rounds, 1);
+        assert!(!feedback.cross_dimension_fired());
+        assert_eq!(s.cardinality, Cardinality::Absent);
+    }
+
+    #[test]
+    fn feedback_one_round_rule4_promotion() {
+        // Rule 4 fires (BlockLocal+Owned+Once → Unique), but this doesn't
+        // create a precondition for another rule to fire in a second pass.
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        let feedback = s.canonicalize_with_feedback();
+        assert_eq!(feedback.rounds, 1);
+        assert!(!feedback.cross_dimension_fired());
+        assert_eq!(s.uniqueness, Uniqueness::Unique);
+    }
+
+    #[test]
+    fn feedback_one_round_rule6_ceiling() {
+        // Rule 6 fires (HeapEscaping → MaybeShared), doesn't chain.
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        let feedback = s.canonicalize_with_feedback();
+        assert_eq!(feedback.rounds, 1);
+        assert!(!feedback.cross_dimension_fired());
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
+    }
+
+    #[test]
+    fn feedback_one_round_rule8_borrowed_locality() {
+        // Rule 8 fires (Borrowed → FunctionLocal), doesn't chain.
+        let mut s = AimsState {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        let feedback = s.canonicalize_with_feedback();
+        assert_eq!(feedback.rounds, 1);
+        assert!(!feedback.cross_dimension_fired());
+        assert_eq!(s.locality, Locality::FunctionLocal);
+    }
+
+    #[test]
+    fn feedback_no_cross_dimension_for_representative_states() {
+        // With current rules (Section 09.3), no cross-dimension chain
+        // should fire (at most 1 changing round). This is the termination
+        // guarantee.
+        for mut s in representative_states() {
+            let feedback = s.canonicalize_with_feedback();
+            assert!(
+                !feedback.cross_dimension_fired(),
+                "cross-dimension chain detected ({} rounds) for: {:?}",
+                feedback.rounds,
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn feedback_exhaustive_no_cross_dimension_chain() {
+        // Exhaustively verify that every possible AimsState converges
+        // without cross-dimension chaining. This proves the termination
+        // guarantee for current rules — no chain of length > 1 exists.
+        let accesses = [AccessClass::Owned, AccessClass::Borrowed];
+        let consumptions = [
+            Consumption::Dead,
+            Consumption::Linear,
+            Consumption::Affine,
+            Consumption::Unrestricted,
+        ];
+        let cardinalities = [Cardinality::Absent, Cardinality::Once, Cardinality::Many];
+        let uniquenesses = [
+            Uniqueness::Unique,
+            Uniqueness::MaybeShared,
+            Uniqueness::Shared,
+        ];
+        let localities = [
+            Locality::BlockLocal,
+            Locality::FunctionLocal,
+            Locality::HeapEscaping,
+            Locality::Unknown,
+        ];
+        let shapes = [
+            ShapeClass::NonReusable,
+            ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+            ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
+            ShapeClass::CollectionBuffer,
+            ShapeClass::ContextHole,
+        ];
+        let effects = [EffectClass::NONE, EffectClass::ALL];
+
+        let mut count = 0u64;
+        for &access in &accesses {
+            for &consumption in &consumptions {
+                for &cardinality in &cardinalities {
+                    for &uniqueness in &uniquenesses {
+                        for &locality in &localities {
+                            for &shape in &shapes {
+                                for &effect in &effects {
+                                    let mut s = AimsState {
+                                        access,
+                                        consumption,
+                                        cardinality,
+                                        uniqueness,
+                                        locality,
+                                        shape,
+                                        effect,
+                                    };
+                                    let feedback = s.canonicalize_with_feedback();
+                                    assert!(
+                                        !feedback.cross_dimension_fired(),
+                                        "cross-dimension chain ({} rounds): access={access:?}, \
+                                         consumption={consumption:?}, cardinality={cardinality:?}, \
+                                         uniqueness={uniqueness:?}, locality={locality:?}, \
+                                         shape={shape:?}, effect={effect:?}",
+                                        feedback.rounds,
+                                    );
+                                    count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // 2 × 4 × 3 × 3 × 4 × 5 × 2 = 2880 states
+        assert_eq!(count, 2880);
+    }
+
+    #[test]
+    fn feedback_default_is_zero_rounds() {
+        let feedback = CanonicalizeFeedback::default();
+        assert_eq!(feedback.rounds, 0);
+        assert!(!feedback.cross_dimension_fired());
+    }
+
+    #[test]
+    fn feedback_cross_dimension_fired_threshold() {
+        // rounds == 0: already canonical, no chain
+        assert!(!CanonicalizeFeedback { rounds: 0 }.cross_dimension_fired());
+        // rounds == 1: rules fired but no chain (normal case)
+        assert!(!CanonicalizeFeedback { rounds: 1 }.cross_dimension_fired());
+        // rounds >= 2: one pass's output enabled another rule
+        assert!(CanonicalizeFeedback { rounds: 2 }.cross_dimension_fired());
+        assert!(CanonicalizeFeedback { rounds: 3 }.cross_dimension_fired());
+    }
+
+    #[test]
+    fn canonicalize_idempotent_with_feedback() {
+        // After one canonicalize_with_feedback call, a second call should
+        // always produce rounds == 0 (state already canonical).
+        for mut s in representative_states() {
+            let _ = s.canonicalize_with_feedback();
+            let feedback2 = s.canonicalize_with_feedback();
+            assert_eq!(
+                feedback2.rounds, 0,
+                "second canonicalize was not idempotent: {s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn canonicalize_with_feedback_matches_canonicalize() {
+        // canonicalize() and canonicalize_with_feedback() must produce the
+        // same state.
+        for s in representative_states() {
+            let mut via_plain = s;
+            via_plain.canonicalize();
+
+            let mut via_feedback = s;
+            let _ = via_feedback.canonicalize_with_feedback();
+
+            assert_eq!(
+                via_plain, via_feedback,
+                "canonicalize() and canonicalize_with_feedback() diverged for: {s:?}"
+            );
+        }
+    }
+}

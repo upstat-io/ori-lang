@@ -32,6 +32,34 @@ pub use dimensions::*;
 use crate::ir::ArcVarId;
 use crate::ArcClass;
 
+// Canonicalize feedback (Section 09.5 Convergence Feedback)
+
+/// Feedback from multi-round canonicalize (Section 09.5).
+///
+/// Reports how many rounds of [`AimsState::canonicalize_single_pass`]
+/// actually changed the state. With current rules (Section 09.3), at most
+/// one round makes changes. If `rounds > 1`, a cross-dimension chain fired
+/// (one rule's output enabled another rule to fire in a subsequent pass).
+/// The multi-round loop is bounded at 3 rounds — sufficient for any chain
+/// of length ≤3 in the product lattice.
+///
+/// - `rounds == 0`: state was already canonical (no rules fired)
+/// - `rounds == 1`: some rules fired, fixed point reached in one pass
+/// - `rounds > 1`: cross-dimension chain detected
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CanonicalizeFeedback {
+    /// Number of rounds that changed the state (0 = already canonical).
+    pub rounds: u8,
+}
+
+impl CanonicalizeFeedback {
+    /// Whether any cross-dimension chain fired (more than one changing round).
+    #[must_use]
+    pub fn cross_dimension_fired(self) -> bool {
+        self.rounds > 1
+    }
+}
+
 // SizeClass (for cross-type reuse in Stage 2+)
 
 /// Allocation size class for reuse compatibility.
@@ -182,11 +210,57 @@ impl AimsState {
         result
     }
 
-    /// Enforce feasibility invariants.
+    /// Enforce feasibility invariants with multi-round convergence.
     ///
-    /// Called after every join and transfer function. Must be a pure
-    /// function on `AimsState` — no control-flow position or instruction
-    /// context.
+    /// Called after every join and transfer function. Runs
+    /// [`canonicalize_single_pass`](Self::canonicalize_single_pass) in a
+    /// bounded loop (up to 3 rounds) until no further changes occur. This
+    /// catches chain reasoning where one rule's output enables another rule
+    /// (e.g., locality→uniqueness→shape). With current rules (Section 09.3),
+    /// one pass always suffices; the multi-round loop is defensive
+    /// infrastructure for future cross-dimension rules.
+    ///
+    /// See [`canonicalize_single_pass`](Self::canonicalize_single_pass) for
+    /// the invariants enforced.
+    pub fn canonicalize(&mut self) {
+        let feedback = self.canonicalize_with_feedback();
+        if feedback.cross_dimension_fired() {
+            tracing::warn!(
+                rounds = feedback.rounds,
+                state = ?self,
+                "canonicalize required multiple rounds — cross-dimension chain detected"
+            );
+        }
+    }
+
+    /// Like [`canonicalize`](Self::canonicalize) but returns feedback about
+    /// the convergence process.
+    #[must_use]
+    pub fn canonicalize_with_feedback(&mut self) -> CanonicalizeFeedback {
+        const MAX_ROUNDS: u8 = 3;
+        let mut rounds: u8 = 0;
+
+        loop {
+            let before = *self;
+            self.canonicalize_single_pass();
+
+            if *self == before {
+                break; // Fixed point — no changes in this pass.
+            }
+
+            rounds += 1;
+            if rounds >= MAX_ROUNDS {
+                break; // Bound reached — conservatively correct.
+            }
+        }
+
+        CanonicalizeFeedback { rounds }
+    }
+
+    /// Single pass of feasibility invariant enforcement.
+    ///
+    /// Must be a pure function on `AimsState` — no control-flow position
+    /// or instruction context.
     ///
     /// # Invariants enforced
     ///
@@ -207,9 +281,11 @@ impl AimsState {
     /// fire simultaneously on the same state (`BlockLocal` contradicts
     /// `HeapEscaping`). Rule 8 forces locality down (away from `HeapEscaping`),
     /// preventing Rule 6 from firing on the same state. Chain height is
-    /// bounded by the product of dimension heights. One pass suffices
-    /// (no rule creates a precondition for another rule to re-fire).
-    pub fn canonicalize(&mut self) {
+    /// bounded by the product of dimension heights. With current rules, one
+    /// pass suffices (no rule creates a precondition for another rule to
+    /// re-fire). The multi-round loop in [`canonicalize`](Self::canonicalize)
+    /// is defensive infrastructure for future cross-dimension rules.
+    fn canonicalize_single_pass(&mut self) {
         // Rule 1: Dead ↔ Absent bidirectional sync
         if self.consumption == Consumption::Dead {
             self.cardinality = Cardinality::Absent;

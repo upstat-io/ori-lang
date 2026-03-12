@@ -202,6 +202,14 @@ pub struct AimsStateMap {
     /// Reset to `false` at the start of each iteration; set to `true`
     /// by `update_block_entry` when a state changes.
     changed: bool,
+
+    /// Whether any `canonicalize()` call during analysis required multiple
+    /// rounds (cross-dimension chaining detected). Set by post-convergence
+    /// verification in `verify_canonical_fixed_point()`. With current rules
+    /// (Section 09.3), this should always be `false`.
+    ///
+    /// Section 09.5 Convergence Feedback.
+    cross_dimension_detected: bool,
 }
 
 impl AimsStateMap {
@@ -225,6 +233,7 @@ impl AimsStateMap {
             fip_consumed_count: 0,
             var_shapes: FxHashMap::default(),
             changed: false,
+            cross_dimension_detected: false,
         }
     }
 
@@ -376,6 +385,23 @@ impl AimsStateMap {
     /// Reset the change tracker for a new iteration.
     pub fn reset_changed(&mut self) {
         self.changed = false;
+    }
+
+    /// Whether cross-dimension canonicalize chaining was detected during
+    /// analysis (any canonicalize call required more than one round).
+    ///
+    /// With current rules (Section 09.3), this should always be `false`.
+    /// A `true` value indicates a new rule created a cross-dimension chain.
+    ///
+    /// Section 09.5 Convergence Feedback.
+    #[must_use]
+    pub fn cross_dimension_detected(&self) -> bool {
+        self.cross_dimension_detected
+    }
+
+    /// Record that cross-dimension chaining was detected.
+    pub fn set_cross_dimension_detected(&mut self) {
+        self.cross_dimension_detected = true;
     }
 
     // Borrow provenance

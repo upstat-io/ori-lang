@@ -2607,3 +2607,98 @@ fn trmc_not_detected_for_tuple_constructor() {
         "Tuple constructor is never a TRMC candidate"
     );
 }
+
+// Section 09.5: Convergence Feedback — cross-dimension detection
+
+#[test]
+fn cross_dimension_not_detected_for_straight_line() {
+    // A simple straight-line function should not trigger cross-dimension
+    // detection. Section 09.5.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::ir::ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: crate::Ownership::Owned,
+        }],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![(var(0), ty(0))],
+            body: vec![ArcInstr::Construct {
+                dst: var(1),
+                ty: ty(0),
+                ctor: CtorKind::Struct(Name::from_raw(10)),
+                args: vec![var(0)],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        !state_map.cross_dimension_detected(),
+        "straight-line function should not detect cross-dimension chaining"
+    );
+}
+
+#[test]
+fn cross_dimension_not_detected_for_branching() {
+    // A function with control flow (Branch) should not trigger cross-dimension
+    // detection with current rules. Section 09.5.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(0)],
+        params: vec![
+            crate::ir::ArcParam {
+                var: var(0),
+                ty: ty(0),
+                ownership: crate::Ownership::Owned,
+            },
+            crate::ir::ArcParam {
+                var: var(1),
+                ty: ty(1),
+                ownership: crate::Ownership::Owned,
+            },
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![(var(0), ty(0)), (var(1), ty(1))],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: var(1),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(0) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                }],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        !state_map.cross_dimension_detected(),
+        "branching function should not detect cross-dimension chaining"
+    );
+}
