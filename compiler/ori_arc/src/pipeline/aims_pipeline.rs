@@ -58,84 +58,133 @@ pub(crate) fn run_aims_pipeline(
     config: &AimsPipelineConfig<'_>,
 ) -> Vec<ArcProblem> {
     // Step 3: compute value representations.
-    func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
+    {
+        let _span = tracing::info_span!("compute_var_reprs").entered();
+        func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
+    }
 
     // Step 3.5: detect immortal variables (heap-allocated constants with MAX_REFCOUNT).
-    let immortals = crate::aims::immortal::detect_immortals(func, config.interner);
-    let immortal_count = crate::aims::immortal::count_immortals(&immortals);
-    if immortal_count > 0 {
-        tracing::debug!(
-            function = func.name.raw(),
-            immortal_count,
-            "immortal variables detected"
+    let immortals = {
+        let _span = tracing::info_span!("detect_immortals").entered();
+        let imm = crate::aims::immortal::detect_immortals(func, config.interner);
+        let immortal_count = crate::aims::immortal::count_immortals(&imm);
+        if immortal_count > 0 {
+            tracing::debug!(
+                function = func.name.raw(),
+                immortal_count,
+                "immortal variables detected"
+            );
+        }
+        imm
+    };
+
+    // Step 4: populate arg_ownership on Apply/Invoke instructions.
+    {
+        let _span = tracing::info_span!("emit_arg_ownership").entered();
+        crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
+            func,
+            config.contracts,
+            config.interner,
+            config.builtins,
+            config.pool,
         );
     }
 
-    // Step 4: populate arg_ownership on Apply/Invoke instructions.
-    crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
-        func,
-        config.contracts,
-        config.interner,
-        config.builtins,
-        config.pool,
-    );
-
     // Step 5: intraprocedural analysis → converged state map.
-    let state_map = crate::aims::intraprocedural::analyze_function(
-        func,
-        config.classifier,
-        config.contracts,
-        &[], // context_regions: empty in Stage 1
-        immortals,
-    );
+    let state_map = {
+        let _span = tracing::info_span!("analyze_function").entered();
+        crate::aims::intraprocedural::analyze_function(
+            func,
+            config.classifier,
+            config.contracts,
+            &[], // context_regions: empty in Stage 1
+            immortals,
+        )
+    };
 
     // Step 6: RC emission from state map.
-    let _rc_result = crate::aims::emit_rc::emit_rc_ops(
-        func,
-        &state_map,
-        config.contracts,
-        config.classifier,
-        config.pool,
-    );
+    {
+        let _span = tracing::info_span!("emit_rc_ops").entered();
+        let _rc_result = crate::aims::emit_rc::emit_rc_ops(
+            func,
+            &state_map,
+            config.contracts,
+            config.classifier,
+            config.pool,
+        );
+    }
 
     // Step 7: reuse emission from state map (consults FipContract — Section 05.4).
-    let reuse_result =
-        crate::aims::emit_reuse::emit_reuse(func, &state_map, config.pool, config.contracts);
-    if !reuse_result.fip_gates.is_empty() {
-        tracing::debug!(
-            function = func.name.raw(),
-            fip_gates = reuse_result.fip_gates.len(),
-            "FIP gate records captured during reuse emission"
-        );
+    {
+        let _span = tracing::info_span!("emit_reuse").entered();
+        let reuse_result =
+            crate::aims::emit_reuse::emit_reuse(func, &state_map, config.pool, config.contracts);
+        if !reuse_result.fip_gates.is_empty() {
+            tracing::debug!(
+                function = func.name.raw(),
+                fip_gates = reuse_result.fip_gates.len(),
+                "FIP gate records captured during reuse emission"
+            );
+        }
     }
 
     // Step 9: ARC IR verification after emission.
-    super::run_verify(func, "after AIMS emission", config.verify_arc);
+    {
+        let _span = tracing::info_span!("verify_post_emission").entered();
+        super::run_verify(func, "after AIMS emission", config.verify_arc);
+    }
 
     // Step 9a: AIMS-specific consistency checks (contract vs IR).
     if let Some(contract) = config.contracts.get(&func.name) {
+        let _span = tracing::info_span!("aims_verify").entered();
         super::run_aims_verify(func, contract, "after AIMS emission", config.verify_arc);
     }
 
     // Step 10: tail call detection + loop lowering.
-    func.tail_calls = crate::tail_call::detect_tail_calls(func);
-    crate::tail_call::rewrite_tail_calls(func);
+    {
+        let _span = tracing::info_span!("tail_calls").entered();
+        func.tail_calls = crate::tail_call::detect_tail_calls(func);
+        crate::tail_call::rewrite_tail_calls(func);
+    }
 
     // Step 11: block merge (CFG cleanup).
-    crate::block_merge::merge_blocks(func);
+    {
+        let _span = tracing::info_span!("merge_blocks").entered();
+        crate::block_merge::merge_blocks(func);
+    }
 
     // Step 11a: COW annotations (post-merge, derived from state map).
-    func.cow_annotations =
-        crate::aims::emit_rc::cow::compute_aims_cow_annotations(func, &state_map, config.interner);
+    {
+        let _span = tracing::info_span!("compute_cow_annotations").entered();
+        func.cow_annotations = crate::aims::emit_rc::cow::compute_aims_cow_annotations(
+            func,
+            &state_map,
+            config.interner,
+        );
+    }
 
     // Step 12: drop hints (post-merge, derived from state map).
-    func.drop_hints =
-        crate::aims::emit_rc::drop_hints::compute_aims_drop_hints(func, &state_map, config.pool);
+    {
+        let _span = tracing::info_span!("compute_drop_hints").entered();
+        func.drop_hints = crate::aims::emit_rc::drop_hints::compute_aims_drop_hints(
+            func,
+            &state_map,
+            config.pool,
+        );
+    }
 
     // Step 13: final verification.
-    super::run_verify(func, "after AIMS pipeline", config.verify_arc);
+    {
+        let _span = tracing::info_span!("verify_final").entered();
+        super::run_verify(func, "after AIMS pipeline", config.verify_arc);
+    }
 
     // Step 14: FBIP enforcement.
+    check_fbip(func, config)
+}
+
+/// Check FBIP enforcement and auto-FBIP detection (Step 14).
+fn check_fbip(func: &ArcFunction, config: &AimsPipelineConfig<'_>) -> Vec<ArcProblem> {
     let mut problems = Vec::new();
     if func.is_fbip {
         let func_name = config.interner.lookup(func.name);
@@ -183,11 +232,16 @@ pub(crate) fn run_aims_pipeline_all(
     verify_arc: bool,
 ) -> Vec<ArcProblem> {
     // Step 1: interprocedural analysis → MemoryContract per function.
-    let contracts =
-        crate::aims::interprocedural::analyze_program(functions, classifier, builtins, interner);
+    let contracts = {
+        let _span = tracing::info_span!("analyze_program").entered();
+        crate::aims::interprocedural::analyze_program(functions, classifier, builtins, interner)
+    };
 
     // Step 2: apply ownership to function parameters.
-    apply_aims_ownership(functions, &contracts);
+    {
+        let _span = tracing::info_span!("apply_ownership").entered();
+        apply_aims_ownership(functions, &contracts);
+    }
 
     // Steps 3–14: per-function pipeline.
     let config = AimsPipelineConfig {

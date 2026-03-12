@@ -158,7 +158,7 @@ fixed-point convergence.
   Computed via `AimsState::iteration_limit()`.
 - [x] **Non-convergence safety net**: if iteration exceeds the bound, widen remaining
   variables to TOP and log a `tracing::warn!`. Implemented in `widen_to_top()`.
-- [ ] **Documentation plan (convergence strength):** The `intraprocedural/mod.rs`
+- [x] **Documentation plan (convergence strength):** The `intraprocedural/mod.rs`
   convergence documentation should note that AIMS's convergence guarantee is
   mathematically stronger than GHC's approach. GHC uses an empirical `n > 10`
   iteration cutoff in `dmdFix` (with `reuseEnv` demand stabilization for recursive
@@ -168,7 +168,7 @@ fixed-point convergence.
   convergence in lazy contexts; AIMS's strict evaluation model avoids these because
   all demands are strict by definition.
   (See: [Literature Review §09 — GHC Demand Analysis](../aims-literature-review/section-09-ghc-demand.md))
-- [ ] **Documentation plan (loop convergence at back-edges):** Document the loop
+- [x] **Documentation plan (loop convergence at back-edges):** Document the loop
   convergence argument in `compute_block_exit_state`: at a loop back-edge (successor
   = loop header), the function joins the loop header's current entry state with the
   loop body's exit contribution. Because `alt_join` = `max` on each dimension, and

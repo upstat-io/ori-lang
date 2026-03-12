@@ -313,6 +313,41 @@ mod cardinality_tests {
     }
 
     #[test]
+    fn seq_add_positivity() {
+        // QTT correspondence: no non-trivial cancellation.
+        // a.seq_add(b) == Absent implies both a == Absent and b == Absent.
+        for a in all_cardinality() {
+            for b in all_cardinality() {
+                if a.seq_add(b) == Absent {
+                    assert_eq!(
+                        a, Absent,
+                        "positivity violated: {a:?}.seq_add({b:?}) == Absent but a != Absent"
+                    );
+                    assert_eq!(
+                        b, Absent,
+                        "positivity violated: {a:?}.seq_add({b:?}) == Absent but b != Absent"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn right_distributivity_seq_add_over_alt_join() {
+        // (a.alt_join(b)).seq_add(c) == a.seq_add(c).alt_join(b.seq_add(c))
+        // Symmetric to left-distributivity tested above.
+        for a in all_cardinality() {
+            for b in all_cardinality() {
+                for c in all_cardinality() {
+                    let lhs = a.alt_join(b).seq_add(c);
+                    let rhs = a.seq_add(c).alt_join(b.seq_add(c));
+                    assert_eq!(lhs, rhs, "right-distributivity: {a:?}, {b:?}, {c:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn specific_values() {
         assert_eq!(Once.seq_add(Once), Many);
         assert_eq!(Once.alt_join(Once), Once);

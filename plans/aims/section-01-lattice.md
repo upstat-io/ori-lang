@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Unified Lattice Design"
-status: in-progress
+status: complete
 goal: "Define the AimsState product lattice with correct join, meet, and transfer functions"
 inspired_by:
   - "Perceus lambda_1 calculus (Reinking et al., PLDI 2021)"
@@ -820,9 +820,9 @@ lattice property verification — it never participates in join or transfer oper
 - [x] Cardinality semiring law tests: associativity, commutativity, identity of
   seq_add; associativity, idempotence of alt_join; distributivity of seq_add
   over alt_join (27 exhaustive cases each — see 01.4)
-- [ ] Cardinality positivity test: `a.seq_add(b) == Absent` implies both `a == Absent`
+- [x] Cardinality positivity test: `a.seq_add(b) == Absent` implies both `a == Absent`
   and `b == Absent` — 9 cases exhaustive (QTT correspondence: no non-trivial cancellation)
-- [ ] Cardinality right-distributivity test: `(a.alt_join(b)).seq_add(c) == a.seq_add(c).alt_join(b.seq_add(c))`
+- [x] Cardinality right-distributivity test: `(a.alt_join(b)).seq_add(c) == a.seq_add(c).alt_join(b.seq_add(c))`
   — 27 cases exhaustive (symmetric to left-distributivity)
 - [x] Feasible/infeasible state table documented and tested
 - [x] `AimsState::SCALAR` correctly short-circuits analysis for scalar types
