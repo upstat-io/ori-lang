@@ -520,3 +520,342 @@ fn effect_propagation_through_scc_converges() {
         "symmetric SCC members should have identical effects"
     );
 }
+
+// Demand propagation: linear consumption tightens callee uniqueness (Section 09.1)
+
+#[test]
+fn demand_propagation_single_caller_owned_linear_once() {
+    // callee(p0: T) -> T: { return p0 }
+    // caller(): { v0 = Construct; v1 = callee(v0); return v1 }
+    //
+    // caller passes a freshly constructed value (Owned, Linear, Once)
+    // to callee's param 0. Since this is the ONLY caller, the all-callers
+    // condition is satisfied → callee.params[0].uniqueness should be Unique.
+    let callee = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let caller = ArcFunction {
+        name: name(2),
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let builtins = crate::borrow::BuiltinOwnershipSets::empty();
+    let interner = ori_ir::StringInterner::new();
+
+    let contracts = analyze_program(&[callee, caller], &classifier, &builtins, &interner);
+
+    let callee_contract = &contracts[&name(1)];
+    assert_eq!(
+        callee_contract.params[0].uniqueness,
+        Uniqueness::Unique,
+        "single caller passing Owned+Linear+Once → callee param uniqueness should be Unique"
+    );
+}
+
+#[test]
+fn demand_propagation_multiple_callers_all_satisfy() {
+    // callee(p0: T) -> T: { return p0 }
+    // caller_a(): { v0 = Construct; v1 = callee(v0); return v1 }
+    // caller_b(): { v0 = Construct; v1 = callee(v0); return v1 }
+    //
+    // Both callers pass Owned+Linear+Once → callee param should be Unique.
+    let callee = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let make_caller = |caller_name: u32| ArcFunction {
+        name: name(caller_name),
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let caller_a = make_caller(2);
+    let caller_b = make_caller(3);
+
+    let classifier = TestClassifier::all_ref(2);
+    let builtins = crate::borrow::BuiltinOwnershipSets::empty();
+    let interner = ori_ir::StringInterner::new();
+
+    let contracts = analyze_program(
+        &[callee, caller_a, caller_b],
+        &classifier,
+        &builtins,
+        &interner,
+    );
+
+    let callee_contract = &contracts[&name(1)];
+    assert_eq!(
+        callee_contract.params[0].uniqueness,
+        Uniqueness::Unique,
+        "all callers pass Owned+Linear+Once → callee param uniqueness should be Unique"
+    );
+}
+
+#[test]
+fn demand_propagation_one_caller_violates() {
+    // callee(p0: T) -> T: { return p0 }
+    // caller_good(): { v0 = Construct; v1 = callee(v0); return v1 }
+    // caller_bad(p0: T): { v1 = callee(p0); v2 = callee(p0); return v2 }
+    //
+    // caller_bad passes p0 twice (cardinality=Many) → all-callers condition
+    // NOT satisfied → callee param stays MaybeShared.
+    let callee = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let caller_good = ArcFunction {
+        name: name(2),
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    // caller_bad passes the same param to callee twice (cardinality=Many).
+    let caller_bad = ArcFunction {
+        name: name(3),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let builtins = crate::borrow::BuiltinOwnershipSets::empty();
+    let interner = ori_ir::StringInterner::new();
+
+    let contracts = analyze_program(
+        &[callee, caller_good, caller_bad],
+        &classifier,
+        &builtins,
+        &interner,
+    );
+
+    let callee_contract = &contracts[&name(1)];
+    assert_eq!(
+        callee_contract.params[0].uniqueness,
+        Uniqueness::MaybeShared,
+        "one caller violates the condition → callee param stays MaybeShared"
+    );
+}
+
+#[test]
+fn demand_propagation_no_callers_stays_maybe_shared() {
+    // callee(p0: T) -> T: { return p0 }
+    // No other function calls callee → no demand info → stays MaybeShared.
+    let callee = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let builtins = crate::borrow::BuiltinOwnershipSets::empty();
+    let interner = ori_ir::StringInterner::new();
+
+    let contracts = analyze_program(&[callee], &classifier, &builtins, &interner);
+
+    let callee_contract = &contracts[&name(1)];
+    assert_eq!(
+        callee_contract.params[0].uniqueness,
+        Uniqueness::MaybeShared,
+        "no callers → no demand propagation → stays MaybeShared"
+    );
+}
+
+#[test]
+fn demand_propagation_forwarded_param_owned_linear_once() {
+    // callee(p0: T) -> T: { return p0 }
+    // caller(p0: T) -> T: { v1 = callee(p0); return v1 }
+    //
+    // caller forwards its own parameter to callee. The caller's backward
+    // demand on p0 is Owned+Linear+Once (used once at the callee call).
+    // Since this is the only caller, callee.params[0] should be Unique.
+    let callee = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let caller = ArcFunction {
+        name: name(2),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(0),
+                func: name(1),
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let builtins = crate::borrow::BuiltinOwnershipSets::empty();
+    let interner = ori_ir::StringInterner::new();
+
+    let contracts = analyze_program(&[callee, caller], &classifier, &builtins, &interner);
+
+    let callee_contract = &contracts[&name(1)];
+    assert_eq!(
+        callee_contract.params[0].uniqueness,
+        Uniqueness::Unique,
+        "forwarded param with Owned+Linear+Once → callee param uniqueness should be Unique"
+    );
+}

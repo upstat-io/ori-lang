@@ -193,10 +193,20 @@ pub struct ParamContract {
     /// Locality lower bound: the callee guarantees this parameter stays at
     /// least this local (v1: always `Unknown`).
     pub locality_bound: Locality,
+    /// Caller-guaranteed uniqueness at entry (Section 09.1).
+    ///
+    /// When ALL call sites pass this parameter with `Owned + Linear + Once`,
+    /// the interprocedural analysis tightens this to `Unique` — the callee
+    /// can trust that the argument's runtime RC == 1 at entry. This is the
+    /// callee-side dual of COW-aware borrowing (07.3.1).
+    ///
+    /// Default: `MaybeShared` (no caller guarantee).
+    pub uniqueness: Uniqueness,
 }
 
 impl ParamContract {
-    /// Conservative: owned, unrestricted, many uses, may escape/share, unknown locality.
+    /// Conservative: owned, unrestricted, many uses, may escape/share, unknown locality,
+    /// no caller uniqueness guarantee.
     pub const CONSERVATIVE: Self = Self {
         access: AccessClass::Owned,
         consumption: Consumption::Unrestricted,
@@ -204,9 +214,10 @@ impl ParamContract {
         may_escape: true,
         may_share: true,
         locality_bound: Locality::Unknown,
+        uniqueness: Uniqueness::MaybeShared,
     };
 
-    /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local.
+    /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique.
     ///
     /// Used as starting point for fixed-point iteration. All dimensions
     /// are at their bottom (most optimistic) values.
@@ -217,6 +228,7 @@ impl ParamContract {
         may_escape: false,
         may_share: false,
         locality_bound: Locality::BlockLocal,
+        uniqueness: Uniqueness::Unique,
     };
 
     /// Componentwise join toward conservative.
@@ -229,6 +241,7 @@ impl ParamContract {
             may_escape: self.may_escape || other.may_escape,
             may_share: self.may_share || other.may_share,
             locality_bound: self.locality_bound.join(other.locality_bound),
+            uniqueness: self.uniqueness.join(other.uniqueness),
         }
     }
 }

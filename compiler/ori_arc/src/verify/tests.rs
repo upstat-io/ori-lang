@@ -491,6 +491,7 @@ fn absent_param() -> ParamContract {
         may_escape: false,
         may_share: false,
         locality_bound: Locality::BlockLocal,
+        uniqueness: AimsUniqueness::MaybeShared,
     }
 }
 
@@ -503,6 +504,7 @@ fn used_param() -> ParamContract {
         may_escape: false,
         may_share: false,
         locality_bound: Locality::FunctionLocal,
+        uniqueness: AimsUniqueness::MaybeShared,
     }
 }
 
