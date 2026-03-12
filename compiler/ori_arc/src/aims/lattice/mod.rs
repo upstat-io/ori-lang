@@ -192,6 +192,21 @@ impl AimsState {
     /// 2. `Linear` + `Absent` is infeasible → collapse to `Dead`
     /// 3. `Shared` + reusable shape → collapse shape to `NonReusable`
     /// 4. `BlockLocal` + `Owned` + `≤Once` → `Unique` (Section 09.2/09.3)
+    /// 5. `Unique` + `Dead` → preserve `ReusableCtor` shape (implicit — no
+    ///    rule collapses shape here; documented for clarity)
+    /// 6. `HeapEscaping` → uniqueness ceiling `MaybeShared` (Section 09.3)
+    /// 7. `Shared` + `CollectionBuffer` → force Dynamic COW (Section 09.3,
+    ///    enforced at query sites via `needs_cow_check()`)
+    /// 8. `Borrowed` → locality ceiling `FunctionLocal` (Section 09.3)
+    ///
+    /// # Ordering and termination
+    ///
+    /// Rules are monotone within the product lattice. Rules 4 and 6 cannot
+    /// fire simultaneously on the same state (`BlockLocal` contradicts
+    /// `HeapEscaping`). Rule 8 forces locality down (away from `HeapEscaping`),
+    /// preventing Rule 6 from firing on the same state. Chain height is
+    /// bounded by the product of dimension heights. One pass suffices
+    /// (no rule creates a precondition for another rule to re-fire).
     pub fn canonicalize(&mut self) {
         // Rule 1: Dead ↔ Absent bidirectional sync
         if self.consumption == Consumption::Dead {
@@ -215,6 +230,30 @@ impl AimsState {
             self.shape = ShapeClass::NonReusable;
         }
 
+        // Rule 8 (Section 09.3): Borrowed → locality <= FunctionLocal.
+        // A borrowed reference cannot escape its defining function — it is a
+        // temporary view. HeapEscaping locality is contradictory for Borrowed
+        // values. Tightens locality down (toward bottom).
+        // Spec: OxCaml §01.2 K4, I2 — borrows are function-scoped by definition.
+        // Placed before Rules 4 and 6 so that locality is precise when those
+        // rules check it.
+        if self.access == AccessClass::Borrowed && self.locality > Locality::FunctionLocal {
+            self.locality = Locality::FunctionLocal;
+        }
+
+        // Rule 6 (Section 09.3): HeapEscaping → uniqueness >= MaybeShared.
+        // A value whose locality is HeapEscaping may be reachable from the
+        // heap. Unless the containing structure is provably Unique (checked
+        // in transfer, not canonicalize), the value cannot be assumed Unique.
+        // Only weakens Unique → MaybeShared. Does NOT affect MaybeShared or
+        // Shared (already at or above the ceiling).
+        // Spec: OxCaml §01.2 K1 — `global` modality forces `aliased`.
+        // Note: Rule 8 prevents Borrowed+HeapEscaping from reaching here,
+        // so this only fires on Owned+HeapEscaping states.
+        if self.locality == Locality::HeapEscaping && self.uniqueness == Uniqueness::Unique {
+            self.uniqueness = Uniqueness::MaybeShared;
+        }
+
         // Rule 4 (Section 09.2/09.3): BlockLocal + Owned + ≤Once → Unique.
         // A block-local value that is owned and used at most once cannot have
         // any other reference — the only way to create a second reference is
@@ -225,6 +264,7 @@ impl AimsState {
         // Soundness: this rule requires precise locality (Section 09.2).
         // BlockLocal implies precise locality — Unknown would never satisfy
         // this condition.
+        // Note: cannot conflict with Rule 6 — BlockLocal ≠ HeapEscaping.
         if self.locality == Locality::BlockLocal
             && self.access == AccessClass::Owned
             && self.cardinality <= Cardinality::Once
@@ -232,6 +272,12 @@ impl AimsState {
         {
             self.uniqueness = Uniqueness::Unique;
         }
+
+        // Rule 5 (Section 09.3): Unique + Dead → preserve ReusableCtor.
+        // A unique dead value's memory IS reusable — don't collapse shape.
+        // This is implicit: no rule above collapses shape for Unique+Dead.
+        // Rule 3 only fires for Shared. This comment documents the invariant
+        // explicitly so future rules don't accidentally break it.
     }
 
     /// Whether this variable needs RC operations.
