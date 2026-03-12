@@ -105,13 +105,7 @@ pub(crate) fn run_aims_pipeline(
     // Step 6: RC emission from state map.
     {
         let _span = tracing::info_span!("emit_rc_ops").entered();
-        let _rc_result = crate::aims::emit_rc::emit_rc_ops(
-            func,
-            &state_map,
-            config.contracts,
-            config.classifier,
-            config.pool,
-        );
+        let _rc_result = crate::aims::emit_rc::emit_rc_ops(func, &state_map, config.pool);
     }
 
     // Step 7: reuse emission from state map (consults FipContract — Section 05.4).

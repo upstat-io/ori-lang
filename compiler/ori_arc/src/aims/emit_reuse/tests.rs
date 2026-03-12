@@ -2273,3 +2273,147 @@ fn fip_certified_unique_source_no_gate() {
         "no gate record when source was already Unique"
     );
 }
+
+// Transfer fusion tests (Section 09.1)
+
+/// Transfer Fusion Rule 2: Block-local construct is Unique, enabling static reuse.
+///
+/// `transfer_construct` produces `FRESH` state (`Unique` + `ReusableCtor` shape).
+/// This uniqueness is what enables static reuse: when the value is consumed (`RcDec`)
+/// and a new value of the same type is constructed, the old allocation can be reused
+/// in-place without a runtime uniqueness check.
+///
+/// This test verifies the full flow: construct → Unique → consume → reuse.
+/// The existing `same_block_struct_reuse` test verifies the reuse mechanics;
+/// this test explicitly documents that `transfer_construct`'s uniqueness guarantee
+/// is the prerequisite enabling static reuse.
+#[test]
+fn block_local_construct_enables_static_reuse() {
+    let v_old = ArcVarId::new(0); // Freshly constructed, Unique
+    let v_new = ArcVarId::new(1); // Replacement Construct
+    let v_field = ArcVarId::new(2); // Field value for new Construct
+    let struct_name = Name::new(0, 100);
+
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            // v_old consumed — its memory can be reused
+            ArcInstr::RcDec {
+                var: v_old,
+                strategy: crate::ir::RcStrategy::HeapPointer,
+            },
+            // Same-type Construct — candidate for reuse of v_old's memory
+            ArcInstr::Construct {
+                dst: v_new,
+                ty: Idx::NONE,
+                ctor: CtorKind::Struct(struct_name),
+                args: vec![v_field],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_new },
+    };
+
+    let mut func = make_func(vec![block], 3);
+    func.spans = vec![vec![None; 2]];
+
+    let mut state_map = AimsStateMap::new(&func);
+    let blk = ArcBlockId::new(0);
+
+    // v_old has exactly the state that transfer_construct produces:
+    // Unique + ReusableCtor(Struct). This is the "block-local construct"
+    // state — the value was just constructed, hasn't escaped, and has
+    // the only reference. Unique enables static reuse (no IsShared check).
+    state_map.update_block_entry(
+        blk,
+        [(v_old, owned_unique_reusable(Cardinality::Once))]
+            .into_iter()
+            .collect(),
+    );
+    state_map.update_block_exit(
+        blk,
+        [(v_old, owned_unique_reusable(Cardinality::Absent))]
+            .into_iter()
+            .collect(),
+    );
+
+    let pool = ori_types::Pool::new();
+    let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
+
+    // Static reuse enabled because v_old is Unique (from transfer_construct).
+    assert_eq!(
+        result.static_reuses, 1,
+        "Unique construct should enable static reuse — \
+         transfer_construct's FRESH state (Unique + ReusableCtor) is the prerequisite"
+    );
+    assert_eq!(
+        result.dynamic_reuses, 0,
+        "Unique construct should NOT produce dynamic reuse"
+    );
+}
+
+/// Contrast test: `MaybeShared` construct requires dynamic (conditional) reuse.
+///
+/// Same structure as `block_local_construct_enables_static_reuse`, but the
+/// dying variable is `MaybeShared` instead of `Unique`. This means the memory
+/// can only be reused after a runtime uniqueness check (`IsShared` + branch).
+///
+/// This proves that `transfer_construct`'s `Unique` guarantee specifically
+/// enables static reuse — without it, dynamic reuse is the fallback.
+#[test]
+fn maybe_shared_construct_requires_dynamic_reuse() {
+    let v_old = ArcVarId::new(0); // MaybeShared — may have other references
+    let v_new = ArcVarId::new(1);
+    let v_field = ArcVarId::new(2);
+    let struct_name = Name::new(0, 100);
+
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: Vec::new(),
+        body: vec![
+            ArcInstr::RcDec {
+                var: v_old,
+                strategy: crate::ir::RcStrategy::HeapPointer,
+            },
+            ArcInstr::Construct {
+                dst: v_new,
+                ty: Idx::NONE,
+                ctor: CtorKind::Struct(struct_name),
+                args: vec![v_field],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_new },
+    };
+
+    let mut func = make_func(vec![block], 3);
+    func.spans = vec![vec![None; 2]];
+
+    let mut state_map = AimsStateMap::new(&func);
+    let blk = ArcBlockId::new(0);
+
+    // v_old is MaybeShared — cannot statically prove uniqueness.
+    // The reuse opportunity exists but requires a runtime check.
+    let maybe_shared_entry = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..owned_unique_reusable(Cardinality::Once)
+    };
+    let maybe_shared_exit = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..owned_unique_reusable(Cardinality::Absent)
+    };
+    state_map.update_block_entry(blk, [(v_old, maybe_shared_entry)].into_iter().collect());
+    state_map.update_block_exit(blk, [(v_old, maybe_shared_exit)].into_iter().collect());
+
+    let pool = ori_types::Pool::new();
+    let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
+
+    // MaybeShared → dynamic reuse (runtime check needed).
+    assert_eq!(
+        result.static_reuses, 0,
+        "MaybeShared should NOT produce static reuse"
+    );
+    assert_eq!(
+        result.dynamic_reuses, 1,
+        "MaybeShared should produce dynamic reuse with runtime uniqueness check"
+    );
+}

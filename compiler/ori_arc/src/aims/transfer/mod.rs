@@ -411,20 +411,54 @@ pub fn can_mutate_in_place(state: &AimsState) -> bool {
 
 /// Update a captured variable's state for `PartialApply`.
 ///
-/// Captured args get `(Owned, Unrestricted, Many)` and locality
-/// promoted to `HeapEscaping` — the closure may outlive the defining
-/// function and invoke captured values multiple times.
+/// Locality is closure-aware (Section 09.2): captured args inherit the
+/// closure's own locality — if the closure stays function-local, captured
+/// args need only `FunctionLocal`; if it escapes to the heap, captured
+/// args get `HeapEscaping`. The closure's state comes from the backward
+/// analysis (how the closure variable is demanded downstream).
+///
+/// If the closure is consumed linearly (`Once`, consumption `<= Linear`),
+/// captured values preserve uniqueness — this is the `OxCaml` "lock"
+/// mechanism (LAM rule). A once-closure invokes captured values exactly
+/// once, so no duplication occurs.
 ///
 /// Returns the input unchanged for scalar variables.
-pub fn capture_state_update(current: &AimsState) -> AimsState {
+pub fn capture_state_update(current: &AimsState, closure_state: &AimsState) -> AimsState {
     if current.is_scalar() {
         return *current;
     }
     let mut state = *current;
     state.access = AccessClass::Owned;
-    state.consumption = Consumption::Unrestricted;
-    state.cardinality = Cardinality::Many;
-    state.locality = Locality::HeapEscaping;
+
+    // Once-closure optimization (OxCaml LAM rule): if the closure is
+    // consumed at most once, captured variables are used at most once
+    // through the closure, preserving linearity and uniqueness.
+    if closure_state.cardinality <= Cardinality::Once
+        && closure_state.consumption <= Consumption::Linear
+    {
+        // Captured var is used through the closure at most once.
+        // Keep consumption/cardinality from current state (don't widen).
+        // Only ensure at least Affine (may be dropped if closure is dropped).
+        if state.consumption < Consumption::Affine {
+            state.consumption = Consumption::Affine;
+        }
+        if state.cardinality < Cardinality::Once {
+            state.cardinality = Cardinality::Once;
+        }
+    } else {
+        // Multi-use closure: captured values may be used many times.
+        state.consumption = Consumption::Unrestricted;
+        state.cardinality = Cardinality::Many;
+    }
+
+    // Closure-aware locality: captured vars inherit the closure's locality,
+    // but at least FunctionLocal (they escape the defining block into the
+    // closure's scope).
+    let capture_locality = closure_state.locality.max(Locality::FunctionLocal);
+    if state.locality < capture_locality {
+        state.locality = capture_locality;
+    }
+
     state.canonicalize();
     state
 }

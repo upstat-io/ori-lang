@@ -9,7 +9,6 @@ use ori_types::Idx;
 
 use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcVarId};
 use crate::ownership::Ownership;
-use crate::{ArcClass, ArcClassification};
 
 /// Shorthand for `ArcVarId::new(n)`.
 pub(crate) fn v(n: u32) -> ArcVarId {
@@ -114,18 +113,4 @@ pub(crate) fn count_dec(func: &ArcFunction, block_idx: usize, var: ArcVarId) -> 
         .iter()
         .filter(|i| matches!(i, ArcInstr::RcDec { var: v, .. } if *v == var))
         .count()
-}
-
-// Test classifier
-
-/// Simple test classifier that treats all types as `DefiniteRef`.
-///
-/// Used by AIMS `emit_rc` tests and other tests that need a classifier
-/// but don't care about classification specifics.
-pub(crate) struct TestClassifier;
-
-impl ArcClassification for TestClassifier {
-    fn arc_class(&self, _idx: Idx) -> ArcClass {
-        ArcClass::DefiniteRef
-    }
 }

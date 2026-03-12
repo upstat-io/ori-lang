@@ -680,9 +680,16 @@ fn cannot_mutate_maybe_shared() {
 // Capture state update
 
 #[test]
-fn capture_update_promotes_to_heap_escaping() {
+fn capture_update_escaping_closure_promotes_to_heap_escaping() {
     let state = AimsState::FRESH;
-    let updated = capture_state_update(&state);
+    // Closure that escapes (returned/stored in heap).
+    let closure_state = AimsState {
+        locality: Locality::HeapEscaping,
+        cardinality: Cardinality::Many,
+        consumption: Consumption::Unrestricted,
+        ..AimsState::TOP
+    };
+    let updated = capture_state_update(&state, &closure_state);
     assert_eq!(updated.access, AccessClass::Owned);
     assert_eq!(updated.consumption, Consumption::Unrestricted);
     assert_eq!(updated.cardinality, Cardinality::Many);
@@ -690,9 +697,62 @@ fn capture_update_promotes_to_heap_escaping() {
 }
 
 #[test]
+fn capture_update_local_closure_gets_function_local() {
+    let state = AimsState::FRESH;
+    // Closure that stays function-local (used Many times, but doesn't escape).
+    let closure_state = AimsState {
+        locality: Locality::FunctionLocal,
+        cardinality: Cardinality::Many,
+        consumption: Consumption::Unrestricted,
+        ..AimsState::BOTTOM
+    };
+    let updated = capture_state_update(&state, &closure_state);
+    assert_eq!(updated.access, AccessClass::Owned);
+    assert_eq!(updated.consumption, Consumption::Unrestricted);
+    assert_eq!(updated.cardinality, Cardinality::Many);
+    assert_eq!(updated.locality, Locality::FunctionLocal);
+}
+
+#[test]
+fn capture_update_once_closure_preserves_linearity() {
+    let state = AimsState::FRESH;
+    // Once-closure: consumed linearly, stays function-local.
+    let closure_state = AimsState {
+        locality: Locality::FunctionLocal,
+        cardinality: Cardinality::Once,
+        consumption: Consumption::Linear,
+        ..AimsState::BOTTOM
+    };
+    let updated = capture_state_update(&state, &closure_state);
+    assert_eq!(updated.access, AccessClass::Owned);
+    // Once-closure: captured var is used at most once through the closure,
+    // so consumption stays Affine (may be dropped) not Unrestricted.
+    assert_eq!(updated.consumption, Consumption::Affine);
+    assert_eq!(updated.cardinality, Cardinality::Once);
+    assert_eq!(updated.locality, Locality::FunctionLocal);
+}
+
+#[test]
+fn capture_update_block_local_closure_widens_to_function_local() {
+    let state = AimsState::FRESH;
+    // Closure with BlockLocal locality — captured vars still need at least
+    // FunctionLocal because they escape the defining block.
+    let closure_state = AimsState {
+        locality: Locality::BlockLocal,
+        cardinality: Cardinality::Once,
+        consumption: Consumption::Linear,
+        ..AimsState::BOTTOM
+    };
+    let updated = capture_state_update(&state, &closure_state);
+    // Capture locality is max(closure.locality, FunctionLocal) = FunctionLocal.
+    assert_eq!(updated.locality, Locality::FunctionLocal);
+}
+
+#[test]
 fn capture_update_preserves_scalar() {
     let scalar = AimsState::SCALAR;
-    let updated = capture_state_update(&scalar);
+    let closure_state = AimsState::TOP;
+    let updated = capture_state_update(&scalar, &closure_state);
     assert_eq!(updated, AimsState::SCALAR);
 }
 

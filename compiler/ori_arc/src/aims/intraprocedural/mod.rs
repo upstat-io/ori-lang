@@ -81,6 +81,7 @@ pub fn analyze_function(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
+    // Reserved for Stage 3 (TRMC context regions). Empty slice in Stages 1–2.
     _context_regions: &[ContextRegion],
     immortals: Vec<bool>,
 ) -> AimsStateMap {
@@ -151,14 +152,8 @@ pub fn analyze_function(
             }
 
             // Compute the block's entry state by walking instructions backward.
-            let entry_state = block::compute_block_entry_state(
-                func,
-                block_id,
-                &state_map,
-                classifier,
-                sigs,
-                &invoke_defs,
-            );
+            let entry_state =
+                block::compute_block_entry_state(func, block_id, &state_map, sigs, &invoke_defs);
             state_map.update_block_entry(block_id, entry_state);
         }
 

@@ -13,7 +13,8 @@ use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind, RcStrategy,
 };
 
-use super::{build_proj_map, is_self_set, ProjMap, ReuseOpportunity};
+use super::set_ops::{build_proj_map, is_self_set, ProjMap};
+use super::ReuseOpportunity;
 
 /// Extracted data from a block needed for dynamic reuse expansion.
 struct DynamicReuseContext {
