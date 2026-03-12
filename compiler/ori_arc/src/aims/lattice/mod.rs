@@ -6,8 +6,9 @@
 //!
 //! **Core**: [`AccessClass`], [`Consumption`], [`Cardinality`], [`Uniqueness`]
 //! **Active auxiliary**: [`Locality`] (precise since Section 09.2),
-//!   [`EffectClass`] (precise since Section 09.2 Effect Activation)
-//! **Conservative auxiliary** (v1): [`ShapeClass`]
+//!   [`EffectClass`] (precise since Section 09.2 Effect Activation),
+//!   [`ShapeClass`] (precise since Section 09.2 Shape Activation — per-variable
+//!   shape map, cross-dimensional reuse/COW, TRMC `ContextHole` detection)
 //!
 //! Lattice properties: idempotent, commutative, associative join; monotonic
 //! transfer; finite height 15. See tests for exhaustive verification.

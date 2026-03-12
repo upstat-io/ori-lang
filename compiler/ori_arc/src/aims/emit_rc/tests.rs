@@ -15,11 +15,11 @@ use ori_types::Idx;
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::{
     AccessClass, AimsState, BorrowSource, Cardinality, Consumption, EffectClass, Locality,
-    ShapeClass, Uniqueness,
+    ReuseCtorKind, ShapeClass, Uniqueness,
 };
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-    ArgOwnership, LitValue, ValueRepr,
+    ArgOwnership, CtorKind, LitValue, ValueRepr,
 };
 use crate::uniqueness::drop_hints::DropHints;
 use crate::uniqueness::CowAnnotations;
@@ -1046,6 +1046,173 @@ fn cross_dimension_synergy_cow_aware_borrowing() {
         "cross-dimensional synergy: (Owned, Linear, Once) overrides MaybeShared → \
          StaticUnique; neither uniqueness alone (Dynamic) nor cardinality alone \
          (no COW info) could achieve this"
+    );
+}
+
+// Shape-aware COW tests (Section 09.2 Shape Activation)
+
+/// `CollectionBuffer` + `Once` + `MaybeShared` → `StaticUnique` COW for non-parameter.
+///
+/// Cross-dimensional proof: fresh collection literal (refcount=1) + single use
+/// (`Once`, no duplication) → provably unique at the mutation point. The shape
+/// dimension provides the "fresh construction" fact that the uniqueness dimension
+/// alone cannot derive (backward analysis defaults to `MaybeShared`).
+#[test]
+fn collection_buffer_once_non_param_is_static_unique_cow() {
+    let v0 = ArcVarId::new(0); // collection literal (non-param)
+    let v1 = ArcVarId::new(1); // literal value
+    let v2 = ArcVarId::new(2); // result of push
+
+    let (interner, push_name) = make_cow_interner();
+
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Construct {
+                dst: v0,
+                ty: Idx::NONE,
+                ctor: CtorKind::ListLiteral,
+                args: vec![],
+            },
+            ArcInstr::Let {
+                dst: v1,
+                ty: Idx::NONE,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            },
+            // COW push on v0 (collection buffer)
+            ArcInstr::Apply {
+                dst: v2,
+                ty: Idx::NONE,
+                func: push_name,
+                args: vec![v0, v1],
+                arg_ownership: vec![],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v2 },
+    };
+
+    let func = ArcFunction {
+        name: Name::new(0, 0),
+        // No params — v0 is NOT a parameter
+        params: Vec::new(),
+        return_type: Idx::NONE,
+        blocks: vec![block],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::NONE; 3],
+        var_reprs: vec![ValueRepr::RcPointer; 3],
+        spans: Vec::new(),
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
+    };
+
+    let mut state_map = AimsStateMap::new(&func);
+    // v0: MaybeShared + Once + CollectionBuffer
+    let collection_state = AimsState {
+        access: AccessClass::Owned,
+        consumption: Consumption::Linear,
+        cardinality: Cardinality::Once,
+        uniqueness: Uniqueness::MaybeShared,
+        locality: Locality::FunctionLocal,
+        shape: ShapeClass::CollectionBuffer,
+        effect: EffectClass::NONE,
+    };
+    state_map.update_block_entry(
+        ArcBlockId::new(0),
+        [(v0, collection_state)].into_iter().collect(),
+    );
+    state_map.set_var_shape(v0, ShapeClass::CollectionBuffer);
+
+    let annotations = compute_aims_cow_annotations(&func, &state_map, &interner);
+
+    // Non-parameter + MaybeShared + Once + CollectionBuffer → StaticUnique
+    let mode = annotations.get(0, 2);
+    assert_eq!(
+        mode,
+        CowMode::StaticUnique,
+        "non-parameter with CollectionBuffer+Once+MaybeShared should get StaticUnique \
+         via cross-dimensional shape-aware COW optimization"
+    );
+}
+
+/// `ReusableCtor` + `Once` + `MaybeShared` → `StaticUnique` COW for non-parameter.
+///
+/// Same cross-dimensional proof as `CollectionBuffer`, applied to struct/enum
+/// constructors. Fresh construction + single use → provably unique.
+#[test]
+fn reusable_ctor_once_non_param_is_static_unique_cow() {
+    let v0 = ArcVarId::new(0); // struct constructor (non-param)
+    let v1 = ArcVarId::new(1); // literal value
+    let v2 = ArcVarId::new(2); // result of push
+
+    let (interner, push_name) = make_cow_interner();
+
+    let block = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Construct {
+                dst: v0,
+                ty: Idx::NONE,
+                ctor: CtorKind::Struct(Name::from_raw(100)),
+                args: vec![],
+            },
+            ArcInstr::Let {
+                dst: v1,
+                ty: Idx::NONE,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            },
+            ArcInstr::Apply {
+                dst: v2,
+                ty: Idx::NONE,
+                func: push_name,
+                args: vec![v0, v1],
+                arg_ownership: vec![],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v2 },
+    };
+
+    let func = ArcFunction {
+        name: Name::new(0, 0),
+        params: Vec::new(),
+        return_type: Idx::NONE,
+        blocks: vec![block],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::NONE; 3],
+        var_reprs: vec![ValueRepr::RcPointer; 3],
+        spans: Vec::new(),
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
+        tail_calls: Vec::new(),
+    };
+
+    let mut state_map = AimsStateMap::new(&func);
+    let ctor_state = AimsState {
+        access: AccessClass::Owned,
+        consumption: Consumption::Linear,
+        cardinality: Cardinality::Once,
+        uniqueness: Uniqueness::MaybeShared,
+        locality: Locality::FunctionLocal,
+        shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        effect: EffectClass::NONE,
+    };
+    state_map.update_block_entry(ArcBlockId::new(0), [(v0, ctor_state)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
+
+    let annotations = compute_aims_cow_annotations(&func, &state_map, &interner);
+
+    let mode = annotations.get(0, 2);
+    assert_eq!(
+        mode,
+        CowMode::StaticUnique,
+        "non-parameter with ReusableCtor+Once+MaybeShared should get StaticUnique \
+         via cross-dimensional shape-aware COW optimization"
     );
 }
 

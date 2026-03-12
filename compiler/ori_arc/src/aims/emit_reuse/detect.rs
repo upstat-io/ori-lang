@@ -14,7 +14,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_types::{Idx, Pool};
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
-use crate::aims::lattice::{ShapeClass, SizeClass, Uniqueness};
+use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr};
 
 use super::planner::ReusePlanner;
@@ -66,8 +66,17 @@ pub(super) fn find_reuse_opportunities(
     (all, total_deaths)
 }
 
-/// Collect death events: `RcDec` instructions where the variable is owned,
-/// unique or maybe-shared, and has a reusable shape.
+/// Collect death events: `RcDec` instructions where the variable has a
+/// reusable shape and is unique or maybe-shared.
+///
+/// Shape is read from the per-variable shape map (populated post-convergence
+/// from definition instructions), NOT from block-level exit states. This is
+/// necessary because backward analysis doesn't propagate shape through use
+/// sites — the block exit state for a dying variable typically has BOTTOM
+/// shape (`NonReusable`).
+///
+/// Section 09.2 Shape Activation: per-variable shape enables death event
+/// detection that was previously blocked by missing shape propagation.
 pub(super) fn collect_death_events(
     func: &ArcFunction,
     state_map: &AimsStateMap,
@@ -86,15 +95,25 @@ pub(super) fn collect_death_events(
                     continue;
                 }
 
+                // Shape from definition instruction (per-variable, not per-block).
+                // The backward analysis doesn't propagate shape through use
+                // sites, so the block exit state's shape is typically BOTTOM
+                // (NonReusable). The per-variable shape map has the correct
+                // shape from the definition instruction.
+                let shape = state_map.var_shape(*var);
+                if matches!(shape, ShapeClass::NonReusable) {
+                    continue;
+                }
+
+                // Uniqueness from block exit state (demand from successors).
+                // For dying variables with no successor demand, this is BOTTOM
+                // (Unique) — correct, as no other references exist downstream.
+                // For variables also demanded by successors (branch/loop),
+                // uniqueness reflects the join of successor demands.
                 let state = state_map.var_state_at_block_exit(blk, *var);
 
                 // Must be unique or maybe-shared for reuse.
                 if state.uniqueness == Uniqueness::Shared {
-                    continue;
-                }
-
-                // Must have a reusable shape.
-                if matches!(state.shape, ShapeClass::NonReusable) {
                     continue;
                 }
 
@@ -105,8 +124,9 @@ pub(super) fn collect_death_events(
                     block: blk,
                     instr_idx,
                     uniqueness: state.uniqueness,
+                    cardinality: state.cardinality,
                     ty,
-                    shape: state.shape,
+                    shape,
                     size_class: SizeClass::UNKNOWN, // Stage 1: same-type matching implies same size.
                 });
             }
@@ -217,12 +237,22 @@ fn match_same_block(
         consumed_allocs.insert((alloc.block, alloc.instr_idx));
         consumed_deaths.insert((death.block, death.instr_idx));
 
+        // Cross-dimensional uniqueness proof (Section 09.2 Shape Activation):
+        // Once+ReusableCtor → static reuse without IsShared check.
+        // Fresh construction (ReusableCtor shape) gives refcount=1.
+        // Single use (Once cardinality) means no duplication occurred.
+        // Therefore, even if uniqueness says MaybeShared (conservative),
+        // the value is provably unique at its death point.
+        let is_static = death.uniqueness == Uniqueness::Unique
+            || (death.uniqueness == Uniqueness::MaybeShared
+                && death.cardinality == Cardinality::Once
+                && matches!(death.shape, ShapeClass::ReusableCtor(_)));
         opportunities.push(ReuseOpportunity {
             source_var: death.var,
             source_block: death.block,
             source_instr: death.instr_idx,
             target_instr: (alloc.block, alloc.instr_idx),
-            is_static_unique: death.uniqueness == Uniqueness::Unique,
+            is_static_unique: is_static,
         });
     }
 

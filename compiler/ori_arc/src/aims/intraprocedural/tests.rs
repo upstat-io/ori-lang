@@ -11,7 +11,7 @@ use crate::ir::{
 use crate::ArcClass;
 
 use super::super::contract::MemoryContract;
-use super::super::lattice::{AimsState, Cardinality, Locality};
+use super::super::lattice::{AimsState, Cardinality, Locality, ReuseCtorKind, ShapeClass};
 
 // Mock classifier for tests
 
@@ -2349,5 +2349,261 @@ fn once_closure_capture_preserves_cardinality() {
         entry_v0.cardinality,
         Cardinality::Once,
         "once-closure capture should preserve Once cardinality"
+    );
+}
+
+// TRMC candidate detection (Section 09.2 Shape Activation)
+
+/// Recursive Construct → `ContextHole` when soundness conditions hold.
+///
+/// Pattern: `let v1 = self(args); let v2 = Construct(v1); return v2`
+/// The Construct uses the result of a recursive call as a field arg.
+/// With `Unique` + `FunctionLocal` + `!may_share`, v2 gets `ContextHole` shape.
+#[test]
+fn trmc_candidate_detected_for_recursive_construct() {
+    let self_name = Name::from_raw(42);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                // v0 = literal (base argument)
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                // v1 = self(v0) — recursive call
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // v2 = Construct(v1) — constructor wrapping recursive result
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // v2 should be ContextHole — recursive call result feeds into Construct.
+    assert_eq!(
+        state_map.var_shape(var(2)),
+        ShapeClass::ContextHole,
+        "Construct wrapping recursive Apply result should be ContextHole"
+    );
+
+    // v1 should NOT be ContextHole — it's the recursive call result, not a Construct.
+    assert_ne!(
+        state_map.var_shape(var(1)),
+        ShapeClass::ContextHole,
+        "Apply result should not be ContextHole"
+    );
+}
+
+/// Non-recursive call → shape stays `ReusableCtor`, no `ContextHole`.
+#[test]
+fn trmc_not_detected_for_non_recursive_call() {
+    let self_name = Name::from_raw(42);
+    let other_name = Name::from_raw(99);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                // v1 = other(v0) — NOT recursive
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: other_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // Should be ReusableCtor, NOT ContextHole — the call is not recursive.
+    assert_eq!(
+        state_map.var_shape(var(2)),
+        ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        "Non-recursive call wrapping should stay ReusableCtor"
+    );
+}
+
+/// Enum variant Construct wrapping recursive result → `ContextHole`.
+#[test]
+fn trmc_candidate_detected_for_recursive_enum_construct() {
+    let self_name = Name::from_raw(42);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::EnumVariant {
+                        enum_name: Name::from_raw(100),
+                        variant: 0,
+                    },
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert_eq!(
+        state_map.var_shape(var(2)),
+        ShapeClass::ContextHole,
+        "EnumVariant Construct wrapping recursive Apply should be ContextHole"
+    );
+}
+
+/// Construct wrapping recursive result but with no field args from recursion
+/// stays `ReusableCtor`.
+#[test]
+fn trmc_not_detected_when_recursive_result_not_in_construct_args() {
+    let self_name = Name::from_raw(42);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                // v1 = self(v0) — recursive, but its result is not used by v3
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(2)),
+                },
+                // v3 = Construct(v2) — uses v2 (non-recursive), not v1
+                ArcInstr::Construct {
+                    dst: var(3),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(2)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert_eq!(
+        state_map.var_shape(var(3)),
+        ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        "Construct not using recursive result should stay ReusableCtor"
+    );
+}
+
+/// Tuple constructor is not a TRMC candidate (not reusable).
+#[test]
+fn trmc_not_detected_for_tuple_constructor() {
+    let self_name = Name::from_raw(42);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Tuple,
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert_eq!(
+        state_map.var_shape(var(2)),
+        ShapeClass::NonReusable,
+        "Tuple constructor is never a TRMC candidate"
     );
 }

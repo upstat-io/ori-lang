@@ -117,6 +117,7 @@ fn same_block_struct_reuse() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -395,6 +396,7 @@ fn maybe_shared_emits_conditional_branch() {
     };
     state_map.update_block_entry(blk, [(v0, maybe_shared_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v0, maybe_shared_exit)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -542,6 +544,7 @@ fn self_set_elimination_skips_unchanged_field() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -622,6 +625,7 @@ fn no_projections_all_fields_set() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -699,6 +703,7 @@ fn all_fields_self_set_no_sets() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -770,6 +775,7 @@ fn enum_variant_reuse_emits_set_tag() {
         .collect(),
     );
     state_map.update_block_exit(blk, [(v0, enum_state)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -847,6 +853,7 @@ fn enum_self_set_with_tag_change() {
         .collect(),
     );
     state_map.update_block_exit(blk, [(v0, enum_state)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -1005,6 +1012,7 @@ fn dynamic_reuse_moves_between_instructions() {
     };
     state_map.update_block_entry(blk, [(v0, ms_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v0, ms_exit)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -1066,6 +1074,7 @@ fn dynamic_reuse_no_merge_block() {
     };
     state_map.update_block_entry(blk, [(v0, ms_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v0, ms_exit)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -1160,6 +1169,7 @@ fn dynamic_reuse_self_set_elimination() {
     };
     state_map.update_block_entry(blk, [(v0, ms_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v0, ms_exit)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -1239,6 +1249,7 @@ fn dynamic_reuse_enum_variant() {
     };
     state_map.update_block_entry(blk, [(v0, enum_state_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v0, enum_state_exit)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -1326,6 +1337,7 @@ fn cross_block_static_unique_reuse() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
     // v0 dead in block 1.
     state_map.update_block_entry(
         blk1,
@@ -1400,6 +1412,7 @@ fn cross_block_self_set_elimination() {
         state_map.update_block_entry(blk, entry);
         state_map.update_block_exit(blk, exit);
     }
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -1785,6 +1798,7 @@ fn cross_block_enum_variant_reuse() {
         .collect(),
     );
     state_map.update_block_exit(blk0, [(v0, enum_state)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -1878,6 +1892,7 @@ fn cross_block_reuse_through_intervening_block() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -1946,6 +1961,7 @@ fn fip_certified_upgrades_maybe_shared_to_static() {
     };
     state_map.update_block_entry(blk, [(v0, maybe_shared_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v0, maybe_shared_exit)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     // FIP-certified contract: upgrade MaybeShared → static-unique.
     let mut contracts = FxHashMap::default();
@@ -2019,6 +2035,7 @@ fn fip_conditional_records_gate_keeps_dynamic() {
     };
     state_map.update_block_entry(blk, [(v0, maybe_shared_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v0, maybe_shared_exit)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     // FIP-conditional: requires param 0 to be unique.
     let mut contracts = FxHashMap::default();
@@ -2096,6 +2113,7 @@ fn fip_never_no_change() {
     };
     state_map.update_block_entry(blk, [(v0, maybe_shared_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v0, maybe_shared_exit)].into_iter().collect());
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     // FIP-never: no FIP influence.
     let mut contracts = FxHashMap::default();
@@ -2156,6 +2174,7 @@ fn no_contract_no_fip_influence() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     // Empty contracts: function not found → no FIP influence.
     let pool = ori_types::Pool::new();
@@ -2203,6 +2222,7 @@ fn missed_reuses_counted() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -2256,6 +2276,7 @@ fn fip_certified_unique_source_no_gate() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v0, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let mut contracts = FxHashMap::default();
     contracts.insert(
@@ -2336,6 +2357,7 @@ fn block_local_construct_enables_static_reuse() {
             .into_iter()
             .collect(),
     );
+    state_map.set_var_shape(v_old, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -2403,6 +2425,7 @@ fn maybe_shared_construct_requires_dynamic_reuse() {
     };
     state_map.update_block_entry(blk, [(v_old, maybe_shared_entry)].into_iter().collect());
     state_map.update_block_exit(blk, [(v_old, maybe_shared_exit)].into_iter().collect());
+    state_map.set_var_shape(v_old, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
 
     let pool = ori_types::Pool::new();
     let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
@@ -2415,5 +2438,129 @@ fn maybe_shared_construct_requires_dynamic_reuse() {
     assert_eq!(
         result.dynamic_reuses, 1,
         "MaybeShared should produce dynamic reuse with runtime uniqueness check"
+    );
+}
+
+// Cross-dimensional uniqueness proof (Section 09.2 Shape Activation)
+
+/// `MaybeShared` + `Once` + `ReusableCtor` → static reuse (no `IsShared` check).
+///
+/// Cross-dimensional uniqueness proof: fresh construction (refcount=1) + single
+/// use (`Once`, no duplication) → provably unique at death point, even when the
+/// uniqueness dimension says `MaybeShared` (conservative backward default).
+#[test]
+fn cross_dimensional_maybe_shared_once_reusable_is_static() {
+    let v_old = ArcVarId::new(0);
+    let v_new = ArcVarId::new(1);
+    let v_field = ArcVarId::new(2);
+    let blk = ArcBlockId::new(0);
+
+    let mut func = make_func(
+        vec![ArcBlock {
+            id: blk,
+            params: vec![],
+            body: vec![
+                ArcInstr::RcDec {
+                    var: v_old,
+                    strategy: crate::ir::RcStrategy::HeapPointer,
+                },
+                ArcInstr::Construct {
+                    dst: v_new,
+                    ty: Idx::NONE,
+                    ctor: CtorKind::Struct(Name::from_raw(0)),
+                    args: vec![v_field],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v_new },
+        }],
+        3,
+    );
+
+    let mut state_map = AimsStateMap::new(&func);
+    // v_old: MaybeShared + Once + ReusableCtor — the cross-dimensional case.
+    let cross_dim_state = AimsState {
+        access: AccessClass::Owned,
+        consumption: Consumption::Linear,
+        cardinality: Cardinality::Once,
+        uniqueness: Uniqueness::MaybeShared,
+        locality: Locality::FunctionLocal,
+        shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        effect: EffectClass::NONE,
+    };
+    state_map.update_block_exit(blk, [(v_old, cross_dim_state)].into_iter().collect());
+    state_map.set_var_shape(v_old, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
+
+    let pool = ori_types::Pool::new();
+    let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
+
+    // Cross-dimensional proof: MaybeShared + Once + ReusableCtor → static reuse.
+    assert_eq!(
+        result.static_reuses, 1,
+        "MaybeShared+Once+ReusableCtor should produce STATIC reuse \
+         (cross-dimensional uniqueness proof)"
+    );
+    assert_eq!(
+        result.dynamic_reuses, 0,
+        "should not fall back to dynamic reuse"
+    );
+}
+
+/// `MaybeShared` + `Many` + `ReusableCtor` → dynamic reuse (not static).
+///
+/// The cross-dimensional proof requires `Once` cardinality. `Many` means the value
+/// may have been duplicated (`RcInc`'d), so uniqueness is not provable.
+#[test]
+fn cross_dimensional_many_cardinality_is_not_static() {
+    let v_old = ArcVarId::new(0);
+    let v_new = ArcVarId::new(1);
+    let v_field = ArcVarId::new(2);
+    let blk = ArcBlockId::new(0);
+
+    let mut func = make_func(
+        vec![ArcBlock {
+            id: blk,
+            params: vec![],
+            body: vec![
+                ArcInstr::RcDec {
+                    var: v_old,
+                    strategy: crate::ir::RcStrategy::HeapPointer,
+                },
+                ArcInstr::Construct {
+                    dst: v_new,
+                    ty: Idx::NONE,
+                    ctor: CtorKind::Struct(Name::from_raw(0)),
+                    args: vec![v_field],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v_new },
+        }],
+        3,
+    );
+
+    let mut state_map = AimsStateMap::new(&func);
+    // MaybeShared + Many — Many breaks the cross-dimensional proof.
+    let many_state = AimsState {
+        access: AccessClass::Owned,
+        consumption: Consumption::Unrestricted,
+        cardinality: Cardinality::Many,
+        uniqueness: Uniqueness::MaybeShared,
+        locality: Locality::FunctionLocal,
+        shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        effect: EffectClass::NONE,
+    };
+    state_map.update_block_exit(blk, [(v_old, many_state)].into_iter().collect());
+    state_map.set_var_shape(v_old, ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
+
+    let pool = ori_types::Pool::new();
+    let result = emit_reuse(&mut func, &state_map, &pool, &no_contracts());
+
+    // Many cardinality → not provably unique → dynamic reuse.
+    assert_eq!(
+        result.static_reuses, 0,
+        "MaybeShared+Many should NOT produce static reuse"
+    );
+    assert_eq!(
+        result.dynamic_reuses, 1,
+        "should fall back to dynamic reuse"
     );
 }
