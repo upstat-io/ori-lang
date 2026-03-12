@@ -409,3 +409,127 @@ fn backward_analysis_pattern_exit_from_successor_entry() {
         map.var_state_at_block_entry(block(2), var(0))
     );
 }
+
+// FIP token balance
+
+#[test]
+fn fip_balance_defaults_to_zero() {
+    let map = make_state_map(1, 2);
+    assert!(
+        map.fip_token_balanced(),
+        "0 constructs, 0 consumed → balanced"
+    );
+    assert_eq!(map.fip_net_allocation(), 0);
+}
+
+#[test]
+fn fip_balance_set_balanced() {
+    let mut map = make_state_map(1, 2);
+    map.set_fip_balance(3, 3);
+    assert!(
+        map.fip_token_balanced(),
+        "3 constructs, 3 consumed → balanced"
+    );
+    assert_eq!(map.fip_net_allocation(), 0);
+}
+
+#[test]
+fn fip_balance_surplus_consumed() {
+    let mut map = make_state_map(1, 2);
+    map.set_fip_balance(2, 5);
+    assert!(
+        map.fip_token_balanced(),
+        "2 constructs, 5 consumed → balanced (surplus)"
+    );
+    assert_eq!(map.fip_net_allocation(), 0);
+}
+
+#[test]
+fn fip_balance_deficit() {
+    let mut map = make_state_map(1, 2);
+    map.set_fip_balance(5, 2);
+    assert!(
+        !map.fip_token_balanced(),
+        "5 constructs, 2 consumed → not balanced"
+    );
+    assert_eq!(map.fip_net_allocation(), 3);
+}
+
+#[test]
+fn fip_balance_no_constructs() {
+    let mut map = make_state_map(1, 2);
+    map.set_fip_balance(0, 4);
+    assert!(
+        map.fip_token_balanced(),
+        "0 constructs → trivially balanced (FBIP)"
+    );
+    assert_eq!(map.fip_net_allocation(), 0);
+}
+
+#[test]
+fn alloc_credit_balance_event_recorded() {
+    let mut map = make_state_map(3, 2);
+    map.record_event(AimsEvent::AllocCreditBalance {
+        block: block(0),
+        successor_idx: 0,
+        balance: -1,
+    });
+    map.record_event(AimsEvent::AllocCreditBalance {
+        block: block(0),
+        successor_idx: 1,
+        balance: 2,
+    });
+
+    let events = map.events_in_block(block(0));
+    assert_eq!(events.len(), 2, "two branch events recorded");
+
+    // Verify the balance values.
+    if let AimsEvent::AllocCreditBalance { balance, .. } = &events[0] {
+        assert_eq!(*balance, -1, "first branch has surplus deaths");
+    } else {
+        panic!("expected AllocCreditBalance event");
+    }
+    if let AimsEvent::AllocCreditBalance { balance, .. } = &events[1] {
+        assert_eq!(*balance, 2, "second branch needs tokens");
+    } else {
+        panic!("expected AllocCreditBalance event");
+    }
+}
+
+// Per-variable shape tests (Section 09.2 Shape Activation)
+
+#[test]
+fn var_shape_defaults_to_non_reusable() {
+    let map = make_state_map(2, 3);
+    assert_eq!(
+        map.var_shape(var(0)),
+        super::super::super::lattice::ShapeClass::NonReusable
+    );
+}
+
+#[test]
+fn var_shape_set_and_retrieved() {
+    use super::super::super::lattice::{ReuseCtorKind, ShapeClass};
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_shape(var(0), ShapeClass::ReusableCtor(ReuseCtorKind::Struct));
+    map.set_var_shape(var(1), ShapeClass::CollectionBuffer);
+
+    assert_eq!(
+        map.var_shape(var(0)),
+        ShapeClass::ReusableCtor(ReuseCtorKind::Struct)
+    );
+    assert_eq!(map.var_shape(var(1)), ShapeClass::CollectionBuffer);
+    // var(2) not set → NonReusable
+    assert_eq!(map.var_shape(var(2)), ShapeClass::NonReusable);
+}
+
+#[test]
+fn var_shape_non_reusable_not_stored() {
+    use super::super::super::lattice::ShapeClass;
+
+    let mut map = make_state_map(2, 3);
+    map.set_var_shape(var(0), ShapeClass::NonReusable);
+    // NonReusable is not stored (optimization: sparse map)
+    assert_eq!(map.var_shape(var(0)), ShapeClass::NonReusable);
+}

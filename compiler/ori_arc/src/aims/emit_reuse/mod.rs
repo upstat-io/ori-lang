@@ -39,7 +39,7 @@ use crate::aims::contract::{FipContract, MemoryContract};
 pub use fip::{FipGateDecision, FipGateRecord};
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
-use crate::aims::lattice::{ShapeClass, SizeClass, Uniqueness};
+use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 
 use set_ops::{build_proj_map, build_set_instructions, extract_construct_info, substitute_var_all};
@@ -70,9 +70,13 @@ pub struct DeathEvent {
     pub instr_idx: usize,
     /// Uniqueness at the death point.
     pub uniqueness: Uniqueness,
+    /// Cardinality (backward demand) — used for cross-dimensional
+    /// uniqueness proof: `Once + ReusableCtor → static reuse`.
+    /// Section 09.2 Shape Activation.
+    pub cardinality: Cardinality,
     /// Type of the dying variable.
     pub ty: Idx,
-    /// Shape classification.
+    /// Shape classification (from per-variable shape map, not block state).
     pub shape: ShapeClass,
     /// Allocation size class (Stage 2+ cross-type matching).
     pub size_class: SizeClass,

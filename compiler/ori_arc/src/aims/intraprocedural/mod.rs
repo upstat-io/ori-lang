@@ -36,13 +36,13 @@ pub mod state_map;
 pub use state_map::{AimsEvent, AimsStateMap, InvokeEdgeState};
 
 use ori_ir::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 use crate::ArcClassification;
 
 use super::contract::{ContextRegion, MemoryContract};
-use super::lattice::{AimsState, Locality};
+use super::lattice::{AimsState, Consumption, Locality, ReuseCtorKind, ShapeClass, Uniqueness};
 use super::transfer::transfer_def;
 
 /// Run backward dataflow analysis on a single function.
@@ -202,6 +202,24 @@ pub fn analyze_function(
     // not post-convergence. Block-level effects are OR'd into the state map
     // in the convergence loop above via `result.effects`.
 
+    // Post-convergence: populate per-variable shape from definitions.
+    // Shape is a definition-site property that doesn't propagate through
+    // backward demand analysis. This side table makes shape available at
+    // all program points for reuse detection, COW, and FIP.
+    // Section 09.2 Shape Activation.
+    populate_var_shapes(&mut state_map, func);
+
+    // Post-convergence: detect TRMC candidates and set ContextHole shape.
+    // Must run after populate_var_shapes (which sets initial shape) and
+    // after convergence (needs final uniqueness/locality/effect data).
+    // Section 09.2 Shape Activation — ContextHole detection.
+    detect_trmc_candidates(&mut state_map, func);
+
+    // Post-convergence: compute FIP token balance from converged state.
+    // Counts Construct allocations vs consumed reusable-shaped deaths.
+    // Section 09.2 Effect Activation.
+    populate_fip_balance(&mut state_map, func);
+
     state_map
 }
 
@@ -289,8 +307,335 @@ fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFunction) {
     }
 }
 
+/// Populate the per-variable shape map from definition instructions.
+///
+/// Shape is a property of how a value was produced (its definition instruction),
+/// not of backward demand. The backward analysis only carries shape within a
+/// block's backward walk (set at `Construct`, killed at definition removal).
+/// Cross-block, shape is lost because `add_backward_demand` initializes from
+/// `BOTTOM` (which has `NonReusable` shape).
+///
+/// This post-convergence step makes shape available everywhere via
+/// [`AimsStateMap::var_shape`], enabling:
+/// - Death event filtering in reuse detection
+/// - Cross-dimensional uniqueness proof (Once+ReusableCtor → static reuse)
+/// - COW annotation for `CollectionBuffer` non-parameters
+/// - TRMC candidate detection (`ContextHole`)
+///
+/// Section 09.2 Shape Activation.
+fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    for block in &func.blocks {
+        for instr in &block.body {
+            let Some(dst) = instr.defined_var() else {
+                continue;
+            };
+            if state_map.is_excluded(dst) {
+                continue;
+            }
+            let shape = match instr {
+                ArcInstr::Construct { ctor, .. } | ArcInstr::Reuse { ctor, .. } => match ctor {
+                    CtorKind::Struct(_) => ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+                    CtorKind::EnumVariant { .. } => {
+                        ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant)
+                    }
+                    CtorKind::ListLiteral | CtorKind::SetLiteral | CtorKind::MapLiteral => {
+                        ShapeClass::CollectionBuffer
+                    }
+                    CtorKind::Tuple | CtorKind::Closure { .. } => ShapeClass::NonReusable,
+                },
+                ArcInstr::CollectionReuse { .. } => ShapeClass::CollectionBuffer,
+                _ => ShapeClass::NonReusable,
+            };
+            state_map.set_var_shape(dst, shape);
+        }
+    }
+}
+
+/// Detect TRMC (Tail Recursive Modulo Constructor) candidates.
+///
+/// A `Construct` instruction is a TRMC candidate when:
+/// 1. It has `ReusableCtor` shape (struct or enum variant)
+/// 2. At least one of its field arguments was defined by a recursive call
+///    (`Apply` or `Invoke` where callee == current function)
+/// 3. **Soundness** (Lemma 2, Leijen & Lorenzen JFP 2025):
+///    The constructor destination is `Unique` — no other references exist
+///    at the mutation point, so in-place hole fill is safe.
+///
+/// Locality is deliberately NOT checked: TRMC constructors are typically
+/// returned (`HeapEscaping`), which is expected — the whole point is
+/// building the result in place and returning it.
+///
+/// Function-level `may_share` is NOT checked: the `HeapEscaping → may_share`
+/// accumulation rule makes ANY returned Construct trigger `may_share`, which
+/// would block all TRMC detection. The per-variable `Unique` guarantee is
+/// the actual soundness condition (refcount == 1 at the mutation point).
+///
+/// When all conditions hold, the constructor's shape is upgraded to
+/// `ContextHole`, enabling Stage 3 TRMC normalization to rewrite the
+/// recursive call into an in-place fill of the constructor's hole.
+///
+/// Section 09.2 Shape Activation — `ContextHole` detection.
+fn detect_trmc_candidates(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    // Collect variables defined by recursive calls (callee == func.name).
+    let recursive_defs = collect_recursive_call_defs(func);
+    if recursive_defs.is_empty() {
+        return;
+    }
+
+    // Scan for Construct instructions with a recursive-call argument.
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR block counts fit in u32"
+        )]
+        let blk = ArcBlockId::new(block_idx as u32);
+
+        for instr in &block.body {
+            let ArcInstr::Construct {
+                dst, ctor, args, ..
+            } = instr
+            else {
+                continue;
+            };
+
+            // Only struct/enum constructors are TRMC candidates.
+            if !matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. }) {
+                continue;
+            }
+
+            if state_map.is_excluded(*dst) {
+                continue;
+            }
+
+            // Check if any field argument was produced by a recursive call.
+            let has_recursive_arg = args.iter().any(|arg| recursive_defs.contains(arg));
+            if !has_recursive_arg {
+                continue;
+            }
+
+            // Soundness (Lemma 2, Leijen & Lorenzen JFP 2025):
+            // The constructor must be uniquely owned at the mutation point.
+            // This ensures the in-place hole fill doesn't corrupt other viewers.
+            //
+            // Locality is NOT checked: TRMC constructors are typically returned
+            // (HeapEscaping), which is expected — the whole point of TRMC is to
+            // build the result in place and return it.
+            //
+            // Function-level may_share is NOT checked: it's too conservative
+            // (any returned Construct triggers may_share via HeapEscaping → may_share
+            // rule). The per-variable Unique guarantee is the actual soundness
+            // condition — refcount == 1 at the mutation point.
+            let state = state_map.var_state_at_block_exit(blk, *dst);
+            if state.uniqueness != Uniqueness::Unique {
+                continue;
+            }
+
+            // All conditions met — upgrade shape to ContextHole.
+            state_map.set_var_shape(*dst, ShapeClass::ContextHole);
+            tracing::debug!(
+                func = ?func.name,
+                var = dst.raw(),
+                block = blk.raw(),
+                "TRMC candidate detected: ContextHole shape set"
+            );
+        }
+    }
+}
+
+/// Collect variables defined by recursive calls to the current function.
+///
+/// Scans both `Apply` instructions (body) and `Invoke` terminators for
+/// calls where the callee name matches `func.name`.
+fn collect_recursive_call_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut defs = FxHashSet::default();
+    let self_name = func.name;
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if *callee == self_name {
+                    defs.insert(*dst);
+                }
+            }
+        }
+        // Invoke terminators also define a dst from a call.
+        if let ArcTerminator::Invoke {
+            dst, func: callee, ..
+        } = &block.terminator
+        {
+            if *callee == self_name {
+                defs.insert(*dst);
+            }
+        }
+    }
+
+    defs
+}
+
 // populate_effect_summary() removed — effects are now accumulated during
 // analysis in compute_block_entry_state() (Section 09.2 Effect Activation).
+
+/// Compute FIP token balance from the converged state map.
+///
+/// Counts two quantities:
+/// 1. **Construct allocations**: non-scalar `Construct` instructions with reusable
+///    constructor kinds (`Struct`, `EnumVariant`). Each one needs a memory slot.
+/// 2. **Consumed reusable-shaped values**: function parameters whose converged entry
+///    state shows `Dead` or `Unrestricted` consumption with `ReusableCtor` shape.
+///    Each consumed parameter provides a "reuse token" — its memory slot can be
+///    recycled by a Construct of compatible type.
+///
+/// The balance determines FIP classification:
+/// - `consumed >= constructs` → token-balanced → `FipContract::Certified` candidate
+/// - `consumed < constructs` → `FipContract::Bounded(constructs - consumed)` candidate
+///
+/// Also records `AllocCreditBalance` events at Switch terminators for per-branch
+/// FIP checking (`FIPTree` DMATCH! rule).
+///
+/// Section 09.2 Effect Activation.
+fn populate_fip_balance(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    let construct_count = count_reusable_constructs(state_map, func);
+    let consumed_count = count_consumed_reusable_params(state_map, func);
+
+    // Per-branch balance at Switch terminators (FIPTree DMATCH! rule).
+    record_per_branch_balance(state_map, func);
+
+    state_map.set_fip_balance(construct_count, consumed_count);
+
+    if construct_count > 0 || consumed_count > 0 {
+        tracing::debug!(
+            construct_count,
+            consumed_count,
+            token_balanced = consumed_count >= construct_count,
+            net_allocation = construct_count.saturating_sub(consumed_count),
+            "FIP token balance computed"
+        );
+    }
+}
+
+/// Count `Construct` instructions with reusable constructor kinds (Struct, `EnumVariant`)
+/// on non-scalar, non-immortal destinations.
+fn count_reusable_constructs(state_map: &AimsStateMap, func: &ArcFunction) -> u32 {
+    let mut count: u32 = 0;
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Construct { dst, ctor, .. } = instr {
+                if !state_map.is_excluded(*dst)
+                    && matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. })
+                {
+                    count = count.saturating_add(1);
+                }
+            }
+        }
+    }
+    count
+}
+
+/// Count consumed function parameters with reusable shape.
+///
+/// A parameter consumed by the function (Dead/Unrestricted consumption in the
+/// entry block's entry state) with `ReusableCtor` shape provides a "reuse token".
+fn count_consumed_reusable_params(state_map: &AimsStateMap, func: &ArcFunction) -> u32 {
+    let mut count: u32 = 0;
+    let entry_block = ArcBlockId::new(0);
+    for (param_idx, _) in func.params.iter().enumerate() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR var counts fit in u32"
+        )]
+        let var = ArcVarId::new(param_idx as u32);
+        if state_map.is_excluded(var) {
+            continue;
+        }
+        let state = state_map.var_state_at_block_entry(entry_block, var);
+        let is_consumed = matches!(
+            state.consumption,
+            Consumption::Dead | Consumption::Unrestricted
+        );
+        if is_consumed && matches!(state.shape, ShapeClass::ReusableCtor(_)) {
+            count = count.saturating_add(1);
+        }
+    }
+    count
+}
+
+/// Record per-branch allocation credit balance at Switch terminators.
+///
+/// For each Switch successor, computes the per-block allocation vs death count
+/// and records an `AllocCreditBalance` event. FIP certification requires each
+/// branch to independently maintain non-negative credit balance (`FIPTree` DMATCH! rule).
+fn record_per_branch_balance(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let ArcTerminator::Switch { cases, default, .. } = &block.terminator else {
+            continue;
+        };
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR block counts fit in u32"
+        )]
+        let blk = ArcBlockId::new(block_idx as u32);
+
+        // Collect successor block IDs: case targets + default.
+        let successors: Vec<ArcBlockId> = cases
+            .iter()
+            .map(|(_, target)| *target)
+            .chain(std::iter::once(*default))
+            .collect();
+
+        for (succ_idx, target) in successors.iter().enumerate() {
+            let balance = compute_block_fip_balance(state_map, func, *target);
+            state_map.record_event(AimsEvent::AllocCreditBalance {
+                block: blk,
+                successor_idx: succ_idx,
+                balance,
+            });
+        }
+    }
+}
+
+/// Compute the FIP allocation balance for a single block.
+///
+/// Returns `allocs - deaths`: positive means the block needs more tokens
+/// than it provides, zero is balanced, negative means surplus.
+fn compute_block_fip_balance(
+    state_map: &AimsStateMap,
+    func: &ArcFunction,
+    block_id: ArcBlockId,
+) -> i32 {
+    let block = &func.blocks[block_id.index()];
+    let mut allocs: i32 = 0;
+    let mut deaths: i32 = 0;
+
+    for instr in &block.body {
+        if let ArcInstr::Construct { dst, ctor, .. } = instr {
+            if !state_map.is_excluded(*dst)
+                && matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. })
+            {
+                allocs = allocs.saturating_add(1);
+            }
+        }
+
+        if let Some(dst) = instr.defined_var() {
+            if state_map.is_excluded(dst) {
+                continue;
+            }
+            let exit_state = state_map.var_state_at_block_exit(block_id, dst);
+            let is_consumed = matches!(
+                exit_state.consumption,
+                Consumption::Dead | Consumption::Unrestricted
+            );
+            if is_consumed && matches!(exit_state.shape, ShapeClass::ReusableCtor(_)) {
+                deaths = deaths.saturating_add(1);
+            }
+        }
+    }
+
+    allocs.saturating_sub(deaths)
+}
 
 /// Widen all non-converged variables to TOP (safety net for non-convergence).
 fn widen_to_top(state_map: &mut AimsStateMap, func: &ArcFunction) {

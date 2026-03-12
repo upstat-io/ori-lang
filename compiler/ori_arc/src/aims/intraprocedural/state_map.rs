@@ -19,7 +19,7 @@ use rustc_hash::FxHashMap;
 use crate::ir::{ArcBlockId, ArcFunction, ArcVarId};
 
 use super::super::contract::EffectSummary;
-use super::super::lattice::{AimsState, BorrowSource};
+use super::super::lattice::{AimsState, BorrowSource, ShapeClass};
 
 // Per-invoke edge state
 
@@ -75,6 +75,21 @@ pub enum AimsEvent {
     /// A FIP gate: a call site where the callee's `FipContract` is
     /// `Conditional`, and the preconditions are satisfied at this point.
     FipGate { block: ArcBlockId, instr: usize },
+    /// Per-branch allocation credit balance at a Switch terminator's successor.
+    ///
+    /// Records the allocation balance (constructs - consumed deaths) for each
+    /// successor of a Switch terminator. FIP certification requires each branch
+    /// to independently maintain non-negative credit balance (`FIPTree` DMATCH! rule).
+    /// Section 09.2 Effect Activation.
+    AllocCreditBalance {
+        /// The Switch terminator's block.
+        block: ArcBlockId,
+        /// Index of the successor in the Switch's targets.
+        successor_idx: usize,
+        /// Balance: positive = more allocs than deaths (needs tokens),
+        /// zero = balanced, negative = surplus deaths (provides tokens).
+        balance: i32,
+    },
 }
 
 impl AimsEvent {
@@ -85,7 +100,8 @@ impl AimsEvent {
             | Self::ContextClose { block, .. }
             | Self::ReusableAllocation { block, .. }
             | Self::LocalAllocCandidate { block, .. }
-            | Self::FipGate { block, .. } => *block,
+            | Self::FipGate { block, .. }
+            | Self::AllocCreditBalance { block, .. } => *block,
         }
     }
 }
@@ -147,14 +163,40 @@ pub struct AimsStateMap {
     /// Indexed by `ArcVarId::index()`. True = immortal.
     immortals: Vec<bool>,
 
-    /// Function-level effect summary, accumulated post-convergence.
+    /// Function-level effect summary, accumulated during analysis.
     ///
-    /// Populated by `populate_effect_summary()` after the backward dataflow
-    /// converges. Records whether the function allocates, shares references,
-    /// or throws. Read by `extract_contract()` to set `MemoryContract.effects`.
+    /// Accumulated per-block in the convergence loop via `accumulate_effect()`.
+    /// Records whether the function allocates, shares references, or throws.
+    /// Read by `extract_contract()` to set `MemoryContract.effects`.
     ///
     /// Section 09.1 (`HeapEscaping` → `may_share`) and 09.2 (Effect Activation).
     effect_summary: EffectSummary,
+
+    /// FIP token balance: number of `Construct` instructions with reusable
+    /// constructor kinds (struct, enum variant) on non-scalar destinations.
+    /// Populated post-convergence by `populate_fip_balance()`.
+    /// Section 09.2 Effect Activation.
+    fip_construct_count: u32,
+
+    /// FIP token balance: number of consumed values with reusable shape
+    /// (function parameters or locals that die within the function and have
+    /// `ReusableCtor` shape). Each consumed value provides a "reuse token"
+    /// that can match a Construct allocation.
+    /// Populated post-convergence by `populate_fip_balance()`.
+    /// Section 09.2 Effect Activation.
+    fip_consumed_count: u32,
+
+    /// Per-variable shape classification, derived from definition instructions.
+    ///
+    /// Shape is a property of how a variable was *produced* (its definition
+    /// instruction), not of how it's demanded. The backward analysis doesn't
+    /// propagate shape through use sites — only through definitions. This
+    /// side table makes shape available at all program points via
+    /// [`var_shape`](Self::var_shape).
+    ///
+    /// Populated post-convergence by `populate_var_shapes()`.
+    /// Section 09.2 Shape Activation.
+    var_shapes: FxHashMap<ArcVarId, ShapeClass>,
 
     /// Tracks whether any state changed in the last iteration.
     /// Reset to `false` at the start of each iteration; set to `true`
@@ -179,6 +221,9 @@ impl AimsStateMap {
             scalars: vec![false; num_vars],
             immortals: vec![false; num_vars],
             effect_summary: EffectSummary::default(),
+            fip_construct_count: 0,
+            fip_consumed_count: 0,
+            var_shapes: FxHashMap::default(),
             changed: false,
         }
     }
@@ -405,6 +450,36 @@ impl AimsStateMap {
         self.invoke_edge_states.insert(block, state);
     }
 
+    // Per-variable shape
+
+    /// Get the shape classification for a variable from its definition.
+    ///
+    /// Returns `NonReusable` for variables without a recorded shape
+    /// (block parameters, function parameters, or variables defined by
+    /// non-shaping instructions).
+    ///
+    /// This is a per-variable property (set at the definition point),
+    /// NOT a per-block state. Unlike the backward-computed lattice dimensions,
+    /// shape doesn't change across block boundaries.
+    ///
+    /// Section 09.2 Shape Activation.
+    #[must_use]
+    pub fn var_shape(&self, var: ArcVarId) -> ShapeClass {
+        self.var_shapes
+            .get(&var)
+            .copied()
+            .unwrap_or(ShapeClass::NonReusable)
+    }
+
+    /// Record the shape for a variable, derived from its definition instruction.
+    ///
+    /// Called by `populate_var_shapes()` post-convergence.
+    pub fn set_var_shape(&mut self, var: ArcVarId, shape: ShapeClass) {
+        if !matches!(shape, ShapeClass::NonReusable) {
+            self.var_shapes.insert(var, shape);
+        }
+    }
+
     // Sparse event table
 
     /// Get the event slice for a specific block.
@@ -439,6 +514,40 @@ impl AimsStateMap {
     /// Each flag is OR'd: once set, it stays set.
     pub fn accumulate_effect(&mut self, effect: EffectSummary) {
         self.effect_summary = self.effect_summary.join(&effect);
+    }
+
+    // FIP token balance
+
+    /// Set the FIP allocation balance counts from post-convergence analysis.
+    ///
+    /// `construct_count`: non-scalar `Construct` instructions with reusable ctor kinds.
+    /// `consumed_count`: consumed values with `ReusableCtor` shape (provide reuse tokens).
+    /// Section 09.2 Effect Activation.
+    pub fn set_fip_balance(&mut self, construct_count: u32, consumed_count: u32) {
+        self.fip_construct_count = construct_count;
+        self.fip_consumed_count = consumed_count;
+    }
+
+    /// Whether the function's allocations are token-balanced by consumed values.
+    ///
+    /// `true` means consumed values with reusable shape >= construct allocations,
+    /// so every Construct can potentially reuse memory from a consumed value.
+    /// This is a necessary condition for FIP certification.
+    /// Section 09.2 Effect Activation.
+    #[must_use]
+    pub fn fip_token_balanced(&self) -> bool {
+        self.fip_consumed_count >= self.fip_construct_count
+    }
+
+    /// Net allocation count: constructs beyond what consumed values can supply.
+    ///
+    /// Returns 0 when balanced (FIP), positive when the function needs more
+    /// allocations than it can reuse. Used for `FipContract::Bounded(n)`.
+    /// Section 09.2 Effect Activation.
+    #[must_use]
+    pub fn fip_net_allocation(&self) -> u32 {
+        self.fip_construct_count
+            .saturating_sub(self.fip_consumed_count)
     }
 
     // Summary queries

@@ -16,7 +16,7 @@ use ori_ir::{Name, StringInterner};
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::{
-    AccessClass, AimsState, BorrowSource, Cardinality, Consumption, Uniqueness,
+    AccessClass, AimsState, BorrowSource, Cardinality, Consumption, ShapeClass, Uniqueness,
 };
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::uniqueness::CowAnnotations;
@@ -190,6 +190,25 @@ fn uniqueness_to_cow_mode(
     match state.uniqueness {
         Uniqueness::Unique => CowMode::StaticUnique,
         Uniqueness::MaybeShared => {
+            // Cross-dimensional uniqueness proof (Section 09.2 Shape Activation):
+            // Non-parameter with CollectionBuffer shape + Once cardinality.
+            // Fresh collection literal (refcount=1) used once (no duplication).
+            // Provably unique even when uniqueness dimension is conservative.
+            if !param_vars.contains(&receiver)
+                && state.cardinality == Cardinality::Once
+                && state_map.var_shape(receiver) == ShapeClass::CollectionBuffer
+            {
+                return CowMode::StaticUnique;
+            }
+
+            // Cross-dimensional: Once + ReusableCtor → unique (same rule as reuse).
+            if !param_vars.contains(&receiver)
+                && state.cardinality == Cardinality::Once
+                && matches!(state_map.var_shape(receiver), ShapeClass::ReusableCtor(_))
+            {
+                return CowMode::StaticUnique;
+            }
+
             // Uniqueness-preserving borrows (Section 07.3.2): if the receiver
             // is a field borrow from a uniquely-owned source, check whether all
             // sibling borrows target disjoint fields. If so, the mutation is

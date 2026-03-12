@@ -237,12 +237,35 @@ fn extract_contract(
     // A function is FBIP if it never allocates on any code path.
     let is_fbip = !effects.may_allocate;
 
+    // Section 09.2: FIP natural detection from converged state.
+    // Token balance determines FIP classification without a separate pass.
+    let fip = if is_fbip {
+        // No allocations at all → trivially FIP (FBIP is stronger than FIP).
+        FipContract::Certified
+    } else if !effects.may_share && state_map.fip_token_balanced() {
+        // Allocations exist but are balanced by consumed reusable-shaped values,
+        // and the function doesn't share references. FIP: every Construct can
+        // reuse memory from a consumed value.
+        FipContract::Certified
+    } else if !effects.may_share && state_map.fip_net_allocation() > 0 {
+        // Net allocation is bounded: function allocates more than it reuses,
+        // but the count is known. FIPTree's fip(n) pattern.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "net allocation count fits u16 in practice"
+        )]
+        let n = state_map.fip_net_allocation().min(u32::from(u16::MAX)) as u16;
+        FipContract::Bounded(n)
+    } else {
+        FipContract::Never
+    };
+
     MemoryContract {
         params,
         return_info,
         effects,
         context_behavior: ContextBehavior::default(),
-        fip: FipContract::Never,
+        fip,
         is_fbip,
     }
 }
