@@ -88,6 +88,7 @@ fn borrowing_contract(num_params: usize) -> MemoryContract {
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip: false,
     }
 }
 
@@ -106,6 +107,7 @@ fn cow_receiver_contract(consumes_second: bool) -> MemoryContract {
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip: false,
     }
 }
 
@@ -122,6 +124,7 @@ fn cow_receiver_only_contract() -> MemoryContract {
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip: false,
     }
 }
 
@@ -140,6 +143,7 @@ fn sharing_return_contract() -> MemoryContract {
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip: false,
     }
 }
 
@@ -161,6 +165,7 @@ fn protocol_contract(
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip: false,
     }
 }
 
