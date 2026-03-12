@@ -41,8 +41,8 @@ use rustc_hash::FxHashMap;
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 use crate::ArcClassification;
 
-use super::contract::{ContextRegion, MemoryContract};
-use super::lattice::{AimsState, Locality};
+use super::contract::{ContextRegion, EffectSummary, MemoryContract};
+use super::lattice::{AccessClass, AimsState, Locality};
 use super::transfer::transfer_def;
 
 /// Run backward dataflow analysis on a single function.
@@ -196,6 +196,11 @@ pub fn analyze_function(
     // self-contained fact source for downstream passes.
     populate_sparse_events(&mut state_map, func);
 
+    // Post-convergence: accumulate function-level effect summary from
+    // converged states and instruction types.
+    // Section 09.1 (HeapEscaping → may_share) and 09.2 (Effect Activation).
+    populate_effect_summary(&mut state_map, func, sigs);
+
     state_map
 }
 
@@ -278,6 +283,130 @@ fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFunction) {
                         var: dst,
                     });
                 }
+            }
+        }
+    }
+}
+
+/// Accumulate the function-level effect summary from converged states.
+///
+/// Replays the backward analysis within each block to reconstruct
+/// per-instruction demand states, then accumulates effects into
+/// `AimsStateMap.effect_summary`.
+///
+/// # Effect sources
+///
+/// - **`Construct`** (non-scalar): `may_allocate = true`. If the
+///   destination's demand has locality `> BlockLocal`, the construct
+///   is building a value that escapes, so `may_share = true`.
+///   (Section 09.1: `HeapEscaping` → `may_share`.)
+/// - **`Apply`** with known contract: union callee's [`EffectSummary`].
+/// - **`Invoke`**: `may_throw = true` (`Invoke` exists because the call may
+///   unwind). Also union callee's [`EffectSummary`] if known.
+/// - **`PartialApply`** (closure): `may_allocate = true` (allocates env).
+fn populate_effect_summary(
+    state_map: &mut AimsStateMap,
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+) {
+    use super::transfer::backward_demands;
+
+    for block in &func.blocks {
+        // Replay the backward walk to reconstruct per-instruction demand.
+        // Start from the block's converged exit state.
+        let mut current: FxHashMap<ArcVarId, AimsState> = state_map
+            .block_exit_states(block.id)
+            .cloned()
+            .unwrap_or_default();
+
+        // Apply terminator demand (same widening as compute_block_entry_state).
+        if let ArcTerminator::Return { value } = &block.terminator {
+            if !state_map.is_excluded(*value) {
+                let entry = current.entry(*value).or_insert(AimsState::BOTTOM);
+                entry.access = AccessClass::Owned;
+                if entry.locality < Locality::HeapEscaping {
+                    entry.locality = Locality::HeapEscaping;
+                }
+                entry.canonicalize();
+            }
+        }
+
+        // Terminator effects.
+        if let ArcTerminator::Invoke { func: callee, .. } = &block.terminator {
+            let mut effect = EffectSummary {
+                may_throw: true,
+                ..EffectSummary::default()
+            };
+            if let Some(contract) = sigs.get(callee) {
+                effect = effect.join(&contract.effects);
+            }
+            state_map.accumulate_effect(effect);
+        }
+
+        // Walk instructions in reverse (same order as compute_block_entry_state).
+        for instr in block.body.iter().rev() {
+            // Capture destination demand BEFORE removing it.
+            let dst_demand = instr
+                .defined_var()
+                .map(|dst| current.get(&dst).copied().unwrap_or(AimsState::BOTTOM));
+
+            // Accumulate effects based on instruction type.
+            match instr {
+                ArcInstr::Construct { dst, args, .. } => {
+                    if !state_map.is_excluded(*dst) {
+                        let mut effect = EffectSummary {
+                            may_allocate: true,
+                            ..EffectSummary::default()
+                        };
+
+                        // Section 09.1: HeapEscaping → may_share.
+                        // If the Construct's destination demand has locality
+                        // beyond BlockLocal, the value escapes. Storing args
+                        // into an escaping structure creates sharing potential.
+                        if !args.is_empty() {
+                            if let Some(demand) = dst_demand {
+                                if demand.locality > Locality::BlockLocal {
+                                    effect.may_share = true;
+                                }
+                            }
+                        }
+
+                        state_map.accumulate_effect(effect);
+                    }
+                }
+
+                ArcInstr::PartialApply { dst, .. } => {
+                    if !state_map.is_excluded(*dst) {
+                        state_map.accumulate_effect(EffectSummary {
+                            may_allocate: true,
+                            ..EffectSummary::default()
+                        });
+                    }
+                }
+
+                ArcInstr::Apply { func: callee, .. } => {
+                    if let Some(contract) = sigs.get(callee) {
+                        state_map.accumulate_effect(contract.effects);
+                    }
+                }
+
+                _ => {}
+            }
+
+            // Remove the defined variable (same as compute_block_entry_state).
+            if let Some(dst) = instr.defined_var() {
+                current.remove(&dst);
+            }
+
+            // Apply backward demands on operands.
+            let demands = backward_demands(instr);
+            for (var, card) in demands {
+                if state_map.is_excluded(var) {
+                    continue;
+                }
+                let entry = current.entry(var).or_insert(AimsState::BOTTOM);
+                entry.cardinality = entry.cardinality.seq_add(card);
+                entry.canonicalize();
             }
         }
     }

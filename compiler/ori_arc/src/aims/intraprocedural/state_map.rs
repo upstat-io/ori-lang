@@ -18,6 +18,7 @@ use rustc_hash::FxHashMap;
 
 use crate::ir::{ArcBlockId, ArcFunction, ArcVarId};
 
+use super::super::contract::EffectSummary;
 use super::super::lattice::{AimsState, BorrowSource};
 
 // Per-invoke edge state
@@ -146,6 +147,15 @@ pub struct AimsStateMap {
     /// Indexed by `ArcVarId::index()`. True = immortal.
     immortals: Vec<bool>,
 
+    /// Function-level effect summary, accumulated post-convergence.
+    ///
+    /// Populated by `populate_effect_summary()` after the backward dataflow
+    /// converges. Records whether the function allocates, shares references,
+    /// or throws. Read by `extract_contract()` to set `MemoryContract.effects`.
+    ///
+    /// Section 09.1 (`HeapEscaping` → `may_share`) and 09.2 (Effect Activation).
+    effect_summary: EffectSummary,
+
     /// Tracks whether any state changed in the last iteration.
     /// Reset to `false` at the start of each iteration; set to `true`
     /// by `update_block_entry` when a state changes.
@@ -168,6 +178,7 @@ impl AimsStateMap {
             events: FxHashMap::default(),
             scalars: vec![false; num_vars],
             immortals: vec![false; num_vars],
+            effect_summary: EffectSummary::default(),
             changed: false,
         }
     }
@@ -410,6 +421,24 @@ impl AimsStateMap {
     pub fn record_event(&mut self, event: AimsEvent) {
         let block = event.block();
         self.events.entry(block).or_default().push(event);
+    }
+
+    // Effect summary
+
+    /// Get the accumulated function-level effect summary.
+    ///
+    /// Populated by `populate_effect_summary()` after convergence.
+    /// Returns `EffectSummary::default()` (all false) if not yet populated.
+    #[must_use]
+    pub fn effect_summary(&self) -> EffectSummary {
+        self.effect_summary
+    }
+
+    /// Join an effect into the function-level accumulator.
+    ///
+    /// Each flag is OR'd: once set, it stays set.
+    pub fn accumulate_effect(&mut self, effect: EffectSummary) {
+        self.effect_summary = self.effect_summary.join(&effect);
     }
 
     // Summary queries
