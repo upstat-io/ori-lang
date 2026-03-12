@@ -7,7 +7,7 @@ depends_on: ["01", "02", "03", "04", "05", "06", "07", "08"]
 sections:
   - id: "09.1"
     title: "Transfer Fusion"
-    status: in-progress
+    status: complete
   - id: "09.2"
     title: "Active Dimensions"
     status: complete
@@ -276,7 +276,7 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
   conservatively widened to `MaybeShared`. Implement in `transfer_apply` in
   `transfer/mod.rs`, not in a forward canonicalize pass.
 
-- [ ] **Rule: Linear consumption at call site enables callee reuse.**
+- [x] **Rule: Linear consumption at call site enables callee reuse.**
   When **all callers** pass an argument with `consumption == Linear`,
   `cardinality == Once`, and `access == Owned`, tighten the callee's contract
   for that parameter to `uniqueness = Unique`. This is the callee-side dual
@@ -348,7 +348,7 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
 - [x] Test: program where unique source projection eliminates a COW check
 - [x] Test: program where block-local construct enables static reuse
 - [x] Test: program where pure callee preserves caller uniqueness across call
-- [ ] Test: program where linear+once argument enables callee-side optimization
+- [x] Test: program where linear+once argument enables callee-side optimization
 - [x] Test: program where closure-capture locality is FunctionLocal (non-escaping closure)
 - [x] Test: program where once-closure capture preserves uniqueness of captured value
 - [x] Test: program where heap escape propagates may_share effect to contract
@@ -940,8 +940,11 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
 - [x] Block-local construct is unique — already implemented via AimsState::FRESH in transfer_construct()
 - [x] Pure callee preserves caller uniqueness — implemented and tested
   (backward semantics: uniqueness preserved in PRE-state when callee may_share==false)
-- [ ] Linear consumption at call site enables callee reuse — implemented and tested
-  (requires interprocedural demand propagation: new analysis phase in analyze_program())
+- [x] Linear consumption at call site enables callee reuse — implemented and tested
+  (interprocedural demand propagation: post-fixpoint phase in analyze_program(),
+  structural uniqueness check: Construct-defined → fresh RC==1, Owned param with
+  single use → linear forward. 5 test cases: single/multiple callers, violation,
+  no callers, forwarded param.)
 - [x] HeapEscaping forces may_share effect — implemented and tested
   (post-convergence replay: fires when Construct destination has locality > BlockLocal)
 - [x] Closure-capture locality refined: FunctionLocal for non-escaping closures,
