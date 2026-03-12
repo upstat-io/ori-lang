@@ -451,3 +451,190 @@ fn multiple_errors_collected() {
         .iter()
         .any(|e| matches!(e, VerifyError::DanglingBlockRef { .. })));
 }
+
+// AIMS consistency checks
+#[cfg(feature = "aims")]
+use crate::verify::check_function_with_contract;
+
+#[cfg(feature = "aims")]
+use crate::aims::contract::{
+    ContextBehavior, EffectSummary, FipContract, MemoryContract, ParamContract, ReturnContract,
+};
+#[cfg(feature = "aims")]
+use crate::aims::lattice::{
+    AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness as AimsUniqueness,
+};
+
+#[cfg(feature = "aims")]
+fn make_contract(params: Vec<ParamContract>) -> MemoryContract {
+    MemoryContract {
+        params,
+        return_info: ReturnContract {
+            uniqueness: AimsUniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+        },
+        effects: EffectSummary::default(),
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Never,
+    }
+}
+
+#[cfg(feature = "aims")]
+fn absent_param() -> ParamContract {
+    ParamContract {
+        access: AccessClass::Borrowed,
+        consumption: Consumption::Dead,
+        cardinality: Cardinality::Absent,
+        may_escape: false,
+        may_share: false,
+        locality_bound: Locality::BlockLocal,
+    }
+}
+
+#[cfg(feature = "aims")]
+fn used_param() -> ParamContract {
+    ParamContract {
+        access: AccessClass::Owned,
+        consumption: Consumption::Linear,
+        cardinality: Cardinality::Once,
+        may_escape: false,
+        may_share: false,
+        locality_bound: Locality::FunctionLocal,
+    }
+}
+
+#[cfg(feature = "aims")]
+#[test]
+fn absent_param_with_no_uses_ok() {
+    // v0 = param (Absent), v1 = let unit, return v1
+    // v0 is never referenced in body → consistent with Absent.
+    let func = make_func(
+        vec![owned_param(0, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(1),
+                ty: Idx::NONE,
+                value: ArcValue::Literal(LitValue::Unit),
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::NONE; 2],
+    );
+    let contract = make_contract(vec![absent_param()]);
+    let errors = check_function_with_contract(&func, &contract);
+    assert!(
+        !errors
+            .iter()
+            .any(|e| matches!(e, VerifyError::AbsentParamHasUses { .. })),
+        "absent param with no uses should not error: {errors:?}"
+    );
+}
+
+#[cfg(feature = "aims")]
+#[test]
+fn absent_param_with_uses_detected() {
+    // v0 = param (Absent), return v0
+    // v0 IS referenced in the Return terminator → inconsistent with Absent.
+    let func = make_func(
+        vec![owned_param(0, Idx::NONE)],
+        Idx::NONE,
+        vec![simple_return_block(0, v(0))],
+        vec![Idx::NONE; 1],
+    );
+    let contract = make_contract(vec![absent_param()]);
+    let errors = check_function_with_contract(&func, &contract);
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            VerifyError::AbsentParamHasUses { var, param_index }
+            if *var == v(0) && *param_index == 0
+        )),
+        "absent param referenced in body should be detected: {errors:?}"
+    );
+}
+
+#[cfg(feature = "aims")]
+#[test]
+fn used_param_with_uses_ok() {
+    // v0 = param (Once cardinality), return v0
+    // v0 IS referenced → consistent with Once.
+    let func = make_func(
+        vec![owned_param(0, Idx::NONE)],
+        Idx::NONE,
+        vec![simple_return_block(0, v(0))],
+        vec![Idx::NONE; 1],
+    );
+    let contract = make_contract(vec![used_param()]);
+    let errors = check_function_with_contract(&func, &contract);
+    assert!(
+        !errors
+            .iter()
+            .any(|e| matches!(e, VerifyError::AbsentParamHasUses { .. })),
+        "used param with Once cardinality should not error: {errors:?}"
+    );
+}
+
+#[cfg(feature = "aims")]
+#[test]
+fn absent_param_used_in_instruction_detected() {
+    // v0 = param (Absent), v1 = Apply(f, [v0]), return v1
+    // v0 used in Apply args → inconsistent.
+    let func = make_func(
+        vec![owned_param(0, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::NONE,
+                func: ori_ir::Name::from_raw(2),
+                args: vec![v(0)],
+                arg_ownership: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::NONE; 2],
+    );
+    let contract = make_contract(vec![absent_param()]);
+    let errors = check_function_with_contract(&func, &contract);
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            VerifyError::AbsentParamHasUses { var, .. }
+            if *var == v(0)
+        )),
+        "absent param used in Apply should be detected: {errors:?}"
+    );
+}
+
+#[cfg(feature = "aims")]
+#[test]
+fn mixed_absent_and_used_params() {
+    // v0 = param (Absent), v1 = param (Once), return v1
+    // v0 unused, v1 used → only v0 could trigger error but doesn't since it's unused.
+    let func = make_func(
+        vec![owned_param(0, Idx::NONE), owned_param(1, Idx::NONE)],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::NONE; 2],
+    );
+    let contract = make_contract(vec![absent_param(), used_param()]);
+    let errors = check_function_with_contract(&func, &contract);
+    assert!(
+        !errors
+            .iter()
+            .any(|e| matches!(e, VerifyError::AbsentParamHasUses { .. })),
+        "absent v0 unused, used v1 has Once → no error: {errors:?}"
+    );
+}

@@ -14,6 +14,9 @@
 //! Lean 4 borrow inference (IFL 2019), Linearity ≠ Uniqueness (ESOP 2022),
 //! `OxCaml` (ICFP 2024).
 
+// Exposed for dead-code lint satisfaction — the glob re-export below
+// is the intended public API surface.
+pub mod dimensions;
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,
@@ -21,198 +24,10 @@
 )]
 mod tests;
 
+pub use dimensions::*;
+
 use crate::ir::ArcVarId;
 use crate::ArcClass;
-
-// Access dimension (aliasing)
-
-/// Whether a value is an owned allocation or a borrowed view.
-///
-/// RC emission depends on access: only `Owned` values carry RC obligations.
-/// Join: `Owned` if either side is `Owned`. Chain height: 1.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum AccessClass {
-    /// Temporary view of another value. No RC operations.
-    Borrowed,
-    /// The value owns its allocation. RC operations may be needed.
-    Owned,
-}
-
-impl AccessClass {
-    /// Componentwise join: `Owned` absorbs `Borrowed`.
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        self.max(other)
-    }
-}
-
-// Consumption dimension (substructural)
-
-/// Substructural consumption mode. `Borrowed` is NOT here — see [`AccessClass`].
-///
-/// Ordered: `Dead < Linear < Affine < Unrestricted`. Chain height: 3.
-/// Based on Chirimar et al.: `rc_inc` = contraction, `rc_dec` = weakening.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Consumption {
-    /// Not live at this point. No RC operations needed.
-    Dead,
-    /// Consumed exactly once (moved). No RC inc/dec needed.
-    Linear,
-    /// May be dropped without use (e.g., in an else branch).
-    /// RC dec may be needed, but no RC inc.
-    Affine,
-    /// May be freely copied and dropped. Full RC required.
-    Unrestricted,
-}
-
-impl Consumption {
-    /// Componentwise join: max of the two.
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        self.max(other)
-    }
-}
-
-// Cardinality dimension (forward usage count)
-
-/// Forward usage count. Inspired by GHC demand analysis (POPL 2014).
-///
-/// Ordered: `Absent < Once < Many`. Chain height: 2.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Cardinality {
-    /// Never used after this point.
-    Absent,
-    /// Used exactly once.
-    Once,
-    /// Used multiple times (or in a loop).
-    Many,
-}
-
-impl Cardinality {
-    /// Alternative control-flow join: `max` of the two.
-    ///
-    /// Used at control-flow merge points where only one path executes.
-    /// `join(Once, Once) = Once` — a value used once in each branch of
-    /// an `if` is still used once per execution.
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        self.max(other)
-    }
-
-    /// Alias for `join` — alternative control-flow join.
-    #[must_use]
-    pub fn alt_join(self, other: Self) -> Self {
-        self.join(other)
-    }
-
-    /// Sequential composition along one execution path.
-    ///
-    /// `Absent + x = x`, `Once + Once = Many`, `Many + _ = Many`.
-    ///
-    /// Used when a value is demanded by multiple instructions along the
-    /// same execution path (not at merge points).
-    #[must_use]
-    pub fn seq_add(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Absent, x) | (x, Self::Absent) => x,
-            (Self::Once, Self::Once) | (Self::Many, _) | (_, Self::Many) => Self::Many,
-        }
-    }
-}
-
-// Uniqueness dimension
-
-/// Runtime reference count knowledge.
-///
-/// Ordered: `Unique < MaybeShared < Shared`. Chain height: 2.
-/// Uniqueness is a PAST guarantee ("not duplicated"), distinct from linearity
-/// which is FUTURE ("consumed once") — Marshall et al., ESOP 2022.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Uniqueness {
-    /// Provably RC == 1. COW fast path, reset/reuse candidate.
-    Unique,
-    /// Unknown RC. Runtime check needed for COW.
-    MaybeShared,
-    /// Provably RC > 1. COW always takes slow path.
-    Shared,
-}
-
-impl Uniqueness {
-    /// Componentwise join: max (most conservative).
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        self.max(other)
-    }
-}
-
-// Locality dimension (auxiliary)
-
-/// Escape analysis. `OxCaml` locality mode (ICFP 2024). Conservative in v1.
-///
-/// Ordered: `BlockLocal` < `FunctionLocal` < `HeapEscaping` < `Unknown`.
-/// Chain height: 3.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Locality {
-    /// Does not escape its defining basic block.
-    BlockLocal,
-    /// Does not escape its defining function.
-    FunctionLocal,
-    /// May escape to the heap.
-    HeapEscaping,
-    /// Unknown — conservative default.
-    Unknown,
-}
-
-impl Locality {
-    /// Componentwise join: max (most conservative).
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        self.max(other)
-    }
-}
-
-// ShapeClass dimension (auxiliary)
-
-/// Constructor kind for reuse size matching.
-///
-/// Only `Struct` and `EnumVariant` are reuse-eligible. Other `ir::CtorKind`
-/// variants (`Tuple`, `ListLiteral`, `MapLiteral`, `SetLiteral`, `Closure`)
-/// map to either `CollectionBuffer` or `NonReusable` in [`ShapeClass`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ReuseCtorKind {
-    Struct,
-    EnumVariant,
-}
-
-/// Structural shape classification for reuse compatibility.
-///
-/// Forms a **flat lattice** with `NonReusable` as top: any two distinct
-/// non-`NonReusable` values join to `NonReusable`.
-///
-/// Chain height: 1 (any value reaches `NonReusable` in at most one step).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ShapeClass {
-    /// Not a candidate for allocation reuse. Top element.
-    NonReusable,
-    /// A constructor allocation that may be reusable.
-    ReusableCtor(ReuseCtorKind),
-    /// A collection buffer (list, map, set).
-    CollectionBuffer,
-    /// A constructor-context hole (Stage 3 TRMC).
-    ContextHole,
-}
-
-impl ShapeClass {
-    /// Flat lattice join: equal values stay; unequal → `NonReusable`.
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        if self == other {
-            self
-        } else {
-            Self::NonReusable
-        }
-    }
-}
 
 // SizeClass (for cross-type reuse in Stage 2+)
 
@@ -530,18 +345,65 @@ impl AimsState {
 /// lattice. Only relevant for variables with [`AccessClass::Borrowed`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BorrowSource {
-    /// Known exact source variable.
-    Exact(ArcVarId),
+    /// Known exact source variable, optionally with the projected field index.
+    ///
+    /// `field` is `Some(idx)` when the borrow comes from a `Project` instruction,
+    /// identifying which field of the source struct/enum was extracted. Used by
+    /// the disjoint-field COW optimization (Section 07.3.2) to prove that a COW
+    /// mutation on a different field doesn't conflict with this borrow.
+    Exact {
+        source: ArcVarId,
+        field: Option<u32>,
+    },
     /// Multiple sources or unknown origin.
     Unknown,
 }
 
 impl BorrowSource {
-    /// Join two borrow sources: same → keep; different → `Unknown`.
+    /// Create an `Exact` borrow source without field info.
+    #[must_use]
+    pub fn exact(source: ArcVarId) -> Self {
+        Self::Exact {
+            source,
+            field: None,
+        }
+    }
+
+    /// Create an `Exact` borrow source with field info from a `Project`.
+    #[must_use]
+    pub fn exact_field(source: ArcVarId, field: u32) -> Self {
+        Self::Exact {
+            source,
+            field: Some(field),
+        }
+    }
+
+    /// Get the source variable, if this is an `Exact` borrow.
+    #[must_use]
+    pub fn source_var(&self) -> Option<ArcVarId> {
+        match self {
+            Self::Exact { source, .. } => Some(*source),
+            Self::Unknown => None,
+        }
+    }
+
+    /// Join two borrow sources: same source+field → keep; different → `Unknown`.
     #[must_use]
     pub fn join(self, other: Self) -> Self {
         match (self, other) {
-            (Self::Exact(a), Self::Exact(b)) if a == b => Self::Exact(a),
+            (
+                Self::Exact {
+                    source: a,
+                    field: fa,
+                },
+                Self::Exact {
+                    source: b,
+                    field: fb,
+                },
+            ) if a == b && fa == fb => Self::Exact {
+                source: a,
+                field: fa,
+            },
             _ => Self::Unknown,
         }
     }

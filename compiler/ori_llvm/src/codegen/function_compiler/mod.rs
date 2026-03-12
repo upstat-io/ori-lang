@@ -24,7 +24,7 @@ pub use nounwind::PreparedFunction;
 
 use std::cell::Cell;
 
-use ori_arc::{AnnotatedSig, ArcClassifier, UniquenessSummary};
+use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract, UniquenessSummary};
 use ori_ir::{Function, Name, Span, StringInterner};
 use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -69,9 +69,15 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     debug_context: Option<&'a DebugContext<'ctx>>,
     /// Pre-computed builtin ownership sets for ARC annotation.
+    /// When AIMS is active, `arg_ownership` is handled by the AIMS pipeline.
+    #[cfg(not(feature = "aims"))]
     builtin_ownership: ori_arc::BuiltinOwnershipSets,
     /// Interprocedural uniqueness summaries for COW check elimination.
     uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
+    /// Pre-computed AIMS interprocedural contracts for param/arg ownership.
+    /// Populated by [`ori_arc::compute_aims_contracts`] before the per-function
+    /// loop. When AIMS is not active, this is empty.
+    aims_contracts: FxHashMap<Name, MemoryContract>,
     /// Whether to run ARC IR verification in release builds.
     /// In debug builds, verification always runs regardless of this flag.
     verify_arc: bool,
@@ -98,8 +104,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
         uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
+        aims_contracts: FxHashMap<Name, MemoryContract>,
         verify_arc: bool,
     ) -> Self {
+        #[cfg(not(feature = "aims"))]
         let builtin_ownership = ori_arc::BuiltinOwnershipSets::new(interner);
         Self {
             builder,
@@ -114,8 +122,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             annotated_sigs,
             arc_classifier,
             debug_context,
+            #[cfg(not(feature = "aims"))]
             builtin_ownership,
             uniqueness_summaries,
+            aims_contracts,
             verify_arc,
         }
     }

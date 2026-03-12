@@ -33,9 +33,45 @@ ARC IR is the **sole codegen path** — all native code generation flows through
 
 ## What Makes Ori's ARC System Distinctive
 
-### Eight Stacked Optimizations, Not One
+### AIMS: Unified Memory Intelligence
 
-Most ARC implementations apply a single optimization strategy. Swift's optimizer focuses primarily on removing redundant retain/release pairs through dataflow analysis. Python's reference counting has no compile-time optimization at all — every reference operation is emitted naively. Ori stacks **eight** optimization layers that compound on each other, where each layer creates opportunities for the next:
+> **Note:** The ARC system has two pipeline implementations. The **legacy pipeline** uses sequential passes (described below as "eight stacked optimizations"). The **AIMS pipeline** (`--features aims`) replaces these sequential passes with one unified memory-intelligence system. AIMS is the active development direction; the legacy pipeline will be removed once AIMS achieves full parity.
+
+> AIMS is not Ori's ARC optimizer; AIMS is Ori's memory semantics made executable as one unified analysis and realization system.
+
+**AIMS (ARC Intelligent Memory System)** is a single abstract interpreter over a 7-dimensional product lattice. It does not combine existing passes — it replaces them with dimensional facts that are all computed in one converging fixpoint:
+
+| Legacy Concept | AIMS Replacement | Dimensions Used |
+|---------------|-----------------|-----------------|
+| Borrow inference | `AccessClass` + interprocedural `ParamContract` | access, consumption |
+| Liveness analysis | `Cardinality` + `Consumption` | cardinality, consumption |
+| Uniqueness analysis | `Uniqueness` (+ locality/cardinality proof) | uniqueness, locality, cardinality |
+| Reuse eligibility | `ShapeClass` + `Uniqueness` + `Consumption` | shape, uniqueness, consumption |
+| COW mode | Derived view of converged state | uniqueness, access, consumption |
+| Drop hints | Derived view of converged state | uniqueness, shape |
+| FIP certification | Derived view of `EffectClass` + allocation balance | effect, locality, shape |
+| RC identity normalization | Eliminated — precise placement avoids need | access, cardinality |
+| RC elimination | Eliminated — no redundant pairs to remove | consumption, cardinality |
+
+The seven dimensions are:
+
+1. **AccessClass** (`Borrowed` | `Owned`) — parameter ownership disposition
+2. **Consumption** (`Dead` | `Borrowed` | `Owned` | `Linear`) — how a value is used
+3. **Cardinality** (`Absent` | `Once` | `Many`) — demand count (backward)
+4. **Uniqueness** (`Unique` | `MaybeShared`) — RC uniqueness proof
+5. **Locality** (`BlockLocal` | `FunctionLocal` | `HeapEscaping` | `Unknown`) — escape scope
+6. **ShapeClass** (`NonReusable` | `ReusableCtor(kind)` | `CollectionBuffer` | `ContextHole`) — reuse compatibility
+7. **EffectClass** (`may_alloc` | `may_share` | `may_throw`) — function effect flags
+
+The lattice join at control flow merge points combines all dimensions simultaneously, and per-instruction transfer functions update all dimensions in a single backward pass. Cross-dimension canonicalize rules enforce invariants (e.g., `BlockLocal + Owned + Once → Unique`). No dimension operates in isolation — each constrains or proves facts used by others.
+
+COW, FIP, reuse, drop hints, and RC operations are not separate passes. They are projections — different views of the same converged lattice read during one realization step.
+
+AIMS produces the same outputs as the legacy pipeline (RC operations, reuse tokens, COW annotations, drop hints) but with better optimization quality: **-75% RC operations on golden corpus programs, -70% on benchmarks** (measured 2026-03-11). See [AIMS Plan](../../../plans/aims/00-overview.md) for the full design.
+
+### Eight Stacked Optimizations (Legacy Pipeline)
+
+The legacy pipeline applies eight sequential optimization layers that compound on each other:
 
 1. **Type classification** eliminates RC for half of all variables (scalars)
 2. **Borrow inference** eliminates RC at call sites for read-only parameters
@@ -155,7 +191,50 @@ flowchart LR
 
 ### Pipeline Passes
 
-The ARC pipeline runs in a strict, load-bearing order — each pass depends on the output of prior passes. Reordering or skipping passes produces incorrect code.
+Two pipeline implementations exist, selected at compile time by feature flag. Both produce the same IR format (`ArcFunction` with RC operations, reuse tokens, COW annotations, drop hints).
+
+#### AIMS Pipeline (`--features aims`)
+
+The AIMS pipeline replaces ~22 legacy steps with one analysis and one realization:
+
+```mermaid
+flowchart TB
+    Lower["Lower CanExpr
+    → ArcFunction"] --> Inter
+
+    subgraph Inter["Interprocedural (once)"]
+        AP["1. analyze_program()
+        MemoryContract per fn (SCC fixpoint)"]
+        AO["2. apply_ownership()
+        Populate ArcParam.ownership"]
+        AP --> AO
+    end
+
+    Inter --> PerFn
+
+    subgraph PerFn["Per-Function (steps 3–14)"]
+        VR["3. compute_var_reprs()"]
+        EAO["4. emit_arg_ownership()"]
+        AF["5. analyze_function()
+        Backward dataflow → AimsStateMap"]
+        ERC["6. emit_rc_ops()"]
+        ER["7. emit_reuse()"]
+        V1["9. verify()"]
+        TC["10. tail calls"]
+        MB["11. merge_blocks()"]
+        COW["11a. emit_cow_annotations()
+        (uses var_facts)"]
+        DH["12. emit_drop_hints()
+        (uses var_facts)"]
+        V2["13. verify()"]
+
+        VR --> EAO --> AF --> ERC --> ER --> V1 --> TC --> MB --> COW --> DH --> V2
+    end
+```
+
+Key constraint: steps 11a–12 use `var_facts` (keyed by `ArcVarId`), not position-keyed state maps (invalidated by `merge_blocks()`).
+
+#### Legacy Pipeline (default)
 
 ```mermaid
 flowchart TB
@@ -216,11 +295,21 @@ Each dependency is structural, not incidental:
 
 | Function | Purpose |
 |----------|---------|
-| `run_arc_pipeline()` | Single function — assumes borrow sigs cached, runs per-function passes |
-| `run_arc_pipeline_all()` | Batch — infers borrows globally, then runs per-function pipeline on each |
-| `run_uniqueness_analysis()` | Interprocedural uniqueness — SCC-based fixpoint for COW elimination |
+| `run_arc_pipeline()` | Single function — dispatches to AIMS or legacy based on feature flag |
+| `run_arc_pipeline_all()` | Batch — dispatches to AIMS or legacy based on feature flag |
+| `run_uniqueness_analysis()` | Interprocedural uniqueness — SCC-based fixpoint (legacy) |
+| `aims::analyze_program()` | AIMS interprocedural — computes `MemoryContract` per function |
+| `aims::analyze_function()` | AIMS intraprocedural — backward dataflow → `AimsStateMap` |
 
-Consumers always use these entry points, never manual pass sequencing.
+Consumers always use the `run_arc_pipeline*` entry points, never manual pass sequencing. The `aims::*` functions are called internally by the AIMS pipeline.
+
+### Feature Flags
+
+| Flag | Effect |
+|------|--------|
+| (default) | Legacy multi-pass pipeline |
+| `aims` | AIMS unified lattice pipeline replaces legacy |
+| `aims-shadow` | Implies `aims`; runs both pipelines and compares results (5 dimensions) |
 
 ## Prior Art
 
@@ -264,12 +353,13 @@ Consumers always use these entry points, never manual pass sequencing.
 
 - [ARC IR](arc-ir.md) — IR definitions, type classification, value representations
 - [Lowering](lowering.md) — CanExpr to ARC IR conversion
-- [Borrow Inference](borrow-inference.md) — Global ownership inference
-- [Liveness](liveness.md) — Backward dataflow analysis
-- [RC Insertion](rc-insertion.md) — Perceus algorithm
-- [Reset/Reuse](reset-reuse.md) — In-place constructor reuse
-- [RC Elimination](rc-elimination.md) — Redundant pair removal
+- [Borrow Inference](borrow-inference.md) — Global ownership inference (legacy)
+- [Liveness](liveness.md) — Backward dataflow analysis (legacy)
+- [RC Insertion](rc-insertion.md) — Perceus algorithm (legacy)
+- [Reset/Reuse](reset-reuse.md) — In-place constructor reuse (legacy)
+- [RC Elimination](rc-elimination.md) — Redundant pair removal (legacy)
 - [Drop Descriptors](drop-descriptors.md) — Per-type drop generation
 - [Decision Trees](decision-trees.md) — Pattern compilation in ARC IR
 - [ARC Emitter](../10-llvm-backend/arc-emitter.md) — ARC IR to LLVM IR translation
 - [Runtime RC](../11-runtime/reference-counting.md) — Runtime RC implementation
+- [AIMS Plan](../../../plans/aims/00-overview.md) — AIMS implementation plan (Sections 01–11)

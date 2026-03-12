@@ -259,11 +259,23 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Without this, RC insertion generates unnecessary RcInc/RcDec for
         // params that borrow inference determined should be Borrowed.
         //
-        // When AIMS is active, param ownership is set by
-        // aims::apply_ownership() (pipeline step 2) inside run_arc_pipeline.
-        // Skip the legacy annotation to avoid overwriting AIMS decisions.
+        // When AIMS is active, param ownership is derived from pre-computed
+        // AIMS contracts (interprocedural analysis). Apply it here since
+        // compute_aims_contracts() ran on cloned functions.
         #[cfg(feature = "aims")]
-        let _ = name;
+        {
+            let _ = name;
+            if let Some(contract) = self.aims_contracts.get(&arc_func.name) {
+                for (param, pc) in arc_func.params.iter_mut().zip(&contract.params) {
+                    param.ownership = match pc.access {
+                        ori_arc::aims::lattice::AccessClass::Borrowed => {
+                            ori_arc::Ownership::Borrowed
+                        }
+                        ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
+                    };
+                }
+            }
+        }
         #[cfg(not(feature = "aims"))]
         if let Some(sig) = self.annotated_sigs.get(&name) {
             for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
@@ -278,6 +290,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             );
         }
 
+        // When AIMS is active, arg_ownership is populated by the AIMS pipeline
+        // (Step 4: emit_arg_ownership). Skip the legacy annotation to avoid
+        // double-annotation that would overwrite AIMS's contracts-derived sigs.
+        #[cfg(not(feature = "aims"))]
         ori_arc::annotate_arg_ownership(
             arc_func,
             self.annotated_sigs,
@@ -292,6 +308,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.pool,
             self.interner,
             &self.uniqueness_summaries,
+            &self.aims_contracts,
             self.verify_arc,
         );
         for problem in &arc_problems {
@@ -369,6 +386,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .insert(unique_name, (func_id, abi.clone()));
 
         // ARC processing
+        #[cfg(not(feature = "aims"))]
         ori_arc::annotate_arg_ownership(
             lambda,
             self.annotated_sigs,
@@ -383,6 +401,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.pool,
             self.interner,
             &self.uniqueness_summaries,
+            &self.aims_contracts,
             self.verify_arc,
         );
         for problem in &arc_problems {

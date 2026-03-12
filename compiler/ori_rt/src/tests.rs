@@ -330,55 +330,63 @@ fn rc_inc_does_not_overflow_under_normal_use() {
 }
 
 #[test]
-#[expect(
-    clippy::expect_used,
-    reason = "subprocess test pattern requires infallible exe/output"
-)]
-fn rc_overflow_aborts_process() {
-    // We can't actually increment to isize::MAX (would take years), but we
-    // can verify the mechanism by directly setting the refcount near the
-    // limit and confirming that ori_rc_inc aborts the child process.
-    use std::process::Command;
-
-    let result =
-        Command::new(std::env::current_exe().expect("could not determine test binary path"))
-            .arg("--exact")
-            .arg("tests::rc_overflow_aborts_process_child")
-            .env("ORI_RC_OVERFLOW_TEST", "1")
-            .output()
-            .expect("failed to spawn child process");
-
-    // The child should have been killed by abort (signal) or exited non-zero
-    assert!(
-        !result.status.success(),
-        "child process should have aborted on overflow, but exited successfully"
-    );
-}
-
-/// Helper test that is only run as a subprocess by `rc_overflow_aborts_process`.
-///
-/// Directly manipulates the refcount header to near `MAX_REFCOUNT`, then
-/// calls `ori_rc_inc` which should trigger abort.
-#[test]
-fn rc_overflow_aborts_process_child() {
-    if std::env::var("ORI_RC_OVERFLOW_TEST").is_err() {
-        // Only run when invoked as a subprocess
-        return;
-    }
-
+fn rc_inc_skips_at_max_refcount() {
+    // Immortal objects have refcount set to MAX_REFCOUNT.
+    // ori_rc_inc should be a no-op — refcount stays at MAX_REFCOUNT.
     let ptr = ori_rc_alloc(16, 8);
 
-    // Directly write MAX_REFCOUNT into the refcount header
     unsafe {
         let rc_ptr = ptr.sub(8).cast::<i64>();
         *rc_ptr = MAX_REFCOUNT;
     }
 
-    // This should trigger the overflow abort
+    // This should skip (no-op), not abort or increment.
     ori_rc_inc(ptr);
 
-    // Should never reach here
-    unreachable!("ori_rc_inc should have aborted");
+    unsafe {
+        let rc_ptr = ptr.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "refcount should remain at MAX_REFCOUNT after ori_rc_inc"
+        );
+    }
+
+    // Clean up: reset refcount to 1 so we can free.
+    unsafe {
+        let rc_ptr = ptr.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_dec(ptr, None);
+}
+
+#[test]
+fn rc_dec_skips_at_max_refcount() {
+    // Immortal objects have refcount set to MAX_REFCOUNT.
+    // ori_rc_dec should be a no-op — refcount stays at MAX_REFCOUNT.
+    let ptr = ori_rc_alloc(16, 8);
+
+    unsafe {
+        let rc_ptr = ptr.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    // This should skip (no-op), not decrement or free.
+    ori_rc_dec(ptr, None);
+
+    unsafe {
+        let rc_ptr = ptr.sub(8).cast::<i64>();
+        assert_eq!(
+            *rc_ptr, MAX_REFCOUNT,
+            "refcount should remain at MAX_REFCOUNT after ori_rc_dec"
+        );
+    }
+
+    // Clean up: reset refcount to 1 so we can free.
+    unsafe {
+        let rc_ptr = ptr.sub(8).cast::<i64>();
+        *rc_ptr = 1;
+    }
+    ori_rc_dec(ptr, None);
 }
 
 // Compile-time verification that MAX_REFCOUNT is correctly defined.

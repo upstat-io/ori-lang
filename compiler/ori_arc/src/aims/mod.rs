@@ -20,6 +20,7 @@ pub mod builtins;
 pub mod contract;
 pub mod emit_rc;
 pub mod emit_reuse;
+pub mod immortal;
 pub mod interprocedural;
 pub mod intraprocedural;
 pub mod lattice;

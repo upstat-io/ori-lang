@@ -1,8 +1,7 @@
 ---
 plan: "aims"
 title: "AIMS — ARC Intelligent Memory System: Exhaustive Implementation Plan"
-status: not-started
-reviewed: true  # 2026-03-10
+status: in-progress
 references:
   - "docs/compiler/design/09-arc-system/index.md"
   - "docs/ori_lang/v2026/spec/21-memory-model.md"
@@ -11,16 +10,108 @@ references:
 
 # AIMS — ARC Intelligent Memory System: Exhaustive Implementation Plan
 
+## Thesis
+
+> AIMS is not Ori's ARC optimizer; AIMS is Ori's memory semantics made executable
+> as one unified analysis and realization system.
+
+AIMS is not a collection of borrowed optimizations. It is one memory-intelligence
+system with one fact model and many outputs. External research informs individual
+dimensions, but AIMS is defined by the unification, not by the ingredients. The
+novelty is the collapse of ownership, demand, uniqueness, locality, shape, and
+effect into one abstract interpreter and one realization model.
+
+There is no "COW pass" or "FIP pass" or "reuse pass." There is one analysis that
+converges a 7-dimensional lattice, and one realization that reads the converged
+state and emits all artifacts. COW mode, FIP certification, reuse tokens, RC
+operations, and drop hints are projections — different views of the same proven
+facts. If an optimization cannot be derived from `AimsStateMap` and
+`MemoryContract` alone, it is not part of AIMS core.
+
 ## Mission
 
-Replace `ori_arc`'s sequential analysis passes (derived ownership, liveness,
-uniqueness/COW annotation, RC insertion, reset/reuse detection, expansion,
-RC identity propagation, RC elimination, drop hints) with a
-single unified ownership analysis based on a formally-grounded lattice. AIMS
-fuses these into one coherent system where all dimensions reinforce each other
-— producing equal or fewer RC operations, in fewer compilation passes, with a
-cleaner architecture. FBIP enforcement remains a separate read-only diagnostic
-pass running on the final IR.
+Build one unified memory intelligence system where all 7 analysis dimensions
+(access, consumption, cardinality, uniqueness, locality, shape, effect) work as
+one team — every dimension constrains, proves, or overrides at least one other.
+COW, FIP, reuse, drop hints, and RC insertion are *outputs* of this one system's
+reasoning, not separate subsystems with their own analysis logic. The system
+produces equal or fewer RC operations than the legacy pipeline, in one analysis
+pass and one realization pass, with a formally-grounded lattice.
+
+**Stage 1 (complete):** Replaced `ori_arc`'s sequential analysis passes with the
+AIMS unified lattice. 75% RC reduction on golden corpus, zero behavioral
+regressions, zero Valgrind leaks. The 4 core dimensions (access, consumption,
+cardinality, uniqueness) collaborate through canonicalize and cross-dimensional
+emission decisions.
+
+**Stage 2 (this revision):** Deepen the integration so all 7 dimensions are
+active team members. Fuse transfer functions so dimensions read each other
+during analysis. Merge emission passes into one realization step. COW, FIP,
+reuse fall out of the converged state as views, not as separate computations.
+FBIP enforcement remains a separate read-only diagnostic pass.
+
+**Stage 3:** Create structural opportunities (TRMC normalization) that the
+unified analysis can exploit — a prerequisite for FIP on recursive algorithms.
+
+**Stage 4:** Realize locality facts as backend hints for stack allocation and
+representation optimization (boxity inference, bit-stealing).
+
+**Stage 5:** Complete the runtime with concurrent RC strategies, frozen-cycle
+collection, and per-object atomicity modes — making AIMS's compile-time
+intelligence effective across Ori's full concurrency model.
+
+## AIMS Litmus Test
+
+Every proposed optimization must answer these five questions:
+
+1. **What dimensions does it read?** (e.g., uniqueness + locality + cardinality)
+2. **What dimensions does it refine?** (e.g., tightens uniqueness from MaybeShared to Unique)
+3. **What prior standalone analysis does it eliminate?** (e.g., replaces separate COW uniqueness pass)
+4. **Can it be derived from `AimsStateMap` + `MemoryContract` alone?**
+5. **If not, it is not part of AIMS core.** It belongs in a separate post-analysis pass (like FBIP enforcement) or in a pre-analysis normalization (like TRMC).
+
+This test prevents AIMS from accumulating bolted-on passes that happen to share
+a data structure but don't participate in the unified analysis.
+
+## What Is Actually Unified Today
+
+| Layer | Status | Notes |
+|-------|--------|-------|
+| **Lattice** | Unified | All 7 dimensions in one `AimsState` product lattice |
+| **Transfer functions** | Unified | One backward pass updates all dimensions per instruction |
+| **Interprocedural contracts** | Unified | One `MemoryContract` per function, one SCC fixpoint |
+| **Canonicalize (cross-dim)** | Partially unified | 3 rules active; 5 more designed (Section 09) |
+| **RC emission** | Separate pass | Reads state map but has own traversal |
+| **Reuse emission** | Separate pass | Reads state map but has own traversal + detection scan |
+| **COW annotations** | Separate post-pass | Runs after merge_blocks with own traversal |
+| **Drop hints** | Separate post-pass | Runs after merge_blocks with own traversal |
+| **FIP classification** | Contract layer | `MemoryContract.fip` owned by interprocedural; `FipContract::Never` for all in Stage 1; Stage 2 makes it precise via `extract_contract()` reading converged state |
+
+**Summary:** Analysis is unified now. Realization is still partially split.
+FIP classification is already in the right place (contract layer) — it needs
+precision, not relocation. Section 09 activates the remaining dimensions so
+all 7 participate in reasoning. Section 10 removes the remaining output-pass
+boundaries so emission is one realization, not four traversals.
+
+## Legacy Concept Collapse Table
+
+AIMS does not combine existing passes — it replaces them with dimensional facts:
+
+| Legacy Concept | AIMS Replacement | Dimensions Used |
+|---------------|-----------------|-----------------|
+| Borrow inference | `AccessClass` + interprocedural `ParamContract` | access, consumption |
+| Liveness analysis | `Cardinality` + `Consumption` | cardinality, consumption |
+| Uniqueness analysis | `Uniqueness` dimension (+ locality/cardinality proof) | uniqueness, locality, cardinality |
+| Reuse eligibility | `ShapeClass` + `Uniqueness` + `Consumption` | shape, uniqueness, consumption |
+| COW mode | Derived view of converged state | uniqueness, access, consumption |
+| Drop hints | Derived view of converged state | uniqueness, shape |
+| FIP certification | Derived from `EffectSummary.may_allocate` + `missed_reuses` + recursion check | effect, shape, consumption (token balance), uniqueness (Conditional preconditions) |
+| RC identity normalization | Eliminated — no separate pass needed | access, cardinality |
+| RC elimination | Eliminated — precise placement avoids redundant pairs | consumption, cardinality |
+
+The left column no longer exists as separate code. The right column is what AIMS
+computes in its single analysis pass. No legacy concept has its own traversal,
+its own state, or its own decision procedure.
 
 ## Architecture
 
@@ -133,15 +224,28 @@ committed. Information walls between passes prevent cross-optimization.
 
 ### 3. Formally Grounded
 
-The unified lattice is justified by established theory: Perceus's linear resource
-calculus (RC ops = structural rules of linear logic), GHC's demand analysis
-(cardinality inference), and Lean 4's borrow inference (SCC-based ownership).
-These aren't ad-hoc engineering choices but projections of a single mathematical
-framework onto different dimensions.
+The unified lattice is justified by established theory — RC ops as structural
+rules of linear logic, backward cardinality inference, SCC-based ownership
+propagation. These aren't ad-hoc engineering choices but projections of a single
+mathematical framework onto different dimensions. AIMS is defined by the
+unification, not by the individual ingredients.
 
 **Motivated by:** Correctness confidence. Each current pass has its own invariants
 that must be manually kept in sync. A single formally-grounded lattice has one
 invariant to maintain.
+
+See [Research Lineage](#research-lineage) for the specific papers that inform
+each dimension.
+
+### 4. Law Before Optimization
+
+Every rewrite in `aims/normalize/` (Stage 3 opportunity creation) must follow the
+equational approach: (a) define a correctness specification, (b) identify the
+algebraic laws the specification requires, (c) prove the concrete instantiation
+satisfies those laws. This principle, drawn from Leijen & Lorenzen (JFP 2025),
+prevents accumulating ad-hoc rewrites that work on known examples but lack
+soundness arguments.
+(See: [Literature Review §04 — TRMC](../aims-literature-review/section-04-trmc.md))
 
 ## Section Dependency Graph
 
@@ -174,7 +278,25 @@ invariant to maintain.
 ┌──────┐  ┌──────┐
 │07 Adv-│  │08 Ver-│   Independent: advanced opts and verification
 │anced │  │ify    │
-└──────┘  └──────┘
+└───┬──┘  └──────┘
+    │
+    ▼
+┌──────────┐
+│09 Dimen- │   Requires all Stage 1 work (01-08)
+│sional    │
+│Fusion    │
+└────┬─────┘
+     ▼
+┌──────────┐
+│10 Unified│   Requires 09 (richer state to read)
+│Realize   │
+└────┬─────┘
+     ▼
+┌──────────┐
+│11 Integ- │   Requires 09+10 (proves the integration works)
+│ration    │
+│Verify    │
+└──────────┘
 ```
 
 - Sections 02 and 03 can be developed in parallel (03 produces `MemoryContract` per
@@ -191,6 +313,18 @@ invariant to maintain.
 - **Section 04 + Section 06**: RC emission must populate `arg_ownership` on Apply/Invoke
   instructions AND `ArcParam.ownership` on functions. These are consumed by the LLVM
   emitter. If AIMS changes the representation, Section 06 must update the LLVM consumer.
+- **Section 09 + `ParamContract`**: Locality Activation (09.2) adds `locality_bound` to
+  `ParamContract`. This touches: `aims/contract/mod.rs`, `aims/interprocedural.rs`
+  (extract_contract), `aims/builtins/mod.rs` (builtin defaults), `verify/mod.rs`.
+  All five locations must be updated in the same commit. See Section 09.2 sync note.
+- **Section 10 + edge cleanup**: `realize_rc_reuse()` (Phase 1) must call `emit_edge_cleanup()`
+  at the end of its forward walk — the same edge cleanup that currently lives inside
+  `emit_rc_ops()`. This must not be lost during the refactor. See Section 10.1.
+- **Section 10 + COW/drop hints**: `realize_annotations()` (Phase 2) runs AFTER
+  `merge_blocks()` and uses ArcVarId-keyed state lookups. This ordering is load-bearing
+  (same constraint as steps 11a/12 in the current pipeline). See Section 10.1 architecture.
+- **Section 10 + arg_ownership**: `emit_arg_ownership()` (current step 4) disposition
+  must be decided before implementing `realize()`. See Section 10.1 disposition note.
 
 **Critical sync points (must stay in sync with LLVM emitter):**
 - `ArcFunction.cow_annotations` — consumed by `emitter_utils.rs` (keyed by `(block_idx, instr_idx)`)
@@ -247,6 +381,45 @@ Stage 1 — Make AIMS-core real and replace the current pass stack
 
   Deliverable: old ARC pipeline replaced by AIMS for standard code paths
 
+  Stage 1→2 Transition Gate:
+  Before beginning Stage 2 work, ALL of the following must be true:
+  1. `./test-all.sh` green (old pipeline unchanged, AIMS default)
+  2. `cargo test --workspace --features aims` green (zero failures)
+  3. `cargo test -p ori_llvm --features aims` green (all AOT tests pass)
+  4. Valgrind: 0 definite runtime leaks on all `tests/valgrind/` + `tests/aims/` programs
+  5. RC count ≤ old pipeline for ALL golden corpus programs (not just net improvement)
+  6. RC count ≤ old pipeline for ALL `tests/benchmarks/` programs
+  7. `aims-shadow` comparison shows zero regressions on param/return/cow/arg_ownership
+  8. Compilation speed within 10% of old pipeline on all representative programs
+  9. Section 08 exit criteria fully met (behavioral equivalence + safety verification)
+  10. Old pipeline code is still compilable (not deleted) — it remains the fallback
+      until Stage 2 exits successfully.
+
+  aims-shadow Feature Retirement Plan:
+  The `aims-shadow` feature (runs both pipelines and compares results) is a
+  **Stage 1 verification tool**. Its retirement follows this sequence:
+  1. **Stage 1 (current):** `aims-shadow` is actively used for regression detection.
+     Shadow comparison runs automatically in CI and ad-hoc via
+     `diagnostics/aims-compare.sh`. All 5 comparison dimensions active.
+  2. **Stage 1→2 transition:** After the Stage 1→2 gate passes, `aims-shadow` is
+     demoted from CI-required to on-demand diagnostic. The feature flag remains
+     compilable but is no longer run in standard CI.
+  3. **Stage 2 completion:** After Section 11 exit criteria are met (integration
+     verified, synergy metrics established, regression guards in place), the
+     `aims-shadow` feature is deleted:
+     - Remove `aims-shadow` feature from `compiler/ori_arc/Cargo.toml`
+     - Delete `compiler/ori_arc/src/pipeline/shadow/` directory (mod.rs, compare.rs, tests.rs)
+     - Remove `aims-shadow` references from `CLAUDE.md`, `.claude/rules/arc.md`,
+       `.claude/rules/cargo.md`
+     - Remove shadow-related code in `pipeline/mod.rs` (the dispatch branch)
+     - Update `diagnostics/aims-compare.sh` to remove shadow mode references
+  4. **Post-retirement:** The `aims` feature flag itself is also retired — AIMS
+     becomes the only pipeline. Remove the feature flag, delete legacy pipeline
+     code (`borrow/`, `liveness/`, `rc_insert/`, `rc_elim/`, `rc_identity/`,
+     `uniqueness/`, `reset_reuse/`, `expand_reuse/`), update `run_arc_pipeline()`
+     to call AIMS directly without feature dispatch. This is the final cleanup
+     after Stage 2 is proven correct.
+
   Stage 1 scope exclusions (NOT on the critical path):
   - FipContract inference (all functions get FipContract::Never in Stage 1)
   - TRMC normalization (normalize_function returns no-op in Stage 1)
@@ -254,18 +427,49 @@ Stage 1 — Make AIMS-core real and replace the current pass stack
   - New CollectionReuse creation (existing CollectionReuse preserved, no new ones)
   - ShapeClass and EffectClass precision (conservative defaults acceptable)
 
-Stage 2 — Add FIP-capable contracts
-  └─ 03: Extend MemoryContract with FipContract
-  └─ 05: Teach reuse emission to emit exact reuse fast paths where
-          FIP preconditions hold
-  └─ 08: Add verification counters for allocation-free execution
-  Deliverable: AIMS can certify some functions as conditionally or fully in-place
+Stage 2 — Dimensional Fusion (one team, not separate analyses)
+  └─ 09: Dimensional Fusion
+       └─ 09.1: Transfer-level cross-talk (dimensions read each other during transfer)
+       └─ 09.2: Active dimensions (dependency ladder: locality → effect → shape)
+       └─ 09.3: Enriched canonicalize (8+ cross-dimension invariant rules, up from 3)
+       └─ 09.4: Sequencing algebra extension (document/extend seq_add/alt_join)
+       └─ 09.5: Convergence feedback (multi-round canonicalize, cross-dim tightening)
+  └─ 10: Unified Realization
+       └─ 10.1: Single realize() pass replaces emit_rc + emit_reuse + cow + drop_hints
+       └─ 10.2: Per-instruction decide() reads one AimsState, makes all decisions
+       └─ 10.3: COW/reuse/drop_hints as views of converged state, not separate logic
+              (FIP stays in contract layer; realization consumes it, emits evidence)
+  └─ 11: Integration Verification
+       └─ 11.1: Cross-dimension test programs (programs only solvable by 2+ dimensions)
+       └─ 11.2: Synergy metrics (quantify cross-dimensional contribution)
+       └─ 11.3: Regression guards (removing any rule regresses measurably)
+  Gate: every dimension influences at least one other; ≥20% of RC decisions
+        require 2+ dimensions; golden corpus RC ≤ Stage 1; compilation speed ≤ 10% regression
+  Deliverable: one system where COW, reuse, RC, drop hints are realization outputs
+               and FIP classification falls out of contract extraction reading converged
+               effect + locality state. No separate FIP pass; no separate emission passes.
 
-Stage 3 — Add constrained TRMC normalization
+  Stage 2 Exit Gate (must ALL be true before proceeding to Stage 3):
+  1. All Section 09 exit criteria met (cross-dimension interactions ≥12)
+  2. All Section 10 exit criteria met (two-phase realize, output equivalence)
+  3. All Section 11 exit criteria met (synergy metrics ≥20%, regression guards)
+  4. `aims-shadow` feature retired (see retirement plan in Stage 1→2 transition)
+  5. `aims` feature flag retired — AIMS is the sole pipeline
+  6. Legacy pipeline code deleted (borrow/, liveness/, rc_insert/, rc_elim/,
+     rc_identity/, uniqueness/, reset_reuse/, expand_reuse/ — ~7,300 lines)
+  7. `run_arc_pipeline()` calls AIMS directly without feature dispatch
+  8. `./test-all.sh` green (now always uses AIMS, no feature flag needed)
+  9. Valgrind: 0 definite runtime leaks on all test programs
+
+Stage 3 — Opportunity Creation (required for FIP on recursive algorithms)
+  Stage 3 is not an optimization pass. It is a structural prerequisite. Without
+  it, self-recursive constructor functions cannot be FIP or FBIP. Stage 2 makes
+  the analysis *ready* to exploit contexts; Stage 3 creates the contexts to
+  exploit.
+  (See: [Literature Review §03 — FIPTree](../aims-literature-review/section-03-fiptree.md))
   └─ NEW: aims/normalize/ — self-recursive constructor-context rewrites only
-  └─ Transformed regions produce internal context metadata
-  └─ Analysis reads normalized structure; no new public language feature
-  
+  └─ Benefits from Stage 2: active shape dimension identifies ContextHole,
+     active effect dimension verifies purity, active locality bounds scope
   └─ Scope bounds (v1):
        - Self-recursive functions only (no mutual recursion)
        - One recursive call per transformed region
@@ -273,26 +477,89 @@ Stage 3 — Add constrained TRMC normalization
        - No effectful instructions between context capture and fill
        - No polymorphic unknown-layout contexts
        - Source spans and debugability preserved
-  Deliverable: more opportunities for tail-call lowering, reuse, and FIP certification
+  └─ Proof obligations (from Leijen & Lorenzen, JFP 2025):
+       - The chosen context instantiation must satisfy the two context laws
+         `(appctx)` and `(appcomp)` for terminating expressions.
+       - The context variable must be provably unique (AIMS `Uniqueness::Unique`)
+         at every point between context creation (`ctx`) and application (`app`).
+       - If the function's `EffectSummary.may_share == true`, in-place TRMC is
+         unsound; fall back to non-in-place translation or skip TRMC.
+       - A lifting sub-pass must run before TRMC detection to normalize
+         expressions in constructor fields into let-bindings.
+       (See: [Literature Review §04 — TRMC](../aims-literature-review/section-04-trmc.md))
+  Deliverable: FIP/FBIP eligibility for self-recursive constructor functions,
+               reuse opportunities for top-down tree algorithms, tail-call
+               lowering for constructor-context patterns
 
-Stage 4 — Add locality realization hints
+Stage 4 — Locality Realization + Representation
   └─ Use Locality facts to produce backend hints for stack or local allocation
+  └─ Representation optimization consuming AIMS shape/locality facts
+  └─ Boxity inference (Elsman ICFP 2024) as a pre-pipeline or post-analysis
+     pass consuming type-level constructor metadata + AIMS uniqueness/locality facts
+  └─ Reclassification feedback: repr optimizer may reclassify unboxed ADTs as
+     `ArcClass::Scalar` in a second pipeline run, or via a pre-AIMS repr pass
+     that adjusts `compute_var_reprs` output
+  └─ Platform-specific tag-bit constants (H=16 on x86_64, alignment bits) belong
+     in repr optimizer config, not in AIMS
   └─ Keep hint-based first; do not redesign ARC IR around stack allocation yet
-  Deliverable: LLVM may consume locality hints in a later plan without changing AIMS-core
+  (See: [Literature Review §12 — Bit-Stealing](../aims-literature-review/section-12-bit-stealing.md))
+  Deliverable: LLVM may consume locality hints, representation optimizer has data
 
-Stage 5 — Representation and runtime follow-ons (separate efforts)
-  └─ 07: Representation optimization using AIMS shape/locality facts
-  └─ 07: Immortal objects, SCC-based frozen-cycle RC
-  └─ 07: Concurrent runtime strategies
-  These should NOT block the AIMS-core replacement.
+Stage 5 — Runtime Intelligence
+  Completes the AIMS vision by extending compile-time memory intelligence into
+  the runtime. Without Stage 5, AIMS optimizes single-threaded RC but cannot
+  reason about concurrency or cycles — incomplete relative to Ori's full
+  concurrency and cycle-safety ambitions.
+
+  └─ SCC-based frozen-cycle RC
+       Prerequisite: A `freeze` operation or equivalent language feature that
+       transitions mutable object graphs to deeply immutable.
+       Prerequisite: Ori must have a mechanism for constructing cyclic graphs
+       (currently impossible in safe code — no interior mutability, no `Weak`
+       refs, no unsafe pointer cycles).
+       These prerequisites are language features that must be designed and
+       implemented before this work can begin.
+       Paper contribution (Parkinson et al., ISMM 2024): SCC detection +
+       union-find at freeze time; RC lifted to SCC granularity so cycles within
+       a frozen SCC never leak. Only applicable after both prerequisites are met.
+       (See: [Literature Review §11 — Cyclic RC](../aims-literature-review/section-11-cyclic-rc.md))
+  └─ Concurrent runtime strategies: implement CIRC-style counted/uncounted
+     split for `Sendable` channel-based concurrency. Requires: (a) shared-heap
+     access model defined, (b) `ori_rt` RC API boundary preserved (see Section
+     07.4.1), (c) EBR guard emission in LLVM codegen. Does not require
+     changes to `ori_arc` analysis or AIMS lattice — consumes AIMS facts.
+     (See: [Literature Review §10 — Concurrent Immediate RC](../aims-literature-review/section-10-concurrent-rc.md))
+  └─ Concurrent RC progression (each sub-stage independently valuable and deployable):
+       └─ Stage 5a: Lean 4-style per-object mode bits (sign-bit encoding in
+          `m_rc`). No EBR, no epoch machinery. Objects default to non-atomic;
+          flip to atomic when sent through a `Sendable` channel. Requires:
+          header layout decision, `ori_rc_inc`/`ori_rc_dec` branch on mode,
+          LLVM emitter emits "mark shared" at channel send sites.
+       └─ Stage 5b: Biased RC (dual counters, owner-thread fast path). Requires:
+          24-byte header, per-object owner tracking, deallocation protocol when
+          both counters reach zero.
+       └─ Stage 5c: CIRC-style EBR integration (only if lock-free data structures
+          are added to the standard library). Requires: EBR guard emission,
+          `Snapshot` type in the runtime, fundamental API changes.
+  Deliverable: Ori's runtime handles concurrent RC, frozen-cycle collection,
+               and per-object atomicity — AIMS compile-time facts drive runtime
+               strategy selection
 ```
 
 **Why this order:**
 - Stage 1 is the core replacement — everything depends on it working end-to-end.
-- Stage 2 adds FIP as a contract (not just a diagnostic), strengthening the analysis.
-- Stage 3 creates better opportunities via TRMC before analysis, not after.
-- Stage 4 uses locality facts already in the lattice, just adds realization hints.
-- Stage 5 is independent follow-on work that reads AIMS facts.
+- Stage 2 deepens integration — all 7 dimensions become one team, emission unifies.
+  FIP certification falls out of this integration (not bolted on as a separate pass).
+- Stage 3 is a structural prerequisite for FIP on recursive algorithms. Without it,
+  self-recursive constructor functions cannot be FIP or FBIP — no amount of dimensional
+  fusion in Stage 2 can recover what normalization provides. Benefits from Stage 2
+  because active shape/effect/locality dimensions identify TRMC candidates naturally.
+- Stage 4 uses locality facts already proven precise in Stage 2, adds backend hints.
+- Stage 5 completes the system — runtime concurrency and cycle handling make
+  AIMS's compile-time intelligence effective across Ori's full execution model.
+  Sequenced last because it has language-level prerequisites (freeze, cyclic
+  graphs, shared-heap model) that must be designed first, and because Stages 1-4
+  deliver value independently. But Stage 5 is committed work, not optional.
 
 ## Metrics (Current State)
 
@@ -321,42 +588,68 @@ Stage 5 — Representation and runtime follow-ons (separate efforts)
 
 > **File size compliance:** Sections 01 (~800), 02 (~1,200), 03 (~900), 04 (~1,100), and 05 (~800) all
 > exceed the 500-line limit per file. Each section's detail file specifies the submodule split plan.
-> The `aims/` module tree should be:
-> 
+> The `aims/` module tree (actual, as of Stage 1 completion):
+>
 > ```
 > aims/
 > ├── mod.rs              — dispatch hub, pub re-exports
-> ├── normalize/          — Stage 3: opportunity creation (TRMC, context extraction)
-> │   ├── mod.rs          — normalize_function() entry point
-> │   ├── trmc.rs         — TRMC-eligible recursion detection + rewrite
-> │   ├── context.rs      — constructor-context metadata extraction
-> │   └── collections.rs  — collection mutation canonicalization
-> ├── lattice.rs          — AimsState (7 dimensions), join (~350 lines)
-> ├── transfer.rs         — transfer functions per ArcInstr/ArcTerminator (~300 lines)
-> ├── contract.rs         — MemoryContract, ParamContract, FipContract (~250 lines)
-> ├── intraprocedural/    — backward dataflow (6 files, ~1,200 lines total)
-> │   ├── mod.rs          — analyze_function() entry point, worklist loop
-> │   ├── state_map.rs    — AimsStateMap data structure
-> │   ├── block.rs        — per-block backward analysis
-> │   ├── merge.rs        — control flow join handling
-> │   ├── pattern.rs      — pattern match scrutinee/binding analysis
-> │   └── events.rs       — sparse event tracking (context holes, FIP gates)
-> ├── interprocedural.rs  — SCC fixed-point loop (~300 lines)
-> ├── builtins.rs         — builtin function MemoryContract mappings (~300 lines)
-> ├── emit_rc/            — RC emission (5 files, ~1,100 lines total)
+> ├── builtins/           — builtin function MemoryContract mappings
+> │   ├── mod.rs          — seed_builtin_contracts()
+> │   └── tests.rs
+> ├── contract/           — MemoryContract, ParamContract, FipContract
+> │   ├── mod.rs          — contract types + join + conversion helpers
+> │   └── tests.rs
+> ├── emit_rc/            — RC emission (7 files)
 > │   ├── mod.rs          — emit_rc_ops() entry point
-> │   ├── boundaries.rs   — function entry/exit/call-site RC
 > │   ├── arg_ownership.rs — emit_arg_ownership()
 > │   ├── cow.rs          — COW annotation computation
-> │   └── drop_hints.rs   — drop hint computation
-> ├── emit_reuse/         — reuse emission (4 files, ~800 lines total)
-> │   ├── mod.rs          — emit_reuse() entry point
+> │   ├── drop_hints.rs   — drop hint computation
+> │   ├── edge_cleanup.rs — per-edge RcDec for variables dead on specific CFG edges
+> │   ├── coalesce/       — static RC coalescing peephole pass
+> │   │   ├── mod.rs      — coalesce adjacent RcInc/RcDec within blocks
+> │   │   └── tests.rs
+> │   └── tests.rs
+> ├── emit_reuse/         — reuse emission (5 files)
+> │   ├── mod.rs          — emit_reuse() entry point + ReuseOpportunity types
 > │   ├── detect.rs       — find_reuse_opportunities() with cross-block detection
-> │   ├── fip.rs          — FIP fast-path emission from FipContract
-> │   └── fbip.rs         — FBIP metadata enrichment (additive, not replacement)
-> └── verify/             — comparison tooling for Section 08
->     ├── mod.rs          — verify entry point
->     └── compare.rs      — old-vs-new pipeline comparison
+> │   ├── dynamic.rs      — MaybeShared → IsShared + Branch CFG expansion
+> │   ├── fip.rs          — FIP gate records + FipGateDecision
+> │   ├── planner.rs      — cross-block reuse planner (dominator/post-dominator validation)
+> │   └── tests.rs
+> ├── immortal/           — heap-allocated constant detection (skip RC for immortals)
+> │   ├── mod.rs          — detect_immortals()
+> │   └── tests.rs
+> ├── interprocedural.rs  — SCC fixed-point loop (analyze_program)
+> ├── interprocedural/
+> │   └── tests.rs
+> ├── intraprocedural/    — backward dataflow (3 implementation files)
+> │   ├── mod.rs          — analyze_function() entry point, worklist loop
+> │   ├── block.rs        — per-block backward analysis (exits, terminators, instructions)
+> │   ├── state_map.rs    — AimsStateMap data structure + AimsEvent enum
+> │   ├── state_map/
+> │   │   └── tests.rs
+> │   └── tests.rs
+> ├── lattice/            — AimsState (7 dimensions), join, SizeClass, EffectClass
+> │   ├── mod.rs          — AimsState product lattice + EffectClass + SizeClass + BorrowSource
+> │   ├── dimensions.rs   — AccessClass, Consumption, Cardinality, Uniqueness, Locality, ShapeClass
+> │   └── tests.rs
+> └── transfer/           — transfer functions per ArcInstr/ArcTerminator
+>     ├── mod.rs          — DefTransfer, UseTransfer, transfer_def, transfer_use
+>     └── tests.rs
+> ```
+>
+> **Future modules (not yet created):**
+> ```
+> aims/
+> ├── normalize/          — Stage 3: opportunity creation (TRMC, context extraction)
+> │   ├── mod.rs          — normalize_function() entry point
+> │   ├── lift.rs         — lifting: extract expressions from ctor fields to let-bindings
+> │   ├── trmc.rs         — TRMC-eligible recursion detection + rewrite
+> │   ├── rewrite.rs      — TRMC rewrite: apply the 4-equation algorithm
+> │   ├── verify.rs       — verify context laws (appctx, appcomp)
+> │   ├── collections.rs  — collection mutation canonicalization
+> │   └── context/        — constructor-context metadata extraction
+> └── realize/            — Stage 2: unified realization (replaces emit_rc + emit_reuse)
 > ```
 
 | Section | Est. Lines | Complexity | Depends On |
@@ -369,28 +662,43 @@ Stage 5 — Representation and runtime follow-ons (separate efforts)
 | 06 Pipeline Integration | ~400 | Medium | 04, 05 |
 | 07 Advanced Optimizations | ~500 | Medium | 06 |
 | 08 Verification | ~500 | Low | 06 |
-| normalize/ (Stage 3) | ~400 | Medium | 06 |
-| **Total new** | **~6,600** | | |
+| 09 Dimensional Fusion | ~800 | High | 01-07 |
+|   ↳ Transfer fusion rules | ~200 | High | — |
+|   ↳ Active dimensions | ~300 | High | — |
+|   ↳ Enriched canonicalize | ~150 | Medium | — |
+|   ↳ Convergence feedback | ~150 | Medium | — |
+| 10 Unified Realization | ~600 | Medium-High | 09 |
+|   ↳ realize() + decide() | ~400 | Medium-High | — |
+|   ↳ Output views | ~200 | Medium | — |
+| 11 Integration Verification | ~400 | Medium | 09, 10 |
+|   ↳ Test programs | ~200 | Low | — |
+|   ↳ Synergy metrics | ~100 | Low | — |
+|   ↳ Regression guards | ~100 | Low | — |
+| normalize/ (Stage 3) | ~400 | Medium | 09 |
+| **Total new (Stage 1)** | **~6,600** | | |
+| **Total new (Stage 2)** | **~1,800** | | |
 | **Total replaced** | **~7,300** | | |
 
 The unified analysis should be ~20% less code than the separate passes it replaces,
 because shared infrastructure (lattice, traversal, state map) is not duplicated.
 
-## Theoretical Foundations
+## Research Lineage
 
-AIMS draws on established PL research:
+AIMS is its own system — the unification is the contribution, not any individual
+ingredient. The following papers informed specific dimensions. They are listed
+for rigor and traceability, not as the story of AIMS:
 
 | Paper | Contribution to AIMS |
 |-------|---------------------|
 | **Perceus** (Reinking et al., PLDI 2021) | RC ops = structural rules of linear logic; garbage-free property |
-| **FP²** (Lorenzen et al., ICFP 2023) | Reuse credits as first-class lattice element; FIP certification criterion |
+| **FP²** (Lorenzen et al., ICFP 2023) | Reuse credits as first-class lattice element; FIP certification criterion. Theorem 2 (`|S|=|S'|`) establishes the proof obligation for FIP: every deallocation must be matched by a reuse (token balance). FIP/FBIP containment validates that lattice-derived classification is consistent with the formal hierarchy. Two embeddings — static uniqueness (unique bindings use `(dconru_h)` fast path, no RC check) and dynamic RC (`dropru` with runtime uniqueness test) — map directly to AIMS's `Unique` and `MaybeShared` paths respectively. (See: [Literature Review §02 — FP²](../aims-literature-review/section-02-fp2.md)) |
 | **Counting Immutable Beans** (Ullrich & de Moura, IFL 2019) | SCC-based borrow inference; reset/reuse |
 | **Drop-Guided Reuse** (Lorenzen & Leijen, ICFP 2022) | Reuse after RC insertion (simpler, provably frame-limited) |
 | **GHC Demand Analysis** (Sergey et al., POPL 2014) | Backward cardinality inference: {Absent, Once, Many} |
 | **Substructural Interpretation** (Chirimar et al., JFP 1996) | RC = computational interpretation of linear logic |
 | **Linearity ≠ Uniqueness** (Marshall et al., ESOP 2022) | Linearity (future) and uniqueness (past) are distinct dimensions |
-| **Quantitative Type Theory** (Atkey, LICS 2018) | Semiring-graded usage annotations |
-| **Oxidizing OCaml** (Lorenzen et al., ICFP 2024) | Modal memory management: affinity, uniqueness, locality as mode axes; safe stack allocation and in-place update. Justifies AIMS `Locality` dimension. [DOI: 10.1145/3674642](https://doi.org/10.1145/3674642) |
+| **Quantitative Type Theory** (Atkey, LICS 2018) | QTT's 0-1-omega semiring provides the theoretical justification for AIMS Cardinality's algebraic structure: `(Cardinality, seq_add, Absent)` is a commutative monoid with absorbing element `Many`, directly analogous to QTT's resource semiring. `seq_add` corresponds to QTT's resource accumulation (+), combining usages along one execution path. `alt_join` corresponds to QTT's branch join (lub), combining usages from mutually exclusive paths. The distributivity of `seq_add` over `alt_join` is the key soundness property for fixed-point analysis over CFGs with diamonds, verified exhaustively in `lattice/tests.rs`. (See: [Literature Review §07 — QTT](../aims-literature-review/section-07-quantitative-type-theory.md)) |
+| **Oxidizing OCaml** (Lorenzen et al., ICFP 2024) | Modal memory management: affinity, uniqueness, locality as independent mode axes with inference. Proves locality is **load-bearing for soundness** (not auxiliary) — the `global` modality forces both `aliased` AND `global`, establishing that heap-escaping values lose uniqueness guarantees. Locality enables safe stack allocation (90% allocation reduction) and borrowing soundness (`borrow` combinator requires `local` mode). AIMS's current treatment of locality as conservative/`Unknown` in Stage 1 is a deliberate deferral, not an architectural choice — Stage 2 must activate it. Justifies AIMS `Locality` dimension, `HeapEscaping -> not Unique` invariant, `Borrowed -> scope-bounded locality` invariant, and closure-capture-aware mode propagation. [DOI: 10.1145/3674642](https://doi.org/10.1145/3674642). (See: [Literature Review §01](../aims-literature-review/section-01-oxidizing-ocaml.md)) |
 | **FIPTree** (Lorenzen et al., PLDI 2024) | First-class constructor contexts for O(1) top-down algorithms; compiler-generated context metadata for in-place update. Justifies AIMS opportunity-creation stage. [DOI: 10.1145/3656398](https://doi.org/10.1145/3656398) |
 | **TRMC** (Leijen & Lorenzen, JFP 2025) | Tail recursion modulo context: equational approach with context laws; Perceus heap semantics. Justifies AIMS pre-analysis normalization. [DOI: 10.1017/S0956796825100117](https://doi.org/10.1017/S0956796825100117) |
 | **Exploring Perceus for OCaml** (Pinto & Leijen, ML Workshop 2023) | Evaluation methodology: same compiler, same source, only switch memory-management backend. AIMS Section 08 default evaluation doctrine. |
@@ -403,7 +711,7 @@ touched by AIMS but are currently clean:
 
 | File | Lines | Status |
 |------|-------|--------|
-| `pipeline.rs` | 258 | Clean (7-param function is pre-existing; fix in AIMS) |
+| `pipeline/mod.rs` | 258 | Clean (7-param function is pre-existing; fix in AIMS) |
 | `lib.rs` | 182 | Clean (trait default methods in lib.rs are acceptable) |
 | `borrow/mod.rs` | 131 | Clean (no `#[allow]` or `#[expect]` issues) |
 | `liveness/mod.rs` | 331 | Clean |
@@ -429,13 +737,25 @@ touched by AIMS but are currently clean:
 | `drop/mod.rs` | 420 | Clean (approaching limit; retained by AIMS) |
 | `borrow/builtins/mod.rs` | 267 | Clean |
 
-**No BLOAT (>500 lines)** in production files. No decorative banners. No commented-out code.
+**No BLOAT (>500 lines)** in OLD production files. No decorative banners. No commented-out code.
 No bare `#[allow(clippy)]`. One properly-formatted TODO. Overall: codebase is well-maintained.
 
-**Findings summary:** 0 BLOAT. 0 WASTE. 0 DRIFT. 0 LEAK. **9 STYLE** (stale doc-comment
-section references — see fix-along-the-way items in Section 06.3). **1 GAP** (Section 04
-references non-existent `split_critical_edges`; actual function is `insert_edge_cleanup`,
-`pub(super)` — corrected in Section 04.1).
+**Findings summary (old ori_arc files):** 0 BLOAT. 0 WASTE. 0 DRIFT. 0 LEAK. **9 STYLE**
+(stale doc-comment section references — see fix-along-the-way items in Section 06.3).
+**1 GAP** (Section 04 references non-existent `split_critical_edges`; actual function is
+`insert_edge_cleanup`, `pub(super)` — corrected in Section 04.1).
+
+**Findings summary (NEW aims/ implementation files, 2026-03-11 scan):**
+**3 BLOAT. 0 WASTE. 0 DRIFT. 0 LEAK. 3 STYLE. 0 GAP.**
+
+| File | Lines | Finding | Fix Location |
+|------|-------|---------|--------------|
+| `aims/emit_reuse/mod.rs` | 815 | **BLOAT** — 63% over 500-line limit | Section 05 cleanup checklist |
+| `aims/lattice/mod.rs` | 548 | **BLOAT** — 10% over limit; partially addressed by extracting dimensions.rs | Section 06 cleanup checklist |
+| `pipeline/shadow.rs` | 567 | **BLOAT** — 13% over limit; compare.rs and tests.rs extracted to shadow/ subdir | Section 06 cleanup checklist |
+| `aims/emit_reuse/mod.rs` | 6 refs | **STYLE** — stale `§09.5` references | Section 05 cleanup checklist |
+| `aims/emit_reuse/tests.rs` | 2 refs | **STYLE** — stale `§09.5` references | Section 05 cleanup checklist |
+| Sections 02-06 frontmatter | — | **STYLE** — `status: complete` in frontmatter vs `Not Started` in body | Section 06 cleanup checklist |
 
 The stale section references use an old internal numbering scheme that predates the
 current pipeline documentation. Since AIMS replaces or removes most of these files,
@@ -464,11 +784,14 @@ Check remaining enforcement crates at implementation time — see Section 06.3.)
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Unified Lattice Design | `section-01-lattice.md` | Not Started |
-| 02 | Intraprocedural Analysis | `section-02-intraprocedural.md` | Not Started |
-| 03 | Interprocedural Analysis | `section-03-interprocedural.md` | Not Started |
-| 04 | RC Emission | `section-04-rc-emission.md` | Not Started |
-| 05 | Reuse Emission | `section-05-reuse-emission.md` | Not Started |
-| 06 | Pipeline Integration | `section-06-pipeline.md` | Not Started |
-| 07 | Advanced Optimizations | `section-07-advanced.md` | Not Started |
-| 08 | Verification & Validation | `section-08-verification.md` | Not Started |
+| 01 | Unified Lattice Design | `section-01-lattice.md` | In Progress |
+| 02 | Intraprocedural Analysis | `section-02-intraprocedural.md` | In Progress |
+| 03 | Interprocedural Analysis | `section-03-interprocedural.md` | Complete |
+| 04 | RC Emission | `section-04-rc-emission.md` | Complete |
+| 05 | Reuse Emission | `section-05-reuse-emission.md` | Complete |
+| 06 | Pipeline Integration | `section-06-pipeline.md` | Complete |
+| 07 | Advanced Optimizations | `section-07-advanced.md` | In Progress |
+| 08 | Verification & Validation | `section-08-verification.md` | In Progress |
+| 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` | Not Started |
+| 10 | Unified Realization | `section-10-unified-realization.md` | Not Started |
+| 11 | Integration Verification | `section-11-integration-verification.md` | Not Started |

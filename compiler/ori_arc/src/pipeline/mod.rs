@@ -12,6 +12,7 @@ use ori_ir::Name;
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
+use crate::aims::contract::MemoryContract;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
@@ -41,10 +42,19 @@ use crate::ArcClassification;
 /// the pipeline annotates each COW operation with a [`CowMode`](crate::CowMode) on the
 /// function's [`cow_annotations`](ArcFunction::cow_annotations) field.
 ///
+/// The `aims_contracts` parameter provides pre-computed AIMS interprocedural
+/// contracts from [`compute_aims_contracts`]. When AIMS is active, these
+/// contracts drive param ownership and callsite `arg_ownership` annotation.
+/// When AIMS is not active, this parameter is ignored.
+///
 /// This is the canonical pass ordering. All consumers should call this function
 /// instead of manually sequencing passes, which avoids duplicating ordering
 /// knowledge across crate boundaries.
-#[expect(clippy::implicit_hasher, reason = "callee functions require FxHashMap")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "pipeline entry point bundles all context"
+)]
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn run_arc_pipeline(
     func: &mut ArcFunction,
     classifier: &dyn ArcClassification,
@@ -52,22 +62,19 @@ pub fn run_arc_pipeline(
     pool: &Pool,
     interner: &ori_ir::StringInterner,
     uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
+    aims_contracts: &FxHashMap<Name, MemoryContract>,
     verify_arc: bool,
 ) -> Vec<ArcProblem> {
     // Pure AIMS mode (without shadow comparison).
     #[cfg(all(feature = "aims", not(feature = "aims-shadow")))]
     {
         // AIMS pipeline — `sigs` and `uniqueness_summaries` are unused when
-        // AIMS is active (contracts are passed via AimsPipelineConfig).
-        // However, during the transitional period the caller still provides
-        // them. We silence the warnings and delegate to the AIMS per-function
-        // pipeline with empty contracts (the batch path fills them properly).
+        // AIMS is active (contracts drive ownership via AimsPipelineConfig).
         let _ = (sigs, uniqueness_summaries);
-        let contracts = FxHashMap::default();
         let builtins = BuiltinOwnershipSets::new(interner);
         let config = aims_pipeline::AimsPipelineConfig {
             classifier,
-            contracts: &contracts,
+            contracts: aims_contracts,
             pool,
             interner,
             builtins: &builtins,
@@ -80,6 +87,7 @@ pub fn run_arc_pipeline(
     // path; per-function path uses legacy for consistent output).
     #[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
     {
+        let _ = aims_contracts;
         run_legacy_pipeline(
             func,
             classifier,
@@ -139,6 +147,40 @@ pub fn run_arc_pipeline_all(
         run_legacy_pipeline_all(
             functions, classifier, sigs, interner, pool, builtins, verify_arc,
         )
+    }
+}
+
+/// Compute AIMS interprocedural contracts and apply param ownership.
+///
+/// Runs the AIMS interprocedural analysis ([`aims::analyze_program`]) to produce
+/// a [`MemoryContract`] for each function, then applies the resulting ownership
+/// annotations to function parameters.
+///
+/// The returned contracts map must be passed to [`run_arc_pipeline`] for each
+/// function so that callsite `arg_ownership` is correctly annotated from contract
+/// data rather than falling back to conservative all-Owned.
+///
+/// This is only meaningful when the `aims` feature is active. When `aims` is
+/// not active, returns an empty map (the legacy pipeline does not use contracts).
+pub fn compute_aims_contracts(
+    functions: &mut [ArcFunction],
+    classifier: &dyn ArcClassification,
+    interner: &ori_ir::StringInterner,
+    builtins: &BuiltinOwnershipSets,
+) -> FxHashMap<Name, MemoryContract> {
+    #[cfg(all(feature = "aims", not(feature = "aims-shadow")))]
+    {
+        let contracts = crate::aims::interprocedural::analyze_program(
+            functions, classifier, builtins, interner,
+        );
+        aims_pipeline::apply_aims_ownership(functions, &contracts);
+        contracts
+    }
+
+    #[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
+    {
+        let _ = (functions, classifier, interner, builtins);
+        FxHashMap::default()
     }
 }
 
@@ -311,6 +353,7 @@ fn run_legacy_pipeline_all(
     let mut all_problems = Vec::new();
     for func in functions {
         crate::rc_insert::annotate_arg_ownership(func, sigs, interner, builtins, pool);
+        let no_contracts = FxHashMap::default();
         let problems = run_arc_pipeline(
             func,
             classifier,
@@ -318,6 +361,7 @@ fn run_legacy_pipeline_all(
             pool,
             interner,
             &uniqueness_summaries,
+            &no_contracts,
             verify_arc,
         );
         all_problems.extend(problems);
@@ -354,5 +398,30 @@ fn run_verify(func: &ArcFunction, phase: &str, verify: bool) {
     let errors = crate::verify::check_function(func);
     for e in &errors {
         tracing::warn!(phase, "ARC IR verification: {e}");
+    }
+}
+
+/// Run AIMS-specific consistency checks (contract vs IR).
+///
+/// Verifies that AIMS analysis results are consistent with the actual IR.
+/// For example, parameters with `Cardinality::Absent` should have no uses.
+#[cfg(feature = "aims")]
+fn run_aims_verify(
+    func: &ArcFunction,
+    contract: &crate::aims::contract::MemoryContract,
+    phase: &str,
+    verify: bool,
+) {
+    let enabled = verify || cfg!(debug_assertions);
+    if !enabled {
+        return;
+    }
+
+    let errors = crate::verify::check_function_with_contract(func, contract);
+    // Only report AIMS-specific errors (structural errors already reported by run_verify).
+    for e in &errors {
+        if matches!(e, crate::verify::VerifyError::AbsentParamHasUses { .. }) {
+            tracing::warn!(phase, "AIMS consistency: {e}");
+        }
     }
 }

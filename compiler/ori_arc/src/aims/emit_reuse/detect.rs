@@ -2,14 +2,14 @@
 //!
 //! Scans the function for death events (`RcDec` on owned, unique/maybe-shared,
 //! reusable-shape variables) and allocation events (`Construct`), then matches
-//! same-type pairs within the same block.
+//! pairs in two phases:
 //!
-//! # Stage 1 scope
-//!
-//! Same-block, same-type matching only. Cross-block matching via
-//! `ReusePlanner` with dominator/post-dominator analysis is deferred.
+//! 1. **Same-block** — nearest subsequent allocation of same type in the same
+//!    block, with no intervening uses of the dying variable.
+//! 2. **Cross-block** — via [`ReusePlanner`] with dominator/post-dominator
+//!    validation. Stage 1: static-unique only.
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::{Idx, Pool};
 
@@ -17,29 +17,61 @@ use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::{ShapeClass, SizeClass, Uniqueness};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr};
 
+use super::planner::ReusePlanner;
 use super::{AllocEvent, DeathEvent, ReuseOpportunity};
 
 /// Find reuse opportunities by matching death events to allocation events.
 ///
-/// Stage 1: same-block, same-type matching only.
+/// Phase 1: same-block, same-type matching.
+/// Phase 2: cross-block matching via [`ReusePlanner`] for unmatched events.
+///
+/// Returns `(opportunities, total_death_events)` — the death count is used
+/// by `emit_reuse` for missed-reuse tracking and FBIP enrichment.
 pub(super) fn find_reuse_opportunities(
     func: &ArcFunction,
     state_map: &AimsStateMap,
     _pool: &Pool,
-) -> Vec<ReuseOpportunity> {
+) -> (Vec<ReuseOpportunity>, usize) {
     let death_events = collect_death_events(func, state_map);
+    let total_deaths = death_events.len();
     let alloc_events = collect_alloc_events(func, state_map);
 
     if death_events.is_empty() || alloc_events.is_empty() {
-        return Vec::new();
+        return (Vec::new(), total_deaths);
     }
 
-    match_same_block(&death_events, &alloc_events, func)
+    // Phase 1: same-block matching.
+    let (same_block_opps, consumed_deaths, consumed_allocs) =
+        match_same_block(&death_events, &alloc_events, func);
+
+    // Phase 2: cross-block matching for unmatched events.
+    let remaining_deaths: Vec<_> = death_events
+        .iter()
+        .filter(|d| !consumed_deaths.contains(&(d.block, d.instr_idx)))
+        .collect();
+    let remaining_allocs: Vec<_> = alloc_events
+        .iter()
+        .filter(|a| !consumed_allocs.contains(&(a.block, a.instr_idx)))
+        .collect();
+
+    let cross_block_opps = if !remaining_deaths.is_empty() && !remaining_allocs.is_empty() {
+        let mut planner = ReusePlanner::new(func);
+        planner.find_opportunities(&remaining_deaths, &remaining_allocs)
+    } else {
+        Vec::new()
+    };
+
+    let mut all = same_block_opps;
+    all.extend(cross_block_opps);
+    (all, total_deaths)
 }
 
 /// Collect death events: `RcDec` instructions where the variable is owned,
 /// unique or maybe-shared, and has a reusable shape.
-fn collect_death_events(func: &ArcFunction, state_map: &AimsStateMap) -> Vec<DeathEvent> {
+pub(super) fn collect_death_events(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+) -> Vec<DeathEvent> {
     let mut events = Vec::new();
 
     for (block_idx, block) in func.blocks.iter().enumerate() {
@@ -50,7 +82,7 @@ fn collect_death_events(func: &ArcFunction, state_map: &AimsStateMap) -> Vec<Dea
 
         for (instr_idx, instr) in block.body.iter().enumerate() {
             if let ArcInstr::RcDec { var, .. } = instr {
-                if state_map.is_scalar(*var) {
+                if state_map.is_excluded(*var) {
                     continue;
                 }
 
@@ -86,7 +118,10 @@ fn collect_death_events(func: &ArcFunction, state_map: &AimsStateMap) -> Vec<Dea
 
 /// Collect allocation events: `Construct` instructions that produce reusable
 /// values (structs, enum variants — not collections, which use `CollectionReuse`).
-fn collect_alloc_events(func: &ArcFunction, state_map: &AimsStateMap) -> Vec<AllocEvent> {
+pub(super) fn collect_alloc_events(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+) -> Vec<AllocEvent> {
     let mut events = Vec::new();
 
     for (block_idx, block) in func.blocks.iter().enumerate() {
@@ -103,7 +138,7 @@ fn collect_alloc_events(func: &ArcFunction, state_map: &AimsStateMap) -> Vec<All
                     continue;
                 }
 
-                if state_map.is_scalar(*dst) {
+                if state_map.is_excluded(*dst) {
                     continue;
                 }
 
@@ -129,11 +164,16 @@ fn collect_alloc_events(func: &ArcFunction, state_map: &AimsStateMap) -> Vec<All
 /// For each death event, find the nearest subsequent allocation of the same
 /// type in the same block. Ensure no use of the dying variable occurs between
 /// the death and allocation points.
+///
+/// Consumed event set: tracks `(block_id, instr_idx)` pairs.
+type ConsumedSet = FxHashSet<(ArcBlockId, usize)>;
+
+/// Returns `(opportunities, consumed_deaths, consumed_allocs)`.
 fn match_same_block(
     deaths: &[DeathEvent],
     allocs: &[AllocEvent],
     func: &ArcFunction,
-) -> Vec<ReuseOpportunity> {
+) -> (Vec<ReuseOpportunity>, ConsumedSet, ConsumedSet) {
     // Group allocations by (block, type) for efficient lookup.
     let mut allocs_by_block_type: FxHashMap<(ArcBlockId, Idx), Vec<&AllocEvent>> =
         FxHashMap::default();
@@ -145,8 +185,8 @@ fn match_same_block(
     }
 
     let mut opportunities = Vec::new();
-    let mut consumed_allocs: rustc_hash::FxHashSet<(ArcBlockId, usize)> =
-        rustc_hash::FxHashSet::default();
+    let mut consumed_allocs: FxHashSet<(ArcBlockId, usize)> = FxHashSet::default();
+    let mut consumed_deaths: FxHashSet<(ArcBlockId, usize)> = FxHashSet::default();
 
     for death in deaths {
         let key = (death.block, death.ty);
@@ -175,6 +215,7 @@ fn match_same_block(
         }
 
         consumed_allocs.insert((alloc.block, alloc.instr_idx));
+        consumed_deaths.insert((death.block, death.instr_idx));
 
         opportunities.push(ReuseOpportunity {
             source_var: death.var,
@@ -185,7 +226,7 @@ fn match_same_block(
         });
     }
 
-    opportunities
+    (opportunities, consumed_deaths, consumed_allocs)
 }
 
 /// Whether a constructor kind produces a reusable allocation.

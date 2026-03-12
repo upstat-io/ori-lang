@@ -75,7 +75,7 @@ pub fn transfer_def(
     match instr {
         ArcInstr::Let { value, .. } => Some(transfer_let(value, get_state)),
         ArcInstr::Construct { ctor, .. } => Some(transfer_construct(ctor)),
-        ArcInstr::Project { value, .. } => Some(transfer_project(*value, get_state)),
+        ArcInstr::Project { value, field, .. } => Some(transfer_project(*value, *field, get_state)),
         ArcInstr::Apply { .. } => Some(transfer_apply_conservative()),
         ArcInstr::ApplyIndirect { .. } => Some(DefTransfer::state(AimsState::TOP)),
         ArcInstr::PartialApply { .. } => Some(transfer_partial_apply()),
@@ -128,10 +128,14 @@ fn transfer_construct(ctor: &CtorKind) -> DefTransfer {
 /// `Project { value, field }` — extract a field from a struct/enum.
 ///
 /// Destination is a borrowed view: `(Borrowed, Linear, Once, source.uniqueness)`
-/// with `BorrowSource::Exact(value)`.
+/// with `BorrowSource::exact_field(value, field)`.
 ///
 /// Key insight: borrowing doesn't affect the source's uniqueness.
-fn transfer_project(value: ArcVarId, get_state: &impl Fn(ArcVarId) -> AimsState) -> DefTransfer {
+fn transfer_project(
+    value: ArcVarId,
+    field: u32,
+    get_state: &impl Fn(ArcVarId) -> AimsState,
+) -> DefTransfer {
     let source = get_state(value);
     let mut state = AimsState {
         access: AccessClass::Borrowed,
@@ -143,7 +147,7 @@ fn transfer_project(value: ArcVarId, get_state: &impl Fn(ArcVarId) -> AimsState)
         effect: EffectClass::NONE,
     };
     state.canonicalize();
-    DefTransfer::borrowed(state, BorrowSource::Exact(value))
+    DefTransfer::borrowed(state, BorrowSource::exact_field(value, field))
 }
 
 /// `Apply { func, args }` — direct function call (conservative).

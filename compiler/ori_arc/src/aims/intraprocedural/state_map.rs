@@ -139,6 +139,13 @@ pub struct AimsStateMap {
     /// Indexed by `ArcVarId::index()`. True = scalar (never analyzed).
     scalars: Vec<bool>,
 
+    /// Variables marked as IMMORTAL (heap-allocated but with `MAX_REFCOUNT`).
+    /// Excluded from RC emission, COW annotation, reuse detection, and drop hints.
+    /// Unlike scalars (which have no heap allocation), immortals DO allocate
+    /// but use pre-allocated singletons that never need RC operations.
+    /// Indexed by `ArcVarId::index()`. True = immortal.
+    immortals: Vec<bool>,
+
     /// Tracks whether any state changed in the last iteration.
     /// Reset to `false` at the start of each iteration; set to `true`
     /// by `update_block_entry` when a state changes.
@@ -160,6 +167,7 @@ impl AimsStateMap {
             borrow_sources: FxHashMap::default(),
             events: FxHashMap::default(),
             scalars: vec![false; num_vars],
+            immortals: vec![false; num_vars],
             changed: false,
         }
     }
@@ -183,6 +191,31 @@ impl AimsStateMap {
         self.scalars.get(var.index()).copied().unwrap_or(false)
     }
 
+    // Immortal management
+
+    /// Set the immortal bitvector from pre-computed detection results.
+    ///
+    /// Called after [`detect_immortals`](crate::aims::immortal::detect_immortals)
+    /// in the pipeline, before analysis begins. Immortal variables are excluded
+    /// from analysis (same treatment as scalars) and from all emission phases.
+    pub fn set_immortals(&mut self, immortals: Vec<bool>) {
+        self.immortals = immortals;
+    }
+
+    /// Whether a variable is marked IMMORTAL (heap-allocated constant with
+    /// `MAX_REFCOUNT`, excluded from RC operations).
+    #[inline]
+    pub fn is_immortal(&self, var: ArcVarId) -> bool {
+        self.immortals.get(var.index()).copied().unwrap_or(false)
+    }
+
+    /// Whether a variable should be excluded from analysis and emission
+    /// (either SCALAR or IMMORTAL).
+    #[inline]
+    pub fn is_excluded(&self, var: ArcVarId) -> bool {
+        self.is_scalar(var) || self.is_immortal(var)
+    }
+
     // Block state accessors
 
     /// Get the state of a variable at a block's exit (after terminator).
@@ -191,7 +224,7 @@ impl AimsStateMap {
     /// not present in the state map (no demand from successors).
     #[must_use]
     pub fn var_state_at_block_exit(&self, block: ArcBlockId, var: ArcVarId) -> AimsState {
-        if self.is_scalar(var) {
+        if self.is_scalar(var) || self.is_immortal(var) {
             return AimsState::SCALAR;
         }
         self.block_exit_states
@@ -207,7 +240,7 @@ impl AimsStateMap {
     /// not present in the state map.
     #[must_use]
     pub fn var_state_at_block_entry(&self, block: ArcBlockId, var: ArcVarId) -> AimsState {
-        if self.is_scalar(var) {
+        if self.is_scalar(var) || self.is_immortal(var) {
             return AimsState::SCALAR;
         }
         self.block_entry_states
@@ -309,6 +342,26 @@ impl AimsStateMap {
     /// Remove provenance when a variable transitions to `AccessClass::Owned`.
     pub fn clear_borrow_source(&mut self, var: ArcVarId) {
         self.borrow_sources.remove(&var);
+    }
+
+    /// Find all borrows from a given source variable.
+    ///
+    /// Returns an iterator of `(borrow_var, field)` pairs, where `field` is
+    /// `Some(idx)` for field-level borrows (from `Project`) and `None` for
+    /// whole-object borrows. Used by the disjoint-field COW optimization
+    /// (Section 07.3.2) to check whether a mutation conflicts with live borrows.
+    pub fn borrows_from_source(
+        &self,
+        source: ArcVarId,
+    ) -> impl Iterator<Item = (ArcVarId, Option<u32>)> + '_ {
+        self.borrow_sources.iter().filter_map(move |(var, bs)| {
+            if let BorrowSource::Exact { source: src, field } = bs {
+                if *src == source {
+                    return Some((*var, *field));
+                }
+            }
+            None
+        })
     }
 
     /// Merge provenance at control flow join points.

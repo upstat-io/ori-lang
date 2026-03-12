@@ -1,3 +1,5 @@
+//! Tests for AIMS transfer functions.
+
 use crate::aims::lattice::{
     AccessClass, AimsState, BorrowSource, Cardinality, Consumption, Locality, ReuseCtorKind,
     ShapeClass, Uniqueness,
@@ -183,7 +185,10 @@ fn project_is_borrowed_with_source() {
     assert_eq!(result.state.cardinality, Cardinality::Once);
     assert_eq!(result.state.uniqueness, Uniqueness::Unique);
     assert_eq!(result.state.locality, Locality::FunctionLocal);
-    assert_eq!(result.borrow_source, Some(BorrowSource::Exact(var(0))));
+    assert_eq!(
+        result.borrow_source,
+        Some(BorrowSource::exact_field(var(0), 0))
+    );
 }
 
 #[test]

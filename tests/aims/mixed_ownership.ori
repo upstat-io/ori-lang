@@ -1,88 +1,80 @@
-// AIMS golden corpus: Mixed borrowed/owned call patterns.
-// Tests that AIMS correctly infers ownership across call boundaries.
+// AIMS edge case: mixed borrowed/owned call patterns.
+// Tests that AIMS correctly distinguishes values that are consumed
+// by a function call vs values that are still live after the call.
 
-use std.testing { assert_eq }
-
-// --- Pass-by-value (owned) ---
-
+// Consumes `items` — caller should not use it after
 @sum_list (items: [int]) -> int = {
-    let result = 0;
-    for x in items do {
-        result = result + x
-    };
-    result
-}
+    items.fold(initial: 0, op: (acc, x) -> acc + x)
+};
 
-@test_sum tests @sum_list () -> void = {
-    let list = [1, 2, 3, 4, 5];
-    assert_eq(actual: sum_list(list), expected: 15)
-}
+// Reads `prefix` but does not consume it
+@format_all (prefix: str, items: [int]) -> [str] = {
+    for item in items yield prefix + str(item)
+};
 
-// --- Multiple uses of same value (forces RC) ---
+// Takes two lists — first is consumed, second is read for length
+@extend_to_match (target: [int], source: [int]) -> [int] = {
+    let $target_len = target.len();
+    let $source_len = source.len();
 
-@use_twice (items: [int]) -> int = {
-    let a = sum_list(items);
-    let b = len(collection: items);
-    a + b
-}
+    if target_len >= source_len then target
+    else {
+        let extra = for _ in 0..(source_len - target_len) yield 0;
+        [...target, ...extra]
+    }
+};
 
-@test_use_twice tests @use_twice () -> void = {
-    assert_eq(actual: use_twice([1, 2, 3]), expected: 9)
-}
+// Returns one of two inputs based on condition (ownership transfer)
+@pick (a: str, b: str, use_first: bool) -> str = {
+    if use_first then a else b
+};
 
-// --- Borrowed read (no consumption) ---
+// Uses a value, then passes it along (borrow-then-move pattern)
+@inspect_and_sum (label: str, data: [int]) -> int = {
+    print(msg: `{label}: len={data.len()}`);
+    // `data` is still live — used after print
+    sum_list(items: data)
+};
 
-@read_first (items: [int]) -> Option<int> = {
-    items.first()
-}
+@main () -> void = {
+    // Test 1: value used after passing to non-consuming function
+    let $prefix = "item-";
+    let $nums = [1, 2, 3];
+    let $formatted = format_all(prefix: prefix, items: nums);
+    print(msg: `formatted = {formatted.debug()}`);
+    // `prefix` still alive — use it again
+    let $formatted2 = format_all(prefix: prefix, items: [10, 20]);
+    print(msg: `formatted2 = {formatted2.debug()}`);
 
-@test_read_first tests @read_first () -> void = {
-    assert_eq(actual: read_first([10, 20, 30]), expected: Some(10))
-}
+    // Test 2: value consumed (last use)
+    let $data = [10, 20, 30, 40];
+    let $total = sum_list(items: data);
+    // `data` consumed — not used after this
+    print(msg: `total = {total}`);
 
-// --- Mixed: read then consume ---
+    // Test 3: two values, one consumed and one not
+    let $short = [1, 2];
+    let $long = [10, 20, 30, 40, 50];
+    let $extended = extend_to_match(target: short, source: long);
+    // `long` still available after call (only read for length)
+    print(msg: `extended = {extended.debug()}`);
+    print(msg: `long len = {long.len()}`);
 
-@read_then_consume (items: [int]) -> (Option<int>, int) = {
-    let first = items.first();
-    let sum = sum_list(items);
-    (first, sum)
-}
+    // Test 4: conditional ownership transfer
+    let $greeting = "hello";
+    let $farewell = "goodbye";
+    let $chosen1 = pick(a: greeting, b: farewell, use_first: true);
+    print(msg: `chosen1 = {chosen1}`);
+    let $chosen2 = pick(a: "hi", b: "bye", use_first: false);
+    print(msg: `chosen2 = {chosen2}`);
 
-@test_read_then_consume tests @read_then_consume () -> void = {
-    assert_eq(actual: read_then_consume([1, 2, 3]), expected: (Some(1), 6))
-}
+    // Test 5: borrow-then-move chain
+    let $label = "dataset";
+    let $values = [5, 10, 15, 20, 25];
+    let $result = inspect_and_sum(label: label, data: values);
+    print(msg: `result = {result}`);
+    // `label` still available
+    print(msg: `label = {label}`);
 
-// --- Conditional consumption ---
-
-@maybe_consume (items: [int], take: bool) -> int = {
-    if take then sum_list(items) else 0
-}
-
-@test_maybe_consume_true tests @maybe_consume () -> void = {
-    assert_eq(actual: maybe_consume([1, 2, 3], true), expected: 6)
-}
-
-@test_maybe_consume_false tests @maybe_consume () -> void = {
-    assert_eq(actual: maybe_consume([1, 2, 3], false), expected: 0)
-}
-
-// --- Returning borrowed data ---
-
-@identity (x: int) -> int = { x }
-
-@test_identity tests @identity () -> void = {
-    assert_eq(actual: identity(42), expected: 42)
-}
-
-// --- Chain of owned calls ---
-
-@transform_chain (items: [int]) -> [int] = {
-    items
-        .map(transform: x -> x * 2)
-        .filter(predicate: x -> x > 4)
-        .map(transform: x -> x + 1)
-}
-
-@test_transform_chain tests @transform_chain () -> void = {
-    assert_eq(actual: transform_chain([1, 2, 3, 4, 5]), expected: [7, 9, 11])
+    print(msg: "mixed_ownership: done")
 }

@@ -86,7 +86,7 @@ fn single_block_literal_return() {
     };
 
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     // v0 is defined as a literal → SCALAR, so it should be scalar
     // even though the type is "ref". The transfer function for Let with
@@ -135,7 +135,7 @@ fn two_blocks_jump_propagates_demand() {
     };
 
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     // Block 1 entry: v1 is a param (defined here), so not in entry state.
     // Block 1 exit: Return demands v1 once.
@@ -200,7 +200,7 @@ fn branch_value_used_in_both_arms_is_once() {
 
     // ty(1) is scalar (bool)
     let classifier = TestClassifier::all_ref(2).with_scalar(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     // Block 0 exit: v0 is demanded by both successors with Once.
     // alt_join(Once, Once) = Once (not Many!) — only one branch executes.
@@ -248,7 +248,7 @@ fn sequential_uses_in_same_block_are_many() {
     };
 
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     // v0 is used by two Project instructions in the same block.
     // seq_add(Once, Once) = Many — sequential composition.
@@ -290,7 +290,7 @@ fn scalar_variables_excluded() {
     };
 
     let classifier = TestClassifier::all_ref(2).with_scalar(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     assert!(state_map.is_scalar(var(1)));
     assert_eq!(
@@ -347,7 +347,7 @@ fn analysis_converges_for_simple_loop() {
 
     let classifier = TestClassifier::all_ref(1);
     // This must not loop infinitely.
-    let _state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let _state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 }
 
 // Empty function (single Unreachable block)
@@ -356,7 +356,7 @@ fn analysis_converges_for_simple_loop() {
 fn empty_function_converges_immediately() {
     let func = ArcFunction::default(); // single block with Unreachable
     let classifier = TestClassifier::all_ref(0);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
     assert_eq!(state_map.num_blocks(), 1);
 }
 
@@ -385,7 +385,7 @@ fn function_param_demand_propagated() {
     };
 
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     // v0 is a block param, removed from entry. But the exit state should
     // be empty (Return is terminal, no successors).
@@ -446,7 +446,7 @@ fn invoke_dst_removed_from_normal_successor_entry() {
     };
 
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     // v2 is defined by Invoke at block 1 entry. Block 1's entry state
     // should NOT contain v2 (it's produced here, like a block param).
@@ -525,7 +525,7 @@ fn invoke_edge_state_tracks_per_edge_demand() {
     };
 
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let edge = state_map
         .invoke_edge_state(block_id(0))
@@ -573,7 +573,7 @@ fn corpus_01_straight_line_single_use() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
     // v0 defined in this block → entry is BOTTOM (demand consumed at def).
     assert_eq!(
         state_map.var_state_at_block_entry(block_id(0), var(0)),
@@ -626,7 +626,7 @@ fn corpus_02_if_one_use_each_branch() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(2).with_scalar(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
     let exit_v0 = state_map.var_state_at_block_exit(block_id(0), var(0));
     assert_eq!(exit_v0.cardinality, Cardinality::Once);
 }
@@ -682,7 +682,7 @@ fn corpus_03_if_use_in_one_branch_only() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(2).with_scalar(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
     // v0 used in one branch only. alt_join(Once, BOTTOM) = Once.
     let exit_v0 = state_map.var_state_at_block_exit(block_id(0), var(0));
     assert_eq!(
@@ -734,7 +734,7 @@ fn corpus_04_loop_one_use_per_iteration() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
     // v0 is used in block 1 (Branch cond) and block 1 loops back to
     // itself. The back-edge means v0's demand is seq_add'd across
     // iterations, promoting Once to Many.
@@ -800,7 +800,7 @@ fn corpus_05_nested_loop() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
     // v0 used as cond in both block 1 and block 2, both of which loop.
     let b2_entry = state_map.var_state_at_block_entry(block_id(2), var(0));
     assert_eq!(
@@ -858,14 +858,14 @@ fn corpus_06_switch_pattern_bindings() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
-    // v1 is a Project from v0 — its borrow source should be v0.
+    // v1 is a Project from v0 (field 0) — its borrow source should be v0 with field index.
     let source = state_map.borrow_source(var(1));
     assert_eq!(
         source,
-        Some(&super::super::lattice::BorrowSource::Exact(var(0))),
-        "Project binding should have BorrowSource::Exact(scrutinee)"
+        Some(&super::super::lattice::BorrowSource::exact_field(var(0), 0)),
+        "Project binding should have BorrowSource::exact_field(scrutinee, field)"
     );
 }
 
@@ -898,12 +898,12 @@ fn corpus_08_project_then_source_reuse() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
-    // Borrow source confirms v1 borrows from v0.
+    // Borrow source confirms v1 borrows from v0 (field 0).
     assert_eq!(
         state_map.borrow_source(var(1)),
-        Some(&super::super::lattice::BorrowSource::Exact(var(0)))
+        Some(&super::super::lattice::BorrowSource::exact_field(var(0), 0))
     );
 }
 
@@ -942,7 +942,7 @@ fn corpus_09_collection_update_receiver_once() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
     // v0 is defined in this block, so entry is BOTTOM. The analysis correctly
     // tracks it was used once by Apply. Without interprocedural contracts
     // (Stage 1), the Apply dst v1 gets conservative state.
@@ -980,7 +980,7 @@ fn corpus_10_partial_apply_capture() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     // v0 is defined in this block (Construct), so entry is BOTTOM.
     // But the demand on v0 from PartialApply should be Many (captured).
@@ -1013,7 +1013,7 @@ fn sparse_events_reusable_allocation_for_struct_construct() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
     let reusable: Vec<_> = events
@@ -1059,7 +1059,7 @@ fn sparse_events_reusable_allocation_for_enum_construct() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
     let reusable: Vec<_> = events
@@ -1093,7 +1093,7 @@ fn sparse_events_no_reusable_allocation_for_list_literal() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
     let reusable: Vec<_> = events
@@ -1125,7 +1125,7 @@ fn sparse_events_no_reusable_allocation_for_scalar() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1).with_scalar(0);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
     assert!(
@@ -1165,7 +1165,7 @@ fn sparse_events_multiple_constructs_in_block() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(2);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
     let reusable: Vec<_> = events
@@ -1218,7 +1218,7 @@ fn sparse_events_local_alloc_for_function_local_variable() {
         ..Default::default()
     };
     let classifier = TestClassifier::all_ref(1);
-    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[]);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     // Check what Locality the converged state has for v0.
     let exit_v0 = state_map.var_state_at_block_exit(block_id(0), var(0));

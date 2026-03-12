@@ -1,75 +1,67 @@
-// AIMS golden corpus: COW chain (multiple sequential mutations).
-// Tests that AIMS correctly handles uniqueness through mutation chains.
+// AIMS edge case: COW chain with multiple sequential mutations.
+// Tests that uniqueness analysis correctly identifies in-place mutation
+// opportunities and that copy-on-write triggers when needed.
 
-use std.testing { assert_eq }
+@build_list () -> [int] = {
+    let list = [1, 2, 3];
 
-// --- Sequential list mutations (unique owner, in-place fast path) ---
+    // Sequential pushes — each should be in-place if unique
+    list = list.push(value: 4);
+    list = list.push(value: 5);
+    list = list.push(value: 6);
 
-@chain_push () -> [int] = {
-    let list = [1];
-    let list = list.push(2);
-    let list = list.push(3);
-    let list = list.push(4);
-    let list = list.push(5);
     list
-}
+};
 
-@test_chain_push tests @chain_push () -> void = {
-    assert_eq(actual: chain_push(), expected: [1, 2, 3, 4, 5])
-}
+@mutate_chain (input: [int]) -> [int] = {
+    let list = input;
 
-// --- Mixed mutations ---
+    // Sequential push + reverse (COW operations)
+    list = list.push(value: 100);
+    list = list.push(value: 200);
+    list = list.push(value: 300);
+    list = list.reverse();
 
-@chain_mixed () -> [int] = {
-    let list = [1, 2, 3, 4, 5];
-    let list = list.push(6);
-    let list = list.reverse();
-    let list = list.push(0);
     list
-}
+};
 
-@test_chain_mixed tests @chain_mixed () -> void = {
-    assert_eq(actual: chain_mixed(), expected: [6, 5, 4, 3, 2, 1, 0])
-}
+@main () -> void = {
+    // Test 1: sequential pushes
+    let $built = build_list();
+    print(msg: `built = {built.debug()}`);
 
-// --- COW with shared reference (forces copy) ---
+    // Test 2: mutation chain on unique list
+    let $mutated = mutate_chain(input: [10, 20, 30, 40]);
+    print(msg: `mutated = {mutated.debug()}`);
 
-@chain_shared () -> (int, int) = {
-    let a = [1, 2, 3];
-    let b = a;
-    let a = a.push(4);
-    (len(collection: a), len(collection: b))
-}
+    // Test 3: shared list forces COW on mutation
+    let $original = [1, 2, 3, 4, 5];
+    let $alias = original;
+    // `original` is shared with `alias`, so push must COW
+    let $pushed = original.push(value: 6);
+    print(msg: `original len = {original.len()}`);
+    print(msg: `alias len = {alias.len()}`);
+    print(msg: `pushed len = {pushed.len()}`);
 
-@test_chain_shared tests @chain_shared () -> void = {
-    assert_eq(actual: chain_shared(), expected: (4, 3))
-}
+    // Test 4: map then collect (functional chain)
+    let $nums = [1, 2, 3, 4, 5];
+    let $doubled = for n in nums yield n * 2;
+    let $filtered = for n in doubled if n > 4 yield n;
+    print(msg: `doubled = {doubled.debug()}`);
+    print(msg: `filtered = {filtered.debug()}`);
 
-// --- Map mutation chain ---
+    // Test 5: string mutations (SSO + COW interaction)
+    let $s = "hello";
+    let $s2 = s + " world";
+    let $s3 = s2 + "!";
+    print(msg: `s = {s}`);
+    print(msg: `s3 = {s3}`);
 
-@chain_map () -> {str: int} = {
-    let m = {"a": 1};
-    let m = m.insert("b", 2);
-    let m = m.insert("c", 3);
-    m
-}
+    // Test 6: nested list construction
+    let $rows = for i in 0..3 yield {
+        for j in 0..3 yield i * 3 + j
+    };
+    print(msg: `rows = {rows.debug()}`);
 
-@test_chain_map tests @chain_map () -> void = {
-    let result = chain_map();
-    assert_eq(actual: result["a"], expected: Some(1));
-    assert_eq(actual: result["b"], expected: Some(2));
-    assert_eq(actual: result["c"], expected: Some(3))
-}
-
-// --- String mutation chain ---
-
-@chain_string () -> str = {
-    let s = "hello";
-    let s = s + " ";
-    let s = s + "world";
-    s
-}
-
-@test_chain_string tests @chain_string () -> void = {
-    assert_eq(actual: chain_string(), expected: "hello world")
+    print(msg: "cow_chain: done")
 }

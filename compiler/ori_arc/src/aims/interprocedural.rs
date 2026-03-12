@@ -104,7 +104,7 @@ fn analyze_scc_single(
     classifier: &dyn ArcClassification,
     all_sigs: &FxHashMap<Name, MemoryContract>,
 ) -> MemoryContract {
-    let state_map = analyze_function(func, classifier, all_sigs, &[]);
+    let state_map = analyze_function(func, classifier, all_sigs, &[], Vec::new());
     extract_contract(func, &state_map, classifier, all_sigs)
 }
 
@@ -144,7 +144,7 @@ fn analyze_scc_fixpoint(
         }
 
         for &func in scc_funcs {
-            let state_map = analyze_function(func, classifier, &combined_sigs, &[]);
+            let state_map = analyze_function(func, classifier, &combined_sigs, &[], Vec::new());
             let new_contract = extract_contract(func, &state_map, classifier, &combined_sigs);
 
             let old_contract = &local_sigs[&func.name];

@@ -320,6 +320,17 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
         };
 
+        // 3c. AIMS interprocedural contracts (param/arg ownership).
+        let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
+        let aims_contracts = {
+            let mut all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
+                .values()
+                .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+                .cloned()
+                .collect();
+            ori_arc::compute_aims_contracts(&mut all_funcs, &classifier, interner, &builtins)
+        };
+
         // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
             &mut builder,
@@ -332,6 +343,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
             uniqueness_summaries,
+            aims_contracts,
             std::env::var("ORI_VERIFY_ARC").is_ok(),
         );
 

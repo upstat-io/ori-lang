@@ -1,11 +1,10 @@
 ---
 section: "06"
 title: "Pipeline Integration"
-status: in-progress
-reviewed: true  # 2026-03-10
-goal: "Wire AIMS into pipeline.rs, replacing ~15 analysis/emission steps with the unified system"
+status: complete
+goal: "Wire AIMS into pipeline/mod.rs, replacing ~15 analysis/emission steps with the unified system"
 inspired_by:
-  - "ori_arc pipeline (compiler/ori_arc/src/pipeline.rs)"
+  - "ori_arc pipeline (compiler/ori_arc/src/pipeline/mod.rs)"
 depends_on: ["04", "05"]
 sections:
   - id: "06.1"
@@ -13,7 +12,7 @@ sections:
     status: complete
   - id: "06.2"
     title: "New Pipeline Flow"
-    status: in-progress
+    status: complete
   - id: "06.3"
     title: "Old Pass Removal"
     status: complete
@@ -24,8 +23,8 @@ sections:
 
 # Section 06: Pipeline Integration
 
-**Status:** Not Started
-**Goal:** Replace the ~15 analysis/emission steps in `pipeline.rs` with the
+**Status:** Complete
+**Goal:** Replace the ~15 analysis/emission steps in `pipeline/mod.rs` with the
 unified AIMS analysis + emission, behind a feature flag for safe comparison.
 Once validated, remove the old passes.
 
@@ -45,7 +44,7 @@ verify, tail_call, block_merge, drop_hints, FBIP) are unchanged.
 
 ## 06.1 Feature-Flagged Dual Pipeline
 
-**File(s):** `compiler/ori_arc/src/pipeline.rs`
+**File(s):** `compiler/ori_arc/src/pipeline/mod.rs`
 
 During development, both pipelines coexist behind a feature flag.
 
@@ -174,12 +173,24 @@ During development, both pipelines coexist behind a feature flag.
   **Gate criterion:** Zero regressions (AIMS weaker than legacy).
   Improvements expected and logged. Unit tests in `shadow/tests.rs`.
 
+  **Isolation guarantee** (plan note for `pipeline/shadow.rs` module doc):
+  The shadow pipeline enforces confounding-variable isolation structurally.
+  Both pipelines consume the **same `ArcFunction` IR** (produced by the same
+  lowering pass), emit to the **same LLVM backend**, and use the **same `ori_rt`
+  runtime**. The only variable that differs is the analysis and RC emission
+  logic — legacy multi-pass vs AIMS unified lattice. This means any difference
+  in output (RC counts, ownership decisions, COW annotations) is attributable
+  solely to the analysis strategy, not to differences in input IR, backend, or
+  runtime. This is the structural realization of the Perceus/OCaml evaluation
+  doctrine (Section 08.1).
+  (See: [Literature Review §05 — Perceus/OCaml](../aims-literature-review/section-05-perceus-ocaml.md))
+
   **Dispatch:** `run_arc_pipeline_all()` dispatches to shadow when
   `aims-shadow` is active, pure AIMS when `aims` without `aims-shadow`,
   legacy otherwise. `run_arc_pipeline()` uses legacy in shadow mode
   (shadow comparison runs only in the batch path).
 
-**Migration rules (from improvements.md Change 8):**
+**Migration rules:**
 1. Introduce new AIMS-backed implementations behind compatibility wrappers.
 2. Keep old public names valid during migration.
 3. Convert all call sites only after both backends are feature-selectable.
@@ -196,7 +207,7 @@ Without this, verification instructions in Section 08 are not executable.
 
 ## 06.2 New Pipeline Flow
 
-**File(s):** `compiler/ori_arc/src/pipeline.rs`
+**File(s):** `compiler/ori_arc/src/pipeline/mod.rs`, `compiler/ori_arc/src/pipeline/aims_pipeline.rs`
 
 The AIMS pipeline is dramatically simpler:
 
@@ -288,12 +299,15 @@ current ~22 steps. Steps 1-8 replace ~15 analysis/emission steps.
   callers work regardless of which pipeline is active. The `#[cfg(feature = "aims")]`
   branch should be INSIDE the existing function signatures, not a separate function,
   to avoid requiring changes to all callers during migration.
-- [ ] **Dominator tree timing**: RC emission (step 6) may insert edge cleanup
+- [x] **Dominator tree timing**: RC emission (step 6) may insert edge cleanup
   (trampoline blocks for critical edges), which modifies the CFG. Reuse emission
   (step 7) needs dominator trees for cross-block reuse detection (see Section 05
   ReusePlanner). Therefore: build dominator trees ONCE, between steps 6 and 7,
   after any CFG-modifying edge cleanup is complete. Do NOT build dom trees before
   RC emission — they would be immediately invalidated.
+  Verified: `ReusePlanner` (in `aims/emit_reuse/planner.rs`) builds dom/post-dom
+  trees lazily during step 7, after RC emission (step 6) has completed. Trees
+  are only built when cross-block candidates exist (cost control).
 - [x] Verify: no liveness recomputation needed (state map is complete)
   Verified: AIMS pipeline (`aims_pipeline.rs`) never calls `compute_refined_liveness`
   or `compute_liveness`. The `AimsStateMap` replaces liveness analysis entirely.
@@ -398,7 +412,7 @@ old analysis passes.
 - [x] Update `oric` consumers:
   No changes needed — `oric` calls `run_arc_pipeline_all` which dispatches
   internally. Cache compatibility verified: no new fields on `ArcFunction`.
-- [x] Remove old pipeline from `pipeline.rs`
+- [x] Remove old pipeline from `pipeline/mod.rs`
   `run_legacy_pipeline` gated behind `#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]`,
   `run_legacy_pipeline_all` gated behind `#[cfg(not(feature = "aims"))]`.
   Both excluded from pure AIMS builds. Physical deletion deferred until
@@ -410,7 +424,7 @@ old analysis passes.
   use `#[expect]` not `#[allow]`. Checked: no instances of this pattern exist in
   the aims branch codebase. The referenced files in ori_eval, ori_types, and
   ori_llvm do not contain this function. N/A for this branch.
-- [x] **[STYLE]** `compiler/ori_arc/src/pipeline.rs:37` — Current `run_arc_pipeline` takes 7 positional parameters. When creating `run_aims_pipeline`, use a config struct instead of replicating this pattern.
+- [x] **[STYLE]** `compiler/ori_arc/src/pipeline/mod.rs:37` — Current `run_arc_pipeline` takes 7 positional parameters. When creating `run_aims_pipeline`, use a config struct instead of replicating this pattern.
   Done: `AimsPipelineConfig` struct in `aims_pipeline.rs` bundles classifier,
   contracts, pool, interner, builtins, verify_arc.
 - [x] **[NOTE]** `compiler/ori_arc/src/ir/mod.rs` — At 431 lines (excluding tests), approaching
@@ -448,6 +462,19 @@ old analysis passes.
 
 ## 06.4 Completion Checklist
 
+- [x] **[BLOAT]** `compiler/ori_arc/src/aims/lattice/mod.rs` — 548 lines, exceeds the 500-line limit.
+  Fixed: extracted `dimensions.rs` (237 lines) with 7 dimension enums + `ReuseCtorKind`.
+  mod.rs is now 363 lines (`AimsState`, constants, predicates, `BorrowSource`, `SizeClass`).
+- [x] **[BLOAT]** `compiler/ori_arc/src/pipeline/shadow.rs` — 567 lines, exceeds 500-line limit.
+  Fixed: extracted `shadow/compare.rs` (283 lines) with `compare_all()`, `compare_function()`,
+  `compare_param_ownership()`, `compare_return_uniqueness()`, `compare_cow_annotations()`,
+  `compare_rc_ops()`, and helper functions. `shadow.rs` is now 304 lines (types, pipeline, reporting).
+- [x] **[STYLE]** Multiple AIMS section files have status inconsistency: frontmatter
+  says `status: complete` while body text says `**Status:** Not Started`. Update
+  body text to match frontmatter in: section-01, section-02, section-03, section-04, section-05, section-06.
+  Also update `index.md` status entries and `00-overview.md` quick reference table.
+  **Fixed 2026-03-11**: All body text, index.md, and overview quick reference now match frontmatter.
+
 - [x] AIMS pipeline produces correct output for all existing tests
 - [x] Feature flag allows switching between old and new pipelines
 - [x] `cargo test --workspace --features aims` passes (Rust unit tests)
@@ -461,7 +488,7 @@ old analysis passes.
   everything else=owned). Result: 4169 passed, 0 failed, 42 skipped.
 - [x] `cargo test -p ori_llvm --features aims` passes (AOT tests)
 - [x] `./test-all.sh` passes WITHOUT `aims` feature (old pipeline unchanged)
-- [x] RC operation count tracked: AIMS ≤ old is the goal for Stage 1D, but <!-- unblocks:04.6 -->
+- [x] RC operation count tracked: AIMS ≤ old is the goal for Stage 1D, but
   Stage 1C accepts correctness-first with RC count regressions investigated.
   Implemented: `pipeline/rc_count` module (`RcOpCount`, `count_rc_ops()`) counts
   `RcInc`/`RcDec` in ARC IR. Shadow comparison (`aims-shadow`) now runs full AIMS
