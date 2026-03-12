@@ -428,7 +428,10 @@ fn backward_construct_demands_once_per_arg() {
 }
 
 #[test]
-fn backward_partial_apply_demands_many() {
+fn backward_partial_apply_returns_empty() {
+    // PartialApply captured arg demand is handled entirely by
+    // capture_state_update in block.rs. backward_demands returns empty
+    // to avoid double-counting.
     let instr = ArcInstr::PartialApply {
         dst: var(2),
         ty: ori_types::Idx::from_raw(0),
@@ -436,10 +439,10 @@ fn backward_partial_apply_demands_many() {
         args: vec![var(0), var(1)],
     };
     let demands = backward_demands(&instr);
-    assert_eq!(demands.len(), 2);
-    for (_, card) in &demands {
-        assert_eq!(*card, Cardinality::Many);
-    }
+    assert!(
+        demands.is_empty(),
+        "PartialApply demand handled by capture_state_update"
+    );
 }
 
 #[test]
@@ -727,6 +730,26 @@ fn capture_update_once_closure_preserves_linearity() {
     assert_eq!(updated.access, AccessClass::Owned);
     // Once-closure: captured var is used at most once through the closure,
     // so consumption stays Affine (may be dropped) not Unrestricted.
+    assert_eq!(updated.consumption, Consumption::Affine);
+    assert_eq!(updated.cardinality, Cardinality::Once);
+    assert_eq!(updated.locality, Locality::FunctionLocal);
+}
+
+#[test]
+fn capture_update_affine_once_closure_preserves_linearity() {
+    let state = AimsState::FRESH;
+    // Closure with Affine consumption (may be dropped) but Once cardinality.
+    // The once-closure optimization should still fire — what matters is that
+    // the closure is invoked at most once, not whether it might be dropped.
+    let closure_state = AimsState {
+        locality: Locality::FunctionLocal,
+        cardinality: Cardinality::Once,
+        consumption: Consumption::Affine,
+        ..AimsState::BOTTOM
+    };
+    let updated = capture_state_update(&state, &closure_state);
+    assert_eq!(updated.access, AccessClass::Owned);
+    // Once-closure: captured var is used at most once through the closure.
     assert_eq!(updated.consumption, Consumption::Affine);
     assert_eq!(updated.cardinality, Cardinality::Once);
     assert_eq!(updated.locality, Locality::FunctionLocal);

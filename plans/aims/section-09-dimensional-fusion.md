@@ -308,15 +308,15 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
   **Critical:** the tightening must NOT happen until the fixpoint confirms all
   callers agree — premature tightening from a single call site is unsound.
 
-- [ ] **Rule: Closure-capture locality and uniqueness.**
+- [x] **Rule: Closure-capture locality and uniqueness.**
   When processing `PartialApply` (closure creation in ARC IR), each captured
   variable's locality should be widened to at least `FunctionLocal` (the value
   now lives in the closure, which may outlive the defining block). If the
   closure itself escapes (returned or stored in a heap structure), the captured
   variable's locality becomes `HeapEscaping`. This refines the existing
   `transfer_construct` which conservatively sets all captured vars to
-  `HeapEscaping`. Additionally, if the closure is `once` (its consumption is
-  `<= Linear`), captured values preserve their uniqueness — the closure
+  `HeapEscaping`. Additionally, if the closure is `once` (its cardinality is
+  `<= Once`), captured values preserve their uniqueness — the closure
   cannot create multiple references to the captured value because it is
   invoked at most once (OxCaml's LAM "lock" mechanism).
   **Backward analysis semantics:** In the backward direction, `PartialApply`
@@ -325,6 +325,11 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
   says. If the closure's own post-state has `locality == HeapEscaping`, each
   captured var gets `HeapEscaping`; if `FunctionLocal`, each captured var gets
   at least `FunctionLocal`.
+  **Implementation note:** `backward_demands()` returns empty for `PartialApply` —
+  all captured arg demand is handled by `capture_state_update()` to avoid
+  double-counting. The once-closure check uses cardinality only (not consumption),
+  since a closure with `Affine` consumption (may be dropped) still invokes captured
+  values at most once.
   (See: [Literature Review §01 — OxCaml](../aims-literature-review/section-01-oxidizing-ocaml.md), §01.2 K3, I3)
 
 - [x] **Rule: HeapEscaping locality forces may_share effect.**
@@ -344,8 +349,8 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
 - [x] Test: program where block-local construct enables static reuse
 - [x] Test: program where pure callee preserves caller uniqueness across call
 - [ ] Test: program where linear+once argument enables callee-side optimization
-- [ ] Test: program where closure-capture locality is FunctionLocal (non-escaping closure)
-- [ ] Test: program where once-closure capture preserves uniqueness of captured value
+- [x] Test: program where closure-capture locality is FunctionLocal (non-escaping closure)
+- [x] Test: program where once-closure capture preserves uniqueness of captured value
 - [x] Test: program where heap escape propagates may_share effect to contract
 
 ---
@@ -923,8 +928,10 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
   (requires interprocedural demand propagation: new analysis phase in analyze_program())
 - [x] HeapEscaping forces may_share effect — implemented and tested
   (post-convergence replay: fires when Construct destination has locality > BlockLocal)
-- [ ] Closure-capture locality refined: FunctionLocal for non-escaping closures,
-  HeapEscaping for escaping closures; once-closures preserve uniqueness
+- [x] Closure-capture locality refined: FunctionLocal for non-escaping closures,
+  HeapEscaping for escaping closures; once-closures preserve cardinality
+  (fixed: once-closure check uses cardinality only, not consumption;
+  backward_demands returns empty for PartialApply to avoid double-counting)
 - [ ] Each rule has a test program demonstrating measurable improvement (fewer RC ops
   or eliminated runtime check)
 
