@@ -1440,7 +1440,7 @@ fn returned_param_gets_heap_escaping_locality() {
 #[test]
 fn callee_contract_locality_widens_arg() {
     use super::super::contract::{ContextBehavior, EffectSummary, ParamContract, ReturnContract};
-    use super::super::lattice::{AccessClass, Consumption};
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
 
     let callee_name = Name::from_raw(100);
 
@@ -1482,6 +1482,7 @@ fn callee_contract_locality_widens_arg() {
                 may_escape: true,
                 may_share: false,
                 locality_bound: Locality::HeapEscaping,
+                uniqueness: Uniqueness::MaybeShared,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1522,7 +1523,7 @@ fn callee_contract_locality_widens_arg() {
 #[test]
 fn callee_contract_function_local_preserves_arg() {
     use super::super::contract::{ContextBehavior, EffectSummary, ParamContract, ReturnContract};
-    use super::super::lattice::{AccessClass, Consumption};
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
 
     let callee_name = Name::from_raw(100);
 
@@ -1558,6 +1559,7 @@ fn callee_contract_function_local_preserves_arg() {
                 may_escape: false,
                 may_share: false,
                 locality_bound: Locality::FunctionLocal,
+                uniqueness: Uniqueness::MaybeShared,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1720,7 +1722,7 @@ fn function_local_linear_value_skips_rc() {
 #[test]
 fn contract_with_locality_bounds_enables_rc_free_call() {
     use super::super::contract::{ContextBehavior, EffectSummary, ParamContract, ReturnContract};
-    use super::super::lattice::{AccessClass, Consumption};
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
 
     let callee_name = Name::from_raw(100);
 
@@ -1757,6 +1759,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
                 may_escape: false,
                 may_share: false,
                 locality_bound: Locality::FunctionLocal,
+                uniqueness: Uniqueness::MaybeShared,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1835,6 +1838,7 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
                 may_escape: false,
                 may_share: false,
                 locality_bound: Locality::FunctionLocal,
+                uniqueness: Uniqueness::MaybeShared,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -1908,6 +1912,7 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
                 may_escape: false,
                 may_share: false,
                 locality_bound: Locality::FunctionLocal,
+                uniqueness: Uniqueness::MaybeShared,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -1981,6 +1986,7 @@ fn owned_param_ignores_callee_may_share() {
                 may_escape: false,
                 may_share: false,
                 locality_bound: Locality::FunctionLocal,
+                uniqueness: Uniqueness::MaybeShared,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2174,7 +2180,7 @@ fn effect_summary_apply_unions_callee_effects() {
     use super::super::contract::{
         ContextBehavior, EffectSummary, FipContract, ParamContract, ReturnContract,
     };
-    use super::super::lattice::{AccessClass, Consumption};
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
 
     let callee_name = Name::from_raw(100);
 
@@ -2209,6 +2215,7 @@ fn effect_summary_apply_unions_callee_effects() {
                 may_escape: false,
                 may_share: false,
                 locality_bound: Locality::FunctionLocal,
+                uniqueness: Uniqueness::MaybeShared,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
