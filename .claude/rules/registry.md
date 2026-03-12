@@ -1,7 +1,17 @@
 # Registry (ori_registry)
 
 ## Purpose
-Single source of truth for all builtin type behavioral specifications. Zero dependencies, zero logic, only `const` data.
+
+**SSOT architectural center** for all builtin type behavioral specifications. The registry is one of four canonical homes in the compiler (see `impl-hygiene.md` → Paradigms → SSOT):
+
+| Center | Domain |
+|---|---|
+| **Registry** (`ori_registry`) | Builtin type behavior — methods, operators, memory strategy |
+| Type Pool (`ori_types`) | Type structure — interned types, type relationships |
+| AIMS (`ori_arc`) | Memory analysis — ownership, borrowing, uniqueness |
+| Repr-opt (`ori_llvm`) | Representation — layout, ABI, storage |
+
+The registry's contract: **zero dependencies, zero logic, only `const` data.** It defines WHAT builtins can do. Consuming crates define HOW.
 
 ## Key Types
 - `TypeDef` — type definition (tag, name, memory strategy, methods, operators)
@@ -68,6 +78,26 @@ Single source of truth for all builtin type behavioral specifications. Zero depe
 - `compiler/ori_registry/src/query/mod.rs` — query functions
 - `compiler/ori_registry/src/defs/tests.rs` — registry-level integrity tests
 - `compiler/oric/src/eval/tests/methods/consistency.rs` — cross-phase enforcement tests
+
+## Consumer Discipline — Query, Don't Copy
+
+The registry exists so that consuming crates **never need to hardcode builtin type knowledge**. Every violation of this principle is a **LEAK:scattered-knowledge** finding.
+
+**Consumers MUST:**
+- Query `find_type()` / `find_method()` for type capabilities — never hardcode "str has method split"
+- Read `MethodDef` fields (receiver ownership, purity, params) — never re-derive them
+- Use `OpDefs` / `OpStrategy` for operator dispatch — never build parallel operator tables
+- Use `TypeTag` exhaustive matches for type dispatch — the compiler enforces completeness
+
+**Consumers MUST NOT:**
+- Maintain local lookup tables that mirror registry data (e.g., a `HashMap<&str, ReturnType>` for method return types)
+- Hardcode type-specific behavior with `if tag == TypeTag::Str { ... }` when the registry already encodes the distinction (e.g., memory strategy, method availability)
+- Re-derive method signatures, parameter counts, or return types that `MethodDef` already specifies
+- Add `match TypeTag { ... }` arms that encode behavioral knowledge instead of querying the registry for it
+
+**The litmus test**: if a consuming crate's match arm would need updating because a *builtin's behavior* changed (not because the *consumer's handling* changed), the consumer has leaked registry knowledge. The fix is to query the registry and dispatch on its answer.
+
+**Acceptable type-specific dispatch**: Consumers legitimately need per-type *implementation* logic — e.g., `ori_eval` needs different code to evaluate `str.split()` vs `list.push()`. That's implementation dispatch (HOW), not behavioral knowledge (WHAT). The registry tells you WHAT methods exist and their signatures; the consumer implements HOW to execute them.
 
 ## Purity Contract
 - Zero `[dependencies]` in Cargo.toml (test enforced)
