@@ -741,6 +741,254 @@ mod canonicalization {
         assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
     }
 
+    // Rule 5: Unique + Dead → preserve ReusableCtor shape
+
+    #[test]
+    fn rule5_unique_dead_preserves_reusable_ctor() {
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Dead,
+            cardinality: Cardinality::Absent,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert!(
+            matches!(s.shape, ShapeClass::ReusableCtor(ReuseCtorKind::Struct)),
+            "Unique + Dead should preserve ReusableCtor for reuse"
+        );
+    }
+
+    #[test]
+    fn rule5_shared_dead_collapses_reusable_ctor() {
+        // Contrast: Shared + Dead → Rule 3 collapses shape
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Dead,
+            cardinality: Cardinality::Absent,
+            uniqueness: Uniqueness::Shared,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.shape, ShapeClass::NonReusable);
+    }
+
+    // Rule 6: HeapEscaping → uniqueness >= MaybeShared
+
+    #[test]
+    fn rule6_heap_escaping_unique_becomes_maybe_shared() {
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(
+            s.uniqueness,
+            Uniqueness::MaybeShared,
+            "HeapEscaping values cannot be assumed Unique"
+        );
+    }
+
+    #[test]
+    fn rule6_heap_escaping_maybe_shared_unchanged() {
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::MaybeShared);
+    }
+
+    #[test]
+    fn rule6_heap_escaping_shared_unchanged() {
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Shared,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::Shared);
+    }
+
+    #[test]
+    fn rule6_does_not_fire_for_block_local() {
+        // BlockLocal + Unique should stay Unique (not weakened)
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::Unique);
+    }
+
+    #[test]
+    fn rule6_does_not_fire_for_function_local() {
+        // FunctionLocal + Unique should stay Unique
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::Unique);
+    }
+
+    #[test]
+    fn rule6_does_not_fire_for_unknown_locality() {
+        // Unknown + Unique stays Unique — Unknown means conservative locality
+        // analysis hasn't run; we don't weaken uniqueness speculatively
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.uniqueness, Uniqueness::Unique);
+    }
+
+    // Rule 8: Borrowed → locality <= FunctionLocal
+
+    #[test]
+    fn rule8_borrowed_heap_escaping_tightens_to_function_local() {
+        let mut s = AimsState {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(
+            s.locality,
+            Locality::FunctionLocal,
+            "Borrowed values cannot escape their function"
+        );
+    }
+
+    #[test]
+    fn rule8_borrowed_unknown_tightens_to_function_local() {
+        let mut s = AimsState {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.locality, Locality::FunctionLocal);
+    }
+
+    #[test]
+    fn rule8_borrowed_function_local_unchanged() {
+        let mut s = AimsState {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::FunctionLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        let before_locality = s.locality;
+        s.canonicalize();
+        assert_eq!(s.locality, before_locality);
+    }
+
+    #[test]
+    fn rule8_borrowed_block_local_unchanged() {
+        let mut s = AimsState {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        let before_locality = s.locality;
+        s.canonicalize();
+        assert_eq!(s.locality, before_locality);
+    }
+
+    #[test]
+    fn rule8_owned_heap_escaping_not_tightened() {
+        // Owned values CAN escape to the heap — Rule 8 only applies to Borrowed
+        let mut s = AimsState {
+            access: AccessClass::Owned,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::MaybeShared,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(s.locality, Locality::HeapEscaping);
+    }
+
+    // Rule interaction: Rule 8 prevents Rule 6 from firing on Borrowed values
+
+    #[test]
+    fn rule8_then_rule6_borrowed_unique_heap_escaping() {
+        // Borrowed + Unique + HeapEscaping: Rule 8 tightens to FunctionLocal
+        // first, so Rule 6 (HeapEscaping → not Unique) does NOT fire.
+        let mut s = AimsState {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Linear,
+            cardinality: Cardinality::Once,
+            uniqueness: Uniqueness::Unique,
+            locality: Locality::HeapEscaping,
+            shape: ShapeClass::NonReusable,
+            effect: EffectClass::NONE,
+        };
+        s.canonicalize();
+        assert_eq!(
+            s.locality,
+            Locality::FunctionLocal,
+            "Rule 8 tightens locality"
+        );
+        assert_eq!(
+            s.uniqueness,
+            Uniqueness::Unique,
+            "Rule 6 should not fire after Rule 8 corrected locality"
+        );
+    }
+
     #[test]
     fn valid_states_unchanged() {
         // (Owned, Linear, Once, Unique) is valid — should not change

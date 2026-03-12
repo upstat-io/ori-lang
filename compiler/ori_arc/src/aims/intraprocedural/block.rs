@@ -19,7 +19,7 @@ use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
 use super::super::contract::MemoryContract;
-use super::super::lattice::{AimsState, Cardinality, Locality};
+use super::super::lattice::{AccessClass, AimsState, Cardinality, Locality};
 use super::super::transfer::{backward_demands, backward_terminator_demands, transfer_def};
 use super::state_map::AimsStateMap;
 
@@ -117,11 +117,14 @@ pub(crate) fn compute_block_entry_state(
     // Apply terminator backward demands.
     apply_terminator_demands(&block.terminator, &mut current, state_map);
 
-    // Return locality widening (Section 09.2): returned values escape the
-    // function, so their locality must be `HeapEscaping`.
+    // Return widening (Section 09.2): returned values escape the function,
+    // so their locality must be `HeapEscaping` and access must be `Owned`
+    // (the function transfers ownership to the caller).
     if let ArcTerminator::Return { value } = &block.terminator {
         if !state_map.is_excluded(*value) {
             let entry = current.entry(*value).or_insert(AimsState::BOTTOM);
+            // Returned values are owned — the function transfers ownership.
+            entry.access = AccessClass::Owned;
             if entry.locality < Locality::HeapEscaping {
                 entry.locality = Locality::HeapEscaping;
             }
