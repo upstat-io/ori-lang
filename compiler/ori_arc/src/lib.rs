@@ -89,7 +89,10 @@ pub(crate) mod test_helpers;
 
 use ori_types::Idx;
 
-pub use pipeline::{run_arc_pipeline, run_arc_pipeline_all, run_uniqueness_analysis};
+pub use aims::contract::MemoryContract;
+pub use pipeline::{
+    compute_aims_contracts, run_arc_pipeline, run_arc_pipeline_all, run_uniqueness_analysis,
+};
 
 #[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
 pub use borrow::{

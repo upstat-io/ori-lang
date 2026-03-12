@@ -270,6 +270,17 @@ impl ReturnContract {
 /// Distinct from [`super::lattice::EffectClass`], which is a per-variable,
 /// per-program-point lattice dimension. `EffectSummary` is a per-function
 /// summary aggregated across the entire function body.
+///
+/// # Planned: `may_deallocate` field (Stage 2)
+///
+/// FP² Theorem 2 requires both sides of the in-place balance: `may_allocate`
+/// alone gives FBIP (functional-but-in-place). Full FIP additionally requires
+/// `may_deallocate == false` — no unmatched deallocations. This is a post-emission
+/// fact computed from `EmitReuseResult.missed_reuses > 0`: if any consumed value
+/// with reusable shape was NOT matched by a reuse opportunity, the function
+/// deallocates (frees memory without reusing it). When `may_allocate == false &&
+/// may_deallocate == false`, the function is fully in-place (FIP).
+/// (See: plans/aims-literature-review/section-02-fp2.md)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[expect(
     clippy::struct_excessive_bools,

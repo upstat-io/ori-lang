@@ -54,7 +54,7 @@ pub(crate) fn compute_block_exit_state(
     for succ_id in successors {
         if let Some(succ_entry) = state_map.block_entry_states(succ_id) {
             for (&var, &succ_state) in succ_entry {
-                if state_map.is_scalar(var) {
+                if state_map.is_excluded(var) {
                     continue;
                 }
                 let joined = exit_state
@@ -105,7 +105,7 @@ pub(crate) fn compute_block_entry_state(
         // `current` across mutation points.
         let def_transfer = {
             let get_state = |v: ArcVarId| -> AimsState {
-                if state_map.is_scalar(v) {
+                if state_map.is_excluded(v) {
                     return AimsState::SCALAR;
                 }
                 current.get(&v).copied().unwrap_or(AimsState::BOTTOM)
@@ -136,7 +136,7 @@ pub(crate) fn compute_block_entry_state(
             // For PartialApply: update captured variables' states.
             if let crate::ir::ArcInstr::PartialApply { args, .. } = instr {
                 for &arg in args {
-                    if !state_map.is_scalar(arg) {
+                    if !state_map.is_excluded(arg) {
                         let arg_state = current.get(&arg).copied().unwrap_or(AimsState::BOTTOM);
                         let updated = super::super::transfer::capture_state_update(&arg_state);
                         merge_demand(&mut current, arg, updated);
@@ -148,7 +148,7 @@ pub(crate) fn compute_block_entry_state(
         // Backward demands: add demand on operands.
         let demands = backward_demands(instr);
         for (var, card) in demands {
-            if state_map.is_scalar(var) {
+            if state_map.is_excluded(var) {
                 continue;
             }
             add_backward_demand(&mut current, var, card);
@@ -182,7 +182,7 @@ fn apply_terminator_demands(
 ) {
     let demands = backward_terminator_demands(term);
     for (var, card) in demands {
-        if state_map.is_scalar(var) {
+        if state_map.is_excluded(var) {
             continue;
         }
         add_backward_demand(current, var, card);

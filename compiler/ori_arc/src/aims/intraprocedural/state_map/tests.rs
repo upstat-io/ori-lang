@@ -188,10 +188,10 @@ fn borrow_source_basic_operations() {
     assert!(map.borrow_source(var(1)).is_none());
 
     // Set exact source
-    map.set_borrow_source(var(1), BorrowSource::Exact(var(0)));
+    map.set_borrow_source(var(1), BorrowSource::exact(var(0)));
     assert_eq!(
         map.borrow_source(var(1)),
-        Some(&BorrowSource::Exact(var(0)))
+        Some(&BorrowSource::exact(var(0)))
     );
 
     // Clear
@@ -203,12 +203,12 @@ fn borrow_source_basic_operations() {
 fn borrow_source_join_same_source_stays_exact() {
     let mut map = make_state_map(2, 5);
 
-    map.set_borrow_source(var(1), BorrowSource::Exact(var(0)));
-    map.join_borrow_sources(var(1), BorrowSource::Exact(var(0)));
+    map.set_borrow_source(var(1), BorrowSource::exact(var(0)));
+    map.join_borrow_sources(var(1), BorrowSource::exact(var(0)));
 
     assert_eq!(
         map.borrow_source(var(1)),
-        Some(&BorrowSource::Exact(var(0)))
+        Some(&BorrowSource::exact(var(0)))
     );
 }
 
@@ -216,8 +216,8 @@ fn borrow_source_join_same_source_stays_exact() {
 fn borrow_source_join_different_sources_becomes_unknown() {
     let mut map = make_state_map(2, 5);
 
-    map.set_borrow_source(var(1), BorrowSource::Exact(var(0)));
-    map.join_borrow_sources(var(1), BorrowSource::Exact(var(2)));
+    map.set_borrow_source(var(1), BorrowSource::exact(var(0)));
+    map.join_borrow_sources(var(1), BorrowSource::exact(var(2)));
 
     assert_eq!(map.borrow_source(var(1)), Some(&BorrowSource::Unknown));
 }
@@ -226,11 +226,11 @@ fn borrow_source_join_different_sources_becomes_unknown() {
 fn borrow_source_join_into_empty_sets_source() {
     let mut map = make_state_map(2, 5);
 
-    map.join_borrow_sources(var(1), BorrowSource::Exact(var(0)));
+    map.join_borrow_sources(var(1), BorrowSource::exact(var(0)));
 
     assert_eq!(
         map.borrow_source(var(1)),
-        Some(&BorrowSource::Exact(var(0)))
+        Some(&BorrowSource::exact(var(0)))
     );
 }
 

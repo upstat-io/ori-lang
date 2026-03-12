@@ -19,7 +19,7 @@ use ori_ir::{Name, StringInterner};
 use ori_types::Pool;
 
 use crate::aims::contract::MemoryContract;
-use crate::aims::lattice::{AccessClass, Consumption};
+use crate::aims::lattice::{AccessClass, Cardinality, Consumption};
 use crate::ir::ArcFunction;
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 use crate::BuiltinOwnershipSets;
@@ -47,7 +47,12 @@ pub fn emit_arg_ownership(
                 .iter()
                 .enumerate()
                 .map(|(i, pc)| {
-                    let ownership = if pc.consumption == Consumption::Dead {
+                    // Demand-driven RC elimination (Section 07.3.3): if the
+                    // callee never uses the parameter (Absent cardinality / Dead
+                    // consumption), mark it Borrowed so the caller skips RcInc.
+                    let ownership = if pc.consumption == Consumption::Dead
+                        || pc.cardinality == Cardinality::Absent
+                    {
                         Ownership::Borrowed
                     } else {
                         match pc.access {

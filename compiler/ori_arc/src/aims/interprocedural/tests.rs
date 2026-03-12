@@ -90,7 +90,7 @@ fn extract_contract_literal_return() {
 
     let classifier = TestClassifier::all_ref(1).with_scalar(0);
     let sigs = FxHashMap::default();
-    let state_map = analyze_function(&func, &classifier, &sigs, &[]);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
     let contract = extract_contract(&func, &state_map, &classifier, &sigs);
 
     assert!(contract.params.is_empty());
@@ -121,7 +121,7 @@ fn extract_contract_param_used_once() {
 
     let classifier = TestClassifier::all_ref(1);
     let sigs = FxHashMap::default();
-    let state_map = analyze_function(&func, &classifier, &sigs, &[]);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
     let contract = extract_contract(&func, &state_map, &classifier, &sigs);
 
     assert_eq!(contract.params.len(), 1);
@@ -167,7 +167,7 @@ fn extract_contract_construct_return_is_unique() {
 
     let classifier = TestClassifier::all_ref(3).with_scalar(0);
     let sigs = FxHashMap::default();
-    let state_map = analyze_function(&func, &classifier, &sigs, &[]);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
     let contract = extract_contract(&func, &state_map, &classifier, &sigs);
 
     assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);

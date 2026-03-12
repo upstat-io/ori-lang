@@ -1,8 +1,7 @@
 ---
 section: "05"
 title: "Reuse Emission"
-status: in-progress
-reviewed: true  # 2026-03-10
+status: complete
 goal: "Emit Reset/Reuse/IsShared operations from converged AimsStateMap"
 inspired_by:
   - "Drop-guided reuse (Lorenzen & Leijen, ICFP 2022)"
@@ -13,7 +12,7 @@ depends_on: ["01", "02", "03"]
 sections:
   - id: "05.1"
     title: "Reuse Opportunity Detection"
-    status: in-progress
+    status: complete
   - id: "05.2"
     title: "Reuse Emission"
     status: complete
@@ -22,15 +21,15 @@ sections:
     status: complete
   - id: "05.4"
     title: "FIP as Contract, FBIP as Diagnostic"
-    status: in-progress
+    status: complete
   - id: "05.5"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 05: Reuse Emission
 
-**Status:** Not Started
+**Status:** Complete (all subsections done)
 
 **Goal:** Detect reuse opportunities from the converged `AimsStateMap` and emit
 `Reset`, `Reuse`, `IsShared`, `Set`, `SetTag` instructions. This replaces
@@ -61,13 +60,15 @@ to `Dead` with `Unique` uniqueness.
 
 ## 05.1 Reuse Opportunity Detection
 
-**File(s):** `compiler/ori_arc/src/aims/emit_reuse.rs` (NEW)
+**File(s):** `compiler/ori_arc/src/aims/emit_reuse/mod.rs`
 
 > **Warning: File size.** This section covers reuse detection, emission, CollectionReuse handling,
-> and FBIP enforcement. Estimated ~800 lines exceeds the 500-line limit. **Split into submodules:**
-> - `aims/emit_reuse/mod.rs` — `emit_reuse()` entry point, reuse emission (~250 lines)
-> - `aims/emit_reuse/detect.rs` — `find_reuse_opportunities()` with cross-block detection (~300 lines)
-> - `aims/emit_reuse/fbip.rs` — FBIP enforcement, auto-FBIP detection (~150 lines)
+> and FIP/FBIP handling. **Actual submodule structure (implemented):**
+> - `aims/emit_reuse/mod.rs` — `emit_reuse()` entry point, reuse types, emission logic
+> - `aims/emit_reuse/detect.rs` — `find_reuse_opportunities()` with cross-block detection
+> - `aims/emit_reuse/fip.rs` — FIP gate records and `FipGateDecision`
+> - `aims/emit_reuse/dynamic.rs` — MaybeShared dynamic reuse (IsShared + Branch CFG expansion)
+> - `aims/emit_reuse/planner.rs` — cross-block reuse planner (dominator/post-dominator validation)
 
 A reuse opportunity exists when:
 1. A variable transitions to `Dead` with `Unique` or `MaybeShared` uniqueness, AND
@@ -105,7 +106,7 @@ A reuse opportunity exists when:
     Cross-type reuse may be explored in Stage 5 (Section 07) with explicit layout
     and drop compatibility proofs.
 
-- [ ] **Cross-block reuse via ReusePlanner** (solutions.md Decision 4):
+- [x] **Cross-block reuse via ReusePlanner** (historical design decision):
   Cross-block reuse requires BOTH semantic facts (from AIMS) AND structural
   validity (from dominator analysis). These are different categories:
   - AIMS proves: "this value is dead, unique, and has a reusable shape"
@@ -115,6 +116,13 @@ A reuse opportunity exists when:
   The `ReusePlanner` is a dedicated pass that runs after RC emission and before
   final block cleanup. It consumes semantic candidate events from AIMS and
   validates them against CFG geometry.
+
+  Implemented in `aims/emit_reuse/planner.rs`. Stage 1: static-unique only
+  (MaybeShared cross-block requires two-point CFG expansion, deferred).
+  Tests: `cross_block_static_unique_reuse`, `cross_block_self_set_elimination`,
+  `cross_block_enum_variant_reuse`, `cross_block_reuse_through_intervening_block`,
+  `no_cross_block_reuse_without_post_dominance`, `no_cross_block_reuse_maybe_shared`,
+  `no_cross_block_reuse_different_types`.
 
 - [x] Define `SizeClass` for allocation size matching:
   Implemented in `aims/lattice/mod.rs`. Added `SizeClass(u32)` with `UNKNOWN`
@@ -169,7 +177,7 @@ A reuse opportunity exists when:
   has at least one death event with reusable shape AND at least one compatible
   allocation event. For functions with no reuse candidates, no structural pass cost.
 
-- [ ] **ReusePlanner interface specification** (Decision 4):
+- [x] **ReusePlanner interface specification** (Decision 4):
   ```rust
   /// Cross-block reuse planner. Consumes semantic facts from AIMS
   /// and validates them against CFG geometry.
@@ -218,7 +226,7 @@ A reuse opportunity exists when:
 
 ## 05.2 Reuse Emission
 
-**File(s):** `compiler/ori_arc/src/aims/emit_reuse.rs`
+**File(s):** `compiler/ori_arc/src/aims/emit_reuse/mod.rs`, `compiler/ori_arc/src/aims/emit_reuse/dynamic.rs`
 
 Emit reuse instructions in one pass. AIMS eliminates the old pipeline's two-pass
 pattern (detect abstract opportunities, then expand into concrete instructions).
@@ -310,7 +318,7 @@ signal). Neither is worth the complexity in Stage 1. A future simplification pas
 
 ## 05.3 CollectionReuse Handling
 
-**File(s):** `compiler/ori_arc/src/aims/emit_reuse.rs`
+**File(s):** `compiler/ori_arc/src/aims/emit_reuse/mod.rs`
 
 `CollectionReuse` is a self-contained instruction for list/set buffer reuse that
 is separate from the struct Reset/Reuse system. It is emitted during lowering
@@ -350,7 +358,7 @@ is separate from the struct Reset/Reuse system. It is emitted during lowering
 
 **FIP drives reuse emission; FBIP validates the result.**
 
-- [ ] During reuse emission (05.2), consult `MemoryContract.fip` for the current function:
+- [x] During reuse emission (05.2), consult `MemoryContract.fip` for the current function:
   - If `FipContract::Certified` — all reuse paths should be static-unique
   - If `FipContract::Conditional { requires_unique_params }` — the function emits
     standard dynamic reuse (IsShared checks). FIP benefits are realized at **call
@@ -361,25 +369,62 @@ is separate from the struct Reset/Reuse system. It is emitted during lowering
     needed — the same compiled code handles both satisfying and non-satisfying call
     sites via the existing IsShared conditional paths.
   - If `FipContract::Never` — standard dynamic reuse
-- [ ] Record FIP-guided reuse decisions as `FipGateRecord` entries in a
+  Implemented in `aims/emit_reuse/fip.rs`. `apply_fip_upgrades()` inspects the
+  function's `FipContract` from `contracts` map and upgrades `MaybeShared`
+  opportunities to static-unique when `Certified`. Tests:
+  `fip_certified_upgrades_maybe_shared_to_static`, `fip_conditional_records_gate_keeps_dynamic`,
+  `fip_never_no_change`, `no_contract_no_fip_influence`, `fip_certified_unique_source_no_gate`.
+- [x] Record FIP-guided reuse decisions as `FipGateRecord` entries in a
   separate emission-phase artifact (e.g., `Vec<FipGateRecord>` returned
   alongside the emitted function), NOT in the `AimsStateMap`. The
   `AimsStateMap` is a pure analysis output; emission-phase observations
   go in emission-phase data structures. Note: `AimsEvent::FipGate` in
   Section 02 should be moved to an emission-phase type accordingly.
   These records are consumed by verification (Section 08).
+  Implemented: `FipGateRecord` and `FipGateDecision` in `aims/emit_reuse/fip.rs`.
+  `EmitReuseResult.fip_gates: Vec<FipGateRecord>` returned from `emit_reuse()`.
+  Pipeline logs gate count when non-empty.
 - [x] FBIP enforcement (step 14) continues unchanged — reads `ArcFunction.cow_annotations`
   and block instructions. AIMS populates these identically to the old pipeline.
-- [ ] AIMS may enrich FBIP with additional metadata (e.g., uniqueness state at missed-reuse
+- [x] AIMS may enrich FBIP with additional metadata (e.g., uniqueness state at missed-reuse
   points), but this is additive, not a replacement.
+  Implemented: `EmitReuseResult.missed_reuses` tracks death events with no compatible
+  allocation. `emit_reuse()` emits `tracing::warn!` when a FIP-certified function has
+  unmatched deaths (FBIP enrichment diagnostic). Test: `missed_reuses_counted`.
+
+  **FP²-derived deallocation tracking (Theorem 2):** FIP certification requires
+  `EmitReuseResult.missed_reuses == 0` — every consumed value with reusable shape
+  must be matched by a compatible allocation. This is the deallocation side of
+  FP²'s token balance (`|S| = |S'|`). The existing `tracing::warn!` for
+  FIP-certified functions with missed reuses should be upgraded to a hard
+  verification error in `verify/mod.rs`: a `FipContract::Certified` function
+  with `missed_reuses > 0` violates Theorem 2 and must be rejected. This
+  enforcement belongs in the verification step (step 9a), not in reuse emission
+  itself, to maintain the analysis/emission/verification separation.
+  (See: [Literature Review §02 — FP²](../aims-literature-review/section-02-fp2.md))
 
 ---
 
 ## 05.5 Completion Checklist
 
+- [x] **[BLOAT]** `compiler/ori_arc/src/aims/emit_reuse/mod.rs` — 815 lines, far exceeds the 500-line limit.
+  Fixed: extracted `dynamic.rs` (318 lines) with `DynamicReuseContext`, `apply_dynamic_reuse()`,
+  `build_fast_body()`, `build_dynamic_blocks()`, `rewrite_original_block()`, `extract_dynamic_context()`.
+  mod.rs is now 512 lines (dispatch hub: types, `emit_reuse()` entry, static reuse, shared utilities).
+- [x] **[STYLE]** `compiler/ori_arc/src/aims/emit_reuse/mod.rs` — 6 stale `§09.5` references
+  Fixed: removed all section references, using descriptive text only.
+- [x] **[STYLE]** `compiler/ori_arc/src/aims/emit_reuse/tests.rs` — 2 stale `§09.5` references
+  Fixed: removed both section references (module doc and section header).
+
 - [x] Reuse opportunities correctly detected from state map
-- [ ] Cross-block reuse detected (dominator-guided via ReusePlanner)
-- [ ] ReusePlanner builds dom/post-dom trees only when candidates exist
+- [x] Cross-block reuse detected (dominator-guided via ReusePlanner)
+  Verified: `planner.rs` implements `ReusePlanner::find_opportunities()` with
+  `DominatorTree::dominates()` + `PostDominatorTree::post_dominates()` checks.
+  Tests cover: simple cross-block, self-set elimination, enum variants,
+  intervening blocks, negative cases (no post-dominance, MaybeShared, type mismatch).
+- [x] ReusePlanner builds dom/post-dom trees only when candidates exist
+  Verified: `ensure_dom_trees()` via `get_or_insert_with()` — trees only built
+  when `has_candidate` is true (at least one type match exists).
 - [x] Static-unique reuse emitted without `IsShared` check
 - [x] Dynamic reuse emitted with conditional branch
   Verified: `maybe_shared_emits_conditional_branch` test proves `MaybeShared` sources
@@ -401,9 +446,17 @@ is separate from the struct Reset/Reuse system. It is emitted during lowering
 - [x] Emitted code passes `ori_arc::verify` checks
   Verified: verification runs after emission (steps 9, 13) in `aims_pipeline.rs`.
 - [x] FBIP enforcement (separate pass, step 14) still works on AIMS output
-- [ ] `FipContract` consulted during reuse emission (Stage 2)
-- [ ] FIP-guided fast paths emit static-unique reuse when preconditions hold
-- [ ] `FipGate` records captured in emission-phase artifact for verification
+- [x] `FipContract` consulted during reuse emission
+  Verified: `emit_reuse()` looks up `contracts.get(&func.name).map(|c| &c.fip)` and
+  passes it to `fip::apply_fip_upgrades()`. Stage 1: always `Never` (no behavioral
+  change); Stage 2+: `Certified`/`Conditional` drive reuse upgrades and gate records.
+- [x] FIP-guided fast paths emit static-unique reuse when preconditions hold
+  Verified: `fip_certified_upgrades_maybe_shared_to_static` test proves `Certified`
+  upgrades `MaybeShared` → `is_static_unique = true`, producing `Set` instructions
+  instead of `IsShared` + `Branch` expansion.
+- [x] `FipGate` records captured in emission-phase artifact for verification
+  Verified: `FipGateRecord` in `aims/emit_reuse/fip.rs`, returned via
+  `EmitReuseResult.fip_gates`. Pipeline logs count when non-empty.
 
 **Exit Criteria:** `cargo t -p ori_arc -- aims::emit_reuse` passes. Reuse opportunities
 are found for all cases that the current `reset_reuse` finds, plus any new cases

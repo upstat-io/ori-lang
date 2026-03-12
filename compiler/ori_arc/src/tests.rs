@@ -29,6 +29,7 @@ fn run_full_pipeline(
         pool,
     );
     let uniqueness_summaries = FxHashMap::default();
+    let aims_contracts = FxHashMap::default();
     crate::run_arc_pipeline(
         func,
         classifier,
@@ -36,6 +37,7 @@ fn run_full_pipeline(
         pool,
         &interner,
         &uniqueness_summaries,
+        &aims_contracts,
         false,
     );
 }

@@ -1,8 +1,7 @@
 ---
 section: "01"
 title: "Unified Lattice Design"
-status: complete
-reviewed: true  # 2026-03-10
+status: in-progress
 goal: "Define the AimsState product lattice with correct join, meet, and transfer functions"
 inspired_by:
   - "Perceus lambda_1 calculus (Reinking et al., PLDI 2021)"
@@ -50,7 +49,7 @@ sections:
 
 # Section 01: Unified Lattice Design
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Define an `AimsState` type that encodes access class, consumption,
 uniqueness, cardinality, locality, shape class, and effect class in a single product lattice,
 with formally correct join and transfer functions. The lattice must be finite-height
@@ -86,14 +85,14 @@ in v1 and do not need to be precise for the initial AIMS replacement to work.
 
 ## 01.1 The Product Lattice
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs` (NEW)
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`, `compiler/ori_arc/src/aims/lattice/dimensions.rs`
 
-> **Warning: File size.** This section defines 8 enums (7 dimensions + CtorKind) + 1 struct +
-> join/transfer functions + canonicalization + tests. Estimated ~800 lines far exceeds the
-> 500-line limit. **Must split:**
-> `lattice.rs` for type definitions, join operations, and canonicalization (~400 lines),
-> `transfer.rs` for transfer functions (already planned in 01.5, ~300 lines).
-> Tests go in sibling `lattice/tests.rs` and `transfer/tests.rs`.
+> **Warning: File size.** This section defines 8 enums (7 dimensions + ReuseCtorKind) + 1 struct +
+> join/transfer functions + canonicalization + tests. **Actual split (implemented):**
+> `lattice/dimensions.rs` for dimension enums (AccessClass, Consumption, Cardinality, Uniqueness,
+> Locality, ShapeClass, ReuseCtorKind), `lattice/mod.rs` for AimsState, EffectClass, SizeClass,
+> BorrowSource, join/canonicalize, `transfer/mod.rs` for transfer functions.
+> Tests in `lattice/tests.rs` and `transfer/tests.rs`.
 
 The core `AimsState` is a product of seven dimensions, each a small finite lattice.
 The product lattice inherits join/meet componentwise. The four core dimensions
@@ -102,8 +101,9 @@ emission. The three auxiliary dimensions (locality, shape, effect) are conservat
 in v1 and provide the architectural foundation for future optimizations (stack
 allocation, FIP certification, representation optimization) without requiring a
 second pass. v1 treats all dimensions uniformly in the worklist
-(solutions.md Decision 5). The core/auxiliary distinction is for documentation
+The core/auxiliary distinction is for documentation
 and future optimization — it does not affect v1 solver behavior.
+(Originally an early design decision, now superseded by this section.)
 
 - [x] Define `AimsState` as a struct with seven fields:
   ```rust
@@ -123,7 +123,7 @@ and future optimization — it does not affect v1 solver behavior.
   ///
   /// This is a product lattice with a core/auxiliary distinction for documentation
   and future optimization, but v1 treats all dimensions uniformly in the
-  worklist (solutions.md Decision 5).
+  worklist (historical design decision).
   #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
   pub struct AimsState {
       /// Aliasing: owned allocation vs borrowed view.
@@ -168,7 +168,7 @@ and future optimization — it does not affect v1 solver behavior.
   state for any instruction that produces an allocation.
 - [x] Implement `AimsState::join(&self, other: &Self) -> Self` (componentwise join)
 - [x] Implement `AimsState::canonicalize(&mut self)` — enforce feasibility invariants
-  (solutions.md Decision 5).
+  (historical design decision).
   **Call sites**: canonicalize is called in exactly two places:
   1. At the END of every `join` operation (inside `AimsState::join`)
   2. At the END of every transfer function application (inside each transfer fn)
@@ -189,9 +189,9 @@ and future optimization — it does not affect v1 solver behavior.
     at a return point, which is not derivable from the state value alone.
     `canonicalize()` must be a pure function on `AimsState`. Locality promotion
     at return points is handled by the `Return` terminator's transfer function
-    in Section 02 (`transfer.rs`), not by `canonicalize()`.
+    in Section 02 (`transfer/mod.rs`), not by `canonicalize()`.
   **Note:** Effect promotion (`Pure` → `MayAlloc` etc.) is handled by
-  transfer functions in `transfer.rs`, not by `canonicalize()`.
+  transfer functions in `transfer/mod.rs`, not by `canonicalize()`.
   `canonicalize()` is a pure function on `AimsState` — it never reads
   control-flow position, instruction context, or caller knowledge.
 
@@ -202,15 +202,20 @@ and future optimization — it does not affect v1 solver behavior.
     shared; valid during iteration (may narrow to Unique or widen to Affine)
 
   **Note on `(Owned, Linear, *, Shared)` from feasibility table (01.6)**:
-  This state appears infeasible (linear = consumed exactly once, but shared =
-  RC > 1, meaning another reference exists that also "consumes"). However, this
-  is NOT canonicalized away because it represents a transient state during
-  fixed-point iteration that will resolve: either uniqueness narrows to
-  MaybeShared/Unique (making it valid) or consumption widens to Affine/
-  Unrestricted (acknowledging the sharing). Canonicalizing it prematurely
-  would interfere with monotonic convergence. The feasibility table in 01.6
-  marks it infeasible for documentation (it should not appear in converged
-  output), but canonicalize() does not enforce this — convergence handles it.
+  This state CAN appear legitimately in converged output. A function that
+  receives a shared parameter (RC > 1 — Shared) but uses it only once on a
+  given path (Linear) is a valid converged state. The emission handles it
+  correctly: `rc_dec` at last use (cleaning up this path's reference), no
+  `rc_inc` (only one use on this path). This is precisely the (Linear, Shared)
+  combination from Marshall et al.'s analysis: linearity (future demand) and
+  uniqueness (past aliasing) are independent properties. A shared value used
+  linearly still needs `rc_dec` at its single use point — the other references
+  exist but are not this code path's concern.
+  (See: [Literature Review §06 — Linearity/Uniqueness](../aims-literature-review/section-06-linearity-uniqueness.md))
+  Canonicalizing this state away would be unsound — it would either lose the
+  consumption information (widening Linear to Unrestricted) or lose the
+  uniqueness information (narrowing Shared to Unique). Neither is correct.
+  The state is NOT canonicalized; it is valid as-is.
 - [x] Implement `AimsState::is_rc_needed(&self) -> bool` — true unless Dead or Scalar,
   AND access is `Owned` (borrowed values never need RC)
 - [x] Implement `AimsState::needs_cow_check(&self) -> bool` — true only for MaybeShared
@@ -229,7 +234,7 @@ and future optimization — it does not affect v1 solver behavior.
 
 ## 01.2 Access and Consumption Dimensions
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs`
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`
 
 Tracks whether a value is consumed, shared, or dead, and separately whether it
 is an owned value or a borrowed view. This replaces both `Ownership` and
@@ -239,7 +244,7 @@ Based on Chirimar et al.'s insight that RC operations ARE structural rules:
 - `rc_inc` = contraction (duplication) — value used more than once
 - `rc_dec` = weakening (drop) — value goes out of scope unused
 
-**Design decision (from solutions.md Decision 1):** `Borrowed` is NOT part of
+**Design decision:** `Borrowed` is NOT part of
 the ordered consumption lattice. Borrowed is an alias/access property, not a
 consumption mode. Placing it in the same ordering as `Dead`/`Linear`/`Affine`/
 `Unrestricted` causes `join(Linear, Borrowed)` to lose consumption information.
@@ -268,6 +273,14 @@ Instead, borrowing is tracked via a separate `AccessClass` dimension.
   ///
   /// Ordered: Dead < Linear < Affine < Unrestricted
   /// (Dead is bottom, Unrestricted is top)
+  ///
+  /// **Temporal direction: FUTURE-facing.** Consumption encodes what structural
+  /// rules this value obeys going forward (will it be used once? may it be
+  /// dropped? freely copied?). This is NOT to be confused with `Uniqueness`,
+  /// which is PAST-facing (has this value been duplicated?). See Marshall et
+  /// al. (ESOP 2022) for the formal distinction. A value can be `Linear`
+  /// (future: consumed once) and `Shared` (past: already aliased) — these
+  /// are independent axes.
   ///
   /// Note: Borrowed is NOT in this ordering (see AccessClass).
   #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -316,7 +329,7 @@ Instead, borrowing is tracked via a separate `AccessClass` dimension.
 
 ## 01.3 Uniqueness Dimension
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs`
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`
 
 Tracks whether the runtime reference count is provably 1, provably > 1, or unknown.
 This replaces the current `Uniqueness` enum and `CowMode`.
@@ -349,14 +362,42 @@ current reference).
 - [x] Note: COW operations ALWAYS produce `Unique` output (both fast and slow paths
   allocate a uniquely-owned result)
 
+**Linearity vs. Uniqueness — full property mapping (Marshall et al., ESOP 2022):**
+The three-way split of resource properties in AIMS corresponds to Marshall et al.'s
+analysis: `Consumption` + `Cardinality` encode linearity (future demand — what
+structural rules does this value obey going forward?), while `Uniqueness` encodes
+uniqueness (past aliasing — has this value been duplicated?). These are different
+type-theoretic properties with different information flow: linearity restricts what
+CAN be done with a value, uniqueness guarantees what HAS been done to a value. They
+interact (a unique value used linearly needs no RC at all) but must never be
+conflated (a shared value used linearly still needs `rc_dec` at its single use
+point; a unique value used many times needs `rc_inc` at each additional use).
+(See: [Literature Review §06 — Linearity/Uniqueness](../aims-literature-review/section-06-linearity-uniqueness.md))
+
 ---
 
 ## 01.3a Dimension Interactions
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs` (within `canonicalize()`)
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs` (within `canonicalize()`)
 
 The seven dimensions interact in specific ways. Canonicalization enforces these
 invariants after every join and transfer:
+
+**Consumption × Uniqueness — central insight (Marshall et al., ESOP 2022):**
+The interaction between Consumption (future-facing: linearity) and Uniqueness
+(past-facing: aliasing) encodes the paper's central result — these are independent
+type-theoretic properties that interact but must not be conflated. Each combination
+is meaningful and drives a different optimization:
+- **Linear + Unique**: No RC operations at all. The value has a single reference
+  (Unique) and will be consumed exactly once (Linear). This is the ideal case.
+- **Linear + Shared**: `rc_dec` at last use, no `rc_inc`. The value has multiple
+  references but this code path consumes it only once. Still needs cleanup.
+- **Unrestricted + Unique**: `rc_inc` at each additional use, no COW check.
+  The value is sole-referenced but will be used multiple times. COW is always
+  fast-path (unique → mutate in place).
+- **Unrestricted + Shared**: Full ARC treatment. Multiple references, multiple
+  uses. `rc_inc` at each use, COW needs runtime check.
+(See: [Literature Review §06 — Linearity/Uniqueness](../aims-literature-review/section-06-linearity-uniqueness.md))
 
 - [x] **Access × Consumption**:
   - `access == Borrowed` → `is_rc_needed()` always returns false regardless of consumption.
@@ -398,7 +439,7 @@ invariants after every join and transfer:
 
 ## 01.4 Cardinality Dimension
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs`
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`
 
 Tracks how many times a value is used going forward. This is the novel dimension
 borrowed from GHC's demand analysis that the current `ori_arc` does not have.
@@ -434,6 +475,12 @@ This enables new optimizations:
 - [x] Implement `Cardinality::seq_add` — for sequential composition along one path:
   `Absent + x = x`, `Once + Once = Many`, `Many + _ = Many`.
   See also `Cardinality::alt_join` (= `max`) in Section 02.2a for alternative control flow.
+  **QTT correspondence:** `(Cardinality, seq_add, Absent)` is a commutative monoid
+  with absorbing element `Many`, directly analogous to QTT's 0-1-omega resource
+  semiring (Atkey, LICS 2018). `seq_add` corresponds to QTT's resource accumulation
+  (+). `seq_add` distributes over `alt_join` — the key soundness property for
+  fixed-point analysis over CFGs with diamonds.
+  (See: [Literature Review §07 — QTT](../aims-literature-review/section-07-quantitative-type-theory.md))
 - [x] Test semiring laws for `seq_add` and `alt_join` (Decision 2):
   - **Associativity of seq_add**: `a.seq_add(b.seq_add(c)) == a.seq_add(b).seq_add(c)`
     for all (a, b, c) — 27 cases exhaustive
@@ -441,15 +488,24 @@ This enables new optimizations:
   - **Identity of seq_add**: `a.seq_add(Absent) == a` and `Absent.seq_add(a) == a`
   - **Associativity of alt_join**: `a.alt_join(b.alt_join(c)) == a.alt_join(b).alt_join(c)`
   - **Idempotence of alt_join**: `a.alt_join(a) == a` (max is idempotent)
+    **QTT correspondence:** `alt_join` is the lattice lub (idempotent), NOT QTT semiring
+    addition. It combines usages from mutually exclusive paths (branch join), not
+    sequential accumulation. The idempotence distinguishes it from `seq_add`.
+    (See: [Literature Review §07 — QTT](../aims-literature-review/section-07-quantitative-type-theory.md))
   - **Distributivity**: `a.seq_add(b.alt_join(c)) == a.seq_add(b).alt_join(a.seq_add(c))`
     — required for sound fixed-point over CFGs with diamonds. 27 cases exhaustive.
   - **Absorbing element**: `Many.seq_add(x) == Many` for all x (Many absorbs)
+  - **Positivity**: `a.seq_add(b) == Absent` implies both `a == Absent` and `b == Absent`
+    (no non-trivial cancellation — usage can only accumulate, never cancel out)
+  - **Right-distributivity**: `(a.alt_join(b)).seq_add(c) == a.seq_add(c).alt_join(b.seq_add(c))`
+    — symmetric to left-distributivity; required for commutativity + distributivity
+    consistency. 27 cases exhaustive.
 
 ---
 
 ## 01.4a Locality Dimension
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs`
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`
 
 Tracks whether a value escapes its defining scope. This dimension does not affect
 RC emission in v1 but provides the architectural foundation for future stack
@@ -486,7 +542,7 @@ allocation hints (Stage 4 in the implementation sequence).
 
 ## 01.4b ShapeClass Dimension
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs`
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`
 
 Tracks the structural shape of a value for reuse compatibility and future
 representation optimization. Conservative in v1.
@@ -547,7 +603,7 @@ representation optimization. Conservative in v1.
 
 ## 01.4c EffectClass Dimension
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs`
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`
 
 Tracks the memory effects of operations for FIP certification: a function certified
 FIP must have no allocations on the fast path.
@@ -594,6 +650,14 @@ FIP must have no allocations on the fast path.
 
 Transfer functions define how each ARC IR instruction transforms the `AimsState`
 of variables it touches. These are the core of the analysis.
+
+**Code note (future):** The `transfer/mod.rs` module doc should include the
+following design invariant: "No transfer function may derive Uniqueness from
+Consumption or Cardinality alone. Uniqueness is about the past (has this value
+been duplicated?); Consumption and Cardinality are about the future (how will
+this value be used?). Any transfer rule that bridges this gap must involve a
+past-facing dimension (locality, shape, or an interprocedural contract)."
+(See: [Literature Review §06 — Linearity/Uniqueness](../aims-literature-review/section-06-linearity-uniqueness.md))
 
 - [x] Define transfer functions for value-producing instructions (field names match `ArcInstr` enum):
   - `Construct { dst, ctor, args, .. }` → dst gets `FRESH` base then shape overridden
@@ -667,7 +731,7 @@ of variables it touches. These are the core of the analysis.
 
 ## 01.6 Lattice Properties and Proofs
 
-**File(s):** `compiler/ori_arc/src/aims/lattice.rs` (tests)
+**File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs` (tests)
 
 The lattice must satisfy formal properties for the analysis to be sound and terminate.
 All proofs and tests below apply to the product lattice states only. `SCALAR` is
@@ -722,10 +786,10 @@ lattice property verification — it never participates in join or transfer oper
   | Owned | Unrestricted | Shared | Many | Yes | Full ARC (current default) |
   | Owned | Unrestricted | MaybeShared | Many | Yes | Full ARC with COW check |
   | * | Dead | * | Once/Many | No | Dead can't be used |
-  | Owned | Linear | Shared | * | Transient | Linear + Shared: valid during iteration, should not appear in converged output (see 01.3a note) |
+  | Owned | Linear | Shared | * | Yes | Linear + Shared: shared parameter used once on this path. Emission: `rc_dec` at last use, no `rc_inc`. Valid in converged output (Marshall et al.: linearity and uniqueness are independent). See 01.1 canonicalize note. |
   | Borrowed | Dead | * | Absent | Yes | Expired borrow — no RC, no use |
 
-- [x] **Design decision: Borrowed resolved (solutions.md Decision 1)**
+- [x] **Design decision: Borrowed resolved (historical design decision)**
   `Borrowed` is a separate `AccessClass` dimension, NOT part of the `Consumption`
   ordering. This resolves the `join(Linear, Borrowed)` problem: join now operates
   independently on each axis, so `join((Owned, Linear), (Borrowed, Linear)) =
@@ -738,10 +802,10 @@ lattice property verification — it never participates in join or transfer oper
 
 - [x] `AimsState` struct defined with all seven dimensions
 - [x] `AccessClass` (2 variants) and `Consumption` (4 variants) enums defined with
-  separate join operations (solutions.md Decision 1)
+  separate join operations (historical design decision)
 - [x] `Uniqueness`, `Cardinality`, `Locality`, `ShapeClass`, `EffectClass` defined
 - [x] All seven dimension enums have `join` operations
-- [x] `AimsState::canonicalize()` enforces feasibility invariants (solutions.md Decision 5)
+- [x] `AimsState::canonicalize()` enforces feasibility invariants (historical design decision)
 - [x] Transfer functions defined for all `ArcInstr` variants (15 variants total:
   Let, Apply, ApplyIndirect, PartialApply, Project, Construct, RcInc, RcDec,
   IsShared, Set, SetTag, Reset, Reuse, CollectionReuse, Select)
@@ -750,12 +814,16 @@ lattice property verification — it never participates in join or transfer oper
 - [x] Unit tests pass for all lattice properties (idempotence, commutativity,
   associativity, monotonicity)
 - [x] Canonicalization idempotence tested
-- [x] Per-axis exhaustive lattice law tests (solutions.md Decision 5)
+- [x] Per-axis exhaustive lattice law tests (historical design decision)
 - [x] Pairwise interaction tests: access × consumption, consumption × cardinality,
   uniqueness × shape, locality × effect
 - [x] Cardinality semiring law tests: associativity, commutativity, identity of
   seq_add; associativity, idempotence of alt_join; distributivity of seq_add
   over alt_join (27 exhaustive cases each — see 01.4)
+- [ ] Cardinality positivity test: `a.seq_add(b) == Absent` implies both `a == Absent`
+  and `b == Absent` — 9 cases exhaustive (QTT correspondence: no non-trivial cancellation)
+- [ ] Cardinality right-distributivity test: `(a.alt_join(b)).seq_add(c) == a.seq_add(c).alt_join(b.seq_add(c))`
+  — 27 cases exhaustive (symmetric to left-distributivity)
 - [x] Feasible/infeasible state table documented and tested
 - [x] `AimsState::SCALAR` correctly short-circuits analysis for scalar types
 - [x] `AimsState::from_arc_class` handles all three `ArcClass` variants

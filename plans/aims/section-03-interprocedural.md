@@ -2,7 +2,6 @@
 section: "03"
 title: "Interprocedural Analysis"
 status: complete
-reviewed: true  # 2026-03-10
 goal: "SCC-based fixed-point computing unified MemoryContract (ownership+uniqueness+demand+locality+effects+FIP) for all functions"
 inspired_by:
   - "Lean 4 borrow inference (src/Lean/Compiler/IR/Borrow.lean)"
@@ -31,7 +30,7 @@ sections:
 
 # Section 03: Interprocedural Analysis
 
-**Status:** Not Started
+**Status:** Complete
 
 **Goal:** Compute a `MemoryContract` for every function in the program via SCC-based
 fixed-point iteration. The contract encodes per-parameter access class, consumption,
@@ -61,7 +60,7 @@ and FIP certification.
 
 ## 03.1 MemoryContract — Unified Function Contract
 
-**File(s):** `compiler/ori_arc/src/aims/contract.rs` (NEW)
+**File(s):** `compiler/ori_arc/src/aims/contract/mod.rs`
 
 The function contract that AIMS computes and consumes. Replaces `AnnotatedSig`
 and `UniquenessSummary`. The name `MemoryContract` reflects that this is a richer
@@ -107,6 +106,16 @@ and what it certifies.
       pub may_share: bool,
       /// Locality lower bound: the callee guarantees this parameter stays at
       /// least this local (v1: always `Unknown`).
+      ///
+      /// **Soundness requirement (not just optimization hint):** This field is
+      /// load-bearing for the `HeapEscaping -> not Unique` invariant. If a callee
+      /// stores a parameter into a heap structure (locality becomes HeapEscaping),
+      /// the caller must know, because the caller's uniqueness reasoning depends
+      /// on it. Without `locality_bound`, the caller cannot safely assume a passed
+      /// argument remains `Unique` after the call. OxCaml proves that the `global`
+      /// modality must force `aliased` — AIMS's equivalent is that
+      /// `HeapEscaping` in the callee must be visible to the caller via this bound.
+      /// (See: [Literature Review §01 — OxCaml](../aims-literature-review/section-01-oxidizing-ocaml.md), §01.2 I1, §01.7 Risk 5)
       pub locality_bound: Locality,
   }
 
@@ -153,17 +162,13 @@ and what it certifies.
   /// it can run with no allocation, no deallocation, and constant stack
   /// space, provided arguments are unique.
   ///
-  /// **Dependency note**: `BitSet` is from the `bit-set` crate (add to
-  /// `ori_arc/Cargo.toml`). Alternative: use a `SmallVec<u64>` or
-  /// `Vec<bool>` indexed by param position if a full BitSet crate
-  /// dependency is undesirable.
   #[derive(Clone, Debug, PartialEq, Eq)]
   pub enum FipContract {
       /// Function cannot be certified FIP.
       Never,
       /// Function is FIP when the specified parameters are unique.
-      /// The BitSet indexes into MemoryContract.params.
-      Conditional { requires_unique_params: BitSet },
+      /// The Vec<bool> is indexed by parameter position in MemoryContract.params.
+      Conditional { requires_unique_params: Vec<bool> },
       /// Function is unconditionally FIP (all code paths allocation-free).
       Certified,
   }
@@ -207,11 +212,11 @@ and what it certifies.
 
 ## 03.2 SCC-Based Fixed-Point
 
-**File(s):** `compiler/ori_arc/src/aims/interprocedural.rs` (NEW)
+**File(s):** `compiler/ori_arc/src/aims/interprocedural.rs`
 
-> **Note: File size.** Estimated ~800 lines. Should split: `interprocedural.rs` for the
-> SCC loop (~300 lines), `contract.rs` for `MemoryContract` type + conversions (~250 lines, from 03.1),
-> `builtins.rs` for builtin signatures (~300 lines, from 03.4). Each under 500 lines.
+> **Note: File size.** Actual split: `interprocedural.rs` for the SCC loop,
+> `contract/mod.rs` for `MemoryContract` type + conversions (from 03.1),
+> `builtins/mod.rs` for builtin signatures (from 03.4). Each under 500 lines.
 
 The interprocedural analysis follows the same SCC structure as the current borrow
 inference but computes unified signatures.
@@ -267,13 +272,19 @@ Note: `uniqueness::inter::analyze_program` already exists. The AIMS version live
   - FFI functions: `MemoryContract::all_owned(n)` (conservative — all params
     owned, return MaybeShared, effects Unknown, FIP Never). This matches the
     current pipeline's behavior of treating extern calls as fully consuming.
-  - Built-in functions: use `aims/builtins.rs` contracts (Section 03.4)
+  - Built-in functions: use `aims/builtins/mod.rs` contracts (Section 03.4)
   - Lambda/closure invocations (ApplyIndirect): no contract lookup — handled
     by the intraprocedural transfer function with conservative assumptions
   - Functions not in the `functions` slice (external crate calls, if separate
     compilation is later added): conservative `all_owned` contract
   The SCC loop must check `functions.iter().find(|f| f.name == name)` and
   fall back to builtin or conservative contracts for unanalyzable functions.
+  - **Implementation note** (`interprocedural.rs` `extract_contract`): Document
+    that scalar parameters are initialized to `Borrowed` (not `Owned`) matching
+    Lean's `initBorrow` which starts all params as borrowed. Scalars stay
+    `Borrowed` because they are never consumed by RC operations — this is the
+    rationale for the scalar handling path.
+    (See: [Literature Review §08 — Lean 4 Borrow](../aims-literature-review/section-08-lean4-borrow.md))
 - [x] Implement `analyze_scc_fixpoint` — iterate until signatures stabilize:
   - Monotonicity for parameter access: can only increase from `Borrowed` to `Owned`
   - Monotonicity for parameter consumption: can only increase
@@ -284,6 +295,15 @@ Note: `uniqueness::inter::analyze_program` already exists. The AIMS version live
     (`Certified → Conditional → Never`)
   - Convergence: at most N iterations where N = sum of (params × dimensions)
     across SCC functions. In practice, much faster.
+  - **Monotonicity invariant**: `all_sigs` entries for completed SCCs are never
+    weakened. `local_sigs` within an SCC iteration only grow via `join`. This
+    mirrors Lean's `OwnedSet` grow-only property and guarantees convergence.
+    (See: [Literature Review §08 — Lean 4 Borrow](../aims-literature-review/section-08-lean4-borrow.md))
+    - **Implementation note** (`interprocedural.rs`): Add formal monotonicity
+      comment at `analyze_scc_fixpoint`. Add `debug_assert!` verifying
+      `all_sigs` entries are never weakened after an SCC completes (i.e., a
+      re-lookup of a completed SCC's contract must be `>=` the previously
+      stored value under the lattice ordering).
 
 ---
 
@@ -296,11 +316,27 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
 
 - [x] A parameter must be `access == Owned` if:
   - It is returned by the function (ownership transfers to caller)
-  - It is stored in a constructed value (ownership moves into data structure)
+  - It is stored in a constructed value (ownership moves into data structure).
+    **Note:** Lean's `ownArgsIfParam` heuristic (force constructor args to
+    owned when they are function parameters) is deliberately not implemented.
+    AIMS's backward demand analysis achieves the same effect: when a constructor
+    result is consumed (returned, stored), backward demand propagates to the
+    args, promoting parameters to Owned as needed. No special case required.
+    (See: [Literature Review §08 — Lean 4 Borrow](../aims-literature-review/section-08-lean4-borrow.md))
   - It is passed to a callee at an owned position
   - It is used in a Reset instruction (reset requires ownership)
   - It is captured in a partial application (closure takes ownership)
   - It is applied as a function via indirect call (unknown callee)
+
+- [x] **Projection ownership propagation**: Projection uses propagate ownership
+  bidirectionally (Lean `Borrow.lean` line 246-248). In AIMS, the forward
+  direction is handled by `transfer_project` (inherited uniqueness), and the
+  backward direction by backward demand (`backward_demands` for `Project`
+  returns `(source, Once)`). When the projection result is later consumed at an
+  owned position, the backward demand naturally promotes the source.
+  (See: [Literature Review §08 — Lean 4 Borrow](../aims-literature-review/section-08-lean4-borrow.md))
+  - **Implementation note** (`transfer/mod.rs`): Document projection
+    bidirectionality in the `backward_demands` comment for the `Project` case.
 
 - [x] A parameter must be `consumption == Linear` if owned and:
   - It is consumed exactly once on all code paths
@@ -367,7 +403,13 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
     to identify "would this call be in tail position?" which is a simpler syntactic
     check on the IR.
   - This is a codegen-soundness fixup, not a core inference rule
-    (solutions.md Decision 1).
+    (historical design decision).
+  - **Scope difference from Lean:** Unlike Lean (which preserves tail calls
+    only for self-recursion, `Borrow.lean` line 267), AIMS preserves tail calls
+    for any direct callee in syntactic tail position. This is sound because
+    AIMS's contract system makes the ownership requirement explicit at call
+    sites regardless of callee identity.
+    (See: [Literature Review §08 — Lean 4 Borrow](../aims-literature-review/section-08-lean4-borrow.md))
 
 - [x] A parameter's `may_escape` is `true` if:
   - It is returned by the function
@@ -412,7 +454,7 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
 
 ## 03.4 Builtin Function Contracts
 
-**File(s):** `compiler/ori_arc/src/aims/builtins.rs` (NEW)
+**File(s):** `compiler/ori_arc/src/aims/builtins/mod.rs`
 
 Hardcoded contracts for built-in functions and operators that aren't analyzed.
 
@@ -421,7 +463,7 @@ Hardcoded contracts for built-in functions and operators that aren't analyzed.
   > **Warning: Complexity.** The current `BuiltinOwnershipSets` (267 lines in
   > `borrow/builtins/mod.rs`) encodes nuanced type-qualified ownership rules
   > (e.g., `add` is borrowing for `str` but consuming for `List`). The AIMS
-  > `builtins.rs` must replicate ALL of this complexity. Budget ~300 lines.
+  > `builtins/mod.rs` must replicate ALL of this complexity. Budget ~300 lines.
   > Review `borrow/builtins/mod.rs` line-by-line before implementing.
   - Borrowing builtins (read-only access): `Borrowed` mode, `Once` cardinality
   - Consuming builtins (take ownership): `Linear` mode, `Once` cardinality

@@ -40,20 +40,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             LitValue::Unit => self.builder.const_i64(0),
             LitValue::String(name) => {
                 let s = self.interner.lookup(*name);
-                // Use ori_str_from_raw to create an SSO or RC-managed heap
-                // copy of the string literal.
-                let global = self.builder.build_global_string_ptr(s, "str");
-                let len = self.builder.const_i64(s.len() as i64);
-                let func_id = self.builder.runtime_fn("ori_str_from_raw");
                 let str_ty = self.resolve_type(ori_types::Idx::STR);
-                self.builder
-                    .call_with_sret(func_id, &[global, len], str_ty, "str.val")
-                    .unwrap_or_else(|| {
-                        // Fallback: build inline struct (no RC safety)
-                        let cap = self.builder.const_i64(s.len() as i64);
-                        self.builder
-                            .build_struct(str_ty, &[len, cap, global], "str.val")
-                    })
+                if s.is_empty() {
+                    // Empty string: call ori_str_empty() directly. Returns SSO
+                    // OriStr::EMPTY (no heap allocation, no RC). Avoids creating
+                    // a global constant and calling ori_str_from_raw(ptr, 0).
+                    let func_id = self.builder.runtime_fn("ori_str_empty");
+                    self.call_with_sret(func_id, &[], str_ty, "str.empty")
+                        .expect("ori_str_empty returns Str via sret")
+                } else {
+                    // Non-empty: create global string constant and call
+                    // ori_str_from_raw to produce SSO or RC-managed heap copy.
+                    let global = self.builder.build_global_string_ptr(s, "str");
+                    let len = self.builder.const_i64(s.len() as i64);
+                    let func_id = self.builder.runtime_fn("ori_str_from_raw");
+                    self.builder
+                        .call_with_sret(func_id, &[global, len], str_ty, "str.val")
+                        .unwrap_or_else(|| {
+                            let cap = self.builder.const_i64(s.len() as i64);
+                            self.builder
+                                .build_struct(str_ty, &[len, cap, global], "str.val")
+                        })
+                }
             }
             LitValue::Duration { value, unit } => {
                 let nanos = unit

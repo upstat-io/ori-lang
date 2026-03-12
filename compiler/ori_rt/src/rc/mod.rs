@@ -77,8 +77,13 @@ pub(crate) static RC_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
 /// to negative counts, which would cause use-after-free.
 ///
 /// Value: `isize::MAX` (same as Rust's `Arc`). On 64-bit systems this is
-/// `i64::MAX` (9.2 quintillion) — unreachable in practice, but the check
-/// costs essentially nothing (one compare per `ori_rc_inc`).
+/// `i64::MAX` (9.2 quintillion) — unreachable through normal increments.
+///
+/// Also serves as the **immortal sentinel**: objects with refcount equal to
+/// `MAX_REFCOUNT` are immortal. `ori_rc_inc` and `ori_rc_dec` skip (no-op)
+/// when they encounter this value. This is safe because reaching `MAX_REFCOUNT`
+/// through increments is physically impossible (~9.2 quintillion increments),
+/// so the only way to have this value is intentional pre-allocation.
 pub(crate) const MAX_REFCOUNT: i64 = isize::MAX as i64;
 
 // ── Core RC Functions ────────────────────────────────────────────────
@@ -115,11 +120,13 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
             let prev = (*rc_ptr).fetch_add(1, Ordering::Relaxed);
 
-            // Overflow protection: abort if refcount was already at the maximum.
-            // fetch_add returns the *previous* value, so prev == MAX_REFCOUNT
-            // means the new value overflowed. Matches Rust's Arc::clone check.
+            // Immortal sentinel: skip if refcount is MAX_REFCOUNT. Immortal
+            // objects (e.g., pre-allocated empty string) have their RC set to
+            // MAX_REFCOUNT at creation and never participate in RC operations.
+            // Undo the increment we just did.
             if prev == MAX_REFCOUNT {
-                rc_overflow_abort();
+                (*rc_ptr).fetch_sub(1, Ordering::Relaxed);
+                return;
             }
 
             if rc_trace_enabled() {
@@ -129,8 +136,9 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
         #[cfg(feature = "single-threaded")]
         {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            // Immortal sentinel: skip for immortal objects.
             if *rc_ptr == MAX_REFCOUNT {
-                rc_overflow_abort();
+                return;
             }
             *rc_ptr += 1;
 
@@ -139,17 +147,6 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
             }
         }
     }
-}
-
-/// Abort on refcount overflow.
-///
-/// Separate `#[cold]` function keeps the fast path in `ori_rc_inc` small
-/// and avoids polluting the instruction cache with error handling code.
-#[cold]
-#[inline(never)]
-fn rc_overflow_abort() -> ! {
-    eprintln!("ori: refcount overflow — aborting (possible reference cycle or infinite clone)");
-    std::process::abort();
 }
 
 /// Abort on refcount underflow (decrement of already-zero refcount).
@@ -198,6 +195,16 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     // and 8-byte aligned. AtomicI64 has the same layout as i64.
     #[cfg(not(feature = "single-threaded"))]
     {
+        // Immortal sentinel check: read refcount first. If MAX_REFCOUNT,
+        // this is an immortal object — skip the decrement entirely.
+        let current_rc = unsafe {
+            let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).load(Ordering::Relaxed)
+        };
+        if current_rc == MAX_REFCOUNT {
+            return;
+        }
+
         let prev = unsafe {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
             (*rc_ptr).fetch_sub(1, Ordering::Release)
@@ -229,6 +236,10 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     {
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            // Immortal sentinel: skip for immortal objects.
+            if *rc_ptr == MAX_REFCOUNT {
+                return;
+            }
             // Release-mode underflow detection (single-threaded path)
             if *rc_ptr <= 0 {
                 rc_underflow_abort(data_ptr);

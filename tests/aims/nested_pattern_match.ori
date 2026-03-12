@@ -1,0 +1,68 @@
+// AIMS edge case: deeply nested pattern match with cross-branch liveness.
+// Tests that variables bound in different match arms get correct RC
+// treatment, especially when a value is live across multiple branches.
+
+type Expr = Lit(value: int) | Add(left: Expr, right: Expr) | Mul(left: Expr, right: Expr) | Neg(inner: Expr);
+
+@eval_expr (e: Expr) -> int = match e {
+    Lit(v) -> v,
+    Add(l, r) -> eval_expr(e: l) + eval_expr(e: r),
+    Mul(l, r) -> eval_expr(e: l) * eval_expr(e: r),
+    Neg(inner) -> -eval_expr(e: inner),
+};
+
+@describe (e: Expr) -> str = match e {
+    Lit(v) -> str(v),
+    Add(l, r) -> "(" + describe(e: l) + " + " + describe(e: r) + ")",
+    Mul(l, r) -> "(" + describe(e: l) + " * " + describe(e: r) + ")",
+    Neg(inner) -> "-" + describe(e: inner),
+};
+
+// Nested match: classifies an expression into a category string
+@classify (e: Expr) -> str = match e {
+    Lit(_) -> "literal",
+    Add(l, _) -> match l {
+        Lit(_) -> "add-from-lit",
+        _ -> "add-from-complex",
+    },
+    Mul(_, r) -> match r {
+        Lit(v) -> if v == 0 then "mul-by-zero"
+            else "mul-by-lit",
+        _ -> "mul-complex",
+    },
+    Neg(inner) -> match inner {
+        Neg(_) -> "double-neg",
+        _ -> "single-neg",
+    },
+};
+
+@main () -> void = {
+    // Build: (3 + 5) * -(2)
+    let $lit3 = Lit(value: 3);
+    let $lit5 = Lit(value: 5);
+    let $lit2 = Lit(value: 2);
+    let $sum = Add(left: lit3, right: lit5);
+    let $neg2 = Neg(inner: lit2);
+    let $product = Mul(left: sum, right: neg2);
+
+    print(msg: `expr = {describe(e: product)}`);
+    print(msg: `eval = {eval_expr(e: product)}`);
+
+    // Cross-branch liveness: variable used after match
+    let $shared = Lit(value: 42);
+    let $result = match shared {
+        Lit(v) -> v + 1,
+        _ -> 0,
+    };
+    // `shared` is still used after match
+    print(msg: `result = {result}`);
+    print(msg: `shared eval = {eval_expr(e: shared)}`);
+
+    // Classify various expressions
+    print(msg: `classify lit = {classify(e: Lit(value: 1))}`);
+    print(msg: `classify add-from-lit = {classify(e: Add(left: Lit(value: 1), right: Lit(value: 2)))}`);
+    print(msg: `classify mul-by-zero = {classify(e: Mul(left: Lit(value: 5), right: Lit(value: 0)))}`);
+    print(msg: `classify double-neg = {classify(e: Neg(inner: Neg(inner: Lit(value: 7))))}`);
+
+    print(msg: "nested_pattern_match: done")
+}
