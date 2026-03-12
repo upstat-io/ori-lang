@@ -259,6 +259,7 @@ fn to_annotated_sig_dead_param_is_borrowed() {
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip: false,
     };
     let func_params = vec![arc_param(0, 1)];
     let sig = contract.to_annotated_sig(&func_params, Idx::UNIT);
@@ -282,6 +283,7 @@ fn to_uniqueness_summary_basic() {
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip: false,
     };
     let summary = contract.to_uniqueness_summary();
 

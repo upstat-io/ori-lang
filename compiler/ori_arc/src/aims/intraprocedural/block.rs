@@ -18,10 +18,22 @@ use rustc_hash::FxHashMap;
 use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
-use super::super::contract::MemoryContract;
+use super::super::contract::{EffectSummary, MemoryContract};
 use super::super::lattice::{AccessClass, AimsState, Cardinality, Locality, Uniqueness};
 use super::super::transfer::{backward_demands, backward_terminator_demands, transfer_def};
 use super::state_map::AimsStateMap;
+
+/// Result of computing a block's entry state.
+///
+/// Contains the backward-computed entry state (per-variable demand) and
+/// the block's accumulated effect summary (forward effect aggregation).
+pub(crate) struct BlockAnalysisResult {
+    /// Per-variable demand at block entry.
+    pub entry_state: FxHashMap<ArcVarId, AimsState>,
+    /// Effects accumulated from instructions in this block.
+    /// Section 09.2: precise effect computation during analysis.
+    pub effects: EffectSummary,
+}
 
 /// Compute the EXIT state of a block from its successors' ENTRY states.
 ///
@@ -96,6 +108,9 @@ pub(crate) fn compute_block_exit_state(
 /// 1. Adds backward demand on operands via `seq_add`
 /// 2. Sets forward state for defined variables via `transfer_def`
 ///
+/// Also accumulates a block-level [`EffectSummary`] from instruction types
+/// (Section 09.2: precise effect computation during analysis, not post-hoc).
+///
 /// `invoke_defs` maps block IDs to variables defined by Invoke terminators
 /// in predecessor blocks. These are defined at this block's entry (normal
 /// successor only) and are removed from the entry state, like block params.
@@ -105,7 +120,7 @@ pub(crate) fn compute_block_entry_state(
     state_map: &AimsStateMap,
     sigs: &FxHashMap<Name, MemoryContract>,
     invoke_defs: &FxHashMap<ArcBlockId, Vec<ArcVarId>>,
-) -> FxHashMap<ArcVarId, AimsState> {
+) -> BlockAnalysisResult {
     let block = &func.blocks[block_id.index()];
 
     // Start from exit state (demand from successors).
@@ -114,8 +129,17 @@ pub(crate) fn compute_block_entry_state(
         .cloned()
         .unwrap_or_default();
 
+    // Block-level effect accumulator (Section 09.2: precise effect computation).
+    // Effects are forward-aggregated during the backward walk — monotonically
+    // accumulated (OR) from instruction types and callee contracts. There is no
+    // "backward direction" for effects.
+    let mut block_effects = EffectSummary::default();
+
     // Apply terminator backward demands.
     apply_terminator_demands(&block.terminator, &mut current, state_map, sigs);
+
+    // Terminator effects (Section 09.2).
+    accumulate_terminator_effects(&block.terminator, sigs, &mut block_effects);
 
     // Return widening (Section 09.2): returned values escape the function,
     // so their locality must be `HeapEscaping` and access must be `Owned`
@@ -148,13 +172,22 @@ pub(crate) fn compute_block_entry_state(
         };
 
         if def_transfer.is_some() {
-            // Capture the closure's downstream demand BEFORE removing dst,
-            // so closure-capture-aware locality can use it.
+            // Capture destination demand BEFORE removing dst, used for:
+            // - Closure-capture-aware locality
+            // - Effect accumulation (HeapEscaping → may_share)
+            let dst_demand = instr
+                .defined_var()
+                .map(|dst| current.get(&dst).copied().unwrap_or(AimsState::BOTTOM));
+
+            // Capture the closure's downstream demand BEFORE removing dst.
             let closure_demand = if let crate::ir::ArcInstr::PartialApply { dst, .. } = instr {
                 Some(current.get(dst).copied().unwrap_or(AimsState::BOTTOM))
             } else {
                 None
             };
+
+            // Section 09.2: accumulate per-instruction effects.
+            accumulate_instr_effects(instr, dst_demand, state_map, sigs, &mut block_effects);
 
             // If the instruction defines a variable, the defined variable's
             // demand is consumed here (it's defined at this point, so
@@ -218,7 +251,10 @@ pub(crate) fn compute_block_entry_state(
         }
     }
 
-    current
+    BlockAnalysisResult {
+        entry_state: current,
+        effects: block_effects,
+    }
 }
 
 /// Apply backward demands from a terminator.
@@ -386,4 +422,70 @@ fn apply_callee_contract(
     // If no contract found, backward_demands (called after this) already
     // adds Once demand per arg. The conservative Apply transfer function
     // handles the dst state.
+}
+
+// Effect accumulation (Section 09.2)
+
+/// Accumulate effects from an instruction into the block-level summary.
+///
+/// Called during the backward walk. `dst_demand` is the destination variable's
+/// demand state BEFORE it is removed from the current state (captures the
+/// downstream demand including locality, needed for `HeapEscaping` → `may_share`).
+fn accumulate_instr_effects(
+    instr: &crate::ir::ArcInstr,
+    dst_demand: Option<AimsState>,
+    state_map: &AimsStateMap,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    effects: &mut EffectSummary,
+) {
+    match instr {
+        // Construct (non-scalar): may_allocate. If destination demand has
+        // locality > BlockLocal and the construct has args, may_share too
+        // (Section 09.1: HeapEscaping → may_share).
+        crate::ir::ArcInstr::Construct { dst, args, .. } => {
+            if !state_map.is_excluded(*dst) {
+                effects.may_allocate = true;
+                if !args.is_empty() {
+                    if let Some(demand) = dst_demand {
+                        if demand.locality > Locality::BlockLocal {
+                            effects.may_share = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // PartialApply (non-scalar): may_allocate (closure env allocation).
+        crate::ir::ArcInstr::PartialApply { dst, .. } => {
+            if !state_map.is_excluded(*dst) {
+                effects.may_allocate = true;
+            }
+        }
+
+        // Apply with known contract: union callee's EffectSummary.
+        crate::ir::ArcInstr::Apply { func: callee, .. } => {
+            if let Some(contract) = sigs.get(callee) {
+                *effects = effects.join(&contract.effects);
+            }
+        }
+
+        _ => {}
+    }
+}
+
+/// Accumulate effects from a terminator into the block-level summary.
+///
+/// `Invoke`: `may_throw` (Invoke exists because the call may unwind).
+/// Also unions callee's [`EffectSummary`] if known.
+fn accumulate_terminator_effects(
+    term: &ArcTerminator,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    effects: &mut EffectSummary,
+) {
+    if let ArcTerminator::Invoke { func: callee, .. } = term {
+        effects.may_throw = true;
+        if let Some(contract) = sigs.get(callee) {
+            *effects = effects.join(&contract.effects);
+        }
+    }
 }

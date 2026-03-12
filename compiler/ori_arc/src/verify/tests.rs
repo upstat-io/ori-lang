@@ -478,6 +478,7 @@ fn make_contract(params: Vec<ParamContract>) -> MemoryContract {
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,
+        is_fbip: false,
     }
 }
 

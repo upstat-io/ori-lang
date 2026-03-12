@@ -41,8 +41,16 @@ pub struct MemoryContract {
     pub effects: EffectSummary,
     /// Constructor-context behavior (Stage 3 TRMC).
     pub context_behavior: ContextBehavior,
-    /// FIP certification status (Stage 2).
+    /// FIP certification status.
     pub fip: FipContract,
+    /// Whether the function meets FBIP criteria (functional-but-in-place).
+    ///
+    /// Inferred metadata: `!effects.may_allocate` (no fresh allocations).
+    /// This does NOT replace `#fbip` as the user-facing enforcement annotation,
+    /// and does NOT change `is_auto_fbip()` behavior. It makes FBIP status
+    /// visible to interprocedural analysis without running the post-pipeline check.
+    /// (Section 09.2 Effect Activation.)
+    pub is_fbip: bool,
 }
 
 impl MemoryContract {
@@ -61,6 +69,7 @@ impl MemoryContract {
             effects: EffectSummary::OPTIMISTIC,
             context_behavior: ContextBehavior::default(),
             fip: fip_initial,
+            is_fbip: true, // optimistic: refined downward during fixpoint
         }
     }
 
@@ -75,6 +84,7 @@ impl MemoryContract {
             effects: EffectSummary::CONSERVATIVE,
             context_behavior: ContextBehavior::default(),
             fip: FipContract::Never,
+            is_fbip: false,
         }
     }
 
@@ -101,6 +111,9 @@ impl MemoryContract {
             effects: self.effects.join(&other.effects),
             context_behavior: self.context_behavior.join(&other.context_behavior),
             fip: self.fip.join(&other.fip),
+            // is_fbip: AND (conservative direction — if either side allocates,
+            // the joined contract is not FBIP).
+            is_fbip: self.is_fbip && other.is_fbip,
         }
     }
 
@@ -334,6 +347,12 @@ impl EffectSummary {
 ///
 /// Describes whether a function preserves/consumes constructor contexts.
 /// Default (conservative) in Stage 1.
+///
+/// **Soundness gate (Section 09.2):** In-place TRMC requires
+/// `EffectSummary.may_share == false`. When `may_share == true`, the context
+/// variable `k` may be captured by an effect handler's resumption and used
+/// non-linearly, breaking the unique linear chain invariant. Stage 3
+/// `normalize/verify.rs` must gate in-place TRMC behind this check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ContextBehavior {
     /// Does this function preserve a constructor context passed to it?
@@ -353,13 +372,17 @@ impl ContextBehavior {
     }
 }
 
-/// FIP certification status (Stage 2).
+/// FIP certification status.
 ///
 /// Based on FP² (Lorenzen et al., ICFP 2023): a function is FIP when
 /// it can run with no allocation, no deallocation, and constant stack
 /// space, provided arguments are unique.
 ///
-/// Stage 1: always `Never` (FIP inference disabled).
+/// Ordering: `Certified < Bounded(n) < Conditional < Never`
+/// (Certified is most optimistic).
+///
+/// Section 09.2 Effect Activation: FIP classification is now inferred
+/// from the converged effect state, not from a separate certification pass.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FipContract {
     /// Function cannot be certified FIP.
@@ -374,16 +397,26 @@ pub enum FipContract {
     },
     /// Function is unconditionally FIP (all code paths allocation-free).
     Certified,
+    /// Function allocates at most `n` constructors beyond what it reuses.
+    ///
+    /// `FIPTree`'s `fip(n)` pattern — e.g., tree insertion allocates exactly
+    /// one node (`Bounded(1)`). Compiler-inferred from allocation balance
+    /// tracking (`allocs - reuses = n`), not a user annotation.
+    /// (See: plans/aims-literature-review/section-03-fiptree.md)
+    Bounded(u16),
 }
 
 impl FipContract {
     /// Componentwise join: weakens toward `Never`.
     ///
-    /// Ordering: `Certified < Conditional < Never` (Certified is most optimistic).
+    /// Ordering: `Certified < Bounded(n) < Conditional < Never`.
+    /// For `Bounded`, takes the max (more allocations = weaker).
     #[must_use]
     pub fn join(&self, other: &Self) -> Self {
         match (self, other) {
             (Self::Never, _) | (_, Self::Never) => Self::Never,
+
+            // Conditional + Conditional: union of required-unique params.
             (
                 Self::Conditional {
                     requires_unique_params: a,
@@ -392,14 +425,22 @@ impl FipContract {
                     requires_unique_params: b,
                 },
             ) => {
-                // Union of required-unique params (more required = weaker).
                 debug_assert_eq!(a.len(), b.len(), "FipContract param counts must match");
                 Self::Conditional {
                     requires_unique_params: a.iter().zip(b.iter()).map(|(x, y)| *x || *y).collect(),
                 }
             }
-            (Self::Conditional { .. }, Self::Certified) => self.clone(),
-            (Self::Certified, Self::Conditional { .. }) => other.clone(),
+
+            // Conditional absorbs Bounded and Certified.
+            // Bounded absorbs Certified. Both: weaker side wins (self.clone()/other.clone()).
+            (Self::Conditional { .. }, Self::Certified | Self::Bounded(_))
+            | (Self::Bounded(_), Self::Certified) => self.clone(),
+            (Self::Certified | Self::Bounded(_), Self::Conditional { .. })
+            | (Self::Certified, Self::Bounded(_)) => other.clone(),
+
+            // Bounded + Bounded: take the max allocation count.
+            (Self::Bounded(a), Self::Bounded(b)) => Self::Bounded((*a).max(*b)),
+
             (Self::Certified, Self::Certified) => Self::Certified,
         }
     }

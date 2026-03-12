@@ -5,8 +5,9 @@
 //! more dimensions simultaneously.
 //!
 //! **Core**: [`AccessClass`], [`Consumption`], [`Cardinality`], [`Uniqueness`]
-//! **Active auxiliary**: [`Locality`] (precise since Section 09.2)
-//! **Conservative auxiliary** (v1): [`ShapeClass`], [`EffectClass`]
+//! **Active auxiliary**: [`Locality`] (precise since Section 09.2),
+//!   [`EffectClass`] (precise since Section 09.2 Effect Activation)
+//! **Conservative auxiliary** (v1): [`ShapeClass`]
 //!
 //! Lattice properties: idempotent, commutative, associative join; monotonic
 //! transfer; finite height 15. See tests for exhaustive verification.
@@ -82,7 +83,7 @@ pub struct AimsState {
     pub locality: Locality,
     /// Structural shape (auxiliary, conservative in v1).
     pub shape: ShapeClass,
-    /// Memory effects (auxiliary, conservative in v1).
+    /// Memory effects (active since Section 09.2 Effect Activation).
     pub effect: EffectClass,
 }
 

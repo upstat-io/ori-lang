@@ -1487,6 +1487,7 @@ fn callee_contract_locality_widens_arg() {
             effects: EffectSummary::default(),
             context_behavior: ContextBehavior::default(),
             fip: super::super::contract::FipContract::Never,
+            is_fbip: false,
         },
     );
 
@@ -1562,6 +1563,7 @@ fn callee_contract_function_local_preserves_arg() {
             effects: EffectSummary::default(),
             context_behavior: ContextBehavior::default(),
             fip: super::super::contract::FipContract::Never,
+            is_fbip: false,
         },
     );
 
@@ -1760,6 +1762,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
             effects: EffectSummary::default(),
             context_behavior: ContextBehavior::default(),
             fip: super::super::contract::FipContract::Never,
+            is_fbip: false,
         },
     );
 
@@ -1840,6 +1843,7 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
             },
             context_behavior: ContextBehavior::default(),
             fip: FipContract::Never,
+            is_fbip: false,
         },
     );
 
@@ -1912,6 +1916,7 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
             },
             context_behavior: ContextBehavior::default(),
             fip: FipContract::Never,
+            is_fbip: false,
         },
     );
 
@@ -1984,6 +1989,7 @@ fn owned_param_ignores_callee_may_share() {
             },
             context_behavior: ContextBehavior::default(),
             fip: FipContract::Never,
+            is_fbip: false,
         },
     );
 
@@ -2213,6 +2219,7 @@ fn effect_summary_apply_unions_callee_effects() {
             },
             context_behavior: ContextBehavior::default(),
             fip: FipContract::Never,
+            is_fbip: false,
         },
     );
 
