@@ -108,7 +108,7 @@ pub fn compute_aims_drop_hints(
 }
 
 /// Check if a variable's type is a collection (List, Set, Map).
-fn is_collection_var(func: &ArcFunction, var: ArcVarId, pool: &Pool) -> bool {
+pub(crate) fn is_collection_var(func: &ArcFunction, var: ArcVarId, pool: &Pool) -> bool {
     let Some(&idx) = func.var_types.get(var.index()) else {
         return false;
     };
@@ -127,7 +127,7 @@ fn is_collection_var(func: &ArcFunction, var: ArcVarId, pool: &Pool) -> bool {
 ///
 /// Also propagates through Let alias chains: if `%x` is borrowed in a call
 /// and `%y = %x`, then `%y` is also excluded.
-fn collect_borrowed_call_args(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+pub(crate) fn collect_borrowed_call_args(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     let mut alias_edges: Vec<Option<ArcVarId>> = vec![None; func.var_types.len()];
 

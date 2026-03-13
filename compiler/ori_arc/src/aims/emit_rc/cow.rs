@@ -232,7 +232,10 @@ fn uniqueness_to_cow_mode(
 ///
 /// If any sibling borrow targets the same field or has `None` (whole-object
 /// borrow), the optimization is unsound and we return `false`.
-fn is_borrow_disjoint_from_siblings(state_map: &AimsStateMap, receiver: ArcVarId) -> bool {
+pub(crate) fn is_borrow_disjoint_from_siblings(
+    state_map: &AimsStateMap,
+    receiver: ArcVarId,
+) -> bool {
     let Some(&BorrowSource::Exact {
         source,
         field: Some(receiver_field),
