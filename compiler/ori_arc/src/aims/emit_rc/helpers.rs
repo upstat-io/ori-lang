@@ -14,26 +14,26 @@ use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcValue, ArcVarId,
 use crate::ownership::Ownership;
 
 /// Shared context for per-block RC emission helpers.
-pub(super) struct BlockCtx<'a> {
-    pub(super) func: &'a ArcFunction,
-    pub(super) blk: ArcBlockId,
-    pub(super) state_map: &'a AimsStateMap,
-    pub(super) defined_in_block: &'a FxHashSet<ArcVarId>,
+pub(crate) struct BlockCtx<'a> {
+    pub(crate) func: &'a ArcFunction,
+    pub(crate) blk: ArcBlockId,
+    pub(crate) state_map: &'a AimsStateMap,
+    pub(crate) defined_in_block: &'a FxHashSet<ArcVarId>,
     /// Variables defined by `Project` (borrowed — no independent RC management).
-    pub(super) borrowed_defs: &'a FxHashSet<ArcVarId>,
+    pub(crate) borrowed_defs: &'a FxHashSet<ArcVarId>,
     /// Function-level set of all variables defined by `Project` in any block.
-    pub(super) all_borrowed_defs: &'a FxHashSet<ArcVarId>,
-    pub(super) use_info: &'a FxHashMap<ArcVarId, (usize, LastUse)>,
-    pub(super) pool: &'a Pool,
+    pub(crate) all_borrowed_defs: &'a FxHashSet<ArcVarId>,
+    pub(crate) use_info: &'a FxHashMap<ArcVarId, (usize, LastUse)>,
+    pub(crate) pool: &'a Pool,
     /// For each Project source variable, the latest `LastUse` of any borrowed
     /// child (direct Project destinations or their Let aliases). Used to defer
     /// parent `RcDec` until all borrowed children are dead.
-    pub(super) child_effective_last_use: &'a FxHashMap<ArcVarId, LastUse>,
+    pub(crate) child_effective_last_use: &'a FxHashMap<ArcVarId, LastUse>,
 }
 
 /// Where a variable is last used within a block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum LastUse {
+pub(crate) enum LastUse {
     /// Last used in a body instruction at the given index.
     Body(usize),
     /// Last used in the block terminator.
@@ -42,7 +42,7 @@ pub(super) enum LastUse {
 
 /// Pre-scan a block to determine total use count and last-use position
 /// for each variable.
-pub(super) fn precompute_block_uses(block: &ArcBlock) -> FxHashMap<ArcVarId, (usize, LastUse)> {
+pub(crate) fn precompute_block_uses(block: &ArcBlock) -> FxHashMap<ArcVarId, (usize, LastUse)> {
     let mut info: FxHashMap<ArcVarId, (usize, LastUse)> = FxHashMap::default();
 
     for (instr_idx, instr) in block.body.iter().enumerate() {
@@ -64,7 +64,7 @@ pub(super) fn precompute_block_uses(block: &ArcBlock) -> FxHashMap<ArcVarId, (us
 
 /// Whether a variable is live (cardinality > Absent) at a block's exit.
 #[inline]
-pub(super) fn is_live_at_exit(state_map: &AimsStateMap, blk: ArcBlockId, var: ArcVarId) -> bool {
+pub(crate) fn is_live_at_exit(state_map: &AimsStateMap, blk: ArcBlockId, var: ArcVarId) -> bool {
     state_map.var_state_at_block_exit(blk, var).cardinality != Cardinality::Absent
 }
 
@@ -89,7 +89,7 @@ pub(super) fn is_live_at_exit(state_map: &AimsStateMap, blk: ArcBlockId, var: Ar
 ///    are always owned; only `Project` creates borrowed references.
 ///    We use the function-level `all_borrowed_defs` set to distinguish.
 #[inline]
-pub(super) fn is_owned_at_entry(
+pub(crate) fn is_owned_at_entry(
     state_map: &AimsStateMap,
     blk: ArcBlockId,
     var: ArcVarId,
@@ -137,7 +137,7 @@ pub(super) fn is_owned_at_entry(
 }
 
 /// Collect variables defined in a block (body instructions + block params).
-pub(super) fn collect_defined_vars(block: &ArcBlock) -> FxHashSet<ArcVarId> {
+pub(crate) fn collect_defined_vars(block: &ArcBlock) -> FxHashSet<ArcVarId> {
     let mut defined = FxHashSet::default();
     for instr in &block.body {
         if let Some(dst) = instr.defined_var() {
@@ -154,7 +154,7 @@ pub(super) fn collect_defined_vars(block: &ArcBlock) -> FxHashSet<ArcVarId> {
 ///
 /// These create borrowed references that do NOT need independent RC
 /// management — the source variable's RC covers the borrowed ref.
-pub(super) fn collect_borrowed_defs(block: &ArcBlock) -> FxHashSet<ArcVarId> {
+pub(crate) fn collect_borrowed_defs(block: &ArcBlock) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     for instr in &block.body {
         if let ArcInstr::Project { dst, .. } = instr {
@@ -174,7 +174,7 @@ pub(super) fn collect_borrowed_defs(block: &ArcBlock) -> FxHashSet<ArcVarId> {
 /// A `Let { dst, value: Var(src) }` where `src` is borrowed creates a
 /// pointer copy without incrementing the refcount. The copy must also be
 /// treated as borrowed to avoid emitting spurious `RcDec`.
-pub(super) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     // Function parameters with Borrowed ownership are genuinely borrowed.
     for param in &func.params {
@@ -221,7 +221,7 @@ pub(super) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarI
 /// children are dead. The AIMS backward analysis doesn't track this
 /// relationship (it only propagates demand for direct uses), so the
 /// emission phase extends parent lifetimes using this map.
-pub(super) fn compute_child_effective_last_use(
+pub(crate) fn compute_child_effective_last_use(
     block: &ArcBlock,
     use_info: &FxHashMap<ArcVarId, (usize, LastUse)>,
 ) -> FxHashMap<ArcVarId, LastUse> {
@@ -282,7 +282,7 @@ pub(super) fn compute_child_effective_last_use(
 /// operands internally. The ARC pipeline must NOT emit separate `RcDec`
 /// for the operands.
 #[inline]
-pub(super) fn is_consuming_primop(instr: &ArcInstr, func: &ArcFunction) -> bool {
+pub(crate) fn is_consuming_primop(instr: &ArcInstr, func: &ArcFunction) -> bool {
     if let ArcInstr::Let {
         dst,
         value: ArcValue::PrimOp { .. },
@@ -308,7 +308,7 @@ pub(super) fn is_consuming_primop(instr: &ArcInstr, func: &ArcFunction) -> bool 
 /// - `Construct { dst, args }` — struct/enum build: args become fields of `dst`
 /// - `PartialApply { dst, args }` — closure capture: args are captured by `dst`
 #[inline]
-pub(super) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction) -> bool {
+pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction) -> bool {
     match instr {
         ArcInstr::Let {
             dst,

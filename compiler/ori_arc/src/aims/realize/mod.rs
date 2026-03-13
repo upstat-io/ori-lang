@@ -24,16 +24,17 @@
 pub mod decide;
 #[cfg(test)]
 mod tests;
+mod walk;
 
 use ori_ir::Name;
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
 use crate::aims::contract::MemoryContract;
-use crate::aims::emit_reuse::FipGateRecord;
+use crate::aims::emit_reuse::{AllocEvent, DeathEvent, FipGateRecord};
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::borrow::BuiltinOwnershipSets;
-use crate::ir::ArcFunction;
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 use crate::uniqueness::drop_hints::DropHints;
 use crate::uniqueness::CowAnnotations;
 
@@ -96,8 +97,6 @@ pub fn realize_rc_reuse(
     pool: &Pool,
 ) -> RealizationResult {
     // Sub-step A: emit arg_ownership (previously standalone step 4).
-    // This is an emission artifact (Option C disposition), not an analysis
-    // input — zero production reads in intraprocedural/ or transfer/.
     {
         let _span = tracing::debug_span!("realize_arg_ownership").entered();
         crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
@@ -105,21 +104,23 @@ pub fn realize_rc_reuse(
         );
     }
 
-    // Sub-step B: emit RC operations (previously step 6).
-    let rc_ops_inserted = {
-        let _span = tracing::debug_span!("realize_rc").entered();
-        let rc_result = crate::aims::emit_rc::emit_rc_ops(func, state_map, pool);
-        // Count RC ops inserted.
-        let count = count_rc_ops(func);
-        // local_alloc_candidates consumed here (v1: hints only, not yet used).
-        let _ = rc_result.local_alloc_candidates;
-        count
+    // Sub-step B: unified RC emission + inline event collection.
+    // Replaces emit_rc_ops() with a forward walk routing all decisions
+    // through decide(), collecting death/alloc events inline.
+    let (rc_ops_inserted, death_events, alloc_events) = {
+        let _span = tracing::debug_span!("realize_rc_unified").entered();
+        emit_rc_unified(func, state_map, pool)
     };
 
-    // Sub-step C: emit reuse operations (previously step 7).
+    // Sub-step C: emit reuse from collected events (replaces emit_reuse scan).
     let (reuse_ops_inserted, fip_evidence) = {
         let _span = tracing::debug_span!("realize_reuse").entered();
-        let reuse_result = crate::aims::emit_reuse::emit_reuse(func, state_map, pool, contracts);
+        let reuse_result = crate::aims::emit_reuse::emit_reuse_from_events(
+            func,
+            &death_events,
+            &alloc_events,
+            contracts,
+        );
         if !reuse_result.fip_gates.is_empty() {
             tracing::debug!(
                 function = func.name.raw(),
@@ -179,6 +180,118 @@ pub fn realize_annotations(
         let _span = tracing::debug_span!("realize_drop_hints").entered();
         crate::aims::emit_rc::drop_hints::compute_aims_drop_hints(func, state_map, pool)
     };
+}
+
+/// Unified RC emission: per-block walk with inline death/alloc event collection.
+///
+/// Replaces `emit_rc_ops()` with a forward walk that routes all decisions
+/// through `decide()` and collects reuse events inline, eliminating the
+/// separate `collect_death_events()` / `collect_alloc_events()` scans.
+///
+/// # Phases
+///
+/// 1. Per-block: dead-at-entry → unified body walk → terminator RC → deferred
+/// 2. Dead Invoke cleanup (orphaned Invoke result variables)
+/// 3. Inter-block edge cleanup (with deferred parent decs)
+/// 4. RC coalescing peephole per block
+fn emit_rc_unified(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    pool: &Pool,
+) -> (usize, Vec<DeathEvent>, Vec<AllocEvent>) {
+    use crate::aims::emit_rc::{
+        block_id, coalesce_block_rc, collect_all_borrowed_defs, collect_borrowed_defs,
+        collect_defined_vars, compute_child_effective_last_use, emit_dead_at_entry_decs,
+        emit_dead_invoke_dsts, emit_edge_cleanup, emit_terminator_rc, precompute_block_uses,
+        BlockCtx,
+    };
+
+    debug_assert!(
+        !func.var_reprs.is_empty(),
+        "var_reprs must be populated before RC emission"
+    );
+
+    let all_borrowed_defs = collect_all_borrowed_defs(func);
+    let mut all_death_events = Vec::new();
+    let mut all_alloc_events = Vec::new();
+    let mut block_deferred: FxHashMap<usize, Vec<(ArcVarId, RcStrategy)>> = FxHashMap::default();
+
+    // Phase 1: per-block RC emission via unified forward walk.
+    for block_idx in 0..func.blocks.len() {
+        let blk = block_id(block_idx);
+        let use_info = precompute_block_uses(&func.blocks[block_idx]);
+        let defined_in_block = collect_defined_vars(&func.blocks[block_idx]);
+        let borrowed_defs = collect_borrowed_defs(&func.blocks[block_idx]);
+        let child_elu = compute_child_effective_last_use(&func.blocks[block_idx], &use_info);
+
+        let old_body = std::mem::take(&mut func.blocks[block_idx].body);
+        let mut new_body: Vec<ArcInstr> = Vec::with_capacity(old_body.len() * 2);
+
+        // NLL pattern: BlockCtx borrows func immutably; after last use of ctx,
+        // the borrow ends and func is available for mutation.
+        let ctx = BlockCtx {
+            func,
+            blk,
+            state_map,
+            defined_in_block: &defined_in_block,
+            borrowed_defs: &borrowed_defs,
+            all_borrowed_defs: &all_borrowed_defs,
+            use_info: &use_info,
+            pool,
+            child_effective_last_use: &child_elu,
+        };
+
+        // Phase A: RcDec for variables live at entry, unused, dead at exit.
+        emit_dead_at_entry_decs(&ctx, &mut new_body);
+
+        // Phase B: unified forward walk (decide() + inline event collection).
+        let walk::BodyWalkResult {
+            uses_so_far,
+            terminator_deferred,
+            death_events,
+            alloc_events,
+        } = walk::walk_body_unified(&ctx, &old_body, &mut new_body);
+
+        // Phase C: terminator uses and cleanup.
+        emit_terminator_rc(&ctx, block_idx, uses_so_far, &mut new_body);
+
+        // After last use of ctx, NLL releases the immutable borrow.
+
+        // For terminators without successors, emit deferred parent decs
+        // in the body. For terminators with successors, return them for
+        // edge cleanup.
+        let edge_deferred = match &func.blocks[block_idx].terminator {
+            ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
+                for &(var, strategy) in &terminator_deferred {
+                    new_body.push(ArcInstr::RcDec { var, strategy });
+                }
+                Vec::new()
+            }
+            _ => terminator_deferred,
+        };
+
+        func.blocks[block_idx].body = new_body;
+        if !edge_deferred.is_empty() {
+            block_deferred.insert(block_idx, edge_deferred);
+        }
+
+        all_death_events.extend(death_events);
+        all_alloc_events.extend(alloc_events);
+    }
+
+    // Phase 1.5: dead Invoke result cleanup.
+    emit_dead_invoke_dsts(func, state_map, pool, &all_borrowed_defs);
+
+    // Phase 2: inter-block edge cleanup (with deferred parent decs).
+    emit_edge_cleanup(func, state_map, pool, &all_borrowed_defs, &block_deferred);
+
+    // Phase 3: RC coalescing peephole — merge adjacent RC ops per block.
+    for block in &mut func.blocks {
+        coalesce_block_rc(&mut block.body);
+    }
+
+    let rc_count = count_rc_ops(func);
+    (rc_count, all_death_events, all_alloc_events)
 }
 
 /// Count RC operations (`RcInc` + `RcDec`) in a function.

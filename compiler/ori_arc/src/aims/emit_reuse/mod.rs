@@ -44,6 +44,9 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 
 use set_ops::{build_proj_map, build_set_instructions, extract_construct_info, substitute_var_all};
 
+// Re-exports for `realize/` unified forward walk (Section 10.2).
+pub(crate) use detect::{ctor_to_shape, is_reusable_ctor};
+
 /// A matched reuse opportunity: a dying value paired with a compatible allocation.
 #[derive(Clone, Debug)]
 pub struct ReuseOpportunity {
@@ -143,7 +146,36 @@ pub fn emit_reuse(
     contracts: &FxHashMap<Name, MemoryContract>,
 ) -> EmitReuseResult {
     let (raw_opportunities, total_deaths) = detect::find_reuse_opportunities(func, state_map, pool);
+    emit_reuse_from_raw(func, raw_opportunities, total_deaths, contracts)
+}
 
+/// Emit reuse operations from pre-collected death and allocation events.
+///
+/// Same matching and emission logic as [`emit_reuse`], but skips the
+/// `collect_death_events()` / `collect_alloc_events()` scans. Used by
+/// `realize/` when events are collected inline during the unified
+/// forward walk (Section 10.2).
+pub(crate) fn emit_reuse_from_events(
+    func: &mut ArcFunction,
+    death_events: &[DeathEvent],
+    alloc_events: &[AllocEvent],
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> EmitReuseResult {
+    let (raw_opportunities, total_deaths) =
+        detect::find_reuse_opportunities_from_events(func, death_events, alloc_events);
+    emit_reuse_from_raw(func, raw_opportunities, total_deaths, contracts)
+}
+
+/// Shared reuse emission: FIP upgrades → partition → sort → apply.
+///
+/// Called by both [`emit_reuse`] (state map scans) and
+/// [`emit_reuse_from_events`] (pre-collected events).
+fn emit_reuse_from_raw(
+    func: &mut ArcFunction,
+    raw_opportunities: Vec<ReuseOpportunity>,
+    total_deaths: usize,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> EmitReuseResult {
     // Consult FIP contract for this function (Section 05.4).
     let fip = contracts.get(&func.name).map(|c| &c.fip);
     let (opportunities, fip_gates) = fip::apply_fip_upgrades(raw_opportunities, fip);

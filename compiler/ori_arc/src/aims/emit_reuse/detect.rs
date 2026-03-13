@@ -259,8 +259,49 @@ fn match_same_block(
     (opportunities, consumed_deaths, consumed_allocs)
 }
 
+/// Find reuse opportunities from pre-collected death and alloc events.
+///
+/// Same matching logic as [`find_reuse_opportunities`] but skips the
+/// `collect_death_events()` and `collect_alloc_events()` scans. Used by
+/// `realize/` when events are collected during the unified forward walk.
+pub(crate) fn find_reuse_opportunities_from_events(
+    func: &ArcFunction,
+    death_events: &[DeathEvent],
+    alloc_events: &[AllocEvent],
+) -> (Vec<ReuseOpportunity>, usize) {
+    let total_deaths = death_events.len();
+    if death_events.is_empty() || alloc_events.is_empty() {
+        return (Vec::new(), total_deaths);
+    }
+
+    // Phase 1: same-block matching.
+    let (same_block_opps, consumed_deaths, consumed_allocs) =
+        match_same_block(death_events, alloc_events, func);
+
+    // Phase 2: cross-block matching for unmatched events.
+    let remaining_deaths: Vec<_> = death_events
+        .iter()
+        .filter(|d| !consumed_deaths.contains(&(d.block, d.instr_idx)))
+        .collect();
+    let remaining_allocs: Vec<_> = alloc_events
+        .iter()
+        .filter(|a| !consumed_allocs.contains(&(a.block, a.instr_idx)))
+        .collect();
+
+    let cross_block_opps = if !remaining_deaths.is_empty() && !remaining_allocs.is_empty() {
+        let mut planner = ReusePlanner::new(func);
+        planner.find_opportunities(&remaining_deaths, &remaining_allocs)
+    } else {
+        Vec::new()
+    };
+
+    let mut all = same_block_opps;
+    all.extend(cross_block_opps);
+    (all, total_deaths)
+}
+
 /// Whether a constructor kind produces a reusable allocation.
-fn is_reusable_ctor(ctor: &crate::ir::CtorKind) -> bool {
+pub(crate) fn is_reusable_ctor(ctor: &crate::ir::CtorKind) -> bool {
     matches!(
         ctor,
         crate::ir::CtorKind::Struct(_) | crate::ir::CtorKind::EnumVariant { .. }
@@ -268,7 +309,7 @@ fn is_reusable_ctor(ctor: &crate::ir::CtorKind) -> bool {
 }
 
 /// Map a constructor kind to its shape classification.
-fn ctor_to_shape(ctor: &crate::ir::CtorKind) -> ShapeClass {
+pub(crate) fn ctor_to_shape(ctor: &crate::ir::CtorKind) -> ShapeClass {
     match ctor {
         crate::ir::CtorKind::Struct(_) => {
             ShapeClass::ReusableCtor(crate::aims::lattice::ReuseCtorKind::Struct)

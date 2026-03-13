@@ -20,7 +20,7 @@ use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx};
 use super::{block_id, rc_strategy};
 
 /// Phase A: `RcDec` for variables live at entry, unused in block, dead at exit.
-pub(super) fn emit_dead_at_entry_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
+pub(crate) fn emit_dead_at_entry_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
     let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) else {
         return;
     };
@@ -66,7 +66,7 @@ pub(super) fn emit_dead_at_entry_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<Arc
 /// variable has an `RcDec` in the normal successor block. If not, and the
 /// variable is an `RcPointer`, it prepends one. The same check is done for
 /// the unwind successor.
-pub(super) fn emit_dead_invoke_dsts(
+pub(crate) fn emit_dead_invoke_dsts(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     pool: &Pool,

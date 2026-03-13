@@ -332,7 +332,7 @@ at once. Currently these decisions are spread across 4 separate code paths.
   Phase 2 calls `decide_annotations(var, state)` for each live variable in each
   post-merge block.
 
-- [ ] **Implement `decide()` (Phase 1 — RC/reuse decisions):**
+- [x] **Implement `decide()` (Phase 1 — RC/reuse decisions):**
   One function, one state query, RC and reuse decisions:
   ```rust
   pub fn decide(
@@ -376,7 +376,7 @@ at once. Currently these decisions are spread across 4 separate code paths.
   }
   ```
 
-- [ ] **Eliminate redundant state queries.**
+- [x] **Eliminate redundant state queries.**
   Current code queries state_map in:
   - `emit_rc/mod.rs` Phase A, B, C (3 separate forward walks) → decide()
   - `emit_reuse/detect.rs` (separate death scan) → decide()
@@ -385,8 +385,13 @@ at once. Currently these decisions are spread across 4 separate code paths.
   After Phase 1: one forward walk, one `decide()` call per instruction.
   After Phase 2: one post-merge walk, one `decide_annotations()` call per site.
   Total: 2 traversals instead of 4+ separate passes over the same data.
+  **Done:** `realize/walk.rs` implements the unified forward walk routing all
+  decisions through `decide()` and collecting death/alloc events inline.
+  `realize/mod.rs:emit_rc_unified()` orchestrates per-block walks + cleanup.
+  `emit_reuse/mod.rs:emit_reuse_from_events()` accepts pre-collected events
+  instead of re-scanning the IR.
 
-- [ ] **Cross-decision interactions.**
+- [x] **Cross-decision interactions.**
   Some decisions affect others — unified in one place:
   - If reuse decision is `StaticReuse`, RC decision changes (Reset replaces Dec)
   - If COW is `StaticUnique`, no runtime check needed (affects codegen, not RC)
@@ -394,6 +399,11 @@ at once. Currently these decisions are spread across 4 separate code paths.
     destructor directly instead of going through the generic RC path
   These interactions are currently handled by separate passes reading each
   other's output. After unification, they're computed together.
+  **Done:** `decide()` returns both `RcDecision` and `ReuseDecision` from a
+  single state query. Death events are collected inline when `decide()` detects
+  reuse potential (cross-decision: reuse feeds into death event collection).
+  Reuse emission acts on collected events, removing RcDec and substituting
+  Construct — no separate scan needed.
 
 - [ ] Tests: `decide()` produces identical outputs to current 4-pass emission for
   all golden corpus programs (behavioral equivalence)
@@ -499,7 +509,7 @@ registered in all consuming locations:
   `fip_evidence` is diagnostic, not authoritative (MemoryContract.fip is authoritative)
 - [x] `InstructionDecisions` struct for Phase 1 decisions (rc, reuse)
 - [x] `AnnotationDecisions` struct for Phase 2 decisions (cow, drop_hint)
-- [ ] `decide()` function (Phase 1) makes RC/reuse decisions from one state query
+- [x] `decide()` function (Phase 1) makes RC/reuse decisions from one state query
 - [x] `decide_annotations()` function (Phase 2) makes COW/drop decisions from one state query
 - [ ] Pipeline steps 6, 7 replaced by `realize_rc_reuse()` (steps 9/9a, 10, 11 unchanged)
 - [ ] Pipeline steps 11a, 12 replaced by `realize_annotations()` (runs after step 11/block_merge)
@@ -516,7 +526,7 @@ registered in all consuming locations:
   + cow + drop_hints (unified should be smaller, not larger)
 
 ### Test Requirements
-- [ ] `realize/tests.rs` — unit tests for `decide()` covering all RC/reuse decision paths
+- [x] `realize/tests.rs` — unit tests for `decide()` covering all RC/reuse decision paths
 - [x] `realize/tests.rs` — unit tests for `decide_annotations()` covering all COW/drop paths
 - [ ] `realize/tests.rs` — output equivalence test: compare `realize_rc_reuse()` output
   against `emit_rc_ops()` + `emit_reuse()` for at least 5 hand-built `ArcFunction`s

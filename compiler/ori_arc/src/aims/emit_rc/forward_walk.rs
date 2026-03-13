@@ -189,7 +189,7 @@ fn emit_post_instr_decs(
 }
 
 /// Phase C: handle terminator uses and non-transfer `RcDec`.
-pub(super) fn emit_terminator_rc(
+pub(crate) fn emit_terminator_rc(
     ctx: &BlockCtx<'_>,
     block_idx: usize,
     mut uses_so_far: FxHashMap<ArcVarId, usize>,

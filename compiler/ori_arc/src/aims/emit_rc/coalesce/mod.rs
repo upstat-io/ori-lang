@@ -41,7 +41,7 @@ struct PendingRc {
 /// Scans instructions linearly, accumulating RC deltas per variable.
 /// When a barrier is reached (call, use, or definition of the variable),
 /// the accumulated delta is flushed as a single net operation.
-pub(super) fn coalesce_block_rc(body: &mut Vec<ArcInstr>) {
+pub(crate) fn coalesce_block_rc(body: &mut Vec<ArcInstr>) {
     if body.len() < 2 {
         return;
     }
