@@ -38,23 +38,30 @@ use ori_types::Pool;
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 
-use helpers::{
-    collect_all_borrowed_defs, collect_borrowed_defs, collect_defined_vars,
-    compute_child_effective_last_use, precompute_block_uses, BlockCtx,
-};
-
 /// Edge-specific RC decrement: variable + strategy.
-type EdgeDec = (ArcVarId, RcStrategy);
+pub(crate) type EdgeDec = (ArcVarId, RcStrategy);
 
 // Re-export for cow/drop_hints that import via `super::collect_rc_incremented_vars`.
 pub(crate) use queries::collect_rc_incremented_vars;
 
+// Re-exports for `realize/` unified forward walk (Section 10.2).
+pub(crate) use coalesce::coalesce_block_rc;
+pub(crate) use dead_cleanup::{emit_dead_at_entry_decs, emit_dead_invoke_dsts};
+pub(crate) use edge_cleanup::emit_edge_cleanup;
+pub(crate) use forward_walk::emit_terminator_rc;
+pub(crate) use helpers::{
+    collect_all_borrowed_defs, collect_borrowed_defs, collect_defined_vars,
+    compute_child_effective_last_use, is_consuming_primop, is_live_at_exit, is_owned_at_entry,
+    is_ownership_transfer, precompute_block_uses, BlockCtx, LastUse,
+};
+
 /// Compute `RcStrategy` for a variable, returning `None` for scalars.
 ///
 /// Visible to all sibling submodules (`edge_cleanup`, `dead_cleanup`,
-/// `forward_walk`, `helpers`) via `super::rc_strategy`.
+/// `forward_walk`, `helpers`) via `super::rc_strategy`, and to
+/// `realize/` via `pub(crate)` re-export.
 #[inline]
-pub(super) fn rc_strategy(func: &ArcFunction, var: ArcVarId, pool: &Pool) -> Option<RcStrategy> {
+pub(crate) fn rc_strategy(func: &ArcFunction, var: ArcVarId, pool: &Pool) -> Option<RcStrategy> {
     use crate::ir::ValueRepr;
     let repr = func.var_reprs[var.index()];
     if repr == ValueRepr::Scalar {
@@ -147,7 +154,7 @@ pub fn emit_rc_ops(func: &mut ArcFunction, state_map: &AimsStateMap, pool: &Pool
 
 /// Convert a `usize` block index to `ArcBlockId`.
 #[inline]
-pub(super) fn block_id(idx: usize) -> ArcBlockId {
+pub(crate) fn block_id(idx: usize) -> ArcBlockId {
     ArcBlockId::new(
         u32::try_from(idx).unwrap_or_else(|_| panic!("block index {idx} exceeds u32::MAX")),
     )

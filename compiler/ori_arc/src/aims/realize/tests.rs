@@ -1,10 +1,10 @@
 //! Tests for the unified realization module.
 
 use super::decide::{
-    decide_annotations, decide_cow, decide_drop_hint, AnnotationSiteContext, InstructionDecisions,
-    RcDecision, ReuseDecision,
+    decide, decide_annotations, decide_cow, decide_drop_hint, AnnotationSiteContext,
+    DecisionContext, DecisionSite, InstructionDecisions, RcDecision, ReuseContext, ReuseDecision,
 };
-use crate::aims::lattice::Uniqueness;
+use crate::aims::lattice::{Cardinality, ReuseCtorKind, ShapeClass, Uniqueness};
 use crate::ir::ArcVarId;
 use crate::uniqueness::CowMode;
 use rustc_hash::FxHashSet;
@@ -221,4 +221,334 @@ fn annotations_maybe_shared_drop_site_not_eligible() {
     let result = decide_annotations(&ctx, false, true);
     assert_eq!(result.cow, None);
     assert!(!result.drop_hint);
+}
+
+// Phase 1 decide() tests
+
+fn reuse_non_reusable() -> ReuseContext {
+    ReuseContext {
+        shape: ShapeClass::NonReusable,
+        uniqueness: Uniqueness::Unique,
+        cardinality: Cardinality::Once,
+    }
+}
+
+fn reuse_unique_struct() -> ReuseContext {
+    ReuseContext {
+        shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+        uniqueness: Uniqueness::Unique,
+        cardinality: Cardinality::Once,
+    }
+}
+
+// Non-RC-managed variables
+
+#[test]
+fn decide_non_rc_managed_returns_none() {
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+        },
+        is_rc_managed: false,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::None);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+// Use site decisions
+
+#[test]
+fn decide_use_with_future_use_returns_inc() {
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Inc);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_use_without_future_use_returns_none() {
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: false,
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::None);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+// DefinedDead site decisions
+
+#[test]
+fn decide_defined_dead_returns_dec() {
+    let ctx = DecisionContext {
+        site: DecisionSite::DefinedDead,
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+// LastUse — suppression flags
+
+#[test]
+fn decide_last_use_consuming_primop_returns_none() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: true,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: reuse_unique_struct(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::None);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_last_use_ownership_transfer_returns_none() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: true,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: reuse_unique_struct(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::None);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_last_use_owned_call_position_returns_none() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: true,
+            has_deferred_children: false,
+            reuse: reuse_unique_struct(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::None);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_last_use_deferred_children_returns_defer() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: true,
+            reuse: reuse_unique_struct(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Defer);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+// LastUse — regular Dec with reuse
+
+#[test]
+fn decide_last_use_unique_struct_returns_dec_static_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: reuse_unique_struct(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::StaticReuse);
+}
+
+#[test]
+fn decide_last_use_non_reusable_shape_returns_dec_no_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: reuse_non_reusable(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_last_use_shared_returns_dec_no_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+                uniqueness: Uniqueness::Shared,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_last_use_maybe_shared_struct_returns_dynamic_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+                uniqueness: Uniqueness::MaybeShared,
+                cardinality: Cardinality::Many,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
+}
+
+// Cross-dimensional proof: MaybeShared + Once + ReusableCtor → StaticReuse
+
+#[test]
+fn decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
+                uniqueness: Uniqueness::MaybeShared,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::StaticReuse);
+}
+
+#[test]
+fn decide_cross_dimensional_maybe_shared_once_non_reusable_no_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::NonReusable,
+                uniqueness: Uniqueness::MaybeShared,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_cross_dimensional_maybe_shared_once_collection_is_dynamic_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::CollectionBuffer,
+                uniqueness: Uniqueness::MaybeShared,
+                cardinality: Cardinality::Once,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    // CollectionBuffer is not NonReusable, and MaybeShared + Once but NOT
+    // ReusableCtor → cross-dimensional proof doesn't apply → DynamicReuse.
+    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
+}
+
+// Enum variant reuse
+
+#[test]
+fn decide_unique_enum_variant_returns_static_reuse() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: false,
+            reuse: ReuseContext {
+                shape: ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
+                uniqueness: Uniqueness::Unique,
+                cardinality: Cardinality::Many,
+            },
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::Dec);
+    assert_eq!(d.reuse, ReuseDecision::StaticReuse);
+}
+
+// Suppression priority: consuming primop takes precedence over all others
+
+#[test]
+fn decide_consuming_primop_suppresses_even_with_deferred_children() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: true,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            has_deferred_children: true,
+            reuse: reuse_unique_struct(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::None);
 }

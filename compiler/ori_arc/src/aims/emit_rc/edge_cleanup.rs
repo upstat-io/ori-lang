@@ -52,7 +52,7 @@ fn is_owned_for_rc(
 /// parent aggregates whose `RcDec` was deferred because a borrowed child
 /// (from Project) is used in the block terminator. The parent's `RcDec`
 /// must go on ALL successor edges so it executes after the terminator.
-pub(super) fn emit_edge_cleanup(
+pub(crate) fn emit_edge_cleanup(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     pool: &Pool,
