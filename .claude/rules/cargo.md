@@ -34,13 +34,9 @@ paths:
 
 | Feature | Crate | Purpose |
 |---------|-------|---------|
-| `aims` | `ori_arc` | Enable AIMS unified lattice pipeline (replaces legacy multi-pass ARC pipeline) |
-| `aims-shadow` | `ori_arc` | Enable AIMS + shadow comparison mode (runs both pipelines, compares results) |
 | `cache` | `ori_arc` | Serialization support for incremental compilation cache |
 
-- `aims-shadow` implies `aims` — shadow mode always activates the AIMS pipeline
-- Default builds (no feature flags) use the legacy pipeline
-- AIMS commands: `cargo t --features aims` | `cargo b --features aims` | `cargo cl --features aims`
+- The ARC pipeline always uses AIMS (no feature flag needed)
 
 ## Key Files
 - `Cargo.toml` — workspace config

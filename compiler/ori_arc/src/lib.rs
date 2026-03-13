@@ -8,55 +8,41 @@
 //!   [`PossibleRef`](ArcClass::PossibleRef) (conservative fallback).
 //!
 //! - **ARC IR** ([`ArcFunction`], [`ArcBlock`], [`ArcInstr`], [`ArcTerminator`]) —
-//!   a basic-block intermediate representation that all ARC analysis passes
-//!   (borrow inference, RC insertion, RC elimination, constructor reuse)
+//!   a basic-block intermediate representation that ARC analysis passes
 //!   operate on.
 //!
 //! - **Ownership annotations** ([`Ownership`], [`DerivedOwnership`],
 //!   [`AnnotatedParam`], [`AnnotatedSig`]) —
-//!   borrow inference output that drives RC insertion decisions.
-//!   [`DerivedOwnership`] extends ownership tracking to all local variables,
-//!   not just function parameters.
+//!   borrow inference output that drives ABI decisions.
 //!
 //! # Design
 //!
 //! Inspired by Lean 4's three-way classification (`isScalar`/`isPossibleRef`/
 //! `isDefiniteRef` on `IRType`) and LCNF basic-block IR. Classification is
 //! **monomorphized** — it operates on concrete types after type parameter
-//! substitution. This means:
+//! substitution.
 //!
-//! - `option[int]` → **Scalar** (tag + int, no heap pointer)
-//! - `option[str]` → **`DefiniteRef`** (contains heap-allocated string)
-//! - `option[T]` where `T` is unresolved → **`PossibleRef`** (conservative)
-//!
-//! # Pipeline (canonical pass ordering)
+//! # Pipeline (AIMS unified lattice)
 //!
 //! ```text
 //! CanExpr → lower → ArcFunction
-//!   → borrow inference (Owned/Borrowed per param)       [interprocedural]
-//!   → uniqueness analysis (Unique/MaybeShared/Shared)    [interprocedural]
-//!   → derived ownership (all locals)                     [per-function]
-//!   → liveness + refined liveness
-//!   → COW annotation (CowMode per COW operation)
-//!   → RC insertion (RcInc/RcDec)
-//!   → reset/reuse detection → expansion
-//!   → RC identity propagation (Project roots)
-//!   → RC elimination (intra-block + cross-block, dataflow-based)
-//!   → tail call detection + loop lowering (self-recursive → loops)
-//!   → block merge (post-lowering CFG simplification)
-//!   → drop hints (unique-collection drop optimization)
-//!   → FBIP enforcement (#fbip functions)
+//!   Interprocedural (once):
+//!     1. analyze_program()         — MemoryContract per function (SCC fixpoint)
+//!     2. apply_ownership()         — Populate ArcParam.ownership
+//!   Per-function (steps 3–12):
+//!     3. compute_var_reprs()       — ValueRepr per variable
+//!     4. analyze_function()        — Backward dataflow → AimsStateMap
+//!     5. realize_rc_reuse()        — Phase 1: RC + reuse (pre-merge)
+//!     6. verify()                  — ARC IR sanity check
+//!     7. detect/rewrite tail calls — CFG optimization
+//!     8. merge_blocks()            — CFG cleanup
+//!     9. realize_annotations()     — Phase 2: COW + drop hints (post-merge)
+//!    10. verify()                  — Final sanity check
+//!    11. FBIP enforcement          — Read-only diagnostic
 //! ```
 //!
 //! Entry: [`run_arc_pipeline()`] (single function),
-//! [`run_arc_pipeline_all()`] (batch with borrow application).
-//! This is the **sole codegen path** — Tier 1 (`ExprLowerer`) was removed.
-//!
-//! # Crate Dependencies
-//!
-//! `ori_arc` depends on `ori_types` (for `Pool`/`Idx`/`Tag`) and `ori_ir`
-//! (for `Name`, `BinaryOp`, `UnaryOp`, etc.). No LLVM dependency — ARC
-//! analysis is backend-independent.
+//! [`run_arc_pipeline_all()`] (batch with ownership application).
 
 pub mod aims;
 mod block_merge;
@@ -64,8 +50,6 @@ pub mod borrow;
 pub(crate) mod classify;
 pub mod decision_tree;
 pub mod drop;
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub mod expand_reuse;
 pub mod fbip;
 mod graph;
 pub mod ir;
@@ -73,13 +57,7 @@ pub mod liveness;
 pub mod lower;
 pub mod ownership;
 mod pipeline;
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub mod rc_elim;
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub mod rc_identity;
 pub mod rc_insert;
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub mod reset_reuse;
 pub mod tail_call;
 pub mod uniqueness;
 pub(crate) mod verify;
@@ -94,11 +72,6 @@ pub use pipeline::{
     compute_aims_contracts, run_arc_pipeline, run_arc_pipeline_all, run_uniqueness_analysis,
 };
 
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub use borrow::{
-    all_cow_method_names, apply_borrows, consuming_receiver_builtin_names,
-    consuming_receiver_only_builtin_names, infer_derived_ownership,
-};
 pub use borrow::{
     borrowing_builtin_names, extract_callees, infer_borrow_fixed_point, infer_borrow_single,
     infer_borrows_scc, BuiltinOwnershipSets,
@@ -111,8 +84,6 @@ pub use decision_tree::{
 pub use drop::{
     collect_drop_infos, compute_closure_env_drop, compute_drop_info, DropInfo, DropKind,
 };
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub use expand_reuse::expand_reset_reuse;
 pub use fbip::check_fbip_enforcement;
 pub use graph::call_graph::CallGraph;
 pub use graph::scc::{compute_sccs, topological_order, Scc};
@@ -126,19 +97,7 @@ pub use liveness::{
 };
 pub use lower::{lower_function_can, ArcProblem};
 pub use ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub use rc_elim::eliminate_rc_ops_dataflow;
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub use rc_identity::{propagate_rc_identity, RcIdentityMap};
 pub use rc_insert::annotate_arg_ownership;
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub use rc_insert::{insert_external_invoke_cleanup, insert_rc_ops_with_ownership};
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub use uniqueness::inter::{analyze_program, build_cow_summaries};
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub use uniqueness::intra::{analyze_intraprocedural, analyze_with_summaries, UniquenessResult};
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub use uniqueness::{compute_cow_annotations, compute_drop_hints};
 pub use uniqueness::{
     CowAnnotations, CowMode, DropHints, Uniqueness, UniquenessMap, UniquenessSummary,
 };
@@ -153,24 +112,14 @@ pub use uniqueness::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ArcClass {
     /// No reference counting needed. The value is purely stack/register.
-    ///
-    /// Examples: `int`, `float`, `bool`, `char`, `byte`, `unit`, `never`,
-    /// `duration`, `size`, `ordering`, `option[int]`, `(int, float)`.
     Scalar,
 
     /// Definitely contains a reference-counted heap pointer.
     /// Every value of this type needs retain/release.
-    ///
-    /// Examples: `str`, `[T]`, `{K: V}`, `set[T]`, `chan<T>`,
-    /// `(P) -> R`, `option[str]`, `(int, str)`.
     DefiniteRef,
 
     /// Might contain a reference-counted pointer depending on unresolved
     /// type variables. Conservatively treated as needing RC.
-    ///
-    /// Only appears for unresolved type variables before monomorphization.
-    /// After monomorphization, every type classifies as either `Scalar` or
-    /// `DefiniteRef` — encountering `PossibleRef` post-mono is a compiler bug.
     PossibleRef,
 }
 

@@ -78,16 +78,6 @@ pub(crate) fn borrowed_param(var: u32, ty: Idx) -> ArcParam {
     }
 }
 
-/// Count total RC ops (`RcInc` + `RcDec`) across the entire function.
-#[cfg(any(not(feature = "aims"), feature = "aims-shadow"))]
-pub(crate) fn count_rc_ops(func: &ArcFunction) -> usize {
-    func.blocks
-        .iter()
-        .flat_map(|bl| bl.body.iter())
-        .filter(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. }))
-        .count()
-}
-
 /// Count total RC ops (`RcInc` + `RcDec`) in a single block.
 pub(crate) fn count_block_rc_ops(func: &ArcFunction, block_idx: usize) -> usize {
     func.blocks[block_idx]

@@ -19,8 +19,6 @@ path = "src/main.rs"
 [features]
 default = ["llvm"]
 llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 21 installed; always on
-aims = ["ori_arc/aims", "ori_llvm?/aims"]
-aims-shadow = ["ori_arc/aims-shadow", "ori_llvm?/aims-shadow"]
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION

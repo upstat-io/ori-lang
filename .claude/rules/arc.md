@@ -11,11 +11,7 @@ paths:
 - Backend-independent — `ori_arc` has no LLVM dependency | `arc_emitter` in `ori_llvm` translates ARC IR to LLVM IR
 - **Sole codegen path** (since 2026-02-24) — previous Tier 1 `ExprLowerer` removed (~11K lines). All LLVM codegen goes through ARC IR. See `plans/aot_codegen_pipeline/`
 
-## Pipeline
-
-Two pipelines exist, selected by feature flag. Default builds use legacy; `--features aims` uses AIMS.
-
-### AIMS Pipeline (unified lattice — `--features aims`)
+## Pipeline (AIMS unified lattice)
 
 ```
 CanExpr → lower → ArcFunction
@@ -40,19 +36,10 @@ CanExpr → lower → ArcFunction
 
 Key constraint: steps 11a–12 use `AimsStateMap` via ArcVarId-keyed lookups (`var_state_at_block_entry`), not the position-keyed `entry_states`/`exit_states` maps (invalidated by merge_blocks). The state map is accessed by walking the post-merge IR block indices and using those as block IDs into the pre-merge state map — this works because merge_blocks() preserves entry block IDs.
 
-### Legacy Pipeline (default)
-
-```
-CanExpr → lower → ArcFunction
-  → borrow inference → derived ownership → liveness → COW annotations
-  → RC insertion → dominator tree → reset/reuse detection → expansion
-  → RC identity → RC elimination → drop hints
-```
-
 ### Entry Points
 
-- `run_arc_pipeline()` (single fn) | `run_arc_pipeline_all()` (batch) — dispatch to AIMS or legacy based on feature flag
-- Shadow mode (`--features aims-shadow`): runs both, compares results
+- `run_arc_pipeline()` (single fn) | `run_arc_pipeline_all()` (batch) — always use AIMS pipeline
+- `compute_aims_contracts()` — interprocedural contract computation + param ownership application
 
 ## Key Types
 
@@ -95,17 +82,15 @@ CanExpr → lower → ArcFunction
 | `ir/` | ARC IR definitions (ArcFunction, ArcBlock, ArcInstr, ArcVarId) |
 | `lower/` | CanExpr → ARC IR lowering (expressions, calls, control flow, patterns, collections) |
 | `classify/` | Type classification (Scalar/DefiniteRef/PossibleRef) |
-| `borrow/` | Borrow inference — determines Owned vs Borrowed for params (legacy) |
-| `ownership/` | Ownership annotations, derived ownership for locals (legacy) |
-| `liveness/` | Liveness analysis (standard + refined with dominator info, legacy) |
-| `rc_insert/` | Insert RcInc/RcDec based on ownership + liveness (legacy) |
-| `rc_elim/` | Remove redundant RC operations via dataflow analysis (legacy) |
-| `reset_reuse/` | Detect constructor reuse opportunities (legacy) |
-| `expand_reuse/` | Expand reuse tokens into concrete reuse instructions (legacy) |
+| `borrow/` | Borrow inference — determines Owned vs Borrowed for params (used by LLVM ABI) |
+| `ownership/` | Ownership annotations, derived ownership for locals |
+| `liveness/` | Liveness analysis (standard + refined with dominator info, used by FBIP) |
+| `rc_insert/` | Insert RcInc/RcDec based on ownership + liveness |
 | `drop/` | Per-type drop info computation (DropKind, ClosureEnv drops) |
 | `fbip/` | Functional-but-in-place analysis (Koka-inspired) |
 | `graph/` | Dominator tree construction |
 | `decision_tree/` | Pattern match compilation to decision trees |
+| `uniqueness/` | COW type definitions (CowAnnotations, DropHints, CowMode, Uniqueness, UniquenessSummary) |
 | `aims/lattice/` | 7D product lattice (AimsState) + dimension enums + join/meet/predicates |
 | `aims/transfer/` | Per-instruction transfer functions (backward dataflow) |
 | `aims/contract/` | MemoryContract, ParamContract, ReturnContract, EffectSummary |
@@ -116,7 +101,6 @@ CanExpr → lower → ArcFunction
 | `aims/immortal/` | Heap-allocated constant detection (immortal objects skip RC) |
 | `aims/builtins/` | Builtin function ownership contracts |
 | `pipeline/aims_pipeline` | AIMS pipeline orchestration (AimsPipelineConfig, run_aims_pipeline) |
-| `pipeline/shadow/` | Shadow comparison: runs both pipelines, diffs 5 dimensions |
 
 ## ARC Emitter (ori_llvm)
 
@@ -136,23 +120,17 @@ CanExpr → lower → ArcFunction
 ## Critical Rules
 
 - **No invisible gaps** — never stub with silent dummy values. Use `todo!("emit_<instr_name>")`, not silent `{ null, null }`. Use `assert!(data.is_empty(), "feature X not yet supported")`, not `let _data = ...`
-- **Vertical slice testing** — every ARC IR instruction with LLVM emission must have an AOT test: Ori source → ARC lowering → borrow inference → RC insertion → LLVM emission → execution
+- **Vertical slice testing** — every ARC IR instruction with LLVM emission must have an AOT test: Ori source → ARC lowering → AIMS analysis → LLVM emission → execution
 - **Classification correctness** — `ArcClass` drives all RC behavior. Misclassification is catastrophic:
   - Scalar as DefiniteRef → unnecessary RC ops (perf bug)
   - DefiniteRef as Scalar → missing RC ops (use-after-free / leak)
   - `PossibleRef` after monomorphization → compiler bug
-- **Pipeline ordering** — pass order in `run_arc_pipeline()` is load-bearing:
-  - Borrow inference before RC insertion (ownership drives placement)
-  - Liveness before RC insertion (dead vars skip dec)
-  - Reset/reuse before expansion (detection before lowering)
-  - RC elimination last (removes redundancies from earlier passes)
-  - Do NOT add passes without updating `run_arc_pipeline()`. Do NOT call out of order.
-- **AIMS pipeline ordering** — additional constraints under `--features aims`:
+- **Pipeline ordering** — AIMS pipeline step order is load-bearing:
   - `analyze_program()` (interprocedural) must run before any per-function steps
   - `analyze_function()` (step 5) must run before `emit_rc_ops()` (step 6) — state map drives emission
   - `compute_aims_cow_annotations()` and `compute_aims_drop_hints()` must run AFTER `merge_blocks()` — they access `AimsStateMap` via ArcVarId-keyed lookups; position-keyed state map fields are stale after merge
   - Position-keyed state maps (`entry_states`, `exit_states`, `instr_states`) are invalid after `merge_blocks()` — never query them post-merge
-  - AIMS and legacy passes must NOT be mixed — the feature flag selects one complete pipeline
+  - Do NOT add passes without updating the pipeline. Do NOT call out of order.
 
 ## Debugging
 
@@ -160,8 +138,7 @@ CanExpr → lower → ArcFunction
 - **Phase dump**: `ORI_DUMP_AFTER_ARC=1 ori build file.ori` — ARC IR with RC strategy annotations
 - **Runtime RC**: `ORI_TRACE_RC=1 ./binary` | `ORI_RT_DEBUG=1 ./binary` | `ORI_CHECK_LEAKS=1 ./binary`
 - **Codegen audit**: `ORI_AUDIT_CODEGEN=1 ori build file.ori` (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
-- **AIMS comparison**: `diagnostics/aims-compare.sh [--behavioral-only|--rc-only] [--verbose] [--release]` — builds old + AIMS binaries, compares output + RC counts
-- **AIMS shadow**: `cargo b --features aims-shadow` — runs both pipelines per function, logs mismatches via `tracing::warn!`
+- **AIMS comparison**: `diagnostics/aims-compare.sh [--behavioral-only|--rc-only] [--verbose] [--release]` — compares output + RC counts
 - **Diagnostic scripts**: `diagnostics/rc-stats.sh` | `codegen-audit.sh` | `diagnose-aot.sh` | `dual-exec-debug.sh` (see compiler.md for full list)
 - **Loop not terminating?** `ori_arc=debug` → break/continue jumps + mutable var counts
 - **Wrong var after if/match?** `ori_arc=trace` → mutable var merge divergence
@@ -196,8 +173,7 @@ Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instea
 | `ori_arc/src/ir/mod.rs` | ARC IR definitions |
 | `ori_arc/src/lower/mod.rs` | ArcLowerer + ArcIrBuilder |
 | `ori_arc/src/lower/calls/mod.rs` | Function call + lambda lowering |
-| `ori_arc/src/borrow/mod.rs` | Borrow inference (legacy) |
-| `ori_arc/src/rc_insert/mod.rs` | RC operation insertion (legacy) |
+| `ori_arc/src/borrow/mod.rs` | Borrow inference (LLVM ABI decisions) |
 | `ori_arc/src/drop/mod.rs` | Drop info computation |
 | `ori_arc/src/aims/mod.rs` | AIMS module root (7D lattice framework) |
 | `ori_arc/src/aims/lattice/mod.rs` | AimsState product lattice + operations |
@@ -206,7 +182,6 @@ Never insert `RcDec` after a tail call — breaks TCO. Transfer ownership instea
 | `ori_arc/src/aims/emit_rc/mod.rs` | RC emission from state map |
 | `ori_arc/src/aims/emit_reuse/mod.rs` | Reuse emission (detect + plan + expand) |
 | `ori_arc/src/pipeline/aims_pipeline.rs` | AIMS pipeline orchestration |
-| `ori_arc/src/pipeline/shadow/mod.rs` | Shadow comparison (5 dimensions) |
 | `ori_llvm/src/codegen/arc_emitter/mod.rs` | ARC IR → LLVM emission |
 | `ori_llvm/src/codegen/arc_emitter/drop_gen.rs` | LLVM drop function generation |
 | `ori_llvm/tests/aot/arc.rs` | AOT integration tests for ARC |

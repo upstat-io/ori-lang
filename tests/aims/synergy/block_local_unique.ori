@@ -16,6 +16,6 @@
 
 @main () -> void = {
     let $result = build_local();
-    assert_eq(actual: result, expected: 5);
+    if result != 5 then panic(msg: "expected 5");
     print(msg: "block_local_unique: pass")
 }

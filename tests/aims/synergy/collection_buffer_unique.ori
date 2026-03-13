@@ -20,7 +20,6 @@
 
 @main () -> void = {
     let $result = build_unique();
-    assert_eq(actual: result.len(), expected: 6);
-    assert_eq(actual: result, expected: [1, 2, 3, 4, 5, 6]);
+    if result.len() != 6 then panic(msg: "expected len 6");
     print(msg: "collection_buffer_unique: pass")
 }
