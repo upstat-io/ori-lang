@@ -10,13 +10,13 @@ sections:
     status: complete
   - id: "10.2"
     title: "Per-Instruction Decision"
-    status: in-progress
+    status: complete
   - id: "10.3"
     title: "Output Views"
-    status: not-started
+    status: in-progress
   - id: "10.4"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 10: Unified Realization
@@ -405,9 +405,9 @@ at once. Currently these decisions are spread across 4 separate code paths.
   Reuse emission acts on collected events, removing RcDec and substituting
   Construct — no separate scan needed.
 
-- [ ] Tests: `decide()` produces identical outputs to current 4-pass emission for
+- [x] Tests: `decide()` produces identical outputs to current 4-pass emission for
   all golden corpus programs (behavioral equivalence)
-- [ ] Tests: `decide()` produces strictly better outputs for programs where
+- [x] Tests: `decide()` produces strictly better outputs for programs where
   cross-decision interactions matter
 
 ---
@@ -423,19 +423,24 @@ analysis). Realization consumes it and emits diagnostic evidence.
 
 **Phase 1 views (computed in `decide()` during `realize_rc_reuse()`):**
 
-- [ ] **RC ops as a view of access + consumption + cardinality:**
+- [x] **RC ops as a view of access + consumption + cardinality:**
   `needs_rc = Owned + !Dead + !Scalar`
   Already the primary output. After: computed in `decide()` alongside reuse
   in one pass, not in a dedicated pass.
+  **Done:** `realize_rc_reuse()` calls `decide()` for every (var, instruction) pair
+  via the unified forward walk. RC decisions are a direct projection of the state.
 
-- [ ] **Reuse as a view of uniqueness + shape + cardinality:**
+- [x] **Reuse as a view of uniqueness + shape + cardinality:**
   `reuse = Unique + ReusableCtor(kind) + Once (at death point)`
   Currently detected in `emit_reuse/detect.rs` with its own death scan. After:
   death events are in the sparse event table (Section 09.2 Shape Activation),
   and reuse decisions are made inside `decide()`. FIP-guided reuse (e.g.,
   preferring static reuse in FIP functions) reads `MemoryContract.fip` as input.
+  **Done:** Death events collected inline during `walk_body_unified()` when
+  `decide()` produces a Dec decision. `emit_reuse_from_events()` acts on
+  collected events — no separate scan needed.
 
-- [ ] **FIP evidence (NOT a view — diagnostic output):**
+- [x] **FIP evidence (NOT a view — diagnostic output):**
   Realization tracks missed reuses and gate records as `FipEvidence` in
   `RealizationResult`. This is evidence for verification, not authoritative
   classification. The authoritative FIP classification is `MemoryContract.fip`,
@@ -443,10 +448,12 @@ analysis). Realization consumes it and emits diagnostic evidence.
   state's effect summary, token balance, and recursion structure. FIP "falls
   out of the converged system" because contract extraction is a read of unified
   facts — not because realization derives it.
+  **Done:** `FipEvidence` accumulated during `emit_reuse_from_events()` and
+  returned in `RealizationResult`.
 
 **Phase 2 views (computed in `decide_annotations()` during `realize_annotations()`):**
 
-- [ ] **COW as a view of uniqueness + access + consumption:**
+- [x] **COW as a view of uniqueness + access + consumption:**
   `StaticUnique` = `Unique + Owned + Linear`
   `Dynamic` = `MaybeShared + Owned`
   `StaticShared` = `Shared + Owned`
@@ -455,11 +462,18 @@ analysis). Realization consumes it and emits diagnostic evidence.
   `decide_annotations()` must use the same ArcVarId-keyed lookup
   (`var_state_at_block_entry`) that `cow.rs` currently uses, not position-keyed
   `entry_states`.
+  **Done:** `realize_annotations()` rewritten to walk the post-merge IR directly,
+  building `AnnotationSiteContext` per site and calling `decide_annotations()`.
+  `decide_cow()` implements the full logic from `cow.rs::uniqueness_to_cow_mode()`
+  including COW-aware borrowing, cross-dimensional proofs, and disjoint borrows.
 
-- [ ] **Drop hints as a view of uniqueness + shape:**
+- [x] **Drop hints as a view of uniqueness + shape:**
   `drop_hint = Unique + (CollectionBuffer | ReusableCtor) + is_rc_dec_point`
   Currently computed in `drop_hints.rs` with its own post-merge traversal. After:
   computed inside `decide_annotations()`.
+  **Done:** `decide_drop_hint()` enhanced with `is_excluded` and `is_collection`
+  checks matching the full logic from `drop_hints.rs::compute_aims_drop_hints()`.
+  Called from `decide_annotations()` at each `RcDec` site.
 
 - [ ] **Verify output equivalence:** All 4 realization views (RC, reuse, COW,
   drop hints) computed by unified two-phase `realize()` must produce
@@ -528,13 +542,16 @@ registered in all consuming locations:
 ### Test Requirements
 - [x] `realize/tests.rs` — unit tests for `decide()` covering all RC/reuse decision paths
 - [x] `realize/tests.rs` — unit tests for `decide_annotations()` covering all COW/drop paths
-- [ ] `realize/tests.rs` — output equivalence test: compare `realize_rc_reuse()` output
+- [x] `realize/tests.rs` — output equivalence test: compare `realize_rc_reuse()` output
   against `emit_rc_ops()` + `emit_reuse()` for at least 5 hand-built `ArcFunction`s
+  **Done:** 9 equivalence tests (7 golden corpus + 2 cross-decision) in Section 10.2.
 - [ ] `realize/tests.rs` — output equivalence test: compare `realize_annotations()` output
   against `compute_aims_cow_annotations()` + `compute_aims_drop_hints()` for at least 5
   hand-built `ArcFunction`s
-- [ ] `realize/tests.rs` — cross-decision interaction test: reuse=StaticReuse implies
+- [x] `realize/tests.rs` — cross-decision interaction test: reuse=StaticReuse implies
   RC=Reset (not Dec), verified in one `decide()` call
+  **Done:** `cross_decision_reuse_equivalent` and `cross_decision_cross_dimensional_promotion`
+  tests verify that `decide()` produces correct reuse decisions inline with RC decisions.
 - [ ] `realize/tests.rs` — edge cleanup preservation: `realize_rc_reuse()` correctly
   inserts trampoline blocks (compare block count against `emit_rc_ops()`)
 - [ ] AOT end-to-end: all 1255 `ori_llvm` AOT tests pass with `realize()` pipeline
