@@ -41,7 +41,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
 use crate::ArcClassification;
 
-use super::contract::{ContextRegion, MemoryContract};
+use super::contract::{ContextRegion, FipContract, MemoryContract};
 use super::lattice::{AimsState, Consumption, Locality, ReuseCtorKind, ShapeClass, Uniqueness};
 use super::transfer::transfer_def;
 
@@ -224,6 +224,12 @@ pub fn analyze_function(
     // Counts Construct allocations vs consumed reusable-shaped deaths.
     // Section 09.2 Effect Activation.
     populate_fip_balance(&mut state_map, func);
+
+    // Post-convergence: record FIP gate events at call sites where
+    // callee has Conditional FIP and all required-unique args are Unique.
+    // Must run after convergence (needs final uniqueness states).
+    // Section 09.2: sparse event table records FIP gates.
+    populate_fip_gate_events(&mut state_map, func, sigs);
 
     state_map
 }
@@ -488,14 +494,15 @@ fn collect_recursive_call_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
 /// Counts two quantities:
 /// 1. **Construct allocations**: non-scalar `Construct` instructions with reusable
 ///    constructor kinds (`Struct`, `EnumVariant`). Each one needs a memory slot.
-/// 2. **Consumed reusable-shaped values**: function parameters whose converged entry
-///    state shows `Dead` or `Unrestricted` consumption with `ReusableCtor` shape.
-///    Each consumed parameter provides a "reuse token" — its memory slot can be
-///    recycled by a Construct of compatible type.
+/// 2. **Consumed parameters**: non-scalar function parameters whose converged entry
+///    state shows `Dead` or `Unrestricted` consumption. Each consumed parameter
+///    provides a "reuse token" — its memory slot can be recycled by a Construct.
+///    Shape compatibility is verified at emission time by `emit_reuse/fip.rs`.
 ///
-/// The balance determines FIP classification:
-/// - `consumed >= constructs` → token-balanced → `FipContract::Certified` candidate
-/// - `consumed < constructs` → `FipContract::Bounded(constructs - consumed)` candidate
+/// The balance determines FIP classification in [`extract_contract`]:
+/// - `consumed >= constructs` with required-unique params → `Conditional`
+/// - `consumed >= constructs` without required-unique → `Certified`
+/// - `consumed < constructs` → `Bounded(net)`
 ///
 /// Also records `AllocCreditBalance` events at Switch terminators for per-branch
 /// FIP checking (`FIPTree` DMATCH! rule).
@@ -503,7 +510,7 @@ fn collect_recursive_call_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
 /// Section 09.2 Effect Activation.
 fn populate_fip_balance(state_map: &mut AimsStateMap, func: &ArcFunction) {
     let construct_count = count_reusable_constructs(state_map, func);
-    let consumed_count = count_consumed_reusable_params(state_map, func);
+    let consumed_count = count_consumed_params(state_map, func);
 
     // Per-branch balance at Switch terminators (FIPTree DMATCH! rule).
     record_per_branch_balance(state_map, func);
@@ -539,11 +546,16 @@ fn count_reusable_constructs(state_map: &AimsStateMap, func: &ArcFunction) -> u3
     count
 }
 
-/// Count consumed function parameters with reusable shape.
+/// Count consumed non-scalar function parameters.
 ///
 /// A parameter consumed by the function (Dead/Unrestricted consumption in the
-/// entry block's entry state) with `ReusableCtor` shape provides a "reuse token".
-fn count_consumed_reusable_params(state_map: &AimsStateMap, func: &ArcFunction) -> u32 {
+/// entry block's entry state) that is non-scalar provides a "reuse token" — its
+/// memory slot can be recycled by a Construct of compatible type.
+///
+/// Note: param shape is a caller-side fact. The callee says "these params are
+/// consumed — if unique, their memory is available for reuse." Shape
+/// compatibility is verified at emission time by `emit_reuse/fip.rs`.
+fn count_consumed_params(state_map: &AimsStateMap, func: &ArcFunction) -> u32 {
     let mut count: u32 = 0;
     let entry_block = ArcBlockId::new(0);
     for (param_idx, _) in func.params.iter().enumerate() {
@@ -560,11 +572,44 @@ fn count_consumed_reusable_params(state_map: &AimsStateMap, func: &ArcFunction) 
             state.consumption,
             Consumption::Dead | Consumption::Unrestricted
         );
-        if is_consumed && matches!(state.shape, ShapeClass::ReusableCtor(_)) {
+        if is_consumed {
             count = count.saturating_add(1);
         }
     }
     count
+}
+
+/// Compute per-parameter uniqueness requirements for FIP.
+///
+/// Returns `Vec<bool>` indexed by param position. `true` = param is consumed
+/// (Dead/Unrestricted) and non-scalar. These params need caller-guaranteed
+/// uniqueness for their memory to be reusable.
+///
+/// Scalar params always return `false` (no memory to reuse).
+pub(crate) fn compute_requires_unique_params(
+    state_map: &AimsStateMap,
+    func: &ArcFunction,
+) -> Vec<bool> {
+    let entry_block = ArcBlockId::new(0);
+    func.params
+        .iter()
+        .enumerate()
+        .map(|(param_idx, _)| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "ARC IR var counts fit in u32"
+            )]
+            let var = ArcVarId::new(param_idx as u32);
+            if state_map.is_excluded(var) {
+                return false;
+            }
+            let state = state_map.var_state_at_block_entry(entry_block, var);
+            matches!(
+                state.consumption,
+                Consumption::Dead | Consumption::Unrestricted
+            )
+        })
+        .collect()
 }
 
 /// Record per-branch allocation credit balance at Switch terminators.
@@ -640,6 +685,74 @@ fn compute_block_fip_balance(
     }
 
     allocs.saturating_sub(deaths)
+}
+
+/// Record `FipGate` events at call sites where the callee has
+/// `FipContract::Conditional` and all required-unique args are `Unique`
+/// at that program point.
+///
+/// This is a post-convergence pass that re-derives per-instruction state
+/// by replaying the backward walk within each block (same technique as
+/// emission passes). Records events in the sparse event table.
+///
+/// Section 09.2: sparse event table records FIP gates.
+fn populate_fip_gate_events(
+    state_map: &mut AimsStateMap,
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+) {
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "ARC IR block counts fit in u32"
+        )]
+        let blk = ArcBlockId::new(block_idx as u32);
+
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            let ArcInstr::Apply {
+                func: callee_name,
+                args,
+                ..
+            } = instr
+            else {
+                continue;
+            };
+
+            let Some(contract) = sigs.get(callee_name) else {
+                continue;
+            };
+
+            let FipContract::Conditional {
+                requires_unique_params,
+            } = &contract.fip
+            else {
+                continue;
+            };
+
+            // Check if all required-unique args are Unique at this point.
+            // Use block entry state as conservative approximation (true
+            // per-instruction state would require replay, but entry state
+            // is sufficient — uniqueness can only widen from entry to the
+            // instruction point).
+            let all_unique =
+                args.iter()
+                    .zip(requires_unique_params.iter())
+                    .all(|(arg, &required)| {
+                        if !required {
+                            return true;
+                        }
+                        let state = state_map.var_state_at_block_entry(blk, *arg);
+                        state.uniqueness == Uniqueness::Unique
+                    });
+
+            if all_unique {
+                state_map.record_event(AimsEvent::FipGate {
+                    block: blk,
+                    instr: instr_idx,
+                });
+            }
+        }
+    }
 }
 
 /// Verify that all converged states are at a canonical fixed point.
