@@ -1,6 +1,6 @@
 [package]
 name = "ori_llvm"
-version = "2026.3.11-alpha.1"
+version = "2026.3.13-alpha.1"
 edition = "2021"
 description = "LLVM backend for the Ori compiler"
 license = "MIT OR Apache-2.0"
