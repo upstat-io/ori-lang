@@ -1,0 +1,26 @@
+// AIMS synergy test: Effect (FIP natural)
+//
+// Dimensions: Effect analysis enables FIP certification
+//
+// A function that pattern-matches on a sum type and returns a new variant.
+// Creates one allocation for each consumed allocation (net allocation = 0).
+// Without effect analysis: needs a separate FIP pass.
+// With effect: allocation-balanced → FIP falls out of converged state.
+//
+// Expected: extract_contract() produces MemoryContract with fip != Never.
+
+type IntBox = Box(value: int);
+
+@increment (b: IntBox) -> IntBox = match b {
+    Box(v) -> Box(value: v + 1),
+};
+
+@main () -> void = {
+    let $b = Box(value: 41);
+    let $result = increment(b: b);
+    let $value = match result {
+        Box(v) -> v,
+    };
+    assert_eq(actual: value, expected: 42);
+    print(msg: "effect_fip_natural: pass")
+}

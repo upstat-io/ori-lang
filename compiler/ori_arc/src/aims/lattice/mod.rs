@@ -50,6 +50,11 @@ use crate::ArcClass;
 pub struct CanonicalizeFeedback {
     /// Number of rounds that changed the state (0 = already canonical).
     pub rounds: u8,
+    /// Cross-dimension rule firings (Rules 4-8, total across all rounds).
+    ///
+    /// Each firing represents a state change that required reasoning across
+    /// 2+ lattice dimensions. Used by `SynergyMetrics` (Section 11.2).
+    pub cross_dim_fires: u16,
 }
 
 impl CanonicalizeFeedback {
@@ -239,10 +244,12 @@ impl AimsState {
     pub fn canonicalize_with_feedback(&mut self) -> CanonicalizeFeedback {
         const MAX_ROUNDS: u8 = 3;
         let mut rounds: u8 = 0;
+        let mut total_cross_fires: u16 = 0;
 
         loop {
             let before = *self;
-            self.canonicalize_single_pass();
+            let fires = self.canonicalize_single_pass();
+            total_cross_fires = total_cross_fires.saturating_add(fires);
 
             if *self == before {
                 break; // Fixed point — no changes in this pass.
@@ -254,7 +261,10 @@ impl AimsState {
             }
         }
 
-        CanonicalizeFeedback { rounds }
+        CanonicalizeFeedback {
+            rounds,
+            cross_dim_fires: total_cross_fires,
+        }
     }
 
     /// Single pass of feasibility invariant enforcement.
@@ -285,7 +295,10 @@ impl AimsState {
     /// pass suffices (no rule creates a precondition for another rule to
     /// re-fire). The multi-round loop in [`canonicalize`](Self::canonicalize)
     /// is defensive infrastructure for future cross-dimension rules.
-    fn canonicalize_single_pass(&mut self) {
+    /// Returns the number of cross-dimension rule firings (Rules 4-8).
+    fn canonicalize_single_pass(&mut self) -> u16 {
+        let mut cross_fires: u16 = 0;
+
         // Rule 1: Dead ↔ Absent bidirectional sync
         if self.consumption == Consumption::Dead {
             self.cardinality = Cardinality::Absent;
@@ -317,6 +330,7 @@ impl AimsState {
         // rules check it.
         if self.access == AccessClass::Borrowed && self.locality > Locality::FunctionLocal {
             self.locality = Locality::FunctionLocal;
+            cross_fires += 1; // Rule 8: Access → Locality (2 dimensions)
         }
 
         // Rule 6 (Section 09.3): HeapEscaping → uniqueness >= MaybeShared.
@@ -330,6 +344,7 @@ impl AimsState {
         // so this only fires on Owned+HeapEscaping states.
         if self.locality == Locality::HeapEscaping && self.uniqueness == Uniqueness::Unique {
             self.uniqueness = Uniqueness::MaybeShared;
+            cross_fires += 1; // Rule 6: Locality → Uniqueness (2 dimensions)
         }
 
         // Rule 4 (Section 09.2/09.3): BlockLocal + Owned + ≤Once → Unique.
@@ -349,6 +364,7 @@ impl AimsState {
             && self.uniqueness == Uniqueness::MaybeShared
         {
             self.uniqueness = Uniqueness::Unique;
+            cross_fires += 1; // Rule 4: Locality+Access+Cardinality → Uniqueness (3 dimensions)
         }
 
         // Rule 5 (Section 09.3): Unique + Dead → preserve ReusableCtor.
@@ -356,6 +372,8 @@ impl AimsState {
         // This is implicit: no rule above collapses shape for Unique+Dead.
         // Rule 3 only fires for Shared. This comment documents the invariant
         // explicitly so future rules don't accidentally break it.
+
+        cross_fires
     }
 
     /// Whether this variable needs RC operations.

@@ -13,7 +13,7 @@
 //! **Per-function** (steps 3–12):
 //! 3. `compute_var_reprs()` — fill `ValueRepr` per variable
 //! 4. `aims::analyze_function()` — backward dataflow → converged state map
-//! 5. `aims::realize_rc_reuse()` — Phase 1: arg_ownership + RC + reuse (pre-merge)
+//! 5. `aims::realize_rc_reuse()` — Phase 1: `arg_ownership` + RC + reuse (pre-merge)
 //! 6. `verify()` — ARC IR sanity check
 //! 7. `run_aims_verify()` — AIMS contract vs IR consistency
 //! 8. `detect_tail_calls()` + `rewrite_tail_calls()`
@@ -88,6 +88,9 @@ pub(crate) fn run_aims_pipeline(
             config.pool,
         )
     };
+
+    // Set canonicalize cross-dim fires from converged state analysis.
+    result.synergy_metrics.canonicalize_cross_fires = state_map.count_cross_dim_states();
 
     // Verify, AIMS-verify, tail calls, merge.
     verify_and_merge(func, config);

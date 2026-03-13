@@ -22,6 +22,7 @@
 //! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
 
 pub mod decide;
+pub mod metrics;
 #[cfg(test)]
 mod tests;
 mod walk;
@@ -36,13 +37,14 @@ use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
 use crate::uniqueness::drop_hints::DropHints;
-use crate::uniqueness::CowAnnotations;
+use crate::uniqueness::{CowAnnotations, CowMode};
 
 /// Result of the unified realization — all outputs in one struct.
 ///
 /// Phase 1 (`realize_rc_reuse`) populates `rc_ops_inserted`,
 /// `reuse_ops_inserted`, and `fip_evidence`. Phase 2
 /// (`realize_annotations`) populates `cow_annotations` and `drop_hints`.
+/// Both phases accumulate into `synergy_metrics`.
 #[derive(Debug)]
 pub struct RealizationResult {
     /// RC operations inserted (`RcInc` + `RcDec` count).
@@ -57,6 +59,11 @@ pub struct RealizationResult {
     /// NOT the authoritative FIP classification — that is
     /// `MemoryContract.fip`, owned by interprocedural analysis.
     pub fip_evidence: FipEvidence,
+    /// Cross-dimensional synergy metrics (Section 11.2).
+    ///
+    /// Phase 1 populates RC/reuse metrics, Phase 2 populates COW metrics.
+    /// `canonicalize_cross_fires` is set externally from backward analysis.
+    pub synergy_metrics: metrics::SynergyMetrics,
 }
 
 /// FIP diagnostic evidence accumulated during realization.
@@ -107,7 +114,7 @@ pub fn realize_rc_reuse(
     // Sub-step B: unified RC emission + inline event collection.
     // Replaces emit_rc_ops() with a forward walk routing all decisions
     // through decide(), collecting death/alloc events inline.
-    let (rc_ops_inserted, death_events, alloc_events) = {
+    let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
         emit_rc_unified(func, state_map, pool)
     };
@@ -138,12 +145,18 @@ pub fn realize_rc_reuse(
         (ops, evidence)
     };
 
+    // Phase 1 synergy metrics from the unified walk.
+    // Report deferred to Phase 2 (realize_annotations) so both phases
+    // contribute before the single report call.
+    let synergy_metrics = phase1_metrics;
+
     RealizationResult {
         rc_ops_inserted,
         reuse_ops_inserted,
         cow_annotations: CowAnnotations::default(),
         drop_hints: DropHints::default(),
         fip_evidence,
+        synergy_metrics,
     }
 }
 
@@ -201,6 +214,7 @@ pub fn realize_annotations(
             block,
             &mut cow_annotations,
             &mut drop_hints,
+            &mut result.synergy_metrics,
         );
     }
 
@@ -214,6 +228,9 @@ pub fn realize_annotations(
 
     result.cow_annotations = cow_annotations;
     result.drop_hints = drop_hints;
+
+    // Report combined Phase 1+2 metrics.
+    result.synergy_metrics.report(func.name.raw());
 }
 
 /// Pre-computed context for the Phase 2 annotation walk.
@@ -235,6 +252,7 @@ fn annotate_block(
     block: &crate::ir::ArcBlock,
     cow_annotations: &mut CowAnnotations,
     drop_hints: &mut DropHints,
+    synergy: &mut metrics::SynergyMetrics,
 ) {
     use crate::aims::emit_rc::{is_borrow_disjoint_from_siblings, is_collection_var};
     use crate::aims::realize::decide::{decide_annotations, AnnotationSiteContext};
@@ -277,6 +295,15 @@ fn annotate_block(
         let decisions = decide_annotations(&site_ctx, is_cow_site, is_drop_site);
 
         if let Some(mode) = decisions.cow {
+            synergy.total_cow_decisions += 1;
+            // Cross-dim upgrade: MaybeShared uniqueness → StaticUnique via
+            // combined state proof (COW-aware borrowing, CollectionBuffer+Once,
+            // ReusableCtor+Once, disjoint borrow).
+            if site_ctx.uniqueness == crate::aims::lattice::Uniqueness::MaybeShared
+                && mode == CowMode::StaticUnique
+            {
+                synergy.cow_upgrades += 1;
+            }
             tracing::debug!(
                 block_idx,
                 instr_idx,
@@ -317,6 +344,12 @@ fn annotate_block(
 
             let decisions = decide_annotations(&site_ctx, true, false);
             if let Some(mode) = decisions.cow {
+                synergy.total_cow_decisions += 1;
+                if site_ctx.uniqueness == crate::aims::lattice::Uniqueness::MaybeShared
+                    && mode == CowMode::StaticUnique
+                {
+                    synergy.cow_upgrades += 1;
+                }
                 cow_annotations.set(block_idx, block.body.len(), mode);
             }
         }
@@ -339,7 +372,12 @@ fn emit_rc_unified(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     pool: &Pool,
-) -> (usize, Vec<DeathEvent>, Vec<AllocEvent>) {
+) -> (
+    usize,
+    Vec<DeathEvent>,
+    Vec<AllocEvent>,
+    metrics::SynergyMetrics,
+) {
     use crate::aims::emit_rc::{
         block_id, coalesce_block_rc, collect_all_borrowed_defs, collect_borrowed_defs,
         collect_defined_vars, compute_child_effective_last_use, emit_dead_at_entry_decs,
@@ -356,6 +394,7 @@ fn emit_rc_unified(
     let mut all_death_events = Vec::new();
     let mut all_alloc_events = Vec::new();
     let mut block_deferred: FxHashMap<usize, Vec<(ArcVarId, RcStrategy)>> = FxHashMap::default();
+    let mut synergy = metrics::SynergyMetrics::default();
 
     // Phase 1: per-block RC emission via unified forward walk.
     for block_idx in 0..func.blocks.len() {
@@ -391,7 +430,9 @@ fn emit_rc_unified(
             terminator_deferred,
             death_events,
             alloc_events,
+            walk_metrics,
         } = walk::walk_body_unified(&ctx, &old_body, &mut new_body);
+        synergy.merge(&walk_metrics);
 
         // Phase C: terminator uses and cleanup.
         emit_terminator_rc(&ctx, block_idx, uses_so_far, &mut new_body);
@@ -432,7 +473,7 @@ fn emit_rc_unified(
     }
 
     let rc_count = count_rc_ops(func);
-    (rc_count, all_death_events, all_alloc_events)
+    (rc_count, all_death_events, all_alloc_events, synergy)
 }
 
 /// Count RC operations (`RcInc` + `RcDec`) in a function.
