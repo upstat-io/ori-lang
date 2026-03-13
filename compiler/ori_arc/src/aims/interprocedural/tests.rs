@@ -859,3 +859,209 @@ fn demand_propagation_forwarded_param_owned_linear_once() {
         "forwarded param with Owned+Linear+Once → callee param uniqueness should be Unique"
     );
 }
+
+// FIP contract classification (Section 09.2)
+
+#[test]
+fn extract_contract_fbip_still_certified() {
+    // fn f(x: T) -> T { return x }
+    // No allocations → FBIP → FipContract::Certified.
+    let func = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let builtins = crate::borrow::BuiltinOwnershipSets::empty();
+    let interner = ori_ir::StringInterner::new();
+
+    let contracts = analyze_program(&[func], &classifier, &builtins, &interner);
+    let contract = &contracts[&name(1)];
+
+    assert_eq!(
+        contract.fip,
+        FipContract::Certified,
+        "FBIP function should be FipContract::Certified"
+    );
+    assert!(contract.is_fbip);
+}
+
+#[test]
+fn extract_contract_token_balanced_produces_conditional() {
+    // fn f(x: T) -> T { v1 = Construct(T, []); return v1 }
+    // 1 Construct + 1 consumed param → token balanced.
+    // But param needs uniqueness for reuse → FipContract::Conditional.
+    let func = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(1),
+                ty: ty(0),
+                ctor: CtorKind::Struct(name(10)),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+
+    // Param v0 is consumed (Dead — never used after entry) and non-scalar.
+    // 1 Construct balanced by 1 consumed param.
+    // Since param requires uniqueness → Conditional.
+    assert!(
+        matches!(contract.fip, FipContract::Conditional { .. }),
+        "token-balanced with consumed param should produce Conditional, got {:?}",
+        contract.fip
+    );
+
+    if let FipContract::Conditional {
+        requires_unique_params,
+    } = &contract.fip
+    {
+        assert_eq!(requires_unique_params.len(), 1);
+        assert!(
+            requires_unique_params[0],
+            "consumed non-scalar param should require uniqueness"
+        );
+    }
+}
+
+#[test]
+fn extract_contract_net_positive_produces_bounded() {
+    // fn f(x: T) -> T { v1 = Construct; v2 = Construct; return v2 }
+    // 2 Constructs + 1 consumed param → net = 1 → Bounded(1).
+    let func = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(1),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(name(10)),
+                    args: vec![],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(name(10)),
+                    args: vec![],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+
+    // 2 Constructs - 1 consumed param = net 1 → Bounded(1).
+    assert_eq!(
+        contract.fip,
+        FipContract::Bounded(1),
+        "net positive allocation should produce Bounded"
+    );
+}
+
+#[test]
+fn extract_contract_conditional_requires_unique_vector() {
+    // fn f(x: T, y: int, z: T) -> T { v3 = Construct; return v3 }
+    // x (v0) is consumed non-scalar → requires unique.
+    // y (v1) is scalar → excluded.
+    // z (v2) is consumed non-scalar → requires unique.
+    // 1 Construct, 2 consumed params → balanced → Conditional with [true, false, true].
+    let func = ArcFunction {
+        name: name(1),
+        params: vec![
+            ArcParam {
+                var: var(0),
+                ty: ty(0),
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: var(1),
+                ty: ty(1), // scalar
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: var(2),
+                ty: ty(0),
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(1), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: var(3),
+                ty: ty(0),
+                ctor: CtorKind::Struct(name(10)),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(4).with_scalar(1);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+
+    // Token balanced: 1 construct, 2 consumed non-scalar params (surplus).
+    // requires_unique_params: [true(x), false(y=scalar), true(z)].
+    if let FipContract::Conditional {
+        requires_unique_params,
+    } = &contract.fip
+    {
+        assert_eq!(requires_unique_params.len(), 3);
+        assert!(requires_unique_params[0], "x should require uniqueness");
+        assert!(
+            !requires_unique_params[1],
+            "y (scalar) should not require uniqueness"
+        );
+        assert!(requires_unique_params[2], "z should require uniqueness");
+    } else {
+        panic!("expected Conditional, got {:?}", contract.fip);
+    }
+}

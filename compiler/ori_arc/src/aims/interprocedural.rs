@@ -36,8 +36,8 @@ use crate::ArcClassification;
 use super::contract::{
     ContextBehavior, FipContract, MemoryContract, ParamContract, ReturnContract,
 };
-use super::intraprocedural::analyze_function;
 use super::intraprocedural::AimsStateMap;
+use super::intraprocedural::{analyze_function, compute_requires_unique_params};
 use super::lattice::Uniqueness;
 
 use crate::ownership::Ownership;
@@ -98,9 +98,31 @@ pub fn analyze_program(
     // dual of COW-aware borrowing (07.3.1).
     tighten_uniqueness_from_callers(functions, classifier, &mut all_sigs);
 
+    // FIP coverage reporting.
+    let mut fip_certified = 0u32;
+    let mut fip_conditional = 0u32;
+    let mut fip_bounded = 0u32;
+    let mut fip_never = 0u32;
+    let mut fbip_count = 0u32;
+    for contract in all_sigs.values() {
+        match &contract.fip {
+            FipContract::Certified => fip_certified += 1,
+            FipContract::Conditional { .. } => fip_conditional += 1,
+            FipContract::Bounded(_) => fip_bounded += 1,
+            FipContract::Never => fip_never += 1,
+        }
+        if contract.is_fbip {
+            fbip_count += 1;
+        }
+    }
     tracing::debug!(
         functions = all_sigs.len(),
-        "AIMS interprocedural analysis complete"
+        fip_certified,
+        fip_conditional,
+        fip_bounded,
+        fip_never,
+        fbip_count,
+        "AIMS interprocedural analysis complete — FIP coverage"
     );
 
     all_sigs
@@ -506,20 +528,34 @@ fn extract_contract(
     let fip = if is_fbip {
         // No allocations at all → trivially FIP (FBIP is stronger than FIP).
         FipContract::Certified
-    } else if !effects.may_share && state_map.fip_token_balanced() {
-        // Allocations exist but are balanced by consumed reusable-shaped values,
-        // and the function doesn't share references. FIP: every Construct can
-        // reuse memory from a consumed value.
-        FipContract::Certified
-    } else if !effects.may_share && state_map.fip_net_allocation() > 0 {
-        // Net allocation is bounded: function allocates more than it reuses,
-        // but the count is known. FIPTree's fip(n) pattern.
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "net allocation count fits u16 in practice"
-        )]
-        let n = state_map.fip_net_allocation().min(u32::from(u16::MAX)) as u16;
-        FipContract::Bounded(n)
+    } else if !effects.may_share {
+        // Function doesn't share references. Check token balance for FIP.
+        let requires_unique = compute_requires_unique_params(state_map, func);
+        let consumed_count = requires_unique.iter().filter(|&&r| r).count();
+        let construct_count = state_map.fip_construct_count() as usize;
+        let any_requires_unique = requires_unique.iter().any(|&r| r);
+
+        if consumed_count >= construct_count && any_requires_unique {
+            // Token balanced, but some params need caller-guaranteed uniqueness
+            // for their memory to be reusable. Conditional FIP.
+            FipContract::Conditional {
+                requires_unique_params: requires_unique,
+            }
+        } else if consumed_count >= construct_count {
+            // Token balanced and no param requires uniqueness — all reuse
+            // comes from local deaths. Unconditionally FIP.
+            FipContract::Certified
+        } else {
+            // Net allocation is bounded: function allocates more than it
+            // reuses, but the count is known. FIPTree's fip(n) pattern.
+            let net = construct_count.saturating_sub(consumed_count);
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "net allocation count fits u16 in practice"
+            )]
+            let n = net.min(u16::MAX as usize) as u16;
+            FipContract::Bounded(n)
+        }
     } else {
         FipContract::Never
     };

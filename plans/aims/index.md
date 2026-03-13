@@ -135,7 +135,7 @@ DimensionResult, FunctionComparison, RcOpCount, aims-shadow
 ---
 
 ### Section 07: Advanced Optimizations
-**File:** `section-07-advanced.md` | **Status:** In Progress
+**File:** `section-07-advanced.md` | **Status:** Complete
 
 ```
 immortal objects, ImmortalSet, MAX_REFCOUNT, ori_str_empty, SSO

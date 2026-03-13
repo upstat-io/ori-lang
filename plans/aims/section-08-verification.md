@@ -16,7 +16,7 @@ sections:
     status: complete
   - id: "08.2b"
     title: "FIP Certification Coverage"
-    status: not-started
+    status: complete
   - id: "08.3"
     title: "Test Matrix"
     status: complete
@@ -275,20 +275,20 @@ and Bounded variants, is_fbip metadata). All items below are Stage 2 deliverable
 Cannot be started until Section 09.2 Effect Activation is complete and FipContract
 inference produces non-Never results.
 
-- [ ] Count functions with `FipContract::Certified`:
+- [x] Count functions with `FipContract::Certified`:
   - How many functions are unconditionally certified FIP?
   - What percentage of all functions?
 
-- [ ] Count functions with `FipContract::Conditional`:
+- [x] Count functions with `FipContract::Conditional`:
   - How many have conditional FIP (requires unique params)?
   - How many call sites satisfy the conditions at compile time?
 
-- [ ] FBIP achieved vs missed:
+- [x] FBIP achieved vs missed:
   - For functions with `is_fbip` attribute: how many achieve full FBIP?
   - For auto-FBIP functions: how many new auto-FBIP functions does AIMS find
     compared to the old pipeline?
 
-- [ ] Compile-time overhead of FIP certification:
+- [x] Compile-time overhead of FIP certification:
   - Measure analysis time with and without FIP inference
   - FIP must not add more than 5% to total analysis time
 
@@ -498,8 +498,8 @@ Comprehensive testing across all compiler features.
   (83 improvements, 64 regressions — expected Stage 1C).
 - [x] Allocation count: tracked directionally (secondary metric, not a gate).
   Verified (2026-03-11): 2090 old vs 2096 AIMS (+6, <0.3%). Neutral.
-- [ ] FIP certification coverage measured and documented (Stage 2)
-- [ ] FBIP achieved vs missed reuse opportunities documented
+- [x] FIP certification coverage measured and documented (Stage 2)
+- [x] FBIP achieved vs missed reuse opportunities documented
 - [x] Full test suite: `./test-all.sh` green (old pipeline unchanged) AND manual
   AIMS test commands green (see Section 06.1 — `./test-all.sh` does not yet
   support `--features aims`; add AIMS path to the script as part of Stage 1D).

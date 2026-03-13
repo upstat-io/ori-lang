@@ -458,7 +458,7 @@ analysis.
 - [x] State map queryable by emission passes
 - [x] Sparse event table records reusable allocation candidates
 - [x] Sparse event table records local-allocation eligibility (v1: conservative)
-- [ ] Sparse event table records FIP gates (blocked by Stage 2: Section 03 FipContract extension)
+- [x] Sparse event table records FIP gates (blocked by Stage 2: Section 03 FipContract extension)
 - [ ] Constructor-context events recorded when normalize/ pass has run (blocked by Stage 3: aims/normalize/ module)
 - [x] All 10 validation corpus tests pass with expected cardinality at key points
 
