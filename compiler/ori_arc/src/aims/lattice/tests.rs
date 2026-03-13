@@ -2307,12 +2307,28 @@ mod convergence_feedback {
     #[test]
     fn feedback_cross_dimension_fired_threshold() {
         // rounds == 0: already canonical, no chain
-        assert!(!CanonicalizeFeedback { rounds: 0 }.cross_dimension_fired());
+        assert!(!CanonicalizeFeedback {
+            rounds: 0,
+            cross_dim_fires: 0
+        }
+        .cross_dimension_fired());
         // rounds == 1: rules fired but no chain (normal case)
-        assert!(!CanonicalizeFeedback { rounds: 1 }.cross_dimension_fired());
+        assert!(!CanonicalizeFeedback {
+            rounds: 1,
+            cross_dim_fires: 0
+        }
+        .cross_dimension_fired());
         // rounds >= 2: one pass's output enabled another rule
-        assert!(CanonicalizeFeedback { rounds: 2 }.cross_dimension_fired());
-        assert!(CanonicalizeFeedback { rounds: 3 }.cross_dimension_fired());
+        assert!(CanonicalizeFeedback {
+            rounds: 2,
+            cross_dim_fires: 0
+        }
+        .cross_dimension_fired());
+        assert!(CanonicalizeFeedback {
+            rounds: 3,
+            cross_dim_fires: 0
+        }
+        .cross_dimension_fired());
     }
 
     #[test]

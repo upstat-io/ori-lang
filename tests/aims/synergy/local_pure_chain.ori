@@ -1,0 +1,36 @@
+// AIMS synergy test: Locality × Effect (combined, chain of pure calls)
+//
+// Dimensions: FunctionLocal + Linear + may_share==false (chain) → RC-skip
+//
+// Chain of 3 pure function calls on a locally-created list.
+// Without combined dimensions: each call site adds RC ops.
+// With locality (list stays FunctionLocal) AND effect (all callees have
+// may_share==false): the inc+dec pair at each call boundary is eliminated.
+//
+// Expected: 6 fewer RC ops (2 per call boundary × 3 calls).
+
+@count_evens (items: [int]) -> int =
+    items.fold(initial: 0, op: (acc, x) -> if x % 2 == 0 then acc + 1 else acc);
+
+@count_odds (items: [int]) -> int =
+    items.fold(initial: 0, op: (acc, x) -> if x % 2 != 0 then acc + 1 else acc);
+
+@count_positives (items: [int]) -> int =
+    items.fold(initial: 0, op: (acc, x) -> if x > 0 then acc + 1 else acc);
+
+@stats (nums: [int]) -> (int, int, int) = {
+    let $local = nums;
+    let $e = count_evens(items: local);
+    let $o = count_odds(items: local);
+    let $p = count_positives(items: local);
+    (e, o, p)
+};
+
+@main () -> void = {
+    let $result = stats(nums: [1, 2, 3, 4, 5, 6]);
+    let ($evens, $odds, $positives) = result;
+    assert_eq(actual: evens, expected: 3);
+    assert_eq(actual: odds, expected: 3);
+    assert_eq(actual: positives, expected: 6);
+    print(msg: "local_pure_chain: pass")
+}

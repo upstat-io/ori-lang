@@ -1,0 +1,19 @@
+// AIMS synergy test: Locality × Effect (RC-skip)
+//
+// Dimensions: FunctionLocal + Linear + may_share==false → RC-skip
+//
+// Without locality+effect: RcInc at function entry for borrowed use,
+// RcDec at last use — 2 RC ops per call boundary.
+// With locality+effect: the inc+dec pair is eliminated.
+//
+// Expected: 2 fewer RC ops per call site where argument is provably local.
+
+@sum_items (items: [int]) -> int =
+    items.fold(initial: 0, op: (acc, x) -> acc + x);
+
+@main () -> void = {
+    let $nums = [10, 20, 30];
+    let $total = sum_items(items: nums);
+    assert_eq(actual: total, expected: 60);
+    print(msg: "function_local_linear_skip: pass")
+}

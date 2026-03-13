@@ -15,7 +15,7 @@ use crate::aims::emit_rc::{
     BlockCtx, LastUse,
 };
 use crate::aims::emit_reuse::{ctor_to_shape, is_reusable_ctor, AllocEvent, DeathEvent};
-use crate::aims::lattice::SizeClass;
+use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
 use crate::ir::{ArcInstr, ArcVarId, RcStrategy, ValueRepr};
 
 use super::decide::{
@@ -36,6 +36,8 @@ pub(super) struct BodyWalkResult {
     /// Allocation events: `Construct` instructions with reusable constructors
     /// (replaces `collect_alloc_events()` scan).
     pub alloc_events: Vec<AllocEvent>,
+    /// Synergy metrics accumulated during this block's walk.
+    pub walk_metrics: super::metrics::SynergyMetrics,
 }
 
 /// Phase B: unified forward walk through body instructions.
@@ -59,13 +61,21 @@ pub(super) fn walk_body_unified(
     let mut deferred: Vec<(ArcVarId, RcStrategy, LastUse)> = Vec::new();
     let mut death_events = Vec::new();
     let mut alloc_events = Vec::new();
+    let mut metrics = super::metrics::SynergyMetrics::default();
 
     for (instr_idx, instr) in old_body.iter().enumerate() {
         // Inline alloc event collection (replaces collect_alloc_events scan).
         collect_alloc_event(ctx, instr, instr_idx, &mut alloc_events);
 
         // Sub-phase A: RcInc before uses with future uses.
-        emit_pre_instr_incs_unified(ctx, instr, instr_idx, &mut uses_so_far, new_body);
+        emit_pre_instr_incs_unified(
+            ctx,
+            instr,
+            instr_idx,
+            &mut uses_so_far,
+            new_body,
+            &mut metrics,
+        );
 
         // Push the instruction itself.
         new_body.push(instr.clone());
@@ -78,6 +88,7 @@ pub(super) fn walk_body_unified(
             new_body,
             &mut deferred,
             &mut death_events,
+            &mut metrics,
         );
 
         // Emit deferred parent decs whose children's last use is this instruction.
@@ -103,6 +114,7 @@ pub(super) fn walk_body_unified(
         terminator_deferred,
         death_events,
         alloc_events,
+        walk_metrics: metrics,
     }
 }
 
@@ -137,6 +149,7 @@ fn emit_pre_instr_incs_unified(
     instr_idx: usize,
     uses_so_far: &mut FxHashMap<ArcVarId, usize>,
     new_body: &mut Vec<ArcInstr>,
+    metrics: &mut super::metrics::SynergyMetrics,
 ) {
     for var in instr.used_vars() {
         if !is_rc_managed(ctx, var) {
@@ -151,6 +164,10 @@ fn emit_pre_instr_incs_unified(
             site: DecisionSite::Use { has_future_use },
             is_rc_managed: true,
         });
+
+        if decision.rc != RcDecision::None {
+            metrics.total_rc_decisions += 1;
+        }
 
         if decision.rc == RcDecision::Inc {
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
@@ -176,9 +193,10 @@ fn emit_post_instr_decs_unified(
     new_body: &mut Vec<ArcInstr>,
     deferred: &mut Vec<(ArcVarId, RcStrategy, LastUse)>,
     death_events: &mut Vec<DeathEvent>,
+    metrics: &mut super::metrics::SynergyMetrics,
 ) {
     // DefinedDead: variable defined by this instruction but never used.
-    emit_defined_dead(ctx, instr, new_body);
+    emit_defined_dead(ctx, instr, new_body, metrics);
 
     // Skip last-use decs for consuming PrimOps and ownership transfers.
     // These instructions handle operand RC internally.
@@ -187,11 +205,24 @@ fn emit_post_instr_decs_unified(
     }
 
     // LastUse: variables whose last use is this instruction and dead at exit.
-    emit_last_use_decs(ctx, instr, instr_idx, new_body, deferred, death_events);
+    emit_last_use_decs(
+        ctx,
+        instr,
+        instr_idx,
+        new_body,
+        deferred,
+        death_events,
+        metrics,
+    );
 }
 
 /// Emit `RcDec` for a defined-but-dead variable.
-fn emit_defined_dead(ctx: &BlockCtx<'_>, instr: &ArcInstr, new_body: &mut Vec<ArcInstr>) {
+fn emit_defined_dead(
+    ctx: &BlockCtx<'_>,
+    instr: &ArcInstr,
+    new_body: &mut Vec<ArcInstr>,
+    metrics: &mut super::metrics::SynergyMetrics,
+) {
     let Some(dst) = instr.defined_var() else {
         return;
     };
@@ -210,6 +241,10 @@ fn emit_defined_dead(ctx: &BlockCtx<'_>, instr: &ArcInstr, new_body: &mut Vec<Ar
         is_rc_managed: true,
     });
 
+    if decision.rc != RcDecision::None {
+        metrics.total_rc_decisions += 1;
+    }
+
     if decision.rc == RcDecision::Dec {
         if let Some(strategy) = rc_strategy(ctx.func, dst, ctx.pool) {
             new_body.push(ArcInstr::RcDec { var: dst, strategy });
@@ -227,6 +262,7 @@ fn emit_last_use_decs(
     new_body: &mut Vec<ArcInstr>,
     deferred: &mut Vec<(ArcVarId, RcStrategy, LastUse)>,
     death_events: &mut Vec<DeathEvent>,
+    metrics: &mut super::metrics::SynergyMetrics,
 ) {
     for (pos, var) in instr.used_vars().into_iter().enumerate() {
         if !is_rc_managed(ctx, var) {
@@ -252,6 +288,11 @@ fn emit_last_use_decs(
         // Build reuse context from state map (single query per death site).
         let reuse_ctx = build_reuse_context(ctx, var);
 
+        // Snapshot reuse context for metrics before moving into DecisionContext.
+        let is_cross_dim_reuse_candidate = reuse_ctx.uniqueness == Uniqueness::MaybeShared
+            && reuse_ctx.cardinality == Cardinality::Once
+            && matches!(reuse_ctx.shape, ShapeClass::ReusableCtor(_));
+
         let decision = decide(&DecisionContext {
             site: DecisionSite::LastUse {
                 is_consuming_primop: false,
@@ -262,6 +303,17 @@ fn emit_last_use_decs(
             },
             is_rc_managed: true,
         });
+
+        // Synergy metrics: count RC decisions and multi-dim reuse.
+        if decision.rc != RcDecision::None {
+            metrics.total_rc_decisions += 1;
+        }
+        if decision.reuse != ReuseDecision::None {
+            metrics.multi_dim_rc_decisions += 1;
+            if decision.reuse == ReuseDecision::StaticReuse && is_cross_dim_reuse_candidate {
+                metrics.cross_dim_reuse += 1;
+            }
+        }
 
         apply_last_use_decision(
             ctx,

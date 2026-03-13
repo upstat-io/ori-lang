@@ -404,6 +404,48 @@ impl AimsStateMap {
         self.cross_dimension_detected = true;
     }
 
+    /// Count cross-dimension canonicalize rule effects on converged states.
+    ///
+    /// Examines all block exit states and counts variable-block pairs where
+    /// the converged state shows evidence of cross-dimensional rule effects:
+    /// - Rule 4: `BlockLocal + Owned + ≤Once + Unique` (uniqueness from locality)
+    /// - Rule 6: `HeapEscaping + MaybeShared` where Unique was demoted
+    /// - Rule 8: `Borrowed + ≤FunctionLocal` where locality was capped
+    ///
+    /// Returns total count of cross-dim influenced variable-block pairs.
+    #[must_use]
+    pub fn count_cross_dim_states(&self) -> usize {
+        use super::super::lattice::{AccessClass, Cardinality, Locality, Uniqueness};
+
+        let mut count = 0;
+        for exit_map in &self.block_exit_states {
+            for state in exit_map.values() {
+                if state.is_scalar() {
+                    continue;
+                }
+                // Rule 4 evidence: state has Unique + BlockLocal + Owned + ≤Once.
+                // This combination is only reachable through Rule 4 promotion.
+                if state.uniqueness == Uniqueness::Unique
+                    && state.locality == Locality::BlockLocal
+                    && state.access == AccessClass::Owned
+                    && state.cardinality <= Cardinality::Once
+                {
+                    count += 1;
+                    continue;
+                }
+                // Rule 8 evidence: Borrowed + ≤FunctionLocal.
+                // The locality cap is from cross-dim reasoning.
+                if state.access == AccessClass::Borrowed
+                    && state.locality <= Locality::FunctionLocal
+                    && state.locality != Locality::BlockLocal
+                {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     // Borrow provenance
 
     /// Get the borrow provenance for a variable.
