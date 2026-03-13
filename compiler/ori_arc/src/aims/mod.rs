@@ -13,8 +13,8 @@
 //! - [`intraprocedural`] — backward dataflow analysis
 //! - [`interprocedural`] — SCC fixed-point loop
 //! - [`builtins`] — hardcoded contracts for builtin methods
-//! - [`emit_rc`] — RC emission from converged state
-//! - [`emit_reuse`] — reuse emission from converged state
+//! - [`emit_rc`] — RC emission helpers (submodules used by `realize/`)
+//! - [`emit_reuse`] — reuse emission helpers (submodules used by `realize/`)
 //! - [`realize`] — unified realization (two-phase decision surface)
 
 pub mod builtins;

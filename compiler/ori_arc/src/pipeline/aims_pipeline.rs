@@ -4,25 +4,23 @@
 //! uniqueness, RC insertion, reset/reuse, RC elimination) with the unified
 //! AIMS analysis + emission pipeline.
 //!
-//! # Pipeline (Section 06.2)
+//! # Pipeline (Section 10 — unified realization)
 //!
 //! **Interprocedural** (once across all functions):
 //! 1. `aims::analyze_program()` — compute `MemoryContract` per function
 //! 2. `aims::apply_ownership()` — populate `ArcParam.ownership`
 //!
-//! **Per-function** (steps 3–14):
+//! **Per-function** (steps 3–12):
 //! 3. `compute_var_reprs()` — fill `ValueRepr` per variable
-//! 4. `aims::emit_arg_ownership()` — populate `arg_ownership` on Apply/Invoke
-//! 5. `aims::analyze_function()` — backward dataflow → converged state map
-//! 6. `aims::emit_rc_ops()` — insert `RcInc`/`RcDec` from state map
-//! 7. `aims::emit_reuse()` — insert Reset/Reuse from state map
-//! 9. `verify()` — ARC IR sanity check
-//! 10. `detect_tail_calls()` + `rewrite_tail_calls()`
-//! 11. `merge_blocks()` — CFG cleanup
-//! 11a. COW annotations — derived from state map (post-merge)
-//! 12. Drop hints — derived from state map (post-merge)
-//! 13. `verify()` — final sanity check
-//! 14. FBIP enforcement — read-only diagnostic
+//! 4. `aims::analyze_function()` — backward dataflow → converged state map
+//! 5. `aims::realize_rc_reuse()` — Phase 1: arg_ownership + RC + reuse (pre-merge)
+//! 6. `verify()` — ARC IR sanity check
+//! 7. `run_aims_verify()` — AIMS contract vs IR consistency
+//! 8. `detect_tail_calls()` + `rewrite_tail_calls()`
+//! 9. `merge_blocks()` — CFG cleanup
+//! 10. `aims::realize_annotations()` — Phase 2: COW + drop hints (post-merge)
+//! 11. `verify()` — final sanity check
+//! 12. FBIP enforcement — read-only diagnostic
 
 use ori_ir::Name;
 use ori_types::Pool;
@@ -47,14 +45,9 @@ pub(crate) struct AimsPipelineConfig<'a> {
     pub interner: &'a ori_ir::StringInterner,
     pub builtins: &'a BuiltinOwnershipSets,
     pub verify_arc: bool,
-    /// Use unified realization (Section 10). When `true`, steps 4/6/7/11a/12
-    /// are replaced by `realize_rc_reuse()` (Phase 1) and
-    /// `realize_annotations()` (Phase 2). Default: `false` (incremental
-    /// migration — remove flag after output equivalence is proven).
-    pub use_realize: bool,
 }
 
-/// Run the AIMS pipeline on a single function (steps 3–14).
+/// Run the AIMS pipeline on a single function (steps 3–12).
 ///
 /// Called from within `run_arc_pipeline` when the `aims` feature is active.
 /// Interprocedural contracts must already be computed and passed via `config`.
@@ -83,15 +76,38 @@ pub(crate) fn run_aims_pipeline(
         )
     };
 
-    // Emission: legacy (4 separate steps) or unified (2-phase realize).
-    if config.use_realize {
-        emit_unified(func, &state_map, config);
-    } else {
-        emit_legacy(func, &state_map, config);
-    }
+    // Phase 1: RC + reuse + arg_ownership (pre-merge).
+    let mut result = {
+        let _span = tracing::info_span!("realize_rc_reuse").entered();
+        crate::aims::realize::realize_rc_reuse(
+            func,
+            &state_map,
+            config.contracts,
+            config.interner,
+            config.builtins,
+            config.pool,
+        )
+    };
 
-    // Verification, tail calls, merge, final verify, FBIP.
-    emit_postprocess(func, &state_map, config)
+    // Verify, AIMS-verify, tail calls, merge.
+    verify_and_merge(func, config);
+
+    // Phase 2: COW + drop hints (post-merge).
+    {
+        let _span = tracing::info_span!("realize_annotations").entered();
+        crate::aims::realize::realize_annotations(
+            func,
+            &state_map,
+            config.interner,
+            config.pool,
+            &mut result,
+        );
+    }
+    func.cow_annotations = result.cow_annotations;
+    func.drop_hints = result.drop_hints;
+
+    // Final verification + FBIP.
+    emit_postprocess(func, config)
 }
 
 /// Detect immortal variables (heap-allocated constants with `MAX_REFCOUNT`).
@@ -109,110 +125,8 @@ fn detect_immortals(func: &ArcFunction, config: &AimsPipelineConfig<'_>) -> Vec<
     imm
 }
 
-/// Legacy emission: separate `arg_ownership`, RC, reuse, COW, drop hint steps.
-fn emit_legacy(
-    func: &mut ArcFunction,
-    state_map: &crate::aims::intraprocedural::AimsStateMap,
-    config: &AimsPipelineConfig<'_>,
-) {
-    // Step 4: arg_ownership.
-    {
-        let _span = tracing::info_span!("emit_arg_ownership").entered();
-        crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
-            func,
-            config.contracts,
-            config.interner,
-            config.builtins,
-            config.pool,
-        );
-    }
-    // Step 6: RC emission.
-    {
-        let _span = tracing::info_span!("emit_rc_ops").entered();
-        let _rc_result = crate::aims::emit_rc::emit_rc_ops(func, state_map, config.pool);
-    }
-    // Step 7: reuse emission.
-    {
-        let _span = tracing::info_span!("emit_reuse").entered();
-        let reuse_result =
-            crate::aims::emit_reuse::emit_reuse(func, state_map, config.pool, config.contracts);
-        if !reuse_result.fip_gates.is_empty() {
-            tracing::debug!(
-                function = func.name.raw(),
-                fip_gates = reuse_result.fip_gates.len(),
-                "FIP gate records captured during reuse emission"
-            );
-        }
-    }
-}
-
-/// Unified emission: `realize_rc_reuse` (Phase 1) + `realize_annotations` (Phase 2).
-fn emit_unified(
-    func: &mut ArcFunction,
-    state_map: &crate::aims::intraprocedural::AimsStateMap,
-    config: &AimsPipelineConfig<'_>,
-) {
-    // Phase 1: RC + reuse + arg_ownership (pre-merge).
-    let mut result = {
-        let _span = tracing::info_span!("realize_rc_reuse").entered();
-        crate::aims::realize::realize_rc_reuse(
-            func,
-            state_map,
-            config.contracts,
-            config.interner,
-            config.builtins,
-            config.pool,
-        )
-    };
-
-    // Verification + tail calls + merge (shared with legacy path).
-    verify_and_merge(func, config);
-
-    // Phase 2: COW + drop hints (post-merge).
-    {
-        let _span = tracing::info_span!("realize_annotations").entered();
-        crate::aims::realize::realize_annotations(
-            func,
-            state_map,
-            config.interner,
-            config.pool,
-            &mut result,
-        );
-    }
-    func.cow_annotations = result.cow_annotations;
-    func.drop_hints = result.drop_hints;
-}
-
-/// Post-emission steps shared by both paths: verify, tail calls, merge,
-/// COW (legacy), drop hints (legacy), final verify, FBIP.
-fn emit_postprocess(
-    func: &mut ArcFunction,
-    state_map: &crate::aims::intraprocedural::AimsStateMap,
-    config: &AimsPipelineConfig<'_>,
-) -> Vec<ArcProblem> {
-    if !config.use_realize {
-        verify_and_merge(func, config);
-
-        // Steps 11a-12 (legacy only): COW + drop hints post-merge.
-        {
-            let _span = tracing::info_span!("compute_cow_annotations").entered();
-            func.cow_annotations = crate::aims::emit_rc::cow::compute_aims_cow_annotations(
-                func,
-                state_map,
-                config.interner,
-            );
-        }
-        {
-            let _span = tracing::info_span!("compute_drop_hints").entered();
-            func.drop_hints = crate::aims::emit_rc::drop_hints::compute_aims_drop_hints(
-                func,
-                state_map,
-                config.pool,
-            );
-        }
-    }
-
-    // Final verification.
+/// Post-emission steps: final verify + FBIP.
+fn emit_postprocess(func: &mut ArcFunction, config: &AimsPipelineConfig<'_>) -> Vec<ArcProblem> {
     {
         let _span = tracing::info_span!("verify_final").entered();
         super::run_verify(func, "after AIMS pipeline", config.verify_arc);
@@ -310,7 +224,6 @@ pub(crate) fn run_aims_pipeline_all(
         interner,
         builtins,
         verify_arc,
-        use_realize: false, // Incremental migration: enable after output equivalence
     };
 
     let mut all_problems = Vec::new();
