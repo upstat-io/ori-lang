@@ -12,6 +12,7 @@
 //!
 //! **Per-function** (steps 3–12):
 //! 3. `compute_var_reprs()` — fill `ValueRepr` per variable
+//! 3a. `aims::normalize_function()` — TRMC context region detection
 //! 4. `aims::analyze_function()` — backward dataflow → converged state map
 //! 5. `aims::realize_rc_reuse()` — Phase 1: `arg_ownership` + RC + reuse (pre-merge)
 //! 6. `verify()` — ARC IR sanity check
@@ -68,6 +69,12 @@ pub(crate) fn run_aims_pipeline(
     // Step 3.5: detect immortal variables.
     let immortals = detect_immortals(func, config);
 
+    // Step 3a: normalize — detect TRMC context regions.
+    let norm_result = {
+        let _span = tracing::info_span!("normalize_function").entered();
+        crate::aims::normalize::normalize_function(func)
+    };
+
     // Intraprocedural analysis → converged state map.
     let state_map = {
         let _span = tracing::info_span!("analyze_function").entered();
@@ -75,7 +82,7 @@ pub(crate) fn run_aims_pipeline(
             func,
             config.classifier,
             config.contracts,
-            &[], // context_regions: empty in Stage 1
+            &norm_result.context_regions,
             immortals,
         )
     };

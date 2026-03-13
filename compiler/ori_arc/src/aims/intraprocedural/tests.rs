@@ -2909,3 +2909,253 @@ fn conditional_fip_call_site_not_unique_widens() {
         "Conditional FIP with non-unique arg → falls back to may_share widening"
     );
 }
+
+// Context event recording tests
+
+/// When context regions are provided by the normalize pass and the context
+/// variable has `ContextHole` shape + Unique, `ContextOpen`/`ContextClose` events
+/// should be recorded.
+#[test]
+fn context_events_recorded_for_valid_trmc_candidate() {
+    use crate::aims::contract::ContextRegion;
+    use crate::aims::intraprocedural::AimsEvent;
+
+    let self_name = Name::from_raw(42);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                // v1 = self(v0) — recursive call
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // v2 = Construct(v1) — constructor wrapping recursive result
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    // Provide context regions from normalize pass.
+    let context_regions = vec![ContextRegion {
+        open_block: block_id(0),
+        open_instr: 2,
+        context_var: var(2),
+        hole_field: 0,
+        close_block: block_id(0),
+        close_instr: 1,
+        hole_var: var(1),
+    }];
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map =
+        super::analyze_function(&func, &classifier, &no_sigs(), &context_regions, Vec::new());
+
+    // v2 should have ContextHole shape (detect_trmc_candidates runs first).
+    assert_eq!(
+        state_map.var_shape(var(2)),
+        ShapeClass::ContextHole,
+        "Construct wrapping recursive result should be ContextHole"
+    );
+
+    // ContextOpen and ContextClose events should be recorded.
+    let events = state_map.events_in_block(block_id(0));
+    let open_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, AimsEvent::ContextOpen { .. }))
+        .collect();
+    let close_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, AimsEvent::ContextClose { .. }))
+        .collect();
+
+    assert_eq!(open_events.len(), 1, "one ContextOpen event");
+    assert_eq!(close_events.len(), 1, "one ContextClose event");
+
+    // Verify event fields.
+    if let AimsEvent::ContextOpen {
+        block,
+        instr,
+        var: ev_var,
+    } = open_events[0]
+    {
+        assert_eq!(*block, block_id(0));
+        assert_eq!(*instr, 2);
+        assert_eq!(*ev_var, var(2));
+    } else {
+        panic!("expected ContextOpen");
+    }
+
+    if let AimsEvent::ContextClose {
+        block,
+        instr,
+        var: ev_var,
+    } = close_events[0]
+    {
+        assert_eq!(*block, block_id(0));
+        assert_eq!(*instr, 1);
+        assert_eq!(*ev_var, var(1));
+    } else {
+        panic!("expected ContextClose");
+    }
+}
+
+/// When context regions are provided but the context variable is NOT
+/// `ContextHole` (e.g., non-recursive construct), no events are recorded.
+#[test]
+fn no_context_events_when_not_context_hole() {
+    use crate::aims::contract::ContextRegion;
+    use crate::aims::intraprocedural::AimsEvent;
+
+    let self_name = Name::from_raw(42);
+    let other_name = Name::from_raw(99);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                // v1 = other(v0) — NOT recursive
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: other_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    // Provide a bogus context region — but the analysis won't mark v2 as ContextHole
+    // because the call is not recursive. The event should be skipped.
+    let context_regions = vec![ContextRegion {
+        open_block: block_id(0),
+        open_instr: 2,
+        context_var: var(2),
+        hole_field: 0,
+        close_block: block_id(0),
+        close_instr: 1,
+        hole_var: var(1),
+    }];
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map =
+        super::analyze_function(&func, &classifier, &no_sigs(), &context_regions, Vec::new());
+
+    // v2 should NOT be ContextHole — the call is not recursive.
+    assert_ne!(
+        state_map.var_shape(var(2)),
+        ShapeClass::ContextHole,
+        "non-recursive call should not produce ContextHole"
+    );
+
+    // No context events should be recorded.
+    let events = state_map.events_in_block(block_id(0));
+    let context_events: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
+            )
+        })
+        .collect();
+    assert!(
+        context_events.is_empty(),
+        "no context events when shape is not ContextHole"
+    );
+}
+
+/// Empty context regions slice → no context events (backward compat).
+#[test]
+fn empty_context_regions_no_events() {
+    use crate::aims::intraprocedural::AimsEvent;
+
+    let self_name = Name::from_raw(42);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    // Empty context regions (old behavior).
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // ContextHole shape is still set by detect_trmc_candidates (post-convergence).
+    assert_eq!(state_map.var_shape(var(2)), ShapeClass::ContextHole);
+
+    // But no ContextOpen/ContextClose events — context_regions is empty.
+    let events = state_map.events_in_block(block_id(0));
+    let context_events: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
+            )
+        })
+        .collect();
+    assert!(
+        context_events.is_empty(),
+        "empty context_regions → no context events"
+    );
+}

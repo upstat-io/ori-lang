@@ -18,7 +18,8 @@ sections:
     status: complete
   - id: "07.2"
     title: "Static RC Coalescing"
-    status: complete
+    status: completels
+    
   - id: "07.3"
     title: "Cross-Optimization Synergies"
     status: complete

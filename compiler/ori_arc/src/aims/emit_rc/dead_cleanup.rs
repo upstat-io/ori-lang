@@ -20,35 +20,72 @@ use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx};
 use super::{block_id, rc_strategy};
 
 /// Phase A: `RcDec` for variables live at entry, unused in block, dead at exit.
+///
+/// Two sources of dead-at-entry variables:
+/// 1. Variables tracked by the backward analysis (`entry_states`) that have
+///    non-Absent cardinality but are unused and dead at exit.
+/// 2. Block parameters that generated no backward demand (absent from
+///    `entry_states` entirely) — e.g., mutable-scope variables threaded
+///    through loop exit blocks but never actually read. These are `RcPtr`
+///    parameters that need cleanup even though the analysis didn't track them.
 pub(crate) fn emit_dead_at_entry_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
-    let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) else {
-        return;
-    };
-    for (&var, &state) in entry_states {
-        if state.is_scalar() {
+    // Source 1: variables in entry_states.
+    if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
+        for (&var, &state) in entry_states {
+            if state.is_scalar() || state.cardinality == Cardinality::Absent {
+                continue;
+            }
+            // Use is_owned_at_entry to handle cross-block variables whose
+            // access dimension is stuck at BOTTOM (Borrowed) due to backward
+            // demand propagation not updating access.
+            if !is_owned_at_entry(
+                ctx.state_map,
+                ctx.blk,
+                var,
+                ctx.defined_in_block,
+                ctx.borrowed_defs,
+                ctx.all_borrowed_defs,
+            ) {
+                continue;
+            }
+            if ctx.use_info.contains_key(&var) || is_live_at_exit(ctx.state_map, ctx.blk, var) {
+                continue;
+            }
+            if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                new_body.push(ArcInstr::RcDec { var, strategy });
+            }
+        }
+    }
+
+    // Source 2: block parameters absent from entry_states.
+    // These are parameters that generated no backward demand (never used in
+    // this block or any successor). They still need RcDec if they carry
+    // RC-managed values (e.g., mutable-scope list variables passed through
+    // loop exit blocks).
+    let entry_states = ctx.state_map.block_entry_states(ctx.blk);
+    let block = &ctx.func.blocks[ctx.blk.index()];
+    for &(param_var, _param_ty) in &block.params {
+        // Skip if already handled by Source 1.
+        if entry_states.is_some_and(|es| es.contains_key(&param_var)) {
             continue;
         }
-        if state.cardinality == Cardinality::Absent {
+        // Skip scalars and excluded variables.
+        if ctx.state_map.is_excluded(param_var) {
             continue;
         }
-        // Use is_owned_at_entry to handle cross-block variables whose
-        // access dimension is stuck at BOTTOM (Borrowed) due to backward
-        // demand propagation not updating access.
-        if !is_owned_at_entry(
-            ctx.state_map,
-            ctx.blk,
-            var,
-            ctx.defined_in_block,
-            ctx.borrowed_defs,
-            ctx.all_borrowed_defs,
-        ) {
+        // Skip if the parameter is actually used in this block.
+        if ctx.use_info.contains_key(&param_var) {
             continue;
         }
-        if ctx.use_info.contains_key(&var) || is_live_at_exit(ctx.state_map, ctx.blk, var) {
+        // Skip if live at exit (used in successor blocks).
+        if is_live_at_exit(ctx.state_map, ctx.blk, param_var) {
             continue;
         }
-        if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
-            new_body.push(ArcInstr::RcDec { var, strategy });
+        if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {
+            new_body.push(ArcInstr::RcDec {
+                var: param_var,
+                strategy,
+            });
         }
     }
 }
