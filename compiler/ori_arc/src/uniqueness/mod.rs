@@ -1,8 +1,8 @@
-//! Static uniqueness analysis for COW check elimination.
+//! Uniqueness types for COW check elimination.
 //!
-//! Determines at compile time whether collection values are uniquely owned
-//! (RC == 1) at mutation points, allowing the codegen to emit only the fast
-//! path — no runtime `ori_rc_is_unique()` check, no branch, no slow path code.
+//! Provides the [`Uniqueness`] lattice, [`CowMode`] annotation, and container
+//! types ([`CowAnnotations`], [`DropHints`], [`UniquenessMap`], [`UniquenessSummary`])
+//! used by both the AIMS pipeline and LLVM codegen.
 //!
 //! # Lattice
 //!
@@ -19,33 +19,14 @@
 //! - **Unique**: provably RC == 1. COW check can be eliminated.
 //! - **`MaybeShared`**: unknown. Runtime check needed (conservative default).
 //! - **Shared**: provably RC > 1. Slow path always taken.
-//!
-//! The lattice join (`Unique ⊔ Unique = Unique`, `Shared ⊔ Shared = Shared`,
-//! otherwise `MaybeShared`) models control flow merges. Monotonic descent
-//! guarantees termination of fixpoint iteration.
-//!
-//! # Key Insight
-//!
-//! **COW operations always produce `Unique` results.** Whether the fast path
-//! (in-place mutation, RC was 1) or slow path (copy, new allocation with
-//! RC = 1) executes, the output has exactly one reference.
-//!
-//! # References
-//!
-//! - Lean 4 `Borrow.lean`: iterative fixpoint borrow/ownership inference
-//! - Koka `Parc.hs`: reverse-liveness ownership tracking
-//! - Roc `morphic_lib/analyze.rs`: full alias analysis with `UpdateMode`
-//! - Swift `ARCSequenceOpts.cpp`: dataflow with lattice-based RC state
 
 mod annotations;
 pub mod drop_hints;
-pub mod inter;
-pub mod intra;
 mod lattice;
 mod summary;
 
-pub use annotations::{compute_cow_annotations, CowAnnotations};
-pub use drop_hints::{compute_drop_hints, DropHints};
+pub use annotations::CowAnnotations;
+pub use drop_hints::DropHints;
 pub use lattice::{CowMode, Uniqueness};
 pub use summary::UniquenessSummary;
 
@@ -121,10 +102,6 @@ impl UniquenessMap {
     /// For each variable present in either map, the result is the join
     /// of both states. Variables only in `other` are joined with the
     /// implicit `MaybeShared`. Variables only in `self` are unaffected.
-    /// This is correct in SSA form: any variable reachable at a join
-    /// point dominates all predecessors, so it is present in all maps.
-    /// Variables unique to one predecessor are unreachable after the
-    /// join and thus harmless.
     pub fn join_from(&mut self, other: &Self) {
         for (&var, &state) in &other.states {
             self.join(var, state);
@@ -158,6 +135,3 @@ impl Default for UniquenessMap {
         Self::new()
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -10,8 +10,6 @@ use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
-#[cfg(not(feature = "aims"))]
-use tracing::warn;
 use tracing::{debug, trace};
 
 use super::FunctionCompiler;
@@ -254,53 +252,21 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Shared by both the immediate-emit path ([`Self::emit_arc_function`]) and
     /// the two-pass prepare path ([`Self::prepare_arc_function`]).
     pub(super) fn process_arc_function(&mut self, name: Name, arc_func: &mut ori_arc::ArcFunction) {
-        // Apply borrow inference annotations to ARC IR params.
+        // Apply AIMS param ownership from pre-computed contracts.
         // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
-        // Without this, RC insertion generates unnecessary RcInc/RcDec for
-        // params that borrow inference determined should be Borrowed.
-        //
-        // When AIMS is active, param ownership is derived from pre-computed
-        // AIMS contracts (interprocedural analysis). Apply it here since
-        // compute_aims_contracts() ran on cloned functions.
-        #[cfg(feature = "aims")]
-        {
-            let _ = name;
-            if let Some(contract) = self.aims_contracts.get(&arc_func.name) {
-                for (param, pc) in arc_func.params.iter_mut().zip(&contract.params) {
-                    param.ownership = match pc.access {
-                        ori_arc::aims::lattice::AccessClass::Borrowed => {
-                            ori_arc::Ownership::Borrowed
-                        }
-                        ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
-                    };
-                }
+        // AIMS contracts (from compute_aims_contracts()) provide the correct
+        // Owned/Borrowed per param.
+        let _ = name;
+        if let Some(contract) = self.aims_contracts.get(&arc_func.name) {
+            for (param, pc) in arc_func.params.iter_mut().zip(&contract.params) {
+                param.ownership = match pc.access {
+                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
+                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
+                };
             }
-        }
-        #[cfg(not(feature = "aims"))]
-        if let Some(sig) = self.annotated_sigs.get(&name) {
-            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
-                param.ownership = annotated.ownership;
-            }
-        } else if !arc_func.params.is_empty() {
-            let name_str = self.interner.lookup(name);
-            warn!(
-                func = name_str,
-                params = arc_func.params.len(),
-                "borrow signature missing — compiling with all-Owned params"
-            );
         }
 
-        // When AIMS is active, arg_ownership is populated by the AIMS pipeline
-        // (Step 4: emit_arg_ownership). Skip the legacy annotation to avoid
-        // double-annotation that would overwrite AIMS's contracts-derived sigs.
-        #[cfg(not(feature = "aims"))]
-        ori_arc::annotate_arg_ownership(
-            arc_func,
-            self.annotated_sigs,
-            self.interner,
-            &self.builtin_ownership,
-            self.pool,
-        );
+        // AIMS pipeline handles arg_ownership internally (Step 4: emit_arg_ownership).
         let arc_problems = ori_arc::run_arc_pipeline(
             arc_func,
             self.arc_classifier,
@@ -385,15 +351,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .functions
             .insert(unique_name, (func_id, abi.clone()));
 
-        // ARC processing
-        #[cfg(not(feature = "aims"))]
-        ori_arc::annotate_arg_ownership(
-            lambda,
-            self.annotated_sigs,
-            self.interner,
-            &self.builtin_ownership,
-            self.pool,
-        );
+        // ARC processing — AIMS pipeline handles arg_ownership internally.
         let arc_problems = ori_arc::run_arc_pipeline(
             lambda,
             self.arc_classifier,

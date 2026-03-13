@@ -9,10 +9,6 @@ repository = "https://github.com/upstat-io/ori-lang"
 # Requires LLVM 21. Build with: cargo b / cargo b --release
 # LLVM tests: cargo test -p ori_llvm | CI: .github/workflows/ci.yml
 
-[features]
-aims = ["ori_arc/aims"]
-aims-shadow = ["ori_arc/aims-shadow"]
-
 [dependencies]
 # Ori crates
 ori_arc = { path = "../ori_arc", features = ["cache"] }

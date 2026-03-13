@@ -18,9 +18,7 @@
 use ori_ir::Span;
 use rustc_hash::FxHashSet;
 
-#[cfg(feature = "aims")]
 use crate::aims::contract::MemoryContract;
-#[cfg(feature = "aims")]
 use crate::aims::lattice::Cardinality;
 use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId, ValueRepr};
@@ -61,7 +59,6 @@ pub enum VerifyError {
     /// This indicates an inconsistency between the AIMS analysis result
     /// and the actual IR: Absent means "zero forward uses", so no
     /// instruction or terminator should reference this variable.
-    #[cfg(feature = "aims")]
     AbsentParamHasUses { var: ArcVarId, param_index: usize },
 }
 
@@ -104,7 +101,6 @@ impl std::fmt::Display for VerifyError {
                 )?;
                 fmt_span(f, *span)
             }
-            #[cfg(feature = "aims")]
             VerifyError::AbsentParamHasUses { var, param_index } => {
                 write!(
                     f,
@@ -315,7 +311,6 @@ fn is_scalar_var(func: &ArcFunction, var: ArcVarId) -> bool {
 /// Extends [`check_function`] with checks that require the AIMS
 /// [`MemoryContract`] — specifically, that parameters with
 /// `Cardinality::Absent` have no uses in the function body.
-#[cfg(feature = "aims")]
 pub fn check_function_with_contract(
     func: &ArcFunction,
     contract: &MemoryContract,
@@ -331,7 +326,6 @@ pub fn check_function_with_contract(
 /// parameter. If the IR actually references the parameter, the analysis
 /// result is inconsistent — either the analysis is wrong or the IR was
 /// mutated after analysis.
-#[cfg(feature = "aims")]
 fn check_absent_param_no_uses(
     func: &ArcFunction,
     contract: &MemoryContract,

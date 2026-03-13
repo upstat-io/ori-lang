@@ -45,6 +45,10 @@ pub(crate) struct AimsPipelineConfig<'a> {
     pub interner: &'a ori_ir::StringInterner,
     pub builtins: &'a BuiltinOwnershipSets,
     pub verify_arc: bool,
+    // TODO(aims): Add `disabled_canonicalize_rules: FxHashSet<CanonicalizeRule>` if
+    // needed for debugging cross-dimension regressions. See plans/aims/section-11
+    // §11.3 Option A. Deferred — per-rule unit tests (lattice/tests.rs) and
+    // end-to-end synergy tests (realize/tests.rs) provide sufficient coverage.
 }
 
 /// Run the AIMS pipeline on a single function (steps 3–12).
@@ -195,10 +199,6 @@ fn check_fbip(func: &ArcFunction, config: &AimsPipelineConfig<'_>) -> Vec<ArcPro
 /// 1. Compute interprocedural contracts via `aims::analyze_program()`
 /// 2. Apply ownership to function parameters
 /// 3. Run per-function pipeline for each function
-#[cfg_attr(
-    feature = "aims-shadow",
-    expect(dead_code, reason = "used in pure AIMS mode, not shadow mode")
-)]
 pub(crate) fn run_aims_pipeline_all(
     functions: &mut [ArcFunction],
     classifier: &dyn ArcClassification,

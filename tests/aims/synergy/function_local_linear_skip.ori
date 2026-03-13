@@ -14,6 +14,6 @@
 @main () -> void = {
     let $nums = [10, 20, 30];
     let $total = sum_items(items: nums);
-    assert_eq(actual: total, expected: 60);
+    if total != 60 then panic(msg: "expected 60");
     print(msg: "function_local_linear_skip: pass")
 }

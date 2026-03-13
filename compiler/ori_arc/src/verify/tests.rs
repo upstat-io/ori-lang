@@ -453,19 +453,15 @@ fn multiple_errors_collected() {
 }
 
 // AIMS consistency checks
-#[cfg(feature = "aims")]
 use crate::verify::check_function_with_contract;
 
-#[cfg(feature = "aims")]
 use crate::aims::contract::{
     ContextBehavior, EffectSummary, FipContract, MemoryContract, ParamContract, ReturnContract,
 };
-#[cfg(feature = "aims")]
 use crate::aims::lattice::{
     AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness as AimsUniqueness,
 };
 
-#[cfg(feature = "aims")]
 fn make_contract(params: Vec<ParamContract>) -> MemoryContract {
     MemoryContract {
         params,
@@ -482,7 +478,6 @@ fn make_contract(params: Vec<ParamContract>) -> MemoryContract {
     }
 }
 
-#[cfg(feature = "aims")]
 fn absent_param() -> ParamContract {
     ParamContract {
         access: AccessClass::Borrowed,
@@ -495,7 +490,6 @@ fn absent_param() -> ParamContract {
     }
 }
 
-#[cfg(feature = "aims")]
 fn used_param() -> ParamContract {
     ParamContract {
         access: AccessClass::Owned,
@@ -508,7 +502,6 @@ fn used_param() -> ParamContract {
     }
 }
 
-#[cfg(feature = "aims")]
 #[test]
 fn absent_param_with_no_uses_ok() {
     // v0 = param (Absent), v1 = let unit, return v1
@@ -538,7 +531,6 @@ fn absent_param_with_no_uses_ok() {
     );
 }
 
-#[cfg(feature = "aims")]
 #[test]
 fn absent_param_with_uses_detected() {
     // v0 = param (Absent), return v0
@@ -561,7 +553,6 @@ fn absent_param_with_uses_detected() {
     );
 }
 
-#[cfg(feature = "aims")]
 #[test]
 fn used_param_with_uses_ok() {
     // v0 = param (Once cardinality), return v0
@@ -582,7 +573,6 @@ fn used_param_with_uses_ok() {
     );
 }
 
-#[cfg(feature = "aims")]
 #[test]
 fn absent_param_used_in_instruction_detected() {
     // v0 = param (Absent), v1 = Apply(f, [v0]), return v1
@@ -616,7 +606,6 @@ fn absent_param_used_in_instruction_detected() {
     );
 }
 
-#[cfg(feature = "aims")]
 #[test]
 fn mixed_absent_and_used_params() {
     // v0 = param (Absent), v1 = param (Once), return v1

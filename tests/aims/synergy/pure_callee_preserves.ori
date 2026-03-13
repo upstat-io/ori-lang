@@ -23,6 +23,6 @@
 @main () -> void = {
     let $result = test_pure();
     // total=6, nums.len()=4 → 10
-    assert_eq(actual: result, expected: 10);
+    if result != 10 then panic(msg: "expected 10");
     print(msg: "pure_callee_preserves: pass")
 }
