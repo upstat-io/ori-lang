@@ -229,6 +229,61 @@ test file locations, Ori program verification
 
 ---
 
+### Section 12: FIP Proof Obligations & Enforcement
+**File:** `section-12-fip-enforcement.md` | **Status:** Not Started
+
+```
+FIP proof obligations, FP2 Theorem 2, allocation balance, deallocation balance
+may_deallocate, EffectSummary, constant stack, has_unbounded_stack
+FipContract::Certified, FipContract::Bounded, FipContract::Conditional
+FIP enforcement verifier, verify_fip_contract, FipVerificationError
+CertifiedButHasMissedReuses, CertifiedButAllocates, CertifiedButUnboundedStack
+BoundedExceeded, ConditionalParamMismatch
+FipEvidence, missed_reuses, contract/emission mismatch
+extract_contract, is_fbip, may_allocate, post-emission update
+tail-call rewriting, syntactic tail position, self-recursive SCC
+is_in_tail_position, tail_call/mod.rs, pre-emission tail position check
+stale documentation, Stage 1 banner, contract/mod.rs
+aims/verify/mod.rs, aims/verify/fip.rs, pub mod verify
+accumulate_effect, state_map.rs, EffectSummary Default derive
+struct_excessive_bools, clippy reason, 6 independent effect flags
+Koka CheckFBIP, Lean 4 RC.lean, FP2 Theorem 2
+pipeline/aims_pipeline.rs, post-emission may_deallocate update, step 5a
+```
+
+---
+
+### Section 13: TRMC Realization & Soundness
+**File:** `section-13-trmc-realization.md` | **Status:** Not Started
+
+```
+TRMC, tail recursion modulo context, modulo cons, constructor context
+ContextBehavior, preserves_context, consumes_hole, requires_unique_context
+may_resume_nonlinearly, interprocedural inference, extract_contract
+ContextBehavior Default, manual Default impl, derive removal
+soundness gate, may_share, per-variable uniqueness, Lemma 2
+unique linear chain, effect purity, non-linear resumption
+fixpoint iteration edge case, first SCC iteration, local_sigs
+effect_summary, state_map.effect_summary(), post-convergence may_share
+lifting pre-pass, A-normal form, lift_constructor_args, var_types extension
+4-equation algorithm, base, tail, tlet, tmatch, Figure 2
+Minamide tuple, context composition, context application
+in-place transform, optional context parameter, auxiliary function
+rewrite_trmc, normalize/rewrite.rs, normalize/lift.rs, normalize/verify.rs
+TrmcContext, TrmcVerificationError, NonLinearContext
+context laws, appctx, appcomp, post-rewrite verification
+func.clone(), rollback mechanism, verification failure restore
+ContextOpen, ContextClose, AimsEvent, event consumption
+NormalizationResult, was_transformed, context_regions, rollback
+&mut ArcFunction, normalize_function signature change, Option<&MemoryContract>
+detect_trmc_candidates, populate_context_events, detect_context_regions
+pipeline re-analysis, normalize_function, aims_pipeline.rs
+compute_var_reprs re-run, detect_immortals re-run, idempotent rewrite
+Leijen Lorenzen JFP 2025, FIPTree PLDI 2024, Koka CTail
+```
+
+---
+
 ## Quick Reference
 
 | ID | Title | File |
@@ -245,10 +300,12 @@ test file locations, Ori program verification
 | 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` |
 | 10 | Unified Realization | `section-10-unified-realization.md` |
 | 11 | Integration Verification | `section-11-integration-verification.md` |
+| 12 | FIP Proof Obligations & Enforcement | `section-12-fip-enforcement.md` |
+| 13 | TRMC Realization & Soundness | `section-13-trmc-realization.md` |
 
 ## Performance Validation
 
 Use `/benchmark short` after modifying hot paths.
 
-**When to benchmark:** Sections 02, 03, 06, 09 (compilation speed); Sections 08, 11 (codegen quality, end-to-end)
-**Skip benchmarks for:** Section 01 (data structures only)
+**When to benchmark:** Sections 02, 03, 06, 09, 13 (compilation speed); Sections 08, 11 (codegen quality, end-to-end)
+**Skip benchmarks for:** Section 01 (data structures only), Section 12 (verification-only, no hot paths)

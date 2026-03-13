@@ -379,10 +379,10 @@ fn emit_rc_unified(
     metrics::SynergyMetrics,
 ) {
     use crate::aims::emit_rc::{
-        block_id, coalesce_block_rc, collect_all_borrowed_defs, collect_borrowed_defs,
-        collect_defined_vars, compute_child_effective_last_use, emit_dead_at_entry_decs,
-        emit_dead_invoke_dsts, emit_edge_cleanup, emit_terminator_rc, precompute_block_uses,
-        BlockCtx,
+        block_id, build_alias_map, coalesce_block_rc, collect_all_borrowed_defs,
+        collect_borrowed_defs, collect_defined_vars, compute_child_effective_last_use,
+        emit_dead_at_entry_decs, emit_dead_invoke_dsts, emit_edge_cleanup, emit_terminator_rc,
+        precompute_block_uses, BlockCtx,
     };
 
     debug_assert!(
@@ -391,6 +391,7 @@ fn emit_rc_unified(
     );
 
     let all_borrowed_defs = collect_all_borrowed_defs(func);
+    let alias_map = build_alias_map(func);
     let mut all_death_events = Vec::new();
     let mut all_alloc_events = Vec::new();
     let mut block_deferred: FxHashMap<usize, Vec<(ArcVarId, RcStrategy)>> = FxHashMap::default();
@@ -431,7 +432,7 @@ fn emit_rc_unified(
             death_events,
             alloc_events,
             walk_metrics,
-        } = walk::walk_body_unified(&ctx, &old_body, &mut new_body);
+        } = walk::walk_body_unified(&ctx, &old_body, &mut new_body, &alias_map);
         synergy.merge(&walk_metrics);
 
         // Phase C: terminator uses and cleanup.

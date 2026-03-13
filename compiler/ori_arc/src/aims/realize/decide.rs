@@ -76,6 +76,8 @@ pub enum DecisionSite {
     Use {
         /// Whether the variable has remaining uses or exit liveness.
         has_future_use: bool,
+        /// How this variable is used at the instruction site.
+        semantics: UseSemantics,
     },
     /// The variable is defined by this instruction but never used in the
     /// block and dead at block exit. Immediate `RcDec` after definition.
@@ -92,12 +94,41 @@ pub enum DecisionSite {
         /// Variable is at an owned-transfer call position (Apply/Invoke).
         /// Callee takes ownership — no caller-side `RcDec`.
         is_owned_call_position: bool,
+        /// `Project` source with non-scalar result (transfer semantics).
+        /// The projected value takes ownership — suppress source `RcDec`.
+        is_project_transfer: bool,
         /// Parent aggregate with borrowed children that have later uses.
         /// Dec must be deferred until all children are dead.
         has_deferred_children: bool,
         /// Reuse candidacy context (shape, uniqueness, cardinality).
         reuse: ReuseContext,
     },
+}
+
+/// RC identity classification for a variable use.
+///
+/// The legacy backward walk (`rc_insert`) implicitly encoded RC identity via
+/// liveness propagation through `Let { Var }` alias definitions and the
+/// `is_borrowing_instr` check for `Project` instructions. The unified forward
+/// walk makes this classification explicit.
+///
+/// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — `proj i x` borrows `x`;
+/// if the result is an object, Inc it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UseSemantics {
+    /// Normal use — emit `RcInc` if `has_future_use`.
+    Normal,
+    /// `Let { dst, Var(src) }` alias use. The alias root variable already
+    /// received an `RcInc` covering this alias's entire lifetime.
+    /// No independent `RcInc` needed.
+    AliasOf,
+    /// `Project` source where the result is scalar (borrowing semantics).
+    /// No pre-use `RcInc`. Source may still get a last-use `RcDec`.
+    BorrowingProject,
+    /// `Project` source where the result is non-scalar (transfer semantics).
+    /// No pre-use `RcInc`. Source last-use `RcDec` is suppressed — the
+    /// projected value takes ownership of the RC reference.
+    TransferProject,
 }
 
 /// State-derived context for reuse candidacy at a death point.
@@ -145,11 +176,23 @@ pub fn decide(ctx: &DecisionContext) -> InstructionDecisions {
     }
 
     match &ctx.site {
-        DecisionSite::Use { has_future_use } => InstructionDecisions {
-            rc: if *has_future_use {
-                RcDecision::Inc
-            } else {
-                RcDecision::None
+        DecisionSite::Use {
+            has_future_use,
+            semantics,
+        } => InstructionDecisions {
+            rc: match semantics {
+                // Normal use: Inc if future use exists.
+                UseSemantics::Normal => {
+                    if *has_future_use {
+                        RcDecision::Inc
+                    } else {
+                        RcDecision::None
+                    }
+                }
+                // Alias/Project sources: RC handled by root or projected value.
+                UseSemantics::AliasOf
+                | UseSemantics::BorrowingProject
+                | UseSemantics::TransferProject => RcDecision::None,
             },
             reuse: ReuseDecision::None,
         },
@@ -169,6 +212,7 @@ fn decide_last_use(site: &DecisionSite) -> InstructionDecisions {
         is_consuming_primop,
         is_ownership_transfer,
         is_owned_call_position,
+        is_project_transfer,
         has_deferred_children,
         reuse,
     } = site
@@ -200,6 +244,19 @@ fn decide_last_use(site: &DecisionSite) -> InstructionDecisions {
 
     // Callee takes ownership at this call position — no caller-side Dec.
     if *is_owned_call_position {
+        return InstructionDecisions {
+            rc: RcDecision::None,
+            reuse: ReuseDecision::None,
+        };
+    }
+
+    // Project source with non-scalar result (transfer semantics).
+    // The projected value takes ownership of the RC reference from the
+    // parent aggregate. Emitting a Dec for the source would double-free.
+    //
+    // Ref: Lean 4 `proj i x` — when the result is an object, ownership
+    // transfers from x to the projection. No separate Dec for x.
+    if *is_project_transfer {
         return InstructionDecisions {
             rc: RcDecision::None,
             reuse: ReuseDecision::None,

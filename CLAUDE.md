@@ -1,5 +1,6 @@
 - **Under construction** — Rust tooling trusted; Ori tooling (lexer, parser, typeck, eval, test runner) is NOT. Bugs are in the compiler, not user code.
 - **One system** — compiler, typeck, eval, codegen, tests, spec, stdlib are one machine. No "unrelated", "pre-existing", or "out of scope." Fix every issue encountered. Add discovered issues to todo list.
+- **ZERO DEFERRAL on bugs** — when you discover a bug, issue, leak, performance problem, or anything broken: (1) IMMEDIATELY add it to your todo list, (2) fix it NOW in this session. No "tracked for later", no "known issue", no "pre-existing", no "separate fix needed". The discovery IS the assignment. There are zero valid reasons to defer — not scope, not complexity, not "it was already broken". If you found it, you fix it.
 - **Proper fixes only** — no workarounds, hacks, shortcuts, or temporary fixes. Correct architecture over quick hacks.
 - **When unsure, STOP and ASK** — don't guess or assume
 - **Fact-check** against spec. Consult `~/projects/reference_repos/lang_repos/` (Rust, Go, Zig, TS, Gleam, Elm, Roc, Swift, Koka, Lean 4).

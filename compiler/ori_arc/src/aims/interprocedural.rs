@@ -25,7 +25,7 @@
 mod tests;
 
 use ori_ir::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::borrow::BuiltinOwnershipSets;
 use crate::graph::call_graph::CallGraph;
@@ -38,7 +38,7 @@ use super::contract::{
 };
 use super::intraprocedural::AimsStateMap;
 use super::intraprocedural::{analyze_function, compute_requires_unique_params};
-use super::lattice::Uniqueness;
+use super::lattice::{AccessClass, Uniqueness};
 
 use crate::ownership::Ownership;
 
@@ -474,6 +474,87 @@ fn terminator_use_count(term: &crate::ir::ArcTerminator, var: ArcVarId) -> usize
     }
 }
 
+/// Detect parameters that flow (possibly through Let aliases) to a callee
+/// that consumes them at an Owned position.
+///
+/// The backward analysis only tracks cardinality demand for Apply arguments,
+/// not access class. Parameters passed to consuming builtins (like `iter`)
+/// retain Borrowed access in the state map. This scan upgrades them.
+///
+/// Walks all blocks, tracks Let alias chains from param vars, and checks
+/// Apply/Invoke call sites against callee contracts in `sigs`.
+fn detect_consumed_params(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    param_vars: &FxHashMap<ArcVarId, usize>,
+) -> FxHashSet<usize> {
+    // Build alias map: for each Let { dst, Var(src) }, map dst → src's param index.
+    let mut alias_to_param: FxHashMap<ArcVarId, usize> = param_vars.clone();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: crate::ir::ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if let Some(&param_idx) = alias_to_param.get(src) {
+                    alias_to_param.insert(*dst, param_idx);
+                }
+            }
+        }
+    }
+
+    let mut consumed = FxHashSet::default();
+
+    // Scan Apply instructions for args that alias a parameter and flow to
+    // a callee with an Owned param contract.
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                let callee_contract = sigs.get(callee);
+                for (pos, &arg) in args.iter().enumerate() {
+                    if let Some(&param_idx) = alias_to_param.get(&arg) {
+                        let callee_owned = callee_contract.is_some_and(|c| {
+                            c.params
+                                .get(pos)
+                                .is_some_and(|p| p.access == AccessClass::Owned)
+                        });
+                        if callee_owned {
+                            consumed.insert(param_idx);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also check Invoke terminators.
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            let callee_contract = sigs.get(callee);
+            for (pos, &arg) in args.iter().enumerate() {
+                if let Some(&param_idx) = alias_to_param.get(&arg) {
+                    let callee_owned = callee_contract.is_some_and(|c| {
+                        c.params
+                            .get(pos)
+                            .is_some_and(|p| p.access == AccessClass::Owned)
+                    });
+                    if callee_owned {
+                        consumed.insert(param_idx);
+                    }
+                }
+            }
+        }
+    }
+
+    consumed
+}
+
 // Contract extraction
 
 /// Extract a [`MemoryContract`] from a converged intraprocedural state map.
@@ -487,10 +568,27 @@ fn extract_contract(
     classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
 ) -> MemoryContract {
+    // Build a map of param_var → param_index for lookup.
+    let param_vars: FxHashMap<ArcVarId, usize> = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.var, i))
+        .collect();
+
+    // Compute which parameters flow (possibly through Let aliases) to a
+    // callee that consumes them at an Owned position. The backward analysis
+    // doesn't propagate access class through Apply instructions (it only
+    // tracks cardinality demand), so parameters that reach a consuming
+    // builtin (e.g., `iter`) stay at Borrowed. This post-hoc upgrade
+    // catches those cases.
+    let consumed_params = detect_consumed_params(func, sigs, &param_vars);
+
     let params: Vec<ParamContract> = func
         .params
         .iter()
-        .map(|param| {
+        .enumerate()
+        .map(|(i, param)| {
             if classifier.is_scalar(param.ty) {
                 // Scalar parameters don't participate in RC.
                 // Use conservative access to avoid confusion — scalars
@@ -498,8 +596,17 @@ fn extract_contract(
                 return ParamContract::CONSERVATIVE;
             }
             let state = state_map.var_state_at_block_entry(func.entry, param.var);
+            // Upgrade access to Owned if the parameter flows to a consuming
+            // callee. This ensures the interprocedural contract correctly
+            // reflects that the function consumes (not just borrows) the
+            // parameter's data.
+            let access = if consumed_params.contains(&i) {
+                AccessClass::Owned
+            } else {
+                state.access
+            };
             ParamContract {
-                access: state.access,
+                access,
                 consumption: state.consumption,
                 cardinality: state.cardinality,
                 // v1: locality from backward demand

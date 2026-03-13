@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Intraprocedural Analysis"
-status: in-progress
+status: complete
 goal: "Single backward dataflow pass computing AimsState for every variable at every program point"
 inspired_by:
   - "GHC demand analysis backward pass (compiler/GHC/Core/Opt/DmdAnal.hs)"
@@ -35,12 +35,12 @@ sections:
     status: complete
   - id: "02.7"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 02: Intraprocedural Analysis
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Implement a single backward dataflow pass over an `ArcFunction` that
 computes an `AimsState` for every variable at every program point, consuming
 interprocedural signatures from Section 03. The analysis must converge in bounded
@@ -459,7 +459,7 @@ analysis.
 - [x] Sparse event table records reusable allocation candidates
 - [x] Sparse event table records local-allocation eligibility (v1: conservative)
 - [x] Sparse event table records FIP gates (blocked by Stage 2: Section 03 FipContract extension)
-- [ ] Constructor-context events recorded when normalize/ pass has run (blocked by Stage 3: aims/normalize/ module)
+- [x] Constructor-context events recorded when normalize/ pass has run (2026-03-13)
 - [x] All 10 validation corpus tests pass with expected cardinality at key points
 
 - [x] **Validation corpus** (10 hand-traced test cases with expected cardinality):
