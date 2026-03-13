@@ -1,16 +1,19 @@
 ---
 section: "11"
 title: "Integration Verification"
-status: not-started
+status: in-progress
 goal: "Prove that all 7 dimensions work as one team through concrete programs, quantitative metrics, and regression guards"
 depends_on: ["09", "10"]
 sections:
+  - id: "11.0"
+    title: "Pre-Work: Verify Baseline Health"
+    status: complete
   - id: "11.1"
     title: "Cross-Dimension Test Programs"
-    status: not-started
+    status: complete
   - id: "11.2"
     title: "Synergy Metrics"
-    status: not-started
+    status: in-progress
   - id: "11.3"
     title: "Regression Guards"
     status: not-started
@@ -64,18 +67,24 @@ Section 11 is primarily a testing/measurement section. Its failure modes are:
 Before writing synergy tests, confirm the existing test suite is clean. These
 items protect against regression confusion (new tests failing for unrelated reasons).
 
-- [ ] **`cargo test --workspace --features aims` passes green** — no pre-existing
+- [x] **`cargo test --workspace --features aims` passes green** — no pre-existing
   failures in `emit_rc/tests.rs`, `emit_reuse/tests.rs`, `intraprocedural/tests.rs`,
   `lattice/tests.rs`, `interprocedural/tests.rs`.
-- [ ] **`tests/aims/` existing programs all pass**: `cow_chain.ori`,
+  Verified (2026-03-13): All green, 0 failures across workspace.
+- [x] **`tests/aims/` existing programs all pass**: `cow_chain.ori`,
   `closure_capture.ori`, `nested_pattern_match.ori`, `mixed_ownership.ori` must
   compile and run correctly before adding `tests/aims/synergy/`.
-- [ ] **09.0 cleanup complete** — `EffectClass` deduplication, unused params removed.
+  Verified (2026-03-13): 4169 spec tests pass, 0 failures. All 5 aims programs
+  (cow_chain, closure_capture, nested_pattern_match, mixed_ownership, recursive_tree) pass.
+- [x] **09.0 cleanup complete** — `EffectClass` deduplication, unused params removed.
   The lattice and transfer modules must be in their final clean state before
   adding cross-dimension tests that inspect their internals.
-- [ ] **`realize/tests.rs` location confirmed** — since `realize/` is a new module
+  Verified (2026-03-13): Single EffectClass definition in dimensions.rs, no duplicates.
+  emit_rc split to 9 files (all <500 lines), emit_reuse split to 6 files (all <500 lines).
+- [x] **`realize/tests.rs` location confirmed** — since `realize/` is a new module
   (`realize/mod.rs`), its tests live in `realize/tests.rs` per the sibling-file
   convention. Confirm the module declaration uses `#[cfg(test)] mod tests;` only.
+  Verified (2026-03-13): `#[cfg(test)]` on line 25, `mod tests;` on line 26.
 
 ---
 
@@ -109,7 +118,7 @@ the expected improvement is.
 
 ### Locality × Uniqueness
 
-- [ ] **`block_local_unique.ori`**: Create a struct value in a block, push into a
+- [x] **`block_local_unique.ori`**: Create a struct value in a block, push into a
   list created in the same block, consume the list before block end. Without
   locality: `MaybeShared` → Dynamic COW check on each push. With locality:
   `BlockLocal + Owned + Once → Unique` → StaticUnique on each push, no runtime check.
@@ -129,7 +138,7 @@ the expected improvement is.
   };
   ```
 
-- [ ] **`function_local_linear_skip.ori`**: Create a list, pass it to a pure
+- [x] **`function_local_linear_skip.ori`**: Create a list, pass it to a pure
   function that only reads it (borrowed), consume the result. Without locality:
   RcInc at function entry for each borrowed use, RcDec at each last use.
   With locality+effect: `FunctionLocal + Linear + may_share==false` → RC-skip
@@ -143,7 +152,7 @@ the expected improvement is.
 
 ### Effect × Uniqueness
 
-- [ ] **`pure_callee_preserves.ori`**: Create a list, call a pure aggregation
+- [x] **`pure_callee_preserves.ori`**: Create a list, call a pure aggregation
   function (may_share==false), then push to the list after the call. Without
   effect: uniqueness degrades to `MaybeShared` after call (conservative — callee
   might have RcInc'd it). With effect: `may_share == false` → uniqueness
@@ -163,7 +172,7 @@ the expected improvement is.
   };
   ```
 
-- [ ] **`effect_fip_natural.ori`**: Define a simple sum type (e.g., `IntOpt`
+- [x] **`effect_fip_natural.ori`**: Define a simple sum type (e.g., `IntOpt`
   wrapping an `int`), write a function that pattern-matches on it and returns a
   new variant. The function creates one allocation for each consumed allocation
   (net allocation = 0). Without effect analysis: needs a separate FIP pass.
@@ -186,7 +195,7 @@ the expected improvement is.
 
 ### Shape × Uniqueness × Cardinality
 
-- [ ] **`reuse_during_analysis.ori`**: Define a simple sum type and a function
+- [x] **`reuse_during_analysis.ori`**: Define a simple sum type and a function
   that maps it to the same type (destructure + reconstruct). Without shape
   activation: reuse detected during emission scan (emit_reuse/detect.rs scans
   death events). With shape: `ReusableCtor + Once + Unique` → reuse recorded
@@ -210,7 +219,7 @@ the expected improvement is.
   };
   ```
 
-- [ ] **`collection_buffer_unique.ori`**: Create a list, push to it multiple times
+- [x] **`collection_buffer_unique.ori`**: Create a list, push to it multiple times
   in sequence (all from the same unique source), return it. Without shape:
   COW check on each push (Dynamic — each push sees MaybeShared). With shape:
   `CollectionBuffer + Unique` → StaticUnique on each push.
@@ -232,7 +241,7 @@ the expected improvement is.
 
 ### Locality × Effect (combined)
 
-- [ ] **`local_pure_chain.ori`**: Chain of 3 pure function calls on a locally-created
+- [x] **`local_pure_chain.ori`**: Chain of 3 pure function calls on a locally-created
   list. Without combined dimensions: each call site conservatively adds RC ops
   (inc before call, dec after). With locality (list stays FunctionLocal) AND
   effect (all callees have may_share==false): the inc+dec pair at each call
@@ -266,7 +275,7 @@ the expected improvement is.
 
 ### Full 7-Dimension
 
-- [ ] **`seven_dimensions.ori`**: A program that exercises all 7 dimensions in one
+- [x] **`seven_dimensions.ori`**: A program that exercises all 7 dimensions in one
   function: creates a local sum-type value (locality=BlockLocal), with a reusable
   constructor (shape=ReusableCtor), used once (cardinality=Once), owned
   (access=Owned), consumed linearly (consumption=Linear), provably unique
@@ -296,7 +305,7 @@ the expected improvement is.
 
 ### Rust-Level Tests
 
-- [ ] **`cross_dimension_synergy_tests` module** in `compiler/ori_arc/src/aims/realize/tests.rs`:
+- [x] **`cross_dimension_synergy_tests` module** in `compiler/ori_arc/src/aims/realize/tests.rs`:
   For each Ori test program above, a Rust-level test that builds the equivalent
   `ArcFunction`, runs the AIMS pipeline, and asserts:
   - The specific cross-dimension rule fired (state contains expected values)
@@ -317,35 +326,34 @@ the expected improvement is.
 
 Quantify how much cross-dimensional reasoning contributes.
 
-- [ ] **Define `SynergyMetrics`:**
-  ```rust
-  pub struct SynergyMetrics {
-      /// RC decisions that required 2+ dimensions (not just access+consumption)
-      pub multi_dim_rc_decisions: usize,
-      /// Total RC decisions made
-      pub total_rc_decisions: usize,
-      /// COW decisions upgraded from Dynamic to StaticUnique via cross-dim proof
-      pub cow_upgrades: usize,
-      /// Reuse opportunities found via cross-dim proof (shape+uniqueness+cardinality)
-      pub cross_dim_reuse: usize,
-      /// FIP certifications achieved via extract_contract() reading converged
-      /// effect+locality state (contract layer, not realization)
-      pub natural_fip: usize,
-      /// Canonicalize cross-dimension rules fired (total across all iterations)
-      pub canonicalize_cross_fires: usize,
-  }
-  ```
+- [x] **Define `SynergyMetrics`:**
+  Implemented in `compiler/ori_arc/src/aims/realize/metrics.rs` (2026-03-13).
+  Fields: `multi_dim_rc_decisions`, `total_rc_decisions`, `cow_upgrades`,
+  `total_cow_decisions`, `cross_dim_reuse`, `natural_fip`,
+  `canonicalize_cross_fires`. Plus `merge()`, `multi_dim_rc_percent()`,
+  and `report()` methods. Added to `RealizationResult.synergy_metrics`.
 
-- [ ] **Instrument `decide()` in `realize/decide.rs`** to populate RC/reuse/COW
+- [x] **Instrument `decide()` in `realize/decide.rs`** to populate RC/reuse/COW
   metrics as a side effect of making decisions. Each decision that reads 2+
   dimensions increments the appropriate counter. `natural_fip` is populated by
   `extract_contract()` in interprocedural analysis (not by `decide()`).
+  Implemented (2026-03-13): Phase 1 metrics accumulated in `walk.rs` at each
+  `decide()` call site. Tracks `total_rc_decisions`, `multi_dim_rc_decisions`
+  (reuse sites), and `cross_dim_reuse` (StaticReuse from MaybeShared+Once+
+  ReusableCtor cross-dim proof).
 
-- [ ] **Instrument `canonicalize()`** to count cross-dimension rule firings.
+- [x] **Instrument `canonicalize()`** to count cross-dimension rule firings.
   Only count rules 4+ (the new ones from Section 09.3).
+  Implemented (2026-03-13): `canonicalize_single_pass()` returns per-pass
+  cross-dim fire count. `CanonicalizeFeedback.cross_dim_fires` accumulates.
+  Pipeline sets `synergy_metrics.canonicalize_cross_fires` from converged
+  state analysis via `AimsStateMap::count_cross_dim_states()`.
 
-- [ ] **Report metrics** in pipeline output (via `tracing::info!` at end of
+- [x] **Report metrics** in pipeline output (via `tracing::info!` at end of
   `realize()`). Also available programmatically in `RealizationResult.synergy_metrics`.
+  Implemented (2026-03-13): `SynergyMetrics::report()` emits `tracing::info!`
+  with all fields after Phase 2 completes. `RealizationResult.synergy_metrics`
+  is the programmatic interface.
 
 - [ ] **Baseline measurements** on golden corpus and full spec suite:
   | Metric | Golden Corpus | Full Spec | Benchmarks |
@@ -409,22 +417,32 @@ Quantify how much cross-dimensional reasoning contributes.
 ## 11.4 Completion Checklist
 
 ### Pre-Work (11.0)
-- [ ] `cargo test --workspace --features aims` green before any new tests added
-- [ ] Existing `tests/aims/` programs compile and pass
-- [ ] 09.0 cleanup (EffectClass dedup, unused params) confirmed complete
-- [ ] `realize/tests.rs` sibling file convention confirmed
+- [x] `cargo test --workspace --features aims` green before any new tests added (2026-03-13)
+- [x] Existing `tests/aims/` programs compile and pass (2026-03-13)
+- [x] 09.0 cleanup (EffectClass dedup, unused params) confirmed complete (2026-03-13)
+- [x] `realize/tests.rs` sibling file convention confirmed (2026-03-13)
 
 ### Integration Tests
-- [ ] `tests/aims/synergy/` directory with 8+ cross-dimension test programs
+- [x] `tests/aims/synergy/` directory with 8+ cross-dimension test programs
   (verify all programs compile with `cargo st tests/aims/synergy/` before adding to plan)
-- [ ] Each test program documents which dimensions interact and expected improvement
-- [ ] Existing `tests/aims/` programs checked: cow_chain.ori, closure_capture.ori,
+  Created (2026-03-13): 8 programs — block_local_unique, function_local_linear_skip,
+  pure_callee_preserves, effect_fip_natural, reuse_during_analysis,
+  collection_buffer_unique, local_pure_chain, seven_dimensions. All 4169 spec tests pass.
+- [x] Each test program documents which dimensions interact and expected improvement
+  Verified (2026-03-13): Each .ori file has a header comment with dimensions and expected improvement.
+- [x] Existing `tests/aims/` programs checked: cow_chain.ori, closure_capture.ori,
   nested_pattern_match.ori, mixed_ownership.ori should all pass before adding synergy tests
-- [ ] `SynergyMetrics` struct defined; RC/reuse/COW metrics populated by
+  Verified (2026-03-13): All 5 existing programs pass (including recursive_tree.ori).
+- [x] `SynergyMetrics` struct defined; RC/reuse/COW metrics populated by
   `realize_rc_reuse()` Phase 1; `natural_fip` populated by `extract_contract()`
   in interprocedural analysis (not by realization)
-- [ ] `SynergyMetrics` from `realize_annotations()` Phase 2 (canonicalize_cross_fires)
+  Implemented (2026-03-13): `realize/metrics.rs` with all fields. Phase 1 walk
+  accumulates RC/reuse metrics. Phase 2 annotate_block accumulates COW metrics.
+- [x] `SynergyMetrics` from `realize_annotations()` Phase 2 (canonicalize_cross_fires)
   merged into single `RealizationResult.synergy_metrics`
+  Implemented (2026-03-13): Pipeline sets canonicalize_cross_fires from
+  `AimsStateMap::count_cross_dim_states()`. Phase 2 COW metrics accumulated
+  into same `result.synergy_metrics`.
 - [ ] Baseline measurements recorded for golden corpus, spec suite, benchmarks
 - [ ] Per-rule regression tests: each canonicalize rule (Rules 4-8) has fire/no-fire
   test pair in `compiler/ori_arc/src/aims/lattice/tests.rs`
@@ -442,7 +460,10 @@ Quantify how much cross-dimensional reasoning contributes.
 - [ ] Ori test programs: `tests/aims/synergy/*.ori` (8+ programs per 11.1)
 - [ ] Rust unit tests: `compiler/ori_arc/src/aims/realize/tests.rs` (cross_dimension_synergy_tests module)
 - [ ] Per-rule unit tests: `compiler/ori_arc/src/aims/lattice/tests.rs` (Rules 4-8 fire/no-fire)
-- [ ] Synergy metrics tests: `compiler/ori_arc/src/aims/realize/tests.rs` (metrics accumulation)
+- [x] Synergy metrics tests: `compiler/ori_arc/src/aims/realize/tests.rs` (metrics accumulation)
+  Implemented (2026-03-13): 7 tests — default_is_zero, merge_additive,
+  multi_dim_percent, percent_zero_total, canonicalize_feedback_tracks_cross_dim_fires,
+  canonicalize_feedback_rule8_cross_dim_fire, canonicalize_feedback_no_fires_for_canonical_state.
 - [ ] Verify ALL Ori programs compile with `cargo st tests/aims/synergy/` before adding
   Rust-level assertions. Do NOT write Rust tests for Ori programs that don't compile.
 

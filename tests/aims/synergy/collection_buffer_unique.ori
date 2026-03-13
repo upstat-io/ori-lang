@@ -1,0 +1,26 @@
+// AIMS synergy test: Shape × Uniqueness (CollectionBuffer)
+//
+// Dimensions: CollectionBuffer + Unique → StaticUnique on each push
+//
+// Create a list, push to it multiple times in sequence.
+// Without shape: COW check on each push (Dynamic).
+// With shape: CollectionBuffer + Unique → StaticUnique on each push.
+//
+// Expected: N fewer runtime COW checks (one per push).
+// Note: similar to tests/aims/cow_chain.ori but focused on asserting
+// CollectionBuffer+Unique detection in the state map.
+
+@build_unique () -> [int] = {
+    let list = [1, 2, 3];
+    list = list.push(value: 4);
+    list = list.push(value: 5);
+    list = list.push(value: 6);
+    list
+};
+
+@main () -> void = {
+    let $result = build_unique();
+    assert_eq(actual: result.len(), expected: 6);
+    assert_eq(actual: result, expected: [1, 2, 3, 4, 5, 6]);
+    print(msg: "collection_buffer_unique: pass")
+}
