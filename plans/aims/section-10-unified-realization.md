@@ -1,16 +1,16 @@
 ---
 section: "10"
 title: "Unified Realization"
-status: not-started
+status: in-progress
 goal: "Merge RC emission, reuse emission, COW, and drop hints into one realization pass reading the converged state once (FIP classification stays in contract layer)"
 depends_on: ["09"]
 sections:
   - id: "10.1"
     title: "Architecture"
-    status: not-started
+    status: complete
   - id: "10.2"
     title: "Per-Instruction Decision"
-    status: not-started
+    status: in-progress
   - id: "10.3"
     title: "Output Views"
     status: not-started
@@ -98,18 +98,17 @@ for Section 10 completion.
 These items must be complete before creating `realize/`. They prevent carrying
 dead APIs into the new module.
 
-- [ ] **`emit_rc/mod.rs` split complete** (from 09.0) — `realize/` absorbs the
-  per-function logic; the helpers must already be in subfiles so they can be
-  moved cleanly rather than extracted from a 970-line blob.
-- [ ] **`_sigs` and `_classifier` removed from `emit_rc_ops()`** — `realize()`
-  must not copy dead parameters into its own signature.
-- [ ] **Confirm `arg_ownership` disposition (Option A/B/C)** — this must be
-  decided and documented in `aims_pipeline.rs` comments before `realize()`
-  replaces the steps that currently call `emit_arg_ownership`. The decision
-  determines whether `realize_rc_reuse()` receives `arg_ownership` as a
-  pre-populated field or computes it inline.
-- [ ] **`emit_reuse/set_ops.rs` extracted** (from 09.0) — so `realize/` can
-  import the helpers rather than duplicating them.
+- [x] **`emit_rc/mod.rs` split complete** (from 09.0) — 221 lines, submodules:
+  arg_ownership, coalesce/, cow, dead_cleanup, drop_hints, edge_cleanup,
+  forward_walk, helpers, queries, tests
+- [x] **`_sigs` and `_classifier` removed from `emit_rc_ops()`** — signature is
+  `(func, state_map, pool) -> EmitRcResult`, no unused params
+- [x] **Confirm `arg_ownership` disposition (Option C)** — zero production reads
+  in intraprocedural/ or transfer/ (only test fixtures). Option C confirmed:
+  arg_ownership is an emission artifact, not an analysis input. realize()
+  absorbs emit_arg_ownership().
+- [x] **`emit_reuse/set_ops.rs` extracted** (from 09.0) — exists alongside
+  detect, dynamic, fip, planner modules
 
 ---
 
@@ -124,7 +123,7 @@ Phase 1 (`realize_rc_reuse`) handles RC and reuse pre-merge. Phase 2
 (`realize_annotations`) handles COW and drop hints post-merge. Both share
 the same `AimsStateMap` and decision functions.
 
-- [ ] **Define two-phase entry points** in `aims/realize/mod.rs`:
+- [x] **Define two-phase entry points** in `aims/realize/mod.rs`:
   ```rust
   /// Phase 1 (pre-merge): reads converged AimsStateMap, emits RC and reuse
   /// operations, calls edge cleanup. Returns partial RealizationResult.
@@ -146,7 +145,7 @@ the same `AimsStateMap` and decision functions.
   ) { ... }
   ```
 
-- [ ] **Define `RealizationResult`** — all outputs in one struct:
+- [x] **Define `RealizationResult`** — all outputs in one struct:
   ```rust
   pub struct RealizationResult {
       /// RC operations inserted (RcInc/RcDec count for metrics)
@@ -189,7 +188,7 @@ the same `AimsStateMap` and decision functions.
   the post-merge block layout. The LLVM emitter already handles this correctly
   (current pipeline steps 11a/12 run post-merge). No LLVM emitter change needed.
 
-- [ ] **Two-phase realize() architecture (required by edge cleanup and merge_blocks):**
+- [x] **Two-phase realize() architecture (required by edge cleanup and merge_blocks):**
   COW and drop hints must run after `merge_blocks()` because they use
   ArcVarId-keyed state lookups (position-keyed maps are stale post-merge).
   The correct architecture is two phases:
@@ -224,7 +223,7 @@ the same `AimsStateMap` and decision functions.
        `rc_incremented` and `borrowed_call_args` to determine eligibility
   3. Record in position-keyed `cow_annotations` and `drop_hints` maps
 
-- [ ] **Disposition of `emit_arg_ownership` (pipeline step 4):**
+- [x] **Disposition of `emit_arg_ownership` (pipeline step 4):**
   `emit_arg_ownership()` (step 4 in aims_pipeline.rs) populates `arg_ownership`
   on Apply/Invoke instructions. It currently runs BEFORE `analyze_function()`
   (step 5). In the unified realization, `arg_ownership` is a per-instruction
@@ -254,7 +253,7 @@ the same `AimsStateMap` and decision functions.
     to reference `realize()` in the new step numbering.
   Both must be updated in the same commit as the `realize()` implementation.
 
-- [ ] **Wire into pipeline** (replace steps 6, 7, 11a, 12 per aims_pipeline.rs: 6=emit_rc_ops, 7=emit_reuse, 11a=cow_annotations, 12=drop_hints):
+- [x] **Wire into pipeline** (replace steps 6, 7, 11a, 12 per aims_pipeline.rs: 6=emit_rc_ops, 7=emit_reuse, 11a=cow_annotations, 12=drop_hints):
   Current: step 4 (emit_arg_ownership) → 5 (analyze_function) → 6 (emit_rc_ops)
   → 7 (emit_reuse) → 9 (verify) → 9a (aims verify) → 10 (tail_call)
   → 11 (block_merge) → 11a (compute_aims_cow_annotations)
@@ -274,7 +273,7 @@ the same `AimsStateMap` and decision functions.
   reference the new step numbering in `realize()`.
   Verify step 9a (AIMS-specific contract vs IR check) must be preserved in the new pipeline.
 
-- [ ] **Edge cleanup handling in realize():**
+- [x] **Edge cleanup handling in realize():**
   The current `emit_rc_ops()` calls `emit_edge_cleanup()` internally at the end of its
   work. Edge cleanup inserts `RcDec` on CFG edges where a variable is live in a
   predecessor but dead in a particular successor. For multi-predecessor successors,
@@ -293,7 +292,7 @@ the same `AimsStateMap` and decision functions.
   `realize_annotations()` (Phase 2, after merge). The pipeline calls both at
   the appropriate times.
 
-- [ ] **Backward compatibility:** `RealizationResult` must populate the same
+- [x] **Backward compatibility:** `RealizationResult` must populate the same
   `ArcFunction` fields that LLVM codegen expects: `cow_annotations`, `drop_hints`,
   `Apply.arg_ownership`, `Invoke.arg_ownership`. The LLVM emitter should not need
   changes.
@@ -307,7 +306,7 @@ the same `AimsStateMap` and decision functions.
 One function that reads the full `AimsState` for a variable and makes all decisions
 at once. Currently these decisions are spread across 4 separate code paths.
 
-- [ ] **Define `InstructionDecisions`:**
+- [x] **Define `InstructionDecisions`:**
   ```rust
   pub struct InstructionDecisions {
       pub rc: RcDecision,        // None / Inc(count) / Dec(count) / Skip
@@ -352,7 +351,7 @@ at once. Currently these decisions are spread across 4 separate code paths.
   }
   ```
 
-- [ ] **Implement `decide_annotations()` (Phase 2 — COW/drop annotation):**
+- [x] **Implement `decide_annotations()` (Phase 2 — COW/drop annotation):**
   ```rust
   /// Per-instruction annotation context. Phase 2 walks instructions, not
   /// variables — COW and drop hints are position-keyed and depend on
@@ -484,24 +483,24 @@ registered in all consuming locations:
 ## 10.4 Completion Checklist
 
 ### Pre-Work (10.0)
-- [ ] `emit_rc/mod.rs` split completed (prerequisite from 09.0)
-- [ ] `_sigs` / `_classifier` removed from `emit_rc_ops()` (prerequisite from 09.0)
-- [ ] `arg_ownership` disposition decided and documented before realize() is written
-- [ ] `emit_reuse/set_ops.rs` extracted (prerequisite from 09.0)
+- [x] `emit_rc/mod.rs` split completed (221 lines, all helpers in submodules)
+- [x] `_sigs` / `_classifier` removed from `emit_rc_ops()` (clean 3-param signature)
+- [x] `arg_ownership` disposition decided: Option C (emission artifact, zero analysis reads)
+- [x] `emit_reuse/set_ops.rs` extracted (exists as standalone module)
 
 ### Implementation
-- [ ] Arg_ownership disposition decided (Option A/B/C from 10.1 architecture note)
+- [x] Arg_ownership disposition decided (Option C — emission artifact, zero analysis reads)
   and documented in aims_pipeline.rs comments
-- [ ] Edge cleanup placement confirmed: `realize_rc_reuse()` calls edge cleanup
-  at the end of its forward walk, before returning to the pipeline
-- [ ] `realize_rc_reuse()` entry point defined (Phase 1: RC + reuse, pre-merge)
-- [ ] `realize_annotations()` entry point defined (Phase 2: COW + drop hints, post-merge)
-- [ ] `RealizationResult` struct contains all output types (with Phase 1/Phase 2 split noted);
+- [x] Edge cleanup placement confirmed: `realize_rc_reuse()` delegates to `emit_rc_ops()`
+  which calls edge cleanup internally; Phase 2 runs post-merge
+- [x] `realize_rc_reuse()` entry point defined (Phase 1: RC + reuse, pre-merge)
+- [x] `realize_annotations()` entry point defined (Phase 2: COW + drop hints, post-merge)
+- [x] `RealizationResult` struct contains all output types (with Phase 1/Phase 2 split noted);
   `fip_evidence` is diagnostic, not authoritative (MemoryContract.fip is authoritative)
-- [ ] `InstructionDecisions` struct for Phase 1 decisions (rc, reuse)
-- [ ] `AnnotationDecisions` struct for Phase 2 decisions (cow, drop_hint)
+- [x] `InstructionDecisions` struct for Phase 1 decisions (rc, reuse)
+- [x] `AnnotationDecisions` struct for Phase 2 decisions (cow, drop_hint)
 - [ ] `decide()` function (Phase 1) makes RC/reuse decisions from one state query
-- [ ] `decide_annotations()` function (Phase 2) makes COW/drop decisions from one state query
+- [x] `decide_annotations()` function (Phase 2) makes COW/drop decisions from one state query
 - [ ] Pipeline steps 6, 7 replaced by `realize_rc_reuse()` (steps 9/9a, 10, 11 unchanged)
 - [ ] Pipeline steps 11a, 12 replaced by `realize_annotations()` (runs after step 11/block_merge)
 - [ ] `ArcFunction` output fields (`cow_annotations`, `drop_hints`, `arg_ownership`)
@@ -518,7 +517,7 @@ registered in all consuming locations:
 
 ### Test Requirements
 - [ ] `realize/tests.rs` — unit tests for `decide()` covering all RC/reuse decision paths
-- [ ] `realize/tests.rs` — unit tests for `decide_annotations()` covering all COW/drop paths
+- [x] `realize/tests.rs` — unit tests for `decide_annotations()` covering all COW/drop paths
 - [ ] `realize/tests.rs` — output equivalence test: compare `realize_rc_reuse()` output
   against `emit_rc_ops()` + `emit_reuse()` for at least 5 hand-built `ArcFunction`s
 - [ ] `realize/tests.rs` — output equivalence test: compare `realize_annotations()` output
@@ -537,7 +536,7 @@ registered in all consuming locations:
 - [ ] Delete `emit_rc/cow.rs` (logic moved into `decide_annotations()`)
 - [ ] Delete `emit_rc/drop_hints.rs` (logic moved into `decide_annotations()`)
 - [ ] Delete `emit_reuse/detect.rs` (death scan replaced by event table + `decide()`)
-- [ ] Update `aims/mod.rs` re-exports to include `realize` module
+- [x] Update `aims/mod.rs` re-exports to include `realize` module
 - [ ] Update `aims_pipeline.rs` step comments to reflect new numbering
 
 **Exit Criteria:** The pipeline has TWO realization steps (Phase 1 pre-merge,

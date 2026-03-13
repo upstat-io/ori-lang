@@ -198,6 +198,7 @@ pub(crate) fn run_shadow_pipeline_all(
         interner,
         builtins,
         verify_arc,
+        use_realize: false,
     };
     for clone in &mut aims_clones {
         let _ = super::aims_pipeline::run_aims_pipeline(clone, &aims_config);

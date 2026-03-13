@@ -15,6 +15,7 @@
 //! - [`builtins`] — hardcoded contracts for builtin methods
 //! - [`emit_rc`] — RC emission from converged state
 //! - [`emit_reuse`] — reuse emission from converged state
+//! - [`realize`] — unified realization (two-phase decision surface)
 
 pub mod builtins;
 pub mod contract;
@@ -24,4 +25,5 @@ pub mod immortal;
 pub mod interprocedural;
 pub mod intraprocedural;
 pub mod lattice;
+pub mod realize;
 pub mod transfer;

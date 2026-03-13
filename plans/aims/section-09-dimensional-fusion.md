@@ -1,7 +1,7 @@
 ---
 section: "09"
 title: "Dimensional Fusion"
-status: in-progress
+status: complete
 goal: "Make all 7 dimensions work as one team — every dimension constrains, proves, or overrides at least one other"
 depends_on: ["01", "02", "03", "04", "05", "06", "07", "08"]
 sections:
@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "09.6"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 09: Dimensional Fusion
@@ -951,8 +951,17 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
   HeapEscaping for escaping closures; once-closures preserve cardinality
   (fixed: once-closure check uses cardinality only, not consumption;
   backward_demands returns empty for PartialApply to avoid double-counting)
-- [ ] Each rule has a test program demonstrating measurable improvement (fewer RC ops
+- [x] Each rule has a test program demonstrating measurable improvement (fewer RC ops
   or eliminated runtime check)
+  Verified: all 7 fusion rules have dedicated tests asserting measurable outcomes:
+  (1) project_is_borrowed_with_source — Unique projection (transfer/tests.rs)
+  (2) block_local_construct_enables_static_reuse — static_reuses==1 (emit_reuse/tests.rs)
+  (3) pure_function_call_preserves_caller_uniqueness — may_share=false (interprocedural/tests.rs)
+  (4) demand_propagation_single_caller_owned_linear_once — param→Unique (interprocedural/tests.rs)
+  (5) cross_block_flow_widens_to_function_local — locality≥FunctionLocal (intraprocedural/tests.rs)
+  (6) once_closure_capture_preserves_cardinality — cardinality==Once (intraprocedural/tests.rs)
+  (7) effect_summary_construct_heap_escaping_arg_sets_may_share — may_share=true (intraprocedural/tests.rs)
+  Each has contrast tests proving the optimization doesn't fire on unmet preconditions.
 
 ### Active Dimensions (09.2) — Dependency Ladder
 
@@ -1105,10 +1114,27 @@ be updated atomically (same commit):
 | Canonicalize Rules 4-8 | `aims/lattice/mod.rs` (canonicalize method), `aims/lattice/tests.rs` (per-rule fire/no-fire tests) |
 
 ### Overall
-- [ ] Every dimension constrains, proves, or overrides at least one other dimension
-  (verified by code inspection — trace each dimension's outgoing influence)
-- [x] `./test-all.sh` green with all changes (12,874 tests, 0 failures)
-- [x] `cargo test --workspace --features aims` green (977 ori_arc tests)
+- [x] Every dimension constrains, proves, or overrides at least one other dimension
+  (verified by code inspection — 13 cross-dimension interactions, exceeding ≥12 target)
+  Influence map:
+  1. Access→Locality: Rule 8 (Borrowed→max FunctionLocal) — lattice/mod.rs:318
+  2. Consumption→Cardinality: Rules 1-2 (Dead↔Absent) — lattice/mod.rs:290-302
+  3. Cardinality→Uniqueness: Rule 4 (Once+BlockLocal+Owned→Unique) — lattice/mod.rs:346
+  4. Cardinality→Uniqueness: COW override (Once+CollectionBuffer→StaticUnique) — emit_rc/cow.rs:196
+  5. Cardinality→Uniqueness: reuse override (Once+ReusableCtor→static) — emit_reuse/detect.rs:246
+  6. Uniqueness→Shape: Rule 3 (Shared→NonReusable) — lattice/mod.rs:305
+  7. Locality→Uniqueness: Rule 6 (HeapEscaping→MaybeShared) — lattice/mod.rs:331
+  8. Locality→Effect: Construct dst locality>BlockLocal→may_share — block.rs:448
+  9. Effect→Uniqueness: may_share at call sites→MaybeShared for borrowed args — block.rs:405
+  10. Effect→FIP→Uniqueness: may_allocate=false→Certified→reuse upgrades — interprocedural.rs:502
+  11. Shape→Uniqueness: CollectionBuffer+Once overrides MaybeShared COW — emit_rc/cow.rs
+  12. Shape→reuse gating: NonReusable skips reuse entirely — emit_reuse/detect.rs:103
+  13. Consumption→Access: Dead/Absent→arg ownership Borrowed — emit_rc/arg_ownership.rs:53
+  Three multi-dimensional chains verified: Locality→Uniqueness→Shape (3-step),
+  Cardinality+Locality+Access→Uniqueness (Rule 4 conjunction),
+  Locality→Effect(may_share)→Uniqueness (interprocedural, longest chain).
+- [x] `./test-all.sh` green with all changes (12,881 tests, 0 failures)
+- [x] `cargo test --workspace --features aims` green (982 ori_arc tests)
 - [x] RC operation count on golden corpus improved or unchanged
   (all 5 golden corpus programs produce correct output with AIMS enabled)
 - [x] No behavioral regressions on spec tests
