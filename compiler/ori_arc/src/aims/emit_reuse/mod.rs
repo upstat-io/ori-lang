@@ -27,18 +27,15 @@ mod dynamic;
 pub(crate) mod fip;
 pub(crate) mod planner;
 mod set_ops;
-#[cfg(test)]
-mod tests;
 
 use ori_ir::Name;
-use ori_types::{Idx, Pool};
+use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
 use crate::aims::contract::{FipContract, MemoryContract};
 
 pub use fip::{FipGateDecision, FipGateRecord};
 
-use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 
@@ -120,41 +117,11 @@ pub struct EmitReuseResult {
     pub missed_reuses: usize,
 }
 
-/// Emit reuse operations into the function based on converged AIMS analysis.
-///
-/// Detects reuse opportunities from the state map, then emits:
-/// - **Static-unique** (`Unique`): in-place `Set` instructions with self-set
-///   elimination. No runtime check needed.
-/// - **Dynamic** (`MaybeShared`): `IsShared` + `Branch` → fast path (in-place
-///   `Set`) / slow path (`RcDec` + `Construct`). Emitted directly as expanded
-///   CFG — no intermediate `Reset`/`Reuse` instructions.
-/// - **Cross-block** (via `ReusePlanner`): dominator/post-dominator validated
-///   reuse across basic block boundaries. Stage 1: static-unique only.
-///
-/// # Processing order
-///
-/// Same-block opportunities are sorted by (block, reverse instruction index)
-/// so that later opportunities in the same block are processed first, preserving
-/// index validity. Cross-block opportunities are processed separately, sorted
-/// by `(source_block desc, source_instr desc)` then `(target_block desc,
-/// target_instr desc)` for index safety.
-#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
-pub fn emit_reuse(
-    func: &mut ArcFunction,
-    state_map: &AimsStateMap,
-    pool: &Pool,
-    contracts: &FxHashMap<Name, MemoryContract>,
-) -> EmitReuseResult {
-    let (raw_opportunities, total_deaths) = detect::find_reuse_opportunities(func, state_map, pool);
-    emit_reuse_from_raw(func, raw_opportunities, total_deaths, contracts)
-}
-
 /// Emit reuse operations from pre-collected death and allocation events.
 ///
-/// Same matching and emission logic as [`emit_reuse`], but skips the
-/// `collect_death_events()` / `collect_alloc_events()` scans. Used by
-/// `realize/` when events are collected inline during the unified
-/// forward walk (Section 10.2).
+/// Used by `realize/` when events are collected inline during the unified
+/// forward walk (Section 10.2). Matches death→alloc pairs, then applies
+/// reuse instructions.
 pub(crate) fn emit_reuse_from_events(
     func: &mut ArcFunction,
     death_events: &[DeathEvent],
@@ -168,8 +135,7 @@ pub(crate) fn emit_reuse_from_events(
 
 /// Shared reuse emission: FIP upgrades → partition → sort → apply.
 ///
-/// Called by both [`emit_reuse`] (state map scans) and
-/// [`emit_reuse_from_events`] (pre-collected events).
+/// Called by [`emit_reuse_from_events`] with pre-collected events.
 fn emit_reuse_from_raw(
     func: &mut ArcFunction,
     raw_opportunities: Vec<ReuseOpportunity>,

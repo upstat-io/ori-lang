@@ -150,33 +150,9 @@ pub(crate) fn run_shadow_pipeline_all(
     let contracts =
         crate::aims::interprocedural::analyze_program(functions, classifier, builtins, interner);
 
-    // Phase 2: AIMS per-function analysis + COW prediction (read-only).
-    // Stage 1: immortal set is empty (Vec::new()) to ensure shadow comparison
-    // compares equivalent pipelines. Stage 5 will enable immortal detection.
+    // Phase 2: Run full AIMS pipeline on cloned functions.
+    // The realize pipeline populates COW annotations, RC ops, and arg ownership.
     let mut aims_snapshots: FxHashMap<Name, AimsSnapshot> = FxHashMap::default();
-    for func in functions.iter() {
-        let state_map = crate::aims::intraprocedural::analyze_function(
-            func,
-            classifier,
-            &contracts,
-            &[],
-            Vec::new(),
-        );
-        let aims_cow =
-            crate::aims::emit_rc::cow::compute_aims_cow_annotations(func, &state_map, interner);
-        aims_snapshots.insert(
-            func.name,
-            AimsSnapshot {
-                contract: contracts.get(&func.name).cloned(),
-                cow_annotations: aims_cow,
-                rc_ops: RcOpCount::default(),    // filled in phase 2.5
-                arg_ownership_sites: Vec::new(), // filled in phase 2.5
-                immortal_count: 0,               // filled in phase 2.5
-            },
-        );
-    }
-
-    // Phase 2.5: Run full AIMS pipeline on cloned functions to count RC ops.
     let mut aims_clones: Vec<ArcFunction> = functions.to_vec();
     super::aims_pipeline::apply_aims_ownership(&mut aims_clones, &contracts);
 
@@ -198,17 +174,21 @@ pub(crate) fn run_shadow_pipeline_all(
         interner,
         builtins,
         verify_arc,
-        use_realize: false,
     };
     for clone in &mut aims_clones {
         let _ = super::aims_pipeline::run_aims_pipeline(clone, &aims_config);
     }
     for clone in &aims_clones {
-        if let Some(snapshot) = aims_snapshots.get_mut(&clone.name) {
-            snapshot.rc_ops = count_rc_ops(clone);
-            snapshot.arg_ownership_sites = compare::extract_arg_ownership_sites(clone);
-            snapshot.immortal_count = immortal_counts.get(&clone.name).copied().unwrap_or(0);
-        }
+        aims_snapshots.insert(
+            clone.name,
+            AimsSnapshot {
+                contract: contracts.get(&clone.name).cloned(),
+                cow_annotations: clone.cow_annotations.clone(),
+                rc_ops: count_rc_ops(clone),
+                arg_ownership_sites: compare::extract_arg_ownership_sites(clone),
+                immortal_count: immortal_counts.get(&clone.name).copied().unwrap_or(0),
+            },
+        );
     }
     drop(aims_clones);
 

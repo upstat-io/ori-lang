@@ -79,7 +79,6 @@ pub fn run_arc_pipeline(
             interner,
             builtins: &builtins,
             verify_arc,
-            use_realize: false,
         };
         aims_pipeline::run_aims_pipeline(func, &config)
     }

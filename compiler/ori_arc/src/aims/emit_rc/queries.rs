@@ -1,53 +1,11 @@
-//! Post-emission query passes: locality hint collection and RC-incremented
-//! variable tracking.
+//! Post-emission query passes: RC-incremented variable tracking.
 //!
-//! These passes run after the main RC emission loop and produce auxiliary
-//! data used by downstream pipeline steps (COW annotations, drop hints,
-//! stack allocation hints).
+//! Produces auxiliary data used by downstream pipeline steps (COW annotations,
+//! drop hints).
 
 use rustc_hash::FxHashSet;
 
-use crate::aims::intraprocedural::state_map::AimsStateMap;
-use crate::aims::lattice::Locality;
 use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
-
-use super::{block_id, LocalAllocCandidate};
-
-/// Collect local-allocation candidates from the state map (v1: hints only).
-///
-/// Scans for `Construct` instructions where the defined variable has
-/// `Locality::FunctionLocal` or `BlockLocal`, indicating potential for
-/// stack allocation in a future optimization pass.
-pub(super) fn collect_local_alloc_candidates(
-    func: &ArcFunction,
-    state_map: &AimsStateMap,
-) -> Vec<LocalAllocCandidate> {
-    let mut candidates = Vec::new();
-
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        let blk = block_id(block_idx);
-        for (instr_idx, instr) in block.body.iter().enumerate() {
-            if let Some(dst) = instr.defined_var() {
-                if state_map.is_excluded(dst) {
-                    continue;
-                }
-                let exit_state = state_map.var_state_at_block_exit(blk, dst);
-                if matches!(
-                    exit_state.locality,
-                    Locality::FunctionLocal | Locality::BlockLocal
-                ) {
-                    candidates.push(LocalAllocCandidate {
-                        block: blk,
-                        instr: instr_idx,
-                        var: dst,
-                    });
-                }
-            }
-        }
-    }
-
-    candidates
-}
 
 /// Collect all variables whose underlying object had an `RcInc` emitted.
 ///
