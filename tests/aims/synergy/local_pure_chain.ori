@@ -29,8 +29,8 @@
 @main () -> void = {
     let $result = stats(nums: [1, 2, 3, 4, 5, 6]);
     let ($evens, $odds, $positives) = result;
-    assert_eq(actual: evens, expected: 3);
-    assert_eq(actual: odds, expected: 3);
-    assert_eq(actual: positives, expected: 6);
+    if evens != 3 then panic(msg: "expected evens 3");
+    if odds != 3 then panic(msg: "expected odds 3");
+    if positives != 6 then panic(msg: "expected positives 6");
     print(msg: "local_pure_chain: pass")
 }

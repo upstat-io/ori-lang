@@ -168,7 +168,7 @@ confounding-variable isolation, compile-time breakdown
 ---
 
 ### Section 09: Dimensional Fusion
-**File:** `section-09-dimensional-fusion.md` | **Status:** Not Started
+**File:** `section-09-dimensional-fusion.md` | **Status:** Complete
 
 ```
 dimensional fusion, transfer fusion, cross-talk, active dimensions
@@ -190,7 +190,7 @@ sync points, FipContract::Bounded, MemoryContract.is_fbip, AllocCreditBalance
 ---
 
 ### Section 10: Unified Realization
-**File:** `section-10-unified-realization.md` | **Status:** Not Started
+**File:** `section-10-unified-realization.md` | **Status:** Complete
 
 ```
 unified realization, realize(), two-phase emission
@@ -210,7 +210,7 @@ old code deletion, emit_rc deletion, emit_reuse deletion
 ---
 
 ### Section 11: Integration Verification
-**File:** `section-11-integration-verification.md` | **Status:** Not Started
+**File:** `section-11-integration-verification.md` | **Status:** Complete
 
 ```
 integration verification, cross-dimension test programs

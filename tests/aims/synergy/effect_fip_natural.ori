@@ -21,6 +21,6 @@ type IntBox = Box(value: int);
     let $value = match result {
         Box(v) -> v,
     };
-    assert_eq(actual: value, expected: 42);
+    if value != 42 then panic(msg: "expected 42");
     print(msg: "effect_fip_natural: pass")
 }

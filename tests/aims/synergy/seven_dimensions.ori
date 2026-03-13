@@ -22,6 +22,6 @@ type IntBox = Box(value: int);
     let $value = match result {
         Box(v) -> v,
     };
-    assert_eq(actual: value, expected: 100);
+    if value != 100 then panic(msg: "expected 100");
     print(msg: "seven_dimensions: pass")
 }

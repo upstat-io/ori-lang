@@ -2,7 +2,6 @@ use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
 
 use rustc_hash::FxHashMap;
-#[cfg(not(feature = "aims"))]
 use rustc_hash::FxHashSet;
 
 use crate::borrow::infer_derived_ownership;
@@ -1642,7 +1641,6 @@ fn closure_escaping_borrowed_still_inc() {
 /// External invoke — `fn(x: str) { ori_print(x) }`.
 /// Runtime functions borrow args without Dec — caller must Dec after invoke.
 #[test]
-#[cfg(not(feature = "aims"))]
 fn external_invoke_args_get_dec() {
     // Block 0: invoke ori_print(v0:str) → normal=b(1), unwind=b(2)
     // Block 1: return unit
@@ -2560,7 +2558,6 @@ fn duplicate_invoke_borrowed_arg_single_cleanup() {
 /// `Borrowed` instead of `Owned` — preventing the ARC pipeline from emitting
 /// the correct RC for COW list methods.
 #[test]
-#[cfg(not(feature = "aims"))]
 fn consuming_receiver_through_alias() {
     use crate::borrow::BuiltinOwnershipSets;
     use ori_ir::StringInterner;
