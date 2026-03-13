@@ -149,9 +149,10 @@ pub fn realize_rc_reuse(
 
 /// Phase 2: COW and drop hint annotations (post-merge).
 ///
-/// Reads the [`AimsStateMap`] via ArcVarId-keyed lookups on the post-merge
-/// IR. Computes `cow_annotations` and `drop_hints`, completing the
-/// [`RealizationResult`].
+/// Walks the post-merge IR once, building an [`AnnotationSiteContext`] for
+/// each COW or drop site and calling [`decide_annotations()`] to get the
+/// unified Phase 2 decision. This replaces the separate calls to
+/// `compute_aims_cow_annotations()` and `compute_aims_drop_hints()`.
 ///
 /// # Pipeline position
 ///
@@ -169,17 +170,157 @@ pub fn realize_annotations(
     pool: &Pool,
     result: &mut RealizationResult,
 ) {
-    // Sub-step D: COW annotations (previously step 11a).
-    result.cow_annotations = {
-        let _span = tracing::debug_span!("realize_cow").entered();
-        crate::aims::emit_rc::cow::compute_aims_cow_annotations(func, state_map, interner)
+    use crate::aims::emit_rc::{block_id, collect_borrowed_call_args, collect_rc_incremented_vars};
+
+    let _span = tracing::debug_span!("realize_annotations").entered();
+
+    let cow_names = crate::borrow::all_cow_method_names(interner);
+    let param_vars: rustc_hash::FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
+    let rc_incremented = collect_rc_incremented_vars(func);
+    let borrowed_call_args = collect_borrowed_call_args(func);
+
+    let mut cow_annotations = CowAnnotations::new();
+    let mut drop_hints = DropHints::new();
+
+    let ann_ctx = AnnotationWalkCtx {
+        func,
+        state_map,
+        pool,
+        cow_names: &cow_names,
+        param_vars: &param_vars,
+        rc_incremented: &rc_incremented,
+        borrowed_call_args: &borrowed_call_args,
     };
 
-    // Sub-step E: drop hints (previously step 12).
-    result.drop_hints = {
-        let _span = tracing::debug_span!("realize_drop_hints").entered();
-        crate::aims::emit_rc::drop_hints::compute_aims_drop_hints(func, state_map, pool)
-    };
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let blk = block_id(block_idx);
+        annotate_block(
+            &ann_ctx,
+            blk,
+            block_idx,
+            block,
+            &mut cow_annotations,
+            &mut drop_hints,
+        );
+    }
+
+    if !drop_hints.is_empty() {
+        tracing::debug!(
+            function = func.name.raw(),
+            unique_drops = drop_hints.len(),
+            "AIMS drop hint analysis complete"
+        );
+    }
+
+    result.cow_annotations = cow_annotations;
+    result.drop_hints = drop_hints;
+}
+
+/// Pre-computed context for the Phase 2 annotation walk.
+struct AnnotationWalkCtx<'a> {
+    func: &'a ArcFunction,
+    state_map: &'a AimsStateMap,
+    pool: &'a Pool,
+    cow_names: &'a rustc_hash::FxHashSet<Name>,
+    param_vars: &'a rustc_hash::FxHashSet<ArcVarId>,
+    rc_incremented: &'a rustc_hash::FxHashSet<ArcVarId>,
+    borrowed_call_args: &'a rustc_hash::FxHashSet<ArcVarId>,
+}
+
+/// Annotate a single block's body and terminator for Phase 2 decisions.
+fn annotate_block(
+    ctx: &AnnotationWalkCtx<'_>,
+    blk: crate::ir::ArcBlockId,
+    block_idx: usize,
+    block: &crate::ir::ArcBlock,
+    cow_annotations: &mut CowAnnotations,
+    drop_hints: &mut DropHints,
+) {
+    use crate::aims::emit_rc::{is_borrow_disjoint_from_siblings, is_collection_var};
+    use crate::aims::realize::decide::{decide_annotations, AnnotationSiteContext};
+
+    for (instr_idx, instr) in block.body.iter().enumerate() {
+        let is_cow_site = matches!(
+            instr,
+            ArcInstr::Apply { func: callee, args, .. }
+                if ctx.cow_names.contains(callee) && !args.is_empty()
+        );
+        let is_drop_site = matches!(instr, ArcInstr::RcDec { .. });
+
+        if !is_cow_site && !is_drop_site {
+            continue;
+        }
+
+        let var = match instr {
+            ArcInstr::Apply { args, .. } if is_cow_site => args[0],
+            ArcInstr::RcDec { var, .. } => *var,
+            _ => continue,
+        };
+
+        let state = ctx.state_map.var_state_at_block_entry(blk, var);
+        let site_ctx = AnnotationSiteContext {
+            var,
+            uniqueness: state.uniqueness,
+            rc_incremented: ctx.rc_incremented.contains(&var),
+            is_param: ctx.param_vars.contains(&var),
+            is_borrowed_call_arg: ctx.borrowed_call_args.contains(&var),
+            rc_incremented_set: ctx.rc_incremented,
+            is_excluded: ctx.state_map.is_excluded(var),
+            access: state.access,
+            consumption: state.consumption,
+            cardinality: state.cardinality,
+            shape: ctx.state_map.var_shape(var),
+            is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, var),
+            is_collection: is_collection_var(ctx.func, var, ctx.pool),
+        };
+
+        let decisions = decide_annotations(&site_ctx, is_cow_site, is_drop_site);
+
+        if let Some(mode) = decisions.cow {
+            tracing::debug!(
+                block_idx,
+                instr_idx,
+                receiver = var.raw(),
+                ?mode,
+                "COW annotation"
+            );
+            cow_annotations.set(block_idx, instr_idx, mode);
+        }
+        if decisions.drop_hint {
+            drop_hints.mark_unique(block_idx, instr_idx);
+        }
+    }
+
+    // Terminator: check for COW Invoke.
+    if let ArcTerminator::Invoke {
+        func: callee, args, ..
+    } = &block.terminator
+    {
+        if ctx.cow_names.contains(callee) && !args.is_empty() {
+            let receiver = args[0];
+            let state = ctx.state_map.var_state_at_block_entry(blk, receiver);
+            let site_ctx = AnnotationSiteContext {
+                var: receiver,
+                uniqueness: state.uniqueness,
+                rc_incremented: ctx.rc_incremented.contains(&receiver),
+                is_param: ctx.param_vars.contains(&receiver),
+                is_borrowed_call_arg: ctx.borrowed_call_args.contains(&receiver),
+                rc_incremented_set: ctx.rc_incremented,
+                is_excluded: ctx.state_map.is_excluded(receiver),
+                access: state.access,
+                consumption: state.consumption,
+                cardinality: state.cardinality,
+                shape: ctx.state_map.var_shape(receiver),
+                is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, receiver),
+                is_collection: is_collection_var(ctx.func, receiver, ctx.pool),
+            };
+
+            let decisions = decide_annotations(&site_ctx, true, false);
+            if let Some(mode) = decisions.cow {
+                cow_annotations.set(block_idx, block.body.len(), mode);
+            }
+        }
+    }
 }
 
 /// Unified RC emission: per-block walk with inline death/alloc event collection.

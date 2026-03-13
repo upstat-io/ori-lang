@@ -7,7 +7,7 @@
 //! `cow.rs`, and `drop_hints.rs`. The unified `realize()` calls these
 //! functions directly, replacing the 4+ separate traversals with two phases.
 
-use crate::aims::lattice::{Cardinality, ShapeClass, Uniqueness};
+use crate::aims::lattice::{AccessClass, Cardinality, Consumption, ShapeClass, Uniqueness};
 use crate::ir::ArcVarId;
 use crate::uniqueness::CowMode;
 
@@ -271,7 +271,13 @@ pub struct AnnotationDecisions {
 
 /// Context for Phase 2 annotation decisions at a single instruction site.
 ///
-/// Provides the instruction-site facts needed by `decide_annotations()`.
+/// Provides the instruction-site facts needed by [`decide_annotations()`].
+/// All fields are pre-computed by the caller (`realize_annotations` walk)
+/// from the state map and IR — [`decide_annotations()`] is a pure function.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool represents an independent binary property of the instruction site"
+)]
 pub struct AnnotationSiteContext<'a> {
     /// The variable being annotated.
     pub var: ArcVarId,
@@ -286,6 +292,22 @@ pub struct AnnotationSiteContext<'a> {
     pub is_borrowed_call_arg: bool,
     /// Set of all RC-incremented variables (for transitive alias checks).
     pub rc_incremented_set: &'a FxHashSet<ArcVarId>,
+    /// Whether this variable is excluded from analysis (scalar, immortal).
+    pub is_excluded: bool,
+    /// Access class from state map (for COW-aware borrowing: Owned + Linear + Once).
+    pub access: AccessClass,
+    /// Consumption from state map (for COW-aware borrowing).
+    pub consumption: Consumption,
+    /// Cardinality from state map (for cross-dimensional COW proofs).
+    pub cardinality: Cardinality,
+    /// Shape class from state map (for cross-dimensional COW proofs).
+    pub shape: ShapeClass,
+    /// Whether this variable's borrow is disjoint from all sibling borrows
+    /// (uniqueness-preserving borrows, Section 07.3.2).
+    pub is_borrow_disjoint: bool,
+    /// Whether this variable's type is a collection (List/Map/Set) —
+    /// required for drop hint eligibility.
+    pub is_collection: bool,
 }
 
 /// Make all Phase 2 annotation decisions for a single instruction site.
@@ -315,28 +337,102 @@ pub fn decide_annotations(
 
 /// Make Phase 2 annotation decisions for a COW site.
 ///
-/// Derives `CowMode` from uniqueness + instruction-site context. Matches
-/// the logic in `cow.rs::uniqueness_to_cow_mode()`.
+/// Derives [`CowMode`] from uniqueness + instruction-site context.
+/// Implements the full logic from `cow.rs::uniqueness_to_cow_mode()`:
+///
+/// 1. Excluded variables → `Dynamic` (safe fallback)
+/// 2. RC-incremented → `Dynamic` (physical refcount > logical uniqueness)
+/// 3. COW-aware borrowing (Section 07.3.1): param + `Owned` + `Linear` + `Once`
+///    → `StaticUnique` (cross-dimensional proof of unique ownership)
+/// 4. `Unique` → `StaticUnique`
+/// 5. `MaybeShared` + `CollectionBuffer` + `Once` → `StaticUnique` (cross-dim)
+/// 6. `MaybeShared` + `ReusableCtor` + `Once` → `StaticUnique` (cross-dim)
+/// 7. `MaybeShared` + disjoint borrow → `StaticUnique` (Section 07.3.2)
+/// 8. `MaybeShared` → `Dynamic`
+/// 9. `Shared` → `StaticShared`
 pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
+    // Excluded (scalar, immortal) → safe fallback.
+    if ctx.is_excluded {
+        return CowMode::Dynamic;
+    }
+
+    // Post-RC-emission guard: physical refcount may exceed logical uniqueness.
+    if ctx.rc_incremented {
+        return CowMode::Dynamic;
+    }
+
+    // COW-aware borrowing (Section 07.3.1): parameter with combined state
+    // (Owned, Linear, Once) is provably uniquely owned at this point.
+    if ctx.is_param && is_cow_aware_unique(ctx) {
+        return CowMode::StaticUnique;
+    }
+
     match ctx.uniqueness {
-        Uniqueness::Unique => {
-            if ctx.rc_incremented {
-                // Physical refcount may be >1 despite logical uniqueness.
-                CowMode::Dynamic
-            } else {
-                CowMode::StaticUnique
+        Uniqueness::Unique => CowMode::StaticUnique,
+
+        Uniqueness::MaybeShared => {
+            // Cross-dimensional: CollectionBuffer + Once → fresh collection
+            // literal (refcount=1) used once (no duplication). Non-param only
+            // (params use COW-aware borrowing above).
+            if !ctx.is_param
+                && ctx.cardinality == Cardinality::Once
+                && ctx.shape == ShapeClass::CollectionBuffer
+            {
+                return CowMode::StaticUnique;
             }
+
+            // Cross-dimensional: ReusableCtor + Once → same proof as reuse.
+            if !ctx.is_param
+                && ctx.cardinality == Cardinality::Once
+                && matches!(ctx.shape, ShapeClass::ReusableCtor(_))
+            {
+                return CowMode::StaticUnique;
+            }
+
+            // Uniqueness-preserving borrows (Section 07.3.2): receiver's
+            // borrow is disjoint from all sibling borrows of the same source.
+            if ctx.is_borrow_disjoint {
+                return CowMode::StaticUnique;
+            }
+
+            CowMode::Dynamic
         }
-        Uniqueness::MaybeShared => CowMode::Dynamic,
+
         Uniqueness::Shared => CowMode::StaticShared,
     }
+}
+
+/// Check if a variable's combined state qualifies for COW-aware borrowing.
+///
+/// The combined state `(Owned, Linear, Once)` proves unique ownership from
+/// cross-dimensional reasoning (Section 07.3.1).
+fn is_cow_aware_unique(ctx: &AnnotationSiteContext<'_>) -> bool {
+    ctx.access == AccessClass::Owned
+        && ctx.consumption == Consumption::Linear
+        && ctx.cardinality == Cardinality::Once
 }
 
 /// Make Phase 2 annotation decisions for a drop hint site.
 ///
 /// Returns `true` if the variable is eligible for unique-drop fast path.
-/// Matches the logic in `drop_hints.rs::compute_aims_drop_hints()`.
+/// Matches the logic in `drop_hints.rs::compute_aims_drop_hints()`:
+///
+/// 1. Excluded variables (scalar, immortal) → not eligible
+/// 2. Non-collection types → not eligible (drop hints are for buffer cleanup)
+/// 3. RC-incremented → not eligible (physical refcount may exceed 1)
+/// 4. Borrowed call arg → not eligible (callee may have internally inc'd)
+/// 5. Unique → eligible for unique-drop fast path
 pub fn decide_drop_hint(ctx: &AnnotationSiteContext<'_>) -> bool {
+    // Excluded (scalar, immortal) — no drop hint needed.
+    if ctx.is_excluded {
+        return false;
+    }
+
+    // Only collections (List, Map, Set) have buffer-based drops.
+    if !ctx.is_collection {
+        return false;
+    }
+
     // Unique variables with no RcInc and no borrowed-arg sharing
     // can use the unique-drop fast path.
     ctx.uniqueness == Uniqueness::Unique && !ctx.rc_incremented && !ctx.is_borrowed_call_arg

@@ -44,6 +44,10 @@ pub(crate) type EdgeDec = (ArcVarId, RcStrategy);
 // Re-export for cow/drop_hints that import via `super::collect_rc_incremented_vars`.
 pub(crate) use queries::collect_rc_incremented_vars;
 
+// Re-exports for `realize/` unified annotation walk (Section 10.3).
+pub(crate) use cow::is_borrow_disjoint_from_siblings;
+pub(crate) use drop_hints::{collect_borrowed_call_args, is_collection_var};
+
 // Re-exports for `realize/` unified forward walk (Section 10.2).
 pub(crate) use coalesce::coalesce_block_rc;
 pub(crate) use dead_cleanup::{emit_dead_at_entry_decs, emit_dead_invoke_dsts};
