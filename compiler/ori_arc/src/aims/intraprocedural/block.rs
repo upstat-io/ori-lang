@@ -18,7 +18,7 @@ use rustc_hash::FxHashMap;
 use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
-use super::super::contract::{EffectSummary, MemoryContract};
+use super::super::contract::{EffectSummary, FipContract, MemoryContract};
 use super::super::lattice::{AccessClass, AimsState, Cardinality, Locality, Uniqueness};
 use super::super::transfer::{backward_demands, backward_terminator_demands, transfer_def};
 use super::state_map::AimsStateMap;
@@ -292,17 +292,19 @@ fn apply_terminator_demands(
     }
 
     // Section 09.1: contract-aware uniqueness for Invoke args.
-    // Same rule as apply_callee_contract() for Apply instructions.
+    // Same rule as apply_callee_contract() for Apply instructions,
+    // including FIP Conditional specialization.
     if let ArcTerminator::Invoke {
         func: callee, args, ..
     } = term
     {
         if let Some(contract) = sigs.get(callee) {
+            let effective_may_share = compute_effective_may_share(contract, args, current);
             for (arg, param_contract) in args.iter().zip(contract.params.iter()) {
                 if state_map.is_excluded(*arg) {
                     continue;
                 }
-                if contract.effects.may_share && param_contract.access == AccessClass::Borrowed {
+                if effective_may_share && param_contract.access == AccessClass::Borrowed {
                     widen_uniqueness(current, *arg, Uniqueness::MaybeShared);
                 }
             }
@@ -365,6 +367,44 @@ fn merge_demand(current: &mut FxHashMap<ArcVarId, AimsState>, var: ArcVarId, sta
     *entry = entry.join(&state);
 }
 
+/// Compute effective `may_share` for a call site, accounting for FIP Conditional.
+///
+/// If the callee has `FipContract::Conditional` and all required-unique args
+/// have `Uniqueness::Unique` in the caller's current backward state (meaning
+/// nothing downstream has required them to be shared), the FIP fast path is
+/// viable and we suppress `may_share` widening.
+///
+/// Section 09.2: FIP call-site specialization.
+fn compute_effective_may_share(
+    contract: &MemoryContract,
+    args: &[ArcVarId],
+    current: &FxHashMap<ArcVarId, AimsState>,
+) -> bool {
+    if !contract.effects.may_share {
+        return false;
+    }
+    if let FipContract::Conditional {
+        requires_unique_params,
+    } = &contract.fip
+    {
+        // Check if all required-unique args have Unique backward state.
+        let preconditions_met =
+            args.iter()
+                .zip(requires_unique_params.iter())
+                .all(|(arg, &required)| {
+                    if !required {
+                        return true;
+                    }
+                    let state = current.get(arg).copied().unwrap_or(AimsState::BOTTOM);
+                    state.uniqueness == Uniqueness::Unique
+                });
+        if preconditions_met {
+            return false;
+        }
+    }
+    contract.effects.may_share
+}
+
 /// Apply callee contract to refine demand at a call site.
 ///
 /// If the callee has a `MemoryContract` in `sigs`, use it to set
@@ -373,13 +413,14 @@ fn merge_demand(current: &mut FxHashMap<ArcVarId, AimsState>, var: ArcVarId, sta
 ///
 /// # Uniqueness handling (Section 09.1 — Transfer Fusion)
 ///
-/// When the callee's `EffectSummary.may_share == true`, borrowed arguments
-/// might have their refcount incremented by the callee. In the backward
-/// direction, this widens the argument's uniqueness to `MaybeShared`.
+/// When the callee's effective `may_share` is true (accounting for FIP
+/// Conditional specialization), borrowed arguments might have their refcount
+/// incremented by the callee. In the backward direction, this widens the
+/// argument's uniqueness to `MaybeShared`.
 ///
-/// When `may_share == false` (pure callee), borrowed arguments cannot have
-/// new references created — their uniqueness is preserved through the call.
-/// This is the "pure callee preserves caller uniqueness" rule.
+/// When effective `may_share == false` (pure callee, or FIP Conditional with
+/// all preconditions met), borrowed arguments preserve uniqueness through the
+/// call.
 ///
 /// Soundness (Marshall et al., ESOP 2022): this rule does NOT derive
 /// uniqueness from consumption or cardinality alone. It bridges the gap
@@ -393,17 +434,21 @@ fn apply_callee_contract(
     current: &mut FxHashMap<ArcVarId, AimsState>,
 ) {
     if let Some(contract) = sigs.get(&callee) {
+        // Section 09.2: FIP call-site specialization. If the callee is
+        // Conditional FIP and all required-unique args are currently Unique,
+        // suppress may_share widening.
+        let effective_may_share = compute_effective_may_share(contract, args, current);
+
         // Use per-parameter contracts from interprocedural analysis.
         // Includes locality_bound (Section 09.2): if the callee may store
         // a parameter into a heap structure, the arg gets HeapEscaping locality.
         for (arg, param_contract) in args.iter().zip(contract.params.iter()) {
             // Section 09.1: uniqueness demand based on callee effects.
-            // If the callee may share references AND this param is borrowed,
+            // If effective may_share AND this param is borrowed,
             // the callee might RcInc the argument → widen to MaybeShared.
-            // If the callee is pure (may_share == false), borrowed args
-            // preserve uniqueness → no widening (Unique from BOTTOM).
+            // If pure / FIP Conditional met, borrowed args preserve uniqueness.
             let uniqueness_demand =
-                if contract.effects.may_share && param_contract.access == AccessClass::Borrowed {
+                if effective_may_share && param_contract.access == AccessClass::Borrowed {
                     Uniqueness::MaybeShared
                 } else {
                     Uniqueness::Unique // BOTTOM — no widening

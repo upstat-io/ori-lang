@@ -1,9 +1,8 @@
 ---
 section: "07"
 title: "Advanced Optimizations"
-status: in-progress
+status: complete
 goal: "Implement optimizations enabled by the unified lattice that were impossible with separate passes"
-note: "4 FIP items blocked by Section 09.2 Effect Activation"
 inspired_by:
   - "Biased RC / PEP 703 (immortal objects)"
   - "Coalesced RC (Levanoni-Petrank, TOPLAS 2006)"
@@ -22,13 +21,13 @@ sections:
     status: complete
   - id: "07.3"
     title: "Cross-Optimization Synergies"
-    status: in-progress
+    status: complete
   - id: "07.4"
     title: "Future: Runtime and Representation Follow-ons"
     status: complete
   - id: "07.5"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 07: Advanced Optimizations
@@ -324,7 +323,7 @@ in Stage 1:
 
 ### 07.3.4 FIP call-site specialization
 
-- [ ] **FIP Conditional call-site optimization:**
+- [x] **FIP Conditional call-site optimization:**
   When calling a function with `FipContract::Conditional { requires_unique_params }`,
   and the caller's AIMS analysis proves that all arguments corresponding to
   `requires_unique_params` entries are `Unique`, use the callee's FIP-optimized
@@ -372,7 +371,7 @@ in Stage 1:
     `(Owned, Linear, Once, MaybeShared)` gets `StaticUnique` via cross-dimensional
     reasoning. Neither uniqueness alone (→ Dynamic) nor cardinality alone (no COW
     info) could achieve this — requires all three non-uniqueness dimensions.
-- [ ] **FIP call-site specialization test**:
+- [x] **FIP call-site specialization test**:
   - `fip_conditional_call_with_unique_args_uses_optimized_contract` — caller passes
     `Unique` arguments to all `requires_unique_params` positions → call site uses
     FIP-optimized effect summary (`may_allocate: false, may_share: false`)
@@ -569,10 +568,10 @@ Effect Activation adds `FipContract::Conditional` and `FipContract::Bounded(u16)
 to the contract layer. The test infrastructure (transfer_apply + contract lookup)
 exists; only the contract variant and its extraction logic are missing.
 
-- [ ] FIP Conditional call-site optimization: when caller proves all `requires_unique_params`
+- [x] FIP Conditional call-site optimization: when caller proves all `requires_unique_params`
   are `Unique`, use callee's FIP-optimized contract (`may_allocate: false, may_share: false`)
   — FP²'s dynamic embedding (`dropru` on unique binding → `(dconru_h)` fast path)
-- [ ] FIP call-site specialization tests: unique args → optimized contract,
+- [x] FIP call-site specialization tests: unique args → optimized contract,
   MaybeShared arg → conservative, uniqueness preserved through call
 
 ### 07.4 Future Items

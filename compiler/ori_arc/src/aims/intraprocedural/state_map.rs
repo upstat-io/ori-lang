@@ -178,10 +178,10 @@ pub struct AimsStateMap {
     /// Section 09.2 Effect Activation.
     fip_construct_count: u32,
 
-    /// FIP token balance: number of consumed values with reusable shape
-    /// (function parameters or locals that die within the function and have
-    /// `ReusableCtor` shape). Each consumed value provides a "reuse token"
-    /// that can match a Construct allocation.
+    /// FIP token balance: number of consumed non-scalar function parameters
+    /// (Dead or Unrestricted consumption at function entry). Each consumed
+    /// parameter provides a "reuse token" — its memory can be recycled by a
+    /// Construct. Shape compatibility checked at emission time.
     /// Populated post-convergence by `populate_fip_balance()`.
     /// Section 09.2 Effect Activation.
     fip_consumed_count: u32,
@@ -552,6 +552,14 @@ impl AimsStateMap {
     pub fn set_fip_balance(&mut self, construct_count: u32, consumed_count: u32) {
         self.fip_construct_count = construct_count;
         self.fip_consumed_count = consumed_count;
+    }
+
+    /// Number of non-scalar `Construct` instructions with reusable ctor kinds.
+    ///
+    /// Section 09.2 Effect Activation.
+    #[must_use]
+    pub fn fip_construct_count(&self) -> u32 {
+        self.fip_construct_count
     }
 
     /// Whether the function's allocations are token-balanced by consumed values.

@@ -10,8 +10,13 @@ use crate::ir::{
 };
 use crate::ArcClass;
 
-use super::super::contract::MemoryContract;
-use super::super::lattice::{AimsState, Cardinality, Locality, ReuseCtorKind, ShapeClass};
+use crate::aims::contract::{
+    ContextBehavior, EffectSummary, FipContract, MemoryContract, ParamContract, ReturnContract,
+};
+use crate::aims::lattice::{
+    AccessClass, AimsState, Cardinality, Consumption, Locality, ReuseCtorKind, ShapeClass,
+    Uniqueness,
+};
 
 // Mock classifier for tests
 
@@ -2707,5 +2712,200 @@ fn cross_dimension_not_detected_for_branching() {
     assert!(
         !state_map.cross_dimension_detected(),
         "branching function should not detect cross-dimension chaining"
+    );
+}
+
+// FIP call-site specialization (Section 09.2)
+
+#[test]
+fn conditional_fip_call_site_all_unique_no_widening() {
+    // caller(x: T) -> T {
+    //   v1 = callee(x)       ← callee has Conditional { [true] }, may_share=true
+    //   return v1
+    // }
+    //
+    // callee's contract: may_share=true, FIP=Conditional{[true]}.
+    // At the Apply, x (v0) has backward state Unique (only used once here).
+    // Conditional precondition: all required-unique args are Unique → met.
+    // compute_effective_may_share() returns false → no uniqueness widening.
+    // Result: v0 stays Unique at block entry (instead of MaybeShared).
+    let callee_name = Name::from_raw(100);
+
+    let callee_contract = MemoryContract {
+        params: vec![ParamContract {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Affine,
+            cardinality: Cardinality::Once,
+            may_escape: false,
+            may_share: false,
+            locality_bound: Locality::FunctionLocal,
+            uniqueness: Uniqueness::MaybeShared,
+        }],
+        return_info: ReturnContract::CONSERVATIVE,
+        effects: EffectSummary {
+            may_allocate: true,
+            alloc_only_on_slow_path: false,
+            may_share: true, // would normally widen, but FIP Conditional overrides
+            may_throw: false,
+        },
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Conditional {
+            requires_unique_params: vec![true],
+        },
+        is_fbip: false,
+    };
+
+    let mut sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    sigs.insert(callee_name, callee_contract);
+
+    // caller: param v0, v1=Apply(callee, v0), return v1
+    // v0 is a function param visible at block entry.
+    let func = ArcFunction {
+        name: Name::from_raw(200),
+        params: vec![crate::ir::ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: crate::ownership::Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: var(1),
+                ty: ty(0),
+                func: callee_name,
+                args: vec![var(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // With Conditional FIP specialization: v0's backward state at the
+    // Apply is Unique (only use) → Conditional check passes → no widen.
+    // Without specialization: v0 would get MaybeShared from may_share=true.
+    let v0_state = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(
+        v0_state.uniqueness,
+        Uniqueness::Unique,
+        "Conditional FIP with unique arg → no may_share widening, stays Unique"
+    );
+}
+
+#[test]
+fn conditional_fip_call_site_not_unique_widens() {
+    // caller(x: T) -> T {
+    //   v1 = conditional_callee(x)   ← Conditional { [true] }
+    //   v2 = sharing_callee(x)       ← may_share=true, no FIP
+    //   return v2
+    // }
+    //
+    // Backward walk processes v2=sharing_callee FIRST (later in program order).
+    // sharing_callee widens v0 to MaybeShared. Then at v1=conditional_callee,
+    // v0 is already MaybeShared → Conditional check fails → normal widen path.
+    let conditional_name = Name::from_raw(100);
+    let sharing_name = Name::from_raw(101);
+
+    let conditional_contract = MemoryContract {
+        params: vec![ParamContract {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Affine,
+            cardinality: Cardinality::Once,
+            may_escape: false,
+            may_share: false,
+            locality_bound: Locality::FunctionLocal,
+            uniqueness: Uniqueness::MaybeShared,
+        }],
+        return_info: ReturnContract::CONSERVATIVE,
+        effects: EffectSummary {
+            may_allocate: true,
+            alloc_only_on_slow_path: false,
+            may_share: true,
+            may_throw: false,
+        },
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Conditional {
+            requires_unique_params: vec![true],
+        },
+        is_fbip: false,
+    };
+
+    // sharing_callee: may_share=true, no FIP (Never)
+    let sharing_contract = MemoryContract {
+        params: vec![ParamContract {
+            access: AccessClass::Borrowed,
+            consumption: Consumption::Affine,
+            cardinality: Cardinality::Once,
+            may_escape: false,
+            may_share: false,
+            locality_bound: Locality::FunctionLocal,
+            uniqueness: Uniqueness::MaybeShared,
+        }],
+        return_info: ReturnContract::CONSERVATIVE,
+        effects: EffectSummary {
+            may_allocate: true,
+            alloc_only_on_slow_path: false,
+            may_share: true,
+            may_throw: false,
+        },
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Never,
+        is_fbip: false,
+    };
+
+    let mut sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    sigs.insert(conditional_name, conditional_contract);
+    sigs.insert(sharing_name, sharing_contract);
+
+    // caller: param v0, v1=conditional_callee(v0), v2=sharing_callee(v0), return v2
+    let func = ArcFunction {
+        name: Name::from_raw(200),
+        params: vec![crate::ir::ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: crate::ownership::Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: conditional_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: sharing_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // sharing_callee (processed first in backward) widens v0 to MaybeShared.
+    // At conditional_callee: v0 is MaybeShared → Conditional check fails.
+    let v0_state = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(
+        v0_state.uniqueness,
+        Uniqueness::MaybeShared,
+        "Conditional FIP with non-unique arg → falls back to may_share widening"
     );
 }
