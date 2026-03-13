@@ -81,8 +81,9 @@ pub fn analyze_function(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
-    // Reserved for Stage 3 (TRMC context regions). Empty slice in Stages 1–2.
-    _context_regions: &[ContextRegion],
+    // TRMC context regions from Stage 3 normalize pass.
+    // Empty slice when no TRMC candidates detected.
+    context_regions: &[ContextRegion],
     immortals: Vec<bool>,
 ) -> AimsStateMap {
     let mut state_map = AimsStateMap::new(func);
@@ -219,6 +220,13 @@ pub fn analyze_function(
     // after convergence (needs final uniqueness/locality/effect data).
     // Section 09.2 Shape Activation — ContextHole detection.
     detect_trmc_candidates(&mut state_map, func);
+
+    // Post-convergence: record ContextOpen/ContextClose events for TRMC
+    // context regions where the uniqueness soundness gate holds.
+    // Must run after detect_trmc_candidates (needs ContextHole shape) and
+    // after convergence (needs final uniqueness data).
+    // Stage 3: aims/normalize/ provides context_regions.
+    populate_context_events(&mut state_map, func, context_regions);
 
     // Post-convergence: compute FIP token balance from converged state.
     // Counts Construct allocations vs consumed reusable-shaped deaths.
@@ -450,6 +458,83 @@ fn detect_trmc_candidates(state_map: &mut AimsStateMap, func: &ArcFunction) {
                 "TRMC candidate detected: ContextHole shape set"
             );
         }
+    }
+}
+
+/// Record `ContextOpen`/`ContextClose` events from normalize-provided context regions.
+///
+/// For each [`ContextRegion`] where the context variable has `ContextHole` shape
+/// (set by `detect_trmc_candidates`) and is `Unique` at the block exit, records
+/// paired events in the sparse event table.
+///
+/// # Soundness gate (Lemma 2, Leijen & Lorenzen JFP 2025)
+///
+/// Events are only recorded when the context variable is `Unique` — no other
+/// references exist at the mutation point. This ensures in-place hole fill
+/// doesn't corrupt other viewers.
+///
+/// Stage 3: `context_regions` produced by `aims::normalize::normalize_function()`.
+fn populate_context_events(
+    state_map: &mut AimsStateMap,
+    func: &ArcFunction,
+    context_regions: &[ContextRegion],
+) {
+    if context_regions.is_empty() {
+        return;
+    }
+
+    for region in context_regions {
+        // Skip regions for excluded (scalar/immortal) variables.
+        if state_map.is_excluded(region.context_var) {
+            continue;
+        }
+
+        // Soundness gate: the context variable must have ContextHole shape
+        // (set by detect_trmc_candidates, which already checks uniqueness).
+        if !matches!(
+            state_map.var_shape(region.context_var),
+            ShapeClass::ContextHole
+        ) {
+            tracing::trace!(
+                func = ?func.name,
+                var = region.context_var.raw(),
+                shape = ?state_map.var_shape(region.context_var),
+                "skipping context event: not ContextHole shape"
+            );
+            continue;
+        }
+
+        // Double-check uniqueness at the open block exit.
+        let state = state_map.var_state_at_block_exit(region.open_block, region.context_var);
+        if state.uniqueness != Uniqueness::Unique {
+            tracing::trace!(
+                func = ?func.name,
+                var = region.context_var.raw(),
+                uniqueness = ?state.uniqueness,
+                "skipping context event: not Unique"
+            );
+            continue;
+        }
+
+        // Record paired ContextOpen/ContextClose events.
+        state_map.record_event(AimsEvent::ContextOpen {
+            block: region.open_block,
+            instr: region.open_instr,
+            var: region.context_var,
+        });
+        state_map.record_event(AimsEvent::ContextClose {
+            block: region.close_block,
+            instr: region.close_instr,
+            var: region.hole_var,
+        });
+
+        tracing::debug!(
+            func = ?func.name,
+            context_var = region.context_var.raw(),
+            hole_var = region.hole_var.raw(),
+            hole_field = region.hole_field,
+            "recorded TRMC context events (open + close)"
+        );
     }
 }
 

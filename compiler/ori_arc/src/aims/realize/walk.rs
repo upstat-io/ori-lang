@@ -11,8 +11,8 @@
 use rustc_hash::FxHashMap;
 
 use crate::aims::emit_rc::{
-    is_consuming_primop, is_live_at_exit, is_owned_at_entry, is_ownership_transfer, rc_strategy,
-    BlockCtx, LastUse,
+    is_consuming_primop, is_live_at_exit, is_owned_at_entry, is_ownership_transfer,
+    is_project_transfer_source, rc_strategy, BlockCtx, LastUse,
 };
 use crate::aims::emit_reuse::{ctor_to_shape, is_reusable_ctor, AllocEvent, DeathEvent};
 use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
@@ -20,7 +20,7 @@ use crate::ir::{ArcInstr, ArcVarId, RcStrategy, ValueRepr};
 
 use super::decide::{
     decide, DecisionContext, DecisionSite, InstructionDecisions, RcDecision, ReuseContext,
-    ReuseDecision,
+    ReuseDecision, UseSemantics,
 };
 
 /// Result of the unified forward walk on a single block's body.
@@ -56,6 +56,7 @@ pub(super) fn walk_body_unified(
     ctx: &BlockCtx<'_>,
     old_body: &[ArcInstr],
     new_body: &mut Vec<ArcInstr>,
+    alias_map: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> BodyWalkResult {
     let mut uses_so_far: FxHashMap<ArcVarId, usize> = FxHashMap::default();
     let mut deferred: Vec<(ArcVarId, RcStrategy, LastUse)> = Vec::new();
@@ -75,6 +76,7 @@ pub(super) fn walk_body_unified(
             &mut uses_so_far,
             new_body,
             &mut metrics,
+            alias_map,
         );
 
         // Push the instruction itself.
@@ -150,6 +152,7 @@ fn emit_pre_instr_incs_unified(
     uses_so_far: &mut FxHashMap<ArcVarId, usize>,
     new_body: &mut Vec<ArcInstr>,
     metrics: &mut super::metrics::SynergyMetrics,
+    alias_map: &FxHashMap<ArcVarId, ArcVarId>,
 ) {
     for var in instr.used_vars() {
         if !is_rc_managed(ctx, var) {
@@ -160,8 +163,12 @@ fn emit_pre_instr_incs_unified(
         *count += 1;
 
         let has_future_use = compute_has_future_use(ctx, var, *count, instr_idx);
+        let semantics = classify_use_semantics(ctx, var, instr, alias_map);
         let decision = decide(&DecisionContext {
-            site: DecisionSite::Use { has_future_use },
+            site: DecisionSite::Use {
+                has_future_use,
+                semantics,
+            },
             is_rc_managed: true,
         });
 
@@ -285,6 +292,10 @@ fn emit_last_use_decs(
         // Check for deferred children (parent with live borrowed children).
         let has_deferred_children = has_live_borrowed_children(ctx, var, instr_idx);
 
+        // Project transfer: non-scalar Project result transfers RC ownership
+        // from source to projection. Suppress source Dec to avoid double-free.
+        let is_project_transfer = is_project_transfer_source(instr, var, ctx.func);
+
         // Build reuse context from state map (single query per death site).
         let reuse_ctx = build_reuse_context(ctx, var);
 
@@ -298,6 +309,7 @@ fn emit_last_use_decs(
                 is_consuming_primop: false,
                 is_ownership_transfer: false,
                 is_owned_call_position: false,
+                is_project_transfer,
                 has_deferred_children,
                 reuse: reuse_ctx,
             },
@@ -450,4 +462,38 @@ fn build_reuse_context(ctx: &BlockCtx<'_>, var: ArcVarId) -> ReuseContext {
         uniqueness: state.uniqueness,
         cardinality: state.cardinality,
     }
+}
+
+/// Classify use semantics for a variable at an instruction site.
+///
+/// Determines whether the use is a normal RC use, a Let alias (whose root's
+/// `RcInc` already covers it), or a `Project` source (borrowing vs transfer).
+///
+/// This replaces the implicit classification in the legacy backward walk's
+/// `is_borrowing_instr` and liveness propagation through alias definitions.
+fn classify_use_semantics(
+    ctx: &BlockCtx<'_>,
+    var: ArcVarId,
+    instr: &ArcInstr,
+    alias_map: &FxHashMap<ArcVarId, ArcVarId>,
+) -> UseSemantics {
+    // Let alias: `%6 = %0` — the root %0 already received an RcInc
+    // covering all aliases. No independent Inc needed.
+    if alias_map.contains_key(&var) {
+        return UseSemantics::AliasOf;
+    }
+
+    // Project source classification (Lean 4 `proj i x` semantics):
+    // - Scalar result → borrowing (no Inc for source)
+    // - Non-scalar result → transfer (no Inc, suppress source Dec)
+    if let ArcInstr::Project { value, dst, .. } = instr {
+        if *value == var {
+            if ctx.func.var_reprs[dst.index()] == ValueRepr::Scalar {
+                return UseSemantics::BorrowingProject;
+            }
+            return UseSemantics::TransferProject;
+        }
+    }
+
+    UseSemantics::Normal
 }

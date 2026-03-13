@@ -216,6 +216,10 @@ fn apply_edge_decs(
 /// 2. Borrowed Invoke args NOT in `exit_states` — these are used only by
 ///    the Invoke terminator, so the backward analysis never propagates them
 ///    to the exit boundary. The caller must still `RcDec` after the call.
+///
+/// Both categories exclude variables whose ownership was transferred to the
+/// callee via `ArgOwnership::Owned`. Once ownership transfers, the caller
+/// must not emit cleanup — the callee (or its iterator/drop) handles it.
 fn collect_invoke_edge_decs(
     func: &ArcFunction,
     block_idx: usize,
@@ -255,6 +259,12 @@ fn collect_invoke_edge_decs(
             ) {
                 continue;
             }
+            // Skip variables whose ownership was transferred to the callee.
+            // If any Invoke arg position transfers this variable as Owned,
+            // the caller must not also dec — the callee handles cleanup.
+            if invoke_transfers_ownership(var, args, arg_ownership) {
+                continue;
+            }
 
             // Check unwind path.
             let unwind_state = edge_state
@@ -290,6 +300,7 @@ fn collect_invoke_edge_decs(
     // it to the exit boundary, so the exit_states loop above misses it.
     //
     // Emit `RcDec` on both normal and unwind edges for these variables.
+    // (Owned args are excluded by the filter — ownership was transferred.)
     for (i, &arg) in args.iter().enumerate() {
         if arg_ownership.get(i).copied() != Some(ArgOwnership::Borrowed) {
             continue;
@@ -316,6 +327,26 @@ fn collect_invoke_edge_decs(
             edge_decs.push((block_idx, unwind.index(), arg, strategy));
         }
     }
+}
+
+/// Check whether an Invoke transfers ownership of `var` at any argument position.
+///
+/// If the variable appears at any `Owned` position, the callee takes ownership
+/// and the caller must not emit cleanup for that variable. Conservative: if the
+/// same variable appears at multiple positions and ANY is Owned, treat as
+/// transferred (the callee received at least one owned reference).
+#[inline]
+fn invoke_transfers_ownership(
+    var: ArcVarId,
+    args: &[ArcVarId],
+    arg_ownership: &[ArgOwnership],
+) -> bool {
+    args.iter().enumerate().any(|(i, &arg)| {
+        arg == var
+            && arg_ownership
+                .get(i)
+                .is_none_or(|o| *o == ArgOwnership::Owned)
+    })
 }
 
 /// Insert a trampoline block to carry edge-specific `RcDec` operations.

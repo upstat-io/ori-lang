@@ -3,6 +3,7 @@
 use super::decide::{
     decide, decide_annotations, decide_cow, decide_drop_hint, AnnotationSiteContext,
     DecisionContext, DecisionSite, InstructionDecisions, RcDecision, ReuseContext, ReuseDecision,
+    UseSemantics,
 };
 use crate::aims::lattice::{
     AccessClass, Cardinality, Consumption, ReuseCtorKind, ShapeClass, Uniqueness,
@@ -264,6 +265,7 @@ fn decide_non_rc_managed_returns_none() {
     let ctx = DecisionContext {
         site: DecisionSite::Use {
             has_future_use: true,
+            semantics: UseSemantics::Normal,
         },
         is_rc_managed: false,
     };
@@ -279,6 +281,7 @@ fn decide_use_with_future_use_returns_inc() {
     let ctx = DecisionContext {
         site: DecisionSite::Use {
             has_future_use: true,
+            semantics: UseSemantics::Normal,
         },
         is_rc_managed: true,
     };
@@ -292,11 +295,82 @@ fn decide_use_without_future_use_returns_none() {
     let ctx = DecisionContext {
         site: DecisionSite::Use {
             has_future_use: false,
+            semantics: UseSemantics::Normal,
         },
         is_rc_managed: true,
     };
     let d = decide(&ctx);
     assert_eq!(d.rc, RcDecision::None);
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+// UseSemantics — alias and Project source identity
+
+#[test]
+fn decide_use_alias_of_skips_inc() {
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::AliasOf,
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::None, "alias root's Inc covers this");
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_use_borrowing_project_skips_inc() {
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::BorrowingProject,
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(d.rc, RcDecision::None, "scalar Project borrows source");
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_use_transfer_project_skips_inc() {
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::TransferProject,
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(
+        d.rc,
+        RcDecision::None,
+        "non-scalar Project transfers ownership"
+    );
+    assert_eq!(d.reuse, ReuseDecision::None);
+}
+
+#[test]
+fn decide_last_use_project_transfer_suppresses_dec() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            is_project_transfer: true,
+            has_deferred_children: false,
+            reuse: reuse_unique_struct(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(
+        d.rc,
+        RcDecision::None,
+        "Project transfer suppresses source Dec"
+    );
     assert_eq!(d.reuse, ReuseDecision::None);
 }
 
@@ -322,6 +396,7 @@ fn decide_last_use_consuming_primop_returns_none() {
             is_consuming_primop: true,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: reuse_unique_struct(),
         },
@@ -339,6 +414,7 @@ fn decide_last_use_ownership_transfer_returns_none() {
             is_consuming_primop: false,
             is_ownership_transfer: true,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: reuse_unique_struct(),
         },
@@ -356,6 +432,7 @@ fn decide_last_use_owned_call_position_returns_none() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: true,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: reuse_unique_struct(),
         },
@@ -373,6 +450,7 @@ fn decide_last_use_deferred_children_returns_defer() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: true,
             reuse: reuse_unique_struct(),
         },
@@ -392,6 +470,7 @@ fn decide_last_use_unique_struct_returns_dec_static_reuse() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: reuse_unique_struct(),
         },
@@ -409,6 +488,7 @@ fn decide_last_use_non_reusable_shape_returns_dec_no_reuse() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: reuse_non_reusable(),
         },
@@ -426,6 +506,7 @@ fn decide_last_use_shared_returns_dec_no_reuse() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: ReuseContext {
                 shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
@@ -447,6 +528,7 @@ fn decide_last_use_maybe_shared_struct_returns_dynamic_reuse() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: ReuseContext {
                 shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
@@ -470,6 +552,7 @@ fn decide_cross_dimensional_maybe_shared_once_ctor_is_static_reuse() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: ReuseContext {
                 shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
@@ -491,6 +574,7 @@ fn decide_cross_dimensional_maybe_shared_once_non_reusable_no_reuse() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: ReuseContext {
                 shape: ShapeClass::NonReusable,
@@ -512,6 +596,7 @@ fn decide_cross_dimensional_maybe_shared_once_collection_is_dynamic_reuse() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: ReuseContext {
                 shape: ShapeClass::CollectionBuffer,
@@ -537,6 +622,7 @@ fn decide_unique_enum_variant_returns_static_reuse() {
             is_consuming_primop: false,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: false,
             reuse: ReuseContext {
                 shape: ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
@@ -560,6 +646,7 @@ fn decide_consuming_primop_suppresses_even_with_deferred_children() {
             is_consuming_primop: true,
             is_ownership_transfer: false,
             is_owned_call_position: false,
+            is_project_transfer: false,
             has_deferred_children: true,
             reuse: reuse_unique_struct(),
         },

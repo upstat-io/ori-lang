@@ -104,8 +104,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size, elem_dec_fn)`.
     ///
     /// The iterator takes ownership of one RC reference to the list data buffer.
-    /// When the iterator is consumed/dropped, the runtime's `Drop for IterState`
-    /// calls `ori_buffer_rc_dec` to release the reference.
+    /// The ARC pipeline emits `RcInc` before the `.iter()` call when the list
+    /// variable has additional liveness. When the iterator is consumed/dropped,
+    /// `Drop for IterState` calls `ori_buffer_rc_dec` to release the reference.
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,

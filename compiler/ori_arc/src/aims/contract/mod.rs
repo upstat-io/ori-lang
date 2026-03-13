@@ -462,11 +462,36 @@ impl FipContract {
 /// TRMC constructor-context region metadata (Stage 3).
 ///
 /// Describes a region of code where a self-recursive function builds
-/// a constructor in tail context. Empty in Stage 1.
+/// a constructor in tail context — a `Construct` instruction where one
+/// field argument is produced by a recursive call. The region spans from
+/// the constructor allocation (context open) to the recursive call that
+/// fills the hole (context close).
+///
+/// Produced by `aims::normalize::detect_context_regions()`, consumed by
+/// `intraprocedural::analyze_function()` to record `ContextOpen`/`ContextClose`
+/// events in the sparse event table.
+///
+/// # Soundness (Lemma 2, Leijen & Lorenzen JFP 2025)
+///
+/// In-place TRMC requires the context variable to be `Unique` (refcount == 1)
+/// at every point between context creation and application. The intraprocedural
+/// analysis verifies this via the converged `Uniqueness` dimension.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContextRegion {
-    /// Placeholder — populated in Stage 3.
-    _private: (),
+    /// Block containing the `Construct` instruction (context open).
+    pub open_block: crate::ir::ArcBlockId,
+    /// Instruction index of the `Construct` within `open_block`.
+    pub open_instr: usize,
+    /// Variable defined by the `Construct` (the context root).
+    pub context_var: crate::ir::ArcVarId,
+    /// Which field of the constructor holds the recursive call result (the "hole").
+    pub hole_field: u32,
+    /// Block containing the recursive call that produces the hole value.
+    pub close_block: crate::ir::ArcBlockId,
+    /// Instruction index of the `Apply`/`Invoke` that fills the hole.
+    pub close_instr: usize,
+    /// Variable defined by the recursive call (the value that fills the hole).
+    pub hole_var: crate::ir::ArcVarId,
 }
 
 // Conversion helpers

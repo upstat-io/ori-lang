@@ -46,6 +46,7 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "add",         // list + list (COW concat)
     "concat",      // list.concat (COW concat)
     "insert",      // list.insert (COW insert)
+    "iter",        // list.iter (iterator takes ownership of data buffer)
     "pop",         // list.pop (COW pop)
     "push",        // list.push (COW push)
     "remove",      // list.remove (COW remove)

@@ -16,6 +16,11 @@ use super::state::IterState;
 /// iterator is dropped (by a consumer function or `ori_iter_drop`),
 /// `Drop for IterState` calls `ori_buffer_rc_dec` to release the reference.
 ///
+/// The ARC pipeline is responsible for emitting `RcInc` before calling
+/// `.iter()` when the list variable has additional liveness (the inc gives
+/// the iterator its own reference). Dead list parameters in exit blocks
+/// are cleaned up by `emit_dead_at_entry_decs`.
+///
 /// For Rust unit tests with stack-allocated data, pass `cap = 0` and
 /// `elem_dec_fn = None` — no cleanup is performed on drop.
 #[no_mangle]

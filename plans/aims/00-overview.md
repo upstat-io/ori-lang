@@ -296,6 +296,17 @@ soundness arguments.
 │11 Integ- │   Requires 09+10 (proves the integration works)
 │ration    │
 │Verify    │
+└────┬─────┘
+     ▼
+┌──────────┐
+│12 FIP    │   Requires 09+10+11 (FIP proof obligations + enforcement)
+│Enforce-  │
+│ment      │
+└────┬─────┘
+     ▼
+┌──────────┐
+│13 TRMC   │   Requires 09+10+11+12 (end-to-end TRMC realization)
+│Realize   │
 └──────────┘
 ```
 
@@ -449,7 +460,7 @@ Stage 2 — Dimensional Fusion (one team, not separate analyses)
                and FIP classification falls out of contract extraction reading converged
                effect + locality state. No separate FIP pass; no separate emission passes.
 
-  Stage 2 Exit Gate (must ALL be true before proceeding to Stage 3):
+  Stage 2 Exit Gate (must ALL be true before proceeding to Stage 2.5):
   1. All Section 09 exit criteria met (cross-dimension interactions ≥12)
   2. All Section 10 exit criteria met (two-phase realize, output equivalence)
   3. All Section 11 exit criteria met (synergy metrics ≥20%, regression guards)
@@ -460,6 +471,22 @@ Stage 2 — Dimensional Fusion (one team, not separate analyses)
   7. `run_arc_pipeline()` calls AIMS directly without feature dispatch
   8. `./test-all.sh` green (now always uses AIMS, no feature flag needed)
   9. Valgrind: 0 definite runtime leaks on all test programs
+
+Stage 2.5 — FIP Proof Obligations & Enforcement
+  Completes the FIP certification story. Without this, `FipContract::Certified`
+  is a metadata label, not a proven property. FP² Theorem 2 requires no
+  allocation, no deallocation, AND constant stack space — Section 09.2
+  only checks the first.
+  └─ 12: FIP Proof Obligations & Enforcement
+       └─ 12.1: Add `may_deallocate` to `EffectSummary` (FP² Theorem 2)
+              + post-emission pipeline update from FipEvidence.missed_reuses
+       └─ 12.2: Constant stack verification (`has_unbounded_stack`)
+              + syntactic tail-position helper extraction from tail_call/mod.rs
+       └─ 12.3: FIP enforcement verifier (`verify_fip_contract()`)
+              + aims/verify/ module infrastructure (mod.rs + fip.rs)
+       └─ 12.4: Stale documentation cleanup (contract/mod.rs banner)
+  Gate: `FipContract::Certified` means provably no alloc, no dealloc,
+        constant stack. Verifier rejects any contract/emission mismatch.
 
 Stage 3 — Opportunity Creation (required for FIP on recursive algorithms)
   Stage 3 is not an optimization pass. It is a structural prerequisite. Without
@@ -487,6 +514,23 @@ Stage 3 — Opportunity Creation (required for FIP on recursive algorithms)
        - A lifting sub-pass must run before TRMC detection to normalize
          expressions in constructor fields into let-bindings.
        (See: [Literature Review §04 — TRMC](../aims-literature-review/section-04-trmc.md))
+  └─ 13: TRMC Realization & Soundness
+       └─ 13.1: ContextBehavior interprocedural inference (replace default)
+              + manual Default impl, context_regions threading to extract_contract
+       └─ 13.2: Soundness gate reconciliation (may_share + uniqueness)
+              + fixpoint edge case: first SCC iteration has no contract
+       └─ 13.3: Lifting pre-pass (A-normal form for constructor args)
+              + var_types extension for new variables
+       └─ 13.4: 4-equation TRMC rewrite (base/tail/tlet/tmatch)
+              + in-place transform vs auxiliary function decision
+       └─ 13.5: Post-rewrite verification (context laws)
+              + rollback via func.clone()
+       └─ 13.6: Pipeline integration (event consumption, re-analysis)
+              + normalize_function signature change to (&mut, Option<&MemoryContract>)
+              + re-run compute_var_reprs + detect_immortals + analyze after transform
+  Gate: `normalize_function()` produces rewritten functions for self-recursive
+        constructor-context patterns. Both soundness gates enforced.
+        ContextOpen/ContextClose events consumed by realization.
   Deliverable: FIP/FBIP eligibility for self-recursive constructor functions,
                reuse opportunities for top-down tree algorithms, tail-call
                lowering for constructor-context patterns
@@ -643,12 +687,16 @@ Stage 5 — Runtime Intelligence
 > aims/
 > ├── normalize/          — Stage 3: opportunity creation (TRMC, context extraction)
 > │   ├── mod.rs          — normalize_function() entry point
+> │   ├── detect.rs       — TRMC-eligible recursion detection (context region extraction)
 > │   ├── lift.rs         — lifting: extract expressions from ctor fields to let-bindings
-> │   ├── trmc.rs         — TRMC-eligible recursion detection + rewrite
 > │   ├── rewrite.rs      — TRMC rewrite: apply the 4-equation algorithm
-> │   ├── verify.rs       — verify context laws (appctx, appcomp)
+> │   ├── verify.rs       — verify context laws (appctx, appcomp) post-rewrite
 > │   ├── collections.rs  — collection mutation canonicalization
-> │   └── context/        — constructor-context metadata extraction
+> │   ├── context/        — constructor-context metadata extraction
+> │   └── tests.rs        — normalization tests
+> ├── verify/             — Post-realization verification passes
+> │   ├── mod.rs          — verification dispatch
+> │   └── fip.rs          — FIP contract vs emission consistency checks
 > └── realize/            — Stage 2: unified realization (replaces emit_rc + emit_reuse)
 > ```
 
@@ -674,9 +722,18 @@ Stage 5 — Runtime Intelligence
 |   ↳ Test programs | ~200 | Low | — |
 |   ↳ Synergy metrics | ~100 | Low | — |
 |   ↳ Regression guards | ~100 | Low | — |
-| normalize/ (Stage 3) | ~400 | Medium | 09 |
+| 12 FIP Enforcement | ~400 | Medium | 09, 10, 11 |
+|   ↳ may_deallocate + stack | ~200 | Medium | — |
+|   ↳ Verifier | ~150 | Medium | — |
+|   ↳ Cleanup | ~50 | Low | — |
+| 13 TRMC Realization | ~600 | High | 09, 10, 11, 12 |
+|   ↳ ContextBehavior + soundness | ~150 | Medium | — |
+|   ↳ Lifting + 4-equation rewrite | ~300 | High | — |
+|   ↳ Verification + pipeline | ~150 | Medium | — |
 | **Total new (Stage 1)** | **~6,600** | | |
 | **Total new (Stage 2)** | **~1,800** | | |
+| **Total new (Stage 2.5)** | **~400** | | |
+| **Total new (Stage 3)** | **~600** | | |
 | **Total replaced** | **~7,300** | | |
 
 The unified analysis should be ~20% less code than the separate passes it replaces,
@@ -790,8 +847,10 @@ Check remaining enforcement crates at implementation time — see Section 06.3.)
 | 04 | RC Emission | `section-04-rc-emission.md` | Complete |
 | 05 | Reuse Emission | `section-05-reuse-emission.md` | Complete |
 | 06 | Pipeline Integration | `section-06-pipeline.md` | Complete |
-| 07 | Advanced Optimizations | `section-07-advanced.md` | In Progress |
+| 07 | Advanced Optimizations | `section-07-advanced.md` | Complete |
 | 08 | Verification & Validation | `section-08-verification.md` | In Progress |
-| 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` | Not Started |
-| 10 | Unified Realization | `section-10-unified-realization.md` | Not Started |
-| 11 | Integration Verification | `section-11-integration-verification.md` | Not Started |
+| 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` | Complete |
+| 10 | Unified Realization | `section-10-unified-realization.md` | Complete |
+| 11 | Integration Verification | `section-11-integration-verification.md` | Complete |
+| 12 | FIP Proof Obligations & Enforcement | `section-12-fip-enforcement.md` | Not Started |
+| 13 | TRMC Realization & Soundness | `section-13-trmc-realization.md` | Not Started |
