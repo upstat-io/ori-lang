@@ -184,12 +184,14 @@ jobs:
           - **Features** — new user-facing capabilities
           - **Bug Fixes** — corrected behavior
           - **Improvements** — enhancements to existing features, performance, error messages
-          - **Compiler Internals** — refactoring, architecture changes, code quality (always include if applicable — compiler development IS the product at alpha stage)
+          - **Compiler Internals** — refactoring, architecture changes, code quality in the compiler itself (always include if applicable — compiler development IS the product at alpha stage)
+          - **Housekeeping** — CI/CD, build scripts, docs, repo maintenance, tooling, website changes — anything that isn't the compiler or language itself. Keep these brief (one line each).
 
           For each bullet:
           - **Bold title** followed by 1-2 sentences explaining what changed and why it matters
           - Use past tense ("Added", "Fixed", "Improved")
           - Reference affected areas (e.g., type checker, evaluator, LLVM codegen, parser)
+          - Housekeeping items can be shorter — just a bold title and one sentence is fine
 
           ## Rules
           - The PR descriptions are your PRIMARY source — they contain human-written summaries of what changed and why
