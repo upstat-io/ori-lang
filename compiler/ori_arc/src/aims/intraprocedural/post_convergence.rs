@@ -160,27 +160,56 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 ///    The constructor destination is `Unique` — no other references exist
 ///    at the mutation point, so in-place hole fill is safe.
 ///
+/// # Soundness gates (Section 13.2)
+///
+/// TRMC requires TWO soundness gates:
+///
+/// 1. **Per-variable uniqueness (enforced):** The context variable must have
+///    `Uniqueness::Unique` at the mutation point. Checked below.
+///
+/// 2. **Effect purity (logged, not enforced):** In principle,
+///    `may_resume_nonlinearly` (derived from `EffectSummary.may_share`)
+///    guards against non-linear effect handler resumption capturing the
+///    context variable. However, the current `HeapEscaping → may_share`
+///    accumulation rule makes ALL TRMC candidates trigger `may_share`,
+///    so enforcing this gate blocks all TRMC. The correct formulation
+///    depends on effect-handler semantics (not yet implemented). Until
+///    then, gate 1 alone is sound because no mechanism for non-linear
+///    resumption exists in Ori v1. See `contract/mod.rs` `ContextBehavior` doc.
+///
 /// Locality is deliberately NOT checked: TRMC constructors are typically
 /// returned (`HeapEscaping`), which is expected — the whole point is
 /// building the result in place and returning it.
-///
-/// Function-level `may_share` is NOT checked: the `HeapEscaping → may_share`
-/// accumulation rule makes ANY returned Construct trigger `may_share`, which
-/// would block all TRMC detection. The per-variable `Unique` guarantee is
-/// the actual soundness condition (refcount == 1 at the mutation point).
 ///
 /// When all conditions hold, the constructor's shape is upgraded to
 /// `ContextHole`, enabling Stage 3 TRMC normalization to rewrite the
 /// recursive call into an in-place fill of the constructor's hole.
 ///
 /// Section 09.2 Shape Activation — `ContextHole` detection.
-pub(crate) fn detect_trmc_candidates(state_map: &mut AimsStateMap, func: &ArcFunction) {
+pub(crate) fn detect_trmc_candidates(
+    state_map: &mut AimsStateMap,
+    func: &ArcFunction,
+    may_share: bool,
+) {
     // Collect variables defined by recursive calls (callee == func.name).
     // Uses the shared helper from normalize/detect.rs (Section 12.4a unification).
     let recursive_sites = crate::aims::normalize::collect_recursive_call_sites(func);
     let recursive_defs: FxHashSet<ArcVarId> = recursive_sites.into_keys().collect();
     if recursive_defs.is_empty() {
         return;
+    }
+
+    // Soundness gate 2 (Section 13.2): Effect purity — logged, not enforced.
+    // In Ori v1, no effect handlers exist, so non-linear resumption cannot
+    // occur. When effect handlers are implemented, this must be enforced
+    // (or refined to exclude self-sharing from returned Constructs).
+    // See contract/mod.rs ContextBehavior doc for the full design rationale.
+    if may_share {
+        tracing::trace!(
+            func = ?func.name,
+            "TRMC effect gate: may_share=true (logged, not enforced — \
+             no effect handlers in v1)"
+        );
     }
 
     // Scan for Construct instructions with a recursive-call argument.
@@ -249,20 +278,36 @@ pub(crate) fn detect_trmc_candidates(state_map: &mut AimsStateMap, func: &ArcFun
 /// (set by `detect_trmc_candidates`) and is `Unique` at the block exit, records
 /// paired events in the sparse event table.
 ///
-/// # Soundness gate (Lemma 2, Leijen & Lorenzen JFP 2025)
+/// # Soundness gates (Section 13.2)
 ///
-/// Events are only recorded when the context variable is `Unique` — no other
-/// references exist at the mutation point. This ensures in-place hole fill
-/// doesn't corrupt other viewers.
+/// Same two-gate model as `detect_trmc_candidates`:
+///
+/// 1. **Per-variable uniqueness (enforced):** The context variable must be
+///    `Unique` at the open block exit. Double-checked here even though
+///    `detect_trmc_candidates` already verified it at `ContextHole` marking.
+///
+/// 2. **Effect purity (logged, not enforced):** `may_share` is logged for
+///    diagnostics but not enforced. See `detect_trmc_candidates` doc for
+///    the full rationale.
 ///
 /// Stage 3: `context_regions` produced by `aims::normalize::normalize_function()`.
 pub(crate) fn populate_context_events(
     state_map: &mut AimsStateMap,
     func: &ArcFunction,
     context_regions: &[ContextRegion],
+    may_share: bool,
 ) {
     if context_regions.is_empty() {
         return;
+    }
+
+    // Soundness gate 2 (Section 13.2): Effect purity — logged, not enforced.
+    if may_share {
+        tracing::trace!(
+            func = ?func.name,
+            "TRMC context events: may_share=true (logged, not enforced — \
+             no effect handlers in v1)"
+        );
     }
 
     for region in context_regions {

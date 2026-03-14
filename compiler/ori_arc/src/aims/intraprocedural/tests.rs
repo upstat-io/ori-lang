@@ -3167,3 +3167,137 @@ fn empty_context_regions_no_events() {
         "empty context_regions → no context events"
     );
 }
+
+// Section 13.2: Soundness gate reconciliation
+
+/// TRMC candidates are NOT rejected by `may_share` in v1 (logged, not enforced).
+///
+/// The `HeapEscaping` → `may_share` accumulation rule makes ALL returned Constructs
+/// trigger `may_share` == true. Since TRMC functions by definition return a
+/// Construct, enforcing `may_share` would block all TRMC. The gate is logged
+/// for diagnostics but does not prevent `ContextHole` detection.
+#[test]
+fn trmc_not_rejected_when_may_share_true() {
+    // Same TRMC pattern as trmc_candidate_detected_for_recursive_construct.
+    // may_share is true (from HeapEscaping), but ContextHole should still be set.
+    let self_name = Name::from_raw(42);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // The function DOES have may_share == true (HeapEscaping return).
+    assert!(
+        state_map.effect_summary().may_share,
+        "TRMC function should have may_share=true from HeapEscaping return"
+    );
+
+    // But ContextHole is still set — may_share is logged, not enforced.
+    assert_eq!(
+        state_map.var_shape(var(2)),
+        ShapeClass::ContextHole,
+        "TRMC candidate should still be detected despite may_share=true"
+    );
+}
+
+/// Context events NOT recorded when `may_share` is true (logged, not enforced).
+/// Even with `may_share=true`, context events ARE recorded because the gate
+/// is logged-only in v1 (no effect handlers → no non-linear resumption).
+#[test]
+fn context_events_recorded_despite_may_share_true() {
+    use crate::aims::contract::ContextRegion;
+    use crate::aims::intraprocedural::AimsEvent;
+
+    let self_name = Name::from_raw(42);
+    let func = ArcFunction {
+        name: self_name,
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(0),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let regions = vec![ContextRegion {
+        open_block: block_id(0),
+        open_instr: 2,
+        context_var: var(2),
+        hole_field: 0,
+        close_block: block_id(0),
+        close_instr: 1,
+        hole_var: var(1),
+    }];
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &regions, Vec::new());
+
+    // Function has may_share=true (HeapEscaping), but events are still recorded.
+    assert!(state_map.effect_summary().may_share);
+
+    let events = state_map.events_in_block(block_id(0));
+    let context_events: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
+            )
+        })
+        .collect();
+    assert_eq!(
+        context_events.len(),
+        2,
+        "context events should be recorded despite may_share=true (gate is logged, not enforced)"
+    );
+}

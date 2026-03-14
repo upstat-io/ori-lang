@@ -14,8 +14,8 @@
 //! - `EffectSummary` fields are computed from function body instructions
 //! - `FipContract` is inferred from converged effect state and token
 //!   balance (`extract_contract()` in `interprocedural/extract.rs`)
-//! - `ContextBehavior` is always `default()` — populated in Section 13
-//!   when TRMC realization is implemented
+//! - `ContextBehavior` is computed from `ContextRegion` metadata during
+//!   contract extraction (Section 13.1); `default()` for non-TRMC functions
 //! - `is_fbip` is `!effects.may_allocate` (inferred metadata)
 
 #[cfg(test)]
