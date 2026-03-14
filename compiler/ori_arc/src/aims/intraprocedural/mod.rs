@@ -199,8 +199,12 @@ pub fn analyze_function(
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_sparse_events(&mut state_map, func);
     post_convergence::populate_var_shapes(&mut state_map, func);
-    post_convergence::detect_trmc_candidates(&mut state_map, func);
-    post_convergence::populate_context_events(&mut state_map, func, context_regions);
+
+    // Section 13.2: effect_summary().may_share is available post-convergence.
+    // Passed to TRMC gates for logging (not enforced in v1).
+    let may_share = state_map.effect_summary().may_share;
+    post_convergence::detect_trmc_candidates(&mut state_map, func, may_share);
+    post_convergence::populate_context_events(&mut state_map, func, context_regions, may_share);
     fip_balance::populate_fip_balance(&mut state_map, func);
     fip_balance::populate_fip_gate_events(&mut state_map, func, sigs);
 
