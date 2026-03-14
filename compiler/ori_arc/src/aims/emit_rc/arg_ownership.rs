@@ -5,12 +5,12 @@
 //! [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership)
 //! after converting contracts to [`AnnotatedSig`]s.
 //!
-//! # Stage 1
+//! # Current implementation
 //!
-//! During Stage 1, this is a thin wrapper: convert `MemoryContract` →
-//! `AnnotatedSig` via contract fields, then call the existing annotation
-//! function. This avoids duplicating the type-qualified builtin dispatch
-//! logic (250+ lines). Post-Stage 1, this should be replaced with direct
+//! Currently a thin wrapper: converts `MemoryContract` → `AnnotatedSig`
+//! via contract fields, then calls the existing annotation function.
+//! This avoids duplicating the type-qualified builtin dispatch logic
+//! (250+ lines). Future versions should replace this with direct
 //! `MemoryContract` consumption.
 
 use rustc_hash::FxHashMap;
@@ -28,7 +28,7 @@ use crate::BuiltinOwnershipSets;
 ///
 /// Converts each `MemoryContract` to an `AnnotatedSig` and delegates to
 /// [`crate::rc_insert::annotate_arg_ownership`]. This preserves the
-/// type-qualified builtin dispatch logic during Stage 1.
+/// type-qualified builtin dispatch logic.
 ///
 /// Must be called **before** RC emission (pipeline step 4 in Section 06.2).
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]

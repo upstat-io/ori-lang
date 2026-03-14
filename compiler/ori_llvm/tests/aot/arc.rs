@@ -547,3 +547,159 @@ fn test_arc_alias_chain_three_way_use() {
         );
     }
 }
+
+// ─── RC identity + projection regression matrices (Matrix A) ───
+//
+// These fixtures systematically exercise the interaction between:
+// - Let { dst, value: Var(src) } alias chains
+// - Project source semantics (scalar = borrowing, non-scalar = transfer)
+// - Path-sensitive cleanup (Switch / branch successors)
+// - Exact RcInc placement in the unified forward walk
+//
+// Ref: plans/aims/section-08-verification.md §08.5 Matrix A
+
+// A1: Scalar Project from aliased scrutinee.
+// catch(expr:) returns Result<str, str>. Matching on the result creates an
+// alias of the scrutinee. The tag check (Ok vs Err) is a scalar Project —
+// no extra RcInc should be inserted on the alias before the tag Project,
+// and no extra RcDec should appear in the Ok block.
+#[test]
+fn test_rc_catch_heap_alias_scalar_project() {
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+@main () -> int = {
+    let r = catch(expr: "heap string for alias test");
+    match r {
+        Ok(v) -> if v == "heap string for alias test" then 0 else 1,
+        Err(_) -> 2,
+    }
+}
+"#,
+            "rc_catch_heap_alias_scalar_project",
+        );
+    }
+}
+
+// A2/A4: Non-scalar Project from aliased scrutinee + borrowing/transfer split.
+// Result<int, str> — Ok(int) is borrowing (scalar payload), Err(str) is
+// transfer (heap payload). The borrowing branch must drop the root Result;
+// the transfer branch suppresses root drop (ownership flows to extracted str).
+#[test]
+fn test_rc_try_result_int_str_projection_split() {
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+@maybe_int (x: int) -> Result<int, str> = {
+    if x > 0 then Ok(x) else Err("negative value")
+};
+
+@main () -> int = {
+    let r1 = maybe_int(5);
+    let r2 = maybe_int(-1);
+    let $ok_val = match r1 {
+        Ok(v) -> v,
+        Err(_) -> -1,
+    };
+    let $err_msg = match r2 {
+        Ok(_) -> "",
+        Err(e) -> e,
+    };
+    if ok_val == 5 && err_msg == "negative value" then 0 else 1
+}
+"#,
+            "rc_try_result_int_str_projection_split",
+        );
+    }
+}
+
+// A7/A8: Alias of alias used only through borrowing primops (compare).
+// a → b → c chain where all three are compared. Intermediate alias must
+// receive RcInc when both source and downstream aliases stay live.
+#[test]
+fn test_rc_alias_chain_compare_heap_string() {
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+@main () -> int = {
+    let a = "alias chain comparison string";
+    let b = a;
+    let c = b;
+    let $r1 = a == b;
+    let $r2 = b == c;
+    let $r3 = a == c;
+    if r1 && r2 && r3 then 0 else 1
+}
+"#,
+            "rc_alias_chain_compare_heap_string",
+        );
+    }
+}
+
+// A5: Owned call after alias split.
+// Alias b consumed by owned callee (returns the string, transferring
+// ownership). Root a is used after the call — exactly one RcInc must be
+// inserted at the ownership divergence point.
+#[test]
+fn test_rc_alias_owned_call_then_root_use() {
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+@take_and_return (s: str) -> str = s;
+
+@main () -> int = {
+    let a = "owned call alias test string";
+    let b = a;
+    let $result = take_and_return(b);
+    if result == a then 0 else 1
+}
+"#,
+            "rc_alias_owned_call_then_root_use",
+        );
+    }
+}
+
+// A6: Borrowed call after alias split.
+// Alias b passed to borrowed callee (only reads). No spurious RcInc for
+// the borrowed call, but final owner must still be dropped exactly once.
+#[test]
+fn test_rc_alias_borrowed_call_then_root_use() {
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+@check_length (s: str) -> bool = len(collection: s) > 0;
+
+@main () -> int = {
+    let a = "borrowed call alias test string";
+    let b = a;
+    let $ok = check_length(b);
+    if ok && a == "borrowed call alias test string" then 0 else 1
+}
+"#,
+            "rc_alias_borrowed_call_then_root_use",
+        );
+    }
+}
+
+// A3: Borrowing projection on both successor paths.
+// Both branches of an if/else project scalar fields from the same struct.
+// Root aggregate is decremented at last borrowing use in each branch,
+// not at the branch point.
+#[test]
+fn test_rc_switch_two_scalar_borrow_branches() {
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+type Pair = { x: int, y: int }
+
+@main () -> int = {
+    let p = Pair { x: 10, y: 20 };
+    let $flag = true;
+    let $result = if flag then p.x else p.y;
+    if result == 10 then 0 else 1
+}
+"#,
+            "rc_switch_two_scalar_borrow_branches",
+        );
+    }
+}

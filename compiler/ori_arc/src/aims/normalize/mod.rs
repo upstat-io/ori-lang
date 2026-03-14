@@ -29,6 +29,8 @@ mod detect;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use detect::collect_recursive_call_sites;
+
 use super::contract::ContextRegion;
 use crate::ir::ArcFunction;
 

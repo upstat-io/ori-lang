@@ -15,6 +15,7 @@
 //! 3a. `aims::normalize_function()` — TRMC context region detection
 //! 4. `aims::analyze_function()` — backward dataflow → converged state map
 //! 5. `aims::realize_rc_reuse()` — Phase 1: `arg_ownership` + RC + reuse (pre-merge)
+//! 5a. `aims::verify::fip::verify_fip_contract()` — FIP enforcement verification
 //! 6. `verify()` — ARC IR sanity check
 //! 7. `run_aims_verify()` — AIMS contract vs IR consistency
 //! 8. `detect_tail_calls()` + `rewrite_tail_calls()`
@@ -52,6 +53,14 @@ pub(crate) struct AimsPipelineConfig<'a> {
     // end-to-end synergy tests (realize/tests.rs) provide sufficient coverage.
 }
 
+/// Result of `run_aims_pipeline` for a single function.
+pub(crate) struct AimsPipelineResult {
+    pub problems: Vec<ArcProblem>,
+    /// Post-emission `may_deallocate` fact: `true` if realization found
+    /// unmatched deallocations (missed reuses > 0).
+    pub may_deallocate: bool,
+}
+
 /// Run the AIMS pipeline on a single function (steps 3–12).
 ///
 /// Called from within `run_arc_pipeline` when the `aims` feature is active.
@@ -59,7 +68,7 @@ pub(crate) struct AimsPipelineConfig<'a> {
 pub(crate) fn run_aims_pipeline(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
-) -> Vec<ArcProblem> {
+) -> AimsPipelineResult {
     // Step 3: compute value representations.
     {
         let _span = tracing::info_span!("compute_var_reprs").entered();
@@ -100,6 +109,29 @@ pub(crate) fn run_aims_pipeline(
         )
     };
 
+    // Post-emission may_deallocate: true if realization found unmatched
+    // deallocations (FP² Theorem 2 — Section 12.1).
+    let may_deallocate = result.fip_evidence.missed_reuses > 0;
+
+    // Step 5a: FIP enforcement verification (Section 12.3).
+    // Cross-checks FipContract against realization evidence.
+    if let Some(contract) = config.contracts.get(&func.name) {
+        let fip_errors = crate::aims::verify::fip::verify_fip_contract(
+            func.name,
+            contract,
+            &result.fip_evidence,
+        );
+        for e in &fip_errors {
+            if cfg!(debug_assertions) {
+                // Debug: hard failure to catch bugs early.
+                tracing::error!("FIP verification failed: {e}");
+                debug_assert!(false, "FIP verification failed: {e}");
+            } else {
+                tracing::warn!("FIP verification: {e}");
+            }
+        }
+    }
+
     // Set canonicalize cross-dim fires from converged state analysis.
     result.synergy_metrics.canonicalize_cross_fires = state_map.count_cross_dim_states();
 
@@ -121,7 +153,12 @@ pub(crate) fn run_aims_pipeline(
     func.drop_hints = result.drop_hints;
 
     // Final verification + FBIP.
-    emit_postprocess(func, config)
+    let problems = emit_postprocess(func, config);
+
+    AimsPipelineResult {
+        problems,
+        may_deallocate,
+    }
 }
 
 /// Detect immortal variables (heap-allocated constants with `MAX_REFCOUNT`).
@@ -215,7 +252,7 @@ pub(crate) fn run_aims_pipeline_all(
     verify_arc: bool,
 ) -> Vec<ArcProblem> {
     // Step 1: interprocedural analysis → MemoryContract per function.
-    let contracts = {
+    let mut contracts = {
         let _span = tracing::info_span!("analyze_program").entered();
         crate::aims::interprocedural::analyze_program(functions, classifier, builtins, interner)
     };
@@ -238,12 +275,23 @@ pub(crate) fn run_aims_pipeline_all(
 
     let mut all_problems = Vec::new();
     let mut total_rc = super::rc_count::RcOpCount::default();
+    // Collect post-emission may_deallocate updates for second-pass application.
+    let mut dealloc_updates: Vec<(Name, bool)> = Vec::new();
     for func in functions.iter_mut() {
-        let problems = run_aims_pipeline(func, &config);
-        all_problems.extend(problems);
+        let result = run_aims_pipeline(func, &config);
+        all_problems.extend(result.problems);
+        dealloc_updates.push((func.name, result.may_deallocate));
         let rc = super::rc_count::count_rc_ops(func);
         total_rc.inc += rc.inc;
         total_rc.dec += rc.dec;
+    }
+
+    // Second pass: update contracts with post-emission may_deallocate facts.
+    // This avoids mutating the config struct during the per-function loop.
+    for (name, may_dealloc) in &dealloc_updates {
+        if let Some(contract) = contracts.get_mut(name) {
+            contract.effects.may_deallocate = *may_dealloc;
+        }
     }
 
     tracing::debug!(

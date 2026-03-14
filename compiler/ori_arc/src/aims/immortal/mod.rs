@@ -28,7 +28,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, LitValue};
 /// Scans the function's instructions for `Let` bindings to immortal-eligible
 /// literal values. Returns a parallel bitvector indexed by `ArcVarId::index()`.
 ///
-/// # Immortal-Eligible Values (Stage 1)
+/// # Immortal-Eligible Values (v1)
 ///
 /// - Empty string literal `""` — heap-allocated `DefiniteRef` with zero content
 ///
@@ -61,7 +61,7 @@ pub fn detect_immortals(func: &ArcFunction, interner: &StringInterner) -> Vec<bo
 
 /// Whether a literal value qualifies as immortal.
 ///
-/// Stage 1: only empty string `""`. Future stages may add empty list `[]`,
+/// Currently only empty string `""`. Future versions may add empty list `[]`,
 /// empty map `{}`, and static string constants.
 fn is_immortal_literal(lit: &LitValue, interner: &StringInterner) -> bool {
     match lit {

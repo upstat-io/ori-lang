@@ -53,7 +53,7 @@ pub fn run_arc_pipeline(
         builtins: &builtins,
         verify_arc,
     };
-    aims_pipeline::run_aims_pipeline(func, &config)
+    aims_pipeline::run_aims_pipeline(func, &config).problems
 }
 
 /// Run the full ARC pipeline on all functions, including ownership application.

@@ -950,7 +950,7 @@ fn corpus_09_collection_update_receiver_once() {
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
     // v0 is defined in this block, so entry is BOTTOM. The analysis correctly
     // tracks it was used once by Apply. Without interprocedural contracts
-    // (Stage 1), the Apply dst v1 gets conservative state.
+    // (no interprocedural info), the Apply dst v1 gets conservative state.
     assert_eq!(
         state_map.var_state_at_block_entry(block_id(0), var(0)),
         AimsState::BOTTOM
@@ -1196,9 +1196,9 @@ fn sparse_events_local_alloc_for_function_local_variable() {
     // Note: whether Locality is FunctionLocal/BlockLocal depends on the
     // transfer functions. This test verifies the event is recorded when
     // the exit state has local locality. If the current transfer functions
-    // don't produce local locality for this pattern (Stage 1 conservative
-    // defaults may set Unknown), the test documents the expected behavior
-    // when locality inference is enabled.
+    // don't produce local locality for this pattern (conservative defaults
+    // may set Unknown), the test documents the expected behavior when
+    // locality inference is enabled.
     let func = ArcFunction {
         var_types: vec![ty(0), ty(0)],
         blocks: vec![ArcBlock {
@@ -1234,7 +1234,7 @@ fn sparse_events_local_alloc_for_function_local_variable() {
         .collect();
 
     // If locality is FunctionLocal or BlockLocal, we should have an event.
-    // If locality is Unknown/HeapEscaping (Stage 1 conservative), no event.
+    // If locality is Unknown/HeapEscaping (conservative default), no event.
     if matches!(
         exit_v0.locality,
         super::super::lattice::Locality::FunctionLocal
@@ -1245,8 +1245,8 @@ fn sparse_events_local_alloc_for_function_local_variable() {
             "FunctionLocal/BlockLocal variable should record LocalAllocCandidate"
         );
     } else {
-        // Stage 1 conservative: document that no local-alloc events are
-        // produced when locality defaults to Unknown.
+        // Conservative default: no local-alloc events produced when
+        // locality defaults to Unknown.
         assert!(
             local_alloc.is_empty(),
             "Unknown/HeapEscaping locality should NOT record LocalAllocCandidate"
@@ -2226,8 +2226,10 @@ fn effect_summary_apply_unions_callee_effects() {
             effects: EffectSummary {
                 may_allocate: true,
                 alloc_only_on_slow_path: false,
+                may_deallocate: false,
                 may_share: true,
                 may_throw: false,
+                has_unbounded_stack: false,
             },
             context_behavior: ContextBehavior::default(),
             fip: FipContract::Never,
@@ -2745,8 +2747,10 @@ fn conditional_fip_call_site_all_unique_no_widening() {
         effects: EffectSummary {
             may_allocate: true,
             alloc_only_on_slow_path: false,
+            may_deallocate: false,
             may_share: true, // would normally widen, but FIP Conditional overrides
             may_throw: false,
+            has_unbounded_stack: false,
         },
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Conditional {
@@ -2826,8 +2830,10 @@ fn conditional_fip_call_site_not_unique_widens() {
         effects: EffectSummary {
             may_allocate: true,
             alloc_only_on_slow_path: false,
+            may_deallocate: false,
             may_share: true,
             may_throw: false,
+            has_unbounded_stack: false,
         },
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Conditional {
@@ -2851,8 +2857,10 @@ fn conditional_fip_call_site_not_unique_widens() {
         effects: EffectSummary {
             may_allocate: true,
             alloc_only_on_slow_path: false,
+            may_deallocate: false,
             may_share: true,
             may_throw: false,
+            has_unbounded_stack: false,
         },
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,

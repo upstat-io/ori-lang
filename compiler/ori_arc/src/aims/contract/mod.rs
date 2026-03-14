@@ -5,14 +5,18 @@
 //! interprocedural analysis (Section 03), consumed by intraprocedural
 //! analysis (Section 02) at call sites and by emission (Section 04).
 //!
-//! # Stage 1
+//! # Current State
 //!
-//! In Stage 1:
-//! - `EffectSummary` fields use conservative defaults
-//! - `FipContract` is always `Never` (FIP inference disabled)
-//! - `ContextBehavior` is always default (TRMC disabled)
+//! All contract fields are active and refined by interprocedural
+//! analysis:
 //! - Core fields (`access`, `consumption`, `cardinality`, `uniqueness`)
-//!   are refined by interprocedural analysis
+//!   are refined by SCC fixed-point iteration
+//! - `EffectSummary` fields are computed from function body instructions
+//! - `FipContract` is inferred from converged effect state and token
+//!   balance (`extract_contract()` in `interprocedural/extract.rs`)
+//! - `ContextBehavior` is always `default()` — populated in Section 13
+//!   when TRMC realization is implemented
+//! - `is_fbip` is `!effects.may_allocate` (inferred metadata)
 
 #[cfg(test)]
 mod tests;
@@ -60,8 +64,8 @@ impl MemoryContract {
     /// The fixed-point promotes parameters toward `Owned` as call sites demand it.
     ///
     /// `fip_initial` controls FIP behavior:
-    /// - Stage 1: pass `FipContract::Never` (FIP inference disabled)
-    /// - Stage 2: pass `FipContract::Certified` (most optimistic, refined downward)
+    /// - Pass `FipContract::Never` to disable FIP inference
+    /// - Pass `FipContract::Certified` for optimistic start (refined downward)
     pub fn all_borrowed(num_params: usize, fip_initial: FipContract) -> Self {
         Self {
             params: vec![ParamContract::OPTIMISTIC; num_params],
@@ -297,20 +301,18 @@ impl ReturnContract {
 /// per-program-point lattice dimension. `EffectSummary` is a per-function
 /// summary aggregated across the entire function body.
 ///
-/// # Planned: `may_deallocate` field (Stage 2)
+/// FP² Theorem 2 (Lorenzen et al., ICFP 2023) requires:
+/// - `may_allocate == false` → FBIP (no fresh allocations)
+/// - `may_allocate == false && may_deallocate == false` → fully in-place (FIP)
 ///
-/// FP² Theorem 2 requires both sides of the in-place balance: `may_allocate`
-/// alone gives FBIP (functional-but-in-place). Full FIP additionally requires
-/// `may_deallocate == false` — no unmatched deallocations. This is a post-emission
-/// fact computed from `EmitReuseResult.missed_reuses > 0`: if any consumed value
-/// with reusable shape was NOT matched by a reuse opportunity, the function
-/// deallocates (frees memory without reusing it). When `may_allocate == false &&
-/// may_deallocate == false`, the function is fully in-place (FIP).
-/// (See: plans/aims-literature-review/section-02-fp2.md)
+/// `may_deallocate` is a post-emission fact: computed from
+/// `FipEvidence.missed_reuses > 0` after realization (Section 12.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "4 independent effect flags from FP² paper; enum would add complexity without benefit"
+    reason = "6 independent effect flags from FP² paper (may_allocate, alloc_only_on_slow_path, \
+              may_deallocate, may_share, may_throw, has_unbounded_stack); \
+              enum would add complexity without benefit"
 )]
 pub struct EffectSummary {
     /// May the function allocate on any code path?
@@ -320,27 +322,51 @@ pub struct EffectSummary {
     /// When `may_allocate && alloc_only_on_slow_path`, the function is
     /// FIP-eligible with Conditional preconditions.
     pub alloc_only_on_slow_path: bool,
+    /// May the function deallocate on any code path?
+    ///
+    /// `true` if any consumed value with reusable shape was NOT matched
+    /// by a reuse opportunity — the function frees memory without reusing
+    /// it. Computed post-emission from `FipEvidence.missed_reuses > 0`.
+    ///
+    /// When `may_allocate == false && may_deallocate == false`, the
+    /// function is fully in-place (FIP per FP² Theorem 2).
+    pub may_deallocate: bool,
     /// May the function create shared references?
     pub may_share: bool,
     /// May the function throw exceptions/panics?
     pub may_throw: bool,
+    /// Does this function have unbounded stack growth?
+    ///
+    /// `true` if the function contains non-tail-recursive calls to itself
+    /// or to mutual-recursion partners. Functions where all recursive calls
+    /// are in tail position (rewritten to loops by the tail-call pass) are
+    /// considered constant-stack.
+    ///
+    /// Unlike `may_allocate`/`may_share`/`may_throw`, this is NOT accumulated
+    /// per-block during analysis. It is set once in `extract_contract()` from
+    /// SCC membership and syntactic tail-position checks.
+    pub has_unbounded_stack: bool,
 }
 
 impl EffectSummary {
-    /// Conservative: may allocate, share, and throw.
+    /// Conservative: may allocate, deallocate, share, throw, and unbounded stack.
     pub const CONSERVATIVE: Self = Self {
         may_allocate: true,
         alloc_only_on_slow_path: false,
+        may_deallocate: true,
         may_share: true,
         may_throw: true,
+        has_unbounded_stack: true,
     };
 
     /// Most-optimistic: no effects.
     pub const OPTIMISTIC: Self = Self {
         may_allocate: false,
         alloc_only_on_slow_path: false,
+        may_deallocate: false,
         may_share: false,
         may_throw: false,
+        has_unbounded_stack: false,
     };
 
     /// Componentwise join (OR for effect flags, AND for slow-path-only).
@@ -350,8 +376,11 @@ impl EffectSummary {
             may_allocate: self.may_allocate || other.may_allocate,
             // Both sides must be slow-path-only for the join to be slow-path-only.
             alloc_only_on_slow_path: self.alloc_only_on_slow_path && other.alloc_only_on_slow_path,
+            may_deallocate: self.may_deallocate || other.may_deallocate,
             may_share: self.may_share || other.may_share,
             may_throw: self.may_throw || other.may_throw,
+            // Either side unbounded → joined is unbounded.
+            has_unbounded_stack: self.has_unbounded_stack || other.has_unbounded_stack,
         }
     }
 }
@@ -359,28 +388,65 @@ impl EffectSummary {
 /// Constructor-context behavior for TRMC (Stage 3).
 ///
 /// Describes whether a function preserves/consumes constructor contexts.
-/// Default (conservative) in Stage 1.
+/// Computed from `ContextRegion` metadata during contract extraction
+/// (Section 13.1). Functions without TRMC candidates get `default()`.
 ///
-/// **Soundness gate (Section 09.2):** In-place TRMC requires
-/// `EffectSummary.may_share == false`. When `may_share == true`, the context
-/// variable `k` may be captured by an effect handler's resumption and used
-/// non-linearly, breaking the unique linear chain invariant. Stage 3
-/// `normalize/verify.rs` must gate in-place TRMC behind this check.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+/// **Soundness gate (Section 09.2):** In-place TRMC requires the context
+/// variable to be unique (Lemma 2 — unique linear chain). When
+/// `may_resume_nonlinearly == true`, effect handlers could capture the
+/// context non-linearly, breaking uniqueness. The per-variable
+/// `Uniqueness::Unique` gate in `detect_trmc_candidates()` is the enforced
+/// soundness condition; the effect gate is a pending design decision
+/// (blocked on effect-handler semantics — see Section 13.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "4 independent boolean flags from literature (Leijen & Lorenzen JFP 2025); \
+              bitfields not warranted for a type used once per function contract"
+)]
 pub struct ContextBehavior {
     /// Does this function preserve a constructor context passed to it?
+    /// True when the function's return value includes the context variable
+    /// (not consumed or dropped).
     pub preserves_context: bool,
-    /// Does this function consume a context hole?
+    /// Does this function consume the context hole?
+    /// True when the function fills the hole field of the context variable.
     pub consumes_hole: bool,
+    /// Does in-place TRMC require the context variable to be unique?
+    /// Always `true` for the modulo-cons instantiation. `false` only if a
+    /// CPS fallback is used (not implemented in v1).
+    pub requires_unique_context: bool,
+    /// Can effect handlers in scope resume more than once?
+    /// Derived from `EffectSummary.may_share`. When `true`, the context
+    /// variable may be captured non-linearly, breaking the unique linear
+    /// chain invariant (Leijen & Lorenzen, JFP 2025, Lemma 2).
+    pub may_resume_nonlinearly: bool,
+}
+
+impl Default for ContextBehavior {
+    /// Conservative default: no context preservation or hole consumption,
+    /// requires uniqueness, no non-linear resumption.
+    fn default() -> Self {
+        Self {
+            preserves_context: false,
+            consumes_hole: false,
+            requires_unique_context: true, // conservative: require until proven unnecessary
+            may_resume_nonlinearly: false,
+        }
+    }
 }
 
 impl ContextBehavior {
-    /// Componentwise join: AND (conservative direction for Stage 3).
+    /// Componentwise join (conservative in both directions):
+    /// - `preserves_context`, `consumes_hole`: AND (must hold on ALL paths)
+    /// - `requires_unique_context`, `may_resume_nonlinearly`: OR (ANY path triggers)
     #[must_use]
     pub fn join(&self, other: &Self) -> Self {
         Self {
             preserves_context: self.preserves_context && other.preserves_context,
             consumes_hole: self.consumes_hole && other.consumes_hole,
+            requires_unique_context: self.requires_unique_context || other.requires_unique_context,
+            may_resume_nonlinearly: self.may_resume_nonlinearly || other.may_resume_nonlinearly,
         }
     }
 }
@@ -408,7 +474,10 @@ pub enum FipContract {
         /// Which parameters must be unique for FIP certification.
         requires_unique_params: Vec<bool>,
     },
-    /// Function is unconditionally FIP (all code paths allocation-free).
+    /// Function is unconditionally FIP (all allocations matched by reuses,
+    /// or no allocations at all). `may_allocate` may be `true` for
+    /// token-balanced functions; FBIP (allocation-free) is tracked separately
+    /// by `MemoryContract::is_fbip`.
     Certified,
     /// Function allocates at most `n` constructors beyond what it reuses.
     ///

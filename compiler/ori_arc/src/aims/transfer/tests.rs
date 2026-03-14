@@ -983,3 +983,132 @@ fn transfer_def_covers_all_instr_variants() {
         );
     }
 }
+
+// RC identity + projection regression matrices (Matrix A/B)
+//
+// These tests exercise alias chain + Project interactions at the transfer
+// function level — verifying state propagation through Let{Var} chains
+// and Project instruction semantics.
+
+#[test]
+fn alias_chain_inherits_through_two_hops() {
+    // a → b → c: state propagates through Let{Var} chain.
+    let source_state = AimsState {
+        uniqueness: Uniqueness::Unique,
+        locality: Locality::FunctionLocal,
+        ..AimsState::FRESH
+    };
+    let hop1_state = AimsState {
+        uniqueness: Uniqueness::Unique,
+        locality: Locality::FunctionLocal,
+        ..AimsState::FRESH
+    };
+    let pairs = [(0, source_state), (1, hop1_state)];
+
+    // First hop: v1 = v0
+    let instr1 = ArcInstr::Let {
+        dst: var(1),
+        ty: ori_types::Idx::from_raw(0),
+        value: ArcValue::Var(var(0)),
+    };
+    let r1 = transfer_def(&instr1, &lookup_from(&pairs)).expect("should define v1");
+    assert_eq!(r1.state.uniqueness, Uniqueness::Unique);
+    assert_eq!(r1.state.locality, Locality::FunctionLocal);
+
+    // Second hop: v2 = v1 (using the result state from hop 1)
+    let pairs2 = [(0, source_state), (1, r1.state)];
+    let instr2 = ArcInstr::Let {
+        dst: var(2),
+        ty: ori_types::Idx::from_raw(0),
+        value: ArcValue::Var(var(1)),
+    };
+    let r2 = transfer_def(&instr2, &lookup_from(&pairs2)).expect("should define v2");
+    assert_eq!(
+        r2.state.uniqueness,
+        Uniqueness::Unique,
+        "two-hop alias should preserve uniqueness"
+    );
+    assert_eq!(
+        r2.state.locality,
+        Locality::FunctionLocal,
+        "two-hop alias should preserve locality"
+    );
+}
+
+#[test]
+fn project_from_shared_alias_inherits_shared() {
+    // If the Project source was aliased (MaybeShared), the projection
+    // result should also be MaybeShared, not Unique.
+    let source_state = AimsState {
+        uniqueness: Uniqueness::MaybeShared,
+        ..AimsState::FRESH
+    };
+    let pairs = [(0, source_state)];
+    let instr = ArcInstr::Project {
+        dst: var(1),
+        ty: ori_types::Idx::from_raw(0),
+        value: var(0),
+        field: 0,
+    };
+    let result = transfer_def(&instr, &lookup_from(&pairs)).expect("should define v1");
+    assert_eq!(
+        result.state.uniqueness,
+        Uniqueness::MaybeShared,
+        "projection from MaybeShared source should be MaybeShared"
+    );
+    assert_eq!(result.state.access, AccessClass::Borrowed);
+}
+
+#[test]
+fn project_from_dead_source_still_borrows() {
+    // Even if the source is Dead/consumed, the Project result is Borrowed —
+    // the forward walk sees the source as defined at the instruction site.
+    let source_state = AimsState {
+        consumption: Consumption::Dead,
+        ..AimsState::FRESH
+    };
+    let pairs = [(0, source_state)];
+    let instr = ArcInstr::Project {
+        dst: var(1),
+        ty: ori_types::Idx::from_raw(0),
+        value: var(0),
+        field: 0,
+    };
+    let result = transfer_def(&instr, &lookup_from(&pairs)).expect("should define v1");
+    assert_eq!(
+        result.state.access,
+        AccessClass::Borrowed,
+        "Project always produces Borrowed access regardless of source consumption"
+    );
+}
+
+#[test]
+fn project_different_fields_independent_borrow_sources() {
+    // Two Projects from the same source with different field indices
+    // must produce different BorrowSource values.
+    let source_state = AimsState::FRESH;
+    let pairs = [(0, source_state)];
+
+    let instr0 = ArcInstr::Project {
+        dst: var(1),
+        ty: ori_types::Idx::from_raw(0),
+        value: var(0),
+        field: 0,
+    };
+    let instr1 = ArcInstr::Project {
+        dst: var(2),
+        ty: ori_types::Idx::from_raw(0),
+        value: var(0),
+        field: 1,
+    };
+
+    let r0 = transfer_def(&instr0, &lookup_from(&pairs)).expect("field 0");
+    let r1 = transfer_def(&instr1, &lookup_from(&pairs)).expect("field 1");
+
+    assert_eq!(r0.borrow_source, Some(BorrowSource::exact_field(var(0), 0)));
+    assert_eq!(r1.borrow_source, Some(BorrowSource::exact_field(var(0), 1)));
+    assert_ne!(
+        r0.borrow_source, r1.borrow_source,
+        "different field Projects must have different borrow sources"
+    );
+}

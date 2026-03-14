@@ -1,7 +1,7 @@
 ---
 section: "13"
 title: "TRMC Realization & Soundness"
-status: not-started
+status: in-progress
 goal: "Complete the TRMC pipeline from detection through realization, reconcile the soundness gate between may_share and per-variable uniqueness, and wire ContextBehavior into interprocedural contracts"
 inspired_by:
   - "Leijen & Lorenzen, JFP 2025 — Tail Recursion Modulo Context"
@@ -11,7 +11,7 @@ depends_on: ["09", "10", "11", "12"]
 sections:
   - id: "13.1"
     title: "ContextBehavior Interprocedural Inference"
-    status: not-started
+    status: complete
   - id: "13.2"
     title: "Soundness Gate Reconciliation"
     status: not-started
@@ -102,7 +102,7 @@ will be in `intraprocedural/post_convergence.rs` after the split).
 are always `false`. This section wires them into `extract_contract()` so they
 are computed from analysis state.
 
-- [ ] Expand `ContextBehavior` fields per literature review C1:
+- [x] Expand `ContextBehavior` fields per literature review C1:
   ```rust
   pub struct ContextBehavior {
       /// Does this function preserve a constructor context passed to it?
@@ -124,7 +124,7 @@ are computed from analysis state.
   }
   ```
 
-- [ ] Update `ContextBehavior::default()`:
+- [x] Update `ContextBehavior::default()`:
   The current `ContextBehavior` derives `Default`, which gives all `bool`
   fields as `false`. With the new `requires_unique_context` field, the
   "safe default" is `true` (require uniqueness unless proven unnecessary).
@@ -133,7 +133,7 @@ are computed from analysis state.
     `requires_unique_context: true`
   - **(b)** Keep `Default` derive and treat `false` as "not yet computed"
     (consumers check `preserves_context` first)
-  **Recommended:** Option (a) -- manual Default impl:
+  **Implemented:** Option (a) -- manual Default impl:
   ```rust
   impl Default for ContextBehavior {
       fn default() -> Self {
@@ -153,11 +153,11 @@ are computed from analysis state.
     (this is the one being replaced, but others remain as fallbacks)
   - Remove `#[derive(Default)]` from `ContextBehavior` struct
 
-- [ ] Update `ContextBehavior::join()` -- AND for `preserves_context` and
+- [x] Update `ContextBehavior::join()` -- AND for `preserves_context` and
   `consumes_hole` (conservative), OR for `requires_unique_context` and
   `may_resume_nonlinearly` (conservative in opposite direction)
 
-- [ ] Compute `ContextBehavior` in `extract_contract()` (`interprocedural.rs`):
+- [x] Compute `ContextBehavior` in `extract_contract()` (`interprocedural/extract.rs`):
   - Replace `context_behavior: ContextBehavior::default()` at line 567
   - **Data flow:** `extract_contract()` currently has no access to
     `NormalizationResult` or `context_regions`. The context regions are
@@ -179,13 +179,16 @@ are computed from analysis state.
   - `may_resume_nonlinearly`: `effects.may_share` (conservative approximation;
     see literature review section 04.7)
 
-- [ ] Add `ContextBehavior` to `MemoryContract` display/debug output
+- [x] Add `ContextBehavior` to `MemoryContract` display/debug output
+  (Already included via `#[derive(Debug)]` on both types)
 
-- [ ] Tests:
+- [x] Tests:
   - `context_behavior_default_is_conservative` -- default has safe values
   - `context_behavior_join_is_conservative` -- verify direction for each field
-  - `extract_contract_computes_context_behavior` -- non-default ContextBehavior
-    when TRMC candidates exist
+  - `context_behavior_join_is_commutative` -- commutativity check
+  - `extract_contract_no_trmc_has_default_context_behavior` -- no TRMC → default
+  - `extract_contract_with_trmc_computes_context_behavior` -- non-default ContextBehavior
+    when TRMC candidates exist (also validates HeapEscaping → may_share → may_resume_nonlinearly)
   - `context_behavior_conservative_constructor_safe` -- `conservative()` returns
     safe ContextBehavior values
 
@@ -714,12 +717,12 @@ These items should be fixed during implementation of 13.1-13.6:
 - [ ] Stale `ContextBehavior` / `normalize` / `aims/mod.rs` docs updated
   (see 13.6a list)
 - [ ] `analyze_scc_fixpoint` clone-on-every-SCC eliminated (see 13.6a)
-- [ ] `ContextBehavior` fields expanded (`requires_unique_context`,
+- [x] `ContextBehavior` fields expanded (`requires_unique_context`,
   `may_resume_nonlinearly`) and computed in `extract_contract()`
   (no more hardcoded default at `interprocedural.rs:567`)
-- [ ] `ContextBehavior::Default` derive removed; manual impl with
+- [x] `ContextBehavior::Default` derive removed; manual impl with
   `requires_unique_context: true`
-- [ ] `context_regions` threaded to `extract_contract()` as parameter
+- [x] `context_regions` threaded to `extract_contract()` as parameter
 - [ ] Per-variable uniqueness gate enforced in `detect_trmc_candidates()`
   and `populate_context_events()`
 - [ ] Effect purity gate: design decision documented, placeholder
