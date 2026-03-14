@@ -79,6 +79,9 @@ pub(crate) fn run_aims_pipeline(
     let immortals = detect_immortals(func, config);
 
     // Step 3a: normalize — detect TRMC context regions.
+    // The TRMC rewrite (rewrite_trmc) is implemented and tested but not
+    // yet called here — it requires contract recomputation and the
+    // may_share false-positive resolution from Section 13.6.
     let norm_result = {
         let _span = tracing::info_span!("normalize_function").entered();
         crate::aims::normalize::normalize_function(func)

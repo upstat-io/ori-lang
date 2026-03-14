@@ -1,12 +1,13 @@
-//! Tests for the TRMC normalization pass.
+//! Tests for the TRMC normalization pass (detection, lifting, and rewrite).
 
 use ori_ir::Name;
 use ori_types::Idx;
 
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
-    CtorKind, LitValue,
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
+    ArgOwnership, CtorKind, LitValue,
 };
+use crate::Ownership;
 
 fn block_id(n: u32) -> ArcBlockId {
     ArcBlockId::new(n)
@@ -501,4 +502,475 @@ fn lifting_catches_invalid_dst_var() {
     };
 
     super::lift::lift_constructor_args(&func);
+}
+
+// Rewrite tests
+
+/// Helper: build a simple self-recursive function with a Construct wrapping
+/// the recursive result. Pattern:
+///   @f(v0: T) -> T =
+///     v1 = self(v0)
+///     v2 = Construct { v0, v1 }  // `hole_field` = 1 (v1 is recursive)
+///     Return v2
+fn make_recursive_construct_func() -> ArcFunction {
+    let self_name = Name::from_raw(42);
+    ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                // v1 = self(v0)
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // v2 = Construct { v0, v1 }
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(0), var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// Basic self-recursive list-map pattern: rewrite succeeds,
+/// function signature unchanged, loop-header block has context params.
+#[test]
+fn rewrite_trmc_simple_list_map() {
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert_eq!(regions.len(), 1);
+
+    let original_param_count = func.params.len();
+    let result = super::rewrite::rewrite_trmc(&mut func, &regions);
+    assert!(result, "rewrite should succeed");
+
+    // Function signature unchanged (loop-header strategy).
+    assert_eq!(
+        func.params.len(),
+        original_param_count,
+        "no params added to function signature"
+    );
+
+    // Original entry block (block 0) has 3 context block params
+    // (ctx_has: bool, ctx_res: return_ty, ctx_hole_obj: return_ty).
+    let entry_params = &func.blocks[0].params;
+    assert_eq!(
+        entry_params.len(),
+        3,
+        "3 context block params on loop header"
+    );
+    assert_eq!(entry_params[0].1, Idx::BOOL, "ctx_has is bool");
+    assert_eq!(entry_params[1].1, ty(0), "ctx_res matches return type");
+    assert_eq!(entry_params[2].1, ty(0), "ctx_hole_obj matches return type");
+
+    // Function entry changed to prologue block.
+    assert_ne!(func.entry, block_id(0), "entry changed to prologue");
+}
+
+/// Enum variant Construct with recursive result: rewrite applies.
+#[test]
+fn rewrite_trmc_enum_variant() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::EnumVariant {
+                        enum_name: Name::from_raw(200),
+                        variant: 1,
+                    },
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+    // Signature unchanged.
+    assert_eq!(func.params.len(), 1);
+    // Loop header has context params.
+    assert_eq!(func.blocks[0].params.len(), 3);
+}
+
+/// No context regions -> rewrite returns false (no-op).
+#[test]
+fn rewrite_trmc_skipped_when_no_regions() {
+    let mut func = make_recursive_construct_func();
+    let result = super::rewrite::rewrite_trmc(&mut func, &[]);
+    assert!(!result, "empty regions -> no rewrite");
+    assert_eq!(func.params.len(), 1, "no params added");
+    assert_eq!(func.entry, block_id(0), "entry unchanged");
+}
+
+/// Rewrite produces a loop-back Jump to the loop header (original entry),
+/// not a self-call. No Apply to self should remain.
+#[test]
+fn rewrite_trmc_produces_loop_back() {
+    let mut func = make_recursive_construct_func();
+    let self_name = func.name;
+    let original_entry = func.entry;
+    let regions = super::detect::detect_context_regions(&func);
+    super::rewrite::rewrite_trmc(&mut func, &regions);
+
+    // No Apply to self should remain (recursion converted to loop).
+    let has_self_call = func.blocks.iter().any(|b| {
+        b.body
+            .iter()
+            .any(|instr| matches!(instr, ArcInstr::Apply { func: f, .. } if *f == self_name))
+    });
+    assert!(!has_self_call, "no self-call should remain after rewrite");
+
+    // There should be a Jump back to the original entry (loop header).
+    let has_loop_back = func.blocks.iter().any(|b| {
+        matches!(
+            &b.terminator,
+            ArcTerminator::Jump { target, args } if *target == original_entry && args.len() == 3
+        )
+    });
+    assert!(
+        has_loop_back,
+        "should have a Jump back to loop header with 3 context args"
+    );
+}
+
+/// Rewrite emits Set instructions for context composition.
+#[test]
+fn rewrite_trmc_context_operations_emit_set() {
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    super::rewrite::rewrite_trmc(&mut func, &regions);
+
+    let set_count: usize = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.body)
+        .filter(|instr| matches!(instr, ArcInstr::Set { .. }))
+        .count();
+
+    // At least 1 Set for context composition (compose block).
+    assert!(
+        set_count >= 1,
+        "at least 1 Set for context composition, got {set_count}"
+    );
+}
+
+/// Multi-block function: base-case Return in a separate block gets
+/// rewritten to a Branch (conditional context application).
+#[test]
+fn rewrite_trmc_multi_arm_match() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            // Block 0: Branch on condition.
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: var(0),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            // Block 1 (recursive): v1 = self(v0), v2 = Construct(v0, v1), Return v2.
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Apply {
+                        dst: var(1),
+                        ty: ty(0),
+                        func: self_name,
+                        args: vec![var(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                    },
+                    ArcInstr::Construct {
+                        dst: var(2),
+                        ty: ty(0),
+                        ctor: CtorKind::Struct(Name::from_raw(100)),
+                        args: vec![var(0), var(1)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+            // Block 2 (base case): v3 = 0, Return v3.
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert_eq!(regions.len(), 1);
+
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Block 2's Return should now be a Branch (base-case context application).
+    assert!(
+        matches!(func.blocks[2].terminator, ArcTerminator::Branch { .. }),
+        "base-case block rewritten to Branch, got {:?}",
+        func.blocks[2].terminator
+    );
+
+    // Signature unchanged.
+    assert_eq!(func.params.len(), 1);
+}
+
+/// Non-recursive arm body is preserved by rewrite.
+#[test]
+fn rewrite_trmc_preserves_non_recursive_arms() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: var(0),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Apply {
+                        dst: var(1),
+                        ty: ty(0),
+                        func: self_name,
+                        args: vec![var(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                    },
+                    ArcInstr::Construct {
+                        dst: var(2),
+                        ty: ty(0),
+                        ctor: CtorKind::Struct(Name::from_raw(100)),
+                        args: vec![var(0), var(1)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(99)),
+                }],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    super::rewrite::rewrite_trmc(&mut func, &regions);
+
+    // Block 2 body untouched.
+    assert_eq!(func.blocks[2].body.len(), 1);
+    assert!(
+        matches!(
+            &func.blocks[2].body[0],
+            ArcInstr::Let {
+                value: ArcValue::Literal(LitValue::Int(99)),
+                ..
+            }
+        ),
+        "base-case body preserved"
+    );
+}
+
+/// Construct not in tail position (not last body instr): rewrite skips.
+#[test]
+fn rewrite_trmc_skipped_when_construct_not_tail() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // Construct is NOT the last instruction — there's a Let after it.
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(0), var(1)],
+                },
+                ArcInstr::Let {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(2)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert_eq!(regions.len(), 1, "detection still finds the region");
+    let result = super::rewrite::rewrite_trmc(&mut func, &regions);
+    assert!(!result, "rewrite should skip: construct not tail");
+    assert_eq!(func.params.len(), 1, "no modification");
+}
+
+/// Placeholder uses `ctx_res` (which is the null sentinel on first iteration).
+/// The prologue defines a null sentinel (`LitValue::Null`) and passes it to
+/// the loop header. The Construct uses `ctx_res` (a block param) for the hole.
+#[test]
+fn rewrite_trmc_placeholder_is_block_param_not_literal() {
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    super::rewrite::rewrite_trmc(&mut func, &regions);
+
+    // Find the rewritten Construct.
+    let construct: Vec<_> = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.body)
+        .filter_map(|instr| match instr {
+            ArcInstr::Construct { args, .. } => Some(args.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(!construct.is_empty(), "should have a Construct");
+    let construct = &construct[0];
+
+    // The hole field arg should be a variable (ctx_res block param),
+    // NOT any of the original function's defined vars (v0, v1, v2).
+    let hole_var = construct[1]; // hole_field = 1 in make_recursive_construct_func
+    assert!(
+        hole_var.raw() >= 3,
+        "hole field should be a fresh var (ctx_res), not original v0-v2, got v{}",
+        hole_var.raw()
+    );
+
+    // The prologue should define a null sentinel (LitValue::Null).
+    let prologue_idx = func.entry.index();
+    let has_null_sentinel = func.blocks[prologue_idx].body.iter().any(|instr| {
+        matches!(
+            instr,
+            ArcInstr::Let {
+                value: ArcValue::Literal(LitValue::Null),
+                ..
+            }
+        )
+    });
+    assert!(
+        has_null_sentinel,
+        "prologue should have LitValue::Null sentinel"
+    );
+}
+
+/// Multi-region functions are explicitly rejected (v1 limitation).
+#[test]
+fn rewrite_trmc_skipped_when_multiple_regions() {
+    use crate::aims::contract::ContextRegion;
+
+    let mut func = make_recursive_construct_func();
+    let regions = vec![
+        ContextRegion {
+            open_block: block_id(0),
+            open_instr: 1,
+            context_var: var(2),
+            hole_field: 1,
+            close_block: block_id(0),
+            close_instr: 0,
+            hole_var: var(1),
+        },
+        ContextRegion {
+            open_block: block_id(0),
+            open_instr: 1,
+            context_var: var(2),
+            hole_field: 0,
+            close_block: block_id(0),
+            close_instr: 0,
+            hole_var: var(1),
+        },
+    ];
+
+    let result = super::rewrite::rewrite_trmc(&mut func, &regions);
+    assert!(!result, "multi-region should be rejected");
+    assert_eq!(func.params.len(), 1, "no modification");
 }
