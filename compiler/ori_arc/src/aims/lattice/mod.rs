@@ -70,9 +70,9 @@ impl CanonicalizeFeedback {
 /// Allocation size class for reuse compatibility.
 ///
 /// Two allocations are reuse-compatible when they have the same `SizeClass`.
-/// In Stage 1 (same-type matching), size compatibility is implied by type
-/// equality. In Stage 2+, `SizeClass` enables cross-type reuse when
-/// allocations have the same rounded size.
+/// In v1 (same-type matching), size compatibility is implied by type
+/// equality. Future versions may enable cross-type reuse when allocations
+/// have the same rounded size.
 ///
 /// Derived from Pool type size queries, rounded to allocation granularity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -80,7 +80,7 @@ pub struct SizeClass(u32);
 
 impl SizeClass {
     /// Unknown size — used when Pool-based size queries are unavailable
-    /// or when size classification is deferred (Stage 1).
+    /// or when size classification is not yet available.
     pub const UNKNOWN: Self = Self(0);
 
     /// Create a size class from a byte count.

@@ -2,8 +2,9 @@
 
 use ori_ir::Name;
 use ori_types::Idx;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::aims::contract::ContextRegion;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
     ArgOwnership, CtorKind, LitValue,
@@ -91,7 +92,14 @@ fn extract_contract_literal_return() {
     let classifier = TestClassifier::all_ref(1).with_scalar(0);
     let sigs = FxHashMap::default();
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+    );
 
     assert!(contract.params.is_empty());
     assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
@@ -122,7 +130,14 @@ fn extract_contract_param_used_once() {
     let classifier = TestClassifier::all_ref(1);
     let sigs = FxHashMap::default();
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+    );
 
     assert_eq!(contract.params.len(), 1);
     // Param returned directly → used once.
@@ -168,7 +183,14 @@ fn extract_contract_construct_return_is_unique() {
     let classifier = TestClassifier::all_ref(3).with_scalar(0);
     let sigs = FxHashMap::default();
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+    );
 
     assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
     assert!(contract.return_info.preserves_freshness);
@@ -930,7 +952,14 @@ fn extract_contract_token_balanced_produces_conditional() {
     let classifier = TestClassifier::all_ref(2);
     let sigs = FxHashMap::default();
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+    );
 
     // Param v0 is consumed (Dead — never used after entry) and non-scalar.
     // 1 Construct balanced by 1 consumed param.
@@ -991,7 +1020,14 @@ fn extract_contract_net_positive_produces_bounded() {
     let classifier = TestClassifier::all_ref(3);
     let sigs = FxHashMap::default();
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+    );
 
     // 2 Constructs - 1 consumed param = net 1 → Bounded(1).
     assert_eq!(
@@ -1046,7 +1082,14 @@ fn extract_contract_conditional_requires_unique_vector() {
     let classifier = TestClassifier::all_ref(4).with_scalar(1);
     let sigs = FxHashMap::default();
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let contract = extract_contract(&func, &state_map, &classifier, &sigs);
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+    );
 
     // Token balanced: 1 construct, 2 consumed non-scalar params (surplus).
     // requires_unique_params: [true(x), false(y=scalar), true(z)].
@@ -1064,4 +1107,137 @@ fn extract_contract_conditional_requires_unique_vector() {
     } else {
         panic!("expected Conditional, got {:?}", contract.fip);
     }
+}
+
+// Section 13.1: ContextBehavior interprocedural inference
+
+#[test]
+fn extract_contract_no_trmc_has_default_context_behavior() {
+    // fn f(x: T) -> T { return x }
+    // No TRMC candidate → default ContextBehavior.
+    let func = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[], // no context regions
+    );
+
+    let cb = contract.context_behavior;
+    assert!(!cb.preserves_context, "no TRMC → no preservation");
+    assert!(!cb.consumes_hole, "no TRMC → no hole consumption");
+    assert!(cb.requires_unique_context, "default requires uniqueness");
+    assert!(!cb.may_resume_nonlinearly, "pure function → no non-linear");
+}
+
+#[test]
+fn extract_contract_with_trmc_computes_context_behavior() {
+    // Simulate a TRMC candidate: function builds Construct(T, [field0, rec_call_result])
+    // where the rec call result fills field 1 (the "hole").
+    //
+    // fn map(xs: [T]) -> [T] {
+    //   v1 = Construct(Cons, [head, map(tail)])  // context region
+    //   return v1
+    // }
+    let func = ArcFunction {
+        name: name(1),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                // v1 = head (scalar for simplicity)
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                },
+                // v2 = recursive call to self
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: name(1),
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // v3 = Construct(Cons, [v1, v2]) — context: v2 fills hole at field 1
+                ArcInstr::Construct {
+                    dst: var(3),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(name(10)),
+                    args: vec![var(1), var(2)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(4);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // Provide a ContextRegion that matches the TRMC pattern.
+    let regions = vec![ContextRegion {
+        open_block: block_id(0),
+        open_instr: 2, // Construct at index 2
+        context_var: var(3),
+        hole_field: 1,
+        close_block: block_id(0),
+        close_instr: 1, // Apply at index 1
+        hole_var: var(2),
+    }];
+
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &regions,
+    );
+
+    let cb = contract.context_behavior;
+    // Context var (v3) is returned → preserves context.
+    assert!(cb.preserves_context, "context var returned → preserves");
+    // Hole is filled by recursive call → consumes hole.
+    assert!(cb.consumes_hole, "TRMC region → consumes hole");
+    // Modulo-cons always requires uniqueness.
+    assert!(cb.requires_unique_context, "modulo-cons → requires unique");
+    // TRMC functions return a Construct → HeapEscaping → may_share = true.
+    // This is the design tension described in Section 13.2: the
+    // HeapEscaping → may_share rule makes ALL TRMC candidates trigger
+    // may_resume_nonlinearly. Section 13.2 will refine this gate.
+    assert!(
+        cb.may_resume_nonlinearly,
+        "HeapEscaping return → may_share → non-linear"
+    );
 }

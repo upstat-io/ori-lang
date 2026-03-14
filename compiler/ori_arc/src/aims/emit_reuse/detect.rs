@@ -5,7 +5,7 @@
 //! 1. **Same-block** — nearest subsequent allocation of same type in the same
 //!    block, with no intervening uses of the dying variable.
 //! 2. **Cross-block** — via [`ReusePlanner`] with dominator/post-dominator
-//!    validation. Stage 1: static-unique only.
+//!    validation. v1: static-unique only.
 //!
 //! Events are collected inline during the unified forward walk in `realize/`.
 

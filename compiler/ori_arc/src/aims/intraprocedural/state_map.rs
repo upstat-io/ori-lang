@@ -580,6 +580,10 @@ impl AimsStateMap {
     /// Join an effect into the function-level accumulator.
     ///
     /// Each flag is OR'd: once set, it stays set.
+    ///
+    /// Note: `has_unbounded_stack` is NOT set during per-block accumulation.
+    /// It remains `false` here; `extract_contract()` sets it from SCC
+    /// membership and syntactic tail-position analysis.
     pub fn accumulate_effect(&mut self, effect: EffectSummary) {
         self.effect_summary = self.effect_summary.join(&effect);
     }

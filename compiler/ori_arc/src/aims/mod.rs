@@ -29,3 +29,4 @@ pub mod lattice;
 pub mod normalize;
 pub mod realize;
 pub mod transfer;
+pub mod verify;

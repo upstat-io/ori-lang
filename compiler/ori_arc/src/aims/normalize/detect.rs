@@ -96,16 +96,19 @@ pub(super) fn detect_context_regions(func: &ArcFunction) -> Vec<ContextRegion> {
 
 /// Location of a recursive call definition.
 #[derive(Clone, Copy, Debug)]
-struct CallSite {
-    block: ArcBlockId,
-    instr: usize,
+pub(crate) struct CallSite {
+    pub(crate) block: ArcBlockId,
+    pub(crate) instr: usize,
 }
 
 /// Collect variables defined by recursive calls, mapping each to its call site.
 ///
 /// Scans both `Apply` instructions (body) and `Invoke` terminators for
 /// calls where the callee name matches `func.name`.
-fn collect_recursive_call_sites(func: &ArcFunction) -> FxHashMap<ArcVarId, CallSite> {
+///
+/// Used by TRMC context detection and by `post_convergence.rs` (which
+/// projects to `.keys()` for the var set).
+pub(crate) fn collect_recursive_call_sites(func: &ArcFunction) -> FxHashMap<ArcVarId, CallSite> {
     let mut sites = FxHashMap::default();
     let self_name = func.name;
 
