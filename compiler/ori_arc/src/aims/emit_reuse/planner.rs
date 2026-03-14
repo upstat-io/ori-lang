@@ -9,7 +9,7 @@
 //! which changes the CFG. The `ReusePlanner` must see the post-edge-cleanup
 //! CFG.
 //!
-//! # Stage 1 scope
+//! # v1 scope
 //!
 //! Static-unique cross-block reuse only. Dynamic cross-block reuse
 //! (`MaybeShared`) requires two-point CFG expansion and is deferred.
@@ -57,7 +57,7 @@ impl<'a> ReusePlanner<'a> {
     /// # Matching rule (Section 05.1)
     ///
     /// For `DeathEvent d` and `AllocEvent a`:
-    /// 1. `d.uniqueness` is `Unique` (Stage 1: static-unique only)
+    /// 1. `d.uniqueness` is `Unique` (v1: static-unique only)
     /// 2. `d.ty == a.ty` (same type — v1 requirement)
     /// 3. `d.block != a.block` (cross-block — same-block already handled)
     /// 4. `d.block` dominates `a.block` (from `DominatorTree`)
@@ -74,7 +74,7 @@ impl<'a> ReusePlanner<'a> {
         remaining_deaths: &[&DeathEvent],
         remaining_allocs: &[&AllocEvent],
     ) -> Vec<ReuseOpportunity> {
-        // Stage 1: only Unique deaths for cross-block reuse.
+        // v1: only Unique deaths for cross-block reuse.
         // MaybeShared cross-block requires two-point CFG expansion (deferred).
         let unique_deaths: Vec<_> = remaining_deaths
             .iter()
@@ -140,7 +140,7 @@ impl<'a> ReusePlanner<'a> {
                 source_block: death.block,
                 source_instr: death.instr_idx,
                 target_instr: (alloc.block, alloc.instr_idx),
-                is_static_unique: true, // Stage 1: only Unique cross-block
+                is_static_unique: true, // v1: only Unique cross-block
             });
         }
 

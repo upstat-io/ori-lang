@@ -139,20 +139,43 @@ fn effect_join_or_semantics() {
     let a = EffectSummary {
         may_allocate: true,
         alloc_only_on_slow_path: true,
+        may_deallocate: false,
         may_share: false,
         may_throw: false,
+        has_unbounded_stack: false,
     };
     let b = EffectSummary {
         may_allocate: false,
         alloc_only_on_slow_path: false,
+        may_deallocate: true,
         may_share: true,
         may_throw: false,
+        has_unbounded_stack: false,
     };
     let joined = a.join(&b);
     assert!(joined.may_allocate);
     assert!(!joined.alloc_only_on_slow_path); // AND semantics
+    assert!(joined.may_deallocate); // OR semantics
     assert!(joined.may_share);
     assert!(!joined.may_throw);
+    assert!(!joined.has_unbounded_stack);
+}
+
+#[test]
+fn effect_join_unbounded_stack_or_semantics() {
+    let bounded = EffectSummary {
+        has_unbounded_stack: false,
+        ..EffectSummary::OPTIMISTIC
+    };
+    let unbounded = EffectSummary {
+        has_unbounded_stack: true,
+        ..EffectSummary::OPTIMISTIC
+    };
+    // OR semantics: either side unbounded → joined is unbounded.
+    assert!(bounded.join(&unbounded).has_unbounded_stack);
+    assert!(unbounded.join(&bounded).has_unbounded_stack);
+    assert!(!bounded.join(&bounded).has_unbounded_stack);
+    assert!(unbounded.join(&unbounded).has_unbounded_stack);
 }
 
 // FipContract join
@@ -310,19 +333,66 @@ fn to_uniqueness_summary_shared_return() {
     assert!(!summary.preserves_freshness);
 }
 
-// ContextBehavior join
+// ContextBehavior
 
 #[test]
-fn context_behavior_join_and() {
+fn context_behavior_default_is_conservative() {
+    let cb = ContextBehavior::default();
+    // Default: no preservation, no hole consumption.
+    assert!(!cb.preserves_context);
+    assert!(!cb.consumes_hole);
+    // Conservative: require uniqueness (safe default).
+    assert!(cb.requires_unique_context);
+    // No non-linear resumption (optimistic, refined from effects).
+    assert!(!cb.may_resume_nonlinearly);
+}
+
+#[test]
+fn context_behavior_join_is_conservative() {
     let a = ContextBehavior {
         preserves_context: true,
-        consumes_hole: false,
+        consumes_hole: true,
+        requires_unique_context: false,
+        may_resume_nonlinearly: false,
     };
     let b = ContextBehavior {
         preserves_context: false,
         consumes_hole: true,
+        requires_unique_context: true,
+        may_resume_nonlinearly: true,
     };
     let joined = a.join(&b);
+    // AND for positive properties (must hold on ALL paths).
     assert!(!joined.preserves_context);
-    assert!(!joined.consumes_hole);
+    assert!(joined.consumes_hole);
+    // OR for negative properties (ANY path triggers).
+    assert!(joined.requires_unique_context);
+    assert!(joined.may_resume_nonlinearly);
+}
+
+#[test]
+fn context_behavior_join_is_commutative() {
+    let a = ContextBehavior {
+        preserves_context: true,
+        consumes_hole: false,
+        requires_unique_context: false,
+        may_resume_nonlinearly: true,
+    };
+    let b = ContextBehavior {
+        preserves_context: false,
+        consumes_hole: true,
+        requires_unique_context: true,
+        may_resume_nonlinearly: false,
+    };
+    assert_eq!(a.join(&b), b.join(&a));
+}
+
+#[test]
+fn context_behavior_conservative_constructor_safe() {
+    // conservative() uses ContextBehavior::default(), which must be safe.
+    let c = MemoryContract::conservative(1);
+    assert!(c.context_behavior.requires_unique_context);
+    assert!(!c.context_behavior.preserves_context);
+    assert!(!c.context_behavior.consumes_hole);
+    assert!(!c.context_behavior.may_resume_nonlinearly);
 }

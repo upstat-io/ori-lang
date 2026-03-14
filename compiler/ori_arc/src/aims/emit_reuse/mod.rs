@@ -13,7 +13,7 @@
 //! 3. Match death→alloc pairs:
 //!    - Same-block: nearest subsequent allocation, no intervening uses
 //!    - Cross-block: via [`ReusePlanner`] with dominator/post-dominator
-//!      validation (Stage 1: static-unique only)
+//!      validation (v1: static-unique only)
 //! 4. Emit reuse instructions for matched pairs
 //!
 //! # Self-set elimination
@@ -105,7 +105,7 @@ pub struct EmitReuseResult {
     pub static_reuses: usize,
     /// Number of same-block dynamic (`IsShared`) reuses emitted.
     pub dynamic_reuses: usize,
-    /// Number of cross-block reuses emitted (static-unique only in Stage 1).
+    /// Number of cross-block reuses emitted (static-unique only in v1).
     pub cross_block_reuses: usize,
     /// Number of fields skipped via self-set elimination.
     pub fields_skipped: usize,
@@ -187,7 +187,7 @@ fn emit_reuse_from_raw(
         }
     }
 
-    // Phase 2: cross-block opportunities (static-unique only in Stage 1).
+    // Phase 2: cross-block opportunities (static-unique only in v1).
     for opp in &cross_block {
         fields_skipped += apply_static_reuse_cross_block(func, opp);
         cross_block_reuses += 1;

@@ -460,6 +460,94 @@ Comprehensive testing across all compiler features.
   Also added `invoke_transfers_ownership()` guard in `collect_invoke_edge_decs()`
   to skip caller-side edge cleanup for Invoke args at Owned positions.
 
+- [x] **RC identity + projection regression matrices** (2026-03-13):
+  The recent `catch(expr:)` / alias-chain investigation exposed a distinct
+  verification gap: the existing measurement bugs above cover interprocedural
+  ownership, dead block params, and phi-edge drop-hint propagation, but they do
+  not systematically exercise the interaction between:
+
+  - `Let { dst, value: Var(src) }` alias chains
+  - `Project` source semantics (scalar = borrowing, non-scalar = transfer-like)
+  - path-sensitive cleanup (`Switch` / branch successors)
+  - exact `RcInc` placement in the unified forward walk
+
+  The following matrices define the required test coverage before declaring this
+  area closed.
+
+  **Matrix A — instruction-shape coverage**
+
+  | ID | Shape under test | Minimal Ori pattern | Expected ARC property | Failure mode if broken | Primary layer |
+  |----|------------------|---------------------|-----------------------|------------------------|---------------|
+  | A1 | Scalar `Project` from aliased scrutinee | `let r = catch(expr: "heap..."); match r { Ok(v) -> ... }` | No extra `RcInc` on the alias before tag `Project`; no extra `RcDec` in the `Ok` block | Double-free in inline-enum cleanup (`%0` root + alias both decremented) | AOT + ARC dump |
+  | A2 | Non-scalar `Project` from aliased scrutinee | `match r { Ok(v) -> use(v), Err(_) -> ... }` where payload is heap object | Source aggregate does not get a source-side `RcDec` on the payload-extraction path | Parent aggregate freed in addition to payload owner | AOT + ARC dump |
+  | A3 | Borrowing projection on both successor paths | `match x { A(i) -> i, B(j) -> j }` with scalar payloads | Root aggregate is decremented at last borrowing use in each branch, not at the branch point | Leak (no branch-local Dec) or premature Dec before successor use | ARC unit + ARC dump |
+  | A4 | Borrowing on one path, transfer on the other | `Result<int, str>` / `try` shape | Borrowing branch gets root `RcDec`; transfer branch suppresses it | One path leaks, the other double-frees | Legacy parity + AOT |
+  | A5 | Owned call after alias split | `let b = a; consume(b); use(a)` | `RcInc` inserted exactly once before ownership divergence | Callee frees caller's last reference or caller over-retains | AOT |
+  | A6 | Borrowed call after alias split | `let b = a; borrow(b); use(a)` | No spurious `RcInc` for borrowed call, but final owner still dropped exactly once | Leak via missed Dec or over-retain via unnecessary Inc | AOT |
+  | A7 | Alias used only through borrowing primops | `let b = a; b == a` / string compare | Retains placed according to alias multiplicity, not suppressed globally | Double-free from under-retain on alias chain | AOT + runtime trap |
+  | A8 | Alias of alias used multiple times | `let b = a; let c = b; if a == b && b == c ...` | Intermediate alias receives needed `RcInc` when both source and downstream aliases stay live | Current known counterexample: runtime double-free | AOT + runtime trap |
+
+  **Matrix B — control-flow / lifetime axes**
+
+  | Axis | Values that must be covered | Why it matters |
+  |------|-----------------------------|----------------|
+  | Alias depth | 0, 1, 2+ `Let/Var` hops | The unified walk must not treat all aliases as permanently "covered" by a single root Inc |
+  | Root liveness after alias creation | root dead immediately, root live later in same block, root live only on some successors | Determines whether alias creation needs a retain at the split point |
+  | Projection result kind | scalar, non-scalar | Scalar projections borrow; non-scalar projections suppress source-side cleanup |
+  | CFG topology | straight-line, `Branch`, `Switch`, loop header phi, Invoke normal/unwind | RC identity bugs often hide until a value dies on only one path |
+  | Source representation | `FatPtr`, `InlineEnum`, aggregate fields | Inline-enum bugs manifest as double-free in codegen even when `RcInc` is a no-op at runtime |
+  | Use kind after alias | primop compare, borrowed call, owned call, construct, return | Different sites require distinct Inc/Dec behavior despite identical alias syntax |
+  | Reachability | ordinary path, statically impossible branch, `Unreachable` default | Impossible edges still matter for ARC shape and must not conceal duplicate cleanup |
+
+  **Matrix C — assertion strategy**
+
+  | Layer | Assertions required | Notes |
+  |-------|---------------------|-------|
+  | `aims::realize::tests` | Decision-level checks for scalar-`Project`, non-scalar-`Project`, and alias-split use cases | Fast unit coverage; should not be the only layer |
+  | ARC dump golden checks | Exact `RcInc` / `RcDec` placement in the lowered ARC IR | Needed for inline-enum cases where structural shape matters more than final exit code |
+  | AOT behavioral tests | Program exits successfully with expected result | Ensures no semantic regression from over-retain / under-retain |
+  | AOT runtime-trap tests | Program must NOT hit `ori_rc_dec called on already-freed allocation` | Critical for alias-chain and inline-enum regressions |
+  | Legacy parity fixtures | Port relevant `rc_insert/tests.rs` projection cases into AIMS-era coverage | The old pipeline already encoded several of these invariants |
+
+  **Suggested concrete fixtures**
+
+  | Fixture name | Scenario | Expected check |
+  |--------------|----------|----------------|
+  | `catch_heap_alias_scalar_project` | Current `catch(expr:)` heap-string reproducer | No alias `RcInc` before tag `Project`; no alias `RcDec` in `Ok` block |
+  | `try_result_int_str_projection_split` | Borrowing `Ok(int)` vs transfer `Err(str)` | Borrowing branch drops root; transfer branch suppresses root drop |
+  | `alias_chain_compare_heap_string` | `a -> b -> c`, compare all three | Runtime succeeds; intermediate alias retains present |
+  | `alias_owned_call_then_root_use` | Alias consumed by owned callee while root remains live | Exactly one retain inserted at ownership split |
+  | `alias_borrowed_call_then_root_use` | Alias passed to borrowed callee while root remains live | No owned-call retain; still exactly one final drop |
+  | `switch_two_scalar_borrow_branches` | Both branches use only scalar projections | Root dropped in each successor, not at switch |
+
+  **Implementation (2026-03-13):**
+
+  All three layers implemented:
+  - **`aims::realize::tests`** (9 new tests): Decision-level checks for
+    BorrowingProject/TransferProject with alias splits, owned/borrowed call
+    positions, and per-branch independence.
+  - **`aims::transfer::tests`** (4 new tests): Alias chain state propagation
+    through 2-hop Let{Var}, Project from shared/dead sources, independent
+    field borrow sources.
+  - **AOT behavioral tests** (6 fixtures in `ori_llvm/tests/aot/arc.rs`):
+    `test_rc_catch_heap_alias_scalar_project`,
+    `test_rc_try_result_int_str_projection_split`,
+    `test_rc_alias_chain_compare_heap_string`,
+    `test_rc_alias_owned_call_then_root_use`,
+    `test_rc_alias_borrowed_call_then_root_use`,
+    `test_rc_switch_two_scalar_borrow_branches`.
+
+  **Bug found and fixed:** Fixture A5 (`alias_owned_call_then_root_use`)
+  caught a double-free. Root cause: `detect_consumed_params()` in
+  `aims/interprocedural.rs` didn't check Return terminators — a parameter
+  returned via Let{Var} alias chain was left at `AccessClass::Borrowed`
+  instead of `Owned`. This caused a caller/callee ownership mismatch:
+  the caller passed at `[own]` (correct) but the callee treated the param
+  as `[borrow]`, producing a phantom return reference with no Inc. Edge
+  cleanup then emitted a Dec for the borrowed arg AND the forward walk
+  emitted a Dec for the alias, double-freeing the same memory. Fix:
+  added Return-terminator scan to `detect_consumed_params()`.
+
 - [x] **Memory usage:**
   Results (2026-03-11): bench_medium peak RSS: old=80,400 KB, AIMS=80,400 KB (0%
   difference). This is a small program; the 80MB is mostly LLVM/compiler overhead.

@@ -1,7 +1,7 @@
 ---
 section: "12"
 title: "FIP Proof Obligations & Enforcement"
-status: not-started
+status: complete
 goal: "Complete the FIP certification proof obligations (may_deallocate, constant stack) and build a verifier that rejects contract/emission mismatches"
 inspired_by:
   - "FP² Theorem 2 (Lorenzen et al., ICFP 2023) — allocation balance"
@@ -11,24 +11,24 @@ depends_on: ["09", "10", "11"]
 sections:
   - id: "12.1"
     title: "EffectSummary.may_deallocate"
-    status: not-started
+    status: complete
   - id: "12.2"
     title: "Constant Stack Verification"
-    status: not-started
+    status: complete
   - id: "12.3"
     title: "FIP Enforcement Verifier"
-    status: not-started
+    status: complete
   - id: "12.4"
     title: "Stale Documentation Cleanup"
-    status: not-started
+    status: complete
   - id: "12.5"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 12: FIP Proof Obligations & Enforcement
 
-**Status:** Not Started
+**Status:** Complete
 
 **Goal:** Complete the three FP² proof obligations for FIP certification
 (no allocation, no deallocation, constant stack) and build an enforcement
@@ -112,12 +112,12 @@ limit). Before starting this section, extract the post-convergence passes
 `analyze_function()`, `verify_canonical_fixed_point()`, `widen_to_top()` in
 `mod.rs` (~300 lines).
 
-- [ ] **Prerequisite split:** Extract `interprocedural.rs` into `interprocedural/mod.rs` +
+- [x] **Prerequisite split:** Extract `interprocedural.rs` into `interprocedural/mod.rs` +
   `interprocedural/extract.rs`. Must be done first to keep files under 500 lines
   when adding `may_deallocate` and `has_unbounded_stack`.
-- [ ] **Prerequisite split:** Extract `intraprocedural/mod.rs` post-convergence
-  passes into `intraprocedural/post_convergence.rs`.
-- [ ] Add `may_deallocate: bool` field to `EffectSummary`:
+- [x] **Prerequisite split:** Extract `intraprocedural/mod.rs` post-convergence
+  passes into `intraprocedural/post_convergence.rs` + `fip_balance.rs`.
+- [x] Add `may_deallocate: bool` field to `EffectSummary`:
   ```rust
   pub struct EffectSummary {
       pub may_allocate: bool,
@@ -137,26 +137,26 @@ limit). Before starting this section, extract the post-convergence passes
   }
   ```
 
-- [ ] Update `#[expect(clippy::struct_excessive_bools)]` reason from "4 independent
+- [x] Update `#[expect(clippy::struct_excessive_bools)]` reason from "4 independent
   effect flags" to "6 independent effect flags" (adding `may_deallocate` in 12.1
   and `has_unbounded_stack` in 12.2). Update to the final count "6" in one step
   to avoid a partial-count commit.
-- [ ] Update `EffectSummary::CONSERVATIVE` to include `may_deallocate: true`
-- [ ] Update `EffectSummary::OPTIMISTIC` to include `may_deallocate: false`
-- [ ] Update `EffectSummary::join()` to include `may_deallocate: self.may_deallocate || other.may_deallocate`
+- [x] Update `EffectSummary::CONSERVATIVE` to include `may_deallocate: true`
+- [x] Update `EffectSummary::OPTIMISTIC` to include `may_deallocate: false`
+- [x] Update `EffectSummary::join()` to include `may_deallocate: self.may_deallocate || other.may_deallocate`
 
-- [ ] Verify `EffectSummary` derives `Default` correctly with new field:
+- [x] Verify `EffectSummary` derives `Default` correctly with new field:
   `EffectSummary` derives `Default`, so `may_deallocate` defaults to `false`.
   This matches `OPTIMISTIC` (correct for the accumulation pattern: start
   optimistic, OR in effects during analysis). The `accumulate_effect()` method
   in `intraprocedural/state_map.rs` uses `join()` to OR effect flags together,
   so `may_deallocate` will be accumulated correctly during analysis.
 
-- [ ] Verify builtins: `builtins/mod.rs` uses `EffectSummary::default()` for
+- [x] Verify builtins: `builtins/mod.rs` uses `EffectSummary::default()` for
   all builtin contracts. Since `Default` gives `may_deallocate: false`, this
   is correct (builtins don't deallocate). No change needed beyond verifying.
 
-- [ ] Compute `may_deallocate` during interprocedural analysis:
+- [x] Compute `may_deallocate` during interprocedural analysis:
   A function may deallocate if any code path contains a consumed value
   with reusable shape that is NOT paired with a reuse opportunity. This
   is a post-emission fact -- it requires knowing the reuse plan. Two
@@ -175,7 +175,7 @@ limit). Before starting this section, extract the post-convergence passes
 
   **Recommended:** Option (a) -- post-emission update from `FipEvidence`.
 
-- [ ] Implement post-emission `may_deallocate` update in `aims_pipeline.rs`:
+- [x] Implement post-emission `may_deallocate` update in `aims_pipeline.rs`:
   After `realize_rc_reuse()` returns `RealizationResult`, update the contract:
   ```rust
   if let Some(contract) = contracts.get_mut(&func.name) {
@@ -196,7 +196,7 @@ limit). Before starting this section, extract the post-convergence passes
   to `contracts` after the loop completes. This avoids mutating the config
   struct entirely.
 
-- [ ] Update `extract_contract()` in `interprocedural.rs` to use
+- [x] Update `extract_contract()` in `interprocedural/extract.rs` to use
   `may_deallocate` for FIP classification:
   - Current: `if is_fbip { FipContract::Certified }` (line 528)
   - New: `if !effects.may_allocate && !effects.may_deallocate { FipContract::Certified }`
@@ -204,7 +204,7 @@ limit). Before starting this section, extract the post-convergence passes
     fast path: if the function never allocates, it trivially never
     deallocates (nothing to free).
 
-- [ ] Sync points for `may_deallocate`:
+- [x] Sync points for `may_deallocate`:
   - `contract/mod.rs` -- struct definition, `all_borrowed()` constructor,
     `CONSERVATIVE`/`OPTIMISTIC` constants, `join()`
   - `intraprocedural/state_map.rs` -- `EffectSummary` stored in `AimsStateMap`;
@@ -228,7 +228,7 @@ function with O(n) stack depth cannot be FIP even if it is allocation-
 balanced. This matters for tree traversals that reuse allocations but
 recurse to depth proportional to tree height.
 
-- [ ] Define what "constant stack" means in AIMS context:
+- [x] Define what "constant stack" means in AIMS context:
   - A function has constant stack if it does not call itself recursively
     (directly or via mutual recursion) without a tail-call optimization.
   - Functions with self-recursive tail calls that are rewritten to loops
@@ -236,7 +236,7 @@ recurse to depth proportional to tree height.
   - Functions with non-tail self-recursion have O(n) stack growth.
   - Functions that only call non-recursive callees have constant stack.
 
-- [ ] Add `has_unbounded_stack: bool` field to `EffectSummary`:
+- [x] Add `has_unbounded_stack: bool` field to `EffectSummary`:
   ```rust
   /// Does this function have unbounded stack growth?
   ///
@@ -265,7 +265,7 @@ recurse to depth proportional to tree height.
   - `builtins/mod.rs` -- `EffectSummary::default()` gives `false` (correct)
   - `contract/tests.rs` -- join tests
 
-- [ ] Detection approach:
+- [x] Detection approach:
   - During SCC analysis, identify self-recursive SCCs (already done in
     `analyze_scc_fixpoint` in `interprocedural.rs`).
   - For each self-recursive function, check whether ALL recursive calls
@@ -280,7 +280,7 @@ recurse to depth proportional to tree height.
     call to another SCC member, set `has_unbounded_stack = true` for all
     SCC members.
 
-- [ ] Extract syntactic tail-position check:
+- [x] Extract syntactic tail-position check:
   `detect_tail_calls()` runs on post-emission IR and checks for safe `RcDec`
   instructions after the call. At contract-extraction time (pre-emission), the
   IR has no `RcDec` instructions. Extract a simpler `is_in_tail_position()`
@@ -298,7 +298,7 @@ recurse to depth proportional to tree height.
   before writing the helper -- the cross-block and Invoke patterns are
   non-trivial (~200 lines combined).
 
-- [ ] Integrate with FIP classification in `extract_contract()`:
+- [x] Integrate with FIP classification in `extract_contract()`:
   - Current: `FipContract::Certified` requires `!may_allocate` (or
     allocation-balanced).
   - New: additionally requires `!has_unbounded_stack`.
@@ -307,7 +307,7 @@ recurse to depth proportional to tree height.
   - Update the FIP classification logic at `interprocedural.rs:528-561`
     to gate `Certified` on `!has_unbounded_stack`.
 
-- [ ] Handle tail-call rewrite ordering:
+- [x] Handle tail-call rewrite ordering:
   The tail-call rewrite pass (pipeline step 8) runs AFTER realization
   (step 5). This means at contract-extraction time, we don't know which
   recursive calls will be rewritten to loops. Two options:
@@ -324,7 +324,7 @@ recurse to depth proportional to tree height.
 
   **Recommended:** Option (b) -- the syntactic check is accurate.
 
-- [ ] Tests:
+- [x] Tests:
   - `constant_stack_non_recursive_is_false` -- non-recursive function
   - `constant_stack_tail_recursive_is_false` -- tail-recursive function
   - `constant_stack_non_tail_recursive_is_true` -- tree traversal
@@ -347,7 +347,7 @@ Build a post-realization verifier that cross-checks `MemoryContract.fip`
 against the emitted IR and `FipEvidence`. This catches silent mismatches
 where `extract_contract()` claims FIP but realization didn't achieve it.
 
-- [ ] Create module infrastructure:
+- [x] Create module infrastructure:
   - Create `compiler/ori_arc/src/aims/verify/mod.rs`:
     ```rust
     //! AIMS verification passes.
@@ -361,7 +361,7 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
   - Add `pub mod verify;` to `compiler/ori_arc/src/aims/mod.rs` (between
     `pub mod transfer;` and any future modules, or at end of module list)
 
-- [ ] Define `FipVerificationError` enum:
+- [x] Define `FipVerificationError` enum:
   ```rust
   #[derive(Clone, Debug, PartialEq, Eq)]
   pub enum FipVerificationError {
@@ -404,7 +404,7 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
   }
   ```
 
-- [ ] Implement `verify_fip_contract()`:
+- [x] Implement `verify_fip_contract()`:
   ```rust
   pub fn verify_fip_contract(
       func: &ArcFunction,
@@ -436,7 +436,7 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
   - `verify_trmc_rewritten_function_certified` -- function rewritten by TRMC
     is correctly verified as Certified
 
-- [ ] Wire into pipeline:
+- [x] Wire into pipeline:
   Call `verify_fip_contract()` in `run_aims_pipeline()` (`aims_pipeline.rs`)
   after `realize_rc_reuse()` (step 5) returns the `RealizationResult`, and
   after the `may_deallocate` post-emission update. Insert between the
@@ -461,7 +461,7 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
   second-pass approach from 12.1, run the verifier in the second pass after all
   `may_deallocate` fields are updated.
 
-- [ ] Relationship to existing `run_aims_verify()`:
+- [x] Relationship to existing `run_aims_verify()`:
   The existing `run_aims_verify()` (step 7, `pipeline/mod.rs:144`) checks
   structural consistency (e.g., `AbsentParamHasUses`). The new FIP verifier
   checks semantic consistency (contract claims vs realization evidence).
@@ -469,7 +469,7 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
   at step 5a (right after realization); the structural verifier runs at
   step 7 (after emission is complete).
 
-- [ ] Error handling:
+- [x] Error handling:
   - In debug builds: `debug_assert!` (or `panic!`) on verification failures
     (catches bugs during development).
   - In release builds: `tracing::warn!` on failures (don't crash the
@@ -478,8 +478,8 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
     the user annotated `#fip` on the function (user-requested
     certification that wasn't achieved).
 
-- [ ] Tests:
-  Test file: `compiler/ori_arc/src/aims/verify/tests.rs`
+- [x] Tests:
+  Test file: `compiler/ori_arc/src/aims/verify/fip/tests.rs`
   (add `#[cfg(test)] mod tests;` to `verify/fip.rs`)
   - `verify_certified_no_allocations_passes` -- clean FIP function
   - `verify_certified_with_missed_reuse_fails` -- contract says Certified
@@ -504,7 +504,7 @@ FipContract is always Never, TRMC disabled" -- this is no longer true
 after Section 09.2 activated FIP inference and effects. Fix the banner
 to reflect the current state.
 
-- [ ] Update `contract/mod.rs` module-level doc:
+- [x] Update `contract/mod.rs` module-level doc:
   Replace the "Stage 1" banner with an accurate description of the
   current state:
   ```rust
@@ -522,7 +522,7 @@ to reflect the current state.
   //! - `is_fbip` is `!effects.may_allocate` (inferred metadata)
   ```
 
-- [ ] Review and fix all stale "Stage 1" comments in AIMS codebase (20+
+- [x] Review and fix all stale "Stage 1" comments in AIMS codebase (20+
   occurrences across 9 files):
   - `aims/contract/mod.rs:63` -- `all_borrowed()` doc says "Stage 1: pass
     FipContract::Never". Update to: "pass FipContract::Never to disable FIP,
@@ -550,26 +550,23 @@ to reflect the current state.
 These items should be fixed during implementation of 12.1-12.4, not as
 separate commits:
 
-- [ ] **WASTE (duplication):** `collect_recursive_call_defs()` in
-  `intraprocedural/mod.rs:545-572` duplicates the same logic as
-  `collect_recursive_call_sites()` in `normalize/detect.rs:108-149` -- both
-  scan for Apply/Invoke where callee == func.name and collect defined vars.
-  The only difference is that detect.rs also records the CallSite (block,
-  instr). Unify into a single shared helper in `graph/` or `aims/` that
-  returns `FxHashMap<ArcVarId, CallSite>` and let intraprocedural callers
-  project to `FxHashSet<ArcVarId>` via `.keys()`. Fix during 12.1-12.4
-  while touching both files.
-- [ ] **STYLE (stale doc comment):** `EffectSummary` doc at
+- [x] **WASTE (duplication):** `collect_recursive_call_defs()` in
+  `intraprocedural/post_convergence.rs` duplicated logic from
+  `collect_recursive_call_sites()` in `normalize/detect.rs`. Unified:
+  made `collect_recursive_call_sites()` `pub(crate)`, re-exported from
+  `normalize/mod.rs`, and `post_convergence.rs` now calls it with
+  `.into_keys().collect()` to get the var set.
+- [x] **STYLE (stale doc comment):** `EffectSummary` doc at
   `contract/mod.rs:300-309` describes `may_deallocate` as "Planned: Stage 2"
   -- will be outdated once 12.1 adds the field. Update the doc comment when
   adding the field (remove the "Planned" note, replace with actual field doc).
-- [ ] **STYLE (clippy reason accuracy):** `EffectSummary` clippy reason at
+- [x] **STYLE (clippy reason accuracy):** `EffectSummary` clippy reason at
   `contract/mod.rs:313` says "4 independent effect flags from FP² paper" --
   currently accurate (4 bool fields: `may_allocate`, `alloc_only_on_slow_path`,
   `may_share`, `may_throw`) but must be updated to "6" after adding
   `may_deallocate` + `has_unbounded_stack`. Do this in a single step at the end
   of 12.2 (not incrementally).
-- [ ] **STYLE (stale `all_borrowed` doc):** `MemoryContract::all_borrowed()` at
+- [x] **STYLE (stale `all_borrowed` doc):** `MemoryContract::all_borrowed()` at
   `contract/mod.rs:62-64` documents `fip_initial` with "Stage 1" / "Stage 2"
   labels. Replace with behavior-based docs (see 12.4 list above).
 
@@ -577,40 +574,40 @@ separate commits:
 
 ## 12.5 Completion Checklist
 
-- [ ] **Prerequisite:** `interprocedural.rs` split into `interprocedural/mod.rs` +
-  `interprocedural/extract.rs` (742 lines -> ~480 + ~265)
-- [ ] **Prerequisite:** `intraprocedural/mod.rs` post-convergence passes extracted
-  to `intraprocedural/post_convergence.rs` (941 lines -> ~300 + ~600)
-- [ ] Duplicated `collect_recursive_call_defs` unified with
+- [x] **Prerequisite:** `interprocedural.rs` split into `interprocedural/mod.rs` +
+  `interprocedural/extract.rs` (867 lines -> ~482 + ~410)
+- [x] **Prerequisite:** `intraprocedural/mod.rs` post-convergence passes extracted
+  to `intraprocedural/post_convergence.rs` + `fip_balance.rs` (941 lines -> ~308 + ~353 + ~283)
+- [x] Duplicated `collect_recursive_call_defs` unified with
   `collect_recursive_call_sites`
-- [ ] All stale "Stage 1" comments across AIMS codebase updated (20+ occurrences
+- [x] All stale "Stage 1" comments across AIMS codebase updated (20+ occurrences
   in 9 files -- see 12.4 expanded list)
-- [ ] `EffectSummary.may_deallocate` field added and wired through all
+- [x] `EffectSummary.may_deallocate` field added and wired through all
   sync points (contract, interprocedural, builtins, state_map, join, tests)
-- [ ] `may_deallocate` computed post-emission from `FipEvidence.missed_reuses`
-- [ ] Post-emission `may_deallocate` update wired into `aims_pipeline.rs`
-- [ ] `extract_contract()` uses `may_deallocate` for FIP classification
+- [x] `may_deallocate` computed post-emission from `FipEvidence.missed_reuses`
+- [x] Post-emission `may_deallocate` update wired into `aims_pipeline.rs`
+- [x] `extract_contract()` uses `may_deallocate` for FIP classification
   (FBIP shortcut preserved as fast path)
-- [ ] `has_unbounded_stack` tracking added to `EffectSummary` with all sync
+- [x] `has_unbounded_stack` tracking added to `EffectSummary` with all sync
   points (CONSERVATIVE, OPTIMISTIC, join, clippy reason, Default)
-- [ ] Syntactic tail-position helper extracted to `tail_call/mod.rs` or
+- [x] Syntactic tail-position helper extracted to `tail_call/mod.rs` or
   shared utility, with unit tests
-- [ ] Stack-depth check uses syntactic tail-position analysis
-- [ ] FIP classification requires `!has_unbounded_stack` for `Certified`
-- [ ] `aims/verify/` module created with `mod.rs` + `fip.rs`
-- [ ] `pub mod verify;` added to `aims/mod.rs`
-- [ ] `verify_fip_contract()` implemented and wired into pipeline (step 5a)
-- [ ] FIP verification catches contract/emission mismatches for all
+- [x] Stack-depth check uses syntactic tail-position analysis
+- [x] FIP classification requires `!has_unbounded_stack` for `Certified`
+- [x] `aims/verify/` module created with `mod.rs` + `fip.rs`
+- [x] `pub mod verify;` added to `aims/mod.rs`
+- [x] `verify_fip_contract()` implemented and wired into pipeline (step 5a)
+- [x] FIP verification catches contract/emission mismatches for all
   `FipContract` variants (Certified, Conditional, Bounded, Never)
-- [ ] `FipVerificationError` has `Debug`, `PartialEq`, `Eq`, `Display`
-- [ ] Stale "Stage 1" banner in `contract/mod.rs` updated
-- [ ] All stale stage comments in AIMS module reviewed and fixed
-- [ ] `clippy::struct_excessive_bools` reason updated to "6 independent
+- [x] `FipVerificationError` has `Debug`, `PartialEq`, `Eq`, `Display`
+- [x] Stale "Stage 1" banner in `contract/mod.rs` updated
+- [x] All stale stage comments in AIMS module reviewed and fixed
+- [x] `clippy::struct_excessive_bools` reason updated to "6 independent
   effect flags" (may_allocate, alloc_only_on_slow_path, may_deallocate,
   may_share, may_throw, has_unbounded_stack)
-- [ ] `cargo test --workspace` green
-- [ ] `./test-all.sh` green
-- [ ] Valgrind: 0 memory errors on all test programs
+- [x] `cargo test --workspace` green
+- [x] `./test-all.sh` green
+- [x] Valgrind: 0 memory errors on all test programs
 
 **Exit Criteria:** `FipContract::Certified` means the function provably
 has no allocation, no deallocation, and constant stack space.

@@ -1356,3 +1356,183 @@ fn canonicalize_feedback_no_fires_for_canonical_state() {
     );
     assert_eq!(feedback.rounds, 0);
 }
+
+// RC identity + projection regression matrices (Matrix A)
+//
+// Decision-level tests for scalar-Project, non-scalar-Project,
+// alias-split, and combined scenarios. These complement the transfer
+// function tests in transfer/tests.rs and the AOT behavioral tests
+// in ori_llvm/tests/aot/arc.rs.
+
+// A1: Scalar Project source — BorrowingProject suppresses Inc even with
+// future use, and the source's last-use Dec is NOT suppressed (scalar
+// Project borrows; source still needs cleanup).
+#[test]
+fn decide_alias_then_borrowing_project_no_inc() {
+    // Scenario: let alias = src; Project(alias, scalar_field)
+    // At the Project instruction, alias is a Use with BorrowingProject
+    // semantics — no Inc regardless of future use.
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::BorrowingProject,
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(
+        d.rc,
+        RcDecision::None,
+        "scalar Project borrows source — no Inc even with future use"
+    );
+}
+
+// A1 continued: Source last-use after a scalar Project — Dec IS emitted
+// (borrowing projection does NOT suppress source cleanup).
+#[test]
+fn decide_source_last_use_after_borrowing_project_emits_dec() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            is_project_transfer: false, // NOT transfer — scalar Project
+            has_deferred_children: false,
+            reuse: reuse_non_reusable(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(
+        d.rc,
+        RcDecision::Dec,
+        "last use after scalar Project: source Dec NOT suppressed"
+    );
+}
+
+// A2: Non-scalar Project source — TransferProject suppresses Inc at use
+// site AND suppresses Dec at last-use site (ownership transferred).
+#[test]
+fn decide_transfer_project_suppresses_both_inc_and_dec() {
+    // At use site: no Inc
+    let use_ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::TransferProject,
+        },
+        is_rc_managed: true,
+    };
+    assert_eq!(
+        decide(&use_ctx).rc,
+        RcDecision::None,
+        "transfer Project: no Inc at use site"
+    );
+
+    // At last-use site: no Dec (ownership transferred to projected value)
+    let last_use_ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: false,
+            is_project_transfer: true,
+            has_deferred_children: false,
+            reuse: reuse_non_reusable(),
+        },
+        is_rc_managed: true,
+    };
+    assert_eq!(
+        decide(&last_use_ctx).rc,
+        RcDecision::None,
+        "transfer Project: source Dec suppressed"
+    );
+}
+
+// A5: Alias consumed by owned call — Inc at alias split point.
+// When `let b = a; consume(b)` and `a` has future use, the alias
+// use site (before the call) needs an Inc to keep a alive.
+#[test]
+fn decide_alias_owned_call_with_future_root_use() {
+    // At the alias use (b is used as an owned call arg):
+    // has_future_use is true for source (a still lives), so Inc.
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: true,
+            semantics: UseSemantics::Normal,
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(
+        d.rc,
+        RcDecision::Inc,
+        "alias with future root use: Inc at split point"
+    );
+}
+
+// A5 continued: The owned call position suppresses the alias's Dec.
+#[test]
+fn decide_alias_at_owned_call_position_no_dec() {
+    let ctx = DecisionContext {
+        site: DecisionSite::LastUse {
+            is_consuming_primop: false,
+            is_ownership_transfer: false,
+            is_owned_call_position: true, // callee takes ownership
+            is_project_transfer: false,
+            has_deferred_children: false,
+            reuse: reuse_non_reusable(),
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(
+        d.rc,
+        RcDecision::None,
+        "owned call position: callee takes ownership, no caller-side Dec"
+    );
+}
+
+// A6: Alias passed to borrowed call — no spurious Inc.
+// When `let b = a; borrow(b)` and b is the last use of b, and borrow
+// takes b as Borrowed, no Inc is needed (borrowed call doesn't consume).
+#[test]
+fn decide_alias_borrowed_call_no_future_use_no_inc() {
+    // b at the borrowed call site: no future use of b → no Inc.
+    let ctx = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: false,
+            semantics: UseSemantics::Normal,
+        },
+        is_rc_managed: true,
+    };
+    let d = decide(&ctx);
+    assert_eq!(
+        d.rc,
+        RcDecision::None,
+        "alias at borrowed call with no future use: no Inc"
+    );
+}
+
+// A3: Borrowing projection on both branches — each branch independently
+// gets the same Dec decision for the source aggregate.
+#[test]
+fn decide_borrowing_project_independent_per_branch() {
+    // Both branches use the source via BorrowingProject — neither
+    // should get an Inc. The source's Dec happens at last use in
+    // each branch independently.
+    let branch_a = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: false,
+            semantics: UseSemantics::BorrowingProject,
+        },
+        is_rc_managed: true,
+    };
+    let branch_b = DecisionContext {
+        site: DecisionSite::Use {
+            has_future_use: false,
+            semantics: UseSemantics::BorrowingProject,
+        },
+        is_rc_managed: true,
+    };
+    assert_eq!(decide(&branch_a).rc, RcDecision::None);
+    assert_eq!(decide(&branch_b).rc, RcDecision::None);
+}
