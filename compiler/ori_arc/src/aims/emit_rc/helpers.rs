@@ -325,6 +325,7 @@ pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction) -> boo
 ///
 /// Maps each Let-alias destination to its immediate source. Used by
 /// [`resolve_alias_root`] to find the canonical RC owner root.
+#[expect(dead_code, reason = "used by TRMC realization (Section 13)")]
 pub(crate) fn build_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
     let mut map = FxHashMap::default();
     for block in &func.blocks {

@@ -107,10 +107,12 @@ pub enum DecisionSite {
 
 /// RC identity classification for a variable use.
 ///
-/// The legacy backward walk (`rc_insert`) implicitly encoded RC identity via
-/// liveness propagation through `Let { Var }` alias definitions and the
-/// `is_borrowing_instr` check for `Project` instructions. The unified forward
-/// walk makes this classification explicit.
+/// Classifies `Project` source uses as borrowing (scalar result) or
+/// transfer (non-scalar result). All other uses — including `Let { Var }`
+/// aliases — use Normal semantics with standard `has_future_use` checks.
+///
+/// Let aliases are handled on the Dec side by `is_ownership_transfer()`,
+/// which suppresses the source's last-use `RcDec` at the alias instruction.
 ///
 /// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — `proj i x` borrows `x`;
 /// if the result is an object, Inc it.
@@ -118,10 +120,6 @@ pub enum DecisionSite {
 pub enum UseSemantics {
     /// Normal use — emit `RcInc` if `has_future_use`.
     Normal,
-    /// `Let { dst, Var(src) }` alias use. The alias root variable already
-    /// received an `RcInc` covering this alias's entire lifetime.
-    /// No independent `RcInc` needed.
-    AliasOf,
     /// `Project` source where the result is scalar (borrowing semantics).
     /// No pre-use `RcInc`. Source may still get a last-use `RcDec`.
     BorrowingProject,
@@ -189,10 +187,8 @@ pub fn decide(ctx: &DecisionContext) -> InstructionDecisions {
                         RcDecision::None
                     }
                 }
-                // Alias/Project sources: RC handled by root or projected value.
-                UseSemantics::AliasOf
-                | UseSemantics::BorrowingProject
-                | UseSemantics::TransferProject => RcDecision::None,
+                // Project sources: RC handled by projected value.
+                UseSemantics::BorrowingProject | UseSemantics::TransferProject => RcDecision::None,
             },
             reuse: ReuseDecision::None,
         },

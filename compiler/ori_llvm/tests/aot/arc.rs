@@ -497,3 +497,53 @@ fn test_arc_aliased_string_params() {
         "arc_aliased_string_params",
     );
 }
+
+// Alias chain: three variables all pointing to the same heap string.
+// The pre-use RcInc for intermediate aliases must not be suppressed.
+
+// Alias chain: a → b → c, all used after aliasing.
+// Verifies pre-use RcInc for intermediate aliases is not suppressed.
+// The ARC IR must have enough RcIncs to balance the RcDecs (one per
+// terminal alias). Without this, the binary double-frees due to UB.
+
+#[test]
+fn test_arc_alias_chain_no_double_free() {
+    // Run multiple times — double-free UB is non-deterministic; a single
+    // run may succeed if the allocator hasn't reclaimed the freed page.
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+@main () -> int = {
+    let a = "this is a heap string for alias chain";
+    let b = a;
+    let c = b;
+    if a == b && b == c then 0 else 1
+}
+"#,
+            "arc_alias_chain_no_double_free",
+        );
+    }
+}
+
+#[test]
+fn test_arc_alias_chain_three_way_use() {
+    // All three aliases used independently after the chain.
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+@check (x: str, y: str) -> bool = x == y;
+
+@main () -> int = {
+    let a = "shared heap string";
+    let b = a;
+    let c = b;
+    let $r1 = check(x: a, y: b);
+    let $r2 = check(x: b, y: c);
+    let $r3 = check(x: a, y: c);
+    if r1 && r2 && r3 then 0 else 1
+}
+"#,
+            "arc_alias_chain_three_way_use",
+        );
+    }
+}
