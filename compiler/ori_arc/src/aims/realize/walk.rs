@@ -56,7 +56,6 @@ pub(super) fn walk_body_unified(
     ctx: &BlockCtx<'_>,
     old_body: &[ArcInstr],
     new_body: &mut Vec<ArcInstr>,
-    alias_map: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> BodyWalkResult {
     let mut uses_so_far: FxHashMap<ArcVarId, usize> = FxHashMap::default();
     let mut deferred: Vec<(ArcVarId, RcStrategy, LastUse)> = Vec::new();
@@ -76,7 +75,6 @@ pub(super) fn walk_body_unified(
             &mut uses_so_far,
             new_body,
             &mut metrics,
-            alias_map,
         );
 
         // Push the instruction itself.
@@ -152,7 +150,6 @@ fn emit_pre_instr_incs_unified(
     uses_so_far: &mut FxHashMap<ArcVarId, usize>,
     new_body: &mut Vec<ArcInstr>,
     metrics: &mut super::metrics::SynergyMetrics,
-    alias_map: &FxHashMap<ArcVarId, ArcVarId>,
 ) {
     for var in instr.used_vars() {
         if !is_rc_managed(ctx, var) {
@@ -163,7 +160,7 @@ fn emit_pre_instr_incs_unified(
         *count += 1;
 
         let has_future_use = compute_has_future_use(ctx, var, *count, instr_idx);
-        let semantics = classify_use_semantics(ctx, var, instr, alias_map);
+        let semantics = classify_use_semantics(ctx, var, instr);
         let decision = decide(&DecisionContext {
             site: DecisionSite::Use {
                 has_future_use,
@@ -466,23 +463,14 @@ fn build_reuse_context(ctx: &BlockCtx<'_>, var: ArcVarId) -> ReuseContext {
 
 /// Classify use semantics for a variable at an instruction site.
 ///
-/// Determines whether the use is a normal RC use, a Let alias (whose root's
-/// `RcInc` already covers it), or a `Project` source (borrowing vs transfer).
+/// Determines whether the use is a normal RC use or a `Project` source
+/// (borrowing vs transfer).
 ///
-/// This replaces the implicit classification in the legacy backward walk's
-/// `is_borrowing_instr` and liveness propagation through alias definitions.
-fn classify_use_semantics(
-    ctx: &BlockCtx<'_>,
-    var: ArcVarId,
-    instr: &ArcInstr,
-    alias_map: &FxHashMap<ArcVarId, ArcVarId>,
-) -> UseSemantics {
-    // Let alias: `%6 = %0` — the root %0 already received an RcInc
-    // covering all aliases. No independent Inc needed.
-    if alias_map.contains_key(&var) {
-        return UseSemantics::AliasOf;
-    }
-
+/// Let aliases (`%dst = %src`) use Normal semantics — the standard
+/// `has_future_use` check provides correct `RcInc` placement.
+/// `is_ownership_transfer()` handles the Dec side (suppressing last-use
+/// Dec for the source at the alias instruction).
+fn classify_use_semantics(ctx: &BlockCtx<'_>, var: ArcVarId, instr: &ArcInstr) -> UseSemantics {
     // Project source classification (Lean 4 `proj i x` semantics):
     // - Scalar result → borrowing (no Inc for source)
     // - Non-scalar result → transfer (no Inc, suppress source Dec)

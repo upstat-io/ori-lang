@@ -304,21 +304,7 @@ fn decide_use_without_future_use_returns_none() {
     assert_eq!(d.reuse, ReuseDecision::None);
 }
 
-// UseSemantics — alias and Project source identity
-
-#[test]
-fn decide_use_alias_of_skips_inc() {
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::AliasOf,
-        },
-        is_rc_managed: true,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::None, "alias root's Inc covers this");
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
+// UseSemantics — Project source identity
 
 #[test]
 fn decide_use_borrowing_project_skips_inc() {
