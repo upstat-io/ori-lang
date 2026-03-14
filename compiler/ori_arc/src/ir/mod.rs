@@ -126,9 +126,29 @@ pub enum LitValue {
     Bool(bool),
     String(Name),
     Char(char),
-    Duration { value: u64, unit: DurationUnit },
-    Size { value: u64, unit: SizeUnit },
+    Duration {
+        value: u64,
+        unit: DurationUnit,
+    },
+    Size {
+        value: u64,
+        unit: SizeUnit,
+    },
     Unit,
+    /// Typed null reference — a zero-valued placeholder for reference fields
+    /// that will be overwritten by `Set` before any read.
+    ///
+    /// Used by the TRMC rewrite (Section 13.4) to fill constructor hole fields.
+    /// The variable carrying this value has the field's declared type, but the
+    /// runtime value is null (zero). RC operations on null are no-ops in the
+    /// runtime (`ori_rc_inc`/`ori_buffer_rc_dec` check for null).
+    ///
+    /// # Contract
+    ///
+    /// A `Null` literal **must** be consumed by a `Construct` instruction whose
+    /// corresponding field is overwritten by `Set` before any read of that field.
+    /// The post-rewrite verifier (Section 13.5) enforces this invariant.
+    Null,
 }
 
 // Primitive operations

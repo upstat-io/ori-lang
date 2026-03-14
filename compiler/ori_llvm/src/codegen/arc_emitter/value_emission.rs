@@ -37,7 +37,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             LitValue::Float(bits) => self.builder.const_f64(f64::from_bits(*bits)),
             LitValue::Bool(b) => self.builder.const_bool(*b),
             LitValue::Char(c) => self.builder.const_i32(*c as i32),
-            LitValue::Unit => self.builder.const_i64(0),
+            LitValue::Unit | LitValue::Null => self.builder.const_i64(0),
             LitValue::String(name) => {
                 let s = self.interner.lookup(*name);
                 let str_ty = self.resolve_type(ori_types::Idx::STR);

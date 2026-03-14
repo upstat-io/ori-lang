@@ -20,7 +20,7 @@ sections:
     status: complete
   - id: "13.4"
     title: "TRMC 4-Equation Rewrite"
-    status: not-started
+    status: complete
   - id: "13.5"
     title: "Post-Rewrite Verification"
     status: not-started
@@ -407,7 +407,7 @@ The 4 equations:
 - **(tmatch)** `[[match e' { pi -> ei }]]_{f,k} = match e' { pi -> [[ei]]_{f,k} }` --
   match: recurse into each arm
 
-- [ ] Define context representation for ARC IR:
+- [x] Define context representation for ARC IR:
   ```rust
   /// Minamide tuple: pointer to result root + address of hole field.
   /// For AIMS modulo-cons instantiation, the context is represented as:
@@ -420,7 +420,7 @@ The 4 equations:
   }
   ```
 
-- [ ] Implement context operations:
+- [x] Implement context operations:
   - `ctx(K)`: Create a context from a constructor `K` with a hole at the
     recursive call position. The constructor becomes the result root, and
     the hole is the field that will receive the recursive call's result.
@@ -429,7 +429,7 @@ The 4 equations:
   - `app(k, e)`: Apply context to expression -- fill the hole with `e`.
     Another in-place `Set` instruction.
 
-- [ ] Implement `pub fn rewrite_trmc(func: &mut ArcFunction, regions: &[ContextRegion]) -> bool`:
+- [x] Implement `pub fn rewrite_trmc(func: &mut ArcFunction, regions: &[ContextRegion]) -> bool`:
   - For each `ContextRegion`:
     1. Verify the region passes both soundness gates (uniqueness + effect purity)
     2. **Function transformation approach (recommended: in-place)**:
@@ -454,20 +454,20 @@ The 4 equations:
       re-running interprocedural analysis on them
     - More complex but cleaner separation
 
-- [ ] Handle the fallback case:
+- [x] Handle the fallback case:
   - When soundness gates fail, skip the rewrite (leave function unmodified)
   - Log via `tracing::debug!` why the rewrite was skipped
   - This is the recommended approach from literature review section 04.7
 
-- [ ] Update `NormalizationResult.was_transformed` when rewrite succeeds
+- [x] Update `NormalizationResult.was_transformed` when rewrite succeeds
 
-- [ ] Set scope bounds for v1:
+- [x] Set scope bounds for v1:
   - Self-recursive only (no mutual recursion)
   - Single recursive call per region
   - Modulo-cons instantiation only (no CPS fallback)
   - Skip when `may_share == true` (no hybrid path in v1)
 
-- [ ] Tests (ArcIrBuilder test pattern):
+- [x] Tests (ArcIrBuilder test pattern):
   - `rewrite_trmc_simple_list_map` -- basic self-recursive list constructor
   - `rewrite_trmc_enum_variant` -- recursive enum variant construction
   - `rewrite_trmc_skipped_when_not_unique` -- soundness gate 1
@@ -679,10 +679,10 @@ These items should be fixed during implementation of 13.1-13.6:
 - [ ] **STYLE (stale doc):** `ContextBehavior` doc at `contract/mod.rs:359-368`
   says "Stage 3" for TRMC -- after Section 13, this is no longer future tense.
   Update to describe the current state when 13.1 is complete.
-- [ ] **STYLE (stale doc):** `normalize/mod.rs:14-17` says "Detection only --
+- [x] **STYLE (stale doc):** `normalize/mod.rs:14-17` says "Detection only --
   no IR rewriting. The full TRMC 4-equation rewrite is deferred to a future
   stage." After 13.4, this is inaccurate. Update when implementing 13.4.
-- [ ] **STYLE (stale doc):** `NormalizationResult::was_transformed` doc at
+- [x] **STYLE (stale doc):** `NormalizationResult::was_transformed` doc at
   `normalize/mod.rs:42` says "always `false` in v1". Update after 13.4.
 - [ ] **WASTE (unnecessary clone):** `analyze_scc_fixpoint()` at
   `interprocedural.rs:164` does `external_sigs.clone()` into `combined_sigs`
@@ -722,7 +722,7 @@ These items should be fixed during implementation of 13.1-13.6:
   reconciled — both document both gates and their relationship
 - [ ] Lifting pre-pass implemented (or verified as unnecessary for ARC IR)
 - [ ] `normalize_function()` signature changed to `(&mut ArcFunction, Option<&MemoryContract>)`
-- [ ] 4-equation TRMC rewrite implemented for modulo-cons instantiation
+- [x] 4-equation TRMC rewrite implemented for modulo-cons instantiation
   (in-place transform with optional context parameter, or auxiliary function)
 - [ ] Post-rewrite verification catches rewrite bugs
 - [ ] Rollback mechanism: `func.clone()` before rewrite, restore on
@@ -730,7 +730,7 @@ These items should be fixed during implementation of 13.1-13.6:
 - [ ] Pipeline re-runs steps 3, 3.5, 4 after successful TRMC rewrite
 - [ ] `ContextOpen`/`ContextClose` events consumed by realization
 - [ ] `NormalizationResult.was_transformed` is `true` when TRMC applied
-- [ ] Fallback strategy: skip (leave unmodified) when soundness gates fail
+- [x] Fallback strategy: skip (leave unmodified) when soundness gates fail
 - [ ] Section 12 FIP verifier cross-checks TRMC-rewritten functions
 - [ ] `cargo test --workspace` green
 - [ ] `./test-all.sh` green
