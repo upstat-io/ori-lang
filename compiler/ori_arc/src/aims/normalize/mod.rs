@@ -1,4 +1,4 @@
-//! AIMS Stage 3: normalization pass for TRMC opportunity creation.
+//! AIMS Stage 3a: TRMC normalization pass.
 //!
 //! Detects self-recursive constructor functions (Tail Recursive Modulo
 //! Constructor candidates) and produces [`ContextRegion`] metadata that
@@ -11,16 +11,16 @@
 //! (step 4). The entry point is [`normalize_function`], which returns a
 //! [`NormalizationResult`] containing context regions for the analysis.
 //!
-//! # Scope (v1)
+//! # Phases
 //!
-//! Lifting verification + detection only — no IR rewriting. The lifting
-//! pre-pass verifies A-normal form (guaranteed by `Construct.args:
-//! Vec<ArcVarId>`). Detection produces structural metadata that enables:
-//! - `ContextOpen`/`ContextClose` event recording in the state map
-//! - Downstream passes to identify TRMC-eligible allocation sites
-//!
-//! The full TRMC 4-equation rewrite (Leijen & Lorenzen, JFP 2025) is
-//! implemented in a subsequent stage.
+//! 1. **Lifting**: Verify A-normal form (no-op — type-enforced in ARC IR).
+//! 2. **Detection**: Identify TRMC candidates (`ContextRegion` metadata).
+//! 3. **Rewrite** (Section 13.6): [`rewrite_trmc`] converts self-recursion
+//!    into a loop with block params carrying the context. Uses
+//!    [`LitValue::Null`] for hole field placeholders. Function signature
+//!    is unchanged. Not yet wired into the live pipeline — requires
+//!    contract recomputation and the `may_share` false-positive resolution
+//!    from Section 13.6.
 //!
 //! # References
 //!
@@ -29,6 +29,7 @@
 
 mod detect;
 mod lift;
+pub(crate) mod rewrite;
 
 #[cfg(test)]
 mod tests;
@@ -39,33 +40,32 @@ use super::contract::ContextRegion;
 use crate::ir::ArcFunction;
 
 /// Result of the normalization pass on a single function.
-///
-/// In v1 (detection only), `was_transformed` is always `false` — no IR
-/// rewriting occurs. `context_regions` contains structural metadata for
-/// TRMC candidates detected in the function.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NormalizationResult {
-    /// Whether the IR was rewritten (always `false` in v1).
+    /// Whether the IR was structurally rewritten (TRMC loop-header transform).
+    ///
+    /// Currently always `false` in the live pipeline — the rewrite is
+    /// implemented and tested but not yet wired in (Section 13.6).
     pub was_transformed: bool,
     /// Detected TRMC constructor-context regions.
     pub context_regions: Vec<ContextRegion>,
 }
 
-/// Run the normalization pass on a single function.
+/// Run the normalization pass on a single function (detection only).
 ///
 /// Detects TRMC candidates: `Construct` instructions where at least one
 /// field argument is produced by a recursive call to the same function.
 /// Returns [`NormalizationResult`] with context region metadata.
 ///
-/// # When no candidates exist
-///
-/// Non-recursive functions or functions without constructor-context patterns
-/// return `NormalizationResult { was_transformed: false, context_regions: [] }`.
+/// The TRMC rewrite ([`rewrite::rewrite_trmc`]) is implemented and tested
+/// but not called from this function — it requires contract recomputation
+/// and the `may_share` false-positive resolution from Section 13.6.
 pub fn normalize_function(func: &ArcFunction) -> NormalizationResult {
-    // Verify A-normal form invariant before detection (invariant I4:
-    // lifting precedes detection). No-op in ARC IR — type-enforced.
+    // Step 1: Verify A-normal form invariant (invariant I4: lifting
+    // precedes detection). No-op in ARC IR — type-enforced.
     lift::lift_constructor_args(func);
 
+    // Step 2: Detect TRMC candidates.
     let context_regions = detect::detect_context_regions(func);
 
     if !context_regions.is_empty() {
