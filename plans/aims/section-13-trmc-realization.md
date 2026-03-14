@@ -17,7 +17,7 @@ sections:
     status: complete
   - id: "13.3"
     title: "Lifting Pre-Pass"
-    status: not-started
+    status: complete
   - id: "13.4"
     title: "TRMC 4-Equation Rewrite"
     status: not-started
@@ -351,48 +351,32 @@ Construct { dst: r, ctor, args: [y, recurse(xs)] }
 
 This is a standard normalization (A-normal form for constructor arguments).
 
-- [ ] Implement `pub fn lift_constructor_args(func: &mut ArcFunction)`:
-  - Walk each block's body looking for `Construct` instructions
-  - For each `Construct`, check if any argument is defined by an `Apply`,
-    `ApplyIndirect`, or `Invoke` in the same block
-  - If so, the instruction is already in let-binding form in ARC IR (each
-    `Apply { dst, ... }` defines `dst`). Verify this is the case -- ARC IR
-    may already be in A-normal form by construction.
+- [x] Implement `pub fn lift_constructor_args(func: &ArcFunction)`:
+  - Verified: ARC IR enforces A-normal form by type system (`Construct.args:
+    Vec<ArcVarId>`). Embedded expressions are impossible by construction.
+  - Implementation: `normalize/lift.rs` — debug assertion verifying all
+    Construct dst/arg variable IDs are in bounds of `var_types`.
 
-- [ ] Determine if lifting is necessary:
-  ARC IR is lowered from CanExpr, which may already produce A-normal form
-  for constructor arguments (each expression is bound to a variable before
-  being passed as a constructor arg). If this is the case, lifting is a no-op
-  and this subsection reduces to a verification assertion:
-  ```rust
-  debug_assert!(
-      all_construct_args_are_variables(func),
-      "ARC IR should be in A-normal form for constructor arguments"
-  );
-  ```
-  Read `lower/mod.rs` to determine whether the lowerer guarantees this.
+- [x] Determine if lifting is necessary:
+  ARC IR is **not** in A-normal form by convention — it is enforced by the
+  **type system**. `Construct.args` is `Vec<ArcVarId>`, so only variable
+  references can appear as constructor arguments. The lowering pass
+  (`lower/`) evaluates each sub-expression into a variable before building
+  the `Construct` instruction. Lifting is a **verified no-op**.
 
-- [ ] If lifting IS needed, implement the transformation:
-  - For each Construct with an embedded expression argument:
-    - Create a fresh `ArcVarId` for the extracted let-binding
-    - Extend `func.var_types` with the new variable's type (same as the
-      expression's result type). The new `ArcVarId` is the index of the
-      pushed entry.
-    - Insert the expression as a new instruction before the Construct
-    - Replace the expression argument with the fresh variable
-  - Update `NormalizationResult.was_transformed = true` when any lifting occurs
-  - **Note:** This pass mutates the function (`&mut ArcFunction`). The
-    current `normalize_function()` takes `&ArcFunction` (immutable).
-    See Section 13.6 for the signature change.
+- [x] If lifting IS needed, implement the transformation:
+  N/A — lifting is not needed. ARC IR type system prevents the condition.
 
-- [ ] Wire into `normalize_function()` (`normalize/mod.rs`):
-  - Call `lift_constructor_args()` BEFORE `detect_context_regions()`
-  - Lifting must precede detection (invariant I4 from literature review section 04.2)
+- [x] Wire into `normalize_function()` (`normalize/mod.rs`):
+  - `lift::lift_constructor_args(func)` called BEFORE `detect_context_regions()`
+  - Invariant I4 satisfied: lifting (verification) precedes detection.
 
-- [ ] Tests:
-  - `lifting_a_normal_form_is_noop` -- already-normalized Construct unchanged
-  - `lifting_extracts_embedded_call` -- if lifting is needed
-  - `lifting_extends_var_types` -- verify new variables registered in var_types
+- [x] Tests:
+  - `lifting_a_normal_form_is_noop` — well-formed recursive Construct, no panic
+  - `lifting_multi_field_construct_valid` — 3-field Construct, all valid
+  - `lifting_no_constructs_is_noop` — function without Constructs
+  - `lifting_catches_invalid_arg_var` — debug_assert catches out-of-bounds arg
+  - `lifting_catches_invalid_dst_var` — debug_assert catches out-of-bounds dst
 
 ---
 

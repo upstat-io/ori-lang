@@ -13,11 +13,14 @@
 //!
 //! # Scope (v1)
 //!
-//! Detection only — no IR rewriting. The full TRMC 4-equation rewrite
-//! (Leijen & Lorenzen, JFP 2025) is deferred to a future stage. Detection
-//! produces structural metadata that enables:
+//! Lifting verification + detection only — no IR rewriting. The lifting
+//! pre-pass verifies A-normal form (guaranteed by `Construct.args:
+//! Vec<ArcVarId>`). Detection produces structural metadata that enables:
 //! - `ContextOpen`/`ContextClose` event recording in the state map
 //! - Downstream passes to identify TRMC-eligible allocation sites
+//!
+//! The full TRMC 4-equation rewrite (Leijen & Lorenzen, JFP 2025) is
+//! implemented in a subsequent stage.
 //!
 //! # References
 //!
@@ -25,6 +28,7 @@
 //! - FP² (Lorenzen et al., ICFP 2023) — FIP/FBIP certification
 
 mod detect;
+mod lift;
 
 #[cfg(test)]
 mod tests;
@@ -58,6 +62,10 @@ pub struct NormalizationResult {
 /// Non-recursive functions or functions without constructor-context patterns
 /// return `NormalizationResult { was_transformed: false, context_regions: [] }`.
 pub fn normalize_function(func: &ArcFunction) -> NormalizationResult {
+    // Verify A-normal form invariant before detection (invariant I4:
+    // lifting precedes detection). No-op in ARC IR — type-enforced.
+    lift::lift_constructor_args(func);
+
     let context_regions = detect::detect_context_regions(func);
 
     if !context_regions.is_empty() {
