@@ -58,10 +58,11 @@ mod value_emission;
 pub use context::CodegenContext;
 use context::EmittedValue;
 
+use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
@@ -153,6 +154,11 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// The `FuncletPadKind` distinguishes catch (exits via `catchret`) from
     /// cleanup (exits via `cleanupret`).
     pub(super) current_funclet_pad: Option<(TokenId, FuncletPadKind)>,
+    /// Variables rooted at borrowed parameters (or Let-aliases thereof).
+    /// When storing an inline enum value to a boxed field, sub-pointers
+    /// must be incremented if the source is borrowed-rooted (the caller
+    /// retains a reference, so the boxed store creates an additional one).
+    borrowed_rooted_vars: FxHashSet<ArcVarId>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -190,7 +196,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             current_block_idx: 0,
             current_instr_idx: 0,
             current_funclet_pad: None,
+            borrowed_rooted_vars: FxHashSet::default(),
         }
+    }
+
+    /// Check if a variable is rooted at a borrowed parameter.
+    ///
+    /// Returns `true` if the variable is a borrowed function parameter or
+    /// a Let-alias chain leading to one. Used by `emit_variant_via_alloca`
+    /// to decide whether storing an inline enum to a boxed field needs a
+    /// sub-pointer increment (borrowed → yes, consumed → no).
+    pub(super) fn is_var_borrowed_rooted(&self, var: ArcVarId) -> bool {
+        self.borrowed_rooted_vars.contains(&var)
     }
 }
 

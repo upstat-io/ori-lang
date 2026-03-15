@@ -271,6 +271,43 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
+        // Pre-compute set of variables rooted at borrowed parameters.
+        // When storing inline enums to boxed fields, borrowed-rooted vars
+        // need sub-pointer inc (the caller retains a reference). Consumed
+        // (owned) vars don't need it (move semantics).
+        self.borrowed_rooted_vars.clear();
+        {
+            use ori_arc::Ownership;
+            let mut borrowed_param_vars = rustc_hash::FxHashSet::default();
+            for param in &func.params {
+                if param.ownership == Ownership::Borrowed {
+                    borrowed_param_vars.insert(param.var);
+                    self.borrowed_rooted_vars.insert(param.var);
+                }
+            }
+            // Trace Let-alias chains: if %x = %borrowed_param, then %x is also borrowed-rooted.
+            let mut changed = true;
+            while changed {
+                changed = false;
+                for block in &func.blocks {
+                    for instr in &block.body {
+                        if let ArcInstr::Let {
+                            dst,
+                            value: ori_arc::ir::ArcValue::Var(src),
+                            ..
+                        } = instr
+                        {
+                            if self.borrowed_rooted_vars.contains(src)
+                                && self.borrowed_rooted_vars.insert(*dst)
+                            {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Set personality function on the LLVM function if any real invokes exist.
         // Required for any function containing `invoke`/`landingpad` (Itanium) or
         // `catchswitch`/`catchpad`/`cleanuppad` (SEH).

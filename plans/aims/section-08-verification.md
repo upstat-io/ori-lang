@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Verification & Validation"
-status: in-progress
+status: complete
 goal: "Prove AIMS correctness via behavioral equivalence, performance comparison, and safety verification"
 depends_on: ["06", "13"]
 sections:
@@ -34,12 +34,12 @@ sections:
     status: complete
   - id: "08.7"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 08: Verification & Validation
 
-**Status:** Incomplete
+**Status:** Complete
 
 **Claim:** AIMS is correct (same behavior), produces equal or fewer RC ops,
 compiles at least as fast, and generates correct code under Valgrind.
@@ -804,13 +804,28 @@ have caught Bug 1 immediately.
   All comparisons use same compiler, same frontend, same LLVM — only ARC pipeline differs.
 
 ### Cross-System Interaction Matrix (08.5a)
-- [ ] Matrix H: All 22 REQ interactions have tests at all 3 layers (ARC unit + AOT + Valgrind)
-- [ ] Matrix I: Assertion strategy verified — no interaction tested at only one layer
-- [ ] TRMC interactions (H2, H5, H8, H10, H14, H17-H22): unblocked (Section 13 complete)
-- [ ] FIP interactions (H4, H9, H16, H19): requires Section 13 bug fix for H19
-- [ ] Reuse × downstream (H6, H13, H15): independent tests written
-- [ ] Drop hint interactions (H1, H3, H18): independent tests written
-- [ ] RC × pass interactions (H11, H12): independent tests written
+- [x] Matrix H: All 22 REQ interactions have tests at all 3 layers (ARC unit + AOT + Valgrind)
+  Done (2026-03-15): 22 AOT tests in `aims_interactions.rs`, 3 Valgrind test files
+  (`aims_h_drop_rc.ori`, `aims_h_fip_reuse.ori`, `aims_h_trmc.ori`), ARC unit tests
+  in `realize/tests.rs` (64 tests), `normalize/tests.rs` (52 tests),
+  `intraprocedural/tests.rs`, `interprocedural/tests.rs`, `verify/fip/tests.rs`.
+  Critical bug discovered and fixed during testing: `emit_inline_enum_inc` in
+  `emit_variant_via_alloca` unconditionally incremented sub-pointers for ALL
+  boxed stores — correct for borrowed values but causes leak for consumed
+  values (move semantics). Fixed: conditional inc only for borrowed-rooted vars.
+- [x] Matrix I: Assertion strategy verified — no interaction tested at only one layer
+  Done (2026-03-15): Every H-interaction has AOT behavioral + Valgrind memory +
+  ARC unit decision boundary coverage. No single-layer-only interactions.
+- [x] TRMC interactions (H2, H5, H8, H10, H14, H17-H22): unblocked (Section 13 complete)
+  Done (2026-03-15): 12 AOT tests, TRMC Valgrind file, 52+ ARC unit tests.
+- [x] FIP interactions (H4, H9, H16, H19): requires Section 13 bug fix for H19
+  Done (2026-03-15): AOT tests H4/H9/H16/H19, Valgrind FIP file, FIP unit tests.
+- [x] Reuse × downstream (H6, H13, H15): independent tests written
+  Done (2026-03-15): AOT tests H6/H13/H15, Valgrind reuse file.
+- [x] Drop hint interactions (H1, H3, H18): independent tests written
+  Done (2026-03-15): AOT tests H1/H3/H18, Valgrind drop file.
+- [x] RC × pass interactions (H11, H12): independent tests written
+  Done (2026-03-15): AOT tests H11/H12, Valgrind RC file.
 
 **Exit Criteria:** Every verification step above passes. The AIMS pipeline is
 demonstrably correct (same behavior), demonstrably at least as efficient as the

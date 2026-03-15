@@ -61,6 +61,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         ty,
                         tag_val,
                         &arg_vals,
+                        args,
                         &variant_field_types,
                     )
                 } else {
@@ -72,6 +73,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         ty,
                         tag_val,
                         &arg_vals,
+                        args,
                         &variant_field_types,
                     )
                 }
@@ -234,6 +236,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         tag_val: ValueId,
         arg_vals: &[ValueId],
+        arc_args: &[ArcVarId],
         variant_field_types: &[Idx],
     ) -> ValueId {
         let mut result = self.builder.const_zero_ty(llvm_ty);
@@ -267,6 +270,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     ty,
                     tag_val,
                     arg_vals,
+                    arc_args,
                     variant_field_types,
                 );
             }
@@ -295,6 +299,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     ty,
                     tag_val,
                     arg_vals,
+                    arc_args,
                     variant_field_types,
                 );
             }
@@ -313,6 +318,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         tag_val: ValueId,
         arg_vals: &[ValueId],
+        arc_args: &[ArcVarId],
         variant_field_types: &[Idx],
     ) -> ValueId {
         let alloca = self.builder.alloca(llvm_ty, "variant");
@@ -343,16 +349,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let rc_ptr = self.rc_alloc(size, 8);
                     self.builder.store(val, rc_ptr);
                     self.builder.store(rc_ptr, slot);
-                    // The stored inline enum value may contain its own boxed
-                    // sub-pointers. The new heap node now holds a copy, creating
-                    // an additional reference. Increment those sub-pointers so
-                    // that when this node is freed (drop cascades into fields),
-                    // the sub-pointers' refcounts remain balanced.
-                    let ft = field_ty.expect("field type present");
-                    let resolved = self.pool.resolve_fully(ft);
-                    let pool_tag = self.pool.tag(resolved);
-                    if pool_tag == Tag::Enum {
-                        self.emit_inline_enum_inc(val, resolved, pool_tag, 1);
+                    // When storing an inline enum value to a boxed field, we
+                    // need to increment its sub-pointers ONLY if the source
+                    // value has other live references (i.e., it's borrowed —
+                    // the caller retains a reference). For consumed values
+                    // (owned, last use), this is a move: no inc needed.
+                    if let Some(&arc_var) = arc_args.get(i) {
+                        if self.is_var_borrowed_rooted(arc_var) {
+                            let ft = field_ty.expect("field type present");
+                            let resolved = self.pool.resolve_fully(ft);
+                            let pool_tag = self.pool.tag(resolved);
+                            if pool_tag == Tag::Enum {
+                                self.emit_inline_enum_inc(val, resolved, pool_tag, 1);
+                            }
+                        }
                     }
                 } else {
                     self.builder.store(val, slot);
