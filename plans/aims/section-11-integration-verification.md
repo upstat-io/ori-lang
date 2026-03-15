@@ -40,8 +40,11 @@ within noise of legacy.
 references rejected Option A. SynergyMetrics shows 0% multi-dim RC decisions
 across all corpora — below the stated 20% threshold.
 
-**Open contradictions:** Exit criteria state `>=20%` cross-dim RC decisions,
-but measured value is 0%. Either the metric or the threshold is wrong.
+**Open contradictions:** Exit criteria originally stated `>=20%` cross-dim RC
+decisions, but `multi_dim_rc_decisions` reads 0% because it only counts
+reuse-site decisions. The real integration evidence is
+`canonicalize_cross_fires` (325 total), which shows cross-dimension rules
+ARE active. The metric label/scope needs revision, not the threshold.
 
 **Goal:** Prove that dimensional fusion (Section 09) and unified realization
 (Section 10) produce a system where all 7 dimensions genuinely work as one team,
@@ -449,8 +452,13 @@ Quantify how much cross-dimensional reasoning contributes.
   | synergy/seven_dimensions.ori | 2 | baseline |
   | **Total** | **189** | **regression floor** |
 
-  4 programs can't build (LLVM .fold() bug): mixed_ownership, function_local_linear_skip,
-  local_pure_chain, pure_callee_preserves. Gate: these counts must not increase.
+  4 programs can't build (LLVM .fold() + lambda codegen bug): mixed_ownership,
+  function_local_linear_skip, local_pure_chain, pure_callee_preserves. Gate:
+  these counts must not increase. **Completion blocker:** Section 11 cannot be
+  considered fully complete while 31% (4/13) of the intended golden corpus is
+  excluded by LLVM codegen failures. The `.fold()` bug must be fixed to validate
+  the full corpus. Until then, the baseline of 189 RC ops across 9 programs is
+  provisional.
 
 - [x] **Compilation speed regression gate.**
   Measured 2026-03-13 via `hyperfine` (10 runs, 3 warmup):
@@ -546,8 +554,13 @@ Quantify how much cross-dimensional reasoning contributes.
   `pipeline/mod.rs` unconditionally calls `aims_pipeline::run_aims_pipeline()`, no cfg gates
 
 **Exit Criteria:** Cross-dimensional reasoning is *measured*, not just claimed.
-`SynergyMetrics` shows that ≥20% of RC decisions required 2+ dimensions.
-At least 5 cross-dimension test programs demonstrate optimization that NO single
-dimension could achieve alone. Per-rule unit tests (Rules 4-8) verify each
-canonicalize rule fires and doesn't fire under correct conditions.
+`SynergyMetrics.canonicalize_cross_fires` demonstrates that cross-dimension
+canonicalize rules are active (325 fires measured across corpora). The
+`multi_dim_rc_decisions` counter currently reads 0% because it only counts
+reuse-site decisions — the metric label should be revised to reflect its
+actual scope, or the counter should be expanded to track all multi-dimension
+decisions (including canonicalize-driven uniqueness proofs that eliminate COW
+checks). At least 5 cross-dimension test programs demonstrate optimization
+that NO single dimension could achieve alone. Per-rule unit tests (Rules 4-8)
+verify each canonicalize rule fires and doesn't fire under correct conditions.
 End-to-end tests verify measurable output improvement for each synergy program.

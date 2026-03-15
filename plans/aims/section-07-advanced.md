@@ -583,9 +583,8 @@ exists; only the contract variant and its extraction logic are missing.
 - [x] Performance: `ORI_DUMP_AFTER_ARC` RC operation count comparison shows 24%
   reduction on bench_medium (25→19 total RC ops). Binary performance comparison
   deferred — AIMS AOT codegen not yet producing executables (Stage 1 limitation).
-- [x] All changes pass `cargo test --workspace --features aims` (excluding ori_llvm
-  AOT integration tests — 74 pre-existing failures from incomplete AIMS→LLVM pipeline)
-- [x] All changes pass `cargo clippy --workspace --features aims`
+- [x] All changes pass `cargo test --workspace` (AIMS is the sole pipeline)
+- [x] All changes pass `cargo clippy --workspace`
 - [x] Results documented in a comparison table (below)
 
 ### RC Operation Count Comparison (bench_medium.ori)

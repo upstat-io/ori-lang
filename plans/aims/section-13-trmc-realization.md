@@ -871,6 +871,34 @@ Wire the complete TRMC pipeline into the AIMS pipeline. Make
   to `AimsPipelineResult` that `run_aims_pipeline()` populates only when
   `was_transformed == true`. The second pass applies it to `contracts`.
   This avoids threading the entire state map out of the per-function pipeline.
+
+  **What "SCC peer data threading" means concretely:**
+  `extract_contract()` requires not just the function's own `AimsStateMap`
+  but also the `MemoryContract`s of all callees (for propagating effects,
+  demand, and FIP status through call chains). In the interprocedural SCC
+  fixpoint, this data is available as `all_sigs: &FxHashMap<Name, MemoryContract>`.
+  In the per-function pipeline, `config.contracts` provides this — but it is
+  an immutable borrow (`&FxHashMap`). Full re-extraction for a TRMC-rewritten
+  function would require either:
+  - (a) Making `config.contracts` mutable and calling `extract_contract()`
+    inline during `run_aims_pipeline()` — but this changes the config API
+    and creates a mutable borrow conflict with the per-function loop.
+  - (b) Returning the state map data in `AimsPipelineResult` and calling
+    `extract_contract()` in the second pass of `run_aims_pipeline_all()`
+    where `contracts` is already mutable — this is the preferred approach.
+  - (c) For the minimal sound refresh (current implementation): only update
+    fields derivable without callee contracts (`has_unbounded_stack = false`,
+    which only needs the function's own recursion structure). Fields needing
+    callee data (FipContract, ContextBehavior, EffectSummary) stay pre-rewrite.
+    This is sound but conservative — callers may miss optimization
+    opportunities from the TRMC rewrite.
+
+  **Current state:** Option (c) is implemented. Option (b) is the path to
+  full refresh. The implementation order: (1) add `contract_refresh` to
+  `AimsPipelineResult`, (2) populate with `extract_contract()` output in
+  `run_aims_pipeline()` when `was_transformed`, (3) apply in the second pass
+  before `may_deallocate` updates.
+
   **Sync points for contract refresh:**
   - `AimsPipelineResult` — add `contract_refresh` field
   - `run_aims_pipeline()` — populate when `was_transformed`
@@ -1008,10 +1036,12 @@ These items should be fixed during implementation of 13.1-13.6:
   - Loop-back Jump passes recursive call args + 3 context values
   - Let bindings bridge fresh block params → original param vars (tail_call pattern)
   - Span maintenance for rebuilt header body (2026-03-15)
-- [x] **BUG 2 (MEDIUM):** Post-rewrite contract refresh in pipeline (see 13.6)
+- [x] **BUG 2 (MEDIUM — partial fix):** Post-rewrite contract refresh in pipeline (see 13.6)
   - `has_unbounded_stack = false` in second-pass contract refresh
   - `was_trmc_rewritten` flag survives semantic verification rollback
-  - Full `extract_contract()` re-extraction deferred — requires SCC peer data
+  - **Partial:** Full `extract_contract()` re-extraction deferred — requires SCC
+    peer data threading. Only `has_unbounded_stack` is refreshed; other contract
+    fields (ContextBehavior, FipContract, EffectSummary) remain pre-rewrite values.
 - [x] **BUG 3 (MEDIUM):** Helper block context var threading in `rewrite.rs` (see 13.4)
   - Resolution: option (b) — SSA dominance documented + verification check
   - `check_context_var_dominance` uses `DominatorTree` to verify all blocks

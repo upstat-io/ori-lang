@@ -125,7 +125,7 @@ ArcFunction (from lowering)
 | **Contracts** | Realized | `MemoryContract` computed via SCC fixpoint. `ParamContract`, `ReturnContract`, `EffectSummary`, `FipContract`, `ContextBehavior` all populated from converged state. | FIP classification uses optimistic `may_deallocate=false` at extraction time; post-emission update corrects it but does not recompute `contract.fip` (Section 12 bug). |
 | **Realization** | Realized | Two-phase `realize()` replaced 4 separate emission passes. RC, reuse, COW, drop hints all derive from `AimsStateMap`. | None |
 | **Verification** | Incomplete | ARC structural verify works. FIP contract-vs-evidence verifier exists but runs before `may_deallocate` is available (Section 12 sequencing gap). TRMC post-rewrite uniqueness verification is stubbed out (Section 13 Bug 5). | FIP verifier sequencing. TRMC soundness verification not implemented. Cross-system interaction matrix (Section 08.5a) not started. |
-| **Normalization** | Contradictory | Detection works correctly. Rewrite exists but is blocked by `may_share` gate that rejects all real candidates (Bug 4). Even if unblocked, rewrite produces wrong output (Bug 1: argument threading). Post-rewrite contracts are stale (Bug 2). Helper blocks violate block-param convention (Bug 3). Behavioral test matrix specified but has zero fixtures. | 5 bugs (2 High, 3 Medium). Rewrite is effectively dead code. |
+| **Normalization** | Structurally Fixed | Detection works. `may_share` gate removed (Bug 4). Argument threading fixed (Bug 1). Helper block dominance documented and verified (Bug 3). Contract refresh partially implemented — `has_unbounded_stack = false` updated, full `extract_contract()` re-extraction deferred (Bug 2). Post-rewrite uniqueness verification implemented via `verify_trmc_soundness()` (Bug 5). | Behavioral test matrix (Section 13.8) has zero fixtures — no end-to-end proof that rewrite produces correct output. Full contract refresh deferred. |
 | **Backend Integration** | Realized | `ori_llvm` ArcIrEmitter consumes all AIMS artifacts. Legacy RC insertion deleted. AIMS is the sole pipeline. | Retained modules (`borrow/`, `liveness/`, `rc_insert/annotate`, `uniqueness/`, `ownership/`) are actively used — not dead legacy. |
 
 ### Legacy Deletion Status
@@ -167,35 +167,39 @@ contract + verifier sequencing.
 
 **Tracked in:** Section 12.1
 
-### C2. TRMC rewrite is in the pipeline but unsound
+### C2. TRMC rewrite structural bugs — RESOLVED, behavioral tests pending
 
-The TRMC rewrite code exists in `normalize/rewrite.rs` and is called from
-`normalize/mod.rs`. But:
-- Bug 4: `may_share` gate blocks all real candidates (every TRMC function
-  returns a Construct → HeapEscaping → `may_share=true`)
-- Bug 1: Even if unblocked, the rewrite doesn't thread recursive call
-  arguments to the loop header — any function that changes its arguments
-  loops infinitely with the original values
-- Bug 5: Post-rewrite uniqueness verification is stubbed out (`NonUniqueContext`
-  and `EffectPurityViolation` are dead code with `#[expect(dead_code)]`)
-- Bug 3: Helper blocks reference loop-header variables without block-param
-  threading (works by SSA dominance accident)
-- Bug 2: Post-rewrite contracts are stale (no refresh mechanism)
-- Zero behavioral tests — all 37 tests are structural only
+All 5 structural bugs have been fixed (2026-03-15):
+- Bug 4 (HIGH): `may_share` gate removed — per-variable uniqueness is sole gate
+- Bug 1 (HIGH): Argument threading fixed — loop-back Jump threads `rec_args`
+- Bug 5 (MEDIUM): Uniqueness verification implemented — `NonUniqueContext`
+  now actively constructed by `verify_trmc_soundness()`
+- Bug 3 (MEDIUM): Helper block dominance documented + verified via
+  `check_context_var_dominance()` using `DominatorTree`
+- Bug 2 (MEDIUM): Partial contract refresh — `has_unbounded_stack = false`
+  updated in second pass. Full `extract_contract()` re-extraction deferred
+  (requires SCC peer data threading).
 
-**Tracked in:** Section 13
+**Remaining gap:** Zero behavioral tests. All 37+ tests are structural only.
+Behavioral test matrix (Section 13.8) is defined with Matrices D/E/F/G but
+has zero implemented fixtures. This violates Invariant 4 ("enabled surface
+must be end-to-end verified").
 
-### C3. Dead code exists as "future use" stubs
+**Tracked in:** Section 13.7 (final gates) and Section 13.8 (test matrix)
 
-| Dead item | Location | Claimed consumer |
-|-----------|----------|-----------------|
-| `TrmcContext` struct | `rewrite.rs:33-42` | "post-rewrite verification (Section 13.5)" — but `verify.rs` uses `RewriteContext` instead |
-| `NonUniqueContext` variant | `verify.rs:44-55` | "Section 13.6 pipeline integration" — never constructed |
-| `EffectPurityViolation` variant | `verify.rs:57-66` | "Section 13.6 pipeline integration" — never constructed, not needed (no effect handlers in Ori) |
-| `build_alias_map()` | `emit_rc/helpers.rs:328-363` | "used by TRMC realization (Section 13)" — not used |
-| `resolve_alias_root()` | `emit_rc/helpers.rs:365-395` | "used by TRMC realization (Section 13)" — not used |
+### C3. ~~Dead code exists as "future use" stubs~~ MOSTLY RESOLVED
 
-Each must be either implemented and used, or deleted.
+4 of 5 items resolved (2026-03-15):
+- `TrmcContext` — deleted; `verify.rs` uses `RewriteContext`
+- `NonUniqueContext` — now actively constructed by `verify_trmc_soundness()` (Bug 5 fix)
+- `build_alias_map()` — deleted from `emit_rc/helpers.rs`
+- `resolve_alias_root()` — deleted from `emit_rc/helpers.rs`
+
+Remaining:
+
+| Dead item | Location | Reason retained |
+|-----------|----------|----------------|
+| `EffectPurityViolation` variant | `verify.rs:64-69` | Deferred to effect-handler implementation. Has `#[expect(dead_code)]` with documented reason. Will be constructed when Ori adds effect handlers. |
 
 ### C4. ~~Retained legacy modules have dead analysis logic~~ RESOLVED
 
@@ -373,6 +377,9 @@ contracts, all 7 lattice dimensions active and cross-influencing.
 - Locality realization as stack allocation hints — requires backend work in
   `ori_llvm`, not in AIMS analysis. AIMS computes `Locality`; consuming it
   for stack allocation is a codegen concern.
+- WASM backend integration — AIMS analysis is backend-independent; current
+  verification only covers the `ori_llvm` ARC IR consumer. WASM-specific
+  ARC consumption is out of scope for this plan.
 - Dual-accumulator TRMC, mutual-recursion TRMC, cross-block TRMC — beyond
   the scope of self-recursive single-accumulator patterns.
 
