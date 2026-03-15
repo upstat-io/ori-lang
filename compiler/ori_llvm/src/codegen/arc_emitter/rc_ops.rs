@@ -14,11 +14,11 @@
 //! | `AggregateFields` | `emit_rc_inc_aggregate`  | `emit_rc_dec_aggregate`   |
 //! | `InlineEnum`      | `emit_rc_inc_inline_enum`| `emit_rc_dec_inline_enum` |
 //!
-//! # Asymmetry: `InlineEnum`
+//! # `InlineEnum`
 //!
-//! `InlineEnum` Inc is a **no-op** — the container is stack-allocated, and
-//! inner fields are managed at extraction or Dec time. Dec performs a
-//! tag-switch with per-variant field cleanup.
+//! `InlineEnum` Inc and Dec both perform a tag-switch with per-variant
+//! field traversal. The container itself is stack-allocated (no container
+//! refcount), but inner RC-typed fields need inc/dec for correct sharing.
 //!
 //! # Design: no `extract_rc_data_ptrs` calls
 //!
@@ -29,7 +29,7 @@
 //! - `FatPointer`: always field 1 (the `data_ptr` half)
 //! - `Closure`: field 1 (`env_ptr`) with null-check
 //! - `AggregateFields`: struct/tuple field traversal via [`inc_value_rc`] / [`dec_value_rc`]
-//! - `InlineEnum`: Inc no-op; Dec via `emit_inline_enum_dec` (tag-switch)
+//! - `InlineEnum`: Inc via `emit_inline_enum_inc`; Dec via `emit_inline_enum_dec` (both tag-switch)
 //!
 //! `extract_rc_data_ptrs` remains in `mod.rs` for non-RC uses (closure env
 //! drop, drop function generation, builtin clone).
@@ -80,7 +80,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             RcStrategy::FatPointer => self.emit_rc_inc_fat(var, count),
             RcStrategy::Closure => self.emit_rc_inc_closure(self.var(var), count),
             RcStrategy::AggregateFields => self.emit_rc_inc_aggregate(var, count, func),
-            RcStrategy::InlineEnum => Self::emit_rc_inc_inline_enum(),
+            RcStrategy::InlineEnum => self.emit_rc_inc_inline_enum(var, count, func),
         }
     }
 
@@ -268,13 +268,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     // InlineEnum handlers
 
-    /// Inc an inline enum — intentional no-op.
+    /// Inc an inline enum — tag-switch with per-variant RC field inc.
     ///
-    /// Inline enums (Result, Enum, Option) are stack-allocated. Inner RC
-    /// fields are managed at extraction time or during Dec. Incrementing
-    /// the container itself is meaningless.
-    fn emit_rc_inc_inline_enum() {
-        tracing::trace!("RcInc on InlineEnum — no-op (stack-allocated container)");
+    /// Inline enums (Result, Enum, Option) are stack-allocated, so there
+    /// is no container refcount. But their RC-typed fields (strings, lists,
+    /// recursive pointers, etc.) must be incremented when the value is
+    /// shared. Mirrors `emit_rc_dec_inline_enum` structurally.
+    fn emit_rc_inc_inline_enum(&mut self, var: ArcVarId, count: u32, func: &ArcFunction) {
+        let val = self.var(var);
+        let ty = func.var_type(var);
+        let resolved = self.pool.resolve_fully(ty);
+        let pool_tag = self.pool.tag(resolved);
+        self.emit_inline_enum_inc(val, resolved, pool_tag, count);
     }
 
     /// Dec an inline enum (Result, Enum) — tag-switch with per-variant cleanup.

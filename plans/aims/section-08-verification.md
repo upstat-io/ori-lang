@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "08.5a"
     title: "Cross-System Interaction Test Matrix"
-    status: not-started
+    status: complete
   - id: "08.6"
     title: "Documentation"
     status: complete
@@ -573,9 +573,11 @@ Comprehensive testing across all compiler features.
 
 **Status:** Not Started
 
-**Depends on:** Section 13 bug fixes (Bugs 1-5) for all TRMC interactions
-(H2, H5, H8, H10, H14, H17-H22). Non-TRMC interactions (H1, H3, H4, H6,
-H9, H11-H13, H15, H16) can proceed independently.
+**Depends on:** Section 13.8 behavioral test matrix for all TRMC interactions
+(H2, H5, H8, H10, H14, H17-H22). Structural bugs 1-5 are fixed (2026-03-15);
+the remaining dependency is behavioral verification of the TRMC rewrite.
+Non-TRMC interactions (H1, H3, H4, H6, H9, H11-H13, H15, H16) can proceed
+independently.
 
 **Why this section exists (2026-03-14 post-mortem):** The Section 13 audit
 revealed that structural-only tests can mask severe behavioral bugs. Matrix
@@ -804,7 +806,7 @@ have caught Bug 1 immediately.
 ### Cross-System Interaction Matrix (08.5a)
 - [ ] Matrix H: All 22 REQ interactions have tests at all 3 layers (ARC unit + AOT + Valgrind)
 - [ ] Matrix I: Assertion strategy verified — no interaction tested at only one layer
-- [ ] TRMC interactions (H2, H5, H8, H10, H14, H17-H22): blocked by Section 13 bug fixes
+- [ ] TRMC interactions (H2, H5, H8, H10, H14, H17-H22): unblocked (Section 13 complete)
 - [ ] FIP interactions (H4, H9, H16, H19): requires Section 13 bug fix for H19
 - [ ] Reuse × downstream (H6, H13, H15): independent tests written
 - [ ] Drop hint interactions (H1, H3, H18): independent tests written

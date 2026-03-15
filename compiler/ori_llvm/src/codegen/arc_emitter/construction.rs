@@ -343,6 +343,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let rc_ptr = self.rc_alloc(size, 8);
                     self.builder.store(val, rc_ptr);
                     self.builder.store(rc_ptr, slot);
+                    // The stored inline enum value may contain its own boxed
+                    // sub-pointers. The new heap node now holds a copy, creating
+                    // an additional reference. Increment those sub-pointers so
+                    // that when this node is freed (drop cascades into fields),
+                    // the sub-pointers' refcounts remain balanced.
+                    let ft = field_ty.expect("field type present");
+                    let resolved = self.pool.resolve_fully(ft);
+                    let pool_tag = self.pool.tag(resolved);
+                    if pool_tag == Tag::Enum {
+                        self.emit_inline_enum_inc(val, resolved, pool_tag, 1);
+                    }
                 } else {
                     self.builder.store(val, slot);
                 }

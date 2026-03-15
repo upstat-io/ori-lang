@@ -1874,3 +1874,576 @@ fn pipeline_context_events_empty_after_rewrite() {
         "post-rewrite: no TRMC candidates (self-calls eliminated)"
     );
 }
+
+// Matrix D tests — base-case rewriting (D6, D7)
+
+/// D6: Base-case return with context (`has_ctx=true`). When the base case is
+/// reached with an accumulated context, the rewrite applies the context by
+/// `Set(ctx_hole_obj, hole_field, base_value)` then `Return(ctx_res)`.
+/// The base-case block's `Return` becomes a `Branch(ctx_has, apply_block, direct_block)`.
+#[test]
+fn d6_base_case_with_context_applies_set_and_returns_ctx_res() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            // Block 0: entry — branch on condition.
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: var(0),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            // Block 1: recursive arm.
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Apply {
+                        dst: var(1),
+                        ty: ty(0),
+                        func: self_name,
+                        args: vec![var(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                    },
+                    ArcInstr::Construct {
+                        dst: var(2),
+                        ty: ty(0),
+                        ctor: CtorKind::Struct(Name::from_raw(100)),
+                        args: vec![var(0), var(1)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+            // Block 2: base case — returns v3.
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Block 2 should be rewritten to a Branch (conditional context application).
+    let base_term = &func.blocks[2].terminator;
+    let (then_block, else_block) = match base_term {
+        ArcTerminator::Branch {
+            then_block,
+            else_block,
+            ..
+        } => (*then_block, *else_block),
+        other => panic!("base-case should be Branch, got {other:?}"),
+    };
+
+    // The then-branch (ctx_has=true) should have a Set instruction.
+    let apply_block = &func.blocks[then_block.index()];
+    let has_set = apply_block
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Set { .. }));
+    assert!(
+        has_set,
+        "apply-context block should have a Set instruction for context hole"
+    );
+
+    // The apply-context block should return ctx_res (the accumulated root).
+    let apply_return_var = match &apply_block.terminator {
+        ArcTerminator::Return { value } => *value,
+        other => panic!("apply-context should Return, got {other:?}"),
+    };
+
+    // The else-branch (ctx_has=false) should return the base value directly.
+    let direct_block = &func.blocks[else_block.index()];
+    let direct_return_var = match &direct_block.terminator {
+        ArcTerminator::Return { value } => *value,
+        other => panic!("direct-return should Return, got {other:?}"),
+    };
+
+    // The two return vars should be different (ctx_res vs base_value).
+    assert_ne!(
+        apply_return_var, direct_return_var,
+        "apply-context returns ctx_res, direct returns base value"
+    );
+}
+
+/// D7: Base-case return without context (`has_ctx=false`). On the first call
+/// (no accumulated context), the direct return path returns the base value
+/// without any Set operations.
+#[test]
+fn d7_base_case_without_context_returns_directly() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: var(0),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Apply {
+                        dst: var(1),
+                        ty: ty(0),
+                        func: self_name,
+                        args: vec![var(0)],
+                        arg_ownership: vec![ArgOwnership::Owned],
+                    },
+                    ArcInstr::Construct {
+                        dst: var(2),
+                        ty: ty(0),
+                        ctor: CtorKind::Struct(Name::from_raw(100)),
+                        args: vec![var(0), var(1)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(42)),
+                }],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Find the direct-return block (else branch of base-case Branch).
+    let base_term = &func.blocks[2].terminator;
+    let else_block_id = match base_term {
+        ArcTerminator::Branch { else_block, .. } => *else_block,
+        other => panic!("base-case should be Branch, got {other:?}"),
+    };
+
+    let direct_block = &func.blocks[else_block_id.index()];
+
+    // Direct-return block should have no Set instructions.
+    let has_set = direct_block
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Set { .. }));
+    assert!(
+        !has_set,
+        "direct-return block should have no Set (no context to apply)"
+    );
+
+    // Direct-return block should return a value (the base case result).
+    assert!(
+        matches!(direct_block.terminator, ArcTerminator::Return { .. }),
+        "direct-return block should Return, got {:?}",
+        direct_block.terminator
+    );
+}
+
+// Matrix D tests — enum variant hole positions (D8, D9)
+
+/// D8: Enum variant constructor with hole at field 0. The Set instruction
+/// in the compose block must target field 0.
+#[test]
+fn d8_enum_variant_hole_at_field_0() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                // v2 = self(v0)
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // v3 = EnumVariant(v2, v1) — recursive result at field 0
+                ArcInstr::Construct {
+                    dst: var(3),
+                    ty: ty(0),
+                    ctor: CtorKind::EnumVariant {
+                        enum_name: Name::from_raw(200),
+                        variant: 0,
+                    },
+                    args: vec![var(2), var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert_eq!(regions.len(), 1);
+    assert_eq!(regions[0].hole_field, 0, "hole at field 0");
+
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Find Set instructions — the compose block should Set field 0.
+    let set_fields: Vec<u32> = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.body)
+        .filter_map(|instr| match instr {
+            ArcInstr::Set { field, .. } => Some(*field),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        set_fields.contains(&0),
+        "Set instruction should target field 0, got fields {set_fields:?}"
+    );
+}
+
+/// D9: Enum variant with hole at non-zero field. The Set instruction in
+/// the compose block must target the correct field index.
+#[test]
+fn d9_enum_variant_hole_at_field_1() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                // v2 = self(v0)
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // v3 = EnumVariant(v1, v2) — recursive result at field 1
+                ArcInstr::Construct {
+                    dst: var(3),
+                    ty: ty(0),
+                    ctor: CtorKind::EnumVariant {
+                        enum_name: Name::from_raw(200),
+                        variant: 0,
+                    },
+                    args: vec![var(1), var(2)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert_eq!(regions.len(), 1);
+    assert_eq!(regions[0].hole_field, 1, "hole at field 1");
+
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Find Set instructions — must target field 1.
+    let set_fields: Vec<u32> = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.body)
+        .filter_map(|instr| match instr {
+            ArcInstr::Set { field, .. } => Some(*field),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        set_fields.contains(&1),
+        "Set instruction should target field 1, got fields {set_fields:?}"
+    );
+}
+
+// Matrix D tests — rewrite skip conditions (D10, D11, D12)
+
+/// D10: Rewrite skipped for non-tail construct. When the Construct is not
+/// the last instruction in the block body, the rewrite should skip.
+/// (Alias for `rewrite_trmc_skipped_when_construct_not_tail`.)
+#[test]
+fn d10_rewrite_skipped_for_non_tail_construct() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(0), var(1)],
+                },
+                // Instruction after Construct → not tail position.
+                ArcInstr::Let {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(2)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert_eq!(regions.len(), 1, "detection finds the region");
+    let result = super::rewrite::rewrite_trmc(&mut func, &regions);
+    assert!(!result, "rewrite skipped: construct not in tail position");
+    assert_eq!(func.blocks.len(), 1, "function unchanged");
+}
+
+/// D11: Rewrite skipped for cross-block region. When the Apply (recursive
+/// call) and Construct are in different blocks, the rewrite should skip
+/// because same-block is an admission gate.
+#[test]
+fn d11_rewrite_skipped_for_cross_block_region() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![
+            // Block 0: recursive call only, then Jump to block 1.
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![],
+                },
+            },
+            // Block 1: Construct using v1 (from block 0), then Return.
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(0), var(1)],
+                }],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    // Detection may or may not find this depending on open_block != close_block.
+    // If it finds it, the rewrite should skip due to cross-block admission gate.
+    if !regions.is_empty() {
+        let result = super::rewrite::rewrite_trmc(&mut func, &regions);
+        assert!(
+            !result,
+            "rewrite should skip: cross-block region (Apply in block 0, Construct in block 1)"
+        );
+    }
+    // Either way, function unchanged.
+    assert_eq!(func.blocks.len(), 2, "function unchanged");
+}
+
+/// D12: Multiple context regions rejected. Only single-region functions
+/// are supported (v1 limitation).
+/// (Alias for `rewrite_trmc_skipped_when_multiple_regions`.)
+#[test]
+fn d12_multiple_context_regions_rejected() {
+    use crate::aims::contract::ContextRegion;
+
+    let mut func = make_recursive_construct_func();
+    let regions = vec![
+        ContextRegion {
+            open_block: block_id(0),
+            open_instr: 1,
+            context_var: var(2),
+            hole_field: 1,
+            close_block: block_id(0),
+            close_instr: 0,
+            hole_var: var(1),
+        },
+        ContextRegion {
+            open_block: block_id(0),
+            open_instr: 1,
+            context_var: var(2),
+            hole_field: 0,
+            close_block: block_id(0),
+            close_instr: 0,
+            hole_var: var(1),
+        },
+    ];
+
+    let result = super::rewrite::rewrite_trmc(&mut func, &regions);
+    assert!(!result, "multi-region should be rejected");
+    assert_eq!(func.params.len(), 1, "function unchanged");
+}
+
+// Matrix D tests — 3-field constructor (hole at last field)
+
+/// D-extra: 3-field struct with hole at field 2 (last). Verifies the
+/// rewrite handles constructors with more than 2 fields and the hole
+/// at the last position.
+#[test]
+fn d_three_field_ctor_hole_at_last_field() {
+    let self_name = Name::from_raw(42);
+    let mut func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(2)),
+                },
+                ArcInstr::Apply {
+                    dst: var(3),
+                    ty: ty(0),
+                    func: self_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                // 3-field Construct: (v1, v2, v3) — hole at field 2
+                ArcInstr::Construct {
+                    dst: var(4),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(100)),
+                    args: vec![var(1), var(2), var(3)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(4) },
+        }],
+        ..Default::default()
+    };
+
+    let regions = super::detect::detect_context_regions(&func);
+    assert_eq!(regions.len(), 1);
+    assert_eq!(regions[0].hole_field, 2, "hole at field 2 (last)");
+
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Set instruction should target field 2.
+    let set_fields: Vec<u32> = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.body)
+        .filter_map(|instr| match instr {
+            ArcInstr::Set { field, .. } => Some(*field),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        set_fields.contains(&2),
+        "Set should target field 2, got {set_fields:?}"
+    );
+
+    // Verification passes.
+    let errors = super::verify::verify_trmc_rewrite(&func, &regions);
+    assert!(
+        errors.is_empty(),
+        "3-field rewrite passes verification: {errors:?}"
+    );
+}

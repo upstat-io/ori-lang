@@ -539,8 +539,10 @@ Quantify how much cross-dimensional reasoning contributes.
 - [x] All Section 10 exit criteria met (two-phase realize, output equivalence, no LLVM
   emitter changes) — verified 2026-03-13: two-phase realize module (realize/),
   decide()+decide_annotations() centralized routing, 62/62 items complete
-- [x] All Section 11 exit criteria below met — verified 2026-03-13: baselines recorded,
-  per-rule tests (28), synergy tests (10), feedback tests (3), regression gates passed
+- [x] Section 11 exit criteria partially met — verified 2026-03-13: baselines recorded,
+  per-rule tests (28), synergy tests (10), feedback tests (3), regression gates passed.
+  **Not yet met:** 4 synergy programs cannot build (LLVM `.fold()` bug);
+  `multi_dim_rc_decisions` metric reads 0% (scope mismatch — see exit criteria note)
 - [x] `aims-shadow` feature retired per the retirement plan in 00-overview.md — retired 2026-03-13:
   removed from Cargo.toml (ori_arc, ori_llvm, oric), deleted `pipeline/shadow/` (compare.rs, tests.rs)
 - [x] `aims` feature flag retired — AIMS is the sole pipeline — retired 2026-03-13:
@@ -554,13 +556,24 @@ Quantify how much cross-dimensional reasoning contributes.
   `pipeline/mod.rs` unconditionally calls `aims_pipeline::run_aims_pipeline()`, no cfg gates
 
 **Exit Criteria:** Cross-dimensional reasoning is *measured*, not just claimed.
-`SynergyMetrics.canonicalize_cross_fires` demonstrates that cross-dimension
-canonicalize rules are active (325 fires measured across corpora). The
-`multi_dim_rc_decisions` counter currently reads 0% because it only counts
-reuse-site decisions — the metric label should be revised to reflect its
-actual scope, or the counter should be expanded to track all multi-dimension
-decisions (including canonicalize-driven uniqueness proofs that eliminate COW
-checks). At least 5 cross-dimension test programs demonstrate optimization
-that NO single dimension could achieve alone. Per-rule unit tests (Rules 4-8)
-verify each canonicalize rule fires and doesn't fire under correct conditions.
-End-to-end tests verify measurable output improvement for each synergy program.
+
+**Proven:**
+- `SynergyMetrics.canonicalize_cross_fires` = 325 fires across corpora —
+  cross-dimension canonicalize rules ARE active and producing tighter states.
+- At least 5 cross-dimension test programs demonstrate optimization that NO
+  single dimension could achieve alone (9 compile, 4 blocked by LLVM bug).
+- Per-rule unit tests (Rules 4-8, 28 tests) verify each canonicalize rule
+  fires and doesn't fire under correct conditions.
+- End-to-end synergy tests (10 tests) verify measurable output improvement.
+
+**Not yet proven:**
+- `multi_dim_rc_decisions` reads 0% because it only counts reuse-site
+  decisions. The metric scope is too narrow — canonicalize-driven uniqueness
+  proofs (which eliminate COW checks) are the real cross-dim evidence but are
+  not counted by this metric. **Action needed:** either broaden the metric to
+  include canonicalize-driven decisions, or replace the gate with
+  `canonicalize_cross_fires > 0` (which IS met).
+- 4 synergy programs (`mixed_ownership`, `function_local_linear_skip`,
+  `local_pure_chain`, `pure_callee_preserves`) cannot build due to LLVM
+  `.fold()` codegen bug. Section 11 is blocked on this external bug for full
+  golden corpus validation.

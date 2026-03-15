@@ -124,8 +124,8 @@ ArcFunction (from lowering)
 | **Analysis** | Realized | 7D lattice converges. 12,888 tests pass. Backward dataflow with `seq_add`/`alt_join`. All dimensions active and cross-influencing (8 canonicalize rules). | None |
 | **Contracts** | Realized | `MemoryContract` computed via SCC fixpoint. `ParamContract`, `ReturnContract`, `EffectSummary`, `FipContract`, `ContextBehavior` all populated from converged state. | FIP classification uses optimistic `may_deallocate=false` at extraction time; post-emission update corrects it but does not recompute `contract.fip` (Section 12 bug). |
 | **Realization** | Realized | Two-phase `realize()` replaced 4 separate emission passes. RC, reuse, COW, drop hints all derive from `AimsStateMap`. | None |
-| **Verification** | Incomplete | ARC structural verify works. FIP contract-vs-evidence verifier exists but runs before `may_deallocate` is available (Section 12 sequencing gap). TRMC post-rewrite uniqueness verification is stubbed out (Section 13 Bug 5). | FIP verifier sequencing. TRMC soundness verification not implemented. Cross-system interaction matrix (Section 08.5a) not started. |
-| **Normalization** | Structurally Fixed | Detection works. `may_share` gate removed (Bug 4). Argument threading fixed (Bug 1). Helper block dominance documented and verified (Bug 3). Contract refresh partially implemented — `has_unbounded_stack = false` updated, full `extract_contract()` re-extraction deferred (Bug 2). Post-rewrite uniqueness verification implemented via `verify_trmc_soundness()` (Bug 5). | Behavioral test matrix (Section 13.8) has zero fixtures — no end-to-end proof that rewrite produces correct output. Full contract refresh deferred. |
+| **Verification** | Partially Realized | ARC structural verify works. FIP contract-vs-evidence verifier runs in two passes: step 5a (structural) and second pass after `may_deallocate` + `contract.fip` updates (Section 12, resolved). TRMC post-rewrite uniqueness verification implemented via `verify_trmc_soundness()` (Section 13 Bug 5, resolved). | Cross-system interaction matrix (Section 08.5a) not started — 22 interaction cells unverified. |
+| **Normalization** | Structurally Fixed | Detection works. All 5 structural bugs fixed (2026-03-15): `may_share` gate removed (Bug 4), argument threading fixed (Bug 1), helper block dominance documented and verified (Bug 3), post-rewrite uniqueness verification implemented via `verify_trmc_soundness()` (Bug 5). Contract refresh partially implemented — `has_unbounded_stack = false` updated, full `extract_contract()` re-extraction deferred (Bug 2). | Behavioral test matrix (Section 13.8) has zero fixtures — no end-to-end proof that rewrite produces correct output. Full contract refresh deferred. |
 | **Backend Integration** | Realized | `ori_llvm` ArcIrEmitter consumes all AIMS artifacts. Legacy RC insertion deleted. AIMS is the sole pipeline. | Retained modules (`borrow/`, `liveness/`, `rc_insert/annotate`, `uniqueness/`, `ownership/`) are actively used — not dead legacy. |
 
 ### Legacy Deletion Status
@@ -155,19 +155,19 @@ These modules are not "legacy" — they are actively used by the AIMS pipeline a
 These are exact mismatches preventing "one system" from being true in code.
 Each must be resolved before this plan is complete.
 
-### C1. FIP contracts are assigned optimistically, then left stale
+### C1. ~~FIP contracts are assigned optimistically, then left stale~~ RESOLVED
 
 `extract_contract()` classifies FIP using `may_deallocate=false` (optimistic
-default). After realization, `may_deallocate` is updated from `FipEvidence`,
-but `contract.fip` is not recomputed. A function can end up `Certified` with
-`may_deallocate=true`. The FIP verifier should catch this, but it runs at
-step 5a (per-function loop) before the second pass updates `may_deallocate`
-— so it always sees the optimistic value. **Two bugs compounding:** stale
-contract + verifier sequencing.
+default). After realization, `may_deallocate` is updated from `FipEvidence`.
+`recompute_fip_for_may_deallocate()` now downgrades `Certified`/`Bounded` to
+`Never` when `may_deallocate=true`. A second FIP verification pass runs AFTER
+the `may_deallocate` + `contract.fip` updates, catching any remaining
+mismatches. Both the stale-contract bug and verifier-sequencing gap are
+resolved.
 
-**Tracked in:** Section 12.1
+**Resolved in:** Section 12.1 (2026-03-14)
 
-### C2. TRMC rewrite structural bugs — RESOLVED, behavioral tests pending
+### C2. TRMC rewrite — structural bugs fixed, behavioral verification absent
 
 All 5 structural bugs have been fixed (2026-03-15):
 - Bug 4 (HIGH): `may_share` gate removed — per-variable uniqueness is sole gate
@@ -180,10 +180,14 @@ All 5 structural bugs have been fixed (2026-03-15):
   updated in second pass. Full `extract_contract()` re-extraction deferred
   (requires SCC peer data threading).
 
-**Remaining gap:** Zero behavioral tests. All 37+ tests are structural only.
-Behavioral test matrix (Section 13.8) is defined with Matrices D/E/F/G but
-has zero implemented fixtures. This violates Invariant 4 ("enabled surface
-must be end-to-end verified").
+**Remaining gaps:**
+1. Zero behavioral tests. All 37+ tests are structural only. Behavioral
+   test matrix (Section 13.8) is defined with Matrices D/E/F/G but has zero
+   implemented fixtures. This violates Invariant 4 ("enabled surface must be
+   end-to-end verified").
+2. Bug 2 is a partial fix only — contract fields other than
+   `has_unbounded_stack` remain pre-rewrite values.
+3. Section 13.7 final gates have 5 unchecked items.
 
 **Tracked in:** Section 13.7 (final gates) and Section 13.8 (test matrix)
 
@@ -209,7 +213,40 @@ modules (`borrow/`, `liveness/`, `rc_insert/annotate.rs`, `uniqueness/`,
 `ownership/`) are actively used by the AIMS pipeline, Salsa queries, and
 external consumers. They are not legacy dead code.
 
-## 6. Completion Rule
+## 6. Remaining Work
+
+The following items must be completed before the AIMS plan can be considered
+done. They are ordered by priority (correctness blockers first, then
+verification, then tooling).
+
+1. **Section 13.8 — TRMC Behavioral Test Matrix.** Zero fixtures
+   implemented. The TRMC rewrite is active in the pipeline but has no
+   end-to-end behavioral proof. Matrices D/E/F/G define 45+ test items.
+   This is the highest-priority remaining work because it is required by
+   Invariant 4 (enabled surface must be end-to-end verified).
+
+2. **Section 13 Bug 2 — Full contract refresh.** Only `has_unbounded_stack`
+   is refreshed after TRMC rewrite. Other contract fields (ContextBehavior,
+   FipContract, EffectSummary) remain pre-rewrite values. Full
+   `extract_contract()` re-extraction requires SCC peer data threading.
+
+3. **Section 08.5a — Cross-System Interaction Test Matrix.** 22 interaction
+   cells defined (Matrix H) but untested. 10 cells are independent of
+   TRMC; 12 are blocked until Section 13.8 is complete.
+
+4. **Section 11 — LLVM `.fold()` codegen bug.** 4 of 13 golden corpus
+   synergy programs cannot build. Section 11 is blocked until this
+   LLVM bug is fixed and the full corpus is validated. The `.fold()` bug
+   is in `ori_llvm`, not in AIMS, but it prevents completing the
+   integration verification.
+
+5. **Section 11 — SynergyMetrics metric definition.** The
+   `multi_dim_rc_decisions` metric reads 0% because it only counts
+   reuse-site decisions. The actual cross-dimension evidence is in
+   `canonicalize_cross_fires` (325 total). The exit criteria need a
+   revised metric definition or a revised gate threshold.
+
+## 7. Completion Rule
 
 A section is complete only when ALL of the following are true:
 
@@ -314,12 +351,12 @@ dependency, not by importance — every section is part of the same system.
 | 05 | Reuse Emission | `section-05-reuse-emission.md` | Complete (superseded by Section 10) |
 | 06 | Pipeline Integration | `section-06-pipeline.md` | Complete |
 | 07 | Advanced Optimizations | `section-07-advanced.md` | Complete |
-| 08 | Verification & Validation | `section-08-verification.md` | Incomplete — cross-system matrix not started |
+| 08 | Verification & Validation | `section-08-verification.md` | Incomplete — cross-system interaction matrix (08.5a) not started |
 | 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` | Complete |
 | 10 | Unified Realization | `section-10-unified-realization.md` | Complete |
-| 11 | Integration Verification | `section-11-integration-verification.md` | Incomplete — unresolved TODO in pipeline, 4 unbuildable programs |
-| 12 | FIP Proof Obligations | `section-12-fip-enforcement.md` | Incomplete — C1 (stale contract.fip + verifier sequencing) |
-| 13 | TRMC Realization | `section-13-trmc-realization.md` | Incomplete — C2 (5 bugs, rewrite unsound) |
+| 11 | Integration Verification | `section-11-integration-verification.md` | Incomplete — 4 synergy programs cannot build (LLVM `.fold()` bug), SynergyMetrics metric scope mismatch |
+| 12 | FIP Proof Obligations | `section-12-fip-enforcement.md` | Complete |
+| 13 | TRMC Realization | `section-13-trmc-realization.md` | Incomplete — structural bugs fixed, behavioral test matrix (13.8) not started, final gates pending, contract refresh partial (Bug 2) |
 
 ### Cross-Section Dependencies
 

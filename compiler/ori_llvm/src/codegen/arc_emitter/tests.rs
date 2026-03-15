@@ -1265,7 +1265,7 @@ fn rc_dec_closure_null_checks_env() {
 
 /// Verify `InlineEnum` `RcInc` is a no-op (no `ori_rc_inc` call generated).
 #[test]
-fn rc_inc_inline_enum_is_noop() {
+fn rc_inc_inline_enum_emits_tag_switch() {
     use ori_arc::ir::{
         ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, RcStrategy,
     };
@@ -1351,11 +1351,13 @@ fn rc_inc_inline_enum_is_noop() {
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // InlineEnum Inc is intentionally a no-op — no *call* to ori_rc_inc should appear.
-    // (The module still has a `declare void @ori_rc_inc(ptr)` from declare_runtime.)
+    // InlineEnum Inc emits a tag-switch with per-variant field inc.
+    // For Result<int, str>: the Err variant has an RC-typed field (str),
+    // so the switch should have a case that calls ori_rc_inc.
+    // The Ok variant (int) has no RC fields → no case.
     assert!(
-        !ir.contains("call void @ori_rc_inc"),
-        "InlineEnum RcInc should be no-op but found call to ori_rc_inc:\n{ir}"
+        ir.contains("rc_inc.tag"),
+        "InlineEnum RcInc should emit tag-switch, missing rc_inc.tag:\n{ir}"
     );
 
     drop(em);
