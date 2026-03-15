@@ -322,20 +322,22 @@ impl ArcLowerer<'_> {
                 }
             }
             CanExpr::Field { .. } => {
-                unreachable!(
-                    "field assignment should be desugared by evaluator before ARC lowering"
-                );
+                self.problems.push(crate::lower::ArcProblem::InternalError {
+                    message: "field assignment reached ARC lowering before desugaring".to_string(),
+                    span,
+                });
             }
             CanExpr::Index { .. } => {
-                unreachable!(
-                    "index assignment should be desugared by evaluator before ARC lowering"
-                );
+                self.problems.push(crate::lower::ArcProblem::InternalError {
+                    message: "index assignment reached ARC lowering before desugaring".to_string(),
+                    span,
+                });
             }
             _ => {
-                unreachable!(
-                    "unexpected assignment target in ARC lowering: all complex targets \
-                     should be desugared by the evaluator"
-                );
+                self.problems.push(crate::lower::ArcProblem::InternalError {
+                    message: "unexpected assignment target in ARC lowering".to_string(),
+                    span,
+                });
             }
         }
 
