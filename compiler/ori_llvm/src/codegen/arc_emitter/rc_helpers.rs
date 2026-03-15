@@ -1,8 +1,12 @@
-//! RC data pointer extraction and inline enum cleanup for [`ArcIrEmitter`].
+//! RC data pointer extraction and inline enum inc/dec for [`ArcIrEmitter`].
 //!
 //! Provides methods to extract RC-managed heap data pointers from aggregate
 //! values (List, Str, Map, Set, Struct, Tuple, Option) for `ori_rc_inc`/`ori_rc_dec`,
-//! and inline tag-based cleanup for enum-like types (Result, Enum).
+//! and inline tag-based RC traversal for enum-like types (Result, Enum).
+//!
+//! Both `emit_inline_enum_inc` and `emit_inline_enum_dec` use the same
+//! tag-switch pattern with per-variant field traversal, shared via
+//! `collect_variant_rc_fields`.
 
 use ori_types::{Idx, Tag};
 
@@ -142,21 +146,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ptrs
     }
 
-    /// Emit inline tag-based cleanup for enum-like types (Result, Enum).
+    /// Collect per-variant RC field info for an inline enum.
     ///
-    /// These types are stack-allocated (no RC header) but may contain
-    /// RC-typed fields in their variants. We store the value to a
-    /// temporary alloca, load the tag, switch on it, and Dec the
-    /// appropriate variant's RC fields.
-    ///
-    /// For `Result<int, str>`: tag 0 (Ok) → nothing; tag 1 (Err) → Dec str.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "enum dec emits per-variant switch with RC field drops"
-    )]
-    pub(super) fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
-        // Collect per-variant RC field info
-        let variant_rc_fields: Vec<Vec<(u32, Idx)>> = match pool_tag {
+    /// Returns a vec-of-vecs: `[variant_idx][field_idx] = (field_position, field_type)`.
+    /// Empty inner vec means the variant has no RC fields.
+    fn collect_variant_rc_fields(&self, resolved_ty: Idx, pool_tag: Tag) -> Vec<Vec<(u32, Idx)>> {
+        match pool_tag {
             Tag::Result => {
                 let ok_ty = self.pool.result_ok(resolved_ty);
                 let err_ty = self.pool.result_err(resolved_ty);
@@ -192,10 +187,121 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     })
                     .collect()
             }
-            _ => return,
-        };
+            _ => vec![],
+        }
+    }
 
-        // If no variant has RC fields, nothing to clean up
+    /// Emit inline tag-based RC inc for enum-like types (Result, Enum).
+    ///
+    /// These types are stack-allocated (no RC header) but may contain
+    /// RC-typed fields in their variants. We store the value to a
+    /// temporary alloca, load the tag, switch on it, and Inc the
+    /// appropriate variant's RC fields.
+    ///
+    /// Mirrors `emit_inline_enum_dec` structurally.
+    pub(super) fn emit_inline_enum_inc(
+        &mut self,
+        val: ValueId,
+        resolved_ty: Idx,
+        pool_tag: Tag,
+        count: u32,
+    ) {
+        let variant_rc_fields = self.collect_variant_rc_fields(resolved_ty, pool_tag);
+
+        if variant_rc_fields.iter().all(Vec::is_empty) {
+            return;
+        }
+
+        let enum_llvm_ty = self.resolve_type(resolved_ty);
+        let alloca = self.builder.alloca(enum_llvm_ty, "rc_inc.enum");
+        self.builder.store(val, alloca);
+
+        let i64_ty = self.builder.i64_type();
+        let tag_ptr = self
+            .builder
+            .struct_gep(enum_llvm_ty, alloca, 0, "rc_inc.tag.ptr");
+        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_inc.tag");
+
+        let done_block = self
+            .builder
+            .append_block(self.current_function, "rc_inc.done");
+
+        let mut cases = Vec::new();
+        for (i, fields) in variant_rc_fields.iter().enumerate() {
+            if fields.is_empty() {
+                continue;
+            }
+            let block = self
+                .builder
+                .append_block(self.current_function, &format!("rc_inc.v{i}"));
+            let tag_const = self.builder.const_i64(i as i64);
+            cases.push((tag_const, block, fields.as_slice()));
+        }
+
+        let switch_cases: Vec<_> = cases.iter().map(|(tag, block, _)| (*tag, *block)).collect();
+        self.builder.switch(tag_val, done_block, &switch_cases);
+
+        for &(_, block, fields) in &cases {
+            self.builder.position_at_end(block);
+
+            for &(field_index, field_type) in fields {
+                if pool_tag == Tag::Result {
+                    let field_llvm_ty = self.resolve_type(field_type);
+                    let struct_idx = 1 + field_index;
+                    let field_ptr = self.builder.struct_gep(
+                        enum_llvm_ty,
+                        alloca,
+                        struct_idx,
+                        "rc_inc.payload.ptr",
+                    );
+                    let field_val = self
+                        .builder
+                        .load(field_llvm_ty, field_ptr, "rc_inc.payload");
+                    self.inc_value_rc(field_val, field_type, count);
+                } else if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_inc.payload");
+                    let i64_ty = self.builder.i64_type();
+                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let field_ptr =
+                        self.builder
+                            .gep(i64_ty, payload_ptr, &[idx], "rc_inc.field.ptr");
+                    let ptr_ty = self.builder.ptr_type();
+                    let rc_ptr = self.builder.load(ptr_ty, field_ptr, "rc_inc.field.rc");
+                    self.call_rc_inc_all(&[rc_ptr], count);
+                } else {
+                    let field_llvm_ty = self.resolve_type(field_type);
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_inc.payload");
+                    let i64_ty = self.builder.i64_type();
+                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let field_ptr =
+                        self.builder
+                            .gep(i64_ty, payload_ptr, &[idx], "rc_inc.field.ptr");
+                    let field_val = self.builder.load(field_llvm_ty, field_ptr, "rc_inc.field");
+                    self.inc_value_rc(field_val, field_type, count);
+                }
+            }
+
+            self.builder.br(done_block);
+        }
+
+        self.builder.position_at_end(done_block);
+    }
+
+    /// Emit inline tag-based cleanup for enum-like types (Result, Enum).
+    ///
+    /// These types are stack-allocated (no RC header) but may contain
+    /// RC-typed fields in their variants. We store the value to a
+    /// temporary alloca, load the tag, switch on it, and Dec the
+    /// appropriate variant's RC fields.
+    ///
+    /// For `Result<int, str>`: tag 0 (Ok) → nothing; tag 1 (Err) → Dec str.
+    pub(super) fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
+        let variant_rc_fields = self.collect_variant_rc_fields(resolved_ty, pool_tag);
+
         if variant_rc_fields.iter().all(Vec::is_empty) {
             return;
         }

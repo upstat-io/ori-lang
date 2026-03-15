@@ -12,7 +12,7 @@ order: 1
 
 > **Completion Rule.** A section is complete only when implementation exists,
 > invariants are enforced, verification exists, and downstream consumers use
-> the same truths. See `00-overview.md` §6 for the full rule.
+> the same truths. See `00-overview.md` §7 for the full rule.
 
 ## How to Use
 
@@ -214,7 +214,7 @@ old code deletion, emit_rc deletion, emit_reuse deletion
 ---
 
 ### Section 11: Integration Verification
-**File:** `section-11-integration-verification.md` | **Status:** Complete
+**File:** `section-11-integration-verification.md` | **Status:** Incomplete
 
 ```
 integration verification, cross-dimension test programs
@@ -283,8 +283,8 @@ detect_trmc_candidates, populate_context_events, detect_context_regions
 pipeline re-analysis, normalize_function, aims_pipeline.rs
 compute_var_reprs re-run, detect_immortals re-run, idempotent rewrite
 Leijen Lorenzen JFP 2025, FIPTree PLDI 2024, Koka CTail
-BUG: recursive argument threading, BUG: stale contracts, BUG: helper block params
-BUG: may_share gate blocks all candidates, BUG: uniqueness verification stubbed
+BUG FIXED: recursive argument threading, BUG PARTIAL: stale contracts, BUG FIXED: helper block params
+BUG FIXED: may_share gate blocks all candidates, BUG FIXED: uniqueness verification stubbed
 Matrix D, Matrix E, Matrix F, Matrix G, behavioral test matrix
 TRMC x RC emission, TRMC x reuse, TRMC x COW, TRMC x FIP, TRMC x contracts
 ```

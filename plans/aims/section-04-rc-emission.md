@@ -31,7 +31,13 @@ sections:
 
 # Section 04: RC Emission
 
-**Status:** Complete
+> **Historical record.** The code described in this section has been
+> superseded by Section 10 (Unified Realization). `emit_rc_ops()` and
+> related entry points have been deleted. The design decisions and
+> rationale documented here informed the unified `realize_rc_reuse()`
+> implementation. No implementation work remains for this section.
+
+**Status:** Complete (superseded by Section 10)
 **Goal:** Read the converged `AimsStateMap` from Section 02 and emit the minimal
 set of `RcInc` and `RcDec` instructions into the `ArcFunction`. Also compute
 `CowAnnotations` and `DropHints` from the state map. This replaces `rc_insert`,

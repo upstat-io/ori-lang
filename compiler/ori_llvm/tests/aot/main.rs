@@ -40,6 +40,7 @@ pub mod string_sso;
 pub mod strings;
 pub mod structs;
 pub mod traits;
+pub mod trmc;
 pub mod tuples;
 pub mod wasm;
 
