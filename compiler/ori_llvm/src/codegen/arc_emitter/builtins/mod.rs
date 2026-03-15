@@ -290,6 +290,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             if result.is_some() {
                 return result;
             }
+
+            // Auto-iter promotion: collection.iter_method(...) → collection.iter().iter_method(...)
+            // When a collection type (list, map, Set, str, range) has an unresolved method
+            // that IS a known iterator method, emit .iter() implicitly and forward.
+            if is_iterator_method(method_name) {
+                if let Some(iter_val) = self.emit_auto_iter(&type_info, arg_vals[0], receiver_ty) {
+                    let iter_info = TypeInfo::Iterator {
+                        element: auto_iter_element_type(&type_info),
+                    };
+                    let mut iter_args = vec![iter_val];
+                    iter_args.extend_from_slice(&arg_vals[1..]);
+                    let iter_ctx = BuiltinCtx {
+                        type_name: "Iterator",
+                        method: method_name,
+                        arg_vals: &iter_args,
+                        receiver_ty,
+                        type_info: &iter_info,
+                        arc_args: args,
+                        arc_func,
+                    };
+                    let iter_result = iterator::dispatch(self, &iter_ctx);
+                    if iter_result.is_some() {
+                        return iter_result;
+                    }
+                }
+            }
         }
 
         // Types without builtin names: Unit, Struct, Enum, Function
@@ -319,6 +345,71 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.emit_rt_call(func_id, &[data_ptr], "");
         }
         Some(val)
+    }
+
+    /// Emit an implicit `.iter()` call for a collection type.
+    ///
+    /// The iterator takes ownership of one RC reference. Since the caller
+    /// didn't account for this (no explicit `.iter()` in the ARC IR), we
+    /// must `RcInc` the collection before creating the iterator.
+    ///
+    /// Returns the iterator pointer if the receiver is a collection that
+    /// supports iteration, `None` otherwise.
+    fn emit_auto_iter(
+        &mut self,
+        type_info: &TypeInfo,
+        receiver: ValueId,
+        receiver_ty: ori_types::Idx,
+    ) -> Option<ValueId> {
+        // RcInc the collection — the iterator will consume one reference.
+        let rc_inc = self.builder.runtime_fn("ori_rc_inc");
+        let data_ptrs = self.extract_rc_data_ptrs(receiver, receiver_ty);
+        for data_ptr in &data_ptrs {
+            self.emit_rt_call(rc_inc, &[*data_ptr], "");
+        }
+        match type_info {
+            TypeInfo::List { element } | TypeInfo::Set { element } => {
+                self.emit_list_iter(receiver, receiver_ty, *element)
+            }
+            TypeInfo::Map { key, value } => self.emit_map_iter(receiver, *key, *value),
+            TypeInfo::Str => self.emit_str_iter(receiver),
+            TypeInfo::Range => self.emit_range_iter(receiver),
+            _ => None,
+        }
+    }
+}
+
+/// Known iterator method names for auto-iter promotion.
+fn is_iterator_method(name: &str) -> bool {
+    matches!(
+        name,
+        "fold"
+            | "map"
+            | "filter"
+            | "any"
+            | "all"
+            | "count"
+            | "find"
+            | "for_each"
+            | "collect"
+            | "take"
+            | "skip"
+            | "chain"
+            | "enumerate"
+            | "zip"
+            | "flat_map"
+            | "flatten"
+            | "join"
+    )
+}
+
+/// Extract the element type from a collection's `TypeInfo` for iterator
+/// dispatch after auto-iter promotion.
+fn auto_iter_element_type(type_info: &TypeInfo) -> ori_types::Idx {
+    match type_info {
+        TypeInfo::List { element } | TypeInfo::Set { element } => *element,
+        TypeInfo::Map { key, .. } => *key,
+        _ => ori_types::Idx::INT, // fallback for str (char→int), range (int)
     }
 }
 

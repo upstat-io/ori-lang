@@ -1236,7 +1236,7 @@ fn synergy_local_pure_chain_effects() {
 fn synergy_metrics_default_is_zero() {
     let m = super::metrics::SynergyMetrics::default();
     assert_eq!(m.total_rc_decisions, 0);
-    assert_eq!(m.multi_dim_rc_decisions, 0);
+    assert_eq!(m.reuse_decisions, 0);
     assert_eq!(m.cow_upgrades, 0);
     assert_eq!(m.total_cow_decisions, 0);
     assert_eq!(m.cross_dim_reuse, 0);
@@ -1247,7 +1247,7 @@ fn synergy_metrics_default_is_zero() {
 #[test]
 fn synergy_metrics_merge_additive() {
     let mut a = super::metrics::SynergyMetrics {
-        multi_dim_rc_decisions: 3,
+        reuse_decisions: 3,
         total_rc_decisions: 10,
         cow_upgrades: 2,
         total_cow_decisions: 5,
@@ -1256,7 +1256,7 @@ fn synergy_metrics_merge_additive() {
         canonicalize_cross_fires: 4,
     };
     let b = super::metrics::SynergyMetrics {
-        multi_dim_rc_decisions: 2,
+        reuse_decisions: 2,
         total_rc_decisions: 7,
         cow_upgrades: 1,
         total_cow_decisions: 3,
@@ -1265,7 +1265,7 @@ fn synergy_metrics_merge_additive() {
         canonicalize_cross_fires: 3,
     };
     a.merge(&b);
-    assert_eq!(a.multi_dim_rc_decisions, 5);
+    assert_eq!(a.reuse_decisions, 5);
     assert_eq!(a.total_rc_decisions, 17);
     assert_eq!(a.cow_upgrades, 3);
     assert_eq!(a.total_cow_decisions, 8);
@@ -1275,20 +1275,36 @@ fn synergy_metrics_merge_additive() {
 }
 
 #[test]
-fn synergy_metrics_multi_dim_percent() {
+fn synergy_metrics_reuse_percent() {
     let m = super::metrics::SynergyMetrics {
-        multi_dim_rc_decisions: 3,
+        reuse_decisions: 3,
         total_rc_decisions: 10,
         ..Default::default()
     };
-    let pct = m.multi_dim_rc_percent();
+    let pct = m.reuse_percent();
     assert!((pct - 30.0).abs() < 0.01, "expected ~30%, got {pct}");
 }
 
 #[test]
 fn synergy_metrics_percent_zero_total() {
     let m = super::metrics::SynergyMetrics::default();
-    assert!((m.multi_dim_rc_percent()).abs() < f64::EPSILON);
+    assert!((m.reuse_percent()).abs() < f64::EPSILON);
+}
+
+#[test]
+fn synergy_metrics_cross_dim_evidence() {
+    let m = super::metrics::SynergyMetrics {
+        canonicalize_cross_fires: 100,
+        cross_dim_reuse: 5,
+        cow_upgrades: 3,
+        ..Default::default()
+    };
+    assert_eq!(m.cross_dim_evidence_total(), 108);
+    assert!(m.has_cross_dim_evidence());
+
+    let empty = super::metrics::SynergyMetrics::default();
+    assert_eq!(empty.cross_dim_evidence_total(), 0);
+    assert!(!empty.has_cross_dim_evidence());
 }
 
 #[test]
