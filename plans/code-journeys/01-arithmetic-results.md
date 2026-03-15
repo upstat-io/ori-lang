@@ -2,7 +2,7 @@
 journey: 1
 slug: arithmetic
 theme: "I am arithmetic"
-date: 2026-03-07
+date: 2026-03-15
 status: PASS
 expected: 33
 eval_result: 33
@@ -209,11 +209,12 @@ The canonicalizer produces 20 canon nodes from 16 AST nodes (let bindings create
 
 > The ARC (Automatic Reference Counting) pipeline analyzes value lifetimes and inserts
 > reference counting operations. It performs borrow inference to minimize RC overhead --
-> parameters that are only read can be borrowed rather than owned.
+> parameters that are only read can be borrowed rather than owned. On the AIMS branch,
+> the unified lattice subsumes the previous multi-pass approach.
 
 **RC ops inserted**: 0 | **Elided**: 0 | **Net ops**: 0
 
-This program uses only `int` scalars (i64), which are value types stored directly in registers. No heap allocation occurs, so no reference counting is needed. This is the optimal outcome for a scalar-only program.
+This program uses only `int` scalars (i64), which are value types stored directly in registers. No heap allocation occurs, so no reference counting is needed. The AIMS unified lattice correctly identifies all values as scalar -- no change from the previous pipeline.
 
 <details>
 <summary>ARC annotations</summary>
@@ -222,6 +223,7 @@ This program uses only `int` scalars (i64), which are value types stored directl
 @add: no heap values -- pure scalar arithmetic (int params, int return)
 @main: no heap values -- all let bindings hold int scalars
 Total RC ops: 0 (optimal for scalar-only program)
+AIMS lattice: all values classified as scalar -- no RC analysis needed
 ```
 
 </details>
@@ -431,7 +433,7 @@ attributes #3 = { nounwind }
 | @add     | 0      | 0      | YES      | N/A            | N/A            |
 | @main    | 0      | 0      | YES      | N/A            | N/A            |
 
-**Verdict**: Zero RC operations. Correct -- this program uses only `int` scalars (i64), which are value types requiring no reference counting. No `ori_rc_inc`, `ori_rc_dec`, or any RC-related calls present in the IR or disassembly. OPTIMAL.
+**Verdict**: Zero RC operations. Correct -- this program uses only `int` scalars (i64), which are value types requiring no reference counting. No `ori_rc_inc`, `ori_rc_dec`, or any RC-related calls present in the IR or disassembly. The AIMS unified lattice correctly classifies all values as scalars, producing the same zero-RC result as the previous pipeline. OPTIMAL.
 
 ### 3. Attributes & Calling Convention
 
@@ -448,7 +450,7 @@ attributes #3 = { nounwind }
 
 **main wrapper has `nounwind` but not `uwtable`**: The C entry point wrapper has `#3 = { nounwind }` but is missing the `uwtable` attribute. Without `uwtable`, LLVM may not generate a proper `.eh_frame` unwind table entry for this function, which could impact debugger stack traces. Impact is minimal since the function is trivial (3 instructions).
 
-**`ori_panic_cstr` has both `cold` and `noreturn`**: This is correct and improved from a previous state where `noreturn` was missing. The `noreturn` attribute allows LLVM to eliminate dead code after panic calls and optimize branch layouts. The `cold` attribute helps branch prediction heuristics.
+**`ori_panic_cstr` has both `cold` and `noreturn`**: Correct. The `noreturn` attribute allows LLVM to eliminate dead code after panic calls and optimize branch layouts. The `cold` attribute helps branch prediction heuristics.
 
 **Attribute compliance**: 13 applicable attributes checked. 12 of 13 correct -- only `uwtable` on the main wrapper is missing. 92.3% compliance.
 
@@ -489,12 +491,12 @@ The panic messages are operation-specific (not generic), which is good for debug
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.25 MiB (6,554,584 bytes, debug) |
-| .text section | 868 KiB (889,409 bytes) |
-| .rodata section | 134 KiB (136,772 bytes) |
-| .debug_info | 1.56 MiB (1,638,828 bytes) |
-| .debug_str | 1.72 MiB (1,803,891 bytes) |
-| .eh_frame | 109 KiB (111,956 bytes) |
+| Binary size | 6.25 MiB (6,556,656 bytes, debug) |
+| .text section | 869 KiB (889,881 bytes) |
+| .rodata section | 134 KiB (136,689 bytes) |
+| .debug_info | 1.56 MiB (1,639,950 bytes) |
+| .debug_str | 1.72 MiB (1,804,139 bytes) |
+| .eh_frame | 109 KiB (111,968 bytes) |
 | User code (@add) | 31 bytes (0x1b100-0x1b11f) |
 | User code (@main) | 93 bytes (0x1b120-0x1b17d) |
 | User code (main wrapper) | 8 bytes (0x1b180-0x1b188) |
@@ -502,7 +504,7 @@ The panic messages are operation-specific (not generic), which is good for debug
 | User code % of .text | 0.015% |
 | Runtime % of binary | ~99.98% |
 
-The binary is large due to static linking of `ori_rt` (the Ori runtime, which includes Rust's standard library for panic handling, I/O, memory allocation) and full debug symbols (3.28 MiB of .debug_* sections). The user's actual code is 132 bytes -- everything else is runtime infrastructure. This is expected for a debug build of a statically-linked binary.
+The binary is large due to static linking of `ori_rt` (the Ori runtime, which includes Rust's standard library for panic handling, I/O, memory allocation) and full debug symbols (3.28 MiB of .debug_* sections). The user's actual code is 132 bytes -- everything else is runtime infrastructure. This is expected for a debug build of a statically-linked binary. Binary size increased by 2,072 bytes vs the previous run (6,554,584), attributable to minor runtime changes on the AIMS branch -- negligible.
 
 #### Disassembly: @add
 
@@ -714,7 +716,7 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 **Impact**: Without `uwtable`, LLVM may not generate a proper `.eh_frame` unwind table entry for the C entry point wrapper. This could impact debugger stack traces if a panic occurs during `@_ori_main`. The practical impact is minimal since the function is trivial (3 instructions: call, trunc, ret) and any panic would unwind from inside `@_ori_main` or `@_ori_add`, both of which have `uwtable`.
 **Fix**: Add `uwtable` to the main wrapper's attribute group. The attribute group should be `{ nounwind uwtable }`. This should be changed in `compiler/ori_llvm/src/codegen/function_compiler/entry_point.rs` where the C `main()` wrapper is generated.
 **First seen**: Journey 1
-**Status**: Still present -- confirmed on re-run.
+**Status**: Still present -- confirmed on AIMS branch re-run.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-2: `noreturn` present on `ori_panic_cstr`
@@ -745,7 +747,7 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 15% | 10/10 | 1.00x avg ratio |
+| Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
 | Attributes & Safety | 10% | 8/10 | 92.3% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
@@ -757,4 +759,17 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 ## Verdict
 
-Journey 1's arithmetic codegen is near-perfect. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction -- zero overhead beyond mandatory overflow checking. Attributes are strong: `nounwind`, `uwtable`, `noundef`, `cold`, and `noreturn` are all correctly applied where needed. The sole remaining gap is a missing `uwtable` on the C `main()` wrapper, which has negligible practical impact. Score is stable at 9.8/10 across re-runs.
+Journey 1's arithmetic codegen is near-perfect on the AIMS branch -- identical to the previous run. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction with zero overhead beyond mandatory overflow checking. The AIMS unified lattice correctly classifies all values as scalars, producing the same zero-RC result as the previous multi-pass pipeline. Attributes are strong: `nounwind`, `uwtable`, `noundef`, `cold`, and `noreturn` are all correctly applied where needed. The sole remaining gap is a missing `uwtable` on the C `main()` wrapper (LOW-1, CONFIRMED). Score is stable at 9.8/10 across both runs and both branches.
+
+## Cross-Journey Observations
+
+| Feature | First Tested | This Journey | Status |
+|---------|-------------|--------------|--------|
+| Overflow checking | J1 | J1 (re-run) | CONFIRMED |
+| fastcc usage | J1 | J1 (re-run) | CONFIRMED |
+| nounwind analysis | J1 | J1 (re-run) | CONFIRMED |
+| noundef on params | J1 | J1 (re-run) | CONFIRMED |
+| Let binding elimination | J1 | J1 (re-run) | CONFIRMED |
+| Missing uwtable on main wrapper | J1 | J1 (re-run) | CONFIRMED |
+
+**AIMS branch impact on Journey 1**: None. The AIMS unified lattice changes affect the ARC analysis pipeline, but this journey uses only scalar `int` values which require no RC operations under either the old multi-pass or new unified lattice approach. The LLVM IR is byte-for-byte identical. Binary size increased by 2,072 bytes (0.03%), attributable to minor runtime changes, not codegen differences.

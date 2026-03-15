@@ -308,16 +308,20 @@ impl ArcInstr {
     /// Owned positions:
     /// - `Construct`, `PartialApply`: all args (`0..args.len()`)
     /// - `Apply`: args where `arg_ownership[pos] == Owned` (respects borrow inference)
-    /// - `ApplyIndirect`: closure + all args (`0..=args.len()`)
+    /// - `ApplyIndirect`: args only (`1..=args.len()`); closure (pos 0) is borrowed
     /// - Everything else: no owned positions (read-only uses)
     pub fn is_owned_position(&self, pos: usize) -> bool {
         match self {
             ArcInstr::Construct { args, .. } | ArcInstr::PartialApply { args, .. } => {
                 pos < args.len()
             }
-            // old_var at position 0 is consumed (not owned — RC handled internally).
-            // args at positions 1..=args.len() are owned (stored into buffer).
-            ArcInstr::CollectionReuse { args, .. } => pos >= 1 && pos <= args.len(),
+            // CollectionReuse: old_var at position 0 is consumed (not owned);
+            //   positions 1..=args.len() are owned (stored into buffer).
+            // ApplyIndirect: position 0 is the closure fat pointer (borrowed);
+            //   positions 1..=args.len() are user arguments (owned).
+            ArcInstr::CollectionReuse { args, .. } | ArcInstr::ApplyIndirect { args, .. } => {
+                pos >= 1 && pos <= args.len()
+            }
             ArcInstr::Apply {
                 args,
                 arg_ownership,
@@ -328,7 +332,6 @@ impl ArcInstr {
                         .get(pos)
                         .is_none_or(|o| *o == ArgOwnership::Owned)
             }
-            ArcInstr::ApplyIndirect { args, .. } => pos <= args.len(),
             _ => false,
         }
     }

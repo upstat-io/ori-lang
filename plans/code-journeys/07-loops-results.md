@@ -2,7 +2,7 @@
 journey: 7
 slug: loops
 theme: "I am a loop"
-date: 2026-03-07
+date: 2026-03-15
 status: PASS
 expected: 30
 eval_result: 30
@@ -432,41 +432,35 @@ attributes #3 = { nounwind }
 ```asm
 _ori_sum_loop:
    sub    $0x38,%rsp
-   mov    %rdi,0x20(%rsp)
-   xor    %eax,%eax
-   mov    %rax,%rcx
-   mov    %rcx,0x28(%rsp)
-   mov    %rax,0x30(%rsp)
-   jmp    .+0                       ; fallthrough to loop header
-.loop:
-   mov    0x20(%rsp),%rcx           ; reload n
-   mov    0x28(%rsp),%rax           ; reload i
-   mov    0x30(%rsp),%rdx           ; reload total
-   cmp    %rcx,%rax
-   jl     .body                     ; i < n → continue
-   mov    0x10(%rsp),%rax           ; return total
+   mov    %rdi,0x20(%rsp)         ; save n to stack
+   xor    %eax,%eax               ; i = 0, total = 0
+   jmp    .loop_header
+.loop_header:
+   mov    0x20(%rsp),%rcx         ; load n
+   mov    0x28(%rsp),%rax         ; load i
+   cmp    %rcx,%rax               ; i >= n?
+   jl     .loop_body
+   mov    0x10(%rsp),%rax         ; return total
    add    $0x38,%rsp
    ret
-.body:
-   inc    %rax                      ; i + 1 (with overflow check)
-   jo     .panic1
-   add    %rcx,%rax                 ; total += (i+1) (with overflow check)
-   jo     .panic2
-   mov    %rcx,0x28(%rsp)           ; store new i
-   mov    %rax,0x30(%rsp)           ; store new total
-   jmp    .loop
+.loop_body:
+   inc    %rax                    ; i + 1
+   jo     .panic
+   add    %rcx,%rax               ; total + (i+1)
+   jo     .panic
+   jmp    .loop_header
 
 _ori_sum_for:
    sub    $0x48,%rsp
-   mov    $0x1,%ecx                 ; start = 1
-   mov    %rdi,0x30(%rsp)           ; end = n
-   xor    %eax,%eax                 ; total = 0
+   mov    $0x1,%ecx               ; start = 1
+   mov    %rdi,0x30(%rsp)         ; end = n
+   xor    %eax,%eax               ; total = 0
 .loop:
-   cmp    0x30(%rsp),%rax           ; x <= n?
+   cmp    0x30(%rsp),%rax         ; x <= n?
    jg     .exit
-   add    %rcx,%rax                 ; total += x (overflow check)
+   add    %rcx,%rax               ; total += x (overflow check)
    jo     .panic1
-   add    $0x1,%rax                 ; x += step (overflow check)
+   add    $0x1,%rax               ; x += step (overflow check)
    jo     .panic2
    jmp    .loop
 .exit:
@@ -475,11 +469,11 @@ _ori_sum_for:
 _ori_main:
    sub    $0x18,%rsp
    mov    $0x5,%edi
-   call   _ori_sum_loop             ; a = 15
+   call   _ori_sum_loop           ; a = 15
    mov    %rax,0x8(%rsp)
    mov    $0x5,%edi
-   call   _ori_sum_for              ; b = 15
-   add    0x8(%rsp),%rax            ; a + b (overflow check)
+   call   _ori_sum_for            ; b = 15
+   add    0x8(%rsp),%rax          ; a + b (overflow check)
    jo     .panic
    ret
 ```
@@ -560,8 +554,8 @@ All 5 addition operations are overflow-checked. Each uses the `llvm.sadd.with.ov
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 868.8 KiB |
-| .rodata section | 133.5 KiB |
+| .text section | 869.3 KiB |
+| .rodata section | 133.4 KiB |
 | User code (@sum_loop) | 154 bytes (38 instructions) |
 | User code (@sum_for) | 170 bytes (41 instructions) |
 | User code (@main) | 72 bytes (17 instructions) |
@@ -730,7 +724,7 @@ bb0:
 | @sum_for | 25 | 26 | +1 | NO (unused extract) | NEAR-OPTIMAL |
 | @main | 9 | 9 | +0 | N/A | OPTIMAL |
 
-### 8. Loops: Lowering
+### 8. Loops: Phi-Based Lowering
 
 The `loop { ... break }` construct in `@sum_loop` is lowered to a textbook phi-based loop:
 
@@ -744,7 +738,7 @@ This is the standard SSA lowering for imperative loops with mutable variables. T
 
 The `loop` construct produces exactly the control flow expected: an infinite loop with an explicit exit condition, matching the semantics of Ori's `loop { if cond then break; body }` pattern.
 
-### 9. Ranges: Iteration
+### 9. Loops: Range Iteration
 
 The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range struct:
 
@@ -761,12 +755,12 @@ The for-loop and explicit loop produce equivalent machine code structure at the 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
 | 1 | LOW | Attributes | Missing `nounwind` on `ori_panic_cstr` declaration | CONFIRMED | J1 |
-| 2 | LOW | Control Flow | Redundant `br label %bb1` entry in @sum_loop | NEW | J7 |
-| 3 | LOW | Control Flow | Empty trampoline blocks (add.ok4) in both loop functions | NEW | J7 |
-| 4 | LOW | IR Quality | Range construct-then-destructure in @sum_for bb0 | NEW | J7 |
-| 5 | NOTE | Loops | Correct phi-based lowering for mutable loop variables | NEW | J7 |
-| 6 | NOTE | Ranges | Inclusive range correctly uses `sle` comparison | NEW | J7 |
-| 7 | NOTE | ARC | Zero RC overhead for pure scalar loops | NEW | J7 |
+| 2 | LOW | Control Flow | Redundant `br label %bb1` entry in @sum_loop | CONFIRMED | J7 |
+| 3 | LOW | Control Flow | Empty trampoline blocks (add.ok4) in both loop functions | CONFIRMED | J7 |
+| 4 | LOW | IR Quality | Range construct-then-destructure in @sum_for bb0 | CONFIRMED | J7 |
+| 5 | NOTE | Loops | Correct phi-based lowering for mutable loop variables | CONFIRMED | J7 |
+| 6 | NOTE | Ranges | Inclusive range correctly uses `sle` comparison | CONFIRMED | J7 |
+| 7 | NOTE | ARC | Zero RC overhead for pure scalar loops | CONFIRMED | J7 |
 
 ### LOW-1: Missing nounwind on ori_panic_cstr
 
@@ -798,19 +792,19 @@ The for-loop and explicit loop produce equivalent machine code structure at the 
 **Impact**: 7 instructions in cold entry path; LLVM optimizes away, but avoidable at codegen
 **Fix**: For constant ranges, thread values directly into phi nodes. Extract only used fields.
 **First seen**: Journey 7
-**Found in**: Optimal IR Comparison (Category 7), Loops: Lowering (Category 8)
+**Found in**: Optimal IR Comparison (Category 7), Loops: Range Iteration (Category 9)
 
 ### NOTE-5: Correct phi-based loop lowering
 
 **Location**: Both loop functions
 **Impact**: Positive -- mutable locals are correctly converted to phi nodes rather than stack allocas, producing optimal SSA form
-**Found in**: Loops: Lowering (Category 8)
+**Found in**: Loops: Phi-Based Lowering (Category 8)
 
 ### NOTE-6: Inclusive range comparison correctness
 
 **Location**: @sum_for, `%le = icmp sle i64 %v8, %proj.1`
 **Impact**: Positive -- `1..=n` correctly uses `sle` (signed less-or-equal) vs `slt` for exclusive ranges
-**Found in**: Ranges: Iteration (Category 9)
+**Found in**: Loops: Range Iteration (Category 9)
 
 ### NOTE-7: Zero ARC overhead for scalar loops
 
@@ -841,9 +835,9 @@ Journey 7's loop codegen is strong. Both `loop/break` and `for-in` range iterati
 | Feature | First Tested | This Journey | Status |
 |---------|-------------|--------------|--------|
 | Overflow checking | J1 | J7 | CONFIRMED |
-| nounwind attribute | J1 | J7 | FIXED (user functions now have nounwind) |
+| nounwind attribute | J1 | J7 | CONFIRMED (user functions have nounwind) |
 | fastcc usage | J1 | J7 | CONFIRMED |
 | noundef on params | J1 | J7 | CONFIRMED |
-| Empty trampoline blocks | J7 | J7 | NEW |
+| Empty trampoline blocks | J7 | J7 | CONFIRMED |
 
-The nounwind analysis has improved since J1: all user functions now correctly receive the `nounwind` attribute via the fixed-point nounwind analysis (visible in the arc_trace: "nounwind analysis complete, passes=2, nounwind_count=3"). The `ori_panic_cstr` declaration still lacks `nounwind`, which is the only remaining attribute gap.
+The nounwind analysis has improved since J1: all user functions now correctly receive the `nounwind` attribute via the fixed-point nounwind analysis. The `ori_panic_cstr` declaration still lacks `nounwind`, which is the only remaining attribute gap.

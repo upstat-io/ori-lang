@@ -2,7 +2,7 @@
 journey: 11
 slug: derived-traits
 theme: "I am a derived trait"
-date: 2026-03-07
+date: 2026-03-15
 status: PASS
 expected: 33
 eval_result: 33
@@ -646,6 +646,117 @@ _ori_check_struct_eq:                    ; 144 bytes
   lea    ovf.msg(%rip),%rdi
   call   ori_panic_cstr
 
+_ori_check_sum_eq:                       ; 128 bytes
+  sub    $0x18,%rsp
+  xor    %eax,%eax
+  mov    %eax,%esi
+  mov    %rsi,%rdi
+  call   _ori_Color$eq
+  mov    %al,%dl
+  xor    %eax,%eax
+  mov    $0x5,%ecx
+  test   $0x1,%dl
+  cmovne %rcx,%rax
+  mov    %rax,0x8(%rsp)
+  xor    %eax,%eax
+  mov    %eax,%edi
+  mov    $0x2,%esi
+  call   _ori_Color$eq
+  mov    %al,%sil
+  mov    0x8(%rsp),%rax
+  xor    $0xff,%sil
+  xor    %ecx,%ecx
+  mov    $0x6,%edx
+  test   $0x1,%sil
+  cmovne %rdx,%rcx
+  add    %rcx,%rax
+  mov    %rax,0x10(%rsp)
+  seto   %al
+  jo     .overflow
+  mov    0x10(%rsp),%rax
+  add    $0x18,%rsp
+  ret
+.overflow:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
+
+_ori_check_nested:                       ; 240 bytes
+  sub    $0x78,%rsp
+  movq   $0x0,0x28(%rsp)              ; s1 tag=0
+  movq   $0xa,0x20(%rsp)              ; s1 payload[0]=10
+  movq   $0x0,0x18(%rsp)              ; s1 payload[1]=0
+  movq   $0x0,0x40(%rsp)              ; s2 tag=0
+  movq   $0xa,0x38(%rsp)              ; s2 payload[0]=10
+  movq   $0x0,0x30(%rsp)              ; s2 payload[1]=0
+  lea    0x18(%rsp),%rdi
+  lea    0x30(%rsp),%rsi
+  call   _ori_Shape$eq
+  mov    %al,%cl
+  xor    %eax,%eax
+  test   $0x1,%cl
+  mov    $0x7,%ecx
+  cmovne %rcx,%rax
+  mov    %rax,0x8(%rsp)
+  movq   $0x0,0x58(%rsp)              ; s1' tag=0
+  movq   $0xa,0x50(%rsp)              ; s1' payload[0]=10
+  movq   $0x0,0x48(%rsp)              ; s1' payload[1]=0
+  movq   $0x8,0x70(%rsp)              ; s3 payload[1]=8
+  movq   $0x5,0x68(%rsp)              ; s3 payload[0]=5
+  movq   $0x1,0x60(%rsp)              ; s3 tag=1
+  lea    0x48(%rsp),%rdi
+  lea    0x60(%rsp),%rsi
+  call   _ori_Shape$eq
+  mov    %al,%sil
+  mov    0x8(%rsp),%rax
+  xor    $0xff,%sil
+  xor    %ecx,%ecx
+  mov    $0x8,%edx
+  test   $0x1,%sil
+  cmovne %rdx,%rcx
+  add    %rcx,%rax
+  mov    %rax,0x10(%rsp)
+  seto   %al
+  jo     .overflow
+  mov    0x10(%rsp),%rax
+  add    $0x78,%rsp
+  ret
+.overflow:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
+
+_ori_main:                               ; 128 bytes
+  sub    $0x28,%rsp
+  call   _ori_check_struct_eq
+  mov    %rax,0x10(%rsp)
+  call   _ori_check_sum_eq
+  mov    %rax,0x8(%rsp)
+  call   _ori_check_nested
+  mov    0x8(%rsp),%rcx
+  mov    %rax,%rdx
+  mov    0x10(%rsp),%rax
+  mov    %rdx,0x18(%rsp)
+  add    %rcx,%rax
+  mov    %rax,0x20(%rsp)
+  seto   %al
+  jo     .overflow1
+  mov    0x18(%rsp),%rcx
+  mov    0x20(%rsp),%rax
+  add    %rcx,%rax
+  mov    %rax,(%rsp)
+  seto   %al
+  jo     .overflow2
+  jmp    .done
+.overflow1:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
+.done:
+  mov    (%rsp),%rax
+  add    $0x28,%rsp
+  ret
+.overflow2:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
+
 _ori_Point$eq:                           ; 48 bytes
   mov    %rcx,-0x10(%rsp)
   mov    %rsi,-0x8(%rsp)
@@ -676,15 +787,49 @@ _ori_Color$eq:                           ; 16 bytes
 
 _ori_Shape$eq:                           ; 176 bytes
   mov    0x10(%rdi),%rax        ; load self payload[1]
-  mov    (%rdi),%rax            ; load self tag
+  mov    %rax,-0x28(%rsp)
+  mov    (%rdi),%rax            ; load self tag -> rax
+  mov    %rax,-0x20(%rsp)
   mov    0x8(%rdi),%rcx         ; load self payload[0]
+  mov    %rcx,-0x18(%rsp)
   mov    0x10(%rsi),%rcx        ; load other payload[1]
+  mov    %rcx,-0x10(%rsp)
   mov    (%rsi),%rcx            ; load other tag
   mov    0x8(%rsi),%rdx         ; load other payload[0]
+  mov    %rdx,-0x8(%rsp)
   cmp    %rcx,%rax              ; compare tags
   je     .tags_match
   jmp    .false
-  ; ... switch on tag, per-variant field comparison ...
+.true:
+  mov    $0x1,%al
+  ret
+.false:
+  xor    %eax,%eax
+  ret
+.tags_match:
+  mov    -0x20(%rsp),%rax       ; reload tag for switch
+  mov    -0x10(%rsp),%rcx
+  mov    -0x8(%rsp),%rdx
+  mov    -0x28(%rsp),%rsi
+  mov    -0x18(%rsp),%rdi
+  ; spill for switch dispatch
+  test   %rax,%rax              ; tag == 0?
+  je     .circle
+  jmp    .rect_check
+.rect_check:
+  sub    $0x1,%rax              ; tag == 1?
+  je     .rect
+  jmp    .false
+.circle:
+  cmp    %rcx,%rdi              ; radius == radius?
+  je     .true
+  jmp    .false
+.rect:
+  cmp    %rcx,%rdi              ; w == w?
+  jne    .false
+  cmp    %rsi,%rdx              ; h == h? (only if w matched)
+  je     .true
+  jmp    .false
 ```
 
 ## Deep Scrutiny
@@ -701,7 +846,7 @@ _ori_Shape$eq:                           ; 176 bytes
 | 6 | Color$eq | 6 | 6 | 1.00x | OPTIMAL |
 | 7 | Shape$eq | 33 | 33 | 1.00x | OPTIMAL |
 
-All user functions and derived methods are OPTIMAL. The `check_*` functions efficiently use `select` for conditional values and `call` for derived equality, with overflow-checked addition for the final sum. The derived `$eq` methods use short-circuit field comparison (struct) and tag-then-switch dispatch (sum types) with no wasted instructions.
+All seven user functions and derived methods are OPTIMAL. The `check_*` functions efficiently use `select` for conditional values and `call` for derived equality, with overflow-checked addition for the final sum. The derived `$eq` methods use short-circuit field comparison (struct) and tag-then-switch dispatch (sum types) with no wasted instructions.
 
 ### 2. ARC Purity
 
@@ -765,9 +910,9 @@ All 5 addition operations are overflow-checked using LLVM intrinsics with proper
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.25 MiB (6,554,800 bytes, debug) |
-| .text section | 869 KiB (890,161 bytes) |
-| .rodata section | 134 KiB (136,708 bytes) |
+| Binary size | 6.25 MiB (6,556,872 bytes, debug) |
+| .text section | 870 KiB (890,633 bytes) |
+| .rodata section | 133 KiB (136,625 bytes) |
 | User code (@check_struct_eq) | 144 bytes |
 | User code (@check_sum_eq) | 128 bytes |
 | User code (@check_nested) | 240 bytes |
@@ -959,7 +1104,7 @@ r.f1:
 | Shape$eq | 33 | 33 | +0 | N/A | OPTIMAL |
 | **Total** | **109** | **109** | **+0** | | |
 
-### 8. Derived Traits: Eq Generation
+### 8. Derived Traits: Eq Codegen
 
 The compiler generates three distinct Eq patterns based on type structure:
 
@@ -977,7 +1122,7 @@ Shape uses the `{ i64, [2 x i64] }` tagged union layout with the max payload siz
 
 **Calling convention**: Shape (24 bytes) exceeds the 16-byte by-value threshold and is passed by pointer. The `Shape$eq` function uses GEP+load+insertvalue to reconstruct the value from pointer arguments before comparison. This is correct and necessary.
 
-### 9. Sum Types: Tag Dispatch
+### 9. Derived Traits: Sum Type Eq
 
 The compiler uses a consistent tagged-union representation:
 
@@ -1001,10 +1146,10 @@ The compiler uses a consistent tagged-union representation:
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
 | 1 | LOW | Attributes | Missing `noundef` on main wrapper return type | CONFIRMED | J1 |
-| 2 | LOW | Attributes | Missing `noundef` on derived $eq method parameters | NEW | J11 |
-| 3 | NOTE | Derived Traits | Excellent derived Eq generation -- all three patterns (struct, unit-sum, payload-sum) are OPTIMAL | NEW | J11 |
-| 4 | NOTE | Control Flow | Short-circuit field comparison avoids unnecessary work | NEW | J11 |
-| 5 | NOTE | Sum Types | Clean tagged-union layout with switch dispatch | NEW | J11 |
+| 2 | LOW | Attributes | Missing `noundef` on derived $eq method parameters | CONFIRMED | J11 |
+| 3 | NOTE | Derived Traits | Excellent derived Eq generation -- all three patterns (struct, unit-sum, payload-sum) are OPTIMAL | CONFIRMED | J11 |
+| 4 | NOTE | Control Flow | Short-circuit field comparison avoids unnecessary work | CONFIRMED | J11 |
+| 5 | NOTE | Sum Types | Clean tagged-union layout with switch dispatch | CONFIRMED | J11 |
 
 ### LOW-1: Missing noundef on main wrapper return type
 
@@ -1027,7 +1172,7 @@ The compiler uses a consistent tagged-union representation:
 
 **Location**: `Point$eq`, `Color$eq`, `Shape$eq`
 **Impact**: Positive -- all three derived Eq implementations achieve OPTIMAL instruction counts. The compiler correctly generates three distinct patterns: lexicographic short-circuit for structs, tag-only for unit enums, and tag-switch-then-field for payload enums.
-**Found in**: Derived Traits: Eq Generation (Category 8)
+**Found in**: Derived Traits: Eq Codegen (Category 8)
 
 ### NOTE-4: Short-circuit field comparison
 
@@ -1039,7 +1184,7 @@ The compiler uses a consistent tagged-union representation:
 
 **Location**: `%ori.Shape = type { i64, [2 x i64] }`
 **Impact**: Positive -- the max-payload union layout is standard and efficient. The `switch` dispatch with default-to-false is robust. Unused payload bytes are zeroed.
-**Found in**: Sum Types: Tag Dispatch (Category 9)
+**Found in**: Derived Traits: Sum Type Eq (Category 9)
 
 ## Codegen Quality Score
 
@@ -1070,4 +1215,4 @@ Journey 11's derived trait codegen is outstanding. The compiler generates three 
 | select for if/then/else | J2 | J11 | CONFIRMED |
 | Struct by-value passing | J4 | J11 | CONFIRMED |
 
-The `nounwind` attribute that was missing in J1 is now present on all user functions and derived methods. The `select` instruction pattern for branchless if/then/else (first seen in J2) is reused effectively here for conditional value selection based on equality results. Struct by-value passing (J4) is confirmed to work correctly for Point (16B, 2 registers) while Shape (24B) correctly switches to by-pointer passing. A new finding in this journey is missing `noundef` on derived method parameters -- the codegen emits `noundef` on return types but not on parameter types for generated $eq methods.
+The `nounwind` attribute that was missing in J1 is now present on all user functions and derived methods. The `select` instruction pattern for branchless if/then/else (first seen in J2) is reused effectively here for conditional value selection based on equality results. Struct by-value passing (J4) is confirmed to work correctly for Point (16B, 2 registers) while Shape (24B) correctly switches to by-pointer passing. The missing `noundef` on derived method parameters (first observed in J11's previous run) remains CONFIRMED.

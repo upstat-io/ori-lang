@@ -189,6 +189,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.set_ccc(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
+        self.builder.add_uwtable_attribute(func_id);
 
         // Generate body
         let entry = self.builder.append_block(func_id, "entry");
@@ -308,6 +309,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .declare_function(&wrapper_name, &wrapper_param_types, ret_ty)
         };
         self.builder.set_ccc(wrapper_func_id);
+        self.builder.add_uwtable_attribute(wrapper_func_id);
         if target_is_nounwind {
             self.builder.add_nounwind_attribute(wrapper_func_id);
         }
