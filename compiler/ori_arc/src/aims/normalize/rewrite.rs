@@ -371,6 +371,8 @@ fn emit_recursive_path(
         args: ctor_args,
     });
 
+    // Pre-compute 3 sequential block IDs. Correctness is enforced by
+    // push_block()'s assert_eq (unconditional, not debug-only).
     let compose_id = func.next_block_id();
     let first_call_id = ArcBlockId::new(compose_id.raw() + 1);
     let loop_back_id = ArcBlockId::new(compose_id.raw() + 2);
@@ -505,6 +507,7 @@ fn rewrite_base_case_returns(
         .collect();
 
     for (block_idx, ret_value) in rewrites {
+        // Pre-compute 2 sequential block IDs (validated by push_block assert).
         let apply_ctx_id = func.next_block_id();
         let no_ctx_id = ArcBlockId::new(apply_ctx_id.raw() + 1);
 

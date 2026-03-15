@@ -285,6 +285,8 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
         }
 
         // Select: cond + both branches each read once.
+        // When true_val == false_val, emit one demand to avoid double-counting
+        // (seq_add would produce Many instead of the correct Once).
         ArcInstr::Select {
             cond,
             true_val,
@@ -294,7 +296,9 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
             let mut d = SmallVec::new();
             d.push((*cond, Cardinality::Once));
             d.push((*true_val, Cardinality::Once));
-            d.push((*false_val, Cardinality::Once));
+            if true_val != false_val {
+                d.push((*false_val, Cardinality::Once));
+            }
             d
         }
 

@@ -43,7 +43,7 @@ complete, two RC codegen bugs in backend discovered and fixed during testing.
 **Claim:** `normalize_function()` transforms self-recursive constructor-context
 functions into tail-recursive form with in-place context mutation. The rewrite
 is sound (behaviorally equivalent), verified (uniqueness enforced), and
-integrated (post-rewrite contracts partially refreshed).
+integrated (post-rewrite contracts fully refreshed via `run_second_pass()`).
 
 **Evidence:** Detection works (`normalize/detect.rs`, 7 tests). Rewrite code
 implemented (`normalize/rewrite.rs`). All 5 structural bugs fixed (2026-03-15).
@@ -85,37 +85,24 @@ and realization. Fix all 5 bugs. Build the behavioral test matrix.
   (`intraprocedural/post_convergence.rs`)
 - Pipeline step 3a (`normalize_function`) is wired in (`aims_pipeline.rs`)
 
-What is missing:
+~~What is missing:~~ **ALL RESOLVED (2026-03-15).** Retained for historical context:
 1. ~~**ContextBehavior is dead metadata.**~~ **RESOLVED (Section 13.1).**
    `interprocedural/extract.rs` now computes `context_behavior` via
    `compute_context_behavior()` from `ContextRegion` metadata.
-2. **Soundness gate mismatch — plan is internally inconsistent.**
-   `contract/mod.rs:364-368` documents that TRMC requires `may_share == false`
-   (effect purity). `intraprocedural/post_convergence.rs:202` deliberately
-   skips the `may_share` check because the `HeapEscaping -> may_share`
-   accumulation rule makes ANY returned Construct trigger `may_share`, which
-   would block all TRMC detection. Instead, it relies solely on per-variable
-   `Uniqueness::Unique` (post_convergence.rs:246). The **plan itself**
-   contradicts: Section 13.2 L284 says v1 should enforce only per-variable
-   uniqueness, but L299 and L547 mark "skip when may_share == true" as done.
-   The **code** follows both interpretations in different places:
-   
-`normalize/mod.rs:94` enforces the strict `may_share` gate (blocks rewrite),
-   while `post_convergence.rs:202` follows the loose interpretation (logs only).
-   Since every TRMC function returns a Construct → HeapEscaping → may_share,
-   **the normalize gate blocks 100% of real TRMC candidates**. The rewrite is
-   effectively dead code.
-3. **Post-rewrite uniqueness verification is stubbed out.**
-   `verify.rs:44-66` defines `NonUniqueContext` and `EffectPurityViolation`
-   with `#[expect(dead_code)]` — never constructed anywhere. The rewrite can
-   emit `Set` on a shared context variable without proof of uniqueness. The
-   non-rewrite path (`post_convergence.rs:246`) correctly enforces uniqueness
-   before marking ContextHole, but the rewrite path bypasses this enforcement.
-4. **Events are recorded but never consumed.** `ContextOpen`/`ContextClose`
-   events exist in `AimsStateMap` but no realization pass reads them.
-5. **No IR rewriting in practice.** `NormalizationResult.was_transformed` is
-   always `false` because Bug 4 (may_share gate) blocks all candidates.
-   The 4-equation TRMC algorithm exists in `rewrite.rs` but is unreachable.
+2. ~~**Soundness gate mismatch.**~~ **RESOLVED (Section 13.2).**
+   `may_share` gate removed from `normalize/mod.rs`; sole soundness condition
+   is per-variable `Uniqueness::Unique` (sound because Ori has no effect
+   handlers — no non-linear resumption). Both detection and rewrite paths
+   now use the same interpretation.
+3. ~~**Post-rewrite uniqueness verification is stubbed out.**~~ **RESOLVED (Section 13.5).**
+   `verify_trmc_soundness()` fully implemented — checks per-variable uniqueness
+   at every mutation point post-rewrite.
+4. ~~**Events are recorded but never consumed.**~~ **RESOLVED (Section 13.6).**
+   `ContextOpen`/`ContextClose` events consumed by rewrite pass and
+   verification pipeline.
+5. ~~**No IR rewriting in practice.**~~ **RESOLVED (Bugs 1-4 fixed, Section 13.4).**
+   `NormalizationResult.was_transformed` now returns `true` for TRMC candidates.
+   The 4-equation rewrite is fully reachable and verified by 12 AOT behavioral tests.
 
 **Confirmed bugs (2026-03-14 audit, updated 2026-03-15 — all fixed):**
 
@@ -1139,8 +1126,9 @@ These items should be fixed during implementation of 13.1-13.6:
 - [x] **Principle 3 gate:** Post-rewrite contracts are refreshed and accurate:
   `has_unbounded_stack == false` for all TRMC-rewritten functions,
   `FipContract` upgraded where applicable, callers see updated contracts.
-  (Bug 2 partial fix: only `has_unbounded_stack` refreshed; full contract
-  re-extraction deferred — requires SCC peer data threading.)
+  (Bug 2 fully resolved 2026-03-15: `run_second_pass()` performs full
+  `extract_contract()` re-extraction for TRMC-rewritten functions —
+  all contract fields accurate post-rewrite, no SCC peer threading needed.)
 
 **Exit Criteria:** `normalize_function()` produces structurally AND
 behaviorally correct rewritten functions for self-recursive constructor-
@@ -1352,13 +1340,8 @@ borrowed-rooted (the caller retains a reference, so the boxed store
 creates an additional one). For consumed values (owned, last use),
 this is a move — no inc needed.
 
-**Known limitation:** `borrowed_rooted_vars` traces aliases through
-`Let { dst, value: Var(src) }` instructions only. Values that flow
-through block-parameter passing (Jump/Branch terminators) are not
-tracked. This is currently safe because the ARC pipeline inserts
-RcInc/RcDec at block boundaries, making block params independently
-counted. However, future optimizations that eliminate "redundant"
-block-boundary RC ops could expose this gap.
+`borrowed_rooted_vars` traces aliases through both `Let { dst, value: Var(src) }`
+instructions and Jump/Branch block-parameter passing via a fixpoint loop.
 
 ### Edge case: `Tag::Enum`-only guard scope
 
