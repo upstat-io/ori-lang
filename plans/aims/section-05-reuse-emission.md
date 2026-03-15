@@ -29,7 +29,13 @@ sections:
 
 # Section 05: Reuse Emission
 
-**Status:** Complete (all subsections done)
+> **Historical record.** The code described in this section has been
+> superseded by Section 10 (Unified Realization). `emit_reuse()` and
+> related entry points have been deleted. The design decisions and
+> rationale documented here informed the unified `realize_rc_reuse()`
+> implementation. No implementation work remains for this section.
+
+**Status:** Complete (superseded by Section 10)
 
 **Goal:** Detect reuse opportunities from the converged `AimsStateMap` and emit
 `Reset`, `Reuse`, `IsShared`, `Set`, `SetTag` instructions. This replaces

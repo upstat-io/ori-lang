@@ -1,0 +1,37 @@
+// AIMS TRMC test: deep recursive construction.
+// Builds a linked list of 200 elements via recursion.
+// Without TRMC optimization, this tests stack usage.
+// With TRMC, this should use constant stack.
+
+type List = Nil | Cons(head: int, tail: List);
+
+@build_list (n: int) -> List = {
+    if n <= 0 then Nil
+    else Cons(head: n, tail: build_list(n: n - 1))
+};
+
+@list_len (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + list_len(list: t),
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@list_head (list: List) -> int = match list {
+    Nil -> -1,
+    Cons(h, _) -> h,
+};
+
+@main () -> void = {
+    let $list = build_list(n: 200);
+    assert_eq(actual: list_len(list: list), expected: 200);
+    // Sum of 1..200 = 200*201/2 = 20100.
+    assert_eq(actual: list_sum(list: list), expected: 20100);
+    // First element should be 200 (built in descending order).
+    assert_eq(actual: list_head(list: list), expected: 200);
+
+    print(msg: "trmc_deep_build: all tests passed")
+}
