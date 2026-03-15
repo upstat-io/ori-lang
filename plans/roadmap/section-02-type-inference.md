@@ -20,7 +20,7 @@ sections:
     status: complete
   - id: "2.4"
     title: Section Completion Checklist
-    status: complete
+    status: in-progress
 ---
 
 # Section 2: Complete Type Inference

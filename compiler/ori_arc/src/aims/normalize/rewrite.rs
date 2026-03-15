@@ -18,28 +18,12 @@
 //! - Same-block: recursive call and construct in the same basic block
 //! - Construct must be the last body instruction (tail-position)
 //! - Modulo-cons instantiation only (no CPS fallback)
-//! - Skip when `may_share == true` (no hybrid path)
+//! - Per-variable uniqueness as sole soundness gate (no effect-handler gate)
 
 use crate::aims::contract::ContextRegion;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitValue,
 };
-
-/// Minamide tuple: pointer to result root + address of hole field.
-///
-/// - `res` — the root of the partially-built result (returned at base case)
-/// - `hole_obj` — the object containing the hole (target of the next `Set`)
-/// - `hole_field` — which field of `hole_obj` receives the next value
-#[expect(
-    dead_code,
-    reason = "constructed by post-rewrite verification (Section 13.5)"
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TrmcContext {
-    pub(crate) res: ArcVarId,
-    pub(crate) hole_obj: ArcVarId,
-    pub(crate) hole_field: u32,
-}
 
 /// Rewrite TRMC-eligible functions for tail recursion modulo constructor.
 ///
@@ -56,12 +40,11 @@ pub(crate) struct TrmcContext {
 ///
 /// # Soundness gates (caller responsibility)
 ///
-/// 1. Per-variable uniqueness (checked post-convergence)
-/// 2. Effect purity: `may_share == false` (checked by caller)
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired into pipeline in Section 13.6")
-)]
+/// 1. Per-variable uniqueness (checked in `detect_trmc_candidates()`,
+///    `intraprocedural/post_convergence.rs`)
+/// 2. Effect purity: deferred to effect-handler implementation.
+///    Ori has no effect handlers, so non-linear resumption cannot break
+///    the unique linear chain (Lemma 2, Leijen & Lorenzen JFP 2025).
 pub(crate) fn rewrite_trmc(func: &mut ArcFunction, regions: &[ContextRegion]) -> bool {
     if regions.is_empty() {
         return false;
@@ -110,6 +93,10 @@ struct RewriteInput {
     ctor_kind: crate::ir::CtorKind,
     ctor_args: Vec<ArcVarId>,
     hole_idx: usize,
+    /// Arguments of the recursive call — needed for loop-back argument
+    /// threading. Without these, the next iteration runs with stale
+    /// parameter values (Bug 1).
+    rec_args: Vec<ArcVarId>,
 }
 
 /// Run admission checks and extract metadata for the rewrite.
@@ -152,7 +139,7 @@ fn check_admission(func: &ArcFunction, region: &ContextRegion) -> Option<Rewrite
         return None;
     };
 
-    let (rec_dst, _) = extract_recursive_call(func, region)?;
+    let (rec_dst, rec_args) = extract_recursive_call(func, region)?;
 
     let hole_idx = region.hole_field as usize;
     if hole_idx >= ctor_args_ref.len() || ctor_args_ref[hole_idx] != rec_dst {
@@ -169,6 +156,7 @@ fn check_admission(func: &ArcFunction, region: &ContextRegion) -> Option<Rewrite
         ctor_kind,
         ctor_args: ctor_args_ref.clone(),
         hole_idx,
+        rec_args,
     })
 }
 
@@ -191,20 +179,50 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     let new_res = func.fresh_var(return_ty);
     let true_var = func.fresh_var(ori_types::Idx::BOOL);
 
-    // Step 1: Create prologue block (new entry).
-    emit_prologue(func, entry_block, false_var, null_sentinel, return_ty);
+    // Step 1: Allocate fresh block params for each function parameter.
+    //
+    // We must NOT reuse the function's parameter ArcVarIds here. If we did,
+    // the prologue's `Jump header [v0, v1, ...]` would pass `v0` to a block
+    // param also named `v0`. Block merge Phase 7 (invariant param elimination)
+    // would see `arg == param_var` and treat the prologue as a self-referencing
+    // back-edge, incorrectly eliminating the param.
+    //
+    // With fresh IDs, Phase 7 sees distinct vars from both predecessors and
+    // correctly identifies the params as non-invariant.
+    // (Same pattern as tail_call/rewrite.rs lines 50-68.)
+    let param_types: Vec<ori_types::Idx> = func.params.iter().map(|p| p.ty).collect();
+    let fresh_params: Vec<(ArcVarId, ori_types::Idx)> = param_types
+        .iter()
+        .map(|&ty| {
+            let fresh = func.fresh_var(ty);
+            (fresh, ty)
+        })
+        .collect();
 
-    // Step 2: Add context block params to the original entry (loop header).
+    // Step 2: Create prologue block (new entry). Passes original param
+    // vars followed by 3 context init values (false, null, null).
+    let param_vars: Vec<ArcVarId> = func.params.iter().map(|p| p.var).collect();
+    emit_prologue(
+        func,
+        entry_block,
+        &param_vars,
+        false_var,
+        null_sentinel,
+        return_ty,
+    );
+
+    // Step 3: Set loop header (original entry) block params wholesale.
+    // Layout: [fresh_param_0, ..., fresh_param_N, ctx_has, ctx_res, ctx_hole_obj]
     let entry_idx = entry_block.index();
-    func.blocks[entry_idx]
-        .params
-        .push((ctx_has, ori_types::Idx::BOOL));
-    func.blocks[entry_idx].params.push((ctx_res, return_ty));
-    func.blocks[entry_idx]
-        .params
-        .push((ctx_hole_obj, return_ty));
+    let mut header_params = fresh_params.clone();
+    header_params.push((ctx_has, ori_types::Idx::BOOL));
+    header_params.push((ctx_res, return_ty));
+    header_params.push((ctx_hole_obj, return_ty));
+    func.blocks[entry_idx].params = header_params;
 
-    // Step 3: Rewrite recursive site + emit compose/first-call/loop-back blocks.
+    // Step 4: Rewrite recursive site + emit compose/first-call/loop-back blocks.
+    // Done BEFORE prepending Let bindings so the recursive block body
+    // indices used by emit_recursive_path remain valid.
     emit_recursive_path(
         func,
         region,
@@ -217,7 +235,7 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
         entry_block,
     );
 
-    // Step 4: Rewrite base-case returns.
+    // Step 5: Rewrite base-case returns.
     rewrite_base_case_returns(
         func,
         region,
@@ -228,7 +246,31 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
         original_block_count,
     );
 
-    // Step 5: Post-rewrite verification (debug builds only).
+    // Step 6: Prepend Let bindings that define original param vars from
+    // fresh block params. The header body references original param vars,
+    // so these bindings bridge fresh block params → original names.
+    // (Same pattern as tail_call/rewrite.rs lines 104-124.)
+    //
+    // Done after Steps 4-5 so that the recursive block body replacement
+    // and base-case return rewriting are complete.
+    let mut let_bindings: Vec<ArcInstr> = Vec::with_capacity(fresh_params.len());
+    for (i, param) in func.params.iter().enumerate() {
+        let_bindings.push(ArcInstr::Let {
+            dst: param.var,
+            ty: param.ty,
+            value: ArcValue::Var(fresh_params[i].0),
+        });
+    }
+    let original_body = std::mem::take(&mut func.blocks[entry_idx].body);
+    func.blocks[entry_idx].body = let_bindings;
+    func.blocks[entry_idx].body.extend(original_body);
+
+    // Maintain spans: prepend None spans for the synthetic Let bindings.
+    let original_spans = std::mem::take(&mut func.spans[entry_idx]);
+    func.spans[entry_idx] = vec![None; fresh_params.len()];
+    func.spans[entry_idx].extend(original_spans);
+
+    // Step 7: Post-rewrite verification (debug builds only).
     if cfg!(debug_assertions) {
         verify_rewrite(func);
     }
@@ -245,14 +287,25 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
 }
 
 /// Create the prologue block that initializes the identity context.
+///
+/// Jump args layout: `[param_var_0, ..., param_var_N, false, null, null]`
+/// — original function param vars first, then the 3 context init values.
 fn emit_prologue(
     func: &mut ArcFunction,
     entry_block: ArcBlockId,
+    param_vars: &[ArcVarId],
     false_var: ArcVarId,
     null_sentinel: ArcVarId,
     return_ty: ori_types::Idx,
 ) {
     let prologue_id = func.next_block_id();
+
+    // Jump args: original param vars + identity context (false, null, null).
+    let mut jump_args: Vec<ArcVarId> = param_vars.to_vec();
+    jump_args.push(false_var);
+    jump_args.push(null_sentinel);
+    jump_args.push(null_sentinel);
+
     func.push_block(ArcBlock {
         id: prologue_id,
         params: vec![],
@@ -270,7 +323,7 @@ fn emit_prologue(
         ],
         terminator: ArcTerminator::Jump {
             target: entry_block,
-            args: vec![false_var, null_sentinel, null_sentinel],
+            args: jump_args,
         },
     });
     func.entry = prologue_id;
@@ -321,7 +374,24 @@ fn emit_recursive_path(
     let first_call_id = ArcBlockId::new(compose_id.raw() + 1);
     let loop_back_id = ArcBlockId::new(compose_id.raw() + 2);
 
+    // Rebuild spans to match the new body length. The original spans for
+    // instructions before the call and between call/construct are preserved
+    // in order; the Apply span is dropped; the new Construct span is None.
+    let old_spans = &func.spans[input.open_block_idx];
+    let mut new_spans: Vec<Option<ori_ir::Span>> = Vec::new();
+    // Spans for instructions before the call.
+    for i in 0..input.rec_instr_idx {
+        new_spans.push(old_spans.get(i).copied().flatten());
+    }
+    // Spans for instructions between call and construct (skip Apply span).
+    for i in (input.rec_instr_idx + 1)..input.ctor_instr_idx {
+        new_spans.push(old_spans.get(i).copied().flatten());
+    }
+    // Span for the new Construct (synthetic — no source span).
+    new_spans.push(None);
+
     func.blocks[input.open_block_idx].body = new_body;
+    func.spans[input.open_block_idx] = new_spans;
     func.blocks[input.open_block_idx].terminator = ArcTerminator::Branch {
         cond: ctx_has,
         then_block: compose_id,
@@ -329,6 +399,14 @@ fn emit_recursive_path(
     };
 
     // Compose block: fill caller's hole with new node, keep original root.
+    //
+    // Uses `ctx_hole_obj` and `ctx_res` from the loop header's block params
+    // without re-threading via block params. This is valid because the loop
+    // header (original function entry) dominates all reachable blocks in
+    // the function — including this compose block which is reached only
+    // through dominated blocks. Context vars defined as block params at
+    // the loop header entry dominate all their use sites.
+    // Verified by `check_context_var_dominance` in verify.rs.
     func.push_block(ArcBlock {
         id: compose_id,
         params: vec![],
@@ -344,6 +422,7 @@ fn emit_recursive_path(
     });
 
     // First-call block: the new constructor IS the root.
+    // No context vars used here — only `input.ctor_dst` (body-defined).
     func.push_block(ArcBlock {
         id: first_call_id,
         params: vec![],
@@ -355,6 +434,14 @@ fn emit_recursive_path(
     });
 
     // Loop-back block: receives new_res, jumps back to loop header.
+    // Jump args layout: [rec_arg_0, ..., rec_arg_N, true, new_res, ctor_dst]
+    // — recursive call's arguments (for the next iteration's params)
+    //   followed by 3 context values.
+    let mut loop_back_args: Vec<ArcVarId> = input.rec_args.clone();
+    loop_back_args.push(true_var);
+    loop_back_args.push(new_res);
+    loop_back_args.push(input.ctor_dst);
+
     func.push_block(ArcBlock {
         id: loop_back_id,
         params: vec![(new_res, return_ty)],
@@ -365,7 +452,7 @@ fn emit_recursive_path(
         }],
         terminator: ArcTerminator::Jump {
             target: entry_block,
-            args: vec![true_var, new_res, input.ctor_dst],
+            args: loop_back_args,
         },
     });
 }
@@ -420,6 +507,13 @@ fn rewrite_base_case_returns(
         let apply_ctx_id = func.next_block_id();
         let no_ctx_id = ArcBlockId::new(apply_ctx_id.raw() + 1);
 
+        // Apply-ctx block: fill the context hole with the base-case return
+        // value, then return the accumulated root.
+        //
+        // Uses `ctx_hole_obj` and `ctx_res` from the loop header's block
+        // params via SSA dominance — the loop header (original function
+        // entry) dominates all reachable blocks. Verified by
+        // `check_context_var_dominance` in verify.rs.
         func.push_block(ArcBlock {
             id: apply_ctx_id,
             params: vec![],

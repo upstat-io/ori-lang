@@ -105,7 +105,7 @@ and what it certifies.
       /// May this parameter's value be shared (refcount > 1) by the callee?
       pub may_share: bool,
       /// Locality lower bound: the callee guarantees this parameter stays at
-      /// least this local (v1: always `Unknown`).
+      /// least this local (conservative default: `Unknown`).
       ///
       /// **Soundness requirement (not just optimization hint):** This field is
       /// load-bearing for the `HeapEscaping -> not Unique` invariant. If a callee
@@ -126,7 +126,7 @@ and what it certifies.
       /// Whether the function preserves freshness: if all RC'd inputs are
       /// Unique, the output is guaranteed Unique.
       pub preserves_freshness: bool,
-      /// Locality of the returned value (v1: `HeapEscaping` for most).
+      /// Locality of the returned value (conservative default: `HeapEscaping` for most).
       pub locality: Locality,
       /// Shape class of the return value.
       pub shape: ShapeClass,
@@ -141,19 +141,28 @@ and what it certifies.
       /// When `may_allocate == true && alloc_only_on_slow_path == true`,
       /// the function is FIP-eligible with Conditional preconditions.
       pub alloc_only_on_slow_path: bool,
+      /// May the function deallocate on any code path?
+      /// Computed post-emission from FipEvidence.missed_reuses > 0.
+      pub may_deallocate: bool,
       /// May the function create shared references?
       pub may_share: bool,
       /// May the function throw exceptions/panics?
       pub may_throw: bool,
+      /// Does this function have unbounded stack growth?
+      /// true if non-tail self-recursion or mutual recursion.
+      pub has_unbounded_stack: bool,
   }
 
   /// Constructor-context behavior for TRMC (Stage 3).
-  #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
   pub struct ContextBehavior {
       /// Does this function preserve a constructor context passed to it?
       pub preserves_context: bool,
       /// Does this function consume a context hole?
       pub consumes_hole: bool,
+      /// Does in-place TRMC require the context variable to be unique?
+      pub requires_unique_context: bool,
+      /// Can effect handlers in scope resume more than once?
+      pub may_resume_nonlinearly: bool,
   }
 
   /// FIP certification status (Stage 2).
@@ -171,6 +180,9 @@ and what it certifies.
       Conditional { requires_unique_params: Vec<bool> },
       /// Function is unconditionally FIP (all code paths allocation-free).
       Certified,
+      /// Function has bounded net allocation (e.g., tree map adds one node).
+      /// Bounded(1) means at most 1 net allocation per call.
+      Bounded(u16),
   }
   ```
 
@@ -212,9 +224,11 @@ and what it certifies.
 
 ## 03.2 SCC-Based Fixed-Point
 
-**File(s):** `compiler/ori_arc/src/aims/interprocedural.rs`
+**File(s):** `compiler/ori_arc/src/aims/interprocedural/mod.rs`, `compiler/ori_arc/src/aims/interprocedural/extract.rs`
 
-> **Note: File size.** Actual split: `interprocedural.rs` for the SCC loop,
+> **Note: File structure.** Split: `interprocedural/mod.rs` for the SCC loop
+> (`analyze_program`, `analyze_scc_fixpoint`, demand propagation),
+> `interprocedural/extract.rs` for `extract_contract()` + return-info helpers,
 > `contract/mod.rs` for `MemoryContract` type + conversions (from 03.1),
 > `builtins/mod.rs` for builtin signatures (from 03.4). Each under 500 lines.
 
@@ -309,7 +323,7 @@ Note: `uniqueness::inter::analyze_program` already exists. The AIMS version live
 
 ## 03.3 Contract Inference Rules
 
-**File(s):** `compiler/ori_arc/src/aims/interprocedural.rs`
+**File(s):** `compiler/ori_arc/src/aims/interprocedural/mod.rs`, `compiler/ori_arc/src/aims/interprocedural/extract.rs`
 
 Rules for computing the full `MemoryContract`, adapted from Lean 4's `collect_O`
 with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
@@ -436,7 +450,7 @@ with AIMS extensions for uniqueness, cardinality, locality, effects, and FIP.
   - `may_throw` = true if any Invoke (panicking call) or explicit panic appears
 
 - [x] `FipContract` inference:
-  - **Stage 1 (v1):** `FipContract` is set to `Never` for all functions and is
+  - **Initially:** `FipContract` was set to `Never` for all functions and was
     NOT iterated during the fixed point. FIP inference is disabled entirely.
     The `all_borrowed` initializer receives `FipContract::Never`, and the
     fixed-point loop does not update the `fip` field.
@@ -511,8 +525,8 @@ Hardcoded contracts for built-in functions and operators that aren't analyzed.
 - [x] Non-recursive SCCs analyzed in single pass
 - [x] Recursive SCCs use monotonic fixed-point iteration
 - [x] All promotion rules implemented (ownership, uniqueness, cardinality)
-- [x] Locality and effect inference rules implemented (v1: conservative defaults OK)
-- [x] FipContract inference implemented (v1: all `Never` is acceptable; Stage 2 enables)
+- [x] Locality and effect inference rules implemented (conservative defaults; precision added in Section 09)
+- [x] FipContract inference implemented (initially all `Never`; precision added in Section 09/12)
 - [x] Tail call preservation rule working
 - [x] Builtin contracts hardcoded for all built-in functions
   (must cover all 5 sets from `BuiltinOwnershipSets` + COW summaries)

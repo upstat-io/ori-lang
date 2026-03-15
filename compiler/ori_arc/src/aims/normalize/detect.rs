@@ -24,7 +24,7 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, Ctor
 ///
 /// Only detects direct self-recursion (callee name == function name).
 /// Mutual recursion is out of scope for v1.
-pub(super) fn detect_context_regions(func: &ArcFunction) -> Vec<ContextRegion> {
+pub(crate) fn detect_context_regions(func: &ArcFunction) -> Vec<ContextRegion> {
     let self_name = func.name;
 
     // Collect variables defined by recursive calls, with their definition site.

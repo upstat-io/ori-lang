@@ -47,18 +47,23 @@ pub(crate) struct AimsPipelineConfig<'a> {
     pub interner: &'a ori_ir::StringInterner,
     pub builtins: &'a BuiltinOwnershipSets,
     pub verify_arc: bool,
-    // TODO(aims): Add `disabled_canonicalize_rules: FxHashSet<CanonicalizeRule>` if
-    // needed for debugging cross-dimension regressions. See plans/aims/section-11
-    // §11.3 Option A. Deferred — per-rule unit tests (lattice/tests.rs) and
-    // end-to-end synergy tests (realize/tests.rs) provide sufficient coverage.
+    // Note: `disabled_canonicalize_rules` was considered for debugging
+    // cross-dimension regressions (Section 11 §11.3 Option A) but deferred —
+    // per-rule unit tests (lattice/tests.rs) and end-to-end synergy tests
+    // (realize/tests.rs) provide sufficient coverage for regression detection.
 }
 
 /// Result of `run_aims_pipeline` for a single function.
 pub(crate) struct AimsPipelineResult {
     pub problems: Vec<ArcProblem>,
-    /// Post-emission `may_deallocate` fact: `true` if realization found
-    /// unmatched deallocations (missed reuses > 0).
-    pub may_deallocate: bool,
+    /// Post-emission missed reuse count from `FipEvidence`. Used by the
+    /// second pass to compute `may_deallocate` (> 0) and to re-verify
+    /// `Bounded(n)` contracts with accurate counts.
+    pub missed_reuses: usize,
+    /// Whether this function was TRMC-rewritten (and the rewrite survived
+    /// both structural and semantic verification). Used by the second pass
+    /// to mark `has_unbounded_stack = false` on refreshed contracts.
+    pub was_trmc_rewritten: bool,
 }
 
 /// Run the AIMS pipeline on a single function (steps 3–12).
@@ -69,22 +74,48 @@ pub(crate) fn run_aims_pipeline(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
 ) -> AimsPipelineResult {
-    // Step 3: compute value representations.
-    {
-        let _span = tracing::info_span!("compute_var_reprs").entered();
-        func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
-    }
+    // Steps 3–3a: compute var_reprs, detect immortals, normalize.
+    // When TRMC rewrite fires (was_transformed), re-run from step 3
+    // because new variables need ValueRepr entries and immortal detection.
+    // The rewrite is idempotent — at most 2 iterations.
+    //
+    // `pre_trmc_func` is saved before TRMC rewrite for semantic rollback
+    // (Bug 5: if post-analysis uniqueness verification fails, we restore
+    // the pre-rewrite function and re-run analysis).
+    let mut did_trmc_transform = false;
+    let mut pre_trmc_func: Option<ArcFunction> = None;
+    let (norm_result, immortals) = {
+        let contract = config.contracts.get(&func.name);
+        loop {
+            // Step 3: compute value representations.
+            {
+                let _span = tracing::info_span!("compute_var_reprs").entered();
+                func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
+            }
 
-    // Step 3.5: detect immortal variables.
-    let immortals = detect_immortals(func, config);
+            // Step 3.5: detect immortal variables.
+            let immortals = detect_immortals(func, config);
 
-    // Step 3a: normalize — detect TRMC context regions.
-    // The TRMC rewrite (rewrite_trmc) is implemented and tested but not
-    // yet called here — it requires contract recomputation and the
-    // may_share false-positive resolution from Section 13.6.
-    let norm_result = {
-        let _span = tracing::info_span!("normalize_function").entered();
-        crate::aims::normalize::normalize_function(func)
+            // Step 3a: normalize — detect + rewrite TRMC context regions.
+            // Save pre-rewrite state for semantic rollback.
+            let saved = func.clone();
+            let norm_result = {
+                let _span = tracing::info_span!("normalize_function").entered();
+                crate::aims::normalize::normalize_function(func, contract)
+            };
+
+            if norm_result.was_transformed {
+                did_trmc_transform = true;
+                pre_trmc_func = Some(saved);
+                tracing::debug!(
+                    func = func.name.raw(),
+                    "TRMC rewrite applied, re-running var_reprs and immortals"
+                );
+                continue;
+            }
+
+            break (norm_result, immortals);
+        }
     };
 
     // Intraprocedural analysis → converged state map.
@@ -99,6 +130,10 @@ pub(crate) fn run_aims_pipeline(
         )
     };
 
+    // Step 4a: TRMC semantic soundness verification.
+    let (state_map, trmc_rewrite_survived) =
+        verify_trmc_soundness(func, state_map, did_trmc_transform, pre_trmc_func, config);
+
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
         let _span = tracing::info_span!("realize_rc_reuse").entered();
@@ -112,12 +147,16 @@ pub(crate) fn run_aims_pipeline(
         )
     };
 
-    // Post-emission may_deallocate: true if realization found unmatched
-    // deallocations (FP² Theorem 2 — Section 12.1).
-    let may_deallocate = result.fip_evidence.missed_reuses > 0;
+    // Post-emission missed_reuses count for the second pass (FP² Theorem 2).
+    let missed_reuses = result.fip_evidence.missed_reuses;
 
-    // Step 5a: FIP enforcement verification (Section 12.3).
-    // Cross-checks FipContract against realization evidence.
+    // Step 5a: FIP enforcement pre-check (Section 12.3).
+    // Cross-checks FipContract against realization evidence. At this point,
+    // the contract has optimistic may_deallocate=false from interprocedural
+    // analysis — `CertifiedButHasMissedReuses` mismatches are expected and
+    // will be corrected by the second pass. But structural violations
+    // (`CertifiedButUnboundedStack`, `BoundedExceeded`) are genuine bugs
+    // that should be caught immediately.
     if let Some(contract) = config.contracts.get(&func.name) {
         let fip_errors = crate::aims::verify::fip::verify_fip_contract(
             func.name,
@@ -125,12 +164,20 @@ pub(crate) fn run_aims_pipeline(
             &result.fip_evidence,
         );
         for e in &fip_errors {
-            if cfg!(debug_assertions) {
-                // Debug: hard failure to catch bugs early.
-                tracing::error!("FIP verification failed: {e}");
-                debug_assert!(false, "FIP verification failed: {e}");
-            } else {
-                tracing::warn!("FIP verification: {e}");
+            use crate::aims::verify::fip::FipVerificationError;
+            match e {
+                FipVerificationError::CertifiedButHasMissedReuses { .. } => {
+                    // Expected: may_deallocate is stale (optimistic default).
+                    // Second pass will recompute contract.fip and re-verify.
+                    tracing::debug!("FIP pre-check (will recompute in second pass): {e}");
+                }
+                FipVerificationError::CertifiedButUnboundedStack { .. }
+                | FipVerificationError::BoundedExceeded { .. } => {
+                    // Genuine bug: structural violations are known at
+                    // interprocedural analysis time, not post-emission facts.
+                    tracing::error!("FIP verification failed: {e}");
+                    debug_assert!(false, "FIP verification failed: {e}");
+                }
             }
         }
     }
@@ -160,7 +207,62 @@ pub(crate) fn run_aims_pipeline(
 
     AimsPipelineResult {
         problems,
-        may_deallocate,
+        missed_reuses,
+        was_trmc_rewritten: trmc_rewrite_survived,
+    }
+}
+
+/// Step 4a: TRMC semantic soundness verification.
+///
+/// After analysis converges, verify that context variables are Unique
+/// at all Set sites. On failure, roll back to pre-rewrite function and
+/// re-run analysis on the restored version.
+///
+/// Returns `(state_map, trmc_rewrite_survived)`.
+fn verify_trmc_soundness(
+    func: &mut ArcFunction,
+    state_map: crate::aims::intraprocedural::AimsStateMap,
+    did_trmc_transform: bool,
+    pre_trmc_func: Option<ArcFunction>,
+    config: &AimsPipelineConfig<'_>,
+) -> (crate::aims::intraprocedural::AimsStateMap, bool) {
+    if !did_trmc_transform {
+        return (state_map, false);
+    }
+
+    let _span = tracing::info_span!("verify_trmc_soundness").entered();
+    let errors = crate::aims::normalize::verify::verify_trmc_soundness(func, &state_map);
+    if errors.is_empty() {
+        tracing::debug!(func = func.name.raw(), "TRMC soundness verified");
+        return (state_map, true);
+    }
+
+    for error in &errors {
+        tracing::warn!("{error}");
+    }
+    tracing::warn!(
+        func = func.name.raw(),
+        errors = errors.len(),
+        "TRMC soundness verification failed, rolling back"
+    );
+
+    // Restore pre-rewrite function and re-run analysis.
+    if let Some(original) = pre_trmc_func {
+        *func = original;
+        func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
+        let restored_immortals = detect_immortals(func, config);
+        let restored_regions =
+            crate::aims::normalize::normalize_function(func, None).context_regions;
+        let restored_map = crate::aims::intraprocedural::analyze_function(
+            func,
+            config.classifier,
+            config.contracts,
+            &restored_regions,
+            restored_immortals,
+        );
+        (restored_map, false)
+    } else {
+        (state_map, false)
     }
 }
 
@@ -278,24 +380,26 @@ pub(crate) fn run_aims_pipeline_all(
 
     let mut all_problems = Vec::new();
     let mut total_rc = super::rc_count::RcOpCount::default();
-    // Collect post-emission may_deallocate updates for second-pass application.
-    let mut dealloc_updates: Vec<(Name, bool)> = Vec::new();
+    // Collect post-emission missed_reuses for second-pass FIP recomputation.
+    // Preserves the full count (not just bool) so Bounded(n) contracts can
+    // be re-verified with accurate evidence.
+    let mut reuse_updates: Vec<(Name, usize)> = Vec::new();
+    // Track TRMC-rewritten functions for contract refresh (Bug 2).
+    let mut trmc_rewritten: Vec<Name> = Vec::new();
     for func in functions.iter_mut() {
         let result = run_aims_pipeline(func, &config);
         all_problems.extend(result.problems);
-        dealloc_updates.push((func.name, result.may_deallocate));
+        reuse_updates.push((func.name, result.missed_reuses));
+        if result.was_trmc_rewritten {
+            trmc_rewritten.push(func.name);
+        }
         let rc = super::rc_count::count_rc_ops(func);
         total_rc.inc += rc.inc;
         total_rc.dec += rc.dec;
     }
 
-    // Second pass: update contracts with post-emission may_deallocate facts.
-    // This avoids mutating the config struct during the per-function loop.
-    for (name, may_dealloc) in &dealloc_updates {
-        if let Some(contract) = contracts.get_mut(name) {
-            contract.effects.may_deallocate = *may_dealloc;
-        }
-    }
+    // Second pass: TRMC contract refresh → may_deallocate → FIP.
+    run_second_pass(functions, &mut contracts, &trmc_rewritten, &reuse_updates);
 
     tracing::debug!(
         functions = functions.len(),
@@ -306,6 +410,84 @@ pub(crate) fn run_aims_pipeline_all(
     );
 
     all_problems
+}
+
+/// Second pass: refresh contracts for TRMC-rewritten functions, then
+/// update `may_deallocate` and FIP classifications.
+///
+/// Ordering: (1) TRMC contract refresh, (2) `may_deallocate` update,
+/// (3) FIP recomputation, (4) FIP re-verification.
+fn run_second_pass(
+    functions: &[ArcFunction],
+    contracts: &mut FxHashMap<Name, MemoryContract>,
+    trmc_rewritten: &[Name],
+    reuse_updates: &[(Name, usize)],
+) {
+    // Phase 1: refresh contracts for TRMC-rewritten functions.
+    if !trmc_rewritten.is_empty() {
+        let _span = tracing::info_span!("trmc_contract_refresh").entered();
+        for &name in trmc_rewritten {
+            if let Some(contract) = contracts.get_mut(&name) {
+                contract.effects.has_unbounded_stack = false;
+                tracing::debug!(
+                    func = name.raw(),
+                    "TRMC contract refresh: has_unbounded_stack = false"
+                );
+            }
+        }
+    }
+
+    // Phase 2: update contracts with post-emission may_deallocate facts.
+    {
+        let _span = tracing::info_span!("post_emission_fip_update").entered();
+        let mut downgrades = 0u32;
+        for (name, missed_reuses) in reuse_updates {
+            if let Some(contract) = contracts.get_mut(name) {
+                contract.effects.may_deallocate = *missed_reuses > 0;
+                if crate::aims::verify::fip::recompute_fip_for_may_deallocate(contract) {
+                    downgrades += 1;
+                    tracing::debug!(
+                        func = name.raw(),
+                        "FIP contract downgraded to Never after may_deallocate update"
+                    );
+                }
+            }
+        }
+        if downgrades > 0 {
+            tracing::info!(
+                downgrades,
+                "FIP contracts downgraded after may_deallocate update"
+            );
+        }
+    }
+
+    // Phase 3: re-verify FIP contracts with corrected data.
+    {
+        let _span = tracing::info_span!("post_emission_fip_verify").entered();
+        debug_assert_eq!(
+            functions.len(),
+            reuse_updates.len(),
+            "reuse_updates must match functions 1:1"
+        );
+        for (func, (update_name, missed_reuses)) in functions.iter().zip(reuse_updates.iter()) {
+            debug_assert_eq!(
+                func.name, *update_name,
+                "reuse_updates order must match functions order"
+            );
+            if let Some(contract) = contracts.get(&func.name) {
+                let evidence = crate::aims::realize::FipEvidence {
+                    fip_gates: vec![],
+                    missed_reuses: *missed_reuses,
+                };
+                let fip_errors =
+                    crate::aims::verify::fip::verify_fip_contract(func.name, contract, &evidence);
+                for e in &fip_errors {
+                    tracing::error!("FIP post-recompute verification failed: {e}");
+                    debug_assert!(false, "FIP post-recompute verification failed: {e}");
+                }
+            }
+        }
+    }
 }
 
 /// Apply AIMS ownership annotations to function parameters.

@@ -321,56 +321,6 @@ pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction) -> boo
     }
 }
 
-/// Build the `Let { dst, Var(src) }` alias map for a function.
-///
-/// Maps each Let-alias destination to its immediate source. Used by
-/// [`resolve_alias_root`] to find the canonical RC owner root.
-#[expect(dead_code, reason = "used by TRMC realization (Section 13)")]
-pub(crate) fn build_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
-    let mut map = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                map.insert(*dst, *src);
-            }
-        }
-    }
-    map
-}
-
-/// Resolve `Let { Var }` alias chains to the canonical RC owner root.
-///
-/// Walks alias chains backward to find the original non-alias definition.
-/// Returns `var` itself if it's not a Let alias.
-///
-/// # Example
-///
-/// ```text
-/// %2 = Construct(...)
-/// %0 = %2          ← alias
-/// %6 = %0          ← alias of alias
-/// ```
-///
-/// `resolve_alias_root(%6)` → `%2` (the Construct root).
-#[inline]
-#[expect(dead_code, reason = "used by TRMC realization (Section 13)")]
-pub(crate) fn resolve_alias_root(
-    var: ArcVarId,
-    alias_map: &FxHashMap<ArcVarId, ArcVarId>,
-) -> ArcVarId {
-    let mut current = var;
-    // Cycles are impossible in SSA form.
-    while let Some(&src) = alias_map.get(&current) {
-        current = src;
-    }
-    current
-}
-
 /// Check whether a `Project` instruction has transfer semantics.
 ///
 /// A `Project` with a non-scalar result transfers RC ownership from the

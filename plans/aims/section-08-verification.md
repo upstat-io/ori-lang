@@ -1,9 +1,9 @@
 ---
 section: "08"
 title: "Verification & Validation"
-status: complete
+status: in-progress
 goal: "Prove AIMS correctness via behavioral equivalence, performance comparison, and safety verification"
-depends_on: ["06"]
+depends_on: ["06", "13"]
 sections:
   - id: "08.1"
     title: "Behavioral Equivalence"
@@ -26,17 +26,35 @@ sections:
   - id: "08.5"
     title: "Performance Validation"
     status: complete
+  - id: "08.5a"
+    title: "Cross-System Interaction Test Matrix"
+    status: complete
   - id: "08.6"
     title: "Documentation"
     status: complete
   - id: "08.7"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 ---
 
 # Section 08: Verification & Validation
 
-**Status:** In Progress
+**Status:** Incomplete
+
+**Claim:** AIMS is correct (same behavior), produces equal or fewer RC ops,
+compiles at least as fast, and generates correct code under Valgrind.
+
+**Evidence:** Behavioral equivalence verified via dual-exec. RC counts tracked
+via shadow comparison (now retired). Valgrind clean on synergy programs.
+Compilation speed within noise.
+
+**Missing verification:** Cross-System Interaction Test Matrix (08.5a) is
+not started — 22 interaction cells between AIMS subsystems are unverified.
+TRMC interaction tests (12 of 22 cells) blocked by Section 13 bugs.
+
+**Open contradictions:** None in realized sections. Section 08.5a's absence
+means subsystem boundaries (RC × reuse, TRMC × COW, FIP × contracts) are
+untested as a combined system.
 
 **Goal:** Prove that AIMS is correct (same behavior as current pipeline), produces
 equal or fewer RC operations, achieves equal or fewer allocations, compiles at
@@ -58,9 +76,10 @@ AIMS measurements must be taken from the same git commit, the same build profile
 (`--release` or `--debug`), the same LLVM version, and the same `ori_rt` runtime.
 The **only** permitted difference between the two builds is the `aims` feature
 flag. If any other variable changes between measurements, the comparison is
-**invalid** and must be discarded. The shadow pipeline (`aims-shadow`) enforces
-this structurally: both pipelines execute in the same process, consuming the same
-`ArcFunction` IR, emitting to the same LLVM backend, using the same runtime.
+**invalid** and must be discarded. The shadow pipeline (`aims-shadow`, now retired)
+enforced this structurally during Stage 1: both pipelines executed in the same
+process, consuming the same `ArcFunction` IR, emitting to the same LLVM backend,
+using the same runtime. AIMS is now the sole pipeline.
 (See: [Literature Review §05 — Perceus/OCaml](../aims-literature-review/section-05-perceus-ocaml.md))
 
 **Depends on:** Section 06 (working AIMS pipeline).
@@ -548,6 +567,120 @@ Comprehensive testing across all compiler features.
   emitted a Dec for the alias, double-freeing the same memory. Fix:
   added Return-terminator scan to `detect_consumed_params()`.
 
+---
+
+## 08.5a Cross-System Interaction Test Matrix
+
+**Status:** Not Started
+
+**Depends on:** Section 13 bug fixes (Bugs 1-5) for all TRMC interactions
+(H2, H5, H8, H10, H14, H17-H22). Non-TRMC interactions (H1, H3, H4, H6,
+H9, H11-H13, H15, H16) can proceed independently.
+
+**Why this section exists (2026-03-14 post-mortem):** The Section 13 audit
+revealed that structural-only tests can mask severe behavioral bugs. Matrix
+A/B/C (Section 08.5) successfully caught 5 RC alias/projection bugs because
+they included AOT behavioral tests. But Section 13's TRMC tests had NO
+behavioral layer, and 3 bugs went undetected — one of which miscompiles
+every non-trivial recursive function.
+
+The root cause is that AIMS is a **system of interacting subsystems**, and
+bugs cluster at interaction boundaries, not within individual subsystems.
+Every subsystem (lattice, transfer, intraprocedural, interprocedural, RC
+emission, reuse emission, COW, drop hints, FIP, TRMC, tail-call, verify,
+block-merge) was tested in isolation. The missing coverage is at the
+**cross-system interaction surfaces**.
+
+This matrix defines the required cross-system coverage. Each row is an
+interaction between two or more subsystems that MUST be tested with at
+least one behavioral test (not just structural assertion).
+
+### Matrix H — Full AIMS Cross-System Interaction Coverage
+
+Every cell in this matrix represents an interaction between two AIMS
+subsystems. Cells marked `REQ` need behavioral tests. Cells marked `N/A`
+have no meaningful interaction. Cells marked `DONE` already have coverage
+(reference the test).
+
+**Subsystems (columns/rows):**
+1. **Lattice** (join, canonicalize, transfer)
+2. **Intraprocedural** (backward analysis, convergence)
+3. **Interprocedural** (SCC fixpoint, contracts)
+4. **RC emission** (RcInc/RcDec placement)
+5. **Reuse emission** (Reset/Reuse/IsShared)
+6. **COW annotations** (StaticUnique/Dynamic/StaticShared)
+7. **Drop hints** (unique collection optimization)
+8. **FIP contracts** (Certified/Bounded/Conditional)
+9. **TRMC rewrite** (normalize → loop-header transform)
+10. **Tail-call pass** (recursive call → loop)
+11. **Block merge** (CFG cleanup)
+12. **Verify** (structural consistency)
+
+| | Intra | Inter | RC | Reuse | COW | Drop | FIP | TRMC | TailCall | Merge | Verify |
+|---------|-------|-------|-----|-------|------|------|------|------|----------|-------|--------|
+| **Lattice** | DONE | DONE | DONE | DONE | DONE | REQ | DONE | REQ | N/A | N/A | DONE |
+| **Intra** | — | DONE | DONE | DONE | DONE | REQ | REQ | REQ | N/A | N/A | DONE |
+| **Inter** | — | — | DONE | REQ | REQ | N/A | DONE | REQ | N/A | N/A | DONE |
+| **RC** | — | — | — | DONE | DONE | DONE | REQ | REQ | REQ | REQ | DONE |
+| **Reuse** | — | — | — | — | REQ | REQ | DONE | REQ | N/A | REQ | DONE |
+| **COW** | — | — | — | — | — | N/A | REQ | REQ | N/A | DONE | DONE |
+| **Drop** | — | — | — | — | — | — | N/A | REQ | N/A | DONE | DONE |
+| **FIP** | — | — | — | — | — | — | — | REQ | N/A | N/A | DONE |
+| **TRMC** | — | — | — | — | — | — | — | — | REQ | REQ | REQ |
+| **TailCall** | — | — | — | — | — | — | — | — | — | DONE | DONE |
+| **Merge** | — | — | — | — | — | — | — | — | — | — | DONE |
+
+**REQ cells requiring new tests (22 interactions):**
+
+| ID | Interaction | Test scenario | Expected behavior | Failure mode |
+|----|-------------|---------------|-------------------|-------------|
+| H1 | Lattice × Drop | `Unique + CollectionBuffer` at RcDec point → drop hint | Drop hint present for unique list dec | Missing drop hint; generic rc_dec instead of buffer_drop_unique |
+| H2 | Lattice × TRMC | Canonicalize Rule 4 (`BlockLocal+Owned+Once→Unique`) fires on context var in TRMC loop | Context var is StaticUnique for in-place Set | Dynamic COW check on provably-unique context var |
+| H3 | Intra × Drop | Backward analysis cardinality `Once` → dead at specific point → RcDec with drop hint for unique collection | Drop hint at precise death point, not at function exit | Drop hint at wrong point; collection freed too early or too late |
+| H4 | Intra × FIP | Analysis converges with `fip_token_balanced==true` for alloc-balanced function → FipContract::Certified | Contract extraction reads balanced flag correctly | FIP Never despite balanced function (flag not read) |
+| H5 | Intra × TRMC | Analysis reconverges on TRMC-rewritten IR (loop back-edge creates cycle in dataflow) | Convergence within bound; context vars get Unique+FunctionLocal | Non-convergence; widened to TOP; or incorrect Shared uniqueness |
+| H6 | Inter × Reuse | Callee contract says `Unique` return → caller reuses the return value | Static reuse (no IsShared) on callee return value | Dynamic reuse or no reuse; callee's uniqueness guarantee wasted |
+| H7 | Inter × COW | Callee contract `may_share==false` → caller COW after call is StaticUnique | StaticUnique COW mode post-call | Dynamic COW mode; caller doesn't trust callee purity |
+| H8 | Inter × TRMC | Callee is TRMC-rewritten → caller sees refreshed contract | Caller uses `has_unbounded_stack=false`, updated FipContract | Stale pre-rewrite contract (Bug 2 from Section 13) |
+| H9 | RC × FIP | FIP Certified function has zero RcInc; all RcDec matched by reuse | RC count == 0 for Certified functions | Unmatched RcDec; FIP claim contradicted by emitted RC |
+| H10 | RC × TRMC | RcInc/RcDec correct for context vars in TRMC loop body | Context root: no RcDec until base case; context hole_obj: Set only | Double-free on context root; or leak (missing RcDec at base case) |
+| H11 | RC × TailCall | Tail-call rewrite removes self-call; RC emission sees loop back-edge, not call | No RcInc at former call site; args transferred via Jump | Phantom RcInc for non-existent call; or missing dec for transferred arg |
+| H12 | RC × Merge | Block merge doesn't invalidate RC operations placed by emission | RcInc/RcDec positions survive merge; trampoline blocks cleaned up correctly | Merge deletes block containing RcDec; or reorders Dec before Inc |
+| H13 | Reuse × Drop | Reuse candidate dead at point where drop hint would apply → reuse takes priority over drop | Reset/Reuse emitted; no drop hint (reuse subsumes the free) | Both drop hint AND reuse for same death; double action |
+| H14 | Reuse × TRMC | Pattern match in TRMC-rewritten loop: scrutinee death + same-type construct → reuse | Static reuse inside the TRMC loop body | Reuse detection misses death events in rewritten blocks |
+| H15 | Reuse × Merge | Reuse instructions (Reset/Set/Reuse) survive block merge | Instructions present in post-merge IR | Merge deletes or reorders reuse instructions |
+| H16 | COW × FIP | FIP Certified function: all COW ops are StaticUnique (auto-FBIP) | `is_auto_fbip()` returns true; no Dynamic COW operations | Dynamic COW in FIP function; auto-FBIP missed |
+| H17 | COW × TRMC | COW mutation in TRMC loop body on context var → StaticUnique | Context var is unique by construction; StaticUnique COW | Dynamic COW on context var (uniqueness not propagated through loop) |
+| H18 | Drop × TRMC | RcDec on context root at base-case return → drop hint if collection type | Drop hint present (context root is unique by construction) | Missing drop hint; generic rc_dec path |
+| H19 | FIP × TRMC | Alloc-balanced function before TRMC: Never (unbounded stack). After TRMC: Certified (constant stack) | Contract upgrades from Never to Certified post-rewrite | Stale Never contract; FIP opportunity missed |
+| H20 | TRMC × TailCall | TRMC produces loop back-edge; tail-call pass runs after; must not double-loopify | No residual self-calls; single loop header; clean back-edge | Double loop-lowering; broken back-edge args; extra trampoline |
+| H21 | TRMC × Merge | TRMC prologue→header→helper topology survives merge | Prologue retained (or inlined correctly); context init preserved | Merge eliminates prologue; context init lost; undefined vars |
+| H22 | TRMC × Verify | Verify pass checks rewritten IR: no undefined vars, no unreachable blocks, RC balanced | Verify passes cleanly on TRMC-rewritten function | Verify catches Bug 3 (undefined context vars in helper blocks) |
+
+### Matrix I — Cross-System Assertion Strategy
+
+For each REQ cell in Matrix H, tests must exist at **all three layers**:
+
+| Layer | Purpose | Location |
+|-------|---------|----------|
+| **ARC unit** | Test the decision/state at the interaction boundary (fast, isolated) | `aims/realize/tests.rs`, `aims/normalize/tests.rs`, `aims/intraprocedural/tests.rs` |
+| **AOT behavioral** | End-to-end: Ori source → compile → run → correct output (catches codegen bugs invisible to unit tests) | `ori_llvm/tests/aot/arc.rs` |
+| **Valgrind/leak** | Memory safety: no leaks, no double-frees, no use-after-free (catches RC bugs invisible to behavioral tests) | `tests/valgrind/`, `ORI_CHECK_LEAKS=1` |
+
+A test that exists at only ONE layer is insufficient — Section 13 proved
+this: all structural unit tests passed while the behavioral layer would
+have caught Bug 1 immediately.
+
+### Implementation priority
+
+1. **TRMC interactions (H2, H5, H8, H10, H14, H17-H22)** — blocked by Bug 1-3 fixes
+2. **FIP interactions (H4, H9, H16, H19)** — requires TRMC fixes for H19
+3. **Reuse × downstream (H6, H13, H15)** — independent of TRMC
+4. **Drop hint interactions (H1, H3, H18)** — independent of TRMC
+5. **RC × pass interactions (H11, H12)** — independent, low risk
+
+---
+
 - [x] **Memory usage:**
   Results (2026-03-11): bench_medium peak RSS: old=80,400 KB, AIMS=80,400 KB (0%
   difference). This is a small program; the 80MB is mostly LLVM/compiler overhead.
@@ -671,9 +804,19 @@ Comprehensive testing across all compiler features.
 - [x] Same-compiler comparison methodology applied (Exploring Perceus for OCaml doctrine).
   All comparisons use same compiler, same frontend, same LLVM — only ARC pipeline differs.
 
+### Cross-System Interaction Matrix (08.5a)
+- [ ] Matrix H: All 22 REQ interactions have tests at all 3 layers (ARC unit + AOT + Valgrind)
+- [ ] Matrix I: Assertion strategy verified — no interaction tested at only one layer
+- [ ] TRMC interactions (H2, H5, H8, H10, H14, H17-H22): blocked by Section 13 bug fixes
+- [ ] FIP interactions (H4, H9, H16, H19): requires Section 13 bug fix for H19
+- [ ] Reuse × downstream (H6, H13, H15): independent tests written
+- [ ] Drop hint interactions (H1, H3, H18): independent tests written
+- [ ] RC × pass interactions (H11, H12): independent tests written
+
 **Exit Criteria:** Every verification step above passes. The AIMS pipeline is
 demonstrably correct (same behavior), demonstrably at least as efficient as the
 old pipeline (RC ops ≤ old for every program post-Stage 1D; allocation count
 tracked directionally as a secondary metric, not a universal gate), and
-demonstrably maintainable (less code, cleaner architecture). At this point, the
-old pipeline can be deleted and AIMS becomes the sole ARC analysis path.
+demonstrably maintainable (less code, cleaner architecture). Every cross-system
+interaction in Matrix H has behavioral coverage at all 3 test layers. No
+subsystem is tested in isolation only.

@@ -144,10 +144,10 @@ them to the layout the LLVM emitter expects.
 The core analysis loop: iterate backward over blocks in reverse postorder until
 fixed-point convergence.
 
-- [x] Implement `analyze_function(func, classifier, sigs, context_regions) -> AimsStateMap`
-  in `compiler/ori_arc/src/aims/intraprocedural/mod.rs`. Marks scalar variables,
-  computes postorder, iterates worklist until convergence or safety net triggers.
-  Also created `contract.rs` with minimal `MemoryContract`, `ParamContract`,
+- [x] Implement `analyze_function(func, classifier, sigs, context_regions, immortals) -> AimsStateMap`
+  in `compiler/ori_arc/src/aims/intraprocedural/mod.rs`. Marks scalar and immortal
+  variables, computes postorder, iterates worklist until convergence or safety net
+  triggers. Also created `contract.rs` with minimal `MemoryContract`, `ParamContract`,
   `ReturnContract`, and `ContextRegion` types for the API signature.
 
 - [x] Implement worklist with change tracking (avoid re-analyzing blocks whose
@@ -457,8 +457,8 @@ analysis.
 - [x] Scalar variables short-circuited (never analyzed)
 - [x] State map queryable by emission passes
 - [x] Sparse event table records reusable allocation candidates
-- [x] Sparse event table records local-allocation eligibility (v1: conservative)
-- [x] Sparse event table records FIP gates (blocked by Stage 2: Section 03 FipContract extension)
+- [x] Sparse event table records local-allocation eligibility (conservative)
+- [x] Sparse event table records FIP gates (enabled after Section 09/12 FipContract activation)
 - [x] Constructor-context events recorded when normalize/ pass has run (2026-03-13)
 - [x] All 10 validation corpus tests pass with expected cardinality at key points
 

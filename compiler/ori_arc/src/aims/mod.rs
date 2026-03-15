@@ -15,7 +15,8 @@
 //! - [`builtins`] — hardcoded contracts for builtin methods
 //! - [`emit_rc`] — RC emission helpers (submodules used by `realize/`)
 //! - [`emit_reuse`] — reuse emission helpers (submodules used by `realize/`)
-//! - [`normalize`] — Stage 3: TRMC normalization (detection + context metadata)
+//! - [`normalize`] — Stage 3a: TRMC normalization (detection, lifting,
+//!   rewriting, and verification)
 //! - [`realize`] — unified realization (two-phase decision surface)
 
 pub mod builtins;

@@ -111,22 +111,6 @@ pub fn infer_borrows_scc(
     all_sigs
 }
 
-/// Apply borrow inference results back to `ArcFunction` parameters.
-///
-/// Updates each function's `ArcParam::ownership` in-place based on the
-/// annotated signatures produced by [`infer_borrows_scc`]. This is the bridge
-/// between analysis (Section 06.2) and downstream passes (Section 07).
-#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
-pub fn apply_borrows(functions: &mut [ArcFunction], sigs: &FxHashMap<Name, AnnotatedSig>) {
-    for func in functions {
-        if let Some(sig) = sigs.get(&func.name) {
-            for (param, annotated) in func.params.iter_mut().zip(&sig.params) {
-                param.ownership = annotated.ownership;
-            }
-        }
-    }
-}
-
 /// NEVER CALLED. Exists solely so that Rust's exhaustive match checker
 /// forces updates to this crate when a new `TypeTag` variant is added.
 /// If you see a compile error pointing here, a new `TypeTag` was added

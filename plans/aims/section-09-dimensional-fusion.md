@@ -27,7 +27,7 @@ sections:
 
 # Section 09: Dimensional Fusion
 
-**Status:** Not Started
+**Status:** Complete
 
 **Goal:** Transform AIMS from "7 dimensions sharing a struct with post-hoc consistency
 checks" into "7 dimensions reasoning as one team where each dimension actively
@@ -360,7 +360,8 @@ optimizations where "used once" (future) is mistakenly treated as "sole referenc
 **File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`,
 `compiler/ori_arc/src/aims/lattice/dimensions.rs`,
 `compiler/ori_arc/src/aims/transfer/mod.rs`,
-`compiler/ori_arc/src/aims/interprocedural.rs`
+`compiler/ori_arc/src/aims/interprocedural/mod.rs`,
+`compiler/ori_arc/src/aims/interprocedural/extract.rs`
 
 Currently, locality, effect, and shape are set during transfer and read during
 emission but never influence other dimensions. This subsection activates each one.
@@ -982,7 +983,7 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
   Contract extraction propagates locality_bound for interprocedural reasoning.
 - [x] Locality: ALL 5 sync locations verified (see sync note in 09.2):
   1. contract/mod.rs: `ParamContract.locality_bound` field ✓
-  2. interprocedural.rs: `extract_contract()` reads `state.locality` ✓
+  2. interprocedural/extract.rs: `extract_contract()` reads `state.locality` ✓
   3. builtins/mod.rs: defaults set `locality_bound: Unknown` ✓
   4. arg_ownership.rs: field exists but not yet consumed during emission —
      locality-driven RC-skip at call boundaries deferred to Effect Activation (09.2)
@@ -1006,7 +1007,7 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
   Verified: apply_callee_contract() (block.rs:388-425) with Marshall et al. soundness
   justification. Test: pure_callee_preserves_borrowed_arg_uniqueness (intraprocedural/tests.rs).
 - [x] Effect: alloc-balanced + NONE → FIP-natural detected without separate pass
-  Verified: interprocedural.rs:242-261 — extract_contract() infers FipContract from
+  Verified: interprocedural/extract.rs  — extract_contract() infers FipContract from
   converged state: FBIP→Certified, balanced+no-share→Certified, net>0→Bounded(n), else→Never.
   No separate FIP pass needed — natural detection from existing analysis.
 - [x] Effect: `fip_token_balanced` tracking added to analyze_function() return value
@@ -1024,11 +1025,12 @@ iteration N triggers re-evaluation of related dimensions on iteration N+1.
 - [x] Effect: `FipContract::Bounded(u16)` variant added for functions with bounded
   net allocation (FIPTree's `fip(n)` pattern)
   Verified: contract/mod.rs:400-406 (enum variant), lines 414-446 (join with max allocation
-  count). Now inferred from analysis: interprocedural.rs:250-258 emits Bounded(n) when
+  count). Now inferred from analysis: interprocedural/extract.rs  emits Bounded(n) when
   net allocation > 0 and may_share==false.
 - [x] Effect: `is_fbip: bool` inferred metadata on MemoryContract (does NOT replace
   `#fbip` enforcement or change `is_auto_fbip()` — see 09.2 Effect Activation note)
-  Verified: contract/mod.rs:46-53 (field + doc), interprocedural.rs:236-238 (`!effects.may_allocate`),
+  
+  Verified: contract/mod.rs (field + doc), interprocedural/extract.rs (`!effects.may_allocate`),
   join: AND (both sides must be FBIP). Convergence via optimistic initialization (true).
 - [x] Effect: EffectSummary precise in MemoryContract
   (extract_contract reads state_map.effect_summary() populated by populate_effect_summary)
@@ -1126,7 +1128,7 @@ be updated atomically (same commit):
   7. Locality→Uniqueness: Rule 6 (HeapEscaping→MaybeShared) — lattice/mod.rs:331
   8. Locality→Effect: Construct dst locality>BlockLocal→may_share — block.rs:448
   9. Effect→Uniqueness: may_share at call sites→MaybeShared for borrowed args — block.rs:405
-  10. Effect→FIP→Uniqueness: may_allocate=false→Certified→reuse upgrades — interprocedural.rs:502
+  10. Effect→FIP→Uniqueness: may_allocate=false→Certified→reuse upgrades — interprocedural/extract.rs 
   11. Shape→Uniqueness: CollectionBuffer+Once overrides MaybeShared COW — emit_rc/cow.rs
   12. Shape→reuse gating: NonReusable skips reuse entirely — emit_reuse/detect.rs:103
   13. Consumption→Access: Dead/Absent→arg ownership Borrowed — emit_rc/arg_ownership.rs:53

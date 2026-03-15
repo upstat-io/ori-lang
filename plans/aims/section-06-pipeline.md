@@ -8,7 +8,7 @@ inspired_by:
 depends_on: ["04", "05"]
 sections:
   - id: "06.1"
-    title: "Feature-Flagged Dual Pipeline"
+    title: "Pipeline Entry Points"
     status: complete
   - id: "06.2"
     title: "New Pipeline Flow"
@@ -23,185 +23,70 @@ sections:
 
 # Section 06: Pipeline Integration
 
-**Status:** Complete
-**Goal:** Replace the ~15 analysis/emission steps in `pipeline/mod.rs` with the
-unified AIMS analysis + emission, behind a feature flag for safe comparison.
-Once validated, remove the old passes.
+**Status:** Incomplete
 
-**Context:** The current `run_arc_pipeline_all` orchestrates interprocedural analysis
-(borrow inference, uniqueness analysis) plus per-function processing including
-~15 steps in a specific load-bearing order (var_reprs, derived ownership, liveness,
-COW annotation, RC insertion, edge cleanup, dom/post-dom rebuild, second liveness,
-reset/reuse, expand, RC identity, RC elimination, tail call, block merge, drop hints,
-FBIP). AIMS collapses the analysis and RC emission portion into fewer steps:
-interprocedural analysis → apply ownership → arg ownership → intraprocedural analysis
-→ RC emission → reuse emission → COW annotations. The remaining steps (var_reprs,
-verify, tail_call, block_merge, drop_hints, FBIP) are unchanged.
+**Claim:** AIMS is the sole pipeline. `run_arc_pipeline_all()` calls AIMS
+directly. The `aims` feature flag, `aims-shadow` feature, shadow/ directory,
+and feature dispatch are deleted.
+
+**Evidence:** `pipeline/mod.rs` calls `aims_pipeline::run_aims_pipeline_all()`
+unconditionally. No `#[cfg(feature = "aims")]` exists in the codebase. The
+`shadow/` directory does not exist.
+
+**Missing verification:** This section's body still describes the migration
+process (feature flags, shadow comparison, staged cutover gates) as if it
+were the current model. The body text must be rewritten to describe the
+current system, not the migration that produced it.
+
+**Open contradictions:** Section body describes `--features aims` testing,
+`aims-shadow` implementation, and "physical deletion deferred until shadow
+retirement" — none of which reflect reality.
+
+**Goal:** AIMS is wired into `pipeline/mod.rs` as the sole pipeline.
+`run_arc_pipeline_all()` calls AIMS directly.
 
 **Depends on:** Sections 04, 05 (RC and reuse emission).
 
 ---
 
-## 06.1 Feature-Flagged Dual Pipeline
+## 06.1 Pipeline Entry Points (Current State)
 
 **File(s):** `compiler/ori_arc/src/pipeline/mod.rs`
 
-During development, both pipelines coexist behind a feature flag.
+AIMS is the sole pipeline. No feature flags, no dual paths, no shadow
+comparison. The migration machinery (feature flags, shadow comparison,
+staged cutover) has been deleted.
 
-- [x] Add `aims` feature to `ori_arc/Cargo.toml`
-- [x] **Forward `aims` feature through dependent crates** (required — without this, the
-  feature flag has no effect on the actual compilation pipeline):
-  - `ori_llvm/Cargo.toml`: add `aims` feature forwarding `ori_arc/aims`:
-    ```toml
-    [features]
-    aims = ["ori_arc/aims"]
-    ```
-  - `oric/Cargo.toml`: add `aims` feature forwarding through `ori_llvm` and `ori_arc`:
-    ```toml
-    [features]
-    default = ["llvm"]
-    llvm = ["dep:ori_llvm", "dep:ori_arc"]
-    aims = ["ori_arc/aims", "ori_llvm?/aims"]
-    ```
-  - The `?` syntax on `ori_llvm?/aims` ensures `aims` only activates on `ori_llvm`
-    when `llvm` is also enabled (since `ori_llvm` is optional).
+- [x] `run_arc_pipeline_all()` calls `aims_pipeline::run_aims_pipeline_all()` directly
+- [x] `run_arc_pipeline()` calls `aims_pipeline::run_aims_pipeline()` directly
+- [x] `run_uniqueness_analysis()` returns empty map (compatibility stub)
+- [x] `compute_aims_contracts()` runs interprocedural analysis and applies ownership
+- [x] `aims` feature flag deleted from all Cargo.toml files
+- [x] `aims-shadow` feature flag deleted
+- [x] `pipeline/shadow/` directory deleted
+- [x] No `#[cfg(feature = "aims")]` anywhere in the codebase
+- [x] **Legacy dead code deletion:** Deleted truly dead legacy RC insertion
+  code replaced by AIMS `realize_rc_reuse()`. Removed: `apply_borrows()`,
+  `insert_rc_ops_with_ownership()`, `insert_rc_ops()`, `block_rc.rs`,
+  `edge_cleanup.rs`, `insert.rs`, and 3 dead test helpers. (2026-03-14)
 
-- [x] **Update all pipeline entry points** — there are THREE call sites, not just
-  `run_arc_pipeline_all`:
-  1. `ori_arc::run_arc_pipeline_all()` — called by `oric/src/arc_dot/mod.rs` and
-     `oric/src/arc_dump/mod.rs` (batch path)
-  2. `ori_arc::run_arc_pipeline()` — called DIRECTLY by `ori_llvm` at
-     `codegen/function_compiler/define_phase.rs:279` (per-function AOT) and
-     `:370` (per-lambda AOT)
-  3. `ori_arc::run_uniqueness_analysis()` — called DIRECTLY by `ori_llvm` at
-     `evaluator/compile.rs:166` (JIT) and `oric` at
-     `commands/codegen_pipeline.rs:320` (AOT)
+  **Remaining legacy modules (still live — NOT dead):**
+  - `borrow/`: `BuiltinOwnershipSets`, `infer_borrows_scc`, `infer_borrow_single`,
+    `infer_borrow_fixed_point`, `extract_callees` — all actively called by
+    Salsa queries (`oric`), JIT test runner, and the AIMS pipeline itself.
+  - `liveness/`: `compute_refined_liveness()` called by FBIP enforcement in
+    the AIMS pipeline.
+  - `rc_insert/`: Only `annotate_arg_ownership()` remains — called by AIMS
+    arg ownership emission (`aims/emit_rc/arg_ownership.rs`).
+  - `uniqueness/`: All types live — `CowAnnotations` and `DropHints` are
+    fields on `ArcFunction`, `UniquenessSummary` consumed by `ori_llvm`.
+  - `ownership/`: `AnnotatedSig`, `Ownership`, `DerivedOwnership` — shared
+    type vocabulary for the ARC/LLVM interface.
 
-  All three functions branch on `#[cfg(feature = "aims")]` internally.
-  `run_arc_pipeline` and `run_arc_pipeline_all` dispatch to
-  `aims_pipeline::run_aims_pipeline` / `run_aims_pipeline_all`.
-  `run_uniqueness_analysis` remains unchanged (callers still pass summaries
-  to `run_arc_pipeline`, which ignores them when AIMS is active).
-
-  
-- [x] **FOURTH entry point: `annotate_arg_ownership()`** — called directly by `ori_llvm`
-  at `define_phase.rs:272` and `:363` BEFORE `run_arc_pipeline()`. The AIMS pipeline
-  replaces this with `aims::emit_arg_ownership()` (step 4 in Section 06.2). The
-  `#[cfg(feature = "aims")]` branch is INSIDE `annotate_arg_ownership` (no-op when
-  aims is active). Legacy helpers gated behind `#[cfg(not(feature = "aims"))]`.
-
-  **FIFTH concern: `ori_llvm` FunctionCompiler direct ownership write.**
-  `process_arc_function()` in `define_phase.rs:259-262` directly sets
-  `ArcParam.ownership` from `AnnotatedSig` BEFORE calling `annotate_arg_ownership`
-  or `run_arc_pipeline`. Gated with `#[cfg(not(feature = "aims"))]` — when AIMS is
-  active, the batch path sets ownership in step 2 via `apply_aims_ownership()`,
-  and the per-function path uses empty contracts (conservative all-owned).
-
-  Public API functions requiring `#[cfg(feature = "aims")]` branching:
-  1. `run_arc_pipeline()` — per-function pipeline
-  2. `run_arc_pipeline_all()` — batch pipeline
-  3. `run_uniqueness_analysis()` — interprocedural uniqueness
-  4. `annotate_arg_ownership()` — per-call-site ownership annotation
-  5. `ori_llvm` `FunctionCompiler::process_arc_function()` — direct
-     `ArcParam.ownership` write (gate or overwrite)
-
-- [x] In `run_arc_pipeline`, branch on feature flag:
-  
-  ```rust
-  #[cfg(feature = "aims")]
-  {
-      // AIMS per-function pipeline
-      // Interprocedural signatures already computed by caller
-      // (run_arc_pipeline_all or ori_llvm FunctionCompiler)
-      func.var_reprs = ir::compute_var_reprs(func, classifier, pool);  // step 3
-      aims::emit_arg_ownership(func, &aims_contracts, builtins, interner, pool);  // step 4
-      let state_map = aims::analyze_function(func, classifier, &aims_contracts);  // step 5
-      aims::emit_rc_ops(func, &state_map, &aims_contracts, classifier);  // step 6
-      aims::emit_reuse(func, &state_map, classifier, pool);  // step 7
-      // step 8: reserved (COW annotations moved to after block_merge)
-      verify(func);  // step 9
-      detect_and_rewrite_tail_calls(func);  // step 10
-      merge_blocks(func);  // step 11
-      aims::emit_cow_annotations(func, &state_map);  // step 11a — after merge
-      aims::emit_drop_hints(func, &state_map);  // step 12 — after merge
-      verify(func);  // step 13
-      // step 14: fbip enforcement — unchanged
-  }
-
-  #[cfg(not(feature = "aims"))]
-  {
-      // Current pipeline (unchanged)
-      // ... existing analysis passes ...
-  }
-  ```
-
-- [x] In `run_arc_pipeline_all` and `run_uniqueness_analysis`, branch similarly
-  so the batch path uses AIMS interprocedural analysis.
-
-- [x] **Testing with feature flag** — verified:
-  - `cargo test --workspace --features aims` — all pass (893 ori_arc, 1252 AOT, etc.)
-  - `cargo build --features aims && ./target/debug/ori test tests/spec/` — 3389 passed, 0 failed
-  - `cargo test -p ori_llvm --features aims` — 1252 passed, 0 failed
-  - `cargo clippy --workspace --features aims` — clean (warnings only, no errors)
-  - LLVM release spec tests: deferred until release build is tested
-  - Consider adding an `aims` variant to `test-all.sh` later once the pipeline is stable
-- [x] Add CI job for `--features aims` (initially allowed to fail)
-  Added `test-aims` job to `.github/workflows/ci.yml` with `continue-on-error: true`.
-  Runs clippy, Rust unit tests, Ori spec tests, and LLVM AOT tests — all with
-  `--features aims`. Depends on format/clippy gates. (2026-03-10)
-- [x] **Shadow comparison reporting (Stage 1A)**:
-  Implemented via `aims-shadow` feature flag (`ori_arc/Cargo.toml`,
-  `ori_llvm/Cargo.toml`, `oric/Cargo.toml`). The `aims-shadow` feature
-  depends on `aims` in `ori_arc` (both pipelines compile) but NOT in
-  `ori_llvm`/`oric` (those use legacy behavior in shadow mode).
-
-  **Implementation:** `compiler/ori_arc/src/pipeline/shadow.rs` with
-  `run_shadow_pipeline_all()` as the entry point. Pipeline:
-  1. AIMS analysis (read-only) on unmodified functions
-  2. Legacy pipeline (mutating) — actual output
-  3. Compare AIMS predictions against legacy results
-  4. Log via `tracing::info!`/`tracing::warn!`
-
-  **Comparison dimensions:**
-  - Param ownership: AIMS `ParamContract.access` vs legacy `ArcParam.ownership`
-  - Return uniqueness: AIMS `ReturnContract.uniqueness` vs legacy `UniquenessSummary.return_val`
-  - COW annotations: count-based StaticUnique comparison (avoids positional key mismatch)
-
-  **Types:** `DimensionResult` (Match/Improvement/Regression/Skipped),
-  `FunctionComparison`, `ShadowComparisonReport` — all `pub(crate)`.
-
-  **Gate criterion:** Zero regressions (AIMS weaker than legacy).
-  Improvements expected and logged. Unit tests in `shadow/tests.rs`.
-
-  **Isolation guarantee** (plan note for `pipeline/shadow.rs` module doc):
-  The shadow pipeline enforces confounding-variable isolation structurally.
-  Both pipelines consume the **same `ArcFunction` IR** (produced by the same
-  lowering pass), emit to the **same LLVM backend**, and use the **same `ori_rt`
-  runtime**. The only variable that differs is the analysis and RC emission
-  logic — legacy multi-pass vs AIMS unified lattice. This means any difference
-  in output (RC counts, ownership decisions, COW annotations) is attributable
-  solely to the analysis strategy, not to differences in input IR, backend, or
-  runtime. This is the structural realization of the Perceus/OCaml evaluation
-  doctrine (Section 08.1).
-  (See: [Literature Review §05 — Perceus/OCaml](../aims-literature-review/section-05-perceus-ocaml.md))
-
-  **Dispatch:** `run_arc_pipeline_all()` dispatches to shadow when
-  `aims-shadow` is active, pure AIMS when `aims` without `aims-shadow`,
-  legacy otherwise. `run_arc_pipeline()` uses legacy in shadow mode
-  (shadow comparison runs only in the batch path).
-
-**Migration rules:**
-1. Introduce new AIMS-backed implementations behind compatibility wrappers.
-2. Keep old public names valid during migration.
-3. Convert all call sites only after both backends are feature-selectable.
-
-**Required feature plumbing:**
-- `aims` feature on `ori_arc/Cargo.toml`
-- Forwarding `aims` feature on `ori_llvm/Cargo.toml` → `ori_arc/aims`
-- Forwarding `aims` feature on `oric/Cargo.toml` → `ori_arc/aims`, `ori_llvm?/aims`
-- Update `test-all.sh` to support AIMS feature selection (or document manual commands)
-
-Without this, verification instructions in Section 08 are not executable.
+  Full type migration to `aims/` would require replacing the borrow inference
+  pipeline with AIMS-native equivalents and updating all external consumers.
+  This is out of scope for the AIMS plan — the types are correct and actively
+  used; they are not "legacy" in the sense of being stale or wrong.
 
 ---
 
@@ -209,71 +94,46 @@ Without this, verification instructions in Section 08 are not executable.
 
 **File(s):** `compiler/ori_arc/src/pipeline/mod.rs`, `compiler/ori_arc/src/pipeline/aims_pipeline.rs`
 
-The AIMS pipeline is dramatically simpler:
+The AIMS pipeline after unified realization (Section 10):
 
 ```
  Interprocedural (once across all functions):
- 1. aims::analyze_program()           — NEW (interprocedural contracts — replaces
-                                         infer_borrows_scc + run_uniqueness_analysis)
- 2. aims::apply_ownership()           — NEW (populate ArcParam.ownership on each
-                                         function — replaces apply_borrows)
+ 1. aims::analyze_program()           — MemoryContract per function (SCC fixpoint)
+ 2. aims::apply_ownership()           — populate ArcParam.ownership
 
- Per-function:
- 3. compute_var_reprs()               — KEEP (fill ValueRepr per var)
-3a. aims::normalize_function()        — NEW Stage 3 (TRMC normalization, constructor
-                                         context extraction — no-op in Stage 1).
-                                         Returns `NormalizationResult { was_transformed: bool,
-                                         context_metadata: Vec<ContextRegion> }`.
-                                         In Stage 1: returns `{ false, vec![] }`.
-                                         The analysis (step 5) checks `was_transformed`:
-                                         if false, skips all constructor-context event tracking.
-                                         This avoids any overhead from TRMC in Stage 1.
- 4. aims::emit_arg_ownership()        — NEW (populate arg_ownership on Apply/Invoke
-                                         — replaces annotate_arg_ownership)
- 5. aims::analyze_function()          — NEW (per-function state map — replaces
-                                         infer_derived_ownership + compute_refined_liveness
-                                         + cow_annotations computation)
- 6. aims::emit_rc_ops()               — NEW (insert RcInc/RcDec — replaces
-                                         rc_insert + rc_identity + rc_elim)
- 7. aims::emit_reuse()                — NEW (insert Reset/Reuse/IsShared — replaces
-                                         detect_reset_reuse_cfg + expand_reset_reuse)
- 8. (no-op — COW annotations are at step 11a, AFTER block_merge)
- 9. verify()                          — KEEP (sanity checks)
-10. detect_tail_calls() + rewrite()   — KEEP (tail call → loop)
-                                         NOTE: This pass performs the actual tail-call-to-loop
-                                         rewrite on the IR. It is independent of the "tail-call
-                                         preservation" check in Section 03 (interprocedural), which
-                                         is a syntactic check during analysis (Apply whose dst is
-                                         immediately returned) used for contract refinement.
-11. merge_blocks()                    — KEEP (CFG cleanup)
-11a. aims::emit_cow_annotations()     — NEW (derive CowAnnotations by combining
-                                         per-variable uniqueness facts (from analysis,
-                                         keyed by ArcVarId) with post-merge IR positions.
-                                         A packaging step, not a second analysis. Runs
-                                         AFTER block_merge. Identifies COW operations
-                                         by function name, not position.)
-12. aims::emit_drop_hints()           — NEW (derive DropHints by combining per-variable
-                                         uniqueness facts with post-merge RcDec positions.
-                                         A packaging step, not a second analysis. Replaces
-                                         compute_drop_hints. Must run AFTER block_merge.)
-13. verify()                          — KEEP (final sanity check)
-14. fbip enforcement                  — KEEP (separate read-only diagnostic
-                                         pass on final IR — check_fbip_enforcement
-                                         + is_auto_fbip, unchanged from current)
+ Per-function (steps 3–12):
+ 3. compute_var_reprs()               — fill ValueRepr per variable
+3a. aims::normalize_function()        — TRMC normalization (detection, lifting,
+                                         rewriting, verification). Returns
+                                         NormalizationResult { was_transformed,
+                                         context_regions }. If was_transformed,
+                                         re-runs from step 3 (idempotent, at most 2 iterations).
+ 4. aims::analyze_function()          — backward dataflow → converged AimsStateMap
+ 5. aims::realize_rc_reuse()          — Phase 1: arg_ownership + RC + reuse (pre-merge)
+5a. aims::verify::fip::verify_fip_contract() — FIP enforcement verification
+ 6. verify()                          — ARC IR sanity check
+ 7. run_aims_verify()                 — AIMS contract vs IR consistency
+ 8. detect_tail_calls() + rewrite()   — tail call → loop
+ 9. merge_blocks()                    — CFG cleanup
+10. aims::realize_annotations()       — Phase 2: COW + drop hints (post-merge)
+11. verify()                          — final sanity check
+12. FBIP enforcement                  — read-only diagnostic
 ```
 
-That is 14 steps total (2 interprocedural + 12 per-function), replacing the
-current ~22 steps. Steps 1-8 replace ~15 analysis/emission steps.
+That is 12 per-function steps (down from Stage 1's 14), with two-phase realization
+replacing four separate emission passes.
 
 - [x] Implement `run_aims_pipeline_all()` as **internal implementation** called from
-  within `run_arc_pipeline_all()` when `#[cfg(feature = "aims")]` is active:
+  within `run_arc_pipeline_all()` (originally gated by `#[cfg(feature = "aims")]`,
+  now the sole pipeline):
   - Step 1: Compute `MemoryContract` for all functions via `aims::analyze_program()`
   - Step 2: Apply ownership to function parameters via `aims::apply_ownership()`:
     This sets `ArcParam.ownership` on each `ArcFunction.params[i]` based on the
     computed `MemoryContract.params[i].access`. Replaces `borrow::apply_borrows()`.
     **Must happen before per-function processing** because the LLVM emitter reads
     `ArcParam.ownership` from the function signature.
-  - Step 3: Per-function loop calling `run_aims_pipeline()` (steps 3-14)
+  
+  - Step 3: Per-function loop calling `run_aims_pipeline()` (steps 3-12)
   - Return `Vec<ArcProblem>` (FBIP violations) matching the current API
   > **Warning: Parameter count.** The current `run_arc_pipeline` takes 7 parameters.
   > `run_aims_pipeline` should use a config struct per hygiene rules (>3-4 params -> config struct).
@@ -328,7 +188,7 @@ current ~22 steps. Steps 1-8 replace ~15 analysis/emission steps.
     each RcDec's target variable, and look up per-variable uniqueness (keyed by
     `ArcVarId`) to determine drop-hint eligibility. No positional state map lookup.
   - `AimsEvent` entries stored for diagnostics (FipGate, LocalAllocCandidate) must
-    either be discarded or re-keyed after merge. In v1, events consumed by emission
+    either be discarded or re-keyed after merge. Currently, events consumed by emission
     (RC emission step 6, reuse emission step 7) are consumed before merge, so
     position-keyed events are valid at point of use.
   - Events needed for Section 08 verification (shadow comparison, allocation
