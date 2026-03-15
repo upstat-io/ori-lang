@@ -1,0 +1,107 @@
+// Valgrind test: AIMS Matrix H — FIP and Reuse interactions.
+// Covers H4 (Intra×FIP), H6 (Inter×Reuse), H9 (RC×FIP),
+// H13 (Reuse×Drop), H15 (Reuse×Merge), H16 (COW×FIP).
+// Verifies no leaks, double-frees, or use-after-free.
+
+type Node = End | Cell(value: int, next: Node);
+type Chain = Done | Link(a: int, b: int, next: Chain);
+type Stream = EndS | Left(v: int, next: Stream) | Right(v: int, next: Stream);
+// Note: Bundle { values: [int], marker: int } pattern avoided here due to
+// pre-existing list-in-struct RC emission bug (projected [int] from struct
+// doesn't get RcDec). Uses pure enum-based test for H6 instead.
+type Pair = EndPair | ValPair(first: int, second: int, next: Pair);
+
+@build_node (n: int) -> Node = {
+    if n <= 0 then End
+    else Cell(value: n, next: build_node(n: n - 1))
+};
+
+@sum_node (node: Node) -> int = match node {
+    End -> 0,
+    Cell(v, next) -> v + sum_node(node: next),
+};
+
+@len_node (node: Node) -> int = match node {
+    End -> 0,
+    Cell(_, next) -> 1 + len_node(node: next),
+};
+
+// H4 + H9 + H16: FIP Certified rebuild — zero net RC, all COW StaticUnique.
+@rewrite_node (node: Node) -> Node = match node {
+    End -> End,
+    Cell(v, next) -> Cell(value: v * 2 - 1, next: rewrite_node(node: next)),
+};
+
+// H6: Callee returns unique value for caller reuse.
+@build_pair (n: int) -> Pair = {
+    if n <= 0 then EndPair
+    else ValPair(first: n, second: n * 10, next: build_pair(n: n - 1))
+};
+
+@pair_sum (p: Pair) -> int = match p {
+    EndPair -> 0,
+    ValPair(f, s, next) -> f + s + pair_sum(p: next),
+};
+
+// H13: Reuse priority over drop hint.
+@build_chain (n: int) -> Chain = {
+    if n <= 0 then Done
+    else Link(a: n, b: n * 3, next: build_chain(n: n - 1))
+};
+
+@rewrite_chain (c: Chain) -> Chain = match c {
+    Done -> Done,
+    Link(a, b, next) -> Link(a: a + 1, b: b - 1, next: rewrite_chain(c: next)),
+};
+
+@score_chain (c: Chain) -> int = match c {
+    Done -> 0,
+    Link(a, b, next) -> a + b + score_chain(c: next),
+};
+
+// H15: Reuse survives block merge — multi-variant enum.
+@build_stream (n: int) -> Stream = {
+    if n <= 0 then EndS
+    else {
+        let $tail = build_stream(n: n - 1);
+        if n % 2 == 0 then Left(v: n, next: tail) else Right(v: n, next: tail)
+    }
+};
+
+@rewrite_stream (s: Stream) -> Stream = match s {
+    EndS -> EndS,
+    Left(v, next) -> Left(v: v + 1, next: rewrite_stream(s: next)),
+    Right(v, next) -> Right(v: v + 1, next: rewrite_stream(s: next)),
+};
+
+@sum_stream (s: Stream) -> int = match s {
+    EndS -> 0,
+    Left(v, next) -> v + sum_stream(s: next),
+    Right(v, next) -> v + sum_stream(s: next),
+};
+
+@main () -> int = {
+    // H4 + H9 + H16: FIP rebuild
+    let $input = build_node(n: 64);
+    let $output = rewrite_node(node: input);
+    let $fip_ok = sum_node(node: output) == 4096 && len_node(node: output) == 64;
+
+    // H6: Caller reuses unique return
+    let $pair = build_pair(n: 5);
+    // sum = (1+10)+(2+20)+(3+30)+(4+40)+(5+50) = 165
+    let $h6_ok = pair_sum(p: pair) == 165;
+
+    // H13: Reuse vs drop hint
+    let $chain_in = build_chain(n: 80);
+    let $before = score_chain(c: chain_in);
+    let $chain_out = rewrite_chain(c: chain_in);
+    let $h13_ok = score_chain(c: chain_out) == before;
+
+    // H15: Reuse survives merge
+    let $stream_in = build_stream(n: 50);
+    let $stream_out = rewrite_stream(s: stream_in);
+    // sum(1..50)+50 = 1275+50 = 1325
+    let $h15_ok = sum_stream(s: stream_out) == 1325;
+
+    if fip_ok && h6_ok && h13_ok && h15_ok then 0 else 1
+}

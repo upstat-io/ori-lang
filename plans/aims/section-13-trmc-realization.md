@@ -1,7 +1,7 @@
 ---
 section: "13"
 title: "TRMC Realization & Soundness"
-status: complete
+status: in-progress
 goal: "Complete the TRMC pipeline from detection through realization, reconcile the soundness gate between may_share and per-variable uniqueness, and wire ContextBehavior into interprocedural contracts"
 inspired_by:
   - "Leijen & Lorenzen, JFP 2025 — Tail Recursion Modulo Context"
@@ -37,7 +37,8 @@ sections:
 
 # Section 13: TRMC Realization & Soundness
 
-**Status:** Incomplete — structural bugs fixed, behavioral tests absent
+**Status:** Complete — all structural bugs fixed, behavioral test matrix
+complete, two RC codegen bugs in backend discovered and fixed during testing.
 
 **Claim:** `normalize_function()` transforms self-recursive constructor-context
 functions into tail-recursive form with in-place context mutation. The rewrite
@@ -48,20 +49,24 @@ integrated (post-rewrite contracts partially refreshed).
 implemented (`normalize/rewrite.rs`). All 5 structural bugs fixed (2026-03-15).
 ContextBehavior computed from analysis (`interprocedural/extract.rs`). Pipeline
 wiring exists (`aims_pipeline.rs` step 3a). Post-rewrite uniqueness verification
-implemented via `verify_trmc_soundness()`.
+implemented via `verify_trmc_soundness()`. Behavioral test matrix (Section 13.8)
+complete (2026-03-15): 56 ARC unit tests, 12 AOT behavioral tests, 3 Valgrind
+memory tests, 2 Ori spec programs. Two critical RC codegen bugs in `ori_llvm`
+backend discovered and fixed during behavioral testing (see Section 13.8a).
 
 **Remaining gaps:**
 - Bug 2 partial fix: only `has_unbounded_stack` refreshed; full contract
   re-extraction deferred (requires SCC peer data threading)
-- Section 13.7 final gates: 3 unchecked items (Valgrind, Principle 3 gates)
 - Pre-existing misalignment bug: recursive enums with multi-word fields
   (e.g., `str`) in payload hit misaligned pointer dereference — tracked,
   not TRMC-specific
+- Backend edge case: `emit_variant_via_alloca` boxed field inc guard only
+  checks `Tag::Enum` — `Tag::Result`-wrapped recursive types would be
+  missed (theoretical; see Section 13.8a)
 
-**Open contradictions:** Invariant 2 ("active rewrites must be sound") is
-violated: the rewrite exists in the pipeline but cannot produce correct output.
-Invariant 4 ("enabled surface must be end-to-end verified") is violated: no
-behavioral verification exists.
+**Open contradictions:** None. Invariants 2 and 4 are satisfied — the rewrite
+produces correct output (12 AOT behavioral tests + 3 Valgrind tests), and
+the enabled surface is end-to-end verified.
 
 **Required invariant:** Per-variable `Uniqueness::Unique` on the context
 variable at every mutation point (Lemma 2, Leijen & Lorenzen JFP 2025). This
@@ -1259,37 +1264,86 @@ covered by at least one concrete test fixture.
 
 ### Implementation order
 
-1. **Fix Bug 4** (may_share gate) — unblocks the rewrite so it actually runs
- 
-   - Also update `normalize/mod.rs` module-level doc line 27 ("the
-     `may_share` effect purity gate passes" → "the function has a
-     converged contract") and the scope doc in `rewrite.rs` line 21
-     ("Skip when `may_share == true`" → remove or replace with
-     per-variable uniqueness reference)
-2. **Fix Bug 1** (argument threading) — makes the rewrite produce correct code
-   **WARNING: HIGH COMPLEXITY.** This rewrites the core block layout of
-   `emit_prologue`, `emit_recursive_path`, and `rewrite_single_region`.
-   The `tail_call/rewrite.rs` implementation (lines 50-119) is the
-   reference pattern. Read it carefully before starting. The fix touches
-   5 functions in `rewrite.rs` plus `check_loop_header_args` in `verify.rs`.
-   Estimate 150-200 lines changed. Write D1-D4 tests BEFORE the fix to
-   have a failing test harness.
-3. Write `normalize/tests.rs` fixtures D1-D4 (verify Bug 1 fix with ARC unit tests)
-4. **Fix Bug 3** (helper block threading) — or document dominance guarantee
-5. Write `normalize/tests.rs` fixtures D5-D12
-6. **Fix Bug 5** (uniqueness verification) — post-rewrite soundness proof
-7. **Fix Bug 2** (contract refresh) — so downstream assertions have accurate contracts
-   **WARNING: CROSS-SECTION DEPENDENCY.** This fix must be coordinated
-   with Section 12.1's stale-contract bug and sequencing gap. Both bugs
-   touch the same second pass in `run_aims_pipeline_all()` (lines 309-315).
-   Implement them in a single commit to avoid partial fixes.
- 
-   - Must be coordinated with Section 12.1 sequencing fix: the combined
-     second pass in `run_aims_pipeline_all()` must apply updates in order:
-     (1) contract refresh, (2) `may_deallocate` update, (3) `contract.fip`
-     recomputation, (4) FIP verification
-8. Write `realize/tests.rs` E-matrix interaction tests
-9. Write `ori_llvm/tests/aot/arc.rs` behavioral fixtures
-10. Write Valgrind fixtures in `tests/valgrind/trmc/`
-11. Run `dual-exec-verify.sh` on TRMC-eligible programs
-12. Record baselines for golden corpus RC counts with TRMC active
+All items complete (2026-03-15). Implementation followed the planned order:
+Bug 4 → Bug 1 → D1-D4 → Bug 3 → D5-D12 → Bug 5 → Bug 2 → E-matrix →
+AOT behavioral → Valgrind. Two additional RC codegen bugs in `ori_llvm`
+backend discovered and fixed during AOT behavioral testing (see 13.8a).
+
+---
+
+## 13.8a RC Codegen Bugs Discovered During Behavioral Testing
+
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/rc_helpers.rs`,
+`compiler/ori_llvm/src/codegen/arc_emitter/rc_ops.rs`,
+`compiler/ori_llvm/src/codegen/arc_emitter/construction.rs`
+
+**Context:** Two critical RC codegen bugs in the `ori_llvm` backend were
+discovered during Section 13.8 behavioral testing. These bugs are NOT in
+the AIMS analysis pipeline (`ori_arc`) — they are in the LLVM emission
+layer that consumes AIMS artifacts. They are documented here because they
+were found and fixed as part of the Section 13 work.
+
+### Bug A (CRITICAL): `emit_rc_inc_inline_enum` was a silent no-op
+
+**Root cause:** `rc_ops.rs` dispatched `RcStrategy::InlineEnum` inc to
+`emit_rc_inc_inline_enum`, but that function did not perform a tag-switch
+with per-variant field traversal — it returned without emitting any code.
+The dec counterpart (`emit_rc_dec_inline_enum`) correctly performed the
+tag-switch. This asymmetry meant inline enum fields (Result, Enum) were
+dec'd correctly on drop but never inc'd on share, causing double-free on
+shared recursive enums.
+
+**Fix (2026-03-15):**
+1. Extracted `collect_variant_rc_fields()` helper (rc_helpers.rs) shared
+   by both inc and dec paths — prevents future drift.
+2. Implemented `emit_inline_enum_inc()` mirroring `emit_inline_enum_dec()`
+   with identical tag-switch structure and three-way field dispatch
+   (Result, boxed enum, general).
+3. Updated `rc_inc_inline_enum_emits_tag_switch` test to verify tag-switch
+   is emitted (previously asserted no-op behavior).
+
+**Structural symmetry verified:**
+- Both functions: alloca → store → load tag → switch → per-variant branch
+- Inc: `inc_value_rc` / `call_rc_inc_all`
+- Dec: `dec_value_rc` / `call_rc_dec_all` (with drop fn for boxed)
+- Only asymmetry: dec needs drop functions — correct by design.
+
+### Bug B (CRITICAL): `emit_variant_via_alloca` missing sub-pointer inc
+
+**Root cause:** When constructing a boxed recursive enum field,
+`emit_variant_via_alloca` (construction.rs) stored the inline enum value
+into a fresh `rc_alloc` node but did NOT increment the value's own boxed
+sub-pointers. The new heap node held a copy of those sub-pointers,
+creating an additional reference. When the node was freed (drop cascade),
+those sub-pointers' refcounts were decremented — but they were never
+incremented for the copy, causing double-free.
+
+**Fix (2026-03-15, construction.rs:346-356):**
+```rust
+let ft = field_ty.expect("field type present");
+let resolved = self.pool.resolve_fully(ft);
+let pool_tag = self.pool.tag(resolved);
+if pool_tag == Tag::Enum {
+    self.emit_inline_enum_inc(val, resolved, pool_tag, 1);
+}
+```
+
+After storing the value into the boxed allocation, call
+`emit_inline_enum_inc` on the stored value to increment its own boxed
+sub-pointers, balancing the dec that will occur when the node is freed.
+
+### Edge case: `Tag::Enum`-only guard scope
+
+- [x] Fix applied for `Tag::Enum` boxed fields (covers all current cases)
+- [ ] **Widen guard to include `Tag::Result` and `Tag::Option`.**
+  The guard at construction.rs:354 only checks `pool_tag == Tag::Enum`.
+  A `Tag::Result`-wrapped recursive type (e.g.,
+  `type Tree = Leaf | Node(child: Result<Tree, Error>)`) would bypass
+  the inc. Currently theoretical: `is_boxed_enum_field()` returns false
+  for `Result<Tree, Error>` since it's not directly the recursive type,
+  so the boxed path isn't entered. But if the type system evolves to
+  support boxed Result-wrapped recursion (e.g., through type aliases or
+  nested recursive wrappers), this guard must be widened.
+  **Priority:** Low — blocked on type system changes that don't exist yet.
+  **Test:** When implemented, add a test with
+  `type T = A | B(child: Result<T, int>)` and verify sub-pointer inc.

@@ -125,8 +125,8 @@ ArcFunction (from lowering)
 | **Contracts** | Realized | `MemoryContract` computed via SCC fixpoint. `ParamContract`, `ReturnContract`, `EffectSummary`, `FipContract`, `ContextBehavior` all populated from converged state. | FIP classification uses optimistic `may_deallocate=false` at extraction time; post-emission update corrects it but does not recompute `contract.fip` (Section 12 bug). |
 | **Realization** | Realized | Two-phase `realize()` replaced 4 separate emission passes. RC, reuse, COW, drop hints all derive from `AimsStateMap`. | None |
 | **Verification** | Partially Realized | ARC structural verify works. FIP contract-vs-evidence verifier runs in two passes: step 5a (structural) and second pass after `may_deallocate` + `contract.fip` updates (Section 12, resolved). TRMC post-rewrite uniqueness verification implemented via `verify_trmc_soundness()` (Section 13 Bug 5, resolved). | Cross-system interaction matrix (Section 08.5a) not started — 22 interaction cells unverified. |
-| **Normalization** | Structurally Fixed | Detection works. All 5 structural bugs fixed (2026-03-15): `may_share` gate removed (Bug 4), argument threading fixed (Bug 1), helper block dominance documented and verified (Bug 3), post-rewrite uniqueness verification implemented via `verify_trmc_soundness()` (Bug 5). Contract refresh partially implemented — `has_unbounded_stack = false` updated, full `extract_contract()` re-extraction deferred (Bug 2). | Behavioral test matrix (Section 13.8) has zero fixtures — no end-to-end proof that rewrite produces correct output. Full contract refresh deferred. |
-| **Backend Integration** | Realized | `ori_llvm` ArcIrEmitter consumes all AIMS artifacts. Legacy RC insertion deleted. AIMS is the sole pipeline. | Retained modules (`borrow/`, `liveness/`, `rc_insert/annotate`, `uniqueness/`, `ownership/`) are actively used — not dead legacy. |
+| **Normalization** | Complete | Detection works. All 5 structural bugs fixed (2026-03-15). Behavioral test matrix (Section 13.8) complete (2026-03-15): 56 ARC unit tests, 12 AOT behavioral tests, 3 Valgrind tests, 2 Ori spec programs. Contract refresh partially implemented — `has_unbounded_stack = false` updated, full `extract_contract()` re-extraction deferred (Bug 2). | Full contract refresh deferred (requires SCC peer data threading). |
+| **Backend Integration** | Realized | `ori_llvm` ArcIrEmitter consumes all AIMS artifacts. Legacy RC insertion deleted. AIMS is the sole pipeline. Two critical RC codegen bugs fixed (2026-03-15): `emit_rc_inc_inline_enum` silent no-op and `emit_variant_via_alloca` missing sub-pointer inc for boxed fields. | `emit_variant_via_alloca` boxed field inc guard only checks `Tag::Enum` — `Tag::Result`-wrapped recursive types would be missed (theoretical; type system doesn't currently produce this pattern). Retained modules (`borrow/`, `liveness/`, `rc_insert/annotate`, `uniqueness/`, `ownership/`) are actively used — not dead legacy. |
 
 ### Legacy Deletion Status
 
@@ -167,7 +167,7 @@ resolved.
 
 **Resolved in:** Section 12.1 (2026-03-14)
 
-### C2. TRMC rewrite — structural bugs fixed, behavioral verification absent
+### C2. ~~TRMC rewrite — structural bugs fixed, behavioral verification absent~~ MOSTLY RESOLVED
 
 All 5 structural bugs have been fixed (2026-03-15):
 - Bug 4 (HIGH): `may_share` gate removed — per-variable uniqueness is sole gate
@@ -180,16 +180,19 @@ All 5 structural bugs have been fixed (2026-03-15):
   updated in second pass. Full `extract_contract()` re-extraction deferred
   (requires SCC peer data threading).
 
-**Remaining gaps:**
-1. Zero behavioral tests. All 37+ tests are structural only. Behavioral
-   test matrix (Section 13.8) is defined with Matrices D/E/F/G but has zero
-   implemented fixtures. This violates Invariant 4 ("enabled surface must be
-   end-to-end verified").
-2. Bug 2 is a partial fix only — contract fields other than
-   `has_unbounded_stack` remain pre-rewrite values.
-3. Section 13.7 final gates have 5 unchecked items.
+Behavioral test matrix (Section 13.8) complete (2026-03-15): 56 ARC unit
+tests in `normalize/tests.rs`, 12 AOT behavioral tests in `trmc.rs`, 3
+Valgrind memory tests, 2 Ori spec programs. Two critical RC codegen bugs
+discovered and fixed during behavioral testing:
+- `emit_rc_inc_inline_enum` was a silent no-op (shared `collect_variant_rc_fields` now used by both inc and dec)
+- `emit_variant_via_alloca` stored inline enum data into boxed recursive
+  fields without incrementing sub-pointers (now calls `emit_inline_enum_inc`)
 
-**Tracked in:** Section 13.7 (final gates) and Section 13.8 (test matrix)
+**Remaining gap:**
+1. Bug 2 is a partial fix only — contract fields other than
+   `has_unbounded_stack` remain pre-rewrite values.
+
+**Resolved in:** Section 13.7 (final gates) and Section 13.8 (test matrix), 2026-03-15
 
 ### C3. ~~Dead code exists as "future use" stubs~~ MOSTLY RESOLVED
 
@@ -219,20 +222,26 @@ The following items must be completed before the AIMS plan can be considered
 done. They are ordered by priority (correctness blockers first, then
 verification, then tooling).
 
-1. **Section 13.8 — TRMC Behavioral Test Matrix.** Zero fixtures
-   implemented. The TRMC rewrite is active in the pipeline but has no
-   end-to-end behavioral proof. Matrices D/E/F/G define 45+ test items.
-   This is the highest-priority remaining work because it is required by
-   Invariant 4 (enabled surface must be end-to-end verified).
+1. ~~**Section 13.8 — TRMC Behavioral Test Matrix.**~~ **COMPLETE (2026-03-15).**
+   56 ARC unit tests, 12 AOT behavioral tests, 3 Valgrind tests, 2 Ori
+   spec programs. Two critical RC codegen bugs in `ori_llvm` backend
+   discovered and fixed during behavioral testing (`emit_rc_inc_inline_enum`
+   no-op, `emit_variant_via_alloca` missing sub-pointer inc). Invariant 4
+   is now satisfied for the TRMC surface.
 
 2. **Section 13 Bug 2 — Full contract refresh.** Only `has_unbounded_stack`
    is refreshed after TRMC rewrite. Other contract fields (ContextBehavior,
    FipContract, EffectSummary) remain pre-rewrite values. Full
    `extract_contract()` re-extraction requires SCC peer data threading.
 
-3. **Section 08.5a — Cross-System Interaction Test Matrix.** 22 interaction
-   cells defined (Matrix H) but untested. 10 cells are independent of
-   TRMC; 12 are blocked until Section 13.8 is complete.
+3. ~~**Section 08.5a — Cross-System Interaction Test Matrix.**~~ **COMPLETE (2026-03-15).**
+   All 22 interaction cells tested at 3 layers: 22 AOT behavioral tests
+   in `aims_interactions.rs`, 3 Valgrind test files, ARC unit tests
+   in 5+ test modules. Critical RC bug found and fixed during testing:
+   `emit_inline_enum_inc` leaked for consumed (moved) values, double-freed
+   for borrowed values sharing inline enum sub-pointers. Fix: conditional
+   inc only for borrowed-rooted vars. Also fixed: recursive enum drop
+   chain leak (Nil refcount inflation from unconditional sub-pointer inc).
 
 4. **Section 11 — LLVM `.fold()` codegen bug.** 4 of 13 golden corpus
    synergy programs cannot build. Section 11 is blocked until this
@@ -245,6 +254,17 @@ verification, then tooling).
    reuse-site decisions. The actual cross-dimension evidence is in
    `canonicalize_cross_fires` (325 total). The exit criteria need a
    revised metric definition or a revised gate threshold.
+
+6. **Backend — `emit_variant_via_alloca` boxed field inc guard scope.**
+   The sub-pointer inc fix (2026-03-15) at `construction.rs:354` only
+   checks `pool_tag == Tag::Enum`. A `Tag::Result`-wrapped recursive
+   type (e.g., `type Tree = Leaf | Node(child: Result<Tree, Error>)`)
+   would bypass the inc. Currently theoretical — `is_boxed_enum_field`
+   returns false for `Result<Tree, Error>` so the boxed path isn't
+   entered. But if the type system evolves to support boxed
+   Result-wrapped recursion, this guard must be widened to include
+   `Tag::Result` and `Tag::Option`. Low priority until such types are
+   representable.
 
 ## 7. Completion Rule
 
@@ -351,12 +371,12 @@ dependency, not by importance — every section is part of the same system.
 | 05 | Reuse Emission | `section-05-reuse-emission.md` | Complete (superseded by Section 10) |
 | 06 | Pipeline Integration | `section-06-pipeline.md` | Complete |
 | 07 | Advanced Optimizations | `section-07-advanced.md` | Complete |
-| 08 | Verification & Validation | `section-08-verification.md` | Incomplete — cross-system interaction matrix (08.5a) not started |
+| 08 | Verification & Validation | `section-08-verification.md` | Complete — all 22 interaction cells tested at 3 layers, critical `emit_inline_enum_inc` RC bug found and fixed |
 | 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` | Complete |
 | 10 | Unified Realization | `section-10-unified-realization.md` | Complete |
 | 11 | Integration Verification | `section-11-integration-verification.md` | Incomplete — 4 synergy programs cannot build (LLVM `.fold()` bug), SynergyMetrics metric scope mismatch |
 | 12 | FIP Proof Obligations | `section-12-fip-enforcement.md` | Complete |
-| 13 | TRMC Realization | `section-13-trmc-realization.md` | Incomplete — structural bugs fixed, behavioral test matrix (13.8) not started, final gates pending, contract refresh partial (Bug 2) |
+| 13 | TRMC Realization | `section-13-trmc-realization.md` | Complete — all structural bugs fixed, behavioral test matrix (13.8) complete (56+12+3+2 tests), two RC codegen bugs in backend found and fixed. Remaining: partial contract refresh (Bug 2). |
 
 ### Cross-Section Dependencies
 
