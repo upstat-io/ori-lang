@@ -4,6 +4,9 @@ title: "Plan-Code Sync and Exit Verification"
 status: complete
 goal: "Synchronize AIMS plan documents with implementation state and prove closure with verification gates."
 depends_on: ["01", "02", "03"]
+third_party_review:
+  status: resolved
+  updated: 2026-03-15
 sections:
   - id: "04.1"
     title: "Plan Sync"
@@ -18,7 +21,7 @@ sections:
 
 # Section 04: Plan-Code Sync and Exit Verification
 
-**Status:** Complete (2026-03-15)
+**Status:** Complete (2026-03-15) — all TPR findings resolved, plan fully synced.
 **Goal:** Finish with no status contradictions, no stale metrics, and clean verification.
 
 ## 04.1 Plan Sync
@@ -91,6 +94,23 @@ Plan consistency verification:
 `section-08-verification.md`, `section-13-trmc-realization.md`) with ~25 individual
 corrections. If other work modifies `plans/aims/` concurrently, merge conflicts are
 likely. Execute Section 04 edits as a single atomic batch.
+
+## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-001][high]` `plans/aims/section-13-trmc-realization.md:46` — Section 13 still contains unresolved-state prose after Section 04 marked the final sync complete.
+  Resolved: Validated and fixed on 2026-03-15. Updated "Claim" paragraph (partially→fully refreshed) and rewrote "What is missing" list — all 5 items now struck through with resolution notes matching the completed status.
+
+- [x] `[TPR-04-002][medium]` `plans/aims/section-08-verification.md:47` — Section 08 still documents deleted or broken comparison infrastructure as if it were the active verification path.
+  Resolved: Validated and fixed on 2026-03-15. Updated "Evidence" (removed "blocked by Section 13 bugs"), "Open contradictions" (removed 08.5a absence claim), "Confounding-variable isolation" (documented feature flag retirement, pointed to current verification tools), and 08.1 comparison script item (marked aims-compare.sh as obsolete, added post-retirement verification path).
+
+- [x] `[TPR-04-003][high]` `plans/aims/section-08-verification.md:318` — Section 08 still records deleted `--features aims` commands as the completed verification matrix and still points to `aims-compare.sh --rc-only` as the RC counting tool.
+  Resolved: Validated and fixed on 2026-03-15. Rewrote 08.2 RC counting tool entry (marked aims-compare.sh as obsolete, pointed to rc-stats.sh). Rewrote 08.3 test matrix — all 7 entries updated to show current post-retirement commands alongside historical Stage 1 results.
+
+- [x] `[TPR-04-004][high]` `plans/aims/section-13-trmc-realization.md:1126` — Section 13's final gates still describe Bug 2 as only a partial fix with full contract re-extraction deferred.
+  Resolved: Validated and fixed on 2026-03-15. Updated Principle 3 gate text: “Bug 2 partial fix” → “Bug 2 fully resolved”, documented `run_second_pass()` performing full `extract_contract()` re-extraction. Confirmed against code (`aims_pipeline.rs:454`).
+
+- [x] `[TPR-04-005][medium]` `plans/aims/section-13-trmc-realization.md:1342` — Section 13 still documents `borrowed_rooted_vars` as lacking block-parameter alias tracking even though the implementation now performs that propagation.
+  Resolved: Validated and fixed on 2026-03-15. Struck through “Known limitation” note and added resolution text referencing the fixpoint loop implementation (2026-03-15). The fix was already documented at lines 1359-1363 in the same file.
 
 ## 04.3 Completion Checklist
 

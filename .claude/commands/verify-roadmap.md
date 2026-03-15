@@ -216,6 +216,18 @@ After applying results to a section, the supervisor updates frontmatter:
 - Mixed → `status: in-progress`
 - All items `[ ]` → `status: not-started`
 
+#### Third Party Review Consistency Checks
+
+The supervisor must also validate `third_party_review` frontmatter consistency:
+
+1. **`status: complete` + `third_party_review.status: findings`** = INVALID — a section cannot be complete with unresolved TPR findings. Set section `status` to `in-progress`.
+2. **Unchecked TPR items exist + `third_party_review.status: none`** = INVALID — set `third_party_review.status` to `findings`.
+3. **Unchecked TPR items exist + `third_party_review.status: resolved`** = INVALID — set `third_party_review.status` to `findings`.
+4. **All TPR items checked + `third_party_review.status: findings`** = STALE — set `third_party_review.status` to `resolved`.
+5. **No TPR block or empty (`- None.`) + `third_party_review.status: findings`** = INVALID — set `third_party_review.status` to `none`.
+
+Report any TPR consistency fixes alongside normal frontmatter updates in the batch summary.
+
 ### Batch Commit Checkpoints
 
 After each batch completes, the supervisor offers to commit:

@@ -83,9 +83,10 @@ Create overview with:
 ### Step 7: Generate Section Files
 
 For each section, create `section-{NN}-{name}.md` with:
-- YAML frontmatter (section ID, title, status: not-started, goal)
+- YAML frontmatter (section ID, title, status: not-started, goal, `third_party_review: { status: none, updated: null }`)
 - Section header with status emoji
 - Placeholder subsections with `- [ ]` checkboxes
+- `## {NN}.R Third Party Review Findings` block (empty, with `- None.`) before the completion checklist
 - Completion checklist at the end
 
 ### Step 8: Report Progress

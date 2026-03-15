@@ -423,7 +423,11 @@ fn compute_has_future_use(
     instr_idx: usize,
 ) -> bool {
     if let Some(&(total_uses, last_use)) = ctx.use_info.get(&var) {
-        let remaining_in_block = total_uses - uses_so_far;
+        debug_assert!(
+            uses_so_far <= total_uses,
+            "uses_so_far ({uses_so_far}) exceeds total_uses ({total_uses}) for {var:?}"
+        );
+        let remaining_in_block = total_uses.saturating_sub(uses_so_far);
         let live = is_live_at_exit(ctx.state_map, ctx.blk, var);
         remaining_in_block > 0
             || (matches!(last_use, LastUse::Terminator) && LastUse::Body(instr_idx) != last_use)

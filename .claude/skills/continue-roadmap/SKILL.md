@@ -90,6 +90,7 @@ The scanner detects frontmatter/body mismatches (`!! MISMATCH` annotations) at b
 4. **`frontmatter=in-progress` but 0 items checked** — Set frontmatter to `not-started`
 5. **Subsection status stale** — Apply the same rules per subsection, then recalculate section status
 6. **Section status stale after subsection fix** — If all subsections are `complete`, set section to `complete`
+7. **TPR consistency** — If `third_party_review.status: findings` but no unchecked TPR items exist, set to `resolved`. If unchecked TPR items exist but `third_party_review.status` is `none` or `resolved`, set to `findings`. If section `status` is `complete` but `third_party_review.status: findings`, set section to `in-progress`.
 
 **When to ask instead of auto-fix:**
 
@@ -112,6 +113,39 @@ After the scanner identifies the focus section, **check its frontmatter for `rev
 4. **If user chooses to proceed**: Continue, but note the risk in the summary output
 
 **If `reviewed: false` is NOT present** (field absent or `reviewed: true`), proceed normally.
+
+### Step 1.9: Third Party Review Triage Gate
+
+After identifying the focus section, **check its frontmatter for `third_party_review.status: findings`**. This means an external reviewer (e.g. Codex) has recorded unresolved findings in the section's `## {NN}.R Third Party Review Findings` block.
+
+**If `third_party_review.status` is `findings`:**
+
+1. **STOP** — do not begin new implementation work
+2. **Read all unchecked items** in the `## {NN}.R Third Party Review Findings` block
+3. **Triage findings in priority order** (high → medium → low):
+   - For each finding, validate it against the codebase, spec, and current plan
+   - **Accepted findings**: Add or update concrete implementation tasks in the relevant subsection(s). Mark the review item resolved with a note:
+     ```markdown
+     - [x] `[TPR-02-001][high]` `compiler/oric/src/foo.rs` — Description.
+       Resolved: Validated and integrated into 02.2 and 02.5 on YYYY-MM-DD.
+     ```
+   - **Rejected findings**: Do not delete — mark resolved with rejection rationale:
+     ```markdown
+     - [x] `[TPR-02-002][medium]` `compiler/oric/src/qux.rs` — Description.
+       Resolved: Rejected after validation on YYYY-MM-DD. [Rationale].
+     ```
+4. **After all findings are triaged**:
+   - Update `third_party_review.status` to `resolved` (if history exists) or `none`
+   - Update `third_party_review.updated` to today's date
+   - If accepted findings created new `[ ]` items, section `status` stays `in-progress`
+5. **Continue** to normal implementation (Step 2+) only after all open review findings are triaged
+
+**If `third_party_review.status` is `none` or `resolved`**, proceed normally.
+
+**Status rules enforced by this gate:**
+- A section cannot be `complete` while unchecked TPR items exist
+- `third_party_review.status: findings` forces section `status` to `in-progress`
+- All findings must be triaged before any new implementation work begins in that section
 
 ### Step 2: Determine Focus Section
 
@@ -373,6 +407,12 @@ sections:
    - All subsections complete → `status: complete`
    - Any subsection in-progress → `status: in-progress`
    - All subsections not-started → `status: not-started`
+
+3. **Update `third_party_review` frontmatter** if the TPR block was modified:
+   - All TPR items resolved (checked) → `third_party_review.status: resolved`
+   - Unchecked TPR items remain → `third_party_review.status: findings`
+   - No TPR items (`- None.`) → `third_party_review.status: none`
+   - A section cannot be `complete` while `third_party_review.status: findings`
 
 ### Why This Matters
 
