@@ -2,7 +2,7 @@
 journey: 8
 slug: generics
 theme: "I am generic"
-date: 2026-03-07
+date: 2026-03-15
 status: PASS
 expected: 57
 eval_result: 57
@@ -226,6 +226,8 @@ Module
 > The ARC (Automatic Reference Counting) pipeline analyzes value lifetimes and
 > inserts reference counting operations. It performs borrow inference to minimize
 > RC overhead -- parameters that are only read can be borrowed rather than owned.
+> On the AIMS branch, analysis uses the unified lattice for intraprocedural and
+> interprocedural passes.
 
 **RC ops inserted**: 0 | **Elided**: 0 | **Net ops**: 0
 
@@ -233,10 +235,13 @@ Module
 <summary>ARC annotations</summary>
 
 ```text
-@identity$m$int: no heap values -- pure scalar passthrough
-@first$m$int_int: no heap values -- pure scalar passthrough
-@get_value$m$int: no heap values -- Box<int> is a value type (single i64 field)
-@main: no heap values -- all values are scalars (int)
+@identity$m$int: no heap values -- pure scalar passthrough (FBIP certified)
+@first$m$int_int: no heap values -- pure scalar passthrough (FBIP certified)
+@get_value$m$int: no heap values -- Box<int> is a value type (single i64 field, FBIP certified)
+@main: no heap values -- all values are scalars (int, FBIP certified)
+
+AIMS intraprocedural: all 4 functions converged in 1 iteration
+AIMS interprocedural: 4/4 user functions FIP-certified, 4/4 FBIP
 ```
 
 </details>
@@ -376,26 +381,26 @@ attributes #3 = { nounwind }
 ```asm
 _ori_main:
   sub    $0x28,%rsp
-  mov    $0x2a,%edi
+  mov    $0x2a,%edi           ; identity(42)
   call   _ori_identity$m$int
-  mov    %rax,0x10(%rsp)
-  mov    $0xa,%edi
+  mov    %rax,0x10(%rsp)      ; save a
+  mov    $0xa,%edi            ; first(10, 20)
   mov    $0x14,%esi
   call   _ori_first$m$int_int
-  mov    %rax,0x8(%rsp)
-  mov    $0x5,%edi
+  mov    %rax,0x8(%rsp)       ; save b
+  mov    $0x5,%edi            ; get_value(Box{5})
   call   _ori_get_value$m$int
   mov    0x8(%rsp),%rcx
   mov    %rax,%rdx
   mov    0x10(%rsp),%rax
   mov    %rdx,0x18(%rsp)
-  add    %rcx,%rax
+  add    %rcx,%rax            ; a + b
   mov    %rax,0x20(%rsp)
   seto   %al
   jo     .ovf_panic1
   mov    0x18(%rsp),%rcx
   mov    0x20(%rsp),%rax
-  add    %rcx,%rax
+  add    %rcx,%rax            ; (a+b) + c
   mov    %rax,(%rsp)
   seto   %al
   jo     .ovf_panic2
@@ -460,7 +465,7 @@ All four monomorphized functions produce the minimum possible instruction count.
 | @get_value$m$int | 0 | 0 | YES | N/A | N/A |
 | @main | 0 | 0 | YES | N/A | N/A |
 
-**Verdict**: No heap values in any function. All operations are on scalars (i64) or value-type structs (Box<int> = single i64). Zero RC operations. OPTIMAL.
+**Verdict**: No heap values in any function. All operations are on scalars (i64) or value-type structs (Box<int> = single i64). Zero RC operations. OPTIMAL. AIMS interprocedural analysis confirms all 4 functions as FIP/FBIP certified.
 
 ### 3. Attributes & Calling Convention
 
@@ -502,8 +507,8 @@ Both integer additions in `@main` are checked with `@llvm.sadd.with.overflow.i64
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 868.6 KiB |
-| .rodata section | 133.5 KiB |
+| .text section | 868.9 KiB |
+| .rodata section | 133.4 KiB |
 | User code | 158 bytes (4 user fns + wrapper) |
 | Runtime | >99.9% of .text |
 
@@ -551,11 +556,11 @@ _ori_main:
   mov    %rax,0x8(%rsp)       ; save b
   mov    $0x5,%edi            ; get_value(Box{5})
   call   _ori_get_value$m$int
-  ; ... overflow-checked additions ...
+  ; ... overflow-checked a + b, then (a+b) + c ...
   ret
 ```
 
-31 instructions, 125 bytes (debug build). All spills to stack are expected at -O0.
+31 instructions, 137 bytes (debug build). All spills to stack are expected at -O0.
 
 ### 7. Optimal IR Comparison
 
@@ -621,7 +626,7 @@ bb0:
 #### @main: Ideal vs Actual
 
 ```llvm
-; IDEAL (16 instructions — with overflow checking)
+; IDEAL (16 instructions -- with overflow checking)
 define noundef i64 @_ori_main() nounwind {
   %a = call fastcc i64 @"_ori_identity$24m$24int"(i64 42)
   %b = call fastcc i64 @"_ori_first$24m$24int_int"(i64 10, i64 20)
@@ -648,7 +653,7 @@ panic2:
 
 ```llvm
 ; ACTUAL (16 instructions)
-; [identical structure to ideal — see Generated LLVM IR section above]
+; [identical structure to ideal -- see Generated LLVM IR section above]
 ```
 
 **Delta**: +0 instructions. OPTIMAL.
@@ -687,14 +692,16 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 
 5. **Single-field struct optimization**: `Box<int>` is a single-field struct containing `i64`. The compiler passes it directly in a register (via `%ori.Box { i64 5 }` as a literal argument). At the machine level, field extraction is a no-op -- all three helper functions compile to identical `mov %rdi, %rax; ret`.
 
+6. **AIMS pipeline integration**: All 4 functions converge in a single intraprocedural iteration with zero cross-dimension interactions. The interprocedural pass certifies all 4 as FIP (frame-independent) and FBIP (fully borrowing), confirming that monomorphization introduces no hidden allocation or reference counting overhead.
+
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing noundef on %ori.Box parameter of @get_value$m$int | NEW | J8 |
+| 1 | LOW | Attributes | Missing noundef on %ori.Box parameter of @get_value$m$int | CONFIRMED | J8 |
 | 2 | LOW | Attributes | Missing noundef on @main wrapper return value | CONFIRMED | J1 |
-| 3 | NOTE | Monomorphization | Zero-cost abstraction: all generic functions compile to optimal IR | NEW | J8 |
-| 4 | NOTE | Instruction Purity | All 4 user functions at exactly 1.00x ratio | NEW | J8 |
+| 3 | NOTE | Monomorphization | Zero-cost abstraction: all generic functions compile to optimal IR | CONFIRMED | J8 |
+| 4 | NOTE | Instruction Purity | All 4 user functions at exactly 1.00x ratio | CONFIRMED | J8 |
 
 ### LOW-1: Missing noundef on %ori.Box parameter of @get_value$m$int
 
@@ -702,6 +709,7 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 **Impact**: LLVM cannot assume the struct value is well-defined, preventing certain optimizations
 **Fix**: Mark struct parameters with `noundef` when all fields are defined types
 **First seen**: Journey 8
+**Status**: CONFIRMED (unchanged from previous run)
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### LOW-2: Missing noundef on @main wrapper return value
@@ -710,6 +718,7 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 **Impact**: Minor -- LLVM may not optimize the return path as aggressively
 **Fix**: Add `noundef` to the i32 return type of the C main wrapper
 **First seen**: Journey 1
+**Status**: CONFIRMED (unchanged from previous run)
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-3: Zero-cost abstraction achieved
@@ -740,7 +749,7 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 
 ## Verdict
 
-Journey 8's generics codegen is near-perfect. Monomorphization produces fully specialized functions that are indistinguishable from hand-written equivalents -- all four user functions achieve the theoretical minimum instruction count (1.00x ratio). The generic struct `Box<T>` is lowered to an efficient single-field LLVM struct type passed directly in registers. The only imperfections are two missing `noundef` attributes: one on a struct parameter and one on the C main wrapper return. ARC is irrelevant for this journey since all values are scalars or value-type structs with zero heap allocation.
+Journey 8's generics codegen remains near-perfect on the AIMS branch re-run. Monomorphization produces fully specialized functions indistinguishable from hand-written equivalents -- all four user functions achieve the theoretical minimum instruction count (1.00x ratio). The AIMS unified lattice correctly identifies all functions as pure scalar operations requiring zero reference counting, with all 4 certified FIP/FBIP in a single iteration. The only imperfections are two missing `noundef` attributes: one on a struct parameter and one on the C main wrapper return. Both were present in the previous run and remain unchanged.
 
 ## Cross-Journey Observations
 
@@ -752,4 +761,4 @@ Journey 8's generics codegen is near-perfect. Monomorphization produces fully sp
 | Missing noundef on @main wrapper | J1 | J8 | CONFIRMED |
 | Struct field access via extractvalue | J4 | J8 | CONFIRMED |
 
-The monomorphization pipeline is the highlight of this journey. Unlike previous journeys that tested runtime features, this journey validates a compile-time transformation. The compiler correctly specializes all three generic patterns (identity function, projection function, and struct field accessor) to their optimal concrete forms. The `Box<int>` struct type demonstrates that generic structs are also fully specialized, with the single `i64` field accessed via a zero-cost `extractvalue` instruction.
+The monomorphization pipeline is the highlight of this journey. Unlike previous journeys that tested runtime features, this journey validates a compile-time transformation. The compiler correctly specializes all three generic patterns (identity function, projection function, and struct field accessor) to their optimal concrete forms. The `Box<int>` struct type demonstrates that generic structs are also fully specialized, with the single `i64` field accessed via a zero-cost `extractvalue` instruction. The AIMS branch adds no regressions to this pipeline -- the unified lattice analysis converges instantly on these trivial scalar functions.

@@ -253,6 +253,14 @@ impl BuiltinOwnershipSets {
         }
     }
 
+    /// Check if a name is a known builtin method (in any ownership set).
+    pub fn is_builtin(&self, name: Name) -> bool {
+        self.borrowing.contains(&name)
+            || self.consuming_receiver.contains(&name)
+            || self.consuming_receiver_only.contains(&name)
+            || self.protocol.contains_key(&name)
+    }
+
     /// Empty sets for unit tests that don't exercise builtin ownership.
     pub fn empty() -> Self {
         Self {

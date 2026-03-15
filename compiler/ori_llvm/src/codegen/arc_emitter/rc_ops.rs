@@ -220,6 +220,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         };
 
+        // Non-capturing closures have a constant null env pointer — skip.
+        if self.builder.is_const_null_ptr(env_ptr) {
+            return;
+        }
+
         let is_null = self.builder.is_null_ptr(env_ptr, "rc_inc.null");
         let do_inc = self
             .builder
@@ -246,6 +251,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_dec.env") else {
             return;
         };
+
+        // Non-capturing closures have a constant null env pointer —
+        // skip the entire RcDec (no blocks, no branches, no dead code).
+        if self.builder.is_const_null_ptr(env_ptr) {
+            return;
+        }
 
         let is_null = self.builder.is_null_ptr(env_ptr, "rc_dec.null");
         let do_dec = self

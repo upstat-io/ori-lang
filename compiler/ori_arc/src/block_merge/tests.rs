@@ -132,6 +132,141 @@ fn nontrivial_invoke_unwind_has_cleanup() {
     );
 }
 
+/// Invoke with `RcDec` on non-capturing closure in unwind block is
+/// downgraded — the closure has null env, so `RcDec` is a no-op.
+#[test]
+fn invoke_with_noop_closure_rc_dec_downgrades() {
+    // Build: bb0 has PartialApply (no captures) defining v(2), then
+    // Invoke passing v(2) as borrowed → unwind block has RcDec on v(2).
+    let closure_ty = Idx::from_raw(999); // placeholder for closure type
+    let func = make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::PartialApply {
+                    dst: v(2),
+                    ty: closure_ty,
+                    func: Name::from_raw(200), // lambda name
+                    args: vec![],              // no captures
+                }],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    func: Name::from_raw(100),
+                    args: vec![v(2), v(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            // Unwind has RcDec on non-capturing closure — should be treated as no-op.
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![ArcInstr::RcDec {
+                    var: v(2),
+                    strategy: RcStrategy::Closure,
+                }],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        vec![Idx::INT, Idx::INT, closure_ty],
+    );
+
+    let mut func = func;
+    merge_blocks(&mut func);
+
+    // Invoke should be downgraded to Apply + Jump, then merged.
+    let has_invoke = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Invoke { .. }));
+    assert!(
+        !has_invoke,
+        "invoke with no-op closure RcDec should be downgraded"
+    );
+    // The PartialApply and Apply should both be in the merged block.
+    let has_partial_apply = func.blocks[0]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::PartialApply { .. }));
+    let has_apply = func.blocks[0]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Apply { .. }));
+    assert!(has_partial_apply, "PartialApply should survive merge");
+    assert!(has_apply, "downgraded Apply should be in merged block");
+}
+
+/// Invoke with `RcDec` on CAPTURING closure is NOT downgraded — env is
+/// not null, so `RcDec` is real cleanup.
+#[test]
+fn invoke_with_capturing_closure_rc_dec_preserved() {
+    let closure_ty = Idx::from_raw(999);
+    let func = make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::PartialApply {
+                    dst: v(2),
+                    ty: closure_ty,
+                    func: Name::from_raw(200),
+                    args: vec![v(0)], // has captures → env is NOT null
+                }],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    func: Name::from_raw(100),
+                    args: vec![v(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![ArcInstr::RcDec {
+                    var: v(2),
+                    strategy: RcStrategy::Closure,
+                }],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        vec![Idx::INT, Idx::INT, closure_ty],
+    );
+
+    let mut func = func;
+    merge_blocks(&mut func);
+
+    let has_invoke = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Invoke { .. }));
+    assert!(
+        has_invoke,
+        "invoke with capturing closure RcDec must be preserved"
+    );
+}
+
 /// Non-trivial invoke preserved: unwind terminator is Jump (catch handler).
 #[test]
 fn nontrivial_invoke_unwind_is_jump() {

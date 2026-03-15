@@ -2,7 +2,7 @@
 journey: 3
 slug: recursion
 theme: "I am recursive"
-date: 2026-03-07
+date: 2026-03-15
 status: PASS
 expected: 61
 eval_result: 61
@@ -659,7 +659,7 @@ _ori_main:
 #### @fib: Ideal vs Actual
 
 ```llvm
-; IDEAL (26 instructions — same as actual, overflow checking is mandatory)
+; IDEAL (26 instructions -- same as actual, overflow checking is mandatory)
 define fastcc noundef i64 @_ori_fib(i64 noundef %n) uwtable {
 entry:
   %le = icmp sle i64 %n, 1
@@ -708,7 +708,7 @@ panic_add:
 #### @gcd: Ideal vs Actual
 
 ```llvm
-; IDEAL (7 instructions — entry directly at loop header)
+; IDEAL (7 instructions -- entry directly at loop header)
 define fastcc noundef i64 @_ori_gcd(i64 noundef %a, i64 noundef %b) nounwind uwtable {
 entry:
   %va = phi i64 [ %a, %entry_pred ], [ %vb, %loop ]
@@ -726,7 +726,7 @@ loop:
 ```
 
 ```llvm
-; ACTUAL (8 instructions — extra entry block with unconditional branch)
+; ACTUAL (8 instructions -- extra entry block with unconditional branch)
 define fastcc noundef i64 @_ori_gcd(i64 noundef %0, i64 noundef %1) #1 {
 bb3:
   br label %bb0            ; <-- unjustified: redundant entry jump
@@ -786,7 +786,7 @@ The compiler correctly identifies `@gcd` as tail-recursive and lowers it to an i
 
 In contrast, `@fib` is tree-recursive (two recursive calls whose results are combined with `+`), which cannot be converted to a simple loop. The compiler correctly preserves both recursive `call fastcc i64 @_ori_fib(...)` instructions.
 
-**Tail-call detection quality**: Excellent. The ARC pipeline log confirms: `nounwind analysis complete, passes=2, nounwind_count=1, mono_propagated=0` -- meaning the compiler performed a fixed-point analysis and correctly determined only `@gcd` is nounwind (because it has no panic paths, being purely comparison and remainder operations).
+**Tail-call detection quality**: Excellent. The nounwind analysis correctly determined only `@gcd` is nounwind (because it has no panic paths, being purely comparison and remainder operations). `@fib` is correctly identified as potentially unwinding due to overflow-checked arithmetic that can call `ori_panic_cstr`.
 
 The loop-lowered `@gcd` uses phi nodes cleanly:
 - `%v12 = phi i64 [ %0, %bb3 ], [ %v13, %bb2 ]` -- a becomes the previous b
@@ -811,13 +811,13 @@ For `@gcd`, the loop-lowered form uses red zone storage (`-0x10(%rsp)` through `
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW      | IR Quality | Redundant entry block in @gcd loop lowering | NEW | J3 |
-| 2 | LOW      | Attributes | 77.8% attribute compliance (14/18) | NEW | J3 |
-| 3 | LOW      | Control Flow | 2 empty blocks in @fib (bb1, add.ok) | NEW | J3 |
-| 4 | LOW      | Control Flow | Empty entry block + redundant branch in @gcd | NEW | J3 |
-| 5 | NOTE     | Recursion | Excellent tail-call optimization on @gcd | NEW | J3 |
-| 6 | NOTE     | Recursion | Correct nounwind analysis (gcd only) | NEW | J3 |
-| 7 | NOTE     | ARC | Zero RC operations on pure scalar recursion | NEW | J3 |
+| 1 | LOW      | IR Quality | Redundant entry block in @gcd loop lowering | CONFIRMED | J3 |
+| 2 | LOW      | Attributes | 77.8% attribute compliance (14/18) | CONFIRMED | J3 |
+| 3 | LOW      | Control Flow | 2 empty blocks in @fib (bb1, add.ok) | CONFIRMED | J3 |
+| 4 | LOW      | Control Flow | Empty entry block + redundant branch in @gcd | CONFIRMED | J3 |
+| 5 | NOTE     | Recursion | Excellent tail-call optimization on @gcd | CONFIRMED | J3 |
+| 6 | NOTE     | Recursion | Correct nounwind analysis (gcd only) | CONFIRMED | J3 |
+| 7 | NOTE     | ARC | Zero RC operations on pure scalar recursion | CONFIRMED | J3 |
 
 ### LOW-1: Redundant entry block in @gcd loop lowering
 
@@ -885,7 +885,7 @@ For `@gcd`, the loop-lowered form uses red zone storage (`-0x10(%rsp)` through `
 
 ## Verdict
 
-Journey 3's recursion codegen demonstrates strong compiler capability. The highlight is the tail-call optimization on `@gcd`, which is correctly lowered to an iterative loop with phi nodes -- a textbook transformation. Tree-recursive `@fib` is compiled with all necessary overflow checks and achieves OPTIMAL instruction purity. The main areas for improvement are minor control flow cleanup (empty blocks from if/else codegen and the TCO loop entry) and attribute coverage. ARC is correctly absent from this pure scalar program.
+Journey 3's recursion codegen is unchanged on the AIMS branch. The highlight remains the tail-call optimization on `@gcd`, correctly lowered to an iterative loop with phi nodes. Tree-recursive `@fib` achieves OPTIMAL instruction purity with all overflow checks justified. The minor control flow issues (empty blocks from if/else codegen and TCO loop entry) and attribute coverage (77.8%) remain the only areas for improvement. ARC is correctly absent from this pure scalar program.
 
 ## Cross-Journey Observations
 
@@ -895,5 +895,5 @@ Journey 3's recursion codegen demonstrates strong compiler capability. The highl
 | fastcc usage | J1 | J3 | CONFIRMED |
 | Zero-RC scalar programs | J1 | J3 | CONFIRMED |
 | Empty blocks from if/else | J2 | J3 | CONFIRMED |
-| Tail-call to loop lowering | -- | J3 | NEW |
-| nounwind fixed-point analysis | -- | J3 | NEW |
+| Tail-call to loop lowering | -- | J3 | CONFIRMED |
+| nounwind fixed-point analysis | -- | J3 | CONFIRMED |

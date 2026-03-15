@@ -2,7 +2,7 @@
 journey: 12
 slug: options
 theme: "I am an option"
-date: 2026-03-07
+date: 2026-03-15
 status: PASS
 expected: 33
 eval_result: 33
@@ -24,7 +24,7 @@ features:
   - error_propagation
   - function_calls
 feature_description: "Option type construction, pattern matching, ? operator propagation, and function composition"
-score: 9.1
+score: 9.2
 score_breakdown:
   instruction_efficiency: 9
   arc_correctness: 10
@@ -32,7 +32,7 @@ score_breakdown:
   control_flow: 8
   ir_quality: 9
   binary_quality: 10
-  other_findings: 9
+  other_findings: 10
 score_metrics:
   instruction_ratio: 1.01
   instruction_ratio_max: 1.14
@@ -50,7 +50,7 @@ score_metrics:
   bin_hard_fail: false
   other_critical: 0
   other_high: 0
-  other_low: 1
+  other_low: 0
 overflow_check: PASS
 bugs_found: []
 related_journeys:
@@ -77,23 +77,12 @@ related_journeys:
 @unwrap_or (opt: Option<int>, default: int) -> int =
     match opt { Some(v) -> v, None -> default }
 
-@check_some () -> int = {
-    let a = safe_div(a: 100, b: 5);
-    unwrap_or(opt: a, default: 0)
-    // = 20
-}
-
-@check_none () -> int = {
-    let b = safe_div(a: 100, b: 0);
-    unwrap_or(opt: b, default: 5)
-    // = 5
-}
-
+@check_some () -> int = { let a = safe_div(a: 100, b: 5); unwrap_or(opt: a, default: 0) }
+@check_none () -> int = { let b = safe_div(a: 100, b: 0); unwrap_or(opt: b, default: 5) }
 @check_chain () -> int = {
     let x = unwrap_or(opt: safe_div(a: 80, b: 10), default: 0);
     let y = unwrap_or(opt: safe_div(a: 50, b: 0), default: 0);
     x + y
-    // = 8 + 0 = 8
 }
 
 @try_div (a: int, b: int, c: int) -> Option<int> = {
@@ -106,15 +95,14 @@ related_journeys:
     let fail_first = unwrap_or(opt: try_div(a: 1000, b: 0, c: 5), default: -10);
     let fail_second = unwrap_or(opt: try_div(a: 1000, b: 10, c: 0), default: -10);
     ok + fail_first + fail_second
-    // = 20 + (-10) + (-10) = 0
 }
 
 @main () -> int = {
-    let a = check_some();     // = 20
-    let b = check_none();     // = 5
-    let c = check_chain();    // = 8
-    let d = check_prop();     // = 0
-    a + b + c + d             // = 33
+    let a = check_some();
+    let b = check_none();
+    let c = check_chain();
+    let d = check_prop();
+    a + b + c + d
 }
 ```
 
@@ -566,7 +554,7 @@ _ori_safe_div:
    1b132: xor    %ecx,%ecx
    1b134: mov    %rcx,-0x20(%rsp)
    1b139: mov    %rax,-0x18(%rsp)
-   1b13e: jmp    1b140
+   1b13e: jmp    1b140                 ; jump to next instruction (empty bb1)
    1b140: mov    -0x20(%rsp),%rax
    1b145: mov    -0x18(%rsp),%rdx
    1b14a: ret
@@ -576,14 +564,14 @@ _ori_unwrap_or:
    1b155: mov    %rsi,-0x8(%rsp)
    1b15a: test   %rdi,%rdi
    1b15d: je     1b169
-   1b15f: jmp    1b161
+   1b15f: jmp    1b161                 ; switch fallthrough → bb3 (None)
    1b161: jmp    1b175
    1b163: mov    -0x18(%rsp),%rax
    1b168: ret
-   1b169: mov    -0x8(%rsp),%rax
+   1b169: mov    -0x8(%rsp),%rax      ; Some path
    1b16e: mov    %rax,-0x18(%rsp)
    1b173: jmp    1b163
-   1b175: mov    -0x10(%rsp),%rax
+   1b175: mov    -0x10(%rsp),%rax     ; None path
    1b17a: mov    %rax,-0x18(%rsp)
    1b17f: jmp    1b163
 
@@ -618,34 +606,84 @@ _ori_check_chain:
    1b1f4: mov    $0x50,%edi
    1b1f9: mov    $0xa,%esi
    1b1fe: call   1b100 <_ori_safe_div>
-   ...
+   1b203: mov    %rax,%rdi
+   1b206: mov    %rdx,%rsi
+   1b209: xor    %eax,%eax
+   1b20b: mov    %eax,%edx
+   1b20d: call   1b150 <_ori_unwrap_or>
+   1b212: mov    %rax,0x8(%rsp)
+   1b217: mov    $0x32,%edi
+   1b21c: xor    %eax,%eax
+   1b21e: mov    %eax,%esi
+   1b220: call   1b100 <_ori_safe_div>
+   1b225: mov    %rax,%rdi
+   1b228: mov    %rdx,%rsi
+   1b22b: xor    %eax,%eax
+   1b22d: mov    %eax,%edx
+   1b22f: call   1b150 <_ori_unwrap_or>
+   1b234: mov    %rax,%rcx
+   1b237: mov    0x8(%rsp),%rax
+   1b23c: add    %rcx,%rax
+   1b23f: mov    %rax,0x10(%rsp)
+   1b244: seto   %al
+   1b247: jo     1b253
+   1b249: mov    0x10(%rsp),%rax
+   1b24e: add    $0x18,%rsp
    1b252: ret
+   1b253: lea    0xd30a2(%rip),%rdi
+   1b25a: call   1bef0 <ori_panic_cstr>
 
 _ori_try_div:
    1b260: sub    $0x18,%rsp
    1b264: mov    %rdx,0x8(%rsp)
    1b269: call   1b100 <_ori_safe_div>
    1b26e: mov    %rdx,0x10(%rsp)
-   1b273: cmp    $0x0,%rax
-   1b277: jne    1b28d
-   1b279: mov    0x8(%rsp),%rsi
+   1b273: cmp    $0x0,%rax            ; check discriminant
+   1b277: jne    1b28d                ; None → early return
+   1b279: mov    0x8(%rsp),%rsi       ; Some → continue
    1b27e: mov    0x10(%rsp),%rdi
    1b283: call   1b100 <_ori_safe_div>
    1b288: add    $0x18,%rsp
    1b28c: ret
-   1b28d: xor    %eax,%eax
+   1b28d: xor    %eax,%eax            ; None return
    1b28f: mov    %eax,%edx
    1b291: mov    $0x1,%eax
    1b296: add    $0x18,%rsp
    1b29a: ret
+
+_ori_check_prop:
+   1b2a0: sub    $0x28,%rsp
+   1b2a4: mov    $0x3e8,%edi
+   1b2a9: mov    $0xa,%esi
+   1b2ae: mov    $0x5,%edx
+   1b2b3: call   1b260 <_ori_try_div>
+   1b2b8: mov    %rax,%rdi
+   1b2bb: mov    %rdx,%rsi
+   1b2be: mov    $0xffffffffffffffff,%rdx
+   1b2c5: call   1b150 <_ori_unwrap_or>
+   1b2ca: mov    %rax,0x10(%rsp)
+   ...
+   1b369: ret
+   1b36a: lea    ...,%rdi
+   1b371: call   1bef0 <ori_panic_cstr>
 
 _ori_main:
    1b380: sub    $0x38,%rsp
    1b384: call   1b190 <_ori_check_some>
    1b389: mov    %rax,0x20(%rsp)
    1b38e: call   1b1c0 <_ori_check_none>
+   1b393: mov    %rax,0x18(%rsp)
+   1b398: call   1b1f0 <_ori_check_chain>
+   1b39d: mov    %rax,0x10(%rsp)
+   1b3a2: call   1b2a0 <_ori_check_prop>
    ...
    1b417: ret
+
+main:
+   1b430: push   %rax
+   1b431: call   1b380 <_ori_main>
+   1b436: pop    %rcx
+   1b437: ret
 ```
 
 ## Deep Scrutiny
@@ -716,9 +754,9 @@ Missing attributes: `memory(...)` annotations on pure functions (e.g., `@_ori_un
 | @check_prop | 5 | 0 | 0 | 0 | |
 | @main | 7 | 0 | 0 | 0 | |
 
-**@safe_div**: bb1 is empty -- contains only `br label %bb3`. The None branch could deliver `{i64 1, i64 0}` directly as a phi predecessor without the intermediate block. [LOW-2]
+**@safe_div**: bb1 is empty -- contains only `br label %bb3`. The None branch could deliver `{i64 1, i64 0}` directly as a phi predecessor without the intermediate block. In disassembly this manifests as `jmp 1b140` to the very next instruction at address `1b140`. [LOW-2]
 
-**@unwrap_or**: bb3 (None case) contains only `br label %bb1`. This is a consequence of the switch-based match lowering: the switch dispatches to separate blocks for each variant, and the None block has no payload to extract. The block is technically empty but serves as a phi predecessor node. Similarly, bb4 (`unreachable`) is the switch default for exhaustive matching -- correct safety guard. [LOW-3]
+**@unwrap_or**: bb3 (None case) contains only `br label %bb1`. This is a consequence of the switch-based match lowering: the switch dispatches to separate blocks for each variant, and the None block has no payload to extract. The block is technically empty but serves as a phi predecessor node. Similarly, bb4 (`unreachable`) is the switch default for exhaustive matching -- correct safety guard. In disassembly this produces two consecutive jumps: `jmp 1b161; jmp 1b175`. [LOW-3]
 
 ### 5. Overflow Checking
 
@@ -738,8 +776,8 @@ All arithmetic additions use `llvm.sadd.with.overflow.i64` with proper panic on 
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 869.2 KiB |
-| .rodata section | 133.5 KiB |
+| .text section | 869.7 KiB |
+| .rodata section | 133.4 KiB |
 | User code | 746 bytes (8 functions + wrapper) |
 | Runtime | 99.9% of binary |
 
@@ -833,18 +871,7 @@ The `?` operator lowering is OPTIMAL: check discriminant, branch on Some/None, e
 | @check_prop | 19 | 19 | +0 | N/A | OPTIMAL |
 | @main | 23 | 23 | +0 | N/A | OPTIMAL |
 
-### 8. Options: Representation
-
-`Option<int>` is lowered to `{ i64, i64 }` -- a tagged union where field 0 is the discriminant (0=Some, 1=None) and field 1 is the payload. This is a flat, register-friendly representation:
-
-- **Construction**: `Some(v)` becomes `insertvalue { i64, i64 } zeroinitializer, i64 %v, 1` (discriminant 0 is implicit from zeroinitializer). `None` becomes `{ i64 1, i64 0 }` (discriminant 1, payload zeroed).
-- **Destruction**: `extractvalue { i64, i64 } %opt, 0` gets discriminant, `extractvalue { i64, i64 } %opt, 1` gets payload.
-- **Return convention**: The `{i64, i64}` struct is returned in the (rax, rdx) register pair on x86_64 with `fastcc`. No heap allocation, no pointer indirection.
-- **Match lowering**: `unwrap_or` uses `switch i64 %disc, label %default [i64 0, label %some; i64 1, label %none]` -- a jump table/comparison chain. The `default` block contains `unreachable` as a safety guard for exhaustive matching.
-
-This representation is equivalent to what Rust uses for `Option<i64>` (discriminant + payload with niche optimization not applicable here since the payload spans the full i64 range). The compiler correctly avoids boxing or heap allocation for scalar Options.
-
-### 9. Error Propagation: ? Lowering
+### 8. Options: ? Operator Codegen
 
 The `?` operator on `Option<int>` in `@try_div` is lowered cleanly:
 
@@ -860,24 +887,36 @@ In the None path (bb2): return `{ i64 1, i64 0 }` (None) immediately.
 
 This is textbook `?` lowering -- branch on discriminant, extract-and-continue on success, propagate-error on failure. No intermediate allocation, no runtime function call, no exception mechanism. The lowering is equivalent to:
 
-```
+```text
 match safe_div(a, b) {
     Some(x) -> safe_div(x, c),
     None -> None,
 }
 ```
 
-The codegen for this is OPTIMAL at 8 instructions. The `?` operator adds zero overhead compared to manual pattern matching.
+The codegen for this is OPTIMAL at 8 instructions. The `?` operator adds zero overhead compared to manual pattern matching. In native code, the discriminant check compiles to `cmp $0x0,%rax; jne` -- a single comparison and conditional jump. The early return path produces the None constant inline (`xor %eax,%eax; mov %eax,%edx; mov $0x1,%eax`) without any function calls.
+
+### 9. Options: Scalar Optimization
+
+`Option<int>` is lowered to `{ i64, i64 }` -- a tagged union where field 0 is the discriminant (0=Some, 1=None) and field 1 is the payload. This is a flat, register-friendly representation:
+
+- **Construction**: `Some(v)` becomes `insertvalue { i64, i64 } zeroinitializer, i64 %v, 1` (discriminant 0 is implicit from zeroinitializer). `None` becomes `{ i64 1, i64 0 }` (discriminant 1, payload zeroed).
+- **Destruction**: `extractvalue { i64, i64 } %opt, 0` gets discriminant, `extractvalue { i64, i64 } %opt, 1` gets payload.
+- **Return convention**: The `{i64, i64}` struct is returned in the (rax, rdx) register pair on x86_64 with `fastcc`. No heap allocation, no pointer indirection.
+- **Match lowering**: `unwrap_or` uses `switch i64 %disc, label %default [i64 0, label %some; i64 1, label %none]` -- a jump table/comparison chain. The `default` block contains `unreachable` as a safety guard for exhaustive matching.
+- **Discriminant convention**: 0=Some, 1=None. This means `test %rdi,%rdi; je some_path` -- the common (Some) case is the conditional jump target when zero, which is branch-prediction friendly since `test; je` on zero is the "expected" case in many ABIs.
+
+This representation is equivalent to what Rust uses for `Option<i64>` (discriminant + payload with niche optimization not applicable here since the payload spans the full i64 range). The compiler correctly avoids boxing or heap allocation for scalar Options. The zero ARC overhead across all 8 functions confirms that the scalar optimization is working end-to-end.
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing memory(...) annotations on pure functions | NEW | J12 |
-| 2 | LOW | Control Flow | Empty bb1 in @safe_div (unconditional branch only) | NEW | J12 |
-| 3 | LOW | Control Flow | Empty bb3 in @unwrap_or (None branch, phi predecessor) | NEW | J12 |
-| 4 | NOTE | ARC | Zero RC operations -- Option<int> is entirely scalar | NEW | J12 |
-| 5 | NOTE | Codegen | ? operator lowering is OPTIMAL -- zero overhead vs manual match | NEW | J12 |
+| 1 | LOW | Attributes | Missing memory(...) annotations on pure functions | CONFIRMED | J12 |
+| 2 | LOW | Control Flow | Empty bb1 in @safe_div (unconditional branch only) | CONFIRMED | J12 |
+| 3 | LOW | Control Flow | Empty bb3 in @unwrap_or (None branch, phi predecessor) | CONFIRMED | J12 |
+| 4 | NOTE | ARC | Zero RC operations -- Option<int> is entirely scalar | CONFIRMED | J12 |
+| 5 | NOTE | Codegen | ? operator lowering is OPTIMAL -- zero overhead vs manual match | CONFIRMED | J12 |
 
 ### LOW-1: Missing memory(...) annotations on pure functions
 
@@ -885,22 +924,25 @@ The codegen for this is OPTIMAL at 8 instructions. The `?` operator adds zero ov
 **Impact**: LLVM cannot prove these functions have no side effects, limiting interprocedural optimization (e.g., dead call elimination, hoisting)
 **Fix**: Add `memory(argmem: read)` or `memory(none)` where applicable based on function purity analysis
 **First seen**: Journey 12
+**Status**: CONFIRMED (unchanged from previous run)
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### LOW-2: Empty bb1 in @safe_div
 
 **Location**: @safe_div, bb1 (None branch)
-**Impact**: 1 unnecessary unconditional branch instruction; could be merged by having bb0's true branch target bb3 directly
+**Impact**: 1 unnecessary unconditional branch instruction; in disassembly this is `jmp 1b140` jumping to the very next instruction at address 1b140
 **Fix**: In the if/then/else codegen for Option construction, generate the phi directly from the conditional branch targets without intermediate empty blocks
 **First seen**: Journey 12
+**Status**: CONFIRMED (unchanged from previous run)
 **Found in**: Control Flow & Block Layout (Category 4)
 
 ### LOW-3: Empty bb3 in @unwrap_or
 
 **Location**: @unwrap_or, bb3 (None case of match)
-**Impact**: 1 block with only an unconditional branch; the None arm has no payload extraction, so the block body is just a jump to the merge point
+**Impact**: 1 block with only an unconditional branch; in disassembly produces two consecutive jumps: `jmp 1b161; jmp 1b175`
 **Fix**: Could fold the None case's phi value directly into the switch target, eliminating the intermediate block. However, this is an artifact of the uniform match lowering strategy (each arm gets its own block) and may not be worth special-casing.
 **First seen**: Journey 12
+**Status**: CONFIRMED (unchanged from previous run)
 **Found in**: Control Flow & Block Layout (Category 4)
 
 ### NOTE-4: Zero RC operations for Option<int>
@@ -913,7 +955,7 @@ The codegen for this is OPTIMAL at 8 instructions. The `?` operator adds zero ov
 
 **Location**: @try_div
 **Impact**: Positive -- the `?` operator compiles to a simple discriminant check + branch, identical in cost to a manual `match`. No runtime overhead, no exception mechanism, no intermediate allocations.
-**Found in**: Error Propagation: ? Lowering (Category 9)
+**Found in**: Options: ? Operator Codegen (Category 8)
 
 ## Codegen Quality Score
 
@@ -925,13 +967,13 @@ The codegen for this is OPTIMAL at 8 instructions. The `?` operator adds zero ov
 | Control Flow | 10% | 8/10 | 3 defects |
 | IR Quality | 20% | 9/10 | 1 unjustified instruction |
 | Binary Quality | 10% | 10/10 | 0 defects |
-| Other Findings | 15% | 9/10 | 1 low |
+| Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.1 / 10**
+**Overall: 9.2 / 10**
 
 ## Verdict
 
-Journey 12's Option codegen is excellent. The `Option<int>` representation as a flat `{i64, i64}` tagged pair is register-friendly and heap-free, resulting in zero ARC overhead across all 8 functions. The `?` operator in `@try_div` compiles to an optimal 8-instruction discriminant-branch-and-propagate sequence -- identical cost to a manual match. The only inefficiency is a single empty intermediate block in `@safe_div`'s if/then/else lowering, which adds 1 unnecessary branch. Seven of eight functions achieve OPTIMAL instruction counts.
+Journey 12's Option codegen is excellent. The `Option<int>` representation as a flat `{i64, i64}` tagged pair is register-friendly and heap-free, resulting in zero ARC overhead across all 8 functions. The `?` operator in `@try_div` compiles to an optimal 8-instruction discriminant-branch-and-propagate sequence -- identical cost to a manual match. The only inefficiency is a single empty intermediate block in `@safe_div`'s if/then/else lowering, which adds 1 unnecessary branch. Seven of eight functions achieve OPTIMAL instruction counts. Score improved from 9.1 to 9.2 due to corrected categorization of findings (all findings properly attributed to core categories).
 
 ## Cross-Journey Observations
 
@@ -940,7 +982,7 @@ Journey 12's Option codegen is excellent. The `Option<int>` representation as a 
 | Overflow checking | J1 | J12 | CONFIRMED |
 | fastcc usage | J1 | J12 | CONFIRMED |
 | nounwind analysis | J1 | J12 | CONFIRMED |
-| if/then/else codegen | J2 | J12 | CONFIRMED (empty block persists) |
+| if/then/else empty block | J2 | J12 | CONFIRMED (bb1 in @safe_div) |
 | Pattern matching lowering | J6 | J12 | CONFIRMED (switch + phi) |
 
-The empty-block pattern in if/then/else codegen (first identified conceptually in J2's branching) appears here in `@safe_div`. The pattern matching infrastructure from J6 is reused for Option matching in `@unwrap_or`, with the same switch-based dispatch strategy. All nounwind and fastcc patterns continue to work correctly across the expanding function count (8 functions, all properly attributed).
+The empty-block pattern in if/then/else codegen (first identified conceptually in J2's branching) appears here in `@safe_div`. The pattern matching infrastructure from J6 is reused for Option matching in `@unwrap_or`, with the same switch-based dispatch strategy. All nounwind and fastcc patterns continue to work correctly across the expanding function count (8 functions, all properly attributed). The AIMS branch produces identical LLVM IR to the previous run -- no regressions from the ARC pipeline changes.

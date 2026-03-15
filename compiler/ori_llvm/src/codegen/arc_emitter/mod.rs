@@ -81,7 +81,7 @@ pub(super) enum FuncletPadKind {
     /// Currently unused: SEH catch blocks use the `ori_try_call` trampoline
     /// instead of LLVM `catchpad`. Retained for match exhaustiveness in
     /// `br_exiting_catchpad` and Jump terminator handlers.
-    #[allow(dead_code, reason = "retained for defensive match exhaustiveness")]
+    #[expect(dead_code, reason = "retained for defensive match exhaustiveness")]
     Catch,
     /// `cleanuppad` — exits via `cleanupret` (re-raises exception).
     Cleanup,

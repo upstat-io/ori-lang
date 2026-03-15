@@ -5,6 +5,7 @@
 //! per-block instruction/terminator emission in reverse post-order.
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use ori_arc::RcStrategy;
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -114,8 +115,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // If any condition fails, the block is dead — no LLVM block
                 // is created and no landing pad is emitted.
                 let ub = &func.blocks[unwind.index()];
-                let has_cleanup =
-                    !ub.body.is_empty() || !matches!(ub.terminator, ArcTerminator::Resume);
+                let has_cleanup = has_effective_cleanup(ub, func);
                 let callee_uses_call = self.ctx.nounwind_functions.contains(callee)
                     || self.callee_will_be_intercepted(*callee, args, func);
                 if !callee_uses_call && has_cleanup {
@@ -503,4 +503,68 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .add_phi_incoming(phi_val, &[(value, source_block)]);
         }
     }
+}
+
+/// Check if an unwind block has cleanup that produces actual LLVM code.
+///
+/// Returns `false` when all cleanup is dead — e.g., `RcDec` on
+/// non-capturing closures (null env pointer → `RcDec` is a no-op).
+/// Used by the dead-block pre-scan and by `emit_invoke`'s mode decision.
+pub(super) fn has_effective_cleanup(block: &ori_arc::ir::ArcBlock, func: &ArcFunction) -> bool {
+    if !matches!(block.terminator, ArcTerminator::Resume) {
+        return true;
+    }
+    if block.body.is_empty() {
+        return false;
+    }
+    // All instructions must be no-op RcDecs for the block to be dead.
+    !block.body.iter().all(|instr| {
+        if let ArcInstr::RcDec {
+            var,
+            strategy: RcStrategy::Closure,
+        } = instr
+        {
+            is_non_capturing_closure(func, *var)
+        } else {
+            false
+        }
+    })
+}
+
+/// Check if a variable is a non-capturing closure (null env pointer).
+///
+/// Traces through `Let { Var(src) }` copies to find the defining
+/// `PartialApply`. Non-capturing closures have empty `args` — their
+/// env pointer is null, making `RcDec` a no-op.
+fn is_non_capturing_closure(func: &ArcFunction, var: ArcVarId) -> bool {
+    let mut current = var;
+    // Depth limit to prevent infinite loops on malformed IR.
+    for _ in 0..8 {
+        let Some(instr) = find_definition(func, current) else {
+            return false;
+        };
+        match instr {
+            ArcInstr::PartialApply { args, .. } => return args.is_empty(),
+            ArcInstr::Let {
+                value: ori_arc::ir::ArcValue::Var(src),
+                ..
+            } => {
+                current = *src;
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// Find the instruction that defines a variable.
+fn find_definition(func: &ArcFunction, var: ArcVarId) -> Option<&ArcInstr> {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if instr.defined_var() == Some(var) {
+                return Some(instr);
+            }
+        }
+    }
+    None
 }

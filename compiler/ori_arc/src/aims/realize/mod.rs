@@ -176,11 +176,14 @@ pub fn realize_rc_reuse(
 ///
 /// Does NOT panic on failure — logs `tracing::error!` and leaves
 /// annotations empty (functionally correct but suboptimal).
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn realize_annotations(
     func: &ArcFunction,
     state_map: &AimsStateMap,
     interner: &ori_ir::StringInterner,
     pool: &Pool,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    builtins: &crate::borrow::BuiltinOwnershipSets,
     result: &mut RealizationResult,
 ) {
     use crate::aims::emit_rc::{block_id, collect_borrowed_call_args, collect_rc_incremented_vars};
@@ -190,7 +193,7 @@ pub fn realize_annotations(
     let cow_names = crate::borrow::all_cow_method_names(interner);
     let param_vars: rustc_hash::FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     let rc_incremented = collect_rc_incremented_vars(func);
-    let borrowed_call_args = collect_borrowed_call_args(func);
+    let borrowed_call_args = collect_borrowed_call_args(func, contracts, builtins);
 
     let mut cow_annotations = CowAnnotations::new();
     let mut drop_hints = DropHints::new();

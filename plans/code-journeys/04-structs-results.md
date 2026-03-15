@@ -2,7 +2,7 @@
 journey: 4
 slug: structs
 theme: "I am a struct"
-date: 2026-03-07
+date: 2026-03-15
 status: PASS
 expected: 57
 eval_result: 57
@@ -76,7 +76,7 @@ type Rect = { origin: Point, width: int, height: int }
 @main () -> int = {
     let p = Point { x: 3, y: 4 };
     let r = Rect { origin: p, width: 10, height: 5 };
-    p.x + p.y + area(r: r)    // = 3 + 4 + 50 = 57
+    p.x + p.y + area(r: r)
 }
 ```
 
@@ -231,19 +231,46 @@ The canonicalizer produces 24 canon nodes from 24 AST nodes with 2 roots (@area,
 
 > The ARC (Automatic Reference Counting) pipeline analyzes value lifetimes and inserts
 > reference counting operations. For struct types containing only scalar fields (int),
-> no heap allocation occurs and no RC is needed.
+> no heap allocation occurs and no RC is needed. The AIMS unified lattice classifies
+> all values as `[Scalar]`, confirming zero RC overhead.
 
 **RC ops inserted**: 0 | **Elided**: 0 | **Net ops**: 0
 
-Both `Point` and `Rect` contain only `int` fields (scalars). In the LLVM codegen, `Rect` is passed by pointer (stack-allocated) to `@area`, but no heap allocation or reference counting is involved. The struct values live entirely on the stack. This is the optimal outcome for struct types with scalar-only fields.
+Both `Point` and `Rect` contain only `int` fields (scalars). The AIMS lattice correctly tags every SSA value as `[Scalar]`, meaning no reference counting is needed. The `Rect` is passed by pointer (stack-allocated) to `@area`, but no heap allocation or reference counting is involved.
 
 <details>
-<summary>ARC annotations</summary>
+<summary>ARC annotations (AIMS IR)</summary>
 
 ```text
-@area: no heap values -- Rect fields are all int scalars; parameter passed by-ref (ptr)
-@main: no heap values -- Point and Rect constructed on stack, all fields are int scalars
-Total RC ops: 0 (optimal for scalar-only struct types)
+fn @area(%0: Rect [own]) -> int [entry: bb0]
+  bb0:
+    %1: Rect [Scalar] = %0
+    %2: int [Scalar] = Project %1.1
+    %3: Rect [Scalar] = %0
+    %4: int [Scalar] = Project %3.2
+    %5: int [Scalar] = %2 * %4
+    Return %5
+
+fn @main() -> int [entry: bb0]
+  bb0:
+    %0: int [Scalar] = 3
+    %1: int [Scalar] = 4
+    %2: Point [Scalar] = Construct Struct(Point)(%0, %1)
+    %3: () [Scalar] = ()
+    %4: Point [Scalar] = %2
+    %5: int [Scalar] = 10
+    %6: int [Scalar] = 5
+    %7: Rect [Scalar] = Construct Struct(Rect)(%4, %5, %6)
+    %8: () [Scalar] = ()
+    %9: Point [Scalar] = %2
+    %10: int [Scalar] = Project %9.0
+    %11: Point [Scalar] = %2
+    %12: int [Scalar] = Project %11.1
+    %13: int [Scalar] = %10 + %12
+    %14: Rect [Scalar] = %7
+    %15: int [Scalar] = Apply @area(%14 [own])
+    %16: int [Scalar] = %13 + %15
+    Return %16
 ```
 
 </details>
@@ -366,13 +393,13 @@ add.ovf_panic5:                                   ; preds = %add.ok
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64) #1
 
 ; Function Attrs: cold noreturn
 declare void @ori_panic_cstr(ptr) #2
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
 
 ; Function Attrs: nounwind
 define i32 @main() #3 {
@@ -468,7 +495,7 @@ attributes #3 = { nounwind }
 | @area    | 0      | 0      | YES      | N/A            | N/A            |
 | @main    | 0      | 0      | YES      | N/A            | N/A            |
 
-**Verdict**: Zero RC operations. Correct -- `Point` and `Rect` contain only `int` fields (i64 scalars), which are value types requiring no reference counting. The `Rect` is stack-allocated and passed by pointer to `@area`, but this is a stack pointer, not a heap-allocated RC-managed object. No `ori_rc_inc`, `ori_rc_dec`, or any RC-related calls appear in the IR or disassembly. OPTIMAL.
+**Verdict**: Zero RC operations. Correct -- `Point` and `Rect` contain only `int` fields (i64 scalars), which are value types requiring no reference counting. The AIMS lattice classifies every value as `[Scalar]`, confirming the analysis. The `Rect` is stack-allocated and passed by pointer to `@area`, but this is a stack pointer, not a heap-allocated RC-managed object. No `ori_rc_inc`, `ori_rc_dec`, or any RC-related calls appear in the IR or disassembly. OPTIMAL.
 
 ### 3. Attributes & Calling Convention
 
@@ -522,12 +549,12 @@ All three arithmetic operations use the correct LLVM signed overflow intrinsics.
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.25 MiB (6,554,584 bytes, debug) |
-| .text section | 868 KiB (889,457 bytes) |
-| .rodata section | 134 KiB (136,740 bytes) |
-| .debug_info | 1.56 MiB (1,638,828 bytes) |
-| .debug_str | 1.72 MiB (1,803,891 bytes) |
-| .eh_frame | 109 KiB (111,956 bytes) |
+| Binary size | 6.25 MiB (6,556,656 bytes, debug) |
+| .text section | 869 KiB (889,929 bytes) |
+| .rodata section | 133 KiB (136,657 bytes) |
+| .debug_info | 1.56 MiB (1,639,950 bytes) |
+| .debug_str | 1.72 MiB (1,804,139 bytes) |
+| .eh_frame | 109 KiB (111,968 bytes) |
 | User code (@area) | 42 bytes (0x1b100-0x1b12a) |
 | User code (@main) | 126 bytes (0x1b130-0x1b1ae) |
 | User code (main wrapper) | 8 bytes (0x1b1b0-0x1b1b8) |
@@ -535,7 +562,7 @@ All three arithmetic operations use the correct LLVM signed overflow intrinsics.
 | User code % of .text | 0.020% |
 | Runtime % of binary | ~99.97% |
 
-The binary is 6.25 MiB with 176 bytes of user code, identical binary size to Journey 1 since the runtime is the same. The additional struct operations (stack construction, by-pointer passing, GEP field access) add 44 bytes to user code compared to Journey 1's 132 bytes -- a modest increase for the added struct functionality.
+The binary is 6.25 MiB with 176 bytes of user code. The struct operations (stack construction, by-pointer passing, GEP field access) are efficiently encoded. The 4 `movq` immediates for the Rect constant and the GEP-based field loads for @area are the minimum instruction count for these operations.
 
 #### Disassembly: @area
 
@@ -594,7 +621,7 @@ The struct is correctly laid out on the stack with fields at expected offsets: `
 
 ```llvm
 ; IDEAL (15 instructions -- struct field access via GEP + overflow-checked multiply)
-define fastcc noundef i64 @_ori_area(ptr %r) #0 {
+define fastcc noundef i64 @_ori_area(ptr noundef %r) nounwind uwtable {
 entry:
   %width.ptr = getelementptr inbounds nuw %ori.Rect, ptr %r, i32 0, i32 1
   %width = load i64, ptr %width.ptr, align 8
@@ -640,13 +667,13 @@ mul.ovf_panic:
 }
 ```
 
-**Delta**: 0 instructions. The actual IR matches the ideal exactly. The `insertvalue`/`extractvalue` pattern is the canonical codegen for struct field projection from pointer parameters. LLVM's native code generator sees through these identity operations -- the disassembly shows direct `mov offset(%rdi)` loads with no overhead. **OPTIMAL.**
+**Delta**: 0 instructions. The actual IR matches the ideal exactly (modulo the missing `noundef` on the ptr parameter). The `insertvalue`/`extractvalue` pattern is the canonical codegen for struct field projection from pointer parameters. LLVM's native code generator sees through these identity operations -- the disassembly shows direct `mov offset(%rdi)` loads with no overhead. **OPTIMAL.**
 
 #### @main: Ideal vs Actual
 
 ```llvm
 ; IDEAL (16 instructions)
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() nounwind uwtable {
 entry:
   %ref_arg = alloca %ori.Rect, align 8
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 3, i64 4)
@@ -698,15 +725,15 @@ add.ovf_panic5:
 }
 ```
 
-**Delta**: 0 instructions. The actual IR matches the ideal exactly. The `alloca` + constant `store` for the `Rect` struct is clean -- no unnecessary field-by-field stores. The struct constant is stored as a single aggregate literal. The `sadd(3, 4)` overflow check on constants is part of the canonical overflow checking pattern. **OPTIMAL.**
+**Delta**: 0 instructions. The actual IR matches the ideal exactly. The `alloca` + constant `store` for the `Rect` struct is clean -- no unnecessary field-by-field stores. The struct constant is stored as a single aggregate literal. **OPTIMAL.**
 
 #### main wrapper: Ideal vs Actual
 
 ```llvm
 ; IDEAL (3 instructions)
-define i32 @main() #3 {
+define i32 @main() nounwind uwtable {
 entry:
-  %r = call i64 @_ori_main()
+  %r = call noundef i64 @_ori_main()
   %c = trunc i64 %r to i32
   ret i32 %c
 }
@@ -722,7 +749,7 @@ entry:
 }
 ```
 
-**Delta**: 0 instructions. **OPTIMAL.**
+**Delta**: 0 instructions. Missing `uwtable` and `noundef` on the call [LOW-2], but instruction count matches. **OPTIMAL.**
 
 #### Module Summary
 
@@ -733,7 +760,30 @@ entry:
 | main wrapper | 3 | 3      | +0    | N/A       | OPTIMAL |
 | **Total** | **34** | **34** | **+0** | | |
 
-### 8. Structs: Type Representation
+### 8. Structs: Field Access
+
+**GEP-based field access**: The `@area` function accesses `r.width` and `r.height` through the pointer parameter using `getelementptr inbounds nuw` with the correct struct-relative indices:
+
+```llvm
+%param.load.f1.ptr = getelementptr inbounds nuw %ori.Rect, ptr %0, i32 0, i32 1  ; width
+%param.load.f2.ptr = getelementptr inbounds nuw %ori.Rect, ptr %0, i32 0, i32 2  ; height
+```
+
+The `nuw` (no unsigned wrap) flag on GEP is a correctness guarantee that the pointer arithmetic will not wrap. The `inbounds` flag tells LLVM the result points within the allocated object. Both are correct for struct field access.
+
+**insertvalue/extractvalue round-trip**: The codegen loads fields into an aggregate via `insertvalue`, then extracts them via `extractvalue`. This is a canonicalization -- it preserves the typed struct abstraction in the IR. LLVM's `instcombine` pass trivially eliminates this round-trip at `-O1`, folding it to direct use of the loaded values. At `-O0`, the native code generator (SelectionDAG/FastISel) also sees through these identity operations, as confirmed by the disassembly showing direct `mov offset(%rdi)` loads.
+
+**Field layout verified in disassembly**:
+
+| Struct | Field | GEP Index | Byte Offset | Disasm Offset | Correct |
+|--------|-------|-----------|-------------|---------------|---------|
+| Point  | x     | 0, 0      | +0          | +0x00         | YES     |
+| Point  | y     | 0, 1      | +8          | +0x08         | YES     |
+| Rect   | origin | 0, 0     | +0          | +0x00         | YES     |
+| Rect   | width  | 0, 1     | +16         | +0x10         | YES     |
+| Rect   | height | 0, 2     | +24         | +0x18         | YES     |
+
+### 9. Structs: ABI Passing
 
 **LLVM type mapping**: The Ori struct types are lowered to LLVM named struct types:
 
@@ -743,20 +793,6 @@ entry:
 | `Rect` | `%ori.Rect = type { %ori.Point, i64, i64 }` | 32 bytes | 8 |
 
 The nested struct `Rect.origin` is embedded inline -- `%ori.Rect` contains `%ori.Point` directly as its first field, not a pointer to it. This means `Rect` is a flat 32-byte aggregate (4 x i64) with no indirection. This is the correct representation for a value-type struct with no heap allocation.
-
-**Field layout (verified in disassembly)**:
-
-| Struct | Field | GEP Index | Byte Offset | Correct |
-|--------|-------|-----------|-------------|---------|
-| Point  | x     | 0, 0      | +0          | YES     |
-| Point  | y     | 0, 1      | +8          | YES     |
-| Rect   | origin | 0, 0     | +0          | YES     |
-| Rect   | width  | 0, 1     | +16         | YES     |
-| Rect   | height | 0, 2     | +24         | YES     |
-
-The disassembly confirms correct offset arithmetic: `mov 0x10(%rdi),%rax` (width at +16) and `mov 0x18(%rdi),%rcx` (height at +24).
-
-### 9. Structs: Passing Convention
 
 **By-pointer passing for large aggregates**: `Rect` is 32 bytes (4 x i64). The codegen passes it by pointer rather than by value:
 
@@ -770,37 +806,32 @@ This is the correct decision. The x86_64 SysV ABI allows up to 2 registers (16 b
 3. Passes the pointer to `@_ori_area`
 4. `@_ori_area` uses GEP+load to access fields through the pointer
 
-The `alloca` is used only to establish addressability for the by-reference call -- no unnecessary heap allocation occurs. The caller owns the stack memory, and the callee reads from it. No copies are made beyond the initial constant store.
-
-### 10. Structs: Constant Aggregate Construction
-
-The struct constant `Rect { Point { 3, 4 }, 10, 5 }` is written as a single aggregate store:
+**Constant aggregate construction**: The struct constant is written as a single aggregate store:
 
 ```llvm
 store %ori.Rect { %ori.Point { i64 3, i64 4 }, i64 10, i64 5 }, ptr %ref_arg, align 8
 ```
 
-This is efficient -- a single IR instruction for the entire 32-byte struct rather than field-by-field stores. LLVM lowers this to 4 `movq` immediates at the native level, which is the minimum possible for materializing a 32-byte constant on the stack since x86_64 cannot store a 32-byte immediate in one instruction.
-
-In principle, since all values are constant and `@area` is a pure function, the entire program could be folded to `ret i64 57` at `-O1`+. At `-O0`, maintaining the function call boundary and individual arithmetic operations is correct for debuggability.
+This is efficient -- a single IR instruction for the entire 32-byte struct rather than field-by-field stores. LLVM lowers this to 4 `movq` immediates at the native level, which is the minimum possible for materializing a 32-byte constant on the stack since x86_64 cannot write 32 bytes in one instruction.
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW      | Attributes | Missing `noundef` on @area ptr parameter | NEW | J4 |
+| 1 | LOW      | Attributes | Missing `noundef` on @area ptr parameter | CONFIRMED | J4 (prev) |
 | 2 | LOW      | Attributes | Missing `uwtable` and `noundef` on main wrapper | CONFIRMED | J1 |
-| 3 | NOTE     | Instruction Purity | All functions match ideal IR exactly -- OPTIMAL | NEW | J4 |
-| 4 | NOTE     | Structs | Correct by-pointer passing for 32-byte aggregate | NEW | J4 |
-| 5 | NOTE     | Structs | Nested struct embedded inline (no indirection) | NEW | J4 |
-| 6 | NOTE     | Structs | Single aggregate store for struct constant | NEW | J4 |
+| 3 | NOTE     | Instruction Purity | All functions match ideal IR exactly -- OPTIMAL | CONFIRMED | J4 (prev) |
+| 4 | NOTE     | Structs | Correct by-pointer passing for 32-byte aggregate | CONFIRMED | J4 (prev) |
+| 5 | NOTE     | Structs | Nested struct embedded inline (no indirection) | CONFIRMED | J4 (prev) |
+| 6 | NOTE     | Structs | Single aggregate store for struct constant | CONFIRMED | J4 (prev) |
 
 ### LOW-1: Missing `noundef` on @area ptr parameter
 
 **Location**: `define fastcc noundef i64 @_ori_area(ptr %0)` -- parameter lacks `noundef`
 **Impact**: Without `noundef`, LLVM cannot assume the pointer parameter is always well-defined. Since Ori struct values are always initialized, the pointer will never be null or undef. Adding `noundef` would allow LLVM to optimize more aggressively around the parameter.
-**Fix**: Add `noundef` attribute to ptr parameters in struct-passing functions. This should be applied in the function declaration codegen path when the parameter is a struct passed by reference.
-**First seen**: Journey 4
+**Fix**: Add `noundef` attribute to ptr parameters in struct-passing functions.
+**First seen**: Journey 4 (previous run)
+**Status**: CONFIRMED -- still present on AIMS branch re-run.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### LOW-2: Missing `uwtable` and `noundef` on main wrapper
@@ -809,7 +840,7 @@ In principle, since all values are constant and `@area` is a pure function, the 
 **Impact**: Without `uwtable`, LLVM may not generate a proper `.eh_frame` unwind table entry for the C entry point wrapper. Without `noundef` on the return, LLVM cannot assume the exit code is well-defined. Practical impact is minimal since the function is trivial (3 instructions).
 **Fix**: Add `uwtable` and `noundef` to the main wrapper's attribute group and return type.
 **First seen**: Journey 1
-**Status**: Still present -- confirmed on re-run.
+**Status**: CONFIRMED -- still present on AIMS branch re-run.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-3: All functions match ideal IR exactly
@@ -822,19 +853,19 @@ In principle, since all values are constant and `@area` is a pure function, the 
 
 **Location**: `@_ori_area(ptr %0)` -- Rect passed by pointer
 **Impact**: Positive. 32-byte struct correctly passed by reference rather than by value, avoiding register pressure and unnecessary copies.
-**Found in**: Structs: Passing Convention (Category 9)
+**Found in**: Structs: ABI Passing (Category 9)
 
 ### NOTE-5: Nested struct embedded inline
 
 **Location**: `%ori.Rect = type { %ori.Point, i64, i64 }`
 **Impact**: Positive. The nested `Point` inside `Rect` is embedded directly (not behind a pointer), giving a flat 32-byte layout with no indirection. This is the correct representation for value-type structs.
-**Found in**: Structs: Type Representation (Category 8)
+**Found in**: Structs: ABI Passing (Category 9)
 
 ### NOTE-6: Single aggregate store for struct constant
 
 **Location**: `store %ori.Rect { %ori.Point { i64 3, i64 4 }, i64 10, i64 5 }, ptr %ref_arg`
 **Impact**: Positive. The entire 32-byte struct constant is written as one aggregate store instruction, which LLVM lowers to 4 immediate stores. No unnecessary temporary allocations or field-by-field construction.
-**Found in**: Structs: Constant Aggregate Construction (Category 10)
+**Found in**: Structs: ABI Passing (Category 9)
 
 ## Codegen Quality Score
 
@@ -852,7 +883,7 @@ In principle, since all values are constant and `@area` is a pure function, the 
 
 ## Verdict
 
-Journey 4's struct codegen is near-perfect. Both `Point` and `Rect` are lowered to correct LLVM aggregate types with inline nesting (no indirection). The 32-byte `Rect` is correctly passed by pointer rather than by value. Field access compiles to efficient GEP+load sequences, and the entire struct constant is materialized with a single aggregate store. All three user functions match the ideal IR instruction-for-instruction -- zero overhead beyond mandatory overflow checking. The only gaps are two missing `noundef` attributes (ptr parameter on @area and main wrapper return), which reduce the attributes score to 7/10 but have negligible practical impact. ARC is perfectly clean with zero RC operations on all-scalar structs.
+Journey 4's struct codegen remains near-perfect on the AIMS branch. Both `Point` and `Rect` are lowered to correct LLVM aggregate types with inline nesting (no indirection). The 32-byte `Rect` is correctly passed by pointer rather than by value. Field access compiles to efficient GEP+load sequences, and the entire struct constant is materialized with a single aggregate store. All three user functions match the ideal IR instruction-for-instruction -- zero overhead beyond mandatory overflow checking. The AIMS unified lattice correctly classifies all values as `[Scalar]`, confirming zero RC overhead. The only gaps are two missing `noundef`/`uwtable` attributes, which reduce the attributes score to 7/10 but have negligible practical impact.
 
 ## Cross-Journey Observations
 
@@ -865,4 +896,4 @@ Journey 4's struct codegen is near-perfect. Both `Point` and `Rect` are lowered 
 | nounwind present | J1 | J4 | CONFIRMED |
 | Let binding elimination | J1 | J4 | CONFIRMED (struct let bindings correctly lowered) |
 
-The struct-specific codegen introduces no new defects compared to Journey 1. The by-pointer passing convention, GEP-based field access, and nested struct embedding are all implemented correctly. The attribute gaps (missing `noundef` on ptr params, missing `uwtable`/`noundef` on main wrapper) are systemic issues carried over from Journey 1. The score improved from the previous run (8.5 to 9.7) because the extract-metrics tooling now correctly recognizes the `insertvalue`/`extractvalue` canonicalization pattern as the compiler's standard struct access ABI rather than counting it as unjustified overhead.
+The AIMS branch produces identical LLVM IR and native code compared to the previous run (2026-03-07). All findings are CONFIRMED -- no regressions, no fixes, no new issues. The AIMS unified lattice integration is transparent for scalar-only struct programs, adding zero overhead to the codegen pipeline. The score is unchanged at 9.7/10.
