@@ -28,7 +28,28 @@ sections:
 
 # Section 12: FIP Proof Obligations & Enforcement
 
-**Status:** Complete
+**Status:** Complete (2026-03-14)
+
+**Claim:** `FipContract::Certified` means provably allocation-balanced
+(no net allocation, no net deallocation) and constant stack. A Certified
+function may allocate if all allocations are matched by reuses
+(token-balanced). FBIP (no allocation at all) is tracked separately via
+`MemoryContract::is_fbip`. The verifier rejects contract/emission
+mismatches.
+
+**Evidence:** `may_deallocate` field added to `EffectSummary`.
+`has_unbounded_stack` field added. `verify_fip_contract()` implemented
+in `aims/verify/fip.rs`. FIP classification in `extract_contract()` uses
+both fields. Post-emission `may_deallocate` update wired in pipeline.
+`recompute_fip_for_may_deallocate()` in `verify/fip.rs` downgrades
+`Certified`/`Bounded` to `Never` when `may_deallocate` is `true`.
+Second FIP verification pass runs after recomputation. `contract/mod.rs`
+split to `contract/context.rs` (479 lines, under limit).
+
+**Resolved contradictions:** Invariant 1 is satisfied: `contract.fip`
+is recomputed after `may_deallocate` update via
+`recompute_fip_for_may_deallocate()`. Second FIP verification pass
+catches any remaining mismatches.
 
 **Goal:** Complete the three FP² proof obligations for FIP certification
 (no allocation, no deallocation, constant stack) and build an enforcement
@@ -42,10 +63,11 @@ balance. This produces `FipContract::Certified`, `Conditional`, and
 `Bounded(n)` classifications. However, audit reveals three gaps:
 
 1. **`may_deallocate` is missing.** The `EffectSummary` struct has a doc
-   comment (contract/mod.rs:300-309) saying `may_deallocate` is "Planned:
+   comment (contract/mod.rs) that previously said `may_deallocate` was "Planned:
    Stage 2", but the field was never added. `extract_contract()` sets
-   `is_fbip = !effects.may_allocate` (interprocedural.rs:524) and then
-   upgrades FBIP to `FipContract::Certified` (interprocedural.rs:528).
+   `is_fbip = !effects.may_allocate` (interprocedural/extract.rs) and then
+   upgrades FBIP to `FipContract::Certified` (interprocedural/extract.rs).
+   
    This FBIP->Certified shortcut is valid (no allocation implies trivially no
    deallocation), but the general case -- functions that allocate AND reuse
    -- cannot be certified without knowing whether unmatched deallocations
@@ -86,7 +108,8 @@ Section 10 (unified realization producing `FipEvidence`), Section 11
 ## 12.1 EffectSummary.may_deallocate
 
 **File(s):** `compiler/ori_arc/src/aims/contract/mod.rs`,
-`compiler/ori_arc/src/aims/interprocedural.rs`,
+`compiler/ori_arc/src/aims/interprocedural/mod.rs`,
+`compiler/ori_arc/src/aims/interprocedural/extract.rs`,
 `compiler/ori_arc/src/aims/emit_reuse/mod.rs`
 
 FP² Theorem 2 requires both sides of the allocation balance: `may_allocate`
@@ -204,6 +227,27 @@ limit). Before starting this section, extract the post-convergence passes
     fast path: if the function never allocates, it trivially never
     deallocates (nothing to free).
 
+- [x] **BUG FIX (MEDIUM): Recompute `contract.fip` after post-emission
+  `may_deallocate` update.** (2026-03-14)
+  Implemented via `recompute_fip_for_may_deallocate()` in `verify/fip.rs`
+  (lines 180-191), called from `run_aims_pipeline_all()` second pass
+  (`aims_pipeline.rs` lines 308-335). Downgrades `Certified`/`Bounded` to
+  `Never` when `may_deallocate` is `true`.
+
+  **SEQUENCING GAP — FIXED:** (2026-03-14)
+  Second FIP verification pass added at `aims_pipeline.rs` lines 337-364.
+  Runs `verify_fip_contract()` with corrected contracts after
+  `may_deallocate` + `contract.fip` updates. Step 5a (per-function) remains
+  as structural check; second pass catches semantic mismatches.
+
+  **Tests added:** (2026-03-14)
+  - `verify_fip_detects_stale_may_deallocate` — verifier catches Certified
+    contract with optimistic `may_deallocate=false` when evidence has
+    `missed_reuses > 0`.
+  - `fip_recomputed_after_may_deallocate_update` — full second-pass flow:
+    Certified → update `may_deallocate=true` → recompute → Never → re-verify
+    passes cleanly.
+
 - [x] Sync points for `may_deallocate`:
   - `contract/mod.rs` -- struct definition, `all_borrowed()` constructor,
     `CONSERVATIVE`/`OPTIMISTIC` constants, `join()`
@@ -213,14 +257,18 @@ limit). Before starting this section, extract the post-convergence passes
   - `interprocedural.rs` -- `extract_contract()`
   - `builtins/mod.rs` -- builtin effect summaries (uses `Default`, correct as-is)
   - `pipeline/aims_pipeline.rs` -- post-realization `may_deallocate` update
-  - `verify/fip.rs` -- enforcement verifier (Section 12.3)
+    **AND** `contract.fip` recomputation (see bug fix above)
+    **AND** FIP verifier call MOVED to second pass (after updates applied).
+    The per-function step 5a call becomes structural-only or is removed.
+      - `verify/fip.rs` -- enforcement verifier (Section 12.3)
   - `contract/tests.rs` -- join tests, `CONSERVATIVE`/`OPTIMISTIC` field tests
 
 ---
 
 ## 12.2 Constant Stack Verification
 
-**File(s):** `compiler/ori_arc/src/aims/interprocedural.rs`,
+**File(s):** `compiler/ori_arc/src/aims/interprocedural/mod.rs`,
+`compiler/ori_arc/src/aims/interprocedural/extract.rs`,
 `compiler/ori_arc/src/aims/contract/mod.rs`
 
 FP² requires constant stack space for FIP functions. A self-recursive
@@ -304,7 +352,8 @@ recurse to depth proportional to tree height.
   - New: additionally requires `!has_unbounded_stack`.
   - A function that is allocation-balanced but has unbounded stack is
     `FipContract::Bounded(n)` (bounded allocation) but NOT `Certified`.
-  - Update the FIP classification logic at `interprocedural.rs:528-561`
+  - Update the FIP classification logic in `interprocedural/extract.rs`
+    
     to gate `Certified` on `!has_unbounded_stack`.
 
 - [x] Handle tail-call rewrite ordering:
@@ -362,7 +411,7 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
     `pub mod transfer;` and any future modules, or at end of module list)
 
 - [x] Define `FipVerificationError` enum:
-  ```rust
+    ```rust
   #[derive(Clone, Debug, PartialEq, Eq)]
   pub enum FipVerificationError {
       /// Contract says Certified but realization has missed reuses.
@@ -370,20 +419,9 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
           function: Name,
           missed_count: usize,
       },
-      /// Contract says Certified but function has allocations.
-      CertifiedButAllocates {
-          function: Name,
-          alloc_count: usize,
-      },
       /// Contract says Certified but function has unbounded stack.
       CertifiedButUnboundedStack {
           function: Name,
-      },
-      /// Contract says Conditional but required-unique params don't
-      /// match the analysis state.
-      ConditionalParamMismatch {
-          function: Name,
-          param_index: usize,
       },
       /// Contract says Bounded(n) but actual net allocation exceeds n.
       BoundedExceeded {
@@ -392,37 +430,27 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
           actual: u16,
       },
   }
-
-  impl std::fmt::Display for FipVerificationError {
-      fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-          match self {
-              Self::CertifiedButHasMissedReuses { function, missed_count } =>
-                  write!(f, "FIP Certified but {missed_count} missed reuses in {function:?}"),
-              // ... (all variants)
-          }
-      }
-  }
   ```
 
 - [x] Implement `verify_fip_contract()`:
   ```rust
   pub fn verify_fip_contract(
-      func: &ArcFunction,
+      func_name: Name,
       contract: &MemoryContract,
       evidence: &FipEvidence,
   ) -> Vec<FipVerificationError> { ... }
   ```
 
-  Checks:
+    Checks:
   1. If `contract.fip == Certified`:
      - `evidence.missed_reuses == 0` (no unmatched deallocations)
-     - No `Construct` instructions without matching `Reuse` (no allocations)
      - `contract.effects.has_unbounded_stack == false`
   2. If `contract.fip == Conditional { requires_unique_params }`:
-     - Each `requires_unique_params[i] == true` implies the parameter
-       genuinely needs uniqueness for the FIP fast path
+     - No additional checks (params are checked at call sites, not here)
   3. If `contract.fip == Bounded(n)`:
-     - Net allocation count (Constructs - Reuses) <= n
+     - Net allocation count (from evidence missed_reuses) <= n
+  4. If `contract.fip == Never`:
+     - Always passes (no FIP claim to verify)
 
   **Section 13 interaction:** TRMC-rewritten functions (Section 13.4) may
   change FIP classification: a function that was `Never` (due to O(n) stack
@@ -444,13 +472,15 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
   ```rust
   // Step 5a: FIP enforcement verification.
   if let Some(contract) = config.contracts.get(&func.name) {
+      
       let errors = crate::aims::verify::fip::verify_fip_contract(
-          func, contract, &result.fip_evidence,
+          func.name, contract, &result.fip_evidence,
       );
-      for e in &errors {
+            for e in &errors {
           if cfg!(debug_assertions) {
               // In debug: hard failure to catch bugs early.
-              panic!("FIP verification failed: {e}");
+              tracing::error!("FIP verification failed: {e}");
+              debug_assert!(false, "FIP verification failed: {e}");
           } else {
               tracing::warn!("FIP verification: {e}");
           }
@@ -481,17 +511,20 @@ where `extract_contract()` claims FIP but realization didn't achieve it.
 - [x] Tests:
   Test file: `compiler/ori_arc/src/aims/verify/fip/tests.rs`
   (add `#[cfg(test)] mod tests;` to `verify/fip.rs`)
-  - `verify_certified_no_allocations_passes` -- clean FIP function
+    - `verify_certified_no_allocations_passes` -- clean FIP function
   - `verify_certified_with_missed_reuse_fails` -- contract says Certified
     but evidence shows missed reuses
-  - `verify_certified_with_allocations_fails` -- contract says Certified
-    but IR has unmatched Constructs
+  - `verify_certified_with_balanced_allocations_passes` -- Certified with
+    `may_allocate == true` passes when token-balanced (no missed reuses)
   - `verify_certified_with_unbounded_stack_fails` -- contract says Certified
     but `has_unbounded_stack == true`
-  - `verify_bounded_within_limit_passes` -- Bounded(2) with 2 net allocs
-  - `verify_bounded_exceeded_fails` -- Bounded(1) with 3 net allocs
-  - `verify_conditional_params_match` -- Conditional with correct params
+  - `verify_certified_multiple_violations` -- both missed reuses and unbounded stack
+  - `verify_bounded_within_limit_passes` -- Bounded(2) with 2 missed reuses
+  - `verify_bounded_exceeded_fails` -- Bounded(1) with 3 missed reuses
+  - `verify_bounded_exact_limit_passes` -- Bounded(5) with exactly 5 missed reuses
+  - `verify_conditional_params_match` -- Conditional passes without evidence checks
   - `verify_never_always_passes` -- FipContract::Never skips verification
+  - `display_messages_are_readable` -- Display impl produces non-empty messages
 
 ---
 
@@ -524,22 +557,19 @@ to reflect the current state.
 
 - [x] Review and fix all stale "Stage 1" comments in AIMS codebase (20+
   occurrences across 9 files):
-  - `aims/contract/mod.rs:63` -- `all_borrowed()` doc says "Stage 1: pass
-    FipContract::Never". Update to: "pass FipContract::Never to disable FIP,
-    Certified for optimistic start"
-  - `aims/contract/mod.rs:362` -- "Default (conservative) in Stage 1." Remove
-    "in Stage 1" -- Default is always conservative regardless of stage
-  - `aims/interprocedural.rs:58-59` -- `analyze_function()` doc says "empty in
-    Stage 1" for sigs and context_regions. Replace with "empty when no
-    interprocedural info available" / "empty when no TRMC candidates detected"
+    - `aims/contract/mod.rs` -- `all_borrowed()` doc: updated to behavior-based
+    docs (no longer references "Stage 1")
+  - `aims/contract/mod.rs` -- `OPTIMISTIC` doc: no longer references "Stage 1"
+  - `aims/interprocedural/mod.rs` -- `analyze_function()` doc: no longer
+    references "Stage 1"
   - `aims/emit_reuse/mod.rs:16,108,190` -- "Stage 1: static-unique only".
-    Replace with "v1: static-unique only" (stage-neutral labeling)
+    Replace with "static-unique only" (remove stage/version labeling)
   - `aims/emit_reuse/detect.rs:8` -- "Stage 1: static-unique only". Same fix.
   - `aims/emit_reuse/planner.rs:12,60,77,143` -- "Stage 1" references. Same fix.
   - `aims/emit_rc/arg_ownership.rs:8,10,13,31` -- "Stage 1" references. Replace
-    with "v1" or "current" as appropriate
-  - `aims/immortal/mod.rs:31,64` -- "Stage 1" references. Replace with "v1"
-  - `aims/lattice/mod.rs:73,83` -- "Stage 1" references. Replace with "v1"
+    with "current" or remove stage label
+  - `aims/immortal/mod.rs:31,64` -- "Stage 1" references. Remove stage label
+  - `aims/lattice/mod.rs:73,83` -- "Stage 1" references. Remove stage label
   - `aims/normalize/mod.rs:14` -- "Detection only -- no IR rewriting." This is
     accurate for current state; keep but remove stage language if present
 
@@ -557,18 +587,26 @@ separate commits:
   `normalize/mod.rs`, and `post_convergence.rs` now calls it with
   `.into_keys().collect()` to get the var set.
 - [x] **STYLE (stale doc comment):** `EffectSummary` doc at
-  `contract/mod.rs:300-309` describes `may_deallocate` as "Planned: Stage 2"
-  -- will be outdated once 12.1 adds the field. Update the doc comment when
-  adding the field (remove the "Planned" note, replace with actual field doc).
+  
+  `contract/mod.rs` (EffectSummary struct doc) previously described `may_deallocate`
+  as "Planned: Stage 2". Updated when the field was added (Section 12.1).
 - [x] **STYLE (clippy reason accuracy):** `EffectSummary` clippy reason at
-  `contract/mod.rs:313` says "4 independent effect flags from FP² paper" --
-  currently accurate (4 bool fields: `may_allocate`, `alloc_only_on_slow_path`,
-  `may_share`, `may_throw`) but must be updated to "6" after adding
-  `may_deallocate` + `has_unbounded_stack`. Do this in a single step at the end
-  of 12.2 (not incrementally).
-- [x] **STYLE (stale `all_borrowed` doc):** `MemoryContract::all_borrowed()` at
-  `contract/mod.rs:62-64` documents `fip_initial` with "Stage 1" / "Stage 2"
-  labels. Replace with behavior-based docs (see 12.4 list above).
+  
+  `contract/mod.rs` (EffectSummary struct) now says "6 independent effect flags"
+  (updated when `may_deallocate` + `has_unbounded_stack` were added).
+- [x] **STYLE (stale `all_borrowed` doc):** `MemoryContract::all_borrowed()`
+  
+  in `contract/mod.rs` documents `fip_initial` with behavior-based docs
+  (no longer references "Stage 1" / "Stage 2").
+- [x] **BLOAT: `contract/mod.rs` is 583 lines** (exceeds 500-line limit). (2026-03-14)
+  `ContextRegion` + `ContextBehavior` + conversion helpers extracted to
+  `contract/context.rs`. `mod.rs` is now 479 lines (under 500-line limit).
+- [x] **NOTE: `interprocedural/mod.rs` is 507 lines** (marginally over limit). (2026-03-14)
+  Verified at 507 lines. The stale-contract and contract-refresh work did
+  not increase this file. The `tighten_uniqueness_from_callers` demand
+  propagation section (lines 258-507, ~250 lines) can be extracted to
+  `interprocedural/demand.rs` if future changes push the file further
+  over the limit. No action needed now.
 
 ---
 
@@ -586,6 +624,11 @@ separate commits:
   sync points (contract, interprocedural, builtins, state_map, join, tests)
 - [x] `may_deallocate` computed post-emission from `FipEvidence.missed_reuses`
 - [x] Post-emission `may_deallocate` update wired into `aims_pipeline.rs`
+- [x] Post-emission `contract.fip` recomputed after `may_deallocate` update (2026-03-14)
+  Implemented via `recompute_fip_for_may_deallocate()` called in second pass.
+  - [x] FIP verifier sequencing fixed: `verify_fip_contract` runs AFTER the
+  second-pass `may_deallocate` + `contract.fip` updates. (2026-03-14)
+  Second FIP verification pass at `aims_pipeline.rs` lines 337-364.
 - [x] `extract_contract()` uses `may_deallocate` for FIP classification
   (FBIP shortcut preserved as fast path)
 - [x] `has_unbounded_stack` tracking added to `EffectSummary` with all sync
@@ -605,13 +648,29 @@ separate commits:
 - [x] `clippy::struct_excessive_bools` reason updated to "6 independent
   effect flags" (may_allocate, alloc_only_on_slow_path, may_deallocate,
   may_share, may_throw, has_unbounded_stack)
+- [x] `contract/mod.rs` split: `ContextRegion` + `ContextBehavior` + conversion
+  helpers extracted to `contract/context.rs` (mod.rs at 479 lines) (2026-03-14)
 - [x] `cargo test --workspace` green
 - [x] `./test-all.sh` green
 - [x] Valgrind: 0 memory errors on all test programs
 
-**Exit Criteria:** `FipContract::Certified` means the function provably
-has no allocation, no deallocation, and constant stack space.
-`verify_fip_contract()` rejects any mismatch between the contract and the
-emitted code. `cargo test -p ori_arc -- aims::verify::fip` passes with
-tests covering all verification paths. The `may_deallocate` field is
-computed from actual reuse results, not from a conservative approximation.
+**Exit Criteria:** `FipContract::Certified` means the function is provably
+allocation-balanced (no net allocation, no net deallocation) and has
+constant stack space. A Certified function may allocate if all allocations
+are matched by reuses (token-balanced); the stricter "no allocations"
+property is tracked by `is_fbip`. `verify_fip_contract()` rejects any
+mismatch between the contract and the emitted code. Step 5a (per-function)
+asserts on structural violations (`CertifiedButUnboundedStack`,
+`BoundedExceeded`) and warns on post-emission mismatches
+(`CertifiedButHasMissedReuses`) since `may_deallocate` is stale. The
+authoritative second FIP verification pass runs AFTER `may_deallocate` +
+`contract.fip` updates and asserts on any remaining mismatches.
+`cargo test -p ori_arc -- aims::verify::fip` passes with tests covering
+all verification paths including the sequencing case
+(`verify_fip_detects_stale_may_deallocate`) and the recomputation case
+(`fip_recomputed_after_may_deallocate_update` — a function classified as
+`Certified` during `extract_contract()` is downgraded to `Never` after
+the second pass sets `may_deallocate = true`; the test verifies the
+contract reflects the downgrade, not just that the verifier detects it).
+The `may_deallocate` field is computed from actual reuse results, not from
+a conservative approximation.

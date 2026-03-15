@@ -10,9 +10,9 @@ order: 1
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
 
-> **No Deferrals.** Every checkbox in every section must be implemented. Do not
-> mark items as deferred, skip items, or move items to later stages. Work each
-> section's items in order until all checkboxes are checked.
+> **Completion Rule.** A section is complete only when implementation exists,
+> invariants are enforced, verification exists, and downstream consumers use
+> the same truths. See `00-overview.md` §6 for the full rule.
 
 ## How to Use
 
@@ -25,7 +25,7 @@ order: 1
 ## Keyword Clusters by Section
 
 ### Section 01: Unified Lattice Design
-**File:** `section-01-lattice.md` | **Status:** In Progress
+**File:** `section-01-lattice.md` | **Status:** Complete
 
 ```
 lattice, AimsState, substructural, ownership, uniqueness, cardinality
@@ -45,7 +45,7 @@ lattice/mod.rs, lattice/dimensions.rs, transfer/mod.rs, aims_state, core dimensi
 ---
 
 ### Section 02: Intraprocedural Analysis
-**File:** `section-02-intraprocedural.md` | **Status:** In Progress
+**File:** `section-02-intraprocedural.md` | **Status:** Complete
 
 ```
 backward dataflow, forward dataflow, per-function, transfer functions
@@ -115,7 +115,7 @@ SuppressedDeath, EmitReuseResult, FipGateRecord, ProjMap
 ---
 
 ### Section 06: Pipeline Integration
-**File:** `section-06-pipeline.md` | **Status:** Complete
+**File:** `section-06-pipeline.md` | **Status:** Complete (legacy dead code deleted, live modules retained)
 
 ```
 pipeline/mod.rs, run_arc_pipeline, run_arc_pipeline_all, run_uniqueness_analysis
@@ -151,7 +151,7 @@ representation optimization, bit-stealing, Elsman, RcStrategy
 ---
 
 ### Section 08: Verification & Validation
-**File:** `section-08-verification.md` | **Status:** In Progress
+**File:** `section-08-verification.md` | **Status:** In Progress (cross-system interaction matrix needed)
 
 ```
 behavioral equivalence, dual execution, dual-exec-verify, regression
@@ -163,6 +163,10 @@ test matrix, spec tests, AOT tests, valgrind, ORI_CHECK_LEAKS
 performance validation, compilation speed, codegen quality, hyperfine
 same-compiler comparison, Exploring Perceus for OCaml, evaluation doctrine
 confounding-variable isolation, compile-time breakdown
+Matrix H, cross-system interaction, subsystem boundary testing
+TRMC x RC, TRMC x reuse, TRMC x COW, TRMC x FIP, TRMC x contracts
+RC x tail_call, RC x block_merge, reuse x drop_hints, COW x FIP
+three-layer assertion strategy, ARC unit, AOT behavioral, Valgrind leak
 ```
 
 ---
@@ -230,15 +234,14 @@ test file locations, Ori program verification
 ---
 
 ### Section 12: FIP Proof Obligations & Enforcement
-**File:** `section-12-fip-enforcement.md` | **Status:** Not Started
+**File:** `section-12-fip-enforcement.md` | **Status:** Complete
 
 ```
 FIP proof obligations, FP2 Theorem 2, allocation balance, deallocation balance
 may_deallocate, EffectSummary, constant stack, has_unbounded_stack
 FipContract::Certified, FipContract::Bounded, FipContract::Conditional
 FIP enforcement verifier, verify_fip_contract, FipVerificationError
-CertifiedButHasMissedReuses, CertifiedButAllocates, CertifiedButUnboundedStack
-BoundedExceeded, ConditionalParamMismatch
+CertifiedButHasMissedReuses, CertifiedButUnboundedStack, BoundedExceeded
 FipEvidence, missed_reuses, contract/emission mismatch
 extract_contract, is_fbip, may_allocate, post-emission update
 tail-call rewriting, syntactic tail position, self-recursive SCC
@@ -254,7 +257,7 @@ pipeline/aims_pipeline.rs, post-emission may_deallocate update, step 5a
 ---
 
 ### Section 13: TRMC Realization & Soundness
-**File:** `section-13-trmc-realization.md` | **Status:** Not Started
+**File:** `section-13-trmc-realization.md` | **Status:** In Progress (5 bugs: 2 High, 3 Medium + 3 WASTE dead code + 2 STYLE stale docs + 1 STYLE orphan TODO)
 
 ```
 TRMC, tail recursion modulo context, modulo cons, constructor context
@@ -270,8 +273,8 @@ lifting pre-pass, A-normal form, lift_constructor_args, var_types extension
 Minamide tuple, context composition, context application
 in-place transform, optional context parameter, auxiliary function
 rewrite_trmc, normalize/rewrite.rs, normalize/lift.rs, normalize/verify.rs
-TrmcContext, TrmcVerificationError, NonLinearContext
-context laws, appctx, appcomp, post-rewrite verification
+TrmcContext, TrmcVerificationError, NonLinearContext, NonUniqueContext
+context laws, appctx, appcomp, post-rewrite verification, verify_trmc_soundness
 func.clone(), rollback mechanism, verification failure restore
 ContextOpen, ContextClose, AimsEvent, event consumption
 NormalizationResult, was_transformed, context_regions, rollback
@@ -280,28 +283,32 @@ detect_trmc_candidates, populate_context_events, detect_context_regions
 pipeline re-analysis, normalize_function, aims_pipeline.rs
 compute_var_reprs re-run, detect_immortals re-run, idempotent rewrite
 Leijen Lorenzen JFP 2025, FIPTree PLDI 2024, Koka CTail
+BUG: recursive argument threading, BUG: stale contracts, BUG: helper block params
+BUG: may_share gate blocks all candidates, BUG: uniqueness verification stubbed
+Matrix D, Matrix E, Matrix F, Matrix G, behavioral test matrix
+TRMC x RC emission, TRMC x reuse, TRMC x COW, TRMC x FIP, TRMC x contracts
 ```
 
 ---
 
 ## Quick Reference
 
-| ID | Title | File |
-|----|-------|------|
-| — | Overview & Architecture | `00-overview.md` |
-| 01 | Unified Lattice Design | `section-01-lattice.md` |
-| 02 | Intraprocedural Analysis | `section-02-intraprocedural.md` |
-| 03 | Interprocedural Analysis | `section-03-interprocedural.md` |
-| 04 | RC Emission | `section-04-rc-emission.md` |
-| 05 | Reuse Emission | `section-05-reuse-emission.md` |
-| 06 | Pipeline Integration | `section-06-pipeline.md` |
-| 07 | Advanced Optimizations | `section-07-advanced.md` |
-| 08 | Verification & Validation | `section-08-verification.md` |
-| 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` |
-| 10 | Unified Realization | `section-10-unified-realization.md` |
-| 11 | Integration Verification | `section-11-integration-verification.md` |
-| 12 | FIP Proof Obligations & Enforcement | `section-12-fip-enforcement.md` |
-| 13 | TRMC Realization & Soundness | `section-13-trmc-realization.md` |
+| ID | Title | File | Status |
+|----|-------|------|--------|
+| — | Overview | `00-overview.md` | — |
+| 01 | Unified Lattice Design | `section-01-lattice.md` | Complete |
+| 02 | Intraprocedural Analysis | `section-02-intraprocedural.md` | Complete |
+| 03 | Interprocedural Analysis | `section-03-interprocedural.md` | Complete |
+| 04 | RC Emission | `section-04-rc-emission.md` | Complete (superseded by 10) |
+| 05 | Reuse Emission | `section-05-reuse-emission.md` | Complete (superseded by 10) |
+| 06 | Pipeline Integration | `section-06-pipeline.md` | Complete |
+| 07 | Advanced Optimizations | `section-07-advanced.md` | Complete |
+| 08 | Verification & Validation | `section-08-verification.md` | Incomplete |
+| 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` | Complete |
+| 10 | Unified Realization | `section-10-unified-realization.md` | Complete |
+| 11 | Integration Verification | `section-11-integration-verification.md` | Incomplete |
+| 12 | FIP Proof Obligations | `section-12-fip-enforcement.md` | Complete |
+| 13 | TRMC Realization | `section-13-trmc-realization.md` | Incomplete (C2, C3) |
 
 ## Performance Validation
 

@@ -69,7 +69,7 @@ The original plan focused on three dimensions (ownership, uniqueness, cardinalit
 The expanded lattice adds three more (locality, shape class, effect class) to support
 future stack allocation, FIP certification, and representation optimization — all
 reading from the same unified fact structure. The new dimensions begin conservative
-in v1 and do not need to be precise for the initial AIMS replacement to work.
+initially and do not need to be precise for the initial AIMS replacement to work.
 
 **Reference implementations:**
 - **Lean 4** `src/Lean/Compiler/IR/Borrow.lean`: SCC-based borrow inference with
@@ -98,11 +98,11 @@ The core `AimsState` is a product of seven dimensions, each a small finite latti
 The product lattice inherits join/meet componentwise. The four core dimensions
 (access, consumption, uniqueness, cardinality) drive the fixed-point solver and RC
 emission. The three auxiliary dimensions (locality, shape, effect) are conservative
-in v1 and provide the architectural foundation for future optimizations (stack
+initially and provide the architectural foundation for future optimizations (stack
 allocation, FIP certification, representation optimization) without requiring a
-second pass. v1 treats all dimensions uniformly in the worklist
+second pass. AIMS treats all dimensions uniformly in the worklist
 The core/auxiliary distinction is for documentation
-and future optimization — it does not affect v1 solver behavior.
+and future optimization — it does not affect solver behavior.
 (Originally an early design decision, now superseded by this section.)
 
 - [x] Define `AimsState` as a struct with seven fields:
@@ -116,13 +116,13 @@ and future optimization — it does not affect v1 solver behavior.
   /// to changes in these):
   ///   access, consumption, cardinality, uniqueness
   ///
-  /// **Auxiliary dimensions** (conservative in v1 — all dimensions are
+  /// **Auxiliary dimensions** (conservative initially — all dimensions are
   /// treated identically by the worklist, with no selective reprocessing.
-  /// v1 does not distinguish core from auxiliary for iteration purposes):
+  /// AIMS does not distinguish core from auxiliary for iteration purposes):
   ///   locality, shape, effect
   ///
   /// This is a product lattice with a core/auxiliary distinction for documentation
-  and future optimization, but v1 treats all dimensions uniformly in the
+  and future optimization, but AIMS treats all dimensions uniformly in the
   worklist (historical design decision).
   #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
   pub struct AimsState {
@@ -134,11 +134,11 @@ and future optimization — it does not affect v1 solver behavior.
       pub cardinality: Cardinality,
       /// Runtime reference count knowledge.
       pub uniqueness: Uniqueness,
-      /// Escape analysis (auxiliary, conservative in v1).
+      /// Escape analysis (auxiliary, conservative initially).
       pub locality: Locality,
-      /// Structural shape (auxiliary, conservative in v1).
+      /// Structural shape (auxiliary, conservative initially).
       pub shape: ShapeClass,
-      /// Memory effects (auxiliary, conservative in v1).
+      /// Memory effects (auxiliary, conservative initially).
       pub effect: EffectClass,
   }
   ```
@@ -508,7 +508,7 @@ This enables new optimizations:
 **File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`
 
 Tracks whether a value escapes its defining scope. This dimension does not affect
-RC emission in v1 but provides the architectural foundation for future stack
+RC emission initially but provides the architectural foundation for future stack
 allocation hints (Stage 4 in the implementation sequence).
 
 - [x] Define `Locality` enum:
@@ -534,7 +534,7 @@ allocation hints (Stage 4 in the implementation sequence).
   ```
 
 - [x] Implement `Locality::join` — max of the two (most conservative)
-- [x] **v1 behavior**: Initialize all non-scalar variables to `Unknown`. Refine to
+- [x] **Behavior**: Initialize all non-scalar variables to `Unknown`. Refine to
   `FunctionLocal` only when provable (e.g., not returned, not stored in a captured
   closure, not passed to an owned-consuming callee). This is safe — overapproximation.
 
@@ -545,7 +545,7 @@ allocation hints (Stage 4 in the implementation sequence).
 **File(s):** `compiler/ori_arc/src/aims/lattice/mod.rs`
 
 Tracks the structural shape of a value for reuse compatibility and future
-representation optimization. Conservative in v1.
+representation optimization. Conservative initially.
 
 - [x] Define `ShapeClass` enum:
   ```rust
@@ -596,7 +596,7 @@ representation optimization. Conservative in v1.
   (All symmetric cases follow from commutativity.)
   This is a flat join (not a linear chain), so ShapeClass contributes
   chain height 1 (any value reaches `NonReusable` in at most one step).
-- [x] **v1 behavior**: Set `ReusableCtor` for `Construct` instructions, `CollectionBuffer`
+- [x] **Behavior**: Set `ReusableCtor` for `Construct` instructions, `CollectionBuffer`
   for list/map/set allocations, `NonReusable` for everything else.
 
 ---
@@ -639,7 +639,7 @@ FIP must have no allocations on the fast path.
 - [x] Implement `EffectClass::join` — componentwise OR (each flag independently
   conservative). `NONE.join(x) == x`, `ALL.join(x) == ALL`.
   Chain height = 3 (each of 3 booleans can flip false→true once).
-- [x] **v1 behavior**: Initialize most operations to `ALL` (conservative). Set `NONE` for
+- [x] **Behavior**: Initialize most operations to `ALL` (conservative). Set `NONE` for
   scalar operations and known-pure builtins. Refine in Stage 2 for FIP certification.
 
 ---
@@ -830,7 +830,7 @@ lattice property verification — it never participates in join or transfer oper
   (Scalar, DefiniteRef, PossibleRef)
 - [x] `AimsState::FRESH` convenience constant defined and used in transfer functions
 - [x] `BorrowSource` side table defined (sparse, not in finite lattice)
-- [x] `Locality`, `ShapeClass`, `EffectClass` initialize conservatively for v1
+- [x] `Locality`, `ShapeClass`, `EffectClass` initialize conservatively initially
 - [x] No dependencies on other AIMS sections (this is the foundation)
 
 - [x] **Non-convergence safety**: if the worklist exceeds a configurable iteration
@@ -844,4 +844,4 @@ lattice property verification — it never participates in join or transfer oper
 property tests green. The chain height is verified as finite (15). All transfer
 functions are monotonic. Canonicalization is idempotent. Pairwise interaction tests
 cover core × core dimension pairs. The auxiliary dimensions (`Locality`, `ShapeClass`,
-`EffectClass`) default to conservative values and do not affect RC emission in v1.
+`EffectClass`) default to conservative values and do not affect RC emission initially.

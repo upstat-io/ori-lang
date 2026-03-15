@@ -102,9 +102,9 @@ A reuse opportunity exists when:
     the new value's type). Cross-type reuse (different types, same size) is unsound
     without proving: (a) identical layout including alignment and padding, (b) drop
     glue compatibility (the old type's drop must not be called on the new value), and
-    (c) no interior pointers that depend on type identity. **v1: same-type only.**
-    Cross-type reuse may be explored in Stage 5 (Section 07) with explicit layout
-    and drop compatibility proofs.
+    (c) no interior pointers that depend on type identity. **Same-type only.**
+    Cross-type reuse is out of scope without explicit layout and drop
+    compatibility proofs.
 
 - [x] **Cross-block reuse via ReusePlanner** (historical design decision):
   Cross-block reuse requires BOTH semantic facts (from AIMS) AND structural
@@ -160,7 +160,7 @@ A reuse opportunity exists when:
 - [x] Matching rule for `DeathEvent d` and `AllocEvent a`:
   1. `d.uniqueness` is `Unique` or `MaybeShared`
   2. `d.shape` and `a.shape` are reuse-compatible
-  3. `d.ty == a.ty` (same type — v1 requirement; see 05.1 type compatibility note)
+  3. `d.ty == a.ty` (same type — see 05.1 type compatibility note)
   4. `d.block` dominates `a.block` (from `DominatorTree`)
      - 4a. For same-block matches (`d.block == a.block`): `d.instr_idx < a.instr_idx`
        (death must precede allocation in program order). Without this constraint,

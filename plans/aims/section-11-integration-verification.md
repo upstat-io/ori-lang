@@ -1,7 +1,7 @@
 ---
 section: "11"
 title: "Integration Verification"
-status: complete
+status: in-progress
 goal: "Prove that all 7 dimensions work as one team through concrete programs, quantitative metrics, and regression guards"
 depends_on: ["09", "10"]
 sections:
@@ -24,7 +24,24 @@ sections:
 
 # Section 11: Integration Verification
 
-**Status:** Not Started
+**Status:** Incomplete
+
+**Claim:** Dimensional fusion and unified realization produce a system where
+all 7 dimensions work as one team, with measurable cross-dimensional benefit.
+
+**Evidence:** 8 synergy test programs in `tests/aims/synergy/`. 21 per-rule
+canonicalize tests. 10 end-to-end synergy tests in `realize/tests.rs`.
+Golden corpus baseline: 189 RC ops across 9 programs. Compilation speed
+within noise of legacy.
+
+**Missing verification:** 4 synergy programs cannot build (LLVM `.fold()` bug:
+`mixed_ownership`, `function_local_linear_skip`, `local_pure_chain`,
+`pure_callee_preserves`). Orphan `TODO(aims)` in `aims_pipeline.rs:50-53`
+references rejected Option A. SynergyMetrics shows 0% multi-dim RC decisions
+across all corpora — below the stated 20% threshold.
+
+**Open contradictions:** Exit criteria state `>=20%` cross-dim RC decisions,
+but measured value is 0%. Either the metric or the threshold is wrong.
 
 **Goal:** Prove that dimensional fusion (Section 09) and unified realization
 (Section 10) produce a system where all 7 dimensions genuinely work as one team,
@@ -409,8 +426,11 @@ Quantify how much cross-dimensional reasoning contributes.
      `cross_dim_fires` counting for Rules 4, 6, 8
   4. **Integration measurements** via `diagnostics/aims-baseline.sh` + `aims-compare.sh`:
      verify RC count improvement across golden corpus, spec suite, benchmarks
-  Option A (`AimsPipelineConfig.disabled_canonicalize_rules`) deferred — TODO added
-  in `pipeline/aims_pipeline.rs`.
+  Option A (`AimsPipelineConfig.disabled_canonicalize_rules`) was not implemented.
+  The per-rule test pairs (21 tests) and end-to-end synergy tests (10 tests)
+  provide equivalent regression coverage without the runtime rule-disabling
+  mechanism. The `TODO(aims)` comment in `aims_pipeline.rs:50-53` should be
+  removed — it references this deferred option which is no longer planned.
 
 - [x] **Golden corpus regression gate.**
   Measured 2026-03-13 (commit c530074d) after Sections 09+10 complete.
@@ -480,8 +500,9 @@ Quantify how much cross-dimensional reasoning contributes.
 - [x] Synergy regression tests: end-to-end RC count improvement verified for each
   cross-dimension test program (Option C: 10 realize tests + 28 lattice tests + 3
   feedback tests, 2026-03-13)
-- [x] `AimsPipelineConfig.disabled_canonicalize_rules` considered (see Option A note
-  in 11.3); deferred — TODO added in `pipeline/aims_pipeline.rs` (2026-03-13)
+- [x] `AimsPipelineConfig.disabled_canonicalize_rules` evaluated and rejected —
+  per-rule test pairs (21 tests) provide equivalent coverage. Orphan
+  `TODO(aims)` in `aims_pipeline.rs:50-53` should be removed (2026-03-13)
 - [x] Golden corpus RC count ≤ Stage 1 (no regression from integration work) — baseline
   recorded 2026-03-13: 189 total RC ops across 9 compilable programs
 - [x] Compilation speed ≤ 10% regression (AIMS within noise of legacy, 2026-03-13)

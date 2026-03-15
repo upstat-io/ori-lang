@@ -173,6 +173,12 @@ fn analyze_scc_fixpoint(
 
     // Build a combined sig map: external (finalized) + local (iterating).
     // Local sigs shadow external ones for SCC members.
+    //
+    // NOTE: This clones `external_sigs` once per SCC. A layered lookup
+    // (check local first, then external) would avoid the clone but
+    // requires changing `analyze_function`'s `&FxHashMap` parameter to
+    // a trait. Deferred — the clone cost is bounded by the number of
+    // finalized contracts and is negligible for typical program sizes.
     let mut combined_sigs = external_sigs.clone();
 
     let mut changed = true;
@@ -187,15 +193,17 @@ fn analyze_scc_fixpoint(
 
         for &func in scc_funcs {
             let state_map = analyze_function(func, classifier, &combined_sigs, &[], Vec::new());
-            // Detect TRMC context regions for this function during fixpoint.
-            let norm_result = crate::aims::normalize::normalize_function(func);
+            // Detect TRMC context regions (detection only — no rewrite during
+            // interprocedural fixpoint; the rewrite runs in the per-function
+            // pipeline after contracts converge).
+            let context_regions = crate::aims::normalize::detect_context_regions(func);
             let new_contract = extract_contract(
                 func,
                 &state_map,
                 classifier,
                 &combined_sigs,
                 &scc_peers,
-                &norm_result.context_regions,
+                &context_regions,
             );
 
             let old_contract = &local_sigs[&func.name];

@@ -131,7 +131,9 @@ the same `AimsStateMap` and decision functions.
       func: &mut ArcFunction,
       state_map: &AimsStateMap,
       contracts: &FxHashMap<Name, MemoryContract>,
-      config: &AimsPipelineConfig,
+      interner: &StringInterner,
+      builtins: &BuiltinOwnershipSets,
+      pool: &Pool,
   ) -> RealizationResult { ... }
 
   /// Phase 2 (post-merge): reads AimsStateMap via ArcVarId-keyed lookups,
@@ -140,8 +142,9 @@ the same `AimsStateMap` and decision functions.
   pub fn realize_annotations(
       func: &mut ArcFunction,
       state_map: &AimsStateMap,
+      interner: &StringInterner,
+      pool: &Pool,
       result: &mut RealizationResult,
-      config: &AimsPipelineConfig,
   ) { ... }
   ```
 
@@ -414,7 +417,7 @@ at once. Currently these decisions are spread across 4 separate code paths.
 
 ## 10.3 Output Views
 
-**File(s):** `compiler/ori_arc/src/aims/realize/views.rs` (NEW)
+**File(s):** `compiler/ori_arc/src/aims/realize/decide.rs`, `compiler/ori_arc/src/aims/realize/mod.rs`
 
 RC ops, reuse tokens, COW annotations, and drop hints are *views* of the same
 converged state — different projections of `AimsState`. FIP classification is
