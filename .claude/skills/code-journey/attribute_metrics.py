@@ -26,7 +26,8 @@ NOALIAS_RETURN_FUNCTIONS = frozenset({"ori_rc_alloc"})
 MUST_NOT_BE_NOUNWIND = frozenset({"ori_panic_cstr", "ori_panic"})
 
 # Indirect call detection (closures, function pointers)
-_INDIRECT_CALL_RE = re.compile(r'(?:call|invoke)\b[^@]*%\w+\s*\(')
+# LLVM register names can contain dots (e.g., %closure.fn_ptr), so use [\w.]+ not \w+
+_INDIRECT_CALL_RE = re.compile(r'(?:call|invoke)\b[^@]*%[\w.]+\s*\(')
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +78,10 @@ def _is_closure_function(func: Function) -> bool:
     - Name contains "$lambda" or "$closure" or "$partial"
     - Function body contains indirect calls (call/invoke through %reg)
     """
-    name_hints = ("$lambda", "$closure", "$partial")
+    # Both $ and __ prefixed forms: Ori uses __lambda/__partial,
+    # other compilers may use $lambda/$partial
+    name_hints = ("$lambda", "$closure", "$partial",
+                  "__lambda", "__closure", "_partial_")
     if any(hint in func.name for hint in name_hints):
         return True
     return _has_indirect_calls(func)
@@ -114,30 +118,36 @@ def _is_attr_present(func: Function, attr: str) -> bool:
 
 
 # Each rule: (attr_name, applicable_when, description)
-# The applicable_when function takes (func, is_closure) -> bool.
+# The applicable_when function takes (func, is_closure, is_leaf) -> bool.
 _ATTRIBUTE_RULES: list[tuple[str, callable, str]] = [
     ("fastcc",
-     lambda f, c: f.is_user_function and not f.is_entry_called and not c,
+     lambda f, c, l: f.is_user_function and not f.is_entry_called and not c,
      "Internal user function (not entry-called, not closure)"),
 
+    # nounwind requires the function to not throw. Only reliably applicable
+    # for true leaf functions (no calls to user functions or indirect calls).
+    # Non-leaf functions require full call-graph analysis to determine nounwind
+    # status, which the compiler already does via its two-pass fixed-point analysis.
+    # Checking that the compiler's nounwind is correct (not wrong) is handled
+    # by the wrong-attribute gate.
     ("nounwind",
-     lambda f, c: f.is_definition and not c,
-     "Defined functions without indirect calls"),
+     lambda f, c, l: f.is_definition and not c and l and f.raw_name != "@main",
+     "True leaf functions (no calls to user functions or closures)"),
 
     ("uwtable",
-     lambda f, c: f.is_definition and f.raw_name != "@main",
+     lambda f, c, l: f.is_definition and f.raw_name != "@main",
      "User-defined functions (not @main wrapper)"),
 
     ("noundef",
-     lambda f, c: f.is_definition and f.return_type != "void",
+     lambda f, c, l: f.is_definition and f.return_type != "void",
      "Non-void return type (Ori values are always defined)"),
 
     ("noreturn",
-     lambda f, c: f.is_runtime_decl and f.name in NORETURN_FUNCTIONS,
+     lambda f, c, l: f.is_runtime_decl and f.name in NORETURN_FUNCTIONS,
      "Functions that never return (panic/abort)"),
 
     ("cold",
-     lambda f, c: f.is_runtime_decl and f.name in COLD_FUNCTIONS,
+     lambda f, c, l: f.is_runtime_decl and f.name in COLD_FUNCTIONS,
      "Error/panic path functions"),
 ]
 
@@ -187,10 +197,11 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
     for func in functions_to_check:
         checks: list[AttributeCheck] = []
         is_closure = _is_closure_function(func)
+        is_leaf = _is_leaf_function(func, module)
         reason = "closure (indirect calls)" if is_closure else None
 
         for attr, applicable_fn, desc in _ATTRIBUTE_RULES:
-            applicable = applicable_fn(func, is_closure)
+            applicable = applicable_fn(func, is_closure, is_leaf)
             present = _is_attr_present(func, attr)
 
             if applicable:

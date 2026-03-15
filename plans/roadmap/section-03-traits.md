@@ -11,10 +11,10 @@ spec:
 sections:
   - id: "3.0"
     title: Core Library Traits
-    status: complete
+    status: in-progress
   - id: "3.1"
     title: Trait Declarations
-    status: in-progress
+    status: complete
   - id: "3.2"
     title: Trait Implementations
     status: in-progress
@@ -62,7 +62,7 @@ sections:
     status: in-progress
   - id: "3.16"
     title: Formattable Trait
-    status: complete
+    status: in-progress
   - id: "3.17"
     title: Into Trait
     status: in-progress
@@ -74,7 +74,7 @@ sections:
     status: complete  # verified 2026-02-15: all items checked
   - id: "3.20"
     title: Default Associated Types
-    status: complete
+    status: in-progress
   - id: "3.21"
     title: Operator Traits
     status: in-progress

@@ -1,7 +1,7 @@
 ---
 section: 2
 title: Complete Type Inference
-status: in-progress
+status: complete
 reviewed: false
 tier: 1
 goal: Full Hindley-Milner type inference
@@ -14,13 +14,13 @@ sections:
     status: complete
   - id: "2.2"
     title: Expression Type Inference
-    status: in-progress
+    status: complete
   - id: "2.3"
     title: Type Error Improvements
     status: complete
   - id: "2.4"
     title: Section Completion Checklist
-    status: in-progress
+    status: complete
 ---
 
 # Section 2: Complete Type Inference
@@ -66,8 +66,8 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/lambdas.ori` — 29 tests (all pass)
   - [x] **Verified**: `apply(x -> x + 1, 41)` correctly infers x: int from context
 
-- [ ] **Fix**: Closure-returning-closure inference bug
-  - [ ] `(n: int) -> (int) -> int = { (x: int) -> int = base + n + x }` — infers `()` return instead of `(int) -> int` when outer closure returns inner closure (`test_aot_closure_capturing_closure`)
+- [x] **Fix**: Closure-returning-closure inference bug [done] (2026-03-15)
+  - [x] `(n: int) -> (int) -> int = { (x: int) -> int = base + n + x }` — was a parser bug (keyword heuristic), fixed by speculative type parsing in `try_parse_lambda_return_type()` (commit 8f4477fa). AOT test `test_aot_closure_capturing_closure` passes. Added spec regression test `closure_returning_closure_annotated`.
 
 - [x] **Implement**: Generic type argument inference — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/` — generic inference tests
@@ -105,7 +105,7 @@ All 11 compile-fail tests pass: `cargo st tests/compile-fail/`
 ## 2.4 Section Completion Checklist
 
 - [x] All 2.1 items complete — unification, occurs check, generalization, instantiation [done] (2026-02-10)
-- [ ] All 2.2 items complete — local variable, lambda, generic, collection inference (reopened: closure-returning-closure inference bug)
+- [x] All 2.2 items complete — local variable, lambda, generic, collection inference [done] (2026-03-15, closure-returning-closure bug verified fixed)
 - [x] All 2.3 items complete — expected/found, hints, source locations [done] (2026-02-10)
 - [x] 3,792 Rust unit tests pass (ori_types) [done] (2026-02-10)
 - [x] Spec and compile-fail tests pass — 101 Ori spec tests + 11 compile-fail [done] (2026-02-10)

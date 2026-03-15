@@ -216,15 +216,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_name_str = self.interner.lookup(callee);
         let normal_block = self.block(normal);
         let is_nounwind = self.ctx.nounwind_functions.contains(&callee);
-        // An unwind block with no cleanup instructions (empty body + Resume
-        // terminator) has no LLVM basic block — emit_function() marks it dead.
-        // Using `call` instead of `invoke` is safe because there's nothing to
-        // unwind through. This eliminates empty landing pads for recursive
-        // functions and other cases where RC insertion found no live values.
-        let unwind_is_empty_cleanup = {
-            let ub = &arc_func.blocks[unwind.index()];
-            ub.body.is_empty() && matches!(ub.terminator, ArcTerminator::Resume)
-        };
+        // An unwind block with no effective cleanup (empty body or only
+        // no-op RcDecs on non-capturing closures + Resume terminator) has
+        // no LLVM basic block — emit_function() marks it dead.
+        // Using `call` instead of `invoke` is safe because there's nothing
+        // to unwind through.
+        let unwind_is_empty_cleanup = !super::emit_function::has_effective_cleanup(
+            &arc_func.blocks[unwind.index()],
+            arc_func,
+        );
         // Builtin handlers (format calls, prelude functions, builtin methods)
         // always emit `call`, not `invoke`. Their unwind blocks are dead —
         // emit_function() already skipped creating LLVM blocks for them.

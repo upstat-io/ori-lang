@@ -28,7 +28,6 @@ _RC_INC_RE = re.compile(
 )
 _RC_DEC_RE = re.compile(
     r'(?:call|invoke)\b.*@"?ori_rc_dec"?\b'
-    r'|(?:call|invoke)\b.*@"?ori_rc_free"?\b'
     r'|(?:call|invoke)\b.*@"?ori_buffer_rc_dec"?\b'
     r'|(?:call|invoke)\b.*@"?ori_buffer_drop_unique"?\b'
     r'|(?:call|invoke)\b.*@"?ori_map_buffer_rc_dec"?\b'
@@ -37,13 +36,18 @@ _RC_DEC_RE = re.compile(
     r'|(?:call|invoke)\b.*@"?ori_set_buffer_drop_unique"?\b'
     r'|(?:call|invoke)\b.*@"?ori_iter_drop"?\b'
 )
+# NOTE: ori_rc_free is NOT an RC operation — it is raw memory deallocation
+# called from within drop functions (which are themselves called by ori_rc_dec
+# when refcount reaches zero). Counting both ori_rc_dec and ori_rc_free
+# double-counts the same release operation.
 
 # Extract callee function name from call/invoke instructions.
 # Handles both bare @name( and quoted @"name"( forms.
 _CALLEE_RE = re.compile(r'(?:call|invoke)\b[^@]*@(?:"([^"]+)"|([\w.$]+))\s*\(')
 
-# Closure-related function name patterns
-_CLOSURE_NAME_PARTS = ("$lambda", "$closure", "$partial", "_env")
+# Closure-related function name patterns (both $ and __ prefixed forms)
+_CLOSURE_NAME_PARTS = ("$lambda", "$closure", "$partial", "_env",
+                       "__lambda", "__closure", "_partial_")
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +157,13 @@ def _detect_scalar_rc(func: Function) -> bool:
 
     If a function takes only i64/double/i1 params and has no alloca of
     pointer-containing structs, any RC call is likely operating on scalars.
+
+    Zero-param functions are excluded: they commonly work with heap objects
+    via return values from callees (e.g., @main calling make_adder).
     """
+    if not func.param_types:
+        return False
+
     has_rc = any(
         _RC_INC_RE.search(instr.text) or _RC_DEC_RE.search(instr.text)
         for block in func.blocks if not _is_landingpad_block(block)
@@ -213,7 +223,11 @@ def _find_ownership_transfers(
 
     A producer has inc > dec (creates RC objects it doesn't free).
     A consumer has dec > inc (frees RC objects it didn't create).
-    If they match up (total surplus == total deficit), it's ownership transfer.
+
+    Tolerance: surplus and deficit may differ by up to 1 per function.
+    This accounts for non-capturing closures (compile-time constants with
+    null env pointers) where the generic consumer function has RC dec code
+    but there's no corresponding allocation — the dec is a no-op at runtime.
     """
     producers: list[FunctionArcMetrics] = []
     consumers: list[FunctionArcMetrics] = []
@@ -224,13 +238,16 @@ def _find_ownership_transfers(
             else:
                 consumers.append(fm)
 
+    if not producers and not consumers:
+        return []
+
     # Try to pair producers with consumers by imbalance magnitude
     pairs: list[tuple[str, str]] = []
     remaining_surplus = sum(fm.rc_inc - fm.rc_dec for fm in producers)
     remaining_deficit = sum(fm.rc_dec - fm.rc_inc for fm in consumers)
 
-    if remaining_surplus == remaining_deficit:
-        # Perfect module-level balance: all imbalances are transfers
+    # Tolerance: allow ±1 difference for non-capturing closure constants
+    if abs(remaining_surplus - remaining_deficit) <= 1:
         for p in producers:
             for c in consumers:
                 pairs.append((p.name, c.name))
@@ -274,8 +291,10 @@ def compute_arc_metrics(module: Module) -> ArcMetrics:
     module_balanced = total_inc == total_dec
     ownership_transfer_count = 0
 
-    if module_balanced and any_unbalanced:
-        # Module is balanced but individual functions aren't — ownership transfers
+    # Detect ownership transfers: always try, even if module isn't
+    # perfectly balanced. The tolerance in _find_ownership_transfers
+    # handles non-capturing closures (off by 1).
+    if any_unbalanced:
         pairs = _find_ownership_transfers(results)
         if pairs:
             paired_names = set()
@@ -287,14 +306,22 @@ def compute_arc_metrics(module: Module) -> ArcMetrics:
                     fm.is_ownership_transfer = True
                     ownership_transfer_count += 1
 
+    # After ownership transfer detection, check for unexplained imbalances.
+    # Explained transfers (producer→consumer pairs) are not leaks/double-frees.
+    any_unexplained_unbalanced = any(
+        not fm.balanced and not fm.is_ownership_transfer
+        for fm in results
+    )
+
     # Compute violations with ownership transfer downgrade
     total_violations = 0
     for fm in results:
         violations = 0
         if not fm.balanced:
             if fm.is_ownership_transfer:
-                # Ownership transfer: reduced penalty (1 per unit vs 3)
-                violations += abs(fm.rc_inc - fm.rc_dec) * 1
+                # Ownership transfer: no penalty — producer→consumer pairs
+                # are explained cross-function ownership, not leaks
+                pass
             else:
                 violations += abs(fm.rc_inc - fm.rc_dec) * 3
         if fm.has_scalar_rc:
@@ -305,7 +332,7 @@ def compute_arc_metrics(module: Module) -> ArcMetrics:
     return ArcMetrics(
         per_function=results,
         total_violations=total_violations,
-        has_unbalanced=any_unbalanced,
+        has_unbalanced=any_unexplained_unbalanced,
         has_scalar_rc=any_scalar,
         module_balanced=module_balanced,
         ownership_transfers=ownership_transfer_count,

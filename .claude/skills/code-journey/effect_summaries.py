@@ -79,7 +79,11 @@ RUNTIME_EFFECTS: dict[str, FunctionEffect] = {
 
     # --- Deallocation (param -1) ---
     "ori_rc_dec": _eff(_N, [_M, _N]),                         # data_ptr, drop_fn
-    "ori_rc_free": _eff(_N, [_M, _N, _N]),                    # data_ptr, size, align
+    # ori_rc_free is raw memory deallocation, NOT an RC operation.
+    # It's called from drop functions (invoked by ori_rc_dec at RC=0).
+    # The RC decrement already happened in ori_rc_dec; ori_rc_free just
+    # frees the backing memory. Counting it as -1 double-counts the release.
+    "ori_rc_free": _eff(_N, [_N, _N, _N]),                    # data_ptr, size, align
     # (data, len, cap, elem_size, elem_dec_fn) -- 5 params
     "ori_buffer_rc_dec": _eff(_N, [_M] + [_N] * 4),
     "ori_buffer_drop_unique": _eff(_N, [_M] + [_N] * 4),
@@ -110,6 +114,9 @@ RUNTIME_EFFECTS: dict[str, FunctionEffect] = {
     "ori_format_str": _eff(_P, [_B, _B, _N], alloc=True),
     "ori_format_bool": _eff(_P, [_N, _B, _N], alloc=True),
     "ori_format_char": _eff(_P, [_N, _B, _N], alloc=True),
+
+    # --- String empty (returns OriStr struct, SSO — no heap alloc but still +1 conceptually) ---
+    "ori_str_empty": _eff(_P, [], alloc=True),
 
     # --- Set allocation ---
     "ori_set_literal_alloc": _eff(_P, [_N, _N, _N], alloc=True),

@@ -157,6 +157,8 @@ pub(crate) fn run_aims_pipeline(
             &state_map,
             config.interner,
             config.pool,
+            config.contracts,
+            config.builtins,
             &mut result,
         );
     }
