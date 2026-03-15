@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # aims-baseline.sh — Collect AIMS SynergyMetrics baseline measurements
 #
-# Builds every @main program with --features aims, captures tracing output,
+# Builds every @main program, captures tracing output,
 # and aggregates SynergyMetrics across three categories:
 #   1. Golden Corpus (tests/aims/ + tests/aims/synergy/)
 #   2. Full Spec Suite (tests/spec/ @main programs)
@@ -41,8 +41,8 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
 # Ensure built with AIMS
-echo "${BOLD}Building with --features aims...${RESET}"
-cargo build --features aims 2>&1 | tail -1
+echo "${BOLD}Building...${RESET}"
+cargo build 2>&1 | tail -1
 ORI="target/debug/ori"
 
 # --- Aggregation functions ---
@@ -50,7 +50,8 @@ declare -A TOTALS
 
 reset_totals() {
     TOTALS[total_rc]=0
-    TOTALS[multi_dim_rc]=0
+    TOTALS[reuse]=0
+    TOTALS[cross_dim_evidence]=0
     TOTALS[cow_upgrades]=0
     TOTALS[total_cow]=0
     TOTALS[cross_dim_reuse]=0
@@ -71,10 +72,11 @@ parse_metrics_line() {
     local line
     line=$(echo "$1" | strip_ansi)
     # Extract fields from structured tracing output
-    local total_rc multi_dim_rc cow_upgrades total_cow cross_dim_reuse natural_fip canon_fires
+    local total_rc reuse cross_dim_ev cow_upgrades total_cow cross_dim_reuse natural_fip canon_fires
 
     total_rc=$(echo "$line" | grep -oP 'total_rc=\K[0-9]+')
-    multi_dim_rc=$(echo "$line" | grep -oP 'multi_dim_rc=\K[0-9]+' | head -1)
+    reuse=$(echo "$line" | grep -oP 'reuse=\K[0-9]+' | head -1)
+    cross_dim_ev=$(echo "$line" | grep -oP 'cross_dim_evidence=\K[0-9]+')
     cow_upgrades=$(echo "$line" | grep -oP 'cow_upgrades=\K[0-9]+')
     total_cow=$(echo "$line" | grep -oP 'total_cow=\K[0-9]+')
     cross_dim_reuse=$(echo "$line" | grep -oP 'cross_dim_reuse=\K[0-9]+')
@@ -82,7 +84,8 @@ parse_metrics_line() {
     canon_fires=$(echo "$line" | grep -oP 'canonicalize_cross_fires=\K[0-9]+')
 
     TOTALS[total_rc]=$(( ${TOTALS[total_rc]} + ${total_rc:-0} ))
-    TOTALS[multi_dim_rc]=$(( ${TOTALS[multi_dim_rc]} + ${multi_dim_rc:-0} ))
+    TOTALS[reuse]=$(( ${TOTALS[reuse]} + ${reuse:-0} ))
+    TOTALS[cross_dim_evidence]=$(( ${TOTALS[cross_dim_evidence]} + ${cross_dim_ev:-0} ))
     TOTALS[cow_upgrades]=$(( ${TOTALS[cow_upgrades]} + ${cow_upgrades:-0} ))
     TOTALS[total_cow]=$(( ${TOTALS[total_cow]} + ${total_cow:-0} ))
     TOTALS[cross_dim_reuse]=$(( ${TOTALS[cross_dim_reuse]} + ${cross_dim_reuse:-0} ))
@@ -131,9 +134,9 @@ collect_file_metrics() {
 # Print category results
 print_category() {
     local name="$1"
-    local pct="0.0"
+    local reuse_pct="0.0"
     if [ "${TOTALS[total_rc]}" -gt 0 ]; then
-        pct=$(awk "BEGIN { printf \"%.1f\", (${TOTALS[multi_dim_rc]} / ${TOTALS[total_rc]}) * 100 }")
+        reuse_pct=$(awk "BEGIN { printf \"%.1f\", (${TOTALS[reuse]} / ${TOTALS[total_rc]}) * 100 }")
     fi
 
     if [ "$JSON_OUTPUT" = true ]; then
@@ -143,8 +146,9 @@ print_category() {
       "functions": ${TOTALS[functions]},
       "errors": ${TOTALS[errors]},
       "total_rc_decisions": ${TOTALS[total_rc]},
-      "multi_dim_rc_decisions": ${TOTALS[multi_dim_rc]},
-      "multi_dim_rc_percent": $pct,
+      "reuse_decisions": ${TOTALS[reuse]},
+      "reuse_percent": $reuse_pct,
+      "cross_dim_evidence": ${TOTALS[cross_dim_evidence]},
       "cow_upgrades": ${TOTALS[cow_upgrades]},
       "total_cow_decisions": ${TOTALS[total_cow]},
       "cross_dim_reuse": ${TOTALS[cross_dim_reuse]},
@@ -155,7 +159,8 @@ EOF
     else
         printf "  %-28s %s\n" "Files:" "${TOTALS[files]} (${TOTALS[errors]} errors)"
         printf "  %-28s %s\n" "Functions analyzed:" "${TOTALS[functions]}"
-        printf "  %-28s %s\n" "Multi-dim RC %:" "${pct}% (${TOTALS[multi_dim_rc]}/${TOTALS[total_rc]})"
+        printf "  %-28s %s\n" "Reuse %:" "${reuse_pct}% (${TOTALS[reuse]}/${TOTALS[total_rc]})"
+        printf "  %-28s %s\n" "Cross-dim evidence:" "${TOTALS[cross_dim_evidence]}"
         printf "  %-28s %s\n" "COW upgrades:" "${TOTALS[cow_upgrades]} (of ${TOTALS[total_cow]} total)"
         printf "  %-28s %s\n" "Cross-dim reuse:" "${TOTALS[cross_dim_reuse]}"
         printf "  %-28s %s\n" "Natural FIP:" "${TOTALS[natural_fip]}"
@@ -178,7 +183,7 @@ echo ""
 print_category "golden_corpus"
 # Save for JSON
 GC_FILES=${TOTALS[files]} GC_FUNCS=${TOTALS[functions]} GC_ERRORS=${TOTALS[errors]}
-GC_TOTAL_RC=${TOTALS[total_rc]} GC_MULTI_DIM=${TOTALS[multi_dim_rc]}
+GC_TOTAL_RC=${TOTALS[total_rc]} GC_REUSE_DEC=${TOTALS[reuse]} GC_CROSS_DIM=${TOTALS[cross_dim_evidence]}
 GC_COW_UP=${TOTALS[cow_upgrades]} GC_TOTAL_COW=${TOTALS[total_cow]}
 GC_REUSE=${TOTALS[cross_dim_reuse]} GC_FIP=${TOTALS[natural_fip]}
 GC_CANON=${TOTALS[canonicalize_cross_fires]}
@@ -195,7 +200,7 @@ done < <(grep -rl "@main" tests/spec/ 2>/dev/null || true)
 echo ""
 print_category "full_spec"
 FS_FILES=${TOTALS[files]} FS_FUNCS=${TOTALS[functions]} FS_ERRORS=${TOTALS[errors]}
-FS_TOTAL_RC=${TOTALS[total_rc]} FS_MULTI_DIM=${TOTALS[multi_dim_rc]}
+FS_TOTAL_RC=${TOTALS[total_rc]} FS_REUSE_DEC=${TOTALS[reuse]} FS_CROSS_DIM=${TOTALS[cross_dim_evidence]}
 FS_COW_UP=${TOTALS[cow_upgrades]} FS_TOTAL_COW=${TOTALS[total_cow]}
 FS_REUSE=${TOTALS[cross_dim_reuse]} FS_FIP=${TOTALS[natural_fip]}
 FS_CANON=${TOTALS[canonicalize_cross_fires]}
@@ -220,11 +225,12 @@ if [ "$JSON_OUTPUT" != true ]; then
     printf "%-26s  %-16s  %-16s  %-16s\n" "Metric" "Golden Corpus" "Full Spec" "Benchmarks"
     printf "%-26s  %-16s  %-16s  %-16s\n" "--------------------------" "----------------" "----------------" "----------------"
 
-    gc_pct="0.0"; [ "$GC_TOTAL_RC" -gt 0 ] && gc_pct=$(awk "BEGIN { printf \"%.1f\", ($GC_MULTI_DIM / $GC_TOTAL_RC) * 100 }")
-    fs_pct="0.0"; [ "$FS_TOTAL_RC" -gt 0 ] && fs_pct=$(awk "BEGIN { printf \"%.1f\", ($FS_MULTI_DIM / $FS_TOTAL_RC) * 100 }")
-    bm_pct="0.0"; [ "${TOTALS[total_rc]}" -gt 0 ] && bm_pct=$(awk "BEGIN { printf \"%.1f\", (${TOTALS[multi_dim_rc]} / ${TOTALS[total_rc]}) * 100 }")
+    gc_rpct="0.0"; [ "$GC_TOTAL_RC" -gt 0 ] && gc_rpct=$(awk "BEGIN { printf \"%.1f\", ($GC_REUSE_DEC / $GC_TOTAL_RC) * 100 }")
+    fs_rpct="0.0"; [ "$FS_TOTAL_RC" -gt 0 ] && fs_rpct=$(awk "BEGIN { printf \"%.1f\", ($FS_REUSE_DEC / $FS_TOTAL_RC) * 100 }")
+    bm_rpct="0.0"; [ "${TOTALS[total_rc]}" -gt 0 ] && bm_rpct=$(awk "BEGIN { printf \"%.1f\", (${TOTALS[reuse]} / ${TOTALS[total_rc]}) * 100 }")
 
-    printf "%-26s  %-16s  %-16s  %-16s\n" "Multi-dim RC %" "${gc_pct}%" "${fs_pct}%" "${bm_pct}%"
+    printf "%-26s  %-16s  %-16s  %-16s\n" "Reuse %" "${gc_rpct}%" "${fs_rpct}%" "${bm_rpct}%"
+    printf "%-26s  %-16s  %-16s  %-16s\n" "Cross-dim evidence" "$GC_CROSS_DIM" "$FS_CROSS_DIM" "${TOTALS[cross_dim_evidence]}"
     printf "%-26s  %-16s  %-16s  %-16s\n" "COW upgrades" "$GC_COW_UP" "$FS_COW_UP" "${TOTALS[cow_upgrades]}"
     printf "%-26s  %-16s  %-16s  %-16s\n" "Cross-dim reuse" "$GC_REUSE" "$FS_REUSE" "${TOTALS[cross_dim_reuse]}"
     printf "%-26s  %-16s  %-16s  %-16s\n" "Natural FIP" "$GC_FIP" "$FS_FIP" "${TOTALS[natural_fip]}"

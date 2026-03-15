@@ -318,7 +318,7 @@ fn emit_last_use_decs(
             metrics.total_rc_decisions += 1;
         }
         if decision.reuse != ReuseDecision::None {
-            metrics.multi_dim_rc_decisions += 1;
+            metrics.reuse_decisions += 1;
             if decision.reuse == ReuseDecision::StaticReuse && is_cross_dim_reuse_candidate {
                 metrics.cross_dim_reuse += 1;
             }

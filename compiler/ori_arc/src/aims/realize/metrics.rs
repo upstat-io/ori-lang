@@ -12,14 +12,16 @@
 /// and [`realize_annotations`](super::realize_annotations) (Phase 2).
 /// The `canonicalize_cross_fires` field is accumulated separately during
 /// backward analysis (intraprocedural) and merged before reporting.
+///
+/// Cross-dimensional evidence is measured primarily by `canonicalize_cross_fires`
+/// (analysis-stage rule firings that required 2+ lattice dimensions) and
+/// secondarily by `cross_dim_reuse` and `cow_upgrades` (realization-stage
+/// decisions). Use [`cross_dim_evidence_total()`](Self::cross_dim_evidence_total)
+/// for the aggregate count.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SynergyMetrics {
-    /// RC decisions that required 2+ dimensions (not just access+consumption).
-    ///
-    /// A "multi-dim" decision is one where the reuse or RC-skip outcome
-    /// depended on shape+uniqueness+cardinality together (cross-dimensional
-    /// proof), not just access class alone.
-    pub multi_dim_rc_decisions: usize,
+    /// Reuse decisions made during realization (any non-None reuse).
+    pub reuse_decisions: usize,
 
     /// Total RC decisions made (Inc + Dec + Skip + Defer, excluding None).
     pub total_rc_decisions: usize,
@@ -54,11 +56,11 @@ pub struct SynergyMetrics {
 }
 
 impl SynergyMetrics {
-    /// Percentage of RC decisions that required multi-dimensional reasoning.
+    /// Percentage of RC decisions that resulted in reuse.
     ///
     /// Returns 0.0 if no RC decisions were made.
     #[must_use]
-    pub fn multi_dim_rc_percent(&self) -> f64 {
+    pub fn reuse_percent(&self) -> f64 {
         if self.total_rc_decisions == 0 {
             0.0
         } else {
@@ -66,14 +68,31 @@ impl SynergyMetrics {
                 clippy::cast_precision_loss,
                 reason = "metrics display — precision loss acceptable"
             )]
-            let pct = (self.multi_dim_rc_decisions as f64 / self.total_rc_decisions as f64) * 100.0;
+            let pct = (self.reuse_decisions as f64 / self.total_rc_decisions as f64) * 100.0;
             pct
         }
     }
 
+    /// Total cross-dimensional evidence count.
+    ///
+    /// Aggregates all evidence of cross-dimensional reasoning:
+    /// - `canonicalize_cross_fires`: analysis-stage rule firings (Rules 4-8)
+    /// - `cross_dim_reuse`: realization-stage reuse from cross-dim proof
+    /// - `cow_upgrades`: COW upgrades via cross-dim uniqueness proof
+    #[must_use]
+    pub fn cross_dim_evidence_total(&self) -> usize {
+        self.canonicalize_cross_fires + self.cross_dim_reuse + self.cow_upgrades
+    }
+
+    /// Whether any cross-dimensional reasoning occurred.
+    #[must_use]
+    pub fn has_cross_dim_evidence(&self) -> bool {
+        self.cross_dim_evidence_total() > 0
+    }
+
     /// Merge another metrics instance into this one (additive).
     pub fn merge(&mut self, other: &SynergyMetrics) {
-        self.multi_dim_rc_decisions += other.multi_dim_rc_decisions;
+        self.reuse_decisions += other.reuse_decisions;
         self.total_rc_decisions += other.total_rc_decisions;
         self.cow_upgrades += other.cow_upgrades;
         self.total_cow_decisions += other.total_cow_decisions;
@@ -93,8 +112,9 @@ impl SynergyMetrics {
         tracing::info!(
             function = function_id,
             total_rc = self.total_rc_decisions,
-            multi_dim_rc = self.multi_dim_rc_decisions,
-            multi_dim_rc_pct = format_args!("{:.1}%", self.multi_dim_rc_percent()),
+            reuse = self.reuse_decisions,
+            reuse_pct = format_args!("{:.1}%", self.reuse_percent()),
+            cross_dim_evidence = self.cross_dim_evidence_total(),
             cow_upgrades = self.cow_upgrades,
             total_cow = self.total_cow_decisions,
             cross_dim_reuse = self.cross_dim_reuse,

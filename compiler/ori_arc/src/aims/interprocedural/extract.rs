@@ -237,18 +237,41 @@ fn detect_consumed_params(
     sigs: &FxHashMap<Name, MemoryContract>,
     param_vars: &FxHashMap<ArcVarId, usize>,
 ) -> FxHashSet<usize> {
-    // Build alias map: for each Let { dst, Var(src) }, map dst → src's param index.
+    // Build alias map: trace which variables alias function parameters.
+    // Covers Let{Var} aliases and block-parameter passing via Jump/Branch.
     let mut alias_to_param: FxHashMap<ArcVarId, usize> = param_vars.clone();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: crate::ir::ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                if let Some(&param_idx) = alias_to_param.get(src) {
-                    alias_to_param.insert(*dst, param_idx);
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            // Let { dst, Var(src) } — direct alias
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: crate::ir::ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if let Some(&param_idx) = alias_to_param.get(src) {
+                        if !alias_to_param.contains_key(dst) {
+                            alias_to_param.insert(*dst, param_idx);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            // Jump { target, args } — args[i] flows to target.params[i]
+            if let ArcTerminator::Jump { target, args } = &block.terminator {
+                let target_params = &func.blocks[target.index()].params;
+                for (arg, &(param_var, _)) in args.iter().zip(target_params.iter()) {
+                    if let Some(&param_idx) = alias_to_param.get(arg) {
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            alias_to_param.entry(param_var)
+                        {
+                            e.insert(param_idx);
+                            changed = true;
+                        }
+                    }
                 }
             }
         }
@@ -302,12 +325,10 @@ fn detect_consumed_params(
     }
 
     // Also check Return terminators: a parameter that flows to a Return
-    // (directly or through Let{Var} aliases) must be Owned. Returning a
-    // borrowed parameter would require the callee to Inc the return value,
-    // but the AIMS emission doesn't insert such Incs — it relies on
-    // ownership transfer through the return path. Marking the param Owned
-    // ensures the caller transfers ownership at the call site, and the
-    // callee passes it through to the return value without extra RC ops.
+    // (directly, through Let{Var} aliases, or through block-param passing)
+    // must be Owned. Marking the param Owned ensures the caller transfers
+    // ownership at the call site, and the callee passes it through to the
+    // return value without extra RC ops.
     //
     // Ref: Lean 4 `src/Lean/Compiler/IR/Borrow.lean` — returned params
     // are always Owned.

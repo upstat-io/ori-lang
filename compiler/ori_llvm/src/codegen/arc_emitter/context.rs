@@ -24,12 +24,20 @@ use ori_arc::ir::ValueRepr;
 /// resolved enum type — meaning the field must be RC-boxed when stored in the
 /// enum payload. Layout: stored as an 8-byte RC pointer instead of inline.
 ///
+/// Checks `Tag::Enum`, `Tag::Result`, and `Tag::Option` — the three enum-like
+/// tags that could contain recursive self-references requiring RC boxing.
+/// Currently only `Tag::Enum` can be self-recursive, but `Result`/`Option` are
+/// included defensively for forward-compatibility with future type system changes.
+///
 /// Only handles direct self-recursion (e.g., `type Tree = Node(Tree, Tree)`).
 /// Mutual recursion (`type A = X(B)`, `type B = Y(A)`) is not yet supported.
 pub(super) fn is_boxed_enum_field(pool: &Pool, enum_type: Idx, field_type: Idx) -> bool {
     let enum_resolved = pool.resolve_fully(enum_type);
     let field_resolved = pool.resolve_fully(field_type);
-    pool.tag(enum_resolved) == Tag::Enum && enum_resolved == field_resolved
+    matches!(
+        pool.tag(enum_resolved),
+        Tag::Enum | Tag::Result | Tag::Option
+    ) && enum_resolved == field_resolved
 }
 
 /// Tagged LLVM value carrying its memory representation.

@@ -399,7 +399,13 @@ pub(crate) fn run_aims_pipeline_all(
     }
 
     // Second pass: TRMC contract refresh → may_deallocate → FIP.
-    run_second_pass(functions, &mut contracts, &trmc_rewritten, &reuse_updates);
+    run_second_pass(
+        functions,
+        &mut contracts,
+        &trmc_rewritten,
+        &reuse_updates,
+        classifier,
+    );
 
     tracing::debug!(
         functions = functions.len(),
@@ -422,17 +428,45 @@ fn run_second_pass(
     contracts: &mut FxHashMap<Name, MemoryContract>,
     trmc_rewritten: &[Name],
     reuse_updates: &[(Name, usize)],
+    classifier: &dyn crate::ArcClassification,
 ) {
-    // Phase 1: refresh contracts for TRMC-rewritten functions.
+    // Phase 1: full contract refresh for TRMC-rewritten functions.
+    // Re-run analysis + extraction on the rewritten IR to get accurate
+    // ContextBehavior, FipContract, and EffectSummary.
     if !trmc_rewritten.is_empty() {
         let _span = tracing::info_span!("trmc_contract_refresh").entered();
         for &name in trmc_rewritten {
-            if let Some(contract) = contracts.get_mut(&name) {
-                contract.effects.has_unbounded_stack = false;
+            // Find the rewritten function.
+            let Some(func) = functions.iter().find(|f| f.name == name) else {
+                continue;
+            };
+            // Re-analyze with current contracts as peer context.
+            let state_map = crate::aims::intraprocedural::analyze_function(
+                func,
+                classifier,
+                contracts,
+                &[],
+                Vec::new(),
+            );
+            let context_regions = crate::aims::normalize::detect_context_regions(func);
+            // No SCC peers needed — TRMC rewrite is per-function and
+            // the function's own contract is already in `contracts`.
+            let new_contract = crate::aims::interprocedural::extract_contract(
+                func,
+                &state_map,
+                classifier,
+                contracts,
+                &rustc_hash::FxHashSet::default(),
+                &context_regions,
+            );
+            if let Some(old) = contracts.get_mut(&name) {
                 tracing::debug!(
                     func = name.raw(),
-                    "TRMC contract refresh: has_unbounded_stack = false"
+                    old_unbounded = old.effects.has_unbounded_stack,
+                    new_unbounded = new_contract.effects.has_unbounded_stack,
+                    "TRMC full contract refresh"
                 );
+                *old = new_contract;
             }
         }
     }

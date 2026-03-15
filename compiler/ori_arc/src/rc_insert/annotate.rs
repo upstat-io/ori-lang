@@ -110,16 +110,9 @@ fn compute_arg_ownership(
 
 /// Populate `arg_ownership` on all `Apply` and `Invoke` instructions.
 ///
-/// Must be called **before** [`insert_rc_ops_with_ownership`](super::insert::insert_rc_ops_with_ownership)
-/// so that the RC insertion pass can read ownership from the IR instead of
-/// re-deriving it from sigs + interner.
-///
 /// This is the single point where external-callee detection and per-param
 /// ownership lookup happen. All downstream passes read from the field.
-///
-/// When the `aims` feature is active, this function is a no-op — AIMS handles
-/// `arg_ownership` in pipeline step 4 via
-/// `aims::emit_rc::arg_ownership::emit_arg_ownership()`.
+/// Called by AIMS pipeline step 4 (`emit_arg_ownership`).
 ///
 /// `borrowing_builtins` identifies builtin method names (e.g., `len`,
 /// `is_empty`) whose receiver is always borrowed. These are compiled inline

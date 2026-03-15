@@ -278,18 +278,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.borrowed_rooted_vars.clear();
         {
             use ori_arc::Ownership;
-            let mut borrowed_param_vars = rustc_hash::FxHashSet::default();
             for param in &func.params {
                 if param.ownership == Ownership::Borrowed {
-                    borrowed_param_vars.insert(param.var);
                     self.borrowed_rooted_vars.insert(param.var);
                 }
             }
-            // Trace Let-alias chains: if %x = %borrowed_param, then %x is also borrowed-rooted.
+            // Trace alias chains: Let{Var} + Jump block-param passing.
             let mut changed = true;
             while changed {
                 changed = false;
                 for block in &func.blocks {
+                    // Let { dst, Var(src) } — direct alias
                     for instr in &block.body {
                         if let ArcInstr::Let {
                             dst,
@@ -299,6 +298,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         {
                             if self.borrowed_rooted_vars.contains(src)
                                 && self.borrowed_rooted_vars.insert(*dst)
+                            {
+                                changed = true;
+                            }
+                        }
+                    }
+                    // Jump { target, args } — args[i] flows to target.params[i]
+                    if let ori_arc::ir::ArcTerminator::Jump { target, args } = &block.terminator {
+                        let target_params = &func.blocks[target.index()].params;
+                        for (arg, &(param_var, _)) in args.iter().zip(target_params.iter()) {
+                            if self.borrowed_rooted_vars.contains(arg)
+                                && self.borrowed_rooted_vars.insert(param_var)
                             {
                                 changed = true;
                             }

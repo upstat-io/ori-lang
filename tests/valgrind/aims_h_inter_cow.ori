@@ -1,0 +1,64 @@
+// Valgrind test: AIMS Matrix H — H7 (Inter × COW) interaction.
+// Callee contract `may_share==false` → caller COW after call is StaticUnique.
+// Pure callees only inspect data; caller can mutate in-place after the call
+// without triggering a COW copy (StaticUnique mode, not Dynamic).
+// Verifies no leaks, double-frees, or use-after-free.
+
+// Pure inspector — only reads the list, never stores a reference.
+@inspect_sum (xs: [int]) -> int = {
+    let total = 0;
+    for x in xs do {
+        total += x;
+    };
+    total
+};
+
+// Pure inspector — reads individual elements.
+@inspect_head (xs: [int]) -> int = {
+    if xs.len() == 0 then 0 else xs[0]
+};
+
+// Pure inspector — reads length only.
+@inspect_len (xs: [int]) -> int = xs.len();
+
+// Build a moderately large list to exercise heap allocation.
+@build_list (n: int) -> [int] = {
+    let result: [int] = [];
+    for i in 0..n do {
+        result = result.push(i + 1);
+    };
+    result
+};
+
+@main () -> int = {
+    // H7 scenario 1: inspect then mutate (push).
+    // After inspect_sum returns, xs is still uniquely owned by this frame.
+    // COW push should be in-place (StaticUnique), not copy (Dynamic).
+    let xs = build_list(n: 100);
+    let $sum_before = inspect_sum(xs: xs);
+    // sum(1..100) = 5050
+    xs = xs.push(999);
+    let $s1_ok = sum_before == 5050 && xs.len() == 101 && xs[100] == 999;
+
+    // H7 scenario 2: multiple pure calls, then mutate.
+    let ys = build_list(n: 50);
+    let $head = inspect_head(xs: ys);
+    let $length = inspect_len(xs: ys);
+    ys = ys.push(0);
+    let $s2_ok = head == 1 && length == 50 && ys.len() == 51;
+
+    // H7 scenario 3: inspect, mutate, inspect again, mutate again.
+    // Exercises that uniqueness is preserved across multiple call-mutate cycles.
+    let zs = build_list(n: 30);
+    let $z_sum1 = inspect_sum(xs: zs);
+    // sum(1..30) = 465
+    zs = zs.push(100);
+    let $z_sum2 = inspect_sum(xs: zs);
+    // 465 + 100 = 565
+    zs = zs.push(200);
+    let $z_sum3 = inspect_sum(xs: zs);
+    // 565 + 200 = 765
+    let $s3_ok = z_sum1 == 465 && z_sum2 == 565 && z_sum3 == 765 && zs.len() == 32;
+
+    if s1_ok && s2_ok && s3_ok then 0 else 1
+}
