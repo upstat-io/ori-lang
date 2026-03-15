@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "08.5a"
     title: "Cross-System Interaction Test Matrix"
-    status: complete
+    status: not-started
   - id: "08.6"
     title: "Documentation"
     status: complete
@@ -735,13 +735,11 @@ have caught Bug 1 immediately.
   11 aims/ modules added, 5 AIMS ordering constraints, AIMS comparison/shadow
   commands in debugging, 8 AIMS files in key files table.
 - [x] Update `CLAUDE.md`:
-  - Add `--features aims` to build/test commands in the Commands section
-  - Document `aims` and `aims-shadow` features in a new "Feature Flags" subsection
-  Done (2026-03-11): AIMS build/test/clippy/shadow commands added to Commands,
-  Feature Flags table added with aims/aims-shadow/cache descriptions.
-- [x] Update `.claude/rules/cargo.md` — add `aims` and `aims-shadow` features with
-  descriptions of what each enables.
-  Done (2026-03-11): Feature Flags section with table + usage notes.
+  Done (2026-03-11). Subsequently updated when `aims`/`aims-shadow` features
+  were retired (2026-03-13) — AIMS is now the sole pipeline, no feature flags.
+- [x] Update `.claude/rules/cargo.md`:
+  Done (2026-03-11). Subsequently updated when features were retired — `aims`
+  and `aims-shadow` removed from Feature Flags table.
 - [x] Add `//!` module-level doc comments to every `mod.rs` and standalone file in
   `compiler/ori_arc/src/aims/` (verify with `grep -rL '^//!'`).
   Verified (2026-03-11): All files have `//!` docs, including test files.
@@ -763,9 +761,8 @@ have caught Bug 1 immediately.
   Verified (2026-03-11): 2090 old vs 2096 AIMS (+6, <0.3%). Neutral.
 - [x] FIP certification coverage measured and documented (Stage 2)
 - [x] FBIP achieved vs missed reuse opportunities documented
-- [x] Full test suite: `./test-all.sh` green (old pipeline unchanged) AND manual
-  AIMS test commands green (see Section 06.1 — `./test-all.sh` does not yet
-  support `--features aims`; add AIMS path to the script as part of Stage 1D).
+- [x] Full test suite: `./test-all.sh` green. AIMS is the sole pipeline — no
+  separate feature-flagged test path needed.
   Verified (2026-03-11, updated): test-all.sh 12782 passed, 0 failed. AIMS workspace
   tests: all passed, 0 failed. AIMS AOT: 1255 passed, 0 failed, 9 ignored.
 - [x] Clippy: `./clippy-all.sh` green.

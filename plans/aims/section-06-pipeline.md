@@ -23,24 +23,12 @@ sections:
 
 # Section 06: Pipeline Integration
 
-**Status:** Incomplete
+**Status:** Complete
 
-**Claim:** AIMS is the sole pipeline. `run_arc_pipeline_all()` calls AIMS
-directly. The `aims` feature flag, `aims-shadow` feature, shadow/ directory,
-and feature dispatch are deleted.
-
-**Evidence:** `pipeline/mod.rs` calls `aims_pipeline::run_aims_pipeline_all()`
-unconditionally. No `#[cfg(feature = "aims")]` exists in the codebase. The
-`shadow/` directory does not exist.
-
-**Missing verification:** This section's body still describes the migration
-process (feature flags, shadow comparison, staged cutover gates) as if it
-were the current model. The body text must be rewritten to describe the
-current system, not the migration that produced it.
-
-**Open contradictions:** Section body describes `--features aims` testing,
-`aims-shadow` implementation, and "physical deletion deferred until shadow
-retirement" — none of which reflect reality.
+AIMS is the sole pipeline. `run_arc_pipeline_all()` calls
+`aims_pipeline::run_aims_pipeline_all()` unconditionally. No `#[cfg(feature =
+"aims")]` exists in the codebase. The `aims` feature flag, `aims-shadow`
+feature, `shadow/` directory, and feature dispatch are all deleted.
 
 **Goal:** AIMS is wired into `pipeline/mod.rs` as the sole pipeline.
 `run_arc_pipeline_all()` calls AIMS directly.
@@ -123,42 +111,24 @@ The AIMS pipeline after unified realization (Section 10):
 That is 12 per-function steps (down from Stage 1's 14), with two-phase realization
 replacing four separate emission passes.
 
-- [x] Implement `run_aims_pipeline_all()` as **internal implementation** called from
-  within `run_arc_pipeline_all()` (originally gated by `#[cfg(feature = "aims")]`,
-  now the sole pipeline):
+- [x] `run_aims_pipeline_all()` is the sole implementation called from
+  `run_arc_pipeline_all()`:
   - Step 1: Compute `MemoryContract` for all functions via `aims::analyze_program()`
-  - Step 2: Apply ownership to function parameters via `aims::apply_ownership()`:
-    This sets `ArcParam.ownership` on each `ArcFunction.params[i]` based on the
-    computed `MemoryContract.params[i].access`. Replaces `borrow::apply_borrows()`.
-    **Must happen before per-function processing** because the LLVM emitter reads
-    `ArcParam.ownership` from the function signature.
-  
+  - Step 2: Apply ownership to function parameters via `aims::apply_ownership()`
   - Step 3: Per-function loop calling `run_aims_pipeline()` (steps 3-12)
   - Return `Vec<ArcProblem>` (FBIP violations) matching the current API
-  > **Warning: Parameter count.** The current `run_arc_pipeline` takes 7 parameters.
-  > `run_aims_pipeline` should use a config struct per hygiene rules (>3-4 params -> config struct).
-  > Define `AimsPipelineConfig { classifier, contracts, pool, interner, builtins, verify_arc }`.
-- [x] Implement `run_aims_pipeline()` as **internal implementation** called from within
-  `run_arc_pipeline()` when `#[cfg(feature = "aims")]` is active. The public API
-  functions (`run_arc_pipeline`, `run_arc_pipeline_all`, `run_uniqueness_analysis`,
-  `annotate_arg_ownership`) branch internally — callers never see the AIMS functions
-  directly. The `run_aims_*` functions are `pub(crate)` implementation details.
-  **Critical: THREE callers of `run_arc_pipeline` must work unchanged:**
+  - Uses `AimsPipelineConfig` config struct per hygiene rules (>3-4 params -> config struct)
+- [x] `run_aims_pipeline()` is the sole per-function implementation called from
+  `run_arc_pipeline()`. The public API functions (`run_arc_pipeline`,
+  `run_arc_pipeline_all`, `run_uniqueness_analysis`, `annotate_arg_ownership`)
+  delegate directly to AIMS — no feature dispatch.
+  **Callers of `run_arc_pipeline` (unchanged):**
   1. `run_arc_pipeline_all()` — calls `run_arc_pipeline()` in its per-function loop
-     (callers: `oric/arc_dot`, `oric/arc_dump`)
   2. `ori_llvm` `FunctionCompiler::compile_function_arc()` — calls `run_arc_pipeline()`
-     directly at `define_phase.rs:279` for AOT per-function compilation
+     directly for AOT per-function compilation
   3. `ori_llvm` `FunctionCompiler::declare_and_process_lambda()` — calls `run_arc_pipeline()`
-     directly at `define_phase.rs:370` for lambda compilation
-
-  Additionally, `run_uniqueness_analysis()` is called directly by:
-  - `ori_llvm` `evaluator/compile.rs:166` (JIT path)
-  - `oric` `commands/codegen_pipeline.rs:320` (AOT codegen path)
-
-  The AIMS equivalent must maintain the same public API surface so that all
-  callers work regardless of which pipeline is active. The `#[cfg(feature = "aims")]`
-  branch should be INSIDE the existing function signatures, not a separate function,
-  to avoid requiring changes to all callers during migration.
+     directly for lambda compilation
+  `run_uniqueness_analysis()` returns empty map (compatibility stub).
 - [x] **Dominator tree timing**: RC emission (step 6) may insert edge cleanup
   (trampoline blocks for critical edges), which modifies the CFG. Reuse emission
   (step 7) needs dominator trees for cross-block reuse detection (see Section 05
@@ -336,18 +306,11 @@ old analysis passes.
   **Fixed 2026-03-11**: All body text, index.md, and overview quick reference now match frontmatter.
 
 - [x] AIMS pipeline produces correct output for all existing tests
-- [x] Feature flag allows switching between old and new pipelines
-- [x] `cargo test --workspace --features aims` passes (Rust unit tests)
-- [x] `cargo build --features aims && ./target/debug/ori test tests/` passes (interpreter spec tests)
-- [x] `cargo build --features aims --release && ./target/release/ori test tests/`
-  passes (LLVM spec tests). Fixed 2026-03-11: RC leak in `is_owned_at_entry()`
-  caused by BOTTOM state in terminal blocks — variables defined by Construct/Apply
-  in Return blocks had entry+exit states both defaulting to BOTTOM (Borrowed),
-  so no RcDec was emitted. Fix: when both states are BOTTOM for block-defined
-  vars, determine ownership from defining instruction (Project=borrowed,
-  everything else=owned). Result: 4169 passed, 0 failed, 42 skipped.
-- [x] `cargo test -p ori_llvm --features aims` passes (AOT tests)
-- [x] `./test-all.sh` passes WITHOUT `aims` feature (old pipeline unchanged)
+- [x] `cargo test --workspace` passes (Rust unit tests — AIMS is sole pipeline)
+- [x] `cargo build && ./target/debug/ori test tests/` passes (interpreter spec tests)
+- [x] `cargo build --release && ./target/release/ori test tests/` passes (LLVM spec tests)
+- [x] `cargo test -p ori_llvm` passes (AOT tests)
+- [x] `./test-all.sh` passes
 - [x] RC operation count tracked: AIMS ≤ old is the goal for Stage 1D, but
   Stage 1C accepts correctness-first with RC count regressions investigated.
   Implemented: `pipeline/rc_count` module (`RcOpCount`, `count_rc_ops()`) counts
@@ -423,11 +386,8 @@ old analysis passes.
   `dual-exec-verify.sh` reports 0 mismatches (ALL VERIFIED). Same-block
   reuse active. Valgrind and RC count parity tracking deferred — correctness
   validated; optimization parity will be tracked before old pass removal.
-- [x] `annotate_arg_ownership()` branches on `#[cfg(feature = "aims")]`
+- [x] `annotate_arg_ownership()` delegates to AIMS pipeline directly (no feature dispatch)
 
-**Exit Criteria:** All test commands listed in 06.4 pass with 0 failures
-(`cargo test --workspace --features aims`, spec tests via built binary,
-AOT tests via `cargo test -p ori_llvm --features aims`).
-`./clippy-all.sh` passes. RC operation count follows staged cutover gates:
-tracked and investigated during Stage 1C (correctness first), hard gate
-(≤ old pipeline for every program) at Stage 1D completion.
+**Exit Criteria:** All test commands pass with 0 failures (`cargo test
+--workspace`, spec tests via built binary, AOT tests via `cargo test -p
+ori_llvm`). `./clippy-all.sh` passes.
