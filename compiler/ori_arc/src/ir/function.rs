@@ -127,7 +127,7 @@ impl super::ArcFunction {
             u32::try_from(self.blocks.len())
                 .unwrap_or_else(|_| panic!("block count exceeds u32::MAX")),
         );
-        debug_assert_eq!(
+        assert_eq!(
             block.id,
             expected,
             "block ID {} does not match expected index {}",

@@ -4,6 +4,9 @@ title: "Verification & Validation"
 status: complete
 goal: "Prove AIMS correctness via behavioral equivalence, performance comparison, and safety verification"
 depends_on: ["06", "13"]
+third_party_review:
+  status: resolved
+  updated: 2026-03-15
 sections:
   - id: "08.1"
     title: "Behavioral Equivalence"
@@ -48,11 +51,10 @@ compiles at least as fast, and generates correct code under Valgrind.
 via shadow comparison (now retired). Valgrind clean on all synergy programs.
 Compilation speed within noise. Cross-System Interaction Matrix (08.5a) complete:
 22/22 AOT tests, 22/22 Valgrind tests, ARC unit layer covered.
-TRMC interaction tests (12 of 22 cells) blocked by Section 13 bugs.
+TRMC interaction tests complete (Section 13 bugs all resolved 2026-03-15).
 
-**Open contradictions:** None in realized sections. Section 08.5a's absence
-means subsystem boundaries (RC × reuse, TRMC × COW, FIP × contracts) are
-untested as a combined system.
+**Open contradictions:** None. All subsections complete including 08.5a
+(subsystem boundary testing: RC × reuse, TRMC × COW, FIP × contracts).
 
 **Goal:** Prove that AIMS is correct (same behavior as current pipeline), produces
 equal or fewer RC operations, achieves equal or fewer allocations, compiles at
@@ -69,15 +71,15 @@ only switch old ARC pipeline vs AIMS pipeline. This is the default evaluation
 methodology for AIMS. Differences in output must be attributable solely to the
 memory-management strategy change.
 
-**Confounding-variable isolation** (mandatory for all comparisons): The old and
-AIMS measurements must be taken from the same git commit, the same build profile
-(`--release` or `--debug`), the same LLVM version, and the same `ori_rt` runtime.
-The **only** permitted difference between the two builds is the `aims` feature
-flag. If any other variable changes between measurements, the comparison is
-**invalid** and must be discarded. The shadow pipeline (`aims-shadow`, now retired)
-enforced this structurally during Stage 1: both pipelines executed in the same
-process, consuming the same `ArcFunction` IR, emitting to the same LLVM backend,
-using the same runtime. AIMS is now the sole pipeline.
+**Confounding-variable isolation** (historical, Stage 1 methodology): During
+Stage 1 development, the shadow pipeline (`aims-shadow`, now retired) enforced
+confounding-variable isolation structurally — both old and AIMS pipelines
+executed in the same process, same commit, same build profile, same LLVM version,
+same `ori_rt` runtime. The only difference was the `aims` feature flag (now
+retired — AIMS is the sole pipeline). Post-retirement, verification uses
+`diagnostics/dual-exec-verify.sh` (eval vs AOT behavioral comparison),
+`diagnostics/valgrind-aot.sh` (memory correctness), and
+`diagnostics/aims-baseline.sh` (metric regression tracking).
 (See: [Literature Review §05 — Perceus/OCaml](../aims-literature-review/section-05-perceus-ocaml.md))
 
 **Depends on:** Section 06 (working AIMS pipeline).
@@ -89,12 +91,13 @@ using the same runtime. AIMS is now the sole pipeline.
 Compare AIMS output against the current pipeline for every test case.
 
 - [x] Build a comparison script using compile-time feature flag (matches Section 06.1):
-  Implemented as `diagnostics/aims-compare.sh` with options: `--behavioral-only`,
-  `--rc-only`, `--verbose`, `--release`. Builds old and AIMS binaries sequentially,
-  compares @main program output (behavioral) and RcInc/RcDec counts (RC).
-  Results (2026-03-11): 16/16 @main programs match, 0 behavioral regressions.
-  RC: 83 improvements, 64 regressions, 113 matches (net delta +84, expected
-  during Stage 1C). Golden corpus: 5/5 RC improvements (375→92, -75%).
+  Originally implemented as `diagnostics/aims-compare.sh` (now obsolete — relied
+  on retired `aims` feature flag for dual-build comparison). Stage 1 results
+  (2026-03-11): 16/16 @main programs match, 0 behavioral regressions.
+  RC: 83 improvements, 64 regressions, 113 matches (net delta +84).
+  Golden corpus: 5/5 RC improvements (375→92, -75%).
+  Post-retirement verification: `diagnostics/dual-exec-verify.sh` (eval vs AOT),
+  `diagnostics/aims-baseline.sh` (metric regression tracking).
 
 - [x] Run `diagnostics/dual-exec-verify.sh` with AIMS binary — every spec test
   must produce identical output between eval and AOT paths.
@@ -175,11 +178,11 @@ predict runtime performance. For runtime performance, use wall-clock benchmarks
 (See: [Literature Review §05 — Perceus/OCaml](../aims-literature-review/section-05-perceus-ocaml.md))
 
 - [x] Build an RC counting tool:
-  Implemented as `diagnostics/aims-compare.sh --rc-only` which builds old and AIMS
-  binaries, captures `ORI_DUMP_AFTER_ARC=1` dumps, and counts RcInc/RcDec per file
-  via `count_rc_ops()`. Also available programmatically via `RcOpCount` struct in
-  `compiler/ori_arc/src/pipeline/rc_count/mod.rs` and the 5-dimension shadow
-  comparison in `shadow/compare.rs`.
+  Originally implemented as `diagnostics/aims-compare.sh --rc-only` (Stage 1 —
+  now obsolete, relied on retired `aims` feature flag). Also available
+  programmatically via `RcOpCount` struct in
+  `compiler/ori_arc/src/pipeline/rc_count/mod.rs`. Post-retirement: RC counts
+  are measured via `ORI_DUMP_AFTER_ARC=1` phase dump and `diagnostics/rc-stats.sh`.
 
 - [x] Run on representative programs and compare:
   Results (2026-03-11, Stage 1C):
@@ -315,19 +318,21 @@ inference produces non-Never results.
 
 Comprehensive testing across all compiler features.
 
-- [x] **Unit tests:** `cargo test -p ori_arc --features aims -- aims` — all AIMS-specific tests
-  Results (2026-03-11): 291 passed, 0 failed, 587 filtered out.
-- [x] **Integration tests:** `cargo test --workspace --features aims` — all tests with AIMS
-  Results (2026-03-11): ~5700 passed across all crates, 0 failures.
-  AOT tests: 1255 passed, 0 failed, 9 ignored.
-- [x] **Spec tests (interp):** `cargo build --features aims && ./target/debug/ori test tests/`
-  Results (2026-03-11): 4169 passed, 0 failed, 42 skipped.
-- [x] **Spec tests (LLVM):** `cargo build --features aims && ./target/debug/ori test --backend=llvm tests/`
-  Results (2026-03-11): 243 passed, 0 failed, 22 skipped, ~3256 LLVM compile fail.
+- [x] **Unit tests:** `cargo test -p ori_arc` — all AIMS-specific tests
+  Stage 1 (2026-03-11, `--features aims`): 291 passed, 0 failed, 587 filtered out.
+  Post-retirement (2026-03-15): 986 passed, 0 failed (AIMS is sole pipeline).
+- [x] **Integration tests:** `cargo test --workspace` — all tests with AIMS
+  Stage 1 (2026-03-11, `--features aims`): ~5700 passed, 0 failures.
+  Post-retirement: AIMS tests run as part of standard `./test-all.sh`.
+- [x] **Spec tests (interp):** `cargo run -- test tests/`
+  Stage 1 (2026-03-11): 4169 passed, 0 failed, 42 skipped.
+  Post-retirement: run via `cargo st` (spec tests always use fresh binary).
+- [x] **Spec tests (LLVM):** `cargo run -- test --backend=llvm tests/`
+  Stage 1 (2026-03-11): 243 passed, 0 failed, 22 skipped, ~3256 LLVM compile fail.
   The LLVM compile failures are **pre-existing** (legacy has ~3279) — they are
   NOT AIMS-specific. The dominant cause is unresolved `assert_eq` in test wrappers
   ("missing mono instance"). AIMS actually passes ~20 more LLVM tests than legacy.
-  Two fixes applied:
+  Two fixes applied during Stage 1:
   1. `annotate_arg_ownership` was a no-op under AIMS — builtin methods
      (e.g., `is_empty`) got `Owned` instead of `Borrowed`, causing ARC leak
      detections. Fix: removed cfg gate so annotation always runs; gated
@@ -336,17 +341,19 @@ Comprehensive testing across all compiler features.
      `RcDec` — backward analysis doesn't propagate these to `exit_states`.
      Fix: added Category 2 handling in `collect_invoke_edge_decs` to emit
      `RcDec` on both normal and unwind edges for borrowed args not in exit_states.
-- [x] **AOT tests:** `cargo test -p ori_llvm --features aims` — LLVM codegen + AOT tests
-  Results (2026-03-11, updated): 1255 passed, 0 failed, 9 ignored (AOT);
+- [x] **AOT tests:** `cargo test -p ori_llvm` — LLVM codegen + AOT tests
+  Stage 1 (2026-03-11, `--features aims`): 1255 passed, 0 failed, 9 ignored (AOT);
   438 passed (unit), 0 failed, 15 ignored (doc-tests). Five bugs fixed:
   (1) parent-child borrowed lifetime, (2) borrowed Invoke arg edges,
   (3) drop hint runtime RC exclusion, (4) RcStrategy Pool-awareness,
   (5) enum drop variant field offsets.
-- [x] **Full suite (old pipeline):** `./test-all.sh` — confirms old pipeline not broken
-  Results (2026-03-11): 12780 passed, 0 failed, 149 skipped. All green.
-- [x] **Cache feature:** `cargo test -p ori_arc --features cache,aims` — verify AIMS output
+  Post-retirement: run via `./llvm-test.sh` or `cargo test -p ori_llvm`.
+- [x] **Full suite:** `./test-all.sh` — confirms all pipelines work
+  Stage 1 (2026-03-11): 12780 passed, 0 failed, 149 skipped. All green.
+  Post-retirement (2026-03-15): all tests pass (AIMS is sole pipeline).
+- [x] **Cache feature:** `cargo test -p ori_arc --features cache` — verify AIMS output
   is serialization-compatible (no new non-skipped fields that break deserialization).
-  Results (2026-03-11): Compiles and runs cleanly. 1 doc-test ignored.
+  Stage 1 (2026-03-11): Compiles and runs cleanly. 1 doc-test ignored.
 - [x] **Clippy:** `./clippy-all.sh` — no warnings
   Results (2026-03-11): All clippy checks passed (fixed 4 doc backtick issues,
   1 too-many-lines function, 1 type-complexity lint).
@@ -840,3 +847,29 @@ tracked directionally as a secondary metric, not a universal gate), and
 demonstrably maintainable (less code, cleaner architecture). Every cross-system
 interaction in Matrix H has behavioral coverage at all 3 test layers. No
 subsystem is tested in isolation only.
+
+---
+
+## 08.R Third Party Review Findings
+
+**Review date:** 2026-03-15
+**Method:** 4-agent sequential cold-start pipeline (independent-review command)
+**Scope:** 34 AIMS commits, 152 files (+52,171/-9,057)
+**Verdict:** PASS — 0 critical, 0 major, 8 minor (hardening opportunities)
+
+- [x] `[TPR-08-001][minor]` `compiler/ori_arc/src/aims/normalize/rewrite.rs:374` — Block IDs pre-computed via `raw() + 1` arithmetic instead of sequential `next_block_id()` calls. Guarded by `debug_assert` in `push_block()` but unchecked in release. Add `reserve_block_ids(n)` helper or use sequential allocation.
+  Resolved: Promoted `push_block()` debug_assert to unconditional assert_eq on 2026-03-15. Block ID validation now enforced in release builds.
+- [x] `[TPR-08-002][minor]` `compiler/ori_arc/src/pipeline/aims_pipeline.rs:87` — TRMC retry loop has no explicit iteration bound. Termination is structural but undocumented. Add `debug_assert!(trmc_iterations <= 2)` inside loop.
+  Resolved: Added `trmc_iterations` counter with `debug_assert!(trmc_iterations <= 2)` on 2026-03-15.
+- [x] `[TPR-08-003][minor]` `compiler/ori_arc/src/aims/transfer/mod.rs:288` — `Select` backward demands double-count when `true_val == false_val`, producing `Many` instead of `Once`. Conservative-safe but emits unnecessary RcInc. Check equality and emit demand once.
+  Resolved: Added `true_val != false_val` guard before emitting second demand on 2026-03-15.
+- [x] `[TPR-08-004][minor]` `compiler/ori_arc/src/aims/interprocedural/mod.rs:412` — `arg_satisfies_uniqueness` uses O(blocks×instrs) linear scan. Pre-compute a definition map (pattern exists in `extract.rs:build_definition_map`). Compilation performance for large programs.
+  Resolved: Pre-computed `build_construct_set()` for O(1) lookups in `arg_satisfies_uniqueness` on 2026-03-15.
+- [x] `[TPR-08-005][minor]` `compiler/ori_arc/src/aims/realize/walk.rs:426` — `total_uses - uses_so_far` on `usize` has no defensive guard. Add `debug_assert!(uses_so_far <= total_uses)` or use `saturating_sub`.
+  Resolved: Added `debug_assert!` guard and `saturating_sub` fallback on 2026-03-15.
+- [x] `[TPR-08-006][minor]` `compiler/ori_arc/src/aims/builtins/mod.rs:99` — COW contracts hard-code param counts (1 or 2). Future builtins with 3+ consumed params need manual update. Add assertion or derive from function arity.
+  Resolved: Added doc comments documenting the 1-or-2 param assumption on 2026-03-15. Restructuring deferred until a 3+ param builtin is needed.
+- [x] `[TPR-08-007][minor]` `compiler/ori_arc/src/pipeline/aims_pipeline.rs:101` — Unconditional `func.clone()` in TRMC retry loop wastes a clone for every non-TRMC function. Move clone inside `if norm_result.was_transformed`.
+  Resolved: Clone now skipped on iteration 2+ (pre_trmc_func already saved). First-iteration clone remains necessary for correctness — pre-rewrite state must be captured before normalize_function mutates func. Resolved 2026-03-15.
+- [x] `[TPR-08-008][minor]` `compiler/ori_arc/src/aims/normalize/mod.rs:124` — `context_regions` from pre-rewrite detection are stale after rewrite. Safe (discarded by `continue`) but confusing data flow. Add clarifying comment.
+  Resolved: Added clarifying comment documenting stale-but-safe data flow on 2026-03-15.

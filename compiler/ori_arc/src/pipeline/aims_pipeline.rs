@@ -74,49 +74,10 @@ pub(crate) fn run_aims_pipeline(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
 ) -> AimsPipelineResult {
-    // Steps 3–3a: compute var_reprs, detect immortals, normalize.
-    // When TRMC rewrite fires (was_transformed), re-run from step 3
-    // because new variables need ValueRepr entries and immortal detection.
-    // The rewrite is idempotent — at most 2 iterations.
-    //
-    // `pre_trmc_func` is saved before TRMC rewrite for semantic rollback
-    // (Bug 5: if post-analysis uniqueness verification fails, we restore
-    // the pre-rewrite function and re-run analysis).
-    let mut did_trmc_transform = false;
-    let mut pre_trmc_func: Option<ArcFunction> = None;
-    let (norm_result, immortals) = {
-        let contract = config.contracts.get(&func.name);
-        loop {
-            // Step 3: compute value representations.
-            {
-                let _span = tracing::info_span!("compute_var_reprs").entered();
-                func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
-            }
-
-            // Step 3.5: detect immortal variables.
-            let immortals = detect_immortals(func, config);
-
-            // Step 3a: normalize — detect + rewrite TRMC context regions.
-            // Save pre-rewrite state for semantic rollback.
-            let saved = func.clone();
-            let norm_result = {
-                let _span = tracing::info_span!("normalize_function").entered();
-                crate::aims::normalize::normalize_function(func, contract)
-            };
-
-            if norm_result.was_transformed {
-                did_trmc_transform = true;
-                pre_trmc_func = Some(saved);
-                tracing::debug!(
-                    func = func.name.raw(),
-                    "TRMC rewrite applied, re-running var_reprs and immortals"
-                );
-                continue;
-            }
-
-            break (norm_result, immortals);
-        }
-    };
+    // Steps 3–3a: compute var_reprs, detect immortals, normalize with
+    // TRMC rewrite loop (idempotent — at most 2 iterations).
+    let (norm_result, immortals, did_trmc_transform, pre_trmc_func) =
+        normalize_with_trmc(func, config);
 
     // Intraprocedural analysis → converged state map.
     let state_map = {
@@ -214,6 +175,76 @@ pub(crate) fn run_aims_pipeline(
 
 /// Step 4a: TRMC semantic soundness verification.
 ///
+/// Steps 3–3a: compute `var_reprs`, detect immortals, normalize.
+///
+/// When TRMC rewrite fires, re-run from step 3 because new variables need
+/// `ValueRepr` entries and immortal detection. The rewrite is idempotent —
+/// at most 2 iterations. `pre_trmc_func` is saved before TRMC rewrite for
+/// semantic rollback (Bug 5).
+fn normalize_with_trmc(
+    func: &mut ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+) -> (
+    crate::aims::normalize::NormalizationResult,
+    Vec<bool>,
+    bool,
+    Option<ArcFunction>,
+) {
+    let contract = config.contracts.get(&func.name);
+    let mut did_trmc_transform = false;
+    let mut pre_trmc_func: Option<ArcFunction> = None;
+    let mut trmc_iterations: u32 = 0;
+
+    let (norm_result, immortals) = loop {
+        // Step 3: compute value representations.
+        {
+            let _span = tracing::info_span!("compute_var_reprs").entered();
+            func.var_reprs = crate::ir::compute_var_reprs(func, config.classifier, config.pool);
+        }
+
+        // Step 3.5: detect immortal variables.
+        let immortals = detect_immortals(func, config);
+
+        // Step 3a: normalize — detect + rewrite TRMC context regions.
+        // Save pre-rewrite state for semantic rollback. Only clone on
+        // the first iteration — subsequent iterations already have the
+        // pre-TRMC state saved.
+        let saved = if pre_trmc_func.is_none() {
+            Some(func.clone())
+        } else {
+            None
+        };
+        let norm_result = {
+            let _span = tracing::info_span!("normalize_function").entered();
+            crate::aims::normalize::normalize_function(func, contract)
+        };
+
+        if norm_result.was_transformed {
+            if let Some(saved) = saved {
+                pre_trmc_func = Some(saved);
+            }
+            did_trmc_transform = true;
+            trmc_iterations += 1;
+            debug_assert!(
+                trmc_iterations <= 2,
+                "TRMC rewrite loop exceeded 2 iterations for {:?} — \
+                 idempotency invariant violated",
+                func.name,
+            );
+            tracing::debug!(
+                func = func.name.raw(),
+                iteration = trmc_iterations,
+                "TRMC rewrite applied, re-running var_reprs and immortals"
+            );
+            continue;
+        }
+
+        break (norm_result, immortals);
+    };
+
+    (norm_result, immortals, did_trmc_transform, pre_trmc_func)
+}
+
 /// After analysis converges, verify that context variables are Unique
 /// at all Set sites. On failure, roll back to pre-rewrite function and
 /// re-run analysis on the restored version.

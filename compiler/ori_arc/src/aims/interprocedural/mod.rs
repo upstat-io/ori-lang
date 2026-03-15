@@ -31,7 +31,7 @@ mod extract;
 mod tests;
 
 use ori_ir::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::borrow::BuiltinOwnershipSets;
 use crate::graph::call_graph::CallGraph;
@@ -298,6 +298,10 @@ fn tighten_uniqueness_from_callers(
     for func in functions {
         let state_map = analyze_function(func, classifier, sigs, &[], Vec::new());
 
+        // Pre-compute Construct-defined vars for O(1) lookups in
+        // arg_satisfies_uniqueness (avoids O(blocks×instrs) per argument).
+        let construct_vars = build_construct_set(func);
+
         // Walk blocks to find Apply instructions.
         for block in &func.blocks {
             for instr in &block.body {
@@ -308,6 +312,7 @@ fn tighten_uniqueness_from_callers(
                     collect_call_site_uniqueness(
                         func,
                         &state_map,
+                        &construct_vars,
                         *callee,
                         args,
                         sigs,
@@ -324,6 +329,7 @@ fn tighten_uniqueness_from_callers(
                 collect_call_site_uniqueness(
                     func,
                     &state_map,
+                    &construct_vars,
                     *callee,
                     args,
                     sigs,
@@ -369,6 +375,7 @@ fn tighten_uniqueness_from_callers(
 fn collect_call_site_uniqueness(
     func: &ArcFunction,
     state_map: &AimsStateMap,
+    construct_vars: &FxHashSet<ArcVarId>,
     callee: Name,
     args: &[ArcVarId],
     sigs: &FxHashMap<Name, MemoryContract>,
@@ -387,7 +394,7 @@ fn collect_call_site_uniqueness(
             continue;
         }
 
-        let satisfies = arg_satisfies_uniqueness(func, arg);
+        let satisfies = arg_satisfies_uniqueness(func, construct_vars, arg);
 
         let key = (callee, i);
         let entry = all_satisfy.entry(key).or_insert(true);
@@ -409,14 +416,15 @@ fn collect_call_site_uniqueness(
 ///   parameter holds a real reference and is forwarded to exactly one call
 ///   without being shared.
 /// - **Other variables**: conservatively treated as not unique.
-fn arg_satisfies_uniqueness(func: &ArcFunction, arg: ArcVarId) -> bool {
+fn arg_satisfies_uniqueness(
+    func: &ArcFunction,
+    construct_vars: &FxHashSet<ArcVarId>,
+    arg: ArcVarId,
+) -> bool {
     // Case 1: Locally defined by Construct — fresh unique value (RC==1).
-    for block in &func.blocks {
-        for instr in &block.body {
-            if instr.defined_var() == Some(arg) {
-                return matches!(instr, ArcInstr::Construct { .. });
-            }
-        }
+    // O(1) lookup via pre-computed set (avoids O(blocks×instrs) scan).
+    if construct_vars.contains(&arg) {
+        return true;
     }
 
     // Case 2: Function parameter — check ownership and linear forwarding.
@@ -504,4 +512,22 @@ fn terminator_use_count(term: &crate::ir::ArcTerminator, var: ArcVarId) -> usize
         ArcTerminator::Invoke { args, .. } => args.iter().filter(|&&v| v == var).count(),
         ArcTerminator::Resume | ArcTerminator::Unreachable => 0,
     }
+}
+
+/// Pre-compute the set of variables defined by `Construct` instructions.
+///
+/// A `Construct`-defined variable has RC==1 (fresh allocation), so it is
+/// guaranteed unique at any call site. Computing this once per function
+/// (O(blocks × instrs)) then using O(1) lookups avoids the previous
+/// O(blocks × instrs) scan per argument in `arg_satisfies_uniqueness`.
+fn build_construct_set(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut set = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Construct { dst, .. } = instr {
+                set.insert(*dst);
+            }
+        }
+    }
+    set
 }

@@ -121,6 +121,10 @@ pub fn normalize_function(
         }
     }
 
+    // Note: `context_regions` were detected on the pre-rewrite function and
+    // guided the rewrite logic. After rewrite they are stale as IR positions
+    // but safe to return — downstream analysis (TRMC retry loop) only checks
+    // `was_transformed` and reconstructs its own position metadata.
     NormalizationResult {
         was_transformed,
         context_regions,

@@ -96,6 +96,9 @@ fn borrowing_contract(num_params: usize) -> MemoryContract {
 ///
 /// If `consumes_second` is true, arg[1] is also Owned/Linear (e.g., `add`,
 /// `concat` which take ownership of the second list's buffer).
+///
+/// Note: hard-codes 1 or 2 params. If a future COW builtin needs 3+
+/// consumed params, this function must be extended.
 fn cow_receiver_contract(consumes_second: bool) -> MemoryContract {
     let mut params = vec![PARAM_OWNED_LINEAR];
     if consumes_second {
@@ -117,7 +120,8 @@ fn cow_receiver_contract(consumes_second: bool) -> MemoryContract {
 /// but the key is only used for comparison (borrowed).
 fn cow_receiver_only_contract() -> MemoryContract {
     // Receiver is consumed; other args are borrowed.
-    // We use 2 params (receiver + one arg) as the common case.
+    // Hard-codes 2 params (receiver + one arg). If a future COW builtin
+    // has 3+ params, extend this function or use a parameterized variant.
     MemoryContract {
         params: vec![PARAM_OWNED_LINEAR, PARAM_BORROWED],
         return_info: RETURN_UNIQUE,
