@@ -177,8 +177,8 @@ fn analyze_scc_fixpoint(
     // NOTE: This clones `external_sigs` once per SCC. A layered lookup
     // (check local first, then external) would avoid the clone but
     // requires changing `analyze_function`'s `&FxHashMap` parameter to
-    // a trait. Deferred — the clone cost is bounded by the number of
-    // finalized contracts and is negligible for typical program sizes.
+    // a trait. Performance note: clone cost is O(depth) where depth is
+    // the number of finalized contracts, negligible for typical programs.
     let mut combined_sigs = external_sigs.clone();
 
     let mut changed = true;

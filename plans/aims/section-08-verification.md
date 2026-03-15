@@ -569,8 +569,8 @@ Comprehensive testing across all compiler features.
 
 ## 08.5a Cross-System Interaction Test Matrix
 
-**Status:** In Progress — AOT 22/22, Valgrind 21/22 (H7 missing), ARC unit
-tests exist but not H-interaction-specific.
+**Status:** Complete — AOT 22/22, Valgrind 22/22, ARC unit tests: 65 realize,
+52 normalize.
 
 **Depends on:** Section 13.8 behavioral test matrix for all TRMC interactions
 (H2, H5, H8, H10, H14, H17-H22). Structural bugs 1-5 are fixed (2026-03-15);

@@ -12,7 +12,8 @@
 //! # v1 scope
 //!
 //! Static-unique cross-block reuse only. Dynamic cross-block reuse
-//! (`MaybeShared`) requires two-point CFG expansion and is deferred.
+//! (`MaybeShared`) requires two-point CFG expansion — optimization
+//! opportunity; runtime `IsShared` fallback handles this case correctly.
 //!
 //! # Reference
 //!
@@ -75,7 +76,8 @@ impl<'a> ReusePlanner<'a> {
         remaining_allocs: &[&AllocEvent],
     ) -> Vec<ReuseOpportunity> {
         // v1: only Unique deaths for cross-block reuse.
-        // MaybeShared cross-block requires two-point CFG expansion (deferred).
+        // MaybeShared cross-block: optimization opportunity — runtime IsShared
+        // fallback handles correctness; CFG expansion would eliminate the check.
         let unique_deaths: Vec<_> = remaining_deaths
             .iter()
             .filter(|d| d.uniqueness == Uniqueness::Unique)

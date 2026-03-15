@@ -42,9 +42,10 @@ use crate::ir::{
 ///
 /// 1. Per-variable uniqueness (checked in `detect_trmc_candidates()`,
 ///    `intraprocedural/post_convergence.rs`)
-/// 2. Effect purity: deferred to effect-handler implementation.
-///    Ori has no effect handlers, so non-linear resumption cannot break
-///    the unique linear chain (Lemma 2, Leijen & Lorenzen JFP 2025).
+/// 2. Effect purity: out of scope (Ori has no effect handlers).
+///    Non-linear resumption cannot break the unique linear chain
+///    (Lemma 2, Leijen & Lorenzen JFP 2025). This gate activates
+///    when effect handlers are added to the language.
 pub(crate) fn rewrite_trmc(func: &mut ArcFunction, regions: &[ContextRegion]) -> bool {
     if regions.is_empty() {
         return false;

@@ -32,6 +32,12 @@ pub use set_rc::*;
 
 use debug::{rc_trace_dec, rc_trace_inc};
 
+/// Exit code for fatal RC errors (underflow, double-free, drop panic).
+/// 128 + 6 mirrors the POSIX convention for SIGABRT (signal 6).
+/// We use `exit()` instead of `abort()` because `abort()` raises SIGABRT
+/// which can hang when signal handlers interfere with process termination.
+const SIGABRT_EXIT_CODE: i32 = 128 + 6;
+
 #[cfg(not(feature = "single-threaded"))]
 use std::sync::atomic;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -157,9 +163,17 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
 #[cold]
 #[inline(never)]
 pub(super) fn rc_underflow_abort(data_ptr: *mut u8) -> ! {
-    eprintln!("ori: FATAL — ori_rc_dec called on already-freed allocation at {data_ptr:p}");
-    eprintln!("ori: this is a double-free bug in the compiler's RC codegen");
-    std::process::abort();
+    // Use raw write to stderr fd to avoid deadlocking on the stderr lock
+    // held by the Rust test harness (eprintln! acquires that lock).
+    use std::io::Write;
+    let msg = format!(
+        "ori: FATAL — ori_rc_dec called on already-freed allocation at {data_ptr:p}\n\
+         ori: this is a double-free bug in the compiler's RC codegen\n"
+    );
+    let _ = std::io::stderr().write_all(msg.as_bytes());
+    // Use _exit equivalent instead of abort() — abort() raises SIGABRT which
+    // can hang when signal handlers interfere. Exit code mirrors SIGABRT convention.
+    std::process::exit(SIGABRT_EXIT_CODE);
 }
 
 /// Decrement the reference count. If it reaches zero, call the drop function.
@@ -271,8 +285,8 @@ pub(super) fn call_drop_fn(f: extern "C" fn(*mut u8), data_ptr: *mut u8) {
         f(data_ptr);
     }));
     if result.is_err() {
-        eprintln!("ori: drop function panicked — aborting (drop must not unwind)");
-        std::process::abort();
+        eprintln!("ori: drop function panicked — terminating (drop must not unwind)");
+        std::process::exit(SIGABRT_EXIT_CODE);
     }
 }
 

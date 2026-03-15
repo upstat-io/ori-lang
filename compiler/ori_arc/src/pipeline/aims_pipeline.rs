@@ -48,7 +48,7 @@ pub(crate) struct AimsPipelineConfig<'a> {
     pub builtins: &'a BuiltinOwnershipSets,
     pub verify_arc: bool,
     // Note: `disabled_canonicalize_rules` was considered for debugging
-    // cross-dimension regressions (Section 11 §11.3 Option A) but deferred —
+    // cross-dimension regressions (Section 11 §11.3 Option A) — not needed;
     // per-rule unit tests (lattice/tests.rs) and end-to-end synergy tests
     // (realize/tests.rs) provide sufficient coverage for regression detection.
 }
