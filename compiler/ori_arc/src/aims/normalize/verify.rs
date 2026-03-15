@@ -63,8 +63,8 @@ pub enum TrmcVerificationError {
     /// the rewritten function's effects indicate non-linear resumption risk.
     #[expect(
         dead_code,
-        reason = "deferred to effect-handler implementation — Ori v1 has no effect handlers, \
-                  so non-linear resumption cannot occur"
+        reason = "out of scope: Ori has no effect handlers, so non-linear resumption \
+                  cannot occur — this variant activates when effect handlers are added"
     )]
     EffectPurityViolation { function: Name },
 
@@ -181,8 +181,8 @@ impl std::fmt::Display for TrmcVerificationError {
 ///
 /// This function only checks structural properties of the IR — it does
 /// not require uniqueness analysis or interprocedural contracts. Checks
-/// that depend on external state (uniqueness, effect purity) are deferred
-/// to Section 13.6 pipeline integration.
+/// that depend on external state (uniqueness, effect purity) are handled
+/// separately in Section 13.6 pipeline integration.
 pub(crate) fn verify_trmc_rewrite(
     func: &ArcFunction,
     regions: &[ContextRegion],

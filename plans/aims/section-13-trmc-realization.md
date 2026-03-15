@@ -50,19 +50,18 @@ implemented (`normalize/rewrite.rs`). All 5 structural bugs fixed (2026-03-15).
 ContextBehavior computed from analysis (`interprocedural/extract.rs`). Pipeline
 wiring exists (`aims_pipeline.rs` step 3a). Post-rewrite uniqueness verification
 implemented via `verify_trmc_soundness()`. Behavioral test matrix (Section 13.8)
-complete (2026-03-15): 56 ARC unit tests, 12 AOT behavioral tests, 3 Valgrind
+complete (2026-03-15): 52 ARC unit tests, 12 AOT behavioral tests, 3 Valgrind
 memory tests, 2 Ori spec programs. Two critical RC codegen bugs in `ori_llvm`
 backend discovered and fixed during behavioral testing (see Section 13.8a).
 
 **Remaining gaps:**
-- Bug 2 partial fix: only `has_unbounded_stack` refreshed; full contract
-  re-extraction deferred (requires SCC peer data threading)
+- ~~Bug 2 partial fix~~ **RESOLVED (2026-03-15):** Full contract refresh via
+  `run_second_pass()` — all contract fields accurate post-rewrite.
 - Pre-existing misalignment bug: recursive enums with multi-word fields
   (e.g., `str`) in payload hit misaligned pointer dereference — tracked,
   not TRMC-specific
-- Backend edge case: `emit_variant_via_alloca` boxed field inc guard only
-  checks `Tag::Enum` — `Tag::Result`-wrapped recursive types would be
-  missed (theoretical; see Section 13.8a)
+- ~~Backend edge case~~ **RESOLVED (2026-03-15):** `is_boxed_enum_field()` guard
+  widened to `Tag::Enum | Tag::Result | Tag::Option`.
 
 **Open contradictions:** None. Invariants 2 and 4 are satisfied — the rewrite
 produces correct output (12 AOT behavioral tests + 3 Valgrind tests), and

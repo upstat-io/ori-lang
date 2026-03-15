@@ -106,9 +106,9 @@ pub fn normalize_function(
     // Step 3: Rewrite + verify (when candidates exist and a converged contract
     // is available). The sole enforced soundness condition is per-variable
     // uniqueness, checked in detect_trmc_candidates() (post_convergence.rs).
-    // Effect purity gate (may_share) is deferred to effect-handler
-    // implementation — Ori has no effect handlers, so non-linear resumption
-    // cannot occur (see normalize_function doc above).
+    // Effect purity gate (may_share): out of scope — Ori has no effect
+    // handlers, so non-linear resumption cannot occur. This gate activates
+    // when effect handlers are added (see normalize_function doc above).
     let mut was_transformed = false;
     if !context_regions.is_empty() {
         if contract.is_some() {
