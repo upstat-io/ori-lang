@@ -248,7 +248,7 @@ fn rt_debug_validate_rc_impl(data_ptr: *const u8, op: &str) {
                  implausible refcount {rc} (expected 1..999999, \
                  likely use-after-free or corruption)"
             );
-            std::process::abort();
+            std::process::exit(super::SIGABRT_EXIT_CODE);
         }
     }
 }
@@ -278,7 +278,7 @@ pub(crate) fn rt_debug_check_not_freed(data_ptr: *const u8, op: &str) {
                 "ori: ORI_RT_DEBUG — {op} on {data_ptr:p}: \
                  pointer was already freed (use-after-free)"
             );
-            std::process::abort();
+            std::process::exit(super::SIGABRT_EXIT_CODE);
         }
     }
 }
@@ -295,7 +295,7 @@ pub(super) fn rt_debug_register_freed(data_ptr: *const u8) {
     if let Ok(mut set) = freed_set().lock() {
         if !set.insert(data_ptr as usize) {
             eprintln!("ori: ORI_RT_DEBUG — ori_rc_free on {data_ptr:p}: double-free detected");
-            std::process::abort();
+            std::process::exit(super::SIGABRT_EXIT_CODE);
         }
     }
 }

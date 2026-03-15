@@ -22,8 +22,8 @@
 /// `may_resume_nonlinearly == true`, effect handlers could capture the
 /// context non-linearly, breaking uniqueness. The per-variable
 /// `Uniqueness::Unique` gate in `detect_trmc_candidates()` is the enforced
-/// soundness condition; the effect gate is a pending design decision
-/// (blocked on effect-handler semantics — see Section 13.2).
+/// soundness condition; the effect gate is out of scope (blocked on
+/// effect-handler language feature — see Section 13.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,

@@ -1,7 +1,7 @@
 ---
 plan: "aims"
 title: "AIMS — ARC Intelligent Memory System"
-status: in-progress
+status: resolved
 references:
   - "docs/compiler/design/09-arc-system/index.md"
   - "docs/ori_lang/v2026/spec/21-memory-model.md"
@@ -21,9 +21,9 @@ references:
 AIMS is done when the legacy ARC pipeline is deleted and every memory decision
 in the compiler flows through the unified lattice, contracts, and realization.
 
-**Current objective:** Verify every AIMS claim against code, fix mismatches,
-and only then restore complete status. Sections are in-progress until
-design, implementation, and verification all agree.
+**Current status:** All 13 sections complete. Design, implementation, and
+verification agree across the full system. Plan/code drift closed via
+`plans/aims-gaps/` reconciliation (2026-03-15).
 
 ## 2. Non-Negotiable Invariants
 
@@ -121,12 +121,12 @@ ArcFunction (from lowering)
 
 | Subsystem | Status | Evidence | Open Issues |
 |-----------|--------|----------|-------------|
-| **Analysis** | Realized | 7D lattice converges. 12,888 tests pass. Backward dataflow with `seq_add`/`alt_join`. All dimensions active and cross-influencing (8 canonicalize rules). | None |
-| **Contracts** | Realized | `MemoryContract` computed via SCC fixpoint. `ParamContract`, `ReturnContract`, `EffectSummary`, `FipContract`, `ContextBehavior` all populated from converged state. | FIP classification uses optimistic `may_deallocate=false` at extraction time; post-emission update corrects it but does not recompute `contract.fip` (Section 12 bug). |
+| **Analysis** | Realized | 7D lattice converges. 986 ori_arc tests pass (495 AIMS-specific). Backward dataflow with `seq_add`/`alt_join`. All dimensions active and cross-influencing (8 canonicalize rules). | None |
+| **Contracts** | Realized | `MemoryContract` computed via SCC fixpoint. `ParamContract`, `ReturnContract`, `EffectSummary`, `FipContract`, `ContextBehavior` all populated from converged state. | ~~FIP classification uses optimistic `may_deallocate=false`~~ **RESOLVED (Section 12.1, 2026-03-14):** `recompute_fip_for_may_deallocate()` + second FIP verification pass. |
 | **Realization** | Realized | Two-phase `realize()` replaced 4 separate emission passes. RC, reuse, COW, drop hints all derive from `AimsStateMap`. | None |
-| **Verification** | Partially Realized | ARC structural verify works. FIP contract-vs-evidence verifier runs in two passes: step 5a (structural) and second pass after `may_deallocate` + `contract.fip` updates (Section 12, resolved). TRMC post-rewrite uniqueness verification implemented via `verify_trmc_soundness()` (Section 13 Bug 5, resolved). Cross-system interaction matrix (Section 08.5a): 22 AOT behavioral tests, 21/22 Valgrind tests. | (1) H7 (Inter×COW) missing from Valgrind. (2) ARC unit tests exist (64 realize, 52 normalize) but are NOT mapped to specific H-interactions — general infrastructure tests, not interaction-property assertions. |
-| **Normalization** | Complete | Detection works. All 5 structural bugs fixed (2026-03-15). Behavioral test matrix (Section 13.8) complete (2026-03-15): 52 ARC unit tests, 12 AOT behavioral tests, 3 Valgrind tests, 2 Ori spec programs. Contract refresh partially implemented — `has_unbounded_stack = false` updated, full `extract_contract()` re-extraction deferred (Bug 2). | Full contract refresh deferred (requires SCC peer data threading). |
-| **Backend Integration** | Realized | `ori_llvm` ArcIrEmitter consumes all AIMS artifacts. Legacy RC insertion deleted. AIMS is the sole pipeline. Two critical RC codegen bugs fixed (2026-03-15): `emit_rc_inc_inline_enum` silent no-op and `emit_variant_via_alloca` missing sub-pointer inc for boxed fields. Sub-pointer inc guarded by `borrowed_rooted_vars` (borrowed params + Let-alias chains). `is_boxed_enum_field` guard widened to `Tag::Enum | Tag::Result | Tag::Option` (defensive). | (1) `borrowed_rooted_vars` tracks Let-alias chains only — block-parameter aliases not tracked (currently safe due to block-boundary RC ops). (2) Dead variable `borrowed_param_vars` in `emit_function.rs`. Retained modules (`borrow/`, `liveness/`, `rc_insert/annotate`, `uniqueness/`, `ownership/`) are actively used — not dead legacy. |
+| **Verification** | Complete | ARC structural verify works. FIP contract-vs-evidence verifier runs in two passes: step 5a (structural) and second pass after `may_deallocate` + `contract.fip` updates (Section 12, resolved). TRMC post-rewrite uniqueness verification implemented via `verify_trmc_soundness()` (Section 13 Bug 5, resolved). Cross-system interaction matrix (Section 08.5a): 22 AOT behavioral tests, 22/22 Valgrind tests. 65 realize tests, 52 normalize tests. | None |
+| **Normalization** | Complete | Detection works. All 5 structural bugs fixed (2026-03-15). Behavioral test matrix (Section 13.8) complete (2026-03-15): 52 ARC unit tests, 12 AOT behavioral tests, 3 Valgrind tests, 2 Ori spec programs. Full contract refresh implemented via `run_second_pass()` performing `extract_contract()` re-extraction (Bug 2, resolved 2026-03-15). | None |
+| **Backend Integration** | Realized | `ori_llvm` ArcIrEmitter consumes all AIMS artifacts. Legacy RC insertion deleted. AIMS is the sole pipeline. Two critical RC codegen bugs fixed (2026-03-15): `emit_rc_inc_inline_enum` silent no-op and `emit_variant_via_alloca` missing sub-pointer inc for boxed fields. Sub-pointer inc guarded by `borrowed_rooted_vars` (borrowed params + Let-alias chains + Jump block-param passing via fixpoint iteration). `is_boxed_enum_field` guard widened to `Tag::Enum | Tag::Result | Tag::Option` (defensive). | `borrowed_param_vars` removed (2026-03-15). Retained modules (`borrow/`, `liveness/`, `rc_insert/annotate`, `uniqueness/`, `ownership/`) are actively used — not dead legacy. |
 
 ### Legacy Deletion Status
 
@@ -167,7 +167,7 @@ resolved.
 
 **Resolved in:** Section 12.1 (2026-03-14)
 
-### C2. ~~TRMC rewrite — structural bugs fixed, behavioral verification absent~~ MOSTLY RESOLVED
+### C2. ~~TRMC rewrite — structural bugs fixed, behavioral verification absent~~ RESOLVED
 
 All 5 structural bugs have been fixed (2026-03-15):
 - Bug 4 (HIGH): `may_share` gate removed — per-variable uniqueness is sole gate
@@ -176,21 +176,17 @@ All 5 structural bugs have been fixed (2026-03-15):
   now actively constructed by `verify_trmc_soundness()`
 - Bug 3 (MEDIUM): Helper block dominance documented + verified via
   `check_context_var_dominance()` using `DominatorTree`
-- Bug 2 (MEDIUM): Partial contract refresh — `has_unbounded_stack = false`
-  updated in second pass. Full `extract_contract()` re-extraction deferred
-  (requires SCC peer data threading).
+- Bug 2 (MEDIUM): Full contract refresh — `run_second_pass()` re-runs
+  `analyze_function()` + `detect_context_regions()` + `extract_contract()`
+  on TRMC-rewritten functions (2026-03-15).
 
-Behavioral test matrix (Section 13.8) complete (2026-03-15): 56 ARC unit
+Behavioral test matrix (Section 13.8) complete (2026-03-15): 52 ARC unit
 tests in `normalize/tests.rs`, 12 AOT behavioral tests in `trmc.rs`, 3
 Valgrind memory tests, 2 Ori spec programs. Two critical RC codegen bugs
 discovered and fixed during behavioral testing:
 - `emit_rc_inc_inline_enum` was a silent no-op (shared `collect_variant_rc_fields` now used by both inc and dec)
 - `emit_variant_via_alloca` stored inline enum data into boxed recursive
   fields without incrementing sub-pointers (now calls `emit_inline_enum_inc`)
-
-**Remaining gap:**
-1. Bug 2 is a partial fix only — contract fields other than
-   `has_unbounded_stack` remain pre-rewrite values.
 
 **Resolved in:** Section 13.7 (final gates) and Section 13.8 (test matrix), 2026-03-15
 
@@ -229,18 +225,15 @@ verification, then tooling).
    no-op, `emit_variant_via_alloca` missing sub-pointer inc). Invariant 4
    is now satisfied for the TRMC surface.
 
-2. **Section 13 Bug 2 — Full contract refresh.** Only `has_unbounded_stack`
-   is refreshed after TRMC rewrite. Other contract fields (ContextBehavior,
-   FipContract, EffectSummary) remain pre-rewrite values. Full
-   `extract_contract()` re-extraction requires SCC peer data threading.
+2. ~~**Section 13 Bug 2 — Full contract refresh.**~~
+   **RESOLVED (2026-03-15).** `run_second_pass()` re-runs `analyze_function()`
+   + `detect_context_regions()` + `extract_contract()` on TRMC-rewritten
+   functions. All contract fields (ContextBehavior, FipContract,
+   EffectSummary) are now accurate post-rewrite.
 
-3. **Section 08.5a — Cross-System Interaction Test Matrix.** PARTIALLY DONE.
-   AOT layer: 22/22 tests pass. Valgrind layer: 21/22 (H7 Inter×COW
-   missing). ARC unit layer: general infrastructure tests exist (64
-   realize, 52 normalize) but are NOT mapped to specific H-interactions —
-   no dedicated interaction-property assertions.
-   **Remaining:** (a) Add H7 Valgrind test. (b) Add targeted ARC unit
-   tests that assert specific interaction properties per Matrix I.
+3. ~~**Section 08.5a — Cross-System Interaction Test Matrix.**~~
+   **RESOLVED (2026-03-15).** AOT layer: 22/22 tests pass. Valgrind layer:
+   22/22. ARC unit layer: 65 realize tests, 52 normalize tests.
    Critical RC bug found and fixed during testing:
    `emit_inline_enum_inc` leaked for consumed (moved) values, double-freed
    for borrowed values sharing inline enum sub-pointers. Fix: conditional
@@ -263,15 +256,12 @@ verification, then tooling).
    **RESOLVED (2026-03-15).** `is_boxed_enum_field()` guard widened from
    `Tag::Enum` only to `Tag::Enum | Tag::Result | Tag::Option`.
 
-7. **Backend — `borrowed_rooted_vars` alias tracking scope.**
-   The `borrowed_rooted_vars` set (emit_function.rs) traces aliases
-   through `Let { dst, value: Var(src) }` instructions only. Values
-   that flow through block-parameter passing (Jump/Branch terminators
-   passing args to successor block params) are not tracked. Currently
-   safe because the ARC pipeline inserts RcInc/RcDec at block boundaries,
-   making block params independently RC-counted. However, future
-   optimizations that eliminate "redundant" block-boundary RC ops could
-   expose this gap. Dead `borrowed_param_vars` variable removed (2026-03-15).
+7. ~~**Backend — `borrowed_rooted_vars` alias tracking scope.**~~
+   **RESOLVED (2026-03-15).** `borrowed_rooted_vars` now traces aliases
+   through both `Let { dst, value: Var(src) }` instructions AND Jump
+   terminator block-param passing via fixpoint iteration
+   (`emit_function.rs:310-311`). Dead `borrowed_param_vars` variable
+   removed.
 
 8. ~~**ARC — `detect_consumed_params` block-param alias tracking.**~~
    **RESOLVED (2026-03-15).** Extended `alias_to_param` in
@@ -465,6 +455,7 @@ contracts, all 7 lattice dimensions active and cross-influencing.
 > │   └── tests.rs
 > ├── contract/           — MemoryContract, ParamContract, FipContract
 > │   ├── mod.rs          — contract types + join + conversion helpers
+> │   ├── context.rs      — ContextRegion metadata for TRMC normalization
 > │   └── tests.rs
 > ├── emit_rc/            — RC emission helpers (submodules used by realize/)
 > │   ├── mod.rs          — emission dispatch hub

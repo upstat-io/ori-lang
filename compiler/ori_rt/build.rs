@@ -61,4 +61,10 @@ fn main() {
     }
 
     build.compile("ori_eh");
+
+    // Ensure Cargo rebuilds when C/asm sources change.
+    println!("cargo:rerun-if-changed=src/eh_personality.c");
+    println!("cargo:rerun-if-changed=src/test_forced_unwind.c");
+    println!("cargo:rerun-if-changed=src/test_frames_x86_64.S");
+    println!("cargo:rerun-if-changed=src/test_frames_aarch64.S");
 }
