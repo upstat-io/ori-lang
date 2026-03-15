@@ -1,7 +1,7 @@
 ---
 section: "13"
 title: "TRMC Realization & Soundness"
-status: in-progress
+status: complete
 goal: "Complete the TRMC pipeline from detection through realization, reconcile the soundness gate between may_share and per-variable uniqueness, and wire ContextBehavior into interprocedural contracts"
 inspired_by:
   - "Leijen & Lorenzen, JFP 2025 — Tail Recursion Modulo Context"
@@ -1089,6 +1089,11 @@ These items should be fixed during implementation of 13.1-13.6:
 - [x] Pipeline re-extracts contract after successful rewrite (Bug 2 fix, 2026-03-15)
   Minimal refresh: `has_unbounded_stack = false`. Full `extract_contract()`
   deferred — requires SCC peer data threading.
+- [x] Full contract refresh after TRMC rewrite (Bug 2 complete fix).
+  Done (2026-03-15): `run_second_pass()` now re-runs `analyze_function()` +
+  `detect_context_regions()` + `extract_contract()` on TRMC-rewritten functions.
+  Replaces the minimal `has_unbounded_stack = false` patch. All contract fields
+  (ContextBehavior, FipContract, EffectSummary) are now accurate post-rewrite.
 - [x] Second-pass ordering in `run_aims_pipeline_all()`: contract refresh
   (Bug 2) runs BEFORE `may_deallocate` update (Section 12.1) and
   `contract.fip` recomputation. (2026-03-15)
@@ -1103,7 +1108,7 @@ These items should be fixed during implementation of 13.1-13.6:
 - [x] Matrix D tests written and passing (D1-D12 + 3-field extra in normalize/tests.rs)
 - [x] Matrix E control-flow/lifetime axes covered (12 AOT behavioral tests in trmc.rs)
 - [x] Matrix F assertion strategy implemented across all 3 layers
-  (ARC unit: 56 tests in normalize/tests.rs; AOT: 12 tests in trmc.rs;
+  (ARC unit: 52 tests in normalize/tests.rs; AOT: 12 tests in trmc.rs;
   Valgrind: 3 programs in tests/valgrind/trmc/; Ori spec: 2 in tests/aims/trmc/)
 - [x] All concrete fixtures pass with correct behavioral output
 
@@ -1157,7 +1162,7 @@ and the interprocedural contract layer.
 
 ## 13.8 TRMC Behavioral Test Matrix
 
-**File(s):** `compiler/ori_arc/src/aims/normalize/tests.rs` (Rust unit — 56 tests),
+**File(s):** `compiler/ori_arc/src/aims/normalize/tests.rs` (Rust unit — 52 tests),
 `compiler/ori_llvm/tests/aot/trmc.rs` (AOT behavioral — 12 tests),
 `tests/aims/trmc/` (Ori spec programs — 2 files),
 `tests/valgrind/trmc/` (Valgrind memory tests — 3 files)
@@ -1318,32 +1323,55 @@ creating an additional reference. When the node was freed (drop cascade),
 those sub-pointers' refcounts were decremented — but they were never
 incremented for the copy, causing double-free.
 
-**Fix (2026-03-15, construction.rs:346-356):**
+**Initial fix** attempted unconditional `emit_inline_enum_inc` for all boxed
+stores, but this leaked memory for consumed (moved) values — the source
+value is being moved, not shared, so incrementing sub-pointers creates
+an extra reference that is never decremented.
+
+**Final fix (2026-03-15, construction.rs:357-365 + emit_function.rs:274-309):**
+
+Added `borrowed_rooted_vars` set to `ArcIrEmitter`, populated per-function
+from borrowed parameters + Let-alias chains (fixpoint iteration). Sub-pointer
+inc is now conditional on the source variable being borrowed-rooted:
+
 ```rust
-let ft = field_ty.expect("field type present");
-let resolved = self.pool.resolve_fully(ft);
-let pool_tag = self.pool.tag(resolved);
-if pool_tag == Tag::Enum {
-    self.emit_inline_enum_inc(val, resolved, pool_tag, 1);
+if let Some(&arc_var) = arc_args.get(i) {
+    if self.is_var_borrowed_rooted(arc_var) {
+        let ft = field_ty.expect("field type present");
+        let resolved = self.pool.resolve_fully(ft);
+        let pool_tag = self.pool.tag(resolved);
+        if pool_tag == Tag::Enum {
+            self.emit_inline_enum_inc(val, resolved, pool_tag, 1);
+        }
+    }
 }
 ```
 
 After storing the value into the boxed allocation, call
-`emit_inline_enum_inc` on the stored value to increment its own boxed
-sub-pointers, balancing the dec that will occur when the node is freed.
+`emit_inline_enum_inc` on the stored value ONLY if the source is
+borrowed-rooted (the caller retains a reference, so the boxed store
+creates an additional one). For consumed values (owned, last use),
+this is a move — no inc needed.
+
+**Known limitation:** `borrowed_rooted_vars` traces aliases through
+`Let { dst, value: Var(src) }` instructions only. Values that flow
+through block-parameter passing (Jump/Branch terminators) are not
+tracked. This is currently safe because the ARC pipeline inserts
+RcInc/RcDec at block boundaries, making block params independently
+counted. However, future optimizations that eliminate "redundant"
+block-boundary RC ops could expose this gap.
 
 ### Edge case: `Tag::Enum`-only guard scope
 
 - [x] Fix applied for `Tag::Enum` boxed fields (covers all current cases)
-- [ ] **Widen guard to include `Tag::Result` and `Tag::Option`.**
-  The guard at construction.rs:354 only checks `pool_tag == Tag::Enum`.
-  A `Tag::Result`-wrapped recursive type (e.g.,
-  `type Tree = Leaf | Node(child: Result<Tree, Error>)`) would bypass
-  the inc. Currently theoretical: `is_boxed_enum_field()` returns false
-  for `Result<Tree, Error>` since it's not directly the recursive type,
-  so the boxed path isn't entered. But if the type system evolves to
-  support boxed Result-wrapped recursion (e.g., through type aliases or
-  nested recursive wrappers), this guard must be widened.
-  **Priority:** Low — blocked on type system changes that don't exist yet.
-  **Test:** When implemented, add a test with
-  `type T = A | B(child: Result<T, int>)` and verify sub-pointer inc.
+- [x] **Widen guard to include `Tag::Result` and `Tag::Option`.**
+  Guard in `is_boxed_enum_field()` (`context.rs`) widened from
+  `pool.tag(enum_resolved) == Tag::Enum` to
+  `matches!(pool.tag(enum_resolved), Tag::Enum | Tag::Result | Tag::Option)`.
+  Defensive hardening — currently a no-op since recursive Result/Option
+  types don't exist, but ensures correctness if the type system evolves.
+- [x] **Widen `borrowed_rooted_vars` to track block-parameter aliases.**
+  Done (2026-03-15): Extended fixpoint loop to trace through Jump terminator
+  block-param passing (same pattern as `detect_consumed_params` fix).
+- [x] **Remove dead `borrowed_param_vars` variable** in `emit_function.rs`.
+  Done (2026-03-15): removed unused FxHashSet that was populated but never read.

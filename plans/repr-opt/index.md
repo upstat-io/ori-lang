@@ -2,7 +2,7 @@
 reroute: true
 name: "Repr Opt"
 full_name: "Representation Optimization & ARC Intelligence"
-status: queued
+status: active
 reviewed: false
 order: 2
 ---
