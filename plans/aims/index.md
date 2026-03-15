@@ -151,7 +151,7 @@ representation optimization, bit-stealing, Elsman, RcStrategy
 ---
 
 ### Section 08: Verification & Validation
-**File:** `section-08-verification.md` | **Status:** In Progress (cross-system interaction matrix needed)
+**File:** `section-08-verification.md` | **Status:** In Progress (cross-system interaction matrix 08.5a not started)
 
 ```
 behavioral equivalence, dual execution, dual-exec-verify, regression
@@ -257,7 +257,7 @@ pipeline/aims_pipeline.rs, post-emission may_deallocate update, step 5a
 ---
 
 ### Section 13: TRMC Realization & Soundness
-**File:** `section-13-trmc-realization.md` | **Status:** In Progress (5 bugs: 2 High, 3 Medium + 3 WASTE dead code + 2 STYLE stale docs + 1 STYLE orphan TODO)
+**File:** `section-13-trmc-realization.md` | **Status:** In Progress (structural bugs fixed, behavioral test matrix 13.8 not started)
 
 ```
 TRMC, tail recursion modulo context, modulo cons, constructor context
@@ -303,12 +303,12 @@ TRMC x RC emission, TRMC x reuse, TRMC x COW, TRMC x FIP, TRMC x contracts
 | 05 | Reuse Emission | `section-05-reuse-emission.md` | Complete (superseded by 10) |
 | 06 | Pipeline Integration | `section-06-pipeline.md` | Complete |
 | 07 | Advanced Optimizations | `section-07-advanced.md` | Complete |
-| 08 | Verification & Validation | `section-08-verification.md` | Incomplete |
+| 08 | Verification & Validation | `section-08-verification.md` | In Progress (08.5a not started) |
 | 09 | Dimensional Fusion | `section-09-dimensional-fusion.md` | Complete |
 | 10 | Unified Realization | `section-10-unified-realization.md` | Complete |
 | 11 | Integration Verification | `section-11-integration-verification.md` | Incomplete |
 | 12 | FIP Proof Obligations | `section-12-fip-enforcement.md` | Complete |
-| 13 | TRMC Realization | `section-13-trmc-realization.md` | Incomplete (C2, C3) |
+| 13 | TRMC Realization | `section-13-trmc-realization.md` | In Progress (structural fixes done, behavioral tests pending) |
 
 ## Performance Validation
 
