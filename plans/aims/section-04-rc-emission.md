@@ -340,14 +340,14 @@ enabling the LLVM emitter to call `ori_buffer_drop_unique` instead of
 
 ---
 
-## 04.5 Locality and Effect Reading (v1: Hints Only)
+## 04.5 Locality and Effect Reading
 
 **File(s):** `compiler/ori_arc/src/aims/emit_rc/mod.rs`
 
-In v1, RC emission reads `Locality` and `EffectClass` from the state map but does
-NOT emit stack allocation directives or modify the ARC IR structure based on them.
-Instead, it records locality hints as internal annotations that a future Stage 4
-pass may consume.
+RC emission reads `Locality` and `EffectClass` from the state map but does
+NOT emit stack allocation directives or modify the ARC IR structure based on
+them. Locality hints are recorded as internal annotations. Stack allocation
+based on locality is a backend concern (out of AIMS scope; see 00-overview §Scope).
 
 - [x] Read `Locality::FunctionLocal` / `BlockLocal` from state map at allocation points
 - [x] Record locality hints into a separate `Vec<LocalAllocCandidate>` returned
@@ -355,7 +355,7 @@ pass may consume.
   a pure analysis artifact). This preserves the analysis/emission separation: analysis
   produces the state map, emission reads it and produces both IR mutations and derived
   hint artifacts.
-- [x] Do NOT add new fields to `ArcFunction` for these hints in v1
+- [x] Do NOT add new fields to `ArcFunction` for locality hints
 - [x] Read `EffectClass` for potential FIP fast-path identification. Per-function
   `EffectClass` states contribute to the function-level `EffectSummary`, which is
   computed during interprocedural analysis (Section 03). By the time Section 04

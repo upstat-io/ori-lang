@@ -18,8 +18,8 @@ sections:
     status: complete
   - id: "07.2"
     title: "Static RC Coalescing"
-    status: completels
-    
+    status: complete
+
   - id: "07.3"
     title: "Cross-Optimization Synergies"
     status: complete
@@ -63,27 +63,23 @@ Mark common constants as immortal (RC = MAX), skipping all RC operations on them
 
 - [x] Define immortal detection in `compiler/ori_arc/src/aims/immortal/mod.rs`:
   ```rust
-  /// Set of variables whose allocations are immortal (RC = MAX_REFCOUNT).
+  /// Detect immortal variables in a function.
+  /// Returns a `Vec<bool>` indexed by variable ID — `true` means immortal.
   /// Immortal allocations never participate in RC operations — inc, dec,
-  /// and COW checks are all skipped. The set is populated once during
-  /// `compute_var_reprs` (pipeline step 3) and threaded read-only through
-  /// all subsequent pipeline steps.
-  pub struct ImmortalSet {
-      vars: FxHashSet<ArcVarId>,
-  }
+  /// and COW checks are all skipped. Populated once per function during
+  /// pipeline step 3.5 and threaded read-only through all subsequent steps.
+  pub fn detect_immortals(func: &ArcFunction, interner: &StringInterner) -> Vec<bool>
   ```
 - [x] Populate `ImmortalSet` during `compute_var_reprs` (pipeline step 3, Section 06.2).
   After `var_reprs` is filled, scan all `Let` instructions for immortal-eligible
   literal values and add their `dst` to the immortal set. The immortal set is
   computed ONCE per function, before analysis (step 5).
-- [x] Thread `ImmortalSet` through `AimsPipelineConfig`:
-  - Add `immortal: ImmortalSet` field to `AimsPipelineConfig` (Section 06.3)
-  - Pass to `analyze_function()` (step 5) — immortal vars are excluded from
+- [x] Thread immortals through the pipeline:
+  - `detect_immortals()` returns `Vec<bool>` in `aims_pipeline.rs` (step 3.5)
+  - Passed directly to `analyze_function()` (step 4) — immortal vars are excluded from
     analysis entirely, same as `SCALAR` variables in `AimsStateMap.scalars`
-  - Pass to `emit_rc_ops()` (step 6) — checked as pre-filter before state map lookup
-  - Pass to `emit_reuse()` (step 7) — immortal values are never reuse candidates
-  - Pass to `emit_cow_annotations()` (step 11a) — immortal values get no COW annotation
-  - Pass to `emit_drop_hints()` (step 12) — immortal values get no drop hints
+  - Immortal exclusion propagates through the state map to `realize_rc_reuse()` (step 5)
+    and `realize_annotations()` (step 10) via `AimsStateMap` queries
 
 ### 07.1.2 Shadow Comparison Mode Interaction
 
@@ -350,7 +346,7 @@ in Stage 1:
 
 ### 07.3.5 Tests
 
-- [x] **COW-aware borrowing test** (`compiler/ori_arc/src/aims/emit_rc/tests.rs`):
+- [x] **COW-aware borrowing test** (originally `emit_rc/tests.rs`, now verified via `realize/tests.rs`):
   - `cow_aware_borrowing_static_unique_for_linear_owned_unique_param` — parameter
     with `(Owned, Linear, Once, MaybeShared)` gets `CowMode::StaticUnique` via
     cross-dimensional reasoning
@@ -446,9 +442,9 @@ own plan documents (not section checkboxes here).
     core. These are runtime or IR-level concerns that belong in Stage 5 follow-on
     work, not in the analysis pipeline.
   - **AIMS prerequisite**: `RcStrategy` enum must remain extensible. Currently
-    defined in `ir/repr.rs` with variants `HeapPointer`, `StringBuffer`,
-    `MapBuffer`, `SetBuffer`. Adding a `Concurrent` strategy variant should be
-    straightforward.
+    defined in `ir/repr.rs` with variants `HeapPointer`, `FatPointer`,
+    `Closure`, `AggregateFields`, `InlineEnum`. Adding a `Concurrent` strategy
+    variant should be straightforward.
   (See: [Literature Review §10 — Concurrent Immediate RC](../aims-literature-review/section-10-concurrent-rc.md))
 
 ### 07.4.1 Runtime Abstraction Boundary

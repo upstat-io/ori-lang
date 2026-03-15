@@ -98,6 +98,8 @@ pub use liveness::{
 pub use lower::{lower_function_can, ArcProblem};
 pub use ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
 pub use rc_insert::annotate_arg_ownership;
+// Legacy RC insertion (insert_rc_ops_with_ownership, insert_external_invoke_cleanup)
+// has been deleted — AIMS realize_rc_reuse handles RC emission.
 pub use uniqueness::{
     CowAnnotations, CowMode, DropHints, Uniqueness, UniquenessMap, UniquenessSummary,
 };

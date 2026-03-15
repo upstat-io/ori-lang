@@ -537,64 +537,6 @@ fn unknown_callee_marks_args_owned() {
     assert_eq!(sig.params[0].ownership, Ownership::Owned);
 }
 
-// apply_borrows writes results back to ArcFunction
-
-#[test]
-fn apply_borrows_updates_params() {
-    use super::apply_borrows;
-
-    // fn f(a: str, b: str) -> int
-    //   let v2 = prim_op(a, b)  // reads both
-    //   let v3 = Tuple(b)       // stores b
-    //   return v2
-    let func = make_func(
-        Name::from_raw(1),
-        vec![param(0, Idx::STR), param(1, Idx::STR)],
-        Idx::INT,
-        vec![ArcBlock {
-            id: b(0),
-            params: vec![],
-            body: vec![
-                ArcInstr::Let {
-                    dst: v(2),
-                    ty: Idx::INT,
-                    value: ArcValue::PrimOp {
-                        op: crate::PrimOp::Binary(ori_ir::BinaryOp::Add),
-                        args: vec![v(0), v(1)],
-                    },
-                },
-                ArcInstr::Construct {
-                    dst: v(3),
-                    ty: Idx::UNIT,
-                    ctor: CtorKind::Tuple,
-                    args: vec![v(1)],
-                },
-            ],
-            terminator: ArcTerminator::Return { value: v(2) },
-        }],
-        vec![Idx::STR, Idx::STR, Idx::INT, Idx::UNIT],
-    );
-
-    // Both start as Owned (from lowering).
-    assert_eq!(func.params[0].ownership, Ownership::Owned);
-    assert_eq!(func.params[1].ownership, Ownership::Owned);
-
-    let pool = Pool::new();
-    let classifier = ArcClassifier::new(&pool);
-    let sigs = infer_borrows_scc(
-        std::slice::from_ref(&func),
-        &classifier,
-        &BuiltinOwnershipSets::empty(),
-    );
-
-    // Apply borrow results to a mutable copy.
-    let mut funcs = vec![func];
-    apply_borrows(&mut funcs, &sigs);
-
-    assert_eq!(funcs[0].params[0].ownership, Ownership::Borrowed); // a: only read
-    assert_eq!(funcs[0].params[1].ownership, Ownership::Owned); // b: stored
-}
-
 // DerivedOwnership tests
 
 use super::infer_derived_ownership;

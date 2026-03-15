@@ -210,6 +210,154 @@ fn verify_never_always_passes() {
     assert!(errors.is_empty(), "Never should always pass: {errors:?}");
 }
 
+// recompute_fip_for_may_deallocate
+
+#[test]
+fn recompute_certified_with_may_deallocate_downgrades_to_never() {
+    let mut contract = make_contract(FipContract::Certified, EffectSummary::OPTIMISTIC);
+    contract.effects.may_deallocate = true;
+
+    let changed = recompute_fip_for_may_deallocate(&mut contract);
+    assert!(changed, "should downgrade Certified with may_deallocate");
+    assert_eq!(contract.fip, FipContract::Never);
+}
+
+#[test]
+fn recompute_bounded_with_may_deallocate_downgrades_to_never() {
+    let mut contract = make_contract(
+        FipContract::Bounded(3),
+        EffectSummary {
+            may_allocate: true,
+            ..EffectSummary::OPTIMISTIC
+        },
+    );
+    contract.effects.may_deallocate = true;
+
+    let changed = recompute_fip_for_may_deallocate(&mut contract);
+    assert!(changed, "should downgrade Bounded with may_deallocate");
+    assert_eq!(contract.fip, FipContract::Never);
+}
+
+#[test]
+fn recompute_conditional_with_may_deallocate_unchanged() {
+    let mut contract = make_contract(
+        FipContract::Conditional {
+            requires_unique_params: vec![true],
+        },
+        EffectSummary::OPTIMISTIC,
+    );
+    contract.effects.may_deallocate = true;
+
+    let changed = recompute_fip_for_may_deallocate(&mut contract);
+    assert!(!changed, "Conditional should not be downgraded");
+    assert!(matches!(contract.fip, FipContract::Conditional { .. }));
+}
+
+#[test]
+fn recompute_never_with_may_deallocate_unchanged() {
+    let mut contract = make_contract(FipContract::Never, EffectSummary::CONSERVATIVE);
+    contract.effects.may_deallocate = true;
+
+    let changed = recompute_fip_for_may_deallocate(&mut contract);
+    assert!(!changed, "Never should not change");
+    assert_eq!(contract.fip, FipContract::Never);
+}
+
+#[test]
+fn recompute_certified_without_may_deallocate_unchanged() {
+    let mut contract = make_contract(FipContract::Certified, EffectSummary::OPTIMISTIC);
+    // may_deallocate is false (default)
+    assert!(!contract.effects.may_deallocate);
+
+    let changed = recompute_fip_for_may_deallocate(&mut contract);
+    assert!(!changed, "should not change when may_deallocate is false");
+    assert_eq!(contract.fip, FipContract::Certified);
+}
+
+// Second-pass recomputation scenarios (Section 12.1)
+//
+// These tests validate the functions used by `run_aims_pipeline_all()`'s
+// second pass: `verify_fip_contract()` and `recompute_fip_for_may_deallocate()`.
+// They simulate the data flow:
+// 1. Stale detection: verifier catches Certified + missed_reuses mismatch
+//    (step 5a pre-check, before recomputation)
+// 2. Recomputation: contract.fip downgraded → re-verification passes cleanly
+//    (second pass, after may_deallocate update)
+
+#[test]
+fn verify_fip_detects_stale_may_deallocate() {
+    // Simulate step 5a: contract still has optimistic may_deallocate=false
+    // from extract_contract(), but realization produced missed reuses.
+    // The verifier should detect this as a CertifiedButHasMissedReuses error.
+    let contract = make_contract(FipContract::Certified, EffectSummary::OPTIMISTIC);
+    // may_deallocate is false (optimistic default from interprocedural analysis).
+    assert!(!contract.effects.may_deallocate);
+
+    // Realization evidence: 3 missed reuses => function actually deallocates.
+    let evidence = FipEvidence {
+        fip_gates: vec![],
+        missed_reuses: 3,
+    };
+
+    // Step 5a runs with the stale contract — it should detect the mismatch
+    // between Certified and missed_reuses > 0.
+    let errors = verify_fip_contract(name(42), &contract, &evidence);
+    assert_eq!(
+        errors.len(),
+        1,
+        "stale Certified with missed reuses should produce exactly 1 error"
+    );
+    assert_eq!(
+        errors[0],
+        FipVerificationError::CertifiedButHasMissedReuses {
+            function: name(42),
+            missed_count: 3,
+        }
+    );
+}
+
+#[test]
+fn fip_recomputed_after_may_deallocate_update() {
+    // Simulate the full second-pass flow from run_aims_pipeline_all():
+    // 1. Start with Certified contract (optimistic may_deallocate=false)
+    // 2. Update may_deallocate to true (from FipEvidence.missed_reuses > 0)
+    // 3. Recompute contract.fip — should downgrade to Never
+    // 4. Re-verify — should pass (contract now reflects reality)
+
+    // Step 1: Contract from extract_contract() with optimistic defaults.
+    let mut contract = make_contract(FipContract::Certified, EffectSummary::OPTIMISTIC);
+    assert_eq!(contract.fip, FipContract::Certified);
+    assert!(!contract.effects.may_deallocate);
+
+    // Step 2: Second pass updates may_deallocate from realization evidence.
+    contract.effects.may_deallocate = true;
+
+    // Step 3: Recompute contract.fip — Certified + may_deallocate → Never.
+    let downgraded = recompute_fip_for_may_deallocate(&mut contract);
+    assert!(
+        downgraded,
+        "Certified should be downgraded when may_deallocate is true"
+    );
+    assert_eq!(
+        contract.fip,
+        FipContract::Never,
+        "contract.fip must reflect the downgrade, not remain Certified"
+    );
+
+    // Step 4: Re-verify with corrected contract — should pass cleanly.
+    // The evidence still shows missed_reuses, but the contract is now Never
+    // (which always passes verification).
+    let evidence = FipEvidence {
+        fip_gates: vec![],
+        missed_reuses: 1,
+    };
+    let errors = verify_fip_contract(name(42), &contract, &evidence);
+    assert!(
+        errors.is_empty(),
+        "post-recompute verification should pass: contract is Never, which has no checks: {errors:?}"
+    );
+}
+
 // Display
 
 #[test]

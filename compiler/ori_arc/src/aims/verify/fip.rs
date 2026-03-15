@@ -6,9 +6,25 @@
 //!
 //! # Pipeline position
 //!
-//! Runs after `realize_rc_reuse()` (step 5) and the `may_deallocate`
-//! post-emission update, before `verify_and_merge()`. This is step 5a
-//! in the pipeline.
+//! **Step 5a (per-function, pre-check):** Runs after `realize_rc_reuse()`
+//! (step 5), before `verify_and_merge()`. At this point, `may_deallocate`
+//! is still the optimistic default from interprocedural analysis.
+//!
+//! - **Structural violations** (`CertifiedButUnboundedStack`,
+//!   `BoundedExceeded`) are genuine bugs — these facts are known from
+//!   interprocedural analysis, not post-emission. Step 5a uses
+//!   `debug_assert!` for these.
+//! - **Post-emission mismatches** (`CertifiedButHasMissedReuses`) are
+//!   *expected* at this stage (stale `may_deallocate`) and logged as
+//!   `tracing::debug`. The second pass corrects these via recomputation.
+//!
+//! **Second pass (post-loop, authoritative):** After the per-function loop
+//! completes, `run_aims_pipeline_all()` updates `may_deallocate` from
+//! realization evidence and recomputes `contract.fip` via
+//! [`recompute_fip_for_may_deallocate`]. A second FIP verification pass
+//! then runs with the corrected contracts. Errors at this stage are genuine
+//! bugs (the recomputation should have fixed any mismatches) and trigger
+//! `debug_assert!`.
 //!
 //! # Relationship to `run_aims_verify()`
 //!
@@ -75,8 +91,10 @@ impl std::fmt::Display for FipVerificationError {
 ///
 /// # Checks
 ///
-/// 1. **`Certified`**: `may_allocate == false`, `missed_reuses == 0`,
-///    `has_unbounded_stack == false`.
+/// 1. **`Certified`**: allocation-balanced (`missed_reuses == 0`) and
+///    `has_unbounded_stack == false`. Note: `may_allocate` may be `true`
+///    for token-balanced functions (all allocations matched by reuses).
+///    The stricter "no allocations" property is tracked by `is_fbip`.
 /// 2. **`Bounded(n)`**: net allocation count (from evidence) <= n.
 /// 3. **`Conditional`**: no additional checks (params are checked at call sites).
 /// 4. **`Never`**: always passes (no FIP claim to verify).
@@ -153,5 +171,33 @@ fn verify_bounded(
             declared,
             actual: actual_u16,
         });
+    }
+}
+
+/// Recompute `contract.fip` after the post-emission `may_deallocate` update.
+///
+/// FP² Theorem 2 requires |S| = |S'| (no net allocation AND no net
+/// deallocation) for FIP. If `may_deallocate` is `true` (from
+/// `FipEvidence.missed_reuses > 0`), then any `Certified` or `Bounded(n)`
+/// classification is unsound — the function has unmatched deallocations.
+///
+/// # Downgrade rules
+///
+/// - `Certified` + `may_deallocate` → `Never`
+/// - `Bounded(n)` + `may_deallocate` → `Never`
+/// - `Conditional` — unaffected (call-site uniqueness eliminates deallocation)
+/// - `Never` — already bottom, no change
+///
+/// Returns `true` if the contract was downgraded.
+pub fn recompute_fip_for_may_deallocate(contract: &mut MemoryContract) -> bool {
+    if !contract.effects.may_deallocate {
+        return false;
+    }
+    match contract.fip {
+        FipContract::Certified | FipContract::Bounded(_) => {
+            contract.fip = FipContract::Never;
+            true
+        }
+        FipContract::Conditional { .. } | FipContract::Never => false,
     }
 }
