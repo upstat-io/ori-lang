@@ -190,6 +190,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);
+        // noundef on data pointer param — Ori never passes poison pointers.
+        self.builder.add_noundef_param_attribute(func_id, 0);
 
         // Generate body
         let entry = self.builder.append_block(func_id, "entry");
@@ -312,6 +314,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.add_uwtable_attribute(wrapper_func_id);
         if target_is_nounwind {
             self.builder.add_nounwind_attribute(wrapper_func_id);
+        }
+
+        // noundef on return value — Ori values are always defined.
+        if !is_void {
+            self.builder.add_noundef_return_attribute(wrapper_func_id);
+        }
+
+        // noundef on all params — env pointer and user params are always defined.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "wrapper params bounded by lambda arity, well within u32 range"
+        )]
+        for i in 0..wrapper_param_types.len() {
+            self.builder
+                .add_noundef_param_attribute(wrapper_func_id, i as u32);
         }
 
         // Generate wrapper body

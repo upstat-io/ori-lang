@@ -60,6 +60,9 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     emitter.builder.set_ccc(func_id);
     emitter.builder.add_nounwind_attribute(func_id);
     emitter.builder.add_cold_attribute(func_id);
+    emitter.builder.add_uwtable_attribute(func_id);
+    // noundef on data pointer param — Ori never passes poison pointers.
+    emitter.builder.add_noundef_param_attribute(func_id, 0);
 
     // Cache before body generation (cycle safety for recursive types)
     emitter.drop_fn_cache.insert(ty, func_id);
