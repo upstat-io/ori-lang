@@ -113,6 +113,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
         self.builder.set_ccc(func_id);
         self.builder.add_nounwind_attribute(func_id);
+        self.builder.add_uwtable_attribute(func_id);
+        // All trampoline params are pointers passed by the runtime — always
+        // valid, defined addresses (never undef/poison).
+        let param_count = match kind {
+            TrampolineKind::Map => 3,
+            TrampolineKind::Predicate | TrampolineKind::ForEach => 2,
+            TrampolineKind::Fold => 4,
+        };
+        for i in 0..param_count {
+            self.builder.add_noundef_param_attribute(func_id, i);
+        }
 
         // Generate body
         let entry = self.builder.append_block(func_id, "entry");
