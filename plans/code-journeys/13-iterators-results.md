@@ -29,11 +29,11 @@ features:
   - higher_order
 feature_description: "List-backed iterator creation, .map() adapter with closure, .fold() consumer, and trampoline-based callback dispatch"
 
-score: 9.5
+score: 10.0
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 5
+  attributes_safety: 10
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -45,7 +45,7 @@ score_metrics:
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
   attr_applicable: 28
-  attr_correct: 17
+  attr_correct: 28
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
@@ -363,7 +363,7 @@ bb0:
 
 ; Function Attrs: nounwind uwtable
 ; --- @__lambda_0 ---
-define noundef i64 @_ori___lambda_0(ptr %0, i64 noundef %1) #1 {
+define noundef i64 @_ori___lambda_0(ptr noundef %0, i64 noundef %1) #1 {
 bb0:
   %call = call fastcc i64 @_ori_square(i64 %1)
   ret i64 %call
@@ -371,7 +371,7 @@ bb0:
 
 ; Function Attrs: nounwind memory(none) uwtable
 ; --- @__lambda_1 ---
-define noundef i64 @_ori___lambda_1(ptr %0, i64 noundef %1, i64 noundef %2) #0 {
+define noundef i64 @_ori___lambda_1(ptr noundef %0, i64 noundef %1, i64 noundef %2) #0 {
 bb0:
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %1, i64 %2)
   %add.val = extractvalue { i64, i1 } %add, 0
@@ -401,9 +401,9 @@ declare ptr @ori_list_alloc_data(i64, i64) #4
 ; Function Attrs: nounwind
 declare ptr @ori_iter_from_list(ptr, i64, i64, i64, ptr) #4
 
-; Function Attrs: nounwind
+; Function Attrs: nounwind uwtable
 ; --- @tramp_0 ---
-define void @_ori_tramp_0(ptr %0, ptr %1, ptr %2) #4 {
+define void @_ori_tramp_0(ptr noundef %0, ptr noundef %1, ptr noundef %2) #1 {
 entry:
   %tramp.fn_ptr.gep = getelementptr inbounds nuw { ptr, ptr }, ptr %0, i32 0, i32 0
   %tramp.fn_ptr = load ptr, ptr %tramp.fn_ptr.gep, align 8
@@ -418,9 +418,9 @@ entry:
 ; Function Attrs: nounwind
 declare ptr @ori_iter_map(ptr, ptr, ptr, i64) #4
 
-; Function Attrs: nounwind
+; Function Attrs: nounwind uwtable
 ; --- @tramp_1 ---
-define void @_ori_tramp_1(ptr %0, ptr %1, ptr %2, ptr %3) #4 {
+define void @_ori_tramp_1(ptr noundef %0, ptr noundef %1, ptr noundef %2, ptr noundef %3) #1 {
 entry:
   %tramp.fn_ptr.gep = getelementptr inbounds nuw { ptr, ptr }, ptr %0, i32 0, i32 0
   %tramp.fn_ptr = load ptr, ptr %tramp.fn_ptr.gep, align 8
@@ -596,20 +596,15 @@ All 6 user functions achieve OPTIMAL instruction ratio. Every instruction is nec
 |----------|--------|----------|--------|---------|---------|------|-------|
 | @square | YES | YES | memory(none) | YES | YES(ret+p0) | NO | Pure function, fully annotated |
 | @main | NO (C) | YES | N/A | YES | YES(ret) | NO | Entry point, correct C cc |
-| @__lambda_0 | NO | YES | N/A | YES | YES(ret)+MISS(p0) | NO | Callback ABI [LOW-1] |
-| @__lambda_1 | NO | YES | memory(none) | YES | YES(ret,p1,p2)+MISS(p0) | NO | Callback ABI [LOW-1] |
-| @tramp_0 | NO | YES | N/A | MISS | MISS(p0,p1,p2) | NO | [LOW-2] |
-| @tramp_1 | NO | YES | N/A | MISS | MISS(p0,p1,p2,p3) | NO | [LOW-2] |
+| @__lambda_0 | NO | YES | N/A | YES | YES(ret+p0+p1) | NO | Fully annotated [NOTE-3] |
+| @__lambda_1 | NO | YES | memory(none) | YES | YES(ret+p0+p1+p2) | NO | Pure, fully annotated [NOTE-3] |
+| @tramp_0 | NO | YES | N/A | YES | YES(p0+p1+p2) | NO | Fully annotated [NOTE-4] |
+| @tramp_1 | NO | YES | N/A | YES | YES(p0+p1+p2+p3) | NO | Fully annotated [NOTE-4] |
 | @ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | YES | Correct cold+noreturn |
 
-**Compliance**: 17/28 applicable attributes correct (60.7%). The 11 missing attributes are all on trampoline and lambda functions:
-- Lambda env pointer parameters (`ptr %0`) missing `noundef` (2 misses on `@__lambda_0`, `@__lambda_1`)
-- Trampoline functions missing `uwtable` (2 misses on `@tramp_0`, `@tramp_1`)
-- Trampoline pointer parameters missing `noundef` (7 misses across both trampolines)
+**Compliance**: 28/28 applicable attributes correct (100%). All lambda and trampoline functions now carry full attribute annotations including `noundef` on all parameters and `uwtable` on all defined functions. This is a significant improvement over the previous run where only 17/28 (60.7%) were correct.
 
-Notably, `@_ori_main` now correctly has `nounwind` -- this was missing in prior journeys and is a cross-journey improvement. `@square` and `@__lambda_1` correctly carry `memory(none)` as pure functions.
-
-Lambda and trampoline functions correctly use C calling convention since they are invoked via function pointer from the runtime. `@square` correctly has `fastcc` since it is only called directly.
+Lambda and trampoline functions correctly use C calling convention since they are invoked via function pointer from the runtime. `@square` correctly has `fastcc` since it is only called directly. `@square` and `@__lambda_1` correctly carry `memory(none)` as pure functions.
 
 ### 4. Control Flow & Block Layout
 
@@ -828,55 +823,44 @@ The `memory(none)` attribute on `@square` and `@__lambda_1` further confirms tha
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing noundef on lambda env pointer params | NEW | J13 |
-| 2 | LOW | Attributes | Missing uwtable and noundef on trampoline functions | NEW | J13 |
-| 3 | NOTE | Attributes | @_ori_main now has nounwind (was missing in prior journeys) | FIXED | J1 |
-| 4 | NOTE | Attributes | @square and @__lambda_1 correctly have memory(none) | NEW | J13 |
-| 5 | NOTE | ARC | Zero RC in user code -- AIMS eliminated dead null-env rc_dec | NEW | J13 |
-| 6 | NOTE | Instruction Purity | All 6 user functions achieve OPTIMAL (1.0x) ratio | NEW | J13 |
-| 7 | NOTE | Iterators | Clean ownership chain: list->iter->map->fold with zero user RC | NEW | J13 |
+| 1 | NOTE | Attributes | All lambda and trampoline functions now fully annotated (noundef, uwtable) | FIXED | J13 |
+| 2 | NOTE | Attributes | @_ori_main now has nounwind (was missing in prior journeys) | FIXED | J1 |
+| 3 | NOTE | Attributes | @square and @__lambda_1 correctly have memory(none) | NEW | J13 |
+| 4 | NOTE | ARC | Zero RC in user code -- AIMS eliminated dead null-env rc_dec | NEW | J13 |
+| 5 | NOTE | Instruction Purity | All 6 user functions achieve OPTIMAL (1.0x) ratio | NEW | J13 |
+| 6 | NOTE | Iterators | Clean ownership chain: list->iter->map->fold with zero user RC | NEW | J13 |
 
-### LOW-1: Missing noundef on lambda env pointer parameters
-
-**Location**: `@_ori___lambda_0(ptr %0, ...)`, `@_ori___lambda_1(ptr %0, ...)`
-**Impact**: LLVM cannot assume the env pointer is non-poison, slightly limiting optimization
-**Fix**: Add `noundef` to the env pointer parameter in lambda function declarations
-**First seen**: Journey 13
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### LOW-2: Missing uwtable and noundef on trampoline functions
-
-**Location**: `@_ori_tramp_0`, `@_ori_tramp_1` -- attribute group `#4 = { nounwind }` lacks `uwtable`
-**Impact**: Missing `uwtable` means no unwind table entries for stack unwinding through trampolines. Missing `noundef` on pointer parameters prevents LLVM from assuming they are non-poison.
-**Fix**: Add `uwtable` to trampoline function attribute group. Add `noundef` to all pointer parameters.
-**First seen**: Journey 13
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### NOTE-3: @_ori_main now has nounwind
-
-**Location**: `@_ori_main()` -- attribute group `#1 = { nounwind uwtable }`
-**Impact**: Positive -- LLVM no longer generates unnecessary exception handling metadata for the entry function. This was a cross-journey finding first identified in J1, now resolved.
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### NOTE-4: @square and @__lambda_1 correctly have memory(none)
-
-**Location**: `@_ori_square` (attribute group #0), `@_ori___lambda_1` (attribute group #0)
-**Impact**: Positive -- LLVM can optimize more aggressively knowing these functions have no memory side effects. The nounwind/memory analysis correctly identified pure scalar functions.
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### NOTE-5: Zero RC in user code
-
-**Location**: All 6 user functions
-**Impact**: Positive -- AIMS correctly identifies that non-capturing lambdas need no env cleanup, and the list-to-iterator ownership transfer requires no user-side rc_inc. The runtime handles all internal RC management behind the opaque iterator pointer.
-**Found in**: ARC Purity (Category 2)
-
-### NOTE-6: All 6 user functions OPTIMAL
+### NOTE-1: All 6 user functions OPTIMAL
 
 **Location**: @square, @main, @__lambda_0, @__lambda_1, @tramp_0, @tramp_1
 **Impact**: Positive -- every user function achieves 1.0x instruction ratio, meaning zero unjustified instructions
 **Found in**: Instruction Purity (Category 1)
 
-### NOTE-7: Clean iterator ownership chain
+### NOTE-2: Zero RC in user code
+
+**Location**: All 6 user functions
+**Impact**: Positive -- AIMS correctly identifies that non-capturing lambdas need no env cleanup, and the list-to-iterator ownership transfer requires no user-side rc_inc. The runtime handles all internal RC management behind the opaque iterator pointer.
+**Found in**: ARC Purity (Category 2)
+
+### NOTE-3: Lambda functions now fully annotated
+
+**Location**: `@_ori___lambda_0(ptr noundef %0, ...)`, `@_ori___lambda_1(ptr noundef %0, ...)`
+**Impact**: Positive -- all parameters including the env pointer now carry `noundef`, enabling LLVM to assume the values are non-poison. Previously missing in the initial J13 run.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-4: Trampoline functions now fully annotated
+
+**Location**: `@_ori_tramp_0`, `@_ori_tramp_1` -- now attribute group `#1 = { nounwind uwtable }` with `noundef` on all pointer parameters
+**Impact**: Positive -- `uwtable` ensures stack unwinding can traverse through trampolines for debugging. `noundef` on all parameters enables LLVM optimization. Previously missing in the initial J13 run.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-5: @square and @__lambda_1 correctly have memory(none)
+
+**Location**: `@_ori_square` and `@_ori___lambda_1` (attribute group #0)
+**Impact**: Positive -- LLVM can optimize more aggressively knowing these functions have no memory side effects. The nounwind/memory analysis correctly identified pure scalar functions.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-6: Clean iterator ownership chain
 
 **Location**: AIMS IR for @main
 **Impact**: Positive -- AIMS correctly models the list->iterator->adapter->consumer ownership chain with zero user-visible RC operations. The runtime handles all internal RC management behind the opaque iterator pointer.
@@ -888,17 +872,17 @@ The `memory(none)` attribute on `@square` and `@__lambda_1` further confirms tha
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 5/10 | 60.7% compliance |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.5 / 10**
+**Overall: 10.0 / 10**
 
 ## Verdict
 
-Journey 13 demonstrates excellent iterator codegen under AIMS. All 6 user functions achieve OPTIMAL instruction ratio (1.0x) with zero user-visible RC operations. The iterator chain `[1,2,3,4,5].iter().map(square).fold(0, +)` compiles to a clean single-block straight-line function in @main that delegates to the runtime via type-erased trampoline callbacks. The nounwind/memory analysis correctly identifies `@square` and `@__lambda_1` as pure functions with `memory(none)`, and `@_ori_main` now correctly has `nounwind` (a cross-journey fix since J1). The remaining attribute gaps are limited to missing `noundef` on lambda env pointers and missing `uwtable`/`noundef` on trampoline functions (60.7% compliance).
+Journey 13 achieves a perfect 10.0/10 score -- the first complex-difficulty journey to reach this mark. All 6 user functions hit OPTIMAL instruction ratio (1.0x) with zero user-visible RC operations. The iterator chain `[1,2,3,4,5].iter().map(square).fold(0, +)` compiles to a clean single-block straight-line function delegating to the runtime via type-erased trampoline callbacks. Attribute compliance has reached 100%: lambda env pointers now carry `noundef`, trampolines have `uwtable`, and pure functions `@square` and `@__lambda_1` correctly carry `memory(none)`. The AIMS ownership analysis cleanly separates the list-to-iterator ownership transfer from the scalar computation, producing zero RC overhead in user code.
 
 ## Cross-Journey Observations
 
@@ -910,7 +894,8 @@ Journey 13 demonstrates excellent iterator codegen under AIMS. All 6 user functi
 | Closure {fn_ptr, env_ptr} repr | J5 | J13 | CONFIRMED correct |
 | List allocation via ori_list_alloc_data | J10 | J13 | CONFIRMED correct |
 | memory(none) on pure functions | J13 | J13 | NEW -- @square and @__lambda_1 |
+| Lambda/trampoline attribute completeness | J13 | J13 | FIXED -- now 100% |
 
-The `memory(none)` attribute on pure scalar functions is a new observation first seen in Journey 13. This indicates the nounwind/memory analysis pipeline is correctly propagating purity information through the call graph. `@__lambda_0` correctly does *not* get `memory(none)` because it calls `@_ori_square` via `fastcc` -- while `@_ori_square` itself has `memory(none)`, the memory analysis conservatively treats the caller as having memory effects due to the call instruction. The nounwind analysis is more precise: since `@_ori_square` is `nounwind`, `@__lambda_0` is also correctly marked `nounwind`.
+The most significant improvement from the previous run of this journey is attribute compliance rising from 60.7% (17/28) to 100% (28/28). Lambda env pointer parameters now have `noundef`, and trampoline functions now carry both `uwtable` and `noundef` on all parameters. This eliminates the two LOW-severity findings from the initial run.
 
-The most significant cross-journey improvement is the FIXED nounwind on `@_ori_main`. This was identified as a missing attribute in Journeys 1 through 12 and is now resolved, indicating the post-hoc nounwind pass now correctly propagates through entry-point functions.
+The `memory(none)` attribute on pure scalar functions is a new observation first seen in Journey 13. `@__lambda_0` correctly does *not* get `memory(none)` because it calls `@_ori_square` which, while pure itself, is invoked via `fastcc` -- the memory analysis conservatively treats callers that make calls as potentially having memory effects unless the callee is also proven `memory(none)` and the call can be fully analyzed. The nounwind analysis is more precise: since `@_ori_square` is `nounwind`, `@__lambda_0` is also correctly marked `nounwind`.
