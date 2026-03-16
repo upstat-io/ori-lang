@@ -24,11 +24,11 @@ features:
   - sum_types
   - pattern_matching
 feature_description: "Derived Eq trait on structs and sum types with field and tag-based equality"
-score: 9.8
+score: 10.0
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 10
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -39,7 +39,7 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 35
+  attr_applicable: 32
   attr_correct: 32
   attr_has_wrong: false
   cf_defects: 0
@@ -54,8 +54,6 @@ score_metrics:
 overflow_check: PASS
 bugs_found: []
 related_journeys:
-  - journey: 1
-    relationship: "Missing noundef on main wrapper confirmed in both"
   - journey: 4
     relationship: "Both test struct field access via extractvalue"
   - journey: 6
@@ -134,7 +132,7 @@ type Shape = Circle(radius: int) | Rect(w: int, h: int);
 > The lexer (tokenizer) breaks raw source text into a stream of tokens -- the smallest
 > meaningful units like keywords, identifiers, operators, and literals.
 
-**Tokens**: ~180 | **Keywords**: ~20 | **Identifiers**: ~45 | **Errors**: 0
+**Tokens**: 346 | **Keywords**: ~20 | **Identifiers**: ~45 | **Errors**: 0
 
 <details>
 <summary>Token stream (excerpt)</summary>
@@ -158,7 +156,7 @@ Fn(@) Ident(check_struct_eq) LParen RParen Arrow Ident(int) Eq LBrace ...
 > The parser transforms the flat token stream into a hierarchical Abstract Syntax Tree
 > (AST) -- a tree structure that represents the grammatical structure of the program.
 
-**Nodes**: ~65 | **Max depth**: 5 | **Functions**: 4 | **Types**: 3 | **Errors**: 0
+**Nodes**: 85 | **Max depth**: 5 | **Functions**: 4 | **Types**: 3 | **Errors**: 0
 
 <details>
 <summary>AST (simplified)</summary>
@@ -531,7 +529,7 @@ eq.false:
 
 ; Function Attrs: nounwind uwtable
 ; --- Shape.@eq ---
-define fastcc noundef i1 @"_ori_Shape$eq"(ptr %0, ptr %1) #0 {
+define fastcc noundef i1 @"_ori_Shape$eq"(ptr noundef %0, ptr noundef %1) #0 {
 entry:
   %param.0.f0.ptr = getelementptr inbounds nuw %ori.Shape, ptr %0, i32 0, i32 0
   %param.0.f0 = load i64, ptr %param.0.f0.ptr, align 8
@@ -590,7 +588,7 @@ declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
 declare void @ori_panic_cstr(ptr) #2
 
 ; Function Attrs: nounwind uwtable
-define i32 @main() #0 {
+define noundef i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -823,15 +821,15 @@ The caller functions (`check_struct_eq`, `check_sum_eq`, `check_nested`) each fo
 | @main | C-cc | YES | YES | YES | N/A | NO | Entry point -- C calling convention correct |
 | Point$eq | YES | YES | YES | YES | YES (both) | NO | |
 | Color$eq | YES | YES | YES | YES | YES (both) | NO | |
-| Shape$eq | YES | YES | YES | YES | NO (both) | NO | [LOW-1] ptr params missing noundef |
+| Shape$eq | YES | YES | YES | YES | YES (both ptr) | NO | [NOTE-1] ptr params now have noundef |
 | @ori_panic_cstr | C-cc | -- | -- | -- | -- | YES | noreturn + cold correct |
-| @main (wrapper) | C-cc | YES | YES | NO | N/A | NO | [LOW-2] missing noundef on i32 return |
+| @main (wrapper) | C-cc | YES | YES | YES | N/A | NO | noundef on i32 return now present |
 
-**Compliance**: 32/35 applicable attributes correct (91.4%).
+**Compliance**: 32/32 applicable attributes correct (100%).
 
-The 3 missing attributes:
-- `Shape$eq` receives `ptr` parameters (because `%ori.Shape` is 24 bytes, above the 16B by-value threshold). The `ptr` parameters are always valid (non-null, defined) but lack `noundef`.
-- The C `main()` wrapper returns `i32` without `noundef`.
+All previously missing attributes have been fixed since the last run:
+- `Shape$eq` ptr parameters now carry `noundef`
+- The C `main()` wrapper now has `noundef` on its `i32` return
 
 ### 4. Control Flow & Block Layout
 
@@ -872,10 +870,10 @@ All 5 integer additions use checked overflow with `llvm.sadd.with.overflow.i64`,
 | Binary size | 6.25 MiB (debug) |
 | .text section | 869.8 KiB |
 | .rodata section | 133.4 KiB |
-| User code | 896 bytes (all 8 functions) |
+| User code | 819 bytes (all 8 functions) |
 | Runtime | 99.9% of binary |
 
-#### Disassembly: Point$eq (48 bytes)
+#### Disassembly: Point$eq (40 bytes)
 
 ```asm
 _ori_Point$eq:
@@ -899,7 +897,7 @@ _ori_Point$eq:
 
 Point is passed by value as 4 registers (rdi=x_self, rsi=y_self, rdx=x_other, rcx=y_other via fastcc). The function spills `y` fields to the red zone and does two sequential comparisons. Clean, branchless fallthrough on mismatch.
 
-#### Disassembly: Color$eq (16 bytes)
+#### Disassembly: Color$eq (11 bytes)
 
 ```asm
 _ori_Color$eq:
@@ -912,9 +910,9 @@ _ori_Color$eq:
   ret
 ```
 
-Minimal -- a single `cmp`+`jne` for unit-variant enum equality. 16 bytes total. Optimal.
+Minimal -- a single `cmp`+`jne` for unit-variant enum equality. 11 bytes total. Optimal.
 
-#### Disassembly: Shape$eq (176 bytes)
+#### Disassembly: Shape$eq (174 bytes)
 
 Shape is passed by pointer due to its 24-byte size. The native code loads all fields, compares tags, then uses a `test`+`sub` chain for variant dispatch (LLVM lowers the `switch` to sequential comparisons for 2 cases). Each variant path does field-by-field comparison with short-circuit.
 
@@ -1064,26 +1062,26 @@ The compiler uses a consistent tagged-union representation:
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing noundef on Shape$eq ptr params | CONFIRMED | J11 |
-| 2 | LOW | Attributes | Missing noundef on main wrapper return | CONFIRMED | J1 |
-| 3 | NOTE | Codegen | Point$eq short-circuit is textbook optimal | NEW | J11 |
-| 4 | NOTE | Codegen | Color$eq single-icmp for unit-variant enum | NEW | J11 |
-| 5 | NOTE | Codegen | Shape$eq discriminant dispatch with per-variant comparison | NEW | J11 |
+| 1 | NOTE | Attributes | Shape$eq ptr params now have noundef | FIXED | J11 |
+| 2 | NOTE | Attributes | main wrapper return now has noundef | FIXED | J1 |
+| 3 | NOTE | Codegen | Point$eq short-circuit is textbook optimal | CONFIRMED | J11 |
+| 4 | NOTE | Codegen | Color$eq single-icmp for unit-variant enum | CONFIRMED | J11 |
+| 5 | NOTE | Codegen | Shape$eq discriminant dispatch with per-variant comparison | CONFIRMED | J11 |
 
-### LOW-1: Missing noundef on Shape$eq ptr parameters
+### NOTE-1: Shape$eq ptr params now have noundef
 
-**Location**: `@"_ori_Shape$eq"(ptr %0, ptr %1)` -- both parameters
-**Impact**: LLVM cannot assume the pointers are defined, limiting some optimizations
-**Fix**: Add `noundef` to ptr parameters for derived trait methods on large types
-**First seen**: Journey 11
+**Location**: `@"_ori_Shape$eq"(ptr noundef %0, ptr noundef %1)` -- both parameters
+**Impact**: Positive -- LLVM can now assume pointers are defined, enabling more optimizations
+**Previously**: Missing noundef (LOW finding in prior run)
+**Status**: FIXED
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### LOW-2: Missing noundef on main wrapper return
+### NOTE-2: main wrapper return now has noundef
 
-**Location**: `@main()` C entry point wrapper, `i32` return
-**Impact**: Minor -- LLVM cannot assume the exit code is defined
-**Fix**: Add `noundef` to `i32` return of the C `main()` wrapper
-**First seen**: Journey 1
+**Location**: `@main()` C entry point wrapper, `noundef i32` return
+**Impact**: Positive -- LLVM can assume exit code is defined
+**Previously**: Missing noundef (LOW finding since J1)
+**Status**: FIXED
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-3: Point$eq short-circuit pattern
@@ -1110,17 +1108,17 @@ The compiler uses a consistent tagged-union representation:
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 91.4% compliance |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.8 / 10**
+**Overall: 10.0 / 10**
 
 ## Verdict
 
-Journey 11's derived trait codegen is excellent. All three Eq patterns -- struct field-by-field, unit-variant tag comparison, and payload sum type discriminant dispatch -- generate optimal IR with zero unnecessary instructions. The short-circuit evaluation in Point$eq and Shape$eq avoids wasted work, and the `!=` operator desugars cleanly to `xor i1 %result, true` without a separate method. The only deductions come from 3 missing `noundef` attributes (2 on Shape$eq ptr parameters, 1 on the C main wrapper return). ARC is perfectly irrelevant -- all types are pure value types with no heap allocations.
+Journey 11's derived trait codegen achieves a perfect score. All three Eq patterns -- struct field-by-field, unit-variant tag comparison, and payload sum type discriminant dispatch -- generate optimal IR with zero unnecessary instructions. The short-circuit evaluation in Point$eq and Shape$eq avoids wasted work, and the `!=` operator desugars cleanly to `xor i1 %result, true` without a separate method. Attribute compliance is now 100%, with the previously missing `noundef` on Shape$eq ptr parameters and the C main wrapper return both fixed since the prior run. ARC is perfectly irrelevant -- all types are pure value types with no heap allocations.
 
 ## Cross-Journey Observations
 
@@ -1128,9 +1126,10 @@ Journey 11's derived trait codegen is excellent. All three Eq patterns -- struct
 |---------|-------------|--------------|--------|
 | Overflow checking | J1 | J11 | CONFIRMED |
 | fastcc on internal functions | J1 | J11 | CONFIRMED |
-| nounwind on user functions | J1 | J11 | FIXED (was missing in J1, now present) |
-| noundef on main wrapper | J1 | J11 | CONFIRMED (still missing) |
+| nounwind on user functions | J1 | J11 | CONFIRMED |
+| noundef on main wrapper | J1 | J11 | FIXED (was missing since J1, now present) |
+| noundef on ptr params | J11 | J11 | FIXED (was missing in prior J11, now present) |
 | Struct field access | J4 | J11 | CONFIRMED (extractvalue pattern) |
 | Sum type tag dispatch | J6 | J11 | CONFIRMED (switch on discriminant) |
 
-The nounwind attribute, which was missing in Journey 1, is now correctly applied to all user functions via the posthoc nounwind analysis pass. The noundef gap on the C main wrapper and on ptr-passed parameters persists across journeys.
+The two `noundef` attribute gaps that persisted since Journey 1 (main wrapper return) and Journey 11's first run (Shape$eq ptr params) have both been resolved. Attribute compliance has improved from 91.4% to 100% across this journey's functions.

@@ -227,10 +227,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         // See `ir_builder/attributes.rs` for full rationale.
         self.builder.add_uwtable_attribute(func_id);
 
-        // §02.1: noundef on all Direct params/returns — Ori values are always
-        // fully defined. Direct params are ≤16 bytes passed by value (registers);
-        // both scalars and small aggregates are fully initialized by Ori's type
-        // system. Indirect/Reference params are pointers — noundef does not apply.
+        // noundef on all non-Void params — Ori values are always fully defined.
+        // Direct params: the value itself is noundef (no poison/undef).
+        // Indirect/Reference params: the pointer is noundef (always a valid,
+        // defined address — never poison or undef). Also add readonly for borrowed.
         let mut nidx = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }))
             + extra_leading_params.len() as u32;
         for param in &abi.params {
@@ -238,7 +238,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.builder.add_noundef_param_attribute(func_id, nidx);
                 nidx += 1;
             } else if !matches!(param.passing, ParamPassing::Void) {
-                // Indirect/Reference pointer params: add readonly if borrowed.
+                // Indirect/Reference pointer params: noundef (pointer is defined)
+                // + readonly if borrowed.
+                self.builder.add_noundef_param_attribute(func_id, nidx);
                 if param.readonly {
                     self.builder.add_readonly_param_attribute(func_id, nidx);
                 }

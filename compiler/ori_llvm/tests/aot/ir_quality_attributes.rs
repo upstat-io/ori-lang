@@ -370,12 +370,13 @@ fn test_scalar_params_have_noundef() {
     );
 }
 
-/// Aggregate parameters (str) and pointer params should NOT have `noundef`.
+/// Indirect pointer params (str) should have `noundef` on the pointer value.
 ///
-/// §02.6 conservative policy: only scalar primitives get `noundef`.
-/// Aggregates and pointers require additional proof obligations.
+/// The pointer itself is always a valid, defined address in Ori — never
+/// poison or undef. Sret return is void in the LLVM signature, so no
+/// return `noundef`.
 #[test]
-fn test_aggregate_params_lack_noundef() {
+fn test_indirect_params_have_noundef() {
     let ir = compile_and_capture_ir(
         r#"
 @greet (name: str) -> str = `Hello, {name}`;
@@ -392,8 +393,9 @@ fn test_aggregate_params_lack_noundef() {
         return;
     }
 
-    // _ori_greet has str param (aggregate, >16 bytes, Indirect → ptr) and str
-    // return (Sret → void). Neither should have noundef.
+    // _ori_greet: str param (Indirect → ptr noundef), str return (Sret → void).
+    // The pointer param gets noundef; the sret pointer does NOT get noundef
+    // (sret is a special ABI parameter, not a user value).
     let greet_decl = ir
         .lines()
         .find(|l| {
@@ -402,8 +404,8 @@ fn test_aggregate_params_lack_noundef() {
         })
         .expect("_ori_greet should be in IR");
     assert!(
-        !greet_decl.contains("noundef"),
-        "str param/return should NOT have noundef on _ori_greet:\n{greet_decl}"
+        greet_decl.contains("noundef"),
+        "Indirect str param should have noundef on _ori_greet:\n{greet_decl}"
     );
 }
 

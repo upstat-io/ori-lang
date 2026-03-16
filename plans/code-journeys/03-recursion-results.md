@@ -24,11 +24,11 @@ features:
   - function_calls
   - multiple_functions
 feature_description: "Recursive functions with tree recursion (fib) and tail recursion (gcd)"
-score: 9.2
+score: 9.3
 score_breakdown:
   instruction_efficiency: 9
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 10
   control_flow: 7
   ir_quality: 9
   binary_quality: 10
@@ -40,7 +40,7 @@ score_metrics:
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
   attr_applicable: 15
-  attr_correct: 14
+  attr_correct: 15
   attr_has_wrong: false
   cf_defects: 4
   cf_incorrect: false
@@ -414,7 +414,7 @@ declare void @ori_panic_cstr(ptr) #3
 declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: uwtable
-define i32 @main() #0 {
+define noundef i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -431,11 +431,11 @@ attributes #3 = { cold noreturn }
 
 ```asm
 _ori_fib:
-   sub    $0x38,%rsp
-   mov    %rdi,0x30(%rsp)
-   cmp    $0x1,%rdi
-   jg     .else
-   mov    0x30(%rsp),%rax
+   sub    $0x38,%rsp           ; frame setup (56 bytes for spills)
+   mov    %rdi,0x30(%rsp)      ; save n
+   cmp    $0x1,%rdi            ; n <= 1?
+   jg     .else                ; jump to else branch
+   mov    0x30(%rsp),%rax      ; base case: return n
    mov    %rax,0x28(%rsp)
    jmp    .merge
    mov    0x30(%rsp),%rax
@@ -477,23 +477,23 @@ _ori_fib:
    call   ori_panic_cstr
 
 _ori_gcd:
-   mov    %rdi,-0x10(%rsp)
-   mov    %rsi,-0x8(%rsp)
-   jmp    .loop
+   mov    %rdi,-0x10(%rsp)     ; store a (no frame pointer needed -- red zone)
+   mov    %rsi,-0x8(%rsp)      ; store b
+   jmp    .loop                ; redundant entry jump
 .loop:
    mov    -0x10(%rsp),%rax
    mov    -0x8(%rsp),%rdx
    mov    %rdx,-0x20(%rsp)
    mov    %rax,-0x18(%rsp)
-   cmp    $0x0,%rdx
+   cmp    $0x0,%rdx            ; b == 0?
    jne    .body
-   mov    -0x18(%rsp),%rax
+   mov    -0x18(%rsp),%rax     ; return a
    ret
 .body:
    mov    -0x20(%rsp),%rcx
    mov    -0x18(%rsp),%rax
-   cqto
-   idiv   %rcx
+   cqto                        ; sign-extend for idiv
+   idiv   %rcx                 ; a / b (remainder in %rdx)
    mov    -0x20(%rsp),%rax
    mov    %rax,-0x10(%rsp)
    mov    %rdx,-0x8(%rsp)
@@ -501,15 +501,15 @@ _ori_gcd:
 
 _ori_main:
    sub    $0x18,%rsp
-   mov    $0xa,%edi
+   mov    $0xa,%edi            ; fib(10)
    call   _ori_fib
-   mov    %rax,0x8(%rsp)
-   mov    $0x30,%edi
+   mov    %rax,0x8(%rsp)       ; save result
+   mov    $0x30,%edi           ; gcd(48, 18)
    mov    $0x12,%esi
    call   _ori_gcd
    mov    %rax,%rcx
    mov    0x8(%rsp),%rax
-   add    %rcx,%rax
+   add    %rcx,%rax            ; f + g
    mov    %rax,0x10(%rsp)
    seto   %al
    jo     .panic
@@ -557,16 +557,18 @@ main:
 | Function | fastcc | nounwind | memory(none) | noalias | noundef | uwtable | Notes |
 |----------|--------|----------|-------------|---------|--------|---------|-------|
 | @fib     | YES    | NO       | NO          | N/A     | YES    | YES     | nounwind absent due to panic paths (correct) |
-| @gcd     | YES    | YES      | YES         | N/A     | YES    | YES     | Pure function, correctly annotated [NOTE-5] |
+| @gcd     | YES    | YES      | YES         | N/A     | YES    | YES     | Pure function, correctly annotated [NOTE-4] |
 | @main    | NO (C) | NO       | NO          | N/A     | YES    | YES     | C calling convention for entry point (correct) |
+| @panic   | N/A    | N/A      | N/A         | N/A     | N/A    | N/A     | cold noreturn (correct) |
+| main     | NO (C) | NO       | NO          | N/A     | YES    | YES     | C entry wrapper (correct) |
 
-**Attribute compliance**: 14/15 applicable attributes present (93.3%).
+**Attribute compliance**: 15/15 applicable attributes present (100.0%).
 
 The `nounwind` absence on `@fib` and `@main` is semantically correct -- `@fib` can panic on overflow (calling `ori_panic_cstr` which is `noreturn` but may unwind), and `@main` transitively calls `@fib`. The nounwind fixed-point analysis correctly identifies only `@gcd` as provably non-unwinding.
 
-The `memory(none)` on `@gcd` is a new improvement from AIMS Section 02. It correctly identifies that `@gcd` is a pure function -- it takes two `i64` parameters, performs only comparison and remainder operations, and returns an `i64`. No memory is read or written. This enables LLVM to perform aggressive optimizations like CSE and dead call elimination on repeated `gcd` calls.
+The `memory(none)` on `@gcd` is an improvement from AIMS Section 02. It correctly identifies that `@gcd` is a pure function -- it takes two `i64` parameters, performs only comparison and remainder operations, and returns an `i64`. No memory is read or written. This enables LLVM to perform aggressive optimizations like CSE and dead call elimination on repeated `gcd` calls.
 
-The `@main` entry point correctly uses C calling convention (not `fastcc`) for ABI compatibility with the C `main()` wrapper.
+The `@main` entry point correctly uses C calling convention (not `fastcc`) for ABI compatibility with the C `main()` wrapper. The `noundef` attribute is correctly present on all user function return values and parameters.
 
 ### 4. Control Flow & Block Layout
 
@@ -797,7 +799,7 @@ In contrast, `@fib` is tree-recursive (two recursive calls whose results are com
 
 **Tail-call detection quality**: Excellent. The nounwind analysis correctly determined only `@gcd` is nounwind (because it has no panic paths, being purely comparison and remainder operations). `@fib` is correctly identified as potentially unwinding due to overflow-checked arithmetic that can call `ori_panic_cstr`.
 
-The `memory(none)` attribute on `@gcd` is a new improvement from AIMS Section 02's posthoc memory analysis. It correctly identifies that `@gcd` is a pure function with no memory side effects -- it operates exclusively on register-level scalar values (`i64`), performs only comparison and signed remainder, and returns a scalar. This enables LLVM to apply CSE, LICM, and dead call elimination on repeated `gcd` invocations.
+The `memory(none)` attribute on `@gcd` is an improvement from AIMS Section 02's posthoc memory analysis. It correctly identifies that `@gcd` is a pure function with no memory side effects -- it operates exclusively on register-level scalar values (`i64`), performs only comparison and signed remainder, and returns a scalar. This enables LLVM to apply CSE, LICM, and dead call elimination on repeated `gcd` invocations.
 
 The loop-lowered `@gcd` uses phi nodes cleanly:
 - `%v12 = phi i64 [ %0, %bb3 ], [ %v13, %bb2 ]` -- a becomes the previous b
@@ -825,10 +827,11 @@ For `@gcd`, the loop-lowered form uses red zone storage (`-0x10(%rsp)` through `
 | 1 | LOW      | IR Quality | Redundant entry block in @gcd loop lowering | CONFIRMED | J3 |
 | 2 | LOW      | Control Flow | 2 empty blocks in @fib (bb1, add.ok) | CONFIRMED | J3 |
 | 3 | LOW      | Control Flow | Empty entry block + redundant branch in @gcd | CONFIRMED | J3 |
-| 4 | NOTE     | Attributes | memory(none) on @gcd -- pure function correctly annotated | NEW | J3 |
-| 5 | NOTE     | Recursion | Excellent tail-call optimization on @gcd | CONFIRMED | J3 |
-| 6 | NOTE     | Recursion | Correct nounwind analysis (gcd only) | CONFIRMED | J3 |
-| 7 | NOTE     | ARC | Zero RC operations on pure scalar recursion | CONFIRMED | J3 |
+| 4 | NOTE     | Attributes | memory(none) on @gcd -- pure function correctly annotated | CONFIRMED | J3 |
+| 5 | NOTE     | Attributes | 100% attribute compliance achieved (up from 93.3%) | NEW | J3 |
+| 6 | NOTE     | Recursion | Excellent tail-call optimization on @gcd | CONFIRMED | J3 |
+| 7 | NOTE     | Recursion | Correct nounwind analysis (gcd only) | CONFIRMED | J3 |
+| 8 | NOTE     | ARC | Zero RC operations on pure scalar recursion | CONFIRMED | J3 |
 
 ### LOW-1: Redundant entry block in @gcd loop lowering
 
@@ -860,19 +863,25 @@ For `@gcd`, the loop-lowered form uses red zone storage (`-0x10(%rsp)` through `
 **Impact**: Positive -- AIMS Section 02's posthoc memory analysis correctly identifies `@gcd` as a pure function with no memory effects. This enables LLVM to apply CSE, LICM, and dead call elimination on repeated calls.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-5: Excellent tail-call optimization on @gcd
+### NOTE-5: 100% attribute compliance achieved
+
+**Location**: All function declarations
+**Impact**: Positive -- all 15 applicable attributes are now correct, up from 14/15 (93.3%) in the previous run. The `noundef` annotations on parameters and return values are complete across all user functions.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-6: Excellent tail-call optimization on @gcd
 
 **Location**: @gcd function
 **Impact**: Positive -- tail recursion correctly lowered to an iterative loop with phi nodes, eliminating all recursive call overhead. The resulting loop is near-optimal.
 **Found in**: Recursion: Tail-Call Optimization (Category 8)
 
-### NOTE-6: Correct nounwind analysis
+### NOTE-7: Correct nounwind analysis
 
 **Location**: Fixed-point nounwind analysis
 **Impact**: Positive -- the compiler correctly identifies that @gcd (with only comparison and remainder) cannot unwind, while @fib (with overflow-checked arithmetic leading to `ori_panic_cstr`) can. This enables red zone usage in @gcd's native code.
 **Found in**: Recursion: Tail-Call Optimization (Category 8)
 
-### NOTE-7: Zero RC operations on pure scalar recursion
+### NOTE-8: Zero RC operations on pure scalar recursion
 
 **Location**: All three functions
 **Impact**: Positive -- the compiler correctly identifies that all values are scalar `i64` and emits zero reference counting operations. ARC is completely absent from this program.
@@ -884,17 +893,17 @@ For `@gcd`, the loop-lowered form uses red zone storage (`-0x10(%rsp)` through `
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 9/10 | 1.02x avg ratio (max 1.14x) |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 93.3% compliance |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 7/10 | 4 defects |
 | IR Quality | 20% | 9/10 | 1 unjustified instruction |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.2 / 10**
+**Overall: 9.3 / 10**
 
 ## Verdict
 
-Journey 3's recursion codegen has improved on the AIMS branch. The highlight remains the tail-call optimization on `@gcd`, correctly lowered to an iterative loop with phi nodes, and tree-recursive `@fib` achieving OPTIMAL instruction purity with all overflow checks justified. The new `memory(none)` attribute on `@gcd` from AIMS Section 02 correctly identifies it as a pure function, improving from 77.8% to 93.3% attribute compliance and raising the overall score from 8.9 to 9.2. The minor control flow issues (empty blocks from if/else codegen and TCO loop entry) remain the only areas for improvement.
+Journey 3's recursion codegen reaches 9.3/10, up from 9.2 in the previous run. The improvement comes from achieving 100% attribute compliance -- all `noundef` annotations are now present on parameters and return values across all user functions. The highlight remains the tail-call optimization on `@gcd`, correctly lowered to an iterative loop with phi nodes and annotated with `nounwind memory(none)`. Tree-recursive `@fib` achieves OPTIMAL instruction purity with all overflow checks justified. The only remaining deficiency is 4 minor control flow defects (empty blocks from if/else codegen and the TCO loop entry artifact).
 
 ## Cross-Journey Observations
 
@@ -904,6 +913,7 @@ Journey 3's recursion codegen has improved on the AIMS branch. The highlight rem
 | fastcc usage | J1 | J3 | CONFIRMED |
 | Zero-RC scalar programs | J1 | J3 | CONFIRMED |
 | Empty blocks from if/else | J2 | J3 | CONFIRMED |
-| Tail-call to loop lowering | -- | J3 | NEW |
-| nounwind fixed-point analysis | -- | J3 | NEW |
-| memory(none) pure function | -- | J3 | NEW (AIMS Section 02) |
+| Tail-call to loop lowering | -- | J3 | CONFIRMED |
+| nounwind fixed-point analysis | -- | J3 | CONFIRMED |
+| memory(none) pure function | -- | J3 | CONFIRMED (AIMS Section 02) |
+| 100% attribute compliance | -- | J3 | NEW |

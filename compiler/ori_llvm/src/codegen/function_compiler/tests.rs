@@ -673,7 +673,7 @@ fn scalar_return_has_noundef() {
 }
 
 #[test]
-fn indirect_params_no_noundef() {
+fn indirect_params_have_noundef() {
     let pool = Pool::new();
     let ctx = Context::create();
     let interner = StringInterner::new();
@@ -685,7 +685,8 @@ fn indirect_params_no_noundef() {
     let func_name = interner.intern("process_str");
     let s_name = interner.intern("s");
 
-    // Str is 24 bytes ({len, cap, data}) → Indirect passing (ptr) → no noundef
+    // Str is 24 bytes ({len, cap, data}) → Indirect passing (ptr)
+    // The pointer itself is always a defined, valid address — noundef applies.
     let sig = make_sig(func_name, vec![s_name], vec![Idx::STR], Idx::UNIT, false);
 
     let classifier = ArcClassifier::new(&pool);
@@ -716,10 +717,10 @@ fn indirect_params_no_noundef() {
         .find(|l| l.contains("@_ori_process_str"))
         .unwrap();
 
-    // Indirect params are pointers — noundef does not apply.
+    // Indirect pointer params get noundef (pointer value is always defined).
     assert!(
-        !decl_line.contains("noundef"),
-        "Indirect (pointer) params should NOT have noundef:\n{decl_line}"
+        decl_line.contains("noundef"),
+        "Indirect (pointer) params should have noundef:\n{decl_line}"
     );
 }
 
@@ -827,12 +828,12 @@ fn mixed_params_selective_noundef() {
     let ir = scx.llmod.print_to_string().to_string();
     let decl_line = ir.lines().find(|l| l.contains("@_ori_mixed")).unwrap();
 
-    // Direct params (int, float) and Direct return (bool) get noundef.
-    // Indirect param (str, >16 bytes) does NOT get noundef.
+    // All params and Direct return get noundef:
+    // - int (Direct), str (Indirect pointer), float (Direct), bool return (Direct)
     let noundef_count = decl_line.matches("noundef").count();
     assert_eq!(
-        noundef_count, 3,
-        "expected 3 noundef (int param + float param + bool return), got {noundef_count}:\n{decl_line}"
+        noundef_count, 4,
+        "expected 4 noundef (int + str ptr + float params + bool return), got {noundef_count}:\n{decl_line}"
     );
 }
 
@@ -1732,4 +1733,61 @@ fn make_test_abi(pool: &Pool) -> FunctionAbi {
         },
         call_conv: CallConv::Fast,
     }
+}
+
+#[test]
+fn main_wrapper_has_noundef_return() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_main_wrapper_noundef"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+
+    let main_name = interner.intern("main");
+
+    // Declare @main () -> void (simplest signature)
+    let sig = make_sig(main_name, vec![], vec![], Idx::UNIT, true);
+
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+        FxHashMap::default(),
+        false,
+    );
+
+    // Declare the Ori _ori_main function so generate_main_wrapper can find it
+    fc.declare_function(main_name, &sig, Span::DUMMY);
+
+    // Generate the C main wrapper
+    let generated = fc.generate_main_wrapper(main_name, &sig, None);
+    assert!(generated, "main wrapper should be generated");
+
+    drop(fc);
+    drop(builder);
+    drop(resolver);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    // Find the C main definition (not _ori_main)
+    let main_line = ir
+        .lines()
+        .find(|l| l.contains("define") && l.contains("@main(") && !l.contains("_ori_main"))
+        .unwrap_or_else(|| panic!("no @main definition found in IR:\n{ir}"));
+
+    // The i32 return should have noundef
+    assert!(
+        main_line.contains("noundef"),
+        "C main wrapper return should have noundef attribute:\n{main_line}"
+    );
 }
