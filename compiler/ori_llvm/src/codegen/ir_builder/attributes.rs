@@ -124,6 +124,30 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
+    /// Add the `memory(none)` attribute to a function.
+    ///
+    /// Declares the function has no memory effects at all — no reads, writes,
+    /// or allocations. Pure scalar functions qualify (arithmetic, comparison).
+    /// Encoding: `0` (all memory locations = None).
+    pub fn add_memory_none_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("memory");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
+    /// Add the `memory(read)` attribute to a function.
+    ///
+    /// Declares the function only reads memory (no writes, no allocations).
+    /// Encoding: `DefaultMem:Ref | ArgMem:Ref | InaccessibleMem:Ref`
+    /// = `1 | (1 << 2) | (1 << 4)` = `21`.
+    pub fn add_memory_read_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("memory");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 21);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
     // -- Parameter attributes --
 
     /// Add the `sret(T)` attribute to a function parameter.
@@ -180,8 +204,8 @@ impl IrBuilder<'_, '_> {
     /// Add the `noundef` attribute to a function parameter.
     ///
     /// Declares the parameter value is never `undef` or `poison`. Ori's type
-    /// system guarantees all scalar values are initialized, so this is always
-    /// safe for scalar types (`i64`, `f64`, `i1`, `i32`, `i8`).
+    /// system guarantees all values are initialized, so this is safe for all
+    /// `Direct`-passing parameters (scalars and small aggregates ≤16 bytes).
     pub fn add_noundef_param_attribute(&mut self, func: FunctionId, param_index: u32) {
         let f = self.arena.get_function(func);
         let kind = Attribute::get_named_enum_kind_id("noundef");
@@ -191,8 +215,8 @@ impl IrBuilder<'_, '_> {
 
     /// Add the `noundef` attribute to a function's return value.
     ///
-    /// Declares the return value is never `undef` or `poison`. Safe for
-    /// scalar types where Ori guarantees the value is always initialized.
+    /// Declares the return value is never `undef` or `poison`. Safe for all
+    /// `Direct`-returning types where Ori guarantees full initialization.
     pub fn add_noundef_return_attribute(&mut self, func: FunctionId) {
         let f = self.arena.get_function(func);
         let kind = Attribute::get_named_enum_kind_id("noundef");

@@ -673,19 +673,19 @@ fn scalar_return_has_noundef() {
 }
 
 #[test]
-fn aggregate_params_no_noundef() {
+fn indirect_params_no_noundef() {
     let pool = Pool::new();
     let ctx = Context::create();
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
-    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_aggregate_params"));
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_indirect_params"));
     let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let func_name = interner.intern("process_str");
     let s_name = interner.intern("s");
 
-    // Str is an aggregate (24-byte {len, cap, data}), should NOT get noundef
+    // Str is 24 bytes ({len, cap, data}) → Indirect passing (ptr) → no noundef
     let sig = make_sig(func_name, vec![s_name], vec![Idx::STR], Idx::UNIT, false);
 
     let classifier = ArcClassifier::new(&pool);
@@ -710,17 +710,70 @@ fn aggregate_params_no_noundef() {
     drop(builder);
     drop(resolver);
 
-    // Check the function declaration line only (avoid matching module name)
     let ir = scx.llmod.print_to_string().to_string();
     let decl_line = ir
         .lines()
         .find(|l| l.contains("@_ori_process_str"))
         .unwrap();
 
-    // Str is passed indirect (>16 bytes). The ptr param should NOT have noundef.
+    // Indirect params are pointers — noundef does not apply.
     assert!(
         !decl_line.contains("noundef"),
-        "aggregate/pointer params should NOT have noundef:\n{decl_line}"
+        "Indirect (pointer) params should NOT have noundef:\n{decl_line}"
+    );
+}
+
+#[test]
+fn direct_aggregate_params_have_noundef() {
+    let mut pool = Pool::new();
+    // (int, int) = 16 bytes → Direct passing → should get noundef
+    let pair = pool.tuple(&[Idx::INT, Idx::INT]);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_direct_aggregate"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+
+    let func_name = interner.intern("process_pair");
+    let p_name = interner.intern("p");
+
+    let sig = make_sig(func_name, vec![p_name], vec![pair], Idx::INT, false);
+
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+        FxHashMap::default(),
+        false,
+    );
+    fc.declare_function(func_name, &sig, Span::DUMMY);
+
+    drop(fc);
+    drop(builder);
+    drop(resolver);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    let decl_line = ir
+        .lines()
+        .find(|l| l.contains("@_ori_process_pair"))
+        .unwrap();
+
+    // Direct aggregate param (≤16 bytes) AND int return both get noundef.
+    let noundef_count = decl_line.matches("noundef").count();
+    assert_eq!(
+        noundef_count, 2,
+        "expected 2 noundef (tuple param + int return), got {noundef_count}:\n{decl_line}"
     );
 }
 
@@ -739,7 +792,7 @@ fn mixed_params_selective_noundef() {
     let s_name = interner.intern("s");
     let f_name = interner.intern("f");
 
-    // Mix: int (scalar), str (aggregate), float (scalar)
+    // Mix: int (Direct), str (Indirect, 24 bytes), float (Direct)
     let sig = make_sig(
         func_name,
         vec![n_name, s_name, f_name],
@@ -774,8 +827,8 @@ fn mixed_params_selective_noundef() {
     let ir = scx.llmod.print_to_string().to_string();
     let decl_line = ir.lines().find(|l| l.contains("@_ori_mixed")).unwrap();
 
-    // Should have noundef on int param, float param, and bool return.
-    // Str param (passed as ptr, Indirect) should NOT have noundef.
+    // Direct params (int, float) and Direct return (bool) get noundef.
+    // Indirect param (str, >16 bytes) does NOT get noundef.
     let noundef_count = decl_line.matches("noundef").count();
     assert_eq!(
         noundef_count, 3,

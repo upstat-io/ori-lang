@@ -424,6 +424,34 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             term_ok && instrs_ok
         })
     }
+
+    /// Check if an ARC function is pure (no memory effects).
+    ///
+    /// A function is `memory(none)` if all its instructions are `Let` (bind
+    /// constant/variable — no memory access). `Project` is excluded because
+    /// it generates GEP+load on Indirect-passing structs, which reads memory.
+    /// Any call, RC operation, construction, or mutation also disqualifies.
+    ///
+    /// This covers pure scalar functions: arithmetic, comparison, branching
+    /// on scalar parameters with no struct field access.
+    pub(super) fn is_arc_function_pure(func: &ori_arc::ArcFunction) -> bool {
+        use ori_arc::ir::{ArcInstr, ArcTerminator};
+
+        func.blocks.iter().all(|block| {
+            let term_ok = matches!(
+                block.terminator,
+                ArcTerminator::Return { .. }
+                    | ArcTerminator::Jump { .. }
+                    | ArcTerminator::Branch { .. }
+                    | ArcTerminator::Unreachable
+            );
+            let instrs_ok = block
+                .body
+                .iter()
+                .all(|instr| matches!(instr, ArcInstr::Let { .. } | ArcInstr::Select { .. }));
+            term_ok && instrs_ok
+        })
+    }
 }
 
 /// Remap `PartialApply { func, .. }` callee names in an ARC function.

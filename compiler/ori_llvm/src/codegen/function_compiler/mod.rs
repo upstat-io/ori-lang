@@ -216,52 +216,32 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         if let ReturnPassing::Sret { .. } = &abi.return_abi.passing {
             self.builder.add_sret_attribute(func_id, 0, return_llvm_id);
-            // noalias acceptance rule for sret: The sret pointer is a fresh
-            // stack alloca from the caller — it cannot alias any other
-            // accessible pointer. This is always safe.
-            //
-            // IMPORTANT: Do NOT add blanket `noalias` to regular pointer
-            // parameters. Ori's RC-managed buffers can alias when the same
-            // value is passed to multiple params (e.g., `f(a: xs, b: xs)`).
-            // A pointer param gets `noalias` if and only if:
-            //   (a) it is sret (this site) or COW out_ptr (runtime_decl.rs),
-            //   (b) it is a fresh `ori_rc_alloc` return (NoaliasReturn attr),
-            //   (c) it is COW StaticUnique at a call site (emitter_utils.rs).
-            // Any state not listed here must NOT get `noalias`.
+            // sret pointer is a fresh caller alloca — safe for noalias.
+            // Do NOT add noalias to regular ptr params — RC buffers can alias
+            // (e.g., `f(a: xs, b: xs)`). Only sret, ori_rc_alloc returns, and
+            // COW StaticUnique call sites qualify.
             self.builder.add_noalias_attribute(func_id, 0);
         }
 
-        // All EH-capable targets require uwtable for proper stack unwinding.
-        //
-        // - Windows (SEH): RtlVirtualUnwind needs .pdata/.xdata frame info.
-        // - macOS/Linux (Itanium): LLVM's TargetMachine (created via the C API)
-        //   defaults to ExceptionHandling::None, which suppresses .eh_frame
-        //   personality/LSDA generation. The `uwtable` attribute forces LLVM to
-        //   emit full unwind tables with CIE augmentation "zPLR" (personality +
-        //   LSDA), enabling _Unwind_RaiseException to find catch-all landing pads.
-        //   Without it, invoke/landingpad IR is emitted correctly but the MC layer
-        //   generates .eh_frame entries without personality references, causing
-        //   _URC_END_OF_STACK (code 5) on panic.
+        // uwtable: required for stack unwinding on all EH-capable targets.
+        // See `ir_builder/attributes.rs` for full rationale.
         self.builder.add_uwtable_attribute(func_id);
 
-        // §02.6: noundef on scalar params/returns — Ori values are always defined.
-        // Only scalar primitives (i64, f64, i1, i32, i8) get noundef; aggregates
-        // and pointers are excluded per conservative policy.
+        // §02.1: noundef on all Direct params/returns — Ori values are always
+        // fully defined. Direct params are ≤16 bytes passed by value (registers);
+        // both scalars and small aggregates are fully initialized by Ori's type
+        // system. Indirect/Reference params are pointers — noundef does not apply.
         let mut nidx = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }))
             + extra_leading_params.len() as u32;
         for param in &abi.params {
             if matches!(param.passing, ParamPassing::Direct) {
-                if self.type_info.get(param.ty).is_llvm_scalar() {
-                    self.builder.add_noundef_param_attribute(func_id, nidx);
-                }
+                self.builder.add_noundef_param_attribute(func_id, nidx);
                 nidx += 1;
             } else if !matches!(param.passing, ParamPassing::Void) {
                 nidx += 1;
             }
         }
-        if matches!(abi.return_abi.passing, ReturnPassing::Direct)
-            && self.type_info.get(abi.return_abi.ty).is_llvm_scalar()
-        {
+        if matches!(abi.return_abi.passing, ReturnPassing::Direct) {
             self.builder.add_noundef_return_attribute(func_id);
         }
 
@@ -498,7 +478,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::doc_markdown,
     clippy::default_trait_access,
     reason = "test code — style relaxed for clarity"
