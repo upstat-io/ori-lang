@@ -144,7 +144,8 @@ INSTRUCTIONS:
 3. Check for missing sync points — if the plan adds enum variants, new types, or registration entries, does it list ALL locations that must be updated together?
 4. For every gap found, EDIT the plan files directly to add the missing content
 5. Add missing checklist items, missing steps, missing test requirements
-6. Add a brief comment near each addition: <!-- reviewed: completeness fix -->
+6. Flag deferral traps: items labeled "bonus", "future", "lower priority", "nice to have", "stretch goal", or "requires architectural change". These invite the implementer to skip them. Rewrite as concrete, mandatory tasks or mark with explicit `<!-- blocked-by:X -->` if genuinely blocked. Remove all soft deferral language.
+7. Add a brief comment near each addition: <!-- reviewed: completeness fix -->
 
 You may add new sections, restructure, or expand scope if the plan has genuine gaps.
 After editing, list what you changed and why.
@@ -261,6 +262,16 @@ plans/error-recovery/
 | Documentation | `section-05-docs.md` |
 
 ---
+
+## Anti-Deferral Rule for Plan Items
+
+**Every checklist item in a plan must be implementable by the agent executing that section.** When writing plan items:
+
+- Do NOT use soft language that invites skipping: "bonus", "future", "lower priority", "nice to have", "if time permits", "stretch goal".
+- Do NOT label items "requires architectural change" — architectural changes are implementation tasks, not deferrals. If a 30-line change across 3 files is needed, describe the change and make it a checkbox.
+- Do NOT create items that are descriptions of work rather than work itself. "Investigate whether X" is acceptable; "Document the approach for Y" when Y can be implemented is not.
+- If an item genuinely cannot be done within the section (blocked by an unimplemented language feature, needs user decision), use `<!-- blocked-by:X -->` with a concrete blocker reference — not vague language.
+- Every item must pass this test: "Can the implementing agent, with access to the codebase, complete this item in a single session?" If no, break it into items that can.
 
 ## After Creation
 

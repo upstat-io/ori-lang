@@ -93,7 +93,8 @@ INSTRUCTIONS:
 3. Check for missing sync points — if the plan adds enum variants, new types, or registration entries, does it list ALL locations that must be updated together?
 4. For every gap found, EDIT the plan files directly to add the missing content
 5. Add missing checklist items, missing steps, missing test requirements
-6. Add a brief comment near each addition: <!-- reviewed: completeness fix -->
+6. Flag deferral traps: items labeled "bonus", "future", "lower priority", "nice to have", "stretch goal", or "requires architectural change". These invite the implementer to skip them. Rewrite as concrete, mandatory tasks or mark with explicit `<!-- blocked-by:X -->` if genuinely blocked. Remove all soft deferral language.
+7. Add a brief comment near each addition: <!-- reviewed: completeness fix -->
 
 You may add new sections, restructure, or expand scope if the plan has genuine gaps.
 After editing, list what you changed and why.
@@ -226,3 +227,4 @@ requires human judgement rather than mechanical fixes.}
 5. **Check crate dependency order** — Implementation steps must respect: `ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric`.
 6. **Clean up after yourself** — Agent 4 removes all `<!-- reviewed: ... -->` markers.
 7. **Flag what can't be auto-fixed** — Architectural decisions and scope questions go in "Remaining Concerns" for human review.
+8. **No deferral traps** — Flag any plan items that create temptation to defer during implementation. Items labeled "bonus", "future", "lower priority", or "requires architectural change" are red flags. Every checkbox in a section must be implementable by the agent executing the section. If an item genuinely cannot be implemented within the section's scope (missing language feature, external dependency), it should be marked `<!-- blocked-by:X -->` with a concrete blocker — not soft language that invites skipping. Agents should rewrite soft deferral language into concrete, actionable tasks or explicit blockers.

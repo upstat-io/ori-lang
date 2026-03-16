@@ -246,6 +246,10 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         // Compile test wrappers
         debug!("compiling test wrappers");
         let wrappers = fc.compile_tests(tests, canon);
+
+        // Post-hoc nounwind: catch impl methods and test wrappers that were
+        // compiled before the two-pass analysis but contain no invoke instructions.
+        fc.apply_posthoc_nounwind();
         drop(fc);
 
         let errors = builder.codegen_error_count();

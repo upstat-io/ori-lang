@@ -278,6 +278,19 @@ Based on user choice:
 
 ## Implementation Guidelines
 
+### ZERO DEFERRAL — Implement, Don't Document For Later
+
+**If you understand a task well enough to write an implementation plan, you implement it.** Writing a detailed description of how to do the work and moving it to another section/plan IS deferral. The following are ALL banned:
+
+- Labeling an item "requires architectural change" and skipping it — architectural changes are the work, not a reason to avoid the work.
+- Moving items to a different roadmap section "for later" — if the item is in the current section, do it now.
+- Writing "deferred to roadmap X.Y" on an item — the item is HERE, in THIS section.
+- Marking a section complete while unchecked items remain, regardless of how they're annotated.
+- Describing an implementation approach in prose instead of implementing it — if you can write the approach, you can write the code.
+- Labeling items "lower priority" or "bonus" as justification for skipping — every checkbox is equal.
+
+**The ONLY valid reason to not implement an item is if you literally cannot** (missing information that requires user input, blocked on external dependency). In that case, use `AskUserQuestion` immediately — do not silently skip.
+
 ### Scope Rule: ALL Checkboxes in the Section Are In Scope
 
 **Every `- [ ]` checkbox within the current section is part of that section's work — no exceptions.** This includes:

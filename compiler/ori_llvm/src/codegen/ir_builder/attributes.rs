@@ -224,6 +224,18 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Return, attr);
     }
 
+    /// Add the `readonly` attribute to a function parameter.
+    ///
+    /// Declares the callee will not write through this pointer. Enables LLVM
+    /// to hoist loads from this parameter and CSE across calls. Safe for
+    /// `Ownership::Borrowed` params that are passed by pointer (Indirect/Reference).
+    pub fn add_readonly_param_attribute(&mut self, func: FunctionId, param_index: u32) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("readonly");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Param(param_index), attr);
+    }
+
     // -- Per-call-site attributes --
 
     /// Add `noalias` to a parameter of the most recently emitted call.
