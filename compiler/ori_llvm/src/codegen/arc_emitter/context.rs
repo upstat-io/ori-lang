@@ -174,6 +174,9 @@ pub struct CodegenContext {
     /// ABI (`ccc` + phantom `ptr` env param) so `PartialApply` can point
     /// directly at them without generating a `_ori_partial_N` trampoline.
     pub non_capturing_lambdas: FxHashSet<Name>,
+    /// Known-pure function names (no memory effects). These get the LLVM
+    /// `memory(none)` attribute, enabling aggressive optimization.
+    pub pure_functions: FxHashSet<Name>,
 }
 
 // Re-export convenience method on ArcIrEmitter for use by submodules
