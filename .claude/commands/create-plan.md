@@ -233,6 +233,14 @@ Show the user:
 - Summary of what each review agent changed
 - Next steps (fill in details, add keywords to index)
 
+### Step 11: Ask About Reroute Status
+
+After reporting the summary, use `AskUserQuestion` to ask the user whether this plan should be the active reroute. This determines the `reroute` frontmatter in `index.md`.
+
+If the user says **yes**: add reroute frontmatter to `index.md` with `status: active` and `order: 1`.
+If the user says **queued**: add reroute frontmatter with `status: queued` and ask for the `order` value.
+If the user says **no**: do not add reroute frontmatter (plan is not a reroute).
+
 ---
 
 ## Example

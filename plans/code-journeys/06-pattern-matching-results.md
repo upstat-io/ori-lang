@@ -2,7 +2,7 @@
 journey: 6
 slug: pattern-matching
 theme: "I am a match"
-date: 2026-03-15
+date: 2026-03-16
 status: PASS
 expected: 41
 eval_result: 41
@@ -23,11 +23,11 @@ features:
   - destructuring
   - exhaustiveness
 feature_description: "Pattern matching on sum types with payload destructuring and exhaustive coverage"
-score: 9.7
+score: 9.8
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 7
+  attributes_safety: 8
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -38,7 +38,7 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 17
+  attr_applicable: 15
   attr_correct: 14
   attr_has_wrong: false
   cf_defects: 0
@@ -54,9 +54,9 @@ overflow_check: PASS
 bugs_found: []
 related_journeys:
   - journey: 1
-    relationship: "Both confirm overflow checking and fastcc; noundef gap evolves from scalar to struct params"
+    relationship: "Both confirm overflow checking and fastcc; noundef now present on both scalar and struct params"
   - journey: 8
-    relationship: "Both test struct-typed parameters; J8 generics also show missing noundef on Box param"
+    relationship: "Both test struct-typed parameters passed by value via fastcc"
 ---
 
 # Journey 6: "I am a match"
@@ -259,9 +259,9 @@ type Result2 = Success(value: int) | Failure(code: int);
 <summary>ARC annotations</summary>
 
 ```text
-@to_code: no heap values — Status is tag-only (single i64)
-@extract: no heap values — Result2 payload is scalar int
-@main: no heap values — all values are scalar integers
+@to_code: no heap values -- Status is tag-only (single i64)
+@extract: no heap values -- Result2 payload is scalar int
+@main: no heap values -- all values are scalar integers
 ```
 
 </details>
@@ -327,9 +327,9 @@ source_filename = "06-pattern-matching"
 
 @ovf.msg = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00", align 1
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable
 ; --- @to_code ---
-define fastcc noundef i64 @_ori_to_code(%ori.Status %0) #0 {
+define fastcc noundef i64 @_ori_to_code(%ori.Status noundef %0) #0 {
 bb0:
   %proj.0 = extractvalue %ori.Status %0, 0
   %eq = icmp eq i64 %proj.0, 0
@@ -341,7 +341,7 @@ bb0:
 
 ; Function Attrs: nounwind uwtable
 ; --- @extract ---
-define fastcc noundef i64 @_ori_extract(%ori.Result2 %0) #0 {
+define fastcc noundef i64 @_ori_extract(%ori.Result2 noundef %0) #1 {
 bb0:
   %proj.0 = extractvalue %ori.Result2 %0, 0
   switch i64 %proj.0, label %bb4 [
@@ -369,7 +369,7 @@ bb4:                                              ; preds = %bb0
 
 ; Function Attrs: nounwind uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %call = call fastcc i64 @_ori_extract(%ori.Result2 { i64 0, [1 x i64] [i64 42] })
   %call1 = call fastcc i64 @_ori_extract(%ori.Result2 { i64 1, [1 x i64] [i64 -1] })
@@ -398,23 +398,23 @@ add.ovf_panic7:                                   ; preds = %add.ok
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #2
+declare void @ori_panic_cstr(ptr) #3
 
-; Function Attrs: nounwind
-define i32 @main() #3 {
+; Function Attrs: nounwind uwtable
+define i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
   ret i32 %exit_code
 }
 
-attributes #0 = { nounwind uwtable }
-attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { cold noreturn }
-attributes #3 = { nounwind }
+attributes #0 = { nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable }
+attributes #1 = { nounwind uwtable }
+attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { cold noreturn }
 ```
 
 #### Disassembly
@@ -515,19 +515,19 @@ main:
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | uwtable | noundef(ret) | noundef(params) | Notes |
-|----------|--------|----------|---------|--------------|-----------------|-------|
-| @to_code | YES | YES | YES | YES | NO | [LOW-1] |
-| @extract | YES | YES | YES | YES | NO | [LOW-1] |
-| @main | N/A | YES | YES | YES | N/A | |
-| main (C) | N/A | YES | N/A | NO | N/A | [LOW-1] |
-| ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | cold, noreturn: correct |
+| Function | fastcc | nounwind | uwtable | noundef(ret) | noundef(params) | memory | Notes |
+|----------|--------|----------|---------|--------------|-----------------|--------|-------|
+| @to_code | YES | YES | YES | YES | YES | memory(read) | [NOTE-2] |
+| @extract | YES | YES | YES | YES | YES | -- | |
+| @main | N/A | YES | YES | YES | N/A | -- | |
+| main (C) | N/A | YES | YES | NO | N/A | -- | [LOW-1] |
+| ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | -- | cold, noreturn: correct |
 
-**Attribute compliance**: 14/17 applicable attributes correct (82.4%).
+**Attribute compliance**: 14/15 applicable attributes correct (93.3%).
 
-**Missing `noundef` on parameters**: `@_ori_to_code` and `@_ori_extract` accept `%ori.Status` and `%ori.Result2` by value. Since Ori values are always defined, `noundef` should be applied to these parameters. The compiler currently applies `noundef` to return values but not to struct-type parameters.
+**Missing `noundef` on `@main` C wrapper return**: The C wrapper `main()` returns `i32` which is always a defined value. Missing `noundef` here is cosmetic since LLVM's optimizer treats `main` specially.
 
-**Missing `noundef` on `@main` return**: The C wrapper `main()` returns `i32` which is always a defined value. Missing `noundef` here is cosmetic since LLVM's optimizer treats `main` specially.
+**`memory(read)` on `@_ori_to_code`**: The posthoc memory analysis correctly identified that `@_ori_to_code` only reads its argument and has no side effects. This is a new attribute added by the AIMS Section 02 fixed-point analysis. `@_ori_extract` does not qualify because the `switch` with `unreachable` default introduces an implicit side-effect path (the unreachable is modeled conservatively).
 
 ### 4. Control Flow & Block Layout
 
@@ -615,7 +615,7 @@ The native codegen reveals two redundant jumps (`jmp .check1` then immediately `
 
 ```llvm
 ; IDEAL (6 instructions)
-define fastcc noundef i64 @_ori_to_code(%ori.Status %0) nounwind {
+define fastcc noundef i64 @_ori_to_code(%ori.Status noundef %0) nounwind memory(read) {
   %tag = extractvalue %ori.Status %0, 0
   %is_pending = icmp eq i64 %tag, 0
   %sel1 = select i1 %is_pending, i64 0, i64 2
@@ -627,7 +627,7 @@ define fastcc noundef i64 @_ori_to_code(%ori.Status %0) nounwind {
 
 ```llvm
 ; ACTUAL (6 instructions)
-define fastcc noundef i64 @_ori_to_code(%ori.Status %0) #0 {
+define fastcc noundef i64 @_ori_to_code(%ori.Status noundef %0) #0 {
 bb0:
   %proj.0 = extractvalue %ori.Status %0, 0
   %eq = icmp eq i64 %proj.0, 0
@@ -638,7 +638,7 @@ bb0:
 }
 ```
 
-**Delta**: +0 instructions. OPTIMAL. The compiler's decision tree lowering for unit-variant enums produces the same branchless select chain as hand-written IR.
+**Delta**: +0 instructions. OPTIMAL. The compiler's decision tree lowering for unit-variant enums produces the same branchless select chain as hand-written IR. The `memory(read)` attribute is now correctly applied via posthoc analysis.
 
 #### @extract: Ideal vs Actual
 
@@ -646,7 +646,7 @@ bb0:
 ; IDEAL (theoretical minimum: 3 instructions)
 ; Since both arms extract the same field at the same offset,
 ; the match could be eliminated entirely:
-define fastcc noundef i64 @_ori_extract(%ori.Result2 %0) nounwind {
+define fastcc noundef i64 @_ori_extract(%ori.Result2 noundef %0) nounwind {
   %payload = extractvalue %ori.Result2 %0, 1
   %val = extractvalue [1 x i64] %payload, 0
   ret i64 %val
@@ -654,8 +654,8 @@ define fastcc noundef i64 @_ori_extract(%ori.Result2 %0) nounwind {
 ```
 
 ```llvm
-; ACTUAL (11 instructions — general-case decision tree)
-define fastcc noundef i64 @_ori_extract(%ori.Result2 %0) #0 {
+; ACTUAL (11 instructions -- general-case decision tree)
+define fastcc noundef i64 @_ori_extract(%ori.Result2 noundef %0) #1 {
 bb0:
   %proj.0 = extractvalue %ori.Result2 %0, 0
   switch i64 %proj.0, label %bb4 [
@@ -744,33 +744,47 @@ The compiler uses a tagged-union representation for sum types:
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing `noundef` on struct-typed parameters | CONFIRMED | J6 |
-| 2 | NOTE | Pattern Matching | Branchless select chain for tag-only enum match | CONFIRMED | J6 |
-| 3 | NOTE | Pattern Matching | Correct exhaustiveness lowering with unreachable default | CONFIRMED | J6 |
-| 4 | NOTE | Sum Types | Efficient tagged-union layout with by-value passing | CONFIRMED | J6 |
+| 1 | LOW | Attributes | Missing `noundef` on `@main` C wrapper return | CONFIRMED | J6 |
+| 2 | NOTE | Attributes | `noundef` now applied to struct-typed parameters | FIXED | J6 |
+| 3 | NOTE | Attributes | `memory(read)` on pure match function via posthoc analysis | NEW | J6 |
+| 4 | NOTE | Pattern Matching | Branchless select chain for tag-only enum match | CONFIRMED | J6 |
+| 5 | NOTE | Pattern Matching | Correct exhaustiveness lowering with unreachable default | CONFIRMED | J6 |
+| 6 | NOTE | Sum Types | Efficient tagged-union layout with by-value passing | CONFIRMED | J6 |
 
-### LOW-1: Missing `noundef` on struct-typed parameters
+### LOW-1: Missing `noundef` on `@main` C wrapper return
 
-**Location**: `@_ori_to_code(%ori.Status %0)`, `@_ori_extract(%ori.Result2 %0)`, `@main()` return
-**Impact**: LLVM cannot assume the parameter is a well-defined value, potentially missing optimization opportunities. Minor in practice since the values are always constructed by the compiler.
-**Fix**: Apply `noundef` attribute to all function parameters for Ori-defined types, and to the `@main` C wrapper return value.
+**Location**: `define i32 @main()` return value
+**Impact**: LLVM cannot assume the `i32` return is a well-defined value. Minor in practice since LLVM treats `main` specially.
+**Fix**: Apply `noundef` to the `i32` return of the C entry wrapper.
 **First seen**: Journey 6
-**Status**: CONFIRMED (unchanged from 2026-03-07 run)
+**Status**: CONFIRMED
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-2: Branchless select chain for tag-only enum match
+### NOTE-2: `noundef` now applied to struct-typed parameters
+
+**Location**: `@_ori_to_code(%ori.Status noundef %0)`, `@_ori_extract(%ori.Result2 noundef %0)`
+**Impact**: Positive -- the previous run (2026-03-15) showed missing `noundef` on struct-typed parameters. The AIMS branch fixed this: both `%ori.Status` and `%ori.Result2` parameters now carry `noundef`, matching the return value treatment. This closes the struct-vs-scalar `noundef` gap observed in the previous journey run.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-3: `memory(read)` on pure match function via posthoc analysis
+
+**Location**: `@_ori_to_code` function attributes
+**Impact**: Positive -- the posthoc nounwind/memory fixed-point analysis (AIMS Section 02) correctly identifies `@_ori_to_code` as a readonly function. The attribute `memory(argmem: read, inaccessiblemem: read, errnomem: read)` informs LLVM that this function has no side effects, enabling more aggressive optimization (CSE, dead call elimination, hoisting). `@_ori_extract` does not receive this attribute because its `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-4: Branchless select chain for tag-only enum match
 
 **Location**: `@_ori_to_code`
 **Impact**: Positive -- produces `cmov` instructions in native code, avoiding branch misprediction for small enum dispatch. The compiler correctly identifies that a 3-variant unit-only enum with constant arm values can use `select` instead of `switch`.
 **Found in**: Pattern Matching: Decision Trees (Category 8)
 
-### NOTE-3: Correct exhaustiveness lowering with unreachable default
+### NOTE-5: Correct exhaustiveness lowering with unreachable default
 
 **Location**: `@_ori_extract`, `bb4: unreachable`
 **Impact**: Positive -- the switch default case is marked `unreachable`, informing LLVM that the tag value is bounded. This enables LLVM to optimize the switch into a simple comparison chain or jump table with full knowledge of the value range.
 **Found in**: Pattern Matching: Decision Trees (Category 8)
 
-### NOTE-4: Efficient tagged-union layout with by-value passing
+### NOTE-6: Efficient tagged-union layout with by-value passing
 
 **Location**: `%ori.Status`, `%ori.Result2` type definitions
 **Impact**: Positive -- both sum types fit in 1-2 registers and are passed by value via `fastcc`. No heap allocation, no pointer indirection, no RC overhead. The `[1 x i64]` payload wrapper enables uniform access for multi-field variants.
@@ -782,17 +796,17 @@ The compiler uses a tagged-union representation for sum types:
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 7/10 | 82.4% compliance |
+| Attributes & Safety | 10% | 8/10 | 93.3% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.7 / 10**
+**Overall: 9.8 / 10**
 
 ## Verdict
 
-Journey 6's pattern matching codegen is near-perfect on the AIMS branch re-run. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. The only gap is missing `noundef` attributes on struct-typed parameters (82.4% attribute compliance). ARC is irrelevant -- all values are scalar integers, zero RC operations needed. The generated IR is byte-for-byte identical to the 2026-03-07 run, confirming codegen stability across the AIMS branch.
+Journey 6's pattern matching codegen is near-perfect. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. Two improvements from the AIMS branch are visible: `noundef` is now applied to struct-typed parameters (closing the gap from the previous run), and `@_ori_to_code` receives a `memory(read)` attribute from posthoc analysis. The sole remaining attribute gap is `noundef` on the C wrapper `main()` return. ARC is irrelevant -- all values are scalar integers, zero RC operations needed.
 
 ## Cross-Journey Observations
 
@@ -801,7 +815,9 @@ Journey 6's pattern matching codegen is near-perfect on the AIMS branch re-run. 
 | Overflow checking | J1 | J6 | CONFIRMED |
 | fastcc usage | J1 | J6 | CONFIRMED |
 | nounwind on user functions | J1 | J6 | CONFIRMED |
-| Missing noundef on params | J1 | J6 | CONFIRMED (struct-typed) |
+| noundef on params | J1 | J6 | FIXED (struct-typed now included) |
 | Zero ARC for scalars | J1 | J6 | CONFIRMED |
+| memory(read) attribute | J6 | J6 | NEW |
+| uwtable on all functions | J1 | J6 | CONFIRMED |
 
-Journey 6 is the first to exercise sum types and pattern matching. The `nounwind` finding from J1 is now resolved -- all user functions carry `nounwind` via fixed-point analysis. The missing `noundef` pattern persists but manifests differently here: J1's scalar `int` parameters have `noundef`, but J6's struct-typed parameters (`%ori.Status`, `%ori.Result2`) do not. This suggests the compiler applies `noundef` to primitive-typed parameters but not to user-defined struct/enum types passed by value.
+Journey 6 is the first to exercise sum types and pattern matching. The `noundef` gap from the previous run is now resolved -- both scalar and struct-typed parameters carry `noundef`. The new `memory(read)` attribute on `@_ori_to_code` demonstrates the AIMS Section 02 posthoc analysis working correctly: a pure function that only reads its tag-only enum argument is marked readonly, while `@_ori_extract` (with its `unreachable` default path) is conservatively excluded. Score improved from 9.7 to 9.8 thanks to the attribute compliance increase (82.4% to 93.3%).

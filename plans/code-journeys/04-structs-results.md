@@ -2,7 +2,7 @@
 journey: 4
 slug: structs
 theme: "I am a struct"
-date: 2026-03-15
+date: 2026-03-16
 status: PASS
 expected: 57
 eval_result: 57
@@ -38,8 +38,8 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 12
-  attr_correct: 10
+  attr_applicable: 10
+  attr_correct: 8
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
@@ -54,7 +54,7 @@ overflow_check: PASS
 bugs_found: []
 related_journeys:
   - journey: 1
-    relationship: "Same missing uwtable on main wrapper; same missing noundef patterns"
+    relationship: "Same missing noundef patterns on main wrapper; uwtable now fixed"
 ---
 
 # Journey 4: "I am a struct"
@@ -76,7 +76,7 @@ type Rect = { origin: Point, width: int, height: int }
 @main () -> int = {
     let p = Point { x: 3, y: 4 };
     let r = Rect { origin: p, width: 10, height: 5 };
-    p.x + p.y + area(r: r)
+    p.x + p.y + area(r: r)    // = 3 + 4 + 50 = 57
 }
 ```
 
@@ -321,6 +321,7 @@ The eval trace shows: `@main` constructs `Point { x: 3, y: 4 }`, constructs `Rec
 @_ori_area: +0 rc_inc, +0 rc_dec (pure scalar fields -- no heap values)
 @_ori_main: +0 rc_inc, +0 rc_dec (struct on stack -- no heap values)
 Nounwind analysis: 2 passes (fixed-point), both functions marked nounwind
+Memory analysis: @area marked memory(read) -- only reads from pointer parameter
 ```
 
 </details>
@@ -337,7 +338,7 @@ source_filename = "04-structs"
 @ovf.msg = private unnamed_addr constant [35 x i8] c"integer overflow on multiplication\00", align 1
 @ovf.msg.1 = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00", align 1
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable
 ; --- @area ---
 define fastcc noundef i64 @_ori_area(ptr %0) #0 {
 bb0:
@@ -364,7 +365,7 @@ mul.ovf_panic:                                    ; preds = %bb0
 
 ; Function Attrs: nounwind uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %ref_arg = alloca %ori.Rect, align 8
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 3, i64 4)
@@ -393,26 +394,26 @@ add.ovf_panic5:                                   ; preds = %add.ok
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #2
+declare void @ori_panic_cstr(ptr) #3
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 
-; Function Attrs: nounwind
-define i32 @main() #3 {
+; Function Attrs: nounwind uwtable
+define i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
   ret i32 %exit_code
 }
 
-attributes #0 = { nounwind uwtable }
-attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { cold noreturn }
-attributes #3 = { nounwind }
+attributes #0 = { nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable }
+attributes #1 = { nounwind uwtable }
+attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { cold noreturn }
 ```
 
 #### Disassembly
@@ -499,20 +500,20 @@ attributes #3 = { nounwind }
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | uwtable | noundef | noreturn | cold | Notes |
-|----------|--------|----------|---------|---------|----------|------|-------|
-| @area    | YES    | YES      | YES     | YES (ret) | N/A   | N/A  | Missing noundef on ptr param [LOW-1] |
-| @main    | NO (C) | YES      | YES     | YES (ret) | N/A   | N/A  | C conv for entry point -- correct |
-| main wrapper | NO (C) | YES | NO      | NO      | N/A      | N/A  | Missing uwtable, noundef [LOW-2] |
-| ori_panic_cstr | N/A | N/A | N/A     | N/A     | YES      | YES  | Both noreturn and cold present |
+| Function | fastcc | nounwind | uwtable | memory | noundef | noreturn | cold | Notes |
+|----------|--------|----------|---------|--------|---------|----------|------|-------|
+| @area    | YES    | YES      | YES     | memory(read) | YES (ret) | N/A | N/A | Missing noundef on ptr param [LOW-1] |
+| @main    | NO (C) | YES      | YES     | N/A    | YES (ret) | N/A   | N/A  | C conv for entry point -- correct |
+| main wrapper | NO (C) | YES | YES     | N/A    | NO      | N/A      | N/A  | Missing noundef on return [LOW-2] |
+| ori_panic_cstr | N/A | N/A | N/A     | N/A    | N/A     | YES      | YES  | Both noreturn and cold present |
 
-**@_ori_area uses `fastcc`**: Correct. Internal function benefits from fast calling convention. The struct parameter is passed by pointer (`ptr %0`), which is the correct ABI for aggregates larger than 2 registers (Rect is 32 bytes = 4 x i64). The `nounwind` and `uwtable` attributes are present. `noundef` is present on the return value but missing on the `ptr` parameter.
+**@_ori_area uses `fastcc`**: Correct. Internal function benefits from fast calling convention. The struct parameter is passed by pointer (`ptr %0`), which is the correct ABI for aggregates larger than 2 registers (Rect is 32 bytes = 4 x i64). The `nounwind`, `uwtable`, and `memory(argmem: read, inaccessiblemem: read, errnomem: read)` attributes are all present. The `memory(read)` attribute is new in this run -- the AIMS Section 02 posthoc analysis correctly identified that `@area` only reads from its pointer parameter and does not write memory. `noundef` is present on the return value but missing on the `ptr` parameter.
 
 **@_ori_main uses C convention**: Correct. Called from the C `main()` wrapper, must use C ABI. Also marked `nounwind`, `uwtable`, and `noundef` on the return.
 
-**main wrapper**: Missing `uwtable` and `noundef` on return. Same systemic pattern as Journey 1.
+**main wrapper**: Now has both `nounwind` and `uwtable` (previously missing `uwtable` -- FIXED since Journey 1). Still missing `noundef` on the return value.
 
-**Attribute compliance**: 12 applicable attributes checked. 10 of 12 correct. Missing: `noundef` on `@_ori_area`'s ptr parameter and `noundef` on the main wrapper return. 83.3% compliance.
+**Attribute compliance**: 10 applicable attributes checked, 8 correct. Missing: `noundef` on `@_ori_area`'s ptr parameter and `noundef` on the main wrapper return. 80% compliance.
 
 ### 4. Control Flow & Block Layout
 
@@ -554,7 +555,7 @@ All three arithmetic operations use the correct LLVM signed overflow intrinsics.
 | .rodata section | 133 KiB (136,657 bytes) |
 | .debug_info | 1.56 MiB (1,639,950 bytes) |
 | .debug_str | 1.72 MiB (1,804,139 bytes) |
-| .eh_frame | 109 KiB (111,968 bytes) |
+| .eh_frame | 109 KiB (111,992 bytes) |
 | User code (@area) | 42 bytes (0x1b100-0x1b12a) |
 | User code (@main) | 126 bytes (0x1b130-0x1b1ae) |
 | User code (main wrapper) | 8 bytes (0x1b1b0-0x1b1b8) |
@@ -613,7 +614,7 @@ _ori_main:                       ; 126 bytes, 24 instructions
   ret                           ; return 57
 ```
 
-The struct is correctly laid out on the stack with fields at expected offsets: `Point.x` at `%rsp+0x18` (+0), `Point.y` at `%rsp+0x20` (+8), `width` at `%rsp+0x28` (+16), `height` at `%rsp+0x30` (+24). The 4 `movq` immediates are the minimum possible for materializing a 32-byte constant on the stack.
+The struct is correctly laid out on the stack with fields at expected offsets: `Point.x` at `%rsp+0x18` (+0), `Point.y` at `%rsp+0x20` (+8), `width` at `%rsp+0x28` (+16), `height` at `%rsp+0x30` (+24). The 4 `movq` immediates are the minimum possible for materializing a 32-byte constant on the stack since x86_64 cannot write 32 bytes in one instruction.
 
 ### 7. Optimal IR Comparison
 
@@ -621,7 +622,7 @@ The struct is correctly laid out on the stack with fields at expected offsets: `
 
 ```llvm
 ; IDEAL (15 instructions -- struct field access via GEP + overflow-checked multiply)
-define fastcc noundef i64 @_ori_area(ptr noundef %r) nounwind uwtable {
+define fastcc noundef i64 @_ori_area(ptr noundef %r) nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable {
 entry:
   %width.ptr = getelementptr inbounds nuw %ori.Rect, ptr %r, i32 0, i32 1
   %width = load i64, ptr %width.ptr, align 8
@@ -667,7 +668,7 @@ mul.ovf_panic:
 }
 ```
 
-**Delta**: 0 instructions. The actual IR matches the ideal exactly (modulo the missing `noundef` on the ptr parameter). The `insertvalue`/`extractvalue` pattern is the canonical codegen for struct field projection from pointer parameters. LLVM's native code generator sees through these identity operations -- the disassembly shows direct `mov offset(%rdi)` loads with no overhead. **OPTIMAL.**
+**Delta**: 0 instructions. The actual IR matches the ideal exactly (modulo the missing `noundef` on the ptr parameter). The `insertvalue`/`extractvalue` pattern is the canonical codegen for struct field projection from pointer parameters. LLVM's native code generator sees through these identity operations -- the disassembly shows direct `mov offset(%rdi)` loads with no overhead. The `memory(read)` attribute is now present, matching the ideal. **OPTIMAL.**
 
 #### @main: Ideal vs Actual
 
@@ -700,7 +701,7 @@ panic2:
 
 ```llvm
 ; ACTUAL (16 instructions)
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %ref_arg = alloca %ori.Rect, align 8
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 3, i64 4)
@@ -741,7 +742,7 @@ entry:
 
 ```llvm
 ; ACTUAL (3 instructions)
-define i32 @main() #3 {
+define i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -749,7 +750,7 @@ entry:
 }
 ```
 
-**Delta**: 0 instructions. Missing `uwtable` and `noundef` on the call [LOW-2], but instruction count matches. **OPTIMAL.**
+**Delta**: 0 instructions. The `uwtable` attribute is now present (FIXED since previous run). Missing `noundef` on the call [LOW-2]. **OPTIMAL.**
 
 #### Module Summary
 
@@ -814,16 +815,20 @@ store %ori.Rect { %ori.Point { i64 3, i64 4 }, i64 10, i64 5 }, ptr %ref_arg, al
 
 This is efficient -- a single IR instruction for the entire 32-byte struct rather than field-by-field stores. LLVM lowers this to 4 `movq` immediates at the native level, which is the minimum possible for materializing a 32-byte constant on the stack since x86_64 cannot write 32 bytes in one instruction.
 
+**memory(read) on @area**: The `memory(argmem: read, inaccessiblemem: read, errnomem: read)` attribute on `@_ori_area` tells LLVM that this function only reads argument memory and does not modify any memory. This is a new improvement from AIMS Section 02's posthoc analysis. With this attribute, LLVM can safely reorder or eliminate redundant calls to `@_ori_area` if the memory it reads has not changed. For this program, the practical impact is minimal (single call), but for programs with repeated struct access this enables significant optimization.
+
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
 | 1 | LOW      | Attributes | Missing `noundef` on @area ptr parameter | CONFIRMED | J4 (prev) |
-| 2 | LOW      | Attributes | Missing `uwtable` and `noundef` on main wrapper | CONFIRMED | J1 |
-| 3 | NOTE     | Instruction Purity | All functions match ideal IR exactly -- OPTIMAL | CONFIRMED | J4 (prev) |
-| 4 | NOTE     | Structs | Correct by-pointer passing for 32-byte aggregate | CONFIRMED | J4 (prev) |
-| 5 | NOTE     | Structs | Nested struct embedded inline (no indirection) | CONFIRMED | J4 (prev) |
-| 6 | NOTE     | Structs | Single aggregate store for struct constant | CONFIRMED | J4 (prev) |
+| 2 | LOW      | Attributes | Missing `noundef` on main wrapper return | CONFIRMED | J1 |
+| 3 | NOTE     | Attributes | `uwtable` on main wrapper -- FIXED | FIXED | J1 |
+| 4 | NOTE     | Attributes | `memory(read)` on @area -- NEW improvement from AIMS Sec 02 | NEW | J4 |
+| 5 | NOTE     | Instruction Purity | All functions match ideal IR exactly -- OPTIMAL | CONFIRMED | J4 (prev) |
+| 6 | NOTE     | Structs | Correct by-pointer passing for 32-byte aggregate | CONFIRMED | J4 (prev) |
+| 7 | NOTE     | Structs | Nested struct embedded inline (no indirection) | CONFIRMED | J4 (prev) |
+| 8 | NOTE     | Structs | Single aggregate store for struct constant | CONFIRMED | J4 (prev) |
 
 ### LOW-1: Missing `noundef` on @area ptr parameter
 
@@ -834,34 +839,50 @@ This is efficient -- a single IR instruction for the entire 32-byte struct rathe
 **Status**: CONFIRMED -- still present on AIMS branch re-run.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### LOW-2: Missing `uwtable` and `noundef` on main wrapper
+### LOW-2: Missing `noundef` on main wrapper return
 
-**Location**: `define i32 @main() #3` where `#3 = { nounwind }` -- missing `uwtable` and `noundef` on return
-**Impact**: Without `uwtable`, LLVM may not generate a proper `.eh_frame` unwind table entry for the C entry point wrapper. Without `noundef` on the return, LLVM cannot assume the exit code is well-defined. Practical impact is minimal since the function is trivial (3 instructions).
-**Fix**: Add `uwtable` and `noundef` to the main wrapper's attribute group and return type.
+**Location**: `define i32 @main() #1` -- return value lacks `noundef`
+**Impact**: Without `noundef`, LLVM cannot assume the exit code is well-defined. Practical impact is minimal since the function is trivial (3 instructions).
+**Fix**: Add `noundef` to the main wrapper's return type.
 **First seen**: Journey 1
-**Status**: CONFIRMED -- still present on AIMS branch re-run.
+**Status**: CONFIRMED -- partially fixed (`uwtable` added), `noundef` still missing.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-3: All functions match ideal IR exactly
+### NOTE-3: `uwtable` on main wrapper -- FIXED
+
+**Location**: `define i32 @main() #1` where `#1 = { nounwind uwtable }`
+**Impact**: Positive. The main wrapper now generates a proper `.eh_frame` unwind table entry. Previously missing since Journey 1, now fixed.
+**First seen**: Journey 1 (as defect)
+**Status**: FIXED -- `uwtable` now present on main wrapper.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-4: `memory(read)` on @area -- NEW improvement
+
+**Location**: `@_ori_area` attribute group `#0 = { nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable }`
+**Impact**: Positive. AIMS Section 02 posthoc analysis correctly identified `@area` as a read-only function. This enables LLVM to treat calls to `@_ori_area` as pure reads, enabling dead call elimination and call reordering in more complex programs. The `readonly_count=1` in the build trace confirms the analysis.
+**First seen**: Journey 4 (this run)
+**Status**: NEW -- first appearance of `memory(read)` on a struct-accessing function.
+**Found in**: Attributes & Calling Convention (Category 3), Structs: ABI Passing (Category 9)
+
+### NOTE-5: All functions match ideal IR exactly
 
 **Location**: `_ori_area` (15/15), `_ori_main` (16/16), main wrapper (3/3)
 **Impact**: Positive. Zero unjustified overhead. The struct-heavy program produces instruction-for-instruction optimal codegen relative to the compiler's ABI and safety requirements.
 **Found in**: Instruction Purity (Category 1), Optimal IR Comparison (Category 7)
 
-### NOTE-4: Correct by-pointer passing for 32-byte aggregate
+### NOTE-6: Correct by-pointer passing for 32-byte aggregate
 
 **Location**: `@_ori_area(ptr %0)` -- Rect passed by pointer
 **Impact**: Positive. 32-byte struct correctly passed by reference rather than by value, avoiding register pressure and unnecessary copies.
 **Found in**: Structs: ABI Passing (Category 9)
 
-### NOTE-5: Nested struct embedded inline
+### NOTE-7: Nested struct embedded inline
 
 **Location**: `%ori.Rect = type { %ori.Point, i64, i64 }`
 **Impact**: Positive. The nested `Point` inside `Rect` is embedded directly (not behind a pointer), giving a flat 32-byte layout with no indirection. This is the correct representation for value-type structs.
 **Found in**: Structs: ABI Passing (Category 9)
 
-### NOTE-6: Single aggregate store for struct constant
+### NOTE-8: Single aggregate store for struct constant
 
 **Location**: `store %ori.Rect { %ori.Point { i64 3, i64 4 }, i64 10, i64 5 }, ptr %ref_arg`
 **Impact**: Positive. The entire 32-byte struct constant is written as one aggregate store instruction, which LLVM lowers to 4 immediate stores. No unnecessary temporary allocations or field-by-field construction.
@@ -873,7 +894,7 @@ This is efficient -- a single IR instruction for the entire 32-byte struct rathe
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 7/10 | 83.3% compliance |
+| Attributes & Safety | 10% | 7/10 | 80.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
@@ -883,7 +904,7 @@ This is efficient -- a single IR instruction for the entire 32-byte struct rathe
 
 ## Verdict
 
-Journey 4's struct codegen remains near-perfect on the AIMS branch. Both `Point` and `Rect` are lowered to correct LLVM aggregate types with inline nesting (no indirection). The 32-byte `Rect` is correctly passed by pointer rather than by value. Field access compiles to efficient GEP+load sequences, and the entire struct constant is materialized with a single aggregate store. All three user functions match the ideal IR instruction-for-instruction -- zero overhead beyond mandatory overflow checking. The AIMS unified lattice correctly classifies all values as `[Scalar]`, confirming zero RC overhead. The only gaps are two missing `noundef`/`uwtable` attributes, which reduce the attributes score to 7/10 but have negligible practical impact.
+Journey 4's struct codegen remains near-perfect on the AIMS branch. Both `Point` and `Rect` are lowered to correct LLVM aggregate types with inline nesting (no indirection). The 32-byte `Rect` is correctly passed by pointer rather than by value. Field access compiles to efficient GEP+load sequences, and the entire struct constant is materialized with a single aggregate store. All three user functions match the ideal IR instruction-for-instruction. Two improvements since the previous run: `uwtable` is now present on the main wrapper (FIXED), and `@area` gained `memory(read)` from AIMS Section 02's posthoc analysis (NEW). The remaining gaps are two missing `noundef` attributes, which reduce the attributes score to 7/10 but have negligible practical impact.
 
 ## Cross-Journey Observations
 
@@ -891,9 +912,10 @@ Journey 4's struct codegen remains near-perfect on the AIMS branch. Both `Point`
 |---------|-------------|--------------|--------|
 | Overflow checking | J1 | J4 | CONFIRMED |
 | fastcc usage | J1 | J4 | CONFIRMED |
-| Missing uwtable on main wrapper | J1 | J4 | CONFIRMED |
+| Missing uwtable on main wrapper | J1 | J4 | FIXED |
 | Missing noundef on main wrapper | J1 | J4 | CONFIRMED |
 | nounwind present | J1 | J4 | CONFIRMED |
+| memory(read) on pure readers | -- | J4 | NEW (AIMS Sec 02) |
 | Let binding elimination | J1 | J4 | CONFIRMED (struct let bindings correctly lowered) |
 
-The AIMS branch produces identical LLVM IR and native code compared to the previous run (2026-03-07). All findings are CONFIRMED -- no regressions, no fixes, no new issues. The AIMS unified lattice integration is transparent for scalar-only struct programs, adding zero overhead to the codegen pipeline. The score is unchanged at 9.7/10.
+Two notable changes from the previous Journey 4 run (2026-03-15): (1) the main wrapper gained `uwtable`, fixing a defect present since J1; (2) `@area` gained `memory(argmem: read, inaccessiblemem: read, errnomem: read)` from the AIMS Section 02 posthoc readonly analysis. Both are improvements -- the score remains 9.7/10 with the only penalty being two missing `noundef` attributes.

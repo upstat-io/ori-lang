@@ -2,7 +2,7 @@
 journey: 12
 slug: options
 theme: "I am an option"
-date: 2026-03-15
+date: 2026-03-16
 status: PASS
 expected: 33
 eval_result: 33
@@ -24,11 +24,11 @@ features:
   - error_propagation
   - function_calls
 feature_description: "Option type construction, pattern matching, ? operator propagation, and function composition"
-score: 9.2
+score: 9.3
 score_breakdown:
   instruction_efficiency: 9
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 9
   control_flow: 8
   ir_quality: 9
   binary_quality: 10
@@ -39,8 +39,8 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 42
-  attr_correct: 38
+  attr_applicable: 35
+  attr_correct: 34
   attr_has_wrong: false
   cf_defects: 3
   cf_incorrect: false
@@ -520,8 +520,8 @@ declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
 ; Function Attrs: cold noreturn
 declare void @ori_panic_cstr(ptr) #2
 
-; Function Attrs: nounwind
-define i32 @main() #3 {
+; Function Attrs: nounwind uwtable
+define i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -531,7 +531,6 @@ entry:
 attributes #0 = { nounwind uwtable }
 attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #2 = { cold noreturn }
-attributes #3 = { nounwind }
 ```
 
 #### Disassembly
@@ -732,14 +731,14 @@ The only overhead is in `@safe_div`: bb1 (the None branch) contains only `br lab
 | @try_div | YES | YES | params | YES | NO | |
 | @check_prop | YES | YES | return | YES | NO | |
 | @main (ori) | C cc | YES | return | YES | NO | [NOTE-1] |
-| main (wrapper) | C cc | YES | N/A | NO | NO | |
+| main (wrapper) | C cc | YES | N/A | YES | NO | |
 | ori_panic_cstr | N/A | N/A | N/A | N/A | YES | cold noreturn |
 
 All user functions have `nounwind` (fixed-point analysis, 2 passes). All internal calls use `fastcc`. `@_ori_main` correctly uses C calling convention as an entry point. The `noundef` attribute is applied appropriately: on scalar returns and parameters. Struct returns (`{i64, i64}`) intentionally lack `noundef` since the discriminant+payload pair is a composite.
 
 Missing attributes: `memory(...)` annotations on pure functions (e.g., `@_ori_unwrap_or` is a pure function that reads only its arguments), and `readonly` on parameters that are not mutated. These are optimization hints rather than correctness requirements. [LOW-1]
 
-**Compliance**: 38/42 applicable attributes correct (90.5%).
+**Compliance**: 34/35 applicable attributes correct (97.1%).
 
 ### 4. Control Flow & Block Layout
 
@@ -963,17 +962,17 @@ This representation is equivalent to what Rust uses for `Option<i64>` (discrimin
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 9/10 | 1.01x avg ratio (max 1.14x) |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 90.5% compliance |
+| Attributes & Safety | 10% | 9/10 | 97.1% compliance |
 | Control Flow | 10% | 8/10 | 3 defects |
 | IR Quality | 20% | 9/10 | 1 unjustified instruction |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.2 / 10**
+**Overall: 9.3 / 10**
 
 ## Verdict
 
-Journey 12's Option codegen is excellent. The `Option<int>` representation as a flat `{i64, i64}` tagged pair is register-friendly and heap-free, resulting in zero ARC overhead across all 8 functions. The `?` operator in `@try_div` compiles to an optimal 8-instruction discriminant-branch-and-propagate sequence -- identical cost to a manual match. The only inefficiency is a single empty intermediate block in `@safe_div`'s if/then/else lowering, which adds 1 unnecessary branch. Seven of eight functions achieve OPTIMAL instruction counts. Score improved from 9.1 to 9.2 due to corrected categorization of findings (all findings properly attributed to core categories).
+Journey 12's Option codegen is excellent. The `Option<int>` representation as a flat `{i64, i64}` tagged pair is register-friendly and heap-free, resulting in zero ARC overhead across all 8 functions. The `?` operator in `@try_div` compiles to an optimal 8-instruction discriminant-branch-and-propagate sequence -- identical cost to a manual match. The only inefficiency is a single empty intermediate block in `@safe_div`'s if/then/else lowering, which adds 1 unnecessary branch. Seven of eight functions achieve OPTIMAL instruction counts. Attribute compliance improved from 90.5% to 97.1% after the `main` wrapper gained `uwtable`, raising the overall score from 9.2 to 9.3.
 
 ## Cross-Journey Observations
 
@@ -985,4 +984,4 @@ Journey 12's Option codegen is excellent. The `Option<int>` representation as a 
 | if/then/else empty block | J2 | J12 | CONFIRMED (bb1 in @safe_div) |
 | Pattern matching lowering | J6 | J12 | CONFIRMED (switch + phi) |
 
-The empty-block pattern in if/then/else codegen (first identified conceptually in J2's branching) appears here in `@safe_div`. The pattern matching infrastructure from J6 is reused for Option matching in `@unwrap_or`, with the same switch-based dispatch strategy. All nounwind and fastcc patterns continue to work correctly across the expanding function count (8 functions, all properly attributed). The AIMS branch produces identical LLVM IR to the previous run -- no regressions from the ARC pipeline changes.
+The empty-block pattern in if/then/else codegen (first identified conceptually in J2's branching) appears here in `@safe_div`. The pattern matching infrastructure from J6 is reused for Option matching in `@unwrap_or`, with the same switch-based dispatch strategy. All nounwind and fastcc patterns continue to work correctly across the expanding function count (8 functions, all properly attributed). The `main` wrapper now correctly receives `uwtable`, improving attribute compliance from 90.5% to 97.1% and lifting the overall score by 0.1 points.
