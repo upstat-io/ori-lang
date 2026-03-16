@@ -449,6 +449,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             );
             emitter.emit_function(&func.arc_func, &func.abi);
 
+            // Post-emission CFG simplification
+            let fn_val = self.builder.get_function_value(func.func_id);
+            crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+
             if self.codegen_ctx.nounwind_functions.contains(&func.name) {
                 self.builder.add_nounwind_attribute(func.func_id);
                 debug!(
@@ -518,6 +522,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &self.codegen_ctx,
         );
         emitter.emit_function(&lambda.arc_func, &lambda.abi);
+
+        // Post-emission CFG simplification
+        let fn_val = self.builder.get_function_value(lambda.func_id);
+        crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
 
         if self.codegen_ctx.nounwind_functions.contains(&lambda.name) {
             self.builder.add_nounwind_attribute(lambda.func_id);
