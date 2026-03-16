@@ -140,7 +140,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Remap PartialApply callee references in the parent function to use
         // the globally unique lambda names assigned during compilation.
         if !lambda_renames.is_empty() {
-            remap_partial_apply_names(&mut arc_func, &lambda_renames);
+            super::purity_analysis::remap_partial_apply_names(&mut arc_func, &lambda_renames);
         }
 
         // Lambda compilation changes builder.current_function to the last
@@ -257,7 +257,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
         // AIMS contracts (from compute_aims_contracts()) provide the correct
         // Owned/Borrowed per param.
-        let _ = name;
+        debug!(name = %self.interner.lookup(name), "processing ARC function");
         if let Some(contract) = self.aims_contracts.get(&arc_func.name) {
             for (param, pc) in arc_func.params.iter_mut().zip(&contract.params) {
                 param.ownership = match pc.access {
@@ -424,85 +424,5 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             });
             term_ok && instrs_ok
         })
-    }
-
-    /// Check if an ARC function is pure (no memory effects).
-    ///
-    /// A function is `memory(none)` if all its instructions are `Let` (bind
-    /// constant/variable — no memory access). `Project` is excluded because
-    /// it generates GEP+load on Indirect-passing structs, which reads memory.
-    /// Any call, RC operation, construction, or mutation also disqualifies.
-    ///
-    /// This covers pure scalar functions: arithmetic, comparison, branching
-    /// on scalar parameters with no struct field access.
-    pub(super) fn is_arc_function_pure(func: &ori_arc::ArcFunction) -> bool {
-        use ori_arc::ir::{ArcInstr, ArcTerminator};
-
-        func.blocks.iter().all(|block| {
-            let term_ok = matches!(
-                block.terminator,
-                ArcTerminator::Return { .. }
-                    | ArcTerminator::Jump { .. }
-                    | ArcTerminator::Branch { .. }
-                    | ArcTerminator::Unreachable
-            );
-            let instrs_ok = block
-                .body
-                .iter()
-                .all(|instr| matches!(instr, ArcInstr::Let { .. } | ArcInstr::Select { .. }));
-            term_ok && instrs_ok
-        })
-    }
-
-    /// Check if an ARC function is read-only (reads memory but doesn't write).
-    ///
-    /// A function is `memory(read)` if all its instructions are `Let`, `Select`,
-    /// or `Project` (field reads). `Project` generates GEP+load on Indirect
-    /// params (reads argmem), so the function reads but doesn't write.
-    /// Any call, RC op, construction, or mutation disqualifies.
-    ///
-    /// A function that is pure (`is_arc_function_pure`) is strictly stronger
-    /// than read-only — pure functions get `memory(none)` instead.
-    pub(super) fn is_arc_function_readonly(func: &ori_arc::ArcFunction) -> bool {
-        use ori_arc::ir::{ArcInstr, ArcTerminator};
-
-        func.blocks.iter().all(|block| {
-            let term_ok = matches!(
-                block.terminator,
-                ArcTerminator::Return { .. }
-                    | ArcTerminator::Jump { .. }
-                    | ArcTerminator::Branch { .. }
-                    | ArcTerminator::Unreachable
-            );
-            let instrs_ok = block.body.iter().all(|instr| {
-                matches!(
-                    instr,
-                    ArcInstr::Let { .. } | ArcInstr::Select { .. } | ArcInstr::Project { .. }
-                )
-            });
-            term_ok && instrs_ok
-        })
-    }
-}
-
-/// Remap `PartialApply { func, .. }` callee names in an ARC function.
-///
-/// After `declare_and_process_lambda` renames lambdas to globally unique names,
-/// the parent function's `PartialApply` instructions still reference the old
-/// per-function names (e.g., `__lambda_0`). This function updates them to
-/// match the new globally unique names so `emit_partial_apply` finds the
-/// correct entry in `codegen_ctx.functions`.
-pub(super) fn remap_partial_apply_names(func: &mut ori_arc::ArcFunction, renames: &[(Name, Name)]) {
-    for block in &mut func.blocks {
-        for instr in &mut block.body {
-            if let ori_arc::ArcInstr::PartialApply { ref mut func, .. } = instr {
-                for &(old, new) in renames {
-                    if *func == old {
-                        *func = new;
-                        break;
-                    }
-                }
-            }
-        }
     }
 }

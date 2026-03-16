@@ -224,6 +224,37 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Return, attr);
     }
 
+    /// Add the `nonnull` attribute to a function parameter.
+    ///
+    /// Declares the pointer parameter is never null. Ori never passes null
+    /// pointers to functions — all Indirect/Reference params point to valid,
+    /// initialized memory. Enables LLVM to eliminate null checks and use
+    /// speculative loads.
+    pub fn add_nonnull_param_attribute(&mut self, func: FunctionId, param_index: u32) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("nonnull");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Param(param_index), attr);
+    }
+
+    /// Add the `dereferenceable(N)` attribute to a function parameter.
+    ///
+    /// Declares the pointer parameter points to at least `size_bytes` bytes
+    /// of valid memory. Enables LLVM to perform speculative loads without
+    /// null/bounds checks. The size is a minimum guarantee — underestimating
+    /// is legal (LLVM treats it as a lower bound).
+    pub fn add_dereferenceable_param_attribute(
+        &mut self,
+        func: FunctionId,
+        param_index: u32,
+        size_bytes: u64,
+    ) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("dereferenceable");
+        let attr = self.scx.llcx.create_enum_attribute(kind, size_bytes);
+        f.add_attribute(AttributeLoc::Param(param_index), attr);
+    }
+
     /// Add the `readonly` attribute to a function parameter.
     ///
     /// Declares the callee will not write through this pointer. Enables LLVM

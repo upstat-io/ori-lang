@@ -19,6 +19,7 @@ mod define_phase;
 mod entry_point;
 mod impls;
 mod nounwind;
+mod purity_analysis;
 
 pub use nounwind::PreparedFunction;
 
@@ -34,7 +35,8 @@ use crate::aot::debug::DebugContext;
 use crate::aot::mangle::Mangler;
 
 use super::abi::{
-    compute_function_abi_with_ownership, CallConv, FunctionAbi, ParamPassing, ReturnPassing,
+    abi_size, compute_function_abi_with_ownership, CallConv, FunctionAbi, ParamPassing,
+    ReturnPassing,
 };
 use super::arc_emitter::CodegenContext;
 use super::ir_builder::IrBuilder;
@@ -231,16 +233,34 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         // Direct params: the value itself is noundef (no poison/undef).
         // Indirect/Reference params: the pointer is noundef (always a valid,
         // defined address — never poison or undef). Also add readonly for borrowed.
-        let mut nidx = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }))
-            + extra_leading_params.len() as u32;
+        //
+        // Extra leading params (e.g., phantom env ptr for non-capturing lambdas)
+        // also get noundef — a null pointer is still a defined value (not undef/poison).
+        let sret_offset = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
+        for (i, _) in extra_leading_params.iter().enumerate() {
+            self.builder
+                .add_noundef_param_attribute(func_id, sret_offset + i as u32);
+        }
+        let mut nidx = sret_offset + extra_leading_params.len() as u32;
         for param in &abi.params {
             if matches!(param.passing, ParamPassing::Direct) {
                 self.builder.add_noundef_param_attribute(func_id, nidx);
                 nidx += 1;
             } else if !matches!(param.passing, ParamPassing::Void) {
-                // Indirect/Reference pointer params: noundef (pointer is defined)
+                // Indirect/Reference pointer params: noundef (pointer is defined),
+                // nonnull (Ori never passes null pointers), dereferenceable(N)
+                // (pointer points to at least N bytes of valid memory),
                 // + readonly if borrowed.
                 self.builder.add_noundef_param_attribute(func_id, nidx);
+                self.builder.add_nonnull_param_attribute(func_id, nidx);
+                // dereferenceable(N): abi_size may underestimate due to missing
+                // alignment padding, but underestimation is legal — LLVM treats
+                // dereferenceable as a minimum. See abi/mod.rs FIXME.
+                let size = abi_size(param.ty, self.type_info);
+                if size > 0 {
+                    self.builder
+                        .add_dereferenceable_param_attribute(func_id, nidx, size);
+                }
                 if param.readonly {
                     self.builder.add_readonly_param_attribute(func_id, nidx);
                 }

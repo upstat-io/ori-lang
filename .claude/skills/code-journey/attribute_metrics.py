@@ -152,10 +152,19 @@ def _is_attr_present(func: Function, attr: str) -> bool:
 
 # Each rule: (attr_name, applicable_when, description)
 # The applicable_when function takes (func, is_closure, is_leaf) -> bool.
+def _is_trampoline_or_wrapper(func: Function) -> bool:
+    """Trampolines (_ori_tramp_N) and closure wrappers (_ori_partial_N) use C
+    calling convention by design — they bridge Ori closures to C ABI for the
+    runtime. They should NOT be expected to have fastcc."""
+    return (func.name.startswith("_ori_tramp_")
+            or func.name.startswith("_ori_partial_"))
+
+
 _ATTRIBUTE_RULES: list[tuple[str, callable, str]] = [
     ("fastcc",
-     lambda f, c, l: f.is_user_function and not f.is_entry_called and not c,
-     "Internal user function (not entry-called, not closure)"),
+     lambda f, c, l: (f.is_user_function and not f.is_entry_called
+                       and not c and not _is_trampoline_or_wrapper(f)),
+     "Internal user function (not entry-called, not closure, not trampoline)"),
 
     # nounwind: handled specially in compute_attribute_metrics() because it
     # needs module-level callee lookup. Placeholder here for ordering.
