@@ -21,6 +21,7 @@ pub mod generics;
 pub mod higher_order;
 pub mod ir_quality_attributes;
 pub mod ir_quality_block_merge;
+pub mod ir_quality_cfg_simplify;
 pub mod ir_quality_codegen;
 pub mod ir_quality_loops;
 pub mod iterators;
