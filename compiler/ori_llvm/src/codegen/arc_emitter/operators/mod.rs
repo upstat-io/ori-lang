@@ -74,7 +74,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // fallback — these types are either uninhabited (Never) or
                 // have i64-compatible representation.
                 // TODO(typeck): register missing methods so Error type doesn't
-                // propagate to codegen. See Ordering.to_int() GAP.
+                // propagate to codegen. See roadmap section-07A (core built-ins).
                 tracing::warn!(
                     ?op,
                     ?type_tag,

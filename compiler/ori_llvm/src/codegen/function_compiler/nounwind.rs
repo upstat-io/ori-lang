@@ -34,9 +34,26 @@ use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
 use super::FunctionCompiler;
-use crate::codegen::abi::FunctionAbi;
+use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::value_id::FunctionId;
+
+/// Check if a function's ABI involves no memory operations.
+///
+/// All params must be Direct or Void (no pointer loads), and the return
+/// must be Direct or Void (no sret store). Functions with Indirect,
+/// Reference, or Sret passing touch memory even if the ARC IR looks pure.
+fn is_abi_memory_free(abi: &FunctionAbi) -> bool {
+    let params_ok = abi
+        .params
+        .iter()
+        .all(|p| matches!(p.passing, ParamPassing::Direct | ParamPassing::Void));
+    let return_ok = matches!(
+        abi.return_abi.passing,
+        ReturnPassing::Direct | ReturnPassing::Void
+    );
+    params_ok && return_ok
+}
 
 // Prepared function types
 
@@ -347,11 +364,30 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             }
         }
 
+        // Purity analysis: functions with no memory effects get `memory(none)`.
+        // Requires: (1) all ARC instructions are `Let` only, (2) all params
+        // are Direct-passing (no pointer loads), (3) return is Direct or Void
+        // (no sret store). Single-pass — pure functions have no calls.
+        let mut pure_count = 0u32;
+        for func in prepared {
+            for lambda in &func.lambdas {
+                if Self::is_arc_function_pure(&lambda.arc_func) && is_abi_memory_free(&lambda.abi) {
+                    self.codegen_ctx.pure_functions.insert(lambda.name);
+                    pure_count = pure_count.saturating_add(1);
+                }
+            }
+            if Self::is_arc_function_pure(&func.arc_func) && is_abi_memory_free(&func.abi) {
+                self.codegen_ctx.pure_functions.insert(func.name);
+                pure_count = pure_count.saturating_add(1);
+            }
+        }
+
         debug!(
             passes = pass,
             nounwind_count = self.codegen_ctx.nounwind_functions.len(),
             mono_propagated,
-            "nounwind analysis complete"
+            pure_count,
+            "nounwind + purity analysis complete"
         );
     }
 
@@ -403,6 +439,13 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     "marked nounwind"
                 );
             }
+            if self.codegen_ctx.pure_functions.contains(&func.name) {
+                self.builder.add_memory_none_attribute(func.func_id);
+                debug!(
+                    name = %self.interner.lookup(func.name),
+                    "marked memory(none)"
+                );
+            }
 
             self.exit_debug_scope();
         }
@@ -425,6 +468,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         if self.codegen_ctx.nounwind_functions.contains(&lambda.name) {
             self.builder.add_nounwind_attribute(lambda.func_id);
+        }
+        if self.codegen_ctx.pure_functions.contains(&lambda.name) {
+            self.builder.add_memory_none_attribute(lambda.func_id);
         }
     }
 }
