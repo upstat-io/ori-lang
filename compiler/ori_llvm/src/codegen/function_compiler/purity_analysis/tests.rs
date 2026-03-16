@@ -1,4 +1,4 @@
-//! Tests for purity and readonly analysis.
+//! Tests for purity analysis of ARC functions.
 
 use ori_arc::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
@@ -8,7 +8,7 @@ use ori_arc::{LitValue, Ownership};
 use ori_ir::Name;
 use ori_types::Idx;
 
-use super::{is_arc_function_pure, is_arc_function_readonly};
+use super::has_only_pure_arc_instructions;
 
 /// Helper to create a minimal `ArcFunction` with the given body instructions.
 fn make_func(body: Vec<ArcInstr>) -> ArcFunction {
@@ -40,8 +40,7 @@ fn let_only_is_pure() {
         ty: Idx::INT,
         value: ArcValue::Literal(LitValue::Int(42)),
     }]);
-    assert!(is_arc_function_pure(&func));
-    assert!(is_arc_function_readonly(&func));
+    assert!(has_only_pure_arc_instructions(&func));
 }
 
 #[test]
@@ -59,8 +58,7 @@ fn construct_does_not_block_purity() {
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         },
     ]);
-    assert!(is_arc_function_pure(&func));
-    assert!(is_arc_function_readonly(&func));
+    assert!(has_only_pure_arc_instructions(&func));
 }
 
 #[test]
@@ -79,8 +77,7 @@ fn project_does_not_block_purity() {
             field: 0,
         },
     ]);
-    assert!(is_arc_function_pure(&func));
-    assert!(is_arc_function_readonly(&func));
+    assert!(has_only_pure_arc_instructions(&func));
 }
 
 #[test]
@@ -92,8 +89,7 @@ fn apply_blocks_purity() {
         args: vec![ArcVarId::new(0)],
         arg_ownership: vec![],
     }]);
-    assert!(!is_arc_function_pure(&func));
-    assert!(!is_arc_function_readonly(&func));
+    assert!(!has_only_pure_arc_instructions(&func));
 }
 
 #[test]
@@ -103,13 +99,11 @@ fn rc_inc_blocks_purity() {
         count: 1,
         strategy: RcStrategy::HeapPointer,
     }]);
-    assert!(!is_arc_function_pure(&func));
-    assert!(!is_arc_function_readonly(&func));
+    assert!(!has_only_pure_arc_instructions(&func));
 }
 
 #[test]
 fn empty_body_is_pure() {
     let func = make_func(vec![]);
-    assert!(is_arc_function_pure(&func));
-    assert!(is_arc_function_readonly(&func));
+    assert!(has_only_pure_arc_instructions(&func));
 }

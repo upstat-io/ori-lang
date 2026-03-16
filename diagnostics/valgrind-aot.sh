@@ -5,6 +5,7 @@
 #   diagnostics/valgrind-aot.sh [options] [file.ori|directory ...]
 #
 # Options:
+#   --journeys         Run all code journey .ori files in plans/code-journeys/
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
 #   -h, --help         Show this help
@@ -33,12 +34,14 @@ source "$SCRIPT_DIR/_common.sh"
 # --- Defaults ---
 USE_COLOR=auto
 FILES=()
+USE_JOURNEYS=0
 
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
     case $1 in
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
+        --journeys) USE_JOURNEYS=1; shift ;;
         -h|--help)
             sed -n '2,/^$/{ s/^# \?//; p }' "$0"
             exit 0
@@ -106,6 +109,24 @@ else
     SYM_SKIP="SKIP"
 fi
 
+# --- Collect code journey files if --journeys ---
+if [[ $USE_JOURNEYS -eq 1 ]]; then
+    ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+    journey_dir="$ROOT_DIR/plans/code-journeys"
+    if [[ ! -d "$journey_dir" ]]; then
+        echo "Error: plans/code-journeys/ directory not found" >&2
+        exit 2
+    fi
+    for f in "$journey_dir"/*.ori; do
+        [[ -f "$f" ]] || continue
+        FILES+=("$f")
+    done
+    if [[ ${#FILES[@]} -eq 0 ]]; then
+        echo "Error: no .ori files found in $journey_dir" >&2
+        exit 2
+    fi
+fi
+
 # --- Collect files ---
 if [[ ${#FILES[@]} -eq 0 ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -153,7 +174,7 @@ run_one() {
     local exit_code
     exit_code=$(ORI_CHECK_LEAKS=1 valgrind \
         --leak-check=full \
-        --show-leak-kinds=definite,indirect \
+        --show-leak-kinds=all \
         --errors-for-leak-kinds=definite \
         --error-exitcode=42 \
         --log-file="$val_log" \

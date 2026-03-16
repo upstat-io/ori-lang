@@ -1,12 +1,12 @@
 ---
 section: "08"
 title: "Verification & Validation"
-status: complete
+status: in-progress
 goal: "Prove AIMS correctness via behavioral equivalence, performance comparison, and safety verification"
 depends_on: ["06", "13"]
 third_party_review:
-  status: resolved
-  updated: 2026-03-15
+  status: findings
+  updated: 2026-03-16
 sections:
   - id: "08.1"
     title: "Behavioral Equivalence"
@@ -873,3 +873,11 @@ subsystem is tested in isolation only.
   Resolved: Clone now skipped on iteration 2+ (pre_trmc_func already saved). First-iteration clone remains necessary for correctness — pre-rewrite state must be captured before normalize_function mutates func. Resolved 2026-03-15.
 - [x] `[TPR-08-008][minor]` `compiler/ori_arc/src/aims/normalize/mod.rs:124` — `context_regions` from pre-rewrite detection are stale after rewrite. Safe (discarded by `continue`) but confusing data flow. Add clarifying comment.
   Resolved: Added clarifying comment documenting stale-but-safe data flow on 2026-03-15.
+
+**Review date:** 2026-03-16
+**Method:** 4-agent sequential cold-start pipeline (independent-review command)
+**Scope:** 70+ AIMS commits, 146 AIMS-critical files (+41,338/-5,498)
+**Verdict:** PASS WITH CONCERNS — 0 critical, 1 major, 1 minor
+
+- [ ] `[TPR-08-009][major]` `compiler/ori_llvm/src/codegen/arc_emitter/rc_value_traversal.rs:129-140,246-254` — Option tag-blind RC on payload (SYSTEMIC). `inc_value_rc_inner`/`dec_value_rc_inner` for `Tag::Option` extract field 1 (payload) and perform RC operations without checking runtime tag (field 0). When Option is `None`, field 1 is uninitialized — RC ops execute on garbage pointer. Code self-acknowledges: "latent bug — doesn't check runtime tag." Blast radius: any struct/tuple containing `Option<T>` where T is RC-managed, processed via `AggregateFields` strategy. Fix: add tag check — extract field 0, branch on `Some` vs `None`, only process field 1 in `Some` path.
+- [ ] `[TPR-08-010][minor]` `compiler/ori_llvm/src/codegen/arc_emitter/rc_value_traversal.rs:46-47,161-174` — Result/Enum no-ops in nested field traversal (SYSTEMIC). `Tag::Result` and `Tag::Enum` are treated as scalar no-ops in `inc_value_rc_inner`/`dec_value_rc_inner`. If a struct field has type `Result<str, str>` and the struct uses `AggregateFields` strategy, inner RC fields receive no management. Same root cause as TPR-08-009: `rc_value_traversal.rs` doesn't handle inline sum types during recursive field walks. Fix: dispatch nested sum-type fields to `InlineEnum` tag-switch logic (shared with `rc_helpers.rs`).

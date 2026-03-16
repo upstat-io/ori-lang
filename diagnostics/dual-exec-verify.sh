@@ -42,6 +42,7 @@ JSON_PATH="$ROOT_DIR/build/dual-exec-report.json"
 RUN_TESTS=1
 RUN_MAIN=1
 USE_COLOR=auto
+PER_TEST_TIMEOUT=10  # seconds per individual test/build/run (SIGKILL at +5s)
 
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
@@ -232,14 +233,14 @@ run_test_comparison() {
 
     # Run interpreter
     echo -n "  Running interpreter backend..."
-    ORI_LOG=off "$INTERP_BIN" test --verbose "$TEST_PATH" > "$INTERP_OUTPUT" 2>&1 || true
+    timeout -k 5 120 env ORI_LOG=off "$INTERP_BIN" test --verbose "$TEST_PATH" > "$INTERP_OUTPUT" 2>&1 || true
     local interp_summary
     interp_summary=$(grep -E "^  [0-9]+ passed" "$INTERP_OUTPUT" | tail -1)
     printf " ${C_GREEN}done${C_NC} (%s)\n" "$interp_summary"
 
     # Run LLVM
     echo -n "  Running LLVM backend..."
-    ORI_LOG=off "$LLVM_BIN" test --verbose --backend=llvm "$TEST_PATH" > "$LLVM_OUTPUT" 2>&1 || true
+    timeout -k 5 120 env ORI_LOG=off "$LLVM_BIN" test --verbose --backend=llvm "$TEST_PATH" > "$LLVM_OUTPUT" 2>&1 || true
     local llvm_summary
     llvm_summary=$(grep -E "^  [0-9]+ passed" "$LLVM_OUTPUT" | tail -1)
     printf " ${C_GREEN}done${C_NC} (%s)\n\n" "$llvm_summary"
@@ -338,15 +339,32 @@ run_main_comparison() {
         local rel_file="${file#$ROOT_DIR/}"
         printf "  %s ... " "$rel_file"
 
-        # Run interpreter
+        # Run interpreter (file-based capture to avoid subshell masking signals)
         local interp_out interp_exit
-        interp_out=$(ORI_LOG=off "$INTERP_BIN" run "$file" 2>&1) && interp_exit=0 || interp_exit=$?
+        local tmp_interp_out
+        tmp_interp_out=$(mktemp)
+        timeout -k 5 "$PER_TEST_TIMEOUT" env ORI_LOG=off "$INTERP_BIN" run "$file" > "$tmp_interp_out" 2>&1 && interp_exit=0 || interp_exit=$?
+        interp_out=$(cat "$tmp_interp_out" 2>/dev/null)
+        rm -f "$tmp_interp_out"
+        if [[ $interp_exit -eq 124 || $interp_exit -eq 137 ]]; then
+            printf "${C_YELLOW}timeout (interp)${C_NC}\n"
+            ((MAIN_INTERP_FAIL++))
+            continue
+        fi
 
-        # Run AOT
+        # Run AOT (file-based capture to avoid subshell masking signals)
         local aot_out aot_exit
-        if ORI_LOG=off "$LLVM_BIN" build "$file" -o "$tmp_binary" 2>/dev/null; then
-            aot_out=$("$tmp_binary" 2>&1) && aot_exit=0 || aot_exit=$?
-            rm -f "$tmp_binary"
+        if timeout -k 5 "$PER_TEST_TIMEOUT" env ORI_LOG=off "$LLVM_BIN" build "$file" -o "$tmp_binary" 2>/dev/null; then
+            local tmp_aot_out
+            tmp_aot_out=$(mktemp)
+            { timeout -k 5 "$PER_TEST_TIMEOUT" "$tmp_binary" > "$tmp_aot_out" 2>&1; } 2>/dev/null && aot_exit=0 || aot_exit=$?
+            aot_out=$(cat "$tmp_aot_out" 2>/dev/null)
+            rm -f "$tmp_aot_out" "$tmp_binary"
+            if [[ $aot_exit -eq 124 || $aot_exit -eq 137 ]]; then
+                printf "${C_YELLOW}timeout (aot run)${C_NC}\n"
+                ((MAIN_AOT_FAIL++))
+                continue
+            fi
         else
             aot_exit=999  # compile failure
             aot_out="<AOT compile failed>"
