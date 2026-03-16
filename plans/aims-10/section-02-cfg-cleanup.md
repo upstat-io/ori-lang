@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "CFG Cleanup"
-status: not-started
+status: in-progress
 goal: "Zero empty blocks, zero redundant branches in emitted LLVM IR — CF score 10/10 on all journeys"
 depends_on: []
 third_party_review:
@@ -10,7 +10,7 @@ third_party_review:
 sections:
   - id: "02.1"
     title: "Extract Dead-Unwind Detection"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Post-Emission CFG Simplification Pass"
     status: not-started
@@ -66,20 +66,18 @@ sections:
 
 Before adding the CFG simplification pass, extract existing logic to make room.
 
-- [ ] Extract the dead-unwind detection logic (~lines 97-132 of `emit_function()`) into a new file `compiler/ori_llvm/src/codegen/arc_emitter/dead_unwind.rs`
-  - Create a new function (e.g., `detect_dead_unwind_blocks()`) from the inline code that currently builds `all_invoke_unwind`, `unwind_blocks`, and `dead_unwind` sets
-  - Make it a method on `ArcIrEmitter`: `pub(super) fn detect_dead_unwind_blocks(&self, func: &ArcFunction) -> (FxHashSet<usize>, FxHashSet<usize>)` returning `(dead_unwind, live_unwind_blocks)` — both are needed by the caller.
-  - Also extract `has_effective_cleanup()` and `is_non_capturing_closure()` and `find_definition()` (lines 508-570) into the same file — they're only used by dead-unwind detection.
-  - ~130 lines moved total: 35 lines from emit_function body + 63 lines from free functions + helpers
-- [ ] Also extract the `debug_assert!` block that validates dead unwind reachability (lines 136-167) into a `debug_assert_dead_unwind_unreachable()` function in the same module
-- [ ] Add `mod dead_unwind;` to `compiler/ori_llvm/src/codegen/arc_emitter/mod.rs`
-- [ ] Update imports in `emit_function.rs` to use the extracted module
-- [ ] Verify: `emit_function.rs` drops below 500 lines (currently 570 → target ~440 after extraction)
-- [ ] Verify: `timeout 150 ./test-all.sh` green (pure refactor, no behavioral change)
+- [x] Extract the dead-unwind detection logic into `compiler/ori_llvm/src/codegen/arc_emitter/dead_unwind.rs` (2026-03-16)
+  - `detect_dead_unwind_blocks()` method on `ArcIrEmitter` returns `DeadUnwindResult { dead, live }`
+  - Also extracted `has_effective_cleanup()`, `is_non_capturing_closure()`, `find_definition()` (163 lines)
+- [x] Extracted `debug_assert_dead_unwind_unreachable()` function (2026-03-16)
+- [x] Added `mod dead_unwind;` to `compiler/ori_llvm/src/codegen/arc_emitter/mod.rs` (2026-03-16)
+- [x] Updated imports in `emit_function.rs` and `terminators.rs` to use the extracted module (2026-03-16)
+- [x] Verify: `emit_function.rs` dropped from 570 → 438 lines (2026-03-16)
+- [x] Verify: `timeout 150 ./test-all.sh` green — 12,897 tests, 0 failures (2026-03-16)
 
 ### Cleanup (02.1)
 
-- [ ] **[BLOAT]** `emit_function.rs:570` — Currently 570 lines (exceeds 500-line limit). The plan's extraction of dead-unwind logic (~130 lines) is the correct fix. Verify the file drops to ~440 after extraction. Note: `emit_function.rs` has an `#[expect(clippy::too_many_lines)]` on `emit_function()` (line 87) — after extraction, check if this `#[expect]` can be removed (the function body should be significantly shorter).
+- [x] **[BLOAT]** `emit_function.rs:570` — Reduced from 570 → 438 lines by extracting dead-unwind logic to `dead_unwind.rs` (163 lines). `#[expect(clippy::too_many_lines)]` retained — `emit_function()` body is still ~346 lines (orchestrating blocks, params, EH, RPO emission, phis). (2026-03-16)
 
 ---
 

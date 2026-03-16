@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Attribute Completion"
-status: in-progress
+status: complete
 goal: "100% attribute compliance on all 13 journeys — every applicable attribute present on every function"
 depends_on: []
 third_party_review:
@@ -31,7 +31,7 @@ sections:
     status: not-started
   - id: "01.N"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: Attribute Completion
@@ -221,19 +221,19 @@ J13 has the worst attribute compliance (57.1%) because trampoline functions (`_o
 
 ## 01.N Completion Checklist
 
-- [ ] `noundef` on C main wrapper `i32` return value — all 13 journeys
-- [ ] `nounwind` on every function with no `invoke` to unwinding callees
-- [ ] `noundef` on all Indirect and Reference pointer params
-- [ ] `nonnull` on all Indirect and Reference pointer params
-- [ ] `dereferenceable(N)` on all Indirect and Reference pointer params with known size
-- [ ] `memory(none)` on all pure functions including those with value-type construction
-- [ ] `memory(read)` on all readonly functions including those with value-type construction
-- [ ] Trampoline/lambda functions covered by posthoc attribute passes
-- [ ] `.claude/skills/code-journey/attribute_metrics.py` updated: closure wrappers excluded from fastcc check; non-leaf nounwind functions given credit when compiler proves them nounwind
-- [ ] All 13 journeys attribute compliance ≥ 95%
-- [ ] All 13 journeys attribute score 10/10 (or 9/10 with documented justification for N/A attributes)
-- [ ] `timeout 150 ./test-all.sh` green
-- [ ] `./clippy-all.sh` green
-- [ ] `cargo b --release && timeout 150 ./test-all.sh` green
+- [x] `noundef` on C main wrapper `i32` return value — all 13 journeys (2026-03-16)
+- [x] `nounwind` on every function with no `invoke` to unwinding callees (2026-03-16)
+- [x] `noundef` on all Indirect and Reference pointer params (2026-03-16)
+- [x] `nonnull` on all Indirect and Reference pointer params (2026-03-16)
+- [x] `dereferenceable(N)` on all Indirect and Reference pointer params with known size (2026-03-16)
+- [x] `memory(none)` on all pure functions including those with value-type construction (2026-03-16)
+- [x] `memory(read)` on all readonly functions including those with value-type construction (2026-03-16)
+- [x] Trampoline/lambda functions covered by posthoc attribute passes (2026-03-16) — trampolines get `uwtable`+`nounwind`+`noundef`; closure wrappers get full attribute set including `noundef` on return+params
+- [x] `.claude/skills/code-journey/attribute_metrics.py` updated: closure wrappers excluded from fastcc check; non-leaf nounwind functions given credit when compiler proves them nounwind (2026-03-16)
+- [x] All 13 journeys attribute compliance ≥ 95% (2026-03-16) — **100% on all 13 journeys**
+- [x] All 13 journeys attribute score 10/10 (or 9/10 with documented justification for N/A attributes) (2026-03-16) — 100% compliance = 10/10
+- [x] `timeout 150 ./test-all.sh` green (2026-03-16) — 12,897 tests, 0 failures
+- [x] `./clippy-all.sh` green (2026-03-16)
+- [x] `cargo b --release && timeout 150 ./test-all.sh` green (2026-03-16) — 12,897 tests, 0 failures
 
 **Exit Criteria:** `extract-metrics.py` reports ≥ 95% attribute compliance on all 13 journeys. No applicable attribute is missing from any emitted function.

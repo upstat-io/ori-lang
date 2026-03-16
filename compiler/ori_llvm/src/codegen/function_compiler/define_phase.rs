@@ -174,6 +174,19 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         );
         emitter.emit_function(&arc_func, abi);
 
+        // Post-emission CFG simplification: eliminate empty blocks and
+        // redundant branches created by if/else and overflow check lowering.
+        let fn_val = self.builder.get_function_value(func_id);
+        let cfg_stats = crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+        if cfg_stats.blocks_removed > 0 || cfg_stats.branches_simplified > 0 {
+            debug!(
+                name = name_str,
+                blocks_removed = cfg_stats.blocks_removed,
+                branches_simplified = cfg_stats.branches_simplified,
+                "cfg_simplify"
+            );
+        }
+
         // Mark nounwind after emission so LLVM's PruneEH pass can
         // optimize callers (even those compiled before this function).
         if is_nounwind {
@@ -211,6 +224,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &self.codegen_ctx,
         );
         emitter.emit_function(lambda, &abi);
+
+        // Post-emission CFG simplification
+        let fn_val = self.builder.get_function_value(func_id);
+        crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
 
         if is_nounwind {
             self.codegen_ctx.nounwind_functions.insert(lambda_name);

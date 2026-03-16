@@ -221,10 +221,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // no LLVM basic block — emit_function() marks it dead.
         // Using `call` instead of `invoke` is safe because there's nothing
         // to unwind through.
-        let unwind_is_empty_cleanup = !super::emit_function::has_effective_cleanup(
-            &arc_func.blocks[unwind.index()],
-            arc_func,
-        );
+        let unwind_is_empty_cleanup =
+            !super::dead_unwind::has_effective_cleanup(&arc_func.blocks[unwind.index()], arc_func);
         // Builtin handlers (format calls, prelude functions, builtin methods)
         // always emit `call`, not `invoke`. Their unwind blocks are dead —
         // emit_function() already skipped creating LLVM blocks for them.

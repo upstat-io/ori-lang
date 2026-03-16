@@ -21,6 +21,7 @@
 //! - [`closures`] — closure (partial application) emission and environment management
 //! - [`construction`] — value construction: structs, enums, lists, maps, sets
 //! - [`context`] — shared types: `CodegenContext`, `EmittedValue`, `InvokeMode`, `is_boxed_enum_field`
+//! - [`dead_unwind`] — dead unwind block detection (nounwind invoke targets)
 //! - [`drop_gen`] — per-type LLVM drop function generation (cached by mangled name)
 //! - [`emit_function`] — function-level emission orchestration
 //! - [`field_scan`] — field usage scanning for surgical struct loading
@@ -39,6 +40,7 @@ mod catch_thunk_gen;
 mod closures;
 mod construction;
 mod context;
+mod dead_unwind;
 mod drop_enum;
 mod drop_gen;
 mod element_fn_gen;
