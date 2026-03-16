@@ -23,18 +23,18 @@ features:
   - break_continue
   - let_bindings
 feature_description: "Loop/break and for-in-range iteration with mutable accumulators"
-score: 9.5
+score: 10.0
 score_breakdown:
-  instruction_efficiency: 9
+  instruction_efficiency: 10
   arc_correctness: 10
   attributes_safety: 10
   control_flow: 10
-  ir_quality: 9
+  ir_quality: 10
   binary_quality: 10
   other_findings: 9
 score_metrics:
-  instruction_ratio: 1.02
-  instruction_ratio_max: 1.06
+  instruction_ratio: 1.0
+  instruction_ratio_max: 1.0
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
@@ -43,7 +43,7 @@ score_metrics:
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
-  ir_unjustified: 1
+  ir_unjustified: 0
   ir_incorrect: false
   bin_defects: 0
   bin_hard_fail: false
@@ -819,15 +819,15 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 15% | 9/10 | 1.02x avg ratio (max 1.06x) |
+| Instruction Efficiency | 15% | 10/10 | 1.0x avg ratio (max 1.0x) |
 | ARC Correctness | 20% | 10/10 | 0 violations |
 | Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
-| IR Quality | 20% | 9/10 | 1 unjustified instruction |
+| IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 9/10 | 1 low |
 
-**Overall: 9.5 / 10**
+**Overall: 10.0 / 10**
 
 ## Verdict
 
