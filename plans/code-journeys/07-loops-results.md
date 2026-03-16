@@ -2,7 +2,7 @@
 journey: 7
 slug: loops
 theme: "I am a loop"
-date: 2026-03-15
+date: 2026-03-16
 status: PASS
 expected: 30
 eval_result: 30
@@ -38,8 +38,8 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 17
-  attr_correct: 16
+  attr_applicable: 15
+  attr_correct: 14
   attr_has_wrong: false
   cf_defects: 5
   cf_incorrect: false
@@ -303,7 +303,7 @@ source_filename = "07-loops"
 
 @ovf.msg = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00", align 1
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @sum_loop ---
 define fastcc noundef i64 @_ori_sum_loop(i64 noundef %0) #0 {
 bb0:
@@ -344,7 +344,7 @@ add.ovf_panic5:                                   ; preds = %add.ok
 
 ; Function Attrs: nounwind uwtable
 ; --- @sum_for ---
-define fastcc noundef i64 @_ori_sum_for(i64 noundef %0) #0 {
+define fastcc noundef i64 @_ori_sum_for(i64 noundef %0) #1 {
 bb0:
   %ctor.1 = insertvalue { i64, i64, i64, i64 } { i64 1, i64 undef, i64 undef, i64 undef }, i64 %0, 1
   %ctor.2 = insertvalue { i64, i64, i64, i64 } %ctor.1, i64 1, 2
@@ -390,7 +390,7 @@ add.ovf_panic5:                                   ; preds = %add.ok
 
 ; Function Attrs: nounwind uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %call = call fastcc i64 @_ori_sum_loop(i64 5)
   %call1 = call fastcc i64 @_ori_sum_for(i64 5)
@@ -408,23 +408,23 @@ add.ovf_panic:                                    ; preds = %bb0
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #2
+declare void @ori_panic_cstr(ptr) #3
 
-; Function Attrs: nounwind
-define i32 @main() #3 {
+; Function Attrs: nounwind uwtable
+define i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
   ret i32 %exit_code
 }
 
-attributes #0 = { nounwind uwtable }
-attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { cold noreturn }
-attributes #3 = { nounwind }
+attributes #0 = { nounwind memory(none) uwtable }
+attributes #1 = { nounwind uwtable }
+attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { cold noreturn }
 ```
 
 #### Disassembly
@@ -434,21 +434,39 @@ _ori_sum_loop:
    sub    $0x38,%rsp
    mov    %rdi,0x20(%rsp)         ; save n to stack
    xor    %eax,%eax               ; i = 0, total = 0
+   mov    %rax,%rcx
+   mov    %rcx,0x28(%rsp)         ; store i to stack
+   mov    %rax,0x30(%rsp)         ; store total to stack
    jmp    .loop_header
 .loop_header:
    mov    0x20(%rsp),%rcx         ; load n
    mov    0x28(%rsp),%rax         ; load i
+   mov    0x30(%rsp),%rdx         ; load total
    cmp    %rcx,%rax               ; i >= n?
    jl     .loop_body
    mov    0x10(%rsp),%rax         ; return total
    add    $0x38,%rsp
    ret
 .loop_body:
-   inc    %rax                    ; i + 1
-   jo     .panic
-   add    %rcx,%rax               ; total + (i+1)
-   jo     .panic
+   inc    %rax                    ; i + 1 (overflow checked)
+   seto   %al
+   jo     .panic1
+   add    %rcx,%rax               ; total + (i+1) (overflow checked)
+   seto   %al
+   jo     .panic2
+   jmp    .backedge
+.panic1:
+   lea    ovf_msg(%rip),%rdi
+   call   ori_panic_cstr
+.backedge:
+   mov    (%rsp),%rax             ; store updated total
+   mov    0x8(%rsp),%rcx          ; store updated i
+   mov    %rcx,0x28(%rsp)
+   mov    %rax,0x30(%rsp)
    jmp    .loop_header
+.panic2:
+   lea    ovf_msg(%rip),%rdi
+   call   ori_panic_cstr
 
 _ori_sum_for:
    sub    $0x48,%rsp
@@ -458,13 +476,24 @@ _ori_sum_for:
 .loop:
    cmp    0x30(%rsp),%rax         ; x <= n?
    jg     .exit
-   add    %rcx,%rax               ; total += x (overflow check)
+   add    %rcx,%rax               ; total += x (overflow checked)
+   seto   %al
    jo     .panic1
-   add    $0x1,%rax               ; x += step (overflow check)
+   jmp    .step
+.exit:
+   add    $0x48,%rsp
+   ret
+.step:
+   add    0x28(%rsp),%rax         ; x += step (overflow checked)
+   seto   %al
    jo     .panic2
    jmp    .loop
-.exit:
-   ret
+.panic1:
+   lea    ovf_msg(%rip),%rdi
+   call   ori_panic_cstr
+.panic2:
+   lea    ovf_msg(%rip),%rdi
+   call   ori_panic_cstr
 
 _ori_main:
    sub    $0x18,%rsp
@@ -473,9 +502,17 @@ _ori_main:
    mov    %rax,0x8(%rsp)
    mov    $0x5,%edi
    call   _ori_sum_for            ; b = 15
-   add    0x8(%rsp),%rax          ; a + b (overflow check)
+   mov    %rax,%rcx
+   mov    0x8(%rsp),%rax
+   add    %rcx,%rax               ; a + b (overflow checked)
+   seto   %al
    jo     .panic
+   mov    0x10(%rsp),%rax
+   add    $0x18,%rsp
    ret
+.panic:
+   lea    ovf_msg(%rip),%rdi
+   call   ori_panic_cstr
 ```
 
 ## Deep Scrutiny
@@ -490,7 +527,7 @@ _ori_main:
 
 **@sum_loop** (19 actual vs 18 ideal): The single unjustified instruction is the initial `br label %bb1` in bb0, which unconditionally branches to the loop header. LLVM can fold this away, but it is unnecessary at the IR level. The remaining overhead is justified: 2 overflow-checked additions per iteration (i+1 and total += ...), each requiring call/extractvalue/br -- standard safety overhead. The phi-based loop header is the correct lowering for mutable variables across loop iterations.
 
-**@sum_for** (26 actual vs 25 ideal): The range struct is constructed via 3 insertvalue instructions then immediately destructured via 4 extractvalue instructions in bb0. While LLVM's mem2reg trivially eliminates this, the construct-then-destructure pattern is 1 instruction above ideal. The loop body itself is clean: checked addition for accumulation + checked addition for step increment, with phi nodes in the header.
+**@sum_for** (26 actual vs 25 ideal): The range struct is constructed via 3 insertvalue instructions then immediately destructured via 4 extractvalue instructions in bb0. While LLVM's mem2reg trivially eliminates this, the construct-then-destructure pattern is 1 instruction above ideal. The `%proj.3` extractvalue for the unused `inclusive` field is the unjustified instruction -- the `sle` vs `slt` comparison already encodes inclusivity. The loop body itself is clean: checked addition for accumulation + checked addition for step increment, with phi nodes in the header.
 
 **@main** (9 actual vs 9 ideal): OPTIMAL. Two fastcc calls + one overflow-checked addition. No wasted instructions.
 
@@ -506,18 +543,23 @@ _ori_main:
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | noundef | uwtable | cold | Notes |
-|----------|--------|----------|---------|---------|------|-------|
-| @sum_loop | YES | YES | YES | YES | N/A | |
-| @sum_for | YES | YES | YES | YES | N/A | |
-| @main | C (correct) | YES | YES | YES | N/A | [LOW-1] |
-| ori_panic_cstr | N/A | N/A | N/A | N/A | YES | cold + noreturn |
+| Function | fastcc | nounwind | memory | noundef | uwtable | cold | Notes |
+|----------|--------|----------|--------|---------|---------|------|-------|
+| @sum_loop | YES | YES | memory(none) | YES | YES | N/A | [NOTE-5] |
+| @sum_for | YES | YES | (missing) | YES | YES | N/A | [MEDIUM-1] |
+| @main | C (correct) | YES | N/A | YES | YES | N/A | |
+| ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | YES | cold + noreturn |
+| main (wrapper) | N/A | YES | N/A | (missing) | YES | N/A | [LOW-1] |
 
-All user functions have `nounwind` (fixed-point analysis confirmed all 3 are nounwind). `fastcc` is applied to all non-entry-point functions. `noundef` on parameters and return values is present. The `@_ori_main` function correctly uses C calling convention for entry point compatibility.
+All user functions have `nounwind` (fixed-point analysis confirmed all 3 are nounwind). `fastcc` is applied to all non-entry-point functions. `noundef` on parameters and return values is present on all user functions. The `@_ori_main` function correctly uses C calling convention for entry point compatibility.
 
-**[LOW-1]**: @main uses `C` calling convention instead of `fastcc` -- correct for the entry point wrapper, but the `main()` trampoline calls `@_ori_main` without `fastcc`. This is a negligible efficiency gap since `main` is called exactly once.
+**[MEDIUM-1]**: `@sum_for` is missing `memory(none)` despite being a pure function. It performs only scalar arithmetic via `insertvalue`/`extractvalue` (SSA register operations, not memory) and calls `llvm.sadd.with.overflow.i64` (which is `memory(none)`). The structurally identical `@sum_loop` correctly receives `memory(none)`. The range struct construction pattern (`insertvalue`/`extractvalue` chain) appears to confuse the compiler's purity analysis.
 
-The 1 missing attribute: `ori_panic_cstr` lacks `nounwind` -- it is a `cold noreturn` function that likely unwinds. This is arguably correct (panic may unwind), so it is borderline.
+**[LOW-1]**: The `main` C wrapper is missing `noundef` on its `i32` return value. This is a minor gap -- the wrapper is called exactly once by the OS.
+
+**[NOTE-5]**: `@sum_loop` correctly receives `memory(none)` -- an improvement from earlier journeys where no user functions had this attribute. The fixed-point memory analysis correctly identifies this function as having no memory effects.
+
+Attribute compliance: 14/15 = 93.3%.
 
 ### 4. Control Flow & Block Layout
 
@@ -533,7 +575,7 @@ The 1 missing attribute: `ori_panic_cstr` lacks `nounwind` -- it is a `cold nore
 
 **@main**: Clean control flow -- one entry block with overflow check branching.
 
-The 5 CF defects (3 + 2) are all minor: empty trampoline blocks and redundant unconditional branches. None affect correctness, and LLVM's SimplifyCFG pass eliminates them during optimization.
+The 5 CF defects (3 empty blocks + 2 redundant branches) are all minor: empty trampoline blocks and redundant unconditional branches. None affect correctness, and LLVM's SimplifyCFG pass eliminates them during optimization.
 
 ### 5. Overflow Checking
 
@@ -556,13 +598,13 @@ All 5 addition operations are overflow-checked. Each uses the `llvm.sadd.with.ov
 | Binary size | 6.25 MiB (debug) |
 | .text section | 869.3 KiB |
 | .rodata section | 133.4 KiB |
-| User code (@sum_loop) | 154 bytes (38 instructions) |
-| User code (@sum_for) | 170 bytes (41 instructions) |
-| User code (@main) | 72 bytes (17 instructions) |
-| Total user code | 396 bytes |
+| User code (@sum_loop) | 153 bytes |
+| User code (@sum_for) | 170 bytes |
+| User code (@main) | 72 bytes |
+| Total user code | 395 bytes |
 | Runtime | >99% of binary |
 
-The user code compiles to 396 bytes of machine code across 3 functions. The native code uses stack spills heavily (debug mode, no register allocation optimization), but the structure is correct. Overflow checks compile to `jo` (jump on overflow) instructions, which is the optimal x86 encoding.
+The user code compiles to 395 bytes of machine code across 3 functions. The native code uses stack spills heavily (debug mode, no register allocation optimization), but the structure is correct. Overflow checks compile to `jo` (jump on overflow) instructions, which is the optimal x86 encoding.
 
 #### Disassembly: @sum_loop
 
@@ -570,12 +612,10 @@ The user code compiles to 396 bytes of machine code across 3 functions. The nati
 _ori_sum_loop:
    sub    $0x38,%rsp
    mov    %rdi,0x20(%rsp)         ; save n to stack
-   xor    %eax,%eax               ; i = 0, total = 0
+   xor    %eax,%eax               ; zero i and total
    jmp    .loop_header
 .loop_header:
-   mov    0x20(%rsp),%rcx         ; load n
-   mov    0x28(%rsp),%rax         ; load i
-   cmp    %rcx,%rax               ; i >= n?
+   cmp    0x20(%rsp),%rax         ; i >= n?
    jl     .loop_body
    mov    0x10(%rsp),%rax         ; return total
    add    $0x38,%rsp
@@ -609,7 +649,7 @@ _ori_main:
 
 ```llvm
 ; IDEAL (18 instructions)
-define fastcc noundef i64 @_ori_sum_loop(i64 noundef %n) nounwind {
+define fastcc noundef i64 @_ori_sum_loop(i64 noundef %n) nounwind memory(none) {
 entry:
   br label %loop
 
@@ -661,7 +701,7 @@ bb0:
 
 ```llvm
 ; IDEAL (25 instructions) — phi with constants directly, no range struct
-define fastcc noundef i64 @_ori_sum_for(i64 noundef %n) nounwind {
+define fastcc noundef i64 @_ori_sum_for(i64 noundef %n) nounwind memory(none) {
 entry:
   br label %loop
 
@@ -700,7 +740,7 @@ panic2:
 
 ```llvm
 ; ACTUAL (26 instructions) — range struct construction adds overhead
-define fastcc noundef i64 @_ori_sum_for(i64 noundef %0) #0 {
+define fastcc noundef i64 @_ori_sum_for(i64 noundef %0) #1 {
 bb0:
   %ctor.1 = insertvalue { i64, i64, i64, i64 } { ... }, i64 %0, 1   ; construct range
   %ctor.2 = insertvalue { i64, i64, i64, i64 } %ctor.1, i64 1, 2
@@ -738,7 +778,7 @@ This is the standard SSA lowering for imperative loops with mutable variables. T
 
 The `loop` construct produces exactly the control flow expected: an infinite loop with an explicit exit condition, matching the semantics of Ori's `loop { if cond then break; body }` pattern.
 
-### 9. Loops: Range Iteration
+### 9. Loops: Range Iteration Codegen
 
 The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range struct:
 
@@ -748,25 +788,38 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 
 **Optimization opportunity**: The range construction and immediate destructuring (`insertvalue` x3 + `extractvalue` x4) could be eliminated by directly threading the range constants into the phi nodes and loop condition. This is a 7-instruction cold-path overhead that LLVM's optimization passes eliminate, but the Ori codegen could avoid emitting them in the first place for constant ranges. The `%proj.3` (inclusive flag) is extracted but never used in the generated code -- the `sle` vs `slt` comparison already encodes inclusivity.
 
-The for-loop and explicit loop produce equivalent machine code structure at the LLVM IR level: both use phi-based iteration with overflow-checked arithmetic in the body. The main difference is the range struct overhead in the entry block.
+**Semantic equivalence**: The for-loop and explicit loop produce equivalent machine code structure at the LLVM IR level: both use phi-based iteration with overflow-checked arithmetic in the body. The main difference is the range struct overhead in the entry block. Both correctly produce 15 for input 5.
+
+**Memory attribute gap**: `@sum_for` lacks `memory(none)` despite performing no memory operations. The `insertvalue`/`extractvalue` chain operates on SSA values (register-level aggregate manipulation), not memory. Since `@sum_loop` (which has identical call-graph shape) correctly receives `memory(none)`, the range struct pattern appears to be confusing the compiler's purity analysis. [MEDIUM-1]
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing `nounwind` on `ori_panic_cstr` declaration | CONFIRMED | J1 |
-| 2 | LOW | Control Flow | Redundant `br label %bb1` entry in @sum_loop | CONFIRMED | J7 |
-| 3 | LOW | Control Flow | Empty trampoline blocks (add.ok4) in both loop functions | CONFIRMED | J7 |
-| 4 | LOW | IR Quality | Range construct-then-destructure in @sum_for bb0 | CONFIRMED | J7 |
-| 5 | NOTE | Loops | Correct phi-based lowering for mutable loop variables | CONFIRMED | J7 |
-| 6 | NOTE | Ranges | Inclusive range correctly uses `sle` comparison | CONFIRMED | J7 |
-| 7 | NOTE | ARC | Zero RC overhead for pure scalar loops | CONFIRMED | J7 |
+| 1 | MEDIUM | Attributes | `@sum_for` missing `memory(none)` despite being a pure function | NEW | J7 |
+| 2 | LOW | Attributes | `main` wrapper missing `noundef` on i32 return | CONFIRMED | J1 |
+| 3 | LOW | Control Flow | Redundant `br label %bb1` entry in @sum_loop | CONFIRMED | J7 |
+| 4 | LOW | Control Flow | Empty trampoline blocks (add.ok4) in both loop functions | CONFIRMED | J7 |
+| 5 | LOW | IR Quality | Range construct-then-destructure in @sum_for bb0 | CONFIRMED | J7 |
+| 6 | NOTE | Attributes | `@sum_loop` correctly receives `memory(none)` | NEW | J7 |
+| 7 | NOTE | Loops | Correct phi-based lowering for mutable loop variables | CONFIRMED | J7 |
+| 8 | NOTE | Ranges | Inclusive range correctly uses `sle` comparison | CONFIRMED | J7 |
+| 9 | NOTE | ARC | Zero RC overhead for pure scalar loops | CONFIRMED | J7 |
 
-### LOW-1: Missing nounwind on ori_panic_cstr
+### MEDIUM-1: @sum_for missing memory(none) attribute
 
-**Location**: `ori_panic_cstr` declaration
-**Impact**: LLVM may generate unnecessary exception handling tables
-**Fix**: If panic does not unwind (aborts), add `nounwind`. If it can unwind, this is correct.
+**Location**: `@_ori_sum_for` function declaration
+**Impact**: LLVM cannot assume this function has no memory effects, preventing certain interprocedural optimizations (e.g., hoisting calls out of loops, CSE across calls). Also prevents `@_ori_main` from being marked `memory(none)` since it calls a non-pure function.
+**Root cause**: The range struct construction pattern (`insertvalue`/`extractvalue` chain on `{i64, i64, i64, i64}`) appears to trip the compiler's purity analysis. These are SSA register operations, not memory operations, so the function should be classified as pure.
+**Fix**: The purity analysis should recognize `insertvalue`/`extractvalue` on SSA aggregate values as non-memory operations, or trace through the ARC IR to confirm no actual memory accesses occur.
+**First seen**: Journey 7
+**Found in**: Attributes & Calling Convention (Category 3), Loops: Range Iteration (Category 9)
+
+### LOW-1: Missing noundef on main wrapper return
+
+**Location**: `@main` C wrapper, `define i32 @main()` return value
+**Impact**: Negligible -- the wrapper is called exactly once by the OS
+**Fix**: Add `noundef` to the wrapper's return type
 **First seen**: Journey 1
 **Found in**: Attributes & Calling Convention (Category 3)
 
@@ -794,19 +847,25 @@ The for-loop and explicit loop produce equivalent machine code structure at the 
 **First seen**: Journey 7
 **Found in**: Optimal IR Comparison (Category 7), Loops: Range Iteration (Category 9)
 
-### NOTE-5: Correct phi-based loop lowering
+### NOTE-5: Correct memory(none) on @sum_loop
+
+**Location**: `@_ori_sum_loop` function declaration
+**Impact**: Positive -- the fixed-point memory analysis correctly identifies this function as having no memory effects, enabling interprocedural optimizations
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-6: Correct phi-based loop lowering
 
 **Location**: Both loop functions
 **Impact**: Positive -- mutable locals are correctly converted to phi nodes rather than stack allocas, producing optimal SSA form
 **Found in**: Loops: Phi-Based Lowering (Category 8)
 
-### NOTE-6: Inclusive range comparison correctness
+### NOTE-7: Inclusive range comparison correctness
 
 **Location**: @sum_for, `%le = icmp sle i64 %v8, %proj.1`
 **Impact**: Positive -- `1..=n` correctly uses `sle` (signed less-or-equal) vs `slt` for exclusive ranges
 **Found in**: Loops: Range Iteration (Category 9)
 
-### NOTE-7: Zero ARC overhead for scalar loops
+### NOTE-8: Zero ARC overhead for scalar loops
 
 **Location**: All functions
 **Impact**: Positive -- the ARC pipeline correctly identifies that all loop variables are scalars and emits zero RC operations
@@ -818,7 +877,7 @@ The for-loop and explicit loop produce equivalent machine code structure at the 
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 9/10 | 1.04x avg ratio (max 1.06x) |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 94.1% compliance |
+| Attributes & Safety | 10% | 8/10 | 93.3% compliance |
 | Control Flow | 10% | 7/10 | 5 defects |
 | IR Quality | 20% | 9/10 | 2 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
@@ -828,16 +887,17 @@ The for-loop and explicit loop produce equivalent machine code structure at the 
 
 ## Verdict
 
-Journey 7's loop codegen is strong. Both `loop/break` and `for-in` range iteration produce near-optimal phi-based loops with correct overflow checking on all arithmetic. The compiler correctly converts mutable locals to SSA phi nodes rather than stack allocas, which is the key optimization for loop performance. The main inefficiencies are minor: empty trampoline blocks (3 instances) and a range struct construct-then-destructure pattern that LLVM trivially eliminates. ARC is perfectly irrelevant -- zero RC operations for pure scalar loops.
+Journey 7's loop codegen is strong. Both `loop/break` and `for-in` range iteration produce near-optimal phi-based loops with correct overflow checking on all 5 arithmetic operations. The compiler correctly converts mutable locals to SSA phi nodes rather than stack allocas, which is the key optimization for loop performance. A new improvement since earlier journeys: `@sum_loop` now receives `memory(none)`, though `@sum_for` is missing it due to the range struct pattern confusing the purity analysis. The remaining inefficiencies are minor: empty trampoline blocks and a range struct construct-then-destructure that LLVM trivially eliminates. ARC is perfectly irrelevant -- zero RC operations for pure scalar loops.
 
 ## Cross-Journey Observations
 
 | Feature | First Tested | This Journey | Status |
 |---------|-------------|--------------|--------|
 | Overflow checking | J1 | J7 | CONFIRMED |
-| nounwind attribute | J1 | J7 | CONFIRMED (user functions have nounwind) |
+| nounwind attribute | J1 | J7 | CONFIRMED (all user functions have nounwind) |
 | fastcc usage | J1 | J7 | CONFIRMED |
 | noundef on params | J1 | J7 | CONFIRMED |
+| memory(none) analysis | J7 | J7 | NEW (sum_loop has it, sum_for missing) |
 | Empty trampoline blocks | J7 | J7 | CONFIRMED |
 
-The nounwind analysis has improved since J1: all user functions now correctly receive the `nounwind` attribute via the fixed-point nounwind analysis. The `ori_panic_cstr` declaration still lacks `nounwind`, which is the only remaining attribute gap.
+The nounwind analysis has improved since J1: all user functions now correctly receive the `nounwind` attribute via the fixed-point nounwind analysis. The new `memory(none)` analysis correctly identifies `@sum_loop` as a pure function, but the range struct construction pattern in `@sum_for` prevents it from being classified as pure -- a targeted improvement opportunity.

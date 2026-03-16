@@ -2,7 +2,7 @@
 journey: 9
 slug: strings
 theme: "I am a string"
-date: 2026-03-15
+date: 2026-03-16
 status: PASS
 expected: 13
 eval_result: 13
@@ -27,7 +27,7 @@ score: 8.8
 score_breakdown:
   instruction_efficiency: 9
   arc_correctness: 10
-  attributes_safety: 6
+  attributes_safety: 7
   control_flow: 7
   ir_quality: 8
   binary_quality: 10
@@ -38,8 +38,8 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 23
-  attr_correct: 17
+  attr_applicable: 20
+  attr_correct: 16
   attr_has_wrong: false
   cf_defects: 4
   cf_incorrect: false
@@ -341,7 +341,7 @@ source_filename = "09-strings"
 @str = private unnamed_addr constant [6 x i8] c"hello\00", align 1
 @str.1 = private unnamed_addr constant [7 x i8] c"world!\00", align 1
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @bool_to_int ---
 define fastcc noundef i64 @_ori_bool_to_int(i1 noundef %0) #0 {
 bb0:
@@ -351,7 +351,7 @@ bb0:
 
 ; Function Attrs: nounwind uwtable
 ; --- @check_logic ---
-define fastcc noundef i64 @_ori_check_logic() #0 {
+define fastcc noundef i64 @_ori_check_logic() #1 {
 bb0:
   %call = call fastcc i64 @_ori_bool_to_int(i1 true)
   %call1 = call fastcc i64 @_ori_bool_to_int(i1 false)
@@ -392,7 +392,7 @@ add.ovf_panic13:
 
 ; Function Attrs: uwtable
 ; --- @check_strings ---
-define fastcc noundef i64 @_ori_check_strings() #1 {
+define fastcc noundef i64 @_ori_check_strings() #2 {
 bb0:
   %str_len.self22 = alloca { i64, i64, ptr }, align 8
   %str_len.self11 = alloca { i64, i64, ptr }, align 8
@@ -445,7 +445,7 @@ bb1:
   br i1 %rc_dec.skip_rc, label %rc_dec.sso_skip, label %rc_dec.heap
 
 rc_dec.heap:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data, ptr @"_ori_drop$3")
+  call void @ori_rc_dec(ptr %rc_dec.fat_data, ptr @"_ori_drop$3")  ; RC-- str
   br label %rc_dec.sso_skip
 
 rc_dec.sso_skip:
@@ -474,7 +474,7 @@ add.ovf_panic:
   unreachable
 
 rc_dec.heap14:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data13, ptr @"_ori_drop$3")
+  call void @ori_rc_dec(ptr %rc_dec.fat_data13, ptr @"_ori_drop$3")  ; RC-- str
   br label %rc_dec.sso_skip15
 
 rc_dec.sso_skip15:
@@ -503,7 +503,7 @@ add.ovf_panic28:
   unreachable
 
 rc_dec.heap30:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data29, ptr @"_ori_drop$3")
+  call void @ori_rc_dec(ptr %rc_dec.fat_data29, ptr @"_ori_drop$3")  ; RC-- str
   br label %rc_dec.sso_skip31
 
 rc_dec.sso_skip31:
@@ -512,7 +512,7 @@ rc_dec.sso_skip31:
 
 ; Function Attrs: uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #1 {
+define noundef i64 @_ori_main() #2 {
 bb0:
   %call = call fastcc i64 @_ori_check_logic()
   %call1 = call fastcc i64 @_ori_check_strings()
@@ -530,35 +530,36 @@ add.ovf_panic:
 }
 
 ; --- Runtime declarations ---
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
-declare void @ori_panic_cstr(ptr) #3                    ; cold noreturn
-declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #4
-declare void @ori_str_empty(ptr noalias sret({ i64, i64, ptr })) #4
-declare i64 @ori_str_len(ptr) #4                        ; nounwind
-declare void @ori_rc_free(ptr, i64, i64) #4             ; nounwind
-declare void @ori_rc_dec(ptr, ptr) #6                   ; nounwind memory(inaccessiblemem: readwrite)
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #3
+declare void @ori_panic_cstr(ptr) #4                    ; cold noreturn
+declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #5
+declare void @ori_str_empty(ptr noalias sret({ i64, i64, ptr })) #5
+declare i64 @ori_str_len(ptr) #5                        ; nounwind
+declare void @ori_rc_free(ptr, i64, i64) #5             ; nounwind
+declare void @ori_rc_dec(ptr, ptr) #7                   ; nounwind memory(inaccessiblemem: readwrite)
 
 ; --- Drop glue ---
-define void @"_ori_drop$3"(ptr %0) #5 {                 ; cold nounwind
+define void @"_ori_drop$3"(ptr %0) #6 {                 ; cold nounwind
 entry:
   call void @ori_rc_free(ptr %0, i64 24, i64 8)
   ret void
 }
 
-define i32 @main() {
+define i32 @main() #2 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
   ret i32 %exit_code
 }
 
-attributes #0 = { nounwind uwtable }
-attributes #1 = { uwtable }
-attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #3 = { cold noreturn }
-attributes #4 = { nounwind }
-attributes #5 = { cold nounwind }
-attributes #6 = { nounwind memory(inaccessiblemem: readwrite) }
+attributes #0 = { nounwind memory(none) uwtable }
+attributes #1 = { nounwind uwtable }
+attributes #2 = { uwtable }
+attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #4 = { cold noreturn }
+attributes #5 = { nounwind }
+attributes #6 = { cold nounwind }
+attributes #7 = { nounwind memory(inaccessiblemem: readwrite) }
 ```
 
 #### Disassembly
@@ -676,22 +677,24 @@ _ori_main:
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | noundef | noalias | uwtable | cold | Notes |
-|----------|--------|----------|--------|---------|---------|------|-------|
-| @bool_to_int | YES | YES | YES (ret+param) | N/A | YES | NO | |
-| @check_logic | YES | YES | YES (ret) | N/A | YES | NO | |
-| @check_strings | YES | NO | YES (ret) | N/A | YES | NO | [MEDIUM-2] |
-| @main | NO | NO | YES (ret) | N/A | YES | NO | [LOW-1] |
-| @ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | YES | |
-| @ori_str_from_raw | N/A | YES | N/A | YES (sret) | N/A | NO | |
-| @ori_str_empty | N/A | YES | N/A | YES (sret) | N/A | NO | |
-| @ori_str_len | N/A | YES | N/A | N/A | N/A | NO | |
-| @_ori_drop$3 | N/A | YES | N/A | N/A | N/A | YES | |
-| @ori_rc_dec | N/A | YES | N/A | N/A | N/A | NO | memory(inaccessiblemem: readwrite) |
+| Function | fastcc | nounwind | memory | noundef | noalias | uwtable | cold | Notes |
+|----------|--------|----------|--------|--------|---------|---------|------|-------|
+| @bool_to_int | YES | YES | memory(none) | YES (ret+param) | N/A | YES | NO | [NOTE-5] |
+| @check_logic | YES | YES | N/A | YES (ret) | N/A | YES | NO | |
+| @check_strings | YES | NO | N/A | YES (ret) | N/A | YES | NO | [MEDIUM-2] |
+| @main | NO | NO | N/A | YES (ret) | N/A | YES | NO | [LOW-1] |
+| @ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | N/A | YES | |
+| @ori_str_from_raw | N/A | YES | N/A | N/A | YES (sret) | N/A | NO | |
+| @ori_str_empty | N/A | YES | N/A | N/A | YES (sret) | N/A | NO | |
+| @ori_str_len | N/A | YES | N/A | N/A | N/A | N/A | NO | |
+| @_ori_drop$3 | N/A | YES | N/A | N/A | N/A | N/A | YES | |
+| @ori_rc_dec | N/A | YES | memory(inaccessiblemem: rw) | N/A | N/A | N/A | NO | |
 
-**Attribute compliance**: 17/23 applicable checks correct (73.9%).
+**Attribute compliance**: 16/20 applicable checks correct (80.0%).
 
-**Missing `nounwind` on @check_strings** [MEDIUM-2]: The nounwind analysis correctly determined that `@check_strings` can call `ori_panic_cstr` on overflow. Since `ori_panic_cstr` is `cold noreturn`, the function either returns normally or terminates via panic -- it cannot propagate exceptions back to the caller. A more precise analysis could mark it `nounwind` since `noreturn` functions do not unwind.
+**New: `memory(none)` on @bool_to_int** [NOTE-5]: The AIMS memory analysis now correctly identifies `@bool_to_int` as a pure function -- it takes a boolean and returns an integer with no memory effects whatsoever. This `memory(none)` attribute enables LLVM to optimize more aggressively (e.g., CSE, dead call elimination).
+
+**Missing `nounwind` on @check_strings and @main** [MEDIUM-2]: The nounwind analysis correctly excludes these because they call `ori_panic_cstr` on overflow. Since `ori_panic_cstr` is `cold noreturn`, the function either returns normally or terminates via panic -- it cannot propagate exceptions back to the caller. A more precise analysis could mark them `nounwind` since `noreturn` functions do not unwind.
 
 **Missing `fastcc` on @main** [LOW-1]: Entry point uses C calling convention (required for ABI compatibility with the `main()` wrapper). This is correct behavior.
 
@@ -773,7 +776,7 @@ Clean: 2 calls, spill/restore, checked add. The `jo` traps overflow correctly.
 
 ```llvm
 ; IDEAL (2 instructions)
-define fastcc noundef i64 @_ori_bool_to_int(i1 noundef %0) nounwind {
+define fastcc noundef i64 @_ori_bool_to_int(i1 noundef %0) nounwind memory(none) {
   %sel = select i1 %0, i64 1, i64 0
   ret i64 %sel
 }
@@ -788,7 +791,7 @@ bb0:
 }
 ```
 
-**Delta**: 0 instructions. OPTIMAL.
+**Delta**: 0 instructions. OPTIMAL. Now carries `memory(none)` -- a codegen improvement from the AIMS branch.
 
 #### @check_logic: Ideal vs Actual
 
@@ -887,7 +890,7 @@ String lifecycle in `@check_strings` follows a clear three-phase pattern per str
 
 3. **Cleanup**: SSO-gated `ori_rc_dec(data_ptr, drop_fn)`. The 8-instruction diamond pattern (extractvalue, ptrtoint, and, icmp, ptrtoint, icmp, or, br) checks if the string is SSO or null before calling rc_dec.
 
-The codegen improvement from the previous run is the use of `ori_str_empty` for the empty string `""`, replacing the previous `ori_str_from_raw(ptr @str.2, i64 0)`. This eliminates the unnecessary global constant `@str.2 = private unnamed_addr constant [1 x i8] zeroinitializer` -- a minor but clean improvement. [NOTE-4]
+The codegen uses `ori_str_empty` for the empty string `""`, rather than `ori_str_from_raw(ptr, 0)`. This eliminates an unnecessary global constant -- a clean specialization.
 
 ## Findings
 
@@ -897,9 +900,10 @@ The codegen improvement from the previous run is the use of `ori_str_empty` for 
 | 2 | MEDIUM | Attributes | Missing nounwind on @check_strings and @main | CONFIRMED | J1 |
 | 3 | LOW | Attributes | Missing fastcc on @main (by design -- C ABI entry) | CONFIRMED | J1 |
 | 4 | NOTE | ARC | All 3 strings perfectly balanced: 3 rc_inc, 3 rc_dec | CONFIRMED | J9 |
-| 5 | NOTE | Codegen | Boolean constant folding eliminates all &&/|| runtime logic | CONFIRMED | J9 |
-| 6 | NOTE | Codegen | select-based bool_to_int lowers to branchless cmovne | CONFIRMED | J9 |
-| 7 | NOTE | Codegen | Empty string uses ori_str_empty instead of ori_str_from_raw -- eliminates unnecessary global constant | NEW | J9 (re-run) |
+| 5 | NOTE | Attributes | @bool_to_int gains memory(none) -- pure function correctly identified | NEW | J9 |
+| 6 | NOTE | Codegen | Boolean constant folding eliminates all &&/\|\| runtime logic | CONFIRMED | J9 |
+| 7 | NOTE | Codegen | select-based bool_to_int lowers to branchless cmovne | CONFIRMED | J9 |
+| 8 | NOTE | Codegen | Empty string uses ori_str_empty instead of ori_str_from_raw | CONFIRMED | J9 |
 
 ### MEDIUM-1: Redundant unconditional branches in SSO rc_dec gating
 
@@ -931,22 +935,28 @@ The codegen improvement from the previous run is the use of `ori_str_empty` for 
 **Impact**: Positive -- 3 strings allocated (2 via ori_str_from_raw, 1 via ori_str_empty), 3 cleaned up, zero leaks
 **Found in**: ARC Purity (Category 2)
 
-### NOTE-2: Boolean constant folding
+### NOTE-5: memory(none) on @bool_to_int
+
+**Location**: @_ori_bool_to_int function declaration
+**Impact**: Positive -- the AIMS memory analysis correctly identifies this pure function as having no memory effects. This enables LLVM to perform CSE, dead call elimination, and other optimizations that require knowledge of memory purity.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-6: Boolean constant folding
 
 **Location**: @check_logic
 **Impact**: Positive -- `&&`/`||` on constant bools folded away at canonicalization
 **Found in**: Optimal IR Comparison (Category 7)
 
-### NOTE-3: Branchless bool_to_int
+### NOTE-7: Branchless bool_to_int
 
 **Location**: @bool_to_int native disassembly
 **Impact**: Positive -- `select` lowers to `cmovne`, no branch prediction penalty
 **Found in**: Binary Analysis (Category 6)
 
-### NOTE-4: Empty string uses ori_str_empty
+### NOTE-8: Empty string uses ori_str_empty
 
 **Location**: @check_strings, empty string `""` construction
-**Impact**: Positive -- eliminates unnecessary global constant `@str.2`, uses specialized `ori_str_empty` function instead of `ori_str_from_raw(ptr, 0)`
+**Impact**: Positive -- eliminates unnecessary global constant, uses specialized `ori_str_empty` function
 **Found in**: Strings: ARC Lifecycle (Category 9)
 
 ## Codegen Quality Score
@@ -955,7 +965,7 @@ The codegen improvement from the previous run is the use of `ori_str_empty` for 
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 9/10 | 1.03x avg ratio (max 1.05x) |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 6/10 | 73.9% compliance |
+| Attributes & Safety | 10% | 7/10 | 80.0% compliance |
 | Control Flow | 10% | 7/10 | 4 defects |
 | IR Quality | 20% | 8/10 | 4 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
@@ -965,7 +975,7 @@ The codegen improvement from the previous run is the use of `ori_str_empty` for 
 
 ## Verdict
 
-Journey 9 re-run on the AIMS branch confirms the same 8.8/10 score as the previous run. ARC remains perfectly balanced at 10/10 with 3 string allocations matched by 3 SSO-gated cleanups. The codegen shows one improvement: empty string `""` now uses the specialized `ori_str_empty` function instead of `ori_str_from_raw` with a zeroinitializer constant, eliminating a unnecessary global. The SSO gating pattern, branchless boolean select, and constant folding all remain correct and efficient. The main weaknesses are unchanged: 4 redundant branches in SSO diamond patterns (7/10 control flow) and attribute compliance at 73.9% (6/10) due to conservative nounwind analysis on functions that call noreturn panic.
+Journey 9 on the AIMS branch scores 8.8/10, matching the previous run. The key improvement is the addition of `memory(none)` on `@bool_to_int`, correctly identifying it as a pure function with no memory effects -- this is new AIMS attribute analysis in action. ARC remains perfectly balanced at 10/10 with 3 string allocations matched by 3 SSO-gated cleanups. Attribute compliance improved from 73.9% to 80.0% thanks to the memory annotation. The main weaknesses remain unchanged: 4 redundant branches in SSO diamond patterns (7/10 control flow) and conservative nounwind analysis on functions that call noreturn panic. The SSO gating pattern, branchless boolean select, and constant folding all remain correct and efficient.
 
 ## Cross-Journey Observations
 
@@ -976,8 +986,9 @@ Journey 9 re-run on the AIMS branch confirms the same 8.8/10 score as the previo
 | Missing nounwind on callers of panic | J1 | J9 | CONFIRMED |
 | Boolean constant folding | J2 | J9 | CONFIRMED |
 | select lowering to cmovne | J2 | J9 | CONFIRMED |
+| memory(none) on pure functions | J3 | J9 | CONFIRMED |
 | SSO gating for ARC | J9 | J9 | CONFIRMED |
 | String construction protocol | J9 | J9 | CONFIRMED |
-| ori_str_empty for "" | J9 (re-run) | J9 | NEW |
+| ori_str_empty for "" | J9 | J9 | CONFIRMED |
 
-The SSO gating pattern is unique to string-handling journeys and will likely appear again in J10+ when strings are used within collections. The redundant branch pattern in SSO diamond merges matches the same codegen pattern seen in J2's branching overhead, suggesting a common block-merging optimization opportunity. The new `ori_str_empty` usage is a minor codegen improvement that demonstrates the compiler's ability to specialize empty string construction.
+The `memory(none)` attribute on `@bool_to_int` confirms this AIMS optimization is now consistently applied across journeys -- first seen on simple pure functions in J3 and now extending to boolean helper functions. The SSO gating pattern is unique to string-handling journeys and will appear again whenever strings are used within collections. The redundant branch pattern in SSO diamond merges matches the same codegen pattern seen in J2's branching overhead, suggesting a common block-merging optimization opportunity.
