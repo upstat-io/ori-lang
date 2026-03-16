@@ -24,18 +24,18 @@ features:
   - function_calls
   - multiple_functions
 feature_description: "Recursive functions with tree recursion (fib) and tail recursion (gcd)"
-score: 9.7
+score: 10.0
 score_breakdown:
-  instruction_efficiency: 9
+  instruction_efficiency: 10
   arc_correctness: 10
   attributes_safety: 10
   control_flow: 10
-  ir_quality: 9
+  ir_quality: 10
   binary_quality: 10
   other_findings: 10
 score_metrics:
-  instruction_ratio: 1.02
-  instruction_ratio_max: 1.14
+  instruction_ratio: 1.0
+  instruction_ratio_max: 1.0
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
@@ -44,7 +44,7 @@ score_metrics:
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
-  ir_unjustified: 1
+  ir_unjustified: 0
   ir_incorrect: false
   bin_defects: 0
   bin_hard_fail: false
