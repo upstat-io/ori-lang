@@ -409,6 +409,15 @@ fn check_leaks_and_exit() -> i32 {
     0
 }
 
+/// AOT-callable leak check — called from the LLVM-generated `main()` wrapper.
+///
+/// Returns 0 if no leaks (or `ORI_CHECK_LEAKS` not set), 2 if leaks detected.
+/// The `main` wrapper uses this to override the exit code when leaks are found.
+#[no_mangle]
+pub extern "C" fn ori_check_leaks() -> i32 {
+    check_leaks_and_exit()
+}
+
 #[cfg(test)]
 pub(crate) mod test_helpers;
 

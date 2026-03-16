@@ -408,6 +408,10 @@ parse_rust_results "$AOT_OUTPUT" "AOT"
 parse_ori_results "$ORI_INTERP_OUTPUT" "ORI_INTERP"
 parse_ori_results "$ORI_LLVM_OUTPUT" "ORI_LLVM" "$ORI_LLVM_EXIT"
 
+# Count AOT tests that failed specifically due to memory leaks.
+# assert_aot_success panics with "leaked memory" when exit code is 2.
+AOT_LEAKS=$(grep -c "leaked memory" "$AOT_OUTPUT" 2>/dev/null || echo 0)
+
 # Determine WASM status
 if grep -q "skipped" "$WASM_OUTPUT" 2>/dev/null; then
     WASM_STATUS="skipped"
@@ -428,7 +432,11 @@ printf "%-30s %8s %8s %8s %8s\n" "------------------------------" "--------" "--
 printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED" "-"
 printf "%-30s %8d %8d %8d %8s\n" "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED" "-"
 printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" "-"
-printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
+if [ "$AOT_LEAKS" -gt 0 ]; then
+    printf "%-30s %8d %8d %8d %8s  ${YELLOW}(%d leaked)${NC}\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-" "$AOT_LEAKS"
+else
+    printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
+fi
 printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
 if grep -qx "skipped" "$ORI_LLVM_OUTPUT" 2>/dev/null; then
@@ -450,6 +458,11 @@ TOTAL_LCFAIL=$((${ORI_LLVM_LCFAIL:-0}))
 
 printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_LCFAIL"
 echo ""
+
+if [ "$AOT_LEAKS" -gt 0 ]; then
+    echo -e "${YELLOW}${BOLD}⚠  $AOT_LEAKS AOT test(s) leaked memory (ORI_CHECK_LEAKS=1 detected RC leaks)${NC}"
+    echo ""
+fi
 
 # --- Emit JSON if requested ---
 emit_json() {
@@ -505,7 +518,7 @@ emit_json() {
         fi
         echo ""
         echo "  ],"
-        echo "  \"totals\": { \"passed\": $TOTAL_PASSED, \"failed\": $TOTAL_FAILED, \"skipped\": $TOTAL_SKIPPED, \"lcfail\": $TOTAL_LCFAIL }"
+        echo "  \"totals\": { \"passed\": $TOTAL_PASSED, \"failed\": $TOTAL_FAILED, \"skipped\": $TOTAL_SKIPPED, \"lcfail\": $TOTAL_LCFAIL, \"aot_leaks\": $AOT_LEAKS }"
         echo "}"
     } > "$path"
 

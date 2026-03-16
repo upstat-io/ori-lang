@@ -116,31 +116,46 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         };
 
         // Call the Ori @main function
-        match &abi.return_abi.passing {
+        let main_exit_code = match &abi.return_abi.passing {
             ReturnPassing::Direct => {
                 let result = self
                     .builder
                     .call(ori_main_id, &call_args, "ori_main_result");
                 if returns_int {
-                    // Truncate i64 → i32 for C exit code
                     if let Some(val) = result {
-                        let exit_code = self.builder.trunc(val, i32_ty, "exit_code");
-                        self.builder.ret(exit_code);
+                        self.builder.trunc(val, i32_ty, "exit_code")
                     } else {
-                        let zero = self.builder.const_i32(0);
-                        self.builder.ret(zero);
+                        self.builder.const_i32(0)
                     }
                 } else {
-                    let zero = self.builder.const_i32(0);
-                    self.builder.ret(zero);
+                    self.builder.const_i32(0)
                 }
             }
             ReturnPassing::Void | ReturnPassing::Sret { .. } => {
                 self.builder.call(ori_main_id, &call_args, "");
-                let zero = self.builder.const_i32(0);
-                self.builder.ret(zero);
+                self.builder.const_i32(0)
             }
-        }
+        };
+
+        // Check for RC leaks (ORI_CHECK_LEAKS=1). Returns 0 if clean, 2 if leaks.
+        // Exit code precedence: leak code (2) overrides main's exit code when both
+        // are non-zero. This is intentional — in testing, leaked memory is surfaced
+        // over application-level failures so the test harness can distinguish leaks
+        // from runtime errors. When ORI_CHECK_LEAKS is unset, ori_check_leaks()
+        // returns 0, so main's exit code passes through unchanged.
+        let check_leaks_fn = self.builder.runtime_fn("ori_check_leaks");
+        let leak_code = self
+            .builder
+            .call(check_leaks_fn, &[], "leak_check")
+            .unwrap_or(main_exit_code);
+
+        // If leak check found issues (non-zero), use that exit code; otherwise use main's.
+        let zero = self.builder.const_i32(0);
+        let has_leak = self.builder.icmp_ne(leak_code, zero, "has_leak");
+        let final_exit = self
+            .builder
+            .select(has_leak, leak_code, main_exit_code, "final_exit");
+        self.builder.ret(final_exit);
 
         true
     }

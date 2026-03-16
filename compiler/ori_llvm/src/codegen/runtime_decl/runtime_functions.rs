@@ -126,6 +126,15 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: false,
     },
+    // Leak check for AOT main wrapper. Reads ORI_CHECK_LEAKS env var,
+    // returns 0 if clean or disabled, 2 if leaks detected.
+    RtFn {
+        name: "ori_check_leaks",
+        params: &[],
+        ret: Some(Ty::I32),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: false,
+    },
     // Assertions — extern "C-unwind" (call ori_panic on failure, must unwind)
     RtFn {
         name: "ori_assert",
