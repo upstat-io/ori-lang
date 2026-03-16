@@ -2,7 +2,7 @@
 journey: 13
 slug: iterators
 theme: "I am an iterator"
-date: 2026-03-15
+date: 2026-03-16
 status: PASS
 expected: 55
 eval_result: 55
@@ -44,8 +44,8 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 38
-  attr_correct: 20
+  attr_applicable: 28
+  attr_correct: 16
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
@@ -289,13 +289,13 @@ fn @square(%0: int [own]) -> int — pure scalar arithmetic
 <summary>ARC annotations</summary>
 
 ```text
-@square: +0 rc_inc, +0 rc_dec (pure scalar)
+@square: +0 rc_inc, +0 rc_dec (pure scalar, memory(none))
 @main: +0 rc_inc, +0 rc_dec (AIMS eliminated dead null-env rc_dec)
   - list allocated with implicit RC=1 via ori_list_alloc_data
   - ori_iter_from_list takes ownership (no rc_inc)
   - Non-capturing lambdas: AIMS recognizes FatVal with null env, no cleanup emitted
 @__lambda_0: +0 rc_inc, +0 rc_dec (no captures)
-@__lambda_1: +0 rc_inc, +0 rc_dec (no captures)
+@__lambda_1: +0 rc_inc, +0 rc_dec (no captures, memory(none))
 @tramp_0: +0 rc_inc, +0 rc_dec (passthrough)
 @tramp_1: +0 rc_inc, +0 rc_dec (passthrough)
 ```
@@ -311,7 +311,7 @@ source_filename = "13-iterators"
 @ovf.msg = private unnamed_addr constant [35 x i8] c"integer overflow on multiplication\00", align 1
 @ovf.msg.1 = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00", align 1
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @square ---
 define fastcc noundef i64 @_ori_square(i64 noundef %0) #0 {
 bb0:
@@ -363,13 +363,13 @@ bb0:
 
 ; Function Attrs: nounwind uwtable
 ; --- @__lambda_0 ---
-define noundef i64 @_ori___lambda_0(ptr %0, i64 noundef %1) #0 {
+define noundef i64 @_ori___lambda_0(ptr %0, i64 noundef %1) #2 {
 bb0:
   %call = call fastcc i64 @_ori_square(i64 %1)
   ret i64 %call
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @__lambda_1 ---
 define noundef i64 @_ori___lambda_1(ptr %0, i64 noundef %1, i64 noundef %2) #0 {
 bb0:
@@ -386,9 +386,24 @@ add.ovf_panic:                                    ; preds = %bb0
   unreachable
 }
 
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64) #3
+
+; Function Attrs: cold noreturn
+declare void @ori_panic_cstr(ptr) #4
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #3
+
+; Function Attrs: nounwind
+declare ptr @ori_list_alloc_data(i64, i64) #5
+
+; Function Attrs: nounwind
+declare ptr @ori_iter_from_list(ptr, i64, i64, i64, ptr) #5
+
 ; Function Attrs: nounwind
 ; --- @tramp_0 ---
-define void @_ori_tramp_0(ptr %0, ptr %1, ptr %2) #4 {
+define void @_ori_tramp_0(ptr %0, ptr %1, ptr %2) #5 {
 entry:
   %tramp.fn_ptr.gep = getelementptr inbounds nuw { ptr, ptr }, ptr %0, i32 0, i32 0
   %tramp.fn_ptr = load ptr, ptr %tramp.fn_ptr.gep, align 8
@@ -401,8 +416,11 @@ entry:
 }
 
 ; Function Attrs: nounwind
+declare ptr @ori_iter_map(ptr, ptr, ptr, i64) #5
+
+; Function Attrs: nounwind
 ; --- @tramp_1 ---
-define void @_ori_tramp_1(ptr %0, ptr %1, ptr %2, ptr %3) #4 {
+define void @_ori_tramp_1(ptr %0, ptr %1, ptr %2, ptr %3) #5 {
 entry:
   %tramp.fn_ptr.gep = getelementptr inbounds nuw { ptr, ptr }, ptr %0, i32 0, i32 0
   %tramp.fn_ptr = load ptr, ptr %tramp.fn_ptr.gep, align 8
@@ -415,18 +433,23 @@ entry:
   ret void
 }
 
-define i32 @main() {
+; Function Attrs: nounwind
+declare void @ori_iter_fold(ptr, ptr, ptr, ptr, i64, i64, ptr) #5
+
+; Function Attrs: uwtable
+define i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
   ret i32 %exit_code
 }
 
-attributes #0 = { nounwind uwtable }
+attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { uwtable }
-attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #3 = { cold noreturn }
-attributes #4 = { nounwind }
+attributes #2 = { nounwind uwtable }
+attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #4 = { cold noreturn }
+attributes #5 = { nounwind }
 ```
 
 #### Disassembly
@@ -548,7 +571,7 @@ _ori_tramp_1:
 | 5 | @tramp_0 | 8 | 8 | 1.00x | OPTIMAL |
 | 6 | @tramp_1 | 9 | 9 | 1.00x | OPTIMAL |
 
-All 6 user functions achieve OPTIMAL instruction ratio. Every instruction is necessary. Compared to the pre-AIMS run, `@main` dropped from 35 to 27 instructions -- the 2 dead `br i1 true` guards and their 6 unreachable `rc_dec.do` block instructions are completely gone. [NOTE-1] [FIXED vs previous MEDIUM-1]
+All 6 user functions achieve OPTIMAL instruction ratio. Every instruction is necessary. `@main` is a single straight-line basic block with 27 instructions: 4 allocas, 1 list alloc call, 5 GEP+store pairs for elements, 3 insertvalue/extractvalue for the list struct, and the iterator chain calls (iter_from_list, iter_map, iter_fold) with their argument setup. [NOTE-1]
 
 ### 2. ARC Purity
 
@@ -566,21 +589,23 @@ All 6 user functions achieve OPTIMAL instruction ratio. Every instruction is nec
 - Both lambdas are non-capturing (FatVal with null env), so no rc_dec cleanup is needed
 - The iterator runtime handles all internal RC management
 
-This is a dramatic improvement over the pre-AIMS run, which had 2 dead `ori_rc_dec` calls for null environments (guarded by `br i1 true`), triggering the unbalanced-RC gate that capped the ARC score at 3/10. [NOTE-2] [FIXED vs previous MEDIUM-2]
+[NOTE-2]
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | noalias | readonly | cold | noundef | Notes |
-|----------|--------|----------|---------|----------|------|---------|-------|
-| @square | YES | YES | N/A | N/A | NO | YES | |
-| @main | NO (C) | NO | N/A | N/A | NO | YES | [MEDIUM-1] |
-| @__lambda_0 | NO | YES | N/A | N/A | NO | YES | Expected -- callback ABI |
-| @__lambda_1 | NO | YES | N/A | N/A | NO | YES | Expected -- callback ABI |
-| @tramp_0 | NO | YES | N/A | N/A | NO | N/A | Expected -- runtime bridge |
-| @tramp_1 | NO | YES | N/A | N/A | NO | N/A | Expected -- runtime bridge |
-| @ori_panic_cstr | N/A | N/A | N/A | N/A | YES | N/A | Correct cold+noreturn |
+| Function | fastcc | nounwind | memory(none) | noalias | readonly | cold | noundef | Notes |
+|----------|--------|----------|-------------|---------|----------|------|---------|-------|
+| @square | YES | YES | YES | N/A | N/A | NO | YES | Pure function correctly annotated |
+| @main | NO (C) | NO | NO | N/A | N/A | NO | YES | [MEDIUM-1] |
+| @__lambda_0 | NO | YES | NO | N/A | N/A | NO | YES | Expected -- callback ABI; calls @square |
+| @__lambda_1 | NO | YES | YES | N/A | N/A | NO | YES | Expected -- callback ABI; pure add |
+| @tramp_0 | NO | YES | N/A | N/A | N/A | NO | N/A | Expected -- runtime bridge |
+| @tramp_1 | NO | YES | N/A | N/A | N/A | NO | N/A | Expected -- runtime bridge |
+| @ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | YES | N/A | Correct cold+noreturn |
 
-`@main` uses C calling convention (correct -- entry point) but lacks `nounwind`. Since Ori panic uses `ori_panic_cstr` which is `noreturn` (abort semantics, not unwinding), `nounwind` would be correct on `@main`. The 52.6% compliance rate (20/38) is driven by the large number of runtime declarations (6 external functions) that the tool counts applicable checks on. [MEDIUM-1]
+`@main` uses C calling convention (correct -- entry point) but lacks `nounwind`. Since Ori panic uses `ori_panic_cstr` which is `noreturn` (abort semantics, not unwinding), `nounwind` would be correct on `@main`. The 57.1% compliance rate (16/28) is driven by the runtime declarations (5 external functions) where the tool counts applicable attribute checks. [MEDIUM-1]
+
+Notable improvement since last run: `@square` and `@__lambda_1` now have `memory(none)` (attribute group `#0`), correctly marking them as pure functions with no memory side effects. `@__lambda_0` has `nounwind uwtable` but not `memory(none)` because it calls `@_ori_square` which could panic (the nounwind analysis correctly determined it won't unwind, but the memory analysis conservatively excludes it since the call to `@_ori_square` involves reading the overflow flag).
 
 Lambda and trampoline functions correctly use C calling convention since they are called via function pointer from the runtime. `@square` correctly has `fastcc` since it is only called directly.
 
@@ -595,7 +620,7 @@ Lambda and trampoline functions correctly use C calling convention since they ar
 | @tramp_0 | 1 | 0 | 0 | 0 | |
 | @tramp_1 | 1 | 0 | 0 | 0 | |
 
-All functions have clean control flow. `@main` is now a single basic block (`bb0`) with zero branches -- a major improvement from the pre-AIMS run which had 5 blocks including 2 dead `rc_dec.do` blocks and 2 redundant `br i1 true` branches. `@square` and `@__lambda_1` have 3 blocks each (entry, ok, panic) which is the expected structure for overflow-checked arithmetic. [FIXED vs previous MEDIUM-1]
+All functions have clean control flow. `@main` is a single basic block with zero branches. `@square` and `@__lambda_1` have 3 blocks each (entry, ok, panic) which is the expected structure for overflow-checked arithmetic.
 
 ### 5. Overflow Checking
 
@@ -615,18 +640,17 @@ Both arithmetic operations use checked intrinsics with panic on overflow. Error 
 | Binary size | 6.40 MiB (debug) |
 | .text section | 913 KiB |
 | .rodata section | 134 KiB |
-| User code | 360 bytes (6 functions) |
+| User code | 400 bytes (7 functions incl. C main) |
 | Runtime | >99% of binary |
 
-The user code is extremely compact. The 6 user-defined functions total 360 bytes:
-- `@square`: 32 bytes (8 instructions)
-- `@main`: 223 bytes (straight-line, no branches)
-- `@__lambda_0`: 19 bytes
-- `@__lambda_1`: 31 bytes
-- `@tramp_0`: 26 bytes
-- `@tramp_1`: 29 bytes
-
-Compared to the pre-AIMS run, `@main` shrank from ~318 total to 360 total (the old measurement was imprecise; the key improvement is that `@main` lost the dead branch/rc_dec blocks, dropping its stack frame from `$0x58` to `$0x48`).
+The user code is compact. The 7 functions (including the C `main` wrapper) total 400 bytes:
+- `@square`: 32 bytes
+- `@main`: 224 bytes (straight-line, no branches)
+- `@__lambda_0`: 32 bytes
+- `@__lambda_1`: 32 bytes
+- `@tramp_0`: 32 bytes
+- `@tramp_1`: 32 bytes
+- `main` (C wrapper): 16 bytes
 
 #### Disassembly: @square
 
@@ -648,13 +672,11 @@ Compact: 8 instructions including overflow check. The `seto`+`jo` sequence is an
 
 ```asm
 _ori_main:
-   sub    $0x48,%rsp            ; 0x48 = 72 bytes (down from 0x58 = 88 pre-AIMS)
-   ; ... list allocation and initialization ...
+   sub    $0x48,%rsp            ; 72 bytes stack frame
+   ; ... list allocation and initialization (5 elements) ...
    call   ori_iter_from_list
    ; ... setup tramp.closure for map ...
    call   ori_iter_map
-   ; NO dead rc_dec blocks -- straight to fold setup
-   mov    %rax,%rdi
    ; ... setup tramp.closure6 for fold ...
    call   ori_iter_fold
    mov    0x40(%rsp),%rax       ; load fold result
@@ -662,7 +684,7 @@ _ori_main:
    ret
 ```
 
-The critical improvement: there are zero `mov $0x1,%al` / `test $0x1,%al` / `jne` sequences that previously guarded dead `rc_dec` blocks. The flow from `ori_iter_map` to `ori_iter_fold` is now direct.
+Clean straight-line flow: list alloc, element stores, iter_from_list, iter_map, iter_fold, return. Zero branches in user code.
 
 #### Disassembly: @tramp_0
 
@@ -688,7 +710,7 @@ Clean trampoline: 10 instructions for the closure-to-runtime bridge.
 
 ```llvm
 ; IDEAL (7 instructions -- overflow checking required)
-define fastcc noundef i64 @_ori_square(i64 noundef %0) nounwind {
+define fastcc noundef i64 @_ori_square(i64 noundef %0) nounwind memory(none) {
   %mul = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %0, i64 %0)
   %mul.val = extractvalue { i64, i1 } %mul, 0
   %mul.ovf = extractvalue { i64, i1 } %mul, 1
@@ -748,7 +770,7 @@ bb0:
 ; ... (see Generated LLVM IR section above)
 ```
 
-**Delta**: +0 instructions. OPTIMAL. The pre-AIMS version had 35 instructions (+8 unjustified from dead `br i1 true` guards and unreachable `rc_dec.do` blocks).
+**Delta**: +0 instructions. OPTIMAL.
 
 #### Module Summary
 
@@ -761,7 +783,7 @@ bb0:
 | @tramp_0 | 8 | 8 | +0 | N/A | OPTIMAL |
 | @tramp_1 | 9 | 9 | +0 | N/A | OPTIMAL |
 
-### 8. Iterators: Trampoline Dispatch
+### 8. Iterators: Adapter Chain Codegen
 
 The LLVM backend does not inline the iterator protocol. Instead, iterator operations are delegated to the Ori runtime via opaque pointer-based APIs:
 
@@ -777,7 +799,9 @@ The trampoline dispatch pattern has zero overhead beyond the indirect call:
 
 The extra instruction in `@tramp_1` is the additional `load` for the accumulator parameter, which is structurally required for fold's 3-argument callback vs map's 2-argument callback.
 
-### 9. Iterators: ARC for Iterator State
+A hand-optimized version could potentially inline the map+fold into a single loop, eliminating the trampoline overhead entirely. However, the current architecture separates concerns cleanly: the runtime owns the iteration protocol, and trampolines provide type-safe bridging. For a 5-element list, the 2 indirect calls per element (map trampoline + fold trampoline) add negligible overhead compared to the actual computation.
+
+### 9. Iterators: ARC in Iteration
 
 AIMS produces clean ownership annotations for the iterator chain:
 
@@ -796,15 +820,17 @@ Key observations:
 3. **FatVal for lambdas**: Non-capturing closures are `[FatVal]` (a `{ptr, ptr}` pair). Since the env is null, AIMS correctly emits no rc_dec for them -- this is the fix that eliminated the previous dead `br i1 true` blocks.
 4. **Borrow for iterator args**: `@map` and `@fold` receive their iterator argument as `[borrow]`, meaning the runtime borrows rather than takes ownership of the upstream iterator state.
 
+The `memory(none)` attribute on `@square` and `@__lambda_1` further confirms that AIMS and the nounwind/memory analysis work together: pure scalar functions that only compute and potentially panic are correctly identified as having no memory effects.
+
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
 | 1 | MEDIUM | Attributes | Missing nounwind on @main (entry point) | CONFIRMED | J1 |
-| 2 | NOTE | ARC | AIMS eliminated dead null-env rc_dec -- zero RC in user code | FIXED | J13 |
-| 3 | NOTE | Instruction Purity | All 6 user functions achieve OPTIMAL (1.0x) ratio | NEW | J13 |
-| 4 | NOTE | Control Flow | @main reduced from 5 blocks to 1 block (AIMS fix) | FIXED | J13 |
-| 5 | NOTE | Iterators | Clean ownership transfer: list->iter->map->fold with zero user RC | NEW | J13 |
+| 2 | NOTE | Attributes | @square and @__lambda_1 correctly have memory(none) | NEW | J13 |
+| 3 | NOTE | ARC | Zero RC in user code -- AIMS eliminated dead null-env rc_dec | NEW | J13 |
+| 4 | NOTE | Instruction Purity | All 6 user functions achieve OPTIMAL (1.0x) ratio | NEW | J13 |
+| 5 | NOTE | Iterators | Clean ownership chain: list->iter->map->fold with zero user RC | NEW | J13 |
 
 ### MEDIUM-1: Missing nounwind on @main
 
@@ -815,33 +841,29 @@ Key observations:
 **Status**: CONFIRMED -- still present in AIMS branch
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-2: AIMS eliminated dead null-env rc_dec (FIXED)
+### NOTE-2: @square and @__lambda_1 correctly have memory(none)
 
-**Location**: @main function body
-**Previous state (pre-AIMS)**: 2 `br i1 true` guards leading to dead `ori_rc_dec(ptr null, ...)` blocks. The extract-metrics tool flagged 6 ARC violations (2 unbalanced rc_dec), triggering the unbalanced-RC gate that capped ARC score at 3/10.
-**Current state (AIMS)**: Zero `ori_rc_dec` calls in user code. AIMS recognizes FatVal with null env pointers from non-capturing lambdas and correctly omits cleanup.
-**Impact**: ARC score improved from 3/10 to 10/10. Overall score improved from 7.5 to 9.4.
+**Location**: @_ori_square (attribute group #0), @_ori___lambda_1 (attribute group #0)
+**Impact**: Positive -- LLVM can optimize more aggressively knowing these functions have no memory side effects. The nounwind/memory analysis correctly identified pure scalar functions.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-3: Zero RC in user code
+
+**Location**: All 6 user functions
+**Impact**: Positive -- AIMS correctly identifies that non-capturing lambdas need no env cleanup, and the list-to-iterator ownership transfer requires no user-side rc_inc. The runtime handles all internal RC management behind the opaque iterator pointer.
 **Found in**: ARC Purity (Category 2)
 
-### NOTE-3: All 6 user functions OPTIMAL
+### NOTE-4: All 6 user functions OPTIMAL
 
 **Location**: @square, @main, @__lambda_0, @__lambda_1, @tramp_0, @tramp_1
 **Impact**: Positive -- every user function achieves 1.0x instruction ratio, meaning zero unjustified instructions
 **Found in**: Instruction Purity (Category 1)
 
-### NOTE-4: @main control flow reduced from 5 blocks to 1
-
-**Location**: @main function body
-**Previous state**: 5 blocks (bb0, rc_dec.do, rc_dec.skip, rc_dec.do7, rc_dec.skip8) with 2 dead branch chains
-**Current state**: 1 block (bb0) -- straight-line code with no branches
-**Impact**: Positive -- cleaner CFG, smaller stack frame (0x48 vs 0x58 bytes), fewer instructions
-**Found in**: Control Flow & Block Layout (Category 4)
-
 ### NOTE-5: Clean iterator ownership chain
 
 **Location**: AIMS IR for @main
 **Impact**: Positive -- AIMS correctly models the list->iterator->adapter->consumer ownership chain with zero user-visible RC operations. The runtime handles all internal RC management behind the opaque iterator pointer.
-**Found in**: Iterators: ARC for Iterator State (Category 9)
+**Found in**: Iterators: ARC in Iteration (Category 9)
 
 ## Codegen Quality Score
 
@@ -849,7 +871,7 @@ Key observations:
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 4/10 | 52.6% compliance |
+| Attributes & Safety | 10% | 4/10 | 57.1% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
@@ -857,20 +879,9 @@ Key observations:
 
 **Overall: 9.4 / 10**
 
-**Previous score: 7.5 / 10** (pre-AIMS, 2026-03-10)
-
-Score delta breakdown:
-- Instruction Efficiency: 9 -> 10 (+1) -- @main went from 1.06x to 1.00x
-- ARC Correctness: 3 -> 10 (+7) -- unbalanced-RC gate no longer triggered
-- Attributes & Safety: 4 -> 4 (unchanged) -- still missing nounwind on @main
-- Control Flow: 8 -> 10 (+2) -- 2 dead branches eliminated
-- IR Quality: 9 -> 10 (+1) -- 2 unjustified instructions eliminated
-- Binary Quality: 10 -> 10 (unchanged)
-- Other Findings: 10 -> 10 (unchanged)
-
 ## Verdict
 
-Journey 13 is the most improved journey under AIMS, jumping from 7.5 to 9.4. The AIMS pipeline completely eliminated the dead null-env rc_dec blocks that previously plagued iterator codegen with non-capturing closures -- the root cause that capped the ARC score at 3/10. With AIMS, @main is now a clean single-block straight-line function with zero user-visible RC operations, and all 6 user functions achieve OPTIMAL instruction ratio (1.0x). The only remaining gap is the missing `nounwind` attribute on @main, which is a known cross-journey issue. The runtime delegation model for iterators produces compact, correct code -- the trampoline pattern is architecturally sound with minimal overhead.
+Journey 13 demonstrates near-perfect iterator codegen under AIMS. All 6 user functions achieve OPTIMAL instruction ratio (1.0x) with zero user-visible RC operations. The iterator chain `[1,2,3,4,5].iter().map(square).fold(0, +)` compiles to a clean single-block straight-line function in @main that delegates to the runtime via type-erased trampoline callbacks. The nounwind/memory analysis correctly identifies `@square` and `@__lambda_1` as pure functions with `memory(none)`. The only gap is the missing `nounwind` on @main, a cross-journey pattern affecting attribute compliance (57.1%).
 
 ## Cross-Journey Observations
 
@@ -881,7 +892,6 @@ Journey 13 is the most improved journey under AIMS, jumping from 7.5 to 9.4. The
 | Missing nounwind on @main | J1 | J13 | CONFIRMED still missing |
 | Closure {fn_ptr, env_ptr} repr | J5 | J13 | CONFIRMED correct |
 | List allocation via ori_list_alloc_data | J10 | J13 | CONFIRMED correct |
-| Dead null-env rc_dec | J13-prev | J13-AIMS | FIXED by AIMS |
-| Dead br-i1-true branches | J13-prev | J13-AIMS | FIXED by AIMS |
+| memory(none) on pure functions | J13 | J13 | NEW -- @square and @__lambda_1 |
 
-The AIMS pipeline's FatVal tracking is the key improvement: by classifying non-capturing lambdas as `[FatVal]` with statically-known null environments, it avoids emitting any cleanup code that the pre-AIMS pipeline would generate unconditionally. This pattern would benefit any journey using non-capturing closures with iterator adapters.
+The `memory(none)` attribute on pure scalar functions is a new observation first seen in Journey 13. This indicates the nounwind/memory analysis pipeline is correctly propagating purity information through the call graph. `@__lambda_0` correctly does *not* get `memory(none)` because it calls `@_ori_square`, which while pure itself, the analysis appears to treat lambda wrappers that call other functions conservatively (it has `nounwind` but not `memory(none)`, using attribute group `#2` instead of `#0`).

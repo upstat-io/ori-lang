@@ -2,7 +2,7 @@
 journey: 8
 slug: generics
 theme: "I am generic"
-date: 2026-03-15
+date: 2026-03-16
 status: PASS
 expected: 57
 eval_result: 57
@@ -23,11 +23,11 @@ features:
   - generic_structs
   - type_inference
 feature_description: "Generic functions, generic structs, monomorphization, and type inference"
-score: 9.8
+score: 9.9
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 9
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -38,7 +38,7 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 23
+  attr_applicable: 22
   attr_correct: 21
   attr_has_wrong: false
   cf_defects: 0
@@ -79,9 +79,9 @@ type Box<T> = { value: T }
 @get_value<T> (b: Box<T>) -> T = b.value;
 
 @main () -> int = {
-    let a = identity(x: 42);                   // = 42
-    let b = first(a: 10, b: 20);               // = 10
-    let c = get_value(b: Box { value: 5 });     // = 5
+    let a = identity(x: 42);
+    let b = first(a: 10, b: 20);
+    let c = get_value(b: Box { value: 5 });
     a + b + c                                   // = 57
 }
 ```
@@ -334,36 +334,36 @@ add.ovf_panic7:
   unreachable
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- first$m$int_int ---
-define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #0 {
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #1 {
 bb0:
   ret i64 %0
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable
 ; --- get_value$m$int ---
-define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box %0) #0 {
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) #2 {
 bb0:
   %proj.0 = extractvalue %ori.Box %0, 0
   ret i64 %proj.0
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- identity$m$int ---
-define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #0 {
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #1 {
 bb0:
   ret i64 %0
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #3
 
 ; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #2
+declare void @ori_panic_cstr(ptr) #4
 
-; Function Attrs: nounwind
-define i32 @main() #3 {
+; Function Attrs: nounwind uwtable
+define i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -371,9 +371,10 @@ entry:
 }
 
 attributes #0 = { nounwind uwtable }
-attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { cold noreturn }
-attributes #3 = { nounwind }
+attributes #1 = { nounwind memory(none) uwtable }
+attributes #2 = { nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable }
+attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #4 = { cold noreturn }
 ```
 
 #### Disassembly
@@ -469,16 +470,18 @@ All four monomorphized functions produce the minimum possible instruction count.
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | uwtable | noundef(ret) | noundef(params) | Notes |
-|----------|--------|----------|---------|--------------|-----------------|-------|
-| @identity$m$int | YES | YES | YES | YES | YES (1/1) | |
-| @first$m$int_int | YES | YES | YES | YES | YES (2/2) | |
-| @get_value$m$int | YES | YES | YES | YES | NO (0/1) | [LOW-1] |
-| @main (entry) | N/A | YES | YES | YES | N/A | |
-| @main (wrapper) | N/A | YES | N/A | NO | N/A | [LOW-2] |
-| ori_panic_cstr | N/A | N/A | N/A | N/A | cold=YES, noreturn=YES | |
+| Function | fastcc | nounwind | uwtable | memory | noundef(ret) | noundef(params) | Notes |
+|----------|--------|----------|---------|--------|--------------|-----------------|-------|
+| @identity$m$int | YES | YES | YES | none | YES | YES (1/1) | |
+| @first$m$int_int | YES | YES | YES | none | YES | YES (2/2) | |
+| @get_value$m$int | YES | YES | YES | read | YES | YES (1/1) | |
+| @main (entry) | N/A | YES | YES | N/A | YES | N/A | |
+| @main (wrapper) | N/A | YES | YES | N/A | NO | N/A | [LOW-1] |
+| ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | cold=YES, noreturn=YES | |
 
-**Compliance**: 21/23 applicable attributes correct (91.3%).
+**Compliance**: 21/22 applicable attributes correct (95.5%).
+
+**Improvement from previous run**: The AIMS branch now emits `memory(none)` on `identity` and `first` (pure functions with no memory effects) and `memory(argmem: read, inaccessiblemem: read, errnomem: read)` on `get_value` (reads struct argument memory only). The previous run had no memory attributes on any user function. Additionally, the `get_value` parameter now correctly carries `noundef` on its `%ori.Box` parameter, fixing a gap noted in the previous run.
 
 ### 4. Control Flow & Block Layout
 
@@ -507,7 +510,7 @@ Both integer additions in `@main` are checked with `@llvm.sadd.with.overflow.i64
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 868.9 KiB |
+| .text section | 869.1 KiB |
 | .rodata section | 133.4 KiB |
 | User code | 158 bytes (4 user fns + wrapper) |
 | Runtime | >99.9% of .text |
@@ -568,14 +571,14 @@ _ori_main:
 
 ```llvm
 ; IDEAL (1 instruction)
-define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) nounwind {
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) nounwind memory(none) {
   ret i64 %0
 }
 ```
 
 ```llvm
 ; ACTUAL (1 instruction)
-define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #0 {
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #1 {
 bb0:
   ret i64 %0
 }
@@ -587,14 +590,14 @@ bb0:
 
 ```llvm
 ; IDEAL (1 instruction)
-define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) nounwind {
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) nounwind memory(none) {
   ret i64 %0
 }
 ```
 
 ```llvm
 ; ACTUAL (1 instruction)
-define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #0 {
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #1 {
 bb0:
   ret i64 %0
 }
@@ -606,7 +609,7 @@ bb0:
 
 ```llvm
 ; IDEAL (2 instructions)
-define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box %0) nounwind {
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) nounwind memory(argmem: read) {
   %v = extractvalue %ori.Box %0, 0
   ret i64 %v
 }
@@ -614,7 +617,7 @@ define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box %0) nounwind {
 
 ```llvm
 ; ACTUAL (2 instructions)
-define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box %0) #0 {
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) #2 {
 bb0:
   %proj.0 = extractvalue %ori.Box %0, 0
   ret i64 %proj.0
@@ -667,7 +670,7 @@ panic2:
 | @get_value$m$int | 2 | 2 | +0 | N/A | OPTIMAL |
 | @main | 16 | 16 | +0 | N/A | OPTIMAL |
 
-### 8. Generics: Monomorphization
+### 8. Generics: Monomorphization Quality
 
 This journey tests the compiler's monomorphization pipeline -- how generic functions are specialized to concrete types at compile time.
 
@@ -692,46 +695,46 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 
 5. **Single-field struct optimization**: `Box<int>` is a single-field struct containing `i64`. The compiler passes it directly in a register (via `%ori.Box { i64 5 }` as a literal argument). At the machine level, field extraction is a no-op -- all three helper functions compile to identical `mov %rdi, %rax; ret`.
 
-6. **AIMS pipeline integration**: All 4 functions converge in a single intraprocedural iteration with zero cross-dimension interactions. The interprocedural pass certifies all 4 as FIP (frame-independent) and FBIP (fully borrowing), confirming that monomorphization introduces no hidden allocation or reference counting overhead.
+6. **Memory attribute precision**: The AIMS branch now emits precise memory attributes per function. `identity` and `first` are marked `memory(none)` (pure functions with no memory effects at all), while `get_value` is marked `memory(argmem: read, inaccessiblemem: read, errnomem: read)` reflecting that it reads its struct argument. This precision enables LLVM to perform more aggressive interprocedural optimizations.
+
+7. **AIMS pipeline integration**: All 4 functions converge in a single intraprocedural iteration with zero cross-dimension interactions. The interprocedural pass certifies all 4 as FIP (frame-independent) and FBIP (fully borrowing), confirming that monomorphization introduces no hidden allocation or reference counting overhead.
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing noundef on %ori.Box parameter of @get_value$m$int | CONFIRMED | J8 |
-| 2 | LOW | Attributes | Missing noundef on @main wrapper return value | CONFIRMED | J1 |
-| 3 | NOTE | Monomorphization | Zero-cost abstraction: all generic functions compile to optimal IR | CONFIRMED | J8 |
-| 4 | NOTE | Instruction Purity | All 4 user functions at exactly 1.00x ratio | CONFIRMED | J8 |
+| 1 | LOW | Attributes | Missing noundef on @main wrapper return value | CONFIRMED | J1 |
+| 2 | NOTE | Monomorphization | Zero-cost abstraction: all generic functions compile to optimal IR | CONFIRMED | J8 |
+| 3 | NOTE | Instruction Purity | All 4 user functions at exactly 1.00x ratio | CONFIRMED | J8 |
+| 4 | NOTE | Attributes | memory(none) and memory(read) now emitted on monomorphized functions | NEW | J8 |
 
-### LOW-1: Missing noundef on %ori.Box parameter of @get_value$m$int
+### LOW-1: Missing noundef on @main wrapper return value
 
-**Location**: `@"_ori_get_value$24m$24int"(%ori.Box %0)` -- parameter %0 lacks `noundef`
-**Impact**: LLVM cannot assume the struct value is well-defined, preventing certain optimizations
-**Fix**: Mark struct parameters with `noundef` when all fields are defined types
-**First seen**: Journey 8
-**Status**: CONFIRMED (unchanged from previous run)
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### LOW-2: Missing noundef on @main wrapper return value
-
-**Location**: `define i32 @main() #3` -- return type lacks `noundef`
+**Location**: `define i32 @main() #0` -- return type lacks `noundef`
 **Impact**: Minor -- LLVM may not optimize the return path as aggressively
 **Fix**: Add `noundef` to the i32 return type of the C main wrapper
 **First seen**: Journey 1
 **Status**: CONFIRMED (unchanged from previous run)
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-3: Zero-cost abstraction achieved
+### NOTE-2: Zero-cost abstraction achieved
 
 **Location**: All monomorphized functions
 **Impact**: Positive -- generics add zero runtime overhead
-**Found in**: Generics: Monomorphization (Category 8)
+**Found in**: Generics: Monomorphization Quality (Category 8)
 
-### NOTE-4: Perfect instruction efficiency across all functions
+### NOTE-3: Perfect instruction efficiency across all functions
 
 **Location**: All 4 user functions
 **Impact**: Positive -- every function achieves the theoretical minimum instruction count
 **Found in**: Instruction Purity (Category 1)
+
+### NOTE-4: Memory attribute precision on monomorphized functions
+
+**Location**: `@"_ori_first$24m$24int_int"` and `@"_ori_identity$24m$24int"` marked `memory(none)`, `@"_ori_get_value$24m$24int"` marked `memory(argmem: read, inaccessiblemem: read, errnomem: read)`
+**Impact**: Positive -- enables LLVM to reason about side effects for interprocedural optimization. Previous run had no memory attributes on any user function. This improvement was achieved by the AIMS Section 02 attribute compliance work.
+**First seen**: Journey 8 (AIMS re-run)
+**Found in**: Attributes & Calling Convention (Category 3)
 
 ## Codegen Quality Score
 
@@ -739,17 +742,17 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 91.3% compliance |
+| Attributes & Safety | 10% | 9/10 | 95.5% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.8 / 10**
+**Overall: 9.9 / 10**
 
 ## Verdict
 
-Journey 8's generics codegen remains near-perfect on the AIMS branch re-run. Monomorphization produces fully specialized functions indistinguishable from hand-written equivalents -- all four user functions achieve the theoretical minimum instruction count (1.00x ratio). The AIMS unified lattice correctly identifies all functions as pure scalar operations requiring zero reference counting, with all 4 certified FIP/FBIP in a single iteration. The only imperfections are two missing `noundef` attributes: one on a struct parameter and one on the C main wrapper return. Both were present in the previous run and remain unchanged.
+Journey 8's generics codegen is near-perfect. Monomorphization produces fully specialized functions indistinguishable from hand-written equivalents -- all four user functions achieve the theoretical minimum instruction count (1.00x ratio across the board). The AIMS branch improves over the previous run by adding precise memory attributes: `memory(none)` on pure passthrough functions and `memory(read)` on the struct field accessor, and fixing the missing `noundef` on the `%ori.Box` parameter. The only remaining gap is a missing `noundef` on the C main wrapper return, lifting the score from 9.8 to 9.9.
 
 ## Cross-Journey Observations
 
@@ -760,5 +763,7 @@ Journey 8's generics codegen remains near-perfect on the AIMS branch re-run. Mon
 | nounwind on all user functions | J1 | J8 | CONFIRMED |
 | Missing noundef on @main wrapper | J1 | J8 | CONFIRMED |
 | Struct field access via extractvalue | J4 | J8 | CONFIRMED |
+| memory(none) on pure functions | J8 | J8 | NEW (AIMS improvement) |
+| memory(read) on readonly functions | J8 | J8 | NEW (AIMS improvement) |
 
-The monomorphization pipeline is the highlight of this journey. Unlike previous journeys that tested runtime features, this journey validates a compile-time transformation. The compiler correctly specializes all three generic patterns (identity function, projection function, and struct field accessor) to their optimal concrete forms. The `Box<int>` struct type demonstrates that generic structs are also fully specialized, with the single `i64` field accessed via a zero-cost `extractvalue` instruction. The AIMS branch adds no regressions to this pipeline -- the unified lattice analysis converges instantly on these trivial scalar functions.
+The monomorphization pipeline remains the highlight of this journey. The AIMS branch adds two notable improvements over the previous run: (1) precise `memory(...)` attributes that enable LLVM to perform more aggressive interprocedural optimizations on monomorphized functions, and (2) the `noundef` on the `%ori.Box` struct parameter for `get_value`, which was missing previously. The `Box<int>` struct type continues to demonstrate optimal behavior -- a single `i64` field accessed via zero-cost `extractvalue` at the IR level and a simple register move at the machine level.

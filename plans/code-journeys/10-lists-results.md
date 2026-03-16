@@ -2,7 +2,7 @@
 journey: 10
 slug: lists
 theme: "I am a list"
-date: 2026-03-15
+date: 2026-03-16
 status: PASS
 expected: 33
 eval_result: 33
@@ -15,7 +15,7 @@ prerequisites:
   - "Knowledge of iteration and for-loop compilation"
 learning_objectives:
   - "See how list literals are lowered to heap-allocated buffers via ori_list_alloc_data"
-  - "Understand ARC lifecycle for lists: allocation, sharing (rc_inc), and cleanup (rc_dec)"
+  - "Understand ARC lifecycle for lists: allocation, sharing (rc_inc), and cleanup (rc_dec/drop_unique)"
   - "Compare iterator-based for-loop codegen with runtime-backed ori_iter_from_list/ori_iter_next"
   - "Observe how list parameters are passed by-reference via alloca+store+ptr"
 
@@ -27,11 +27,11 @@ features:
   - function_calls
 feature_description: "List creation, .length() method calls, for-loop iteration, ARC lifecycle, and passing lists to functions"
 
-score: 8.7
+score: 8.8
 score_breakdown:
   instruction_efficiency: 9
   arc_correctness: 10
-  attributes_safety: 5
+  attributes_safety: 7
   control_flow: 7
   ir_quality: 8
   binary_quality: 10
@@ -42,7 +42,7 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 24
+  attr_applicable: 20
   attr_correct: 16
   attr_has_wrong: false
   cf_defects: 4
@@ -269,14 +269,12 @@ Module
 @count_items: +0 rc_inc, +0 rc_dec (parameter borrowed, no ownership transfer)
 @check_length: +4 rc_inc, +4 rc_dec (balanced — 3 lists allocated, complex ownership)
   - list a: allocated, length extracted, rc_dec after use
-  - list b: allocated, rc_inc for sharing, rc_dec x2 after each use
-  - list c: allocated, rc_dec after count_items call
-  - landingpad bb6: rc_dec for list b + list c on unwind
-  - landingpad bb8: rc_dec for list b on unwind
+  - list b: allocated, rc_inc for sharing, rc_dec x3 (normal + 2 landingpads)
+  - list c: allocated, drop_unique on normal path + landingpad path (unique owner)
 @check_iteration: +2 rc_inc, +2 rc_dec (balanced — list allocated, shared with iterator)
   - list xs: allocated, rc_inc for iterator sharing, rc_dec after loop + iter_drop
-@check_passing: +1 rc_inc, +1 rc_dec (balanced — list allocated, rc_dec after use)
-  - landingpad bb2: rc_dec for list on unwind
+@check_passing: +1 rc_inc, +1 rc_dec (balanced — list allocated, drop_unique after use)
+  - landingpad bb2: drop_unique for list on unwind (unique owner)
 @main: +0 rc_inc, +0 rc_dec (no heap values — scalar results only)
 ```
 
@@ -333,14 +331,13 @@ Module
 @count_items: +0 rc_inc, +0 rc_dec (borrowed parameter — no ownership)
 @check_length: +4 rc_inc, +4 rc_dec (balanced)
   - list a: ori_list_alloc_data, ori_buffer_rc_dec (bb1)
-  - list b: ori_list_rc_inc (bb1), ori_buffer_rc_dec (add.ok, sub.ok)
-  - list c: ori_list_alloc_data, ori_buffer_rc_dec (add.ok32)
-  - landingpad bb6: ori_buffer_rc_dec for list b + list c on unwind
-  - landingpad bb8: ori_buffer_rc_dec for list b on unwind
+  - list b: ori_list_rc_inc (bb1), ori_buffer_rc_dec (add.ok, sub.ok, bb6, bb8)
+  - list c: ori_list_alloc_data, ori_buffer_drop_unique (add.ok29 normal, bb6 unwind)
 @check_iteration: +2 rc_inc, +2 rc_dec (balanced)
   - list xs: ori_list_rc_inc (bb0), ori_buffer_rc_dec (bb3) + ori_iter_drop
-@check_passing: +1 rc_inc, +1 rc_dec (balanced — ori_buffer_rc_dec after invoke)
-  - landingpad bb2: ori_buffer_rc_dec for list on unwind
+@check_passing: +1 rc_inc, +1 rc_dec (balanced — ori_buffer_drop_unique after invoke)
+  - normal bb1: ori_buffer_drop_unique (list is unique owner)
+  - landingpad bb2: ori_buffer_drop_unique on unwind (list still unique)
 @main: +0 rc_inc, +0 rc_dec (no heap values)
 ```
 
@@ -357,7 +354,7 @@ source_filename = "10-lists"
 
 ; Function Attrs: uwtable
 ; --- @count_items ---
-define fastcc noundef i64 @_ori_count_items(ptr %0) #0 {
+define fastcc noundef i64 @_ori_count_items(ptr readonly %0) #0 {
 bb0:
   %param.load.f0.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %0, i32 0, i32 0
   %param.load.f0 = load i64, ptr %param.load.f0.ptr, align 8
@@ -376,7 +373,7 @@ bb0:
 ; --- @check_length ---
 define fastcc noundef i64 @_ori_check_length() #0 personality ptr @ori_eh_personality {
 bb0:
-  %ref_arg37 = alloca { i64, i64, ptr }, align 8
+  %ref_arg34 = alloca { i64, i64, ptr }, align 8
   %ref_arg = alloca { i64, i64, ptr }, align 8
   %list.data = call ptr @ori_list_alloc_data(i64 3, i64 8)
   %list.elem_ptr = getelementptr inbounds i64, ptr %list.data, i64 0
@@ -417,7 +414,7 @@ bb0:
   %list.len = extractvalue { i64, i64, ptr } %list.2, 0
   br label %bb1
 
-bb1:
+bb1:                                              ; preds = %bb0
   %rc_inc.data = extractvalue { i64, i64, ptr } %list.26, 2
   %rc_inc.cap = extractvalue { i64, i64, ptr } %list.26, 1
   call void @ori_list_rc_inc(ptr %rc_inc.data, i64 %rc_inc.cap)
@@ -428,45 +425,47 @@ bb1:
   %list.len19 = extractvalue { i64, i64, ptr } %list.26, 0
   br label %bb3
 
-bb3:
+bb3:                                              ; preds = %bb1
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %list.len, i64 %list.len19)
   %add.val = extractvalue { i64, i1 } %add, 0
   %add.ovf = extractvalue { i64, i1 } %add, 1
   br i1 %add.ovf, label %add.ovf_panic, label %add.ok
 
-bb5:
-  %add29 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %add.val, i64 %call)
-  %add.val30 = extractvalue { i64, i1 } %add29, 0
-  %add.ovf31 = extractvalue { i64, i1 } %add29, 1
-  br i1 %add.ovf31, label %add.ovf_panic33, label %add.ok32
+bb5:                                              ; preds = %add.ok
+  %add26 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %add.val, i64 %call)
+  %add.val27 = extractvalue { i64, i1 } %add26, 0
+  %add.ovf28 = extractvalue { i64, i1 } %add26, 1
+  br i1 %add.ovf28, label %add.ovf_panic30, label %add.ok29
 
-bb6:                                              ; landingpad for unwind
-  %lp = landingpad { ptr, i32 } cleanup
+bb6:                                              ; preds = %add.ok
+  %lp = landingpad { ptr, i32 }
+          cleanup
   %rc.data_ptr23 = extractvalue { i64, i64, ptr } %list.26, 2
   %rc.len24 = extractvalue { i64, i64, ptr } %list.26, 0
   %rc.cap25 = extractvalue { i64, i64, ptr } %list.26, 1
   call void @ori_buffer_rc_dec(ptr %rc.data_ptr23, i64 %rc.len24, i64 %rc.cap25, i64 8, ptr null)
-  %rc.data_ptr26 = extractvalue { i64, i64, ptr } %list.218, 2
-  %rc.len27 = extractvalue { i64, i64, ptr } %list.218, 0
-  %rc.cap28 = extractvalue { i64, i64, ptr } %list.218, 1
-  call void @ori_buffer_rc_dec(ptr %rc.data_ptr26, i64 %rc.len27, i64 %rc.cap28, i64 8, ptr null)
+  %udrop.data_ptr = extractvalue { i64, i64, ptr } %list.218, 2
+  %udrop.len = extractvalue { i64, i64, ptr } %list.218, 0
+  %udrop.cap = extractvalue { i64, i64, ptr } %list.218, 1
+  call void @ori_buffer_drop_unique(ptr %udrop.data_ptr, i64 %udrop.len, i64 %udrop.cap, i64 8, ptr null)
   resume { ptr, i32 } %lp
 
-bb7:
-  %sub = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %add.val30, i64 %call38)
+bb7:                                              ; preds = %add.ok29
+  %sub = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %add.val27, i64 %call35)
   %sub.val = extractvalue { i64, i1 } %sub, 0
   %sub.ovf = extractvalue { i64, i1 } %sub, 1
   br i1 %sub.ovf, label %sub.ovf_panic, label %sub.ok
 
-bb8:                                              ; landingpad for second invoke
-  %lp39 = landingpad { ptr, i32 } cleanup
-  %rc.data_ptr40 = extractvalue { i64, i64, ptr } %list.26, 2
-  %rc.len41 = extractvalue { i64, i64, ptr } %list.26, 0
-  %rc.cap42 = extractvalue { i64, i64, ptr } %list.26, 1
-  call void @ori_buffer_rc_dec(ptr %rc.data_ptr40, i64 %rc.len41, i64 %rc.cap42, i64 8, ptr null)
-  resume { ptr, i32 } %lp39
+bb8:                                              ; preds = %add.ok29
+  %lp36 = landingpad { ptr, i32 }
+          cleanup
+  %rc.data_ptr37 = extractvalue { i64, i64, ptr } %list.26, 2
+  %rc.len38 = extractvalue { i64, i64, ptr } %list.26, 0
+  %rc.cap39 = extractvalue { i64, i64, ptr } %list.26, 1
+  call void @ori_buffer_rc_dec(ptr %rc.data_ptr37, i64 %rc.len38, i64 %rc.cap39, i64 8, ptr null)
+  resume { ptr, i32 } %lp36
 
-add.ok:
+add.ok:                                           ; preds = %bb3
   %rc.data_ptr20 = extractvalue { i64, i64, ptr } %list.26, 2
   %rc.len21 = extractvalue { i64, i64, ptr } %list.26, 0
   %rc.cap22 = extractvalue { i64, i64, ptr } %list.26, 1
@@ -475,31 +474,31 @@ add.ok:
   %call = invoke fastcc i64 @_ori_count_items(ptr %ref_arg)
           to label %bb5 unwind label %bb6
 
-add.ovf_panic:
+add.ovf_panic:                                    ; preds = %bb3
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 
-add.ok32:
-  %rc.data_ptr34 = extractvalue { i64, i64, ptr } %list.218, 2
-  %rc.len35 = extractvalue { i64, i64, ptr } %list.218, 0
-  %rc.cap36 = extractvalue { i64, i64, ptr } %list.218, 1
-  call void @ori_buffer_rc_dec(ptr %rc.data_ptr34, i64 %rc.len35, i64 %rc.cap36, i64 8, ptr null)
-  store { i64, i64, ptr } %list.26, ptr %ref_arg37, align 8
-  %call38 = invoke fastcc i64 @_ori_count_items(ptr %ref_arg37)
+add.ok29:                                         ; preds = %bb5
+  %udrop.data_ptr31 = extractvalue { i64, i64, ptr } %list.218, 2
+  %udrop.len32 = extractvalue { i64, i64, ptr } %list.218, 0
+  %udrop.cap33 = extractvalue { i64, i64, ptr } %list.218, 1
+  call void @ori_buffer_drop_unique(ptr %udrop.data_ptr31, i64 %udrop.len32, i64 %udrop.cap33, i64 8, ptr null)
+  store { i64, i64, ptr } %list.26, ptr %ref_arg34, align 8
+  %call35 = invoke fastcc i64 @_ori_count_items(ptr %ref_arg34)
           to label %bb7 unwind label %bb8
 
-add.ovf_panic33:
+add.ovf_panic30:                                  ; preds = %bb5
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 
-sub.ok:
-  %rc.data_ptr43 = extractvalue { i64, i64, ptr } %list.26, 2
-  %rc.len44 = extractvalue { i64, i64, ptr } %list.26, 0
-  %rc.cap45 = extractvalue { i64, i64, ptr } %list.26, 1
-  call void @ori_buffer_rc_dec(ptr %rc.data_ptr43, i64 %rc.len44, i64 %rc.cap45, i64 8, ptr null)
+sub.ok:                                           ; preds = %bb7
+  %rc.data_ptr40 = extractvalue { i64, i64, ptr } %list.26, 2
+  %rc.len41 = extractvalue { i64, i64, ptr } %list.26, 0
+  %rc.cap42 = extractvalue { i64, i64, ptr } %list.26, 1
+  call void @ori_buffer_rc_dec(ptr %rc.data_ptr40, i64 %rc.len41, i64 %rc.cap42, i64 8, ptr null)
   ret i64 %sub.val
 
-sub.ovf_panic:
+sub.ovf_panic:                                    ; preds = %bb7
   call void @ori_panic_cstr(ptr @ovf.msg.1)
   unreachable
 }
@@ -530,7 +529,7 @@ bb0:
   %list.iter = call ptr @ori_iter_from_list(ptr %list.data5, i64 %list.len, i64 %list.cap, i64 8, ptr null)
   br label %bb1
 
-bb1:
+bb1:                                              ; preds = %add.ok, %bb0
   %v12 = phi i64 [ 0, %bb0 ], [ %add.val, %add.ok ]
   %iter_next.has = call i8 @ori_iter_next(ptr %list.iter, ptr %iter_next.scratch, i64 8)
   %iter_next.tag = zext i8 %iter_next.has to i64
@@ -541,14 +540,14 @@ bb1:
   %ne = icmp ne i64 %proj.0, 0
   br i1 %ne, label %bb2, label %bb3
 
-bb2:
+bb2:                                              ; preds = %bb1
   %proj.1 = extractvalue { i64, i64 } %iter_next.1, 1
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %v12, i64 %proj.1)
   %add.val = extractvalue { i64, i1 } %add, 0
   %add.ovf = extractvalue { i64, i1 } %add, 1
   br i1 %add.ovf, label %add.ovf_panic, label %add.ok
 
-bb3:
+bb3:                                              ; preds = %bb1
   %rc.data_ptr = extractvalue { i64, i64, ptr } %list.2, 2
   %rc.len = extractvalue { i64, i64, ptr } %list.2, 0
   %rc.cap = extractvalue { i64, i64, ptr } %list.2, 1
@@ -556,10 +555,10 @@ bb3:
   call void @ori_iter_drop(ptr %list.iter)
   ret i64 %v12
 
-add.ok:
+add.ok:                                           ; preds = %bb2
   br label %bb1
 
-add.ovf_panic:
+add.ovf_panic:                                    ; preds = %bb2
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 }
@@ -585,19 +584,20 @@ bb0:
   %call = invoke fastcc i64 @_ori_count_items(ptr %ref_arg)
           to label %bb1 unwind label %bb2
 
-bb1:
-  %rc.data_ptr5 = extractvalue { i64, i64, ptr } %list.2, 2
-  %rc.len6 = extractvalue { i64, i64, ptr } %list.2, 0
-  %rc.cap7 = extractvalue { i64, i64, ptr } %list.2, 1
-  call void @ori_buffer_rc_dec(ptr %rc.data_ptr5, i64 %rc.len6, i64 %rc.cap7, i64 8, ptr null)
+bb1:                                              ; preds = %bb0
+  %udrop.data_ptr5 = extractvalue { i64, i64, ptr } %list.2, 2
+  %udrop.len6 = extractvalue { i64, i64, ptr } %list.2, 0
+  %udrop.cap7 = extractvalue { i64, i64, ptr } %list.2, 1
+  call void @ori_buffer_drop_unique(ptr %udrop.data_ptr5, i64 %udrop.len6, i64 %udrop.cap7, i64 8, ptr null)
   ret i64 %call
 
-bb2:
-  %lp = landingpad { ptr, i32 } cleanup
-  %rc.data_ptr = extractvalue { i64, i64, ptr } %list.2, 2
-  %rc.len = extractvalue { i64, i64, ptr } %list.2, 0
-  %rc.cap = extractvalue { i64, i64, ptr } %list.2, 1
-  call void @ori_buffer_rc_dec(ptr %rc.data_ptr, i64 %rc.len, i64 %rc.cap, i64 8, ptr null)
+bb2:                                              ; preds = %bb0
+  %lp = landingpad { ptr, i32 }
+          cleanup
+  %udrop.data_ptr = extractvalue { i64, i64, ptr } %list.2, 2
+  %udrop.len = extractvalue { i64, i64, ptr } %list.2, 0
+  %udrop.cap = extractvalue { i64, i64, ptr } %list.2, 1
+  call void @ori_buffer_drop_unique(ptr %udrop.data_ptr, i64 %udrop.len, i64 %udrop.cap, i64 8, ptr null)
   resume { ptr, i32 } %lp
 }
 
@@ -613,37 +613,59 @@ bb0:
   %add.ovf = extractvalue { i64, i1 } %add, 1
   br i1 %add.ovf, label %add.ovf_panic, label %add.ok
 
-add.ok:
+add.ok:                                           ; preds = %bb0
   %add3 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %add.val, i64 %call2)
   %add.val4 = extractvalue { i64, i1 } %add3, 0
   %add.ovf5 = extractvalue { i64, i1 } %add3, 1
   br i1 %add.ovf5, label %add.ovf_panic7, label %add.ok6
 
-add.ovf_panic:
+add.ovf_panic:                                    ; preds = %bb0
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 
-add.ok6:
+add.ok6:                                          ; preds = %add.ok
   ret i64 %add.val4
 
-add.ovf_panic7:
+add.ovf_panic7:                                   ; preds = %add.ok
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 }
 
-; Runtime declarations
+; Function Attrs: nounwind
 declare i32 @ori_eh_personality(i32) #1
+
+; Function Attrs: nounwind
 declare ptr @ori_list_alloc_data(i64, i64) #1
+
+; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
 declare void @ori_list_rc_inc(ptr, i64) #2
+
+; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
 declare void @ori_buffer_rc_dec(ptr, i64, i64, i64, ptr) #2
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #3
+
+; Function Attrs: cold noreturn
 declare void @ori_panic_cstr(ptr) #4
+
+; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
+declare void @ori_buffer_drop_unique(ptr, i64, i64, i64, ptr) #2
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64) #3
+
+; Function Attrs: nounwind
 declare ptr @ori_iter_from_list(ptr, i64, i64, i64, ptr) #1
+
+; Function Attrs: nounwind
 declare i8 @ori_iter_next(ptr, ptr, i64) #1
+
+; Function Attrs: nounwind
 declare void @ori_iter_drop(ptr) #1
 
-define i32 @main() {
+; Function Attrs: uwtable
+define i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -673,10 +695,10 @@ _ori_check_length:
    ; ... (overflow-checked add: a.length() + b.length())
    ; ... (rc_dec list b, invoke _ori_count_items(c))
    ; ... (overflow-checked add: prev + count_items(c))
-   ; ... (rc_dec list c, invoke _ori_count_items(b))
+   ; ... (drop_unique list c, invoke _ori_count_items(b))
    ; ... (overflow-checked sub: prev - count_items(b))
    ; ... (rc_dec list b, ret)
-   ; landingpad: rc_dec list b + list c, _Unwind_Resume
+   ; landingpad: rc_dec list b + drop_unique list c, _Unwind_Resume
    ; landingpad: rc_dec list b, _Unwind_Resume
    add    $0xc8,%rsp
    ret
@@ -695,8 +717,8 @@ _ori_check_passing:
    sub    $0x48,%rsp
    mov    $0x5,%edi
    ; ... (allocate list, store 5 elements, alloca ref_arg)
-   ; ... (invoke _ori_count_items, rc_dec list, ret)
-   ; landingpad: rc_dec list, _Unwind_Resume
+   ; ... (invoke _ori_count_items, drop_unique list, ret)
+   ; landingpad: drop_unique list, _Unwind_Resume
    add    $0x48,%rsp
    ret
 
@@ -724,11 +746,11 @@ _ori_main:
 
 **@count_items** (11 instructions): Loads all 3 fields of the list struct (len, cap, data) into an aggregate via GEP+load+insertvalue, then extracts only the length field. The cap and data loads are dead code that LLVM will optimize away in release builds, but the parameter materialization pattern is counted at 1.00x since the tool recognizes it as structural overhead. No unnecessary instructions.
 
-**@check_length** (104 actual vs 102 ideal): The 2 excess instructions are redundant unconditional branches (`br label %bb1` from bb0, `br label %bb3` from bb1). All other instructions are justified: 3 list allocations (GEP+store per element), 3 length extractions, RC operations (1 rc_inc, 5 rc_dec across normal and landingpad paths), 2 invoke calls, 3 overflow-checked arithmetic ops, and 2 landingpad blocks for unwind safety. [LOW-1]
+**@check_length** (104 actual vs 102 ideal): The 2 excess instructions are redundant unconditional branches (`br label %bb1` from bb0, `br label %bb3` from bb1). All other instructions are justified: 3 list allocations (GEP+store per element), 3 length extractions, RC operations (1 rc_inc, 3 rc_dec for list b + 2 drop_unique for list c), 2 invoke calls, 3 overflow-checked arithmetic ops, and 2 landingpad blocks for unwind safety. [LOW-1]
 
 **@check_iteration** (44 actual vs 43 ideal): The 1 excess instruction is the `add.ok` block that contains only `br label %bb1` -- a known pattern from overflow-checking codegen. The loop structure (phi node, iter_next call, tag check, overflow-checked add) is well-formed.
 
-**@check_passing** (28 instructions): All instructions justified. Uses `invoke` (not `call`) for `@_ori_count_items` with a landingpad for unwind cleanup. The landingpad block (bb2) correctly cleans up the list on unwind. This is a change from the previous run which used `call` + `ori_buffer_drop_unique` (20 instructions). [MEDIUM-5]
+**@check_passing** (28 instructions): All instructions justified. Uses `invoke` (not `call`) for `@_ori_count_items` with a landingpad for unwind cleanup. Both normal and unwind paths use `ori_buffer_drop_unique` (correct since the list is uniquely owned).
 
 **@main** (16 instructions): All justified: 3 function calls, 2 overflow-checked additions, 2 panic branches.
 
@@ -745,16 +767,17 @@ _ori_main:
 **Verdict**: All functions balanced. Zero violations. Zero leaks detected.
 
 **Notable ARC patterns**:
-- **Borrow elision on @count_items**: The parameter `xs: [int]` is passed by pointer (`ptr %0`). The caller retains ownership and the callee borrows without incrementing the reference count. This is optimal -- avoids an rc_inc/rc_dec pair on every call.
-- **Landingpad cleanup in @check_length**: Two landingpad blocks handle unwind paths correctly. bb6 cleans up both list `b` and list `c` when the first `count_items(c)` call panics. bb8 cleans up only list `b` when the second `count_items(b)` call panics (list `c` is already freed at that point). This is precise resource tracking.
+- **Borrow elision on @count_items**: The parameter `xs: [int]` is passed by pointer (`ptr readonly %0`). The caller retains ownership and the callee borrows without incrementing the reference count. The `readonly` attribute correctly marks that this function does not modify the list through the pointer. This is optimal -- avoids an rc_inc/rc_dec pair on every call. [NOTE-6]
+- **Unique-path optimization in @check_length**: List `c` (the 10-element list) is uniquely owned -- it is never rc_inc'd or shared. The compiler correctly uses `ori_buffer_drop_unique` instead of `ori_buffer_rc_dec` on both the normal path (`add.ok29`) and the unwind path (`bb6`). This skips the runtime refcount check, providing a faster cleanup path. [NOTE-7]
+- **Landingpad cleanup in @check_length**: Two landingpad blocks handle unwind paths correctly. bb6 cleans up list `b` (shared, via `rc_dec`) and list `c` (unique, via `drop_unique`) when the first `count_items(c)` call panics. bb8 cleans up only list `b` (via `rc_dec`) when the second `count_items(b)` call panics (list `c` already freed at that point). This is precise resource tracking.
 - **Iterator sharing in @check_iteration**: The list is rc_inc'd before creating the iterator, then rc_dec'd after the loop alongside iter_drop. Correct sharing protocol.
-- **Landingpad in @check_passing**: Previously used `ori_buffer_drop_unique` (unique-path optimization). Now uses `invoke` + landingpad + `ori_buffer_rc_dec`. This is more conservative but still correct. The unique-path optimization was lost on the AIMS branch. [MEDIUM-5]
+- **Unique-path optimization in @check_passing**: Both normal (bb1) and unwind (bb2) paths use `ori_buffer_drop_unique`, which is correct since the list is the sole owner (no rc_inc). Previously this used `ori_buffer_rc_dec` -- the unique-path optimization has been restored. [NOTE-8]
 
 ### 3. Attributes & Calling Convention
 
 | Function | fastcc | nounwind | noalias | readonly | cold | Notes |
 |----------|--------|----------|---------|----------|------|-------|
-| @count_items | YES | NO | N/A | N/A | NO | [MEDIUM-2] |
+| @count_items | YES | NO | N/A | YES (param) | NO | `readonly` on param is new [NOTE-6] |
 | @check_length | YES | NO | N/A | N/A | NO | [MEDIUM-2] |
 | @check_iteration | YES | NO | N/A | N/A | NO | [MEDIUM-2] |
 | @check_passing | YES | NO | N/A | N/A | NO | [MEDIUM-2] |
@@ -763,11 +786,12 @@ _ori_main:
 | @ori_list_alloc_data | N/A | YES | N/A | N/A | NO | Correct |
 | @ori_buffer_rc_dec | N/A | YES | N/A | N/A | NO | Correct |
 | @ori_list_rc_inc | N/A | YES | N/A | N/A | NO | Correct |
+| @ori_buffer_drop_unique | N/A | YES | N/A | N/A | NO | Correct |
 | @ori_iter_from_list | N/A | YES | N/A | N/A | NO | Correct |
 | @ori_iter_next | N/A | YES | N/A | N/A | NO | Correct |
 | @ori_iter_drop | N/A | YES | N/A | N/A | NO | Correct |
 
-Attribute compliance: 16/24 = 66.7%. The missing attributes are primarily `nounwind` on user functions. The nounwind fixed-point analysis is conservative -- `@count_items` could be marked `nounwind` since it contains no panicking operations (it only extracts a field). All runtime functions correctly have `nounwind`. [MEDIUM-2]
+Attribute compliance: 16/20 = 80.0%. The missing attributes are primarily `nounwind` on user functions. The nounwind fixed-point analysis is conservative -- `@count_items` could be marked `nounwind` since it contains no panicking operations (it only extracts a field). All runtime functions correctly have `nounwind`. The `readonly` attribute on `@count_items`'s parameter is a new improvement over the previous run. [MEDIUM-2]
 
 ### 4. Control Flow & Block Layout
 
@@ -783,7 +807,7 @@ Attribute compliance: 16/24 = 66.7%. The missing attributes are primarily `nounw
 
 **@check_iteration**: The `add.ok` block is empty (contains only `br label %bb1`). Known overflow-checking pattern.
 
-**@check_passing**: 3 blocks: bb0 (entry + invoke), bb1 (normal path + rc_dec + ret), bb2 (landingpad + rc_dec + resume). Clean and minimal.
+**@check_passing**: 3 blocks: bb0 (entry + invoke), bb1 (normal path + drop_unique + ret), bb2 (landingpad + drop_unique + resume). Clean and minimal.
 
 ### 5. Overflow Checking
 
@@ -847,16 +871,16 @@ _ori_count_items:
 
 Clean loop structure with the iterator runtime protocol.
 
-#### Disassembly: @check_passing (landingpad path)
+#### Disassembly: @check_passing
 
 ```asm
 _ori_check_passing:
    sub    $0x48,%rsp
-   ; ... (allocate list, store elements, alloca+store ref_arg)
+   ; ... (allocate list, store 5 elements, alloca+store ref_arg)
    call   _ori_count_items      ; invoke lowered to call (LLVM knows it won't unwind?)
    mov    %rax,0x28(%rsp)
-   jmp    .normal_path          ; fallthrough to rc_dec + ret
-   ; ... landingpad code (rc_dec + _Unwind_Resume)
+   jmp    .normal_path          ; fallthrough to drop_unique + ret
+   ; ... landingpad code (drop_unique + _Unwind_Resume)
 ```
 
 Note: In the disassembly, the `invoke` was lowered to a `call` by LLVM since `_ori_count_items` doesn't actually throw. The landingpad code is still present but unreachable in practice.
@@ -867,7 +891,7 @@ Note: In the disassembly, the `invoke` was lowered to a `call` by LLVM since `_o
 
 ```llvm
 ; IDEAL (3 instructions)
-define fastcc noundef i64 @_ori_count_items(ptr %0) nounwind readonly {
+define fastcc noundef i64 @_ori_count_items(ptr readonly %0) nounwind {
   %len = load i64, ptr %0, align 8
   ret i64 %len
 }
@@ -875,7 +899,7 @@ define fastcc noundef i64 @_ori_count_items(ptr %0) nounwind readonly {
 
 ```llvm
 ; ACTUAL (11 instructions)
-define fastcc noundef i64 @_ori_count_items(ptr %0) #0 {
+define fastcc noundef i64 @_ori_count_items(ptr readonly %0) #0 {
 bb0:
   %param.load.f0.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %0, i32 0, i32 0
   %param.load.f0 = load i64, ptr %param.load.f0.ptr, align 8
@@ -886,21 +910,21 @@ bb0:
 }
 ```
 
-**Delta**: +8 instructions (parameter materialization). The codegen loads all 3 fields when only the length is used. LLVM's SROA/mem2reg optimizes this away (confirmed by 4-instruction native disassembly). [LOW-4]
+**Delta**: +8 instructions (parameter materialization). The codegen loads all 3 fields when only the length is used. LLVM's SROA/mem2reg optimizes this away (confirmed by 4-instruction native disassembly). The `readonly` attribute is correctly present on the parameter. [LOW-4]
 
 #### @check_passing: Ideal vs Actual
 
 ```llvm
-; IDEAL (20 instructions — previous run)
+; IDEAL (20 instructions)
 ; alloc, stores, alloca, store ref, call, drop_unique, ret
 ```
 
 ```llvm
 ; ACTUAL (28 instructions)
-; alloc, stores, alloca, store ref, invoke, landingpad cleanup, rc_dec, ret
+; alloc, stores, alloca, store ref, invoke, landingpad+drop_unique, drop_unique, ret
 ```
 
-**Delta**: +8 from ideal. The AIMS branch replaced `call` + `ori_buffer_drop_unique` with `invoke` + landingpad + `ori_buffer_rc_dec`. The invoke/landingpad structure adds 8 instructions for unwind safety on a function that cannot actually unwind (since `@count_items` is pure field extraction). This is correct but conservative. [MEDIUM-5]
+**Delta**: +8 from ideal. The `invoke` with a landingpad adds instructions for unwind safety. However, both normal and unwind paths now correctly use `ori_buffer_drop_unique` (restored from previous regression). The `invoke` is conservative since `@count_items` cannot actually unwind.
 
 #### Module Summary
 
@@ -939,16 +963,16 @@ The journey exercises three distinct ARC ownership patterns:
    - `ori_list_rc_inc` on list `b` to share it for the second call
    - `ori_buffer_rc_dec` on list `a` after its length is extracted (immediate cleanup)
    - `ori_buffer_rc_dec` on list `b` in `add.ok` before first `count_items` invoke
-   - `ori_buffer_rc_dec` on list `c` in `add.ok32` after first `count_items` returns
+   - `ori_buffer_drop_unique` on list `c` in `add.ok29` after first `count_items` returns (unique owner)
    - `ori_buffer_rc_dec` on list `b` in `sub.ok` after second `count_items` returns
-   - Landingpad bb6: rc_dec both list `b` and list `c` (both live when first invoke panics)
-   - Landingpad bb8: rc_dec list `b` only (list `c` already freed when second invoke panics)
+   - Landingpad bb6: rc_dec list `b` (shared) + drop_unique list `c` (unique, still live)
+   - Landingpad bb8: rc_dec list `b` only (list `c` already freed)
 
 2. **Iterator-shared path** (`@check_iteration`): List is rc_inc'd before creating the iterator (since the iterator borrows the data buffer). After the loop, both `ori_buffer_rc_dec` and `ori_iter_drop` are called. This ensures the list data stays alive throughout iteration.
 
-3. **Conservative unique path** (`@check_passing`): Previously used `ori_buffer_drop_unique` (skipping RC check). The AIMS branch now uses `invoke` + `ori_buffer_rc_dec` with a landingpad. This is correct but loses the unique-path optimization. The list is never shared (no rc_inc), so the rc_dec will always find refcount == 1 and free immediately, but the runtime must still check. [MEDIUM-5]
+3. **Unique-owner path** (`@check_passing`): The list is never shared (no rc_inc), so the compiler correctly uses `ori_buffer_drop_unique` on both normal (bb1) and unwind (bb2) paths. This skips the runtime refcount check -- a direct improvement from the previous run which used the conservative `ori_buffer_rc_dec`. [NOTE-8]
 
-The compiler demonstrates correct use of ARC primitives across all three patterns, with proper landingpad cleanup on unwind paths. The loss of the `ori_buffer_drop_unique` optimization in `@check_passing` is the only regression from the previous run.
+The compiler demonstrates correct use of both `ori_buffer_rc_dec` (for shared lists) and `ori_buffer_drop_unique` (for uniquely-owned lists), with proper differentiation per ownership status. The ARC pipeline correctly distinguishes unique from shared ownership and selects the appropriate cleanup primitive.
 
 ## Findings
 
@@ -958,10 +982,12 @@ The compiler demonstrates correct use of ARC primitives across all three pattern
 | 2 | MEDIUM | Attributes | Missing nounwind on user functions | CONFIRMED | J1 |
 | 3 | LOW | Control Flow | Empty add.ok block in @check_iteration loop | CONFIRMED | J7 |
 | 4 | LOW | IR Quality | Verbose parameter materialization in @count_items | CONFIRMED | J10 |
-| 5 | MEDIUM | ARC | Lost unique-path optimization in @check_passing | REGRESSED | J10 |
-| 6 | NOTE | ARC | Correct dual-landingpad cleanup in @check_length | NEW | J10 |
-| 7 | NOTE | ARC | All functions balanced -- zero ARC violations | CONFIRMED | J10 |
-| 8 | NOTE | ARC | Precise per-invoke landingpad resource tracking | NEW | J10 |
+| 5 | NOTE | ARC | Lost unique-path optimization restored | FIXED | J10 |
+| 6 | NOTE | Attributes | readonly attribute on @count_items parameter | NEW | J10 |
+| 7 | NOTE | ARC | Correct unique-path drop_unique for list c in @check_length | NEW | J10 |
+| 8 | NOTE | ARC | Unique-path drop_unique restored in @check_passing | FIXED | J10 |
+| 9 | NOTE | ARC | All functions balanced -- zero ARC violations | CONFIRMED | J10 |
+| 10 | NOTE | ARC | Precise per-invoke landingpad resource tracking | CONFIRMED | J10 |
 
 ### LOW-1: Redundant unconditional branches in @check_length
 
@@ -995,30 +1021,40 @@ The compiler demonstrates correct use of ARC primitives across all three pattern
 **First seen**: Journey 10 (previous run)
 **Found in**: Optimal IR Comparison (Category 7)
 
-### MEDIUM-5: Lost unique-path optimization in @check_passing
+### NOTE-5: Lost unique-path optimization restored
 
-**Location**: @check_passing, uses `invoke` + `ori_buffer_rc_dec` + landingpad instead of `call` + `ori_buffer_drop_unique`
-**Impact**: Previous run (2026-03-08) used `ori_buffer_drop_unique` which skips the runtime refcount check for uniquely-owned lists. The AIMS branch now uses `invoke` with a landingpad, adding 8 instructions (+40% for this function). The `invoke` is unnecessary since `@count_items` cannot unwind. The `ori_buffer_rc_dec` is correct but misses the opportunity to use the faster `drop_unique` path.
-**Fix**: (1) Restore unique-path detection in the AIMS ARC pipeline. (2) Use `call` instead of `invoke` when the callee is provably `nounwind`.
-**First seen**: Journey 10 (previous run used `drop_unique`, now regressed)
-**Found in**: Lists: ARC Lifecycle (Category 9)
+**Location**: @check_passing and @check_length (list c cleanup)
+**Impact**: Positive -- the previous run (2026-03-15) reported that `ori_buffer_drop_unique` was replaced with `ori_buffer_rc_dec` on the AIMS branch. This has been restored. Both `@check_passing` (normal + unwind paths) and `@check_length` (list c cleanup in `add.ok29` and `bb6`) now correctly use `ori_buffer_drop_unique` for uniquely-owned lists.
+**Found in**: ARC Purity (Category 2), Lists: ARC Lifecycle (Category 9)
 
-### NOTE-6: Correct dual-landingpad cleanup in @check_length
+### NOTE-6: readonly attribute on @count_items parameter
 
-**Location**: @check_length, bb6 and bb8
-**Impact**: Positive -- bb6 cleans up both list `b` and list `c` when the first invoke panics; bb8 cleans up only list `b` when the second invoke panics. This is precise resource tracking that prevents leaks on any unwind path.
+**Location**: @count_items function declaration, `ptr readonly %0`
+**Impact**: Positive -- the `readonly` attribute tells LLVM that `@count_items` does not modify memory through the parameter pointer. This enables LLVM to perform more aggressive optimizations (e.g., avoiding reloads after the call). This is a new improvement from the AIMS Section 02 attribute compliance work.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-7: Correct unique-path drop_unique for list c in @check_length
+
+**Location**: @check_length, `add.ok29` (normal) and `bb6` (landingpad)
+**Impact**: Positive -- list `c` is never shared (no rc_inc), so `ori_buffer_drop_unique` is the correct cleanup primitive. The previous run used `ori_buffer_rc_dec` for list `c`'s cleanup in the landingpad, which was correct but suboptimal. The ARC pipeline now correctly distinguishes shared (list `b` -> `rc_dec`) from unique (list `c` -> `drop_unique`) within the same function.
 **Found in**: ARC Purity (Category 2)
 
-### NOTE-7: All functions balanced -- zero ARC violations
+### NOTE-8: Unique-path drop_unique restored in @check_passing
+
+**Location**: @check_passing, bb1 (normal) and bb2 (unwind)
+**Impact**: Positive -- both normal and unwind paths now use `ori_buffer_drop_unique`, correctly skipping the runtime refcount check for the uniquely-owned list. This was previously regressed to `ori_buffer_rc_dec`.
+**Found in**: ARC Purity (Category 2), Lists: ARC Lifecycle (Category 9)
+
+### NOTE-9: All functions balanced -- zero ARC violations
 
 **Location**: All 5 user functions
 **Impact**: Positive -- perfect RC balance with 7 rc_inc and 7 rc_dec across the module (counting landingpad ops separately from normal paths, the normal-path counts are balanced per function).
 **Found in**: ARC Purity (Category 2)
 
-### NOTE-8: Precise per-invoke landingpad resource tracking
+### NOTE-10: Precise per-invoke landingpad resource tracking
 
 **Location**: @check_length bb6/bb8, @check_passing bb2
-**Impact**: Positive -- each `invoke` instruction has its own landingpad that cleans up exactly the resources that are live at that point. This is more precise than a single catch-all cleanup block and ensures no double-frees on unwind.
+**Impact**: Positive -- each `invoke` instruction has its own landingpad that cleans up exactly the resources that are live at that point. bb6 correctly distinguishes shared (list `b` -> `rc_dec`) from unique (list `c` -> `drop_unique`). This is more precise than a single catch-all cleanup block and ensures no double-frees on unwind.
 **Found in**: ARC Purity (Category 2)
 
 ## Codegen Quality Score
@@ -1027,17 +1063,17 @@ The compiler demonstrates correct use of ARC primitives across all three pattern
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 9/10 | 1.01x avg ratio (max 1.02x) |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 5/10 | 66.7% compliance |
+| Attributes & Safety | 10% | 7/10 | 80.0% compliance |
 | Control Flow | 10% | 7/10 | 4 defects |
 | IR Quality | 20% | 8/10 | 3 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 8.7 / 10**
+**Overall: 8.8 / 10**
 
 ## Verdict
 
-Journey 10's list codegen demonstrates correct ARC handling across all five functions with zero RC violations. The compiler correctly manages three ownership patterns -- shared, iterator-shared, and unique -- with precise per-invoke landingpad cleanup on unwind paths. The main regression from the previous run is the loss of the `ori_buffer_drop_unique` optimization in `@check_passing`, which now uses the conservative `invoke` + landingpad + `ori_buffer_rc_dec` path (+8 instructions). This does not affect correctness or the overall score (still 8.7), but represents a missed optimization opportunity on the AIMS branch. The long-standing issues (missing `nounwind` at 66.7% compliance, redundant branches) remain unchanged.
+Journey 10's list codegen demonstrates correct ARC handling across all five functions with zero RC violations. The compiler now correctly distinguishes unique from shared ownership, using `ori_buffer_drop_unique` for uniquely-owned lists (lists `c` in `@check_length` and the list in `@check_passing`) and `ori_buffer_rc_dec` for shared lists (list `b` in `@check_length`). The `readonly` attribute on `@count_items`'s parameter is a new improvement from the AIMS attribute compliance work. The previously-reported regression (MEDIUM-5: lost unique-path optimization) is now FIXED. Score improves from 8.7 to 8.8, driven by restored attribute compliance (66.7% -> 80.0%).
 
 ## Cross-Journey Observations
 
@@ -1048,7 +1084,8 @@ Journey 10's list codegen demonstrates correct ARC handling across all five func
 | Redundant branches | J1 | J10 | CONFIRMED |
 | Empty overflow blocks | J7 | J10 | CONFIRMED |
 | ARC balance | J9 | J10 | CONFIRMED |
-| Unique-path drop_unique | J10 (prev) | J10 | REGRESSED |
-| Per-invoke landingpads | J10 | J10 | NEW |
+| Unique-path drop_unique | J10 (prev) | J10 | FIXED (was REGRESSED) |
+| Per-invoke landingpads | J10 | J10 | CONFIRMED |
+| readonly on params | J10 | J10 | NEW |
 
-The AIMS branch maintains the same overall score (8.7/10) as the previous run. The key change is in `@check_passing`: the unique-path optimization (`ori_buffer_drop_unique`) has been replaced with the general-purpose `invoke` + landingpad + `ori_buffer_rc_dec` pattern. While this is more conservative, it is also more consistent -- all function calls that cross ownership boundaries now use `invoke` with proper unwind cleanup. The `@check_length` function gained a second landingpad block (bb8) for the second `count_items` call, improving unwind precision at the cost of code size.
+The AIMS branch now scores 8.8/10 (up from 8.7). Two key improvements since the previous run: (1) the `readonly` attribute on `@count_items`'s parameter, and (2) the restoration of `ori_buffer_drop_unique` for uniquely-owned lists in both `@check_passing` and `@check_length`. The unique-path optimization is now correctly applied in `@check_length`'s landingpad (bb6), which previously used `ori_buffer_rc_dec` for list `c` even though it was the sole owner. The ARC pipeline's ability to distinguish shared from unique ownership within the same function (list `b` -> `rc_dec`, list `c` -> `drop_unique`) demonstrates mature ownership analysis.
