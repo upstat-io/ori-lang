@@ -54,7 +54,7 @@ overflow_check: PASS
 bugs_found: []
 related_journeys:
   - journey: 1
-    relationship: "Both confirm overflow checking, fastcc, and noundef; all attribute gaps now closed"
+    relationship: "Both confirm overflow checking, fastcc, noundef, and memory attributes; all attribute gaps closed"
   - journey: 8
     relationship: "Both test struct-typed parameters passed by value via fastcc"
 ---
@@ -327,7 +327,7 @@ source_filename = "06-pattern-matching"
 
 @ovf.msg = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00", align 1
 
-; Function Attrs: nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @to_code ---
 define fastcc noundef i64 @_ori_to_code(%ori.Status noundef %0) #0 {
 bb0:
@@ -411,7 +411,7 @@ entry:
   ret i32 %exit_code
 }
 
-attributes #0 = { nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable }
+attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { nounwind uwtable }
 attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { cold noreturn }
@@ -517,15 +517,15 @@ main:
 
 | Function | fastcc | nounwind | uwtable | noundef(ret) | noundef(params) | memory | Notes |
 |----------|--------|----------|---------|--------------|-----------------|--------|-------|
-| @to_code | YES | YES | YES | YES | YES | memory(read) | [NOTE-1] |
+| @to_code | YES | YES | YES | YES | YES | memory(none) | [NOTE-1] |
 | @extract | YES | YES | YES | YES | YES | -- | |
 | @main | N/A | YES | YES | YES | N/A | -- | |
-| main (C) | N/A | YES | YES | YES | N/A | -- | [NOTE-2] |
+| main (C) | N/A | YES | YES | YES | N/A | -- | |
 | ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | -- | cold, noreturn: correct |
 
 **Attribute compliance**: 15/15 applicable attributes correct (100.0%).
 
-All user functions have complete attribute coverage. The C wrapper `main()` now carries `noundef` on its `i32` return (previously missing). `@_ori_to_code` receives `memory(read)` from posthoc analysis, correctly identifying it as a pure function that only reads its tag-only enum argument. `@_ori_extract` does not qualify for `memory(read)` because the `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
+All user functions have complete attribute coverage. `@_ori_to_code` receives `memory(none)` from posthoc purity analysis, correctly identifying it as a pure function with zero memory effects -- it receives `%ori.Status` by value (in a register via `fastcc`), so no memory reads are needed. This is an improvement over the previous `memory(argmem: read, ...)` which was conservative; the AIMS posthoc analysis now correctly distinguishes by-value struct parameters from pointer-based memory access. `@_ori_extract` does not qualify for `memory(none)` because the `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
 
 ### 4. Control Flow & Block Layout
 
@@ -613,7 +613,7 @@ The native codegen reveals two redundant jumps (`jmp .check1` then immediately `
 
 ```llvm
 ; IDEAL (6 instructions)
-define fastcc noundef i64 @_ori_to_code(%ori.Status noundef %0) nounwind memory(read) {
+define fastcc noundef i64 @_ori_to_code(%ori.Status noundef %0) nounwind memory(none) {
   %tag = extractvalue %ori.Status %0, 0
   %is_pending = icmp eq i64 %tag, 0
   %sel1 = select i1 %is_pending, i64 0, i64 2
@@ -636,7 +636,7 @@ bb0:
 }
 ```
 
-**Delta**: +0 instructions. OPTIMAL. The compiler's decision tree lowering for unit-variant enums produces the same branchless select chain as hand-written IR. The `memory(read)` attribute is correctly applied via posthoc analysis.
+**Delta**: +0 instructions. OPTIMAL. The compiler's decision tree lowering for unit-variant enums produces the same branchless select chain as hand-written IR. The `memory(none)` attribute is correctly applied via posthoc purity analysis, recognizing that by-value struct parameters involve zero memory reads.
 
 #### @extract: Ideal vs Actual
 
@@ -742,22 +742,22 @@ The compiler uses a tagged-union representation for sum types:
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | NOTE | Attributes | `memory(read)` on pure match function via posthoc analysis | CONFIRMED | J6 |
-| 2 | NOTE | Attributes | `noundef` on C wrapper `main()` return now present | FIXED | J6 |
+| 1 | NOTE | Attributes | `memory(none)` on pure match function via posthoc purity analysis | CONFIRMED | J6 |
+| 2 | NOTE | Attributes | `noundef` on C wrapper `main()` return present | CONFIRMED | J6 |
 | 3 | NOTE | Pattern Matching | Branchless select chain for tag-only enum match | CONFIRMED | J6 |
 | 4 | NOTE | Pattern Matching | Correct exhaustiveness lowering with unreachable default | CONFIRMED | J6 |
 | 5 | NOTE | Sum Types | Efficient tagged-union layout with by-value passing | CONFIRMED | J6 |
 
-### NOTE-1: `memory(read)` on pure match function via posthoc analysis
+### NOTE-1: `memory(none)` on pure match function via posthoc purity analysis
 
 **Location**: `@_ori_to_code` function attributes
-**Impact**: Positive -- the posthoc nounwind/memory fixed-point analysis (AIMS Section 02) correctly identifies `@_ori_to_code` as a readonly function. The attribute `memory(argmem: read, inaccessiblemem: read, errnomem: read)` informs LLVM that this function has no side effects, enabling more aggressive optimization (CSE, dead call elimination, hoisting). `@_ori_extract` does not receive this attribute because its `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
+**Impact**: Positive -- the posthoc nounwind/memory fixed-point analysis (AIMS Section 02) correctly identifies `@_ori_to_code` as a pure function with zero memory effects. The attribute `memory(none)` informs LLVM that this function neither reads nor writes any memory, enabling aggressive optimization (CSE, dead call elimination, hoisting, reordering). This is an improvement over the previous `memory(argmem: read, ...)` -- the analysis now correctly recognizes that `%ori.Status` is passed by value in registers via `fastcc`, so no memory reads are involved. `@_ori_extract` does not receive this attribute because the `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-2: `noundef` on C wrapper `main()` return now present
+### NOTE-2: `noundef` on C wrapper `main()` return present
 
 **Location**: `define noundef i32 @main()`
-**Impact**: Positive -- the previous run showed `define i32 @main()` without `noundef` on the return. This is now fixed. The C wrapper's `i32` return is always a well-defined value (truncated from `_ori_main`'s `i64` result). This closes the last remaining attribute gap in this journey.
+**Impact**: Positive -- the C wrapper's `i32` return is always a well-defined value (truncated from `_ori_main`'s `i64` result). Complete `noundef` coverage across all functions.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-3: Branchless select chain for tag-only enum match
@@ -794,7 +794,7 @@ The compiler uses a tagged-union representation for sum types:
 
 ## Verdict
 
-Journey 6's pattern matching codegen achieves a perfect score. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. All attribute gaps from the previous run are now closed: `noundef` is present on both scalar and struct-typed parameters, `memory(read)` is correctly applied to the pure match function via posthoc analysis, and the C wrapper `main()` return now carries `noundef`. ARC is irrelevant -- all values are scalar integers, zero RC operations needed.
+Journey 6's pattern matching codegen achieves a perfect score. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. Attribute coverage is complete: `noundef` on all parameters and returns, `nounwind` on all user functions, and the AIMS posthoc purity analysis now correctly assigns `memory(none)` to `@_ori_to_code` (improved from the previous `memory(argmem: read, ...)` by recognizing by-value struct parameters involve no memory access). ARC is irrelevant -- all values are scalar integers, zero RC operations needed.
 
 ## Cross-Journey Observations
 
@@ -805,8 +805,8 @@ Journey 6's pattern matching codegen achieves a perfect score. The compiler demo
 | nounwind on user functions | J1 | J6 | CONFIRMED |
 | noundef on all params/returns | J1 | J6 | CONFIRMED |
 | Zero ARC for scalars | J1 | J6 | CONFIRMED |
-| memory(read) attribute | J6 | J6 | CONFIRMED |
+| memory(none) on pure functions | J6 | J6 | CONFIRMED |
 | uwtable on all functions | J1 | J6 | CONFIRMED |
-| noundef on C wrapper main() | J6 | J6 | FIXED |
+| noundef on C wrapper main() | J6 | J6 | CONFIRMED |
 
-Journey 6 achieves a perfect 10.0/10 score, up from 9.8 in the previous run. The improvement comes from the C wrapper `main()` now carrying `noundef` on its `i32` return, bringing attribute compliance from 93.3% to 100.0%. All five findings are positive NOTEs. The branchless select-chain strategy for tag-only enums and the general-case switch+phi lowering for payload-carrying variants both produce optimal IR at the LLVM level. Score improved from 9.8 to 10.0.
+Journey 6 maintains its perfect 10.0/10 score. The AIMS posthoc purity analysis has improved since the last run: `@_ori_to_code` now receives `memory(none)` (previously `memory(argmem: read, ...)`) because the analysis correctly recognizes that by-value struct parameters passed via `fastcc` involve zero memory access. All five findings are positive NOTEs -- no defects or inefficiencies detected in the pattern matching codegen.

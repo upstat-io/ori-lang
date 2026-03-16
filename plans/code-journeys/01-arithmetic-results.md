@@ -214,7 +214,7 @@ The canonicalizer produces 20 canon nodes from 16 AST nodes (let bindings create
 
 **RC ops inserted**: 0 | **Elided**: 0 | **Net ops**: 0
 
-This program uses only `int` scalars (i64), which are value types stored directly in registers. No heap allocation occurs, so no reference counting is needed. The AIMS unified lattice correctly identifies all values as scalar -- no change from the previous pipeline.
+This program uses only `int` scalars (i64), which are value types stored directly in registers. No heap allocation occurs, so no reference counting is needed. The AIMS unified lattice correctly identifies all values as scalar.
 
 <details>
 <summary>ARC annotations</summary>
@@ -434,7 +434,7 @@ attributes #3 = { cold noreturn }
 | @add     | 0      | 0      | YES      | N/A            | N/A            |
 | @main    | 0      | 0      | YES      | N/A            | N/A            |
 
-**Verdict**: Zero RC operations. Correct -- this program uses only `int` scalars (i64), which are value types requiring no reference counting. No `ori_rc_inc`, `ori_rc_dec`, or any RC-related calls present in the IR or disassembly. The AIMS unified lattice correctly classifies all values as scalars, producing the same zero-RC result as the previous pipeline. OPTIMAL.
+**Verdict**: Zero RC operations. Correct -- this program uses only `int` scalars (i64), which are value types requiring no reference counting. No `ori_rc_inc`, `ori_rc_dec`, or any RC-related calls present in the IR or disassembly. The AIMS unified lattice correctly classifies all values as scalars. OPTIMAL.
 
 ### 3. Attributes & Calling Convention
 
@@ -442,14 +442,14 @@ attributes #3 = { cold noreturn }
 |----------|--------|----------|---------|--------|---------|----------|------|-------|
 | @add     | YES    | YES      | YES     | none   | YES (params + ret) | N/A | N/A | [NOTE-1] |
 | @main    | NO (C) | YES      | YES     | N/A    | YES (ret) | N/A  | N/A  | C conv for entry point -- correct |
-| main wrapper | NO (C) | YES | YES     | N/A    | YES (ret) | N/A  | N/A  | All attributes present [NOTE-4] |
-| ori_panic_cstr | N/A | N/A | N/A     | N/A    | N/A     | YES      | YES  | Both noreturn and cold present |
+| main wrapper | NO (C) | YES | YES     | N/A    | YES (ret) | N/A  | N/A  | All attributes present |
+| ori_panic_cstr | N/A | N/A | N/A     | N/A    | N/A     | YES      | YES  | Both noreturn and cold present [NOTE-2] |
 
 **@_ori_add uses `fastcc` with `memory(none)`**: Correct. Internal function benefits from fast calling convention. The `nounwind` attribute is present (fixed-point analysis confirms both user functions do not unwind). `memory(none)` tells LLVM that `@_ori_add` has no observable memory effects -- it only reads its arguments and produces a return value. This is correct for a pure arithmetic function. `uwtable` is present for stack unwinding. `noundef` is present on both parameters and the return value.
 
 **@_ori_main uses C convention**: Correct. Called from the C `main()` wrapper, must use C ABI for compatibility. Also marked `nounwind`, `uwtable`, and `noundef` on the return. Does not have `memory(none)` because it calls `@_ori_add` -- the memory attribute on non-leaf functions requires interprocedural analysis, and the compiler conservatively omits it since `@_ori_main` calls another function.
 
-**main wrapper has full attribute coverage**: The C entry point wrapper now has `nounwind`, `uwtable`, and `noundef` on its `i32` return. The previously-reported LOW-1 (missing `noundef` on wrapper return) is now fixed.
+**main wrapper has full attribute coverage**: The C entry point wrapper has `nounwind`, `uwtable`, and `noundef` on its `i32` return.
 
 **`ori_panic_cstr` has both `cold` and `noreturn`**: Correct. Enables dead code elimination and branch prediction heuristics.
 
@@ -705,12 +705,11 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | NOTE     | Attributes | `memory(none)` on `@_ori_add` -- pure function optimization | CONFIRMED | J1 |
-| 2 | NOTE     | Attributes | `noreturn` + `cold` present on `ori_panic_cstr` | CONFIRMED | J1 |
-| 3 | NOTE     | Attributes | `noundef` on user function params and returns | CONFIRMED | J1 |
-| 4 | NOTE     | Attributes | `noundef` now present on main wrapper i32 return | FIXED | J1 |
-| 5 | NOTE     | Instruction Purity | Let bindings eliminated to direct SSA -- O1-quality at O0 | CONFIRMED | J1 |
-| 6 | NOTE     | Instruction Purity | All user functions match ideal IR exactly -- OPTIMAL | CONFIRMED | J1 |
+| 1 | NOTE     | Attributes | `memory(none)` on `@_ori_add` -- pure function optimization | NEW | J1 |
+| 2 | NOTE     | Attributes | `noreturn` + `cold` present on `ori_panic_cstr` | NEW | J1 |
+| 3 | NOTE     | Attributes | `noundef` on user function params and returns | NEW | J1 |
+| 4 | NOTE     | Instruction Purity | Let bindings eliminated to direct SSA -- O1-quality at O0 | NEW | J1 |
+| 5 | NOTE     | Instruction Purity | All user functions match ideal IR exactly -- OPTIMAL | NEW | J1 |
 
 ### NOTE-1: `memory(none)` on `@_ori_add`
 
@@ -726,23 +725,17 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 ### NOTE-3: `noundef` on user function parameters and returns
 
-**Location**: `@_ori_add` params (`i64 noundef %0, i64 noundef %1`) and return (`noundef i64`); `@_ori_main` return (`noundef i64`)
+**Location**: `@_ori_add` params (`i64 noundef %0, i64 noundef %1`) and return (`noundef i64`); `@_ori_main` return (`noundef i64`); `@main` return (`noundef i32`)
 **Impact**: Positive. The `noundef` attribute tells LLVM that these values are always well-defined. This enables additional optimizations -- particularly for signed overflow checking, where undefined behavior semantics are critical.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-4: `noundef` now present on main wrapper i32 return
-
-**Location**: `define noundef i32 @main() #1` -- return type `i32` now has `noundef`
-**Impact**: Positive. Previously LOW-1 (missing `noundef` on the main wrapper return). Now fixed. The C entry point wrapper has full attribute coverage: `nounwind`, `uwtable`, and `noundef` on the return value.
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### NOTE-5: Let bindings eliminated to direct SSA
+### NOTE-4: Let bindings eliminated to direct SSA
 
 **Location**: `_ori_main` -- all four `let` bindings compiled to SSA registers
 **Impact**: Positive. No `alloca`/`store`/`load` chains for scalar let bindings. Values flow directly from definition to use as SSA values. This is `-O1` quality codegen in a debug build.
 **Found in**: Arithmetic: Let Binding Elimination (Category 8)
 
-### NOTE-6: All user functions match ideal IR exactly
+### NOTE-5: All user functions match ideal IR exactly
 
 **Location**: `_ori_add` and `_ori_main`
 **Impact**: Positive. Both user functions produce instruction counts exactly matching the hand-written ideal IR. @add: 7/7. @main: 14/14. The entire module has zero unjustified overhead.
@@ -764,18 +757,4 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 ## Verdict
 
-Journey 1's arithmetic codegen achieves a perfect score. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction with zero overhead beyond mandatory overflow checking. The previously-reported LOW-1 (missing `noundef` on main wrapper return) is now fixed, bringing attribute compliance to 100%. `@_ori_add` carries `memory(none)` correctly identifying it as a pure function, `nounwind` is present on all user functions via fixed-point analysis, and all parameters/returns carry `noundef`. ARC is correctly absent for pure scalar arithmetic -- zero RC operations.
-
-## Cross-Journey Observations
-
-| Feature | First Tested | This Journey | Status |
-|---------|-------------|--------------|--------|
-| Overflow checking | J1 | J1 (re-run) | CONFIRMED |
-| fastcc usage | J1 | J1 (re-run) | CONFIRMED |
-| nounwind analysis | J1 | J1 (re-run) | CONFIRMED |
-| noundef on params | J1 | J1 (re-run) | CONFIRMED |
-| Let binding elimination | J1 | J1 (re-run) | CONFIRMED |
-| memory(none) on pure functions | J1 | J1 (re-run) | CONFIRMED |
-| Missing noundef on main wrapper | J1 | J1 (re-run) | FIXED |
-
-**AIMS branch status for Journey 1**: The sole remaining defect from the prior run (missing `noundef` on the C main wrapper return) is now fixed. All 10 applicable attributes are correctly present, yielding 100% compliance and a perfect 10.0/10 score. The LLVM IR is structurally identical to prior runs -- AIMS unified lattice changes affect ARC analysis but this scalar-only journey has no RC operations under either pipeline.
+Journey 1's arithmetic codegen achieves a perfect score. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction with zero overhead beyond mandatory overflow checking. All attributes are correctly applied -- `memory(none)` on the pure `@_ori_add`, `nounwind` on all user functions via fixed-point analysis, `noundef` on all parameters and returns, and `cold noreturn` on panic paths. ARC is correctly absent for pure scalar arithmetic -- zero RC operations.

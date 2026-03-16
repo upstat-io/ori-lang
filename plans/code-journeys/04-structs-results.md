@@ -282,7 +282,7 @@ source_filename = "04-structs"
 
 ; Function Attrs: nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable
 ; --- @area ---
-define fastcc noundef i64 @_ori_area(ptr noundef %0) #0 {
+define fastcc noundef i64 @_ori_area(ptr noundef nonnull dereferenceable(32) %0) #0 {
 bb0:
   %param.load.f1.ptr = getelementptr inbounds nuw %ori.Rect, ptr %0, i32 0, i32 1
   %param.load.f1 = load i64, ptr %param.load.f1.ptr, align 8
@@ -462,17 +462,17 @@ All 16 instructions are justified.
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | uwtable | noundef | noundef(params) | memory | cold | noreturn | Notes |
-|----------|--------|----------|---------|---------|-----------------|--------|------|----------|-------|
-| @area    | YES    | YES      | YES     | YES     | YES (ptr)       | YES (read) | N/A | N/A | [NOTE-2] |
-| @main (ori) | N/A | YES     | YES     | YES     | N/A             | N/A    | N/A  | N/A      |       |
-| @main (C) | N/A   | YES      | N/A     | YES     | N/A             | N/A    | N/A  | N/A      |       |
-| @ori_panic_cstr | N/A | N/A | N/A     | N/A     | N/A             | N/A    | YES  | YES      |       |
+| Function | fastcc | nounwind | uwtable | noundef | noundef(params) | nonnull | deref | memory | cold | noreturn | Notes |
+|----------|--------|----------|---------|---------|-----------------|---------|-------|--------|------|----------|-------|
+| @area    | YES    | YES      | YES     | YES     | YES (ptr)       | YES     | YES (32) | YES (read) | N/A | N/A | [NOTE-2] |
+| @main (ori) | N/A | YES     | YES     | YES     | N/A             | N/A     | N/A   | N/A    | N/A  | N/A      |       |
+| @main (C) | N/A   | YES      | N/A     | YES     | N/A             | N/A     | N/A   | N/A    | N/A  | N/A      |       |
+| @ori_panic_cstr | N/A | N/A | N/A     | N/A     | N/A             | N/A     | N/A   | N/A    | YES  | YES      |       |
 
 **Compliance**: 9/9 applicable attributes correct = 100.0%
 
 All applicable attributes are present:
-- `@area`: fastcc (internal function), nounwind (all callees nounwind via fixed-point analysis), uwtable (definition), noundef on return and ptr param, `memory(argmem: read, inaccessiblemem: read, errnomem: read)` (read-only access)
+- `@area`: fastcc (internal function), nounwind (all callees nounwind via fixed-point analysis), uwtable (definition), noundef on return and ptr param, `nonnull dereferenceable(32)` on ptr param (AIMS Section 01 annotations -- guarantees pointer validity and enables LLVM null-check elimination), `memory(argmem: read, inaccessiblemem: read, errnomem: read)` (read-only access)
 - `@_ori_main`: nounwind (fixed-point: area is nounwind), uwtable, noundef on return. Uses C calling convention correctly (entry point).
 - `@main` wrapper: nounwind, uwtable, noundef on return
 - `@ori_panic_cstr`: cold + noreturn (panic path)
@@ -594,7 +594,7 @@ _ori_main:
 
 ```llvm
 ; IDEAL (15 instructions — includes struct field access + overflow checking)
-define fastcc noundef i64 @_ori_area(ptr noundef %0) nounwind memory(read) uwtable {
+define fastcc noundef i64 @_ori_area(ptr noundef nonnull dereferenceable(32) %0) nounwind memory(read) uwtable {
 bb0:
   %width.ptr = getelementptr inbounds %ori.Rect, ptr %0, i32 0, i32 1
   %width = load i64, ptr %width.ptr, align 8
@@ -614,7 +614,7 @@ panic:
 
 ```llvm
 ; ACTUAL (15 instructions)
-define fastcc noundef i64 @_ori_area(ptr noundef %0) #0 {
+define fastcc noundef i64 @_ori_area(ptr noundef nonnull dereferenceable(32) %0) #0 {
 bb0:
   %param.load.f1.ptr = getelementptr inbounds nuw %ori.Rect, ptr %0, i32 0, i32 1
   %param.load.f1 = load i64, ptr %param.load.f1.ptr, align 8
@@ -683,7 +683,8 @@ panic2:
 - `%ori.Rect = type { %ori.Point, i64, i64 }` -- 32 bytes, nested Point + 2 fields
 
 **Passing convention analysis:**
-- `@area` takes `ptr` parameter -- Rect (32 bytes) exceeds the 16-byte direct-passing threshold, correctly passed by reference
+- `@area` takes `ptr noundef nonnull dereferenceable(32)` parameter -- Rect (32 bytes) exceeds the 16-byte direct-passing threshold, correctly passed by reference with full pointer validity annotations
+- The `nonnull dereferenceable(32)` attributes guarantee the pointer is valid for 32 bytes (full Rect size), enabling LLVM to speculate loads and eliminate null checks
 - The `memory(argmem: read, ...)` attribute on `@area` correctly communicates that the function only reads from the pointer, enabling LLVM to optimize caller stores
 - The caller (`@main`) stack-allocates the Rect and passes its address -- clean, no heap allocation
 
@@ -710,7 +711,7 @@ Point `p` is used in two contexts: field access (`p.x`, `p.y`) and as a field of
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
 | 1 | NOTE     | Structs: Type Layout | Struct types correctly lowered to LLVM aggregates | NEW | J4 |
-| 2 | NOTE     | Attributes | Full 100% attribute compliance including memory(read) on @area | NEW | J4 |
+| 2 | NOTE     | Attributes | Full 100% attribute compliance including memory(read), nonnull, dereferenceable(32) on @area | NEW | J4 |
 
 ### NOTE-1: SSA struct roundtrip pattern in @area
 
@@ -721,7 +722,7 @@ Point `p` is used in two contexts: field access (`p.x`, `p.y`) and as a field of
 ### NOTE-2: Excellent attribute coverage on @area
 
 **Location**: @area function declaration
-**Impact**: Positive -- `memory(argmem: read, inaccessiblemem: read, errnomem: read)` precisely communicates that @area only reads from its pointer argument. Combined with `nounwind`, `fastcc`, `uwtable`, and `noundef`, this gives LLVM maximum optimization latitude.
+**Impact**: Positive -- `memory(argmem: read, inaccessiblemem: read, errnomem: read)` precisely communicates that @area only reads from its pointer argument. The `nonnull dereferenceable(32)` annotations on the ptr parameter (from AIMS Section 01) guarantee pointer validity and enable LLVM to eliminate null checks and speculate loads. Combined with `nounwind`, `fastcc`, `uwtable`, and `noundef`, this gives LLVM maximum optimization latitude. This is the first journey to exercise struct pointer annotations.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ## Codegen Quality Score
@@ -740,7 +741,7 @@ Point `p` is used in two contexts: field access (`p.x`, `p.y`) and as a field of
 
 ## Verdict
 
-Journey 4 achieves a perfect 10.0/10 score. Struct types are correctly lowered to LLVM aggregate types with proper field layout. The passing convention is optimal: the 32-byte Rect is passed by reference with `memory(read)` annotation, while field access compiles to efficient GEP+load sequences. All attributes are present (nounwind, fastcc, uwtable, noundef, memory annotation), overflow checking is correct on all three arithmetic operations, and ARC is properly absent for this pure-scalar program. The SSA struct roundtrip pattern in @area is the only notable codegen artifact, and LLVM opt eliminates it completely.
+Journey 4 achieves a perfect 10.0/10 score. Struct types are correctly lowered to LLVM aggregate types with proper field layout. The passing convention is optimal: the 32-byte Rect is passed by reference with `nonnull dereferenceable(32)` and `memory(read)` annotations, while field access compiles to efficient GEP+load sequences. All attributes are present (nounwind, fastcc, uwtable, noundef, nonnull, dereferenceable, memory), overflow checking is correct on all three arithmetic operations, and ARC is properly absent for this pure-scalar program. The SSA struct roundtrip pattern in @area is the only notable codegen artifact, and LLVM opt eliminates it completely.
 
 ## Cross-Journey Observations
 
@@ -752,5 +753,6 @@ Journey 4 achieves a perfect 10.0/10 score. Struct types are correctly lowered t
 | uwtable | J1 | J4 | CONFIRMED |
 | noundef | J1 | J4 | CONFIRMED |
 | memory(read) | N/A | J4 | NEW |
+| nonnull + dereferenceable | N/A | J4 | NEW |
 
-Journey 4 introduces struct-specific codegen patterns not seen in J1-J3: aggregate type layout, GEP-based field access, by-reference passing for large structs, and the `memory(read)` function attribute. The attribute compliance has improved to 100% (up from J1's ~91%), reflecting the compiler's post-hoc nounwind analysis and memory attribute inference being applied correctly to struct-accessing functions.
+Journey 4 introduces struct-specific codegen patterns not seen in J1-J3: aggregate type layout, GEP-based field access, by-reference passing for large structs, and the `memory(read)` function attribute. The `nonnull dereferenceable(32)` annotations on struct pointer parameters (from AIMS Section 01) are first exercised here, enabling LLVM to eliminate null checks and speculate loads. The attribute compliance is 100%, reflecting the compiler's post-hoc nounwind analysis, memory attribute inference, and pointer validity annotations being applied correctly to struct-accessing functions.
