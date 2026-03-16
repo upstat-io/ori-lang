@@ -29,6 +29,9 @@ MUST_NOT_BE_NOUNWIND = frozenset({"ori_panic_cstr", "ori_panic"})
 # LLVM register names can contain dots (e.g., %closure.fn_ptr), so use [\w.]+ not \w+
 _INDIRECT_CALL_RE = re.compile(r'(?:call|invoke)\b[^@]*%[\w.]+\s*\(')
 
+# Extract callee name from call/invoke: @name (possibly quoted)
+_CALLEE_RE = re.compile(r'@"?([\w.$]+)"?\s*\(')
+
 
 # ---------------------------------------------------------------------------
 # Data Model
@@ -87,6 +90,36 @@ def _is_closure_function(func: Function) -> bool:
     return _has_indirect_calls(func)
 
 
+def _all_callees_nounwind(func: Function, module: Module) -> bool:
+    """True if every call/invoke target in this function is nounwind.
+
+    Used for non-leaf functions: if the compiler proved all callees nounwind
+    (via two-pass fixed-point analysis), the function itself should be nounwind.
+    Returns True for functions with no call/invoke instructions.
+    """
+    for block in func.blocks:
+        for instr in block.instructions:
+            if instr.opcode not in ("call", "invoke"):
+                continue
+            # Indirect calls (closures) — can't determine nounwind
+            if _INDIRECT_CALL_RE.search(instr.text):
+                return False
+            m = _CALLEE_RE.search(instr.text)
+            if not m:
+                continue
+            callee_name = m.group(1)
+            # LLVM intrinsics are always nounwind
+            if callee_name.startswith("llvm."):
+                continue
+            callee = module.functions.get(f"@{callee_name}")
+            if callee is None:
+                # Try quoted form
+                callee = module.functions.get(f'@"{callee_name}"')
+            if callee and "nounwind" not in callee.attributes:
+                return False
+    return True
+
+
 def _is_leaf_function(func: Function, module: Module) -> bool:
     """True if function makes no calls to other user functions.
 
@@ -124,15 +157,11 @@ _ATTRIBUTE_RULES: list[tuple[str, callable, str]] = [
      lambda f, c, l: f.is_user_function and not f.is_entry_called and not c,
      "Internal user function (not entry-called, not closure)"),
 
-    # nounwind requires the function to not throw. Only reliably applicable
-    # for true leaf functions (no calls to user functions or indirect calls).
-    # Non-leaf functions require full call-graph analysis to determine nounwind
-    # status, which the compiler already does via its two-pass fixed-point analysis.
-    # Checking that the compiler's nounwind is correct (not wrong) is handled
-    # by the wrong-attribute gate.
+    # nounwind: handled specially in compute_attribute_metrics() because it
+    # needs module-level callee lookup. Placeholder here for ordering.
     ("nounwind",
-     lambda f, c, l: f.is_definition and not c and l and f.raw_name != "@main",
-     "True leaf functions (no calls to user functions or closures)"),
+     lambda f, c, l: False,  # overridden per-function below
+     "Leaf functions or non-leaf with all-nounwind callees"),
 
     ("uwtable",
      lambda f, c, l: f.is_definition and f.raw_name != "@main",
@@ -201,7 +230,20 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
         reason = "closure (indirect calls)" if is_closure else None
 
         for attr, applicable_fn, desc in _ATTRIBUTE_RULES:
-            applicable = applicable_fn(func, is_closure, is_leaf)
+            if attr == "nounwind":
+                # nounwind needs module-level callee lookup.
+                # Applicable if: definition, not @main, not closure, AND
+                # all callees (including runtime) are nounwind.
+                # This subsumes the old leaf-only check: leaf functions have
+                # no calls, so all callees are vacuously nounwind.
+                applicable = (
+                    func.is_definition
+                    and func.raw_name != "@main"
+                    and not is_closure
+                    and _all_callees_nounwind(func, module)
+                )
+            else:
+                applicable = applicable_fn(func, is_closure, is_leaf)
             present = _is_attr_present(func, attr)
 
             if applicable:

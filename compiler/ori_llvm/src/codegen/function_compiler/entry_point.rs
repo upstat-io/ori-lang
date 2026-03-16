@@ -63,6 +63,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .declare_function("main", &c_main_params, i32_ty);
         self.builder.set_ccc(c_main_id);
         self.builder.add_uwtable_attribute(c_main_id);
+        self.builder.add_noundef_return_attribute(c_main_id);
 
         // The C main wrapper is nounwind if the Ori @main is nounwind —
         // all calls it makes (including _ori_main) are proven non-unwinding.

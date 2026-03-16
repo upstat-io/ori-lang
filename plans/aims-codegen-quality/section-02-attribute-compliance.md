@@ -16,7 +16,7 @@ sections:
     status: complete
   - id: "02.3"
     title: "nounwind Improvements"
-    status: complete
+    status: in-progress
   - id: "02.4"
     title: "memory(...) Annotations"
     status: complete
