@@ -64,6 +64,10 @@ pub fn simplify_cfg(function: FunctionValue<'_>) -> SimplifyStats {
         stats.blocks_removed += removed;
     }
 
+    if merge_entry_block(function) {
+        stats.blocks_removed += 1;
+    }
+
     stats
 }
 
@@ -189,6 +193,56 @@ fn eliminate_empty_blocks(function: FunctionValue<'_>) -> u32 {
     }
 
     0
+}
+
+/// Merge the entry block with its sole successor when:
+///
+/// 1. Entry block contains only `br label %header`
+/// 2. Header has exactly one predecessor (the entry block)
+///
+/// Instead of moving instructions, we swap block positions: move header
+/// before entry (making it the new entry), then delete the old entry.
+/// Loop headers with back-edges (>1 predecessor) are left alone — these
+/// are structurally necessary preheaders.
+fn merge_entry_block(function: FunctionValue<'_>) -> bool {
+    let blocks = function.get_basic_blocks();
+    if blocks.len() < 2 {
+        return false;
+    }
+    let entry = &blocks[0];
+    if !is_single_unconditional_br(entry) {
+        return false;
+    }
+
+    let entry_ref = entry.as_mut_ptr();
+    let header_ref = unsafe {
+        let term = core::LLVMGetBasicBlockTerminator(entry_ref);
+        core::LLVMGetSuccessor(term, 0)
+    };
+
+    // Check header has exactly one predecessor (the entry block).
+    let pred_map = build_pred_map(function);
+    let preds = pred_map.get(&header_ref).cloned().unwrap_or_default();
+    if preds.len() != 1 || preds[0] != entry_ref {
+        return false;
+    }
+
+    // SAFETY: entry has exactly one instruction (br label %header) and
+    // header has exactly one predecessor (entry). No phi nodes in header
+    // (single predecessor). Moving header before entry makes it the new
+    // entry point (LLVM entry = first block in function).
+    unsafe {
+        // Move header before entry → header becomes the first block.
+        core::LLVMMoveBasicBlockBefore(header_ref, entry_ref);
+
+        // Delete old entry's terminator, then remove the block.
+        let entry_term = core::LLVMGetBasicBlockTerminator(entry_ref);
+        if !entry_term.is_null() {
+            core::LLVMInstructionEraseFromParent(entry_term);
+        }
+        core::LLVMRemoveBasicBlockFromParent(entry_ref);
+    }
+    true
 }
 
 /// Check if a block is a single unconditional br (the only instruction).
@@ -339,3 +393,6 @@ fn redirect_terminator(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
