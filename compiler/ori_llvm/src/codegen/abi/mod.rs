@@ -76,6 +76,10 @@ pub struct ParamAbi {
     pub ty: Idx,
     /// How this parameter is physically passed.
     pub passing: ParamPassing,
+    /// Whether the callee only reads this parameter (never mutates).
+    /// Set for `Ownership::Borrowed` params. Enables LLVM `readonly`
+    /// attribute on Indirect/Reference pointer params.
+    pub readonly: bool,
 }
 
 /// Physical ABI for the return value.
@@ -248,6 +252,7 @@ pub fn compute_function_abi(sig: &FunctionSig, store: &TypeInfoStore<'_>) -> Fun
             name,
             ty,
             passing: compute_param_passing(ty, store),
+            readonly: false,
         })
         .collect();
 
@@ -334,6 +339,7 @@ pub fn compute_function_abi_with_ownership(
                 name,
                 ty,
                 passing: compute_param_passing_with_ownership(ty, store, ownership, arc_class),
+                readonly: ownership == Ownership::Borrowed,
             }
         })
         .collect();

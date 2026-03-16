@@ -212,6 +212,23 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.get_function(id)
     }
 
+    /// Check if a function contains no `invoke` instructions.
+    ///
+    /// Used by the post-hoc nounwind pass to retroactively add `nounwind`
+    /// to functions compiled before the two-pass analysis. If a function
+    /// has no `invoke` instructions, it cannot unwind.
+    pub fn function_has_no_invoke(&self, id: FunctionId) -> bool {
+        let func = self.arena.get_function(id);
+        for block in func.get_basic_blocks() {
+            for instr in block.get_instructions() {
+                if instr.get_opcode() == inkwell::values::InstructionOpcode::Invoke {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     /// Get a function parameter as a `ValueId`.
     ///
     /// `param_index` is the LLVM-level parameter index (0-based, includes

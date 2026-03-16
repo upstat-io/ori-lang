@@ -229,6 +229,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 name: self.interner.intern(&format!("v{}", p.var.raw())),
                 ty: p.ty,
                 passing: compute_param_passing(p.ty, self.type_info),
+                readonly: false,
             })
             .collect();
 
@@ -449,6 +450,36 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 .body
                 .iter()
                 .all(|instr| matches!(instr, ArcInstr::Let { .. } | ArcInstr::Select { .. }));
+            term_ok && instrs_ok
+        })
+    }
+
+    /// Check if an ARC function is read-only (reads memory but doesn't write).
+    ///
+    /// A function is `memory(read)` if all its instructions are `Let`, `Select`,
+    /// or `Project` (field reads). `Project` generates GEP+load on Indirect
+    /// params (reads argmem), so the function reads but doesn't write.
+    /// Any call, RC op, construction, or mutation disqualifies.
+    ///
+    /// A function that is pure (`is_arc_function_pure`) is strictly stronger
+    /// than read-only — pure functions get `memory(none)` instead.
+    pub(super) fn is_arc_function_readonly(func: &ori_arc::ArcFunction) -> bool {
+        use ori_arc::ir::{ArcInstr, ArcTerminator};
+
+        func.blocks.iter().all(|block| {
+            let term_ok = matches!(
+                block.terminator,
+                ArcTerminator::Return { .. }
+                    | ArcTerminator::Jump { .. }
+                    | ArcTerminator::Branch { .. }
+                    | ArcTerminator::Unreachable
+            );
+            let instrs_ok = block.body.iter().all(|instr| {
+                matches!(
+                    instr,
+                    ArcInstr::Let { .. } | ArcInstr::Select { .. } | ArcInstr::Project { .. }
+                )
+            });
             term_ok && instrs_ok
         })
     }

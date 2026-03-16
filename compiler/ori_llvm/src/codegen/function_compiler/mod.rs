@@ -238,6 +238,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.builder.add_noundef_param_attribute(func_id, nidx);
                 nidx += 1;
             } else if !matches!(param.passing, ParamPassing::Void) {
+                // Indirect/Reference pointer params: add readonly if borrowed.
+                if param.readonly {
+                    self.builder.add_readonly_param_attribute(func_id, nidx);
+                }
                 nidx += 1;
             }
         }
