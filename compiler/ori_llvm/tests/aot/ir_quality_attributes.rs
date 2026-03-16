@@ -409,6 +409,116 @@ fn test_indirect_params_have_noundef() {
     );
 }
 
+// nonnull + dereferenceable on indirect params
+
+/// Indirect pointer params (str, list) should have `nonnull` attribute.
+///
+/// Ori never passes null pointers to functions — all Indirect/Reference
+/// params point to valid, initialized memory. LLVM uses `nonnull` to
+/// eliminate null checks and enable speculative loads.
+#[test]
+fn test_indirect_params_have_nonnull() {
+    let ir = compile_and_capture_ir(
+        r#"
+@greet (name: str) -> str = `Hello, {name}`;
+
+@main () -> void = {
+    let msg = greet(name: "world");
+    print(msg: msg)
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let greet_decl = ir
+        .lines()
+        .find(|l| {
+            (l.contains("@_ori_greet") || l.contains("@\"_ori_greet\""))
+                && (l.contains("define") || l.contains("declare"))
+        })
+        .expect("_ori_greet should be in IR");
+    assert!(
+        greet_decl.contains("nonnull"),
+        "Indirect str param should have nonnull on _ori_greet:\n{greet_decl}"
+    );
+}
+
+/// Indirect pointer params should have `dereferenceable(N)` where N is
+/// the ABI size of the pointed-to type.
+///
+/// For `str` (`OriStr`: {ptr, len, cap} = 24 bytes), the pointer should
+/// have `dereferenceable(24)`. This enables LLVM to perform speculative
+/// loads without null/bounds checks.
+#[test]
+fn test_indirect_params_have_dereferenceable() {
+    let ir = compile_and_capture_ir(
+        r#"
+@greet (name: str) -> str = `Hello, {name}`;
+
+@main () -> void = {
+    let msg = greet(name: "world");
+    print(msg: msg)
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let greet_decl = ir
+        .lines()
+        .find(|l| {
+            (l.contains("@_ori_greet") || l.contains("@\"_ori_greet\""))
+                && (l.contains("define") || l.contains("declare"))
+        })
+        .expect("_ori_greet should be in IR");
+    // str = OriStr = {ptr, len, cap} = 24 bytes
+    assert!(
+        greet_decl.contains("dereferenceable(24)"),
+        "Indirect str param should have dereferenceable(24) on _ori_greet:\n{greet_decl}"
+    );
+}
+
+/// Direct scalar params should NOT have nonnull or dereferenceable — those
+/// attributes only apply to pointer params (Indirect/Reference).
+#[test]
+fn test_direct_params_lack_nonnull() {
+    let ir = compile_and_capture_ir(
+        r"
+@add (a: int, b: int) -> int = a + b;
+
+@main () -> int = add(a: 1, b: 2);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let add_decl = ir
+        .lines()
+        .find(|l| {
+            (l.contains("@_ori_add") || l.contains("@\"_ori_add\""))
+                && (l.contains("define") || l.contains("declare"))
+        })
+        .expect("_ori_add should be in IR");
+    assert!(
+        !add_decl.contains("nonnull"),
+        "Direct int params should NOT have nonnull on _ori_add:\n{add_decl}"
+    );
+    assert!(
+        !add_decl.contains("dereferenceable"),
+        "Direct int params should NOT have dereferenceable on _ori_add:\n{add_decl}"
+    );
+}
+
 // Helpers
 
 /// Assert that a function declaration in the IR has a specific attribute

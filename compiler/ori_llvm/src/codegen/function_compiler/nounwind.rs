@@ -33,27 +33,11 @@ use ori_types::{FunctionSig, Idx};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
+use super::purity_analysis::{is_abi_memory_free, is_arc_function_pure, is_arc_function_readonly};
 use super::FunctionCompiler;
-use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
+use crate::codegen::abi::FunctionAbi;
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::value_id::FunctionId;
-
-/// Check if a function's ABI involves no memory operations.
-///
-/// All params must be Direct or Void (no pointer loads), and the return
-/// must be Direct or Void (no sret store). Functions with Indirect,
-/// Reference, or Sret passing touch memory even if the ARC IR looks pure.
-fn is_abi_memory_free(abi: &FunctionAbi) -> bool {
-    let params_ok = abi
-        .params
-        .iter()
-        .all(|p| matches!(p.passing, ParamPassing::Direct | ParamPassing::Void));
-    let return_ok = matches!(
-        abi.return_abi.passing,
-        ReturnPassing::Direct | ReturnPassing::Void
-    );
-    params_ok && return_ok
-}
 
 // Prepared function types
 
@@ -255,7 +239,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Remap PartialApply callee references in the parent function to use
         // the globally unique lambda names assigned during preparation.
         if !lambda_renames.is_empty() {
-            super::define_phase::remap_partial_apply_names(&mut arc_func, &lambda_renames);
+            super::purity_analysis::remap_partial_apply_names(&mut arc_func, &lambda_renames);
         }
 
         // Shared ARC processing: borrow annotations → arg ownership → pipeline
@@ -371,12 +355,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let mut pure_count = 0u32;
         for func in prepared {
             for lambda in &func.lambdas {
-                if Self::is_arc_function_pure(&lambda.arc_func) && is_abi_memory_free(&lambda.abi) {
+                if is_arc_function_pure(&lambda.arc_func) && is_abi_memory_free(&lambda.abi) {
                     self.codegen_ctx.pure_functions.insert(lambda.name);
                     pure_count = pure_count.saturating_add(1);
                 }
             }
-            if Self::is_arc_function_pure(&func.arc_func) && is_abi_memory_free(&func.abi) {
+            if is_arc_function_pure(&func.arc_func) && is_abi_memory_free(&func.abi) {
                 self.codegen_ctx.pure_functions.insert(func.name);
                 pure_count = pure_count.saturating_add(1);
             }
@@ -392,7 +376,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         for func in prepared {
             for lambda in &func.lambdas {
                 if !self.codegen_ctx.pure_functions.contains(&lambda.name)
-                    && Self::is_arc_function_readonly(&lambda.arc_func)
+                    && is_arc_function_readonly(&lambda.arc_func)
                     && !matches!(
                         lambda.abi.return_abi.passing,
                         crate::codegen::abi::ReturnPassing::Sret { .. }
@@ -403,7 +387,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 }
             }
             if !self.codegen_ctx.pure_functions.contains(&func.name)
-                && Self::is_arc_function_readonly(&func.arc_func)
+                && is_arc_function_readonly(&func.arc_func)
                 && !matches!(
                     func.abi.return_abi.passing,
                     crate::codegen::abi::ReturnPassing::Sret { .. }
