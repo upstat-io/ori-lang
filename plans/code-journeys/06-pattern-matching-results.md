@@ -23,11 +23,11 @@ features:
   - destructuring
   - exhaustiveness
 feature_description: "Pattern matching on sum types with payload destructuring and exhaustive coverage"
-score: 9.8
+score: 10.0
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 10
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -39,7 +39,7 @@ score_metrics:
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
   attr_applicable: 15
-  attr_correct: 14
+  attr_correct: 15
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
@@ -54,7 +54,7 @@ overflow_check: PASS
 bugs_found: []
 related_journeys:
   - journey: 1
-    relationship: "Both confirm overflow checking and fastcc; noundef now present on both scalar and struct params"
+    relationship: "Both confirm overflow checking, fastcc, and noundef; all attribute gaps now closed"
   - journey: 8
     relationship: "Both test struct-typed parameters passed by value via fastcc"
 ---
@@ -404,7 +404,7 @@ declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 declare void @ori_panic_cstr(ptr) #3
 
 ; Function Attrs: nounwind uwtable
-define i32 @main() #1 {
+define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -499,7 +499,7 @@ main:
 
 **@to_code** (6 instructions): The branchless select-chain for a 3-way enum-to-int mapping is excellent. Extract the tag, compare against each variant, select the result. Every instruction earns its place.
 
-**@extract** (11 instructions): The switch-based dispatch with per-variant blocks and phi merge is the correct general-case lowering for destructuring pattern matches. Both `Success(v)` and `Failure(c)` arms happen to extract the same payload field at the same struct offset (field 1, element 0), meaning a theoretical 3-instruction implementation exists. However, the compiler cannot assume match arms will always perform identical operations -- the general-case decision tree lowering correctly handles arbitrary per-arm bodies. All 11 instructions serve the general algorithm: tag extraction (1), switch dispatch (1), two parallel extraction paths (2x3=6), phi merge (1), return (1), unreachable default (1). The `extract-metrics.py` tool correctly scores this at ideal=11 because the overhead is structural, not unjustified.
+**@extract** (11 instructions): The switch-based dispatch with per-variant blocks and phi merge is the correct general-case lowering for destructuring pattern matches. Both `Success(v)` and `Failure(c)` arms happen to extract the same payload field at the same struct offset (field 1, element 0), meaning a theoretical 3-instruction implementation exists. However, the compiler cannot assume match arms will always perform identical operations -- the general-case decision tree lowering correctly handles arbitrary per-arm bodies. All 11 instructions serve the general algorithm: tag extraction (1), switch dispatch (1), two parallel extraction paths (2x3=6), phi merge (1), return (1), unreachable default (1).
 
 **@main** (16 instructions): Three function calls with constant struct arguments, two overflow-checked additions (5 instructions each: call + 2 extractvalue + br + ret/panic), and a return. All instructions serve a purpose.
 
@@ -517,17 +517,15 @@ main:
 
 | Function | fastcc | nounwind | uwtable | noundef(ret) | noundef(params) | memory | Notes |
 |----------|--------|----------|---------|--------------|-----------------|--------|-------|
-| @to_code | YES | YES | YES | YES | YES | memory(read) | [NOTE-2] |
+| @to_code | YES | YES | YES | YES | YES | memory(read) | [NOTE-1] |
 | @extract | YES | YES | YES | YES | YES | -- | |
 | @main | N/A | YES | YES | YES | N/A | -- | |
-| main (C) | N/A | YES | YES | NO | N/A | -- | [LOW-1] |
+| main (C) | N/A | YES | YES | YES | N/A | -- | [NOTE-2] |
 | ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | -- | cold, noreturn: correct |
 
-**Attribute compliance**: 14/15 applicable attributes correct (93.3%).
+**Attribute compliance**: 15/15 applicable attributes correct (100.0%).
 
-**Missing `noundef` on `@main` C wrapper return**: The C wrapper `main()` returns `i32` which is always a defined value. Missing `noundef` here is cosmetic since LLVM's optimizer treats `main` specially.
-
-**`memory(read)` on `@_ori_to_code`**: The posthoc memory analysis correctly identified that `@_ori_to_code` only reads its argument and has no side effects. This is a new attribute added by the AIMS Section 02 fixed-point analysis. `@_ori_extract` does not qualify because the `switch` with `unreachable` default introduces an implicit side-effect path (the unreachable is modeled conservatively).
+All user functions have complete attribute coverage. The C wrapper `main()` now carries `noundef` on its `i32` return (previously missing). `@_ori_to_code` receives `memory(read)` from posthoc analysis, correctly identifying it as a pure function that only reads its tag-only enum argument. `@_ori_extract` does not qualify for `memory(read)` because the `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
 
 ### 4. Control Flow & Block Layout
 
@@ -638,7 +636,7 @@ bb0:
 }
 ```
 
-**Delta**: +0 instructions. OPTIMAL. The compiler's decision tree lowering for unit-variant enums produces the same branchless select chain as hand-written IR. The `memory(read)` attribute is now correctly applied via posthoc analysis.
+**Delta**: +0 instructions. OPTIMAL. The compiler's decision tree lowering for unit-variant enums produces the same branchless select chain as hand-written IR. The `memory(read)` attribute is correctly applied via posthoc analysis.
 
 #### @extract: Ideal vs Actual
 
@@ -678,7 +676,7 @@ bb4:
 }
 ```
 
-**Delta**: +8 vs theoretical minimum. The general-case decision tree lowering does not detect that both arms perform identical operations. This is **justified** overhead -- the compiler generates the correct general-purpose lowering that handles arbitrary per-arm bodies. Match arm deduplication is a valid optimization opportunity but not a correctness issue. LLVM's optimization passes at `-O1`+ would collapse the duplicate blocks. The `extract-metrics.py` tool correctly marks all 11 instructions as justified (ideal=11) because the algorithm is structurally sound.
+**Delta**: +8 vs theoretical minimum. The general-case decision tree lowering does not detect that both arms perform identical operations. This is **justified** overhead -- the compiler generates the correct general-purpose lowering that handles arbitrary per-arm bodies. Match arm deduplication is a valid optimization opportunity but not a correctness issue. LLVM's optimization passes at `-O1`+ would collapse the duplicate blocks.
 
 #### @main: Ideal vs Actual
 
@@ -744,47 +742,37 @@ The compiler uses a tagged-union representation for sum types:
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing `noundef` on `@main` C wrapper return | CONFIRMED | J6 |
-| 2 | NOTE | Attributes | `noundef` now applied to struct-typed parameters | FIXED | J6 |
-| 3 | NOTE | Attributes | `memory(read)` on pure match function via posthoc analysis | NEW | J6 |
-| 4 | NOTE | Pattern Matching | Branchless select chain for tag-only enum match | CONFIRMED | J6 |
-| 5 | NOTE | Pattern Matching | Correct exhaustiveness lowering with unreachable default | CONFIRMED | J6 |
-| 6 | NOTE | Sum Types | Efficient tagged-union layout with by-value passing | CONFIRMED | J6 |
+| 1 | NOTE | Attributes | `memory(read)` on pure match function via posthoc analysis | CONFIRMED | J6 |
+| 2 | NOTE | Attributes | `noundef` on C wrapper `main()` return now present | FIXED | J6 |
+| 3 | NOTE | Pattern Matching | Branchless select chain for tag-only enum match | CONFIRMED | J6 |
+| 4 | NOTE | Pattern Matching | Correct exhaustiveness lowering with unreachable default | CONFIRMED | J6 |
+| 5 | NOTE | Sum Types | Efficient tagged-union layout with by-value passing | CONFIRMED | J6 |
 
-### LOW-1: Missing `noundef` on `@main` C wrapper return
-
-**Location**: `define i32 @main()` return value
-**Impact**: LLVM cannot assume the `i32` return is a well-defined value. Minor in practice since LLVM treats `main` specially.
-**Fix**: Apply `noundef` to the `i32` return of the C entry wrapper.
-**First seen**: Journey 6
-**Status**: CONFIRMED
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### NOTE-2: `noundef` now applied to struct-typed parameters
-
-**Location**: `@_ori_to_code(%ori.Status noundef %0)`, `@_ori_extract(%ori.Result2 noundef %0)`
-**Impact**: Positive -- the previous run (2026-03-15) showed missing `noundef` on struct-typed parameters. The AIMS branch fixed this: both `%ori.Status` and `%ori.Result2` parameters now carry `noundef`, matching the return value treatment. This closes the struct-vs-scalar `noundef` gap observed in the previous journey run.
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### NOTE-3: `memory(read)` on pure match function via posthoc analysis
+### NOTE-1: `memory(read)` on pure match function via posthoc analysis
 
 **Location**: `@_ori_to_code` function attributes
 **Impact**: Positive -- the posthoc nounwind/memory fixed-point analysis (AIMS Section 02) correctly identifies `@_ori_to_code` as a readonly function. The attribute `memory(argmem: read, inaccessiblemem: read, errnomem: read)` informs LLVM that this function has no side effects, enabling more aggressive optimization (CSE, dead call elimination, hoisting). `@_ori_extract` does not receive this attribute because its `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-4: Branchless select chain for tag-only enum match
+### NOTE-2: `noundef` on C wrapper `main()` return now present
+
+**Location**: `define noundef i32 @main()`
+**Impact**: Positive -- the previous run showed `define i32 @main()` without `noundef` on the return. This is now fixed. The C wrapper's `i32` return is always a well-defined value (truncated from `_ori_main`'s `i64` result). This closes the last remaining attribute gap in this journey.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-3: Branchless select chain for tag-only enum match
 
 **Location**: `@_ori_to_code`
 **Impact**: Positive -- produces `cmov` instructions in native code, avoiding branch misprediction for small enum dispatch. The compiler correctly identifies that a 3-variant unit-only enum with constant arm values can use `select` instead of `switch`.
 **Found in**: Pattern Matching: Decision Trees (Category 8)
 
-### NOTE-5: Correct exhaustiveness lowering with unreachable default
+### NOTE-4: Correct exhaustiveness lowering with unreachable default
 
 **Location**: `@_ori_extract`, `bb4: unreachable`
 **Impact**: Positive -- the switch default case is marked `unreachable`, informing LLVM that the tag value is bounded. This enables LLVM to optimize the switch into a simple comparison chain or jump table with full knowledge of the value range.
 **Found in**: Pattern Matching: Decision Trees (Category 8)
 
-### NOTE-6: Efficient tagged-union layout with by-value passing
+### NOTE-5: Efficient tagged-union layout with by-value passing
 
 **Location**: `%ori.Status`, `%ori.Result2` type definitions
 **Impact**: Positive -- both sum types fit in 1-2 registers and are passed by value via `fastcc`. No heap allocation, no pointer indirection, no RC overhead. The `[1 x i64]` payload wrapper enables uniform access for multi-field variants.
@@ -796,17 +784,17 @@ The compiler uses a tagged-union representation for sum types:
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 93.3% compliance |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.8 / 10**
+**Overall: 10.0 / 10**
 
 ## Verdict
 
-Journey 6's pattern matching codegen is near-perfect. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. Two improvements from the AIMS branch are visible: `noundef` is now applied to struct-typed parameters (closing the gap from the previous run), and `@_ori_to_code` receives a `memory(read)` attribute from posthoc analysis. The sole remaining attribute gap is `noundef` on the C wrapper `main()` return. ARC is irrelevant -- all values are scalar integers, zero RC operations needed.
+Journey 6's pattern matching codegen achieves a perfect score. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. All attribute gaps from the previous run are now closed: `noundef` is present on both scalar and struct-typed parameters, `memory(read)` is correctly applied to the pure match function via posthoc analysis, and the C wrapper `main()` return now carries `noundef`. ARC is irrelevant -- all values are scalar integers, zero RC operations needed.
 
 ## Cross-Journey Observations
 
@@ -815,9 +803,10 @@ Journey 6's pattern matching codegen is near-perfect. The compiler demonstrates 
 | Overflow checking | J1 | J6 | CONFIRMED |
 | fastcc usage | J1 | J6 | CONFIRMED |
 | nounwind on user functions | J1 | J6 | CONFIRMED |
-| noundef on params | J1 | J6 | FIXED (struct-typed now included) |
+| noundef on all params/returns | J1 | J6 | CONFIRMED |
 | Zero ARC for scalars | J1 | J6 | CONFIRMED |
-| memory(read) attribute | J6 | J6 | NEW |
+| memory(read) attribute | J6 | J6 | CONFIRMED |
 | uwtable on all functions | J1 | J6 | CONFIRMED |
+| noundef on C wrapper main() | J6 | J6 | FIXED |
 
-Journey 6 is the first to exercise sum types and pattern matching. The `noundef` gap from the previous run is now resolved -- both scalar and struct-typed parameters carry `noundef`. The new `memory(read)` attribute on `@_ori_to_code` demonstrates the AIMS Section 02 posthoc analysis working correctly: a pure function that only reads its tag-only enum argument is marked readonly, while `@_ori_extract` (with its `unreachable` default path) is conservatively excluded. Score improved from 9.7 to 9.8 thanks to the attribute compliance increase (82.4% to 93.3%).
+Journey 6 achieves a perfect 10.0/10 score, up from 9.8 in the previous run. The improvement comes from the C wrapper `main()` now carrying `noundef` on its `i32` return, bringing attribute compliance from 93.3% to 100.0%. All five findings are positive NOTEs. The branchless select-chain strategy for tag-only enums and the general-case switch+phi lowering for payload-carrying variants both produce optimal IR at the LLVM level. Score improved from 9.8 to 10.0.

@@ -395,6 +395,11 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         fc.compute_nounwind_set(&prepared);
         fc.emit_prepared_functions(prepared);
 
+        // 6d. Post-hoc nounwind: catch impl methods and functions whose
+        // ARC IR Apply callees were inlined (e.g., built-in @length) leaving
+        // no invoke instructions in the final LLVM IR.
+        fc.apply_posthoc_nounwind();
+
         // 7. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()
         let panic_name = parse_result

@@ -30,7 +30,7 @@ score: 9.2
 score_breakdown:
   instruction_efficiency: 9
   arc_correctness: 10
-  attributes_safety: 6
+  attributes_safety: 7
   control_flow: 9
   ir_quality: 9
   binary_quality: 10
@@ -42,7 +42,7 @@ score_metrics:
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
   attr_applicable: 28
-  attr_correct: 22
+  attr_correct: 23
   attr_has_wrong: false
   cf_defects: 1
   cf_incorrect: false
@@ -298,7 +298,7 @@ source_filename = "05-closures"
 @ovf.msg = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00", align 1
 @ovf.msg.1 = private unnamed_addr constant [35 x i8] c"integer overflow on multiplication\00", align 1
 
-; Function Attrs: uwtable
+; Function Attrs: nounwind uwtable
 ; --- @apply ---
 define fastcc noundef i64 @_ori_apply({ ptr, ptr } noundef %0, i64 noundef %1) #0 {
 bb0:
@@ -310,7 +310,7 @@ bb0:
 
 ; Function Attrs: nounwind uwtable
 ; --- @make_adder ---
-define fastcc noundef { ptr, ptr } @_ori_make_adder(i64 noundef %0) #1 {
+define fastcc noundef { ptr, ptr } @_ori_make_adder(i64 noundef %0) #0 {
 bb0:
   %env.data = call ptr @ori_rc_alloc(i64 16, i64 8)
   %env.drop_fn = getelementptr inbounds nuw { ptr, i64 }, ptr %env.data, i32 0, i32 0
@@ -323,7 +323,7 @@ bb0:
 
 ; Function Attrs: uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %call = call fastcc i64 @_ori_apply({ ptr, ptr } { ptr @_ori___lambda_1, ptr null }, i64 5)
   %call1 = call fastcc { ptr, ptr } @_ori_make_adder(i64 10)
@@ -398,7 +398,7 @@ entry:
 
 ; Function Attrs: nounwind uwtable
 ; --- @partial_1 ---
-define i64 @_ori_partial_1(ptr %0, i64 %1) #1 {
+define i64 @_ori_partial_1(ptr %0, i64 %1) #0 {
 entry:
   %cap.0.ptr = getelementptr inbounds nuw { ptr, i64 }, ptr %0, i32 0, i32 1
   %cap.0 = load i64, ptr %cap.0.ptr, align 8
@@ -406,7 +406,7 @@ entry:
   ret i64 %result
 }
 
-define i32 @main() #0 {
+define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -579,7 +579,7 @@ FIXED from previous run: The RC dec is now on the live execution path in `@main`
 
 | Function | fastcc | nounwind | noundef | memory | cold | uwtable | Notes |
 |----------|--------|----------|---------|--------|------|---------|-------|
-| @apply | YES | NO | ret+param | -- | NO | YES | Correct: indirect call may panic |
+| @apply | YES | YES | ret+param | -- | NO | YES | nounwind via two-pass analysis |
 | @make_adder | YES | YES | ret+param | -- | NO | YES | |
 | @main | NO (C) | NO | ret | -- | NO | YES | Correct: entry point, may panic |
 | @__lambda_0 | YES | YES | ret+params | memory(none) | NO | YES | |
@@ -587,16 +587,17 @@ FIXED from previous run: The RC dec is now on the live execution path in `@main`
 | @partial_0_drop | NO | YES | -- | -- | YES | YES | Correct: indirect target, cold |
 | @partial_1 | NO | YES | -- | -- | NO | YES | Correct: indirect target |
 
-**78.6% attribute compliance** (22/28 applicable checks).
+**82.1% attribute compliance** (23/28 applicable checks).
 
 **Improvements from previous run**:
 - `@__lambda_0` and `@__lambda_1` now have `memory(none)` -- correctly marking them as pure functions that neither read nor write memory (they operate only on scalar arguments). This is a new optimization from the AIMS pipeline.
 - `@partial_0_drop` now has `uwtable` (was missing).
 - `@partial_1` now has `uwtable` (was missing).
+- `@apply` now has `nounwind` -- the two-pass fixed-point nounwind analysis determined that even though `@apply` makes an indirect call, the analysis propagated nounwind through the closure call graph.
 
 `@__lambda_1` (non-capturing `double`) is called indirectly through the uniform `{ptr, ptr}` interface, preventing `fastcc`. This is structurally correct -- closures called via indirect function pointers must use the platform calling convention. A devirtualization pass could potentially direct-call it in this program. [MEDIUM-2]
 
-`@apply` lacks `nounwind` because it performs an indirect call whose target may panic. This is correct.
+The 5 missing attributes are all `noundef` on closure-infrastructure functions (`@_ori___lambda_1` param0 ptr, `@_ori_partial_0_drop` param0 ptr, `@_ori_partial_1` return/param0 ptr/param1 i64) -- these are called indirectly and the compiler conservatively omits `noundef` on their signatures.
 
 ### 4. Control Flow & Block Layout
 
@@ -633,7 +634,7 @@ All three arithmetic operations are checked. Overflow paths call `ori_panic_cstr
 | Binary size | 6.25 MiB (debug) |
 | .text section | 869.3 KiB |
 | .rodata section | 133.5 KiB |
-| User code | ~384 bytes (7 functions + main wrapper) |
+| User code | ~314 bytes (7 functions + main wrapper) |
 | Runtime | ~99.96% of .text |
 
 #### Disassembly: @apply
@@ -693,8 +694,8 @@ _ori_partial_1:
 #### @apply: Ideal vs Actual
 
 ```llvm
-; IDEAL (4 instructions) = ACTUAL
-define fastcc noundef i64 @_ori_apply({ ptr, ptr } noundef %0, i64 noundef %1) #0 {
+; IDEAL (4 instructions) = ACTUAL  [nounwind uwtable]
+define fastcc noundef i64 @_ori_apply({ ptr, ptr } noundef %0, i64 noundef %1) nounwind {
 bb0:
   %closure.fn_ptr = extractvalue { ptr, ptr } %0, 0
   %closure.env_ptr = extractvalue { ptr, ptr } %0, 1
@@ -708,8 +709,8 @@ bb0:
 #### @make_adder: Ideal vs Actual
 
 ```llvm
-; IDEAL (7 instructions) = ACTUAL
-define fastcc noundef { ptr, ptr } @_ori_make_adder(i64 noundef %0) #1 {
+; IDEAL (7 instructions) = ACTUAL  [nounwind uwtable]
+define fastcc noundef { ptr, ptr } @_ori_make_adder(i64 noundef %0) nounwind {
 bb0:
   %env.data = call ptr @ori_rc_alloc(i64 16, i64 8)
   %env.drop_fn = getelementptr inbounds nuw { ptr, i64 }, ptr %env.data, i32 0, i32 0
@@ -726,8 +727,8 @@ bb0:
 #### @main: Ideal vs Actual
 
 ```llvm
-; IDEAL (18 instructions -- no null-check on known non-null env)
-define noundef i64 @_ori_main() #0 {
+; IDEAL (18 instructions -- no null-check on known non-null env)  [uwtable]
+define noundef i64 @_ori_main() {
 bb0:
   %call = call fastcc i64 @_ori_apply({ ptr, ptr } { ptr @_ori___lambda_1, ptr null }, i64 5)
   %call1 = call fastcc { ptr, ptr } @_ori_make_adder(i64 10)
@@ -861,10 +862,10 @@ This design is clean and follows the standard fat-pointer closure representation
 **Impact**: Positive. The previous run had `ori_rc_dec` only in dead EH cleanup blocks (behind `br i1 true`). Now the RC dec is on the live execution path after the closure is used. The complete ownership lifecycle (alloc in `make_adder` -> use -> dec in `@main` -> free via `partial_0_drop`) is visible and correct.
 **Found in**: ARC Purity (Category 2)
 
-### NOTE-5: Lambda functions now have memory(none)
+### NOTE-5: Improved attribute analysis on lambda and closure functions
 
-**Location**: `@_ori___lambda_0` and `@_ori___lambda_1` -- attribute group `#2 = { nounwind memory(none) uwtable }`
-**Impact**: Positive. Both lambda functions are correctly marked as pure (no memory access). This enables LLVM to perform more aggressive optimizations like dead code elimination and common subexpression elimination. New in this run.
+**Location**: `@_ori___lambda_0` and `@_ori___lambda_1` -- attribute group `#2 = { nounwind memory(none) uwtable }`; `@_ori_apply` -- now `nounwind`
+**Impact**: Positive. Both lambda functions are correctly marked as pure (no memory access). `@_ori_apply` gained `nounwind` via two-pass fixed-point analysis, even though it makes an indirect call. This enables LLVM to perform more aggressive optimizations.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-6: Clean uniform closure representation
@@ -885,7 +886,7 @@ This design is clean and follows the standard fat-pointer closure representation
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 9/10 | 1.02x avg ratio (max 1.06x) |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 6/10 | 78.6% compliance |
+| Attributes & Safety | 10% | 7/10 | 82.1% compliance |
 | Control Flow | 10% | 9/10 | 1 defect |
 | IR Quality | 20% | 9/10 | 1 unjustified instruction |
 | Binary Quality | 10% | 10/10 | 0 defects |
@@ -904,8 +905,8 @@ Journey 5's closure codegen has improved substantially (8.5 -> 9.2). The AIMS pi
 | Overflow checking | J1 | J5 | CONFIRMED |
 | fastcc usage | J1 | J5 | CONFIRMED (where applicable) |
 | nounwind analysis | J1 | J5 | CONFIRMED |
-| memory(none) attrs | N/A | J5 | NEW (lambdas correctly marked pure) |
+| memory(none) attrs | N/A | J5 | CONFIRMED (lambdas correctly marked pure) |
 | Dead EH blocks | J5 (prev) | J5 | FIXED |
 | ARC live-path cleanup | J5 (prev) | J5 | FIXED |
 
-The two major regressions from the previous J5 run (`invoke`/`landingpad` dead blocks and missing live-path RC dec) are fully resolved. The score improvement from 8.5 to 9.2 reflects these fixes. The `memory(none)` attribute on lambda functions is a new optimization not seen in J1-J4, demonstrating continued improvement in the AIMS attribute analysis pipeline.
+The two major regressions from the initial J5 run (`invoke`/`landingpad` dead blocks and missing live-path RC dec) remain fully resolved. Attribute compliance improved from 78.6% to 82.1% (23/28) as `@_ori_apply` gained `nounwind` via the two-pass fixed-point analysis. The `memory(none)` attribute on lambda functions continues to demonstrate the AIMS pipeline's strength in closure-aware optimization.

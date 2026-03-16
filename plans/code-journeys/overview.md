@@ -3,98 +3,76 @@
 Code journeys trace a single Ori program through the entire compiler pipeline (lexer, parser, typeck, canonicalization, interpreter, LLVM codegen, AOT binary) and perform deep scrutiny on the generated output. Each journey tests a specific language feature set.
 
 **Run date**: 2026-03-16 (AIMS branch `experiment/aims`)
-**Previous runs**: 2026-03-15 (AIMS initial), 2026-03-07 to 2026-03-10 (old ARC system, `master`)
+**Previous runs**: 2026-03-16 (AIMS Section 02), 2026-03-15 (AIMS initial), 2026-03-07 to 2026-03-10 (old ARC system, `master`)
 
 ## Journey Index
 
 | # | Name | Features | Expected | Eval | AOT | Score | Prev | Delta | Key Findings |
 |---|------|----------|----------|------|-----|-------|------|-------|--------------|
-| J1 | "I am arithmetic" | arithmetic, function_calls, let_bindings | 33 | PASS | PASS | 9.8/10 | 9.8 | — | memory(none) on @add, uwtable on main wrapper |
-| J2 | "I am a branch" | branching, comparison | 17 | PASS | PASS | 9.2/10 | 9.2 | — | memory(none) on all pure helpers, branchless select |
-| J3 | "I am recursive" | recursion, comparison, arithmetic | 61 | PASS | PASS | 9.2/10 | 8.9 | **+0.3** | memory(none) on @gcd, TCO correct |
-| J4 | "I am a struct" | struct_construction, field_access, nested_structs | 57 | PASS | PASS | 9.7/10 | 9.7 | — | memory(read) on @area, OPTIMAL codegen |
-| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 9.2/10 | 8.5 | **+0.7** | Dead EH blocks ELIMINATED, RC dec FIXED, memory(none) on lambdas |
-| J6 | "I am a match" | pattern_matching, sum_types, destructuring | 41 | PASS | PASS | 9.8/10 | 9.7 | **+0.1** | noundef on struct params FIXED, memory(read) on to_code |
-| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 9.2/10 | 9.2 | — | memory(none) on @sum_loop, phi lowering correct |
-| J8 | "I am generic" | generics, monomorphization, generic_structs | 57 | PASS | PASS | 9.9/10 | 9.8 | **+0.1** | memory(none) on identity/first, zero-cost monomorphization |
-| J9 | "I am a string" | strings, string_methods, arc | 13 | PASS | PASS | 8.8/10 | 8.8 | — | memory(none) on @bool_to_int, ARC balanced |
-| J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 8.8/10 | 8.7 | **+0.1** | readonly on @count_items, drop_unique RESTORED |
-| J11 | "I am a derived trait" | derived_traits, trait_methods, sum_types | 33 | PASS | PASS | 9.8/10 | 9.7 | **+0.1** | All 7 functions OPTIMAL, three Eq patterns |
-| J12 | "I am an option" | option_type, pattern_matching, error_propagation | 33 | PASS | PASS | 9.3/10 | 9.2 | **+0.1** | uwtable on main wrapper, ? operator OPTIMAL |
-| J13 | "I am an iterator" | iterators, iterator_adapters, lists, closures | 55 | PASS | PASS | 9.4/10 | 9.4 | — | memory(none) on pure functions, zero RC ops |
+| J1 | "I am arithmetic" | arithmetic, function_calls, let_bindings | 33 | PASS | PASS | 10.0/10 | 9.8 | **+0.2** | PERFECT — zero waste, 100% attributes |
+| J2 | "I am a branch" | branching, comparison | 17 | PASS | PASS | 9.3/10 | 9.2 | **+0.1** | Branchless select, 100% attributes, 5 CF defects |
+| J3 | "I am recursive" | recursion, comparison, arithmetic | 61 | PASS | PASS | 9.3/10 | 9.2 | **+0.1** | TCO on gcd, 100% attributes, 4 CF defects |
+| J4 | "I am a struct" | struct_construction, field_access, nested_structs | 57 | PASS | PASS | 10.0/10 | 9.7 | **+0.3** | PERFECT — OPTIMAL codegen, memory(argmem:read) |
+| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 9.2/10 | 9.2 | — | AIMS elision, 82% attributes (trampoline gaps) |
+| J6 | "I am a match" | pattern_matching, sum_types, destructuring | 41 | PASS | PASS | 10.0/10 | 9.8 | **+0.2** | PERFECT — branchless select, zero waste |
+| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 9.2/10 | 9.2 | — | Phi-based loops, memory(none) on sum_loop |
+| J8 | "I am generic" | generics, monomorphization, generic_structs | 57 | PASS | PASS | 10.0/10 | 9.9 | **+0.1** | PERFECT — zero-cost abstraction, OPTIMAL |
+| J9 | "I am a string" | strings, string_methods, arc | 13 | PASS | PASS | 8.7/10 | 8.8 | -0.1 | SSO guard correct, 4 CF defects, 2 missing attrs |
+| J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 9.0/10 | 8.8 | **+0.2** | ARC balanced, 100% attributes, borrow elision |
+| J11 | "I am a derived trait" | derived_traits, trait_methods, sum_types | 33 | PASS | PASS | 10.0/10 | 9.8 | **+0.2** | PERFECT — three Eq patterns OPTIMAL |
+| J12 | "I am an option" | option_type, error_propagation | 33 | PASS | PASS | 9.4/10 | 9.3 | **+0.1** | ? operator zero overhead, 100% attributes |
+| J13 | "I am an iterator" | iterators, iterator_adapters, closures | 55 | PASS | PASS | 9.5/10 | 9.4 | **+0.1** | OPTIMAL instructions, 61% attr (trampoline gaps) |
 
-**All 13 journeys pass on both eval and AOT backends.** No behavioral mismatches, no crashes, no wrong results.
+**All 13 journeys pass on both eval and AOT backends.** No behavioral mismatches, no crashes, no wrong results. **5 journeys achieve perfect 10.0/10** (J1, J4, J6, J8, J11).
 
-## AIMS Section 02 Impact (This Run vs Previous)
+## What Changed Since Previous Run
 
 | Category | Journeys Affected | Impact |
 |----------|------------------|--------|
-| **Improved** | J3 (+0.3), J5 (+0.7), J6 (+0.1), J8 (+0.1), J10 (+0.1), J11 (+0.1), J12 (+0.1) | memory attributes, noundef on structs, dead EH elimination, drop_unique restored |
-| **Unchanged** | J1, J2, J4, J7, J9, J13 | Score parity (some gained memory attrs but stayed in same tier) |
-| **Regressed** | None | Zero regressions this run |
+| **Improved** | J1 (+0.2), J2 (+0.1), J3 (+0.1), J4 (+0.3), J6 (+0.2), J8 (+0.1), J10 (+0.2), J11 (+0.2), J12 (+0.1), J13 (+0.1) | `noundef` on main wrapper, full attribute compliance |
+| **Unchanged** | J5, J7 | Score parity |
+| **Minor regression** | J9 (-0.1) | Metric extraction difference, not codegen regression |
 
-### What Improved Since Last Run
+### Key Improvements
 
-1. **Closure EH blocks eliminated** (J5): The `invoke`/`landingpad` dead EH blocks in `@_ori_main` are gone. Simple `call` instructions are used again. Score jumped 8.5 → 9.2.
-2. **Closure RC dec fixed** (J5): The missing `ori_rc_dec` on the live path for closure env is now present. The potential memory leak is resolved.
-3. **`drop_unique` restored** (J10): `@check_passing` correctly uses `ori_buffer_drop_unique` again instead of generic `ori_buffer_rc_dec`. The unique-path fast path is back.
-4. **`memory(none)` attribute propagation** (J1-J3, J5, J7-J9): AIMS Section 02 posthoc analysis correctly identifies pure functions and applies `memory(none)`. New on: `@add`, `@my_abs`, `@my_max`, `@my_sign`, `@gcd`, `@bool_to_int`, `@identity`, `@first`, `@sum_loop`, `@square`, lambda functions.
-5. **`memory(read)` on readonly functions** (J4, J6): `@area` and `@to_code` correctly get `memory(argmem: read, inaccessiblemem: read, errnomem: read)`.
-6. **`noundef` on struct params** (J6): `@to_code` and `@extract` now carry `noundef` on struct-typed parameters.
-7. **`uwtable` on C main wrapper** (J1, J12): The entry `main()` wrapper now consistently has `uwtable`.
-
-### Previous Run's Action Items — Status
-
-| Action Item | Status | Resolution |
-|-------------|--------|------------|
-| Investigate J5 closure env RC dec leak | **FIXED** | RC dec now present on live path |
-| Restore `drop_unique` optimization | **FIXED** | Back in J10's `@check_passing` |
-| Reduce invoke/landingpad overhead | **FIXED** | J5 `@main` uses `call` again |
+1. **`noundef` on C main wrapper return** — All 13 journeys now emit `define noundef i32 @main(...)`, closing the last attribute gap for simple programs.
+2. **Full attribute compliance in 10/13 journeys** — J1, J2, J3, J4, J6, J7, J8, J10, J11, J12 all hit 100% compliance. Only J5 (82%), J9 (89%), J13 (61%) have gaps from trampoline/lambda functions.
+3. **5 perfect scores** — J1, J4, J6, J8, J11 all achieve 10.0/10 with zero unjustified instructions, zero ARC violations, 100% attributes, zero CF defects.
+4. **`nounwind` propagation improved** — Fixed-point analysis now reaches indirect-call functions like `@apply` (J5) through proven nounwind callees.
 
 ## Recurring Issues
 
 | Issue | Severity | Journeys | Description |
 |-------|----------|----------|-------------|
-| Missing `noundef` on C main wrapper return | LOW | J1-J13 | `i32` return missing `noundef` (OS ignores, negligible) |
-| Empty trampoline/passthrough blocks | LOW | J2, J3, J5, J7, J9, J10, J12 | Blocks containing only `br label %next` |
-| Missing `nounwind` on functions calling panic | MEDIUM | J5, J7, J9, J10 | Conservative — functions with overflow checks lack `nounwind` |
-| Missing `noundef` on struct ptr params | LOW | J4, J11 | Large structs passed by pointer lack `noundef` |
-| Attribute compliance below 80% | LOW | J5 (78.6%), J13 (57.1%) | Indirect call targets and iterator trampolines lower compliance |
-| Missing `memory(none)` on @sum_for | MEDIUM | J7 | Range struct insertvalue/extractvalue confuses purity analysis |
+| Empty trampoline blocks | LOW | J2, J3, J7, J9, J10, J12 | Unconditional `br` to next sequential block in if/else lowering |
+| Missing trampoline attributes | LOW | J5, J9, J13 | Trampoline/lambda functions lack `uwtable`, `noundef` on env pointer |
+| Redundant branches | LOW | J2, J3, J7, J10, J12 | Branches where both targets could be merged |
+| Missing `memory(none)` on @sum_for | LOW | J7 | Range struct insertvalue/extractvalue confuses purity analysis |
 
 ## Score Trend
 
 | Difficulty | Journeys | Avg Score (Current) | Avg Score (Prev) | Range (Current) |
 |------------|----------|--------------------|--------------------|-----------------|
-| Simple (J1-J4) | 4 | 9.5 | 9.4 | 9.2–9.8 |
-| Moderate (J5-J8) | 4 | 9.4 | 9.2 | 9.2–9.9 |
-| Complex (J9-J13) | 5 | 9.2 | 9.0 | 8.8–9.8 |
-| **Overall** | **13** | **9.4** | **9.2** | **8.8–9.9** |
+| Simple (J1-J4) | 4 | 9.7 | 9.5 | 9.3–10.0 |
+| Moderate (J5-J8) | 4 | 9.6 | 9.4 | 9.2–10.0 |
+| Complex (J9-J13) | 5 | 9.3 | 9.2 | 8.7–10.0 |
+| **Overall** | **13** | **9.5** | **9.3** | **8.7–10.0** |
 
-### Score Distribution
+## Per-Category Averages
 
-- **9.5+** (near-perfect): J1 (9.8), J4 (9.7), J6 (9.8), J8 (9.9), J11 (9.8) — arithmetic, structs, pattern matching, generics, derived traits
-- **9.0–9.4** (strong): J2 (9.2), J3 (9.2), J5 (9.2), J7 (9.2), J12 (9.3), J13 (9.4) — branching, recursion, closures, loops, options, iterators
-- **8.5–8.9** (solid): J9 (8.8), J10 (8.8) — strings, lists (heap-heavy programs with more ARC complexity)
+| Category | Weight | Avg Score | Perfect (10/10) | Lowest |
+|----------|--------|-----------|-----------------|--------|
+| Instruction Efficiency | 15% | 9.5 | 7/13 | 9 (six journeys) |
+| ARC Correctness | 20% | 10.0 | 13/13 | — |
+| Attributes & Safety | 10% | 9.2 | 10/13 | 5 (J13) |
+| Control Flow | 10% | 8.6 | 5/13 | 7 (J2,J3,J7,J9,J10) |
+| IR Quality | 20% | 9.4 | 7/13 | 8 (J9,J10) |
+| Binary Quality | 10% | 10.0 | 13/13 | — |
+| Other Findings | 15% | 9.8 | 11/13 | 9 (J7,J9,J10) |
 
-### Per-Category Averages
+**Strengths**: ARC correctness (perfect 10.0 across all 13) and binary quality (perfect 10.0) are flawless. Attribute compliance dramatically improved from 7.5 avg to 9.2 avg.
 
-| Category | Avg Score | Perfect (10/10) | Weakest |
-|----------|-----------|-----------------|---------|
-| Instruction Efficiency | 9.5 | 7/13 | J2,J3,J5,J7,J9,J10,J12 (9) |
-| ARC Correctness | 10.0 | 13/13 | — |
-| Attributes & Safety | 7.5 | 0/13 | J13 (4) |
-| Control Flow | 8.6 | 7/13 | J2,J3,J7,J9,J10 (7) |
-| IR Quality | 9.3 | 9/13 | J9,J10 (8) |
-| Binary Quality | 10.0 | 13/13 | — |
-| Other Findings | 10.0 | 13/13 | — |
-
-### Key Observations
-
-- **ARC is perfect across all 13 journeys** — every program has balanced RC operations. Zero leaks, zero double-frees, zero scalar RC violations. This is the strongest dimension.
-- **Attribute compliance is the weakest dimension** — averaging 7.5/10. The main gaps are `nounwind` on functions that call panic paths, and `noundef` on various parameters. AIMS Section 02 improved this significantly but there's room for more.
-- **Zero regressions this run** — all three action items from the previous run are resolved. J5 went from the only regression to the biggest improvement (+0.7).
-- **Overall average: 9.2 → 9.4** — steady improvement driven by AIMS Section 02 attribute work and the J5 closure fixes.
+**Remaining gaps**: Control flow (avg 8.6) is the weakest category due to empty trampoline blocks in if/else and loop lowering. Trampoline/lambda attribute emission (J5, J9, J13) needs work for full compliance.
 
 ## Results Files
 

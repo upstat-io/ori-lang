@@ -27,19 +27,19 @@ score: 9.2
 score_breakdown:
   instruction_efficiency: 9
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 10
   control_flow: 7
   ir_quality: 9
   binary_quality: 10
-  other_findings: 10
+  other_findings: 9
 score_metrics:
   instruction_ratio: 1.04
   instruction_ratio_max: 1.06
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 15
-  attr_correct: 14
+  attr_applicable: 13
+  attr_correct: 13
   attr_has_wrong: false
   cf_defects: 5
   cf_incorrect: false
@@ -49,7 +49,7 @@ score_metrics:
   bin_hard_fail: false
   other_critical: 0
   other_high: 0
-  other_low: 0
+  other_low: 1
 overflow_check: PASS
 bugs_found: []
 related_journeys:
@@ -414,7 +414,7 @@ declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 declare void @ori_panic_cstr(ptr) #3
 
 ; Function Attrs: nounwind uwtable
-define i32 @main() #1 {
+define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -546,20 +546,18 @@ _ori_main:
 | Function | fastcc | nounwind | memory | noundef | uwtable | cold | Notes |
 |----------|--------|----------|--------|---------|---------|------|-------|
 | @sum_loop | YES | YES | memory(none) | YES | YES | N/A | [NOTE-5] |
-| @sum_for | YES | YES | (missing) | YES | YES | N/A | [MEDIUM-1] |
-| @main | C (correct) | YES | N/A | YES | YES | N/A | |
+| @sum_for | YES | YES | (missing) | YES | YES | N/A | [LOW-1] |
+| @main (C) | C (correct) | YES | N/A | YES | YES | N/A | |
 | ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | YES | cold + noreturn |
-| main (wrapper) | N/A | YES | N/A | (missing) | YES | N/A | [LOW-1] |
+| main (wrapper) | N/A | YES | N/A | YES | YES | N/A | |
 
 All user functions have `nounwind` (fixed-point analysis confirmed all 3 are nounwind). `fastcc` is applied to all non-entry-point functions. `noundef` on parameters and return values is present on all user functions. The `@_ori_main` function correctly uses C calling convention for entry point compatibility.
 
-**[MEDIUM-1]**: `@sum_for` is missing `memory(none)` despite being a pure function. It performs only scalar arithmetic via `insertvalue`/`extractvalue` (SSA register operations, not memory) and calls `llvm.sadd.with.overflow.i64` (which is `memory(none)`). The structurally identical `@sum_loop` correctly receives `memory(none)`. The range struct construction pattern (`insertvalue`/`extractvalue` chain) appears to confuse the compiler's purity analysis.
+Algorithmic attribute compliance (extract-metrics.py): **13/13 = 100%**. The `memory` attribute is not part of the algorithmic checker's scope. The checker validates: fastcc, nounwind, uwtable, noundef (return + params), noreturn, and cold.
 
-**[LOW-1]**: The `main` C wrapper is missing `noundef` on its `i32` return value. This is a minor gap -- the wrapper is called exactly once by the OS.
+**[LOW-1]**: `@sum_for` is missing `memory(none)` despite being a pure function. It performs only scalar arithmetic via `insertvalue`/`extractvalue` (SSA register operations, not memory) and calls `llvm.sadd.with.overflow.i64` (which is `memory(none)`). The structurally identical `@sum_loop` correctly receives `memory(none)`. The range struct construction pattern (`insertvalue`/`extractvalue` chain) appears to confuse the compiler's purity analysis.
 
-**[NOTE-5]**: `@sum_loop` correctly receives `memory(none)` -- an improvement from earlier journeys where no user functions had this attribute. The fixed-point memory analysis correctly identifies this function as having no memory effects.
-
-Attribute compliance: 14/15 = 93.3%.
+**[NOTE-5]**: `@sum_loop` correctly receives `memory(none)` -- the fixed-point memory analysis correctly identifies this function as having no memory effects.
 
 ### 4. Control Flow & Block Layout
 
@@ -600,11 +598,11 @@ All 5 addition operations are overflow-checked. Each uses the `llvm.sadd.with.ov
 | .rodata section | 133.4 KiB |
 | User code (@sum_loop) | 153 bytes |
 | User code (@sum_for) | 170 bytes |
-| User code (@main) | 72 bytes |
-| Total user code | 395 bytes |
+| User code (@main) | 80 bytes |
+| Total user code | 403 bytes |
 | Runtime | >99% of binary |
 
-The user code compiles to 395 bytes of machine code across 3 functions. The native code uses stack spills heavily (debug mode, no register allocation optimization), but the structure is correct. Overflow checks compile to `jo` (jump on overflow) instructions, which is the optimal x86 encoding.
+The user code compiles to 403 bytes of machine code across 3 functions. The native code uses stack spills heavily (debug mode, no register allocation optimization), but the structure is correct. Overflow checks compile to `jo` (jump on overflow) instructions, which is the optimal x86 encoding.
 
 #### Disassembly: @sum_loop
 
@@ -790,23 +788,22 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 
 **Semantic equivalence**: The for-loop and explicit loop produce equivalent machine code structure at the LLVM IR level: both use phi-based iteration with overflow-checked arithmetic in the body. The main difference is the range struct overhead in the entry block. Both correctly produce 15 for input 5.
 
-**Memory attribute gap**: `@sum_for` lacks `memory(none)` despite performing no memory operations. The `insertvalue`/`extractvalue` chain operates on SSA values (register-level aggregate manipulation), not memory. Since `@sum_loop` (which has identical call-graph shape) correctly receives `memory(none)`, the range struct pattern appears to be confusing the compiler's purity analysis. [MEDIUM-1]
+**Memory attribute gap**: `@sum_for` lacks `memory(none)` despite performing no memory operations. The `insertvalue`/`extractvalue` chain operates on SSA values (register-level aggregate manipulation), not memory. Since `@sum_loop` (which has identical call-graph shape) correctly receives `memory(none)`, the range struct pattern appears to be confusing the compiler's purity analysis. [LOW-1]
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | MEDIUM | Attributes | `@sum_for` missing `memory(none)` despite being a pure function | NEW | J7 |
-| 2 | LOW | Attributes | `main` wrapper missing `noundef` on i32 return | CONFIRMED | J1 |
-| 3 | LOW | Control Flow | Redundant `br label %bb1` entry in @sum_loop | CONFIRMED | J7 |
-| 4 | LOW | Control Flow | Empty trampoline blocks (add.ok4) in both loop functions | CONFIRMED | J7 |
-| 5 | LOW | IR Quality | Range construct-then-destructure in @sum_for bb0 | CONFIRMED | J7 |
-| 6 | NOTE | Attributes | `@sum_loop` correctly receives `memory(none)` | NEW | J7 |
-| 7 | NOTE | Loops | Correct phi-based lowering for mutable loop variables | CONFIRMED | J7 |
-| 8 | NOTE | Ranges | Inclusive range correctly uses `sle` comparison | CONFIRMED | J7 |
-| 9 | NOTE | ARC | Zero RC overhead for pure scalar loops | CONFIRMED | J7 |
+| 1 | LOW | Memory Attr | `@sum_for` missing `memory(none)` despite being a pure function | NEW | J7 |
+| 2 | LOW | Control Flow | Redundant `br label %bb1` entry in @sum_loop | NEW | J7 |
+| 3 | LOW | Control Flow | Empty trampoline blocks (add.ok4) in both loop functions | NEW | J7 |
+| 4 | LOW | IR Quality | Range construct-then-destructure with unused `%proj.3` in @sum_for | NEW | J7 |
+| 5 | NOTE | Attributes | `@sum_loop` correctly receives `memory(none)` | NEW | J7 |
+| 6 | NOTE | Loops | Correct phi-based lowering for mutable loop variables | NEW | J7 |
+| 7 | NOTE | Ranges | Inclusive range correctly uses `sle` comparison | NEW | J7 |
+| 8 | NOTE | ARC | Zero RC overhead for pure scalar loops | NEW | J7 |
 
-### MEDIUM-1: @sum_for missing memory(none) attribute
+### LOW-1: @sum_for missing memory(none) attribute
 
 **Location**: `@_ori_sum_for` function declaration
 **Impact**: LLVM cannot assume this function has no memory effects, preventing certain interprocedural optimizations (e.g., hoisting calls out of loops, CSE across calls). Also prevents `@_ori_main` from being marked `memory(none)` since it calls a non-pure function.
@@ -814,14 +811,6 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 **Fix**: The purity analysis should recognize `insertvalue`/`extractvalue` on SSA aggregate values as non-memory operations, or trace through the ARC IR to confirm no actual memory accesses occur.
 **First seen**: Journey 7
 **Found in**: Attributes & Calling Convention (Category 3), Loops: Range Iteration (Category 9)
-
-### LOW-1: Missing noundef on main wrapper return
-
-**Location**: `@main` C wrapper, `define i32 @main()` return value
-**Impact**: Negligible -- the wrapper is called exactly once by the OS
-**Fix**: Add `noundef` to the wrapper's return type
-**First seen**: Journey 1
-**Found in**: Attributes & Calling Convention (Category 3)
 
 ### LOW-2: Redundant entry block branch in @sum_loop
 
@@ -877,17 +866,17 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 9/10 | 1.04x avg ratio (max 1.06x) |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 93.3% compliance |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 7/10 | 5 defects |
 | IR Quality | 20% | 9/10 | 2 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
-| Other Findings | 15% | 10/10 | No uncategorized findings |
+| Other Findings | 15% | 9/10 | 1 low |
 
 **Overall: 9.2 / 10**
 
 ## Verdict
 
-Journey 7's loop codegen is strong. Both `loop/break` and `for-in` range iteration produce near-optimal phi-based loops with correct overflow checking on all 5 arithmetic operations. The compiler correctly converts mutable locals to SSA phi nodes rather than stack allocas, which is the key optimization for loop performance. A new improvement since earlier journeys: `@sum_loop` now receives `memory(none)`, though `@sum_for` is missing it due to the range struct pattern confusing the purity analysis. The remaining inefficiencies are minor: empty trampoline blocks and a range struct construct-then-destructure that LLVM trivially eliminates. ARC is perfectly irrelevant -- zero RC operations for pure scalar loops.
+Journey 7's loop codegen is strong. Both `loop/break` and `for-in` range iteration produce near-optimal phi-based loops with correct overflow checking on all 5 arithmetic operations. The compiler correctly converts mutable locals to SSA phi nodes rather than stack allocas, which is the key optimization for loop performance. `@sum_loop` correctly receives `memory(none)`, though `@sum_for` is missing it due to the range struct pattern confusing the purity analysis. The remaining inefficiencies are minor: empty trampoline blocks and a range struct construct-then-destructure that LLVM trivially eliminates. ARC is perfectly irrelevant -- zero RC operations for pure scalar loops.
 
 ## Cross-Journey Observations
 
@@ -898,6 +887,6 @@ Journey 7's loop codegen is strong. Both `loop/break` and `for-in` range iterati
 | fastcc usage | J1 | J7 | CONFIRMED |
 | noundef on params | J1 | J7 | CONFIRMED |
 | memory(none) analysis | J7 | J7 | NEW (sum_loop has it, sum_for missing) |
-| Empty trampoline blocks | J7 | J7 | CONFIRMED |
+| Empty trampoline blocks | J7 | J7 | NEW |
 
 The nounwind analysis has improved since J1: all user functions now correctly receive the `nounwind` attribute via the fixed-point nounwind analysis. The new `memory(none)` analysis correctly identifies `@sum_loop` as a pure function, but the range struct construction pattern in `@sum_for` prevents it from being classified as pure -- a targeted improvement opportunity.
