@@ -122,6 +122,58 @@ attributes #0 = { nounwind uwtable }
         assert f.ratio == 1.0
 
 
+    def test_entry_block_loop_preheader_not_unjustified(self):
+        """Entry block jumping to loop header with non-trivial phis is structural."""
+        ir = """
+define fastcc i64 @_ori_gcd(i64 %0, i64 %1) #0 {
+entry:
+  br label %loop
+
+loop:
+  %a = phi i64 [ %0, %entry ], [ %b, %body ]
+  %b = phi i64 [ %1, %entry ], [ %rem, %body ]
+  %done = icmp eq i64 %b, 0
+  br i1 %done, label %exit, label %body
+
+body:
+  %rem = srem i64 %a, %b
+  br label %loop
+
+exit:
+  ret i64 %a
+}
+attributes #0 = { nounwind uwtable }
+"""
+        m = parse_module(ir)
+        f = m.functions["@_ori_gcd"]
+        # Entry block br to loop header is structurally required — NOT unjustified
+        assert compute_unjustified(f) == 0
+
+    def test_non_entry_empty_block_still_unjustified(self):
+        """Non-entry empty blocks jumping to next block ARE unjustified."""
+        ir = """
+define fastcc i64 @_ori_f(i64 %0) #0 {
+entry:
+  %cmp = icmp sgt i64 %0, 0
+  br i1 %cmp, label %then, label %empty
+
+then:
+  ret i64 %0
+
+empty:
+  br label %merge
+
+merge:
+  ret i64 0
+}
+attributes #0 = { nounwind uwtable }
+"""
+        m = parse_module(ir)
+        f = m.functions["@_ori_f"]
+        # empty block is NOT the entry block, so it IS unjustified
+        assert compute_unjustified(f) == 1
+
+
 class TestVerdicts:
     def test_verdict_thresholds(self):
         from instruction_metrics import _verdict

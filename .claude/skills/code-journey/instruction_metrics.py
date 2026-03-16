@@ -96,6 +96,22 @@ def _is_unnecessary_alloca_chain(
     return stores == 1 and loads == 1 and other_uses == 0
 
 
+def _next_block_has_nontrivial_phis(next_block: BasicBlock | None) -> bool:
+    """True if next_block has phi nodes with multiple distinct incoming values.
+
+    A non-trivial phi means the block is a merge point (loop header or join)
+    that structurally requires its predecessors to exist as separate blocks.
+    """
+    if next_block is None:
+        return False
+    for instr in next_block.instructions:
+        if instr.opcode != 'phi':
+            break  # Phis must come first in a block
+        if not is_trivial_phi(instr):
+            return True
+    return False
+
+
 def compute_unjustified(func: Function) -> int:
     """Count instructions that shouldn't be in the IR."""
     unjustified = 0
@@ -103,7 +119,15 @@ def compute_unjustified(func: Function) -> int:
         next_block = func.blocks[idx + 1] if idx + 1 < len(func.blocks) else None
 
         if is_redundant_unconditional_branch(block, next_block):
-            unjustified += 1
+            # Entry block (idx==0) jumping to a loop header (non-trivial phis)
+            # is structurally necessary: the entry block cannot have phi nodes
+            # (no predecessor label), so it must exist as a separate block to
+            # provide initial values to the loop header's phis.  Consistent
+            # with control_flow_metrics.py which applies the same exclusion.
+            if idx == 0 and _next_block_has_nontrivial_phis(next_block):
+                pass  # Not unjustified — structurally required
+            else:
+                unjustified += 1
 
         for i, instr in enumerate(block.instructions):
             if is_trivial_phi(instr):

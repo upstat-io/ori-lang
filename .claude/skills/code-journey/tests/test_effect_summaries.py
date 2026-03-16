@@ -115,8 +115,11 @@ class TestEffectTableCompleteness:
                 )
 
     def test_every_dealloc_has_minus_one_param(self):
+        # ori_rc_free is excluded — it's raw memory deallocation, not an RC
+        # operation.  The RC decrement already happened in ori_rc_dec;
+        # ori_rc_free just frees the backing memory.
         dealloc_names = [
-            "ori_rc_dec", "ori_rc_free",
+            "ori_rc_dec",
             "ori_buffer_rc_dec", "ori_buffer_drop_unique",
             "ori_map_buffer_rc_dec", "ori_map_buffer_drop_unique",
             "ori_set_buffer_rc_dec", "ori_set_buffer_drop_unique",
