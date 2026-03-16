@@ -267,12 +267,57 @@ fn test_arc_string_loop_concat() {
 // ─── Leak detection ───
 
 #[test]
-fn test_arc_leak_detected() {
-    // This program allocates an RC'd struct but never drops it because
-    // ori_rc_alloc is called directly via inline assembly-level tricks.
-    // Instead, we test the simpler case: a well-formed program should
-    // exit 0 (no leaks), and we verify compile_and_run_capture passes
-    // ORI_CHECK_LEAKS=1 by checking a clean program succeeds.
+fn test_arc_leak_detected_exit_code_2() {
+    // Verify that a program with a known leak exits with code 2 (not 0 or 1)
+    // and prints the "RC allocation(s) not freed" message to stderr.
+    // This uses a struct-with-list-field pattern that currently leaks because
+    // aggregate drop doesn't recurse into RC-typed fields (Section 02 fix).
+    let (exit_code, _, stderr) = compile_and_run_capture(
+        r#"
+type Container = { items: [int] }
+
+@main () -> void = {
+    let c = Container { items: [1, 2, 3] };
+    print(msg: c.items[0].to_str())
+}
+"#,
+    );
+    assert_eq!(exit_code, 2, "leaking program should exit with code 2");
+    assert!(
+        stderr.contains("RC allocation(s) not freed"),
+        "stderr should report leaked RC allocations, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_arc_assert_aot_success_catches_leak() {
+    // Verify assert_aot_success panics with "leaked memory" for leaking programs.
+    // This proves the test harness distinguishes leaks (code 2) from crashes (code 1).
+    let result = std::panic::catch_unwind(|| {
+        assert_aot_success(
+            r#"
+type Container = { items: [int] }
+
+@main () -> void = {
+    let c = Container { items: [1, 2, 3] };
+    print(msg: c.items[0].to_str())
+}
+"#,
+            "deliberate_leak",
+        );
+    });
+    assert!(result.is_err(), "assert_aot_success should panic on leak");
+    let err = result.unwrap_err();
+    let panic_msg = err.downcast_ref::<String>().map_or("", String::as_str);
+    assert!(
+        panic_msg.contains("leaked memory"),
+        "panic message should say 'leaked memory', got: {panic_msg}"
+    );
+}
+
+#[test]
+fn test_arc_clean_program_no_leak() {
+    // A well-formed program should exit 0 with leak checking enabled.
     let (exit_code, _, _) = compile_and_run_capture(
         r#"
 type Point = { x: int, y: int }
@@ -702,4 +747,88 @@ type Pair = { x: int, y: int }
             "rc_switch_two_scalar_borrow_branches",
         );
     }
+}
+
+// ─── Loop reassignment RC leak tests ───
+//
+// These test that RC values reassigned inside loops are properly freed.
+// The ARC pipeline must emit RcDec for the OLD value when a mutable
+// binding is overwritten in a loop body.
+
+#[test]
+fn test_arc_loop_string_reassignment_no_leak() {
+    // String concat in a loop: `s = s + "x"` must RC-dec the old `s`
+    // each iteration. Without the dec, every old string leaks.
+    // ORI_CHECK_LEAKS=1 (set by assert_aot_success) catches this.
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "";
+    for i in 0..30 do {
+        s = s + "x"
+    };
+    if s.len() == 30 then 0 else 1
+}
+"#,
+        "arc_loop_string_reassignment_no_leak",
+    );
+}
+
+#[test]
+fn test_arc_loop_string_reassignment_correctness() {
+    // Verify the loop produces correct output (not just no crash).
+    let (exit_code, stdout, stderr) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let s = "";
+    for i in 0..5 do {
+        s = s + str(i)
+    };
+    print(msg: s);
+    if s == "01234" then 0 else 1
+}
+"#,
+    );
+    assert_eq!(
+        exit_code, 0,
+        "loop string reassignment produced wrong result (exit {exit_code}):\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert_eq!(stdout.trim(), "01234");
+}
+
+#[test]
+fn test_arc_loop_string_reassignment_manual_loop_no_leak() {
+    // Same pattern with a manual loop instead of for.
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "";
+    let i = 0;
+    loop {
+        if i >= 30 then break;
+        s = s + "a";
+        i = i + 1
+    };
+    if s.len() == 30 then 0 else 1
+}
+"#,
+        "arc_loop_string_reassignment_manual_loop_no_leak",
+    );
+}
+
+#[test]
+fn test_arc_loop_list_reassignment_no_leak() {
+    // List push in a loop: `xs = xs.push(i)` must RC-dec the old list.
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs: [int] = [];
+    for i in 0..30 do {
+        xs = xs.push(i)
+    };
+    if xs.len() == 30 then 0 else 1
+}
+"#,
+        "arc_loop_list_reassignment_no_leak",
+    );
 }

@@ -33,7 +33,7 @@ use ori_types::{FunctionSig, Idx};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
-use super::purity_analysis::{is_abi_memory_free, is_arc_function_pure, is_arc_function_readonly};
+use super::purity_analysis::{has_only_pure_arc_instructions, is_abi_memory_free};
 use super::FunctionCompiler;
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::arc_emitter::ArcIrEmitter;
@@ -355,12 +355,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let mut pure_count = 0u32;
         for func in prepared {
             for lambda in &func.lambdas {
-                if is_arc_function_pure(&lambda.arc_func) && is_abi_memory_free(&lambda.abi) {
+                if has_only_pure_arc_instructions(&lambda.arc_func)
+                    && is_abi_memory_free(&lambda.abi)
+                {
                     self.codegen_ctx.pure_functions.insert(lambda.name);
                     pure_count = pure_count.saturating_add(1);
                 }
             }
-            if is_arc_function_pure(&func.arc_func) && is_abi_memory_free(&func.abi) {
+            if has_only_pure_arc_instructions(&func.arc_func) && is_abi_memory_free(&func.abi) {
                 self.codegen_ctx.pure_functions.insert(func.name);
                 pure_count = pure_count.saturating_add(1);
             }
@@ -376,7 +378,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         for func in prepared {
             for lambda in &func.lambdas {
                 if !self.codegen_ctx.pure_functions.contains(&lambda.name)
-                    && is_arc_function_readonly(&lambda.arc_func)
+                    && has_only_pure_arc_instructions(&lambda.arc_func)
                     && !matches!(
                         lambda.abi.return_abi.passing,
                         crate::codegen::abi::ReturnPassing::Sret { .. }
@@ -387,7 +389,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 }
             }
             if !self.codegen_ctx.pure_functions.contains(&func.name)
-                && is_arc_function_readonly(&func.arc_func)
+                && has_only_pure_arc_instructions(&func.arc_func)
                 && !matches!(
                     func.abi.return_abi.passing,
                     crate::codegen::abi::ReturnPassing::Sret { .. }

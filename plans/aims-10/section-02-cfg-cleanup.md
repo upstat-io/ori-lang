@@ -5,8 +5,8 @@ status: complete
 goal: "Zero empty blocks, zero redundant branches in emitted LLVM IR — CF score 10/10 on all journeys"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-03-16
 sections:
   - id: "02.1"
     title: "Extract Dead-Unwind Detection"
@@ -19,7 +19,7 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "02.N"
     title: "Completion Checklist"
     status: complete
@@ -161,7 +161,11 @@ TCO and loop lowering create entry blocks with only `br label %header`. These ar
 
 ## 02.R Third Party Review Findings
 
-- None.
+**Review date:** 2026-03-16
+**Method:** 4-agent sequential cold-start pipeline (independent-review command)
+
+- [x] `[TPR-10-02-001][minor]` `compiler/ori_llvm/src/codegen/ir_builder/cfg_simplify/mod.rs:165-193` — `eliminate_empty_blocks` processes exactly one candidate per pass, relying on fixed-point iteration in `simplify_cfg`. For N empty blocks in a chain, this is O(N^2) due to predecessor map rebuilds each iteration. Documented as deliberate (comment at line 165). Low priority — pathological only. Fix: consider batch processing empty-block chains in a single pass if compile-time profiling shows regression on large functions.
+  Resolved: Rejected after validation on 2026-03-16. O(N²) is pathological-only (requires N chained empty blocks); real-world functions have 0-2 empty blocks. The deliberate one-at-a-time approach avoids stale predecessor map bugs. No profiling evidence of regression.
 
 ---
 

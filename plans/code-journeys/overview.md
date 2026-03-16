@@ -118,6 +118,12 @@ Zero CRITICAL, HIGH, MEDIUM, or LOW findings across all 13 journeys.
 
 **All 7 categories at perfect 10.0 average (13/13 journeys at 10).** No remaining gaps. Entry block preheaders (J3, J7) correctly classified as structurally required LLVM IR.
 
+## Verification Steps
+
+1. **Behavioral equivalence**: `diagnostics/dual-exec-verify.sh` — interpreter vs AOT output comparison
+2. **Leak detection**: `ORI_CHECK_LEAKS=1` enabled in all AOT test harness runs
+3. **Valgrind memory check**: `diagnostics/valgrind-aot.sh --journeys` — runs all code journey binaries under Valgrind with `--leak-check=full --show-leak-kinds=all` (too slow for CI, run manually)
+
 ## Results Files
 
 - [Journey 1: "I am arithmetic"](01-arithmetic-results.md)

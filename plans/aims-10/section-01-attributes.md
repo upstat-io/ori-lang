@@ -5,8 +5,8 @@ status: complete
 goal: "100% attribute compliance on all 13 journeys — every applicable attribute present on every function"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-03-16
 sections:
   - id: "01.1"
     title: "noundef on Main Wrapper Return"
@@ -28,7 +28,7 @@ sections:
     status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
     status: complete
@@ -215,7 +215,11 @@ J13 has the worst attribute compliance (57.1%) because trampoline functions (`_o
 
 ## 01.R Third Party Review Findings
 
-- None.
+**Review date:** 2026-03-16
+**Method:** 4-agent sequential cold-start pipeline (independent-review command)
+
+- [x] `[TPR-10-01-001][minor]` `compiler/ori_llvm/src/codegen/function_compiler/purity_analysis.rs:29-81` — `is_arc_function_pure` and `is_arc_function_readonly` have identical implementations despite documented different semantics. The caller (`nounwind.rs`) differentiates via `is_abi_memory_free`, so current behavior is correct, but the duplicate code is a maintenance hazard. Fix: unify into one function with a strictness parameter, or differentiate the implementations (e.g., `is_arc_function_readonly` could also accept `Switch` terminators).
+  Resolved: Accepted and fixed on 2026-03-16. Unified both into `has_only_pure_arc_instructions()`. The pure vs readonly distinction is made by the caller via `is_abi_memory_free()`.
 
 ---
 

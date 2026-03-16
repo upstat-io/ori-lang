@@ -275,12 +275,15 @@ pub(crate) fn compute_child_effective_last_use(
 }
 
 /// Whether an instruction is a consuming `PrimOp` — a `Let` with a `PrimOp`
-/// value that produces an `RcPtr` result.
+/// value that produces an `RcPointer` result.
 ///
-/// `RcPtr`-producing `PrimOp`s are collection operations (list concat, string
-/// concat, etc.) compiled to COW runtime functions that consume their
-/// operands internally. The ARC pipeline must NOT emit separate `RcDec`
-/// for the operands.
+/// Only `RcPointer`-producing `PrimOp`s (list concat, map merge, set union)
+/// consume their operands internally via COW runtime functions. The ARC
+/// pipeline must NOT emit separate `RcDec` for those operands.
+///
+/// `FatValue`-producing `PrimOp`s (string concat `+`) do NOT consume
+/// operands — `ori_str_concat` borrows both inputs and returns a new
+/// value. The caller is responsible for dropping the old operands.
 #[inline]
 pub(crate) fn is_consuming_primop(instr: &ArcInstr, func: &ArcFunction) -> bool {
     if let ArcInstr::Let {
@@ -289,7 +292,7 @@ pub(crate) fn is_consuming_primop(instr: &ArcInstr, func: &ArcFunction) -> bool 
         ..
     } = instr
     {
-        func.var_reprs[dst.index()] != ValueRepr::Scalar
+        func.var_reprs[dst.index()] == ValueRepr::RcPointer
     } else {
         false
     }
