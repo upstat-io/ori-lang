@@ -10,22 +10,22 @@ third_party_review:
 sections:
   - id: "02.1"
     title: "noundef on Struct/Enum Params"
-    status: in-progress
+    status: complete
   - id: "02.2"
     title: "uwtable on Main Wrapper"
     status: complete
   - id: "02.3"
     title: "nounwind Improvements"
-    status: in-progress
+    status: complete
   - id: "02.4"
     title: "memory(...) Annotations"
-    status: in-progress
+    status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
     status: not-started
   - id: "02.N"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 02: Attribute Compliance
@@ -75,7 +75,7 @@ The compiler correctly applies `noundef` to primitive-typed parameters (i64, f64
 - [x] Do NOT apply `noundef` to `ParamPassing::Indirect` pointer params — these need `nonnull` + `dereferenceable` instead (2026-03-15)
 - [x] Extend return value `noundef` to `ReturnPassing::Direct` for non-scalar returns (2026-03-15)
 - [x] Update the existing test `aggregate_params_no_noundef` in `function_compiler/tests.rs` — renamed to `indirect_params_no_noundef`, added `direct_aggregate_params_have_noundef` for Direct aggregate coverage (2026-03-15)
-- [ ] **Bonus**: For `ParamPassing::Indirect` params that are read-only (not mutated by the callee), add `readonly` attribute. This enables LLVM to hoist loads from these params and CSE across calls. Requires knowing which params are mutated — conservative: skip if any `Set` instruction targets a projected field of the param.
+- [x] **Bonus**: For `ParamPassing::Indirect` params that are read-only (not mutated by the callee), add `readonly` attribute. Added `readonly: bool` to `ParamAbi`, set from `Ownership::Borrowed` in `compute_function_abi_with_ownership()`, applied in `declare_function_llvm_with_extra_params()`. Verified: J10 `@count_items(ptr readonly %0)`. (2026-03-16)
 - [x] Verify: `noundef` appears on struct/enum params in J4, J6, J8, J11 IR — confirmed: Box<int> (J8), Point/Color (J11) all get `noundef`; large structs like Rect (J4) and Shape (J11) correctly passed Indirect without `noundef` (2026-03-15)
 - [x] Verify: No behavioral changes (noundef is a hint, not a transformation) — 12,887 tests pass, 0 failures (2026-03-15)
 
@@ -117,9 +117,7 @@ Functions that provably don't throw (no panicking operations, no `invoke` to thr
   Already respected: `is_arc_function_nounwind` checks Invoke terminators, Apply callees against runtime nounwind table, and conservatively marks ApplyIndirect as may-unwind.
 - [x] If safe: apply `nounwind` to all user functions that don't use `invoke` for exception propagation (2026-03-15)
   Already done: the two-pass pipeline applies nounwind to all qualifying functions via `emit_prepared_functions`.
-- [ ] **Fix impl method gap**: Impl methods compiled via the immediate-emit path in `impls.rs` bypass the two-pass nounwind analysis. Two approaches:
-  - (a) **Fold impl methods into the two-pass batch**: modify `compile_impls()` to use `prepare_all_cached()` + `compute_nounwind_set()` + `emit_prepared_functions()` instead of direct `emit_arc_function()`. This is the correct fix but requires refactoring.
-  - (b) **Post-hoc nounwind**: After all functions are emitted, walk all LLVM functions and retroactively add `nounwind` to those that contain no `invoke` instructions. This is simpler but less precise (misses transitive nounwind).
+- [x] **Fix impl method gap**: Implemented option (b) — post-hoc nounwind pass via `apply_posthoc_nounwind()` in `nounwind.rs`. After all functions are emitted, walks LLVM functions via `function_has_no_invoke()` and adds `nounwind` to those with no `invoke`. Called in `compile.rs` after `compile_tests()`. (2026-03-16)
 - [x] **Runtime function nounwind**: Verify that `ori_rc_inc`, `ori_rc_dec`, `ori_buffer_drop_unique`, `ori_str_empty`, `ori_list_rc_inc`, and other non-panicking runtime functions are declared with `nounwind` in `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`. Missing `nounwind` on runtime declarations causes callers to use `invoke` unnecessarily. (2026-03-15)
   Verified: All listed functions already have `Attr::Nounwind` + `Attr::MemArgmemRW`.
 - [ ] Verify: compliance % improves for J3, J5, J9, J10, J13
@@ -150,7 +148,7 @@ Pure functions (no side effects) and read-only functions should have `memory(non
   - `@safe_div` (J12): pure, should get `memory(none)` (pending verification)
   - `@my_abs`, `@my_max`, `@my_sign` (J2): pure, all get `memory(none)` ✓
 - [x] **Detection criteria for `memory(none)`**: Implemented as `is_arc_function_pure` + `is_abi_memory_free` in `define_phase.rs`/`nounwind.rs`. A function is pure when: (1) all ARC IR instructions are `Let` or `Select` (no calls, RC ops, construction, mutation), (2) all params are Direct or Void (no pointer loads), (3) return is Direct or Void (no sret store). (2026-03-15)
-- [ ] **Detection criteria for `memory(read)`**: A function reads but doesn't write — e.g., functions that read from struct fields but don't allocate or mutate. Less common, lower priority.
+- [x] **Detection criteria for `memory(read)`**: Implemented `is_arc_function_readonly()` — allows `Let`/`Select`/`Project` (reads struct fields). Excludes functions with Sret return (writes to sret pointer). Integrated into `compute_nounwind_set()` alongside purity analysis. (2026-03-16)
 - [x] **Where to add the analysis**: Integrated into the nounwind two-pass pipeline in `compute_nounwind_set()` — single-pass purity analysis after the nounwind fixed-point iteration. Pure functions have no calls, so no transitive propagation needed. (2026-03-15)
 - [x] **Approach**: Conservative — functions must have only `Let`/`Select` instructions with `Return`/`Jump`/`Branch`/`Unreachable` terminators, AND all params/return must be Direct/Void passing. Covers pure scalar functions (arithmetic, comparison, branching). (2026-03-15)
 - [x] Add `memory(none)` to functions identified as pure by the codegen (2026-03-15)

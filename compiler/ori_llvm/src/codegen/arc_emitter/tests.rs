@@ -668,6 +668,7 @@ fn is_shared_emits_gep_load_icmp() {
             name: interner.intern("data"),
             ty: Idx::STR,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: Idx::BOOL,
@@ -791,11 +792,13 @@ fn set_emits_struct_gep_and_store() {
                 name: interner.intern("base"),
                 ty: struct_ty,
                 passing: ParamPassing::Direct,
+                readonly: false,
             },
             ParamAbi {
                 name: interner.intern("val"),
                 ty: Idx::INT,
                 passing: ParamPassing::Direct,
+                readonly: false,
             },
         ],
         return_abi: ReturnAbi {
@@ -912,6 +915,7 @@ fn set_tag_emits_gep_and_store() {
             name: interner.intern("obj"),
             ty: enum_ty,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: enum_ty,
@@ -1135,6 +1139,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
             name: interner.intern("s"),
             ty: Idx::STR,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: Idx::STR,
@@ -1231,6 +1236,7 @@ fn rc_dec_closure_null_checks_env() {
             name: interner.intern("f"),
             ty: fn_ty,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: fn_ty,
@@ -1340,6 +1346,7 @@ fn rc_inc_inline_enum_emits_tag_switch() {
             name: interner.intern("r"),
             ty: result_ty,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: result_ty,
@@ -1439,6 +1446,7 @@ fn rc_dec_inline_enum_tag_switches() {
             name: interner.intern("r"),
             ty: result_ty,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: result_ty,
@@ -1548,6 +1556,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
             name: interner.intern("data"),
             ty: Idx::STR,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: Idx::STR,

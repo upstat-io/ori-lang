@@ -382,12 +382,45 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             }
         }
 
+        // Read-only analysis: functions that read memory but don't write.
+        // These have `Let`/`Select`/`Project` instructions (Project reads via
+        // pointer) but no calls, RC ops, or mutations. Strictly weaker than
+        // pure — pure functions get `memory(none)`, readonly gets `memory(read)`.
+        // CONSTRAINT: Sret returns WRITE to the sret pointer, so functions with
+        // Sret return passing cannot be marked memory(read).
+        let mut readonly_count = 0u32;
+        for func in prepared {
+            for lambda in &func.lambdas {
+                if !self.codegen_ctx.pure_functions.contains(&lambda.name)
+                    && Self::is_arc_function_readonly(&lambda.arc_func)
+                    && !matches!(
+                        lambda.abi.return_abi.passing,
+                        crate::codegen::abi::ReturnPassing::Sret { .. }
+                    )
+                {
+                    self.codegen_ctx.readonly_functions.insert(lambda.name);
+                    readonly_count = readonly_count.saturating_add(1);
+                }
+            }
+            if !self.codegen_ctx.pure_functions.contains(&func.name)
+                && Self::is_arc_function_readonly(&func.arc_func)
+                && !matches!(
+                    func.abi.return_abi.passing,
+                    crate::codegen::abi::ReturnPassing::Sret { .. }
+                )
+            {
+                self.codegen_ctx.readonly_functions.insert(func.name);
+                readonly_count = readonly_count.saturating_add(1);
+            }
+        }
+
         debug!(
             passes = pass,
             nounwind_count = self.codegen_ctx.nounwind_functions.len(),
             mono_propagated,
             pure_count,
-            "nounwind + purity analysis complete"
+            readonly_count,
+            "nounwind + memory analysis complete"
         );
     }
 
@@ -445,9 +478,45 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     name = %self.interner.lookup(func.name),
                     "marked memory(none)"
                 );
+            } else if self.codegen_ctx.readonly_functions.contains(&func.name) {
+                self.builder.add_memory_read_attribute(func.func_id);
+                debug!(
+                    name = %self.interner.lookup(func.name),
+                    "marked memory(read)"
+                );
             }
 
             self.exit_debug_scope();
+        }
+    }
+
+    /// Post-hoc nounwind pass: walk all emitted LLVM functions and add `nounwind`
+    /// to any function that contains no `invoke` instructions.
+    ///
+    /// This catches impl methods and test wrappers that were compiled via the
+    /// immediate-emit path (before the two-pass nounwind analysis). If all their
+    /// call sites used `call` (not `invoke`), the function is provably nounwind.
+    ///
+    /// Must be called after ALL functions are emitted (impls, two-pass batch,
+    /// derives, tests, main wrapper).
+    pub fn apply_posthoc_nounwind(&mut self) {
+        let mut added = 0u32;
+        for (&name, &(func_id, _)) in &self.codegen_ctx.functions {
+            if self.codegen_ctx.nounwind_functions.contains(&name) {
+                continue; // Already marked by two-pass analysis
+            }
+            if self.builder.function_has_no_invoke(func_id) {
+                self.builder.add_nounwind_attribute(func_id);
+                self.codegen_ctx.nounwind_functions.insert(name);
+                added = added.saturating_add(1);
+                trace!(
+                    name = %self.interner.lookup(name),
+                    "post-hoc nounwind"
+                );
+            }
+        }
+        if added > 0 {
+            debug!(added, "post-hoc nounwind pass complete");
         }
     }
 
@@ -471,6 +540,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
         if self.codegen_ctx.pure_functions.contains(&lambda.name) {
             self.builder.add_memory_none_attribute(lambda.func_id);
+        } else if self.codegen_ctx.readonly_functions.contains(&lambda.name) {
+            self.builder.add_memory_read_attribute(lambda.func_id);
         }
     }
 }

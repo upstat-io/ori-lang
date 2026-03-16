@@ -177,6 +177,9 @@ pub struct CodegenContext {
     /// Known-pure function names (no memory effects). These get the LLVM
     /// `memory(none)` attribute, enabling aggressive optimization.
     pub pure_functions: FxHashSet<Name>,
+    /// Known read-only function names (reads memory, no writes). These get
+    /// the LLVM `memory(read)` attribute. Strictly weaker than `pure_functions`.
+    pub readonly_functions: FxHashSet<Name>,
 }
 
 // Re-export convenience method on ArcIrEmitter for use by submodules
