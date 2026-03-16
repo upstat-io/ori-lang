@@ -385,7 +385,7 @@ source_filename = "11-derived-traits"
 
 @ovf.msg = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00", align 1
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @check_struct_eq ---
 define fastcc noundef i64 @_ori_check_struct_eq() #0 {
 bb0:
@@ -407,7 +407,7 @@ add.ovf_panic:
   unreachable
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @check_sum_eq ---
 define fastcc noundef i64 @_ori_check_sum_eq() #0 {
 bb0:
@@ -429,7 +429,7 @@ add.ovf_panic:
   unreachable
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @check_nested ---
 define fastcc noundef i64 @_ori_check_nested() #0 {
 bb0:
@@ -461,7 +461,7 @@ add.ovf_panic:
 
 ; Function Attrs: nounwind uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %call = call fastcc i64 @_ori_check_struct_eq()
   %call1 = call fastcc i64 @_ori_check_sum_eq()
@@ -491,7 +491,7 @@ add.ovf_panic7:
 
 ; Function Attrs: nounwind uwtable
 ; --- Point.@eq ---
-define fastcc noundef i1 @"_ori_Point$eq"(%ori.Point noundef %0, %ori.Point noundef %1) #0 {
+define fastcc noundef i1 @"_ori_Point$eq"(%ori.Point noundef %0, %ori.Point noundef %1) #1 {
 entry:
   %eq.self.x = extractvalue %ori.Point %0, 0
   %eq.other.x = extractvalue %ori.Point %1, 0
@@ -513,7 +513,7 @@ eq.field.1:
 
 ; Function Attrs: nounwind uwtable
 ; --- Color.@eq ---
-define fastcc noundef i1 @"_ori_Color$eq"(%ori.Color noundef %0, %ori.Color noundef %1) #0 {
+define fastcc noundef i1 @"_ori_Color$eq"(%ori.Color noundef %0, %ori.Color noundef %1) #1 {
 entry:
   %eq.tag.self = extractvalue %ori.Color %0, 0
   %eq.tag.other = extractvalue %ori.Color %1, 0
@@ -529,7 +529,7 @@ eq.false:
 
 ; Function Attrs: nounwind uwtable
 ; --- Shape.@eq ---
-define fastcc noundef i1 @"_ori_Shape$eq"(ptr noundef %0, ptr noundef %1) #0 {
+define fastcc noundef i1 @"_ori_Shape$eq"(ptr noundef nonnull dereferenceable(24) %0, ptr noundef nonnull dereferenceable(24) %1) #1 {
 entry:
   %param.0.f0.ptr = getelementptr inbounds nuw %ori.Shape, ptr %0, i32 0, i32 0
   %param.0.f0 = load i64, ptr %param.0.f0.ptr, align 8
@@ -582,22 +582,23 @@ eq.v1.f1:
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #2
+declare void @ori_panic_cstr(ptr) #3
 
 ; Function Attrs: nounwind uwtable
-define noundef i32 @main() #0 {
+define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
   ret i32 %exit_code
 }
 
-attributes #0 = { nounwind uwtable }
-attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { cold noreturn }
+attributes #0 = { nounwind memory(none) uwtable }
+attributes #1 = { nounwind uwtable }
+attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { cold noreturn }
 ```
 
 #### Disassembly
@@ -813,23 +814,23 @@ The caller functions (`check_struct_eq`, `check_sum_eq`, `check_nested`) each fo
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | uwtable | noundef(ret) | noundef(params) | cold | Notes |
-|----------|--------|----------|---------|--------------|-----------------|------|-------|
-| @check_struct_eq | YES | YES | YES | YES | N/A | NO | |
-| @check_sum_eq | YES | YES | YES | YES | N/A | NO | |
-| @check_nested | YES | YES | YES | YES | N/A | NO | |
-| @main | C-cc | YES | YES | YES | N/A | NO | Entry point -- C calling convention correct |
-| Point$eq | YES | YES | YES | YES | YES (both) | NO | |
-| Color$eq | YES | YES | YES | YES | YES (both) | NO | |
-| Shape$eq | YES | YES | YES | YES | YES (both ptr) | NO | [NOTE-1] ptr params now have noundef |
-| @ori_panic_cstr | C-cc | -- | -- | -- | -- | YES | noreturn + cold correct |
-| @main (wrapper) | C-cc | YES | YES | YES | N/A | NO | noundef on i32 return now present |
+| Function | fastcc | nounwind | uwtable | memory | noundef(ret) | noundef(params) | cold | Notes |
+|----------|--------|----------|---------|--------|--------------|-----------------|------|-------|
+| @check_struct_eq | YES | YES | YES | none | YES | N/A | NO | [NOTE-6] pure function |
+| @check_sum_eq | YES | YES | YES | none | YES | N/A | NO | [NOTE-6] pure function |
+| @check_nested | YES | YES | YES | none | YES | N/A | NO | [NOTE-6] pure function |
+| @main | C-cc | YES | YES | -- | YES | N/A | NO | Entry point -- C calling convention correct |
+| Point$eq | YES | YES | YES | -- | YES | YES (both) | NO | |
+| Color$eq | YES | YES | YES | -- | YES | YES (both) | NO | |
+| Shape$eq | YES | YES | YES | -- | YES | YES (both ptr) | NO | [NOTE-1] nonnull + dereferenceable(24) |
+| @ori_panic_cstr | C-cc | -- | -- | -- | -- | -- | YES | noreturn + cold correct |
+| @main (wrapper) | C-cc | YES | YES | -- | YES | N/A | NO | |
 
 **Compliance**: 32/32 applicable attributes correct (100%).
 
-All previously missing attributes have been fixed since the last run:
-- `Shape$eq` ptr parameters now carry `noundef`
-- The C `main()` wrapper now has `noundef` on its `i32` return
+Key attribute improvements since prior runs:
+- `check_struct_eq`, `check_sum_eq`, `check_nested` now marked `memory(none)` -- correctly identified as pure functions
+- `Shape$eq` ptr parameters carry `noundef nonnull dereferenceable(24)` -- full pointer safety attributes
 
 ### 4. Control Flow & Block Layout
 
@@ -989,7 +990,7 @@ The ideal for `Shape$eq` with ptr parameters would compare fields directly from 
 
 ```llvm
 ; IDEAL (12 instructions)
-define fastcc noundef i64 @_ori_check_struct_eq() nounwind {
+define fastcc noundef i64 @_ori_check_struct_eq() nounwind memory(none) {
   %eq1 = call fastcc i1 @"_ori_Point$eq"(...)
   %sel1 = select i1 %eq1, i64 3, i64 0
   %eq2 = call fastcc i1 @"_ori_Point$eq"(...)
@@ -1037,7 +1038,7 @@ Three distinct derived Eq patterns are generated, each optimized for its type st
 
 The `!=` operator desugars cleanly to `xor i1 %eq_result, true`, avoiding a separate `$ne` method.
 
-**Passing convention**: Point (16 bytes) and Color (8 bytes) are passed by value. Shape (24 bytes) is passed by pointer, requiring `alloca`+`store` at call sites and `GEP`+`load`+`insertvalue` reconstruction inside `Shape$eq`. This is architecturally correct for the 16-byte by-value threshold.
+**Passing convention**: Point (16 bytes) and Color (8 bytes) are passed by value. Shape (24 bytes) is passed by pointer with `noundef nonnull dereferenceable(24)` safety attributes, requiring `alloca`+`store` at call sites and `GEP`+`load`+`insertvalue` reconstruction inside `Shape$eq`. This is architecturally correct for the 16-byte by-value threshold. The full pointer attributes enable LLVM to assume the pointers are valid and non-null without runtime checks.
 
 ### 9. Sum Types: Discriminant Dispatch
 
@@ -1062,26 +1063,23 @@ The compiler uses a consistent tagged-union representation:
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | NOTE | Attributes | Shape$eq ptr params now have noundef | FIXED | J11 |
-| 2 | NOTE | Attributes | main wrapper return now has noundef | FIXED | J1 |
+| 1 | NOTE | Attributes | Shape$eq ptr params have noundef + nonnull + dereferenceable(24) | CONFIRMED | J11 |
+| 2 | NOTE | Attributes | main wrapper return has noundef | CONFIRMED | J1 |
 | 3 | NOTE | Codegen | Point$eq short-circuit is textbook optimal | CONFIRMED | J11 |
 | 4 | NOTE | Codegen | Color$eq single-icmp for unit-variant enum | CONFIRMED | J11 |
 | 5 | NOTE | Codegen | Shape$eq discriminant dispatch with per-variant comparison | CONFIRMED | J11 |
+| 6 | NOTE | Attributes | check_struct_eq/check_sum_eq/check_nested marked memory(none) | NEW | J11 |
 
-### NOTE-1: Shape$eq ptr params now have noundef
+### NOTE-1: Shape$eq ptr params with full safety attributes
 
-**Location**: `@"_ori_Shape$eq"(ptr noundef %0, ptr noundef %1)` -- both parameters
-**Impact**: Positive -- LLVM can now assume pointers are defined, enabling more optimizations
-**Previously**: Missing noundef (LOW finding in prior run)
-**Status**: FIXED
+**Location**: `@"_ori_Shape$eq"(ptr noundef nonnull dereferenceable(24) %0, ptr noundef nonnull dereferenceable(24) %1)`
+**Impact**: Positive -- LLVM can assume pointers are defined, non-null, and point to valid 24-byte regions, enabling better alias analysis and optimization
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-2: main wrapper return now has noundef
+### NOTE-2: main wrapper return has noundef
 
 **Location**: `@main()` C entry point wrapper, `noundef i32` return
 **Impact**: Positive -- LLVM can assume exit code is defined
-**Previously**: Missing noundef (LOW finding since J1)
-**Status**: FIXED
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-3: Point$eq short-circuit pattern
@@ -1102,6 +1100,13 @@ The compiler uses a consistent tagged-union representation:
 **Impact**: Positive -- textbook sum type equality with short-circuit at every level
 **Found in**: Sum Types: Discriminant Dispatch (Category 9)
 
+### NOTE-6: Pure functions marked memory(none)
+
+**Location**: `@_ori_check_struct_eq`, `@_ori_check_sum_eq`, `@_ori_check_nested`
+**Impact**: Positive -- the nounwind + memory analysis pass correctly identifies these functions as having no memory side effects. All three construct values inline (no heap), call pure `$eq` methods, and do overflow-checked arithmetic. The `memory(none)` attribute enables LLVM to freely reorder, CSE, or eliminate these calls.
+**First seen**: Journey 11 (new since AIMS Section 01 purity analysis)
+**Found in**: Attributes & Calling Convention (Category 3)
+
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
@@ -1118,7 +1123,7 @@ The compiler uses a consistent tagged-union representation:
 
 ## Verdict
 
-Journey 11's derived trait codegen achieves a perfect score. All three Eq patterns -- struct field-by-field, unit-variant tag comparison, and payload sum type discriminant dispatch -- generate optimal IR with zero unnecessary instructions. The short-circuit evaluation in Point$eq and Shape$eq avoids wasted work, and the `!=` operator desugars cleanly to `xor i1 %result, true` without a separate method. Attribute compliance is now 100%, with the previously missing `noundef` on Shape$eq ptr parameters and the C main wrapper return both fixed since the prior run. ARC is perfectly irrelevant -- all types are pure value types with no heap allocations.
+Journey 11's derived trait codegen achieves a perfect score. All three Eq patterns -- struct field-by-field, unit-variant tag comparison, and payload sum type discriminant dispatch -- generate optimal IR with zero unnecessary instructions. The short-circuit evaluation in Point$eq and Shape$eq avoids wasted work, and the `!=` operator desugars cleanly to `xor i1 %result, true` without a separate method. Attribute compliance is 100%: Shape$eq ptr parameters carry full `noundef nonnull dereferenceable(24)` safety attributes, and the three check functions are correctly marked `memory(none)` by the purity analysis pass. ARC is perfectly irrelevant -- all types are pure value types with no heap allocations.
 
 ## Cross-Journey Observations
 
@@ -1127,9 +1132,10 @@ Journey 11's derived trait codegen achieves a perfect score. All three Eq patter
 | Overflow checking | J1 | J11 | CONFIRMED |
 | fastcc on internal functions | J1 | J11 | CONFIRMED |
 | nounwind on user functions | J1 | J11 | CONFIRMED |
-| noundef on main wrapper | J1 | J11 | FIXED (was missing since J1, now present) |
-| noundef on ptr params | J11 | J11 | FIXED (was missing in prior J11, now present) |
+| noundef on main wrapper | J1 | J11 | CONFIRMED |
+| noundef + nonnull + deref on ptr params | J11 | J11 | CONFIRMED |
+| memory(none) on pure functions | J11 | J11 | NEW (AIMS purity analysis) |
 | Struct field access | J4 | J11 | CONFIRMED (extractvalue pattern) |
 | Sum type tag dispatch | J6 | J11 | CONFIRMED (switch on discriminant) |
 
-The two `noundef` attribute gaps that persisted since Journey 1 (main wrapper return) and Journey 11's first run (Shape$eq ptr params) have both been resolved. Attribute compliance has improved from 91.4% to 100% across this journey's functions.
+The AIMS purity analysis (Section 01) correctly identifies `check_struct_eq`, `check_sum_eq`, and `check_nested` as having no memory effects, marking them `memory(none)`. This is the first journey where `memory(none)` appears on user functions that call derived trait methods -- the fixed-point analysis propagates purity through the `$eq` call chain.
