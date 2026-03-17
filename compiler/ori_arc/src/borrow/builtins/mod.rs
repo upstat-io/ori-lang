@@ -56,17 +56,22 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "sort_stable", // list.sort_stable (COW sort, stable/TimSort)
 ];
 
-/// COW list methods that consume both receiver AND second argument (list2).
+/// COW list methods that consume both receiver AND second argument.
 ///
-/// For these methods, the runtime takes ownership of list2's buffer and checks
-/// uniqueness at runtime to skip RC increments when list2 is uniquely owned.
+/// For these methods, the runtime takes ownership of the second argument's data:
+/// - `add`/`concat`: list2's buffer is consumed (uniqueness-checked at runtime)
+/// - `push`: the element's bytes are copied into the list buffer, creating a
+///   new reference to any RC-managed data (e.g., str data pointers)
+///
 /// The ARC pipeline must mark arg[1] as `Owned` (no extra `RcDec`) in addition
-/// to the receiver.
+/// to the receiver. For `push`, this ensures AIMS emits `RcInc` on fat pointer
+/// elements borrowed from iterators.
 ///
 /// Sorted alphabetically.
 const CONSUMING_SECOND_ARG_METHOD_NAMES: &[&str] = &[
     "add",    // list + list (COW concat)
     "concat", // list.concat(other)
+    "push",   // list.push(value) — element stored in list buffer
 ];
 
 /// COW methods that consume ONLY the receiver; non-receiver args are borrowed.
