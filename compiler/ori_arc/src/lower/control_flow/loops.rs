@@ -162,6 +162,22 @@ impl ArcLowerer<'_> {
             // List, Map, Set, Str, etc. — convert to iterator via .iter(),
             // then use the iterator-based loop.
             let elem_ty = self.extract_iterable_elem_type(tag, iter_ty);
+
+            // For List/Set/Map: ensure the collection is threaded through the
+            // loop header so the AIMS backward analysis sees a "future use"
+            // and adds RcInc. This prevents premature cleanup of the buffer
+            // when the iterator's Drop (with NULL elem_dec_fn) reaches zero
+            // before the explicit RcDec (with real elem_dec_fn).
+            //
+            // Only needed for collections where ori_buffer_rc_dec is used
+            // (List, Set, Map). Str uses IterState::Str with different cleanup.
+            let needs_phantom = matches!(tag, ori_types::Tag::List | ori_types::Tag::Set)
+                && !self.scope.mutable_bindings().any(|(_, v)| v == iter_val);
+            if needs_phantom {
+                let coll_name = self.interner.intern("__for_coll");
+                self.scope.bind_mutable(coll_name, iter_val);
+            }
+
             let iter_name = self.interner.intern("iter");
             // Use INT for the iterator handle — it's an opaque pointer with no
             // RC semantics (cleanup is via ori_iter_drop, not RC dec).

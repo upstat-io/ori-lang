@@ -15,6 +15,7 @@ pub mod cross;
 pub mod depth;
 pub mod derives;
 pub mod error_handling;
+pub mod fat_ptr_iter;
 pub mod for_loops;
 pub mod formattable;
 pub mod generics;
