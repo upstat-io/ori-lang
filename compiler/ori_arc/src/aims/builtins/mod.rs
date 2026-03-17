@@ -78,6 +78,37 @@ pub fn seed_builtin_contracts(
         sigs.entry(name)
             .or_insert_with(|| protocol_contract(arg_ownership));
     }
+
+    // Internal runtime functions called by ARC IR lowering (not user-facing).
+    // These are `ori_*` C functions that would otherwise default to all-borrowed
+    // in `compute_arg_ownership`. Where the runtime copies element bytes into a
+    // collection buffer (creating a new reference), the element arg must be Owned
+    // so AIMS emits RcInc for fat pointer elements.
+    seed_internal_runtime_contracts(sigs, interner);
+}
+
+/// Seed contracts for internal `ori_*` runtime functions used by ARC IR lowering.
+///
+/// `ori_list_push(list_ptr, elem, elem_size)` — used by for-yield lowering.
+/// The element bytes are copied into the list buffer, creating a new reference
+/// to any RC-managed data (e.g., str data pointers). Without an Owned contract
+/// on the element arg, the AIMS pipeline treats it as borrowed and doesn't emit
+/// `RcInc`, causing double-frees when both the source collection and the yield
+/// result list try to drop the same element.
+fn seed_internal_runtime_contracts(
+    sigs: &mut FxHashMap<Name, MemoryContract>,
+    interner: &StringInterner,
+) {
+    // ori_list_push(list_ptr: Borrowed, elem: Owned, elem_size: Borrowed)
+    let ori_list_push = interner.intern("ori_list_push");
+    sigs.entry(ori_list_push).or_insert_with(|| MemoryContract {
+        params: vec![PARAM_BORROWED, PARAM_OWNED_LINEAR, PARAM_BORROWED],
+        return_info: ReturnContract::CONSERVATIVE,
+        effects: EffectSummary::default(),
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Never,
+        is_fbip: false,
+    });
 }
 
 // Contract constructors

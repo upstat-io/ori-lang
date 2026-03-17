@@ -753,3 +753,194 @@ type Person = { name: str, age: int }
         "struct_with_str_field_iteration",
     );
 }
+
+// -----------------------------------------------------------------------
+// Yield identity — for w in words yield w (fat pointer escapes via yield)
+//
+// The loop variable `w` is borrowed from the iterator. When yielded
+// directly (not transformed to a scalar), the element escapes the
+// iterator's borrow scope. The ARC pipeline must emit RcInc on `w`
+// before passing it to ori_list_push, otherwise the new list holds
+// an un-owned reference.
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_yield_identity_str_list() {
+    // `for w in words yield w` — yields the actual string element
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let copy = for w in words yield w;
+    let total = 0;
+    for w in copy do {
+        total = total + w.len();
+    };
+    if total == 109 then 0 else 1
+}
+"#,
+        "yield_identity_str_list",
+    );
+}
+
+#[test]
+fn test_yield_identity_str_list_borrowed_param() {
+    // Borrowed param + yield identity: the borrowed [str] is iterated
+    // and each element is yielded into a new list.
+    assert_aot_success(
+        r#"
+@clone_list (words: [str]) -> [str] = {
+    for w in words yield w
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let copy = clone_list(words: words);
+    let total = 0;
+    for w in copy do {
+        total = total + w.len();
+    };
+    // Verify original is still valid
+    let total2 = 0;
+    for w in words do {
+        total2 = total2 + w.len();
+    };
+    if total == 109 && total2 == 109 then 0 else 1
+}
+"#,
+        "yield_identity_str_list_borrowed_param",
+    );
+}
+
+#[test]
+fn test_yield_identity_str_list_two_calls() {
+    // Two calls to a function that does yield identity on borrowed [str].
+    // Stresses RC: original must survive both clones.
+    assert_aot_success(
+        r#"
+@clone_list (words: [str]) -> [str] = {
+    for w in words yield w
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let a = clone_list(words: words);
+    let b = clone_list(words: words);
+    let sa = 0;
+    for w in a do { sa = sa + w.len(); };
+    let sb = 0;
+    for w in b do { sb = sb + w.len(); };
+    if sa == 109 && sb == 109 then 0 else 1
+}
+"#,
+        "yield_identity_str_list_two_calls",
+    );
+}
+
+// -----------------------------------------------------------------------
+// Push element into another collection — for w in words do { ... push ... }
+//
+// Similar to yield identity: the loop element `w` is borrowed from the
+// iterator. When pushed into another list, it escapes the borrow scope.
+// ARC pipeline must RcInc the element before the consuming push call.
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_push_element_in_for_loop() {
+    // Manual list construction via push in a for-do loop.
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let result: [str] = [];
+    for w in words do {
+        result = result.push(value: w);
+    };
+    let total = 0;
+    for w in result do {
+        total = total + w.len();
+    };
+    if total == 109 then 0 else 1
+}
+"#,
+        "push_element_in_for_loop",
+    );
+}
+
+#[test]
+fn test_push_element_borrowed_param() {
+    // Borrowed param: push elements from one list into another.
+    assert_aot_success(
+        r#"
+@collect_words (words: [str]) -> [str] = {
+    let result: [str] = [];
+    for w in words do {
+        result = result.push(value: w);
+    };
+    result
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let collected = collect_words(words: words);
+    let total = 0;
+    for w in collected do {
+        total = total + w.len();
+    };
+    // Original still valid
+    let total2 = 0;
+    for w in words do {
+        total2 = total2 + w.len();
+    };
+    if total == 109 && total2 == 109 then 0 else 1
+}
+"#,
+        "push_element_borrowed_param",
+    );
+}
+
+#[test]
+fn test_push_element_borrowed_param_two_calls() {
+    // Two calls: collect from same borrowed list twice.
+    assert_aot_success(
+        r#"
+@collect_words (words: [str]) -> [str] = {
+    let result: [str] = [];
+    for w in words do {
+        result = result.push(value: w);
+    };
+    result
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let a = collect_words(words: words);
+    let b = collect_words(words: words);
+    let sa = 0;
+    for w in a do { sa = sa + w.len(); };
+    let sb = 0;
+    for w in b do { sb = sb + w.len(); };
+    if sa == 109 && sb == 109 then 0 else 1
+}
+"#,
+        "push_element_borrowed_param_two_calls",
+    );
+}

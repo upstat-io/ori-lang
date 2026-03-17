@@ -202,7 +202,40 @@ fn emit_pre_instr_incs_unified(
         }
     }
 
-    for var in instr.used_vars() {
+    for (pos, var) in instr.used_vars().into_iter().enumerate() {
+        // Force RcInc for project-borrowed variables at owned call
+        // positions. A Project-derived variable (borrowed ref to parent
+        // aggregate's field) passed to an owned parameter must be
+        // RcInc'd: the callee takes ownership of the data but the
+        // Project didn't increment RC. Without this Inc, both the
+        // parent aggregate and the callee's collection hold references
+        // to the same data, causing double-free on cleanup.
+        //
+        // Example: `for w in words yield w` — the element `w` is
+        // Project-derived (borrowed from iterator state). When yielded
+        // via `ori_list_push(..., w [own], ...)`, `w`'s data pointer is
+        // copied into the new list. Without RcInc, both the original
+        // collection and the yield result point to the same str data
+        // with RC=1, causing double-free.
+        //
+        // This check runs BEFORE is_rc_managed() because project-borrowed
+        // variables are not considered "owned" by the state map and would
+        // be filtered out by is_rc_managed().
+        if instr.is_owned_position(pos)
+            && ctx.project_borrowed_defs.contains(&var)
+            && ctx.func.var_reprs[var.index()] != ValueRepr::Scalar
+        {
+            if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                new_body.push(ArcInstr::RcInc {
+                    var,
+                    count: 1,
+                    strategy,
+                });
+                metrics.total_rc_decisions += 1;
+            }
+            continue;
+        }
+
         if !is_rc_managed(ctx, var) {
             continue;
         }
