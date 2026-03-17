@@ -112,9 +112,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Element cleanup contract: the iterator does NOT manage element-level RC.
     /// Elements are owned by the collection — the list's drop function handles
     /// all element cleanup when the buffer's refcount reaches zero. Passing null
-    /// for `elem_dec_fn` ensures `ori_buffer_rc_dec` skips per-element cleanup
-    /// when called from the iterator's Drop, preventing double-free on `[str]`
-    /// and other `[T]` where T has Drop.
+    /// for `elem_dec_fn`: the iterator borrows elements, it does not own them.
+    /// Element cleanup is handled by the list's explicit `RcDec` (from the ARC
+    /// pipeline's AIMS emission) which carries the real `elem_dec_fn`. The
+    /// phantom `__for_coll` binding in `lower_for` ensures the explicit `RcDec`
+    /// happens AFTER `ori_iter_drop`, so the explicit dec is the one that
+    /// reaches zero and performs element cleanup.
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
@@ -128,10 +131,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
 
-        // Pass null for elem_dec_fn: the iterator borrows elements, it does
-        // not own them. The list's drop function is the single source of truth
-        // for element cleanup. This prevents double-free on [str], [[T]], and
-        // any [T] where T has Drop semantics.
+        // Pass null for elem_dec_fn: the iterator does not own elements.
+        // The list's explicit RcDec (placed after ori_iter_drop by the
+        // __for_coll phantom binding) handles element cleanup when RC → 0.
         let _ = elem_ty; // elem_ty used only for elem_size above
         let elem_dec_fn_null = self.builder.const_null_ptr();
 
