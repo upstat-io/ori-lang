@@ -57,6 +57,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if self.ctx.functions.contains_key(&callee) {
             return false;
         }
+        // Runtime functions (ori_*, __*) have their own emission paths and
+        // are NOT intercepted by builtin method handlers. This is critical
+        // for panic functions (ori_panic, ori_panic_cstr) which raise
+        // exceptions — they need `invoke` for cleanup landing pads.
+        if callee_name.starts_with("ori_") || callee_name.starts_with("__") {
+            return false;
+        }
         if let Some(&first_arg) = args.first() {
             let receiver_ty = func.var_type(first_arg);
             let type_info = self.type_info.get(receiver_ty);
