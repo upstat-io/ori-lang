@@ -10,7 +10,9 @@ use ori_types::Pool;
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::{AccessClass, Cardinality};
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcValue, ArcVarId, ValueRepr};
+use crate::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr,
+};
 use crate::ownership::Ownership;
 
 /// Shared context for per-block RC emission helpers.
@@ -23,6 +25,10 @@ pub(crate) struct BlockCtx<'a> {
     pub(crate) borrowed_defs: &'a FxHashSet<ArcVarId>,
     /// Function-level set of all variables defined by `Project` in any block.
     pub(crate) all_borrowed_defs: &'a FxHashSet<ArcVarId>,
+    /// Function-level set of Project-borrowed variables only (excludes function
+    /// params). Used to allow `RcInc` for borrowed
+    /// params that need it (e.g., for-loop collection cleanup).
+    pub(crate) project_borrowed_defs: &'a FxHashSet<ArcVarId>,
     pub(crate) use_info: &'a FxHashMap<ArcVarId, (usize, LastUse)>,
     pub(crate) pool: &'a Pool,
     /// For each Project source variable, the latest `LastUse` of any borrowed
@@ -164,6 +170,30 @@ pub(crate) fn collect_borrowed_defs(block: &ArcBlock) -> FxHashSet<ArcVarId> {
     borrowed
 }
 
+/// Collect variables borrowed via `Project` only (excludes function params).
+///
+/// Includes:
+/// 1. `Project` instructions (borrowed views into structs/enums)
+/// 2. `Let` aliases of project-borrowed variables (transitive closure)
+///
+/// This set identifies variables whose RC is managed by a parent aggregate.
+/// Unlike [`collect_all_borrowed_defs`], function parameters with
+/// `Ownership::Borrowed` are excluded — they can participate in `RcInc`
+/// decisions (e.g., when a borrowed list parameter is used to create an
+/// iterator that has its own reference).
+pub(crate) fn collect_project_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut borrowed = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, .. } = instr {
+                borrowed.insert(*dst);
+            }
+        }
+    }
+    propagate_borrowed_closure(func, &mut borrowed);
+    borrowed
+}
+
 /// Collect ALL borrowed variables across all blocks.
 ///
 /// Includes:
@@ -190,13 +220,26 @@ pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarI
             }
         }
     }
-    // Let aliases of borrowed variables: `let dst = borrowed_var` creates a
-    // pointer copy that shares the same refcount. Compute transitive closure
-    // by iterating until no new aliases are discovered.
+    // Transitive closure: Let aliases AND block parameter flows.
+    propagate_borrowed_closure(func, &mut borrowed);
+    borrowed
+}
+
+/// Propagate borrowed-ness through Let aliases and block parameter flows.
+///
+/// Computes the transitive closure of the `borrowed` set by following:
+/// 1. `Let { dst, value: Var(src) }` — pointer copy aliases
+/// 2. `Jump { target, args }` — when a borrowed variable is passed as a Jump
+///    argument, the corresponding block parameter inherits borrowed status
+///
+/// This handles the `__for_coll` pattern where a borrowed collection parameter
+/// is threaded through loop headers and exit blocks via block parameter passing.
+fn propagate_borrowed_closure(func: &ArcFunction, borrowed: &mut FxHashSet<ArcVarId>) {
     let mut changed = true;
     while changed {
         changed = false;
         for block in &func.blocks {
+            // Let aliases: `let dst = borrowed_var`
             for instr in &block.body {
                 if let ArcInstr::Let {
                     dst,
@@ -209,9 +252,20 @@ pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarI
                     }
                 }
             }
+            // Jump arg→param: borrowed variable passed to target block param.
+            if let ArcTerminator::Jump { target, args } = &block.terminator {
+                let target_idx = target.index();
+                if target_idx < func.blocks.len() {
+                    let target_params = &func.blocks[target_idx].params;
+                    for (arg, (param_var, _)) in args.iter().zip(target_params) {
+                        if borrowed.contains(arg) && borrowed.insert(*param_var) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
         }
     }
-    borrowed
 }
 
 /// For each Project source variable in a block, compute the latest `LastUse`

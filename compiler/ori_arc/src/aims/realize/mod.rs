@@ -116,7 +116,7 @@ pub fn realize_rc_reuse(
     // through decide(), collecting death/alloc events inline.
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
-        emit_rc_unified(func, state_map, pool)
+        emit_rc_unified(func, state_map, pool, interner)
     };
 
     // Sub-step C: emit reuse from collected events (replaces emit_reuse scan).
@@ -383,6 +383,7 @@ fn emit_rc_unified(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     pool: &Pool,
+    interner: &ori_ir::StringInterner,
 ) -> (
     usize,
     Vec<DeathEvent>,
@@ -391,9 +392,9 @@ fn emit_rc_unified(
 ) {
     use crate::aims::emit_rc::{
         block_id, coalesce_block_rc, collect_all_borrowed_defs, collect_borrowed_defs,
-        collect_defined_vars, compute_child_effective_last_use, emit_dead_at_entry_decs,
-        emit_dead_invoke_dsts, emit_edge_cleanup, emit_terminator_rc, precompute_block_uses,
-        BlockCtx,
+        collect_defined_vars, collect_project_borrowed_defs, compute_child_effective_last_use,
+        emit_dead_at_entry_decs, emit_dead_invoke_dsts, emit_edge_cleanup, emit_terminator_rc,
+        precompute_block_uses, BlockCtx,
     };
 
     debug_assert!(
@@ -402,6 +403,8 @@ fn emit_rc_unified(
     );
 
     let all_borrowed_defs = collect_all_borrowed_defs(func);
+    let project_borrowed_defs = collect_project_borrowed_defs(func);
+    let iter_fn_name = interner.intern("iter");
     let mut all_death_events = Vec::new();
     let mut all_alloc_events = Vec::new();
     let mut block_deferred: FxHashMap<usize, Vec<(ArcVarId, RcStrategy)>> = FxHashMap::default();
@@ -427,6 +430,7 @@ fn emit_rc_unified(
             defined_in_block: &defined_in_block,
             borrowed_defs: &borrowed_defs,
             all_borrowed_defs: &all_borrowed_defs,
+            project_borrowed_defs: &project_borrowed_defs,
             use_info: &use_info,
             pool,
             child_effective_last_use: &child_elu,
@@ -442,7 +446,7 @@ fn emit_rc_unified(
             death_events,
             alloc_events,
             walk_metrics,
-        } = walk::walk_body_unified(&ctx, &old_body, &mut new_body);
+        } = walk::walk_body_unified(&ctx, &old_body, &mut new_body, iter_fn_name);
         synergy.merge(&walk_metrics);
 
         // Phase C: terminator uses and cleanup.
