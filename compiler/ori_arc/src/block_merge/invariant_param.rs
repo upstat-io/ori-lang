@@ -48,16 +48,41 @@ pub(crate) fn eliminate_invariant_params(func: &mut ArcFunction) {
         return;
     }
 
+    // Build a lookup from param_var → replacement for chain resolution.
+    let param_to_replacement: rustc_hash::FxHashMap<ArcVarId, ArcVarId> = replacements
+        .iter()
+        .map(|&(_, _, param_var, replacement)| (param_var, replacement))
+        .collect();
+
+    // Resolve transitive chains: if A → B and B → C, resolve A → C.
+    // This prevents dangling references when both A and B are eliminated
+    // in the same pass (e.g., for-do-break loops where the collection
+    // variable flows through header → exit block params).
+    let resolved: SmallVec<[(usize, usize, ArcVarId, ArcVarId); 4]> = replacements
+        .iter()
+        .map(|&(b_idx, p_idx, param_var, mut replacement)| {
+            let mut seen = SmallVec::<[ArcVarId; 4]>::new();
+            while let Some(&next) = param_to_replacement.get(&replacement) {
+                if next == replacement || seen.contains(&next) {
+                    break;
+                }
+                seen.push(replacement);
+                replacement = next;
+            }
+            (b_idx, p_idx, param_var, replacement)
+        })
+        .collect();
+
     // Apply substitutions: replace all uses of param_var with the
-    // common incoming value, across the entire function.
-    for &(_, _, param_var, replacement) in &replacements {
+    // resolved common incoming value, across the entire function.
+    for &(_, _, param_var, replacement) in &resolved {
         substitute_everywhere(func, param_var, replacement);
     }
 
     // Remove invariant params and their corresponding Jump args.
     // Process blocks in order, but within each block remove positions
     // in reverse to preserve indices.
-    remove_invariant_params(func, &replacements);
+    remove_invariant_params(func, &resolved);
 }
 
 /// Scan for invariant block params across the function.

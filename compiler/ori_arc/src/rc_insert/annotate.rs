@@ -89,18 +89,14 @@ fn compute_arg_ownership(
     }
 
     // Ori function with known signature: per-param ownership.
+    // Missing params default to Borrowed (safe: caller retains cleanup).
+    // This handles builtins seeded with fewer params than the call's arity
+    // (e.g., `equals` seeded with 1 param but called with 2 args).
     if let Some(sig) = sigs.get(&callee) {
         return (0..arg_count)
-            .map(|i| {
-                if sig
-                    .params
-                    .get(i)
-                    .is_some_and(|p| p.ownership == Ownership::Borrowed)
-                {
-                    ArgOwnership::Borrowed
-                } else {
-                    ArgOwnership::Owned
-                }
+            .map(|i| match sig.params.get(i) {
+                Some(p) if p.ownership == Ownership::Owned => ArgOwnership::Owned,
+                _ => ArgOwnership::Borrowed,
             })
             .collect();
     }
@@ -139,7 +135,13 @@ pub fn annotate_arg_ownership(
     builtins: &crate::BuiltinOwnershipSets,
     pool: &Pool,
 ) {
-    let var_types = &func.var_types;
+    let consuming_ctx = ConsumingCtx {
+        consuming_receiver_builtins: &builtins.consuming_receiver,
+        consuming_second_arg_builtins: &builtins.consuming_second_arg,
+        var_types: &func.var_types,
+        pool,
+        interner,
+    };
 
     for block in &mut func.blocks {
         // Annotate body instructions.
@@ -160,15 +162,7 @@ pub fn annotate_arg_ownership(
                     &builtins.consuming_receiver_only,
                     &builtins.protocol,
                 );
-                apply_consuming_overrides(
-                    *callee,
-                    args,
-                    arg_ownership,
-                    &builtins.consuming_receiver,
-                    &builtins.consuming_second_arg,
-                    var_types,
-                    pool,
-                );
+                apply_consuming_overrides(*callee, args, arg_ownership, &consuming_ctx);
             }
         }
 
@@ -189,15 +183,7 @@ pub fn annotate_arg_ownership(
                 &builtins.consuming_receiver_only,
                 &builtins.protocol,
             );
-            apply_consuming_overrides(
-                *callee,
-                args,
-                arg_ownership,
-                &builtins.consuming_receiver,
-                &builtins.consuming_second_arg,
-                var_types,
-                pool,
-            );
+            apply_consuming_overrides(*callee, args, arg_ownership, &consuming_ctx);
         }
     }
 }
@@ -213,37 +199,57 @@ pub fn annotate_arg_ownership(
 ///
 /// Type-qualified: `"add"` and `"concat"` are shared names — borrowing for
 /// strings, consuming for lists. Only the list case is overridden here.
+/// Context for [`apply_consuming_overrides`].
+struct ConsumingCtx<'a> {
+    consuming_receiver_builtins: &'a FxHashSet<ori_ir::Name>,
+    consuming_second_arg_builtins: &'a FxHashSet<ori_ir::Name>,
+    var_types: &'a [ori_types::Idx],
+    pool: &'a Pool,
+    interner: &'a ori_ir::StringInterner,
+}
+
 fn apply_consuming_overrides(
     callee: ori_ir::Name,
     args: &[ArcVarId],
     arg_ownership: &mut [ArgOwnership],
-    consuming_receiver_builtins: &FxHashSet<ori_ir::Name>,
-    consuming_second_arg_builtins: &FxHashSet<ori_ir::Name>,
-    var_types: &[ori_types::Idx],
-    pool: &Pool,
+    ctx: &ConsumingCtx<'_>,
 ) {
     if args.is_empty() || arg_ownership.is_empty() {
         return;
     }
 
-    // Check if the receiver is a list (type-qualified gate).
-    let is_receiver_consuming = consuming_receiver_builtins.contains(&callee);
+    // Check if the receiver is a collection (type-qualified gate).
+    // COW methods consume the receiver for List, Map, and Set types.
+    // Str is excluded — str builtins (iter, concat) borrow the receiver
+    // because the runtime Inc's string data internally.
+    let is_receiver_consuming = ctx.consuming_receiver_builtins.contains(&callee);
     if !is_receiver_consuming {
         return;
     }
 
     let receiver_var = args[0];
-    let receiver_idx = var_types[receiver_var.index()];
-    let resolved_receiver = pool.resolve_fully(receiver_idx);
-    if pool.tag(resolved_receiver) != ori_types::Tag::List {
+    let receiver_idx = ctx.var_types[receiver_var.index()];
+    let resolved_receiver = ctx.pool.resolve_fully(receiver_idx);
+    let tag = ctx.pool.tag(resolved_receiver);
+    if !matches!(
+        tag,
+        ori_types::Tag::List | ori_types::Tag::Map | ori_types::Tag::Set
+    ) {
         return;
     }
 
-    // Receiver is List — mark it as Owned.
+    // pop() is currently implemented as read-only (returns last element
+    // without mutating). Keep as Borrowed until full COW pop is implemented.
+    let callee_str = ctx.interner.lookup(callee);
+    if callee_str == "pop" {
+        return;
+    }
+
+    // Receiver is a collection (List/Map/Set) — mark it as Owned.
     arg_ownership[0] = ArgOwnership::Owned;
 
     // Also mark second arg as Owned if this method consumes list2.
-    if consuming_second_arg_builtins.contains(&callee)
+    if ctx.consuming_second_arg_builtins.contains(&callee)
         && args.len() >= 2
         && arg_ownership.len() >= 2
     {

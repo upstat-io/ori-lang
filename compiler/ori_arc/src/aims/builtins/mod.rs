@@ -46,17 +46,19 @@ pub fn seed_builtin_contracts(
     // and take precedence over borrowing when the same method name appears
     // in both sets (method names are not type-qualified in ARC IR).
 
-    // COW list methods: receiver consumed, return unique.
-    // Second arg is also consumed for add/concat.
-    for &name in &builtins.consuming_receiver {
-        let consumes_second = builtins.consuming_second_arg.contains(&name);
-        sigs.entry(name)
-            .or_insert_with(|| cow_receiver_contract(consumes_second));
-    }
-
     // COW map/set methods: receiver consumed, other args borrowed.
+    // Seeded BEFORE consuming_receiver because some methods (e.g., "remove")
+    // appear in both sets — consuming_receiver_only is more specific.
     for &name in &builtins.consuming_receiver_only {
         sigs.entry(name).or_insert_with(cow_receiver_only_contract);
+    }
+
+    // COW collection methods: seeded as Borrowed (base contract).
+    // `apply_consuming_overrides` then overrides to Owned for List/Map/Set
+    // receivers. String methods (concat, iter, etc.) stay Borrowed because
+    // the runtime borrows string data (Inc's internally, doesn't consume).
+    for &name in &builtins.consuming_receiver {
+        sigs.entry(name).or_insert_with(|| borrowing_contract(1));
     }
 
     // Sharing methods: return MaybeShared (shares receiver's backing).
@@ -92,28 +94,6 @@ fn borrowing_contract(num_params: usize) -> MemoryContract {
     }
 }
 
-/// COW list method: receiver consumed (Owned/Linear), return Unique.
-///
-/// If `consumes_second` is true, arg[1] is also Owned/Linear (e.g., `add`,
-/// `concat` which take ownership of the second list's buffer).
-///
-/// Note: hard-codes 1 or 2 params. If a future COW builtin needs 3+
-/// consumed params, this function must be extended.
-fn cow_receiver_contract(consumes_second: bool) -> MemoryContract {
-    let mut params = vec![PARAM_OWNED_LINEAR];
-    if consumes_second {
-        params.push(PARAM_OWNED_LINEAR);
-    }
-    MemoryContract {
-        params,
-        return_info: RETURN_UNIQUE,
-        effects: EffectSummary::default(),
-        context_behavior: ContextBehavior::default(),
-        fip: FipContract::Never,
-        is_fbip: false,
-    }
-}
-
 /// COW map/set method: receiver consumed, other args borrowed, return Unique.
 ///
 /// For operations like `map.remove(key)` where the receiver is COW-consumed
@@ -135,10 +115,12 @@ fn cow_receiver_only_contract() -> MemoryContract {
 /// Method returning a value that shares receiver's backing storage.
 ///
 /// E.g., `slice`, `substring` — the returned value references the receiver's
-/// heap data, so its uniqueness is `MaybeShared`.
+/// heap data, so its uniqueness is `MaybeShared`. The receiver is **borrowed**:
+/// the runtime Inc's the original buffer for the slice/view but doesn't
+/// consume the receiver. The caller retains ownership and must Dec.
 fn sharing_return_contract() -> MemoryContract {
     MemoryContract {
-        params: vec![PARAM_OWNED_LINEAR],
+        params: vec![PARAM_BORROWED],
         return_info: ReturnContract {
             uniqueness: Uniqueness::MaybeShared,
             preserves_freshness: false,
