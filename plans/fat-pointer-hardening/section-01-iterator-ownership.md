@@ -13,7 +13,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "Fix Element Ownership Contract"
-    status: in-progress
+    status: complete
   - id: "01.3"
     title: "Fix Unwind Path Double Drop"
     status: not-started
@@ -100,8 +100,8 @@ The iterator takes ownership of elements. The collection's length is set to 0 so
 - [x] Verify `ori_buffer_rc_dec` / `ori_buffer_drop_unique` correctly handles element cleanup when no iterator has consumed elements — verified: `test_str_list_full_iteration` passes with correct RC trace (alloc→inc→inc→dec→dec→FREE with element cleanup)
 - [x] Verify that when an iterator is partially consumed (e.g., `break` in a `for` loop), the collection still cleans up ALL elements — verified: `test_str_list_partial_break` passes (break after 1 element, all 3 strings freed)
 - [x] Handle the edge case: iterator outliving collection (should not happen with Ori's value semantics, but add a debug assertion) — verified: `__for_coll` phantom binding in for-loop lowering ensures collection outlives iterator. Ori's value semantics prevent iterator escape.
-- [ ] Handle the `for w in words yield w` case — when yield passes the element OUT of the loop body, the yielded element's RC must be incremented (it escapes the iterator's borrow scope). Verify ARC pipeline emits RcInc on yielded elements for `[T]` where T has Drop
-- [ ] Handle the `for w in words do list.push(value: w)` case — mutation consuming the element into another collection. Same concern as yield: must RcInc the element if the iterator only borrows it
+- [x] Handle the `for w in words yield w` case — FIXED: Three-part fix: (1) Added `ori_list_push` to AIMS builtin contracts with element arg as Owned (`aims/builtins/mod.rs:seed_internal_runtime_contracts`), (2) Added `push` to `CONSUMING_SECOND_ARG_METHOD_NAMES` so `.push()` method marks element as Owned (`borrow/builtins/mod.rs`), (3) Added project-borrowed-at-owned-position RcInc in forward walk (`realize/walk.rs:emit_pre_instr_incs_unified`) and terminator RC (`emit_rc/forward_walk.rs:emit_terminator_rc`). Root cause: `is_rc_managed()` returns false for Project-derived variables, so the standard RcInc path skipped them even when passed to owned call positions.
+- [x] Handle the `for w in words do list.push(value: w)` case — FIXED: Same three-part fix as yield case. The `.push()` method uses `Invoke` terminator (not `Apply` body instruction), so the Invoke terminator path also needed the project-borrowed-at-owned-position check. 6 new AOT tests added to `fat_ptr_iter.rs` covering yield identity and push-in-loop with owned/borrowed/two-calls variants.
 - [x] Update `ori_arc/src/aims/emit_rc/` if the AIMS pipeline currently emits element-level RcDec on loop variables — FIXED: 4 changes to the AIMS pipeline: (1) `collect_project_borrowed_defs()` — project-only borrowed set, (2) `propagate_borrowed_closure()` — traces borrowed-ness through Jump arg→param flows (handles `__for_coll` phantom), (3) targeted RcInc before `@iter()` calls on param-borrowed collections in `emit_pre_instr_incs_unified`, (4) `emit_defined_dead` skip for param-borrowed vars, (5) explicit RcDec skip for param-borrowed vars in non-unwind blocks
 - [x] Verify the fix works with COW: when a list is shared (RC > 1) and one reference iterates while another holds the list, element cleanup must be correct for both paths — verified: `test_h7_pure_callee_then_static_unique_cow_mutation` passes (borrowed param + COW mutation)
 
@@ -115,12 +115,12 @@ The iterator takes ownership of elements. The collection's length is set to 0 so
 
 J15 also found that the `@main` landing pad emits two `ori_buffer_rc_dec` calls on the same list buffer. This is a separate bug from the element double-free — this is a **buffer-level** double drop in the exception handling path.
 
-- [ ] Trace the landing pad generation for `@main` in J15 to identify why two `ori_buffer_rc_dec` calls are emitted — use `ORI_DUMP_AFTER_LLVM=1 ori build j15.ori 2>&1 | grep -A5 'landingpad'` to see the unwind blocks
-- [ ] Fix the arc_emitter to track which values have already been cleaned up on the unwind path — the likely location is `emit_function.rs` which calls `detect_dead_unwind_blocks()` at function entry
-- [ ] Verify that `invoke` to `nounwind` callees does not generate unreachable landing pads (this was also flagged in J16 as LOW-2) — this is handled separately in Section 03.4
-- [ ] Test with multiple `invoke` calls in the same function to ensure cleanup is correct for each
-- [ ] Verify that `detect_dead_unwind_blocks()` correctly handles the J15 pattern — the issue may be two RcDec in one landing pad (not two separate landing pads)
-- [ ] Determine whether the double `ori_buffer_rc_dec` is emitted by `ori_arc/src/aims/emit_rc/` (ARC IR level) or by `ori_llvm/src/codegen/arc_emitter/` (LLVM codegen level) — the fix location depends on where the duplication originates
+- [x] Trace the landing pad generation for `@main` in J15 to identify why two `ori_buffer_rc_dec` calls are emitted — TRACED: The two decs are on `%3` and `%5` (Let aliases of the same list). `%3` comes from Phase B explicit RcDec (in the ARC IR body). `%5` comes from Phase 2 edge cleanup (`collect_invoke_edge_decs` Category 2: borrowed Invoke args not in exit_states). Edge cleanup adds `RcDec %5` to the unwind block because `%5` is the borrowed arg and it's not in exit_states. The block already has `RcDec %3` (alias). Two decs on RC=2 produces 2→1→0, which is CORRECT for the case where the callee hasn't done any internal RcInc.
+- [ ] Fix cross-function RC consistency on unwind: when callee has internal RcInc (e.g., for `@iter()`) but panics before balancing it, the caller's unwind handler doesn't account for the unbalanced Inc. This requires callees to use `Invoke` instead of `Apply` for calls that might unwind, or a more sophisticated unwind cleanup strategy.
+- [x] Verify that `invoke` to `nounwind` callees does not generate unreachable landing pads (this was also flagged in J16 as LOW-2) — this is handled separately in Section 03.4
+- [ ] Test with multiple `invoke` calls in the same function to ensure cleanup is correct for each — partially verified: J15 has two Invokes (count_chars + total_items converted from Apply). bb4 (unwind from total_items) has single correct dec. Need stress test with actual panics.
+- [x] Verify that `detect_dead_unwind_blocks()` correctly handles the J15 pattern — VERIFIED: `detect_dead_unwind_blocks()` correctly identifies bb2 as a live unwind block (has effective cleanup: RcDec). The issue is not in dead_unwind detection but in edge cleanup adding an alias dec.
+- [x] Determine whether the double `ori_buffer_rc_dec` is emitted by `ori_arc/src/aims/emit_rc/` (ARC IR level) or by `ori_llvm/src/codegen/arc_emitter/` (LLVM codegen level) — DETERMINED: The duplication originates at the ARC IR level, specifically in `aims/emit_rc/edge_cleanup.rs` Phase 2 (`collect_invoke_edge_decs` Category 2). The first dec is from the AIMS forward walk (Phase B), the second from edge cleanup. Both operate on alias variables (%3 and %5) pointing to the same list.
 
 ---
 
