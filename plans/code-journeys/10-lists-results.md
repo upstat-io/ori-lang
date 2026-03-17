@@ -665,8 +665,14 @@ define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #2
 
 attributes #0 = { nounwind uwtable }
 attributes #1 = { uwtable }
@@ -742,8 +748,14 @@ _ori_main:
 main:
    1c6b0:  push   %rax
    1c6b1:  call   _ori_main
-   1c6b7:  pop    %rcx
-   1c6b8:  ret
+   1c6b6:  mov    %eax,0x4(%rsp)
+   1c6ba:  call   ori_check_leaks
+   1c6bf:  mov    %eax,%ecx
+   1c6c1:  mov    0x4(%rsp),%eax
+   1c6c5:  cmp    $0x0,%ecx
+   1c6c8:  cmovne %ecx,%eax
+   1c6cb:  pop    %rcx
+   1c6cc:  ret
 ```
 
 ## Deep Scrutiny

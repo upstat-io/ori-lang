@@ -262,6 +262,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         prefix: &str,
     ) -> super::ValueId {
         let i64_ty = self.builder.i64_type();
+        // Single ptrtoint — reuse for both SSO check and null check.
         let ptr_int = self
             .builder
             .ptr_to_int(data_ptr, i64_ty, &format!("{prefix}.p2i"));
@@ -273,10 +274,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let is_sso = self
             .builder
             .icmp_ne(masked, zero, &format!("{prefix}.is_sso"));
-        // Also skip if null (empty heap strings)
+        // Reuse ptr_int for null check (avoids duplicate ptrtoint)
         let is_null = self
             .builder
-            .is_null_ptr(data_ptr, &format!("{prefix}.null"));
+            .icmp_eq(ptr_int, zero, &format!("{prefix}.is_null"));
         self.builder
             .or(is_sso, is_null, &format!("{prefix}.skip_rc"))
     }

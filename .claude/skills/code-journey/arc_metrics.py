@@ -108,6 +108,58 @@ def _is_landingpad_block(block: BasicBlock) -> bool:
             and block.instructions[0].opcode == "landingpad")
 
 
+def _block_terminates_with(block: BasicBlock, opcode: str) -> bool:
+    """Check if a block's last instruction has the given opcode."""
+    if not block.instructions:
+        return False
+    return block.instructions[-1].opcode == opcode
+
+
+def _extract_branch_targets(block: BasicBlock) -> list[str]:
+    """Extract branch target labels from the last instruction of a block."""
+    if not block.instructions:
+        return []
+    text = block.instructions[-1].text
+    # Match: br label %target, br i1 %cond, label %t, label %f
+    return re.findall(r'label\s+%([^\s,)]+)', text)
+
+
+def _find_unwind_blocks(func: Function) -> set[str]:
+    """Find all blocks in unwind cleanup regions.
+
+    A block is in the unwind region if:
+    - It starts with `landingpad` (exception entry), OR
+    - It terminates with `resume` (exception exit), OR
+    - It is an intermediate block between landingpad and resume
+      (reachable only from unwind blocks, all successors are unwind blocks)
+
+    This handles the common pattern:
+        bb2 (landingpad) → rc_dec.heap → rc_dec.sso_skip (resume)
+    where all three blocks should be excluded from RC counting.
+    """
+    unwind_labels: set[str] = set()
+    # First pass: find landingpad blocks and resume blocks
+    for block in func.blocks:
+        if _is_landingpad_block(block) or _block_terminates_with(block, "resume"):
+            unwind_labels.add(block.label)
+
+    # Second pass: find blocks whose ALL branch targets are unwind blocks.
+    # These are intermediate blocks in the unwind cleanup chain.
+    # Iterate until no more blocks are added (handles chains of any length).
+    changed = True
+    while changed:
+        changed = False
+        for block in func.blocks:
+            if block.label in unwind_labels:
+                continue
+            targets = _extract_branch_targets(block)
+            if targets and all(t in unwind_labels for t in targets):
+                unwind_labels.add(block.label)
+                changed = True
+
+    return unwind_labels
+
+
 def _count_rc_ops(func: Function) -> tuple[int, int]:
     """Count RC inc and dec operations, including implicit allocations.
 
@@ -115,14 +167,15 @@ def _count_rc_ops(func: Function) -> tuple[int, int]:
     1. Effect summaries for known runtime functions (most accurate)
     2. Regex fallback for unknown functions (backward compatible)
 
-    Excludes landingpad (exception cleanup) blocks, which are alternative
-    execution paths that run instead of normal continuation — their RC
-    operations are not cumulative with normal-path operations.
+    Excludes all unwind cleanup blocks (landingpad, resume, and
+    intermediate blocks reachable only from landingpad paths), which are
+    alternative execution paths mutually exclusive with normal continuation.
     """
+    unwind_blocks = _find_unwind_blocks(func)
     inc = 0
     dec = 0
     for block in func.blocks:
-        if _is_landingpad_block(block):
+        if block.label in unwind_blocks:
             continue
         for instr in block.instructions:
             callee = _extract_callee(instr.text)

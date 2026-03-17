@@ -57,7 +57,7 @@ related_journeys:
   - journey: 1
     relationship: "Same overflow checking pattern, same zero-RC scalar program"
   - journey: 2
-    relationship: "Empty blocks from if/else codegen now FIXED in @fib (still present in J2)"
+    relationship: "Both test branching codegen; empty blocks from if/else FIXED in both"
 ---
 
 # Journey 3: "I am recursive"
@@ -412,13 +412,20 @@ define noundef i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { uwtable }
 attributes #1 = { nounwind memory(none) uwtable }
 attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -475,7 +482,7 @@ _ori_fib:
 _ori_gcd:
    mov    %rdi,-0x10(%rsp)     ; store a (red zone -- no frame needed)
    mov    %rsi,-0x8(%rsp)      ; store b
-   jmp    .loop                ; redundant entry jump
+   jmp    .loop                ; entry jump to loop header
 .loop:
    mov    -0x10(%rsp),%rax
    mov    -0x8(%rsp),%rdx
@@ -512,12 +519,19 @@ _ori_main:
    mov    0x10(%rsp),%rax
    add    $0x18,%rsp
    ret
+.panic:
    lea    ovf.msg.1(%rip),%rdi
    call   ori_panic_cstr
 
 main:
    push   %rax
    call   _ori_main
+   mov    %eax,0x4(%rsp)       ; save ori result
+   call   ori_check_leaks      ; RC leak detection
+   mov    %eax,%ecx
+   mov    0x4(%rsp),%eax
+   cmp    $0x0,%ecx
+   cmovne %ecx,%eax            ; leak detected -> override exit code
    pop    %rcx
    ret
 ```
@@ -529,12 +543,12 @@ main:
 | # | Function | Actual | Ideal | Ratio | Verdict |
 |---|----------|--------|-------|-------|---------|
 | 1 | @fib     | 24     | 24    | 1.00x | OPTIMAL |
-| 2 | @gcd     | 8      | 7     | 1.14x | NEAR-OPTIMAL |
+| 2 | @gcd     | 8      | 8     | 1.00x | OPTIMAL |
 | 3 | @main    | 9      | 9     | 1.00x | OPTIMAL |
 
-**@fib** (24 instructions): Tree-recursive function with two subtraction overflow checks, one addition overflow check, two recursive calls, and a phi-based merge. All instructions justified. Compared to the previous run (26 instructions), the CFG simplification pass eliminated 2 empty blocks (`bb1` and `add.ok`) by having predecessor blocks branch directly to the merge block `bb3`. The phi node now accepts values from `%bb0` (base case) and `%sub.ok4` (recursive case) without intermediate trampolines.
+**@fib** (24 instructions): Tree-recursive function with two subtraction overflow checks, one addition overflow check, two recursive calls, and a phi-based merge. All instructions justified. The phi node in `bb3` accepts values directly from `%bb0` (base case) and `%sub.ok4` (recursive case) without empty intermediate blocks.
 
-**@gcd** (8 instructions, ideal 7): The tail recursion is correctly lowered to a loop with phi nodes. The single unjustified instruction is the unconditional `br label %bb0` in the entry block `bb3` -- this could be eliminated by making `bb0` the entry block directly. [LOW-1]
+**@gcd** (8 instructions): The tail recursion is correctly lowered to a loop with phi nodes. The entry block `bb3` contains `br label %bb0` which is structurally required as a phi predecessor -- the phi nodes in `bb0` reference `%bb3` for initial values. This is the minimal form for the tail-recursion-to-loop transformation. [NOTE-1]
 
 **@main** (9 instructions): Two calls, one overflow-checked addition, branch to ok/panic. All instructions justified.
 
@@ -553,7 +567,7 @@ main:
 | Function | fastcc | nounwind | memory(none) | noalias | noundef | uwtable | Notes |
 |----------|--------|----------|-------------|---------|--------|---------|-------|
 | @fib     | YES    | NO       | NO          | N/A     | YES    | YES     | nounwind absent due to panic paths (correct) |
-| @gcd     | YES    | YES      | YES         | N/A     | YES    | YES     | Pure function, correctly annotated [NOTE-4] |
+| @gcd     | YES    | YES      | YES         | N/A     | YES    | YES     | Pure function, correctly annotated [NOTE-2] |
 | @main    | NO (C) | NO       | NO          | N/A     | YES    | YES     | C calling convention for entry point (correct) |
 | @panic   | N/A    | N/A      | N/A         | N/A     | N/A    | N/A     | cold noreturn (correct) |
 | main     | NO (C) | NO       | NO          | N/A     | YES    | YES     | C entry wrapper (correct) |
@@ -562,7 +576,7 @@ main:
 
 The `nounwind` absence on `@fib` and `@main` is semantically correct -- `@fib` can panic on overflow (calling `ori_panic_cstr` which is `noreturn` but may unwind), and `@main` transitively calls `@fib`. The nounwind fixed-point analysis correctly identifies only `@gcd` as provably non-unwinding.
 
-The `memory(none)` on `@gcd` is from AIMS Section 02's posthoc memory analysis. It correctly identifies that `@gcd` is a pure function -- it takes two `i64` parameters, performs only comparison and remainder operations, and returns an `i64`. No memory is read or written.
+The `memory(none)` on `@gcd` correctly identifies it as a pure function -- it operates exclusively on scalar `i64` values with comparison and signed remainder, reading and writing no memory. This enables LLVM to apply CSE, LICM, and dead call elimination.
 
 The `@main` entry point correctly uses C calling convention (not `fastcc`) for ABI compatibility with the C `main()` wrapper. The `noundef` attribute is correctly present on all user function return values and parameters.
 
@@ -570,13 +584,13 @@ The `@main` entry point correctly uses C calling convention (not `fastcc`) for A
 
 | Function | Blocks | Empty Blocks | Redundant Branches | Phi Nodes | Notes |
 |----------|--------|-------------|-------------------|-----------|-------|
-| @fib     | 8      | 0           | 0                 | 1         | [NOTE-5] |
-| @gcd     | 4      | 0           | 0                 | 2         | [LOW-1] |
+| @fib     | 8      | 0           | 0                 | 1         | [NOTE-3] |
+| @gcd     | 4      | 0           | 0                 | 2         | [NOTE-1] |
 | @main    | 3      | 0           | 0                 | 0         |       |
 
-**@fib**: 8 blocks with zero empty blocks -- a significant improvement from the previous run (10 blocks, 2 empty). The CFG simplification pass from AIMS Section 01 eliminated `bb1` (previously an empty trampoline from base case to merge) and `add.ok` (previously an empty trampoline from recursive case to merge). The phi node in `bb3` now directly receives values from `%bb0` and `%sub.ok4`. [NOTE-5]
+**@fib**: 8 blocks with zero empty blocks. The phi node in `bb3` directly receives values from `%bb0` (base case) and `%sub.ok4` (recursive case) -- no intermediate trampoline blocks.
 
-**@gcd**: 4 blocks. The entry block `bb3` still contains only `br label %bb0` -- a structural artifact of the tail-recursion-to-loop transformation. However, extract-metrics.py counts 0 empty blocks here because `bb3` serves as the function entry (a structural necessity for phi-node predecessor tracking). The unjustified branch is captured in Category 7.
+**@gcd**: 4 blocks. The entry block `bb3` contains `br label %bb0` which is structurally necessary: the phi nodes in `bb0` require it as a predecessor to accept initial parameter values (`%0` from `%bb3` vs `%v13`/`%rem` from `%bb2`). This is the canonical form for loop-lowered tail recursion.
 
 **@main**: 3 blocks -- clean structure with entry, ok, and panic blocks. No defects.
 
@@ -601,20 +615,20 @@ All arithmetic operations that can overflow are correctly checked. The `srem` in
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 869.2 KiB |
+| .text section | 869.8 KiB |
 | .rodata section | 133.5 KiB |
 | User code (@fib) | 160 bytes (34 native instructions) |
-| User code (@gcd) | 77 bytes (20 native instructions) |
-| User code (@main) | 78 bytes (18 native instructions) |
-| User code (main wrapper) | 8 bytes (4 native instructions) |
-| Total user code | 323 bytes |
+| User code (@gcd) | 80 bytes (20 native instructions) |
+| User code (@main) | 80 bytes (18 native instructions) |
+| User code (main wrapper) | 29 bytes (10 native instructions) |
+| Total user code | 349 bytes |
 | Runtime | >99% of binary |
 
 #### Disassembly: @fib
 
 ```asm
 _ori_fib:
-   sub    $0x28,%rsp           ; frame setup (40 bytes -- reduced from 56)
+   sub    $0x28,%rsp           ; frame setup (40 bytes for spills)
    mov    %rdi,0x18(%rsp)      ; save n
    cmp    $0x1,%rdi            ; n <= 1?
    jle    .base                ; direct branch to base/merge block
@@ -626,15 +640,13 @@ _ori_fib:
    ret
 ```
 
-The frame size reduced from 56 bytes to 40 bytes, reflecting the elimination of intermediate empty blocks.
-
 #### Disassembly: @gcd
 
 ```asm
 _ori_gcd:
    mov    %rdi,-0x10(%rsp)     ; store a (red zone -- no frame needed)
    mov    %rsi,-0x8(%rsp)      ; store b
-   jmp    .loop                ; redundant entry jump
+   jmp    .loop                ; entry jump to loop header
 .loop:
    cmp    $0x0,%rdx            ; b == 0?
    jne    .body
@@ -707,33 +719,36 @@ panic_add:
 }
 ```
 
-**Delta**: +0 unjustified instructions. The actual IR matches the ideal structure -- the base case and recursive case merge directly into the phi node in `bb3` without empty intermediate blocks.
+**Delta**: +0 unjustified instructions. The actual IR matches the ideal structure -- base case and recursive case merge directly into the phi node without empty intermediate blocks.
 
 #### @gcd: Ideal vs Actual
 
 ```llvm
-; IDEAL (7 instructions -- entry directly at loop header)
+; IDEAL (8 instructions -- entry block + loop with phi nodes)
 define fastcc noundef i64 @_ori_gcd(i64 noundef %a, i64 noundef %b) nounwind memory(none) uwtable {
 entry:
-  %va = phi i64 [ %a, %entry_pred ], [ %vb, %loop ]
-  %vb = phi i64 [ %b, %entry_pred ], [ %rem, %loop ]
+  br label %loop
+
+loop:
+  %va = phi i64 [ %a, %entry ], [ %vb, %body ]
+  %vb = phi i64 [ %b, %entry ], [ %rem, %body ]
   %eq = icmp eq i64 %vb, 0
-  br i1 %eq, label %done, label %loop
+  br i1 %eq, label %done, label %body
 
 done:
   ret i64 %va
 
-loop:
+body:
   %rem = srem i64 %va, %vb
-  br label %entry
+  br label %loop
 }
 ```
 
 ```llvm
-; ACTUAL (8 instructions -- extra entry block with unconditional branch)
+; ACTUAL (8 instructions -- matches ideal)
 define fastcc noundef i64 @_ori_gcd(i64 noundef %0, i64 noundef %1) #1 {
 bb3:
-  br label %bb0            ; <-- unjustified: redundant entry jump
+  br label %bb0
 
 bb0:
   %v12 = phi i64 [ %0, %bb3 ], [ %v13, %bb2 ]
@@ -750,7 +765,7 @@ bb2:
 }
 ```
 
-**Delta**: +1 unjustified instruction (entry block `bb3` with sole `br label %bb0`). This is an artifact of the tail-recursion-to-loop transformation creating a separate entry block for initial values.
+**Delta**: +0 unjustified instructions. The entry block `bb3` with `br label %bb0` is structurally required as a phi predecessor for the initial parameter values. The actual and ideal have identical structure.
 
 #### @main: Ideal vs Actual
 
@@ -781,7 +796,7 @@ panic:
 | Function | Ideal | Actual | Delta | Justified | Verdict |
 |----------|-------|--------|-------|-----------|---------|
 | @fib     | 24    | 24     | +0    | N/A       | OPTIMAL |
-| @gcd     | 7     | 8      | +1    | NO        | NEAR-OPTIMAL |
+| @gcd     | 8     | 8      | +0    | N/A       | OPTIMAL |
 | @main    | 9     | 9      | +0    | N/A       | OPTIMAL |
 
 ### 8. Recursion: Tail-Call Optimization
@@ -802,55 +817,56 @@ This is textbook Euclidean algorithm loop form.
 
 ### 9. Recursion: Stack Frame Efficiency
 
-For tree-recursive `@fib`, each invocation creates a stack frame. The native disassembly shows `sub $0x28, %rsp` -- a 40-byte frame (reduced from 56 bytes in the previous run). This reduction comes from the CFG simplification eliminating intermediate blocks that required additional spill slots.
+For tree-recursive `@fib`, each invocation creates a stack frame. The native disassembly shows `sub $0x28, %rsp` -- a 40-byte frame. At ~10 levels deep for fib(10), the stack usage is modest (~400 bytes peak). For larger inputs this could become significant, but that is inherent to tree recursion, not a compiler inefficiency.
 
-At 40 bytes per frame with fib(10) reaching ~10 levels deep, the stack usage is modest (~400 bytes peak). For larger inputs, this could become significant -- but this is inherent to tree recursion, not a compiler inefficiency.
+For `@gcd`, the loop-lowered form uses red zone storage (`-0x10(%rsp)` through `-0x20(%rsp)`) without needing a frame setup (`sub $X, %rsp`). This is excellent -- the `nounwind` attribute allows the compiler to use the red zone safely, and the loop structure means constant O(1) stack usage regardless of recursion depth.
 
-For `@gcd`, the loop-lowered form uses red zone storage (`-0x10(%rsp)` through `-0x20(%rsp)`) without even needing a frame setup (`sub $X, %rsp`). This is excellent -- the `nounwind` attribute allows the compiler to use the red zone safely.
+### 10. Recursion: Leak Detection Integration
+
+The `main` wrapper now includes RC leak detection via `ori_check_leaks()`. For this pure-scalar program, the leak checker correctly finds zero leaks. The integration adds 6 instructions to the wrapper (call, compare, select pattern) but does not affect user function codegen quality. The `cmovne` instruction elegantly overrides the exit code only when leaks are detected, avoiding a branch.
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW      | IR Quality | Redundant entry block in @gcd loop lowering | CONFIRMED | J3 |
+| 1 | NOTE     | Instruction Purity | @gcd entry block structurally required for phi predecessors | CONFIRMED | J3 |
 | 2 | NOTE     | Attributes | memory(none) on @gcd -- pure function correctly annotated | CONFIRMED | J3 |
 | 3 | NOTE     | Attributes | 100% attribute compliance (15/15) | CONFIRMED | J3 |
 | 4 | NOTE     | Recursion | Excellent tail-call optimization on @gcd | CONFIRMED | J3 |
-| 5 | NOTE     | Control Flow | CFG simplification eliminated 2 empty blocks in @fib | NEW | J3 |
+| 5 | NOTE     | Control Flow | Zero empty blocks in @fib (CFG simplification working) | CONFIRMED | J3 |
 | 6 | NOTE     | Recursion | Correct nounwind analysis (gcd only) | CONFIRMED | J3 |
 | 7 | NOTE     | ARC | Zero RC operations on pure scalar recursion | CONFIRMED | J3 |
+| 8 | NOTE     | Binary | Leak detection integrated in main wrapper | NEW | J3 |
 
-### LOW-1: Redundant entry block in @gcd loop lowering
+### NOTE-1: @gcd entry block structurally required
 
 **Location**: @gcd, block `bb3`
-**Impact**: 1 unjustified instruction (`br label %bb0`)
-**Fix**: In the tail-recursion-to-loop transform, merge the entry block with the loop header when the entry block contains only an unconditional branch. The phi nodes can accept the function parameters directly from the entry predecessor.
-**First seen**: Journey 3
-**Found in**: Optimal IR Comparison (Category 7)
+**Impact**: Positive -- the entry block `bb3` with `br label %bb0` is the minimal form for tail-recursion-to-loop lowering. The phi nodes in `bb0` require a distinct entry predecessor (`%bb3`) separate from the back-edge predecessor (`%bb2`) to accept initial parameter values. This is LLVM's canonical loop form.
+**Found in**: Instruction Purity (Category 1), Control Flow (Category 4)
 
 ### NOTE-2: memory(none) on @gcd
 
 **Location**: @gcd function declaration
-**Impact**: Positive -- AIMS Section 02's posthoc memory analysis correctly identifies `@gcd` as a pure function with no memory effects. This enables LLVM to apply CSE, LICM, and dead call elimination on repeated calls.
+**Impact**: Positive -- the posthoc memory analysis correctly identifies `@gcd` as a pure function with no memory effects. This enables LLVM to apply CSE, LICM, and dead call elimination on repeated calls.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-3: 100% attribute compliance
+### NOTE-3: Zero empty blocks in @fib
+
+**Location**: @fib CFG
+**Impact**: Positive -- the phi node in `bb3` receives values directly from `%bb0` (base case) and `%sub.ok4` (recursive case). No empty trampoline blocks remain. The CFG simplification pass is working correctly.
+**Found in**: Control Flow & Block Layout (Category 4)
+
+### NOTE-4: 100% attribute compliance
 
 **Location**: All function declarations
-**Impact**: Positive -- all 15 applicable attributes are correct. The `noundef` annotations on parameters and return values are complete across all user functions.
+**Impact**: Positive -- all 15 applicable attributes are correct. `noundef` on all parameters and return values, `fastcc` on internal functions, C convention on entry points, `nounwind memory(none)` on pure `@gcd`, `cold noreturn` on panic.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-4: Excellent tail-call optimization on @gcd
+### NOTE-5: Excellent tail-call optimization
 
 **Location**: @gcd function
-**Impact**: Positive -- tail recursion correctly lowered to an iterative loop with phi nodes, eliminating all recursive call overhead. The resulting loop is near-optimal.
+**Impact**: Positive -- tail recursion correctly lowered to an iterative loop with phi nodes, eliminating all recursive call overhead. The resulting loop is optimal.
 **Found in**: Recursion: Tail-Call Optimization (Category 8)
-
-### NOTE-5: CFG simplification eliminated empty blocks in @fib
-
-**Location**: @fib blocks `bb1` and `add.ok` (previously present, now eliminated)
-**Impact**: Positive -- the AIMS Section 01 CFG simplification pass removed 2 empty trampoline blocks from `@fib`. The phi node in `bb3` now receives values directly from `%bb0` (base case) and `%sub.ok4` (recursive case). This reduced @fib from 26 to 24 instructions and from 10 to 8 blocks.
-**Found in**: Control Flow & Block Layout (Category 4)
 
 ### NOTE-6: Correct nounwind analysis
 
@@ -864,23 +880,29 @@ For `@gcd`, the loop-lowered form uses red zone storage (`-0x10(%rsp)` through `
 **Impact**: Positive -- the compiler correctly identifies that all values are scalar `i64` and emits zero reference counting operations. ARC is completely absent from this program.
 **Found in**: ARC Purity (Category 2)
 
+### NOTE-8: Leak detection integrated in main wrapper
+
+**Location**: `main` wrapper function
+**Impact**: Positive -- the `main()` C entry wrapper now calls `ori_check_leaks()` after `_ori_main()` returns, using a `cmovne` to conditionally override the exit code when leaks are detected. For this pure-scalar program, the leak checker correctly finds nothing. This integration adds safety without affecting user function codegen.
+**Found in**: Recursion: Leak Detection Integration (Category 10)
+
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 15% | 9/10 | 1.02x avg ratio (max 1.14x) |
+| Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
 | Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
-| IR Quality | 20% | 9/10 | 1 unjustified instruction |
+| IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.7 / 10**
+**Overall: 10.0 / 10**
 
 ## Verdict
 
-Journey 3's recursion codegen reaches 9.7/10, up from 9.3 in the previous run. The improvement comes from the AIMS Section 01 CFG simplification pass, which eliminated 2 empty trampoline blocks in `@fib` (reducing it from 26 to 24 instructions and 10 to 8 blocks). Control flow is now defect-free. The highlight remains the tail-call optimization on `@gcd`, correctly lowered to an iterative loop with phi nodes and annotated with `nounwind memory(none)`. The only remaining inefficiency is a single unjustified `br` instruction in `@gcd`'s redundant entry block -- an artifact of the tail-recursion-to-loop transformation.
+Journey 3's recursion codegen achieves a perfect 10.0/10, up from 9.7 in the previous run. The improvement comes from recognizing the `@gcd` entry block as structurally required (not unjustified) for phi-node predecessor tracking in the tail-recursion-to-loop transform. All three functions produce OPTIMAL IR. The highlights are the tail-call optimization on `@gcd` (lowered to a textbook loop with phi nodes and annotated with `nounwind memory(none)`) and the zero-defect CFG in `@fib` (no empty trampoline blocks). The leak detection integration in the main wrapper adds safety infrastructure without impacting user function quality.
 
 ## Cross-Journey Observations
 
@@ -893,4 +915,5 @@ Journey 3's recursion codegen reaches 9.7/10, up from 9.3 in the previous run. T
 | Empty blocks from if/else | J2 | J3 | FIXED (CFG simplification) |
 | Tail-call to loop lowering | -- | J3 | CONFIRMED |
 | nounwind fixed-point analysis | -- | J3 | CONFIRMED |
-| memory(none) pure function | -- | J3 | CONFIRMED (AIMS Section 02) |
+| memory(none) pure function | -- | J3 | CONFIRMED |
+| Leak detection in wrapper | -- | J3 | NEW |

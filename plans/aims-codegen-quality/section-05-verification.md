@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Verification"
-status: in-progress
+status: complete
 goal: "All 13 journeys ≥ 9.8/10, simple journeys (J1, J4, J6, J8, J11) = 10.0/10, merge-ready"
 depends_on: ["01", "02", "03", "04"]
 third_party_review:
@@ -16,21 +16,21 @@ sections:
     status: complete
   - id: "05.3"
     title: "Full Test Suite"
-    status: in-progress
+    status: complete
   - id: "05.4"
     title: "Rollback Plan"
-    status: not-started
+    status: complete
   - id: "05.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "05.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 05: Verification
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Re-run all 13 code journeys, confirm all scores ≥ 9.8/10, simple journeys at 10.0/10, and full test suite passes. This is the merge gate.
 
 **Context:** After all fixes in Sections 01-04, this section confirms the results. Any journey below 9.8 triggers a loop back to the relevant section.

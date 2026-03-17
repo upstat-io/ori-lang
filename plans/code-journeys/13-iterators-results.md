@@ -441,8 +441,14 @@ define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { nounwind uwtable }
@@ -637,17 +643,17 @@ Both arithmetic operations use checked intrinsics with panic on overflow. Error 
 | Binary size | 6.40 MiB (debug) |
 | .text section | 913 KiB |
 | .rodata section | 134 KiB |
-| User code | 400 bytes (7 functions incl. C main) |
+| User code | 416 bytes (7 functions incl. C main wrapper) |
 | Runtime | >99% of binary |
 
-The user code is compact. The 7 functions (including the C `main` wrapper) total 400 bytes:
+The user code is compact. The 7 functions (including the C `main` wrapper) total 416 bytes:
 - `@square`: 32 bytes
 - `@main`: 224 bytes (straight-line, no branches)
 - `@__lambda_0`: 32 bytes
 - `@__lambda_1`: 32 bytes
 - `@tramp_0`: 32 bytes
 - `@tramp_1`: 32 bytes
-- `main` (C wrapper): 16 bytes
+- `main` (C wrapper): 32 bytes (includes leak check)
 
 #### Disassembly: @square
 
@@ -895,6 +901,7 @@ Journey 13 achieves a perfect 10.0/10 score -- the first complex-difficulty jour
 | List allocation via ori_list_alloc_data | J10 | J13 | CONFIRMED correct |
 | memory(none) on pure functions | J13 | J13 | NEW -- @square and @__lambda_1 |
 | Lambda/trampoline attribute completeness | J13 | J13 | FIXED -- now 100% |
+| RC leak detection in main wrapper | J13 | J13 | NEW -- ori_check_leaks integrated |
 
 The most significant improvement from the previous run of this journey is attribute compliance rising from 60.7% (17/28) to 100% (28/28). Lambda env pointer parameters now have `noundef`, and trampoline functions now carry both `uwtable` and `noundef` on all parameters. This eliminates the two LOW-severity findings from the initial run.
 

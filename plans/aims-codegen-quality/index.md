@@ -2,7 +2,7 @@
 reroute: true
 name: "AIMS CQ"
 full_name: "AIMS Codegen Quality: All Journeys >= 9.8"
-status: active
+status: done
 order: 1
 ---
 
@@ -19,7 +19,7 @@ order: 1
 ---
 
 ### Section 01: AIMS Regressions
-**File:** `section-01-aims-regressions.md` | **Status:** Not Started
+**File:** `section-01-aims-regressions.md` | **Status:** Complete
 
 ```
 aims, regression, closure, rc_dec, memory_leak, drop_unique, invoke, landingpad
@@ -35,7 +35,7 @@ compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs
 ---
 
 ### Section 02: Attribute Compliance
-**File:** `section-02-attribute-compliance.md` | **Status:** Not Started
+**File:** `section-02-attribute-compliance.md` | **Status:** Complete
 
 ```
 noundef, uwtable, nounwind, memory, fastcc, noalias, readonly
@@ -51,7 +51,7 @@ J1, J2, J3, J4, J5, J6, J7, J8, J9, J10, J11, J12, J13
 ---
 
 ### Section 03: Control Flow Cleanup
-**File:** `section-03-control-flow.md` | **Status:** Not Started
+**File:** `section-03-control-flow.md` | **Status:** Complete
 
 ```
 empty_blocks, trampoline, redundant_branch, entry_block, block_merging
@@ -66,7 +66,7 @@ compiler/ori_llvm/src/aot/passes/config.rs
 ---
 
 ### Section 04: IR Quality Polish
-**File:** `section-04-ir-quality.md` | **Status:** Not Started
+**File:** `section-04-ir-quality.md` | **Status:** Complete
 
 ```
 unjustified_instructions, sso_gating, range_materialization
@@ -81,7 +81,7 @@ compiler/ori_llvm/src/codegen/arc_emitter/apply_helpers.rs
 ---
 
 ### Section 05: Verification
-**File:** `section-05-verification.md` | **Status:** Not Started
+**File:** `section-05-verification.md` | **Status:** Complete
 
 ```
 code_journey, re-run, score, verification, merge_gate, rollback

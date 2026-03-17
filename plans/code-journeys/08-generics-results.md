@@ -367,13 +367,20 @@ define noundef i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { nounwind uwtable }
 attributes #1 = { nounwind memory(none) uwtable }
 attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -431,6 +438,12 @@ _ori_identity$m$int:
 main:
   push   %rax
   call   _ori_main
+  mov    %eax,0x4(%rsp)       ; save exit code
+  call   ori_check_leaks      ; RC leak detection
+  mov    %eax,%ecx
+  mov    0x4(%rsp),%eax
+  cmp    $0x0,%ecx
+  cmovne %ecx,%eax            ; use leak code if nonzero
   pop    %rcx
   ret
 ```
@@ -477,10 +490,11 @@ All four monomorphized functions produce the minimum possible instruction count.
 | @main (entry) | N/A | YES | YES | N/A | YES | N/A | |
 | @main (wrapper) | N/A | YES | YES | N/A | YES | N/A | |
 | ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | cold=YES, noreturn=YES | |
+| ori_check_leaks | N/A | N/A | N/A | N/A | N/A | nounwind=YES | |
 
 **Compliance**: 21/21 applicable attributes correct (100.0%).
 
-All three monomorphized helper functions now share the same `memory(none)` attribute. The `get_value` function was previously annotated with `memory(argmem: read, inaccessiblemem: read, errnomem: read)` but the AIMS pipeline now correctly recognizes that `extractvalue` on a by-value struct argument is a pure operation (no memory load needed -- the struct is passed in registers), promoting it to `memory(none)`.
+All three monomorphized helper functions share the `memory(none)` attribute, correctly recognizing that `identity` and `first` are pure passthrough functions and that `get_value`'s `extractvalue` on a by-value struct argument is also a pure operation (no memory load needed -- the struct is passed in registers).
 
 ### 4. Control Flow & Block Layout
 
@@ -509,8 +523,8 @@ Both integer additions in `@main` are checked with `@llvm.sadd.with.overflow.i64
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 869.1 KiB |
-| .rodata section | 133.4 KiB |
+| .text section | 869.6 KiB |
+| .rodata section | 133.5 KiB |
 | User code | 157 bytes (4 user fns + wrapper) |
 | Runtime | >99.9% of .text |
 
@@ -694,9 +708,11 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 
 5. **Single-field struct optimization**: `Box<int>` is a single-field struct containing `i64`. The compiler passes it directly in a register (via `%ori.Box { i64 5 }` as a literal argument). At the machine level, field extraction is a no-op -- all three helper functions compile to identical `mov %rdi, %rax; ret`.
 
-6. **Memory attribute precision**: All three monomorphized helper functions are marked `memory(none)` -- correctly recognizing that `identity` and `first` are pure passthrough functions, and that `get_value`'s `extractvalue` on a by-value struct argument is also a pure operation (no memory load needed since the struct is passed in registers). This is an improvement over the previous run where `get_value` was marked `memory(argmem: read)`.
+6. **Memory attribute precision**: All three monomorphized helper functions are marked `memory(none)` -- correctly recognizing that `identity` and `first` are pure passthrough functions, and that `get_value`'s `extractvalue` on a by-value struct argument is also a pure operation (no memory load needed since the struct is passed in registers).
 
 7. **AIMS pipeline integration**: All 4 functions converge in a single intraprocedural iteration with zero cross-dimension interactions. The interprocedural pass certifies all 4 as FIP (frame-independent) and FBIP (fully borrowing), confirming that monomorphization introduces no hidden allocation or reference counting overhead.
+
+8. **RC leak detection in entry wrapper**: The `main()` C wrapper now integrates `ori_check_leaks()` to detect RC leaks at program exit. If any leaks are detected, the leak check exit code overrides the program's exit code. For this journey, no leaks are possible (all values are scalars), so the leak check always returns 0 and the program exit code 57 passes through unchanged.
 
 ## Findings
 
@@ -704,8 +720,9 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 |---|----------|----------|-------------|--------|------------|
 | 1 | NOTE | Monomorphization | Zero-cost abstraction: all generic functions compile to optimal IR | CONFIRMED | J8 |
 | 2 | NOTE | Instruction Purity | All 4 user functions at exactly 1.00x ratio | CONFIRMED | J8 |
-| 3 | NOTE | Attributes | All helper functions now memory(none) -- get_value promoted from memory(read) | NEW | J8 |
+| 3 | NOTE | Attributes | All helper functions memory(none) -- correct for by-value struct extractvalue | CONFIRMED | J8 |
 | 4 | NOTE | Attributes | Full 100% attribute compliance (21/21) | CONFIRMED | J8 |
+| 5 | NOTE | Binary | RC leak detection integrated into entry wrapper | NEW | J8 |
 
 ### NOTE-1: Zero-cost abstraction achieved
 
@@ -719,10 +736,10 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 **Impact**: Positive -- every function achieves the theoretical minimum instruction count
 **Found in**: Instruction Purity (Category 1)
 
-### NOTE-3: get_value promoted to memory(none)
+### NOTE-3: get_value correctly marked memory(none)
 
-**Location**: `@"_ori_get_value$24m$24int"` now shares attribute group `#1 = { nounwind memory(none) uwtable }` with `identity` and `first`
-**Impact**: Positive -- the AIMS pipeline now correctly recognizes that `extractvalue` on a by-value struct argument performs no memory access. Previously marked `memory(argmem: read, inaccessiblemem: read, errnomem: read)`, now correctly `memory(none)`. This enables LLVM to treat `get_value` as fully pure for optimization purposes.
+**Location**: `@"_ori_get_value$24m$24int"` shares attribute group `#1 = { nounwind memory(none) uwtable }` with `identity` and `first`
+**Impact**: Positive -- the AIMS pipeline correctly recognizes that `extractvalue` on a by-value struct argument performs no memory access. This enables LLVM to treat `get_value` as fully pure for optimization purposes.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-4: Full attribute compliance maintained
@@ -730,6 +747,12 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 **Location**: All functions
 **Impact**: Positive -- 21/21 applicable attributes correct across all user functions, entry points, and runtime declarations. 100% compliance.
 **Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-5: RC leak detection in entry wrapper
+
+**Location**: `@main()` C wrapper now calls `ori_check_leaks()` after `_ori_main()` returns
+**Impact**: Positive -- provides runtime verification that no RC leaks occur. The wrapper uses `select` to override the exit code if leaks are detected. For this scalar-only journey, the check is a no-op but validates the leak detection infrastructure.
+**Found in**: Binary Analysis (Category 6)
 
 ## Codegen Quality Score
 
@@ -747,7 +770,7 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 
 ## Verdict
 
-Journey 8's generics codegen achieves a perfect score. Monomorphization produces fully specialized functions indistinguishable from hand-written equivalents -- all four user functions hit the theoretical minimum instruction count (1.00x ratio across the board). The AIMS branch now emits `memory(none)` on all three helper functions (an improvement over the previous run where `get_value` was `memory(argmem: read)`), correctly recognizing that `extractvalue` on a by-value struct argument is a pure operation. Full attribute compliance is maintained at 21/21 (100%).
+Journey 8's generics codegen achieves a perfect score. Monomorphization produces fully specialized functions indistinguishable from hand-written equivalents -- all four user functions hit the theoretical minimum instruction count (1.00x ratio across the board). The three helper functions all carry `memory(none)`, correctly recognizing that `identity`, `first`, and `get_value` (which uses `extractvalue` on a by-value struct) are pure operations. The entry wrapper now integrates `ori_check_leaks()` for runtime RC leak detection, confirming zero leaks for this scalar-only journey.
 
 ## Cross-Journey Observations
 
@@ -759,6 +782,6 @@ Journey 8's generics codegen achieves a perfect score. Monomorphization produces
 | noundef on @main wrapper return | J1 | J8 | CONFIRMED |
 | Struct field access via extractvalue | J4 | J8 | CONFIRMED |
 | memory(none) on pure functions | J8 | J8 | CONFIRMED |
-| get_value memory(none) (was memory(read)) | J8 | J8 | IMPROVED |
+| RC leak detection in entry wrapper | J8 | J8 | NEW |
 
-The monomorphization pipeline remains the highlight of this journey. The AIMS branch achieves one improvement over the previous run: `get_value` is now correctly promoted from `memory(argmem: read)` to `memory(none)`, recognizing that `extractvalue` on a by-value struct performs no memory access. The `Box<int>` struct type demonstrates optimal behavior -- a single `i64` field accessed via zero-cost `extractvalue` at the IR level and a simple register move at the machine level.
+The monomorphization pipeline remains the highlight of this journey. All user functions achieve OPTIMAL instruction counts with zero overhead from generics. The `Box<int>` struct type demonstrates optimal behavior -- a single `i64` field accessed via zero-cost `extractvalue` at the IR level and a simple register move at the machine level. The new `ori_check_leaks()` integration in the entry wrapper adds runtime leak verification without affecting user code quality.

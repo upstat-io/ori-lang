@@ -408,13 +408,20 @@ define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { nounwind uwtable }
 attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -475,16 +482,24 @@ _ori_main:
    1b1b9: jo     1b1d2
    1b1bb: jmp    1b1c9
    1b1bd: lea    0xd3138(%rip),%rdi
-   1b1c4: call   1bca0 <ori_panic_cstr>
+   1b1c4: call   1bcb0 <ori_panic_cstr>
    1b1c9: mov    (%rsp),%rax
    1b1cd: add    $0x28,%rsp
    1b1d1: ret
+   1b1d2: lea    0xd3123(%rip),%rdi
+   1b1d9: call   1bcb0 <ori_panic_cstr>
 
 main:
    1b1e0: push   %rax
    1b1e1: call   1b150 <_ori_main>
-   1b1e6: pop    %rcx
-   1b1e7: ret
+   1b1e6: mov    %eax,0x4(%rsp)
+   1b1ea: call   207a0 <ori_check_leaks>
+   1b1ef: mov    %eax,%ecx
+   1b1f1: mov    0x4(%rsp),%eax
+   1b1f5: cmp    $0x0,%ecx
+   1b1f8: cmovne %ecx,%eax
+   1b1fb: pop    %rcx
+   1b1fc: ret
 ```
 
 ## Deep Scrutiny
@@ -522,10 +537,11 @@ main:
 | @main | N/A | YES | YES | YES | N/A | -- | |
 | main (C) | N/A | YES | YES | YES | N/A | -- | |
 | ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | -- | cold, noreturn: correct |
+| ori_check_leaks | N/A | N/A | N/A | N/A | N/A | -- | nounwind: correct |
 
 **Attribute compliance**: 15/15 applicable attributes correct (100.0%).
 
-All user functions have complete attribute coverage. `@_ori_to_code` receives `memory(none)` from posthoc purity analysis, correctly identifying it as a pure function with zero memory effects -- it receives `%ori.Status` by value (in a register via `fastcc`), so no memory reads are needed. This is an improvement over the previous `memory(argmem: read, ...)` which was conservative; the AIMS posthoc analysis now correctly distinguishes by-value struct parameters from pointer-based memory access. `@_ori_extract` does not qualify for `memory(none)` because the `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
+All user functions have complete attribute coverage. `@_ori_to_code` receives `memory(none)` from posthoc purity analysis, correctly identifying it as a pure function with zero memory effects -- it receives `%ori.Status` by value (in a register via `fastcc`), so no memory reads are needed. `@_ori_extract` does not qualify for `memory(none)` because the `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
 
 ### 4. Control Flow & Block Layout
 
@@ -556,14 +572,14 @@ Both additions use `llvm.sadd.with.overflow.i64` with branch-to-panic on overflo
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.25 MiB (debug) |
-| .text section | 869 KiB |
+| Binary size | 6.26 MiB (debug) |
+| .text section | 870 KiB |
 | .rodata section | 133 KiB |
-| User code | ~211 bytes |
+| User code | ~245 bytes |
 | @to_code | 29 bytes (9 instructions) |
 | @extract | 44 bytes (13 instructions) |
-| @main | 130 bytes (34 instructions) |
-| main wrapper | 8 bytes (4 instructions) |
+| @main | 142 bytes (35 instructions) |
+| main wrapper | 30 bytes (10 instructions) |
 | Runtime | 99.97% of .text |
 
 #### Disassembly: @to_code
@@ -747,17 +763,18 @@ The compiler uses a tagged-union representation for sum types:
 | 3 | NOTE | Pattern Matching | Branchless select chain for tag-only enum match | CONFIRMED | J6 |
 | 4 | NOTE | Pattern Matching | Correct exhaustiveness lowering with unreachable default | CONFIRMED | J6 |
 | 5 | NOTE | Sum Types | Efficient tagged-union layout with by-value passing | CONFIRMED | J6 |
+| 6 | NOTE | Binary | RC leak detection integrated into main wrapper | NEW | J6 |
 
 ### NOTE-1: `memory(none)` on pure match function via posthoc purity analysis
 
 **Location**: `@_ori_to_code` function attributes
-**Impact**: Positive -- the posthoc nounwind/memory fixed-point analysis (AIMS Section 02) correctly identifies `@_ori_to_code` as a pure function with zero memory effects. The attribute `memory(none)` informs LLVM that this function neither reads nor writes any memory, enabling aggressive optimization (CSE, dead call elimination, hoisting, reordering). This is an improvement over the previous `memory(argmem: read, ...)` -- the analysis now correctly recognizes that `%ori.Status` is passed by value in registers via `fastcc`, so no memory reads are involved. `@_ori_extract` does not receive this attribute because the `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
+**Impact**: Positive -- the posthoc nounwind/memory fixed-point analysis correctly identifies `@_ori_to_code` as a pure function with zero memory effects. The attribute `memory(none)` informs LLVM that this function neither reads nor writes any memory, enabling aggressive optimization (CSE, dead call elimination, hoisting, reordering). The analysis correctly recognizes that `%ori.Status` is passed by value in registers via `fastcc`, so no memory reads are involved. `@_ori_extract` does not receive this attribute because the `switch` with `unreachable` default is conservatively modeled as a potential side-effect path.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-2: `noundef` on C wrapper `main()` return present
 
 **Location**: `define noundef i32 @main()`
-**Impact**: Positive -- the C wrapper's `i32` return is always a well-defined value (truncated from `_ori_main`'s `i64` result). Complete `noundef` coverage across all functions.
+**Impact**: Positive -- the C wrapper's `i32` return is always a well-defined value (truncated from `_ori_main`'s `i64` result or from `ori_check_leaks`'s `i32` result). Complete `noundef` coverage across all functions.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-3: Branchless select chain for tag-only enum match
@@ -778,6 +795,12 @@ The compiler uses a tagged-union representation for sum types:
 **Impact**: Positive -- both sum types fit in 1-2 registers and are passed by value via `fastcc`. No heap allocation, no pointer indirection, no RC overhead. The `[1 x i64]` payload wrapper enables uniform access for multi-field variants.
 **Found in**: Sum Types: Layout (Category 9)
 
+### NOTE-6: RC leak detection integrated into main wrapper
+
+**Location**: `@main` C wrapper
+**Impact**: Positive -- the main wrapper now calls `ori_check_leaks()` after `_ori_main()` and uses `select` to prefer the leak check exit code if leaks are detected. This provides automatic runtime leak detection for AOT binaries without any user code changes. The wrapper uses a branchless `cmovne` in native code.
+**Found in**: Binary Analysis (Category 6)
+
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
@@ -794,7 +817,7 @@ The compiler uses a tagged-union representation for sum types:
 
 ## Verdict
 
-Journey 6's pattern matching codegen achieves a perfect score. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. Attribute coverage is complete: `noundef` on all parameters and returns, `nounwind` on all user functions, and the AIMS posthoc purity analysis now correctly assigns `memory(none)` to `@_ori_to_code` (improved from the previous `memory(argmem: read, ...)` by recognizing by-value struct parameters involve no memory access). ARC is irrelevant -- all values are scalar integers, zero RC operations needed.
+Journey 6's pattern matching codegen achieves a perfect score. The compiler demonstrates two sophisticated decision tree strategies: branchless `select` chains for unit-variant enums (producing `cmov`-based native code) and `switch`-based dispatch with phi merge for payload-carrying variants. Sum types are efficiently represented as tagged unions passed by value in registers. Attribute coverage is complete: `noundef` on all parameters and returns, `nounwind` on all user functions, and the posthoc purity analysis correctly assigns `memory(none)` to `@_ori_to_code`. The main wrapper now integrates RC leak detection via `ori_check_leaks`. ARC is irrelevant -- all values are scalar integers, zero RC operations needed.
 
 ## Cross-Journey Observations
 
@@ -808,5 +831,6 @@ Journey 6's pattern matching codegen achieves a perfect score. The compiler demo
 | memory(none) on pure functions | J6 | J6 | CONFIRMED |
 | uwtable on all functions | J1 | J6 | CONFIRMED |
 | noundef on C wrapper main() | J6 | J6 | CONFIRMED |
+| RC leak detection in main wrapper | J6 | J6 | NEW |
 
-Journey 6 maintains its perfect 10.0/10 score. The AIMS posthoc purity analysis has improved since the last run: `@_ori_to_code` now receives `memory(none)` (previously `memory(argmem: read, ...)`) because the analysis correctly recognizes that by-value struct parameters passed via `fastcc` involve zero memory access. All five findings are positive NOTEs -- no defects or inefficiencies detected in the pattern matching codegen.
+Journey 6 maintains its perfect 10.0/10 score. All user function IR is identical to the previous run. The only infrastructure change is the integration of `ori_check_leaks()` into the C `main` wrapper, which provides automatic RC leak detection for AOT binaries. All six findings are positive NOTEs -- no defects or inefficiencies detected in the pattern matching codegen.

@@ -1,7 +1,7 @@
 ---
 plan: "aims-10"
 title: "AIMS-10: All Code Journeys to 10/10"
-status: not-started
+status: done
 supersedes:
   - "Deferred items from plans/aims-codegen-quality/ sections 02-05"
   - "Roadmap 21.16.3-21.16.6"

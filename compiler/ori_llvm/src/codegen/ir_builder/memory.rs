@@ -55,21 +55,27 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
 
     /// Build a load from a pointer.
     ///
-    /// Struct types are automatically decomposed into per-field GEP + load +
-    /// `insert_value` sequences. This prevents creating large aggregate SSA values
-    /// that LLVM's `FastISel` mishandles in JIT at O0 (stack corruption for structs
-    /// >16 bytes). See llvm.md §8. Recursive: nested structs decompose further.
+    /// In JIT mode, struct types are decomposed into per-field GEP + load +
+    /// `insert_value` sequences to work around `FastISel` aggregate spill bugs
+    /// (stack corruption for structs >16 bytes). See llvm.md §8.
+    ///
+    /// In AOT mode, direct aggregate loads are used — the full LLVM backend
+    /// handles them correctly, and this reduces instruction count (2 vs 10
+    /// for a 3-field struct like str).
     ///
     /// Defensive: if `ptr` is not a pointer value, records a codegen error
     /// and returns a zero constant instead of panicking.
     pub fn load(&mut self, ty: LLVMTypeId, ptr: ValueId, name: &str) -> ValueId {
         let llvm_ty = self.arena.get_type(ty);
 
-        // Auto-decompose struct loads to avoid FastISel aggregate spill issues.
-        // Per-field GEP+load+insert_value matches Clang -O0 output.
-        if let BasicTypeEnum::StructType(st) = llvm_ty {
-            if st.count_fields() > 0 {
-                return self.load_struct_per_field(ty, st, ptr, name);
+        // In JIT mode, decompose struct loads to avoid FastISel aggregate
+        // spill issues. AOT mode uses direct aggregate loads (the full
+        // backend handles them correctly and they produce better IR).
+        if self.mode == super::CompilationMode::Jit {
+            if let BasicTypeEnum::StructType(st) = llvm_ty {
+                if st.count_fields() > 0 {
+                    return self.load_struct_per_field(ty, st, ptr, name);
+                }
             }
         }
 

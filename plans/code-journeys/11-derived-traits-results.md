@@ -592,13 +592,20 @@ define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { nounwind uwtable }
 attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -871,7 +878,7 @@ All 5 integer additions use checked overflow with `llvm.sadd.with.overflow.i64`,
 | Binary size | 6.25 MiB (debug) |
 | .text section | 869.8 KiB |
 | .rodata section | 133.4 KiB |
-| User code | 819 bytes (all 8 functions) |
+| User code | 811 bytes (7 user functions) |
 | Runtime | 99.9% of binary |
 
 #### Disassembly: Point$eq (40 bytes)
