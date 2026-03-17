@@ -94,9 +94,6 @@ pub enum DecisionSite {
         /// Variable is at an owned-transfer call position (Apply/Invoke).
         /// Callee takes ownership — no caller-side `RcDec`.
         is_owned_call_position: bool,
-        /// `Project` source with non-scalar result (transfer semantics).
-        /// The projected value takes ownership — suppress source `RcDec`.
-        is_project_transfer: bool,
         /// Parent aggregate with borrowed children that have later uses.
         /// Dec must be deferred until all children are dead.
         has_deferred_children: bool,
@@ -208,7 +205,6 @@ fn decide_last_use(site: &DecisionSite) -> InstructionDecisions {
         is_consuming_primop,
         is_ownership_transfer,
         is_owned_call_position,
-        is_project_transfer,
         has_deferred_children,
         reuse,
     } = site
@@ -240,19 +236,6 @@ fn decide_last_use(site: &DecisionSite) -> InstructionDecisions {
 
     // Callee takes ownership at this call position — no caller-side Dec.
     if *is_owned_call_position {
-        return InstructionDecisions {
-            rc: RcDecision::None,
-            reuse: ReuseDecision::None,
-        };
-    }
-
-    // Project source with non-scalar result (transfer semantics).
-    // The projected value takes ownership of the RC reference from the
-    // parent aggregate. Emitting a Dec for the source would double-free.
-    //
-    // Ref: Lean 4 `proj i x` — when the result is an object, ownership
-    // transfers from x to the projection. No separate Dec for x.
-    if *is_project_transfer {
         return InstructionDecisions {
             rc: RcDecision::None,
             reuse: ReuseDecision::None,

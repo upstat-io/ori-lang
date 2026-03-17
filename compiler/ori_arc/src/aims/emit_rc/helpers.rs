@@ -323,26 +323,3 @@ pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction) -> boo
         _ => false,
     }
 }
-
-/// Check whether a `Project` instruction has transfer semantics.
-///
-/// A `Project` with a non-scalar result transfers RC ownership from the
-/// source aggregate to the projected field. The source's last-use `RcDec`
-/// must be suppressed to avoid double-free.
-///
-/// A `Project` with a scalar result has borrowing semantics — the source
-/// retains ownership and may get a last-use `RcDec`.
-///
-/// Ref: Lean 4 `proj i x` — borrows `x`; if the result is an object, Inc it.
-#[inline]
-pub(crate) fn is_project_transfer_source(
-    instr: &ArcInstr,
-    var: ArcVarId,
-    func: &ArcFunction,
-) -> bool {
-    if let ArcInstr::Project { value, dst, .. } = instr {
-        *value == var && func.var_reprs[dst.index()] != ValueRepr::Scalar
-    } else {
-        false
-    }
-}

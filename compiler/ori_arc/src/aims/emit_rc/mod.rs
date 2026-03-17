@@ -51,7 +51,7 @@ pub(crate) use forward_walk::emit_terminator_rc;
 pub(crate) use helpers::{
     collect_all_borrowed_defs, collect_borrowed_defs, collect_defined_vars,
     compute_child_effective_last_use, is_consuming_primop, is_live_at_exit, is_owned_at_entry,
-    is_ownership_transfer, is_project_transfer_source, precompute_block_uses, BlockCtx, LastUse,
+    is_ownership_transfer, precompute_block_uses, BlockCtx, LastUse,
 };
 
 /// Compute `RcStrategy` for a variable, returning `None` for scalars.
