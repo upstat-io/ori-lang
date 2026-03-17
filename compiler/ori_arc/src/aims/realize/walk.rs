@@ -11,8 +11,8 @@
 use rustc_hash::FxHashMap;
 
 use crate::aims::emit_rc::{
-    is_consuming_primop, is_live_at_exit, is_owned_at_entry, is_ownership_transfer,
-    is_project_transfer_source, rc_strategy, BlockCtx, LastUse,
+    is_consuming_primop, is_live_at_exit, is_owned_at_entry, is_ownership_transfer, rc_strategy,
+    BlockCtx, LastUse,
 };
 use crate::aims::emit_reuse::{ctor_to_shape, is_reusable_ctor, AllocEvent, DeathEvent};
 use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
@@ -289,10 +289,6 @@ fn emit_last_use_decs(
         // Check for deferred children (parent with live borrowed children).
         let has_deferred_children = has_live_borrowed_children(ctx, var, instr_idx);
 
-        // Project transfer: non-scalar Project result transfers RC ownership
-        // from source to projection. Suppress source Dec to avoid double-free.
-        let is_project_transfer = is_project_transfer_source(instr, var, ctx.func);
-
         // Build reuse context from state map (single query per death site).
         let reuse_ctx = build_reuse_context(ctx, var);
 
@@ -306,7 +302,6 @@ fn emit_last_use_decs(
                 is_consuming_primop: false,
                 is_ownership_transfer: false,
                 is_owned_call_position: false,
-                is_project_transfer,
                 has_deferred_children,
                 reuse: reuse_ctx,
             },
@@ -362,7 +357,12 @@ fn apply_last_use_decision(
         }
         RcDecision::Defer => {
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
-                deferred.push((var, strategy, last_use));
+                let effective = ctx
+                    .child_effective_last_use
+                    .get(&var)
+                    .copied()
+                    .unwrap_or(last_use);
+                deferred.push((var, strategy, effective));
             }
         }
         _ => {}

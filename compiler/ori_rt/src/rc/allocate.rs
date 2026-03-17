@@ -153,7 +153,28 @@ pub extern "C" fn ori_rc_realloc(
     }
 
     // Return data pointer (16 bytes past the header)
-    unsafe { new_base.add(RC_HEADER_SIZE) }
+    let new_data = unsafe { new_base.add(RC_HEADER_SIZE) };
+
+    // Update leak tracker when realloc moved the block to a new address.
+    // std::alloc::realloc frees the old block internally — the leak tracker
+    // must be updated to avoid counting the old pointer as a leak and to
+    // track the new pointer instead.
+    if new_data != data_ptr {
+        #[cfg(debug_assertions)]
+        if super::check_leaks_enabled() {
+            super::debug::alloc_registry_remove(data_ptr);
+            super::debug::alloc_registry_insert(new_data, new_data_size, align);
+        }
+        if rc_trace_enabled() {
+            let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+            eprintln!(
+                "[RC] realloc 0x{:x} → 0x{:x} size={new_data_size} (live={live})",
+                data_ptr as usize, new_data as usize
+            );
+        }
+    }
+
+    new_data
 }
 
 /// Read the stored data size from an RC allocation's header.

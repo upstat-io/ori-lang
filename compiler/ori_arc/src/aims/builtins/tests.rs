@@ -6,7 +6,7 @@ use rustc_hash::FxHashMap;
 use crate::borrow::BuiltinOwnershipSets;
 
 use super::super::contract::MemoryContract;
-use super::super::lattice::{AccessClass, Consumption, Uniqueness};
+use super::super::lattice::{AccessClass, Uniqueness};
 use super::*;
 
 fn setup() -> (StringInterner, BuiltinOwnershipSets) {
@@ -30,35 +30,38 @@ fn seed_populates_borrowing_methods() {
 }
 
 #[test]
-fn seed_populates_cow_receiver_methods() {
+fn seed_cow_receiver_methods_base_is_borrowed() {
     let (interner, builtins) = setup();
     let mut sigs = FxHashMap::default();
     seed_builtin_contracts(&mut sigs, &builtins, &interner);
 
-    // "push" is a COW receiver method.
+    // COW receiver methods are seeded as Borrowed (base contract).
+    // `apply_consuming_overrides` overrides to Owned for List/Map/Set
+    // receivers at call sites. This ensures string methods stay Borrowed.
     let push_name = interner.intern("push");
     if builtins.consuming_receiver.contains(&push_name) {
         let contract = &sigs[&push_name];
-        assert_eq!(contract.params[0].access, AccessClass::Owned);
-        assert_eq!(contract.params[0].consumption, Consumption::Linear);
-        assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
+        assert_eq!(
+            contract.params[0].access,
+            AccessClass::Borrowed,
+            "COW methods seeded as Borrowed; apply_consuming_overrides adds Owned for collections"
+        );
     }
 }
 
 #[test]
-fn seed_cow_add_consumes_second_arg() {
+fn seed_cow_add_base_is_borrowed() {
     let (interner, builtins) = setup();
     let mut sigs = FxHashMap::default();
     seed_builtin_contracts(&mut sigs, &builtins, &interner);
 
-    // "add" consumes both receiver and second arg.
+    // "add" is seeded as Borrowed (1 param). apply_consuming_overrides
+    // adds Owned for List receivers at call sites.
     let add_name = interner.intern("add");
     if builtins.consuming_second_arg.contains(&add_name) {
         let contract = &sigs[&add_name];
-        assert!(contract.params.len() >= 2);
-        assert_eq!(contract.params[0].access, AccessClass::Owned);
-        assert_eq!(contract.params[1].access, AccessClass::Owned);
-        assert_eq!(contract.params[1].consumption, Consumption::Linear);
+        assert_eq!(contract.params.len(), 1);
+        assert_eq!(contract.params[0].access, AccessClass::Borrowed);
     }
 }
 

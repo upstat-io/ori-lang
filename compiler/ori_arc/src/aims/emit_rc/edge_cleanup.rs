@@ -358,33 +358,39 @@ fn insert_trampoline(func: &mut ArcFunction, pred_idx: usize, succ_idx: usize, d
         .iter()
         .map(|&(var, strategy)| ArcInstr::RcDec { var, strategy })
         .collect();
+    let body_len = body.len();
 
-    let jump_args = extract_jump_args_for_succ(&func.blocks[pred_idx].terminator, succ_id);
+    // Copy the successor's block params — the trampoline is a pass-through
+    // that inserts RcDec ops between the predecessor and successor.
+    let succ_params = func.blocks[succ_idx].params.clone();
+
+    // The trampoline receives the same args as the successor, creates fresh
+    // param variables to forward them, then jumps to the successor.
+    let trampoline_params: Vec<(ArcVarId, ori_types::Idx)> = succ_params
+        .iter()
+        .map(|&(_, ty)| (func.fresh_var(ty), ty))
+        .collect();
+    let forward_args: Vec<ArcVarId> = trampoline_params.iter().map(|&(var, _)| var).collect();
 
     let trampoline_block = ArcBlock {
         id: trampoline_id,
-        params: Vec::new(),
+        params: trampoline_params,
         body,
         terminator: ArcTerminator::Jump {
             target: succ_id,
-            args: jump_args,
+            args: forward_args,
         },
     };
 
+    // Push matching span entry — trampoline instructions have no source spans.
+    let span_entry: Vec<Option<ori_ir::Span>> = vec![None; body_len];
     func.blocks.push(trampoline_block);
+    func.spans.push(span_entry);
     retarget_terminator(
         &mut func.blocks[pred_idx].terminator,
         succ_id,
         trampoline_id,
     );
-}
-
-/// Extract the jump arguments that would be passed to a specific successor.
-fn extract_jump_args_for_succ(terminator: &ArcTerminator, succ_id: ArcBlockId) -> Vec<ArcVarId> {
-    match terminator {
-        ArcTerminator::Jump { args, target } if *target == succ_id => args.clone(),
-        _ => Vec::new(),
-    }
 }
 
 /// Retarget a terminator: replace references to `old_target` with `new_target`.
