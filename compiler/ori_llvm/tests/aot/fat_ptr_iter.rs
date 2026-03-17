@@ -944,3 +944,212 @@ fn test_push_element_borrowed_param_two_calls() {
         "push_element_borrowed_param_two_calls",
     );
 }
+
+// -----------------------------------------------------------------------
+// Unwind path — panic during iteration with catch recovery
+// -----------------------------------------------------------------------
+
+/// Panic during iteration of [str] — catch recovers, no leak or double-free.
+///
+/// Exercises: Invoke unwind cleanup for borrowed list parameter inside
+/// for-loop body, iterator drop on unwind, catch(expr:) recovery.
+#[test]
+fn test_unwind_panic_during_str_iteration() {
+    assert_aot_success(
+        r#"
+@might_panic (s: str) -> int = {
+    if s == "boom this is a long enough string for heap allocation" then {
+        panic(msg: "kaboom during iteration")
+    };
+    s.len()
+}
+
+@process (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + might_panic(s: w)
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "boom this is a long enough string for heap allocation",
+        "third long string that should never be reached at all"
+    ];
+    let result = catch(expr: process(words: words));
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0
+    }
+}
+"#,
+        "unwind_panic_during_str_iteration",
+    );
+}
+
+/// Panic during iteration, then reuse the list — verifies RC is correct
+/// after unwind (list still accessible, no double-free).
+#[test]
+fn test_unwind_list_reusable_after_catch() {
+    assert_aot_success(
+        r#"
+@panicking_iter (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w == "boom this is a long enough string for heap allocation" then {
+            panic(msg: "kaboom")
+        };
+        total = total + w.len()
+    };
+    total
+}
+
+@safe_iter (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "boom this is a long enough string for heap allocation",
+        "third long string that should also be on the heap here"
+    ];
+    let r1 = catch(expr: panicking_iter(words: words));
+    let r2 = safe_iter(words: words);
+    match r1 {
+        Ok(_) -> 1,
+        Err(_) -> if r2 == 160 then 0 else 1
+    }
+}
+"#,
+        "unwind_list_reusable_after_catch",
+    );
+}
+
+/// Multiple invoke calls in one function — panic at second call, verify
+/// cleanup is correct for both call sites.
+#[test]
+fn test_unwind_multiple_invokes_with_panic() {
+    assert_aot_success(
+        r#"
+@count_lengths (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len()
+    };
+    total
+}
+
+@panicking_count (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w == "boom this is a long enough string for heap allocation" then {
+            panic(msg: "kaboom in second call")
+        };
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "boom this is a long enough string for heap allocation",
+        "third long string that should also be on the heap here"
+    ];
+    let r1 = count_lengths(words: words);
+    let r2 = catch(expr: panicking_count(words: words));
+    match r2 {
+        Ok(_) -> 1,
+        Err(_) -> if r1 == 160 then 0 else 1
+    }
+}
+"#,
+        "unwind_multiple_invokes_with_panic",
+    );
+}
+
+/// Panic inside nested function call chain — A calls B calls C, C panics.
+/// Verifies unwind cleanup propagates correctly through multiple frames.
+#[test]
+fn test_unwind_nested_call_chain_panic() {
+    assert_aot_success(
+        r#"
+@inner (s: str) -> int = {
+    if s == "boom this is a long enough string for heap allocation" then {
+        panic(msg: "deep panic")
+    };
+    s.len()
+}
+
+@middle (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + inner(s: w)
+    };
+    total
+}
+
+@outer (words: [str]) -> int = {
+    middle(words: words)
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "boom this is a long enough string for heap allocation",
+        "third long string that should also be on the heap here"
+    ];
+    let result = catch(expr: outer(words: words));
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0
+    }
+}
+"#,
+        "unwind_nested_call_chain_panic",
+    );
+}
+
+/// Partial iteration + break, then panic in separate call — verifies
+/// that break cleanup and unwind cleanup are independent and correct.
+#[test]
+fn test_unwind_break_then_panic() {
+    assert_aot_success(
+        r#"
+@partial_iter (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w.len() > 60 then break;
+        total = total + w.len()
+    };
+    total
+}
+
+@panicking_func (words: [str]) -> int = {
+    panic(msg: "always panics")
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold plus",
+        "third long string that should also be on the heap here now"
+    ];
+    let r1 = partial_iter(words: words);
+    let r2 = catch(expr: panicking_func(words: words));
+    match r2 {
+        Ok(_) -> 1,
+        Err(_) -> if r1 == 53 then 0 else 1
+    }
+}
+"#,
+        "unwind_break_then_panic",
+    );
+}

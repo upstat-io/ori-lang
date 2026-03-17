@@ -210,16 +210,20 @@ fn apply_edge_decs(
 /// Collect edge-specific `RcDec` for Invoke terminators using
 /// `InvokeEdgeState` to determine normal vs unwind cleanup.
 ///
-/// Two categories of variables need cleanup:
+/// Three categories of variables need cleanup:
 /// 1. Variables live at block exit (in `exit_states`) that die on specific
 ///    edges — handled by the `exit_states` loop.
 /// 2. Borrowed Invoke args NOT in `exit_states` — these are used only by
 ///    the Invoke terminator, so the backward analysis never propagates them
 ///    to the exit boundary. The caller must still `RcDec` after the call.
+/// 3. Unwind cleanup for ownership-transferred args — when the callee
+///    panics (unwind leads to `Resume` or catch handler), it may not have
+///    consumed the ownership the caller transferred. The caller must
+///    reclaim and `RcDec` on the unwind edge.
 ///
-/// Both categories exclude variables whose ownership was transferred to the
-/// callee via `ArgOwnership::Owned`. Once ownership transfers, the caller
-/// must not emit cleanup — the callee (or its iterator/drop) handles it.
+/// Categories 1 and 2 exclude variables whose ownership was transferred to
+/// the callee via `ArgOwnership::Owned` on the **normal** path. Category 3
+/// handles the **unwind** path for those same variables.
 fn collect_invoke_edge_decs(
     func: &ArcFunction,
     block_idx: usize,
@@ -244,6 +248,38 @@ fn collect_invoke_edge_decs(
     let edge_state = state_map.invoke_edge_state(blk);
     let exit_states = state_map.block_exit_states(blk);
 
+    // Track which variables get ownership-transfer cleanup on the unwind edge
+    // (Category 3), so Category 1 can skip them to avoid double-dec.
+    let mut cat3_unwind_vars: FxHashSet<ArcVarId> = FxHashSet::default();
+
+    // Category 3: unwind cleanup for ownership-transferred args.
+    //
+    // When the caller passes an arg as `Owned`, the callee is expected to
+    // handle the ref. But if the callee panics (unwind), it may not have
+    // consumed the ownership. The caller must RcDec on the unwind edge to
+    // reclaim the unclaimed ref.
+    //
+    // This applies regardless of whether the variable is alive downstream —
+    // the extra ref from the ownership transfer must be balanced.
+    for (i, &arg) in args.iter().enumerate() {
+        let is_owned = arg_ownership
+            .get(i)
+            .is_none_or(|o| *o == ArgOwnership::Owned);
+        if !is_owned {
+            continue;
+        }
+        if state_map.is_excluded(arg) {
+            continue;
+        }
+        if all_borrowed_defs.contains(&arg) {
+            continue;
+        }
+        if let Some(strategy) = rc_strategy(func, arg, pool) {
+            edge_decs.push((block_idx, unwind.index(), arg, strategy));
+            cat3_unwind_vars.insert(arg);
+        }
+    }
+
     // Category 1: variables in exit_states that die on specific edges.
     if let (Some(edge_state), Some(exit_states)) = (edge_state, exit_states) {
         for (&var, &state) in exit_states {
@@ -259,22 +295,24 @@ fn collect_invoke_edge_decs(
             ) {
                 continue;
             }
-            // Skip variables whose ownership was transferred to the callee.
-            // If any Invoke arg position transfers this variable as Owned,
-            // the caller must not also dec — the callee handles cleanup.
+            // Skip variables whose ownership was transferred to the callee
+            // on the normal path. The callee handles cleanup on success.
+            // (On unwind, Category 3 already handles the reclaim.)
             if invoke_transfers_ownership(var, args, arg_ownership) {
                 continue;
             }
 
-            // Check unwind path.
-            let unwind_state = edge_state
-                .unwind
-                .get(&var)
-                .copied()
-                .unwrap_or(crate::aims::lattice::AimsState::BOTTOM);
-            if unwind_state.cardinality == Cardinality::Absent {
-                if let Some(strategy) = rc_strategy(func, var, pool) {
-                    edge_decs.push((block_idx, unwind.index(), var, strategy));
+            // Check unwind path — skip if already handled by Category 3.
+            if !cat3_unwind_vars.contains(&var) {
+                let unwind_state = edge_state
+                    .unwind
+                    .get(&var)
+                    .copied()
+                    .unwrap_or(crate::aims::lattice::AimsState::BOTTOM);
+                if unwind_state.cardinality == Cardinality::Absent {
+                    if let Some(strategy) = rc_strategy(func, var, pool) {
+                        edge_decs.push((block_idx, unwind.index(), var, strategy));
+                    }
                 }
             }
 

@@ -340,6 +340,10 @@ fn verify_and_merge(func: &mut ArcFunction, config: &AimsPipelineConfig<'_>) {
         crate::tail_call::rewrite_tail_calls(func);
     }
     {
+        let _span = tracing::info_span!("unwind_cleanup").entered();
+        crate::aims::emit_rc::unwind_cleanup::add_invoke_unwind_cleanup(func, config.interner);
+    }
+    {
         let _span = tracing::info_span!("merge_blocks").entered();
         crate::block_merge::merge_blocks(func);
     }
