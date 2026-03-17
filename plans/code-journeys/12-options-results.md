@@ -320,7 +320,7 @@ Module
 > to native machine code via LLVM's optimization and code generation pipeline.
 > This path produces ahead-of-time compiled binaries.
 
-Nounwind analysis: 2 passes (fixed-point), all 8 functions marked nounwind. Purity analysis: `@safe_div` marked `memory(none)` (pure function -- no memory side effects).
+Nounwind analysis: 2 passes (fixed-point), all 8 functions marked nounwind. Purity analysis: `@safe_div` marked `memory(none)` (pure function -- no memory side effects). RC leak detection integrated into main wrapper via `ori_check_leaks`.
 
 #### ARC Pipeline
 
@@ -531,13 +531,20 @@ define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { nounwind uwtable }
 attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -628,13 +635,14 @@ _ori_check_chain:
    1b224: mov    %rax,%rcx
    1b227: mov    0x8(%rsp),%rax
    1b22c: add    %rcx,%rax
-   1b22f: seto   %al
-   1b232: jo     1b243
-   1b234: mov    0x10(%rsp),%rax
-   1b239: add    $0x18,%rsp
-   1b23d: ret
-   1b243: lea    ...,%rdi
-   1b24a: call   1bee0 <ori_panic_cstr>
+   1b22f: mov    %rax,0x10(%rsp)
+   1b234: seto   %al
+   1b237: jo     1b243
+   1b239: mov    0x10(%rsp),%rax
+   1b23e: add    $0x18,%rsp
+   1b242: ret
+   1b243: lea    0xd30b2(%rip),%rdi
+   1b24a: call   1bef0 <ori_panic_cstr>
 
 _ori_try_div:
    1b250: sub    $0x18,%rsp
@@ -665,8 +673,47 @@ _ori_check_prop:
    1b2ae: mov    $0xffffffffffffffff,%rdx
    1b2b5: call   1b150 <_ori_unwrap_or>
    1b2ba: mov    %rax,0x10(%rsp)
-   ...
+   1b2bf: mov    $0x3e8,%edi
+   1b2c4: xor    %eax,%eax
+   1b2c6: mov    %eax,%esi
+   1b2c8: mov    $0x5,%edx
+   1b2cd: call   1b250 <_ori_try_div>
+   1b2d2: mov    %rax,%rdi
+   1b2d5: mov    %rdx,%rsi
+   1b2d8: mov    $0xfffffffffffffff6,%rdx
+   1b2df: call   1b150 <_ori_unwrap_or>
+   1b2e4: mov    %rax,0x8(%rsp)
+   1b2e9: mov    $0x3e8,%edi
+   1b2ee: mov    $0xa,%esi
+   1b2f3: xor    %eax,%eax
+   1b2f5: mov    %eax,%edx
+   1b2f7: call   1b250 <_ori_try_div>
+   1b2fc: mov    %rax,%rdi
+   1b2ff: mov    %rdx,%rsi
+   1b302: mov    $0xfffffffffffffff6,%rdx
+   1b309: call   1b150 <_ori_unwrap_or>
+   1b30e: mov    0x8(%rsp),%rcx
+   1b313: mov    %rax,%rdx
+   1b316: mov    0x10(%rsp),%rax
+   1b31b: mov    %rdx,0x18(%rsp)
+   1b320: add    %rcx,%rax
+   1b323: mov    %rax,0x20(%rsp)
+   1b328: seto   %al
+   1b32b: jo     1b345
+   1b32d: mov    0x18(%rsp),%rcx
+   1b332: mov    0x20(%rsp),%rax
+   1b337: add    %rcx,%rax
+   1b33a: mov    %rax,(%rsp)
+   1b33e: seto   %al
+   1b341: jo     1b35a
+   1b343: jmp    1b351
+   1b345: lea    0xd2fb0(%rip),%rdi
+   1b34c: call   1bef0 <ori_panic_cstr>
+   1b351: mov    (%rsp),%rax
+   1b355: add    $0x28,%rsp
    1b359: ret
+   1b35a: lea    0xd2f9b(%rip),%rdi
+   1b361: call   1bef0 <ori_panic_cstr>
 
 _ori_main:
    1b370: sub    $0x38,%rsp
@@ -677,14 +724,49 @@ _ori_main:
    1b388: call   1b1e0 <_ori_check_chain>
    1b38d: mov    %rax,0x10(%rsp)
    1b392: call   1b290 <_ori_check_prop>
-   ...
+   1b397: mov    0x18(%rsp),%rcx
+   1b39c: mov    %rax,%rdx
+   1b39f: mov    0x20(%rsp),%rax
+   1b3a4: mov    %rdx,0x28(%rsp)
+   1b3a9: add    %rcx,%rax
+   1b3ac: mov    %rax,0x30(%rsp)
+   1b3b1: seto   %al
+   1b3b4: jo     1b3cf
+   1b3b6: mov    0x10(%rsp),%rcx
+   1b3bb: mov    0x30(%rsp),%rax
+   1b3c0: add    %rcx,%rax
+   1b3c3: mov    %rax,0x8(%rsp)
+   1b3c8: seto   %al
+   1b3cb: jo     1b3f3
+   1b3cd: jmp    1b3db
+   1b3cf: lea    0xd2f26(%rip),%rdi
+   1b3d6: call   1bef0 <ori_panic_cstr>
+   1b3db: mov    0x28(%rsp),%rcx
+   1b3e0: mov    0x8(%rsp),%rax
+   1b3e5: add    %rcx,%rax
+   1b3e8: mov    %rax,(%rsp)
+   1b3ec: seto   %al
+   1b3ef: jo     1b408
+   1b3f1: jmp    1b3ff
+   1b3f3: lea    0xd2f02(%rip),%rdi
+   1b3fa: call   1bef0 <ori_panic_cstr>
+   1b3ff: mov    (%rsp),%rax
+   1b403: add    $0x38,%rsp
    1b407: ret
+   1b408: lea    0xd2eed(%rip),%rdi
+   1b40f: call   1bef0 <ori_panic_cstr>
 
 main:
    1b420: push   %rax
    1b421: call   1b370 <_ori_main>
-   1b426: pop    %rcx
-   1b427: ret
+   1b426: mov    %eax,0x4(%rsp)
+   1b42a: call   209e0 <ori_check_leaks>
+   1b42f: mov    %eax,%ecx
+   1b431: mov    0x4(%rsp),%eax
+   1b435: cmp    $0x0,%ecx
+   1b438: cmovne %ecx,%eax
+   1b43b: pop    %rcx
+   1b43c: ret
 ```
 
 ## Deep Scrutiny
@@ -704,7 +786,7 @@ main:
 
 **Weighted average ratio**: 1.00x | **Max ratio**: 1.00x
 
-Every function matches its ideal instruction count. The CFG simplification pass eliminated the previously-observed empty intermediate blocks in `@safe_div` and `@unwrap_or`, bringing both from NEAR-OPTIMAL to OPTIMAL. All 8 functions are now at 1.00x ratio.
+Every function matches its ideal instruction count. The CFG simplification pass eliminated the previously-observed empty intermediate blocks in `@safe_div` and `@unwrap_or`, bringing both to OPTIMAL. All 8 functions are at 1.00x ratio with zero unjustified instructions.
 
 ### 2. ARC Purity
 
@@ -735,8 +817,9 @@ Every function matches its ideal instruction count. The CFG simplification pass 
 | @main (ori) | C cc | YES | -- | return | YES | NO | |
 | main (wrapper) | C cc | YES | -- | return | YES | NO | |
 | ori_panic_cstr | N/A | N/A | -- | N/A | N/A | YES | cold noreturn |
+| ori_check_leaks | N/A | YES | -- | N/A | N/A | NO | |
 
-All user functions have `nounwind` (fixed-point analysis, 2 passes). All internal calls use `fastcc`. `@_ori_main` correctly uses C calling convention as an entry point. The `noundef` attribute is applied appropriately on scalar returns and parameters. `@safe_div` now has `memory(none)` -- the purity analysis correctly identified it as having no memory side effects (pure arithmetic + branch). [NOTE-1]
+All user functions have `nounwind` (fixed-point analysis, 2 passes). All internal calls use `fastcc`. `@_ori_main` correctly uses C calling convention as an entry point. The `noundef` attribute is applied appropriately on scalar returns and parameters. `@safe_div` has `memory(none)` -- the purity analysis correctly identified it as having no memory side effects (pure arithmetic + branch). [NOTE-1]
 
 **Compliance**: 38/38 applicable attributes correct (100.0%).
 
@@ -753,9 +836,9 @@ All user functions have `nounwind` (fixed-point analysis, 2 passes). All interna
 | @check_prop | 5 | 0 | 0 | 0 | |
 | @main | 7 | 0 | 0 | 0 | |
 
-**@safe_div**: Previously had 4 blocks with an empty bb1 (None branch) containing only `br label %bb3`. The CFG simplification pass eliminated this: bb0 now branches directly to bb3 (the phi/ret block) for the None case, with `{ i64 1, i64 0 }` sourced from bb0. Down from 4 blocks to 3. [NOTE-2]
+**@safe_div**: The CFG simplification pass eliminated the empty bb1 (None branch) that previously contained only `br label %bb3`. bb0 now branches directly to bb3 (the phi/ret block) for the None case, with `{ i64 1, i64 0 }` sourced from bb0. Down from 4 blocks to 3. [NOTE-2]
 
-**@unwrap_or**: Previously had 5 blocks with an empty bb3 (None case) containing only `br label %bb1`. The CFG simplification pass eliminated this: the switch now dispatches None (i64 1) directly to bb1 where the phi merges `%1` (default) as the value from bb0. Down from 5 blocks to 4. The remaining bb4 (`unreachable`) is the switch default -- a correct safety guard for exhaustive matching. [NOTE-3]
+**@unwrap_or**: The CFG simplification pass eliminated the empty bb3 (None case) that previously contained only `br label %bb1`. The switch now dispatches None (i64 1) directly to bb1 where the phi merges `%1` (default) as the value from bb0. Down from 5 blocks to 4. The remaining bb4 (`unreachable`) is the switch default -- a correct safety guard for exhaustive matching. [NOTE-3]
 
 Zero defects across all functions.
 
@@ -777,9 +860,9 @@ All arithmetic additions use `llvm.sadd.with.overflow.i64` with proper panic on 
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 869.7 KiB |
-| .rodata section | 133.4 KiB |
-| User code | ~740 bytes (8 functions + wrapper) |
+| .text section | 869.8 KiB |
+| .rodata section | 133.5 KiB |
+| User code | 733 bytes (8 functions) |
 | Runtime | 99.9% of binary |
 
 Per-function native code sizes:
@@ -787,7 +870,7 @@ Per-function native code sizes:
 | Function | Bytes | Instructions (approx) |
 |----------|-------|-----------------------|
 | @safe_div | 74 | 21 |
-| @unwrap_or | 46 | 13 |
+| @unwrap_or | 45 | 13 |
 | @check_some | 33 | 9 |
 | @check_none | 33 | 9 |
 | @check_chain | 111 | 28 |
@@ -795,7 +878,7 @@ Per-function native code sizes:
 | @check_prop | 214 | 48 |
 | @main | 164 | 38 |
 
-The user code is very compact at ~740 bytes. The `{i64, i64}` Option representation maps efficiently to the (rax, rdx) return convention, avoiding any heap allocation or indirection.
+The user code is compact at 733 bytes. The `{i64, i64}` Option representation maps efficiently to the (rax, rdx) return convention, avoiding any heap allocation or indirection. The `main` wrapper (not counted in user code) adds 29 bytes for the `ori_check_leaks` integration.
 
 ### 7. Optimal IR Comparison
 
@@ -818,7 +901,7 @@ exit:
 ```
 
 ```llvm
-; ACTUAL (7 instructions — matches ideal)
+; ACTUAL (7 instructions -- matches ideal)
 define fastcc noundef { i64, i64 } @_ori_safe_div(i64 noundef %0, i64 noundef %1) #0 {
 bb0:
   %eq = icmp eq i64 %1, 0
@@ -858,7 +941,7 @@ unreachable:
 ```
 
 ```llvm
-; ACTUAL (7 instructions — matches ideal)
+; ACTUAL (7 instructions -- matches ideal)
 define fastcc noundef i64 @_ori_unwrap_or({ i64, i64 } noundef %0, i64 noundef %1) #1 {
 bb0:
   %proj.0 = extractvalue { i64, i64 } %0, 0
@@ -882,7 +965,7 @@ bb4:
 #### @try_div: Ideal vs Actual
 
 ```llvm
-; IDEAL (8 instructions — matches actual)
+; IDEAL (8 instructions -- matches actual)
 define fastcc noundef { i64, i64 } @_ori_try_div(i64 noundef %0, i64 noundef %1, i64 noundef %2) nounwind {
 entry:
   %call = call fastcc { i64, i64 } @_ori_safe_div(i64 %0, i64 %1)
@@ -945,9 +1028,9 @@ The codegen for this is OPTIMAL at 8 instructions. The `?` operator adds zero ov
 - **Construction**: `Some(v)` becomes `insertvalue { i64, i64 } zeroinitializer, i64 %v, 1` (discriminant 0 is implicit from zeroinitializer). `None` becomes `{ i64 1, i64 0 }` (discriminant 1, payload zeroed).
 - **Destruction**: `extractvalue { i64, i64 } %opt, 0` gets discriminant, `extractvalue { i64, i64 } %opt, 1` gets payload.
 - **Return convention**: The `{i64, i64}` struct is returned in the (rax, rdx) register pair on x86_64 with `fastcc`. No heap allocation, no pointer indirection.
-- **Match lowering**: `unwrap_or` uses `switch i64 %disc, label %default [i64 0, label %some; i64 1, label %none]` -- a jump table/comparison chain. The `default` block contains `unreachable` as a safety guard for exhaustive matching.
+- **Match lowering**: `unwrap_or` uses `switch i64 %disc, label %default [i64 0, label %some; i64 1, label %none]` -- a comparison chain. The `default` block contains `unreachable` as a safety guard for exhaustive matching.
 - **Discriminant convention**: 0=Some, 1=None. This means `test %rdi,%rdi; je some_path` -- the common (Some) case is the conditional jump target when zero, which is branch-prediction friendly since `test; je` on zero is the "expected" case in many ABIs.
-- **Purity**: `@safe_div` is now marked `memory(none)` -- the purity analysis correctly identifies it as having no memory side effects (pure arithmetic + branching). This enables LLVM to perform additional optimizations like CSE and dead store elimination on callers.
+- **Purity**: `@safe_div` is marked `memory(none)` -- the purity analysis correctly identifies it as having no memory side effects (pure arithmetic + branching). This enables LLVM to perform additional optimizations like CSE and dead store elimination on callers.
 
 This representation is equivalent to what Rust uses for `Option<i64>` (discriminant + payload with niche optimization not applicable here since the payload spans the full i64 range). The compiler correctly avoids boxing or heap allocation for scalar Options. The zero ARC overhead across all 8 functions confirms that the scalar optimization is working end-to-end.
 
@@ -971,14 +1054,12 @@ This representation is equivalent to what Rust uses for `Option<i64>` (discrimin
 
 **Location**: @safe_div CFG
 **Impact**: Positive -- the previously-observed empty bb1 (None branch with only `br label %bb3`) has been eliminated by the CFG simplification pass. bb0 now branches directly to bb3 with `{ i64 1, i64 0 }` as a phi predecessor. This removes 1 block and 1 instruction, bringing @safe_div from 8 to 7 instructions (OPTIMAL).
-**Previous**: LOW-1 in prior run (3 defects total)
 **Found in**: Control Flow & Block Layout (Category 4)
 
 ### NOTE-3: Empty bb3 in @unwrap_or eliminated
 
 **Location**: @unwrap_or CFG
 **Impact**: Positive -- the previously-observed empty bb3 (None case with only `br label %bb1`) has been eliminated by the CFG simplification pass. The None case (i64 1) now dispatches directly to bb1 where the phi merges the default value from bb0. This removes 1 block and 1 instruction.
-**Previous**: LOW-2 in prior run
 **Found in**: Control Flow & Block Layout (Category 4)
 
 ### NOTE-4: Zero RC operations for Option<int>
@@ -1009,7 +1090,7 @@ This representation is equivalent to what Rust uses for `Option<i64>` (discrimin
 
 ## Verdict
 
-Journey 12 achieves a perfect score after the CFG simplification pass eliminated empty intermediate blocks that previously cost `@safe_div` and `@unwrap_or` one unjustified instruction each. All 8 functions now match their ideal instruction counts at 1.00x ratio. The `Option<int>` representation as a flat `{i64, i64}` tagged pair is register-friendly and heap-free, resulting in zero ARC overhead. The `?` operator in `@try_div` compiles to an optimal 8-instruction discriminant-branch-and-propagate sequence. The purity analysis now marks `@safe_div` with `memory(none)`, enabling additional LLVM optimizations. Attribute compliance is 100% (38/38). This is textbook Option codegen.
+Journey 12 achieves a perfect score. All 8 functions match their ideal instruction counts at 1.00x ratio. The `Option<int>` representation as a flat `{i64, i64}` tagged pair is register-friendly and heap-free, resulting in zero ARC overhead. The `?` operator in `@try_div` compiles to an optimal 8-instruction discriminant-branch-and-propagate sequence. The purity analysis marks `@safe_div` with `memory(none)`, enabling additional LLVM optimizations. Attribute compliance is 100% (38/38). The `main` wrapper now includes `ori_check_leaks` integration for RC leak detection at program exit. This is textbook Option codegen.
 
 ## Cross-Journey Observations
 
@@ -1018,9 +1099,10 @@ Journey 12 achieves a perfect score after the CFG simplification pass eliminated
 | Overflow checking | J1 | J12 | CONFIRMED |
 | fastcc usage | J1 | J12 | CONFIRMED |
 | nounwind analysis | J1 | J12 | CONFIRMED |
-| noundef on main wrapper | J1 | J12 | CONFIRMED |
+| noundef on returns/params | J1 | J12 | CONFIRMED |
 | CFG simplification (empty blocks) | J2 | J12 | FIXED (bb1 in @safe_div, bb3 in @unwrap_or) |
 | Pattern matching lowering | J6 | J12 | CONFIRMED (switch + phi) |
 | memory(none) purity annotation | J12 | J12 | NEW |
+| ori_check_leaks in main wrapper | J12 | J12 | NEW |
 
-The CFG simplification pass (AIMS Section 01) has resolved the empty-block pattern that affected if/then/else and match codegen. Both `@safe_div` (if/then/else with Option construction) and `@unwrap_or` (match on Option) now have clean block layouts with no redundant branches. The purity analysis (also from AIMS) correctly marks `@safe_div` as `memory(none)` -- the first journey-specific function to receive this annotation. All nounwind and fastcc patterns continue working correctly across 8 functions. Score improved from 9.4 to 10.0.
+The CFG simplification pass has resolved the empty-block pattern that previously affected if/then/else and match codegen. Both `@safe_div` (if/then/else with Option construction) and `@unwrap_or` (match on Option) now have clean block layouts with no redundant branches. The purity analysis correctly marks `@safe_div` as `memory(none)` -- the first journey-specific function to receive this annotation. The main wrapper now integrates `ori_check_leaks` for automatic RC leak detection at program exit, replacing the simpler trunc+ret pattern. All nounwind and fastcc patterns continue working correctly across 8 functions.

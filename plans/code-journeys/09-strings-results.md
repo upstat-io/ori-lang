@@ -547,8 +547,14 @@ define noundef i32 @main() #2 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #5
 
 attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { nounwind uwtable }
@@ -629,6 +635,12 @@ _ori_main:
 main:
   push   %rax
   call   _ori_main
+  mov    %eax,0x4(%rsp)
+  call   ori_check_leaks
+  mov    %eax,%ecx
+  mov    0x4(%rsp),%eax
+  cmp    $0x0,%ecx
+  cmovne %ecx,%eax
   pop    %rcx
   ret
 ```
@@ -877,6 +889,7 @@ The compiler correctly folds `true && true` to `true`, `true && false` to `false
 | 3 | NOTE | Codegen | Pure function detection: @bool_to_int gets memory(none) | NEW | J9 |
 | 4 | NOTE | Attributes | Drop helper now has complete attribute set (uwtable + noundef) | FIXED | J5 |
 | 5 | NOTE | Attributes | 100% attribute compliance across all functions | NEW | J9 |
+| 6 | NOTE | Binary | RC leak detection integrated into main() wrapper | NEW | J9 |
 
 ### NOTE-1: Correct SSO-guarded conditional RC decrement
 
@@ -910,6 +923,12 @@ The compiler correctly folds `true && true` to `true`, `true && false` to `false
 **Impact**: Positive -- 19/19 applicable attributes correct (100%). Previous run was 17/19 (89.5%).
 **Found in**: Attributes & Calling Convention (Category 3)
 
+### NOTE-6: RC leak detection integrated into main() wrapper
+
+**Location**: @main (C entry point) wrapper function
+**Impact**: Positive -- the main() wrapper now calls `ori_check_leaks()` after `_ori_main()` and uses a `select` to override the exit code if leaks are detected. This provides automatic leak detection without user code changes. The leak checker returned 0 for this journey, confirming zero leaks.
+**Found in**: Binary Analysis (Category 6)
+
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
@@ -926,7 +945,7 @@ The compiler correctly folds `true && true` to `true`, `true && false` to `false
 
 ## Verdict
 
-Journey 9's string codegen achieves a perfect score. The compiler correctly handles the full OriStr lifecycle: heap allocation via `ori_str_from_raw`, SSO-guarded conditional RC decrement, and the specialized `ori_str_empty()` for empty strings. ARC is perfectly balanced with zero violations. The attribute regression from J5 (missing `uwtable` and `noundef` on the drop helper) is now fixed, bringing attribute compliance to 100%. The boolean logic side demonstrates excellent constant folding -- `&&` and `||` on compile-time-known operands are resolved during canonicalization. The `memory(none)` annotation on `@bool_to_int` confirms the compiler's pure function analysis working correctly. This journey improved from 8.7/10 to 10.0/10 since the previous run.
+Journey 9's string codegen achieves a perfect score. The compiler correctly handles the full OriStr lifecycle: heap allocation via `ori_str_from_raw`, SSO-guarded conditional RC decrement, and the specialized `ori_str_empty()` for empty strings. ARC is perfectly balanced with zero violations, confirmed both by static analysis and the runtime `ori_check_leaks()` integration in the main() wrapper. The attribute regression from J5 (missing `uwtable` and `noundef` on the drop helper) is now fixed, bringing attribute compliance to 100%. The boolean logic side demonstrates excellent constant folding -- `&&` and `||` on compile-time-known operands are resolved during canonicalization. The `memory(none)` annotation on `@bool_to_int` confirms the compiler's pure function analysis working correctly.
 
 ## Cross-Journey Observations
 
@@ -941,5 +960,6 @@ Journey 9's string codegen achieves a perfect score. The compiler correctly hand
 | memory(none) on pure functions | J9 | J9 | CONFIRMED |
 | Drop helper missing uwtable | J5 | J9 | FIXED |
 | Full attribute compliance | J9 | J9 | NEW |
+| RC leak detection in main() | J9 | J9 | NEW |
 
-This is the first journey to exercise heap-allocated string values with ARC. The SSO guard pattern (8 instructions per string cleanup) is infrastructure that appears in any journey involving strings, lists, or other heap-allocated types. The `memory(none)` attribute on `@bool_to_int` confirms the compiler can identify pure functions and annotate them optimally. The most notable improvement since the last run is the drop helper attribute fix, which eliminated the only attribute defects and brought the overall score from 8.7 to 10.0.
+This is the first journey to exercise heap-allocated string values with ARC. The SSO guard pattern (8 instructions per string cleanup) is infrastructure that appears in any journey involving strings, lists, or other heap-allocated types. The `memory(none)` attribute on `@bool_to_int` confirms the compiler can identify pure functions and annotate them optimally. The main() wrapper now includes `ori_check_leaks()` integration, automatically detecting RC leaks at program exit. The most notable improvement since the last run is the drop helper attribute fix, which eliminated the only attribute defects and brought the overall score from 8.7 to 10.0.

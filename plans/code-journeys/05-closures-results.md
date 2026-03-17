@@ -410,7 +410,10 @@ define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
 ```
 
@@ -525,6 +528,12 @@ _ori_partial_1:
 main:
   push   %rax
   call   _ori_main
+  mov    %eax,0x4(%rsp)          ; save exit code
+  call   ori_check_leaks         ; check for RC leaks
+  mov    %eax,%ecx               ; leak result
+  mov    0x4(%rsp),%eax          ; reload exit code
+  cmp    $0x0,%ecx               ; leaks detected?
+  cmovne %ecx,%eax               ; use leak code if non-zero
   pop    %rcx
   ret
 ```
@@ -627,10 +636,10 @@ All three arithmetic operations are checked. Overflow paths call `ori_panic_cstr
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 869.3 KiB |
+| .text section | 869.8 KiB |
 | .rodata section | 133.5 KiB |
-| User code | ~384 bytes (7 user functions + main wrapper) |
-| Runtime | ~99.96% of .text |
+| User code | ~412 bytes (7 user functions + main wrapper with leak check) |
+| Runtime | ~99.95% of .text |
 
 #### Disassembly: @apply
 
@@ -829,7 +838,7 @@ This design is clean and follows the standard fat-pointer closure representation
 | 3 | NOTE | ARC | Live-path RC dec for closure env in @main | CONFIRMED | J5 |
 | 4 | NOTE | Attributes | Lambda functions have memory(none), closure infra has full noundef | CONFIRMED | J5 |
 | 5 | NOTE | Closures | Clean uniform {ptr, ptr} closure representation | CONFIRMED | J5 |
-| 6 | NOTE | Attributes | All closure infrastructure functions now have noundef | NEW | J5 |
+| 6 | NOTE | Attributes | All closure infrastructure functions have noundef | CONFIRMED | J5 |
 
 ### NOTE-1: Null-check on env pointer (uniform RC dec protocol)
 
@@ -861,7 +870,7 @@ This design is clean and follows the standard fat-pointer closure representation
 **Impact**: Positive. The `{ ptr, ptr }` uniform representation enables polymorphic higher-order functions while keeping non-capturing closures zero-allocation.
 **Found in**: Closures: Representation (Category 8)
 
-### NOTE-6: Full noundef on closure infrastructure (new)
+### NOTE-6: Full noundef on closure infrastructure
 
 **Location**: `@_ori_partial_0_drop(ptr noundef %0)`, `@_ori_partial_1(... ptr noundef %0, i64 noundef %1)`, `@_ori___lambda_1(ptr noundef %0, ...)`
 **Impact**: Positive. Previously these indirect-call targets were missing `noundef` on their parameters. Now all parameters carry `noundef`, enabling LLVM to assume defined values at all call sites. This completes the attribute coverage for the closure subsystem.
@@ -883,7 +892,7 @@ This design is clean and follows the standard fat-pointer closure representation
 
 ## Verdict
 
-Journey 5's closure codegen achieves a perfect 10.0 score, up from 9.2 in the previous run. All seven user functions are OPTIMAL with zero unjustified instructions. The key improvements: closure infrastructure functions (`partial_0_drop`, `partial_1`, `__lambda_1`) now carry full `noundef` annotations, bringing attribute compliance from 82.1% to 100%. The AIMS pipeline continues to deliver excellent results -- `@apply` is fully elided of RC overhead, lambda functions carry `memory(none)`, and the closure env lifecycle is clean with proper live-path cleanup. The uniform `{ptr, ptr}` closure representation is architecturally sound and efficient.
+Journey 5's closure codegen achieves a perfect 10.0 score. All seven user functions are OPTIMAL with zero unjustified instructions. The AIMS pipeline delivers excellent results -- `@apply` is fully elided of RC overhead, lambda functions carry `memory(none)`, and the closure env lifecycle is clean with proper live-path cleanup. Full `noundef` coverage across all closure infrastructure functions achieves 100% attribute compliance. The uniform `{ptr, ptr}` closure representation is architecturally sound and efficient.
 
 ## Cross-Journey Observations
 
@@ -895,4 +904,4 @@ Journey 5's closure codegen achieves a perfect 10.0 score, up from 9.2 in the pr
 | memory(none) attrs | J5 | J5 | CONFIRMED (lambdas correctly marked pure) |
 | noundef coverage | J1 | J5 | CONFIRMED (now 100% on closure infra) |
 
-The progression from 9.2 to 10.0 reflects the AIMS pipeline maturing: `noundef` is now consistently applied to indirect-call targets (closure infrastructure), completing the attribute coverage gap that was the primary remaining deficiency. The closure subsystem is now at parity with direct-call functions in attribute quality.
+The AIMS pipeline applies `noundef` consistently to indirect-call targets (closure infrastructure), achieving full attribute parity with direct-call functions. The closure subsystem demonstrates that the compiler handles heap-allocated environments, ownership transfer, and polymorphic cleanup at the same quality level as simple scalar functions.
