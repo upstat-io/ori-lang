@@ -324,6 +324,10 @@ pub struct AnnotationSiteContext<'a> {
     pub rc_incremented: bool,
     /// Whether this variable is a function parameter.
     pub is_param: bool,
+    /// Whether this variable is a function parameter with `Ownership::Borrowed`.
+    /// Borrowed parameters must never use unique-drop because the caller
+    /// retains a reference — the buffer is never uniquely owned by the callee.
+    pub is_param_borrowed: bool,
     /// Whether this variable was passed as a Borrowed argument to a function.
     pub is_borrowed_call_arg: bool,
     /// Set of all RC-incremented variables (for transitive alias checks).
@@ -466,6 +470,12 @@ pub fn decide_drop_hint(ctx: &AnnotationSiteContext<'_>) -> bool {
 
     // Only collections (List, Map, Set) have buffer-based drops.
     if !ctx.is_collection {
+        return false;
+    }
+
+    // Borrowed parameters must never use unique-drop: the caller retains
+    // a reference, so the buffer is never uniquely owned by the callee.
+    if ctx.is_param_borrowed {
         return false;
     }
 

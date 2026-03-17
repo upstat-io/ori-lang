@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Iterator–Collection Ownership Contract"
-status: not-started
+status: in-progress
 goal: "Fix the ownership contract between iterators and collections so that [T] where T has Drop never double-frees elements"
 depends_on: []
 third_party_review:
@@ -10,7 +10,7 @@ third_party_review:
 sections:
   - id: "01.1"
     title: "Root Cause Analysis"
-    status: not-started
+    status: complete
   - id: "01.2"
     title: "Fix Element Ownership Contract"
     status: not-started
@@ -54,19 +54,25 @@ The pipeline is: `ori_arc` lowers `for w in words` into ARC IR with RcDec on `w`
 
 **File(s):** `compiler/ori_rt/src/iterator/state.rs`, `compiler/ori_rt/src/rc/list_rc.rs`
 
-The double-free happens because two independent cleanup paths both try to free the same elements:
+**Revised understanding (2026-03-17 analysis):** The `emit_list_iter` codegen already passes `null` for `elem_dec_fn` to `ori_iter_from_list` — the iterator does NOT try to free elements. The double-free/use-after-free stems from **three AIMS pipeline bugs**:
 
-1. **Iterator path**: When the iterator is dropped (`IterState::List` Drop impl), it calls element-level RC decrement on remaining un-consumed elements
-2. **Collection path**: When the list buffer's RC reaches zero, `ori_buffer_rc_dec` calls the element destructor (`_ori_elem_dec$N`) on ALL elements, including ones already freed by the iterator
+1. **Missing RcInc for borrowed-derived variables**: When a `[str]` is a function parameter (`[borrow]`), the AIMS pipeline does not emit `RcInc` before creating an iterator from it, even though the variable has future uses via the `__for_coll` phantom. For local variables, the pipeline correctly emits 2 RcIncs. For borrowed params, it emits 0.
 
-The fundamental issue: **there is no handoff of element ownership from collection to iterator.** Both think they own the elements.
+2. **Wrong `ori_buffer_drop_unique` on borrowed params**: The AIMS uniqueness/drop-hints analysis marks the borrowed parameter's final `RcDec` as "unique drop" (uses `ori_buffer_drop_unique` which skips the atomic RC check). This is incorrect — the caller retains a reference, so the buffer is never uniquely owned inside the callee.
 
-- [ ] Trace the full lifecycle of a `[str]` iteration in AOT with `ORI_TRACE_RC=1` to confirm the double-free sequence
-- [ ] Identify exactly which RC operations fire on each string element during iteration and after
-- [ ] Document the current ownership model: who increments, who decrements, at what points
-- [ ] Trace how `elem_dec_fn` is generated: `ori_arc/src/drop/mod.rs` computes `DropInfo` for `[str]`, `ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs` generates the LLVM function, and `ori_llvm/src/codegen/arc_emitter/construction.rs` passes it to `ori_buffer_rc_dec` at list creation — identify which of these emits the redundant element cleanup
-- [ ] Trace how `ori_arc/src/lower/control_flow/for_loops/for_iterator.rs` lowers `for w in words` — does it emit `RcDec` on `w` (the loop variable) after each iteration, and is that the same element that `elem_dec_fn` will also decrement?
-- [ ] Trace `ori_arc/src/aims/emit_rc/` to determine if the AIMS pipeline adds element-level RcDec that conflicts with the runtime elem_dec_fn
+3. **No RC inc on projected iterator elements**: When `ori_iter_next` yields a fat-pointer element (e.g., an inner `[int]` from `[[int]]`), it does a plain `memcpy` — no RC increment on the element. The yielded value shares the same data pointer as the collection's stored element but has no additional RC reference. If the yielded element is then used to create another iterator or otherwise accessed, the inner list's RC is 1 and gets freed prematurely.
+
+**Evidence (LLVM IR comparison):**
+- Local `[str]` iteration in `@main`: 2 `ori_list_rc_inc` + 2 `ori_buffer_rc_dec` + 1 `ori_iter_drop` → balanced, correct
+- Function param `[str]` in `count_chars`: 0 `ori_list_rc_inc` + 1 `ori_buffer_drop_unique` + 1 `ori_iter_drop` → unbalanced, double-free
+- Nested `[[int]]` iteration: inner lists freed during outer loop body, then accessed → use-after-free
+
+- [x] Trace the full lifecycle of a `[str]` iteration in AOT with `ORI_TRACE_RC=1` to confirm the double-free sequence — confirmed: RC trace for two-function test shows RC drops to 0 inside `count_chars`, then caller crashes on already-freed buffer
+- [x] Identify exactly which RC operations fire on each string element during iteration and after — documented: `emit_list_iter` passes null `elem_dec_fn`, `ori_buffer_rc_dec`/`ori_buffer_drop_unique` uses real `_ori_elem_dec$N` for collection cleanup, iterator's Drop uses null (correct)
+- [x] Document the current ownership model: who increments, who decrements, at what points — documented: iterator borrows elements (null elem_dec_fn), collection owns (real elem_dec_fn in explicit RcDec), `__for_coll` phantom ordering ensures collection cleanup after iter drop. Works for local variables, fails for borrowed parameters.
+- [x] Trace how `elem_dec_fn` is generated: `ori_arc/src/drop/mod.rs` computes `DropInfo` for `[str]`, `ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs` generates the LLVM function, and `ori_llvm/src/codegen/arc_emitter/construction.rs` passes it to `ori_buffer_rc_dec` at list creation — traced: `get_or_generate_elem_dec_fn()` generates `_ori_elem_dec$N` functions, `emit_buffer_rc_dec_list_or_set()` passes them to `ori_buffer_rc_dec`. No redundant emission — the bug is in AIMS not emitting RcInc, not in elem_dec_fn generation.
+- [x] Trace how `ori_arc/src/lower/control_flow/for_loops/for_iterator.rs` lowers `for w in words` — does it emit `RcDec` on `w` (the loop variable) after each iteration, and is that the same element that `elem_dec_fn` will also decrement? — traced: `for_iterator.rs` creates `__for_coll` phantom binding (line 176-179), calls `.iter()` which becomes `emit_apply(INT, "iter", [iter_val])`, and emits phantom ref after `ori_iter_drop` in exit block (lines 195-204). No RcDec on individual elements `w` — elements are projected from `__iter_next` result and used without explicit RC.
+- [x] Trace `ori_arc/src/aims/emit_rc/` to determine if the AIMS pipeline adds element-level RcDec that conflicts with the runtime elem_dec_fn — traced: AIMS pipeline does NOT emit element-level RcDec. The only element-level cleanup happens via `elem_dec_fn` passed to `ori_buffer_rc_dec`/`ori_buffer_drop_unique` in the collection's explicit `RcDec` instruction. The bug is that AIMS doesn't emit `RcInc` before iter creation for borrowed params, and wrongly uses `drop_unique` for borrowed params.
 
 ---
 

@@ -98,3 +98,70 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
 
     incremented
 }
+
+/// Collect borrowed function parameter variables and their Let-alias
+/// transitive closure.
+///
+/// Returns a set containing every function parameter with
+/// `Ownership::Borrowed` plus all `Let { dst, value: Var(src) }` aliases
+/// that transitively derive from them. Used by `decide_drop_hint` to
+/// prevent unique-drop on borrowed params (the caller retains a reference,
+/// so the buffer is never uniquely owned by the callee).
+pub(crate) fn collect_param_borrowed_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    use crate::ownership::Ownership;
+
+    let mut result = FxHashSet::default();
+    for param in &func.params {
+        if param.ownership == Ownership::Borrowed {
+            result.insert(param.var);
+        }
+    }
+    if result.is_empty() {
+        return result;
+    }
+    // Transitive closure through Let aliases AND block params (Jump/Branch
+    // args → target block params). Borrowed-param values flow through the
+    // loop header and exit block as block parameters.
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            // Let aliases: %3 = %0 where %0 is a borrowed param.
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if result.contains(src) && result.insert(*dst) {
+                        changed = true;
+                    }
+                }
+            }
+            // Block param propagation: Jump args map to target block params.
+            // If arg N is in the result set, add target's block param N.
+            let targets: Vec<(usize, &[ArcVarId])> = match &block.terminator {
+                crate::ir::ArcTerminator::Jump { target, args } => {
+                    vec![(target.index(), args)]
+                }
+                _ => vec![],
+            };
+            for (target_idx, args) in targets {
+                if target_idx >= func.blocks.len() {
+                    continue;
+                }
+                let target_block = &func.blocks[target_idx];
+                for (arg_pos, arg_var) in args.iter().enumerate() {
+                    if result.contains(arg_var) && arg_pos < target_block.params.len() {
+                        let (param_var, _) = target_block.params[arg_pos];
+                        if result.insert(param_var) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    result
+}

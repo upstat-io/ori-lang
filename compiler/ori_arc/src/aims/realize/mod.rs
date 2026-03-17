@@ -186,12 +186,16 @@ pub fn realize_annotations(
     builtins: &crate::borrow::BuiltinOwnershipSets,
     result: &mut RealizationResult,
 ) {
-    use crate::aims::emit_rc::{block_id, collect_borrowed_call_args, collect_rc_incremented_vars};
+    use crate::aims::emit_rc::{
+        block_id, collect_borrowed_call_args, collect_param_borrowed_vars,
+        collect_rc_incremented_vars,
+    };
 
     let _span = tracing::debug_span!("realize_annotations").entered();
 
     let cow_names = crate::borrow::all_cow_method_names(interner);
     let param_vars: rustc_hash::FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
+    let param_borrowed_vars = collect_param_borrowed_vars(func);
     let rc_incremented = collect_rc_incremented_vars(func);
     let borrowed_call_args = collect_borrowed_call_args(func, contracts, builtins);
 
@@ -204,6 +208,7 @@ pub fn realize_annotations(
         pool,
         cow_names: &cow_names,
         param_vars: &param_vars,
+        param_borrowed_vars: &param_borrowed_vars,
         rc_incremented: &rc_incremented,
         borrowed_call_args: &borrowed_call_args,
     };
@@ -243,6 +248,7 @@ struct AnnotationWalkCtx<'a> {
     pool: &'a Pool,
     cow_names: &'a rustc_hash::FxHashSet<Name>,
     param_vars: &'a rustc_hash::FxHashSet<ArcVarId>,
+    param_borrowed_vars: &'a rustc_hash::FxHashSet<ArcVarId>,
     rc_incremented: &'a rustc_hash::FxHashSet<ArcVarId>,
     borrowed_call_args: &'a rustc_hash::FxHashSet<ArcVarId>,
 }
@@ -284,6 +290,7 @@ fn annotate_block(
             uniqueness: state.uniqueness,
             rc_incremented: ctx.rc_incremented.contains(&var),
             is_param: ctx.param_vars.contains(&var),
+            is_param_borrowed: ctx.param_borrowed_vars.contains(&var),
             is_borrowed_call_arg: ctx.borrowed_call_args.contains(&var),
             rc_incremented_set: ctx.rc_incremented,
             is_excluded: ctx.state_map.is_excluded(var),
@@ -334,6 +341,7 @@ fn annotate_block(
                 uniqueness: state.uniqueness,
                 rc_incremented: ctx.rc_incremented.contains(&receiver),
                 is_param: ctx.param_vars.contains(&receiver),
+                is_param_borrowed: ctx.param_borrowed_vars.contains(&receiver),
                 is_borrowed_call_arg: ctx.borrowed_call_args.contains(&receiver),
                 rc_incremented_set: ctx.rc_incremented,
                 is_excluded: ctx.state_map.is_excluded(receiver),
