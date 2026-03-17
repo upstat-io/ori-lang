@@ -56,12 +56,22 @@ pub(super) fn walk_body_unified(
     ctx: &BlockCtx<'_>,
     old_body: &[ArcInstr],
     new_body: &mut Vec<ArcInstr>,
+    iter_fn_name: ori_ir::Name,
 ) -> BodyWalkResult {
     let mut uses_so_far: FxHashMap<ArcVarId, usize> = FxHashMap::default();
     let mut deferred: Vec<(ArcVarId, RcStrategy, LastUse)> = Vec::new();
     let mut death_events = Vec::new();
     let mut alloc_events = Vec::new();
     let mut metrics = super::metrics::SynergyMetrics::default();
+
+    // Pre-compute: is this block an unwind cleanup block?
+    // Unwind blocks end with Resume. Their explicit RcDec instructions
+    // must be kept to balance callee-internal RcIncs (e.g., the RcInc
+    // added for iterator creation).
+    let is_unwind_block = matches!(
+        ctx.func.blocks[ctx.blk.index()].terminator,
+        crate::ir::ArcTerminator::Resume
+    );
 
     for (instr_idx, instr) in old_body.iter().enumerate() {
         // Inline alloc event collection (replaces collect_alloc_events scan).
@@ -75,7 +85,24 @@ pub(super) fn walk_body_unified(
             &mut uses_so_far,
             new_body,
             &mut metrics,
+            iter_fn_name,
         );
+
+        // Skip explicit RcDec for parameter-borrowed variables in normal
+        // (non-unwind) blocks. When a borrowed collection parameter is
+        // used in a for-loop, the lowering emits an explicit RcDec at the
+        // loop exit. But the caller already handles cleanup via the
+        // own→borrow reconciliation RcDec. Keeping both would double-dec.
+        //
+        // In unwind blocks (Resume terminator), keep the explicit RcDec —
+        // it balances the callee's internal RcInc for the iterator.
+        if let ArcInstr::RcDec { var, .. } = instr {
+            let in_all = ctx.all_borrowed_defs.contains(var);
+            let in_proj = ctx.project_borrowed_defs.contains(var);
+            if !is_unwind_block && in_all && !in_proj {
+                continue;
+            }
+        }
 
         // Push the instruction itself.
         new_body.push(instr.clone());
@@ -150,7 +177,31 @@ fn emit_pre_instr_incs_unified(
     uses_so_far: &mut FxHashMap<ArcVarId, usize>,
     new_body: &mut Vec<ArcInstr>,
     metrics: &mut super::metrics::SynergyMetrics,
+    iter_fn_name: ori_ir::Name,
 ) {
+    // Special case: when a parameter-borrowed collection is passed to
+    // an `@iter()` call, emit RcInc to balance the iterator's Drop
+    // (which calls ori_buffer_rc_dec). Detect via the iter_fn_name
+    // precomputed in walk_body_unified.
+    if let ArcInstr::Apply { func, args, .. } = instr {
+        if *func == iter_fn_name {
+            if let Some(&coll_var) = args.first() {
+                if ctx.all_borrowed_defs.contains(&coll_var)
+                    && !ctx.project_borrowed_defs.contains(&coll_var)
+                    && ctx.func.var_reprs[coll_var.index()] != ValueRepr::Scalar
+                {
+                    if let Some(strategy) = rc_strategy(ctx.func, coll_var, ctx.pool) {
+                        new_body.push(ArcInstr::RcInc {
+                            var: coll_var,
+                            count: 1,
+                            strategy,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     for var in instr.used_vars() {
         if !is_rc_managed(ctx, var) {
             continue;
@@ -231,12 +282,20 @@ fn emit_defined_dead(
         return;
     };
 
-    // Check managed (not excluded, not scalar, not borrowed).
+    // Check managed: not excluded, not scalar, not borrowed, not unused.
     if ctx.state_map.is_excluded(dst)
         || ctx.func.var_reprs[dst.index()] == ValueRepr::Scalar
         || ctx.use_info.contains_key(&dst)
         || is_live_at_exit(ctx.state_map, ctx.blk, dst)
     {
+        return;
+    }
+
+    // Skip defined-dead RcDec for parameter-borrowed variables.
+    // These are Let aliases of borrowed function parameters (e.g., the
+    // __for_coll phantom in the for-loop exit block). The caller handles
+    // their cleanup via own→borrow reconciliation.
+    if ctx.all_borrowed_defs.contains(&dst) && !ctx.project_borrowed_defs.contains(&dst) {
         return;
     }
 

@@ -80,7 +80,6 @@ fn test_str_list_yield_lengths() {
 }
 
 #[test]
-#[ignore = "requires RC header extension to store elem_dec_fn — fat-pointer-hardening 01.2"]
 fn test_str_list_passed_to_two_functions() {
     assert_aot_success(
         r#"
