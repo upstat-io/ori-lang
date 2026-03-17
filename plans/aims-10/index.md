@@ -2,7 +2,7 @@
 reroute: true
 name: "AIMS-10"
 full_name: "AIMS-10: All Code Journeys to 10/10"
-status: active
+status: done
 order: 1
 ---
 
@@ -20,7 +20,7 @@ order: 1
 ---
 
 ### Section 01: Attribute Completion
-**File:** `section-01-attributes.md` | **Status:** Not Started
+**File:** `section-01-attributes.md` | **Status:** Complete
 
 ```
 nounwind, noundef, readonly, memory(none), memory(read), nonnull, dereferenceable
@@ -34,7 +34,7 @@ J13 57.1%, J5 78.6%, main wrapper noundef, closure wrappers _ori_partial_N
 ---
 
 ### Section 02: CFG Cleanup
-**File:** `section-02-cfg-cleanup.md` | **Status:** Not Started
+**File:** `section-02-cfg-cleanup.md` | **Status:** Complete
 
 ```
 empty blocks, redundant branches, entry block merging, loop preheader
@@ -49,7 +49,7 @@ post-emission CFG simplification, inkwell BasicBlock, LLVMSetSuccessor
 ---
 
 ### Section 03: IR Quality
-**File:** `section-03-ir-quality.md` | **Status:** Not Started
+**File:** `section-03-ir-quality.md` | **Status:** Complete
 
 ```
 unjustified instructions, instruction ratio, range materialization
@@ -64,7 +64,7 @@ post-Section-02 audit determines which items are needed
 ---
 
 ### Section 04: Verification
-**File:** `section-04-verification.md` | **Status:** Not Started
+**File:** `section-04-verification.md` | **Status:** Complete
 
 ```
 code journey re-run, score validation, 10.0/10, merge gate

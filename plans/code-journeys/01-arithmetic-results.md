@@ -350,13 +350,20 @@ define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { nounwind uwtable }
 attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -402,11 +409,17 @@ attributes #3 = { cold noreturn }
    1b171:  lea    ovf.msg.2(%rip),%rdi
    1b178:  call   ori_panic_cstr
 
-000000000001b180 <main>:                        ; 8 bytes
-   1b180:  push   %rax
-   1b181:  call   _ori_main
-   1b186:  pop    %rcx
-   1b187:  ret
+000000000001b180 <main>:                        ; 29 bytes
+   1b180:  push   %rax                    ; align stack
+   1b181:  call   _ori_main               ; call Ori main
+   1b186:  mov    %eax,0x4(%rsp)          ; save exit code
+   1b18a:  call   ori_check_leaks         ; RC leak detection
+   1b18f:  mov    %eax,%ecx               ; leak result -> ecx
+   1b191:  mov    0x4(%rsp),%eax          ; reload exit code
+   1b195:  cmp    $0x0,%ecx               ; check if leaks detected
+   1b198:  cmovne %ecx,%eax              ; use leak code if nonzero
+   1b19b:  pop    %rcx                    ; restore stack
+   1b19c:  ret                            ; return final exit code
 ```
 
 ## Deep Scrutiny
@@ -417,7 +430,6 @@ attributes #3 = { cold noreturn }
 |---|----------|-------------|------------|-------|---------|
 | 1 | @add     | 7           | 7          | 1.00x | OPTIMAL |
 | 2 | @main    | 14          | 14         | 1.00x | OPTIMAL |
-| 3 | main wrapper | 3      | 3          | 1.00x | OPTIMAL |
 
 **@add (7 instructions)**: Every instruction is justified. The overflow-checked addition requires the intrinsic call (1), two extractvalues to split the result and overflow flag (2), a conditional branch (1), a return (1), and a panic path with call + unreachable (2). No wasted instructions. **OPTIMAL.**
 
@@ -444,12 +456,13 @@ attributes #3 = { cold noreturn }
 | @main    | NO (C) | YES      | YES     | N/A    | YES (ret) | N/A  | N/A  | C conv for entry point -- correct |
 | main wrapper | NO (C) | YES | YES     | N/A    | YES (ret) | N/A  | N/A  | All attributes present |
 | ori_panic_cstr | N/A | N/A | N/A     | N/A    | N/A     | YES      | YES  | Both noreturn and cold present [NOTE-2] |
+| ori_check_leaks | N/A | YES | N/A    | N/A    | N/A     | N/A      | N/A  | Leak detection runtime function |
 
 **@_ori_add uses `fastcc` with `memory(none)`**: Correct. Internal function benefits from fast calling convention. The `nounwind` attribute is present (fixed-point analysis confirms both user functions do not unwind). `memory(none)` tells LLVM that `@_ori_add` has no observable memory effects -- it only reads its arguments and produces a return value. This is correct for a pure arithmetic function. `uwtable` is present for stack unwinding. `noundef` is present on both parameters and the return value.
 
 **@_ori_main uses C convention**: Correct. Called from the C `main()` wrapper, must use C ABI for compatibility. Also marked `nounwind`, `uwtable`, and `noundef` on the return. Does not have `memory(none)` because it calls `@_ori_add` -- the memory attribute on non-leaf functions requires interprocedural analysis, and the compiler conservatively omits it since `@_ori_main` calls another function.
 
-**main wrapper has full attribute coverage**: The C entry point wrapper has `nounwind`, `uwtable`, and `noundef` on its `i32` return.
+**main wrapper has full attribute coverage**: The C entry point wrapper has `nounwind`, `uwtable`, and `noundef` on its `i32` return. It now integrates `ori_check_leaks()` for RC leak detection at program exit.
 
 **`ori_panic_cstr` has both `cold` and `noreturn`**: Correct. Enables dead code elimination and branch prediction heuristics.
 
@@ -492,20 +505,20 @@ The panic messages are operation-specific (not generic), which is good for debug
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.25 MiB (6,556,656 bytes, debug) |
-| .text section | 869 KiB (889,881 bytes) |
-| .rodata section | 134 KiB (136,689 bytes) |
-| .debug_info | 1.56 MiB (1,639,950 bytes) |
-| .debug_str | 1.72 MiB (1,804,139 bytes) |
-| .eh_frame | 109 KiB (111,992 bytes) |
+| Binary size | 6.25 MiB (6,558,392 bytes, debug) |
+| .text section | 870 KiB (890,441 bytes) |
+| .rodata section | 134 KiB (136,737 bytes) |
+| .debug_info | 1.56 MiB (1,640,878 bytes) |
+| .debug_str | 1.72 MiB (1,804,254 bytes) |
+| .eh_frame | 109 KiB (112,032 bytes) |
 | User code (@add) | 31 bytes (0x1b100-0x1b11f) |
 | User code (@main) | 93 bytes (0x1b120-0x1b17d) |
-| User code (main wrapper) | 8 bytes (0x1b180-0x1b188) |
-| User code total | 132 bytes |
-| User code % of .text | 0.015% |
+| User code (main wrapper) | 29 bytes (0x1b180-0x1b19c) |
+| User code total | 153 bytes |
+| User code % of .text | 0.017% |
 | Runtime % of binary | ~99.98% |
 
-The binary is large due to static linking of `ori_rt` (the Ori runtime, which includes Rust's standard library for panic handling, I/O, memory allocation) and full debug symbols (3.28 MiB of .debug_* sections). The user's actual code is 132 bytes -- everything else is runtime infrastructure. This is expected for a debug build of a statically-linked binary.
+The binary is large due to static linking of `ori_rt` (the Ori runtime, which includes Rust's standard library for panic handling, I/O, memory allocation) and full debug symbols (3.28 MiB of .debug_* sections). The user's actual code is 153 bytes -- everything else is runtime infrastructure. This is expected for a debug build of a statically-linked binary. The main wrapper now includes RC leak detection logic (`ori_check_leaks`), adding 21 bytes over a minimal wrapper.
 
 #### Disassembly: @add
 
@@ -650,26 +663,32 @@ sub.ovf_panic:
 #### main wrapper: Ideal vs Actual
 
 ```llvm
-; IDEAL (3 instructions)
+; IDEAL (6 instructions -- leak detection is mandatory for AIMS)
 define noundef i32 @main() #1 {
 entry:
   %r = call i64 @_ori_main()
   %c = trunc i64 %r to i32
-  ret i32 %c
+  %lk = call i32 @ori_check_leaks()
+  %has = icmp ne i32 %lk, 0
+  %fin = select i1 %has, i32 %lk, i32 %c
+  ret i32 %fin
 }
 ```
 
 ```llvm
-; ACTUAL (3 instructions)
+; ACTUAL (6 instructions)
 define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
 ```
 
-**Delta**: 0 instructions. **OPTIMAL.**
+**Delta**: 0 instructions. **OPTIMAL.** The `ori_check_leaks` integration is mandatory for AIMS RC leak detection and adds zero unjustified overhead.
 
 #### Module Summary
 
@@ -677,8 +696,8 @@ entry:
 |----------|-------|--------|-------|-----------|---------|
 | @add     | 7     | 7      | +0    | N/A       | OPTIMAL |
 | @main    | 14    | 14     | +0    | N/A       | OPTIMAL |
-| main wrapper | 3 | 3      | +0    | N/A       | OPTIMAL |
-| **Total** | **24** | **24** | **+0** | | |
+| main wrapper | 6 | 6      | +0    | N/A       | OPTIMAL |
+| **Total** | **27** | **27** | **+0** | | |
 
 ### 8. Arithmetic: Let Binding Elimination
 
@@ -757,4 +776,4 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 ## Verdict
 
-Journey 1's arithmetic codegen achieves a perfect score. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction with zero overhead beyond mandatory overflow checking. All attributes are correctly applied -- `memory(none)` on the pure `@_ori_add`, `nounwind` on all user functions via fixed-point analysis, `noundef` on all parameters and returns, and `cold noreturn` on panic paths. ARC is correctly absent for pure scalar arithmetic -- zero RC operations.
+Journey 1's arithmetic codegen achieves a perfect score. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction with zero overhead beyond mandatory overflow checking. All attributes are correctly applied -- `memory(none)` on the pure `@_ori_add`, `nounwind` on all user functions via fixed-point analysis, `noundef` on all parameters and returns, and `cold noreturn` on panic paths. ARC is correctly absent for pure scalar arithmetic -- zero RC operations. The main wrapper now integrates RC leak detection via `ori_check_leaks`, which is optimal for the AIMS pipeline.

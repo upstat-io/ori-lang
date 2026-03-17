@@ -326,7 +326,12 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
 
     let ir = scx.llmod.print_to_string().to_string();
     assert!(ir.contains(&format!("\"_ori_drop${}\"", clos_ty.raw())));
-    assert!(ir.contains("getelementptr"), "Missing GEP:\n{ir}");
+    // AOT mode: aggregate load + extractvalue (no GEP).
+    // JIT mode would use GEP + per-field load.
+    assert!(
+        ir.contains("getelementptr") || ir.contains("extractvalue"),
+        "Missing GEP or extractvalue:\n{ir}"
+    );
     assert!(ir.contains("ori_rc_dec"), "Missing ori_rc_dec:\n{ir}");
 
     drop(em);

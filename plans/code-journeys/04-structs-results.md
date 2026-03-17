@@ -349,13 +349,20 @@ define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable }
 attributes #1 = { nounwind uwtable }
 attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -410,10 +417,16 @@ _ori_main:
   lea    ovf.msg.1(%rip),%rdi
   call   ori_panic_cstr
 
-; @main (4 instructions, entry wrapper)
+; @main (8 instructions, entry wrapper with leak check)
 main:
   push   %rax
   call   _ori_main
+  mov    %eax,0x4(%rsp)
+  call   ori_check_leaks
+  mov    %eax,%ecx
+  mov    0x4(%rsp),%eax
+  cmp    $0x0,%ecx
+  cmovne %ecx,%eax
   pop    %rcx
   ret
 ```
@@ -468,14 +481,16 @@ All 16 instructions are justified.
 | @main (ori) | N/A | YES     | YES     | YES     | N/A             | N/A     | N/A   | N/A    | N/A  | N/A      |       |
 | @main (C) | N/A   | YES      | N/A     | YES     | N/A             | N/A     | N/A   | N/A    | N/A  | N/A      |       |
 | @ori_panic_cstr | N/A | N/A | N/A     | N/A     | N/A             | N/A     | N/A   | N/A    | YES  | YES      |       |
+| @ori_check_leaks | N/A | YES | N/A    | N/A     | N/A             | N/A     | N/A   | N/A    | N/A  | N/A      |       |
 
 **Compliance**: 9/9 applicable attributes correct = 100.0%
 
 All applicable attributes are present:
 - `@area`: fastcc (internal function), nounwind (all callees nounwind via fixed-point analysis), uwtable (definition), noundef on return and ptr param, `nonnull dereferenceable(32)` on ptr param (AIMS Section 01 annotations -- guarantees pointer validity and enables LLVM null-check elimination), `memory(argmem: read, inaccessiblemem: read, errnomem: read)` (read-only access)
 - `@_ori_main`: nounwind (fixed-point: area is nounwind), uwtable, noundef on return. Uses C calling convention correctly (entry point).
-- `@main` wrapper: nounwind, uwtable, noundef on return
+- `@main` wrapper: nounwind, uwtable, noundef on return. Includes `ori_check_leaks` integration for RC leak detection.
 - `@ori_panic_cstr`: cold + noreturn (panic path)
+- `@ori_check_leaks`: nounwind (declared external)
 
 ### 4. Control Flow & Block Layout
 
@@ -521,8 +536,8 @@ All three arithmetic operations are overflow-checked with correct panic on overf
 | .rodata section | 133.5 KiB |
 | User code (@area) | 30 bytes (11 instructions) |
 | User code (@main) | 128 bytes (24 instructions) |
-| User code (main wrapper) | 8 bytes (4 instructions) |
-| Total user code | 166 bytes (39 instructions) |
+| User code (main wrapper) | 30 bytes (10 instructions) |
+| Total user code | 188 bytes (45 instructions) |
 | Runtime | >99% of binary |
 
 User code is compact. The debug binary includes the full Ori runtime (panic handling, RC system, string/list/map operations) which dominates the binary size. This is expected for a debug build.

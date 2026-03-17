@@ -1,7 +1,7 @@
 ---
 plan: "aims-codegen-quality"
 title: "AIMS Codegen Quality: All Journeys ≥ 9.8"
-status: not-started
+status: done
 references:
   - "plans/code-journeys/overview.md"
   - "plans/aims/"

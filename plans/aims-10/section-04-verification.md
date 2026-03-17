@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Verification"
-status: in-progress
+status: complete
 goal: "All 13 code journeys score 10.0/10 — merge gate for experiment/aims branch"
 depends_on: ["01", "02", "03"]
 third_party_review:
@@ -19,18 +19,18 @@ sections:
     status: complete
   - id: "04.4"
     title: "Full Test Suite"
-    status: in-progress
+    status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 04: Verification
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** All 13 code journeys score 10.0/10. Full test suite passes. Zero memory leaks. Branch is merge-ready.
 
 **Context:** After Sections 01-03 fix all systematic codegen issues, this section verifies the results. Any journey below 10.0 triggers a loop back to the relevant section.

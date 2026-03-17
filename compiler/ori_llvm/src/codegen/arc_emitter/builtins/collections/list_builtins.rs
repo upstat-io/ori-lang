@@ -104,9 +104,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size, elem_dec_fn)`.
     ///
     /// The iterator takes ownership of one RC reference to the list data buffer.
-    /// The ARC pipeline emits `RcInc` before the `.iter()` call when the list
-    /// variable has additional liveness. When the iterator is consumed/dropped,
-    /// `Drop for IterState` calls `ori_buffer_rc_dec` to release the reference.
+    /// This function explicitly emits `ori_list_rc_inc` to give the iterator its
+    /// own reference — the ARC pipeline may not always do so (e.g., when the list
+    /// is a borrowed function parameter). When the iterator is consumed/dropped,
+    /// `Drop for IterState` calls `ori_buffer_rc_dec` to release this reference.
+    ///
+    /// Element cleanup contract: the iterator does NOT manage element-level RC.
+    /// Elements are owned by the collection — the list's drop function handles
+    /// all element cleanup when the buffer's refcount reaches zero. Passing null
+    /// for `elem_dec_fn` ensures `ori_buffer_rc_dec` skips per-element cleanup
+    /// when called from the iterator's Drop, preventing double-free on `[str]`
+    /// and other `[T]` where T has Drop.
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
@@ -120,13 +128,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
 
-        // Generate the per-element dec function for RC-managed element types.
-        // For scalar elements (int, float, etc.) this is null.
-        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        // Pass null for elem_dec_fn: the iterator borrows elements, it does
+        // not own them. The list's drop function is the single source of truth
+        // for element cleanup. This prevents double-free on [str], [[T]], and
+        // any [T] where T has Drop semantics.
+        let _ = elem_ty; // elem_ty used only for elem_size above
+        let elem_dec_fn_null = self.builder.const_null_ptr();
 
         self.emit_rt_call(
             func_id,
-            &[data_ptr, len, cap, elem_size_val, elem_dec_fn],
+            &[data_ptr, len, cap, elem_size_val, elem_dec_fn_null],
             "list.iter",
         )
     }

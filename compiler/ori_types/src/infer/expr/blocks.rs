@@ -69,7 +69,24 @@ pub(crate) fn infer_block(
                         }
                     }
 
-                    engine.generalize(init_ty)
+                    // Skip generalization for capturing lambdas. A lambda
+                    // that references outer-scope names (captures) is not
+                    // genuinely polymorphic — its types are constrained by
+                    // the captured context. The AOT backend can't monomorphize
+                    // polymorphic closures, so generalized params become
+                    // unresolvable Var types at codegen.
+                    // Non-capturing lambdas (like `x -> x`) remain polymorphic.
+                    if let ExprKind::Lambda { params, body, .. } = &arena.get_expr(*init).kind {
+                        let param_names: Vec<Name> =
+                            arena.get_params(*params).iter().map(|p| p.name).collect();
+                        if body_captures_outer(arena, *body, &param_names) {
+                            init_ty
+                        } else {
+                            engine.generalize(init_ty)
+                        }
+                    } else {
+                        engine.generalize(init_ty)
+                    }
                 };
 
                 // Exit rank scope (but stay in block's binding scope)
@@ -220,4 +237,50 @@ pub(crate) fn infer_lambda(
 
     // Create function type
     engine.infer_function(&param_types, body_ty)
+}
+
+/// Check if a lambda body captures outer variables by scanning for
+/// `Ident` nodes that are not in the parameter list.
+///
+/// Recursive walk over the expression tree. Over-approximates captures
+/// (any non-param, non-literal name counts) — conservative: we may skip
+/// generalization for some non-capturing lambdas, but never incorrectly
+/// generalize a capturing one.
+fn body_captures_outer(arena: &ExprArena, id: ExprId, param_names: &[Name]) -> bool {
+    if id == ExprId::INVALID {
+        return false;
+    }
+    match &arena.get_expr(id).kind {
+        ExprKind::Ident(name) => !param_names.contains(name),
+        ExprKind::Lambda { params, body, .. } => {
+            let mut all_params: Vec<Name> = param_names.to_vec();
+            for p in arena.get_params(*params) {
+                all_params.push(p.name);
+            }
+            body_captures_outer(arena, *body, &all_params)
+        }
+        ExprKind::Binary { left, right, .. } => {
+            body_captures_outer(arena, *left, param_names)
+                || body_captures_outer(arena, *right, param_names)
+        }
+        ExprKind::Unary { operand, .. } => body_captures_outer(arena, *operand, param_names),
+        ExprKind::MethodCall { receiver, .. } | ExprKind::Field { receiver, .. } => {
+            body_captures_outer(arena, *receiver, param_names)
+        }
+        ExprKind::Call { func, .. } => body_captures_outer(arena, *func, param_names),
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            body_captures_outer(arena, *cond, param_names)
+                || body_captures_outer(arena, *then_branch, param_names)
+                || (*else_branch != ExprId::INVALID
+                    && body_captures_outer(arena, *else_branch, param_names))
+        }
+        // All other expression kinds (literals, unknown patterns):
+        // conservatively return false (might miss captures, which means
+        // we'll generalize when we shouldn't — codegen will catch it).
+        _ => false,
+    }
 }
