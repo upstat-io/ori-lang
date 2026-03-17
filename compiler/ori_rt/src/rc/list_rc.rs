@@ -14,6 +14,29 @@ use super::debug::rt_debug_check_not_freed;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+/// Run element cleanup and free a buffer. Shared by both `ori_buffer_rc_dec`
+/// and `slice_buffer_rc_dec` to avoid duplicating the element-iteration +
+/// free logic across cfg blocks.
+///
+/// - `elem_data`: pointer to the start of elements for cleanup iteration
+/// - `free_data`: pointer to the RC-managed allocation to free
+/// - `free_size`: byte size to pass to `ori_rc_free`
+fn drop_elements_and_free(
+    elem_data: *mut u8,
+    n: usize,
+    es: usize,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+    free_data: *mut u8,
+    free_size: usize,
+) {
+    if let Some(f) = elem_dec_fn {
+        for i in 0..n {
+            call_drop_fn(f, unsafe { elem_data.add(i * es) });
+        }
+    }
+    ori_rc_free(free_data, free_size, 8);
+}
+
 /// Decrement the refcount on a collection data buffer.
 ///
 /// Unlike `ori_rc_dec` (which takes a type-level drop function that receives
@@ -84,16 +107,8 @@ pub extern "C" fn ori_buffer_rc_dec(
 
         if prev <= 1 {
             atomic::fence(Ordering::Acquire);
-
-            if let Some(f) = elem_dec_fn {
-                for i in 0..n {
-                    call_drop_fn(f, unsafe { data.add(i * es) });
-                }
-            }
-
-            // Free the list data buffer (cap * elem_size bytes, RC-managed)
             let total = cap.max(0) as usize * es;
-            ori_rc_free(data, total, 8);
+            drop_elements_and_free(data, n, es, elem_dec_fn, data, total);
         }
     }
 
@@ -113,15 +128,8 @@ pub extern "C" fn ori_buffer_rc_dec(
         }
 
         if should_drop {
-            if let Some(f) = elem_dec_fn {
-                for i in 0..n {
-                    call_drop_fn(f, unsafe { data.add(i * es) });
-                }
-            }
-
-            // Free the list data buffer (cap * elem_size bytes, RC-managed)
             let total = cap.max(0) as usize * es;
-            ori_rc_free(data, total, 8);
+            drop_elements_and_free(data, n, es, elem_dec_fn, data, total);
         }
     }
 }
@@ -171,17 +179,8 @@ fn slice_buffer_rc_dec(
 
         if prev <= 1 {
             atomic::fence(Ordering::Acquire);
-
-            // Best-effort element cleanup: dec elements in the slice's range
-            if let Some(f) = elem_dec_fn {
-                for i in 0..n {
-                    call_drop_fn(f, unsafe { slice_data.add(i * es) });
-                }
-            }
-
-            // Free the buffer using the stored data_size from the RC header
             let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
-            ori_rc_free(original_data, data_size, 8);
+            drop_elements_and_free(slice_data, n, es, elem_dec_fn, original_data, data_size);
         }
     }
 
@@ -201,16 +200,8 @@ fn slice_buffer_rc_dec(
         }
 
         if should_drop {
-            // Best-effort element cleanup: dec elements in the slice's range
-            if let Some(f) = elem_dec_fn {
-                for i in 0..n {
-                    call_drop_fn(f, unsafe { slice_data.add(i * es) });
-                }
-            }
-
-            // Free the buffer using the stored data_size from the RC header
             let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
-            ori_rc_free(original_data, data_size, 8);
+            drop_elements_and_free(slice_data, n, es, elem_dec_fn, original_data, data_size);
         }
     }
 }
