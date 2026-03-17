@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Tooling — Leak Detection Infrastructure"
-status: in-progress
+status: complete
 goal: "Every AOT binary checks for leaks at exit. test-all.sh fails on leaked memory. No silent leak passes."
 depends_on: []
 third_party_review:
@@ -13,7 +13,7 @@ sections:
     status: complete
   - id: "01.2"
     title: "test-all.sh Integration"
-    status: in-progress
+    status: complete
   - id: "01.3"
     title: "Valgrind CI Script"
     status: complete
@@ -25,7 +25,7 @@ sections:
     status: not-started
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Tooling — Leak Detection Infrastructure
@@ -59,7 +59,7 @@ Ensure the test infrastructure properly reports leak failures.
 - [x] Audit all AOT tests: ensure tests that should be leak-free use `assert_aot_success` (not bare `compile_and_run` which conflates exit code 2 with other failures) (2026-03-16)
 - [x] Add explicit leak check to `test-all.sh` summary — report "X tests leaked memory" separately from "X tests failed" (2026-03-16)
 - [x] Verify exit code precedence in `generate_main_wrapper`: if `_ori_main()` returns non-zero AND `ori_check_leaks()` returns 2, document which exit code the binary uses (current behavior: leak code overrides main code when non-zero) (2026-03-16)
-- [ ] Verify `./test-all.sh` reports 0 leaks after all Section 02 fixes
+- [x] Verify `./test-all.sh` reports 0 leaks after all Section 02 fixes — verified: 12,919 tests pass, 0 failures, 0 leaks (2026-03-17)
 
 ### Cleanup
 
@@ -106,6 +106,6 @@ Add a valgrind-based leak check that runs on code journey binaries as a secondar
 - [x] `test-all.sh` summary includes leak count (2026-03-16)
 - [x] `diagnostics/valgrind-aot.sh` covers all code journeys — `--journeys` flag (2026-03-16)
 - [x] All AOT tests use `assert_aot_success` (not bare `compile_and_run`) so leaks are reported distinctly (2026-03-16)
-- [ ] All AOT tests pass with leak detection enabled (blocked on Section 02 -- check after leak fixes are complete)
+- [x] All AOT tests pass with leak detection enabled — 1315 AOT tests, 0 failures, 0 leaks via ORI_CHECK_LEAKS=1 (2026-03-17)
 
 **Exit Criteria:** `ORI_CHECK_LEAKS=1` works for every AOT binary on every platform. `test-all.sh` fails loudly on any leaked memory. No test can silently pass with leaks.
