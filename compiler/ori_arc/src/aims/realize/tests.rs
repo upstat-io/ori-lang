@@ -30,6 +30,7 @@ fn cow_ctx(var: ArcVarId, uniqueness: Uniqueness) -> AnnotationSiteContext<'stat
         uniqueness,
         rc_incremented: false,
         is_param: false,
+        is_param_borrowed: false,
         is_borrowed_call_arg: false,
         rc_incremented_set: empty,
         is_excluded: false,

@@ -37,7 +37,7 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcVarId, RcStrategy};
 pub(crate) type EdgeDec = (ArcVarId, RcStrategy);
 
 // Re-export for cow/drop_hints that import via `super::collect_rc_incremented_vars`.
-pub(crate) use queries::collect_rc_incremented_vars;
+pub(crate) use queries::{collect_param_borrowed_vars, collect_rc_incremented_vars};
 
 // Re-exports for `realize/` unified annotation walk (Section 10.3).
 pub(crate) use cow::is_borrow_disjoint_from_siblings;
