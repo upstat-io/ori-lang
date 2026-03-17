@@ -30,6 +30,7 @@ mod edge_cleanup;
 mod forward_walk;
 mod helpers;
 mod queries;
+pub(crate) mod unwind_cleanup;
 
 use crate::ir::{ArcBlockId, ArcFunction, ArcVarId, RcStrategy};
 

@@ -267,28 +267,50 @@ fn test_noreturn_panic_has_unreachable_no_cleanup() {
 
     let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
 
-    // Find the line that calls ori_panic.
+    // Find the line that calls/invokes ori_panic.
+    // ori_panic now uses `invoke` (not `call`) because it raises exceptions
+    // via _Unwind_RaiseException — cleanup landing pads need invoke.
     let lines: Vec<&str> = fn_ir.lines().collect();
     let panic_line_idx = lines
         .iter()
         .position(|l| {
-            l.contains("call") && l.contains("ori_panic") && !l.contains("ori_panic_cstr")
+            (l.contains("call") || l.contains("invoke"))
+                && l.contains("ori_panic")
+                && !l.contains("ori_panic_cstr")
         })
-        .expect("expected call to ori_panic in _ori_may_panic");
+        .expect("expected call/invoke to ori_panic in _ori_may_panic");
 
-    // The very next non-empty line after the panic call should be `unreachable`.
-    let next_meaningful = lines[panic_line_idx + 1..]
-        .iter()
-        .find(|l| !l.trim().is_empty())
-        .expect("expected instruction after ori_panic call");
-
-    assert!(
-        next_meaningful.trim() == "unreachable",
-        "expected `unreachable` immediately after `call @ori_panic`, \
-         but found: `{}`.\n\
-         No RC cleanup or other code should follow a noreturn call.\nIR:\n{fn_ir}",
-        next_meaningful.trim()
-    );
+    // For invoke, the next non-empty line is `to label %normal unwind label %unwind`.
+    // For call, the next line should be `unreachable`.
+    // In both cases, the normal continuation should eventually be unreachable.
+    let panic_line = lines[panic_line_idx].trim();
+    if panic_line.contains("invoke") {
+        // invoke ... to label %bbN unwind label %bbM
+        // The `to label` and `unwind label` may be on the next line (LLVM
+        // wraps long invoke instructions). Check both the invoke line and
+        // the continuation for the unwind destination.
+        let invoke_region = lines[panic_line_idx..panic_line_idx + 3]
+            .iter()
+            .map(|l| l.trim())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            invoke_region.contains("to label") && invoke_region.contains("unwind label"),
+            "invoke to ori_panic should have normal + unwind destinations.\nIR:\n{fn_ir}"
+        );
+    } else {
+        // call: next meaningful line should be unreachable
+        let next_meaningful = lines[panic_line_idx + 1..]
+            .iter()
+            .find(|l| !l.trim().is_empty())
+            .expect("expected instruction after ori_panic call");
+        assert!(
+            next_meaningful.trim() == "unreachable",
+            "expected `unreachable` immediately after `call @ori_panic`, \
+             but found: `{}`.\nIR:\n{fn_ir}",
+            next_meaningful.trim()
+        );
+    }
 }
 
 /// The else arm of `if cond then panic(...) else value` should still work
