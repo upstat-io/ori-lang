@@ -25,6 +25,7 @@ pub mod ir_quality_block_merge;
 pub mod ir_quality_cfg_simplify;
 pub mod ir_quality_codegen;
 pub mod ir_quality_loops;
+pub mod iter_rc_matrix;
 pub mod iterators;
 pub mod linking;
 pub mod lto;
