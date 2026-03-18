@@ -1153,3 +1153,528 @@ fn test_unwind_break_then_panic() {
         "unwind_break_then_panic",
     );
 }
+
+/// Panic at FIRST element during iteration — iterator is live but no
+/// elements have been consumed yet. Verifies cleanup handles zero-consumed
+/// iterator state correctly.
+#[test]
+fn test_unwind_panic_at_first_element() {
+    assert_aot_success(
+        r#"
+@process (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w.starts_with(prefix: "boom") then {
+            panic(msg: "panic at first element")
+        };
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "boom this is a long enough string for heap allocation",
+        "second very long string that also exceeds the threshold",
+        "third long string that should also be on the heap here"
+    ];
+    let result = catch(expr: process(words: words));
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0
+    }
+}
+"#,
+        "unwind_panic_at_first_element",
+    );
+}
+
+/// Repeated catch/panic cycles on the same list — stresses RC balance
+/// across multiple unwind/recovery sequences.
+#[test]
+fn test_unwind_repeated_catch_cycles() {
+    assert_aot_success(
+        r#"
+@panicking_iter (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        if w.starts_with(prefix: "boom") then {
+            panic(msg: "cycle panic")
+        };
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "boom this is a long enough string for heap allocation",
+        "second very long string that also exceeds the threshold"
+    ];
+    let r1 = catch(expr: panicking_iter(words: words));
+    let r2 = catch(expr: panicking_iter(words: words));
+    let r3 = catch(expr: panicking_iter(words: words));
+    let all_err = match r1 { Ok(_) -> false, Err(_) -> true }
+        && match r2 { Ok(_) -> false, Err(_) -> true }
+        && match r3 { Ok(_) -> false, Err(_) -> true };
+    if all_err then 0 else 1
+}
+"#,
+        "unwind_repeated_catch_cycles",
+    );
+}
+
+/// Non-iterator local heap value in callee + panic — verifies general
+/// RC cleanup for non-iterator heap variables on unwind path.
+#[test]
+fn test_unwind_callee_local_heap_value() {
+    assert_aot_success(
+        r#"
+@process (input: str) -> int = {
+    let local_copy = input + " extra text to ensure heap allocation";
+    if local_copy.len() > 50 then {
+        panic(msg: "callee local panic")
+    };
+    local_copy.len()
+}
+
+@main () -> int = {
+    let s = "this is a very long string that exceeds SSO threshold";
+    let result = catch(expr: process(input: s));
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0
+    }
+}
+"#,
+        "unwind_callee_local_heap_value",
+    );
+}
+
+// -----------------------------------------------------------------------
+// 01.4 Generalize to All [T] Where T Has Drop
+// -----------------------------------------------------------------------
+
+/// [str] iteration — the original J15 scenario. Full iteration, break,
+/// and yield over heap-allocated strings.
+#[test]
+fn test_generalize_str_list() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let total = 0;
+    for w in words do {
+        total = total + w.len()
+    };
+    if total == 109 then 0 else 1
+}
+"#,
+        "generalize_str_list",
+    );
+}
+
+/// [[int]] iteration — nested list elements are heap-allocated.
+#[test]
+fn test_generalize_nested_int_list() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let nested = [[1, 2, 3], [4, 5], [6, 7, 8, 9]];
+    let total = 0;
+    for inner in nested do {
+        for n in inner do {
+            total = total + n
+        }
+    };
+    if total == 45 then 0 else 1
+}
+"#,
+        "generalize_nested_int_list",
+    );
+}
+
+/// [(int) -> int] iteration — closures that capture heap values.
+#[test]
+fn test_generalize_closure_list() {
+    assert_aot_success(
+        r#"
+@make_adder (n: int) -> (int) -> int = {
+    x -> x + n
+}
+
+@main () -> int = {
+    let fns = [make_adder(n: 10), make_adder(n: 20), make_adder(n: 30)];
+    let total = 0;
+    for f in fns do {
+        total = total + f(1)
+    };
+    if total == 63 then 0 else 1
+}
+"#,
+        "generalize_closure_list",
+    );
+}
+
+/// [{name: str, age: int}] iteration — structs with string fields.
+#[test]
+fn test_generalize_struct_with_str_fields() {
+    assert_aot_success(
+        r#"
+type Person = { name: str, age: int }
+
+@main () -> int = {
+    let people = [
+        Person { name: "alice with a very long name for heap allocation", age: 30 },
+        Person { name: "bob with another very long name for heap allocation", age: 25 }
+    ];
+    let total_age = 0;
+    for p in people do {
+        total_age = total_age + p.age
+    };
+    if total_age == 55 then 0 else 1
+}
+"#,
+        "generalize_struct_with_str_fields",
+    );
+}
+
+/// [Option<str>] iteration — sum types with fat pointer payloads.
+#[test]
+fn test_generalize_option_str_list() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let items = [
+        Some("this is a very long string that exceeds SSO threshold"),
+        None,
+        Some("another very long string that also exceeds the threshold")
+    ];
+    let count = 0;
+    for item in items do {
+        match item {
+            Some(_) -> { count = count + 1 },
+            None -> ()
+        }
+    };
+    if count == 2 then 0 else 1
+}
+"#,
+        "generalize_option_str_list",
+    );
+}
+
+/// Partially consumed [str] with break — consumed and unconsumed elements
+/// must both be correctly cleaned up.
+#[test]
+fn test_generalize_partial_break_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "stop marker string that is also long enough to be heap",
+        "third long string that should not be visited early break"
+    ];
+    let count = 0;
+    for w in words do {
+        if w.starts_with(prefix: "stop") then break;
+        count = count + 1
+    };
+    if count == 1 then 0 else 1
+}
+"#,
+        "generalize_partial_break_str",
+    );
+}
+
+/// `for w in words yield w.len()` — yield consumes each element value.
+#[test]
+fn test_generalize_yield_str_lengths() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let lengths = for w in words yield w.len();
+    let total = 0;
+    for n in lengths do {
+        total = total + n
+    };
+    if total == 109 then 0 else 1
+}
+"#,
+        "generalize_yield_str_lengths",
+    );
+}
+
+/// [str] passed to TWO functions — verifies list RC increment on second
+/// call preserves elements for both iteration passes.
+#[test]
+fn test_generalize_str_list_two_calls() {
+    assert_aot_success(
+        r#"
+@count_lengths (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len()
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let r1 = count_lengths(words: words);
+    let r2 = count_lengths(words: words);
+    if r1 == 109 && r2 == 109 then 0 else 1
+}
+"#,
+        "generalize_str_list_two_calls",
+    );
+}
+
+/// String iteration — `for c in s` where `s: str`. `IterState::Str` owns
+/// its data via `owns_data` flag.
+#[test]
+fn test_generalize_string_iteration() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "hello world this is a very long string for heap allocation";
+    let count = 0;
+    for c in s do {
+        count = count + 1
+    };
+    if count == 58 then 0 else 1
+}
+"#,
+        "generalize_string_iteration",
+    );
+}
+
+// -----------------------------------------------------------------------
+// Regression matrix: element type × iteration pattern
+//
+// Covers the cross-product of element types (str, [int], closures,
+// structs, Option<str>) × patterns (full, break, yield, two-call,
+// nested) to prevent regressions in the iterator element ownership
+// contract. Each test runs with ORI_CHECK_LEAKS=1 (via assert_aot_success).
+// -----------------------------------------------------------------------
+
+/// [[int]] with partial break — inner list elements and outer list
+/// must all be freed correctly even when inner loop is partially consumed.
+#[test]
+fn test_matrix_nested_list_break() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let nested = [[10, 20, 30], [40, 50], [60, 70, 80, 90]];
+    let total = 0;
+    for inner in nested do {
+        for n in inner do {
+            if n > 50 then break;
+            total = total + n
+        }
+    };
+    if total == 150 then 0 else 1
+}
+"#,
+        "matrix_nested_list_break",
+    );
+}
+
+/// [[int]] passed to two functions — verifies RC balance across multiple
+/// iteration passes over nested collections.
+#[test]
+fn test_matrix_nested_list_two_calls() {
+    assert_aot_success(
+        r#"
+@sum_nested (lists: [[int]]) -> int = {
+    let total = 0;
+    for inner in lists do {
+        for n in inner do {
+            total = total + n
+        }
+    };
+    total
+}
+
+@main () -> int = {
+    let nested = [[1, 2], [3, 4], [5, 6]];
+    let r1 = sum_nested(lists: nested);
+    let r2 = sum_nested(lists: nested);
+    if r1 == 21 && r2 == 21 then 0 else 1
+}
+"#,
+        "matrix_nested_list_two_calls",
+    );
+}
+
+/// [[int]] with yield — outer for-yield produces lengths of inner lists.
+#[test]
+fn test_matrix_nested_list_yield() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let nested = [[1, 2, 3], [4, 5], [6]];
+    let lengths = for inner in nested yield inner.len();
+    let total = 0;
+    for n in lengths do {
+        total = total + n
+    };
+    if total == 6 then 0 else 1
+}
+"#,
+        "matrix_nested_list_yield",
+    );
+}
+
+/// Struct with Drop field + break — partially consumed iteration.
+#[test]
+fn test_matrix_struct_break() {
+    assert_aot_success(
+        r#"
+type Item = { label: str, value: int }
+
+@main () -> int = {
+    let items = [
+        Item { label: "first long label exceeding SSO threshold here", value: 10 },
+        Item { label: "second long label also exceeding SSO threshold", value: 20 },
+        Item { label: "third long label should not be reached at all", value: 30 }
+    ];
+    let total = 0;
+    for item in items do {
+        if item.value > 15 then break;
+        total = total + item.value
+    };
+    if total == 10 then 0 else 1
+}
+"#,
+        "matrix_struct_break",
+    );
+}
+
+/// Struct with Drop field + yield — extracts labels from structs.
+#[test]
+fn test_matrix_struct_yield() {
+    assert_aot_success(
+        r#"
+type Item = { label: str, value: int }
+
+@main () -> int = {
+    let items = [
+        Item { label: "first long label exceeding SSO threshold here", value: 10 },
+        Item { label: "second long label also exceeding SSO threshold", value: 20 }
+    ];
+    let values = for item in items yield item.value;
+    let total = 0;
+    for v in values do {
+        total = total + v
+    };
+    if total == 30 then 0 else 1
+}
+"#,
+        "matrix_struct_yield",
+    );
+}
+
+/// Closure list + break — partially consumed closure iteration.
+#[test]
+fn test_matrix_closure_break() {
+    assert_aot_success(
+        r#"
+@make_fn (n: int) -> (int) -> int = {
+    x -> x + n
+}
+
+@main () -> int = {
+    let fns = [make_fn(n: 100), make_fn(n: 200), make_fn(n: 300)];
+    let total = 0;
+    for f in fns do {
+        let result = f(1);
+        if result > 150 then break;
+        total = total + result
+    };
+    if total == 101 then 0 else 1
+}
+"#,
+        "matrix_closure_break",
+    );
+}
+
+/// Option<str> + yield — extracts string lengths from Some values.
+#[test]
+#[ignore = "iter-rc-contract plan Sections 02+03: for-yield + Option<str> double-free (two intertwined bugs: NULL elem_dec_fn + AIMS extra RcDec)"]
+fn test_matrix_option_str_yield() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let items = [
+        Some("this is a very long string that exceeds SSO threshold"),
+        None,
+        Some("another very long string that also exceeds the threshold")
+    ];
+    let lengths = for item in items yield {
+        match item {
+            Some(s) -> s.len(),
+            None -> 0
+        }
+    };
+    let total = 0;
+    for n in lengths do {
+        total = total + n
+    };
+    if total == 109 then 0 else 1
+}
+"#,
+        "matrix_option_str_yield",
+    );
+}
+
+/// [str] + unwind during nested function + catch — most complex
+/// scenario combining fat pointers, iteration, and error recovery.
+#[test]
+fn test_matrix_str_nested_unwind() {
+    assert_aot_success(
+        r#"
+@process_word (w: str) -> int = {
+    if w.starts_with(prefix: "panic") then {
+        panic(msg: "word triggered panic")
+    };
+    w.len()
+}
+
+@process_all (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + process_word(w: w)
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "panic trigger long string for heap allocation needed",
+        "unreachable very long string that is also on the heap"
+    ];
+    let r1 = catch(expr: process_all(words: words));
+    let r2 = process_all(words: [
+        "first safe long string exceeding SSO threshold here",
+        "second safe long string also exceeding the threshold"
+    ]);
+    let caught = match r1 { Ok(_) -> false, Err(_) -> true };
+    if caught && r2 == 103 then 0 else 1
+}
+"#,
+        "matrix_str_nested_unwind",
+    );
+}

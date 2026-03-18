@@ -77,6 +77,11 @@ pub(crate) struct ArcLowerer<'a> {
     /// the substitution so the ARC lowerer emits type-specific RC operations.
     /// `None` for non-generic functions (zero overhead).
     pub(crate) type_subst: Option<&'a FxHashMap<Idx, Idx>>,
+    /// Counter for generating unique `__for_coll_N` phantom names.
+    ///
+    /// Prevents name collisions in nested for-loops where each level
+    /// needs its own collection phantom binding.
+    pub(crate) for_coll_counter: u32,
 }
 
 impl ArcLowerer<'_> {

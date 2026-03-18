@@ -192,10 +192,10 @@ impl ArcLowerer<'_> {
         // ori_iter_drop. This ordering ensures the explicit RcDec (with the real
         // elem_dec_fn) is the one that reaches zero and performs element cleanup,
         // not the iterator's drop (which uses NULL elem_dec_fn).
-        let for_coll_name = self.interner.intern("__for_coll");
+        // Match any __for_coll_N phantom (unique per nesting level).
         if let Some(&(_, exit_param)) = exit_mut_params
             .iter()
-            .find(|(name, _)| *name == for_coll_name)
+            .find(|(name, _)| self.interner.lookup(*name).starts_with("__for_coll_"))
         {
             // A Let that reads the exit param — keeps it alive for AIMS analysis.
             let coll_ty = self.builder.var_type_or_unit(exit_param);

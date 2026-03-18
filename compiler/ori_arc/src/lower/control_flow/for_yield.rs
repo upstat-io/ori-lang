@@ -41,34 +41,59 @@ impl ArcLowerer<'_> {
             self.lower_for_yield_option(pattern, iter_val, elem_ty, guard, body, result_ty)
         } else {
             // Range, Iterator, List, Set, Str, Map — all go through iterator loop.
-            let (iter_handle, elem_ty) = self.prepare_iterator(iter_val, iter_ty, tag);
-            self.lower_for_yield_iterator(pattern, iter_handle, elem_ty, guard, body, result_ty)
+            let (iter_handle, elem_ty, coll_var) = self.prepare_iterator(iter_val, iter_ty, tag);
+            self.lower_for_yield_iterator(
+                pattern,
+                iter_handle,
+                elem_ty,
+                guard,
+                body,
+                result_ty,
+                coll_var,
+            )
         }
     }
 
     /// Prepare an iterator handle from any iterable type.
     ///
-    /// Returns `(iterator_ptr_var, element_type)`.
-    fn prepare_iterator(&mut self, iter_val: ArcVarId, iter_ty: Idx, tag: Tag) -> (ArcVarId, Idx) {
+    /// Returns `(iterator_ptr_var, element_type, optional_collection_var)`.
+    /// The optional collection variable is `Some` for List/Set collections
+    /// that need a `__for_coll` phantom to ensure correct cleanup ordering.
+    fn prepare_iterator(
+        &mut self,
+        iter_val: ArcVarId,
+        iter_ty: Idx,
+        tag: Tag,
+    ) -> (ArcVarId, Idx, Option<ArcVarId>) {
         if tag == Tag::Range {
-            // Range → convert to iterator via .iter()
             let iter_name = self.interner.intern("iter");
             let iter_handle = self
                 .builder
                 .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
-            (iter_handle, Idx::INT)
+            (iter_handle, Idx::INT, None)
         } else if tag.is_iterator() {
             let elem_ty = self.pool.iterator_elem(iter_ty);
-            (iter_val, elem_ty)
+            (iter_val, elem_ty, None)
         } else {
-            // List, Set, Str, Map → .iter()
             let elem_ty = self.extract_yield_elem_type(tag, iter_ty);
+
             let iter_name = self.interner.intern("iter");
-            // Use INT for iterator handle — it's an opaque ptr, no RC.
             let iter_handle = self
                 .builder
                 .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
-            (iter_handle, elem_ty)
+
+            // For List/Set: return the collection variable so the yield
+            // loop can thread it as a block param. This makes the original
+            // variable die at the Jump to header (its last use), preventing
+            // the AIMS analysis from emitting a spurious extra RcDec in
+            // post-loop code. The header param takes over and its final
+            // use (dummy let in exit block) ensures cleanup ordering.
+            let coll = if matches!(tag, Tag::List | Tag::Set) {
+                Some(iter_val)
+            } else {
+                None
+            };
+            (iter_handle, elem_ty, coll)
         }
     }
 
@@ -186,6 +211,10 @@ impl ArcLowerer<'_> {
     ///       jump → header
     /// exit: result = ori_list_take(list_ptr)
     /// ```
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "coll_var is an optional phantom for RC cleanup ordering — extracting a config struct would obscure the control flow"
+    )]
     fn lower_for_yield_iterator(
         &mut self,
         pattern: CanBindingPatternId,
@@ -194,6 +223,7 @@ impl ArcLowerer<'_> {
         guard: CanId,
         body: CanId,
         result_ty: Idx,
+        coll_var: Option<ArcVarId>,
     ) -> ArcVarId {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
@@ -223,7 +253,16 @@ impl ArcLowerer<'_> {
             self.builder
                 .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None);
 
-        self.builder.terminate_jump(header_block, vec![]);
+        // Thread source collection through header as a block param so the
+        // original variable dies at this Jump (its last use). The header
+        // param takes over, and its dummy let in the exit block ensures
+        // the collection outlives ori_iter_drop.
+        let coll_param = coll_var.map(|cv| {
+            let coll_ty = self.builder.var_type_or_unit(cv);
+            self.builder.add_block_param(header_block, coll_ty)
+        });
+        let entry_args: Vec<_> = coll_var.into_iter().collect();
+        self.builder.terminate_jump(header_block, entry_args);
 
         // Header: call __iter_next(iter, elem_ty_marker) → {tag, element}
         self.builder.position_at(header_block);
@@ -268,7 +307,8 @@ impl ArcLowerer<'_> {
 
             // Guard skip: jump back to header without pushing.
             self.builder.position_at(guard_skip);
-            self.builder.terminate_jump(header_block, vec![]);
+            let skip_args: Vec<_> = coll_param.into_iter().collect();
+            self.builder.terminate_jump(header_block, skip_args);
         } else {
             self.builder
                 .terminate_branch(has_more, body_block, exit_block);
@@ -291,7 +331,8 @@ impl ArcLowerer<'_> {
         );
 
         if !self.builder.is_terminated() {
-            self.builder.terminate_jump(header_block, vec![]);
+            let back_args: Vec<_> = coll_param.into_iter().collect();
+            self.builder.terminate_jump(header_block, back_args);
         }
 
         // Exit: drop the iterator handle, then extract the final list.
@@ -299,6 +340,15 @@ impl ArcLowerer<'_> {
         let iter_drop = self.interner.intern("ori_iter_drop");
         self.builder
             .emit_apply(Idx::UNIT, iter_drop, vec![iter_val], None);
+
+        // Dummy reference to collection param AFTER ori_iter_drop.
+        // Keeps the collection alive past the iterator drop, so the
+        // AIMS pipeline's RcDec (with real elem_dec_fn) reaches zero.
+        if let Some(param) = coll_param {
+            let coll_ty = self.builder.var_type_or_unit(param);
+            self.builder.emit_let(coll_ty, ArcValue::Var(param), None);
+        }
+
         let list_take = self.interner.intern("ori_list_take");
         self.builder
             .emit_apply(result_ty, list_take, vec![list_ptr], None)
