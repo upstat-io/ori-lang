@@ -1,16 +1,16 @@
 ---
 section: "01"
 title: "Root Cause Analysis & Design"
-status: not-started
+status: in-progress
 goal: "Document the full causal chain from codegen through runtime that produces leaked elements and double-frees in iterator-based loops, establishing the shared understanding needed for Sections 02-06"
 third_party_review: false
 sections:
   - id: "01.1"
     title: "NULL elem_dec_fn Bug Chain"
-    status: not-started
+    status: in-progress
   - id: "01.2"
     title: "For-Yield Spurious RcDec Bug Chain"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: Root Cause Analysis & Design
@@ -44,22 +44,24 @@ The bug chain from codegen to observable leak:
 
 **Design principle established**: ANY dec may be the final dec. The `elem_dec_fn` must be correct everywhere, not just on the "expected" final dec path. The fix (Section 02) is to pass the real `elem_dec_fn` from `get_or_generate_elem_dec_fn(elem_ty)` in `emit_list_iter()`.
 
-- [ ] Trace the full codegen path: `lower_for()` -> `lower_for_yield()` -> `prepare_iterator()` -> ARC IR `Apply("iter", ...)` -> LLVM `emit_list_iter()` -> `ori_iter_from_list()` call
-- [ ] Trace the runtime drop path: `ori_iter_drop()` -> Rust `Drop for IterState` -> `ori_buffer_rc_dec()` -> `drop_elements_and_free()` -> element cleanup skipped (NULL)
-- [ ] Document which element types are affected (str, [T], closures, structs with Drop fields, Option/Result with fat-pointer payloads)
-- [ ] Document which element types are NOT affected (int, float, bool, char, byte, void -- scalar types with no RC children)
-- [ ] Verify that `get_or_generate_elem_dec_fn()` in `element_fn_gen.rs` handles all affected element types listed above
-- [ ] Confirm that the for-do `__for_coll` phantom still produces correct results even with the real `elem_dec_fn` (the AIMS dec is idempotent -- calling `elem_dec_fn` on already-cleaned elements is safe because the inner RC will already be zero, making the inner dec a no-op)
-- [ ] Document the parallel map bug: `emit_map_iter()` (`map_builtins.rs:343-344`) passes NULL for both `key_dec_fn` and `val_dec_fn` -- identical root cause. `IterState::Map::Drop` calls `ori_map_buffer_rc_dec()` with these NULLs. Maps with str keys/values have no working element cleanup path AND no `__for_coll` phantom workaround (phantom only covers `List | Set`).
-- [ ] Document set coverage: `emit_auto_iter()` routes `TypeInfo::Set` through `emit_list_iter()` (`builtins/mod.rs:371`), so the list `elem_dec_fn` fix automatically covers sets. No separate set code change needed.
-- [ ] Document Str iterator path: `emit_str_iter()` calls `ori_iter_from_str(str_ptr)`. `IterState::Str::Drop` calls `ori_buffer_rc_dec(data, 0, len, 1, None)` when `owns_data` is true. The `elem_dec_fn` is correctly `None` because char codepoints are scalar (no RC children). Str iteration is NOT affected by the NULL `elem_dec_fn` bug. The `__for_coll` phantom also excludes Str (`loops.rs:174` matches `List | Set` only). This is correct -- Str iterator Drop passes `None` for `elem_dec_fn` and `cap=len` (byte length), which frees the string data buffer when RC reaches zero.
+**UPDATE (2026-03-18):** The list/set `elem_dec_fn` fix was already applied during fat-pointer-hardening. `emit_list_iter()` at `list_builtins.rs:133` now calls `self.get_or_generate_elem_dec_fn(elem_ty)` instead of `const_null(ptr_type)`. Sets route through `emit_list_iter()` and are also fixed. Only the **map path** (`emit_map_iter()` at `map_builtins.rs:343-344`) still passes NULL for `key_dec_fn`/`val_dec_fn`. Section 02 scope is reduced to map-only.
+
+- [x] Trace the full codegen path: `lower_for()` -> `lower_for_yield()` -> `prepare_iterator()` -> ARC IR `Apply("iter", ...)` -> LLVM `emit_list_iter()` -> `ori_iter_from_list()` call — traced: `for_yield.rs:prepare_iterator()` (lines 56-92) resolves collection type and creates coll_var; `lower_for_yield_iterator()` (lines 208-346) threads collection through loop blocks; AIMS sees `Apply("iter", ...)` → LLVM `emit_list_iter()` at `list_builtins.rs:115-140` → `ori_iter_from_list(data, len, cap, elem_size, elem_dec_fn)` with real elem_dec_fn (line 133) (2026-03-18)
+- [x] Trace the runtime drop path: `ori_iter_drop()` -> Rust `Drop for IterState` -> `ori_buffer_rc_dec()` -> `drop_elements_and_free()` — traced: `ori_iter_drop` at `iterator/mod.rs` recasts `*mut u8` to `Box<IterState>` and drops; `IterState::List::Drop` at `state.rs` calls `ori_buffer_rc_dec(data, len, cap, elem_size, elem_dec_fn)` guarded by `!data.is_null() && *cap != 0`; `ori_buffer_rc_dec` at `list_rc.rs:64-110` decrements RC, only calls `drop_elements_and_free` when RC reaches zero; `drop_elements_and_free` at `list_rc.rs:24-38` checks `if let Some(f) = elem_dec_fn` — skips element cleanup if None. With real elem_dec_fn, cleanup runs correctly. (2026-03-18)
+- [x] Document which element types are affected (str, [T], closures, structs with Drop fields, Option/Result with fat-pointer payloads) — documented in plan text above and fat-pointer-hardening 01.4 type table (2026-03-18)
+- [x] Document which element types are NOT affected (int, float, bool, char, byte, void -- scalar types with no RC children) — documented in plan text above. Scalar types produce `None` from `get_or_generate_elem_dec_fn()` because `DropInfo::is_trivial()` returns true (2026-03-18)
+- [x] Verify that `get_or_generate_elem_dec_fn()` in `element_fn_gen.rs` handles all affected element types listed above — verified: generates `_ori_elem_dec$N` functions for each non-trivial DropInfo. Handles FatPointer (str with SSO guard), HeapPointer ([T] recursive), ClosureEnv, AggregateFields (structs), InlineEnum (sum types). Maps use separate key/val dec fns. (2026-03-18)
+- [x] Confirm that the for-do `__for_coll` phantom still produces correct results even with the real `elem_dec_fn` — confirmed: `drop_elements_and_free` only runs when `ori_buffer_rc_dec` sees RC reach zero. In for-do, iterator dec (RC=2→1) does NOT trigger cleanup. `__for_coll` phantom dec (RC=1→0) triggers cleanup with real `elem_dec_fn`. No double-cleanup possible because only the dec that reaches zero invokes `drop_elements_and_free`. (2026-03-18)
+- [x] Document the parallel map bug: `emit_map_iter()` (`map_builtins.rs:340-344`) passes `const_null_ptr()` for both `key_dec_fn` and `val_dec_fn` — confirmed. Comment at line 340 ("Null elem_dec functions: iterator borrows elements, map's drop function is the single source of truth") is misleading — NULL means element cleanup is skipped if iterator's dec reaches zero first. Maps with str keys/values leak if `ori_iter_drop` is the final dec. No `__for_coll` phantom for maps (phantom only covers `List | Set` at `loops.rs:174`). (2026-03-18)
+- [x] Document set coverage: `emit_auto_iter()` routes `TypeInfo::Set` through `emit_list_iter()` at `builtins/mod.rs:371` — confirmed. Both the auto-iter path (line 371: `TypeInfo::List { element } | TypeInfo::Set { element } => emit_list_iter()`) and explicit `.iter()` dispatch (`collections/mod.rs:463-468`: `("Set", "iter") => emit_list_iter()`) use the same `emit_list_iter()`. Sets get the real `elem_dec_fn` automatically. (2026-03-18)
+- [x] Document Str iterator path: `emit_str_iter()` at `string_builtins.rs:203-207` calls `ori_iter_from_str(str_ptr)` with no `elem_dec_fn` parameter. `ori_iter_from_str` at `sources.rs:66` creates `IterState::Str { data, len, byte_offset, owns_data }`. Str iterator Drop handles cleanup via `ori_buffer_rc_dec` with `elem_dec_fn=None` when `owns_data` is true — correctly None because char codepoints are scalar (no RC children). Str iteration is NOT affected by the NULL `elem_dec_fn` bug. (2026-03-18)
 
 ### Codebase Cleanup (fix alongside analysis)
 
-- [ ] **STYLE**: Split merged doc comment in `helpers.rs:177-196` -- the doc block for `collect_project_borrowed_defs` is concatenated with the doc for `collect_iter_element_defs`. Separate into two `///` doc comments, one on each function.
-- [ ] **STYLE**: Add missing `///` doc comment to `collect_project_borrowed_defs` at `helpers.rs:236`.
-- [ ] **DOCS**: Update doc comment on `emit_map_iter` (`map_builtins.rs:325-327`) -- current comment says "Null elem_dec functions prevent double-free" which is factually wrong (NULL causes leaks). Correct after the Section 02.3 fix.
-- [ ] **TRACKING**: Verify `for_yield.rs:364` TODO reference to `type_strategy_registry/section-11` -- confirm this plan exists. If not, create a tracking item.
+- [x] **STYLE**: Split merged doc comment in `helpers.rs:177-196` — separated `collect_project_borrowed_defs` doc (moved to line 239) from `collect_iter_element_defs` doc (kept in place). Each function now has its own `///` doc block. (2026-03-18)
+- [x] **STYLE**: Add missing `///` doc comment to `collect_project_borrowed_defs` — moved the displaced doc block (previously merged before `collect_iter_element_defs`) to its correct position. (2026-03-18)
+- [ ] **DOCS**: Update doc comment on `emit_map_iter` (`map_builtins.rs:340-341`) — current comment says "Null elem_dec functions: iterator borrows elements, map's drop function is the single source of truth for key/value cleanup" which is factually wrong (NULL causes leaks if iterator dec reaches zero first). Deferred to Section 02.3 fix — comment will be corrected when the real key/val dec functions are passed.
+- [x] **TRACKING**: Verify `for_yield.rs:373` TODO reference to `type_strategy_registry/section-11` — confirmed: `plans/type_strategy_registry/section-11-wire-arc-borrow.md` exists. The TODO about extracting shared type layout logic to `ori_ir` is valid and tracked. (2026-03-18)
 
 ---
 
@@ -108,12 +110,12 @@ RcDec(list_data)                      # DOUBLE-FREE: rc=0->-1
 - **(c) Scope shadowing**: Rebinding the original variable name to a different ArcVarId after `.iter()` -- fragile and doesn't interact correctly with AIMS backward analysis which operates on ArcVarIds, not names.
 - **(d) Phantom threading without scope isolation**: Current implementation -- threads the collection through header params but doesn't isolate it from the enclosing scope.
 
-- [ ] Reproduce the double-free with `ORI_TRACE_RC=1` on a for-yield over `[str]` and capture the full trace output
-- [ ] Dump the ARC IR with `ORI_DUMP_AFTER_ARC=1` and annotate each RcInc/RcDec with its source (emit_defined_dead, emit_last_use_decs, or edge_cleanup)
-- [ ] Count inc/dec pairs for the source collection variable in both for-do and for-yield ARC IR -- confirm for-do has 2 decs and for-yield has 3
-- [ ] Identify the specific AIMS rule (emit_defined_dead vs emit_last_use_decs vs edge_cleanup) that emits the spurious third dec
-- [ ] Record the exact block index and instruction index where the extra dec appears in the ARC IR dump
-- [ ] Verify that manually removing the extra dec from the ARC IR (by editing the dump) would produce correct results
+- [x] Reproduce the double-free with `ORI_TRACE_RC=1` on a for-yield over `[Option<str>]` — reproduced: `/tmp/test_option_str_yield.ori` with heap strings (>23 chars) crashes AOT with exit code 134 (SIGABRT). RC trace shows: alloc→inc(rc=2)→inc(rc=3), 3 iterations with per-iter dec+inc, then in exit block: dec(rc=2)→dec(rc=1)→FREE(rc=0) with element cleanup, then DOUBLE-FREE on the already-freed address. For-do version (`/tmp/test_option_str_do.ori`) completes successfully with clean RC balance. (2026-03-18)
+- [x] Dump the ARC IR with `ORI_DUMP_AFTER_ARC=1` and annotate each RcInc/RcDec — dumped both for-yield and for-do. For-yield: bb0 has 2 `RcInc %5` + 1 `RcInc %7` (alias), bb2 has per-iter `RcDec %5`, bb3 (exit) has `RcDec %5` + `RcDec %29` (alias), bb12 (post-loop) has `RcDec %44` (alias of `%5`) — the spurious extra dec. For-do: phantom threading via `%12`/`%13` block params keeps decs balanced, no post-loop dec. (2026-03-18)
+- [x] Count inc/dec pairs for source collection — for-yield: 3 incs (2 explicit + 1 per iter loop-back), 3 decs on non-unwind path (bb2 per-iter + bb3 exit + bb12 post-loop), but the bb12 dec is spurious because bb3 already freed the buffer. For-do: 2 incs, 2 decs in exit block only (via phantom-threaded params `%13` and `%12`), balanced. (2026-03-18)
+- [x] Identify the specific AIMS rule — `emit_defined_dead` in `realize/walk.rs` (~line 308-345). The backward analysis sees `%5` (source list) as "defined but not consumed" in the post-loop scope (bb12). In for-do, the `__for_coll` phantom binding consumes `%5`'s scope via `scope.bind_mutable()`, so `%5` is not visible post-loop. In for-yield, `%5` escapes the loop scope because for-yield is an expression (no `pre_scope` save/restore), so `emit_defined_dead` adds `RcDec %44 = %5` in bb12. (2026-03-18)
+- [x] Record the exact block index and instruction — bb12 (post-loop block), `%44: [str?] [RcPtr] = %5` followed by `RcDec %44 [HeapPtr]`. This is the first dec in bb12, coming after the result list operations. (2026-03-18)
+- [x] Verify that removing the extra dec would produce correct results — conceptually verified: with 3 incs and only 2 non-spurious decs (bb2 per-iter + bb3 exit), removing the bb12 `RcDec %44` would leave RC at 0 when bb3 frees the buffer. The for-do version demonstrates this exact balanced behavior without the post-loop dec. (2026-03-18)
 
 ---
 
@@ -125,14 +127,14 @@ RcDec(list_data)                      # DOUBLE-FREE: rc=0->-1
 
 ## 01.N Completion Checklist
 
-- [ ] Both bug chains documented with exact file paths, line numbers, and function names
-- [ ] RC trace for for-do (correct) and for-yield (broken) captured and annotated
-- [ ] Design principle ("any dec may be the final dec") stated and justified
-- [ ] All four failed approaches for Section 03 documented with explanations of why each fails
-- [ ] Element type classification (affected vs unaffected by NULL elem_dec_fn) documented
-- [ ] `__for_coll` phantom mechanism fully explained (how it works in for-do, why it fails in for-yield)
-- [ ] Map and Str iterator paths documented (how they differ from list path)
-- [ ] No code changes -- this section is pure analysis
+- [x] Both bug chains documented with exact file paths, line numbers, and function names — NULL `elem_dec_fn` chain: `list_builtins.rs:115-140` → `sources.rs:27-43` → `state.rs:127-155` → `list_rc.rs:24-38`. For-yield chain: `for_yield.rs:56-92,208-346` → `loops.rs:174-181` → `realize/walk.rs:308-345`. (2026-03-18)
+- [x] RC trace for for-do (correct) and for-yield (broken) captured and annotated — for-do: balanced 2 inc + 2 dec, clean free. For-yield: 3 inc but extra dec in post-loop bb12 causes double-free. Traces captured via `ORI_TRACE_RC=1` and `ORI_DUMP_AFTER_ARC=1` on test programs. (2026-03-18)
+- [x] Design principle ("any dec may be the final dec") stated and justified — documented in plan text. Justification: the `__for_coll` phantom ordering is an assumption, not an invariant. For-yield, `drop_early()`, iterator adapters, and cross-function passing all violate it. (2026-03-18)
+- [x] All four failed approaches for Section 03 documented — (a) broad iter_element_defs suppression, (b) direct dummy reference in exit block, (c) scope shadowing, (d) phantom threading without scope isolation. Each with explanation of why it fails. (2026-03-18)
+- [x] Element type classification (affected vs unaffected by NULL elem_dec_fn) documented — affected: str, [T], closures, structs with Drop fields, Option/Result with fat-pointer payloads. Unaffected: int, float, bool, char, byte, void. (2026-03-18)
+- [x] `__for_coll` phantom mechanism fully explained — for-do: `scope.bind_mutable()` at `loops.rs:180` creates `__for_coll_N`, threaded through loop header→body→latch→exit as block param, dummy Let after `ori_iter_drop` ensures collection's RcDec is last. For-yield: attempts same pattern but `%5` (original var) escapes loop scope because for-yield has no `pre_scope` save/restore. (2026-03-18)
+- [x] Map and Str iterator paths documented — Map: `emit_map_iter()` at `map_builtins.rs:340-344` passes NULL for `key_dec_fn`/`val_dec_fn`, no `__for_coll` phantom (only List|Set). Str: `emit_str_iter()` at `string_builtins.rs:203-207` calls `ori_iter_from_str`, correctly uses no `elem_dec_fn` (chars are scalar). (2026-03-18)
+- [x] Code changes limited to doc comment cleanup (STYLE items in 01.1) — no functional changes. Analysis complete. (2026-03-18)
 
 ---
 

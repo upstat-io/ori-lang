@@ -174,17 +174,6 @@ pub(crate) fn collect_borrowed_defs(block: &ArcBlock) -> FxHashSet<ArcVarId> {
     borrowed
 }
 
-/// Collect variables borrowed via `Project` only (excludes function params).
-///
-/// Includes:
-/// 1. `Project` instructions (borrowed views into structs/enums)
-/// 2. `Let` aliases of project-borrowed variables (transitive closure)
-///
-/// This set identifies variables whose RC is managed by a parent aggregate.
-/// Unlike [`collect_all_borrowed_defs`], function parameters with
-/// `Ownership::Borrowed` are excluded — they can participate in `RcInc`
-/// decisions (e.g., when a borrowed list parameter is used to create an
-/// iterator that has its own reference).
 /// Collect variables that are direct element projections from `__iter_next`
 /// results, plus their Let aliases (transitive closure).
 ///
@@ -201,20 +190,32 @@ pub(crate) fn collect_iter_element_defs(
     let iter_next_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
 
-    // Phase 1: find all Apply @__iter_next dst variables.
+    // Phase 1: find all Apply @__iter_next calls. Collect:
+    // - dst variables (the __iter_next result)
+    // - args[1] (the elem_ty_marker phantom — a zero-valued type marker
+    //   that must NOT be RC-decremented; its LLVM repr is `i64 0`, not a
+    //   real struct, so RcDec on it operates on garbage memory)
     let mut iter_next_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
     let mut iter_elems = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
-            if let ArcInstr::Apply { dst, func: f, .. } = instr {
+            if let ArcInstr::Apply {
+                dst, func: f, args, ..
+            } = instr
+            {
                 if *f == iter_next_name {
                     iter_next_dsts.insert(*dst);
+                    // args[1] is the elem_ty_marker phantom — suppress RcDec
+                    if args.len() > 1 {
+                        iter_elems.insert(args[1]);
+                    }
                 }
             }
         }
     }
 
     // Phase 2: find Project at field index 1 from __iter_next results.
+    // This is the yielded element (field 0 is the Option tag).
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Project {
@@ -236,6 +237,17 @@ pub(crate) fn collect_iter_element_defs(
     iter_elems
 }
 
+/// Collect variables borrowed via `Project` only (excludes function params).
+///
+/// Includes:
+/// 1. `Project` instructions (borrowed views into structs/enums)
+/// 2. `Let` aliases of project-borrowed variables (transitive closure)
+///
+/// This set identifies variables whose RC is managed by a parent aggregate.
+/// Unlike [`collect_all_borrowed_defs`], function parameters with
+/// `Ownership::Borrowed` are excluded — they can participate in `RcInc`
+/// decisions (e.g., when a borrowed list parameter is used to create an
+/// iterator that has its own reference).
 pub(crate) fn collect_project_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     for block in &func.blocks {

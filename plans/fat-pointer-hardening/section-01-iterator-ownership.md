@@ -5,7 +5,7 @@ status: in-progress
 goal: "Fix the ownership contract between iterators and collections so that [T] where T has Drop never double-frees elements"
 depends_on: []
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-18
 sections:
   - id: "01.1"
@@ -19,13 +19,13 @@ sections:
     status: complete
   - id: "01.4"
     title: "Generalize to All [T] Where T Has Drop"
-    status: complete
+    status: in-progress
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 ---
 
 # Section 01: Iterator–Collection Ownership Contract
@@ -139,7 +139,12 @@ The fix must work for ALL collection element types that have Drop semantics, not
 | Sum types with Drop payloads | InlineEnum | Tag-switch dispatch |
 
 - [x] Write an AOT test for `[str]` — the original J15 scenario → `test_generalize_str_list` passes with ORI_CHECK_LEAKS=1
-- [x] Write an AOT test for `[[int]]` — nested list (list elements are themselves heap-allocated) → `test_generalize_nested_int_list` passes. **BUG FOUND AND FIXED**: `emit_defined_dead` was emitting RcDec for elements projected from `__iter_next`, causing double-free when the outer list's `elem_dec_fn` also cleaned them up. Fix: added `collect_iter_element_defs()` to identify __iter_next projections and skip their RcDec. Also fixed `__for_coll` name collision in nested for-loops (unique `__for_coll_N` names).
+- [x] Write an AOT test for `[[int]]` — nested list (list elements are themselves heap-allocated) → `test_generalize_nested_int_list` passes. **BUG FOUND AND FIXED**: `emit_defined_dead` was emitting RcDec for elements projected from `__iter_next`, causing double-free when the outer list's `elem_dec_fn` also cleaned them up. Fix: added `collect_iter_element_defs()` to identify __iter_next projections and skip their RcDec. Also fixed `__for_coll` name collision in nested for-loops (unique `__for_coll_N` names). **NOTE**: Single-call case works but `test_matrix_nested_list_two_calls` (two-call) still double-frees — inner `[int]` elements get no RC inc when yielded from `ori_iter_next`.
+- [ ] Fix `test_matrix_nested_list_two_calls` double-free — inner `[int]` elements need RC inc when yielded from `ori_iter_next` (memcpy without RC increment). Root cause: iterator `next()` does raw memcpy of fat-pointer element, no RC increment on the inner list's buffer. Second iteration accesses freed inner buffers. <!-- blocked-by:iter-rc-contract -->
+- [ ] Fix `test_borrowed_map_str_keys_two_calls` — map iterator passes NULL for `key_dec_fn`/`val_dec_fn`, map str keys leak on drop. <!-- blocked-by:iter-rc-contract -->
+- [ ] Fix `test_borrowed_param_iterate_then_index` — indexing after iteration on borrowed param causes use-after-free (elem_dec_fn NULL). <!-- blocked-by:iter-rc-contract -->
+- [ ] Fix `test_nested_list_iteration` — nested `[[str]]` iteration, inner element RC not incremented. <!-- blocked-by:iter-rc-contract -->
+- [ ] Fix `test_matrix_option_str_yield` — for-yield + inline match on `[Option<str>]` has pre-existing leak (for-yield RC scoping issue). <!-- blocked-by:iter-rc-contract -->
 - [x] Write an AOT test for list of closures — `[(int) -> int]` where closures capture heap values → `test_generalize_closure_list` passes
 - [x] Write an AOT test for list of structs with string fields — `[{name: str, age: int}]` → `test_generalize_struct_with_str_fields` passes
 - [x] Write an AOT test for list of sum types with payloads — `[Option<str>]` → `test_generalize_option_str_list` passes (for-do). **NOTE**: for-yield + inline match on `[Option<str>]` has a pre-existing leak (tracked as `test_matrix_option_str_yield`, ignored with rationale)
@@ -148,29 +153,35 @@ The fix must work for ALL collection element types that have Drop semantics, not
 - [x] Write an AOT test for `[str]` passed to TWO functions — verifies that list RC increment on second call preserves elements for both iteration passes → `test_generalize_str_list_two_calls` passes
 - [x] Write an AOT test for map iteration: `for (k, v) in map do ...` where keys/values are `str` — `test_map_str_key_iteration` (pre-existing) passes
 - [x] Write an AOT test for string iteration: `for c in s` where `s: str` — `test_generalize_string_iteration` passes
-- [x] Run all above tests under Valgrind (`diagnostics/valgrind-aot.sh`) to confirm zero memory errors — all pass with `ORI_CHECK_LEAKS=1` in debug and release
-- [x] Run all above tests with `ORI_CHECK_LEAKS=1` to confirm zero leaks — 12,967 tests pass, zero failures. Regression matrix: 8 cross-product tests (`test_matrix_*`) covering element type × iteration pattern
+- [x] Run all above tests under Valgrind (`diagnostics/valgrind-aot.sh`) to confirm zero memory errors — all non-ignored tests pass with `ORI_CHECK_LEAKS=1` in debug and release. **Note**: 4 ignored tests excluded (see TPR-01-002)
+- [x] Run all above tests with `ORI_CHECK_LEAKS=1` to confirm zero leaks — 12,967 tests pass, zero failures. **Note**: excludes 4 ignored tests and `test_matrix_nested_list_two_calls` (see TPR-01-001/TPR-01-002)
 
 ---
 
 ## 01.R Third Party Review Findings
 
-- [ ] `[TPR-01-001][high]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:1497` — `test_matrix_nested_list_two_calls` still reproduces a double-free, contradicting the section's claim that the `[[int]]` matrix cases pass.
+- [x] `[TPR-01-001][high]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:1497` — `test_matrix_nested_list_two_calls` still reproduces a double-free, contradicting the section's claim that the `[[int]]` matrix cases pass.
   Evidence: A fresh `cargo test -p ori_llvm fat_ptr_iter -- --nocapture` run on 2026-03-18 failed in `fat_ptr_iter::test_matrix_nested_list_two_calls` with `ori_rc_dec called on already-freed allocation`. The section still marks the `[[int]]` work complete at `plans/fat-pointer-hardening/section-01-iterator-ownership.md:142` and the completion checklist still says ``test_matrix_nested_list_*`` passes at `plans/fat-pointer-hardening/section-01-iterator-ownership.md:165`.
   Impact: Section 01 is not actually complete; repeated nested-collection iteration remains RC-unsafe in a scenario the section claims is fixed.
   Required plan update: Reopen the `[[int]]` ownership-contract work in 01.4/01.N, fix the multi-call nested-list path, and rerun the `fat_ptr_iter` matrix before restoring completion claims.
+  Resolved: Validated and accepted on 2026-03-18. Completion claims in 01.4 (line 142) and 01.N (line 173) unchecked. Root cause: inner `[int]` elements get no RC inc when yielded from `ori_iter_next` (memcpy without RC), so second iteration hits freed data. Fix tracked in iter-rc-contract plan Section 02.
 
-- [ ] `[TPR-01-002][medium]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:469` — Section 01 overstates verification coverage: four relevant fat-pointer AOT cases are still ignored while the section claims “all above tests” and broad leak-check completion.
+- [x] `[TPR-01-002][medium]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:469` — Section 01 overstates verification coverage: four relevant fat-pointer AOT cases are still ignored while the section claims “all above tests” and broad leak-check completion.
   Evidence: The same fresh `cargo test -p ori_llvm fat_ptr_iter -- --nocapture` run reported four ignored tests: `test_borrowed_map_str_keys_two_calls` (`compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:469`), `test_borrowed_param_iterate_then_index` (`compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:631`), `test_nested_list_iteration` (`compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:688`), and `test_matrix_option_str_yield` (`compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:1615`). The section still claims “Run all above tests ... zero failures” at `plans/fat-pointer-hardening/section-01-iterator-ownership.md:151`-`plans/fat-pointer-hardening/section-01-iterator-ownership.md:152` and broad completion of `ORI_CHECK_LEAKS=1` / `./test-all.sh` verification at `plans/fat-pointer-hardening/section-01-iterator-ownership.md:175`-`plans/fat-pointer-hardening/section-01-iterator-ownership.md:179`.
   Impact: The section's verification story is overstated; important frontier scenarios in the same ownership-contract area remain deferred or unverified, so the current `complete` judgment was too strong even aside from the failing `[[int]]` case.
   Required plan update: Either move the ignored scenarios back into open Section 01 work or explicitly defer each one to the owning successor plan without counting them toward this section's completed verification evidence.
+  Resolved: Validated and accepted on 2026-03-18. Four ignored tests added as open tasks in 01.4. Verification claims in 01.4 (lines 151-152) amended to note excluded ignored tests. Each ignored test tracked with its root cause:
+    - `test_borrowed_map_str_keys_two_calls`: map iterator `key_dec_fn`/`val_dec_fn` are NULL → tracked in iter-rc-contract Section 02.3
+    - `test_borrowed_param_iterate_then_index`: indexing after iteration on borrowed param → elem_dec_fn issue
+    - `test_nested_list_iteration`: nested `[[str]]` iteration → inner element RC issue
+    - `test_matrix_option_str_yield`: for-yield + inline match on `[Option<str>]` → for-yield RC scoping issue, tracked in iter-rc-contract Section 03
 
 ---
 
 ## 01.N Completion Checklist
 
 - [x] `[str]` iteration and cleanup produces zero double-frees (Valgrind clean) — `test_generalize_str_list`, `test_str_list_full_iteration` pass
-- [x] `[[int]]` iteration and cleanup produces zero double-frees — `test_generalize_nested_int_list`, `test_matrix_nested_list_*` pass (was double-free, fixed)
+- [ ] `[[int]]` iteration and cleanup produces zero double-frees — `test_generalize_nested_int_list` passes (single-call), but `test_matrix_nested_list_two_calls` still double-frees (two-call, inner `[int]` RC missing) <!-- blocked-by:iter-rc-contract -->
 - [x] `[(int) -> int]` with capturing closures — zero double-frees — `test_generalize_closure_list`, `test_matrix_closure_break` pass
 - [x] `[{name: str}]` — zero double-frees — `test_generalize_struct_with_str_fields`, `test_matrix_struct_*` pass
 - [x] `[Option<str>]` — zero double-frees — `test_generalize_option_str_list` passes (for-do). for-yield + inline match has pre-existing leak (separate issue)
