@@ -8,6 +8,27 @@ allowed-tools: Read, Grep, Glob, Agent, AskUserQuestion, Bash, Edit, Write
 
 Read a plan, cross-reference it against the codebase, spec, and hygiene rules, then fix problems directly via 4 sequential review agents. Report findings as a verdict.
 
+## Reviewed Field Semantics — CRITICAL
+
+The `reviewed: true/false` field in section frontmatter is a **pre-implementation gate** — it tracks whether a section has been validated against the current codebase right before implementation begins.
+
+**Why this exists:** As earlier sections are implemented, reality changes — deviations, discoveries, refactors, bug fixes. Later sections were written with assumptions that may now be stale. `reviewed: false` means "not yet validated against implementation reality."
+
+**Two modes — the mode determines whether `reviewed` gets flipped:**
+
+**Single-section review** (`/review-plan plans/foo/section-03.md`):
+This is the pre-implementation gate. You're validating one section right before working on it. After agents confirm ALL technical claims are accurate, flip `reviewed: true`. If fixes were needed, leave `reviewed: false` — fixes need their own validation pass.
+
+**Whole-plan review** (`/review-plan plans/foo/`):
+Improves quality across all sections, but does **NOT** change any `reviewed` values. You're reviewing the plan holistically, not gating specific sections for implementation. Fix content issues, but leave every section's `reviewed` field as-is.
+
+**Both modes:**
+- Section 01 should already be `reviewed: true` (starting point). Only flip to `false` if genuinely stale.
+- For a section to be marked `reviewed: true`, the agent must confirm:
+  1. All file paths, types, functions referenced still exist and are accurate
+  2. The approach is still valid given changes made by prior sections
+  3. No assumptions were invalidated by earlier implementation work
+
 ## Usage
 
 ```
@@ -73,6 +94,25 @@ INSTRUCTIONS:
 4. For every inaccuracy found, EDIT the plan files directly to fix them
 5. If a section references nonexistent code paths or wrong file locations, correct them
 6. Add a brief comment near each fix: <!-- reviewed: accuracy fix -->
+
+## CRITICAL: `reviewed` field in frontmatter
+
+Each section has a `reviewed: true/false` field in its YAML frontmatter. This tracks whether the section's assumptions have been validated against the CURRENT codebase right before implementation.
+
+**Two modes — check which one you're in:**
+
+**Mode A — Single-section review** (you were given a specific section file, not a directory):
+This is the pre-implementation gate. After confirming ALL technical claims are accurate:
+- If everything checks out: set `reviewed: true`
+- If you found inaccuracies and fixed them: LEAVE as `reviewed: false` — the fixes need validation
+- If you found issues you could not fix: LEAVE as `reviewed: false`
+
+**Mode B — Whole-plan review** (you were given a directory):
+Do NOT change any `reviewed` values. Fix inaccuracies in content, but leave `reviewed: true/false` as-is on every section. The whole-plan review improves quality but is not the pre-implementation gate.
+
+**Both modes:**
+- Section 01 should normally be `reviewed: true`. Only flip to `false` if it has genuinely stale content.
+- Sections already `reviewed: true`: verify they're still accurate. If stale, flip to `false` and note why.
 
 You may add missing sections, expand scope, or restructure if the plan is genuinely incomplete.
 After editing, list what you changed and why.
@@ -171,6 +211,11 @@ INSTRUCTIONS:
 5. Fix inconsistent terminology
 6. Update the overview if sections have changed during prior reviews
 7. Remove all <!-- reviewed: ... --> comments left by previous reviewers (clean up)
+8. Verify `reviewed` field consistency in frontmatter:
+   - Every section file MUST have a `reviewed: true/false` field
+   - If a section is missing the field, add `reviewed: false`
+   - Do NOT change any `reviewed` values — Agent 1 handles that based on accuracy validation
+   - Report any sections missing the field
 
 After editing, list what you changed and why.
 ```
@@ -195,6 +240,14 @@ After all four agents complete, consolidate their findings into a summary ranked
 
 #### Agent 4 — Clarity & Consistency
 - {list of edits made}
+
+### Review Status
+
+| Section | `reviewed` Before | `reviewed` After | Reason |
+|---------|------------------|-----------------|--------|
+| 01 | true | true | Starting point, confirmed accurate |
+| 02 | false | true/false | {reason} |
+| ... | ... | ... | ... |
 
 ### Remaining Concerns
 

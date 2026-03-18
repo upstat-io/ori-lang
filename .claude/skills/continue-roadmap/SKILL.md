@@ -101,16 +101,16 @@ After fixing, briefly note what was corrected (e.g., "Fixed stale frontmatter: S
 
 ### Step 1.7: Unreviewed Plan Gate
 
-After the scanner identifies the focus section, **check its frontmatter for `reviewed: false`**. This flag means `/review-plan` has NOT been run on this section — the plan may contain errors, missing steps, or architectural problems.
+After the scanner identifies the focus section, **check its frontmatter for `reviewed: false`**. This flag means the section's assumptions have NOT been validated against the current codebase — earlier section implementations may have changed the landscape.
 
 **If `reviewed: false` is present on the focus section:**
 
 1. **STOP** — do not begin implementation
 2. **Warn the user** via AskUserQuestion:
-   - "Section N has `reviewed: false` — /review-plan has not been run on this section. Implementing an unreviewed plan risks wasted work if the plan has errors."
+   - "Section N has `reviewed: false` — its assumptions haven't been validated against the current codebase (which may have changed during earlier section work). Implementing an unreviewed plan risks wasted work."
    - Options: **Run /review-plan now (Recommended)** | **Proceed anyway** | **Pick a different section**
-3. **If user chooses to review**: Run `/review-plan` on the section, then remove `reviewed: false` from the frontmatter (or set `reviewed: true`) after the review completes
-4. **If user chooses to proceed**: Continue, but note the risk in the summary output
+3. **If user chooses to review**: Run `/review-plan` on the **specific section file** (e.g., `plans/roadmap/section-03.md`). This is a single-section review — the pre-implementation gate. After the review agents confirm accuracy, the section is flipped to `reviewed: true`.
+4. **If user chooses to proceed**: Continue, but note the risk in the summary output. Leave `reviewed: false` — the user accepted the risk but the section is still unvalidated.
 
 **If `reviewed: false` is NOT present** (field absent or `reviewed: true`), proceed normally.
 

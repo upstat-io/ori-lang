@@ -83,11 +83,17 @@ Create overview with:
 ### Step 7: Generate Section Files
 
 For each section, create `section-{NN}-{name}.md` with:
-- YAML frontmatter (section ID, title, status: not-started, goal, `third_party_review: { status: none, updated: null }`)
+- YAML frontmatter (section ID, title, status: not-started, goal, `reviewed`, `third_party_review: { status: none, updated: null }`)
 - Section header with status emoji
 - Placeholder subsections with `- [ ]` checkboxes
 - `## {NN}.R Third Party Review Findings` block (empty, with `- None.`) before the completion checklist
 - Completion checklist at the end
+
+**`reviewed` field rules:**
+- **Section 01**: `reviewed: true` — it is the starting point of implementation and was just reviewed during plan creation. Its assumptions are current.
+- **All other sections (02+)**: `reviewed: false` — they have NOT been validated against actual implementation reality. As Section 01 is implemented, assumptions in later sections may become stale or wrong due to deviations, discoveries, and changed constraints. They must be re-reviewed before work begins on them.
+
+See the "Reviewed Field Semantics" section below for the full rationale.
 
 ### Step 8: Report Progress
 
@@ -124,6 +130,14 @@ INSTRUCTIONS:
 4. For every inaccuracy found, EDIT the plan files directly to fix them
 5. If a section references nonexistent code paths or wrong file locations, correct them
 6. Add a brief comment near each fix: <!-- reviewed: accuracy fix -->
+
+## `reviewed` field in frontmatter
+
+Each section has a `reviewed: true/false` field. This is a NEW plan, so:
+- Section 01 MUST be `reviewed: true` — it's the starting point, validated during creation
+- ALL other sections MUST be `reviewed: false` — their assumptions are plans, not validated reality
+- If any section is missing the `reviewed` field, add it with the correct value per these rules
+- Do NOT mark later sections as `reviewed: true` even if they look accurate now — they haven't been tested against implementation reality yet
 
 You may add missing sections, expand scope, or restructure if the plan is genuinely incomplete.
 After editing, list what you changed and why.
@@ -280,6 +294,21 @@ plans/error-recovery/
 - Do NOT create items that are descriptions of work rather than work itself. "Investigate whether X" is acceptable; "Document the approach for Y" when Y can be implemented is not.
 - If an item genuinely cannot be done within the section (blocked by an unimplemented language feature, needs user decision), use `<!-- blocked-by:X -->` with a concrete blocker reference — not vague language.
 - Every item must pass this test: "Can the implementing agent, with access to the codebase, complete this item in a single session?" If no, break it into items that can.
+
+## Reviewed Field Semantics
+
+The `reviewed: true/false` field in section frontmatter is a **pre-implementation gate** — it tracks whether a section has been validated against the current codebase right before you start implementing it.
+
+**Why this exists:** Plans are written with assumptions about how the code works. But as you implement Section 01, reality changes — deviations, discoveries, refactors, bug fixes. A section written before prior sections were implemented may reference stale file paths, wrong function signatures, or invalid approaches. `reviewed: false` means "not yet validated against implementation reality."
+
+**Rules:**
+- **Section 01** is always `reviewed: true` at creation — it's the starting point.
+- **All other sections** are `reviewed: false` at creation — plans, not validated reality.
+- **Single-section review** (`/review-plan plans/foo/section-03.md`): This is the pre-implementation gate. After confirming accuracy, flip to `reviewed: true`.
+- **Whole-plan review** (`/review-plan plans/foo/`): Fixes issues, improves quality, but does NOT change `reviewed` values. You're improving the plan holistically, not gating specific sections.
+- **`/continue-roadmap`** starting a `reviewed: false` section: triggers a single-section review first, which flips to `true` after validation.
+
+---
 
 ## After Creation
 
