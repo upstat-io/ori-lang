@@ -29,6 +29,10 @@ pub(crate) struct BlockCtx<'a> {
     /// params). Used to allow `RcInc` for borrowed
     /// params that need it (e.g., for-loop collection cleanup).
     pub(crate) project_borrowed_defs: &'a FxHashSet<ArcVarId>,
+    /// Variables that are projections of `__iter_next` results (field index 1).
+    /// These elements are borrowed from the collection buffer — their cleanup
+    /// is handled by the collection's `elem_dec_fn`, not by caller-side `RcDec`.
+    pub(crate) iter_element_defs: &'a FxHashSet<ArcVarId>,
     pub(crate) use_info: &'a FxHashMap<ArcVarId, (usize, LastUse)>,
     pub(crate) pool: &'a Pool,
     /// For each Project source variable, the latest `LastUse` of any borrowed
@@ -181,6 +185,57 @@ pub(crate) fn collect_borrowed_defs(block: &ArcBlock) -> FxHashSet<ArcVarId> {
 /// `Ownership::Borrowed` are excluded — they can participate in `RcInc`
 /// decisions (e.g., when a borrowed list parameter is used to create an
 /// iterator that has its own reference).
+/// Collect variables that are direct element projections from `__iter_next`
+/// results, plus their Let aliases (transitive closure).
+///
+/// These variables are borrowed from the collection buffer. Their cleanup
+/// is handled by `elem_dec_fn` when the collection is freed, so the AIMS
+/// pipeline should NOT emit independent `RcDec` for them.
+///
+/// Specifically targets: `Project { dst, src, field: 1 }` where `src` is
+/// defined by `Apply { func: __iter_next, .. }`.
+pub(crate) fn collect_iter_element_defs(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    let iter_next_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
+
+    // Phase 1: find all Apply @__iter_next dst variables.
+    let mut iter_next_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut iter_elems = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply { dst, func: f, .. } = instr {
+                if *f == iter_next_name {
+                    iter_next_dsts.insert(*dst);
+                }
+            }
+        }
+    }
+
+    // Phase 2: find Project at field index 1 from __iter_next results.
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project {
+                dst,
+                value,
+                field: 1,
+                ..
+            } = instr
+            {
+                if iter_next_dsts.contains(value) {
+                    iter_elems.insert(*dst);
+                }
+            }
+        }
+    }
+
+    // Phase 3: propagate through Let aliases and block params.
+    propagate_borrowed_closure(func, &mut iter_elems);
+    iter_elems
+}
+
 pub(crate) fn collect_project_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
     for block in &func.blocks {

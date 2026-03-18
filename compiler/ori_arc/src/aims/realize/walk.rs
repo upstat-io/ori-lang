@@ -328,7 +328,19 @@ fn emit_defined_dead(
     // These are Let aliases of borrowed function parameters (e.g., the
     // __for_coll phantom in the for-loop exit block). The caller handles
     // their cleanup via own→borrow reconciliation.
+    //
+    // Project-borrowed variables that come from iterator element extraction
+    // (__iter_next) also skip — their parent collection's elem_dec_fn
+    // handles cleanup. Other project-borrowed vars (e.g., struct field
+    // access, tuple destructuring) DO need RcDec as their source aggregate
+    // may not handle per-field cleanup.
     if ctx.all_borrowed_defs.contains(&dst) && !ctx.project_borrowed_defs.contains(&dst) {
+        return;
+    }
+    // Iterator-element projections: skip RcDec for elements extracted
+    // from __iter_next results. These are borrowed from the collection
+    // buffer, and elem_dec_fn handles cleanup when the collection is freed.
+    if ctx.iter_element_defs.contains(&dst) {
         return;
     }
 
