@@ -1,0 +1,15 @@
+// Valgrind test: for-yield on [Option<str>] with heap-allocated strings.
+// Exercises InlineEnum layout + elem_dec_fn tag-switch path.
+
+@main () -> int = {
+    let items = [
+        Some("this string exceeds SSO threshold by being very long indeed"),
+        None,
+        Some("another very long string that also exceeds the threshold here")
+    ];
+    let result = for o in items yield match o {
+        Some(_) -> 1,
+        None -> 0,
+    };
+    if result.length() == 3 then 0 else 1
+}

@@ -26,6 +26,7 @@ pub mod metrics;
 #[cfg(test)]
 mod tests;
 mod walk;
+mod walk_dec;
 
 use ori_ir::Name;
 use ori_types::Pool;

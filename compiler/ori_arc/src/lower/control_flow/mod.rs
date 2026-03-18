@@ -16,8 +16,9 @@ use rustc_hash::FxHashMap;
 mod for_loops;
 mod for_yield;
 mod loops;
+mod type_layout;
 #[cfg(test)]
-pub(crate) use for_yield::pool_type_store_size;
+pub(crate) use type_layout::pool_type_store_size;
 
 use crate::ir::{ArcValue, ArcVarId};
 
