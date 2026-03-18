@@ -392,9 +392,9 @@ fn emit_rc_unified(
 ) {
     use crate::aims::emit_rc::{
         block_id, coalesce_block_rc, collect_all_borrowed_defs, collect_borrowed_defs,
-        collect_defined_vars, collect_project_borrowed_defs, compute_child_effective_last_use,
-        emit_dead_at_entry_decs, emit_dead_invoke_dsts, emit_edge_cleanup, emit_terminator_rc,
-        precompute_block_uses, BlockCtx,
+        collect_defined_vars, collect_iter_element_defs, collect_project_borrowed_defs,
+        compute_child_effective_last_use, emit_dead_at_entry_decs, emit_dead_invoke_dsts,
+        emit_edge_cleanup, emit_terminator_rc, precompute_block_uses, BlockCtx,
     };
 
     debug_assert!(
@@ -404,6 +404,7 @@ fn emit_rc_unified(
 
     let all_borrowed_defs = collect_all_borrowed_defs(func);
     let project_borrowed_defs = collect_project_borrowed_defs(func);
+    let iter_element_defs = collect_iter_element_defs(func, interner);
     let iter_fn_name = interner.intern("iter");
     let mut all_death_events = Vec::new();
     let mut all_alloc_events = Vec::new();
@@ -431,6 +432,7 @@ fn emit_rc_unified(
             borrowed_defs: &borrowed_defs,
             all_borrowed_defs: &all_borrowed_defs,
             project_borrowed_defs: &project_borrowed_defs,
+            iter_element_defs: &iter_element_defs,
             use_info: &use_info,
             pool,
             child_effective_last_use: &child_elu,

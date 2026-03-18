@@ -109,15 +109,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// is a borrowed function parameter). When the iterator is consumed/dropped,
     /// `Drop for IterState` calls `ori_buffer_rc_dec` to release this reference.
     ///
-    /// Element cleanup contract: the iterator does NOT manage element-level RC.
-    /// Elements are owned by the collection — the list's drop function handles
-    /// all element cleanup when the buffer's refcount reaches zero. Passing null
-    /// for `elem_dec_fn`: the iterator borrows elements, it does not own them.
-    /// Element cleanup is handled by the list's explicit `RcDec` (from the ARC
-    /// pipeline's AIMS emission) which carries the real `elem_dec_fn`. The
-    /// phantom `__for_coll` binding in `lower_for` ensures the explicit `RcDec`
-    /// happens AFTER `ori_iter_drop`, so the explicit dec is the one that
-    /// reaches zero and performs element cleanup.
+    /// The real `elem_dec_fn` is passed so that WHOEVER performs the final
+    /// `ori_buffer_rc_dec` (whether it's the AIMS pipeline's explicit `RcDec`
+    /// or `ori_iter_drop`) properly cleans up element-level RC.
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
@@ -131,15 +125,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
 
-        // Pass null for elem_dec_fn: the iterator does not own elements.
-        // The list's explicit RcDec (placed after ori_iter_drop by the
-        // __for_coll phantom binding) handles element cleanup when RC → 0.
-        let _ = elem_ty; // elem_ty used only for elem_size above
-        let elem_dec_fn_null = self.builder.const_null_ptr();
+        // Pass the real elem_dec_fn so that ANY final RcDec (whether from
+        // the AIMS pipeline or from ori_iter_drop) properly cleans up
+        // element-level RC. Previously NULL was passed here, relying on
+        // the __for_coll phantom mechanism — but for-yield and other paths
+        // where ori_iter_drop IS the final dec need the real function.
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
         self.emit_rt_call(
             func_id,
-            &[data_ptr, len, cap, elem_size_val, elem_dec_fn_null],
+            &[data_ptr, len, cap, elem_size_val, elem_dec_fn],
             "list.iter",
         )
     }

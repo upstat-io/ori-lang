@@ -174,7 +174,9 @@ impl ArcLowerer<'_> {
             let needs_phantom = matches!(tag, ori_types::Tag::List | ori_types::Tag::Set)
                 && !self.scope.mutable_bindings().any(|(_, v)| v == iter_val);
             if needs_phantom {
-                let coll_name = self.interner.intern("__for_coll");
+                let id = self.for_coll_counter;
+                self.for_coll_counter += 1;
+                let coll_name = self.interner.intern(&format!("__for_coll_{id}"));
                 self.scope.bind_mutable(coll_name, iter_val);
             }
 
