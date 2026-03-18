@@ -466,7 +466,6 @@ fn test_two_different_borrowed_lists() {
 // --- Borrowed param: map iteration with string keys ---
 
 #[test]
-#[ignore = "map key_dec_fn requires collect_iter_element_defs() to propagate through Project chains — iter-rc-contract 02.3"]
 fn test_borrowed_map_str_keys_two_calls() {
     assert_aot_success(
         r#"
@@ -1675,5 +1674,191 @@ fn test_matrix_str_nested_unwind() {
 }
 "#,
         "matrix_str_nested_unwind",
+    );
+}
+
+// -----------------------------------------------------------------------
+// For-yield with non-scalar elements — elem_dec_fn correctness
+// -----------------------------------------------------------------------
+
+/// `[str]` for-yield identity — borrowed str elements yielded into new list.
+/// Verifies `elem_dec_fn` correctly cleans up source list elements when the
+/// iterator drops, while the result list owns its own copies.
+#[test]
+fn test_for_yield_str_identity() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let copied = for w in words yield w;
+    let expected = 53 + 56;
+    if copied[0].length() + copied[1].length() == expected then 0 else 1
+}
+"#,
+        "for_yield_str_identity",
+    );
+}
+
+/// [str] for-yield with scalar transformation — str elements borrowed,
+/// lengths (int) yielded. Verifies no leak on source str elements.
+#[test]
+fn test_for_yield_str_to_lengths() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let lengths = for w in words yield w.length();
+    if lengths[0] == 53 && lengths[1] == 56 then 0 else 1
+}
+"#,
+        "for_yield_str_to_lengths",
+    );
+}
+
+/// `[[int]]` for-yield — nested list elements borrowed from outer list,
+/// inner sums yielded as scalars. Verifies `elem_dec_fn` on nested `[int]`.
+#[test]
+fn test_for_yield_nested_list() {
+    assert_aot_success(
+        r#"
+@sum_list (xs: [int]) -> int = {
+    let total = 0;
+    for x in xs do {
+        total = total + x;
+    };
+    total
+}
+
+@main () -> int = {
+    let lists = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    let sums = for l in lists yield sum_list(l);
+    if sums[0] == 6 && sums[1] == 15 && sums[2] == 24 then 0 else 1
+}
+"#,
+        "for_yield_nested_list",
+    );
+}
+
+/// `[Option<str>]` for-yield with match — `Option<str>` elements borrowed,
+/// pattern-matched to extract lengths. Verifies `elem_dec_fn` on `Option<str>`.
+#[test]
+fn test_for_yield_option_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let items: [Option<str>] = [
+        Some("this is a very long string that exceeds SSO threshold"),
+        None,
+        Some("another very long string exceeding threshold here")
+    ];
+    let lengths = for item in items yield match item {
+        Some(s) -> s.length(),
+        None -> 0,
+    };
+    if lengths[0] == 53 && lengths[1] == 0 && lengths[2] == 49 then 0 else 1
+}
+"#,
+        "for_yield_option_str",
+    );
+}
+
+// -----------------------------------------------------------------------
+// Map iteration with RC-managed keys/values — key_dec_fn/val_dec_fn
+// -----------------------------------------------------------------------
+
+/// `{str: int}` map for-do full consumption — heap str keys properly
+/// cleaned up via `key_dec_fn` when buffer is freed.
+#[test]
+fn test_map_str_key_for_do_full() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO": 10,
+        "another very long key that exceeds SSO too": 20,
+        "third long key exceeding SSO threshold": 30
+    };
+    let total = 0;
+    for (k, v) in m do {
+        total = total + v;
+    };
+    if total == 60 then 0 else 1
+}
+"#,
+        "map_str_key_for_do_full",
+    );
+}
+
+/// `{str: int}` map for-do with early break — unconsumed entries' str keys
+/// must be cleaned up by `key_dec_fn` in the iterator's Drop path.
+#[test]
+fn test_map_str_key_for_do_break() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO": 10,
+        "another very long key that exceeds SSO too": 20,
+        "third long key exceeding SSO threshold": 30
+    };
+    let total = 0;
+    for (k, v) in m do {
+        total = total + v;
+        if total >= 10 then break;
+    };
+    if total >= 10 then 0 else 1
+}
+"#,
+        "map_str_key_for_do_break",
+    );
+}
+
+/// `{int: str}` map for-do — heap str values cleaned up via `val_dec_fn`.
+#[test]
+fn test_map_str_val_for_do() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {
+        10: "this is a very long value exceeding SSO",
+        20: "another very long value that exceeds SSO too",
+        30: "third long value exceeding SSO threshold"
+    };
+    let total = 0;
+    for (k, v) in m do {
+        total = total + k;
+    };
+    if total == 60 then 0 else 1
+}
+"#,
+        "map_str_val_for_do",
+    );
+}
+
+/// `{str: str}` map for-do — both keys and values are heap strings,
+/// both `key_dec_fn` and `val_dec_fn` must work.
+#[test]
+fn test_map_str_key_str_val_for_do() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO": "long value exceeding SSO threshold too",
+        "another very long key that exceeds SSO": "another long value exceeding threshold"
+    };
+    let count = 0;
+    for (k, v) in m do {
+        count = count + 1;
+    };
+    if count == 2 then 0 else 1
+}
+"#,
+        "map_str_key_str_val_for_do",
     );
 }
