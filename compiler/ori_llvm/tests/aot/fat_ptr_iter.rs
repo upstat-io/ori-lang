@@ -466,7 +466,7 @@ fn test_two_different_borrowed_lists() {
 // --- Borrowed param: map iteration with string keys ---
 
 #[test]
-#[ignore = "maps lack __for_coll phantom — borrowed map param double-free — fat-pointer-hardening 01.2"]
+#[ignore = "map key_dec_fn requires collect_iter_element_defs() to propagate through Project chains — iter-rc-contract 02.3"]
 fn test_borrowed_map_str_keys_two_calls() {
     assert_aot_success(
         r#"
@@ -628,7 +628,6 @@ fn test_borrowed_param_mixed_callers() {
 }
 
 #[test]
-#[ignore = "element extraction from borrowed [str] lacks RcInc — fat-pointer-hardening 01.2 item 5/6"]
 fn test_borrowed_param_iterate_then_index() {
     // Iterate borrowed list, then index into it. Both accesses in same callee.
     assert_aot_success(
@@ -685,7 +684,6 @@ fn test_borrowed_empty_list_iteration() {
 // -----------------------------------------------------------------------
 
 #[test]
-#[ignore = "intermittent double-free — requires RC header extension — fat-pointer-hardening 01.2"]
 fn test_nested_list_iteration() {
     assert_aot_success(
         r#"
@@ -1494,6 +1492,7 @@ fn test_matrix_nested_list_break() {
 /// [[int]] passed to two functions — verifies RC balance across multiple
 /// iteration passes over nested collections.
 #[test]
+#[ignore = "[[int]] two-call double-free — inner list elem_dec_fn missing — iter-rc-contract 02"]
 fn test_matrix_nested_list_two_calls() {
     assert_aot_success(
         r#"

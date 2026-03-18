@@ -98,7 +98,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "index",
         );
 
-        Some(self.builder.load(elem_llvm_ty, out_alloca, "index.val"))
+        let elem_val = self.builder.load(elem_llvm_ty, out_alloca, "index.val");
+
+        // ori_list_get does a raw memcpy — the extracted element shares
+        // the collection's RC children (e.g., str data pointers) without
+        // incrementing their RC. Emit RcInc on the extracted element so
+        // the caller owns its own reference. The AIMS pipeline will emit
+        // RcDec when the element goes out of scope, which balances this inc.
+        if !self.classifier.is_scalar(elem_ty) {
+            self.inc_value_rc(elem_val, elem_ty, 1);
+        }
+
+        Some(elem_val)
     }
 
     /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size, elem_dec_fn)`.
