@@ -618,3 +618,92 @@ fn test_hof_two_noncapturing_in_different_functions() {
         "hof_two_noncapturing_diff_fns",
     );
 }
+
+// Closure captures of non-scalar (fat pointer) types.
+//
+// These tests verify that lambdas capturing heap-allocated values (str, [T])
+// have correct RC management. The root cause of the bug was that
+// declare_and_process_lambda() did not apply AIMS param ownership to lambda
+// params before running the ARC pipeline, causing collect_all_borrowed_defs()
+// to miss borrowed params and their Let aliases. Edge cleanup then emitted
+// spurious RcDec for borrowed-param aliases, causing double-free.
+
+/// Closure capturing a heap-allocated str (>23 bytes, exceeds SSO).
+/// Without the fix, `ori_rc_dec` is called on already-freed allocation.
+#[test]
+fn test_closure_capture_heap_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "this is a long string that exceeds SSO threshold of twenty three bytes";
+    let f = () -> s.length();
+    if f() == 70 then 0 else 1
+}
+"#,
+        "closure_capture_heap_str",
+    );
+}
+
+/// Closure capturing `[int]` and calling `.length()`.
+#[test]
+fn test_closure_capture_list() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let f = () -> xs.length();
+    if f() == 5 then 0 else 1
+}
+"#,
+        "closure_capture_list",
+    );
+}
+
+/// Closure with str capture and a str parameter — the J17 pattern.
+#[test]
+fn test_closure_capture_str_with_param() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let prefix = "hello world prefix that exceeds SSO limit by far";
+    let f = s -> prefix.length() + s.length();
+    if f("world") == 53 then 0 else 1
+}
+"#,
+        "closure_capture_str_with_param",
+    );
+}
+
+/// Closure passed as argument with a heap str capture — higher-order with
+/// fat pointer capture.
+#[test]
+fn test_closure_passed_with_str_capture() {
+    assert_aot_success(
+        r#"
+@apply (f: (str) -> int, s: str) -> int = f(s);
+
+@main () -> int = {
+    let prefix = "a very long prefix string that exceeds SSO threshold";
+    let f = s -> prefix.length() + s.length();
+    if apply(f: f, s: "world") == 57 then 0 else 1
+}
+"#,
+        "closure_passed_with_str_capture",
+    );
+}
+
+/// Multiple non-scalar captures (str + [int]).
+#[test]
+fn test_closure_multi_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "hello world with extra padding to exceed SSO threshold";
+    let xs = [1, 2, 3];
+    let f = () -> s.length() + xs.length();
+    if f() == 57 then 0 else 1
+}
+"#,
+        "closure_multi_capture",
+    );
+}
