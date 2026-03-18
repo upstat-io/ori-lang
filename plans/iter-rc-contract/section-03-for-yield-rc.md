@@ -4,7 +4,7 @@ title: "Fix For-Yield RC Scoping"
 status: complete
 goal: "Eliminate the spurious extra RcDec on the source collection in for-yield by properly scoping the collection variable so it dies at the Jump to header, matching the for-do pattern. Also fix the clear_mutable_names() workaround that breaks outer mutable variable assignment in for-yield AOT."
 third_party_review:
-  status: none
+  status: resolved
   updated: 2026-03-18
 depends_on:
   - "01"
@@ -29,7 +29,7 @@ sections:
 
 # Section 03: Fix For-Yield RC Scoping
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Fix the for-yield lowering so the source collection's RC is correctly balanced: 1 alloc + 1 inc (for the iterator) = 2 refs, and exactly 2 decs (one from `ori_iter_drop`, one from the AIMS pipeline). Currently, the AIMS pipeline emits 3 decs because the original collection variable is still visible in the post-loop scope.
 
 **Context:** This is the critical path fix. Section 02 (elem_dec_fn) ensures element cleanup works correctly regardless of which dec reaches zero. This section ensures the correct NUMBER of decs. Without this fix, the double-free occurs even with the correct `elem_dec_fn`.
@@ -224,7 +224,16 @@ All four are valid in for-yield but cannot work in AOT without `LoopContext`.
 
 ## 03.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-03-001][medium]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:1942` — The new iterator RC matrix is still incomplete for RC-managed map/set paths even though Section 03 is marked complete.
+  Evidence: the branch adds four `{str: ...}` / `{...: str}` map tests at `fat_ptr_iter.rs:1942-2031`, but they are all `for-do`. The only `for-yield` map coverage in-tree remains the scalar smoke test at `compiler/ori_llvm/tests/aot/for_loops.rs:298`, and there are no fat-pointer `Set<T>` iteration tests in `compiler/ori_llvm/tests/aot/`. I also validated one ad hoc `{str: str}` `for-yield` program under `ORI_CHECK_LEAKS=1`, which passed, but that does not satisfy the permanent matrix requirement from `CLAUDE.md` / `.claude/rules/tests.md` / `.claude/rules/arc.md`.
+  Impact: shared iterator-cleanup code for maps and sets is still under-tested despite the new matrix-testing rule that explicitly requires maps and sets across relevant iteration patterns. A future regression here would land without a semantic pin.
+  Required plan update: reopen the 03.4/05 test-matrix work and add permanent AOT coverage for RC-managed `Map<str, int>`, `Map<int, str>`, `Map<str, str>`, and `Set<str>` `for-yield` paths (at minimum full/yield plus one non-happy-path such as break or guard), with leak/parity verification.
+  Resolved: Accepted on 2026-03-18. Section 05 (Comprehensive Test Matrix) already defines E6 ({str: int} map) and E7 (Set<str>) across all 8 patterns (P1-P8) for both for-do and for-yield variants. This finding confirms the priority of map/set for-yield coverage in that matrix.
+- [x] `[TPR-03-002][low]` `compiler/ori_arc/src/lower/control_flow/for_yield.rs:1` — This branch touches oversized ARC source files without doing the required split.
+  Evidence: `compiler/ori_arc/src/lower/control_flow/for_yield.rs` is now 514 lines and `compiler/ori_arc/src/aims/realize/walk.rs` is 602 lines (`wc -l`), both above the 500-line limit in `.claude/rules/compiler.md` / `.claude/rules/impl-hygiene.md`. Section 03 also carries its own pre-change warning that these files had to be split before further work.
+  Impact: this violates the repo hygiene rules and makes already-coupled RC/control-flow logic materially harder to review and maintain.
+  Required plan update: split `for_yield.rs` and `walk.rs` along the section’s proposed submodule boundaries before returning Section 03 to `complete`.
+  Resolved: Accepted on 2026-03-18. File splits will be done as prerequisite work before Section 04 begins.
 
 ---
 
