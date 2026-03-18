@@ -11,10 +11,28 @@
 **TDD for bugs** — NEVER fix without tests first:
 1. **STOP** — resist urge to immediately change code
 2. **Consult spec** (`docs/ori_lang/v2026/spec/`) for intended behavior
-3. **Write MULTIPLE tests**: exact failing case, edge cases, related variations, regression guards
+3. **Write MATRIX tests** — not just "multiple." Every fix requires:
+   - **Exact failing case**: the specific input that triggered the bug
+   - **Edge cases**: empty, single-element, boundary conditions
+   - **Cross-type coverage**: if the fix is type-dependent, test ALL relevant types through the same code path (e.g., str, [int], Option<str>, closures, structs, maps, sets)
+   - **Cross-pattern coverage**: if the fix is pattern-dependent, test ALL relevant control-flow patterns (e.g., full iteration, break, yield, guard, nested, two-call)
+   - **Semantic pin**: at least one test that ONLY passes with the new semantics — this is the permanent regression guard
 4. **Verify tests fail** — if they pass, you misunderstand the bug
 5. **Fix the code**
 6. **Tests pass unchanged** — needing to change tests = wrong tests or wrong fix
+7. **Verify matrix completeness** — missing cells in the type x pattern matrix are future regressions
+
+**Fix completeness** — a fix is NOT done until ALL of these are true:
+- Matrix tests cover every type and pattern that flows through the changed code path
+- At least one semantic pin test exists that would fail if the fix is reverted
+- Debug AND release builds pass (FastISel behavior differs)
+- Plan/roadmap updated if the fix crosses section boundaries
+
+**Stabilization discipline:**
+- **Every fix becomes a permanent test** — no fix lands without a test that catches its regression
+- **Narrow the front** — complete one fix/section fully before starting another. RC + control-flow + lowering interactions multiply failure surfaces; concurrent changes across these domains compound risk
+- **Plan boundaries = implementation boundaries** — if a fix in Section X touches code owned by Section Y, update Section Y's plan before proceeding. No partial fixes absorbed silently across sections.
+- **Invariants are explicit** — if correctness depends on a property (RC balanced, scope restored, phantom inserted), it MUST be either a `debug_assert!` or a test. Implicit invariants become invisible regressions.
 
 ---
 

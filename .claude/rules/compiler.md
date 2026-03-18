@@ -127,6 +127,12 @@ paths:
 - Same logical fix at 3+ callsites → missing abstraction or violated boundary contract — fix at boundary, not consumers
 - Present 2-3 options to user (boundary fix, abstraction, workaround)
 
+## Narrow the Front — One Fix at a Time
+
+- **Complete one fix fully before starting another.** RC + control-flow + lowering interactions multiply failure surfaces. Working on elem_dec_fn (Section 02) and for-yield scoping (Section 03) simultaneously created compounding failures that were harder to diagnose than either alone.
+- **"Fully" means: fix + matrix tests + semantic pins + plan update.** A fix without matrix tests is not complete. A fix with tests but no plan update (when cross-section) is not complete.
+- **Depth over breadth.** Fix one element type across all patterns before fixing a second element type. Fix one loop variant completely before the other. Fewer concurrent moving parts = failures are narrow, explainable, and quickly pinned by tests.
+
 ## Style
 
 - Functions < 100 lines (target < 50) | no dead code | no `#[allow(clippy)]` without reason

@@ -291,6 +291,16 @@ Based on user choice:
 
 **The ONLY valid reason to not implement an item is if you literally cannot** (missing information that requires user input, blocked on external dependency). In that case, use `AskUserQuestion` immediately — do not silently skip.
 
+### Plan Boundary Integrity
+
+**Fixes must not silently cross section boundaries.** When implementing a task in Section X:
+
+1. **Before modifying code**: Check if the code being modified is referenced by another section's tasks (grep for the file/function name in other section plans)
+2. **If cross-section modification is needed**: Update the other section's plan to reflect the change — add a note, update a checkbox, or add a new item
+3. **After completing a task**: Verify that no changes you made require updates to other sections' plans
+
+**Why:** Section 02/03 overlap happened because fixes in one section touched code paths critical to another section without updating that section's plan. This created invisible dependencies that compounded into cascading failures. Plan boundaries must match implementation boundaries.
+
 ### Scope Rule: ALL Checkboxes in the Section Are In Scope
 
 **Every `- [ ]` checkbox within the current section is part of that section's work — no exceptions.** This includes:
@@ -331,13 +341,15 @@ Checking off items without verification defeats the purpose of the roadmap.
 ### After Writing Code
 
 1. **Run tests** — `./test-all.sh` to verify everything passes
-2. **Check formatting impact** — If syntax was added or changed:
+2. **Verify matrix coverage** — if the fix is type-dependent or pattern-dependent, confirm that tests cover all relevant type x pattern combinations. Missing cells in the matrix are potential regressions. See `.claude/rules/tests.md` Matrix Testing Rule.
+3. **Check plan boundary integrity** — did this fix modify code referenced by another section's tasks? If yes, update that section's plan to reflect the change. No silent cross-section absorption.
+4. **Check formatting impact** — If syntax was added or changed:
    - Does the formatter handle the new syntax? Check `compiler/ori_fmt/`
    - Are formatting tests needed? Check/update `tests/spec/formatting/`
    - Run `./fmt-all.sh` to ensure formatter still works
-3. **Update section file** — Check off completed items with `[x]`
-4. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
-5. **Commit with clear message** — Reference the section and task
+5. **Update section file** — Check off completed items with `[x]`
+6. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
+7. **Commit with clear message** — Reference the section and task
 
 ---
 

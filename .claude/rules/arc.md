@@ -121,6 +121,8 @@ Key constraint: steps 11a–12 use `AimsStateMap` via ArcVarId-keyed lookups (`v
 
 - **No invisible gaps** — never stub with silent dummy values. Use `todo!("emit_<instr_name>")`, not silent `{ null, null }`. Use `assert!(data.is_empty(), "feature X not yet supported")`, not `let _data = ...`
 - **Vertical slice testing** — every ARC IR instruction with LLVM emission must have an AOT test: Ori source → ARC lowering → AIMS analysis → LLVM emission → execution
+- **Matrix testing for RC changes** — any change to RC emission, elem_dec_fn, or iterator cleanup must be tested across ALL relevant element types (str, [int], Option<str>, closures, structs, maps, sets) AND all relevant iteration patterns (full, break, yield, guard, nested, two-call). A fix that works for `str` but isn't tested with `Option<str>` and maps is incomplete.
+- **Narrow the front** — complete one RC fix fully (fix + matrix tests + semantic pin + plan update) before starting another. RC + control-flow + lowering interactions multiply failure surfaces; working on elem_dec_fn and for-yield scoping simultaneously compounds risk.
 - **Classification correctness** — `ArcClass` drives all RC behavior. Misclassification is catastrophic:
   - Scalar as DefiniteRef → unnecessary RC ops (perf bug)
   - DefiniteRef as Scalar → missing RC ops (use-after-free / leak)
