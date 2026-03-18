@@ -377,6 +377,13 @@ fn emit_last_use_decs(
             continue;
         }
 
+        // Iterator-element defs and __iter_next type markers: these are
+        // borrowed from the collection buffer. Skip RcDec — elem_dec_fn
+        // handles cleanup when the collection is freed.
+        if ctx.iter_element_defs.contains(&var) {
+            continue;
+        }
+
         // Callee takes ownership at this position — no caller-side Dec.
         if instr.is_owned_position(pos) {
             continue;
