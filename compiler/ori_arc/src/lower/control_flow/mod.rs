@@ -241,40 +241,111 @@ impl ArcLowerer<'_> {
 
     /// Lower a `break` expression to ARC IR.
     ///
-    /// The exit block expects: `[break_value, mut_var_0, mut_var_1, ...]`
-    /// in the same order as the header params (matching `LoopContext::mutable_vars`).
+    /// For-do: exit block expects `[break_value, mut_var_0, mut_var_1, ...]`.
+    /// For-yield: optionally pushes break value to list, then jumps to exit
+    /// with `[coll_param?, mut_var_0, mut_var_1, ...]`.
     pub(crate) fn lower_break(&mut self, value: CanId) -> ArcVarId {
-        let break_val = if value.is_valid() {
-            self.lower_expr(value)
-        } else {
-            self.emit_unit()
-        };
+        // Extract for-yield info before mutable borrows (lower_expr needs &mut self).
+        let yield_info = self
+            .loop_ctx
+            .as_ref()
+            .and_then(|ctx| ctx.yield_ctx.as_ref())
+            .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name, yc.coll_param));
 
-        if let Some(ref ctx) = self.loop_ctx {
-            let exit_block = ctx.exit_block;
-            let mut args = vec![break_val];
-            for name in &ctx.mutable_vars {
-                if let Some(var) = self.scope.lookup(*name) {
-                    args.push(var);
-                }
+        if let Some((list_ptr, elem_size, push_name, coll_param)) = yield_info {
+            // For-yield break: optionally push value, then jump to exit.
+            if value.is_valid() {
+                let val = self.lower_expr(value);
+                self.builder
+                    .emit_apply(Idx::UNIT, push_name, vec![list_ptr, val, elem_size], None);
             }
-            tracing::debug!(
-                exit_bb = exit_block.index(),
-                break_val = break_val.raw(),
-                mutable_args = args.len() - 1,
-                "break: jump to exit"
-            );
-            self.builder.terminate_jump(exit_block, args);
+            // Re-borrow loop_ctx for jump args (mutable borrows are done).
+            if let Some(ref ctx) = self.loop_ctx {
+                let exit_block = ctx.exit_block;
+                let mut args: Vec<_> = coll_param.into_iter().collect();
+                for name in &ctx.mutable_vars {
+                    if let Some(var) = self.scope.lookup(*name) {
+                        args.push(var);
+                    }
+                }
+                tracing::debug!(
+                    exit_bb = exit_block.index(),
+                    has_value = value.is_valid(),
+                    mutable_args = ctx.mutable_vars.len(),
+                    "for-yield break: jump to exit"
+                );
+                self.builder.terminate_jump(exit_block, args);
+            }
         } else {
-            tracing::warn!("break outside of loop in ARC IR lowering");
+            // For-do break: send break value + mutable vars to exit.
+            let break_val = if value.is_valid() {
+                self.lower_expr(value)
+            } else {
+                self.emit_unit()
+            };
+
+            if let Some(ref ctx) = self.loop_ctx {
+                let exit_block = ctx.exit_block;
+                let mut args = vec![break_val];
+                for name in &ctx.mutable_vars {
+                    if let Some(var) = self.scope.lookup(*name) {
+                        args.push(var);
+                    }
+                }
+                tracing::debug!(
+                    exit_bb = exit_block.index(),
+                    break_val = break_val.raw(),
+                    mutable_args = args.len() - 1,
+                    "break: jump to exit"
+                );
+                self.builder.terminate_jump(exit_block, args);
+            } else {
+                tracing::warn!("break outside of loop in ARC IR lowering");
+            }
         }
 
         self.emit_unit()
     }
 
     /// Lower a `continue` expression to ARC IR.
-    pub(crate) fn lower_continue(&mut self, _value: CanId) -> ArcVarId {
-        if let Some(ref ctx) = self.loop_ctx {
+    ///
+    /// For-do: jumps to header with `[mut_var_0, mut_var_1, ...]`.
+    /// For-yield: optionally pushes value to list, then jumps to header
+    /// with `[coll_param?, mut_var_0, mut_var_1, ...]`.
+    pub(crate) fn lower_continue(&mut self, value: CanId) -> ArcVarId {
+        // Extract for-yield info before mutable borrows (lower_expr needs &mut self).
+        let yield_info = self
+            .loop_ctx
+            .as_ref()
+            .and_then(|ctx| ctx.yield_ctx.as_ref())
+            .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name, yc.coll_param));
+
+        if let Some((list_ptr, elem_size, push_name, coll_param)) = yield_info {
+            // For-yield continue: optionally push value, then jump to header.
+            if value.is_valid() {
+                let val = self.lower_expr(value);
+                self.builder
+                    .emit_apply(Idx::UNIT, push_name, vec![list_ptr, val, elem_size], None);
+            }
+            // Re-borrow loop_ctx for jump args (mutable borrows are done).
+            if let Some(ref ctx) = self.loop_ctx {
+                let continue_block = ctx.continue_block;
+                let mut args: Vec<_> = coll_param.into_iter().collect();
+                for name in &ctx.mutable_vars {
+                    if let Some(var) = self.scope.lookup(*name) {
+                        args.push(var);
+                    }
+                }
+                tracing::debug!(
+                    continue_bb = continue_block.index(),
+                    has_value = value.is_valid(),
+                    mutable_args = ctx.mutable_vars.len(),
+                    "for-yield continue: jump to header"
+                );
+                self.builder.terminate_jump(continue_block, args);
+            }
+        } else if let Some(ref ctx) = self.loop_ctx {
+            // For-do continue: jump to header with mutable vars only.
             let continue_block = ctx.continue_block;
             let args: Vec<_> = ctx
                 .mutable_vars

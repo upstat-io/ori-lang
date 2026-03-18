@@ -63,6 +63,7 @@ impl ArcLowerer<'_> {
             exit_block,
             continue_block: header_block,
             mutable_vars: mutable_var_names,
+            yield_ctx: None,
         });
 
         self.lower_expr(body);
