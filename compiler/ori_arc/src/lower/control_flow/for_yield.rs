@@ -319,7 +319,19 @@ impl ArcLowerer<'_> {
         let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
         self.bind_for_pattern(pattern, elem, elem_ty);
 
+        // Clear outer mutable names so inner for-do loops don't thread
+        // them through their headers. The for-yield has no mutable variable
+        // merge infrastructure (no exit merge block) — changes to outer
+        // mutables inside the body are not propagated. Without this isolation,
+        // the inner for-do creates block params for outer variables in its
+        // exit block, and the AIMS backward analysis emits RcDec referencing
+        // those params in the outer body block before they're defined, causing
+        // the LLVM emitter to skip the decs and leak.
+        let saved_mutable_names = self.scope.clear_mutable_names();
+
         let body_val = self.lower_expr(body);
+
+        self.scope.restore_mutable_names(saved_mutable_names);
 
         // ori_list_push(list_ptr, body_val, elem_size)
         let list_push = self.interner.intern("ori_list_push");

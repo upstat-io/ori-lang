@@ -1491,7 +1491,6 @@ fn test_matrix_nested_list_break() {
 /// [[int]] passed to two functions — verifies RC balance across multiple
 /// iteration passes over nested collections.
 #[test]
-#[ignore = "[[int]] two-call double-free — inner list elem_dec_fn missing — iter-rc-contract 02"]
 fn test_matrix_nested_list_two_calls() {
     assert_aot_success(
         r#"
@@ -1610,7 +1609,6 @@ fn test_matrix_closure_break() {
 
 /// Option<str> + yield — extracts string lengths from Some values.
 #[test]
-#[ignore = "iter-rc-contract plan Sections 02+03: for-yield + Option<str> double-free (two intertwined bugs: NULL elem_dec_fn + AIMS extra RcDec)"]
 fn test_matrix_option_str_yield() {
     assert_aot_success(
         r#"

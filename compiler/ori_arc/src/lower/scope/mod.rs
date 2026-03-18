@@ -62,6 +62,25 @@ impl ArcScope {
         self.mutable_names.contains(&name)
     }
 
+    /// Clear all mutable tracking and return the previous mutable name set.
+    ///
+    /// Used by for-yield before lowering its body to prevent inner for-do
+    /// loops from threading outer mutable variables through their headers.
+    /// The for-yield doesn't propagate mutable variable changes (no exit
+    /// merge), so inner loops must not thread them — doing so creates
+    /// forward-referencing `ArcVarId`s that the AIMS analysis mishandles.
+    ///
+    /// The returned set can be passed to [`restore_mutable_names`] after
+    /// the body is lowered to reinstate outer mutable tracking.
+    pub fn clear_mutable_names(&mut self) -> FxHashSet<Name> {
+        std::mem::take(&mut self.mutable_names)
+    }
+
+    /// Restore previously saved mutable names.
+    pub fn restore_mutable_names(&mut self, names: FxHashSet<Name>) {
+        self.mutable_names = names;
+    }
+
     /// Iterate over all mutable bindings (name, current var).
     pub(crate) fn mutable_bindings(&self) -> impl Iterator<Item = (Name, ArcVarId)> + '_ {
         self.mutable_names
