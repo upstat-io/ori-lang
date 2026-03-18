@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Iterator–Collection Ownership Contract"
-status: in-progress
+status: complete
 goal: "Fix the ownership contract between iterators and collections so that [T] where T has Drop never double-frees elements"
 depends_on: []
 third_party_review:
@@ -25,7 +25,7 @@ sections:
     status: not-started
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Iterator–Collection Ownership Contract
@@ -175,7 +175,7 @@ The fix must work for ALL collection element types that have Drop semantics, not
 - [x] `ORI_CHECK_LEAKS=1` reports no leaks on all test programs — 12,967 tests pass, all AOT tests run with ORI_CHECK_LEAKS=1
 - [x] `./test-all.sh` green — 12,967 pass, 0 fail
 - [x] `./clippy-all.sh` green
-- [ ] J15 re-run: eval and AOT produce identical results, score improves
-- [ ] ARC IR verify (`ori_arc::verify()`) passes on all test programs — no RcDec on already-freed variables
+- [x] J15 re-run: eval and AOT produce identical results, score improves — both return 18, dual-exec verified, leak check clean (2026-03-18)
+- [x] ARC IR verify (`ori_arc::verify()`) passes on all test programs — no RcDec on already-freed variables — ORI_VERIFY_ARC=1: 4170 spec tests, 1363 AOT tests, 992 ori_arc tests, all 17 journeys pass (2026-03-18)
 
 **Exit Criteria:** `diagnostics/valgrind-aot.sh` on all test programs above reports "0 errors from 0 contexts" AND `ORI_CHECK_LEAKS=1` reports 0 leaks AND `./test-all.sh` reports 0 failures.

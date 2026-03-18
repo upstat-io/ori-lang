@@ -321,6 +321,23 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ) -> (Name, FunctionId, FunctionAbi) {
         let is_non_capturing = lambda.num_captures == 0;
 
+        // Apply AIMS param ownership from pre-computed contracts BEFORE the
+        // name change below. The contracts map uses the original lambda name
+        // (e.g., `__lambda_0` from lowering). Lambdas need correct
+        // Owned/Borrowed annotations so that collect_all_borrowed_defs()
+        // correctly identifies borrowed params and their Let aliases.
+        // Without this, edge cleanup emits spurious RcDec for
+        // borrowed-param aliases (double-free on captured non-scalar
+        // values like str, [T]).
+        if let Some(contract) = self.aims_contracts.get(&lambda.name) {
+            for (param, pc) in lambda.params.iter_mut().zip(&contract.params) {
+                param.ownership = match pc.access {
+                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
+                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
+                };
+            }
+        }
+
         let mut abi = self.compute_arc_function_abi(lambda);
 
         // Non-capturing lambdas use `ccc` so they match the closure calling
