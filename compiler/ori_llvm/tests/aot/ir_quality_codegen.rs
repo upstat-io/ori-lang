@@ -159,10 +159,11 @@ type Rect = { x: int, y: int, width: int, height: int };
     );
 }
 
-/// Struct passed whole to another function must load all fields.
+/// Struct passed whole to another function uses aggregate load in AOT.
 ///
 /// When a struct param is passed directly as an argument to another call
-/// (not via Project), all fields must be loaded — the callee may use any.
+/// (not via Project), all fields are needed. In AOT mode, this should use
+/// a single aggregate load (not per-field GEP+load+insertvalue).
 /// Uses a 4-field struct to ensure Indirect passing (>16 bytes).
 #[test]
 fn test_struct_whole_passthrough_loads_all() {
@@ -185,13 +186,21 @@ type Big = { a: int, b: int, c: int, d: int };
 
     let fn_ir = extract_function_ir(&ir, "_ori_forward");
 
-    // `forward` passes `p` whole to `sum_big` — all fields must be loaded.
-    // Big has 4 fields, so we need at least 4 loads.
+    // AOT mode: `forward` should use a single aggregate load for the whole
+    // struct, not per-field GEP+load+insertvalue (which was the old JIT-safe
+    // pattern). Exactly 1 load for the param.
     let load_count = fn_ir.matches("= load ").count();
     assert!(
-        load_count >= 4,
-        "expected at least 4 loads in _ori_forward (whole passthrough of 4-field struct), \
+        load_count >= 1,
+        "expected at least 1 load in _ori_forward (aggregate load of struct param), \
          but found {load_count}.\nIR:\n{fn_ir}"
+    );
+    // Should NOT have per-field GEP decomposition.
+    let gep_count = fn_ir.matches("getelementptr").count();
+    assert_eq!(
+        gep_count, 0,
+        "expected 0 GEPs in _ori_forward (aggregate load, not per-field), \
+         but found {gep_count}.\nIR:\n{fn_ir}"
     );
 }
 
@@ -479,5 +488,157 @@ fn test_overflow_string_dedup_single_global_per_message() {
     assert_eq!(
         mul_msg_count, 1,
         "expected exactly 1 global for multiplication overflow message, found {mul_msg_count}."
+    );
+}
+
+// Fat pointer aggregate load regression tests
+
+/// str param uses aggregate load (not per-field GEP+load+insertvalue).
+#[test]
+fn test_str_param_aggregate_load() {
+    let ir = compile_and_capture_ir(
+        r#"
+@get_len (s: str) -> int = s.length();
+@main () -> int = get_len(s: "hello");
+"#,
+    );
+    if !ir.contains("define ") {
+        return;
+    }
+    let fn_ir = extract_function_ir(&ir, "_ori_get_len");
+    // Single aggregate load for the str param, no per-field GEP.
+    assert!(
+        fn_ir.contains("load { i64, i64, ptr }"),
+        "str param should use aggregate load in AOT.\nIR:\n{fn_ir}"
+    );
+    assert!(
+        !fn_ir.contains("insertvalue"),
+        "str param should not use insertvalue (field-by-field) in AOT.\nIR:\n{fn_ir}"
+    );
+}
+
+/// Two str params both use aggregate loads.
+#[test]
+fn test_multi_str_param_aggregate_load() {
+    let ir = compile_and_capture_ir(
+        r#"
+@longer (a: str, b: str) -> int = {
+    let la = a.length();
+    let lb = b.length();
+    if la > lb then la else lb
+};
+@main () -> int = longer(a: "hi", b: "hello");
+"#,
+    );
+    if !ir.contains("define ") {
+        return;
+    }
+    let fn_ir = extract_function_ir(&ir, "_ori_longer");
+    let agg_loads = fn_ir.matches("load { i64, i64, ptr }").count();
+    assert!(
+        agg_loads >= 2,
+        "two str params should produce at least 2 aggregate loads, found {agg_loads}.\nIR:\n{fn_ir}"
+    );
+    assert!(
+        !fn_ir.contains("insertvalue"),
+        "str params should not use insertvalue in AOT.\nIR:\n{fn_ir}"
+    );
+}
+
+// Nounwind invoke→call regression tests
+
+/// Calling a nounwind user function uses `call`, not `invoke`.
+#[test]
+fn test_nounwind_callee_uses_call() {
+    let ir = compile_and_capture_ir(
+        r#"
+@get_len (s: str) -> int = s.length();
+@check () -> int = {
+    let s = "hello";
+    get_len(s: s)
+};
+@main () -> int = check();
+"#,
+    );
+    if !ir.contains("define ") {
+        return;
+    }
+    let fn_ir = extract_function_ir(&ir, "_ori_check");
+    // get_len is nounwind (only calls builtin length method),
+    // so check should use `call`, not `invoke`.
+    assert!(
+        fn_ir.contains("call fastcc") && fn_ir.contains("_ori_get_len"),
+        "nounwind callee should be called with `call`, not `invoke`.\nIR:\n{fn_ir}"
+    );
+    assert!(
+        !fn_ir.contains("invoke fastcc"),
+        "nounwind callee should not use `invoke`.\nIR:\n{fn_ir}"
+    );
+    // No landing pad needed.
+    assert!(
+        !fn_ir.contains("landingpad"),
+        "no landing pad when callee is nounwind.\nIR:\n{fn_ir}"
+    );
+}
+
+// Single-predecessor block merging regression tests
+
+/// Unconditional br to single-predecessor successor should be merged.
+#[test]
+fn test_single_predecessor_block_merged() {
+    let ir = compile_and_capture_ir(
+        r#"
+@get_len (s: str) -> int = s.length();
+@check () -> int = {
+    let s = "hello";
+    get_len(s: s)
+};
+@main () -> int = check();
+"#,
+    );
+    if !ir.contains("define ") {
+        return;
+    }
+    let fn_ir = extract_function_ir(&ir, "_ori_check");
+    // After nounwind downgrade + block merging, check should have
+    // no unconditional `br label %bb1` followed by a single-predecessor bb1.
+    // Count basic block labels — fewer is better.
+    let block_labels: Vec<&str> = fn_ir
+        .lines()
+        .filter(|l| l.ends_with(':') && !l.starts_with(';'))
+        .collect();
+    // The function should have at most: bb0 + rc_dec blocks (heap + sso_skip).
+    // No separate bb1 for post-call cleanup.
+    assert!(
+        !fn_ir.contains("\n  br label %bb1\n"),
+        "unconditional br to single-predecessor block should be merged.\n\
+         Blocks: {block_labels:?}\nIR:\n{fn_ir}"
+    );
+}
+
+/// SSO guard ptrtoint is never duplicated.
+#[test]
+fn test_sso_guard_single_ptrtoint() {
+    let ir = compile_and_capture_ir(
+        r#"
+@check () -> int = {
+    let s = "hello";
+    s.length()
+};
+@main () -> int = check();
+"#,
+    );
+    if !ir.contains("define ") {
+        return;
+    }
+    let fn_ir = extract_function_ir(&ir, "_ori_check");
+    // Each SSO guard should have exactly 1 ptrtoint. Count per-guard:
+    // the pattern is `ptrtoint ptr %X to i64` followed by sso_flag/is_null checks.
+    let ptrtoint_count = fn_ir.matches("ptrtoint ptr").count();
+    let sso_guard_count = fn_ir.matches("sso_flag").count().max(1);
+    assert!(
+        ptrtoint_count <= sso_guard_count,
+        "each SSO guard should have at most 1 ptrtoint, \
+         found {ptrtoint_count} ptrtoint vs {sso_guard_count} guards.\nIR:\n{fn_ir}"
     );
 }

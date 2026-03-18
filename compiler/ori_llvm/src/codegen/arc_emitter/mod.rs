@@ -34,7 +34,7 @@
 mod apply;
 mod apply_helpers;
 mod apply_protocols;
-mod builtins;
+pub(crate) mod builtins;
 mod catch_thunk;
 mod catch_thunk_gen;
 mod closures;
