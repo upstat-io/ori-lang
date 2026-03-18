@@ -13,7 +13,7 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::Name;
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 
 use super::ArcIrEmitter;
 use crate::codegen::abi::{FunctionAbi, ReturnPassing};
@@ -187,7 +187,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi));
 
         let result = if let Some((func_id, params, ret_abi)) = resolved {
-            let passed_args = self.apply_param_passing(&arg_vals, &params);
+            let passed_args = self.apply_param_passing_with_forwarding(&arg_vals, args, &params);
             match &ret_abi.passing {
                 ReturnPassing::Sret { .. } => {
                     let ret_ty = self.resolve_type(ret_abi.ty);
@@ -203,6 +203,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Runtime function fallback: coerce aggregate args to pointers.
             // Runtime functions (ori_print, ori_str_*, etc.) take ptr params,
             // but ARC IR passes aggregate structs (Str, List, etc.) by value.
+            // When a variable has a known source pointer (borrowed parameter),
+            // forward it directly instead of alloca+store.
             let is_list_push = callee_name_str == "ori_list_push";
             let coerced_args: Vec<ValueId> = args
                 .iter()
@@ -215,6 +217,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         // arg[1] is the element value that must be coerced
                         // to a pointer regardless of its type (even scalars).
                         self.coerce_any_to_ptr(val, arg_ty)
+                    } else if let Some(&src_ptr) = self.borrowed_param_ptrs.get(arc_var) {
+                        // Borrowed parameter forwarding: forward the original
+                        // pointer directly to the runtime function.
+                        let tag = self.pool.tag(arg_ty);
+                        if matches!(tag, Tag::Str | Tag::List | Tag::Set | Tag::Map) {
+                            src_ptr
+                        } else {
+                            self.coerce_aggregate_to_ptr(val, arg_ty)
+                        }
                     } else {
                         self.coerce_aggregate_to_ptr(val, arg_ty)
                     }

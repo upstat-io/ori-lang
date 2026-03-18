@@ -51,11 +51,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 } else {
                     // Non-empty: create global string constant and call
                     // ori_str_from_raw to produce SSO or RC-managed heap copy.
+                    // Uses emitter's call_with_sret for sret forwarding support.
                     let global = self.builder.build_global_string_ptr(s, "str");
                     let len = self.builder.const_i64(s.len() as i64);
                     let func_id = self.builder.runtime_fn("ori_str_from_raw");
-                    self.builder
-                        .call_with_sret(func_id, &[global, len], str_ty, "str.val")
+                    self.call_with_sret(func_id, &[global, len], str_ty, "str.val")
                         .unwrap_or_else(|| {
                             let cap = self.builder.const_i64(s.len() as i64);
                             self.builder

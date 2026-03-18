@@ -150,7 +150,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Non-capturing lambdas have a phantom `ptr %_env` prepended to their
         // LLVM param list (so they're directly callable as closures). Skip it
         // by adding 1 to the starting index.
-        let sret_offset = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
+        let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
+        let sret_offset = u32::from(has_sret);
+        // Register sret pointer for sret forwarding optimization.
+        // When the function returns a large struct via sret, the first parameter
+        // is the caller-allocated return slot. We can forward this directly to
+        // inner call_with_sret calls to avoid intermediate alloca+load+store.
+        if has_sret {
+            self.current_sret_ptr = Some(self.builder.get_param(self.current_function, 0));
+        }
         let phantom_env_offset = u32::from(self.ctx.non_capturing_lambdas.contains(&func.name));
         let needs_loads = abi.params.iter().any(|p| {
             matches!(
@@ -200,6 +208,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         )
                     };
                     self.def_var_repr(param.var, loaded, func);
+                    // Register source pointer for borrowed parameter forwarding.
+                    // When this variable is passed to another function that also
+                    // expects a pointer, we forward ptr_param directly instead
+                    // of alloca+store of the loaded value.
+                    self.borrowed_param_ptrs.insert(param.var, ptr_param);
                     llvm_param_idx += 1;
                 }
                 ParamPassing::Void => {
