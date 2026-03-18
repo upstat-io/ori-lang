@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Fix For-Yield RC Scoping"
-status: in-progress
+status: complete
 goal: "Eliminate the spurious extra RcDec on the source collection in for-yield by properly scoping the collection variable so it dies at the Jump to header, matching the for-do pattern. Also fix the clear_mutable_names() workaround that breaks outer mutable variable assignment in for-yield AOT."
 third_party_review:
   status: none
@@ -24,7 +24,7 @@ sections:
     status: complete
   - id: "03.5"
     title: "For-Yield break/continue Support"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Fix For-Yield RC Scoping
@@ -211,13 +211,14 @@ All four are valid in for-yield but cannot work in AOT without `LoopContext`.
 - **(a) Fix now** as part of this plan (correct, but scope expansion)
 - **(b) Skip P2/P8 for-yield tests** with `#skip("for-yield break/continue not yet lowered in AOT")` and track as a follow-up plan item
 
-- [ ] Decide: fix break/continue lowering now (option a) or skip P2/P8 for-yield tests (option b)
-- [ ] If fixing: add `LoopContext` setup before `self.lower_expr(body)` in `lower_for_yield_iterator()`
-- [ ] If fixing: handle `break` -- push nothing, jump to exit with accumulated list
-- [ ] If fixing: handle `break value` -- call `ori_list_push` then jump to exit
-- [ ] If fixing: handle `continue` -- jump to header (skip push)
-- [ ] If fixing: handle `continue value` -- call `ori_list_push` then jump to header
-- [ ] If skipping: add `#skip("for-yield break/continue not yet lowered in AOT")` to all P2 and P8 for-yield tests in Section 05
+- [x] Decide: fix break/continue lowering now (option a) — chosen over skip (2026-03-18)
+- [x] Add `LoopContext` setup before `self.lower_expr(body)` in `lower_for_yield_iterator()` — extended `LoopContext` with `ForYieldContext` (list_ptr, elem_size, list_push_name, coll_param) (2026-03-18)
+- [x] Handle `break` — jump to exit with accumulated list (no push), tested via `test_for_yield_break` + `test_for_yield_break_str` AOT tests (2026-03-18)
+- [x] Handle `break value` — call `ori_list_push` then jump to exit, tested via `test_for_yield_break_value` AOT test (2026-03-18)
+- [x] Handle `continue` — jump to header (skip push), tested via `test_for_yield_continue` + `test_for_yield_continue_str` AOT tests (2026-03-18)
+- [x] Handle `continue value` — call `ori_list_push` then jump to header, tested via `test_for_yield_continue_value` AOT test (2026-03-18)
+- [x] Mutable var threading preserved across break/continue — tested via `test_for_yield_break_mutable` + `test_for_yield_continue_value_mutable` AOT tests (2026-03-18)
+- ~~If skipping: add `#skip(...)` to P2/P8 tests~~ — N/A, chose option (a)
 
 ---
 
@@ -236,10 +237,11 @@ All four are valid in for-yield but cannot work in AOT without `LoopContext`.
 - [x] No `emit_defined_dead` dec emitted for consumed collection variable — verified (2026-03-18)
 - [x] All 8 AOT tests from 03.4 pass in debug and release — 17/17 (8 + 3 regression + 6 existing) pass in both builds (2026-03-18)
 - [x] All existing for-do tests pass unchanged — 1385 AOT tests, 4170 spec tests pass (2026-03-18)
-- [x] `timeout 150 ./test-all.sh` green — 12,997 pass, 0 fail (script reports "All tests passed" with 2 benign summary parsing warnings) (2026-03-18)
+- [x] `timeout 150 ./test-all.sh` green — 13,005 pass, 0 fail (2026-03-18)
 - [x] `./clippy-all.sh` green (2026-03-18)
-- [x] No regressions in `timeout 150 cargo test -p ori_llvm` — 453+1385 pass (2026-03-18)
-- [x] `diagnostics/dual-exec-verify.sh` passes for all for-yield test programs — 9/9 MATCH (2026-03-18)
+- [x] No regressions in `timeout 150 cargo test -p ori_llvm` — 453+1401 pass (2026-03-18)
+- [x] `diagnostics/dual-exec-verify.sh` passes for all for-yield test programs — 13/13 MATCH (2026-03-18)
+- [x] For-yield break/continue: 8 new AOT tests pass (break, break_value, continue, continue_value, break_str, continue_str, break_mutable, continue_value_mutable) — all leak-free (2026-03-18)
 
 ---
 

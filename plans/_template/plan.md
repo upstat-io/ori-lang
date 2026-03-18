@@ -232,6 +232,7 @@ Each section file follows this structure. Sections range from focused (single su
 section: "{NN}"
 title: "{Title}"
 status: not-started
+reviewed: false
 goal: "{One-line measurable goal}"
 inspired_by:             # Reference implementations studied
   - "{Language/Tool} {pattern} ({file path})"

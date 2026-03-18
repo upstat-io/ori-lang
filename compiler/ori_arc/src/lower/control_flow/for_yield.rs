@@ -13,7 +13,7 @@ use ori_types::{Idx, Tag};
 
 use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
 
-use super::super::expr::ArcLowerer;
+use super::super::expr::{ArcLowerer, ForYieldContext, LoopContext};
 
 impl ArcLowerer<'_> {
     /// Dispatch for-yield to the appropriate strategy based on iterable type.
@@ -374,18 +374,38 @@ impl ArcLowerer<'_> {
         let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
         self.bind_for_pattern(pattern, elem, elem_ty);
 
+        // Intern list_push before setting up LoopContext (break/continue need it).
+        let list_push = self.interner.intern("ori_list_push");
+
+        // Set up LoopContext so break/continue work inside the yield body.
+        // Matches the for-do pattern in for_iterator.rs.
+        let mutable_var_names: Vec<_> = mut_info.iter().map(|(name, _, _)| *name).collect();
+        let prev_loop = self.loop_ctx.take();
+        self.loop_ctx = Some(LoopContext {
+            exit_block,
+            continue_block: header_block,
+            mutable_vars: mutable_var_names,
+            yield_ctx: Some(ForYieldContext {
+                list_ptr,
+                elem_size: elem_size_var,
+                list_push_name: list_push,
+                coll_param,
+            }),
+        });
+
         let body_val = self.lower_expr(body);
 
-        // ori_list_push(list_ptr, body_val, elem_size)
-        let list_push = self.interner.intern("ori_list_push");
-        self.builder.emit_apply(
-            Idx::UNIT,
-            list_push,
-            vec![list_ptr, body_val, elem_size_var],
-            None,
-        );
-
         if !self.builder.is_terminated() {
+            // Normal body completion: push result and jump to header.
+            // (If break/continue terminated, the handlers already handled
+            // the push and jump — skip this to avoid dead code.)
+            self.builder.emit_apply(
+                Idx::UNIT,
+                list_push,
+                vec![list_ptr, body_val, elem_size_var],
+                None,
+            );
+
             // Jump back to header with coll_param + updated mutable var values.
             let mut back_args: Vec<_> = coll_param.into_iter().collect();
             back_args.extend(
@@ -395,6 +415,8 @@ impl ArcLowerer<'_> {
             );
             self.builder.terminate_jump(header_block, back_args);
         }
+
+        self.loop_ctx = prev_loop;
 
         // Exit prep: normal loop exhaustion path. Passes coll_param +
         // current mutable var values to the exit block.

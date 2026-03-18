@@ -25,6 +25,25 @@ pub(crate) struct LoopContext {
     /// Mutable variable names in block-parameter order for SSA merge.
     /// MUST be `Vec` (not `HashMap`) — order must match `add_block_param` order.
     pub mutable_vars: Vec<Name>,
+    /// For-yield specific: when set, break/continue handle list accumulation
+    /// and thread the collection phantom parameter.
+    pub yield_ctx: Option<ForYieldContext>,
+}
+
+/// Context for break/continue inside a for-yield loop.
+///
+/// Enables `lower_break`/`lower_continue` to push values to the
+/// accumulating list and prepend the collection phantom to jump args.
+pub(crate) struct ForYieldContext {
+    /// The `ori_list_new` result pointer — used with `ori_list_push`.
+    pub list_ptr: crate::ir::ArcVarId,
+    /// Element size literal — passed to `ori_list_push`.
+    pub elem_size: crate::ir::ArcVarId,
+    /// Interned `"ori_list_push"` name.
+    pub list_push_name: Name,
+    /// Collection phantom parameter from the header block (if present).
+    /// Prepended to exit/header jump args for RC cleanup ordering.
+    pub coll_param: Option<crate::ir::ArcVarId>,
 }
 
 // ArcLowerer

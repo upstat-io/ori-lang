@@ -2029,3 +2029,183 @@ fn test_map_str_key_str_val_for_do() {
         "map_str_key_str_val_for_do",
     );
 }
+
+// For-yield break/continue lowering
+
+/// `break` in for-yield: stop early, return accumulated list.
+#[test]
+fn test_for_yield_break() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 4 then break;
+        x * 2
+    };
+    // Expected: [2, 4, 6] (x=1→2, x=2→4, x=3→6, x=4→break)
+    if result.length() == 3 then 0 else 1
+}
+"#,
+        "for_yield_break",
+    );
+}
+
+/// `break value` in for-yield: push value then stop.
+#[test]
+fn test_for_yield_break_value() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 4 then break 99;
+        x
+    };
+    // Expected: [1, 2, 3, 99] (x=4→break 99 pushes 99)
+    let ok = result.length() == 4;
+    if ok then {
+        // Verify last element is 99
+        ok = result[3] == 99
+    };
+    if ok then 0 else 1
+}
+"#,
+        "for_yield_break_value",
+    );
+}
+
+/// `continue` in for-yield: skip element, don't push.
+#[test]
+fn test_for_yield_continue() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 3 then continue;
+        x
+    };
+    // Expected: [1, 2, 4, 5] (x=3 skipped)
+    if result.length() == 4 then 0 else 1
+}
+"#,
+        "for_yield_continue",
+    );
+}
+
+/// `continue value` in for-yield: push substituted value.
+#[test]
+fn test_for_yield_continue_value() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 3 then continue 0;
+        x
+    };
+    // Expected: [1, 2, 0, 4, 5] (x=3→continue 0 pushes 0 instead)
+    let ok = result.length() == 5;
+    if ok then {
+        ok = result[2] == 0
+    };
+    if ok then 0 else 1
+}
+"#,
+        "for_yield_continue_value",
+    );
+}
+
+/// `break` in for-yield over str list: RC correctness with fat pointers.
+#[test]
+fn test_for_yield_break_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold",
+        "third string for good measure and beyond SSO"
+    ];
+    let result = for w in words yield {
+        if w.length() > 55 then break;
+        w
+    };
+    // Expected: ["this is a very long string..."] — first string (53 chars) passes,
+    // second (56 chars) triggers break
+    if result.length() == 1 then 0 else 1
+}
+"#,
+        "for_yield_break_str",
+    );
+}
+
+/// `continue` in for-yield over str list: skip without leaking.
+#[test]
+fn test_for_yield_continue_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "short",
+        "another very long string that also exceeds the threshold"
+    ];
+    let result = for w in words yield {
+        if w.length() < 10 then continue;
+        w
+    };
+    // Expected: 2 elements (both long strings, "short" skipped)
+    if result.length() == 2 then 0 else 1
+}
+"#,
+        "for_yield_continue_str",
+    );
+}
+
+/// `break` + mutable var: mutable variable threading preserved across break.
+#[test]
+fn test_for_yield_break_mutable() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let count = 0;
+    let result = for x in [10, 20, 30, 40, 50] yield {
+        count = count + 1;
+        if x == 30 then break;
+        x
+    };
+    // result = [10, 20], count = 3 (incremented before break check)
+    let ok = result.length() == 2;
+    if ok then {
+        ok = count == 3
+    };
+    if ok then 0 else 1
+}
+"#,
+        "for_yield_break_mutable",
+    );
+}
+
+/// `continue value` + mutable var: mutable variable threading through continue.
+#[test]
+fn test_for_yield_continue_value_mutable() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let skipped = 0;
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x % 2 == 0 then {
+            skipped = skipped + 1;
+            continue 0
+        };
+        x
+    };
+    // result = [1, 0, 3, 0, 5], skipped = 2
+    let ok = result.length() == 5;
+    if ok then {
+        ok = skipped == 2
+    };
+    if ok then 0 else 1
+}
+"#,
+        "for_yield_continue_value_mutable",
+    );
+}
