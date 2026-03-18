@@ -145,6 +145,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ArcInstr::Let { dst, ty, value } => {
                 let val = self.emit_value(value, *ty, func);
                 self.def_var_repr(*dst, val, func);
+                // Propagate borrowed parameter source pointers through aliases.
+                // When `Let { dst, Var(src) }`, if src has a known source pointer
+                // (from a borrowed param), dst inherits it for pointer forwarding.
+                if let ori_arc::ir::ArcValue::Var(src) = value {
+                    if let Some(&ptr) = self.borrowed_param_ptrs.get(src) {
+                        self.borrowed_param_ptrs.insert(*dst, ptr);
+                    }
+                }
             }
 
             ArcInstr::Apply {

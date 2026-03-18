@@ -1,12 +1,12 @@
 ---
 section: "01"
 title: "Iterator–Collection Ownership Contract"
-status: complete
+status: in-progress
 goal: "Fix the ownership contract between iterators and collections so that [T] where T has Drop never double-frees elements"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-03-18
 sections:
   - id: "01.1"
     title: "Root Cause Analysis"
@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: in-progress
   - id: "01.N"
     title: "Completion Checklist"
     status: complete
@@ -30,7 +30,7 @@ sections:
 
 # Section 01: Iterator–Collection Ownership Contract
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** When iterating over `[T]` where `T` has Drop semantics (str, [T], closures, structs with Drop fields), exactly one entity owns each element at any point. No double-frees, no leaks. This applies to ALL such types, not just `[str]`.
 
 **Context:** J15 discovered that iterating over `[str]` causes a double-free. The iterator runtime (`ori_iter_drop`) frees each string element, AND the list destructor (`ori_buffer_rc_dec` calling `_ori_elem_dec`) also frees the same elements. This is because the ownership contract between iterators and collections was never defined for element types that themselves have RC — J10 tested `[int]` (scalar elements, no element-level RC) which masked the issue.
@@ -155,7 +155,15 @@ The fix must work for ALL collection element types that have Drop semantics, not
 
 ## 01.R Third Party Review Findings
 
-- None.
+- [ ] `[TPR-01-001][high]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:1497` — `test_matrix_nested_list_two_calls` still reproduces a double-free, contradicting the section's claim that the `[[int]]` matrix cases pass.
+  Evidence: A fresh `cargo test -p ori_llvm fat_ptr_iter -- --nocapture` run on 2026-03-18 failed in `fat_ptr_iter::test_matrix_nested_list_two_calls` with `ori_rc_dec called on already-freed allocation`. The section still marks the `[[int]]` work complete at `plans/fat-pointer-hardening/section-01-iterator-ownership.md:142` and the completion checklist still says ``test_matrix_nested_list_*`` passes at `plans/fat-pointer-hardening/section-01-iterator-ownership.md:165`.
+  Impact: Section 01 is not actually complete; repeated nested-collection iteration remains RC-unsafe in a scenario the section claims is fixed.
+  Required plan update: Reopen the `[[int]]` ownership-contract work in 01.4/01.N, fix the multi-call nested-list path, and rerun the `fat_ptr_iter` matrix before restoring completion claims.
+
+- [ ] `[TPR-01-002][medium]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:469` — Section 01 overstates verification coverage: four relevant fat-pointer AOT cases are still ignored while the section claims “all above tests” and broad leak-check completion.
+  Evidence: The same fresh `cargo test -p ori_llvm fat_ptr_iter -- --nocapture` run reported four ignored tests: `test_borrowed_map_str_keys_two_calls` (`compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:469`), `test_borrowed_param_iterate_then_index` (`compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:631`), `test_nested_list_iteration` (`compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:688`), and `test_matrix_option_str_yield` (`compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:1615`). The section still claims “Run all above tests ... zero failures” at `plans/fat-pointer-hardening/section-01-iterator-ownership.md:151`-`plans/fat-pointer-hardening/section-01-iterator-ownership.md:152` and broad completion of `ORI_CHECK_LEAKS=1` / `./test-all.sh` verification at `plans/fat-pointer-hardening/section-01-iterator-ownership.md:175`-`plans/fat-pointer-hardening/section-01-iterator-ownership.md:179`.
+  Impact: The section's verification story is overstated; important frontier scenarios in the same ownership-contract area remain deferred or unverified, so the current `complete` judgment was too strong even aside from the failing `[[int]]` case.
+  Required plan update: Either move the ignored scenarios back into open Section 01 work or explicitly defer each one to the owning successor plan without counting them toward this section's completed verification evidence.
 
 ---
 

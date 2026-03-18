@@ -11,6 +11,8 @@
 //! fields directly, because field 0 means "len" for heap but "first 8 inline
 //! bytes" for SSO.
 
+use ori_arc::ir::ArcVarId;
+
 use crate::codegen::value_id::ValueId;
 
 use super::super::super::ArcIrEmitter;
@@ -22,6 +24,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(crate) fn emit_str_length(&mut self, receiver: ValueId) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_str_len");
         let ptr = self.str_to_ptr(receiver, "str_len.self");
+        self.emit_rt_call(func_id, &[ptr], "str.len")
+    }
+
+    /// Emit `str.length()` with borrowed parameter forwarding.
+    ///
+    /// When the receiver is a borrowed parameter, forwards its pointer directly
+    /// to `ori_str_len` instead of creating an alloca+store round-trip.
+    pub(crate) fn emit_str_length_forwarded(
+        &mut self,
+        receiver: ValueId,
+        var: ArcVarId,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_str_len");
+        let ptr = self.str_to_ptr_forwarded(receiver, var, "str_len.self");
         self.emit_rt_call(func_id, &[ptr], "str.len")
     }
 

@@ -274,6 +274,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ret_passing,
                 ret_ty_idx,
                 &arg_vals,
+                arc_args,
                 mode,
                 arc_func,
             );
@@ -350,10 +351,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ret_passing: ReturnPassing,
         ret_ty_idx: Idx,
         arg_vals: &[ValueId],
+        arc_vars: &[ArcVarId],
         mode: InvokeMode,
         arc_func: &ArcFunction,
     ) {
-        let passed_args = self.apply_param_passing(arg_vals, params);
+        let passed_args = self.apply_param_passing_with_forwarding(arg_vals, arc_vars, params);
         let result = match &ret_passing {
             ReturnPassing::Sret { .. } => {
                 let ret_ty = self.resolve_type(ret_ty_idx);
