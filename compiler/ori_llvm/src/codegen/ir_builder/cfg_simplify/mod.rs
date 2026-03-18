@@ -31,7 +31,7 @@
 //! Phi rewriting therefore rebuilds each affected phi: collect (value, block)
 //! pairs with the old block replaced, create a new phi, RAUW, delete old.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use inkwell::values::{AsValueRef, FunctionValue};
 use llvm_sys::core;
@@ -67,6 +67,8 @@ pub fn simplify_cfg(function: FunctionValue<'_>) -> SimplifyStats {
     if merge_entry_block(function) {
         stats.blocks_removed += 1;
     }
+
+    stats.blocks_removed += merge_single_predecessor_blocks(function);
 
     stats
 }
@@ -108,8 +110,8 @@ fn simplify_redundant_branches(function: FunctionValue<'_>, stats: &mut Simplify
 /// Build predecessor map: block -> list of unique predecessor blocks.
 fn build_pred_map(
     function: FunctionValue<'_>,
-) -> HashMap<LLVMBasicBlockRef, Vec<LLVMBasicBlockRef>> {
-    let mut map: HashMap<LLVMBasicBlockRef, Vec<LLVMBasicBlockRef>> = HashMap::new();
+) -> FxHashMap<LLVMBasicBlockRef, Vec<LLVMBasicBlockRef>> {
+    let mut map: FxHashMap<LLVMBasicBlockRef, Vec<LLVMBasicBlockRef>> = FxHashMap::default();
     for block in function.get_basic_blocks() {
         let block_ref = block.as_mut_ptr();
         map.entry(block_ref).or_default();
@@ -243,6 +245,161 @@ fn merge_entry_block(function: FunctionValue<'_>) -> bool {
         core::LLVMRemoveBasicBlockFromParent(entry_ref);
     }
     true
+}
+
+/// Merge blocks where the predecessor ends with `br label %succ` and the
+/// successor has exactly one predecessor. Moves all instructions from the
+/// successor into the predecessor (replacing the `br`), then deletes the
+/// successor.
+///
+/// Returns the number of blocks merged. Iterates to a fixed point to handle
+/// chains (A → B → C where each has a single predecessor).
+fn merge_single_predecessor_blocks(function: FunctionValue<'_>) -> u32 {
+    let mut total = 0;
+    loop {
+        let merged = merge_single_predecessor_pass(function);
+        if merged == 0 {
+            break;
+        }
+        total += merged;
+    }
+    total
+}
+
+/// Single pass: find and merge one eligible (predecessor, successor) pair.
+///
+/// Returns 1 if a merge happened, 0 if no candidates found.
+fn merge_single_predecessor_pass(function: FunctionValue<'_>) -> u32 {
+    let blocks = function.get_basic_blocks();
+    if blocks.len() < 2 {
+        return 0;
+    }
+    let pred_map = build_pred_map(function);
+
+    for block in &blocks {
+        let block_ref = block.as_mut_ptr();
+        let Some(term) = block.get_terminator() else {
+            continue;
+        };
+        let term_ref = term.as_value_ref();
+
+        // Must be an unconditional branch.
+        if unsafe { core::LLVMGetInstructionOpcode(term_ref) } != llvm_sys::LLVMOpcode::LLVMBr {
+            continue;
+        }
+        if unsafe { core::LLVMGetNumSuccessors(term_ref) } != 1 {
+            continue;
+        }
+
+        let succ_ref = unsafe { core::LLVMGetSuccessor(term_ref, 0) };
+
+        // Successor must have exactly one predecessor (this block).
+        let preds = pred_map.get(&succ_ref).cloned().unwrap_or_default();
+        if preds.len() != 1 || preds[0] != block_ref {
+            continue;
+        }
+
+        // Don't merge self-loops.
+        if succ_ref == block_ref {
+            continue;
+        }
+
+        // Single predecessor = no phi nodes possible. Guard defensively.
+        if has_phi_nodes(succ_ref) {
+            continue;
+        }
+
+        // SAFETY: block_ref ends with `br label %succ_ref`, and succ_ref
+        // has exactly one predecessor (block_ref). We:
+        //   1. Erase the br from the predecessor
+        //   2. Move all instructions from successor to predecessor
+        //   3. Update phi incoming blocks in successor's successors
+        //   4. Delete the empty successor
+        unsafe {
+            core::LLVMInstructionEraseFromParent(term_ref);
+
+            let ctx =
+                core::LLVMGetModuleContext(core::LLVMGetGlobalParent(function.as_value_ref()));
+
+            // Move each instruction from succ to end of pred.
+            let mut inst = core::LLVMGetFirstInstruction(succ_ref);
+            while !inst.is_null() {
+                let next = core::LLVMGetNextInstruction(inst);
+                core::LLVMInstructionRemoveFromParent(inst);
+                let builder = core::LLVMCreateBuilderInContext(ctx);
+                core::LLVMPositionBuilderAtEnd(builder, block_ref);
+                core::LLVMInsertIntoBuilder(builder, inst);
+                core::LLVMDisposeBuilder(builder);
+                inst = next;
+            }
+
+            // Update phi incoming blocks: succ_ref → block_ref.
+            let new_term = core::LLVMGetBasicBlockTerminator(block_ref);
+            if !new_term.is_null() {
+                let n_succ = core::LLVMGetNumSuccessors(new_term);
+                for i in 0..n_succ {
+                    let target = core::LLVMGetSuccessor(new_term, i);
+                    update_phi_incoming_block(target, succ_ref, block_ref);
+                }
+            }
+
+            core::LLVMRemoveBasicBlockFromParent(succ_ref);
+        }
+
+        return 1;
+    }
+
+    0
+}
+
+/// Update phi nodes in `block`: replace incoming entries from `old_bb` with `new_bb`.
+///
+/// SAFETY: `old_bb` and `new_bb` must be valid LLVM basic block refs.
+unsafe fn update_phi_incoming_block(
+    block: LLVMBasicBlockRef,
+    old_bb: LLVMBasicBlockRef,
+    new_bb: LLVMBasicBlockRef,
+) {
+    let mut inst = core::LLVMGetFirstInstruction(block);
+    while !inst.is_null() {
+        if core::LLVMGetInstructionOpcode(inst) != llvm_sys::LLVMOpcode::LLVMPHI {
+            break;
+        }
+        let next = core::LLVMGetNextInstruction(inst);
+
+        let num = core::LLVMCountIncoming(inst);
+        let has_old = (0..num).any(|i| core::LLVMGetIncomingBlock(inst, i) == old_bb);
+        if has_old {
+            // Rebuild the phi with old_bb replaced by new_bb.
+            let mut values = Vec::with_capacity(num as usize);
+            let mut blocks = Vec::with_capacity(num as usize);
+            for i in 0..num {
+                let bb = core::LLVMGetIncomingBlock(inst, i);
+                let val = core::LLVMGetIncomingValue(inst, i);
+                values.push(val);
+                blocks.push(if bb == old_bb { new_bb } else { bb });
+            }
+
+            let phi_ty = core::LLVMTypeOf(inst);
+            let ctx = core::LLVMGetTypeContext(phi_ty);
+            let builder = core::LLVMCreateBuilderInContext(ctx);
+            core::LLVMPositionBuilderBefore(builder, inst);
+            let mut name_len = 0;
+            let name = core::LLVMGetValueName2(inst, std::ptr::addr_of_mut!(name_len));
+            let new_phi = core::LLVMBuildPhi(builder, phi_ty, name);
+            core::LLVMAddIncoming(
+                new_phi,
+                values.as_mut_ptr(),
+                blocks.as_mut_ptr(),
+                values.len() as u32,
+            );
+            core::LLVMReplaceAllUsesWith(inst, new_phi);
+            core::LLVMInstructionEraseFromParent(inst);
+            core::LLVMDisposeBuilder(builder);
+        }
+
+        inst = next;
+    }
 }
 
 /// Check if a block is a single unconditional br (the only instruction).

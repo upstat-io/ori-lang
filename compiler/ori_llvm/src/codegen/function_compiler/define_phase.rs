@@ -433,15 +433,22 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 _ => true,
             };
             let instrs_ok = block.body.iter().all(|instr| match instr {
-                ori_arc::ir::ArcInstr::Apply { func: callee, .. } => {
+                ori_arc::ir::ArcInstr::Apply {
+                    func: callee, args, ..
+                } => {
                     let s = self.interner.lookup(*callee);
                     match is_rt_fn_nounwind(s) {
                         // Known runtime function with Nounwind attribute
                         Some(true) => true,
                         // Known runtime function WITHOUT Nounwind — may unwind
                         Some(false) => false,
-                        // Not a runtime function — check user function set
-                        None => self.codegen_ctx.nounwind_functions.contains(callee),
+                        // Not a runtime function — check user function set,
+                        // then check if the callee will be intercepted by
+                        // builtin handlers (which always emit `call`).
+                        None => {
+                            self.codegen_ctx.nounwind_functions.contains(callee)
+                                || self.is_callee_intercepted(s, *callee, args, func)
+                        }
                     }
                 }
                 // Indirect calls through closures/function pointers are
@@ -458,5 +465,58 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             });
             term_ok && instrs_ok
         })
+    }
+
+    /// Check if a callee will be intercepted by builtin handlers during emission.
+    ///
+    /// Intercepted calls always emit `call` (never `invoke`), so they are
+    /// effectively nounwind from the caller's perspective. This mirrors the
+    /// logic in `ArcIrEmitter::callee_will_be_intercepted`.
+    fn is_callee_intercepted(
+        &self,
+        callee_name: &str,
+        callee: Name,
+        args: &[ori_arc::ir::ArcVarId],
+        func: &ori_arc::ArcFunction,
+    ) -> bool {
+        use crate::codegen::arc_emitter::builtins::prelude::HANDLED_PRELUDE_NAMES;
+
+        // Format call interceptor
+        if callee_name.starts_with("ori_format_") {
+            return true;
+        }
+        // Prelude function interceptor
+        if HANDLED_PRELUDE_NAMES.contains(&callee_name) {
+            return true;
+        }
+        // Declared user functions use normal dispatch — NOT intercepted
+        if self.codegen_ctx.functions.contains_key(&callee) {
+            return false;
+        }
+        // Runtime functions have their own emission paths — NOT intercepted
+        if callee_name.starts_with("ori_") || callee_name.starts_with("__") {
+            return false;
+        }
+        // Builtin method: receiver is a builtin type and not in method_functions
+        if let Some(&first_arg) = args.first() {
+            let receiver_ty = func.var_type(first_arg);
+            let type_info = self.type_info.get(receiver_ty);
+            if type_info.builtin_type_name().is_some() {
+                if let Some(type_name) = self.codegen_ctx.type_idx_to_name.get(&receiver_ty) {
+                    if !self
+                        .codegen_ctx
+                        .method_functions
+                        .contains_key(&(*type_name, callee))
+                    {
+                        return true;
+                    }
+                } else {
+                    // Builtin type but no type_idx_to_name entry — method
+                    // dispatch chain can't resolve it, will be intercepted.
+                    return true;
+                }
+            }
+        }
+        false
     }
 }

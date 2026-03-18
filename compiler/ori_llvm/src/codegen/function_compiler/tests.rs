@@ -1206,7 +1206,10 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
         &classifier,
     );
 
-    // Call to user function not in nounwind_functions set → NOT nounwind
+    // Call to user function not in nounwind_functions set → NOT nounwind.
+    // Use empty args to avoid the builtin method interception path
+    // (which would recognize a call with a builtin-typed first arg as
+    // an intercepted builtin method).
     let func = make_arc_func(
         &interner,
         "caller_of_unknown",
@@ -1214,8 +1217,8 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
             dst: ArcVarId::new(1),
             ty: Idx::INT,
             func: interner.intern("some_user_function"),
-            args: vec![ArcVarId::new(0)],
-            arg_ownership: vec![ArgOwnership::Owned],
+            args: vec![],
+            arg_ownership: vec![],
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(1),
