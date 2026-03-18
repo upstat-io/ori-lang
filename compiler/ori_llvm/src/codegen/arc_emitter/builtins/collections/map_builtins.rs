@@ -322,13 +322,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// The iterator takes ownership of one RC reference to the data buffer,
     /// releasing it via `ori_map_buffer_rc_dec` when dropped.
     ///
-    /// Element cleanup contract: currently passes NULL for key/val dec functions.
-    /// The AIMS pipeline emits `RcDec` on destructured `(k, v)` from `__iter_next`,
-    /// so the per-element cleanup happens there. Passing real dec fns here would
-    /// cause double-free because `collect_iter_element_defs()` doesn't mark
-    /// transitive Project chains (tuple destructuring) as borrowed.
-    /// Fix requires: update `collect_iter_element_defs()` in `ori_arc` to propagate
-    /// borrowed status through Project chains, then pass real dec fns here.
+    /// Element cleanup contract: passes real key/val dec functions so that
+    /// `ori_map_buffer_rc_dec` properly cleans up RC children when the buffer
+    /// is freed. The AIMS pipeline marks destructured `(k, v)` variables as
+    /// borrowed (via `collect_iter_element_defs()` transitive Project chain
+    /// propagation), so AIMS skips their `RcDec` — the buffer's Drop handles
+    /// all element cleanup.
     pub(crate) fn emit_map_iter(
         &mut self,
         receiver: ValueId,
@@ -341,13 +340,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.extract_map_components(receiver, key_ty, val_ty);
 
         let owns_data = self.builder.const_bool(true);
-        // NULL dec functions: the AIMS pipeline emits RcDec on the destructured
-        // (k, v) variables from __iter_next, handling per-element cleanup.
-        // Passing real dec fns here would double-free because
-        // collect_iter_element_defs() doesn't propagate borrowed status through
-        // transitive Project chains (tuple destructuring of map entries).
-        let key_dec_fn = self.builder.const_null_ptr();
-        let val_dec_fn = self.builder.const_null_ptr();
+        // Real dec functions: `collect_iter_element_defs()` propagates
+        // borrowed status through transitive Project chains (tuple
+        // destructuring), so AIMS skips RcDec on destructured k/v.
+        // The buffer's drop (via ori_map_buffer_rc_dec) handles all
+        // element cleanup using these real dec functions.
+        let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
+        let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
 
         self.emit_rt_call(
             func_id,

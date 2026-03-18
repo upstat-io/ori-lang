@@ -232,6 +232,28 @@ pub(crate) fn collect_iter_element_defs(
         }
     }
 
+    // Phase 2.5: propagate through transitive Project chains.
+    // Map iteration yields `(key, val)` tuples — destructuring produces
+    // Project chains: `%tuple = Project __iter_next.1`, then
+    // `%key = Project %tuple.0`, `%val = Project %tuple.1`.
+    // Without this phase, the destructured key/val are NOT in iter_elems,
+    // so AIMS emits spurious RcDec on them.
+    loop {
+        let prev_len = iter_elems.len();
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Project { dst, value, .. } = instr {
+                    if iter_elems.contains(value) {
+                        iter_elems.insert(*dst);
+                    }
+                }
+            }
+        }
+        if iter_elems.len() == prev_len {
+            break;
+        }
+    }
+
     // Phase 3: propagate through Let aliases and block params.
     propagate_borrowed_closure(func, &mut iter_elems);
     iter_elems
