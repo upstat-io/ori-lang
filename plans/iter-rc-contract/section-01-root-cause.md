@@ -1,13 +1,15 @@
 ---
 section: "01"
 title: "Root Cause Analysis & Design"
-status: in-progress
+status: complete
 goal: "Document the full causal chain from codegen through runtime that produces leaked elements and double-frees in iterator-based loops, establishing the shared understanding needed for Sections 02-06"
-third_party_review: false
+third_party_review:
+  status: none
+  updated: null
 sections:
   - id: "01.1"
     title: "NULL elem_dec_fn Bug Chain"
-    status: in-progress
+    status: complete
   - id: "01.2"
     title: "For-Yield Spurious RcDec Bug Chain"
     status: complete
@@ -60,7 +62,7 @@ The bug chain from codegen to observable leak:
 
 - [x] **STYLE**: Split merged doc comment in `helpers.rs:177-196` — separated `collect_project_borrowed_defs` doc (moved to line 239) from `collect_iter_element_defs` doc (kept in place). Each function now has its own `///` doc block. (2026-03-18)
 - [x] **STYLE**: Add missing `///` doc comment to `collect_project_borrowed_defs` — moved the displaced doc block (previously merged before `collect_iter_element_defs`) to its correct position. (2026-03-18)
-- [ ] **DOCS**: Update doc comment on `emit_map_iter` (`map_builtins.rs:340-341`) — current comment says "Null elem_dec functions: iterator borrows elements, map's drop function is the single source of truth for key/value cleanup" which is factually wrong (NULL causes leaks if iterator dec reaches zero first). Deferred to Section 02.3 fix — comment will be corrected when the real key/val dec functions are passed.
+- [x] **DOCS**: Update doc comment on `emit_map_iter` — rewritten in Section 02.3: doc now explains real dec fns + `collect_iter_element_defs()` transitive propagation. NULL comment removed. (2026-03-18)
 - [x] **TRACKING**: Verify `for_yield.rs:373` TODO reference to `type_strategy_registry/section-11` — confirmed: `plans/type_strategy_registry/section-11-wire-arc-borrow.md` exists. The TODO about extracting shared type layout logic to `ori_ir` is valid and tracked. (2026-03-18)
 
 ---
