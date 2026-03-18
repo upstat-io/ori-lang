@@ -25,10 +25,14 @@ pub fn stdlib_path() -> PathBuf {
 
 /// Get the path to an LLVM-enabled `ori` binary.
 ///
-/// When both debug and release binaries exist, prefers one with LLVM support.
-/// If both have LLVM support, picks the most recently modified. If neither
-/// has LLVM support, panics with a clear message instead of letting 100+
-/// AOT tests fail individually with cryptic E5004 errors.
+/// Picks the binary matching the current build profile (`cargo test` = debug,
+/// `cargo test --release` = release). Falls back to the other profile only if
+/// the matching one has no LLVM support. Panics if neither has LLVM support.
+///
+/// **Why not mtime?** The previous mtime-based selection silently picked stale
+/// release binaries when `cargo build` (debug) was newer, causing tests to run
+/// against code without recent fixes. Profile-matching ensures `cargo build &&
+/// cargo test` always tests the binary you just built.
 pub fn ori_binary() -> PathBuf {
     let workspace_root = workspace_root();
 
@@ -39,38 +43,44 @@ pub fn ori_binary() -> PathBuf {
     let debug_llvm = debug_path.exists() && has_llvm_support(&debug_path);
     let release_llvm = release_path.exists() && has_llvm_support(&release_path);
 
-    match (debug_llvm, release_llvm) {
-        // Both have LLVM — pick most recent
-        (true, true) => {
-            let debug_mtime = fs::metadata(&debug_path).and_then(|m| m.modified()).ok();
-            let release_mtime = fs::metadata(&release_path).and_then(|m| m.modified()).ok();
-            match (debug_mtime, release_mtime) {
-                (Some(d), Some(r)) if d >= r => debug_path,
-                (Some(_), Some(_)) => release_path,
-                _ => debug_path,
-            }
-        }
-        // Only one has LLVM — use it regardless of mtime
-        (true, false) => debug_path,
-        (false, true) => release_path,
-        // Neither has LLVM — fail fast with a clear message
-        (false, false) => {
-            panic!(
-                "No LLVM-enabled ori binary found.\n\
-                 AOT tests require `ori` built with LLVM (enabled by default).\n\
-                 Run `cargo build` (debug) or `cargo build --release` (release) first,\n\
-                 or use `./llvm-test.sh` which builds automatically.\n\
-                 \n\
-                 Checked:\n  \
-                   debug:   {} (exists: {})\n  \
-                   release: {} (exists: {})",
-                debug_path.display(),
-                debug_path.exists(),
-                release_path.display(),
-                release_path.exists(),
-            );
-        }
+    // Pick the binary that matches the current build profile.
+    // `cargo test` compiles tests in debug mode → use debug ori binary.
+    // `cargo test --release` compiles tests in release → use release ori binary.
+    let (preferred, fallback) = if cfg!(debug_assertions) {
+        ((debug_llvm, &debug_path), (release_llvm, &release_path))
+    } else {
+        ((release_llvm, &release_path), (debug_llvm, &debug_path))
+    };
+
+    if preferred.0 {
+        return preferred.1.clone();
     }
+    if fallback.0 {
+        let profile = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
+        eprintln!(
+            "warning: {profile} ori binary has no LLVM support, falling back to other profile"
+        );
+        return fallback.1.clone();
+    }
+
+    panic!(
+        "No LLVM-enabled ori binary found.\n\
+         AOT tests require `ori` built with LLVM (enabled by default).\n\
+         Run `cargo build` (debug) or `cargo build --release` (release) first,\n\
+         or use `./llvm-test.sh` which builds automatically.\n\
+         \n\
+         Checked:\n  \
+           debug:   {} (exists: {})\n  \
+           release: {} (exists: {})",
+        debug_path.display(),
+        debug_path.exists(),
+        release_path.display(),
+        release_path.exists(),
+    );
 }
 
 /// Check whether an `ori` binary has LLVM/AOT support by running `ori build`

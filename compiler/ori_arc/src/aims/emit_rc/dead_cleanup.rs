@@ -81,6 +81,14 @@ pub(crate) fn emit_dead_at_entry_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<Arc
         if is_live_at_exit(ctx.state_map, ctx.blk, param_var) {
             continue;
         }
+        // Skip iterator-element variables. These are borrowed from the
+        // collection buffer — elem_dec_fn handles cleanup when the
+        // collection is freed. Without this check, mutable-scope
+        // threading of borrowed elements through inner loop exit blocks
+        // generates spurious RcDec on the block param.
+        if ctx.iter_element_defs.contains(&param_var) {
+            continue;
+        }
         if let Some(strategy) = rc_strategy(ctx.func, param_var, ctx.pool) {
             new_body.push(ArcInstr::RcDec {
                 var: param_var,
