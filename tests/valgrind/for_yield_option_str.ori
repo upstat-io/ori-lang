@@ -1,0 +1,20 @@
+// For-yield with [Option<str>] — verifies no memory errors with Option
+// wrapping heap-allocated strings. Tests pattern matching on Option inside
+// for-yield body with mutable variable threading.
+
+@main () -> int = {
+    let some_count = 0;
+    let items: [Option<str>] = [
+        Some("this is a very long string that exceeds SSO threshold for sure"),
+        None,
+        Some("another very long string also exceeding SSO threshold here")
+    ];
+    let lengths = for item in items yield match item {
+        Some(s) -> {
+            some_count = some_count + 1;
+            s.length()
+        },
+        None -> 0,
+    };
+    if some_count == 2 && lengths[0] == 62 && lengths[1] == 0 && lengths[2] == 58 then 0 else 1
+}

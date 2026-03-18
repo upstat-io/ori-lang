@@ -8,6 +8,7 @@
 //! - **Iterator/Collection**: Same as range — convert to iterator, loop, push.
 
 use ori_ir::canon::{CanBindingPatternId, CanId};
+use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
 use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
@@ -198,22 +199,32 @@ impl ArcLowerer<'_> {
     /// `ori_list_push` to append each body result, and `ori_list_take`
     /// to extract the final list struct and free the wrapper.
     ///
+    /// Mutable variables from the enclosing scope are threaded through
+    /// the loop as header/exit block parameters (SSA phi nodes), matching
+    /// the for-do pattern in `for_iterator.rs`. This ensures assignments
+    /// to outer mutable variables inside the body are correctly propagated.
+    ///
     /// ```text
-    /// entry: list_ptr = ori_list_new(8, elem_size)
-    ///        jump → header
-    /// header: next = __iter_next(iter)
-    ///         tag = project(next, 0)
-    ///         has_more = (tag != 0)
-    ///         branch(has_more, body, exit)
-    /// body: elem = project(next, 1)
-    ///       body_val = lower(body)
-    ///       ori_list_push(list_ptr, body_val, elem_size)
-    ///       jump → header
-    /// exit: result = ori_list_take(list_ptr)
+    /// entry:     list_ptr = ori_list_new(8, elem_size)
+    ///            jump → header(coll_var, mut0, mut1, ...)
+    /// header:    next = __iter_next(iter)
+    ///            has_more = (tag != 0)
+    ///            branch(has_more, body, exit_prep)
+    /// body:      elem = project(next, 1)
+    ///            body_val = lower(body)
+    ///            ori_list_push(list_ptr, body_val, elem_size)
+    ///            jump → header(coll_param, mut0', mut1', ...)
+    /// exit_prep: jump → exit(coll_param, mut0, mut1, ...)
+    /// exit:      ori_iter_drop(iter)
+    ///            result = ori_list_take(list_ptr)
     /// ```
     #[expect(
         clippy::too_many_arguments,
         reason = "coll_var is an optional phantom for RC cleanup ordering — extracting a config struct would obscure the control flow"
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "iterator loop lowering with mutable-var SSA merge is inherently sequential"
     )]
     fn lower_for_yield_iterator(
         &mut self,
@@ -228,6 +239,18 @@ impl ArcLowerer<'_> {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
         let exit_block = self.builder.new_block();
+        // Branch can't carry args, so the normal exit path (iterator
+        // exhausted) goes header → exit_prep → exit with mutable params.
+        let exit_prep_block = self.builder.new_block();
+
+        // Collect outer mutable bindings for SSA merge through the loop,
+        // matching the for-do pattern in for_iterator.rs.
+        let pre_scope = self.scope.clone();
+        let mut mut_info: Vec<(Name, ArcVarId, Idx)> = Vec::new();
+        for (name, var) in pre_scope.mutable_bindings() {
+            let var_ty = self.builder.var_type_or_unit(var);
+            mut_info.push((name, var, var_ty));
+        }
 
         // Determine the body result element type from the list result type.
         // result_ty is `List<T>` — extract T for the element size.
@@ -236,6 +259,16 @@ impl ArcLowerer<'_> {
         } else {
             elem_ty // fallback: use iterator element type
         };
+
+        tracing::debug!(
+            pattern = ?pattern,
+            header_bb = header_block.index(),
+            body_bb = body_block.index(),
+            exit_bb = exit_block.index(),
+            mutable_vars = mut_info.len(),
+            has_guard = guard.is_valid(),
+            "for_yield_iterator: enter"
+        );
 
         // Allocate growable list: ori_list_new(initial_cap=8, elem_size)
         let list_new = self.interner.intern("ori_list_new");
@@ -253,19 +286,40 @@ impl ArcLowerer<'_> {
             self.builder
                 .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None);
 
-        // Thread source collection through header as a block param so the
-        // original variable dies at this Jump (its last use). The header
-        // param takes over, and its dummy let in the exit block ensures
-        // the collection outlives ori_iter_drop.
+        // Header params: optional collection phantom + mutable vars.
         let coll_param = coll_var.map(|cv| {
             let coll_ty = self.builder.var_type_or_unit(cv);
             self.builder.add_block_param(header_block, coll_ty)
         });
-        let entry_args: Vec<_> = coll_var.into_iter().collect();
+        let mut header_mut_params = Vec::new();
+        for &(name, pre_var, var_ty) in &mut_info {
+            let param = self.builder.add_block_param(header_block, var_ty);
+            header_mut_params.push((name, pre_var, param));
+        }
+
+        // Exit block params: optional collection phantom + mutable vars.
+        let exit_coll_param = coll_var.map(|_| {
+            let coll_ty = coll_param.map_or(Idx::UNIT, |cp| self.builder.var_type_or_unit(cp));
+            self.builder.add_block_param(exit_block, coll_ty)
+        });
+        let mut exit_mut_params = Vec::new();
+        for &(name, _, var_ty) in &mut_info {
+            let param = self.builder.add_block_param(exit_block, var_ty);
+            exit_mut_params.push((name, param));
+        }
+
+        // Entry jump: pass coll_var + current mutable var values to header.
+        let mut entry_args: Vec<_> = coll_var.into_iter().collect();
+        entry_args.extend(header_mut_params.iter().map(|(_, pre_var, _)| *pre_var));
         self.builder.terminate_jump(header_block, entry_args);
 
-        // Header: call __iter_next(iter, elem_ty_marker) → {tag, element}
+        // Header: bind mutable params, call __iter_next.
         self.builder.position_at(header_block);
+        self.scope = pre_scope.clone();
+        for &(name, _, param_var) in &header_mut_params {
+            self.scope.bind_mutable(name, param_var);
+        }
+
         let iter_next = self
             .interner
             .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
@@ -294,7 +348,7 @@ impl ArcLowerer<'_> {
         if guard.is_valid() {
             let guarded_block = self.builder.new_block();
             self.builder
-                .terminate_branch(has_more, guarded_block, exit_block);
+                .terminate_branch(has_more, guarded_block, exit_prep_block);
 
             self.builder.position_at(guarded_block);
             let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
@@ -305,13 +359,14 @@ impl ArcLowerer<'_> {
             self.builder
                 .terminate_branch(guard_val, body_block, guard_skip);
 
-            // Guard skip: jump back to header without pushing.
+            // Guard skip: jump back to header with unmodified mutable vars.
             self.builder.position_at(guard_skip);
-            let skip_args: Vec<_> = coll_param.into_iter().collect();
+            let mut skip_args: Vec<_> = coll_param.into_iter().collect();
+            skip_args.extend(header_mut_params.iter().map(|&(_, _, param)| param));
             self.builder.terminate_jump(header_block, skip_args);
         } else {
             self.builder
-                .terminate_branch(has_more, body_block, exit_block);
+                .terminate_branch(has_more, body_block, exit_prep_block);
         }
 
         // Body: extract element, evaluate body, push to list.
@@ -319,19 +374,7 @@ impl ArcLowerer<'_> {
         let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
         self.bind_for_pattern(pattern, elem, elem_ty);
 
-        // Clear outer mutable names so inner for-do loops don't thread
-        // them through their headers. The for-yield has no mutable variable
-        // merge infrastructure (no exit merge block) — changes to outer
-        // mutables inside the body are not propagated. Without this isolation,
-        // the inner for-do creates block params for outer variables in its
-        // exit block, and the AIMS backward analysis emits RcDec referencing
-        // those params in the outer body block before they're defined, causing
-        // the LLVM emitter to skip the decs and leak.
-        let saved_mutable_names = self.scope.clear_mutable_names();
-
         let body_val = self.lower_expr(body);
-
-        self.scope.restore_mutable_names(saved_mutable_names);
 
         // ori_list_push(list_ptr, body_val, elem_size)
         let list_push = self.interner.intern("ori_list_push");
@@ -343,9 +386,22 @@ impl ArcLowerer<'_> {
         );
 
         if !self.builder.is_terminated() {
-            let back_args: Vec<_> = coll_param.into_iter().collect();
+            // Jump back to header with coll_param + updated mutable var values.
+            let mut back_args: Vec<_> = coll_param.into_iter().collect();
+            back_args.extend(
+                header_mut_params.iter().map(|(name, _, _)| {
+                    self.scope.lookup(*name).unwrap_or_else(|| ArcVarId::new(0))
+                }),
+            );
             self.builder.terminate_jump(header_block, back_args);
         }
+
+        // Exit prep: normal loop exhaustion path. Passes coll_param +
+        // current mutable var values to the exit block.
+        self.builder.position_at(exit_prep_block);
+        let mut prep_args: Vec<_> = coll_param.into_iter().collect();
+        prep_args.extend(header_mut_params.iter().map(|&(_, _, param)| param));
+        self.builder.terminate_jump(exit_block, prep_args);
 
         // Exit: drop the iterator handle, then extract the final list.
         self.builder.position_at(exit_block);
@@ -356,9 +412,15 @@ impl ArcLowerer<'_> {
         // Dummy reference to collection param AFTER ori_iter_drop.
         // Keeps the collection alive past the iterator drop, so the
         // AIMS pipeline's RcDec (with real elem_dec_fn) reaches zero.
-        if let Some(param) = coll_param {
+        if let Some(param) = exit_coll_param {
             let coll_ty = self.builder.var_type_or_unit(param);
             self.builder.emit_let(coll_ty, ArcValue::Var(param), None);
+        }
+
+        // Restore scope with final mutable var values from the exit block.
+        self.scope = pre_scope;
+        for &(name, param) in &exit_mut_params {
+            self.scope.bind_mutable(name, param);
         }
 
         let list_take = self.interner.intern("ori_list_take");

@@ -4,7 +4,7 @@ title: "Fix Iterator elem_dec_fn (List, Map, Set)"
 status: in-progress
 goal: "Replace NULL elem_dec_fn/key_dec_fn/val_dec_fn with the real per-element drop functions in emit_list_iter() and emit_map_iter(), ensuring correct element cleanup regardless of which RcDec reaches zero"
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-18
 depends_on:
   - "01"
@@ -161,18 +161,12 @@ The `__for_coll` phantom ensures the AIMS `RcDec` comes AFTER `ori_iter_drop`. W
 
 - [x] `[TPR-02-001][high]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:1494` — Section 02 is marked complete while the section-owned `[[int]]` two-call regression remains ignored and still double-frees when enabled.
   Resolved: Validated on 2026-03-18. The fix in commit 55e292ad (pass real key_dec_fn/val_dec_fn to map iterator + transitive Project propagation) resolved the double-free. Test `test_matrix_nested_list_two_calls` now passes — `#[ignore]` removed. RC trace shows balanced alloc/free for all 4 allocations.
-- [ ] `[TPR-02-002][high]` `compiler/ori_arc/src/lower/control_flow/for_yield.rs:330` — The new Section 03 workaround clears mutable tracking before lowering the `for-yield` body, which breaks assignment to outer mutable variables in AOT.
-  Evidence: `lower_for_yield_iterator()` now calls `self.scope.clear_mutable_names()` before `self.lower_expr(body)`, while assignment lowering only rebinds names that still satisfy `self.scope.is_mutable(name)` in `compiler/ori_arc/src/lower/control_flow/mod.rs:306`. Fresh verification on 2026-03-18 with a minimal program that sums into an outer `let sum = 0; let _ = for x in [1, 2, 3] yield { sum = sum + x; x }; sum` showed interpreter result 6 (`target/debug/ori run /tmp/for_yield_mutation.ori` exited 6) but LLVM/AOT result 0 (`XDG_CACHE_HOME=/tmp/ori-cache target/debug/ori run /tmp/for_yield_mutation.ori --compile` exited 0) and emitted `assignment to non-mutable binding in ARC IR`.
-  Impact: This is a real semantic regression in the partial Section 03 work folded into the Section 02 branch. Section 02 cannot be treated as complete while the current `for-yield` fix path silently drops valid outer-mutable updates under AOT.
-  Required plan update: Move this workaround under Section 03, replace it with proper mutable-variable threading for `for-yield`, and add an AOT regression test covering mutation of an outer mutable binding inside `for-yield`.
-- [ ] `[TPR-02-003][medium]` `plans/iter-rc-contract/section-02-elem-dec-fn.md:31` — The section still describes itself as a codegen-only change that can land independently of Section 03, but the current implementation and passing evidence now depend on untracked Section 03 work.
-  Evidence: The current worktree for this review includes behavior-changing edits in `compiler/ori_arc/src/lower/control_flow/for_yield.rs`, `compiler/ori_arc/src/lower/scope/mod.rs`, and `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs`, while Section 02 still says “This is a codegen-only change” and “can be landed independently of Section 03.” Section 03 remains `status: not-started` in `plans/iter-rc-contract/section-03-for-yield-rc.md:1-33` even though Section 02 now claims `[Option<str>]` for-yield as completion evidence.
-  Impact: The plan no longer matches the implementation boundary. A later `/continue-roadmap` pass would miss that Section 03 has already been partially implemented and needs review, triage, and checklist updates before Section 02 can be considered closed.
-  Required plan update: Mark Section 03 in progress, record the exact ARC/AIMS changes already made there, and stop treating for-yield RC tests as Section 02-only completion evidence until Section 03 is reconciled.
-- [ ] `[TPR-02-004][low]` `plans/iter-rc-contract/section-02-elem-dec-fn.md:156` — The recorded `timeout 150 ./test-all.sh` “green” evidence is not currently reproducible from this workspace.
-  Evidence: Fresh verification on 2026-03-18 returned exit code 1. `test-all.sh` still reported 12,989 passed / 0 failed / 149 skipped / 3,933 LLVM compile-fail cases, but it failed the WASM playground step against the sibling website repo (`test-all.sh:137`) and also hit summary parsing errors at `test-all.sh:435` and `test-all.sh:462` (`integer expression expected` while checking `AOT_LEAKS`).
-  Impact: The section's completion checklist overstates the reproduced verification status. This does not invalidate the targeted iterator fixes, but it does leave the section-wide “full suite green” claim stale in the current environment.
-  Required plan update: Re-run `./test-all.sh` in an environment with a writable sibling `../ori-lang-website/` checkout or narrow the checklist evidence to the workspace-local suites that were actually reverified.
+- [x] `[TPR-02-002][high]` `compiler/ori_arc/src/lower/control_flow/for_yield.rs:330` — The new Section 03 workaround clears mutable tracking before lowering the `for-yield` body, which breaks assignment to outer mutable variables in AOT.
+  Resolved: Accepted and integrated into Section 03 on 2026-03-18. Added regression test task (outer mutable mutation in for-yield) and fix task (replace `clear_mutable_names()` with proper mutable-variable threading) to Section 03.2 and 03.4. The `clear_mutable_names()` workaround is the Section 03 bug to fix, not a Section 02 concern — Section 02's elem_dec_fn changes are correct independently.
+- [x] `[TPR-02-003][medium]` `plans/iter-rc-contract/section-02-elem-dec-fn.md:31` — The section still describes itself as a codegen-only change that can land independently of Section 03, but the current implementation and passing evidence now depend on untracked Section 03 work.
+  Resolved: Accepted on 2026-03-18. Updated Section 03 status to `in-progress` to reflect partial work already done (`clear_mutable_names()` workaround, `dead_cleanup.rs` changes). Recorded the exact files modified in Section 03's context.
+- [x] `[TPR-02-004][low]` `plans/iter-rc-contract/section-02-elem-dec-fn.md:156` — The recorded `timeout 150 ./test-all.sh` “green” evidence is not currently reproducible from this workspace.
+  Resolved: Accepted on 2026-03-18. The test suite itself passed (12,989 pass / 0 fail), but `test-all.sh` exit code was 1 due to WASM playground step (missing sibling repo) and summary parsing errors. The Section 02 fixes are not affected — narrowed evidence claim to workspace-local suites only.
 
 ---
 

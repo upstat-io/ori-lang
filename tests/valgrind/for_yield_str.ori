@@ -1,0 +1,17 @@
+// For-yield with [str] — verifies no memory errors or leaks when iterating
+// over str elements in a yield comprehension. Regression guard for the
+// mutable variable threading fix (TPR-02-002).
+
+@main () -> int = {
+    let count = 0;
+    let words = [
+        "this is a very long string that exceeds SSO threshold for heap allocation",
+        "another very long string also exceeding SSO to force heap usage",
+        "third long string that forces heap allocation for Valgrind to check"
+    ];
+    let lengths = for w in words yield {
+        count = count + 1;
+        w.length()
+    };
+    if count == 3 && lengths[0] == 73 && lengths[1] == 63 && lengths[2] == 67 then 0 else 1
+}
