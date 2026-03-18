@@ -161,6 +161,18 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// must be incremented if the source is borrowed-rooted (the caller
     /// retains a reference, so the boxed store creates an additional one).
     borrowed_rooted_vars: FxHashSet<ArcVarId>,
+    /// Borrowed parameter pointer forwarding: maps `ArcVarId` → original LLVM
+    /// parameter pointer for variables received as `Reference`/`Indirect` params.
+    /// When passing such a variable to another function that also expects a
+    /// pointer, we forward the original pointer directly instead of creating
+    /// an alloca+store round-trip.
+    borrowed_param_ptrs: FxHashMap<ArcVarId, ValueId>,
+    /// The function's sret pointer (parameter 0 when return uses `Sret`).
+    /// Used by `call_with_sret` to forward the destination directly to a
+    /// runtime function, avoiding an intermediate alloca+load+store.
+    /// `take()`-semantics: consumed on first use to prevent multiple calls
+    /// from writing to the same sret pointer.
+    current_sret_ptr: Option<ValueId>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -199,6 +211,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             current_instr_idx: 0,
             current_funclet_pad: None,
             borrowed_rooted_vars: FxHashSet::default(),
+            borrowed_param_ptrs: FxHashMap::default(),
+            current_sret_ptr: None,
         }
     }
 
