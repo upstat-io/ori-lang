@@ -78,7 +78,7 @@ mod iterator;
 mod iterator_consumers;
 mod list_traits;
 mod option_result;
-pub(super) mod prelude;
+pub(crate) mod prelude;
 mod primitives;
 mod traits;
 mod trampolines;

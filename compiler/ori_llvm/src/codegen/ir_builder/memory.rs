@@ -163,13 +163,14 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         }
 
         let Some(fields) = used_fields else {
-            // All fields needed — use full per-field loading.
-            return self.load_struct_per_field(struct_ty_id, st, ptr, name);
+            // All fields needed — use normal load which handles
+            // JIT (per-field) vs AOT (aggregate) mode selection.
+            return self.load(struct_ty_id, ptr, name);
         };
 
         if fields.len() as u32 >= num_fields {
             // All (or more) fields used — full load.
-            return self.load_struct_per_field(struct_ty_id, st, ptr, name);
+            return self.load(struct_ty_id, ptr, name);
         }
 
         let raw = self.arena.get_value(ptr);
