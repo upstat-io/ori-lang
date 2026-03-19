@@ -351,7 +351,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: match_with_function_in_scrutinee(1, 1), expected: "other")
 }
 
-@match_with_function_in_scrutinee (a: int, b: int) -> str = match helper_add(a: a, b: b) {
+@match_with_function_in_scrutinee (a: int, b: int) -> str = match helper_add(a:, b:) {
     5 -> "five",
     10 -> "ten",
     _ -> "other"
@@ -367,7 +367,7 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 @match_with_function_in_arm (opt: Option<int>) -> int = match opt {
-    Some(n) -> helper_square(n: n),
+    Some(n) -> helper_square(n:),
     None -> 0
 }
 
@@ -483,7 +483,7 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 @match_chain (opt: Option<int>) -> str = match opt {
-    Some(n) -> classify_number(n: n),
+    Some(n) -> classify_number(n:),
     None -> "nothing"
 }
 
@@ -839,9 +839,9 @@ type Point = { x: int, y: int }
 
 @test_match_with_captured_var tests @match_with_captured_var () -> void = {
     let threshold = 10;
-    let result = classify_with_threshold(n: 5, threshold: threshold);
+    let result = classify_with_threshold(n: 5, threshold:);
     assert_eq(actual: result, expected: "below");
-    let result2 = classify_with_threshold(n: 15, threshold: threshold);
+    let result2 = classify_with_threshold(n: 15, threshold:);
     assert_eq(actual: result2, expected: "above or equal")
 }
 
