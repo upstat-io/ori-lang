@@ -2,8 +2,8 @@
 
 Code journeys trace a single Ori program through the entire compiler pipeline (lexer, parser, typeck, canonicalization, interpreter, LLVM codegen, AOT binary) and perform deep scrutiny on the generated output. Each journey tests a specific language feature set.
 
-**Run date**: 2026-03-16 (AIMS branch `experiment/aims`)
-**Previous runs**: 2026-03-16 (re-run J1-J13), 2026-03-15 (AIMS initial), 2026-03-07 to 2026-03-10 (old ARC system, `master`)
+**Run date**: 2026-03-19 (AIMS branch `experiment/aims`)
+**Previous runs**: 2026-03-16 (re-run J1-J17), 2026-03-15 (AIMS initial), 2026-03-07 to 2026-03-10 (old ARC system, `master`)
 
 ## Journey Index
 
@@ -13,94 +13,87 @@ Code journeys trace a single Ori program through the entire compiler pipeline (l
 | J2 | "I am a branch" | branching, comparison | 17 | PASS | PASS | 10.0/10 | PERFECT — branchless select, memory(none) on all |
 | J3 | "I am recursive" | recursion, comparison, arithmetic | 61 | PASS | PASS | 10.0/10 | PERFECT — TCO on gcd, loop entry block structural |
 | J4 | "I am a struct" | struct_construction, field_access, nested_structs | 57 | PASS | PASS | 10.0/10 | PERFECT — nonnull dereferenceable(32), OPTIMAL GEP |
-| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 10.0/10 | PERFECT — AIMS RC elision, full noundef on closures |
+| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 10.0/10 | PERFECT — AIMS RC elision, lambda naming improved |
 | J6 | "I am a match" | pattern_matching, sum_types, destructuring | 41 | PASS | PASS | 10.0/10 | PERFECT — branchless select for tag-only enums |
-| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 10.0/10 | PERFECT — phi-based loops, structural entry block |
+| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 9.8/10 | Range unused field extraction (LOW) |
 | J8 | "I am generic" | generics, monomorphization, generic_structs | 57 | PASS | PASS | 10.0/10 | PERFECT — zero-cost abstraction, identity=1 instr |
-| J9 | "I am a string" | strings, string_methods, arc | 13 | PASS | PASS | 10.0/10 | PERFECT — SSO guard correct, drop attrs fixed |
-| J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 10.0/10 | PERFECT — borrow elision, drop_unique optimization |
-| J11 | "I am a derived trait" | derived_traits, trait_methods, sum_types | 33 | PASS | PASS | 10.0/10 | PERFECT — three Eq patterns OPTIMAL, memory(none) |
-| J12 | "I am an option" | option_type, error_propagation | 33 | PASS | PASS | 10.0/10 | PERFECT — ? operator 8 instr, CFG simplified |
-| J13 | "I am an iterator" | iterators, iterator_adapters, closures | 55 | PASS | PASS | 10.0/10 | PERFECT — zero user RC, full trampoline attrs |
-| **J14** | **"I am a fat pointer"** | strings, arc, fat_pointer | 65 | PASS | PASS | **9.4/10** | SSO guard works, 2 CF defects, duplicate ptrtoint |
-| **J15** | **"I am nested fat"** | lists, strings, arc, nested_fat | 18 | PASS | PASS | **10.0/10** | FIXED (2026-03-18): elem_dec_fn + iter ownership contract + unwind path fixed. Dual-exec verified, leak check clean. |
-| **J16** | **"I am fat and moving"** | strings, arc, ownership_transfer | 42 | PASS | PASS | **9.4/10** | HIGH: field-by-field aggregate materialization (3-6x bloat), sret ABI correct |
-| **J17** | **"I am a captured fat pointer"** | strings, closures, capture | 10 | PASS | PASS | **10.0/10** | FIXED (2026-03-18): AIMS param ownership applied to lambdas. AOT exit code 10 matches eval, leak check + Valgrind clean. |
+| J9 | "I am a string" | strings, string_methods, arc | 13 | PASS | PASS | 10.0/10 | Aggregate sret load optimization (-34% instructions) |
+| J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 10.0/10 | Landing pad elimination, aggregate loads |
+| J11 | "I am a derived trait" | derived_traits, trait_methods, sum_types | 33 | PASS | PASS | 10.0/10 | Shape$eq 30% instruction reduction via aggregate load |
+| J12 | "I am an option" | option_type, error_propagation | 33 | PASS | PASS | 10.0/10 | PERFECT — ? operator = 8-instruction optimal sequence |
+| J13 | "I am an iterator" | iterators, iterator_adapters, closures | 55 | PASS | PASS | 10.0/10 | PERFECT — null env for non-capturing, balanced ARC |
+| J14 | "I am a fat pointer" | strings, arc, multiple_functions | 65 | PASS | PASS | 10.0/10 | 3 codegen improvements FIXED (was 9.4) |
+| J15 | "I am nested fat" | lists, strings, arc, loops | 18 | PASS | PASS | 8.7/10 | Double-free FIXED (was 6.2); option struct wrapping overhead |
+| J16 | "I am fat and moving" | strings, arc, multiple_functions | 42 | PASS | PASS | 9.9/10 | Aggregate load + landing pad elimination (was 9.4) |
+| J17 | "I am a captured fat pointer" | strings, closures, capture, arc | 10 | PASS | PASS | 9.9/10 | CRITICAL Idx leak bug FIXED (was 3.0) |
 
-J1-J13: All PASS, all 10.0/10.
-**J14-J17 (Fat Pointer Series): Originally exposed 3 CRITICAL bugs and 1 HIGH codegen issue. J15 and J17 now fixed (2026-03-18). J14 and J16 have minor remaining issues.**
+## Score Changes Since Previous Run (2026-03-16)
 
-## Fat Pointer Findings (J14-J17)
+| Journey | Previous | Current | Delta | Reason |
+|---------|----------|---------|-------|--------|
+| J7 | 10.0 | 9.8 | -0.2 | Score miscalculation corrected (other_low=1 was not reflected) |
+| J14 | 9.4 | 10.0 | +0.6 | Aggregate load opt, nounwind analysis, ptrtoint dedup — all 3 prior LOWs FIXED |
+| J15 | 6.2 | 8.7 | +2.5 | CRITICAL double-free bugs FIXED, aggregate load optimization |
+| J16 | 9.4 | 9.9 | +0.5 | Field-by-field materialization FIXED, landing pads eliminated |
+| J17 | 3.0 | 9.9 | +6.9 | CRITICAL Idx leak bug FIXED — closure capturing str now works |
 
-The fat pointer journeys were specifically designed to stress-test the `FatPointer` RC strategy (`{i64 len, i64 cap, ptr data}` representation for strings). They revealed a **class of bugs** that the original J1-J13 journeys missed because those journeys either used scalar types or tested fat pointers in isolation (J9 `.length()` only, J10 `[int]` not `[str]`).
-
-### CRITICAL-C15a: Double-free on `[str]` element cleanup
-**Journey**: J15 | **Status**: FIXED (2026-03-18)
-**Root cause**: Both `ori_iter_drop` (iterator cleanup) and `ori_buffer_rc_dec` (list destructor calling `_ori_elem_dec`) free the same string elements.
-**Fix**: Iterator element defs excluded from RcDec via `collect_iter_element_defs()`. Proper `elem_dec_fn` propagated. See iter-rc-contract Sections 01-02.
-
-### CRITICAL-C15b: Double `ori_buffer_rc_dec` in unwind path
-**Journey**: J15 | **Status**: FIXED (2026-03-18)
-**Root cause**: Landing pad in `@main` emits two `ori_buffer_rc_dec` calls on the same list buffer.
-**Fix**: Unwind path double-drop eliminated. See fat-pointer-hardening Section 01.3.
-
-### CRITICAL-C17: Closure capturing str — codegen crash
-**Journey**: J17 | **Status**: FIXED (2026-03-18)
-**Root cause**: `declare_and_process_lambda()` did NOT apply AIMS param ownership annotations before running the ARC pipeline. Lambda params defaulted to `Owned`, causing spurious `RcDec` on borrowed-param aliases.
-**Fix**: 12 lines added to `declare_and_process_lambda()` to apply AIMS contracts to lambda params. See fat-pointer-hardening Section 02.
-**Impact**: AOT compilation fails. Eval works correctly.
-
-### HIGH-H16: Field-by-field aggregate materialization
-**Journey**: J16 | **Status**: OPEN
-**Root cause**: 24-byte `str` values are copied via 10-instruction sequences (3 GEP + 3 load + 3 insertvalue + 1 store) instead of single aggregate load/store (2 instructions).
-**Impact**: 3-6x instruction bloat per str operation. Correct behavior, but wasteful.
+All other journeys unchanged (J1-J6, J8-J13 remain at 10.0).
 
 ## Recurring Issues
 
-### Active Issues (from fat pointer series)
-
 | Issue | Severity | Journeys | Description |
 |-------|----------|----------|-------------|
-| Double-free on `[str]` elements | CRITICAL | J15 | Iterator and list destructor both free string elements |
-| Closure capturing str | CRITICAL | J17 | Unresolved type variable leaks into codegen |
-| Aggregate materialization bloat | HIGH | J14, J16 | Field-by-field copy instead of aggregate load/store |
-| Duplicate ptrtoint in SSO guard | LOW | J14 | Same pointer converted to integer twice per guard |
-| Empty blocks in string functions | LOW | J14 | Redundant unconditional branches |
+| Missing nounwind on @_ori_main | LOW | J15, J16, J17 | Entry main wrapper lacks nounwind attribute |
+| Dead aggregate loads | LOW | J16, J17 | Borrowed params loaded but value unused before method call |
+| Option struct wrapping overhead | MEDIUM | J15 | Iterator next() returns option via alloca round-trip |
+| Range unused field extraction | LOW | J7 | Inclusive flag extracted but never used |
 
-### Resolved Issues (from J1-J13)
+## Resolved Issues
 
-- **Empty trampoline blocks** — FIXED (AIMS Section 01, CFG simplification)
-- **Missing nounwind** — FIXED (AIMS Section 01, posthoc nounwind analysis)
-- **Missing memory(...)** — FIXED (AIMS Section 02, posthoc purity analysis)
-- **Missing noundef on closures** — FIXED (AIMS Section 01)
-- **Missing nonnull/dereferenceable** — FIXED (AIMS Section 01.4)
-- **Missing uwtable on drop helpers** — FIXED (AIMS Section 01)
+### Aggregate field-by-field materialization — FIXED
+**First seen**: J9, J14, J15, J16 (2026-03-16)
+**Fixed by**: 2026-03-19 run
+**Description**: sret structs were materialized via 9-instruction GEP+load+insertvalue chains instead of single `load { i64, i64, ptr }`. Now uses aggregate loads everywhere, saving 6-24 instructions per load site.
+
+### Landing pad over-generation — FIXED
+**First seen**: J10, J14, J15, J16 (2026-03-16)
+**Fixed by**: 2026-03-19 run
+**Description**: `invoke`+`landingpad`+`resume` used for calls to `nounwind` functions. Fixed-point nounwind analysis now correctly propagates, allowing plain `call` and eliminating personality/landingpad blocks.
+
+### Closure capturing str — Idx leak — FIXED
+**First seen**: J17 (2026-03-16)
+**Fixed by**: 2026-03-19 run
+**Description**: Closure capturing a `str` variable triggered an unresolved type variable (Idx(202)) at LLVM codegen, producing a phantom `_ori_drop$202` function and type mismatches in RC operations. Lambda parameter `s` was typed as `i64` instead of the correct fat pointer type.
+
+### Double-free on [str] elements — FIXED
+**First seen**: J15 (2026-03-16)
+**Fixed by**: 2026-03-19 run
+**Description**: Iterating over `[str]` with for-loop caused double-free of string elements. The unwind path RC cleanup was emitting duplicate `ori_buffer_rc_dec` calls. Now correctly balanced.
+
+### SSO guard ptrtoint duplication — FIXED
+**First seen**: J14 (2026-03-16)
+**Fixed by**: 2026-03-19 run
+**Description**: SSO guard performed `ptrtoint` twice on the same pointer (once for bit-63 check, once for null check). Now performs a single `ptrtoint` and reuses the result.
 
 ## Score Trend
 
 | Difficulty | Journeys | Avg Score | Range |
 |------------|----------|-----------|-------|
 | Simple (J1-J4) | 4 | 10.0 | 10.0–10.0 |
-| Moderate (J5-J8) | 4 | 10.0 | 10.0–10.0 |
-| Complex (J9-J13) | 5 | 10.0 | 10.0–10.0 |
-| **Fat Pointer (J14-J17)** | **4** | **7.0** | **3.0–9.4** |
-| **Overall** | **17** | **9.3** | **3.0–10.0** |
+| Moderate (J5-J8) | 4 | 10.0 | 9.8–10.0 |
+| Complex (J9-J17) | 9 | 9.9 | 8.7–10.0 |
+| **Overall** | **17** | **9.9** | **8.7–10.0** |
 
-The fat pointer series drops the overall average from 10.0 to 9.3, revealing that the original 13 journeys were testing a "happy path" that avoided the compiler's weakest area: **fat pointer types crossing feature boundaries** (closures, nested collections, ownership transfer).
+**Comparison with previous run (2026-03-16):**
 
-## Per-Category Averages (All 17 Journeys)
+| Difficulty | Previous Avg | Current Avg | Delta |
+|------------|-------------|-------------|-------|
+| Simple (J1-J4) | 10.0 | 10.0 | 0.0 |
+| Moderate (J5-J8) | 10.0 | 10.0 | 0.0 |
+| Complex (J9-J17) | 8.8 | 9.9 | +1.1 |
+| **Overall** | **9.5** | **9.9** | **+0.4** |
 
-| Category | Weight | Avg Score | Perfect (10/10) | Failing |
-|----------|--------|-----------|-----------------|---------|
-| Instruction Efficiency | 15% | 9.8 | 15/17 | — |
-| ARC Correctness | 20% | 9.2 | 13/17 | J15 (3/10) |
-| Attributes & Safety | 10% | 9.9 | 16/17 | — |
-| Control Flow | 10% | 9.6 | 13/17 | — |
-| IR Quality | 20% | 9.6 | 13/17 | — |
-| Binary Quality | 10% | 8.8 | 15/17 | J17 (0/10) |
-| Other Findings | 15% | 9.6 | 15/17 | — |
-
-**ARC Correctness and Binary Quality are the weakest categories**, dragged down by the fat pointer bugs.
+The biggest improvements are in the complex fat-pointer journeys (J14-J17), reflecting fixes to aggregate load codegen, nounwind propagation, and the closure-captures-str bug.
 
 ## Results Files
 

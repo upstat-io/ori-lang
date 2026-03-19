@@ -212,6 +212,16 @@ impl ArcIrBuilder {
         None
     }
 
+    /// Query whether a field of a constructed aggregate is a literal int,
+    /// without emitting a `Project` instruction.
+    ///
+    /// Traces `base_var → Construct { args }` → `args[field]` → literal check.
+    /// Used to detect compile-time constants (e.g., range step/inclusive flags)
+    /// before deciding whether to extract the field.
+    pub fn get_field_literal_int(&self, base_var: ArcVarId, field: u32) -> Option<i64> {
+        self.get_construct_arg(base_var, field)
+    }
+
     // Terminators
 
     /// Terminate with `Return`.

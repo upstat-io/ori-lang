@@ -35,8 +35,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let val = self.var(*value);
                 match &abi.return_abi.passing {
                     ReturnPassing::Sret { .. } => {
-                        let sret_ptr = self.builder.get_param(self.current_function, 0);
-                        self.builder.store(val, sret_ptr);
+                        // Skip identity store when the return value was written
+                        // directly to the sret pointer via sret forwarding.
+                        let is_identity = self.sret_forwarded_result.is_some_and(|fwd| fwd == val);
+                        if !is_identity {
+                            let sret_ptr = self.builder.get_param(self.current_function, 0);
+                            self.builder.store(val, sret_ptr);
+                        }
                         self.builder.ret_void();
                     }
                     ReturnPassing::Direct => {
