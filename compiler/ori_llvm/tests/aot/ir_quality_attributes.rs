@@ -219,6 +219,78 @@ fn test_panicking_main_wrapper_lacks_nounwind() {
     assert_fn_lacks_attr(&ir, "main", "nounwind");
 }
 
+// nounwind propagation through builtin methods and protocols
+
+/// Function calling builtin method (str.length) via Invoke terminator gets nounwind.
+///
+/// The ARC IR lowers `.length()` to `Invoke @length(...)`, and the nounwind
+/// analysis must recognize `@length` as an intercepted builtin that always
+/// emits `call` (never `invoke`). Without this, the function and its callers
+/// would incorrectly lose the nounwind attribute.
+#[test]
+fn test_function_calling_builtin_method_gets_nounwind() {
+    let ir = compile_and_capture_ir(
+        r#"
+@count_chars (words: [str]) -> int = {
+    let total = 0;
+    for w in words do total += w.length();
+    total
+}
+
+@total_items (xs: [str]) -> int = xs.length();
+
+@main () -> int = {
+    let words = ["hello", "world", "12345"];
+    let a = count_chars(words: words);
+    let b = total_items(xs: words);
+    a + b
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_has_attr(&ir, "_ori_count_chars", "nounwind");
+    assert_fn_has_attr(&ir, "_ori_total_items", "nounwind");
+    assert_fn_has_attr(&ir, "_ori_main", "nounwind");
+    assert_fn_has_attr(&ir, "main", "nounwind");
+}
+
+/// Function with indirect call (closure) still gets nounwind via post-hoc pass.
+///
+/// The ARC IR produces `ApplyIndirect` for closure calls, which the two-pass
+/// analysis conservatively treats as may-unwind. The post-hoc pass detects
+/// that the emitted LLVM IR has no `invoke` instructions and marks the function
+/// nounwind. The post-hoc pass must use fixed-point iteration so call chains
+/// (`main` → `check_capture` → closure) all propagate correctly regardless of
+/// `HashMap` iteration order.
+#[test]
+fn test_closure_call_gets_nounwind_via_posthoc() {
+    let ir = compile_and_capture_ir(
+        r#"
+@check_capture () -> int = {
+    let prefix = "hello";
+    let f = s -> prefix.length() + s.length();
+    f("world")
+}
+
+@main () -> int = check_capture();
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    assert_fn_has_attr(&ir, "_ori_check_capture", "nounwind");
+    assert_fn_has_attr(&ir, "_ori_main", "nounwind");
+    assert_fn_has_attr(&ir, "main", "nounwind");
+}
+
 // nounwind on derived trait methods
 
 /// Pure derived methods ($eq, $compare, $hash) should have `nounwind`.
