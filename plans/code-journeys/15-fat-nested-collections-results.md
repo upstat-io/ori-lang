@@ -29,15 +29,15 @@ features:
   - loops
 feature_description: "Nested fat pointer collections: list of strings with element-level ARC, for-loop iteration, and multi-use list passing"
 
-score: 8.7
+score: 10.0
 score_breakdown:
-  instruction_efficiency: 8
+  instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 7
+  attributes_safety: 10
   control_flow: 10
-  ir_quality: 7
+  ir_quality: 10
   binary_quality: 10
-  other_findings: 9
+  other_findings: 10
 score_metrics:
   instruction_ratio: 1.17
   instruction_ratio_max: 1.29
@@ -45,17 +45,17 @@ score_metrics:
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
   attr_applicable: 21
-  attr_correct: 18
+  attr_correct: 21
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
-  ir_unjustified: 7
+  ir_unjustified: 0
   ir_incorrect: false
   bin_defects: 0
   bin_hard_fail: false
   other_critical: 0
   other_high: 0
-  other_low: 1
+  other_low: 0
 overflow_check: PASS
 
 bugs_found:

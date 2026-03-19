@@ -22,7 +22,7 @@ sections:
 
 # Section 03: Sret Identity Copy Elimination
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** When a function's sret pointer is passed directly to a runtime function that writes its result there, skip the redundant load+store that copies the sret pointer's contents back to itself.
 
 **Context:** J16's `@make_string` calls `ori_str_from_raw(ptr %0, ...)` where `%0` is the sret pointer. The runtime function writes the result directly to `%0`. Then the ARC IR `Return` terminator emission (in `terminators.rs:37-41`) loads the return value from `%0` (which was the result of the `call_with_sret` load) and stores it back to `%0` — a no-op identity copy (2 wasted instructions).

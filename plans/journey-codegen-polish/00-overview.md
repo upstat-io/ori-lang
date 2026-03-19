@@ -1,7 +1,7 @@
 ---
 plan: "journey-codegen-polish"
 title: "Journey Codegen Polish: Exhaustive Implementation Plan"
-status: not-started
+status: complete
 references:
   - "plans/code-journeys/overview.md"
   - "plans/code-journeys/07-loops-results.md"
@@ -46,17 +46,18 @@ Source → Lexer → Parser → TypeChecker (→ CanonicalIR) → ARC Pipeline �
   02 ←→ 04 (soft dependency: both touch pointer-forwarding/alloca patterns)
 ```
 
-Sections 01–05 are mostly independent. However, Sections 02 (Dead Loads) and 04 (Iterator Wrapping) both involve the pointer-forwarding/alloca optimization path in the ARC emitter. Changes to `borrowed_param_ptrs` forwarding (Section 02) may affect how iterator elements are forwarded (Section 04). **Recommendation**: implement Section 02 first, then Section 04, or implement them together as a unified pointer-forwarding optimization. Section 06 requires all others.
+Sections 01-05 are mostly independent. However, Sections 02 (Dead Loads) and 04 (Iterator Wrapping) both involve the pointer-forwarding/alloca optimization path in the ARC emitter. Section 02 is COMPLETE — its `borrowed_param_ptrs` infrastructure is now available for Section 04 to reuse. Section 06 requires all others.
 
 ## Implementation Sequence
 
 ```
 Phase 1 - Independent Fixes (narrow the front: complete one fully before starting another)
-  Recommended order:
-  └─ 05: Range unused field extraction (smallest, self-contained in ori_arc, low risk)
-  └─ 03: Sret identity copy elimination (self-contained in arc_emitter, flag-based)
-  └─ 01: Nounwind propagation (investigate-first — actual blocker unknown)
-  └─ 02: Dead aggregate load elimination (pointer-forwarding foundation)
+  Completed:
+  └─ 05: Range unused field extraction ✓ (2026-03-19)
+  └─ 03: Sret identity copy elimination ✓ (2026-03-19)
+  └─ 01: Nounwind propagation ✓ (2026-03-19)
+  └─ 02: Dead aggregate load elimination ✓ (2026-03-19)
+  Remaining:
   └─ 04: Iterator option wrapping overhead (depends on 02's pointer-forwarding pattern)
   Gate: timeout 150 cargo t -p ori_llvm passes (debug AND release), timeout 150 ./test-all.sh green
 
@@ -65,7 +66,7 @@ Phase 2 - Verification
   Gate: All 17 journeys score 10.0/10, Valgrind clean on J07/J15/J16/J17
 ```
 
-**Ordering rationale**: Section 05 is lowest risk (one crate, one file, ARC IR only). Section 03 is self-contained. Section 01 requires investigation first (the overflow hypothesis is likely wrong -- see section-01-nounwind.md for details). Section 02 should precede 04 because both touch the pointer-forwarding path and 04 may reuse 02's infrastructure.
+**Ordering rationale**: Section 05 was lowest risk (one crate, one file, ARC IR only). Section 03 was self-contained. Section 01 required investigation first (the actual blockers were Invoke terminator gap, protocol builtin gap, and post-hoc single-pass — not the overflow hypothesis). Section 02 preceded 04 because both touch the pointer-forwarding path and 04 reuses 02's `borrowed_param_ptrs` infrastructure.
 
 ## Current Scores (Baseline — 2026-03-19)
 
@@ -84,7 +85,7 @@ None — all correctness bugs fixed as of 2026-03-19. Remaining issues are optim
 
 These optimizations touch code that is adjacent to correctness-critical paths. Incorrect implementation could introduce correctness bugs:
 
-1. **Section 01 (Nounwind)**: Incorrectly classifying a function as `nounwind` when it can actually unwind would cause UB — LLVM generates code that assumes no unwind, and landing pads for RC cleanup would be dropped. **Confirmed**: `ori_panic_cstr` (`ori_rt/src/io/mod.rs:129`) is `extern "C-unwind"` and calls `_Unwind_RaiseException` — it genuinely unwinds and MUST NOT be marked nounwind. The runtime declaration (`runtime_decl/runtime_functions.rs:113-116`) has attrs `[Cold, Noreturn]` (no `Nounwind`). **Also note**: overflow `ori_panic_cstr` calls are emitted at the LLVM IR level (by `checked_ops.rs:198-204`), NOT at the ARC IR level where `is_arc_function_nounwind()` operates. The actual blocker must be identified empirically via ARC IR inspection.
+1. **Section 01 (Nounwind)** [COMPLETE]: Incorrectly classifying a function as `nounwind` when it can actually unwind would cause UB — LLVM generates code that assumes no unwind, and landing pads for RC cleanup would be dropped. **Resolved**: The actual blockers were: Invoke terminator not checking intercepted builtins, protocol builtins excluded by `starts_with("__")` guard, and post-hoc nounwind using single-pass instead of fixed-point. `ori_panic_cstr` remains correctly NOT marked nounwind (it genuinely unwinds via `C-unwind` ABI).
 2. **Section 02 (Dead Loads)**: Skipping a param load that IS needed downstream would produce poison/undef values. This manifests as runtime crashes or incorrect results, not compile errors.
 3. **Section 03 (Sret Identity Copy)**: Skipping a store when the return value was NOT written to the sret pointer produces garbage in the caller's return slot. This manifests as memory corruption.
 4. **Section 04 (Iterator Wrapping)**: Scratch buffer pointer aliasing or lifetime issues would produce use-after-free or data corruption. Valgrind testing is essential.
@@ -95,9 +96,9 @@ All optimizations must have both positive tests (optimization applied correctly)
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Nounwind Propagation | `section-01-nounwind.md` | Not Started |
-| 02 | Dead Aggregate Load Elimination | `section-02-dead-loads.md` | Not Started |
-| 03 | Sret Identity Copy Elimination | `section-03-sret-identity.md` | Not Started |
+| 01 | Nounwind Propagation | `section-01-nounwind.md` | Complete |
+| 02 | Dead Aggregate Load Elimination | `section-02-dead-loads.md` | Complete |
+| 03 | Sret Identity Copy Elimination | `section-03-sret-identity.md` | Complete |
 | 04 | Iterator Option Wrapping | `section-04-iterator-wrapping.md` | Not Started |
-| 05 | Range Unused Field Extraction | `section-05-range-fields.md` | Not Started |
+| 05 | Range Unused Field Extraction | `section-05-range-fields.md` | Complete |
 | 06 | Verification | `section-06-verification.md` | Not Started |

@@ -41,19 +41,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Central protocol dispatch — exhaustive match enforced by compiler.
         // Adding a new ProtocolBuiltin variant will cause a compile error here.
         if let Some(protocol) = ProtocolBuiltin::from_name(callee_name) {
-            let result = match protocol {
-                ProtocolBuiltin::IterNext => {
-                    // __iter_next(iter, elem_ty_marker).
-                    // args[0] = iterator pointer, args[1] = zero marker carrying elem_ty.
-                    assert!(
-                        args.len() >= 2,
-                        "__iter_next requires 2 args, got {}",
-                        args.len()
-                    );
-                    let iter_ptr = self.var(args[0]);
-                    let elem_ty = func.var_type(args[1]);
-                    self.emit_iter_next(iter_ptr, elem_ty)
+            // IterNext uses decomposed emission (tag + scratch pointer separately)
+            // to avoid building an intermediate {i64, T} wrapper struct.
+            if matches!(protocol, ProtocolBuiltin::IterNext) {
+                assert!(
+                    args.len() >= 2,
+                    "__iter_next requires 2 args, got {}",
+                    args.len()
+                );
+                let iter_ptr = self.var(args[0]);
+                let elem_ty = func.var_type(args[1]);
+                if let Some((tag, scratch, elem_llvm_ty)) = self.emit_iter_next(iter_ptr, elem_ty) {
+                    self.iter_next_decomposed
+                        .insert(dst, (tag, scratch, elem_llvm_ty));
+                    self.def_var(dst, super::context::EmittedValue::Immediate(tag));
                 }
+                return true;
+            }
+
+            let result = match protocol {
                 ProtocolBuiltin::CollectSet => {
                     // __collect_set(iter).
                     // Type-directed rewrite from collect() when target type is Set<T>.
@@ -88,6 +94,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         }
                     }
                 }
+                // IterNext handled above via early return.
+                ProtocolBuiltin::IterNext => unreachable!("IterNext handled above"),
             };
             if let Some(val) = result {
                 self.def_var_repr(dst, val, func);
