@@ -809,6 +809,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: false,
     },
+    // ori_list_eq_deep(a: ptr, b: ptr, elem_size, elem_eq) -> bool
+    RtFn {
+        name: "ori_list_eq_deep",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: false,
+    },
     // ori_map_eq(a: ptr, b: ptr, key_size, val_size, key_eq, key_hash, val_eq) -> bool
     RtFn {
         name: "ori_map_eq",

@@ -233,3 +233,42 @@ pub extern "C" fn ori_list_eq_scalar(a: *const u8, b: *const u8, elem_size: i64)
         a_slice == b_slice
     }
 }
+
+/// Compare two lists element-wise using a caller-supplied equality function.
+///
+/// Both lists have layout `{len: i64, cap: i64, data: *mut u8}`.
+/// Compares lengths first, then calls `elem_eq` on each pair of elements.
+/// Required for non-scalar element types (str, nested collections, structs)
+/// where byte-level comparison doesn't match semantic equality.
+#[no_mangle]
+pub extern "C" fn ori_list_eq_deep(
+    a: *const u8,
+    b: *const u8,
+    elem_size: i64,
+    elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
+) -> bool {
+    if a.is_null() || b.is_null() {
+        return a.is_null() && b.is_null();
+    }
+    unsafe {
+        let a_len = a.cast::<i64>().read();
+        let b_len = b.cast::<i64>().read();
+        if a_len != b_len {
+            return false;
+        }
+        let a_data = a.add(16).cast::<*const u8>().read();
+        let b_data = b.add(16).cast::<*const u8>().read();
+        if a_data == b_data {
+            return true; // Same buffer (shared via clone)
+        }
+        let es = elem_size.max(1) as usize;
+        for i in 0..a_len as usize {
+            let a_elem = a_data.add(i * es);
+            let b_elem = b_data.add(i * es);
+            if !elem_eq(a_elem, b_elem) {
+                return false;
+            }
+        }
+        true
+    }
+}
