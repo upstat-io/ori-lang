@@ -1,0 +1,39 @@
+// Valgrind fat matrix: F18 — Multiple fat values in scope simultaneously.
+// Verifies RC tracking correctness when many fat values are alive at once.
+
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    // Multiple strings
+    let s1 = "abcdefghijklmnopqrstuvwxyz1234";
+    let s2 = "another_heap_string_over_23_bytes";
+    let s3 = "yet_another_long_string_for_test";
+    let ok1 = s1.length() + s2.length() + s3.length() == 95;
+
+    // Multiple lists
+    let xs1 = [1, 2, 3];
+    let xs2 = [4, 5, 6, 7];
+    let xs3 = [8, 9];
+    let ok2 = xs1.length() + xs2.length() + xs3.length() == 9;
+
+    // Multiple structs with fat fields
+    let n1 = Named { name: "alice", id: 1 };
+    let n2 = Named { name: "bob", id: 2 };
+    let n3 = Named { name: "charlie", id: 3 };
+    let ok3 = n1.name.length() + n2.name.length() + n3.name.length() == 15;
+
+    // Multiple maps
+    let m1 = {"a": 1};
+    let m2 = {"b": 2, "c": 3};
+    let ok4 = m1.length() + m2.length() == 3;
+
+    // Mixed fat types in scope
+    let mix_str = "abcdefghijklmnopqrstuvwxyz1234";
+    let mix_list = [1, 2, 3];
+    let mix_struct = Named { name: "test", id: 42 };
+    let mix_map = {"x": 10};
+    let ok5 = mix_str.length() + mix_list.length() + mix_struct.name.length() + mix_map.length() == 38;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5
+        then 0 else 1
+}

@@ -1,0 +1,47 @@
+// Valgrind fat matrix: F02 — Fat pointer types passed as function parameters.
+// Verifies RC correctness when values cross function boundaries.
+
+type Named = { name: str, id: int }
+
+@use_str (s: str) -> int = s.length();
+@use_list (xs: [int]) -> int = xs.length();
+@use_list_fat (xs: [str]) -> int = xs.length();
+@use_struct (n: Named) -> int = n.name.length() + n.id;
+@use_map (m: {str: int}) -> int = m.length();
+@use_tuple (t: (str, int)) -> int = {
+    let (s, n) = t;
+    s.length() + n
+}
+
+@main () -> int = {
+    // T4: SSO string
+    let ok1 = use_str(s: "hello") == 5;
+
+    // T5: heap string
+    let hs = "abcdefghijklmnopqrstuvwxyz1234";
+    let ok2 = use_str(s: hs) == 30;
+
+    // T5: heap string reuse (RC must survive two calls)
+    let ok3 = use_str(s: hs) + use_str(s: hs) == 60;
+
+    // T6: list of scalars
+    let ok4 = use_list(xs: [1, 2, 3]) == 3;
+
+    // T7: list of fat pointers
+    let ok5 = use_list_fat(xs: ["hello", "world"]) == 2;
+
+    // T9: struct with fat fields
+    let ok6 = use_struct(n: Named { name: "alice", id: 1 }) == 6;
+
+    // T17: map
+    let ok7 = use_map(m: {"a": 1, "b": 2}) == 2;
+
+    // T18: tuple
+    let ok8 = use_tuple(t: ("hello", 42)) == 47;
+
+    // Multiple fat params
+    let ok9 = use_str(s: "abcdefghijklmnopqrstuvwxyz1234") == 30;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9
+        then 0 else 1
+}

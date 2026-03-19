@@ -136,10 +136,9 @@ if [[ ${#FILES[@]} -eq 0 ]]; then
         echo "Usage: diagnostics/valgrind-aot.sh [options] [file.ori ...]" >&2
         exit 2
     fi
-    for f in "$test_dir"/*.ori; do
-        [[ -f "$f" ]] || continue
+    while IFS= read -r -d '' f; do
         FILES+=("$f")
-    done
+    done < <(find "$test_dir" -name '*.ori' -type f -print0 | sort -z)
     if [[ ${#FILES[@]} -eq 0 ]]; then
         echo "No .ori files found in $test_dir" >&2
         exit 2
