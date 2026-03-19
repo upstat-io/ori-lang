@@ -147,7 +147,7 @@ Any fix to RC emission logic must verify consistency across all of these locatio
 
 ## 02.R Third Party Review Findings
 
-- None.
+- [ ] `[RC-02-001][medium]` `[Result<str, str>]` list construction leaks heap strings — discovered 2026-03-19 during TPR-04-003 triage. Creating a `[Result<str, str>]` list with heap-backed (>23 byte) strings leaks the string allocations. Minimal repro: `let a = [Ok("success long heap string here!"), Err("failure long heap string!!")]; 0` — `ORI_CHECK_LEAKS=1` reports 2 unfreed allocations. Root cause likely in ARC pipeline's elem_dec_fn not handling Result payload cleanup for fat pointer types.
 
 ---
 

@@ -23,8 +23,6 @@ mod purity_analysis;
 
 pub use nounwind::PreparedFunction;
 
-use std::cell::Cell;
-
 use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract, UniquenessSummary};
 use ori_ir::{Function, Name, Span, StringInterner};
 use ori_types::{FunctionSig, Idx, Pool};
@@ -60,8 +58,6 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     module_path: &'a str,
     /// Shared function-resolution lookup tables passed to [`ArcIrEmitter`].
     codegen_ctx: CodegenContext,
-    /// Module-wide lambda counter for unique lambda function names.
-    lambda_counter: Cell<u32>,
     /// Borrow inference results: function `Name` → annotated signature.
     /// `Ownership::Borrowed` + non-Scalar parameters use
     /// `ParamPassing::Reference` (pointer, no RC at call site).
@@ -113,7 +109,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             mangler: Mangler::new(),
             module_path,
             codegen_ctx: CodegenContext::default(),
-            lambda_counter: Cell::new(0),
             annotated_sigs,
             arc_classifier,
             debug_context,
