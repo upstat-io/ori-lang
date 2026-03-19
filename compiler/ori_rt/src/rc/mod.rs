@@ -14,16 +14,14 @@ mod map_rc;
 mod set_rc;
 
 pub use allocate::*;
-#[cfg(all(test, debug_assertions))]
-pub(crate) use debug::freed_set;
-#[cfg(test)]
-pub(crate) use debug::RT_DEBUG_FORCE;
 #[cfg(debug_assertions)]
 pub(crate) use debug::{alloc_registry_report, rt_debug_check_not_freed};
 pub(crate) use debug::{
     check_leaks_enabled, rc_trace_enabled, rt_debug_bounds_warning, rt_debug_null_cow_warning,
     rt_debug_validate_rc,
 };
+#[cfg(all(test, debug_assertions))]
+pub(crate) use debug::{freed_set, RT_DEBUG_FORCE};
 #[cfg(debug_assertions)]
 pub use debug::{reset_alloc_registry, reset_freed_set};
 pub use list_rc::*;

@@ -2,9 +2,9 @@
 section: "04"
 title: "For-Do / For-Yield Parity Audit"
 status: complete
-goal: "Systematic comparison of for-do and for-yield ARC IR across all element types, verifying identical RC semantics"
+goal: "Systematic comparison of for-do and for-yield ARC IR across all 6 implemented element types (5 list + 1 map; Set<str> deferred until type exists), verifying identical RC semantics"
 third_party_review:
-  status: none
+  status: resolved
   updated: 2026-03-18
 depends_on:
   - "02"
@@ -23,8 +23,8 @@ sections:
 
 # Section 04: For-Do / For-Yield Parity Audit
 
-**Status:** Not Started
-**Goal:** Systematically compare for-do and for-yield ARC IR for all element types, confirming that both loop variants produce identical RC semantics. Document any remaining differences and justify them.
+**Status:** In Progress
+**Goal:** Systematically compare for-do and for-yield ARC IR for all 6 implemented element types (5 list + 1 map; `Set<str>` deferred until type exists), confirming that both loop variants produce identical RC semantics. Document any remaining differences and justify them.
 
 **Context:** After Sections 02 and 03 fix the two bugs, this audit verifies the fixes produce correct results across the full element-type spectrum. For-do and for-yield have different purposes (side effects vs list building), so their ARC IR will differ structurally. But the RC operations on the SOURCE COLLECTION must be semantically identical: 1 alloc, 1 inc (for iterator), 2 decs (iterator drop + AIMS cleanup).
 
@@ -132,7 +132,7 @@ For each element type, run both the for-do and for-yield versions and compare:
 | `Option<str>` | alloc/inc/dec/free | 1/1/2/1 | 1/1/2/1 | Yes |
 | `(int) -> int` | alloc/inc/dec/free | 1/1/2/1 | 1/1/2/1 | Yes |
 | `{name: str}` | alloc/inc/dec/free | 1/1/2/1 | 1/1/2/1 | Yes |
-| `Set<str>` | alloc/inc/dec/free | 1/1/2/1 | 1/1/2/1 | Yes |
+| `Set<str>` | alloc/inc/dec/free | N/A (type not implemented) | N/A | Deferred |
 | `{str: int}` map | alloc/inc/dec/free | 1/1/2/1 | 1/1/2/1 | Yes |
 
 - [x] Run `ORI_TRACE_RC=1` on for-do programs for all 6 available element types (5 list + 1 map), capture traces — all show balanced alloc/free (1 alloc, 1 free per source collection). Set<str> skipped (type not implemented). (2026-03-18)
@@ -147,7 +147,11 @@ For each element type, run both the for-do and for-yield versions and compare:
 
 ## 04.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-04-001][medium]` `plans/iter-rc-contract/section-04-parity-audit.md:5` — Section 04 is still marked complete for “all element types” / “all 7 element types” even though the `Set<str>` parity audit was skipped entirely.
+  Evidence: the section goal and exit criteria still claim parity across all element types / all 7 element types, but the body records `Set<str>` as `SKIPPED` because the type is not implemented, and the completion checklist only verifies 6 available element types.
+  Impact: the parity audit overstates what was actually verified on the shared list/set iterator path, so the section reads as fully closed despite an acknowledged untested branch.
+  Required plan update: either narrow the section goal/exit criteria to implemented types only, or keep Section 04 open until `Set<T>` exists and the parity audit is rerun for that path.
+  Resolved: Accepted on 2026-03-18. Narrowed goal, body prose, and exit criteria to “6 implemented element types (5 list + 1 map).” RC trace table updated to show Set<str> as N/A/deferred. Set<str> will be verified when the type is implemented.
 
 ---
 
@@ -169,4 +173,4 @@ For each element type, run both the for-do and for-yield versions and compare:
 
 ## Section 04 Exit Criteria
 
-For-do and for-yield produce identical RC semantics (alloc/inc/dec/free counts) for the source collection across all 7 element types. Runtime traces confirm correct ordering (iterator drop before AIMS cleanup). No leaks, no double-frees, no assertion failures.
+For-do and for-yield produce identical RC semantics (alloc/inc/dec/free counts) for the source collection across all 6 implemented element types (str, [int], Option<str>, closures, structs, {str: int} map). `Set<str>` deferred until the type is implemented — expected to match list path via shared `emit_list_iter` codegen. Runtime traces confirm correct ordering (iterator drop before AIMS cleanup). No leaks, no double-frees, no assertion failures.
