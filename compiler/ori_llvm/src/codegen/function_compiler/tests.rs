@@ -1059,7 +1059,7 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let fc = make_nounwind_fc(
+    let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
@@ -1069,6 +1069,13 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
         &classifier,
     );
 
+    // Register the callee as a declared user function so the intercepted
+    // heuristic correctly identifies it as a user function (not a builtin).
+    let unknown_name = interner.intern("unknown_fn");
+    fc.codegen_ctx
+        .functions
+        .insert(unknown_name, (FunctionId::NONE, make_test_abi(&pool)));
+
     // Invoke to a callee NOT in nounwind set → NOT nounwind
     let func = make_arc_func(
         &interner,
@@ -1077,7 +1084,7 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
         ArcTerminator::Invoke {
             dst: ArcVarId::new(1),
             ty: Idx::INT,
-            func: interner.intern("unknown_fn"),
+            func: unknown_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
             normal: ArcBlockId::new(1),
@@ -1388,8 +1395,18 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
         &classifier,
     );
 
-    // Callee: panicking function — NOT nounwind
+    // Register both functions as declared so the intercepted heuristic
+    // correctly identifies them as user functions (not builtins).
     let callee_name = interner.intern("might_panic");
+    let caller_name = interner.intern("caller");
+    fc.codegen_ctx
+        .functions
+        .insert(callee_name, (FunctionId::NONE, make_test_abi(&pool)));
+    fc.codegen_ctx
+        .functions
+        .insert(caller_name, (FunctionId::NONE, make_test_abi(&pool)));
+
+    // Callee: panicking function — NOT nounwind
     let callee = make_arc_func(
         &interner,
         "might_panic",
@@ -1406,7 +1423,6 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
     );
 
     // Caller: invokes might_panic
-    let caller_name = interner.intern("caller");
     let caller = make_arc_func(
         &interner,
         "caller",

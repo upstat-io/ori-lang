@@ -39,7 +39,7 @@ mod catch_thunk;
 mod catch_thunk_gen;
 mod closures;
 mod construction;
-mod context;
+pub(crate) mod context;
 mod dead_unwind;
 mod drop_enum;
 mod drop_gen;

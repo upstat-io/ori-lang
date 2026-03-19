@@ -5,6 +5,7 @@
 //! fields that are needed, replacing unused fields with `undef`.
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 #[cfg(test)]
@@ -167,4 +168,175 @@ pub(super) fn scan_used_fields(func: &ArcFunction) -> FxHashMap<ArcVarId, Option
     }
 
     usage
+}
+
+// Helpers for compute_pointer_only_params.
+
+/// If var is a param alias, mark its root as needing load.
+fn mark_needs_load(
+    var: ArcVarId,
+    var_to_param: &FxHashMap<ArcVarId, ArcVarId>,
+    needs_load: &mut FxHashSet<ArcVarId>,
+) {
+    if let Some(&root) = var_to_param.get(&var) {
+        needs_load.insert(root);
+    }
+}
+
+/// Helper: mark all vars in a slice as needing load.
+fn mark_needs_load_slice(
+    vars: &[ArcVarId],
+    var_to_param: &FxHashMap<ArcVarId, ArcVarId>,
+    needs_load: &mut FxHashSet<ArcVarId>,
+) {
+    for v in vars {
+        mark_needs_load(*v, var_to_param, needs_load);
+    }
+}
+
+/// Identify Indirect/Reference parameters whose loaded aggregate values are
+/// provably never needed — all uses go through pointer forwarding.
+///
+/// A parameter is "pointer-only" when every use of it (and its aliases) in
+/// the ARC IR is as an `Apply` or `Invoke` arg to a callee that the emitter
+/// resolves through the ABI path (which checks `borrowed_param_ptrs`).
+#[expect(
+    clippy::too_many_lines,
+    reason = "pointer-only scan walks all instructions checking forwarding safety"
+)]
+pub(super) fn compute_pointer_only_params(
+    func: &ArcFunction,
+    is_forwarding_safe: impl Fn(Name, &[ArcVarId]) -> bool,
+) -> FxHashSet<ArcVarId> {
+    let param_vars: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
+    if param_vars.is_empty() {
+        return FxHashSet::default();
+    }
+
+    // Build alias map: dst → src (Let { dst, Var(src) }).
+    let mut reverse_aliases: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ori_arc::ir::ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                reverse_aliases.entry(*src).or_default().push(*dst);
+            }
+        }
+    }
+
+    // Collect all aliases (transitive) of each param var.
+    let mut var_to_param: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for &pv in &param_vars {
+        var_to_param.insert(pv, pv);
+        let mut worklist = vec![pv];
+        while let Some(v) = worklist.pop() {
+            if let Some(dsts) = reverse_aliases.get(&v) {
+                for &d in dsts {
+                    if var_to_param.insert(d, pv).is_none() {
+                        worklist.push(d);
+                    }
+                }
+            }
+        }
+    }
+
+    // Track which param roots need loading.
+    let mut needs_load: FxHashSet<ArcVarId> = FxHashSet::default();
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                // Apply: safe IF callee uses pointer forwarding for its args.
+                ArcInstr::Apply {
+                    func: callee, args, ..
+                } => {
+                    if !is_forwarding_safe(*callee, args) {
+                        mark_needs_load_slice(args, &var_to_param, &mut needs_load);
+                    }
+                }
+
+                // PrimOp needs loaded values. Let{Var} aliases and Let{Literal}
+                // don't need the param value.
+                ArcInstr::Let {
+                    value: ori_arc::ir::ArcValue::PrimOp { args, .. },
+                    ..
+                } => mark_needs_load_slice(args, &var_to_param, &mut needs_load),
+
+                ArcInstr::Let { .. } => {}
+
+                ArcInstr::PartialApply { args, .. }
+                | ArcInstr::Construct { args, .. }
+                | ArcInstr::Reuse { args, .. } => {
+                    mark_needs_load_slice(args, &var_to_param, &mut needs_load);
+                }
+                ArcInstr::ApplyIndirect { closure, args, .. } => {
+                    mark_needs_load(*closure, &var_to_param, &mut needs_load);
+                    mark_needs_load_slice(args, &var_to_param, &mut needs_load);
+                }
+                ArcInstr::CollectionReuse { old_var, args, .. } => {
+                    mark_needs_load(*old_var, &var_to_param, &mut needs_load);
+                    mark_needs_load_slice(args, &var_to_param, &mut needs_load);
+                }
+                ArcInstr::Project { value, .. } => {
+                    mark_needs_load(*value, &var_to_param, &mut needs_load);
+                }
+                ArcInstr::Set { base, value, .. } => {
+                    mark_needs_load(*base, &var_to_param, &mut needs_load);
+                    mark_needs_load(*value, &var_to_param, &mut needs_load);
+                }
+                ArcInstr::SetTag { base, .. } => {
+                    mark_needs_load(*base, &var_to_param, &mut needs_load);
+                }
+                ArcInstr::Select {
+                    cond,
+                    true_val,
+                    false_val,
+                    ..
+                } => {
+                    mark_needs_load(*cond, &var_to_param, &mut needs_load);
+                    mark_needs_load(*true_val, &var_to_param, &mut needs_load);
+                    mark_needs_load(*false_val, &var_to_param, &mut needs_load);
+                }
+                ArcInstr::RcInc { var, .. }
+                | ArcInstr::RcDec { var, .. }
+                | ArcInstr::IsShared { var, .. }
+                | ArcInstr::Reset { var, .. } => {
+                    mark_needs_load(*var, &var_to_param, &mut needs_load);
+                }
+            }
+        }
+
+        // Terminators.
+        match &block.terminator {
+            ArcTerminator::Return { value } => {
+                mark_needs_load(*value, &var_to_param, &mut needs_load);
+            }
+            // Invoke args: same as Apply — safe if callee uses forwarding.
+            ArcTerminator::Invoke {
+                func: callee, args, ..
+            } => {
+                if !is_forwarding_safe(*callee, args) {
+                    mark_needs_load_slice(args, &var_to_param, &mut needs_load);
+                }
+            }
+            // Jump args transfer values to block params — conservative: needs load.
+            ArcTerminator::Jump { args, .. } => {
+                mark_needs_load_slice(args, &var_to_param, &mut needs_load);
+            }
+            ArcTerminator::Branch { cond, .. } => {
+                mark_needs_load(*cond, &var_to_param, &mut needs_load);
+            }
+            ArcTerminator::Switch { scrutinee, .. } => {
+                mark_needs_load(*scrutinee, &var_to_param, &mut needs_load);
+            }
+            ArcTerminator::Resume | ArcTerminator::Unreachable => {}
+        }
+    }
+
+    // Return param vars that don't need loading.
+    param_vars.difference(&needs_load).copied().collect()
 }
