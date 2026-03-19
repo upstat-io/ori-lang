@@ -205,7 +205,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 /// Fields are packed at i64 alignment (8-byte slots) within the `[M x i64]`
 /// payload array. Recursive fields (same type as the enclosing enum) are
 /// stored as 8-byte RC pointers, not inline.
-fn compute_variant_field_offsets(
+pub(super) fn compute_variant_field_offsets(
     field_types: &[Idx],
     enum_type: Idx,
     emitter: &ArcIrEmitter<'_, '_, '_, '_>,
