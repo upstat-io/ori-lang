@@ -159,7 +159,6 @@ type Named = { name: str, id: int }
 
 // Clone with map field
 #[test]
-#[ignore = "BUG-04-03: map Eq not implemented — clone works but test uses == for verification"]
 fn test_fm_clone_map_field() {
     assert_aot_success(
         r#"
