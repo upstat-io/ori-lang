@@ -28,7 +28,7 @@ sections:
 
 # Section 01: Nounwind Propagation
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Every user function and the C `main()` wrapper is marked `nounwind` when all call paths are provably non-unwinding. Functions whose only non-nounwind calls are in provably-unreachable blocks (e.g., overflow panic paths terminated by `unreachable`) must also be classified as `nounwind`, OR the blocking callee (`ori_panic_cstr`) must be proven to actually be nounwind via runtime inspection.
 
 **Context:** Journeys J15, J16, and J17 lose points because certain functions lack the `nounwind` attribute despite being effectively non-unwinding on their normal code paths. Two specific gaps exist: (1) `@_ori_main` is sometimes not marked `nounwind` because the fixed-point analysis misses it when all callees are nounwind, and (2) certain functions are conservatively marked as may-unwind due to an unidentified ARC-level callee that is not in the nounwind set. **Note**: the original hypothesis that overflow checks with `ori_panic_cstr` were the blocker is likely wrong -- those calls are emitted at the LLVM IR level, not the ARC IR level that `is_arc_function_nounwind()` analyzes. The actual blocker must be identified empirically (see 01.1 investigation task).
@@ -105,6 +105,8 @@ Impl methods are compiled via the immediate-emit path (`emit_arc_function`) BEFO
   Resolved: Fixed on 2026-03-19. Extracted duplicate `is_arc_function_nounwind` to `nounwind/analyze.rs`, extracted `is_callee_intercepted` to `context.rs` (now `pub(crate)`). Build succeeds, 453 lib + 1700 integration tests pass.
 - [x] `[TPR-01-002][medium]` `plans/journey-codegen-polish/section-01-nounwind.md:110` — The completion checklist overstates verification for the current repository state.
   Resolved: Fixed on 2026-03-19. After TPR-01-001 fix, re-verified: `cargo test -p ori_llvm --lib` (453 pass), `cargo test -p ori_llvm --tests` (1700 pass), `./test-all.sh` (13,317 pass, 0 fail). Completion checklist is accurate.
+- [x] `[TPR-01-003][high]` `compiler/ori_llvm/src/codegen/arc_emitter/context.rs:84` — `is_callee_intercepted()` ignores monomorphized generic dispatch, so nounwind/dead-unwind analysis can misclassify generic calls as intercepted builtin methods.
+  Resolved: Fixed on 2026-03-19. Added `ctx.mono_dispatch.contains_key(&callee)` check before the builtin method heuristic in `is_callee_intercepted()` (context.rs:92-98). Regression test `test_generic_call_with_builtin_arg_not_treated_as_intercepted` in `ir_quality_attributes.rs` verifies a generic may-unwind function called with `str` arg causes the caller to lack `nounwind`. Semantic pin confirmed: test FAILS without the fix (`_ori_main` incorrectly gets `nounwind`). Full suite: 13,322 pass, 0 fail.
 
 ---
 

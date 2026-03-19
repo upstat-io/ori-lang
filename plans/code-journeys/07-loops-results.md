@@ -23,7 +23,7 @@ features:
   - break_continue
   - let_bindings
 feature_description: "Loop/break and for-in-range iteration with mutable accumulators"
-score: 9.8
+score: 10.0
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
@@ -31,7 +31,7 @@ score_breakdown:
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
-  other_findings: 9
+  other_findings: 10
 score_metrics:
   instruction_ratio: 1.0
   instruction_ratio_max: 1.0
@@ -49,7 +49,7 @@ score_metrics:
   bin_hard_fail: false
   other_critical: 0
   other_high: 0
-  other_low: 1
+  other_low: 0
 overflow_check: PASS
 bugs_found: []
 related_journeys:

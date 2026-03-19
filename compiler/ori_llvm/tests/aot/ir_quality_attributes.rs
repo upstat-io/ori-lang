@@ -291,6 +291,43 @@ fn test_closure_call_gets_nounwind_via_posthoc() {
     assert_fn_has_attr(&ir, "main", "nounwind");
 }
 
+/// Generic function with may-unwind body must NOT be treated as intercepted.
+///
+/// Regression test for TPR-01-003: `is_callee_intercepted()` previously fell
+/// through to the builtin method heuristic for generic calls with builtin-typed
+/// first args. A call like `might_panic(s)` where `s: str` would be treated as
+/// an intercepted builtin (nounwind), even though the monomorphized function
+/// may unwind via `panic()`. The fix adds a `mono_dispatch` check before the
+/// builtin heuristic.
+#[test]
+fn test_generic_call_with_builtin_arg_not_treated_as_intercepted() {
+    let ir = compile_and_capture_ir(
+        r#"
+@might_panic<T> (x: T) -> T = {
+    if true then panic(msg: "boom");
+    x
+}
+
+@main () -> int = {
+    let s = might_panic(x: "hello");
+    s.length()
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // `might_panic` contains `panic()` — it MUST NOT be nounwind.
+    // Before the fix, mono_dispatch was not checked, so `might_panic(x: "hello")`
+    // would be classified as an intercepted builtin (str receiver), making main
+    // appear nounwind despite calling a may-unwind generic function.
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+    assert_fn_lacks_attr(&ir, "main", "nounwind");
+}
+
 // nounwind on derived trait methods
 
 /// Pure derived methods ($eq, $compare, $hash) should have `nounwind`.
@@ -649,4 +686,303 @@ fn resolve_fn_attrs(ir: &str, func_name: &str) -> String {
         .find(|l| l.starts_with(&group_prefix))
         .map(|l| l[group_prefix.len()..].to_string())
         .unwrap_or_default()
+}
+
+// Iterator option wrapping elimination
+
+/// For-loop iterator codegen should NOT build a `{i64, T}` wrapper struct.
+///
+/// The ARC IR `__iter_next` protocol returns a decomposed `(tag, scratch_ptr)`
+/// pair. The LLVM emission should use the tag directly and load the element
+/// from the scratch buffer — no `insertvalue` to build a wrapper struct.
+#[test]
+fn test_iter_next_no_wrapper_struct() {
+    let ir = compile_and_capture_ir(
+        r#"
+@count (words: [str]) -> int = {
+    let total = 0;
+    for w in words do total += w.length();
+    total
+}
+
+@main () -> int = count(words: ["hello", "world", "test"]);
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let count_ir = extract_function_ir(&ir, "_ori_count");
+
+    // The wrapper struct `{i64, {i64, i64, ptr}}` required insertvalue.
+    // After optimization, no insertvalue should appear for iter_next results.
+    let insertvalue_count = count_ir.matches("insertvalue").count();
+    assert_eq!(
+        insertvalue_count, 0,
+        "expected 0 insertvalue in @count (iter_next decomposed), got {insertvalue_count}.\nIR:\n{count_ir}"
+    );
+
+    // ori_str_len should read from iter_next.scratch directly, not a separate alloca.
+    assert!(
+        count_ir.contains("call i64 @ori_str_len(ptr %iter_next.scratch)"),
+        "expected ori_str_len to receive iter_next.scratch directly.\nIR:\n{count_ir}"
+    );
+}
+
+/// Semantic pin: for-loop over `[str]` with `.length()` returns correct total.
+#[test]
+fn test_iter_for_loop_str_length_correctness() {
+    let exit = crate::util::compile_and_run(
+        r#"
+@main () -> int = {
+    let words = ["hello", "world"];
+    let total = 0;
+    for w in words do total += w.length();
+    total
+}
+"#,
+    );
+    assert_eq!(exit, 10, "expected total length 10 (5+5)");
+}
+
+/// Semantic pin: for-loop over `[[int]]` with `.length()` returns correct total.
+#[test]
+fn test_iter_for_loop_list_length_correctness() {
+    let exit = crate::util::compile_and_run(
+        r"
+@main () -> int = {
+    let lists = [[1, 2, 3], [4, 5]];
+    let total = 0;
+    for xs in lists do total += xs.length();
+    total
+}
+",
+    );
+    assert_eq!(exit, 5, "expected total length 5 (3+2)");
+}
+
+/// Scalar elements (int) should not be affected by the optimization.
+#[test]
+fn test_iter_for_loop_scalar_element() {
+    let exit = crate::util::compile_and_run(
+        r"
+@main () -> int = {
+    let nums = [3, 7, 2];
+    let total = 0;
+    for n in nums do total += n;
+    total
+}
+",
+    );
+    assert_eq!(exit, 12, "expected sum 12 (3+7+2)");
+}
+
+/// For-loop with break: element must be valid up to break point.
+#[test]
+fn test_iter_for_loop_with_break() {
+    let exit = crate::util::compile_and_run(
+        r#"
+@main () -> int = {
+    let words = ["hello", "world", "test"];
+    let total = 0;
+    for w in words do {
+        if w.length() == 5 then total += 1;
+        if total == 2 then break
+    };
+    total
+}
+"#,
+    );
+    assert_eq!(exit, 2, "expected 2 (break after two 5-char words)");
+}
+
+/// Nested for-loops: outer element used in inner loop body.
+#[test]
+fn test_iter_nested_for_loops() {
+    let exit = crate::util::compile_and_run(
+        r"
+@main () -> int = {
+    let lists = [[1, 2], [3]];
+    let total = 0;
+    for xs in lists do {
+        for x in xs do total += x
+    };
+    total
+}
+",
+    );
+    assert_eq!(exit, 6, "expected 6 (1+2+3)");
+}
+
+/// Struct element field access in for-loop body.
+///
+/// Iterates over `[Point]` and accesses `p.x` — the element is a struct
+/// passed by value. Tests that the scratch buffer optimization correctly
+/// handles struct elements with field projection.
+#[test]
+fn test_iter_for_loop_struct_field_access() {
+    let exit = crate::util::compile_and_run(
+        r"
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let points = [Point { x: 3, y: 4 }, Point { x: 7, y: 1 }];
+    let total = 0;
+    for p in points do total += p.x;
+    total
+}
+",
+    );
+    assert_eq!(exit, 10, "expected 10 (3+7)");
+}
+
+/// Element stored into collection via push during for-loop.
+///
+/// `for w in words do result = result.push(value: w)` — the element must
+/// be a valid copy when pushed. `ori_list_push` copies immediately, so
+/// scratch buffer forwarding is safe. Verify by reading back the pushed
+/// elements and summing their lengths.
+#[test]
+fn test_iter_for_loop_push_element() {
+    let exit = crate::util::compile_and_run(
+        r#"
+@main () -> int = {
+    let words = ["hello", "world"];
+    let result: [str] = [];
+    for w in words do result = result.push(value: w);
+    let total = 0;
+    for r in result do total += r.length();
+    total
+}
+"#,
+    );
+    assert_eq!(
+        exit, 10,
+        "expected 10 (5+5) — pushed elements must be valid copies"
+    );
+}
+
+/// Guarded for-loop: element used in both guard and body.
+///
+/// `for w in words if w.length() > 3 do total += w.length()` — the guard
+/// and body both access the element via `Project(next_result, 1)`. Both
+/// must read from the same scratch pointer, which is correct since the
+/// buffer isn't overwritten between guard and body evaluation.
+#[test]
+fn test_iter_for_loop_guarded() {
+    let exit = crate::util::compile_and_run(
+        r#"
+@main () -> int = {
+    let words = ["hi", "hello", "go", "world"];
+    let total = 0;
+    for w in words if w.length() > 3 do total += w.length();
+    total
+}
+"#,
+    );
+    assert_eq!(
+        exit, 10,
+        "expected 10 (hello=5 + world=5, hi and go filtered)"
+    );
+}
+
+/// For-yield (list comprehension): element transformed and collected.
+///
+/// `for w in words yield w.length()` uses the same `__iter_next` path as
+/// for-do. The yielded value is the body result (`w.length()` → int), but
+/// the element `w` still comes from the scratch buffer via Project.
+#[test]
+fn test_iter_for_yield_lengths() {
+    let exit = crate::util::compile_and_run(
+        r#"
+@main () -> int = {
+    let words = ["hello", "world"];
+    let lengths = for w in words yield w.length();
+    let total = 0;
+    for n in lengths do total += n;
+    total
+}
+"#,
+    );
+    assert_eq!(
+        exit, 10,
+        "expected 10 (5+5) — for-yield must work with scratch forwarding"
+    );
+}
+
+/// Element passed by value to a function — must be a copy, not the scratch buffer.
+///
+/// `process(s: w)` passes `w` by value. The function receives a valid copy
+/// of the string, not a pointer into the scratch buffer. If the scratch
+/// buffer were forwarded as the argument, the function might see stale data
+/// on subsequent iterations.
+#[test]
+fn test_iter_for_loop_element_passed_to_function() {
+    let exit = crate::util::compile_and_run(
+        r#"
+@process (s: str) -> int = s.length() + 1;
+
+@main () -> int = {
+    let words = ["hello", "world"];
+    let total = 0;
+    for w in words do total += process(s: w);
+    total
+}
+"#,
+    );
+    assert_eq!(
+        exit, 12,
+        "expected 12 (6+6) — element must be a valid copy in callee"
+    );
+}
+
+/// Element passed to two runtime calls in same iteration.
+///
+/// Both `w.length()` calls must see the correct string value. If the scratch
+/// buffer were mutated between calls (it shouldn't be — only `ori_iter_next`
+/// overwrites it), one call would see corrupt data.
+#[test]
+fn test_iter_for_loop_two_calls_same_element() {
+    let exit = crate::util::compile_and_run(
+        r#"
+@main () -> int = {
+    let words = ["hello", "world"];
+    let total = 0;
+    for w in words do {
+        let a = w.length();
+        let b = w.length();
+        total += a + b
+    };
+    total
+}
+"#,
+    );
+    assert_eq!(
+        exit, 20,
+        "expected 20 — both calls must see correct element value"
+    );
+}
+
+/// Semantic pin: for-yield over string list returns correct mapped lengths.
+///
+/// `for w in ["a", "bb", "ccc"] yield w.length()` must produce `[1, 2, 3]`.
+/// Verifies both the list length (3) and sum (6) to pin the for-yield
+/// semantics with the scratch buffer optimization.
+#[test]
+fn test_iter_for_yield_semantic_pin() {
+    let exit = crate::util::compile_and_run(
+        r#"
+@main () -> int = {
+    let lengths = for w in ["a", "bb", "ccc"] yield w.length();
+    if lengths.length() == 3 then {
+        let total = 0;
+        for n in lengths do total += n;
+        total
+    } else 0
+}
+"#,
+    );
+    assert_eq!(exit, 6, "expected 6 (1+2+3) — for-yield semantic pin");
 }

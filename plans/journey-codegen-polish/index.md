@@ -2,7 +2,7 @@
 reroute: true
 name: "Journey Codegen Polish"
 full_name: "Journey Codegen Polish: All 17 Journeys to 10.0/10 Quality"
-status: active
+status: resolved
 order: 1
 ---
 
@@ -21,7 +21,7 @@ order: 1
 ## Keyword Clusters by Section
 
 ### Section 01: Nounwind Propagation
-**File:** `section-01-nounwind.md` | **Status:** Not Started
+**File:** `section-01-nounwind.md` | **Status:** Complete
 
 ```
 nounwind, unwind, exception handling, landing pad, personality
@@ -36,7 +36,7 @@ J15, J16, J17, attributes, EH tables, impl methods
 ---
 
 ### Section 02: Dead Aggregate Load Elimination
-**File:** `section-02-dead-loads.md` | **Status:** Not Started
+**File:** `section-02-dead-loads.md` | **Status:** Complete
 
 ```
 aggregate load, param.load, borrowed parameter, dead code
@@ -49,7 +49,7 @@ J16, J17, instruction purity, unjustified instructions
 ---
 
 ### Section 03: Sret Identity Copy Elimination
-**File:** `section-03-sret-identity.md` | **Status:** Not Started
+**File:** `section-03-sret-identity.md` | **Status:** Complete
 
 ```
 sret, return, identity copy, load+store, no-op
@@ -62,20 +62,23 @@ J16, make_string, ori_str_from_raw
 ---
 
 ### Section 04: Iterator Option Wrapping
-**File:** `section-04-iterator-wrapping.md` | **Status:** Not Started
+**File:** `section-04-iterator-wrapping.md` | **Status:** Complete
 
 ```
-iterator, option, wrapping, alloca, round-trip
-emit_iter_next, for loop, has_next, tag, scratch buffer
-EmittedValue, Project, build_struct, ori_iter_next
+iterator, option, wrapping, alloca, round-trip, scratch buffer
+emit_iter_next, for loop, for-yield, for-guard, has_next, tag
+EmittedValue, Project, build_struct, ori_iter_next, decomposed
+borrowed_param_ptrs, str_to_ptr_forwarded, pointer forwarding
+side-channel map, iter_next_decomposed, Approach A/B/C
 arc_emitter/builtins/iterator.rs, lower/control_flow/for_loops/for_iterator.rs
-J15, count_chars, borrowed_param_ptrs
+lower/control_flow/for_yield.rs, instr_dispatch.rs, apply_helpers.rs
+J15, count_chars, insertvalue, extractvalue
 ```
 
 ---
 
 ### Section 05: Range Unused Field Extraction
-**File:** `section-05-range-fields.md` | **Status:** Not Started
+**File:** `section-05-range-fields.md` | **Status:** Complete
 
 ```
 range, inclusive, field extraction, unused field, extractvalue
@@ -88,7 +91,7 @@ J07, sum_for, proj.3
 ---
 
 ### Section 06: Verification
-**File:** `section-06-verification.md` | **Status:** Not Started
+**File:** `section-06-verification.md` | **Status:** Complete
 
 ```
 code journey, re-run, score, 10.0, verification

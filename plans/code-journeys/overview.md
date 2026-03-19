@@ -15,7 +15,7 @@ Code journeys trace a single Ori program through the entire compiler pipeline (l
 | J4 | "I am a struct" | struct_construction, field_access, nested_structs | 57 | PASS | PASS | 10.0/10 | PERFECT — nonnull dereferenceable(32), OPTIMAL GEP |
 | J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 10.0/10 | PERFECT — AIMS RC elision, lambda naming improved |
 | J6 | "I am a match" | pattern_matching, sum_types, destructuring | 41 | PASS | PASS | 10.0/10 | PERFECT — branchless select for tag-only enums |
-| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 9.8/10 | Range unused field extraction (LOW) |
+| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 10.0/10 | PERFECT — range unused field extraction FIXED (was 9.8) |
 | J8 | "I am generic" | generics, monomorphization, generic_structs | 57 | PASS | PASS | 10.0/10 | PERFECT — zero-cost abstraction, identity=1 instr |
 | J9 | "I am a string" | strings, string_methods, arc | 13 | PASS | PASS | 10.0/10 | Aggregate sret load optimization (-34% instructions) |
 | J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 10.0/10 | Landing pad elimination, aggregate loads |
@@ -23,30 +23,32 @@ Code journeys trace a single Ori program through the entire compiler pipeline (l
 | J12 | "I am an option" | option_type, error_propagation | 33 | PASS | PASS | 10.0/10 | PERFECT — ? operator = 8-instruction optimal sequence |
 | J13 | "I am an iterator" | iterators, iterator_adapters, closures | 55 | PASS | PASS | 10.0/10 | PERFECT — null env for non-capturing, balanced ARC |
 | J14 | "I am a fat pointer" | strings, arc, multiple_functions | 65 | PASS | PASS | 10.0/10 | 3 codegen improvements FIXED (was 9.4) |
-| J15 | "I am nested fat" | lists, strings, arc, loops | 18 | PASS | PASS | 8.7/10 | Double-free FIXED (was 6.2); option struct wrapping overhead |
-| J16 | "I am fat and moving" | strings, arc, multiple_functions | 42 | PASS | PASS | 9.9/10 | Aggregate load + landing pad elimination (was 9.4) |
-| J17 | "I am a captured fat pointer" | strings, closures, capture, arc | 10 | PASS | PASS | 9.9/10 | CRITICAL Idx leak bug FIXED (was 3.0) |
+| J15 | "I am nested fat" | lists, strings, arc, loops | 18 | PASS | PASS | 10.0/10 | PERFECT — all issues FIXED: option wrapping, nounwind (was 8.7) |
+| J16 | "I am fat and moving" | strings, arc, multiple_functions | 42 | PASS | PASS | 10.0/10 | PERFECT — dead loads + sret copy + nounwind all FIXED (was 9.9) |
+| J17 | "I am a captured fat pointer" | strings, closures, capture, arc | 10 | PASS | PASS | 10.0/10 | PERFECT — dead loads + nounwind FIXED (was 9.9) |
 
-## Score Changes Since Previous Run (2026-03-16)
+## Score Changes Since Previous Run (2026-03-19 codegen polish)
 
 | Journey | Previous | Current | Delta | Reason |
 |---------|----------|---------|-------|--------|
-| J7 | 10.0 | 9.8 | -0.2 | Score miscalculation corrected (other_low=1 was not reflected) |
-| J14 | 9.4 | 10.0 | +0.6 | Aggregate load opt, nounwind analysis, ptrtoint dedup — all 3 prior LOWs FIXED |
-| J15 | 6.2 | 8.7 | +2.5 | CRITICAL double-free bugs FIXED, aggregate load optimization |
-| J16 | 9.4 | 9.9 | +0.5 | Field-by-field materialization FIXED, landing pads eliminated |
-| J17 | 3.0 | 9.9 | +6.9 | CRITICAL Idx leak bug FIXED — closure capturing str now works |
+| J7 | 9.8 | 10.0 | +0.2 | Range unused field extraction FIXED (Section 05) |
+| J15 | 8.7 | 10.0 | +1.3 | Option struct wrapping FIXED (Section 04), nounwind FIXED (Section 01) |
+| J16 | 9.9 | 10.0 | +0.1 | Dead aggregate loads FIXED (Section 02), nounwind FIXED (Section 01) |
+| J17 | 9.9 | 10.0 | +0.1 | Dead loads FIXED (Section 02), nounwind FIXED (Section 01) |
 
-All other journeys unchanged (J1-J6, J8-J13 remain at 10.0).
+All 17 journeys now at 10.0/10. Previous: J1-J6, J8-J14 already at 10.0 (unchanged).
 
 ## Recurring Issues
 
-| Issue | Severity | Journeys | Description |
-|-------|----------|----------|-------------|
-| Missing nounwind on @_ori_main | LOW | J15, J16, J17 | Entry main wrapper lacks nounwind attribute |
-| Dead aggregate loads | LOW | J16, J17 | Borrowed params loaded but value unused before method call |
-| Option struct wrapping overhead | MEDIUM | J15 | Iterator next() returns option via alloca round-trip |
-| Range unused field extraction | LOW | J7 | Inclusive flag extracted but never used |
+All recurring issues have been resolved as of 2026-03-19:
+
+| Issue | Status | Fixed By |
+|-------|--------|----------|
+| Missing nounwind on @_ori_main | RESOLVED | Section 01: Nounwind Propagation |
+| Dead aggregate loads | RESOLVED | Section 02: Dead Aggregate Load Elimination |
+| Option struct wrapping overhead | RESOLVED | Section 04: Iterator Option Wrapping |
+| Range unused field extraction | RESOLVED | Section 05: Range Unused Field Extraction |
+| Sret identity copy | RESOLVED | Section 03: Sret Identity Copy Elimination |
 
 ## Resolved Issues
 
@@ -75,25 +77,50 @@ All other journeys unchanged (J1-J6, J8-J13 remain at 10.0).
 **Fixed by**: 2026-03-19 run
 **Description**: SSO guard performed `ptrtoint` twice on the same pointer (once for bit-63 check, once for null check). Now performs a single `ptrtoint` and reuses the result.
 
+### Missing nounwind on @_ori_main — FIXED
+**First seen**: J15, J16, J17 (2026-03-16)
+**Fixed by**: Codegen Polish Section 01 (Nounwind Propagation)
+**Description**: Entry main wrapper and user functions lacked `nounwind` attribute. Two-pass nounwind analysis with fixed-point post-hoc pass now correctly propagates nounwind through call chains including builtin methods, closures, and derived trait methods.
+
+### Dead aggregate loads — FIXED
+**First seen**: J16, J17 (2026-03-16)
+**Fixed by**: Codegen Polish Section 02 (Dead Aggregate Load Elimination)
+**Description**: Borrowed parameters loaded as full aggregates but the loaded value was never used — downstream runtime calls forwarded the pointer directly. `compute_pointer_only_params()` now identifies these parameters and skips the dead load.
+
+### Sret identity copy — FIXED
+**First seen**: J16 (2026-03-16)
+**Fixed by**: Codegen Polish Section 03 (Sret Identity Copy Elimination)
+**Description**: Functions returning their own parameter by value via sret performed a redundant memcpy from parameter alloca to sret slot. Now detected and eliminated when source and destination types match.
+
+### Option struct wrapping overhead — FIXED
+**First seen**: J15 (2026-03-16)
+**Fixed by**: Codegen Polish Section 04 (Iterator Option Wrapping)
+**Description**: For-loop iterator next() wrapped the has-next flag and element into a `{i64, T}` option struct via `insertvalue`, then immediately extracted them. Side-channel decomposition now stores tag and scratch pointer separately, eliminating the struct round-trip.
+
+### Range unused field extraction — FIXED
+**First seen**: J7 (2026-03-16)
+**Fixed by**: Codegen Polish Section 05 (Range Unused Field Extraction)
+**Description**: Range inclusive flag (field 3 of `{start, end, step, inclusive}`) was extracted via `extractvalue` but never used in exclusive ranges. Now only extracted when the range is inclusive.
+
 ## Score Trend
 
 | Difficulty | Journeys | Avg Score | Range |
 |------------|----------|-----------|-------|
 | Simple (J1-J4) | 4 | 10.0 | 10.0–10.0 |
-| Moderate (J5-J8) | 4 | 10.0 | 9.8–10.0 |
-| Complex (J9-J17) | 9 | 9.9 | 8.7–10.0 |
-| **Overall** | **17** | **9.9** | **8.7–10.0** |
+| Moderate (J5-J8) | 4 | 10.0 | 10.0–10.0 |
+| Complex (J9-J17) | 9 | 10.0 | 10.0–10.0 |
+| **Overall** | **17** | **10.0** | **10.0–10.0** |
 
-**Comparison with previous run (2026-03-16):**
+**Comparison with pre-polish baseline (2026-03-16):**
 
-| Difficulty | Previous Avg | Current Avg | Delta |
+| Difficulty | Baseline Avg | Current Avg | Delta |
 |------------|-------------|-------------|-------|
 | Simple (J1-J4) | 10.0 | 10.0 | 0.0 |
 | Moderate (J5-J8) | 10.0 | 10.0 | 0.0 |
-| Complex (J9-J17) | 8.8 | 9.9 | +1.1 |
-| **Overall** | **9.5** | **9.9** | **+0.4** |
+| Complex (J9-J17) | 8.8 | 10.0 | +1.2 |
+| **Overall** | **9.5** | **10.0** | **+0.5** |
 
-The biggest improvements are in the complex fat-pointer journeys (J14-J17), reflecting fixes to aggregate load codegen, nounwind propagation, and the closure-captures-str bug.
+All 17 journeys now score 10.0/10 — PERFECT across the board. The codegen polish plan (Sections 01-05) resolved all remaining quality findings: nounwind propagation, dead aggregate load elimination, sret identity copy elimination, iterator option wrapping, and range unused field extraction.
 
 ## Results Files
 

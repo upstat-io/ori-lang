@@ -29,11 +29,11 @@ features:
   - higher_order
 feature_description: "Closure capturing a fat pointer (str), partial application with heap-allocated environment, SSO-aware ARC cleanup, borrow elision on string method calls"
 
-score: 9.9
+score: 10.0
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 9
+  attributes_safety: 10
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -45,7 +45,7 @@ score_metrics:
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
   attr_applicable: 21
-  attr_correct: 20
+  attr_correct: 21
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
