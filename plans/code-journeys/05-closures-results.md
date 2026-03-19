@@ -2,7 +2,7 @@
 journey: 5
 slug: closures
 theme: "I am a closure"
-date: 2026-03-16
+date: 2026-03-19
 status: PASS
 expected: 27
 eval_result: 27
@@ -205,8 +205,8 @@ Module
 
 ```text
 - Lambda expressions lowered to closure objects with capture lists
-- __lambda_0: captures [n] (from make_adder)
-- __lambda_1: captures [] (non-capturing, from double)
+- __lambda_make_adder_0: captures [n] (from make_adder)
+- __lambda_main_0: captures [] (non-capturing, from double)
 - Function call arguments normalized to positional order
 ```
 
@@ -227,8 +227,8 @@ Module
 @apply: +0 rc_inc, +0 rc_dec (AIMS elided callee-side env cleanup)
 @make_adder: +1 rc_alloc, +0 rc_dec (env ownership transferred to caller)
 @main: +0 rc_inc, +1 rc_dec (cleanup for make_adder's env after use)
-@__lambda_0: no RC ops (pure scalar arithmetic on captured value)
-@__lambda_1: no RC ops (non-capturing, pure scalar arithmetic)
+@__lambda_make_adder_0: no RC ops (pure scalar arithmetic on captured value)
+@__lambda_main_0: no RC ops (non-capturing, pure scalar arithmetic)
 @partial_0_drop: +1 rc_free (destructor for closure env)
 @partial_1: no RC ops (thunk: loads captured value, calls lambda)
 ```
@@ -247,15 +247,15 @@ Module
 
 ```text
 @main()
-  +-  let double = Lambda(__lambda_1, captures=[])
+  +-  let double = Lambda(__lambda_main_0, captures=[])
   +-  let a = @apply(f: double, x: 5)
   |    +-- call double(5)
   |         +-- 5 * 2 = 10
   |    -> 10
   +-  let add10 = @make_adder(n: 10)
-  |    +-- Lambda(__lambda_0, captures=[n=10])
+  |    +-- Lambda(__lambda_make_adder_0, captures=[n=10])
   +-  let b = add10(7)
-  |    +-- call __lambda_0(x=7, n=10)
+  |    +-- call __lambda_make_adder_0(x=7, n=10)
   |         +-- 7 + 10 = 17
   |    -> 17
   +-- a + b = 10 + 17 = 27
@@ -283,8 +283,8 @@ Module
 @main: +0 rc_inc, +1 ori_rc_dec (cleanup for captured closure env via null-guarded path)
 @partial_0_drop: +1 ori_rc_free (destructor called when env refcount hits 0)
 @partial_1: +0 rc_inc, +0 rc_dec (thunk -- loads capture, forwards to lambda)
-@__lambda_0: +0 rc_inc, +0 rc_dec (pure arithmetic on captured i64)
-@__lambda_1: +0 rc_inc, +0 rc_dec (pure arithmetic, non-capturing)
+@__lambda_make_adder_0: +0 rc_inc, +0 rc_dec (pure arithmetic on captured i64)
+@__lambda_main_0: +0 rc_inc, +0 rc_dec (pure arithmetic, non-capturing)
 ```
 
 </details>
@@ -325,7 +325,7 @@ bb0:
 ; --- @main ---
 define noundef i64 @_ori_main() #1 {
 bb0:
-  %call = call fastcc i64 @_ori_apply({ ptr, ptr } { ptr @_ori___lambda_1, ptr null }, i64 5)
+  %call = call fastcc i64 @_ori_apply({ ptr, ptr } { ptr @_ori___lambda_main_0, ptr null }, i64 5)
   %call1 = call fastcc { ptr, ptr } @_ori_make_adder(i64 10)
   %closure.fn_ptr = extractvalue { ptr, ptr } %call1, 0
   %closure.env_ptr = extractvalue { ptr, ptr } %call1, 1
@@ -355,8 +355,8 @@ rc_dec.skip:                                      ; preds = %rc_dec.do, %add.ok
 }
 
 ; Function Attrs: nounwind memory(none) uwtable
-; --- @__lambda_0 ---
-define fastcc noundef i64 @_ori___lambda_0(i64 noundef %0, i64 noundef %1) #2 {
+; --- @__lambda_make_adder_0 ---
+define fastcc noundef i64 @_ori___lambda_make_adder_0(i64 noundef %0, i64 noundef %1) #2 {
 bb0:
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %1, i64 %0)
   %add.val = extractvalue { i64, i1 } %add, 0
@@ -372,8 +372,8 @@ add.ovf_panic:                                    ; preds = %bb0
 }
 
 ; Function Attrs: nounwind memory(none) uwtable
-; --- @__lambda_1 ---
-define noundef i64 @_ori___lambda_1(ptr noundef %0, i64 noundef %1) #2 {
+; --- @__lambda_main_0 ---
+define noundef i64 @_ori___lambda_main_0(ptr noundef %0, i64 noundef %1) #2 {
 bb0:
   %mul = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %1, i64 2)
   %mul.val = extractvalue { i64, i1 } %mul, 0
@@ -402,7 +402,7 @@ define noundef i64 @_ori_partial_1(ptr noundef %0, i64 noundef %1) #0 {
 entry:
   %cap.0.ptr = getelementptr inbounds nuw { ptr, i64 }, ptr %0, i32 0, i32 1
   %cap.0 = load i64, ptr %cap.0.ptr, align 8
-  %result = call fastcc i64 @_ori___lambda_0(i64 %cap.0, i64 %1)
+  %result = call fastcc i64 @_ori___lambda_make_adder_0(i64 %cap.0, i64 %1)
   ret i64 %result
 }
 
@@ -449,7 +449,7 @@ _ori_make_adder:
 
 _ori_main:
   sub    $0x18,%rsp
-  lea    _ori___lambda_1(%rip),%rdi
+  lea    _ori___lambda_main_0(%rip),%rdi
   xor    %eax,%eax
   mov    %eax,%esi                ; null env_ptr
   mov    $0x5,%edx                ; x = 5
@@ -483,7 +483,7 @@ _ori_main:
   add    $0x18,%rsp
   ret
 
-_ori___lambda_0:
+_ori___lambda_make_adder_0:
   push   %rax
   add    %rdi,%rsi                ; x + n
   mov    %rsi,(%rsp)
@@ -496,7 +496,7 @@ _ori___lambda_0:
   lea    ovf_msg(%rip),%rdi
   call   ori_panic_cstr
 
-_ori___lambda_1:
+_ori___lambda_main_0:
   push   %rax
   mov    $0x2,%eax
   imul   %rax,%rsi                ; x * 2
@@ -521,7 +521,7 @@ _ori_partial_0_drop:
 _ori_partial_1:
   push   %rax
   mov    0x8(%rdi),%rdi           ; load captured n
-  call   _ori___lambda_0
+  call   _ori___lambda_make_adder_0
   pop    %rcx
   ret
 
@@ -547,8 +547,8 @@ main:
 | 1 | @apply | 4 | 4 | 1.00x | OPTIMAL |
 | 2 | @make_adder | 7 | 7 | 1.00x | OPTIMAL |
 | 3 | @main | 19 | 19 | 1.00x | OPTIMAL |
-| 4 | @__lambda_0 | 7 | 7 | 1.00x | OPTIMAL |
-| 5 | @__lambda_1 | 7 | 7 | 1.00x | OPTIMAL |
+| 4 | @__lambda_make_adder_0 | 7 | 7 | 1.00x | OPTIMAL |
+| 5 | @__lambda_main_0 | 7 | 7 | 1.00x | OPTIMAL |
 | 6 | @partial_0_drop | 2 | 2 | 1.00x | OPTIMAL |
 | 7 | @partial_1 | 4 | 4 | 1.00x | OPTIMAL |
 
@@ -560,7 +560,7 @@ main:
 
 **@main** (19 instructions): OPTIMAL per the extract-metrics analysis. The null-check on the closure env pointer from `make_adder` is part of the standard RC dec pattern. While `make_adder` always returns a non-null env (via `ori_rc_alloc` which is `noalias`), the null guard is a generic safety pattern for all closure cleanup and protects against non-capturing closures that use `ptr null` for the env. This is structurally justified for a uniform cleanup protocol. [NOTE-1]
 
-**@__lambda_0, @__lambda_1** (7 each): OPTIMAL. Clean overflow-checked arithmetic with `memory(none)` attribute correctly marking them as pure.
+**@__lambda_make_adder_0, @__lambda_main_0** (7 each): OPTIMAL. Clean overflow-checked arithmetic with `memory(none)` attribute correctly marking them as pure.
 
 **@partial_0_drop** (2 instructions): OPTIMAL. Minimal destructor: `ori_rc_free` call + `ret`.
 
@@ -573,8 +573,8 @@ main:
 | @apply | 0 | 0 | YES | 1 elided | N/A |
 | @make_adder | 0 (1 alloc) | 0 | YES* | N/A | Transfers ownership |
 | @main | 0 | 1 | YES* | N/A | Consumes closure env |
-| @__lambda_0 | 0 | 0 | YES | N/A | N/A |
-| @__lambda_1 | 0 | 0 | YES | N/A | N/A |
+| @__lambda_make_adder_0 | 0 | 0 | YES | N/A | N/A |
+| @__lambda_main_0 | 0 | 0 | YES | N/A | N/A |
 | @partial_0_drop | 0 | 0 (1 free) | YES | N/A | Drop handler |
 | @partial_1 | 0 | 0 | YES | N/A | N/A |
 
@@ -589,17 +589,17 @@ main:
 | @apply | YES | YES | ret+params | -- | NO | YES | |
 | @make_adder | YES | YES | ret+param | -- | NO | YES | |
 | @main | NO (C) | NO | ret | -- | NO | YES | Correct: entry point, may panic |
-| @__lambda_0 | YES | YES | ret+params | memory(none) | NO | YES | |
-| @__lambda_1 | NO | YES | ret+params | memory(none) | NO | YES | Correct: indirect call target |
+| @__lambda_make_adder_0 | YES | YES | ret+params | memory(none) | NO | YES | |
+| @__lambda_main_0 | NO | YES | ret+params | memory(none) | NO | YES | Correct: indirect call target |
 | @partial_0_drop | NO | YES | param | -- | YES | YES | Correct: indirect target, cold |
 | @partial_1 | NO | YES | ret+params | -- | NO | YES | Correct: indirect target |
 
 **100% attribute compliance** (28/28 applicable checks).
 
 Key attribute observations:
-- `@__lambda_0` and `@__lambda_1` have `memory(none)` -- correctly marking them as pure functions operating only on scalar arguments.
+- `@__lambda_make_adder_0` and `@__lambda_main_0` have `memory(none)` -- correctly marking them as pure functions operating only on scalar arguments.
 - `@apply` has `nounwind` despite making an indirect call -- the two-pass fixed-point analysis propagated nounwind through the closure call graph.
-- `@__lambda_1` (non-capturing `double`) correctly lacks `fastcc` since it is called indirectly through the uniform `{ptr, ptr}` interface. A devirtualization pass could potentially direct-call it in this program, but this is a whole-program optimization, not a per-function attribute issue.
+- `@__lambda_main_0` (non-capturing `double`) correctly lacks `fastcc` since it is called indirectly through the uniform `{ptr, ptr}` interface. A devirtualization pass could potentially direct-call it in this program, but this is a whole-program optimization, not a per-function attribute issue.
 - `@partial_0_drop` has `cold` -- correctly recognizing it as a destructor called only during cleanup.
 - `@_ori_partial_0_drop` and `@_ori_partial_1` now have `noundef` on all their parameters (previously missing).
 
@@ -610,8 +610,8 @@ Key attribute observations:
 | @apply | 1 | 0 | 0 | 0 | |
 | @make_adder | 1 | 0 | 0 | 0 | |
 | @main | 5 | 0 | 0 | 0 | |
-| @__lambda_0 | 3 | 0 | 0 | 0 | |
-| @__lambda_1 | 3 | 0 | 0 | 0 | |
+| @__lambda_make_adder_0 | 3 | 0 | 0 | 0 | |
+| @__lambda_main_0 | 3 | 0 | 0 | 0 | |
 | @partial_0_drop | 1 | 0 | 0 | 0 | |
 | @partial_1 | 1 | 0 | 0 | 0 | |
 
@@ -625,8 +625,8 @@ No empty blocks. No redundant branches. No trivial phi nodes.
 
 | Operation | Function | Checked | Correct | Notes |
 |-----------|----------|---------|---------|-------|
-| add | @__lambda_0 | YES | YES | `llvm.sadd.with.overflow.i64` (x + n) |
-| mul | @__lambda_1 | YES | YES | `llvm.smul.with.overflow.i64` (x * 2) |
+| add | @__lambda_make_adder_0 | YES | YES | `llvm.sadd.with.overflow.i64` (x + n) |
+| mul | @__lambda_main_0 | YES | YES | `llvm.smul.with.overflow.i64` (x * 2) |
 | add | @main | YES | YES | `llvm.sadd.with.overflow.i64` (a + b) |
 
 All three arithmetic operations are checked. Overflow paths call `ori_panic_cstr` with distinct messages distinguishing addition vs multiplication overflow.
@@ -686,7 +686,7 @@ _ori_make_adder:
 _ori_partial_1:
   push   %rax
   mov    0x8(%rdi),%rdi
-  call   _ori___lambda_0
+  call   _ori___lambda_make_adder_0
   pop    %rcx
   ret
 ```
@@ -737,7 +737,7 @@ bb0:
 ; for handling both capturing and non-capturing closures uniformly.
 define noundef i64 @_ori_main() {
 bb0:
-  %call = call fastcc i64 @_ori_apply({ ptr, ptr } { ptr @_ori___lambda_1, ptr null }, i64 5)
+  %call = call fastcc i64 @_ori_apply({ ptr, ptr } { ptr @_ori___lambda_main_0, ptr null }, i64 5)
   %call1 = call fastcc { ptr, ptr } @_ori_make_adder(i64 10)
   %closure.fn_ptr = extractvalue { ptr, ptr } %call1, 0
   %closure.env_ptr = extractvalue { ptr, ptr } %call1, 1
@@ -767,7 +767,7 @@ rc_dec.skip:
 
 **Delta**: +0. The null-check on `make_adder`'s env pointer is the uniform RC dec protocol. While a nonnull-propagation pass could eliminate it for this specific case (since `ori_rc_alloc` returns `noalias ptr`), the pattern is architecturally sound and correctly handles the general case where closures may have null env pointers (non-capturing). [NOTE-1]
 
-#### @__lambda_0, @__lambda_1: Ideal = Actual
+#### @__lambda_make_adder_0, @__lambda_main_0: Ideal = Actual
 
 Both are OPTIMAL at 7 instructions each. Clean overflow-checked arithmetic with `memory(none)`.
 
@@ -782,8 +782,8 @@ Both are OPTIMAL. Minimal thunk and destructor patterns.
 | @apply | 4 | 4 | +0 | N/A | OPTIMAL |
 | @make_adder | 7 | 7 | +0 | N/A | OPTIMAL |
 | @main | 19 | 19 | +0 | N/A | OPTIMAL |
-| @__lambda_0 | 7 | 7 | +0 | N/A | OPTIMAL |
-| @__lambda_1 | 7 | 7 | +0 | N/A | OPTIMAL |
+| @__lambda_make_adder_0 | 7 | 7 | +0 | N/A | OPTIMAL |
+| @__lambda_main_0 | 7 | 7 | +0 | N/A | OPTIMAL |
 | @partial_0_drop | 2 | 2 | +0 | N/A | OPTIMAL |
 | @partial_1 | 4 | 4 | +0 | N/A | OPTIMAL |
 
@@ -792,14 +792,14 @@ Both are OPTIMAL. Minimal thunk and destructor patterns.
 Ori closures are uniformly represented as `{ ptr, ptr }` pairs (function pointer + environment pointer):
 
 **Non-capturing closures** (e.g., `double = x -> x * 2`):
-- `{ ptr @_ori___lambda_1, ptr null }` -- null env pointer
+- `{ ptr @_ori___lambda_main_0, ptr null }` -- null env pointer
 - No heap allocation. The function takes `(ptr, i64)` where the first arg is the unused env.
 - Passed directly to `@_ori_apply` as a constant aggregate.
 
 **Capturing closures** (e.g., `make_adder(10)` captures `n`):
 - Env allocated via `ori_rc_alloc(16, 8)` -- 16 bytes for `{ ptr drop_fn, i64 n }`
 - The drop function pointer is stored as the first field (enables polymorphic cleanup via `ori_rc_dec`)
-- The thunk `@_ori_partial_1` loads the capture and forwards to `@_ori___lambda_0`
+- The thunk `@_ori_partial_1` loads the capture and forwards to `@_ori___lambda_make_adder_0`
 - Caller (`@main`) owns the env and performs RC dec after use
 
 **Closure layout**: `{ ptr fn_ptr, ptr env_ptr }` where env is `{ ptr drop_fn, captures... }`
@@ -818,10 +818,10 @@ This design is clean and follows the standard fat-pointer closure representation
 **Invocation of captured closure** (`add10(7)`):
 1. Extract fn_ptr and env_ptr from `{ ptr, ptr }`
 2. Indirect call: `fn_ptr(env_ptr, 7)`
-3. `@_ori_partial_1` loads `n` from `env[1]` and calls `@_ori___lambda_0(n, 7)`
-4. `@_ori___lambda_0` computes `7 + 10 = 17` with overflow check
+3. `@_ori_partial_1` loads `n` from `env[1]` and calls `@_ori___lambda_make_adder_0(n, 7)`
+4. `@_ori___lambda_make_adder_0` computes `7 + 10 = 17` with overflow check
 
-**Scalar capture optimization**: `n: i64` is captured by value into the env. The lambda `@_ori___lambda_0` receives it as a direct `i64` parameter (extracted by the thunk), not via pointer load at call time. This avoids an extra indirection during the hot path. Both lambda functions have `memory(none)`, confirming they are pure computations on their scalar arguments.
+**Scalar capture optimization**: `n: i64` is captured by value into the env. The lambda `@_ori___lambda_make_adder_0` receives it as a direct `i64` parameter (extracted by the thunk), not via pointer load at call time. This avoids an extra indirection during the hot path. Both lambda functions have `memory(none)`, confirming they are pure computations on their scalar arguments.
 
 **ARC lifecycle**:
 - `@_ori_make_adder` allocates env (rc=1), transfers ownership to caller via return value
@@ -860,8 +860,8 @@ This design is clean and follows the standard fat-pointer closure representation
 
 ### NOTE-4: Pure lambda and full noundef coverage
 
-**Location**: `@_ori___lambda_0` and `@_ori___lambda_1` -- attribute group `#2 = { nounwind memory(none) uwtable }`; all closure infrastructure functions
-**Impact**: Positive. Both lambda functions are correctly marked as pure (no memory access). All closure infrastructure functions (`@_ori_partial_0_drop`, `@_ori_partial_1`, `@_ori___lambda_1`) now have `noundef` on their parameters, achieving 100% attribute compliance.
+**Location**: `@_ori___lambda_make_adder_0` and `@_ori___lambda_main_0` -- attribute group `#2 = { nounwind memory(none) uwtable }`; all closure infrastructure functions
+**Impact**: Positive. Both lambda functions are correctly marked as pure (no memory access). All closure infrastructure functions (`@_ori_partial_0_drop`, `@_ori_partial_1`, `@_ori___lambda_main_0`) now have `noundef` on their parameters, achieving 100% attribute compliance.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-5: Clean uniform closure representation
@@ -872,7 +872,7 @@ This design is clean and follows the standard fat-pointer closure representation
 
 ### NOTE-6: Full noundef on closure infrastructure
 
-**Location**: `@_ori_partial_0_drop(ptr noundef %0)`, `@_ori_partial_1(... ptr noundef %0, i64 noundef %1)`, `@_ori___lambda_1(ptr noundef %0, ...)`
+**Location**: `@_ori_partial_0_drop(ptr noundef %0)`, `@_ori_partial_1(... ptr noundef %0, i64 noundef %1)`, `@_ori___lambda_main_0(ptr noundef %0, ...)`
 **Impact**: Positive. Previously these indirect-call targets were missing `noundef` on their parameters. Now all parameters carry `noundef`, enabling LLVM to assume defined values at all call sites. This completes the attribute coverage for the closure subsystem.
 **Found in**: Attributes & Calling Convention (Category 3)
 

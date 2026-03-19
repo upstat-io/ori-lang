@@ -145,6 +145,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Sret forwarding: reuse the function's sret pointer if available.
         // `take()` ensures only the first call_with_sret gets forwarded —
         // subsequent calls create their own allocas to avoid clobbering.
+        let forwarded = self.current_sret_ptr.is_some();
         let sret_alloca = if let Some(sret_ptr) = self.current_sret_ptr.take() {
             sret_ptr
         } else {
@@ -155,7 +156,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         full_args.push(sret_alloca);
         full_args.extend_from_slice(args);
         self.emit_rt_call(func_id, &full_args, name);
-        Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
+        let result = self.builder.load(ret_ty, sret_alloca, "sret.load");
+
+        // Track the forwarded result: if this value is returned directly,
+        // the Return terminator can skip the identity store (value is
+        // already at the sret destination).
+        if forwarded {
+            self.sret_forwarded_result = Some(result);
+        }
+
+        Some(result)
     }
 
     /// Coerce an aggregate value to a pointer for runtime function calls.

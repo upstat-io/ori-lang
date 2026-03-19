@@ -2,7 +2,7 @@
 journey: 1
 slug: arithmetic
 theme: "I am arithmetic"
-date: 2026-03-16
+date: 2026-03-19
 status: PASS
 expected: 33
 eval_result: 33
@@ -505,12 +505,12 @@ The panic messages are operation-specific (not generic), which is good for debug
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.25 MiB (6,558,392 bytes, debug) |
-| .text section | 870 KiB (890,441 bytes) |
+| Binary size | 6.25 MiB (6,559,000 bytes, debug) |
+| .text section | 869 KiB (890,217 bytes) |
 | .rodata section | 134 KiB (136,737 bytes) |
-| .debug_info | 1.56 MiB (1,640,878 bytes) |
-| .debug_str | 1.72 MiB (1,804,254 bytes) |
-| .eh_frame | 109 KiB (112,032 bytes) |
+| .debug_info | 1.56 MiB (1,640,996 bytes) |
+| .debug_str | 1.72 MiB (1,804,511 bytes) |
+| .eh_frame | 109 KiB (112,080 bytes) |
 | User code (@add) | 31 bytes (0x1b100-0x1b11f) |
 | User code (@main) | 93 bytes (0x1b120-0x1b17d) |
 | User code (main wrapper) | 29 bytes (0x1b180-0x1b19c) |

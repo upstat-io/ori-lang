@@ -2,7 +2,7 @@
 journey: 7
 slug: loops
 theme: "I am a loop"
-date: 2026-03-16
+date: 2026-03-19
 status: PASS
 expected: 30
 eval_result: 30
@@ -23,7 +23,7 @@ features:
   - break_continue
   - let_bindings
 feature_description: "Loop/break and for-in-range iteration with mutable accumulators"
-score: 10.0
+score: 9.8
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
@@ -852,7 +852,7 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 15% | 10/10 | 1.00x avg ratio -- OPTIMAL |
+| Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
 | Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
@@ -860,7 +860,7 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 9/10 | 1 low |
 
-**Overall: 10.0 / 10**
+**Overall: 9.8 / 10**
 
 ## Verdict
 

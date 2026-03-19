@@ -2,7 +2,7 @@
 journey: 6
 slug: pattern-matching
 theme: "I am a match"
-date: 2026-03-16
+date: 2026-03-19
 status: PASS
 expected: 41
 eval_result: 41
