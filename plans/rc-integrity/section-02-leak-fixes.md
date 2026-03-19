@@ -5,8 +5,8 @@ status: in-progress
 goal: "All 1317 AOT tests pass with ORI_CHECK_LEAKS=1 — zero leaked allocations in any test"
 depends_on: ["01"]
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-03-19
 sections:
   - id: "02.1"
     title: "Categorize Failing Tests by Root Cause"
@@ -26,7 +26,7 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: complete
   - id: "02.N"
     title: "Completion Checklist"
     status: in-progress
@@ -147,7 +147,8 @@ Any fix to RC emission logic must verify consistency across all of these locatio
 
 ## 02.R Third Party Review Findings
 
-- [ ] `[RC-02-001][medium]` `[Result<str, str>]` list construction leaks heap strings — discovered 2026-03-19 during TPR-04-003 triage. Creating a `[Result<str, str>]` list with heap-backed (>23 byte) strings leaks the string allocations. Minimal repro: `let a = [Ok("success long heap string here!"), Err("failure long heap string!!")]; 0` — `ORI_CHECK_LEAKS=1` reports 2 unfreed allocations. Root cause likely in ARC pipeline's elem_dec_fn not handling Result payload cleanup for fat pointer types.
+- [x] `[RC-02-001][medium]` `[Result<str, str>]` list construction leaks heap strings — discovered 2026-03-19 during TPR-04-003 triage. Creating a `[Result<str, str>]` list with heap-backed (>23 byte) strings leaks the string allocations. Minimal repro: `let a = [Ok("success long heap string here!"), Err("failure long heap string!!")]; 0` — `ORI_CHECK_LEAKS=1` reports 2 unfreed allocations. Root cause likely in ARC pipeline's elem_dec_fn not handling Result payload cleanup for fat pointer types.
+  Resolved: Fixed on 2026-03-19. Root cause: `dec_value_rc_inner()` and `inc_value_rc_inner()` in `rc_value_traversal.rs` treated `Tag::Result | Tag::Enum` as no-ops (same as scalars). Fix: route these tags to `emit_inline_enum_dec()`/`emit_inline_enum_inc()` which properly tag-switch per variant and clean up RC children. 6 matrix tests added to `fat_matrix/f14_list_element.rs` covering all Result variant combinations. All 13,308 tests pass, debug + release clean.
 
 ---
 
