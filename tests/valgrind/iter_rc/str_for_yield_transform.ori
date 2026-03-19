@@ -1,0 +1,15 @@
+// Valgrind test: for-yield with transformation on [str] heap strings.
+// Verifies no leak in for-yield path — elements borrowed from scratch
+// buffer, transformed, and collected into a new list.
+
+@main () -> int = {
+    let words = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "another very long string that also exceeds the SSO threshold",
+        "third long string for good measure in the test programs here"
+    ];
+    let lengths = for w in words yield w.length();
+    let total = 0;
+    for n in lengths do total += n;
+    if total == 179 then 0 else 1
+}

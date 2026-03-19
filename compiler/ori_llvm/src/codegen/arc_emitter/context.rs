@@ -89,6 +89,14 @@ pub(crate) fn is_callee_intercepted(
     if callee_name.starts_with("ori_") || callee_name.starts_with("__") {
         return false;
     }
+    // Monomorphized generic dispatch: callee name resolves to a generic
+    // function via lookup_mono_dispatch() during emission — NOT intercepted.
+    // Without this check, a generic call like `identity(s)` where `s: str`
+    // would fall through to the builtin method heuristic (str receiver →
+    // true), incorrectly treating a may-unwind user function as intercepted.
+    if ctx.mono_dispatch.contains_key(&callee) {
+        return false;
+    }
     // Builtin method: receiver is a builtin type and not in method_functions
     if let Some(&first_arg) = args.first() {
         let receiver_ty = func.var_type(first_arg);
@@ -256,7 +264,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Check if a field type creates a direct recursive reference within an enum.
     ///
     /// Convenience wrapper around [`is_boxed_enum_field`] using the emitter's pool.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "convenience for submodules that don't have direct pool access"
     )]

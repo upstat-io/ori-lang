@@ -22,7 +22,7 @@ sections:
 
 # Section 05: Range Unused Field Extraction
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** When a for-loop range has compile-time constant `step` and `inclusive` values, skip extracting the `inclusive` field since the bounds check comparison is already specialized (`<` vs `<=`).
 
 **Context:** J07's `@sum_for` uses `1..=n` (inclusive range with step=1). The codegen at `for_range.rs:85-88` unconditionally extracts all 4 range fields (start, end, step, inclusive). When step=1 and inclusive=1, the bounds check is specialized to `sle` (signed less-or-equal) at lines 116-155, and the extracted `inclusive` value (`%proj.3`) is never referenced. This costs 1 unnecessary `extractvalue` instruction.

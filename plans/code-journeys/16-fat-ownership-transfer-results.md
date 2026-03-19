@@ -30,11 +30,11 @@ features:
   - let_bindings
 feature_description: "Fat pointer ownership transfer: borrow semantics for parameters, sret return ABI, cross-function RC lifecycle, SSO-aware cleanup"
 
-score: 9.9
+score: 10.0
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 9
+  attributes_safety: 10
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -46,7 +46,7 @@ score_metrics:
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
   attr_applicable: 34
-  attr_correct: 33
+  attr_correct: 34
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false

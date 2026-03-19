@@ -6,10 +6,11 @@
 //! closures to C-ABI function pointers.
 
 declare_builtins! { emitter, ctx;
-    // Internal iteration protocol
+    // Internal iteration protocol (dead code path — __iter_next is intercepted
+    // by try_emit_protocol before reaching builtin method dispatch)
     ("Iterator", "__iter_next") => {
         if let TypeInfo::Iterator { element } = ctx.type_info {
-            emitter.emit_iter_next(ctx.arg_vals[0], *element)
+            emitter.emit_iter_next(ctx.arg_vals[0], *element).map(|(tag, _, _)| tag)
         } else {
             None
         }
@@ -121,7 +122,7 @@ use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_types::Idx;
 
 use crate::codegen::type_info::TypeInfo;
-use crate::codegen::value_id::ValueId;
+use crate::codegen::{LLVMTypeId, ValueId};
 
 use super::super::ArcIrEmitter;
 use super::trampolines::TrampolineKind;
@@ -139,8 +140,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let iter_ptr = arg_vals[0];
 
         match method {
-            // Internal: for-loop iteration protocol
-            "__iter_next" => self.emit_iter_next(iter_ptr, elem_ty),
+            // Internal: for-loop iteration protocol (dead code path — __iter_next
+            // is intercepted by try_emit_protocol before reaching emit_iterator_method)
+            "__iter_next" => self
+                .emit_iter_next(iter_ptr, elem_ty)
+                .map(|(tag, _, _)| tag),
 
             // Simple adapters (no closure)
             "take" => self.emit_iter_take(iter_ptr, arg_vals),
@@ -170,14 +174,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `__iter_next(iter)` — the for-loop iteration protocol.
     ///
-    /// Calls `ori_iter_next(iter, scratch, elem_size)` and returns a struct
-    /// `{i64 tag, T element}` where tag=0 means done, tag=1 means has element.
-    /// The ARC IR for-loop projects field 0 (tag) and field 1 (element).
+    /// Calls `ori_iter_next(iter, scratch, elem_size)` and returns a decomposed
+    /// `(tag, scratch_ptr, elem_llvm_ty)` triple. The tag is an i64 (0=done,
+    /// 1=has element) and the scratch pointer holds the element data.
+    ///
+    /// The caller is responsible for registering the decomposed result in
+    /// `iter_next_decomposed` so that `emit_project` can extract the tag
+    /// (field 0) and element (field 1) without building an intermediate
+    /// `{i64, T}` wrapper struct.
     pub(in crate::codegen) fn emit_iter_next(
         &mut self,
         iter_ptr: ValueId,
         elem_ty: Idx,
-    ) -> Option<ValueId> {
+    ) -> Option<(ValueId, ValueId, LLVMTypeId)> {
         let func_id = self.builder.runtime_fn("ori_iter_next");
 
         let elem_size = self.element_store_size(elem_ty);
@@ -202,22 +211,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let i64_ty = self.builder.i64_type();
         let tag = self.builder.zext(has_next_i8, i64_ty, "iter_next.tag");
 
-        // Load element from scratch buffer.
-        let elem = self.builder.load(elem_llvm_ty, scratch, "iter_next.elem");
-
-        // Build result struct {i64, elem_type}.
-        let elem_raw_ty = self.type_resolver.resolve(elem_ty);
-        let i64_raw = self.builder.scx().type_i64().into();
-        let result_struct = self
-            .builder
-            .scx()
-            .type_struct(&[i64_raw, elem_raw_ty], false);
-        let result_ty_id = self.builder.register_type(result_struct.into());
-
-        Some(
-            self.builder
-                .build_struct(result_ty_id, &[tag, elem], "iter_next"),
-        )
+        Some((tag, scratch, elem_llvm_ty))
     }
 
     // Simple adapters

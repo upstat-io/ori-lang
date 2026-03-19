@@ -167,6 +167,14 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// pointer, we forward the original pointer directly instead of creating
     /// an alloca+store round-trip.
     borrowed_param_ptrs: FxHashMap<ArcVarId, ValueId>,
+    /// Decomposed iterator-next results: maps the `Apply(__iter_next)` dst
+    /// `ArcVarId` → `(tag: ValueId, scratch_ptr: ValueId, elem_ty: LLVMTypeId)`.
+    ///
+    /// When `emit_project` encounters a `Project(value, field)` where `value`
+    /// is in this map, it returns the tag (field 0) or loads from scratch
+    /// (field 1) directly — avoiding the `{i64, T}` wrapper struct that the
+    /// legacy `emit_iter_next` built via `insertvalue`.
+    iter_next_decomposed: FxHashMap<ArcVarId, (ValueId, ValueId, super::value_id::LLVMTypeId)>,
     /// The function's sret pointer (parameter 0 when return uses `Sret`).
     /// Used by `call_with_sret` to forward the destination directly to a
     /// runtime function, avoiding an intermediate alloca+load+store.
@@ -217,6 +225,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             current_funclet_pad: None,
             borrowed_rooted_vars: FxHashSet::default(),
             borrowed_param_ptrs: FxHashMap::default(),
+            iter_next_decomposed: FxHashMap::default(),
             current_sret_ptr: None,
             sret_forwarded_result: None,
         }
