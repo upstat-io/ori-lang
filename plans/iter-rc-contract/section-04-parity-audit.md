@@ -49,10 +49,10 @@ Compare the structural elements of for-do and for-yield for each dimension:
 
 | Dimension | For-Do | For-Yield |
 |-----------|--------|-----------|
-| Mutable vars | All mutable vars threaded through header/body/latch/exit | Only `coll_var` threaded through header (no mutable var infrastructure) |
-| Header params | `[iter_var, __for_coll, mut0, mut1, ...]` | `[coll_param]` (if coll_var is Some) |
-| Exit params | `[result_param, __for_coll_exit, mut0_exit, ...]` | `[result_param]` (no mutable var flow) |
-| Scope restoration | `pre_scope` restored + exit params rebound | No scope restoration needed (for-yield is an expression, not a statement block) |
+| Mutable vars | All mutable vars threaded through header/body/latch/exit | All mutable vars threaded through header/body/exit (matching for-do pattern) |
+| Header params | `[iter_var, __for_coll, mut0, mut1, ...]` | `[coll_param, mut0, mut1, ...]` |
+| Exit params | `[result_param, __for_coll_exit, mut0_exit, ...]` | `[coll_param_exit, mut0_exit, mut1_exit, ...]` |
+| Scope restoration | `pre_scope` restored + exit params rebound | `pre_scope` restored + exit params rebound (`for_yield.rs:350-357`) |
 
 ### (c) Exit Block Structure
 
@@ -146,6 +146,12 @@ For each element type, run both the for-do and for-yield versions and compare:
 ---
 
 ## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-002][medium]` `plans/iter-rc-contract/section-04-parity-audit.md:43` — Section 04's structural comparison still documents the pre-fix for-yield lowering shape instead of the code that actually shipped.
+  Evidence: the table at lines 43-55 says for-yield only threads `coll_var` through the header and has no mutable-variable infrastructure or exit-param rebinding. The current implementation in [for_yield.rs](/home/eric/projects/ori_lang_aims/compiler/ori_arc/src/lower/control_flow/for_yield.rs#L165) adds header and exit block params for every outer mutable binding, threads them through guard/body/exit paths, and restores them in the exit block at [for_yield.rs](/home/eric/projects/ori_lang_aims/compiler/ori_arc/src/lower/control_flow/for_yield.rs#L357).
+  Impact: the parity audit's main design explanation is now factually wrong, so future RC investigations would start from stale architecture notes rather than the real lowering strategy.
+  Required plan update: refresh the structural comparison tables and narrative to match the current mutable-variable SSA threading in for-yield.
+  Resolved: Fixed on 2026-03-18. Updated table (b) to show for-yield now threads all mutable vars through header/body/exit, has full scope restoration, and matches the for-do pattern.
 
 - [x] `[TPR-04-001][medium]` `plans/iter-rc-contract/section-04-parity-audit.md:5` — Section 04 is still marked complete for “all element types” / “all 7 element types” even though the `Set<str>` parity audit was skipped entirely.
   Evidence: the section goal and exit criteria still claim parity across all element types / all 7 element types, but the body records `Set<str>` as `SKIPPED` because the type is not implemented, and the completion checklist only verifies 6 available element types.

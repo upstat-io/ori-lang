@@ -1,11 +1,14 @@
 ---
 section: "06"
 title: "Pipeline Integration"
-status: complete
+status: in-progress
 goal: "Wire AIMS into pipeline/mod.rs, replacing ~15 analysis/emission steps with the unified system"
 inspired_by:
   - "ori_arc pipeline (compiler/ori_arc/src/pipeline/mod.rs)"
 depends_on: ["04", "05"]
+third_party_review:
+  status: findings
+  updated: 2026-03-18
 sections:
   - id: "06.1"
     title: "Pipeline Entry Points"
@@ -23,7 +26,7 @@ sections:
 
 # Section 06: Pipeline Integration
 
-**Status:** Complete
+**Status:** In Progress
 
 AIMS is the sole pipeline. `run_arc_pipeline_all()` calls
 `aims_pipeline::run_aims_pipeline_all()` unconditionally. No `#[cfg(feature =
@@ -287,6 +290,15 @@ old analysis passes.
   "Section 07.4".
 - [x] **[STYLE]** `compiler/ori_arc/src/graph/call_graph/mod.rs:9` — Module doc updated:
   removed "Section 12".
+
+---
+
+## 06.R Third Party Review Findings
+
+- [ ] `[TPR-06-001][medium]` `compiler/ori_arc/src/pipeline/mod.rs:28` — Section 06 still treats the ARC pipeline transition as finished even though the public API and downstream callers still carry compatibility-only uniqueness plumbing.
+  Evidence: `run_arc_pipeline()` and `run_arc_pipeline_all()` still accept unused `sigs` / `uniqueness_summaries` parameters, `run_uniqueness_analysis()` still exists as a public no-op shim, and both `compiler/oric/src/commands/codegen_pipeline.rs` and `compiler/ori_llvm/src/evaluator/compile.rs` still clone all ARC functions to call that no-op before `compiler/ori_llvm/src/codegen/function_compiler/mod.rs` stores the empty map only to pass it back into the unused parameter. Section 06 meanwhile says the migration machinery is deleted and remains marked complete.
+  Impact: The current tree still exposes a fake legacy interprocedural phase and does unnecessary work on active JIT/AOT compile paths, while the section overstates how fully the transition surface was removed.
+  Required plan update: Either delete the compatibility surface end-to-end (public API, caller collection, `FunctionCompiler` field) or rewrite Section 06 to describe the retained shim explicitly and remove “transition period” / “migration machinery deleted” language.
 
 ---
 

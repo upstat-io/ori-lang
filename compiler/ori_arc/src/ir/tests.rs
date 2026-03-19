@@ -1154,17 +1154,21 @@ fn is_owned_position_apply_indirect_closure_is_borrowed() {
         closure: ArcVarId::new(3),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
     };
-    // Position 0 = closure → NOT owned (borrowed)
+    // All positions in ApplyIndirect are NOT owned — lambda callees
+    // don't emit RcDec for their parameters, so the caller is responsible.
     assert!(
         !instr.is_owned_position(0),
         "closure position must be borrowed"
     );
-    // Position 1 = first arg → owned
-    assert!(instr.is_owned_position(1));
-    // Position 2 = second arg → owned
-    assert!(instr.is_owned_position(2));
-    // Position 3 = out of bounds → not owned
-    assert!(!instr.is_owned_position(3));
+    assert!(
+        !instr.is_owned_position(1),
+        "arg positions are caller-managed (not callee-owned)"
+    );
+    assert!(
+        !instr.is_owned_position(2),
+        "arg positions are caller-managed (not callee-owned)"
+    );
+    assert!(!instr.is_owned_position(3), "out of bounds → not owned");
 }
 
 #[test]
