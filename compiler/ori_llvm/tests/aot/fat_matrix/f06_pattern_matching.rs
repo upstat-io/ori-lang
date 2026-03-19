@@ -146,9 +146,8 @@ fn test_fm_match_tuple_mixed() {
     );
 }
 
-// Match with multiple arms using fat values
+// Match with multiple arms using fat values (BUG-04-02 fix: multi-field variant offset)
 #[test]
-#[ignore = "BUG-04-02: multi-field variant match crash — misaligned pointer in ori_rc_dec"]
 fn test_fm_match_multi_arm_fat() {
     assert_aot_success(
         r#"
@@ -169,6 +168,146 @@ type Shape = Circle(radius: int) | Rect(name: str, w: int, h: int);
 }
 "#,
         "fm_match_multi_arm_fat",
+    );
+}
+
+// BUG-04-02 matrix: multi-field variant with fat first field, scalars after
+// Semantic pin: would crash (misaligned pointer) without byte-offset GEP fix
+#[test]
+fn test_fm_match_multi_field_str_then_ints() {
+    assert_aot_success(
+        r#"
+type Msg = Alert(text: str, level: int, code: int) | Ack(id: int);
+
+@process (m: Msg) -> int =
+    match m {
+        Alert(text, level, code) -> text.length() + level + code,
+        Ack(id) -> id,
+    };
+
+@main () -> int = {
+    let a = process(m: Alert(text: "error", level: 3, code: 42));
+    let b = process(m: Ack(id: 99));
+    if a == 50 then {
+        if b == 99 then 0 else 1
+    } else 2
+}
+"#,
+        "fm_match_multi_str_then_ints",
+    );
+}
+
+// BUG-04-02 matrix: fat field in middle position
+#[test]
+fn test_fm_match_fat_field_middle() {
+    assert_aot_success(
+        r#"
+type Entry = Record(id: int, name: str, score: int) | Empty;
+
+@get_name_len (e: Entry) -> int =
+    match e {
+        Record(id, name, score) -> name.length() + id + score,
+        Empty -> 0,
+    };
+
+@main () -> int = {
+    let r = get_name_len(e: Record(id: 10, name: "alice", score: 20));
+    let e = get_name_len(e: Empty);
+    if r == 35 then {
+        if e == 0 then 0 else 1
+    } else 2
+}
+"#,
+        "fm_match_fat_middle",
+    );
+}
+
+// BUG-04-02 matrix: fat field in last position
+#[test]
+fn test_fm_match_fat_field_last() {
+    assert_aot_success(
+        r#"
+type Tagged = Data(x: int, y: int, label: str) | Empty;
+
+@get_label_len (t: Tagged) -> int =
+    match t {
+        Data(x, y, label) -> x + y + label.length(),
+        Empty -> 0,
+    };
+
+@main () -> int = {
+    let d = get_label_len(t: Data(x: 1, y: 2, label: "hello"));
+    if d == 8 then 0 else 1
+}
+"#,
+        "fm_match_fat_last",
+    );
+}
+
+// BUG-04-02 matrix: multiple fat fields in same variant
+#[test]
+fn test_fm_match_multiple_fat_fields() {
+    assert_aot_success(
+        r#"
+type Pair = Both(first: str, second: str) | Neither;
+
+@total_len (p: Pair) -> int =
+    match p {
+        Both(first, second) -> first.length() + second.length(),
+        Neither -> 0,
+    };
+
+@main () -> int = {
+    let r = total_len(p: Both(first: "hello", second: "world!"));
+    if r == 11 then 0 else 1
+}
+"#,
+        "fm_match_multi_fat_fields",
+    );
+}
+
+// BUG-04-02 matrix: str + int + str (fat-scalar-fat interleave)
+#[test]
+fn test_fm_match_fat_scalar_fat() {
+    assert_aot_success(
+        r#"
+type Row = Full(name: str, age: int, city: str) | Blank;
+
+@info (r: Row) -> int =
+    match r {
+        Full(name, age, city) -> name.length() + age + city.length(),
+        Blank -> 0,
+    };
+
+@main () -> int = {
+    let r = info(r: Full(name: "Bob", age: 30, city: "NYC"));
+    if r == 36 then 0 else 1
+}
+"#,
+        "fm_match_fat_scalar_fat",
+    );
+}
+
+// BUG-04-02 matrix: heap string (>23 bytes, non-SSO) in multi-field variant
+#[test]
+fn test_fm_match_heap_str_multi_field() {
+    assert_aot_success(
+        r#"
+type Item = Named(description: str, count: int) | Anon(count: int);
+
+@desc_len (i: Item) -> int =
+    match i {
+        Named(description, count) -> description.length() + count,
+        Anon(count) -> count,
+    };
+
+@main () -> int = {
+    let heap = "this is a long string that exceeds SSO threshold!!!";
+    let r = desc_len(i: Named(description: heap, count: 7));
+    if r == 58 then 0 else 1
+}
+"#,
+        "fm_match_heap_str_multi",
     );
 }
 

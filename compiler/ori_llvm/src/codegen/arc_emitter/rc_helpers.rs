@@ -11,6 +11,7 @@
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
+use super::drop_enum::compute_variant_field_offsets;
 use super::ArcIrEmitter;
 use crate::codegen::value_id::ValueId;
 
@@ -236,6 +237,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .append_block(self.current_function, "rc_inc.done");
 
+        // Get full variant field lists for byte-offset computation (Enum only)
+        let all_variant_fields: Vec<Vec<Idx>> = if pool_tag == Tag::Enum {
+            self.pool
+                .enum_variants(resolved_ty)
+                .into_iter()
+                .map(|(_, fields)| fields)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         let mut cases = Vec::new();
         for (i, fields) in variant_rc_fields.iter().enumerate() {
             if fields.is_empty() {
@@ -245,14 +257,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .builder
                 .append_block(self.current_function, &format!("rc_inc.v{i}"));
             let tag_const = self.builder.const_i64(i as i64);
-            cases.push((tag_const, block, fields.as_slice()));
+            cases.push((tag_const, block, fields.as_slice(), i));
         }
 
-        let switch_cases: Vec<_> = cases.iter().map(|(tag, block, _)| (*tag, *block)).collect();
+        let switch_cases: Vec<_> = cases
+            .iter()
+            .map(|(tag, block, _, _)| (*tag, *block))
+            .collect();
         self.builder.switch(tag_val, done_block, &switch_cases);
 
-        for &(_, block, fields) in &cases {
+        for &(_, block, fields, variant_idx) in &cases {
             self.builder.position_at_end(block);
+
+            // Compute byte offsets for this variant's fields
+            let offsets = all_variant_fields
+                .get(variant_idx)
+                .map(|vf| compute_variant_field_offsets(vf, resolved_ty, self))
+                .unwrap_or_default();
 
             for &(field_index, field_type) in fields {
                 if matches!(pool_tag, Tag::Result | Tag::Option) {
@@ -272,11 +293,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_inc.payload");
-                    let i64_ty = self.builder.i64_type();
-                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let i8_ty = self.builder.i8_type();
+                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                    let idx = self.builder.const_i64(byte_off as i64);
                     let field_ptr =
                         self.builder
-                            .gep(i64_ty, payload_ptr, &[idx], "rc_inc.field.ptr");
+                            .gep(i8_ty, payload_ptr, &[idx], "rc_inc.field.ptr");
                     let ptr_ty = self.builder.ptr_type();
                     let rc_ptr = self.builder.load(ptr_ty, field_ptr, "rc_inc.field.rc");
                     self.call_rc_inc_all(&[rc_ptr], count);
@@ -285,11 +307,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_inc.payload");
-                    let i64_ty = self.builder.i64_type();
-                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let i8_ty = self.builder.i8_type();
+                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                    let idx = self.builder.const_i64(byte_off as i64);
                     let field_ptr =
                         self.builder
-                            .gep(i64_ty, payload_ptr, &[idx], "rc_inc.field.ptr");
+                            .gep(i8_ty, payload_ptr, &[idx], "rc_inc.field.ptr");
                     let field_val = self.builder.load(field_llvm_ty, field_ptr, "rc_inc.field");
                     self.inc_value_rc(field_val, field_type, count);
                 }
@@ -333,6 +356,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .append_block(self.current_function, "rc_dec.done");
 
+        // Get full variant field lists for byte-offset computation (Enum only)
+        let all_variant_fields: Vec<Vec<Idx>> = if pool_tag == Tag::Enum {
+            self.pool
+                .enum_variants(resolved_ty)
+                .into_iter()
+                .map(|(_, fields)| fields)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         // Build switch cases for variants with RC fields
         let mut cases = Vec::new();
         for (i, fields) in variant_rc_fields.iter().enumerate() {
@@ -343,15 +377,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .builder
                 .append_block(self.current_function, &format!("rc_dec.v{i}"));
             let tag_const = self.builder.const_i64(i as i64);
-            cases.push((tag_const, block, fields.as_slice()));
+            cases.push((tag_const, block, fields.as_slice(), i));
         }
 
-        let switch_cases: Vec<_> = cases.iter().map(|(tag, block, _)| (*tag, *block)).collect();
+        let switch_cases: Vec<_> = cases
+            .iter()
+            .map(|(tag, block, _, _)| (*tag, *block))
+            .collect();
         self.builder.switch(tag_val, done_block, &switch_cases);
 
         // Emit per-variant cleanup
-        for &(_, block, fields) in &cases {
+        for &(_, block, fields, variant_idx) in &cases {
             self.builder.position_at_end(block);
+
+            // Compute byte offsets for this variant's fields
+            let offsets = all_variant_fields
+                .get(variant_idx)
+                .map(|vf| compute_variant_field_offsets(vf, resolved_ty, self))
+                .unwrap_or_default();
 
             for &(field_index, field_type) in fields {
                 // Result/Option: typed payload fields at struct index 1+
@@ -374,11 +417,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
-                    let i64_ty = self.builder.i64_type();
-                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let i8_ty = self.builder.i8_type();
+                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                    let idx = self.builder.const_i64(byte_off as i64);
                     let field_ptr =
                         self.builder
-                            .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
+                            .gep(i8_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
                     let ptr_ty = self.builder.ptr_type();
                     let rc_ptr = self.builder.load(ptr_ty, field_ptr, "rc_dec.field.rc");
                     let drop_fn = self.get_or_generate_drop_fn(field_type);
@@ -388,11 +432,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
-                    let i64_ty = self.builder.i64_type();
-                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let i8_ty = self.builder.i8_type();
+                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                    let idx = self.builder.const_i64(byte_off as i64);
                     let field_ptr =
                         self.builder
-                            .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
+                            .gep(i8_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
                     let field_val = self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field");
                     self.dec_value_rc(field_val, field_type);
                 }

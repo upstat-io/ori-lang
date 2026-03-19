@@ -7,6 +7,7 @@ use ori_arc::ir::{ArcVarId, CtorKind};
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
+use super::drop_enum::compute_variant_field_offsets;
 use super::ArcIrEmitter;
 use crate::codegen::value_id::ValueId;
 
@@ -335,13 +336,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let payload_ptr = self
                 .builder
                 .struct_gep(llvm_ty, alloca, 1, "variant.payload");
-            let i64_ty = self.builder.i64_type();
+            let i8_ty = self.builder.i8_type();
+
+            // Compute byte offsets accounting for multi-slot fields (e.g. str = 24 bytes)
+            let offsets = compute_variant_field_offsets(variant_field_types, ty, self);
 
             for (i, &val) in arg_vals.iter().enumerate() {
-                let idx = self.builder.const_i64(i as i64);
+                let byte_offset = offsets.get(i).copied().unwrap_or(0);
+                let idx = self.builder.const_i64(byte_offset as i64);
                 let slot = self
                     .builder
-                    .gep(i64_ty, payload_ptr, &[idx], "variant.field");
+                    .gep(i8_ty, payload_ptr, &[idx], "variant.field");
 
                 let field_ty = variant_field_types.get(i).copied();
                 if field_ty.is_some_and(|ft| is_boxed_enum_field(self.pool, ty, ft)) {
