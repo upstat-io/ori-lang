@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Iterator–Collection Ownership Contract"
-status: in-progress
+status: complete
 goal: "Fix the ownership contract between iterators and collections so that [T] where T has Drop never double-frees elements"
 depends_on: []
 third_party_review:
@@ -19,13 +19,13 @@ sections:
     status: complete
   - id: "01.4"
     title: "Generalize to All [T] Where T Has Drop"
-    status: in-progress
+    status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
     status: complete
   - id: "01.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Iterator–Collection Ownership Contract
@@ -140,11 +140,11 @@ The fix must work for ALL collection element types that have Drop semantics, not
 
 - [x] Write an AOT test for `[str]` — the original J15 scenario → `test_generalize_str_list` passes with ORI_CHECK_LEAKS=1
 - [x] Write an AOT test for `[[int]]` — nested list (list elements are themselves heap-allocated) → `test_generalize_nested_int_list` passes. **BUG FOUND AND FIXED**: `emit_defined_dead` was emitting RcDec for elements projected from `__iter_next`, causing double-free when the outer list's `elem_dec_fn` also cleaned them up. Fix: added `collect_iter_element_defs()` to identify __iter_next projections and skip their RcDec. Also fixed `__for_coll` name collision in nested for-loops (unique `__for_coll_N` names). **NOTE**: Single-call case works but `test_matrix_nested_list_two_calls` (two-call) still double-frees — inner `[int]` elements get no RC inc when yielded from `ori_iter_next`.
-- [ ] Fix `test_matrix_nested_list_two_calls` double-free — inner `[int]` elements need RC inc when yielded from `ori_iter_next` (memcpy without RC increment). Root cause: iterator `next()` does raw memcpy of fat-pointer element, no RC increment on the inner list's buffer. Second iteration accesses freed inner buffers. <!-- blocked-by:iter-rc-contract -->
+- [x] Fix `test_matrix_nested_list_two_calls` double-free — fixed by iter-rc-contract plan: proper elem_dec_fn propagation + iterator element RC increment. Test passes in debug+release, zero leaks. (2026-03-18)
 - [x] Fix `test_borrowed_map_str_keys_two_calls` — fixed by passing real `key_dec_fn`/`val_dec_fn` in `emit_map_iter()` + transitive Project chain propagation in `collect_iter_element_defs()`. Test un-ignored and passing. (2026-03-18)
 - [x] Fix `test_borrowed_param_iterate_then_index` — fixed by list-index RcInc (`emit_list_get` emits RcInc on non-scalar elements) + iter-element RcDec suppression. Test un-ignored and passing. (2026-03-18)
 - [x] Fix `test_nested_list_iteration` — fixed by real `elem_dec_fn` in `emit_list_iter()` + iter-element RcDec suppression. Test un-ignored and passing. (2026-03-18)
-- [ ] Fix `test_matrix_option_str_yield` — for-yield + inline match on `[Option<str>]` has pre-existing leak (for-yield RC scoping issue). <!-- blocked-by:iter-rc-contract -->
+- [x] Fix `test_matrix_option_str_yield` — fixed by iter-rc-contract plan: for-yield RC scoping corrected. Test passes in debug+release, zero leaks. (2026-03-18)
 - [x] Write an AOT test for list of closures — `[(int) -> int]` where closures capture heap values → `test_generalize_closure_list` passes
 - [x] Write an AOT test for list of structs with string fields — `[{name: str, age: int}]` → `test_generalize_struct_with_str_fields` passes
 - [x] Write an AOT test for list of sum types with payloads — `[Option<str>]` → `test_generalize_option_str_list` passes (for-do). **NOTE**: for-yield + inline match on `[Option<str>]` has a pre-existing leak (tracked as `test_matrix_option_str_yield`, ignored with rationale)
@@ -181,7 +181,7 @@ The fix must work for ALL collection element types that have Drop semantics, not
 ## 01.N Completion Checklist
 
 - [x] `[str]` iteration and cleanup produces zero double-frees (Valgrind clean) — `test_generalize_str_list`, `test_str_list_full_iteration` pass
-- [ ] `[[int]]` iteration and cleanup produces zero double-frees — `test_generalize_nested_int_list` passes (single-call), but `test_matrix_nested_list_two_calls` still double-frees (two-call, inner `[int]` RC missing) <!-- blocked-by:iter-rc-contract -->
+- [x] `[[int]]` iteration and cleanup produces zero double-frees — `test_generalize_nested_int_list` passes (single-call), `test_matrix_nested_list_two_calls` passes (two-call). Fixed by iter-rc-contract plan. Debug+release clean. (2026-03-18)
 - [x] `[(int) -> int]` with capturing closures — zero double-frees — `test_generalize_closure_list`, `test_matrix_closure_break` pass
 - [x] `[{name: str}]` — zero double-frees — `test_generalize_struct_with_str_fields`, `test_matrix_struct_*` pass
 - [x] `[Option<str>]` — zero double-frees — `test_generalize_option_str_list` passes (for-do). for-yield + inline match has pre-existing leak (separate issue)

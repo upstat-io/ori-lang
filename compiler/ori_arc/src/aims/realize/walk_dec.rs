@@ -90,6 +90,12 @@ fn emit_defined_dead(
     if ctx.iter_element_defs.contains(&dst) {
         return;
     }
+    // InlineEnum projections: skip RcDec for values projected from
+    // Option/Result/Enum sources. The parent's InlineEnum RcDec handles
+    // per-field cleanup via a tag-switch with per-variant RC ops.
+    if ctx.inline_enum_projected_defs.contains(&dst) {
+        return;
+    }
 
     let decision = decide(&DecisionContext {
         site: DecisionSite::DefinedDead,

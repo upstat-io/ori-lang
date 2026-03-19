@@ -234,6 +234,8 @@ All four are valid in for-yield but cannot work in AOT without `LoopContext`.
   Impact: this violates the repo hygiene rules and makes already-coupled RC/control-flow logic materially harder to review and maintain.
   Required plan update: split `for_yield.rs` and `walk.rs` along the section’s proposed submodule boundaries before returning Section 03 to `complete`.
   Resolved: Accepted on 2026-03-18. File splits will be done as prerequisite work before Section 04 begins.
+- [x] `[TPR-03-003][high]` `compiler/ori_arc/src/lower/control_flow/for_yield.rs:120` — `for x in Option<T> yield { break/continue ... }` still lowers through the non-loop path, so the new for-yield break/continue support is incomplete.
+  Resolved: Fixed on 2026-03-18. Three changes: (1) Restructured `lower_for_yield_option()` to use `ori_list_new`/`push`/`take` with proper `LoopContext` installation (continue_block = exit_block since Option is not a loop). (2) Added `Tag::Option` to InlineEnum `collect_variant_rc_fields` in the LLVM ARC emitter — Option's InlineEnum RcDec now correctly decrements contained RC fields. (3) Added `collect_inline_enum_projected_defs()` to AIMS RC emission — prevents double-free between InlineEnum RcDec and per-field RcDec for Option/Result/Enum projections. 11 new AOT tests in `for_yield_option.rs` (str/int × break/continue/conditional, semantic pin). All 13,097 tests pass, debug + release clean.
 
 ---
 

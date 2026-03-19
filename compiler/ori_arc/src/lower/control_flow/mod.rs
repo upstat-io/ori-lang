@@ -15,6 +15,7 @@ use rustc_hash::FxHashMap;
 
 mod for_loops;
 mod for_yield;
+mod for_yield_option;
 mod loops;
 mod type_layout;
 #[cfg(test)]

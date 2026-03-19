@@ -33,6 +33,10 @@ pub(crate) struct BlockCtx<'a> {
     /// These elements are borrowed from the collection buffer — their cleanup
     /// is handled by the collection's `elem_dec_fn`, not by caller-side `RcDec`.
     pub(crate) iter_element_defs: &'a FxHashSet<ArcVarId>,
+    /// Variables projected from inline-enum sources (`Option`, `Result`, `Enum`).
+    /// Their RC is managed by the parent inline-enum's `RcDec`/`RcInc` — no
+    /// separate per-field `RcDec` is needed.
+    pub(crate) inline_enum_projected_defs: &'a FxHashSet<ArcVarId>,
     pub(crate) use_info: &'a FxHashMap<ArcVarId, (usize, LastUse)>,
     pub(crate) pool: &'a Pool,
     /// For each Project source variable, the latest `LastUse` of any borrowed
@@ -257,6 +261,37 @@ pub(crate) fn collect_iter_element_defs(
     // Phase 3: propagate through Let aliases and block params.
     propagate_borrowed_closure(func, &mut iter_elems);
     iter_elems
+}
+
+/// Collect variables projected from inline-enum sources (`Option`, `Result`, `Enum`).
+///
+/// These variables' RC is managed by the parent inline-enum's `RcDec` — no
+/// separate per-field `RcDec` is needed. This prevents double-free when the
+/// AIMS emits both inline-enum `RcDec` and per-field `RcDec` for the same value.
+///
+/// Includes transitive `Let` aliases (e.g., `%12 = %11` where `%11` is projected
+/// from an `Option`).
+pub(crate) fn collect_inline_enum_projected_defs(
+    func: &ArcFunction,
+    pool: &Pool,
+) -> FxHashSet<ArcVarId> {
+    use ori_types::Tag;
+
+    let mut projected = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, value, .. } = instr {
+                let src_ty = func.var_type(*value);
+                let resolved = pool.resolve_fully(src_ty);
+                let tag = pool.tag(resolved);
+                if matches!(tag, Tag::Option | Tag::Result | Tag::Enum) {
+                    projected.insert(*dst);
+                }
+            }
+        }
+    }
+    propagate_borrowed_closure(func, &mut projected);
+    projected
 }
 
 /// Collect variables borrowed via `Project` only (excludes function params).

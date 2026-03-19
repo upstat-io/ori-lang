@@ -167,6 +167,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 };
                 vec![ok_fields, err_fields]
             }
+            Tag::Option => {
+                let inner = self.pool.option_inner(resolved_ty);
+                let some_fields = if self.classifier.needs_rc(inner) {
+                    vec![(0_u32, inner)]
+                } else {
+                    vec![]
+                };
+                // Some=0 (has payload), None=1 (empty)
+                vec![some_fields, vec![]]
+            }
             Tag::Enum => {
                 let variants = self.pool.enum_variants(resolved_ty);
                 variants
@@ -245,7 +255,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.position_at_end(block);
 
             for &(field_index, field_type) in fields {
-                if pool_tag == Tag::Result {
+                if matches!(pool_tag, Tag::Result | Tag::Option) {
                     let field_llvm_ty = self.resolve_type(field_type);
                     let struct_idx = 1 + field_index;
                     let field_ptr = self.builder.struct_gep(
@@ -344,9 +354,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.position_at_end(block);
 
             for &(field_index, field_type) in fields {
-                // Result: typed payload fields at struct index 1+
+                // Result/Option: typed payload fields at struct index 1+
                 // General Enum: payload is [M x i64] at struct field 1
-                if pool_tag == Tag::Result {
+                if matches!(pool_tag, Tag::Result | Tag::Option) {
                     let field_llvm_ty = self.resolve_type(field_type);
                     let struct_idx = 1 + field_index;
                     let field_ptr = self.builder.struct_gep(

@@ -13,6 +13,16 @@ Create a new plan directory with index and section files using the standard temp
 
 ## Workflow
 
+### Step 0: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS)
+
+**Before doing ANYTHING else**, read the ENTIRE CLAUDE.md file — every single word, top to bottom:
+
+```
+Read file: CLAUDE.md
+```
+
+This is mandatory. Do not skip, skim, or partially read. The rules in CLAUDE.md govern ALL behavior in this command. Proceed to Step 1 only after reading the complete file.
+
 ### Step 1: Gather Information
 
 If not provided via arguments, ask the user:
@@ -120,6 +130,9 @@ Spawn an Agent with the following prompt (substitute `{plan_dir}` with the actua
 ```
 You are reviewing a plan for the Ori compiler at {plan_dir}/.
 
+CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
+Read file: CLAUDE.md
+
 INSTRUCTIONS:
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
 2. Cross-reference every technical claim against the actual codebase:
@@ -130,6 +143,7 @@ INSTRUCTIONS:
 4. For every inaccuracy found, EDIT the plan files directly to fix them
 5. If a section references nonexistent code paths or wrong file locations, correct them
 6. Add a brief comment near each fix: <!-- reviewed: accuracy fix -->
+7. When reviewing TPR (Third Party Review) findings: you MUST NOT dismiss findings because they are "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md there is no "unrelated" or "out of scope." If a finding identifies a real issue, it must be accepted. Only reject findings that are factually incorrect (the issue does not actually exist).
 
 ## `reviewed` field in frontmatter
 
@@ -148,6 +162,9 @@ After editing, list what you changed and why.
 ```
 You are reviewing a plan for the Ori compiler at {plan_dir}/.
 
+CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
+Read file: CLAUDE.md
+
 INSTRUCTIONS:
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
 2. Review each section for completeness:
@@ -160,6 +177,7 @@ INSTRUCTIONS:
 5. Add missing checklist items, missing steps, missing test requirements
 6. Flag deferral traps: items labeled "bonus", "future", "lower priority", "nice to have", "stretch goal", or "requires architectural change". These invite the implementer to skip them. Rewrite as concrete, mandatory tasks or mark with explicit `<!-- blocked-by:X -->` if genuinely blocked. Remove all soft deferral language.
 7. Add a brief comment near each addition: <!-- reviewed: completeness fix -->
+8. When reviewing TPR (Third Party Review) findings: you MUST NOT dismiss findings because they are "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md there is no "unrelated" or "out of scope." If a finding identifies a real issue, it must be accepted. Only reject findings that are factually incorrect (the issue does not actually exist).
 
 You may add new sections, restructure, or expand scope if the plan has genuine gaps.
 After editing, list what you changed and why.
@@ -169,6 +187,9 @@ After editing, list what you changed and why.
 
 ```
 You are reviewing a plan for the Ori compiler at {plan_dir}/.
+
+CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
+Read file: CLAUDE.md
 
 Your job is twofold: (1) ensure the plan itself follows hygiene rules, and (2) scan the actual codebase areas the plan will touch to find existing issues that should be cleaned up along the way. The principle: every plan section should leave the code better and cleaner than before.
 
@@ -221,6 +242,9 @@ After editing, list:
 
 ```
 You are reviewing a plan for the Ori compiler at {plan_dir}/.
+
+CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
+Read file: CLAUDE.md
 
 INSTRUCTIONS:
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)

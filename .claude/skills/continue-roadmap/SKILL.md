@@ -26,6 +26,16 @@ Use `plans/roadmap/index.md` to find sections by keyword. The index contains sea
 
 ## Workflow
 
+### Step -1: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS)
+
+**Before doing ANYTHING else**, read the ENTIRE CLAUDE.md file — every single word, top to bottom:
+
+```
+Read file: CLAUDE.md
+```
+
+This is mandatory. Do not skip, skim, or partially read. The rules in CLAUDE.md govern ALL behavior in this command. Proceed to Step 0 only after reading the complete file.
+
 ### Step 0: Check for Active Reroute
 
 The scanner automatically detects reroutes from `plans/*/index.md` frontmatter. Each plan's `index.md` has:
@@ -124,15 +134,16 @@ After identifying the focus section, **check its frontmatter for `third_party_re
 2. **Read all unchecked items** in the `## {NN}.R Third Party Review Findings` block
 3. **Triage findings in priority order** (high → medium → low):
    - For each finding, validate it against the codebase, spec, and current plan
+   - **CRITICAL: You MUST NOT dismiss a TPR finding because it is "not related" to the current plan or work.** Per CLAUDE.md: there is no "unrelated", "pre-existing", or "out of scope." If a TPR finding identifies a real issue in the codebase, it must be accepted and addressed — regardless of whether it falls within the current plan's stated scope. The only valid reason to reject a finding is that it is factually incorrect (the issue does not actually exist).
    - **Accepted findings**: Add or update concrete implementation tasks in the relevant subsection(s). Mark the review item resolved with a note:
      ```markdown
      - [x] `[TPR-02-001][high]` `compiler/oric/src/foo.rs` — Description.
        Resolved: Validated and integrated into 02.2 and 02.5 on YYYY-MM-DD.
      ```
-   - **Rejected findings**: Do not delete — mark resolved with rejection rationale:
+   - **Rejected findings**: Do not delete — mark resolved with rejection rationale. **A finding may ONLY be rejected if it is factually incorrect** (the described issue does not actually exist in the codebase). "Not related to current plan", "out of scope", "pre-existing", and "not our problem" are NOT valid rejection reasons — per CLAUDE.md, there is no "unrelated" or "out of scope":
      ```markdown
      - [x] `[TPR-02-002][medium]` `compiler/oric/src/qux.rs` — Description.
-       Resolved: Rejected after validation on YYYY-MM-DD. [Rationale].
+       Resolved: Rejected after validation on YYYY-MM-DD. [Rationale — must explain why the issue does not actually exist].
      ```
 4. **After all findings are triaged**:
    - Update `third_party_review.status` to `resolved` (if history exists) or `none`

@@ -2,7 +2,7 @@
 reroute: true
 name: "Iter RC"
 full_name: "Iterator-Collection RC Ownership Contract"
-status: active
+status: resolved
 order: 1
 ---
 
@@ -19,7 +19,7 @@ order: 1
 ---
 
 ### Section 01: Root Cause Analysis & Design
-**File:** `section-01-root-cause.md` | **Status:** Not Started
+**File:** `section-01-root-cause.md` | **Status:** Complete
 
 ```
 iterator ownership, elem_dec_fn, NULL function pointer, double-free
@@ -35,7 +35,7 @@ map_builtins.rs, ori_iter_from_map, ori_map_buffer_rc_dec, key_dec_fn, val_dec_f
 ---
 
 ### Section 02: Fix Iterator elem_dec_fn (List, Map, Set)
-**File:** `section-02-elem-dec-fn.md` | **Status:** Not Started
+**File:** `section-02-elem-dec-fn.md` | **Status:** Complete
 
 ```
 elem_dec_fn, get_or_generate_elem_dec_fn, element_fn_gen.rs
@@ -52,7 +52,7 @@ drop_elements_and_free, ori_buffer_rc_dec
 ---
 
 ### Section 03: Fix For-Yield RC Scoping
-**File:** `section-03-for-yield-rc.md` | **Status:** Not Started
+**File:** `section-03-for-yield-rc.md` | **Status:** Complete
 
 ```
 for-yield, lower_for_yield_iterator, prepare_iterator, for_yield.rs
@@ -69,7 +69,7 @@ walk.rs BLOAT, realize/mod.rs BLOAT, transfer/mod.rs BLOAT
 ---
 
 ### Section 04: For-Do / For-Yield Parity Audit
-**File:** `section-04-parity-audit.md` | **Status:** Not Started
+**File:** `section-04-parity-audit.md` | **Status:** Complete
 
 ```
 for-do, for-yield, parity, structural comparison
@@ -83,7 +83,7 @@ ori_iter_from_map, ori_map_buffer_rc_dec, map iterator path
 ---
 
 ### Section 05: Comprehensive Test Matrix
-**File:** `section-05-test-matrix.md` | **Status:** Not Started
+**File:** `section-05-test-matrix.md` | **Status:** Complete
 
 ```
 test matrix, combinatorial, regression guard, AOT test
@@ -98,7 +98,7 @@ ORI_CHECK_LEAKS, Valgrind, dual-exec-verify
 ---
 
 ### Section 06: Verification & Merge Gate
-**File:** `section-06-verification.md` | **Status:** Not Started
+**File:** `section-06-verification.md` | **Status:** Complete
 
 ```
 test-all.sh, clippy-all.sh, valgrind-aot.sh, dual-exec-verify.sh

@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Combinatorial Test Matrix"
-status: not-started
+status: in-progress
 goal: "Every cell of {type categories} x {language features} is covered by an AOT test, ensuring no intersection of fat pointers with any feature is untested"
 depends_on: ["01", "02", "03"]
 third_party_review:
@@ -16,7 +16,7 @@ sections:
     status: not-started
   - id: "04.3"
     title: "Matrix Implementation"
-    status: not-started
+    status: in-progress
   - id: "04.4"
     title: "Valgrind Verification Layer"
     status: not-started
@@ -133,30 +133,26 @@ Each test file is a Rust AOT test that:
 3. Asserts identical exit codes
 4. Runs under Valgrind for fat pointer types (T4-T18) -- this is mandatory per Section 04.4
 
-- [ ] Create the `fat_matrix/` test directory structure:
-  1. Create directory `compiler/ori_llvm/tests/aot/fat_matrix/`
-  2. Add `pub mod fat_matrix;` to `compiler/ori_llvm/tests/aot/main.rs` (after existing module declarations)
-  3. Create `compiler/ori_llvm/tests/aot/fat_matrix/mod.rs` declaring sub-modules (one per feature file)
-  4. Each test file imports from `crate::util` for test helpers
-- [ ] Implement F01 (let binding) tests for all fat pointer type categories (T4-T18)
-- [ ] Implement F02 (function parameter) tests
-- [ ] Implement F03 (function return) tests
-- [ ] Implement F04 (closure capture) tests -- this is the J17 bug area
+- [x] Create the `fat_matrix/` test directory structure — `fat_matrix/mod.rs` + `main.rs` registration (2026-03-18)
+- [x] Implement F01 (let binding) tests — 15 tests: T4-T18 (SSO, heap str, list scalar/fat, struct scalar/fat, Option int/str, map, tuple, closure no/scalar/fat capture, multi-fat, rebind). All pass debug+release. (2026-03-18)
+- [x] Implement F02 (function parameter) tests — 12 tests: T4-T18 as params, plus heap str reuse (RC inc) and multi-fat params. All pass debug+release. (2026-03-18)
+- [x] Implement F03 (function return) tests — 11 tests: T4-T18 returned from functions, plus chained return. All pass debug+release. (2026-03-18)
+- [x] Implement F04 (closure capture) tests — 12 tests: T4-T18 captured in closures (SSO, heap, list scalar/fat, struct scalar/fat, Option int, map, multi, passed-as-arg, in-loop). **BUG FOUND AND FIXED**: closure env drop function used `ori_rc_dec` on collection data ptrs — drop function expected `{len, cap, data}` struct but received raw buffer pointer → SIGSEGV. Fix: dispatch to `emit_buffer_rc_dec_list_or_set`/`emit_buffer_rc_dec_map` for collection captures in `closures.rs:generate_env_drop_fn()`. All pass debug+release. (2026-03-18)
 - [ ] Implement F05 (closure parameter) tests
 - [ ] Implement F06 (pattern matching) tests
-- [ ] Implement F07 (branching) tests
-- [ ] Implement F08 (for loop iteration) tests -- this is the J15 bug area
-- [ ] Implement F09 (loop accumulation) tests
+- [x] Implement F07 (branching) tests — 11 tests: T4-T18 in if/else (str, heap str, list scalar/fat, struct scalar/fat, Option int/str, map, tuple, nested). All pass debug+release. (2026-03-18)
+- [x] Implement F08 (for loop iteration) tests — 10 tests: T6-T17 iterating collections (list scalar/fat do/yield/break/two-iter, struct scalar/fat, map, nested, yield transform). All pass debug+release. (2026-03-18)
+- [x] Implement F09 (loop accumulation) tests — 4 tests: scalar sum, list lengths, map values, function calls on fat values. All pass debug+release. (2026-03-18)
 - [ ] Implement F10 (generic instantiation) tests
 - [ ] Implement F11 (struct field) tests
 - [ ] Implement F12 (sum type payload) tests
 - [ ] Implement F13 (derived Eq) tests
-- [ ] Implement F14 (list element) tests -- this is also the J15 bug area
+- [x] Implement F14 (list element) tests — 6 tests: [str], [[int]], [Named], [Option<str>], two-iterations, yield. All pass debug+release. (2026-03-18)
 - [ ] Implement F15 (? propagation) tests
 - [ ] Implement F16 (recursion) tests
 - [ ] Implement F17 (higher-order) tests
-- [ ] Implement F18 (multiple values) tests
-- [ ] Implement F19 (break/continue) tests -- fat values in scope at break/continue must be cleaned up correctly
+- [x] Implement F18 (multiple values) tests — 5 tests: multi-str, multi-list, multi-struct, multi-map, mixed fat types. All pass debug+release. (2026-03-18)
+- [x] Implement F19 (break/continue) tests — 6 tests: break from [str], continue [str], break with inner fat, continue with inner fat, break in for-yield, break nested loops. All pass debug+release. (2026-03-18)
 - [ ] Implement F20 (derived Clone) tests -- Clone of structs/sum types with fat fields
 - [ ] All tests pass in both eval and AOT
 

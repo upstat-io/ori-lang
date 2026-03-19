@@ -200,13 +200,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let data_ptr = self.builder.get_param(func_id, 0);
 
-        // RC dec each captured variable that needs it
+        // RC dec each captured variable that needs it.
+        //
+        // Collections (List, Set, Map) need special handling: their drop
+        // functions expect a pointer to the full `{len, cap, data}` struct,
+        // but `ori_rc_dec` only passes the raw data buffer pointer. Use
+        // the buffer RC dec helpers instead, which extract len/cap/data
+        // from the full value and call the appropriate runtime function.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "capture count bounded by lambda arity, well within u32 range"
         )]
         for (i, &cap_ty) in capture_types.iter().enumerate() {
-            // Check if this capture type needs RC management
             let needs_rc = self.classifier.needs_rc(cap_ty);
             if needs_rc {
                 let field_ty = self.resolve_type(cap_ty);
@@ -217,11 +222,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     &format!("cap.{i}.ptr"),
                 );
                 let field_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
-                let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
-                let drop_fn = self.get_or_generate_drop_fn(cap_ty);
-                let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
-                for data_ptr_val in data_ptrs {
-                    self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
+
+                let resolved = self.pool.resolve_fully(cap_ty);
+                let tag = self.pool.tag(resolved);
+                match tag {
+                    ori_types::Tag::List | ori_types::Tag::Set => {
+                        self.emit_buffer_rc_dec_list_or_set(field_val, resolved, tag);
+                    }
+                    ori_types::Tag::Map => {
+                        self.emit_buffer_rc_dec_map(field_val, resolved);
+                    }
+                    _ => {
+                        let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
+                        let drop_fn = self.get_or_generate_drop_fn(cap_ty);
+                        let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
+                        for data_ptr_val in data_ptrs {
+                            self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
+                        }
+                    }
                 }
             }
         }
