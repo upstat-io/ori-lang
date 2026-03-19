@@ -173,6 +173,11 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// `take()`-semantics: consumed on first use to prevent multiple calls
     /// from writing to the same sret pointer.
     current_sret_ptr: Option<ValueId>,
+
+    /// The `ValueId` of the result loaded from a forwarded sret pointer.
+    /// When set, the `Return + Sret` terminator can skip the identity store
+    /// (the value is already at the sret destination).
+    sret_forwarded_result: Option<ValueId>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -213,6 +218,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             borrowed_rooted_vars: FxHashSet::default(),
             borrowed_param_ptrs: FxHashMap::default(),
             current_sret_ptr: None,
+            sret_forwarded_result: None,
         }
     }
 

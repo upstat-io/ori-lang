@@ -414,15 +414,18 @@ fn needs_deep_comparison(info: &TypeInfo) -> bool {
 
 /// Compute element size in bytes for a given `TypeInfo`.
 ///
-/// For compound wrapper types (Option, Result, Tuple), resolves the LLVM
-/// type to compute the actual store size.
+/// For compound types (Struct, Option, Result, Tuple), resolves the LLVM
+/// type to compute the actual store size. Structs with fat-pointer fields
+/// (e.g., `str` = 24 bytes) cannot use `fields.len() * 8`.
 fn compute_elem_size<'a>(fc: &FunctionCompiler<'_, 'a, 'a, '_>, ty: Idx, info: &TypeInfo) -> i64 {
     match info {
         TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Ordering => 1,
         TypeInfo::Char => 4,
         TypeInfo::Str | TypeInfo::List { .. } | TypeInfo::Set { .. } | TypeInfo::Map { .. } => 24,
-        TypeInfo::Struct { fields } => fields.len() as i64 * 8,
-        TypeInfo::Option { .. } | TypeInfo::Result { .. } | TypeInfo::Tuple { .. } => {
+        TypeInfo::Struct { .. }
+        | TypeInfo::Option { .. }
+        | TypeInfo::Result { .. }
+        | TypeInfo::Tuple { .. } => {
             let llvm_ty = fc.resolve_type(ty);
             crate::codegen::TypeLayoutResolver::type_store_size(llvm_ty) as i64
         }

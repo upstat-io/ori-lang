@@ -30,7 +30,7 @@ sections:
 
 # Section 04: Combinatorial Test Matrix
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** Build a systematic test matrix covering `{type categories} x {language features}`. Every cell is an AOT test program that exercises a specific type in a specific feature context. All tests pass in both eval and AOT. All tests run clean under Valgrind.
 
 **Context:** The original 13 code journeys all scored 10.0/10, yet 3 CRITICAL bugs lurked at feature intersections. The journeys tested features in isolation: J5 tested closures with `int` capture, J9 tested strings with `.length()`, but nobody tested closures capturing strings. The test matrix ensures this gap class is eliminated permanently — every type x feature intersection is tested.
@@ -253,6 +253,10 @@ For every test in the matrix that involves fat pointer types (T4-T18), create a 
 
 ## 04.R Third Party Review Findings
 
+- [x] `[TPR-04-005][high]` `compiler/ori_llvm/src/codegen/derive_codegen/field_ops/mod.rs:424` — Derived equality still mis-sizes struct list/map elements that contain fat fields, so AOT deep equality walks collection storage with the wrong stride and can return the wrong answer even though Section 04 is marked complete.
+  Evidence: `compute_elem_size()` hard-codes `TypeInfo::Struct` as `fields.len() as i64 * 8`, but fat-field structs are stored at their real LLVM layout size, not "8 bytes per field". For `type Named = { name: str, id: int }`, list storage is 32 bytes per element (`str` = 24 bytes, `int` = 8), while the derived-equality callback path advances by 16 bytes.
+  Resolved: Fixed on 2026-03-19. Two-part fix: (1) `compute_elem_size()` now routes `TypeInfo::Struct` through `TypeLayoutResolver::type_store_size()` instead of `fields.len() * 8`, matching Option/Result/Tuple handling. (2) `emit_element_equals()`, `emit_element_compare()`, and `emit_element_hash()` in `compound_traits.rs` now handle `TypeInfo::Struct` and `TypeInfo::Enum` by calling compiled derived methods via `ctx.method_functions` lookup with proper ABI parameter passing. 5 new AOT tests (list of fat struct, struct with list of fat struct, empty list of fat struct, map with fat struct value, direct list equality). Valgrind clean, dual-exec verified, 13,312 tests pass.
+
 - [x] `[TPR-04-001][high]` `compiler/ori_llvm/src/codegen/derive_codegen/field_ops.rs:94` — BUG-04-03 is not fully fixed for derived equality on lists/sets whose elements are non-scalar or heap-backed.
   Evidence: `emit_field_operation()` routes every list/set field through `emit_list_eq_call()`, which hard-wires `ori_list_eq_scalar`; both the helper comment and the runtime implementation state this is only correct for scalar elements (`compiler/ori_llvm/src/codegen/derive_codegen/field_ops.rs:222`, `compiler/ori_rt/src/list/query.rs:208`). Fresh verification on 2026-03-19 showed an eval/AOT parity failure for `#derive(Eq) type Words = { items: [str] }` when the list holds two independently allocated heap strings: `timeout 150 ori run /tmp/derive-eq.ori` exited 0, while `timeout 150 ori build /tmp/derive-eq.ori -o /tmp/derive-eq && /tmp/derive-eq` exited 1 and logged `icmp on non-int operands — returning false`. The current F13 matrix never covers this case: `test_fm_eq_struct_list_fat` only exercises SSO strings (`compiler/ori_llvm/tests/aot/fat_matrix/f13_derived_eq.rs:55`) and the Valgrind twin only uses `[int]` lists (`tests/valgrind/fat_matrix/f13_derived_eq.ori:10`).
   Resolved: Validated and accepted on 2026-03-19. BUG-04-03 reopened — implementation tasks added to 04.3 as BUG-04-03b (list/set deep equality).
@@ -270,11 +274,11 @@ For every test in the matrix that involves fat pointer types (T4-T18), create a 
 
 ## 04.N Completion Checklist
 
-- [x] All 20 feature test files created — f01-f20 in `compiler/ori_llvm/tests/aot/fat_matrix/`, 194 tests total (2026-03-19, +6 from TPR-04-003/004 wrapper type coverage)
-- [x] All applicable type x feature cells are PASS — 194/194 pass (2026-03-19)
-- [x] No FAIL cells remain — all 10 bugs (BUG-04-01 through BUG-04-08, BUG-04-03b/c) plus TPR-04-003/004 fixed (2026-03-19)
+- [x] All 20 feature test files created — f01-f20 in `compiler/ori_llvm/tests/aot/fat_matrix/`, 204 tests total (2026-03-19, +10 from TPR-04-003/004/005)
+- [x] All applicable type x feature cells are PASS — 204/204 pass (2026-03-19)
+- [x] No FAIL cells remain — all 10 bugs (BUG-04-01 through BUG-04-08, BUG-04-03b/c) plus TPR-04-003/004/005 fixed (2026-03-19)
 - [x] Valgrind clean on all fat pointer tests (T4-T18) — 20/20 Valgrind tests in `tests/valgrind/fat_matrix/` pass with 0 errors (2026-03-19)
-- [x] `./test-all.sh` green (includes all new tests) — 13,296 pass, 0 fail (2026-03-19)
+- [x] `./test-all.sh` green (includes all new tests) — 13,312 pass, 0 fail (2026-03-19)
 - [x] Coverage matrix in this file is fully populated — 20x12 matrix, all cells PASS or N/A (2026-03-19)
 - [x] No `---` (not yet implemented) cells remain for applicable combinations (2026-03-19)
 - [x] `diagnostics/dual-exec-verify.sh` passes on all fat matrix `.ori` programs (eval == AOT) — 20/20 verified, 0 mismatches (2026-03-19)

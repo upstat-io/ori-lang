@@ -2,7 +2,7 @@
 journey: 3
 slug: recursion
 theme: "I am recursive"
-date: 2026-03-16
+date: 2026-03-19
 status: PASS
 expected: 61
 eval_result: 61
@@ -902,7 +902,7 @@ The `main` wrapper now includes RC leak detection via `ori_check_leaks()`. For t
 
 ## Verdict
 
-Journey 3's recursion codegen achieves a perfect 10.0/10, up from 9.7 in the previous run. The improvement comes from recognizing the `@gcd` entry block as structurally required (not unjustified) for phi-node predecessor tracking in the tail-recursion-to-loop transform. All three functions produce OPTIMAL IR. The highlights are the tail-call optimization on `@gcd` (lowered to a textbook loop with phi nodes and annotated with `nounwind memory(none)`) and the zero-defect CFG in `@fib` (no empty trampoline blocks). The leak detection integration in the main wrapper adds safety infrastructure without impacting user function quality.
+Journey 3's recursion codegen achieves a perfect 10.0/10. All three functions produce OPTIMAL IR with zero unjustified instructions. The highlights are the tail-call optimization on `@gcd` (lowered to a textbook loop with phi nodes and annotated with `nounwind memory(none)`) and the zero-defect CFG in `@fib` (no empty trampoline blocks). The leak detection integration in the main wrapper adds safety infrastructure without impacting user function quality.
 
 ## Cross-Journey Observations
 

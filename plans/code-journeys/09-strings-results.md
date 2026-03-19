@@ -2,7 +2,7 @@
 journey: 9
 slug: strings
 theme: "I am a string"
-date: 2026-03-16
+date: 2026-03-19
 status: PASS
 expected: 13
 eval_result: 13
@@ -18,6 +18,7 @@ learning_objectives:
   - "Understand the SSO (Small String Optimization) guard pattern in RC cleanup"
   - "Compare ARC lifecycle for strings: allocation, borrowing, and conditional RC decrement"
   - "Observe how boolean short-circuit operators compile to constant propagation"
+  - "See how aggregate sret loads improved from per-field GEP to single-load pattern"
 
 features:
   - strings
@@ -63,6 +64,8 @@ related_journeys:
     relationship: "Both test boolean branching; J2 uses runtime branches, J9 constant-folds"
   - journey: 10
     relationship: "Both test ARC for heap-allocated collections (str vs list)"
+  - journey: 14
+    relationship: "Both test string ARC lifecycle; J14 tests sharing and multi-reference"
 ---
 
 # Journey 9: "I am a string"
@@ -79,12 +82,11 @@ related_journeys:
 @bool_to_int (b: bool) -> int = if b then 1 else 0;
 
 @check_logic () -> int = {
-    let a = true && true;       // true  -> 1
-    let b = true && false;      // false -> 0
-    let c = false || true;      // true  -> 1
-    let d = false || false;     // false -> 0
+    let a = true && true;
+    let b = true && false;
+    let c = false || true;
+    let d = false || false;
     bool_to_int(b: a) + bool_to_int(b: b) + bool_to_int(b: c) + bool_to_int(b: d)
-    // = 1 + 0 + 1 + 0 = 2
 }
 
 @check_strings () -> int = {
@@ -92,13 +94,12 @@ related_journeys:
     let s2 = "world!";
     let s3 = "";
     s1.length() + s2.length() + s3.length()
-    // = 5 + 6 + 0 = 11
 }
 
 @main () -> int = {
-    let a = check_logic();      // = 2
-    let b = check_strings();    // = 11
-    a + b                       // = 13
+    let a = check_logic();
+    let b = check_strings();
+    a + b
 }
 ```
 
@@ -378,120 +379,84 @@ add.ovf_panic13:
 ; --- @check_strings ---
 define fastcc noundef i64 @_ori_check_strings() #2 {
 bb0:
-  %str_len.self22 = alloca { i64, i64, ptr }, align 8
-  %str_len.self11 = alloca { i64, i64, ptr }, align 8
+  %str_len.self15 = alloca { i64, i64, ptr }, align 8
+  %str_len.self5 = alloca { i64, i64, ptr }, align 8
   %str_len.self = alloca { i64, i64, ptr }, align 8
+  %sret.tmp3 = alloca { i64, i64, ptr }, align 8
+  %sret.tmp1 = alloca { i64, i64, ptr }, align 8
   %sret.tmp = alloca { i64, i64, ptr }, align 8
-  %str.val.sret1 = alloca { i64, i64, ptr }, align 8
-  %str.val.sret = alloca { i64, i64, ptr }, align 8
-  call void @ori_str_from_raw(ptr %str.val.sret, ptr @str, i64 5)
-  %str.val.f0.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret, i32 0, i32 0
-  %str.val.f0 = load i64, ptr %str.val.f0.ptr, align 8
-  %str.val.s0 = insertvalue { i64, i64, ptr } zeroinitializer, i64 %str.val.f0, 0
-  %str.val.f1.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret, i32 0, i32 1
-  %str.val.f1 = load i64, ptr %str.val.f1.ptr, align 8
-  %str.val.s1 = insertvalue { i64, i64, ptr } %str.val.s0, i64 %str.val.f1, 1
-  %str.val.f2.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret, i32 0, i32 2
-  %str.val.f2 = load ptr, ptr %str.val.f2.ptr, align 8
-  %str.val.s2 = insertvalue { i64, i64, ptr } %str.val.s1, ptr %str.val.f2, 2
-  call void @ori_str_from_raw(ptr %str.val.sret1, ptr @str.1, i64 6)
-  %str.val.f0.ptr2 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret1, i32 0, i32 0
-  %str.val.f03 = load i64, ptr %str.val.f0.ptr2, align 8
-  %str.val.s04 = insertvalue { i64, i64, ptr } zeroinitializer, i64 %str.val.f03, 0
-  %str.val.f1.ptr5 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret1, i32 0, i32 1
-  %str.val.f16 = load i64, ptr %str.val.f1.ptr5, align 8
-  %str.val.s17 = insertvalue { i64, i64, ptr } %str.val.s04, i64 %str.val.f16, 1
-  %str.val.f2.ptr8 = getelementptr inbounds nuw { i64, i64, ptr }, ptr %str.val.sret1, i32 0, i32 2
-  %str.val.f29 = load ptr, ptr %str.val.f2.ptr8, align 8
-  %str.val.s210 = insertvalue { i64, i64, ptr } %str.val.s17, ptr %str.val.f29, 2
-  call void @ori_str_empty(ptr %sret.tmp)
-  %sret.load.f0.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %sret.tmp, i32 0, i32 0
-  %sret.load.f0 = load i64, ptr %sret.load.f0.ptr, align 8
-  %sret.load.s0 = insertvalue { i64, i64, ptr } zeroinitializer, i64 %sret.load.f0, 0
-  %sret.load.f1.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %sret.tmp, i32 0, i32 1
-  %sret.load.f1 = load i64, ptr %sret.load.f1.ptr, align 8
-  %sret.load.s1 = insertvalue { i64, i64, ptr } %sret.load.s0, i64 %sret.load.f1, 1
-  %sret.load.f2.ptr = getelementptr inbounds nuw { i64, i64, ptr }, ptr %sret.tmp, i32 0, i32 2
-  %sret.load.f2 = load ptr, ptr %sret.load.f2.ptr, align 8
-  %sret.load.s2 = insertvalue { i64, i64, ptr } %sret.load.s1, ptr %sret.load.f2, 2
-  store { i64, i64, ptr } %str.val.s2, ptr %str_len.self, align 8
+  call void @ori_str_from_raw(ptr %sret.tmp, ptr @str, i64 5)
+  %sret.load = load { i64, i64, ptr }, ptr %sret.tmp, align 8
+  call void @ori_str_from_raw(ptr %sret.tmp1, ptr @str.1, i64 6)
+  %sret.load2 = load { i64, i64, ptr }, ptr %sret.tmp1, align 8
+  call void @ori_str_empty(ptr %sret.tmp3)
+  %sret.load4 = load { i64, i64, ptr }, ptr %sret.tmp3, align 8
+  store { i64, i64, ptr } %sret.load, ptr %str_len.self, align 8
   %str.len = call i64 @ori_str_len(ptr %str_len.self)
-  br label %bb1
-
-bb1:
-  %rc_dec.fat_data = extractvalue { i64, i64, ptr } %str.val.s2, 2
-  %rc_dec.p2i = ptrtoint ptr %rc_dec.fat_data to i64
-  %rc_dec.sso_flag = and i64 %rc_dec.p2i, -9223372036854775808
-  %rc_dec.is_sso = icmp ne i64 %rc_dec.sso_flag, 0
-  %rc_dec.null.p2i = ptrtoint ptr %rc_dec.fat_data to i64
-  %rc_dec.null = icmp eq i64 %rc_dec.null.p2i, 0
-  %rc_dec.skip_rc = or i1 %rc_dec.is_sso, %rc_dec.null
-  br i1 %rc_dec.skip_rc, label %rc_dec.sso_skip, label %rc_dec.heap
-
-bb3:
-  %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %str.len, i64 %str.len12)
-  %add.val = extractvalue { i64, i1 } %add, 0
-  %add.ovf = extractvalue { i64, i1 } %add, 1
-  br i1 %add.ovf, label %add.ovf_panic, label %add.ok
-
-bb5:
-  %add24 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %add.val, i64 %str.len23)
-  %add.val25 = extractvalue { i64, i1 } %add24, 0
-  %add.ovf26 = extractvalue { i64, i1 } %add24, 1
-  br i1 %add.ovf26, label %add.ovf_panic28, label %add.ok27
+  %0 = extractvalue { i64, i64, ptr } %sret.load, 2
+  %1 = ptrtoint ptr %0 to i64
+  %2 = and i64 %1, -9223372036854775808
+  %3 = icmp ne i64 %2, 0
+  %4 = icmp eq i64 %1, 0
+  %5 = or i1 %3, %4
+  br i1 %5, label %rc_dec.sso_skip, label %rc_dec.heap
 
 rc_dec.heap:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data, ptr @"_ori_drop$3")  ; RC-- str
+  call void @ori_rc_dec(ptr %0, ptr @"_ori_drop$3")  ; RC-- str
   br label %rc_dec.sso_skip
 
 rc_dec.sso_skip:
-  store { i64, i64, ptr } %str.val.s210, ptr %str_len.self11, align 8
-  %str.len12 = call i64 @ori_str_len(ptr %str_len.self11)
-  br label %bb3
+  store { i64, i64, ptr } %sret.load2, ptr %str_len.self5, align 8
+  %str.len6 = call i64 @ori_str_len(ptr %str_len.self5)
+  %6 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %str.len, i64 %str.len6)
+  %7 = extractvalue { i64, i1 } %6, 0
+  %8 = extractvalue { i64, i1 } %6, 1
+  br i1 %8, label %add.ovf_panic, label %add.ok
 
 add.ok:
-  %rc_dec.fat_data13 = extractvalue { i64, i64, ptr } %str.val.s210, 2
-  %rc_dec.p2i16 = ptrtoint ptr %rc_dec.fat_data13 to i64
-  %rc_dec.sso_flag17 = and i64 %rc_dec.p2i16, -9223372036854775808
-  %rc_dec.is_sso18 = icmp ne i64 %rc_dec.sso_flag17, 0
-  %rc_dec.null.p2i19 = ptrtoint ptr %rc_dec.fat_data13 to i64
-  %rc_dec.null20 = icmp eq i64 %rc_dec.null.p2i19, 0
-  %rc_dec.skip_rc21 = or i1 %rc_dec.is_sso18, %rc_dec.null20
-  br i1 %rc_dec.skip_rc21, label %rc_dec.sso_skip15, label %rc_dec.heap14
+  %rc_dec.fat_data7 = extractvalue { i64, i64, ptr } %sret.load2, 2
+  %rc_dec.p2i10 = ptrtoint ptr %rc_dec.fat_data7 to i64
+  %rc_dec.sso_flag11 = and i64 %rc_dec.p2i10, -9223372036854775808
+  %rc_dec.is_sso12 = icmp ne i64 %rc_dec.sso_flag11, 0
+  %rc_dec.is_null13 = icmp eq i64 %rc_dec.p2i10, 0
+  %rc_dec.skip_rc14 = or i1 %rc_dec.is_sso12, %rc_dec.is_null13
+  br i1 %rc_dec.skip_rc14, label %rc_dec.sso_skip9, label %rc_dec.heap8
 
 add.ovf_panic:
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 
-rc_dec.heap14:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data13, ptr @"_ori_drop$3")  ; RC-- str
-  br label %rc_dec.sso_skip15
+rc_dec.heap8:
+  call void @ori_rc_dec(ptr %rc_dec.fat_data7, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.sso_skip9
 
-rc_dec.sso_skip15:
-  store { i64, i64, ptr } %sret.load.s2, ptr %str_len.self22, align 8
-  %str.len23 = call i64 @ori_str_len(ptr %str_len.self22)
-  br label %bb5
+rc_dec.sso_skip9:
+  store { i64, i64, ptr } %sret.load4, ptr %str_len.self15, align 8
+  %str.len16 = call i64 @ori_str_len(ptr %str_len.self15)
+  %9 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %7, i64 %str.len16)
+  %10 = extractvalue { i64, i1 } %9, 0
+  %11 = extractvalue { i64, i1 } %9, 1
+  br i1 %11, label %add.ovf_panic21, label %add.ok20
 
-add.ok27:
-  %rc_dec.fat_data29 = extractvalue { i64, i64, ptr } %sret.load.s2, 2
-  %rc_dec.p2i32 = ptrtoint ptr %rc_dec.fat_data29 to i64
-  %rc_dec.sso_flag33 = and i64 %rc_dec.p2i32, -9223372036854775808
-  %rc_dec.is_sso34 = icmp ne i64 %rc_dec.sso_flag33, 0
-  %rc_dec.null.p2i35 = ptrtoint ptr %rc_dec.fat_data29 to i64
-  %rc_dec.null36 = icmp eq i64 %rc_dec.null.p2i35, 0
-  %rc_dec.skip_rc37 = or i1 %rc_dec.is_sso34, %rc_dec.null36
-  br i1 %rc_dec.skip_rc37, label %rc_dec.sso_skip31, label %rc_dec.heap30
+add.ok20:
+  %rc_dec.fat_data22 = extractvalue { i64, i64, ptr } %sret.load4, 2
+  %rc_dec.p2i25 = ptrtoint ptr %rc_dec.fat_data22 to i64
+  %rc_dec.sso_flag26 = and i64 %rc_dec.p2i25, -9223372036854775808
+  %rc_dec.is_sso27 = icmp ne i64 %rc_dec.sso_flag26, 0
+  %rc_dec.is_null28 = icmp eq i64 %rc_dec.p2i25, 0
+  %rc_dec.skip_rc29 = or i1 %rc_dec.is_sso27, %rc_dec.is_null28
+  br i1 %rc_dec.skip_rc29, label %rc_dec.sso_skip24, label %rc_dec.heap23
 
-add.ovf_panic28:
+add.ovf_panic21:
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 
-rc_dec.heap30:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data29, ptr @"_ori_drop$3")  ; RC-- str
-  br label %rc_dec.sso_skip31
+rc_dec.heap23:
+  call void @ori_rc_dec(ptr %rc_dec.fat_data22, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.sso_skip24
 
-rc_dec.sso_skip31:
-  ret i64 %add.val25
+rc_dec.sso_skip24:
+  ret i64 %10
 }
 
 ; Function Attrs: uwtable
@@ -592,29 +557,108 @@ _ori_check_logic:
   jo     .overflow_1
   mov    $0x1,%edi
   call   _ori_bool_to_int
-  ; ... (continues with overflow-checked additions)
+  mov    %rax,%rcx
+  mov    0x20(%rsp),%rax
+  add    %rcx,%rax
+  mov    %rax,0x10(%rsp)
+  seto   %al
+  jo     .overflow_2
+  jmp    .cont
+  .overflow_1:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
+  .cont:
+  xor    %edi,%edi
+  call   _ori_bool_to_int
+  mov    %rax,%rcx
+  mov    0x10(%rsp),%rax
+  add    %rcx,%rax
+  mov    %rax,0x8(%rsp)
+  seto   %al
+  jo     .overflow_3
+  jmp    .ret
+  .overflow_2:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
+  .ret:
+  mov    0x8(%rsp),%rax
   add    $0x28,%rsp
   ret
+  .overflow_3:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
 
 _ori_check_strings:
-  sub    $0x108,%rsp
-  ; ori_str_from_raw("hello", 5)
+  sub    $0xf8,%rsp
+  ; ori_str_from_raw("hello", 5) -> sret at 0x68(%rsp)
   lea    str(%rip),%rsi
-  lea    0x78(%rsp),%rdi
+  lea    0x68(%rsp),%rdi
   mov    $0x5,%edx
   call   ori_str_from_raw
-  ; load 3-field OriStr from sret into registers
-  ; ori_str_from_raw("world!", 6)
-  ; ori_str_empty() for ""
-  ; ori_str_len(s1)
-  call   ori_str_len
-  ; SSO guard: check high bit + null -> skip/rc_dec
-  ; ori_str_len(s2)
+  ; load 3 fields via aggregate store/load shuffle
+  mov    0x78(%rsp),%rax         ; field 2 (ptr)
+  mov    %rax,0x58(%rsp)
+  mov    0x68(%rsp),%rax         ; field 0
+  mov    %rax,0x38(%rsp)
+  mov    0x70(%rsp),%rax         ; field 1
+  mov    %rax,0x30(%rsp)
+  ; ori_str_from_raw("world!", 6) -> sret at 0x80(%rsp)
+  lea    str.1(%rip),%rsi
+  lea    0x80(%rsp),%rdi
+  mov    $0x6,%edx
+  call   ori_str_from_raw
+  ; load s2 fields
+  mov    0x90(%rsp),%rax
+  mov    %rax,0x18(%rsp)
+  mov    0x80(%rsp),%rax
+  mov    %rax,0x20(%rsp)
+  mov    0x88(%rsp),%rax
+  mov    %rax,0x28(%rsp)
+  ; ori_str_empty() -> sret at 0x98(%rsp)
+  lea    0x98(%rsp),%rdi
+  call   ori_str_empty
+  ; load s3 fields and store s1 for str_len
+  ; ... (field shuffles for str_len args)
+  lea    0xb0(%rsp),%rdi
+  call   ori_str_len              ; s1.length()
+  ; SSO guard for s1: check high bit + null
+  mov    0x58(%rsp),%rcx
+  movabs $0x8000000000000000,%rdx
+  mov    %rcx,%rax
+  and    %rdx,%rax
+  cmp    $0x0,%rax
+  setne  %al
+  cmp    $0x0,%rcx
+  sete   %cl
+  or     %cl,%al
+  test   $0x1,%al
+  jne    .sso_skip_1
+  mov    0x58(%rsp),%rdi
+  lea    _ori_drop$3(%rip),%rsi
+  call   ori_rc_dec               ; RC-- s1
+  .sso_skip_1:
+  ; store s2 for str_len
+  lea    0xc8(%rsp),%rdi
+  call   ori_str_len              ; s2.length()
+  ; overflow-checked s1.len + s2.len
+  add    %rcx,%rax
+  seto   %al
+  jo     .overflow
   ; SSO guard for s2
-  ; ori_str_len(s3)
+  ; ... (same pattern)
+  call   ori_rc_dec               ; RC-- s2
+  ; store s3 for str_len
+  lea    0xe0(%rsp),%rdi
+  call   ori_str_len              ; s3.length()
+  ; overflow-checked (s1.len + s2.len) + s3.len
+  add    %rcx,%rax
+  seto   %al
+  jo     .overflow
   ; SSO guard for s3
-  ; overflow-checked s1.len + s2.len + s3.len
-  add    $0x108,%rsp
+  ; ... (same pattern)
+  call   ori_rc_dec               ; RC-- s3
+  mov    0x8(%rsp),%rax
+  add    $0xf8,%rsp
   ret
 
 _ori_main:
@@ -653,14 +697,14 @@ main:
 |---|----------|--------|-------|-------|---------|
 | 1 | @bool_to_int | 2 | 2 | 1.00x | OPTIMAL |
 | 2 | @check_logic | 23 | 23 | 1.00x | OPTIMAL |
-| 3 | @check_strings | 88 | 88 | 1.00x | OPTIMAL |
+| 3 | @check_strings | 58 | 58 | 1.00x | OPTIMAL |
 | 4 | @main | 9 | 9 | 1.00x | OPTIMAL |
 
 **@bool_to_int**: OPTIMAL. `select i1 %0, i64 1, i64 0` + `ret` -- the ideal lowering for `if b then 1 else 0`. No branches, just a conditional select.
 
 **@check_logic**: OPTIMAL. Boolean `&&`/`||` on constants are folded to `true`/`false` at compile time, then passed as constant arguments to `bool_to_int`. Three overflow-checked additions are necessary for the sum chain. All 23 instructions are justified.
 
-**@check_strings**: OPTIMAL at the structural level. The 88 instructions break down as: 6 allocas for string sret buffers, 3 string construction calls, 27 sret-to-SSA load sequences (3 GEP+load+insertvalue per field x 3 strings), 3 store+call sequences for `ori_str_len`, 24 SSO guard instructions (8 per string for RC cleanup), 14 overflow-checked addition instructions, 3 unconditional branches between phases, and 1 ret. The 3 `br label` instructions connecting single-predecessor blocks (bb0->bb1, sso_skip->bb3, sso_skip15->bb5) are structurally mergeable but are an expected artifact of the phased codegen approach. The 3 duplicate `ptrtoint` instructions within each SSO guard are similarly expected -- LLVM's CSE pass eliminates them before native codegen.
+**@check_strings**: OPTIMAL. The 58 instructions break down as: 6 allocas for string sret buffers, 3 string construction calls (`ori_str_from_raw` x2, `ori_str_empty` x1), 3 single aggregate loads (`load { i64, i64, ptr }`), 3 store + `ori_str_len` call sequences (6 total), 3 SSO-guarded RC decrements (7 instructions each: extractvalue + ptrtoint + and + icmp ne + icmp eq + or + br = 21 total), 3 RC dec heap blocks (call + br = 6 total), 2 overflow-checked additions (call + 2 extractvalue + br = 8 total), 2 overflow panic blocks (call + unreachable = 4 total), and 1 ret. This is a significant improvement over the previous run's 88 instructions, achieved by replacing per-field GEP+load+insertvalue (9 instructions per string) with single aggregate `load` (1 instruction per string), eliminating the duplicate `ptrtoint` in SSO guards, and removing phase-boundary unconditional branches. [NOTE-1]
 
 **@main**: OPTIMAL. Two calls + one overflow-checked add + ret.
 
@@ -683,11 +727,11 @@ For "hello" (5 bytes) and "world!" (6 bytes), both fit within SSO. The empty str
 
 | Function | fastcc | nounwind | uwtable | noundef | cold | Notes |
 |----------|--------|----------|---------|---------|------|-------|
-| @bool_to_int | YES | YES | YES | YES | N/A | memory(none) -- excellent [NOTE-5] |
+| @bool_to_int | YES | YES | YES | YES | N/A | memory(none) -- excellent [NOTE-2] |
 | @check_logic | YES | YES | YES | YES | N/A | |
 | @check_strings | YES | NO | YES | YES | N/A | Correct: calls non-nounwind ori_str_len path |
 | @main | NO | NO | YES | YES | N/A | C calling convention (entry point) |
-| @_ori_drop$3 | N/A | YES | YES | YES | YES | All attributes present [NOTE-4] |
+| @_ori_drop$3 | N/A | YES | YES | YES | YES | All attributes present |
 | @ori_panic_cstr | N/A | N/A | N/A | N/A | YES | cold noreturn -- correct |
 
 **100% attribute compliance** (19/19 applicable attributes correct).
@@ -696,18 +740,16 @@ For "hello" (5 bytes) and "world!" (6 bytes), both fit within SSO. The empty str
 
 **@check_strings** is correctly missing `nounwind`: it calls `ori_rc_dec` which interacts with heap memory, meaning an unwind path exists through string operations. The two-pass fixed-point analysis correctly determined this.
 
-**@_ori_drop$3** now has the complete attribute set: `cold nounwind uwtable` with `noundef` on the pointer parameter. This is a regression fix from the previous run where `uwtable` and `noundef` were missing.
-
 ### 4. Control Flow & Block Layout
 
 | Function | Blocks | Empty Blocks | Redundant Branches | Phi Nodes | Notes |
 |----------|--------|-------------|-------------------|-----------|-------|
 | @bool_to_int | 1 | 0 | 0 | 0 | |
 | @check_logic | 7 | 0 | 0 | 0 | |
-| @check_strings | 14 | 0 | 0 | 0 | |
+| @check_strings | 11 | 0 | 0 | 0 | [NOTE-1] |
 | @main | 3 | 0 | 0 | 0 | |
 
-**@check_strings** has 14 blocks arising from the interleaving of string operations, SSO-guarded RC cleanup, and overflow-checked additions. Each SSO guard generates a correct 3-block diamond (check, heap-path, skip-path). There are 3 unconditional `br label` instructions connecting phases (bb0->bb1, sso_skip->bb3, sso_skip15->bb5) where the target has a single predecessor -- these could theoretically be merged, but they serve as phase boundaries in the codegen and are not counted as defects by the structural analysis.
+**@check_strings** has 11 blocks (down from 14 in the previous run). The reduction comes from eliminating 3 unconditional phase-boundary branches that connected single-predecessor blocks. Each SSO guard still generates a correct 3-block diamond (check, heap-path, skip-path), and each overflow-checked add has a 2-block panic/ok split. Zero defects.
 
 ### 5. Overflow Checking
 
@@ -727,8 +769,8 @@ All 6 integer additions use `llvm.sadd.with.overflow.i64` with correct panic-on-
 |--------|-------|
 | Binary size | 6.3 MiB (debug) |
 | .text section | 885.4 KiB |
-| .rodata section | 133.7 KiB |
-| User code | ~199 instructions (~600 bytes) |
+| .rodata section | 133.8 KiB |
+| User code | ~155 instructions (~580 bytes) |
 | Runtime | >99% of binary |
 
 #### Disassembly: @bool_to_int
@@ -802,18 +844,24 @@ bb0:
 #### @check_strings: Ideal vs Actual
 
 ```llvm
-; IDEAL (88 instructions)
+; IDEAL (58 instructions)
 ; String function requires:
-; - 6 allocas for sret buffers
+; - 6 allocas for sret buffers (3 construction + 3 str_len)
 ; - 3 string constructions (ori_str_from_raw x2, ori_str_empty x1)
-; - 3 sret load sequences (3 GEP+load+insertvalue each = 27 total)
-; - 3 store + ori_str_len calls = 6
-; - 3 SSO-guarded RC decrements (8 instructions each = 24)
-; - 2 overflow-checked additions (7 each = 14)
-; - 3 phase-boundary unconditional branches
+; - 3 aggregate loads (single `load { i64, i64, ptr }` each)
+; - 3 store + ori_str_len call sequences (6 total)
+; - 3 SSO-guarded RC decrements (7 instructions each = 21)
+; - 3 RC dec heap blocks (call + br each = 6)
+; - 2 overflow-checked additions (8 total)
+; - 2 overflow panic blocks (4 total)
 ; - 1 ret
-; Total: 6 + 3 + 27 + 6 + 24 + 14 + 3 + 1 + 4 (branch terminators) = 88
-; All instructions structurally justified
+; Total: 6 + 3 + 3 + 6 + 21 + 6 + 8 + 4 + 1 = 58
+; All instructions structurally justified.
+;
+; Improvement from previous run: 88 -> 58 instructions (-34%)
+; - Per-field GEP+load+insertvalue (9 instr/string) replaced by single aggregate load (1 instr/string)
+; - Duplicate ptrtoint in SSO guards eliminated (8 -> 7 instr/guard)
+; - Phase-boundary unconditional branches removed (14 -> 11 blocks)
 ```
 
 **Delta**: +0 instructions. OPTIMAL.
@@ -845,10 +893,10 @@ panic:
 |----------|-------|--------|-------|-----------|---------|
 | @bool_to_int | 2 | 2 | +0 | N/A | OPTIMAL |
 | @check_logic | 23 | 23 | +0 | N/A | OPTIMAL |
-| @check_strings | 88 | 88 | +0 | N/A | OPTIMAL |
+| @check_strings | 58 | 58 | +0 | N/A | OPTIMAL |
 | @main | 9 | 9 | +0 | N/A | OPTIMAL |
 
-### 8. Strings: Representation
+### 8. Strings: Representation and Aggregate Load Improvement
 
 Ori strings use a 3-field representation: `{ i64, i64, ptr }` -- the `OriStr` fat struct:
 - Field 0 (`i64`): inline data / pointer to heap buffer
@@ -857,24 +905,23 @@ Ori strings use a 3-field representation: `{ i64, i64, ptr }` -- the `OriStr` fa
 
 String literals are constructed via `ori_str_from_raw(ptr sret, ptr raw, i64 len)` which takes a destination sret pointer, a raw C string pointer, and the byte length. The empty string uses the specialized `ori_str_empty()` constructor.
 
-The sret (struct return) pattern requires an alloca + store + per-field GEP+load+insertvalue sequence to move the result into SSA registers. This is verbose (9 instructions per string construction) but correct for the JIT-safe aggregate loading pattern.
+**Key improvement since the previous run**: The sret (struct return) pattern has been simplified from per-field GEP+load+insertvalue (9 instructions per string: 3 GEP + 3 load + 3 insertvalue) to a single aggregate `load { i64, i64, ptr }` (1 instruction per string). This eliminates 24 instructions across the 3 string constructions. The single-load pattern is valid because `{ i64, i64, ptr }` is a first-class aggregate in LLVM IR and the sret alloca provides a properly aligned memory source. [NOTE-1]
 
 ### 9. Strings: SSO Guard Pattern
 
 Each string's RC decrement is guarded by an SSO (Small String Optimization) check:
 
 ```llvm
-%rc_dec.fat_data = extractvalue { i64, i64, ptr } %str.val.s2, 2
-%rc_dec.p2i = ptrtoint ptr %rc_dec.fat_data to i64
-%rc_dec.sso_flag = and i64 %rc_dec.p2i, -9223372036854775808   ; check high bit
-%rc_dec.is_sso = icmp ne i64 %rc_dec.sso_flag, 0
-%rc_dec.null.p2i = ptrtoint ptr %rc_dec.fat_data to i64         ; duplicate ptrtoint
-%rc_dec.null = icmp eq i64 %rc_dec.null.p2i, 0
-%rc_dec.skip_rc = or i1 %rc_dec.is_sso, %rc_dec.null
-br i1 %rc_dec.skip_rc, label %rc_dec.sso_skip, label %rc_dec.heap
+%0 = extractvalue { i64, i64, ptr } %sret.load, 2
+%1 = ptrtoint ptr %0 to i64
+%2 = and i64 %1, -9223372036854775808   ; check high bit
+%3 = icmp ne i64 %2, 0
+%4 = icmp eq i64 %1, 0                  ; check null
+%5 = or i1 %3, %4
+br i1 %5, label %rc_dec.sso_skip, label %rc_dec.heap
 ```
 
-This 8-instruction SSO guard checks two conditions: (1) high bit set = SSO string stored inline, (2) null pointer = no heap allocation. Both cases skip the `ori_rc_dec` call. The `ptrtoint` is computed twice with the same operand -- LLVM's CSE pass eliminates this before native codegen, so it is cosmetic at the IR level.
+This 7-instruction SSO guard checks two conditions: (1) high bit set = SSO string stored inline, (2) null pointer = no heap allocation. Both cases skip the `ori_rc_dec` call. Compared to the previous run which had 8 instructions per guard (with a duplicate `ptrtoint`), this version shares a single `ptrtoint` for both checks -- a clean improvement.
 
 ### 10. Strings: Constant Folding Opportunity
 
@@ -884,49 +931,47 @@ The compiler correctly folds `true && true` to `true`, `true && false` to `false
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | NOTE | ARC | Correct SSO-guarded conditional RC decrement for all 3 strings | NEW | J9 |
-| 2 | NOTE | Codegen | Excellent constant folding of boolean && / \|\| operators | NEW | J9 |
-| 3 | NOTE | Codegen | Pure function detection: @bool_to_int gets memory(none) | NEW | J9 |
-| 4 | NOTE | Attributes | Drop helper now has complete attribute set (uwtable + noundef) | FIXED | J5 |
-| 5 | NOTE | Attributes | 100% attribute compliance across all functions | NEW | J9 |
-| 6 | NOTE | Binary | RC leak detection integrated into main() wrapper | NEW | J9 |
+| 1 | NOTE | Codegen | Aggregate sret load: 88 -> 58 instructions in @check_strings (-34%) | NEW | J9 |
+| 2 | NOTE | Attributes | Pure function detection: @bool_to_int gets memory(none) | CONFIRMED | J9 (prev) |
+| 3 | NOTE | ARC | Correct SSO-guarded conditional RC decrement for all 3 strings | CONFIRMED | J9 (prev) |
+| 4 | NOTE | Codegen | Excellent constant folding of boolean && / \|\| operators | CONFIRMED | J9 (prev) |
+| 5 | NOTE | Attributes | 100% attribute compliance across all functions (19/19) | CONFIRMED | J9 (prev) |
+| 6 | NOTE | Binary | RC leak detection integrated into main() wrapper | CONFIRMED | J9 (prev) |
 
-### NOTE-1: Correct SSO-guarded conditional RC decrement
+### NOTE-1: Aggregate sret load improvement
 
-**Location**: @check_strings, 3 SSO guard sequences
-**Impact**: Positive -- correctly avoids calling ori_rc_dec on SSO/inline strings
-**Found in**: ARC Purity (Category 2)
+**Location**: @check_strings, all 3 string construction sequences
+**Impact**: Positive -- reduces @check_strings from 88 to 58 instructions (-34%). The per-field GEP+load+insertvalue pattern (9 instructions per string) has been replaced with a single `load { i64, i64, ptr }` (1 instruction per string). Additionally, the SSO guard's duplicate `ptrtoint` has been eliminated (8 -> 7 instructions per guard), and 3 phase-boundary unconditional branches between single-predecessor blocks have been removed (14 -> 11 blocks).
+**Found in**: Instruction Purity (Category 1), Strings: Representation (Category 8)
 
-### NOTE-2: Excellent constant folding of boolean operators
-
-**Location**: @check_logic
-**Impact**: Positive -- `true && true` becomes constant `true`, eliminating all runtime branching for boolean logic
-**Found in**: Compiler Pipeline / Canonicalization
-
-### NOTE-3: Pure function detection yields memory(none)
+### NOTE-2: Pure function detection yields memory(none)
 
 **Location**: @bool_to_int
 **Impact**: Positive -- the `nounwind memory(none)` attribute set is ideal for a pure function, enabling maximum LLVM optimization
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-4: Drop helper attribute regression fixed
+### NOTE-3: Correct SSO-guarded conditional RC decrement
 
-**Location**: @_ori_drop$3 function definition
-**Impact**: Positive -- previously missing `uwtable` and `noundef` (identified in J5) are now present. The drop helper has the complete attribute set: `cold nounwind uwtable` with `noundef` on the ptr parameter.
-**First seen**: Journey 5 (as LOW defect)
-**Fixed in**: This run (AIMS Section 01 attribute improvements)
-**Found in**: Attributes & Calling Convention (Category 3)
+**Location**: @check_strings, 3 SSO guard sequences
+**Impact**: Positive -- correctly avoids calling ori_rc_dec on SSO/inline strings
+**Found in**: ARC Purity (Category 2)
+
+### NOTE-4: Excellent constant folding of boolean operators
+
+**Location**: @check_logic
+**Impact**: Positive -- `true && true` becomes constant `true`, eliminating all runtime branching for boolean logic
+**Found in**: Compiler Pipeline / Canonicalization
 
 ### NOTE-5: Full attribute compliance achieved
 
 **Location**: All user and runtime functions
-**Impact**: Positive -- 19/19 applicable attributes correct (100%). Previous run was 17/19 (89.5%).
+**Impact**: Positive -- 19/19 applicable attributes correct (100%).
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-6: RC leak detection integrated into main() wrapper
 
 **Location**: @main (C entry point) wrapper function
-**Impact**: Positive -- the main() wrapper now calls `ori_check_leaks()` after `_ori_main()` and uses a `select` to override the exit code if leaks are detected. This provides automatic leak detection without user code changes. The leak checker returned 0 for this journey, confirming zero leaks.
+**Impact**: Positive -- the main() wrapper calls `ori_check_leaks()` after `_ori_main()` and uses a `select` to override the exit code if leaks are detected.
 **Found in**: Binary Analysis (Category 6)
 
 ## Codegen Quality Score
@@ -945,7 +990,7 @@ The compiler correctly folds `true && true` to `true`, `true && false` to `false
 
 ## Verdict
 
-Journey 9's string codegen achieves a perfect score. The compiler correctly handles the full OriStr lifecycle: heap allocation via `ori_str_from_raw`, SSO-guarded conditional RC decrement, and the specialized `ori_str_empty()` for empty strings. ARC is perfectly balanced with zero violations, confirmed both by static analysis and the runtime `ori_check_leaks()` integration in the main() wrapper. The attribute regression from J5 (missing `uwtable` and `noundef` on the drop helper) is now fixed, bringing attribute compliance to 100%. The boolean logic side demonstrates excellent constant folding -- `&&` and `||` on compile-time-known operands are resolved during canonicalization. The `memory(none)` annotation on `@bool_to_int` confirms the compiler's pure function analysis working correctly.
+Journey 9's string codegen achieves a perfect score and shows meaningful improvement over the previous run. The headline change is the aggregate sret load optimization: `@check_strings` dropped from 88 to 58 instructions (-34%) by replacing per-field GEP+load+insertvalue sequences with single `load { i64, i64, ptr }` instructions, eliminating duplicate `ptrtoint` operations in SSO guards, and removing phase-boundary unconditional branches. ARC remains perfectly balanced with zero violations. Attribute compliance holds at 100% (19/19). The boolean logic side continues to demonstrate excellent constant folding, and the `memory(none)` annotation on `@bool_to_int` confirms the compiler's pure function analysis is working correctly.
 
 ## Cross-Journey Observations
 
@@ -956,10 +1001,10 @@ Journey 9's string codegen achieves a perfect score. The compiler correctly hand
 | Constant folding (booleans) | J2 | J9 | CONFIRMED |
 | nounwind propagation | J1 | J9 | CONFIRMED |
 | ARC string lifecycle | J9 | J9 | CONFIRMED |
-| SSO guard pattern | J9 | J9 | CONFIRMED |
+| SSO guard pattern | J9 | J9 | IMPROVED (8 -> 7 instr/guard) |
 | memory(none) on pure functions | J9 | J9 | CONFIRMED |
-| Drop helper missing uwtable | J5 | J9 | FIXED |
-| Full attribute compliance | J9 | J9 | NEW |
-| RC leak detection in main() | J9 | J9 | NEW |
+| Full attribute compliance | J9 | J9 | CONFIRMED |
+| RC leak detection in main() | J9 | J9 | CONFIRMED |
+| Aggregate sret load | J9 | J9 | NEW (replaces per-field GEP+load+insertvalue) |
 
-This is the first journey to exercise heap-allocated string values with ARC. The SSO guard pattern (8 instructions per string cleanup) is infrastructure that appears in any journey involving strings, lists, or other heap-allocated types. The `memory(none)` attribute on `@bool_to_int` confirms the compiler can identify pure functions and annotate them optimally. The main() wrapper now includes `ori_check_leaks()` integration, automatically detecting RC leaks at program exit. The most notable improvement since the last run is the drop helper attribute fix, which eliminated the only attribute defects and brought the overall score from 8.7 to 10.0.
+The most significant change in this re-run is the aggregate sret load pattern. Previously, each string construction required 9 instructions to move the sret result into SSA registers (3 GEP + 3 load + 3 insertvalue). Now a single `load { i64, i64, ptr }` replaces all 9, yielding a 34% instruction reduction in `@check_strings`. This improvement extends to any code that calls sret-returning functions (string operations, struct construction, etc.), so it should be visible across future journeys involving fat pointer types.

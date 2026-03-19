@@ -2,7 +2,7 @@
 journey: 11
 slug: derived-traits
 theme: "I am a derived trait"
-date: 2026-03-16
+date: 2026-03-19
 status: PASS
 expected: 33
 eval_result: 33
@@ -15,7 +15,7 @@ prerequisites:
 learning_objectives:
   - "See how #derive(Eq) generates per-type comparison functions in LLVM IR"
   - "Understand tag-based dispatch for sum type equality"
-  - "Compare struct field-by-field vs sum type variant-aware equality codegen"
+  - "Compare ideal vs actual codegen for struct operations"
   - "Evaluate the short-circuit pattern in derived equality methods"
 features:
   - derived_traits
@@ -531,20 +531,10 @@ eq.false:
 ; --- Shape.@eq ---
 define fastcc noundef i1 @"_ori_Shape$eq"(ptr noundef nonnull dereferenceable(24) %0, ptr noundef nonnull dereferenceable(24) %1) #1 {
 entry:
-  %param.0.f0.ptr = getelementptr inbounds nuw %ori.Shape, ptr %0, i32 0, i32 0
-  %param.0.f0 = load i64, ptr %param.0.f0.ptr, align 8
-  %param.0.s0 = insertvalue %ori.Shape zeroinitializer, i64 %param.0.f0, 0
-  %param.0.f1.ptr = getelementptr inbounds nuw %ori.Shape, ptr %0, i32 0, i32 1
-  %param.0.f1 = load [2 x i64], ptr %param.0.f1.ptr, align 8
-  %param.0.s1 = insertvalue %ori.Shape %param.0.s0, [2 x i64] %param.0.f1, 1
-  %param.1.f0.ptr = getelementptr inbounds nuw %ori.Shape, ptr %1, i32 0, i32 0
-  %param.1.f0 = load i64, ptr %param.1.f0.ptr, align 8
-  %param.1.s0 = insertvalue %ori.Shape zeroinitializer, i64 %param.1.f0, 0
-  %param.1.f1.ptr = getelementptr inbounds nuw %ori.Shape, ptr %1, i32 0, i32 1
-  %param.1.f1 = load [2 x i64], ptr %param.1.f1.ptr, align 8
-  %param.1.s1 = insertvalue %ori.Shape %param.1.s0, [2 x i64] %param.1.f1, 1
-  %eq.tag.self = extractvalue %ori.Shape %param.0.s1, 0
-  %eq.tag.other = extractvalue %ori.Shape %param.1.s1, 0
+  %param.0 = load %ori.Shape, ptr %0, align 8
+  %param.1 = load %ori.Shape, ptr %1, align 8
+  %eq.tag.self = extractvalue %ori.Shape %param.0, 0
+  %eq.tag.other = extractvalue %ori.Shape %param.1, 0
   %eq.tags = icmp eq i64 %eq.tag.self, %eq.tag.other
   br i1 %eq.tags, label %eq.tags.match, label %eq.false
 
@@ -555,8 +545,8 @@ eq.false:
   ret i1 false
 
 eq.tags.match:
-  %eq.self.payload = extractvalue %ori.Shape %param.0.s1, 1
-  %eq.other.payload = extractvalue %ori.Shape %param.1.s1, 1
+  %eq.self.payload = extractvalue %ori.Shape %param.0, 1
+  %eq.other.payload = extractvalue %ori.Shape %param.1, 1
   switch i64 %eq.tag.self, label %eq.false [
     i64 0, label %eq.v.Circle
     i64 1, label %eq.v.Rect
@@ -796,14 +786,16 @@ _ori_Shape$eq:
 | 4 | @main | 16 | 16 | 1.00x | OPTIMAL |
 | 5 | Point$eq | 10 | 10 | 1.00x | OPTIMAL |
 | 6 | Color$eq | 6 | 6 | 1.00x | OPTIMAL |
-| 7 | Shape$eq | 33 | 33 | 1.00x | OPTIMAL |
+| 7 | Shape$eq | 23 | 23 | 1.00x | OPTIMAL |
 
 All functions score OPTIMAL. The generated derived trait methods are lean:
 - **Point$eq**: 10 instructions for 2-field struct comparison with short-circuit (extract, compare, branch per field)
 - **Color$eq**: 6 instructions for unit-variant enum (single tag comparison)
-- **Shape$eq**: 33 instructions for payload-carrying sum type (12 for ptr-to-value reconstruction, 5 for tag comparison + switch, 16 for two variant comparison paths)
+- **Shape$eq**: 23 instructions for payload-carrying sum type (2 for direct `load %ori.Shape`, 4 for tag extraction + comparison, 3 for switch dispatch, 14 for two variant comparison paths with short-circuit)
 
 The caller functions (`check_struct_eq`, `check_sum_eq`, `check_nested`) each follow the same clean pattern: call `$eq`, select result, add with overflow check.
+
+**Improvement since prior run**: `Shape$eq` dropped from 33 to 23 instructions. The previous codegen used per-field GEP+load+insertvalue reconstruction (12 instructions) to build `%ori.Shape` values from pointers; the current codegen uses direct `load %ori.Shape` (2 instructions). This 10-instruction reduction is a genuine codegen improvement.
 
 ### 2. ARC Purity
 
@@ -835,8 +827,8 @@ The caller functions (`check_struct_eq`, `check_sum_eq`, `check_nested`) each fo
 
 **Compliance**: 32/32 applicable attributes correct (100%).
 
-Key attribute improvements since prior runs:
-- `check_struct_eq`, `check_sum_eq`, `check_nested` now marked `memory(none)` -- correctly identified as pure functions
+Key attributes:
+- `check_struct_eq`, `check_sum_eq`, `check_nested` marked `memory(none)` -- correctly identified as pure functions
 - `Shape$eq` ptr parameters carry `noundef nonnull dereferenceable(24)` -- full pointer safety attributes
 
 ### 4. Control Flow & Block Layout
@@ -876,12 +868,12 @@ All 5 integer additions use checked overflow with `llvm.sadd.with.overflow.i64`,
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 869.8 KiB |
-| .rodata section | 133.4 KiB |
-| User code | 811 bytes (7 user functions) |
+| .text section | 869.9 KiB |
+| .rodata section | 133.5 KiB |
+| User code | ~750 bytes (7 user functions) |
 | Runtime | 99.9% of binary |
 
-#### Disassembly: Point$eq (40 bytes)
+#### Disassembly: Point$eq (48 bytes)
 
 ```asm
 _ori_Point$eq:
@@ -950,7 +942,7 @@ eq.false:
 
 ```llvm
 ; ACTUAL (10 instructions) -- identical structure
-define fastcc noundef i1 @"_ori_Point$eq"(%ori.Point noundef %0, %ori.Point noundef %1) #0 {
+define fastcc noundef i1 @"_ori_Point$eq"(%ori.Point noundef %0, %ori.Point noundef %1) #1 {
 entry:
   %eq.self.x = extractvalue %ori.Point %0, 0
   %eq.other.x = extractvalue %ori.Point %1, 0
@@ -991,7 +983,44 @@ eq.false:
 
 #### Shape$eq: Ideal vs Actual
 
-The ideal for `Shape$eq` with ptr parameters would compare fields directly from the pointers without first reconstructing full `%ori.Shape` values. However, the current approach (load all fields, reconstruct via `insertvalue`, then use `extractvalue`) is semantically correct and LLVM optimizes it to the same native code. The 33 actual instructions match the 33 ideal instructions as counted by the metric tool.
+```llvm
+; IDEAL (23 instructions)
+define fastcc noundef i1 @"_ori_Shape$eq"(ptr noundef nonnull dereferenceable(24) %0,
+                                          ptr noundef nonnull dereferenceable(24) %1) nounwind {
+entry:
+  %p0 = load %ori.Shape, ptr %0, align 8
+  %p1 = load %ori.Shape, ptr %1, align 8
+  %tag0 = extractvalue %ori.Shape %p0, 0
+  %tag1 = extractvalue %ori.Shape %p1, 0
+  %tags_eq = icmp eq i64 %tag0, %tag1
+  br i1 %tags_eq, label %tags_match, label %false
+tags_match:
+  %pay0 = extractvalue %ori.Shape %p0, 1
+  %pay1 = extractvalue %ori.Shape %p1, 1
+  switch i64 %tag0, label %false [i64 0, label %circle  i64 1, label %rect]
+circle:
+  %c0 = extractvalue [2 x i64] %pay0, 0
+  %c1 = extractvalue [2 x i64] %pay1, 0
+  %ceq = icmp eq i64 %c0, %c1
+  br i1 %ceq, label %true, label %false
+rect:
+  %r0a = extractvalue [2 x i64] %pay0, 0
+  %r1a = extractvalue [2 x i64] %pay1, 0
+  %req0 = icmp eq i64 %r0a, %r1a
+  br i1 %req0, label %rect_f1, label %false
+rect_f1:
+  %r0b = extractvalue [2 x i64] %pay0, 1
+  %r1b = extractvalue [2 x i64] %pay1, 1
+  %req1 = icmp eq i64 %r0b, %r1b
+  br i1 %req1, label %true, label %false
+true:
+  ret i1 true
+false:
+  ret i1 false
+}
+```
+
+**Delta**: 0 instructions. The actual codegen now uses direct `load %ori.Shape` (2 instructions) instead of the previous per-field GEP+load+insertvalue reconstruction (12 instructions). This is a 10-instruction improvement over the prior run.
 
 #### check_struct_eq: Ideal vs Actual
 
@@ -1027,7 +1056,7 @@ panic:
 | @main | 16 | 16 | +0 | N/A | OPTIMAL |
 | Point$eq | 10 | 10 | +0 | N/A | OPTIMAL |
 | Color$eq | 6 | 6 | +0 | N/A | OPTIMAL |
-| Shape$eq | 33 | 33 | +0 | N/A | OPTIMAL |
+| Shape$eq | 23 | 23 | +0 | N/A | OPTIMAL |
 
 ### 8. Derived Traits: Eq Codegen
 
@@ -1045,7 +1074,9 @@ Three distinct derived Eq patterns are generated, each optimized for its type st
 
 The `!=` operator desugars cleanly to `xor i1 %eq_result, true`, avoiding a separate `$ne` method.
 
-**Passing convention**: Point (16 bytes) and Color (8 bytes) are passed by value. Shape (24 bytes) is passed by pointer with `noundef nonnull dereferenceable(24)` safety attributes, requiring `alloca`+`store` at call sites and `GEP`+`load`+`insertvalue` reconstruction inside `Shape$eq`. This is architecturally correct for the 16-byte by-value threshold. The full pointer attributes enable LLVM to assume the pointers are valid and non-null without runtime checks.
+**Passing convention**: Point (16 bytes) and Color (8 bytes) are passed by value. Shape (24 bytes) is passed by pointer with `noundef nonnull dereferenceable(24)` safety attributes, requiring `alloca`+`store` at call sites and `load %ori.Shape` inside `Shape$eq`. This is architecturally correct for the 16-byte by-value threshold. The full pointer attributes enable LLVM to assume the pointers are valid and non-null without runtime checks.
+
+**Codegen improvement**: `Shape$eq` now uses direct `load %ori.Shape` (2 instructions) instead of per-field GEP+load+insertvalue reconstruction (12 instructions in the prior run). The total instruction count dropped from 33 to 23. LLVM generates identical native code either way (it optimizes both patterns to sequential register loads), but the cleaner IR is preferable for readability and reduces optimization burden.
 
 ### 9. Sum Types: Discriminant Dispatch
 
@@ -1075,7 +1106,8 @@ The compiler uses a consistent tagged-union representation:
 | 3 | NOTE | Codegen | Point$eq short-circuit is textbook optimal | CONFIRMED | J11 |
 | 4 | NOTE | Codegen | Color$eq single-icmp for unit-variant enum | CONFIRMED | J11 |
 | 5 | NOTE | Codegen | Shape$eq discriminant dispatch with per-variant comparison | CONFIRMED | J11 |
-| 6 | NOTE | Attributes | check_struct_eq/check_sum_eq/check_nested marked memory(none) | NEW | J11 |
+| 6 | NOTE | Attributes | check_struct_eq/check_sum_eq/check_nested marked memory(none) | CONFIRMED | J11 |
+| 7 | NOTE | Codegen | Shape$eq improved from 33 to 23 instructions (direct load vs GEP reconstruction) | NEW | J11 |
 
 ### NOTE-1: Shape$eq ptr params with full safety attributes
 
@@ -1111,8 +1143,13 @@ The compiler uses a consistent tagged-union representation:
 
 **Location**: `@_ori_check_struct_eq`, `@_ori_check_sum_eq`, `@_ori_check_nested`
 **Impact**: Positive -- the nounwind + memory analysis pass correctly identifies these functions as having no memory side effects. All three construct values inline (no heap), call pure `$eq` methods, and do overflow-checked arithmetic. The `memory(none)` attribute enables LLVM to freely reorder, CSE, or eliminate these calls.
-**First seen**: Journey 11 (new since AIMS Section 01 purity analysis)
 **Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-7: Shape$eq codegen improvement (direct load)
+
+**Location**: `@"_ori_Shape$eq"` entry block
+**Impact**: Positive -- previous codegen used 12-instruction per-field GEP+load+insertvalue sequence to reconstruct `%ori.Shape` from pointer parameters; current codegen uses 2-instruction direct `load %ori.Shape`. Reduces instruction count from 33 to 23 while producing identical native code.
+**Found in**: Derived Traits: Eq Codegen (Category 8)
 
 ## Codegen Quality Score
 
@@ -1130,7 +1167,7 @@ The compiler uses a consistent tagged-union representation:
 
 ## Verdict
 
-Journey 11's derived trait codegen achieves a perfect score. All three Eq patterns -- struct field-by-field, unit-variant tag comparison, and payload sum type discriminant dispatch -- generate optimal IR with zero unnecessary instructions. The short-circuit evaluation in Point$eq and Shape$eq avoids wasted work, and the `!=` operator desugars cleanly to `xor i1 %result, true` without a separate method. Attribute compliance is 100%: Shape$eq ptr parameters carry full `noundef nonnull dereferenceable(24)` safety attributes, and the three check functions are correctly marked `memory(none)` by the purity analysis pass. ARC is perfectly irrelevant -- all types are pure value types with no heap allocations.
+Journey 11's derived trait codegen achieves a perfect score. All three Eq patterns -- struct field-by-field, unit-variant tag comparison, and payload sum type discriminant dispatch -- generate optimal IR with zero unnecessary instructions. The short-circuit evaluation in Point$eq and Shape$eq avoids wasted work, and the `!=` operator desugars cleanly to `xor i1 %result, true` without a separate method. Attribute compliance is 100%: Shape$eq ptr parameters carry full `noundef nonnull dereferenceable(24)` safety attributes, and the three check functions are correctly marked `memory(none)` by the purity analysis pass. ARC is perfectly irrelevant -- all types are pure value types with no heap allocations. Since the prior run, Shape$eq improved from 33 to 23 instructions thanks to direct `load %ori.Shape` replacing per-field GEP reconstruction.
 
 ## Cross-Journey Observations
 
@@ -1141,8 +1178,8 @@ Journey 11's derived trait codegen achieves a perfect score. All three Eq patter
 | nounwind on user functions | J1 | J11 | CONFIRMED |
 | noundef on main wrapper | J1 | J11 | CONFIRMED |
 | noundef + nonnull + deref on ptr params | J11 | J11 | CONFIRMED |
-| memory(none) on pure functions | J11 | J11 | NEW (AIMS purity analysis) |
+| memory(none) on pure functions | J11 | J11 | CONFIRMED |
 | Struct field access | J4 | J11 | CONFIRMED (extractvalue pattern) |
 | Sum type tag dispatch | J6 | J11 | CONFIRMED (switch on discriminant) |
 
-The AIMS purity analysis (Section 01) correctly identifies `check_struct_eq`, `check_sum_eq`, and `check_nested` as having no memory effects, marking them `memory(none)`. This is the first journey where `memory(none)` appears on user functions that call derived trait methods -- the fixed-point analysis propagates purity through the `$eq` call chain.
+The AIMS purity analysis correctly identifies `check_struct_eq`, `check_sum_eq`, and `check_nested` as having no memory effects, marking them `memory(none)`. The codegen for `Shape$eq` has improved since the prior run, now using direct aggregate loads instead of per-field GEP reconstruction.

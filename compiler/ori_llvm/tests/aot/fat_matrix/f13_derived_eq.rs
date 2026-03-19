@@ -450,3 +450,90 @@ type Pairs = { items: [(int, str)] }
         "fm_eq_list_tuple",
     );
 }
+
+// TPR-04-005: Direct [Named] list equality where Named has fat fields
+#[test]
+fn test_fm_eq_list_fat_struct() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let a = [Named { name: "alice", id: 1 }, Named { name: "bob has a very long name here", id: 2 }];
+    let b = [Named { name: "alice", id: 1 }, Named { name: "bob has a very long name here", id: 2 }];
+    let c = [Named { name: "alice", id: 1 }, Named { name: "charlie", id: 3 }];
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}
+"#,
+        "fm_eq_list_fat_struct",
+    );
+}
+
+// TPR-04-005: Struct with [Named] field (compute_elem_size must use LLVM layout)
+#[test]
+fn test_fm_eq_struct_with_list_of_fat_struct() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Named = { name: str, id: int }
+
+#derive(Eq)
+type Container = { items: [Named] }
+
+@main () -> int = {
+    let a = Container { items: [Named { name: "heap string that is long enough!", id: 1 }] };
+    let b = Container { items: [Named { name: "heap string that is long enough!", id: 1 }] };
+    let c = Container { items: [Named { name: "different heap string content!!", id: 9 }] };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}
+"#,
+        "fm_eq_struct_with_list_of_fat_struct",
+    );
+}
+
+// TPR-04-005: Equality on empty [Named] list (edge case)
+#[test]
+fn test_fm_eq_list_fat_struct_empty() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    let a: [Named] = [];
+    let b: [Named] = [];
+    if a == b then 0 else 1
+}
+"#,
+        "fm_eq_list_fat_struct_empty",
+    );
+}
+
+// TPR-04-005: Map with fat-struct values
+#[test]
+fn test_fm_eq_map_fat_struct_value() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Named = { name: str, id: int }
+
+#derive(Eq)
+type Lookup = { data: {int: Named} }
+
+@main () -> int = {
+    let a = Lookup { data: {1: Named { name: "very long heap string here!!!", id: 10 }} };
+    let b = Lookup { data: {1: Named { name: "very long heap string here!!!", id: 10 }} };
+    let c = Lookup { data: {1: Named { name: "different string content!!!", id: 99 }} };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}
+"#,
+        "fm_eq_map_fat_struct_value",
+    );
+}

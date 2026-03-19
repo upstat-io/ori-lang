@@ -197,8 +197,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let value = *value;
                 self.emit_map_equals(lhs, rhs, key, value)
             }
+            TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
+                self.emit_derived_eq_call(lhs, rhs, elem_ty)
+            }
             _ => None,
         }
+    }
+
+    /// Call a compiled derived `eq` method for a user-defined type.
+    ///
+    /// Looks up the type name and compiled `eq` function, applies ABI
+    /// parameter passing (Indirect for large structs), and returns the bool.
+    fn emit_derived_eq_call(&mut self, lhs: ValueId, rhs: ValueId, ty: Idx) -> Option<ValueId> {
+        let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
+        let interned_eq = self.interner.intern("eq");
+        let (func_id, params) = {
+            let (fid, abi) = self.ctx.method_functions.get(&(type_name, interned_eq))?;
+            (*fid, abi.params.clone())
+        };
+        let raw_args = [lhs, rhs];
+        let passed_args = self.apply_param_passing(&raw_args, &params);
+        self.emit_rt_call(func_id, &passed_args, "derived_eq")
     }
 
     /// Emit `lhs.compare(rhs)` for any type, dispatching recursively.
@@ -234,8 +253,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem = *element;
                 self.emit_list_compare(lhs, rhs, elem)
             }
+            TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
+                self.emit_derived_compare_call(lhs, rhs, elem_ty)
+            }
             _ => None,
         }
+    }
+
+    /// Call a compiled derived `compare` method for a user-defined type.
+    fn emit_derived_compare_call(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        ty: Idx,
+    ) -> Option<ValueId> {
+        let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
+        let interned_compare = self.interner.intern("compare");
+        let (func_id, params) = {
+            let (fid, abi) = self
+                .ctx
+                .method_functions
+                .get(&(type_name, interned_compare))?;
+            (*fid, abi.params.clone())
+        };
+        let raw_args = [lhs, rhs];
+        let passed_args = self.apply_param_passing(&raw_args, &params);
+        self.emit_rt_call(func_id, &passed_args, "derived_cmp")
     }
 
     /// Emit `val.hash()` for any type, dispatching recursively.
@@ -267,7 +310,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem = *element;
                 self.emit_list_hash(val, elem)
             }
+            TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
+                self.emit_derived_hash_call(val, elem_ty)
+            }
             _ => None,
         }
+    }
+
+    /// Call a compiled derived `hash` method for a user-defined type.
+    fn emit_derived_hash_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
+        let type_name = *self.ctx.type_idx_to_name.get(&ty)?;
+        let interned_hash = self.interner.intern("hash");
+        let (func_id, params) = {
+            let (fid, abi) = self.ctx.method_functions.get(&(type_name, interned_hash))?;
+            (*fid, abi.params.clone())
+        };
+        let raw_args = [val];
+        let passed_args = self.apply_param_passing(&raw_args, &params);
+        self.emit_rt_call(func_id, &passed_args, "derived_hash")
     }
 }
