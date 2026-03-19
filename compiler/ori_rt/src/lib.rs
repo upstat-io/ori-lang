@@ -106,7 +106,9 @@ pub(crate) use rc::{check_leaks_enabled, RC_LIVE_COUNT};
 #[cfg(all(test, debug_assertions))]
 pub(crate) use rc::{freed_set, rt_debug_check_not_freed};
 #[cfg(test)]
-pub(crate) use rc::{rc_trace_enabled, rt_debug_validate_rc, MAX_REFCOUNT, RT_DEBUG_FORCE};
+pub(crate) use rc::{rc_trace_enabled, MAX_REFCOUNT};
+#[cfg(all(test, debug_assertions))]
+pub(crate) use rc::{rt_debug_validate_rc, RT_DEBUG_FORCE};
 
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::Ordering;

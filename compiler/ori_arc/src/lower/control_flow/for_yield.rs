@@ -11,7 +11,7 @@ use ori_ir::canon::{CanBindingPatternId, CanId};
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
+use crate::ir::{ArcValue, ArcVarId, LitValue, PrimOp};
 
 use super::super::expr::{ArcLowerer, ForYieldContext, LoopContext};
 
@@ -113,85 +113,7 @@ impl ArcLowerer<'_> {
         }
     }
 
-    /// Lower `for x in <option> yield body` — produce 0-or-1 element list.
-    ///
-    /// Option yield doesn't need a loop or dynamic list building. It's
-    /// a conditional: if Some, construct `[body_val]`; if None, construct `[]`.
-    fn lower_for_yield_option(
-        &mut self,
-        pattern: CanBindingPatternId,
-        option_val: ArcVarId,
-        elem_ty: Idx,
-        guard: CanId,
-        body: CanId,
-        result_ty: Idx,
-    ) -> ArcVarId {
-        let some_block = self.builder.new_block();
-        let none_block = self.builder.new_block();
-        let exit_block = self.builder.new_block();
-
-        // Exit takes the result list as a block parameter.
-        let result_param = self.builder.add_block_param(exit_block, result_ty);
-
-        // Check tag: project field 0. ARC convention: Some=0, None=1.
-        let tag = self.builder.emit_project(Idx::INT, option_val, 0, None);
-        let zero = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
-        let is_some = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
-                args: vec![tag, zero],
-            },
-            None,
-        );
-        self.builder
-            .terminate_branch(is_some, some_block, none_block);
-
-        // None path: empty list.
-        self.builder.position_at(none_block);
-        let empty_list =
-            self.builder
-                .emit_construct(result_ty, CtorKind::ListLiteral, vec![], None);
-        self.builder.terminate_jump(exit_block, vec![empty_list]);
-
-        // Some path: extract element, optionally check guard, evaluate body.
-        self.builder.position_at(some_block);
-        let elem = self.builder.emit_project(elem_ty, option_val, 1, None);
-        self.bind_for_pattern(pattern, elem, elem_ty);
-
-        if guard.is_valid() {
-            let body_block = self.builder.new_block();
-            let guard_val = self.lower_expr(guard);
-
-            // Guard skip → empty list (element filtered out).
-            let guard_skip = self.builder.new_block();
-            self.builder
-                .terminate_branch(guard_val, body_block, guard_skip);
-
-            self.builder.position_at(guard_skip);
-            let skip_empty =
-                self.builder
-                    .emit_construct(result_ty, CtorKind::ListLiteral, vec![], None);
-            self.builder.terminate_jump(exit_block, vec![skip_empty]);
-
-            self.builder.position_at(body_block);
-        }
-
-        let body_val = self.lower_expr(body);
-        let one_list =
-            self.builder
-                .emit_construct(result_ty, CtorKind::ListLiteral, vec![body_val], None);
-
-        if !self.builder.is_terminated() {
-            self.builder.terminate_jump(exit_block, vec![one_list]);
-        }
-
-        // Exit: the result list from whichever path.
-        self.builder.position_at(exit_block);
-        result_param
-    }
+    // lower_for_yield_option moved to for_yield_option.rs
 
     /// Lower `for x in <iterator> yield body` — dynamic list building.
     ///
@@ -455,7 +377,7 @@ impl ArcLowerer<'_> {
     /// Used to pass `elem_size` to `ori_list_new` and `ori_list_push`.
     /// Must match `TypeLayoutResolver::type_store_size()` in `ori_llvm`
     /// (sum of field sizes, no alignment padding).
-    fn compute_elem_size(&self, elem_ty: Idx) -> i64 {
+    pub(super) fn compute_elem_size(&self, elem_ty: Idx) -> i64 {
         Self::type_store_size(elem_ty, self.pool, 0)
     }
 

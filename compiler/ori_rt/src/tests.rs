@@ -3791,8 +3791,10 @@ fn cow_sort_stable_shared_copies() {
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// ── ORI_RT_DEBUG assertion mode ───────────────────────────────────────
+// ORI_RT_DEBUG assertion mode — debug_assertions only (freed_set, reset_freed_set,
+// rt_debug_check_not_freed are gated behind #[cfg(debug_assertions)] in rc/mod.rs)
 
+#[cfg(debug_assertions)]
 /// Enable debug assertions for the duration of a closure, then clean up.
 fn with_rt_debug<F: FnOnce()>(f: F) {
     let _g = lock_rc();
@@ -3803,6 +3805,7 @@ fn with_rt_debug<F: FnOnce()>(f: F) {
     reset_freed_set();
 }
 
+#[cfg(debug_assertions)]
 #[test]
 fn freed_set_tracks_freed_pointers() {
     with_rt_debug(|| {
@@ -3818,6 +3821,7 @@ fn freed_set_tracks_freed_pointers() {
     });
 }
 
+#[cfg(debug_assertions)]
 #[test]
 fn freed_set_reset_clears_state() {
     with_rt_debug(|| {
@@ -3831,6 +3835,7 @@ fn freed_set_reset_clears_state() {
     });
 }
 
+#[cfg(debug_assertions)]
 #[test]
 fn debug_validate_rc_accepts_valid_refcount() {
     with_rt_debug(|| {
@@ -3848,6 +3853,7 @@ fn debug_validate_rc_accepts_valid_refcount() {
     });
 }
 
+#[cfg(debug_assertions)]
 #[test]
 fn debug_validate_rc_accepts_incremented_refcount() {
     with_rt_debug(|| {
@@ -3867,6 +3873,7 @@ fn debug_validate_rc_accepts_incremented_refcount() {
     });
 }
 
+#[cfg(debug_assertions)]
 #[test]
 fn debug_mode_detects_freed_pointer_in_set() {
     with_rt_debug(|| {
@@ -3889,6 +3896,7 @@ fn debug_mode_detects_freed_pointer_in_set() {
     });
 }
 
+#[cfg(debug_assertions)]
 #[test]
 fn debug_check_not_freed_passes_for_live_pointer() {
     with_rt_debug(|| {

@@ -108,12 +108,12 @@ The fix must work for ALL non-scalar capture types, not just `str`:
 
 - [x] Write AOT test: closure capturing `str` and calling `.length()` — `test_closure_capture_heap_str` (2026-03-18)
 - [x] Write AOT test: closure capturing `[int]` and calling `.length()` — `test_closure_capture_list` (2026-03-18)
-- [ ] Write AOT test: closure capturing a struct with str field and accessing the field <!-- blocked-by:5 -->
+- [x] Write AOT test: closure capturing a struct with str field and accessing the field — `test_fm_capture_struct_fat` (Named { name: str, id: int }) passes in fat_matrix/f04_closure_capture.rs (2026-03-18)
 - [ ] Write AOT test: closure capturing another closure and calling it <!-- blocked-by:10 -->
 - [ ] Write AOT test: closure capturing `Option<str>` and pattern matching on it <!-- blocked-by:9 -->
 - [x] Write AOT test: closure with multiple non-scalar captures (`str` + `[int]`) — `test_closure_multi_capture` (2026-03-18)
 - [ ] Write AOT test: nested closure — outer captures str, inner captures outer's captured str <!-- blocked-by:10 -->
-- [ ] Write AOT test: closure capturing `(str, int)` tuple and accessing `.0` <!-- blocked-by:5 -->
+- [x] Write AOT test: closure capturing `(str, int)` tuple and accessing `.0` — verified in AOT: `let t = ("hello", 42); let f = ... s.length() + n + x` passes with zero leaks (2026-03-18)
 - [x] Write AOT test: closure passed as higher-order argument — `test_closure_passed_with_str_capture` (2026-03-18)
 - [ ] Write AOT test: closure returned from function — blocked by type checker limitation ("only functions can be called" on returned closures) <!-- blocked-by:10 -->
 - [x] Write AOT test: closure with str param — `test_closure_capture_str_with_param` (J17 pattern) (2026-03-18)
@@ -132,11 +132,11 @@ The fix must work for ALL non-scalar capture types, not just `str`:
 
 - [x] Closure capturing `str` compiles and runs correctly in AOT — `test_closure_capture_heap_str` (2026-03-18)
 - [x] Closure capturing `[T]` compiles and runs correctly in AOT — `test_closure_capture_list` (2026-03-18)
-- [ ] Closure capturing struct with fat fields compiles and runs correctly <!-- blocked-by:5 -->
+- [x] Closure capturing struct with fat fields compiles and runs correctly — `test_fm_capture_struct_fat` passes (2026-03-18)
 - [ ] Closure capturing another closure compiles and runs correctly <!-- blocked-by:10 -->
 - [ ] Nested closures with fat captures compile and run correctly <!-- blocked-by:10 -->
 - [x] Multi-capture (str + [int]) compiles and runs correctly — `test_closure_multi_capture` (2026-03-18)
-- [ ] Closure capturing tuple `(str, int)` compiles and runs correctly <!-- blocked-by:5 -->
+- [x] Closure capturing tuple `(str, int)` compiles and runs correctly — verified in AOT (2026-03-18)
 - [ ] Closure returned from function with fat capture compiles and runs correctly <!-- blocked-by:10 -->
 - [x] No unresolved type variables (`Idx(N)`) reach LLVM codegen — verified: types are correct (`ptr dereferenceable(24)`) (2026-03-18)
 - [x] No `_ori_drop$N` functions with wrong size — verified: `_ori_drop$202` uses 24 bytes (correct for str) (2026-03-18)

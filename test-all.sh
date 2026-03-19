@@ -410,7 +410,8 @@ parse_ori_results "$ORI_LLVM_OUTPUT" "ORI_LLVM" "$ORI_LLVM_EXIT"
 
 # Count AOT tests that failed specifically due to memory leaks.
 # assert_aot_success panics with "leaked memory" when exit code is 2.
-AOT_LEAKS=$(grep -c "leaked memory" "$AOT_OUTPUT" 2>/dev/null || echo 0)
+AOT_LEAKS=$(grep -c "leaked memory" "$AOT_OUTPUT" 2>/dev/null || true)
+AOT_LEAKS=${AOT_LEAKS:-0}
 
 # Determine WASM status
 if grep -q "skipped" "$WASM_OUTPUT" 2>/dev/null; then

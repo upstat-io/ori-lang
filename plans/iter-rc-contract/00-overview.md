@@ -1,7 +1,7 @@
 ---
 plan: "iter-rc-contract"
 title: "Iterator-Collection RC Ownership Contract: Exhaustive Implementation Plan"
-status: not-started
+status: complete
 supersedes:
   - "plans/fat-pointer-hardening/ (Section 01 — iterator ownership)"
 references:
@@ -124,9 +124,9 @@ Phase 4 - Verification
 
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
-| `[Option<str>]` for-yield leaks str payloads | Iterator `elem_dec_fn` hardcoded NULL in `emit_list_iter()` | Section 02 | Not Started |
-| `[Option<str>]` for-yield double-frees source list | AIMS emits 3 decs for 2 incs -- source list alive in post-loop scope | Section 03 | Not Started |
-| `{str: int}` map iteration leaks str keys | `emit_map_iter` passes NULL for both `key_dec_fn`/`val_dec_fn` -- identical root cause to list bug | Section 02 | Not Started |
+| `[Option<str>]` for-yield leaks str payloads | Iterator `elem_dec_fn` hardcoded NULL in `emit_list_iter()` | Section 02 | Fixed |
+| `[Option<str>]` for-yield double-frees source list | AIMS emits 3 decs for 2 incs -- source list alive in post-loop scope | Section 03 | Fixed |
+| `{str: int}` map iteration leaks str keys | `emit_map_iter` passes NULL for both `key_dec_fn`/`val_dec_fn` -- identical root cause to list bug | Section 02 | Fixed |
 | `[[int]]` for-do double-freed elements | `emit_defined_dead` emitted RcDec for `__iter_next` projections | Fixed (iter_element_defs) | Guarded |
 | `__for_coll` name collision in nested loops | Single name `__for_coll` shadowed in nested for-loops | Fixed (__for_coll_N) | Guarded |
 
@@ -148,9 +148,9 @@ Phase 4 - Verification
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Root Cause Analysis & Design | `section-01-root-cause.md` | Not Started |
-| 02 | Fix Iterator elem_dec_fn (List, Map, Set) | `section-02-elem-dec-fn.md` | Not Started |
-| 03 | Fix For-Yield RC Scoping | `section-03-for-yield-rc.md` | Not Started |
-| 04 | For-Do / For-Yield Parity Audit | `section-04-parity-audit.md` | Not Started |
-| 05 | Comprehensive Test Matrix | `section-05-test-matrix.md` | Not Started |
-| 06 | Verification & Merge Gate | `section-06-verification.md` | Not Started |
+| 01 | Root Cause Analysis & Design | `section-01-root-cause.md` | Complete |
+| 02 | Fix Iterator elem_dec_fn (List, Map, Set) | `section-02-elem-dec-fn.md` | Complete |
+| 03 | Fix For-Yield RC Scoping | `section-03-for-yield-rc.md` | Complete |
+| 04 | For-Do / For-Yield Parity Audit | `section-04-parity-audit.md` | Complete |
+| 05 | Comprehensive Test Matrix | `section-05-test-matrix.md` | Complete |
+| 06 | Verification & Merge Gate | `section-06-verification.md` | Complete |
