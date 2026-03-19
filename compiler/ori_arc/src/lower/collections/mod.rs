@@ -287,9 +287,13 @@ impl ArcLowerer<'_> {
             }
             Tag::Option => {
                 // Option<T>: construct None (variant 1, no payload), early return.
+                // Must use the function's return type — `inner_ty` is the scrutinee
+                // type which may differ from the return type (e.g., `Option<str>?`
+                // in a function returning `Option<int>`).
+                let ret_ty = self.return_type;
                 let option_name = self.interner.intern("Option");
                 let none = self.builder.emit_construct(
-                    inner_ty,
+                    ret_ty,
                     CtorKind::EnumVariant {
                         enum_name: option_name,
                         variant: 1,

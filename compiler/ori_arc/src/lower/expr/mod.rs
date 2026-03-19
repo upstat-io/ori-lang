@@ -77,6 +77,12 @@ pub(crate) struct ArcLowerer<'a> {
     ///
     /// Saved/restored around each `lower_block` so nesting works correctly.
     pub(crate) block_let_names: FxHashSet<Name>,
+    /// The return type of the function currently being lowered.
+    ///
+    /// Used by `lower_try()` to construct the early-return `None`/`Err`
+    /// with the correct type (must match the function signature, not the
+    /// scrutinee's type).
+    pub(crate) return_type: Idx,
     /// The name of the function currently being lowered.
     ///
     /// Used by `lower_exp_recurse()` to emit `Apply @func_name(...)` instead
