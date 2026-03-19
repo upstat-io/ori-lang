@@ -346,19 +346,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             abi.call_conv = CallConv::C;
         }
 
-        // Assign a globally unique lambda name to prevent cross-function
-        // collisions in codegen_ctx.functions. Each lower_function_can call
-        // numbers lambdas starting at 0, so two functions each containing a
-        // lambda both produce `__lambda_0`. The global counter ensures
-        // uniqueness across the entire module.
-        let counter = self.lambda_counter.get();
-        self.lambda_counter.set(counter + 1);
-        let unique_name = self.interner.intern(&format!("__lambda_{counter}"));
-        lambda.name = unique_name;
+        // Lambda names are globally unique from lowering (include parent function
+        // name: `__lambda_{parent}_{idx}`). No renaming needed — the AIMS contract
+        // map uses the same names, so ownership lookup succeeds. (BUG-04-07 fix)
+        let unique_name = lambda.name;
 
+        let lambda_name_str = self.interner.lookup(unique_name);
         let symbol = self
             .mangler
-            .mangle_function(self.module_path, &format!("__lambda_{counter}"));
+            .mangle_function(self.module_path, lambda_name_str);
 
         debug!(
             name = %self.interner.lookup(unique_name),

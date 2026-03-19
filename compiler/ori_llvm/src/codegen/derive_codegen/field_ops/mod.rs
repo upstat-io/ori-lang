@@ -3,6 +3,13 @@
 //! Provides [`emit_field_operation`], a unified dispatcher that handles
 //! equality (Eq), comparison (Comparable), and hash coercion (Hashable)
 //! for all field types via a single `TypeInfo` match.
+//!
+//! Submodules:
+//! - [`wrapper_cmp`]: inline Option/Result/Tuple comparison
+//! - [`thunks`]: thunk generator functions for list/map callbacks
+
+mod thunks;
+mod wrapper_cmp;
 
 use ori_ir::{DerivedTrait, FieldOp};
 use ori_types::Idx;
@@ -116,6 +123,11 @@ pub(super) fn emit_field_operation<'a>(
             }
         }
 
+        // Wrapper types: Option, Result, Tuple — structural comparison
+        TypeInfo::Option { .. } | TypeInfo::Result { .. } | TypeInfo::Tuple { .. } => {
+            emit_wrapper_field_op(fc, op, lhs, rhs, &info, name, str_ty_id)
+        }
+
         TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
             emit_user_type_field_op(fc, op, lhs, rhs, field_type, name)
         }
@@ -179,6 +191,47 @@ fn emit_user_type_field_op<'a>(
     emit_fallback(fc, op, lhs, rhs, name)
 }
 
+/// Dispatch a field operation for wrapper types (Option, Result, Tuple).
+fn emit_wrapper_field_op<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    op: FieldOp,
+    lhs: ValueId,
+    rhs: Option<ValueId>,
+    info: &TypeInfo,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    match info {
+        TypeInfo::Option { inner } => match op {
+            FieldOp::Equals => {
+                wrapper_cmp::emit_option_eq(fc, lhs, expect_rhs(rhs), *inner, name, str_ty_id)
+            }
+            FieldOp::Compare => {
+                wrapper_cmp::emit_option_compare(fc, lhs, expect_rhs(rhs), *inner, name, str_ty_id)
+            }
+            FieldOp::Hash => wrapper_cmp::emit_option_hash(fc, lhs, *inner, name, str_ty_id),
+        },
+        TypeInfo::Result { ok, err } => match op {
+            FieldOp::Equals => {
+                wrapper_cmp::emit_result_eq(fc, lhs, expect_rhs(rhs), *ok, *err, name, str_ty_id)
+            }
+            FieldOp::Compare => fc.builder_mut().const_i8(1),
+            FieldOp::Hash => fc.builder_mut().const_i64(0),
+        },
+        TypeInfo::Tuple { elements } => {
+            let elems = elements.clone();
+            match op {
+                FieldOp::Equals => {
+                    wrapper_cmp::emit_tuple_eq(fc, lhs, expect_rhs(rhs), &elems, name, str_ty_id)
+                }
+                FieldOp::Compare => fc.builder_mut().const_i8(1),
+                FieldOp::Hash => fc.builder_mut().const_i64(0),
+            }
+        }
+        _ => emit_fallback(fc, op, lhs, rhs, name),
+    }
+}
+
 // String runtime helpers (alloca+store+call pattern)
 
 /// Call `ori_str_eq(a: ptr, b: ptr) -> bool` via alloca+store pattern.
@@ -219,16 +272,32 @@ fn emit_str_compare_call<'a>(
         .unwrap_or_else(|| fc.builder_mut().const_i8(1)) // Equal fallback
 }
 
-/// Call `ori_list_eq_scalar(a: ptr, b: ptr, elem_size: i64) -> bool` via alloca+store pattern.
+/// Call `ori_str_hash(s: ptr) -> i64` via alloca+store pattern.
+fn emit_str_hash_call<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    val: ValueId,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    let val_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.str"));
+    fc.builder_mut().store(val, val_alloca);
+
+    let hash_fn = fc.builder_mut().runtime_fn("ori_str_hash");
+    fc.builder_mut()
+        .call(hash_fn, &[val_alloca], name)
+        .unwrap_or_else(|| fc.builder_mut().const_i64(0))
+}
+
+/// Emit list equality comparison via the appropriate runtime function.
 ///
-/// For lists of scalar elements (int, float, bool, byte), this does a byte-level
-/// comparison of the data buffers. For lists of strings or other fat types,
-/// this still works because `ori_list_eq_scalar` compares bytes — two independently
-/// created `[str]` with same content will have different data pointers for the
-/// strings, but the str structs themselves have the same len/cap and SSO data.
+/// For scalar element types (int, float, bool, byte, char), uses
+/// `ori_list_eq_scalar` (byte-level memcmp — correct because byte
+/// representation matches semantic equality for scalars).
 ///
-/// For proper deep comparison of `[str]`, a dedicated runtime function would be
-/// needed that calls `ori_str_eq` per element.
+/// For non-scalar element types (str, nested collections, structs),
+/// uses `ori_list_eq_deep` with a per-element equality callback,
+/// because byte-level comparison fails (e.g., two independently
+/// allocated heap strings have different data pointers but equal content).
 fn emit_list_eq_call<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     lhs: ValueId,
@@ -238,30 +307,33 @@ fn emit_list_eq_call<'a>(
     str_ty_id: LLVMTypeId,
 ) -> ValueId {
     let info = fc.type_info().get(element_type);
-    let elem_size: i64 = match &info {
-        TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Ordering => 1,
-        TypeInfo::Char => 4,
-        TypeInfo::Str | TypeInfo::List { .. } | TypeInfo::Set { .. } | TypeInfo::Map { .. } => 24, // {i64, i64, ptr}
-        TypeInfo::Struct { fields } => {
-            // Rough estimate: sum of field sizes (not accounting for padding)
-            fields.len() as i64 * 8
-        }
-        _ => 8, // int, float, duration, size, and fallback
-    };
+    let elem_size = compute_elem_size(fc, element_type, &info);
 
-    // Store both lists to stack (ori_list_eq_scalar expects ptr to {len, cap, data}).
-    // Lists have the same LLVM layout as str: {i64, i64, ptr}.
-    // Lists have the same LLVM layout as str: {i64, i64, ptr}.
     let lhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.lhs_list"));
     fc.builder_mut().store(lhs, lhs_alloca);
     let rhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.rhs_list"));
     fc.builder_mut().store(rhs, rhs_alloca);
 
     let elem_size_val = fc.builder_mut().const_i64(elem_size);
-    let eq_fn = fc.builder_mut().runtime_fn("ori_list_eq_scalar");
-    fc.builder_mut()
-        .call(eq_fn, &[lhs_alloca, rhs_alloca, elem_size_val], name)
-        .unwrap_or_else(|| fc.builder_mut().const_bool(false))
+
+    // Try deep comparison for non-scalar element types
+    let elem_eq_thunk = if needs_deep_comparison(&info) {
+        thunks::get_or_create_derive_eq_thunk(fc, element_type, &info)
+    } else {
+        None
+    };
+
+    if let Some(thunk) = elem_eq_thunk {
+        let eq_fn = fc.builder_mut().runtime_fn("ori_list_eq_deep");
+        fc.builder_mut()
+            .call(eq_fn, &[lhs_alloca, rhs_alloca, elem_size_val, thunk], name)
+            .unwrap_or_else(|| fc.builder_mut().const_bool(false))
+    } else {
+        let eq_fn = fc.builder_mut().runtime_fn("ori_list_eq_scalar");
+        fc.builder_mut()
+            .call(eq_fn, &[lhs_alloca, rhs_alloca, elem_size_val], name)
+            .unwrap_or_else(|| fc.builder_mut().const_bool(false))
+    }
 }
 
 /// Call `ori_map_eq(a, b, key_size, val_size, key_eq, key_hash, val_eq) -> bool`
@@ -286,25 +358,15 @@ fn emit_map_eq_call<'a>(
     let key_info = fc.type_info().get(key_type);
     let val_info = fc.type_info().get(val_type);
 
-    let key_size: i64 = match &key_info {
-        TypeInfo::Str | TypeInfo::List { .. } | TypeInfo::Map { .. } | TypeInfo::Set { .. } => 24,
-        TypeInfo::Bool | TypeInfo::Byte => 1,
-        TypeInfo::Char => 4,
-        _ => 8, // int, float, duration, size
-    };
-    let val_size: i64 = match &val_info {
-        TypeInfo::Str | TypeInfo::List { .. } | TypeInfo::Map { .. } | TypeInfo::Set { .. } => 24,
-        TypeInfo::Bool | TypeInfo::Byte => 1,
-        TypeInfo::Char => 4,
-        _ => 8,
-    };
+    let key_size = compute_elem_size(fc, key_type, &key_info);
+    let val_size = compute_elem_size(fc, val_type, &val_info);
     let key_size_val = fc.builder_mut().const_i64(key_size);
     let val_size_val = fc.builder_mut().const_i64(val_size);
 
     // Get or create thunk function pointers for key_eq, key_hash, val_eq
-    let key_eq = get_or_create_derive_eq_thunk(fc, key_type, &key_info);
-    let key_hash = get_or_create_derive_hash_thunk(fc, key_type, &key_info);
-    let val_eq = get_or_create_derive_eq_thunk(fc, val_type, &val_info);
+    let key_eq = thunks::get_or_create_derive_eq_thunk(fc, key_type, &key_info);
+    let key_hash = thunks::get_or_create_derive_hash_thunk(fc, key_type, &key_info);
+    let val_eq = thunks::get_or_create_derive_eq_thunk(fc, val_type, &val_info);
 
     let (Some(key_eq), Some(key_hash), Some(val_eq)) = (key_eq, key_hash, val_eq) else {
         trace!(
@@ -333,139 +395,37 @@ fn emit_map_eq_call<'a>(
         .unwrap_or_else(|| fc.builder_mut().const_bool(false))
 }
 
-/// Get a function pointer to an equality thunk for use in map comparison.
-///
-/// For strings, returns `ori_str_eq`. For primitives, generates a
-/// `_ori_eq_{type}` thunk that loads two values from pointers and compares.
-fn get_or_create_derive_eq_thunk<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    ty: Idx,
-    info: &TypeInfo,
-) -> Option<ValueId> {
-    if matches!(info, TypeInfo::Str) {
-        let func_id = fc.builder_mut().runtime_fn("ori_str_eq");
-        return Some(fc.builder_mut().get_function_ptr(func_id));
-    }
-    let suffix = match info {
-        TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => "int",
-        TypeInfo::Float => "float",
-        TypeInfo::Bool => "bool",
-        TypeInfo::Char => "char",
-        TypeInfo::Byte => "byte",
-        _ => return None,
-    };
-    let func_name = format!("_ori_eq_{suffix}");
-    let ptr_ty = fc.builder_mut().ptr_type();
-    let bool_ty = fc.builder_mut().bool_type();
-    let func_id = fc
-        .builder_mut()
-        .get_or_declare_function(&func_name, &[ptr_ty, ptr_ty], bool_ty);
-
-    // If it doesn't have a body yet, generate it
-    if !fc.builder_mut().function_has_body(func_id) {
-        let saved_pos = fc.builder_mut().save_position();
-        let saved_func = fc.builder_mut().current_function();
-
-        fc.builder_mut().set_ccc(func_id);
-        fc.builder_mut().add_nounwind_attribute(func_id);
-        let entry = fc.builder_mut().append_block(func_id, "entry");
-        fc.builder_mut().position_at_end(entry);
-        fc.builder_mut().set_current_function(func_id);
-
-        let a_ptr = fc.builder_mut().get_param(func_id, 0);
-        let b_ptr = fc.builder_mut().get_param(func_id, 1);
-        let llvm_ty = fc.resolve_type(ty);
-        let ty_id = fc.builder_mut().register_type(llvm_ty);
-        let a_val = fc.builder_mut().load(ty_id, a_ptr, "a");
-        let b_val = fc.builder_mut().load(ty_id, b_ptr, "b");
-        let result = match info {
-            TypeInfo::Float => fc.builder_mut().fcmp_oeq(a_val, b_val, "eq"),
-            _ => fc.builder_mut().icmp_eq(a_val, b_val, "eq"),
-        };
-        fc.builder_mut().ret(result);
-
-        fc.builder_mut().restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            fc.builder_mut().set_current_function(f);
-        }
-    }
-
-    Some(fc.builder_mut().get_function_ptr(func_id))
+/// Check if an element type requires deep (callback-based) comparison
+/// rather than byte-level memcmp.
+fn needs_deep_comparison(info: &TypeInfo) -> bool {
+    matches!(
+        info,
+        TypeInfo::Str
+            | TypeInfo::List { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Tuple { .. }
+    )
 }
 
-/// Get a function pointer to a hash thunk for use in map comparison.
+/// Compute element size in bytes for a given `TypeInfo`.
 ///
-/// For strings, returns `ori_str_hash`. For primitives, generates a
-/// `_ori_hash_{type}` thunk that loads a value from a pointer and returns it as i64.
-fn get_or_create_derive_hash_thunk<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    ty: Idx,
-    info: &TypeInfo,
-) -> Option<ValueId> {
-    if matches!(info, TypeInfo::Str) {
-        let func_id = fc.builder_mut().runtime_fn("ori_str_hash");
-        return Some(fc.builder_mut().get_function_ptr(func_id));
-    }
-    let suffix = match info {
-        TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => "int",
-        TypeInfo::Float => "float",
-        TypeInfo::Bool => "bool",
-        TypeInfo::Char => "char",
-        TypeInfo::Byte => "byte",
-        _ => return None,
-    };
-    let func_name = format!("_ori_hash_{suffix}");
-    let ptr_ty = fc.builder_mut().ptr_type();
-    let i64_ty = fc.builder_mut().i64_type();
-    let func_id = fc
-        .builder_mut()
-        .get_or_declare_function(&func_name, &[ptr_ty], i64_ty);
-
-    if !fc.builder_mut().function_has_body(func_id) {
-        let saved_pos = fc.builder_mut().save_position();
-        let saved_func = fc.builder_mut().current_function();
-
-        fc.builder_mut().set_ccc(func_id);
-        fc.builder_mut().add_nounwind_attribute(func_id);
-        let entry = fc.builder_mut().append_block(func_id, "entry");
-        fc.builder_mut().position_at_end(entry);
-        fc.builder_mut().set_current_function(func_id);
-
-        let ptr = fc.builder_mut().get_param(func_id, 0);
-        let llvm_ty = fc.resolve_type(ty);
-        let ty_id = fc.builder_mut().register_type(llvm_ty);
-        let val = fc.builder_mut().load(ty_id, ptr, "v");
-        // Extend/bitcast to i64 for the hash
-        let result = match info {
-            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => val,
-            TypeInfo::Float => fc.builder_mut().bitcast(val, i64_ty, "h"),
-            TypeInfo::Bool | TypeInfo::Byte => fc.builder_mut().zext(val, i64_ty, "h"),
-            TypeInfo::Char => fc.builder_mut().sext(val, i64_ty, "h"),
-            _ => unreachable!(),
-        };
-        fc.builder_mut().ret(result);
-
-        fc.builder_mut().restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            fc.builder_mut().set_current_function(f);
+/// For compound wrapper types (Option, Result, Tuple), resolves the LLVM
+/// type to compute the actual store size.
+fn compute_elem_size<'a>(fc: &FunctionCompiler<'_, 'a, 'a, '_>, ty: Idx, info: &TypeInfo) -> i64 {
+    match info {
+        TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Ordering => 1,
+        TypeInfo::Char => 4,
+        TypeInfo::Str | TypeInfo::List { .. } | TypeInfo::Set { .. } | TypeInfo::Map { .. } => 24,
+        TypeInfo::Struct { fields } => fields.len() as i64 * 8,
+        TypeInfo::Option { .. } | TypeInfo::Result { .. } | TypeInfo::Tuple { .. } => {
+            let llvm_ty = fc.resolve_type(ty);
+            crate::codegen::TypeLayoutResolver::type_store_size(llvm_ty) as i64
         }
+        _ => 8,
     }
-
-    Some(fc.builder_mut().get_function_ptr(func_id))
-}
-
-/// Call `ori_str_hash(s: ptr) -> i64` via alloca+store pattern.
-fn emit_str_hash_call<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    val: ValueId,
-    name: &str,
-    str_ty_id: LLVMTypeId,
-) -> ValueId {
-    let val_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.str"));
-    fc.builder_mut().store(val, val_alloca);
-
-    let hash_fn = fc.builder_mut().runtime_fn("ori_str_hash");
-    fc.builder_mut()
-        .call(hash_fn, &[val_alloca], name)
-        .unwrap_or_else(|| fc.builder_mut().const_i64(0))
 }

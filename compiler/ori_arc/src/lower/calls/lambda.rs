@@ -134,9 +134,15 @@ impl ArcLowerer<'_> {
 
         self.problems.append(&mut lambda_problems);
 
-        // Step 4: Assign unique name (after inner lambdas are pushed, so index is unique)
+        // Step 4: Assign globally unique name by including the parent function name.
+        // This prevents AIMS contract map collisions when multiple parent functions
+        // each define lambdas — e.g., test_str_sso's lambda won't collide with
+        // test_str_heap's lambda. (BUG-04-07 fix)
         let lambda_idx = self.lambdas.len();
-        let lambda_name = self.interner.intern(&format!("__lambda_{lambda_idx}"));
+        let parent = self.interner.lookup(self.func_name);
+        let lambda_name = self
+            .interner
+            .intern(&format!("__lambda_{parent}_{lambda_idx}"));
         let mut lambda_func =
             lambda_builder.finish(lambda_name, lambda_params, body_ty, entry, false);
         lambda_func.num_captures = captures.len();
