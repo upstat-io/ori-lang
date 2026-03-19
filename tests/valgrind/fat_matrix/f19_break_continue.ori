@@ -1,0 +1,62 @@
+// Valgrind fat matrix: F19 — Break/continue with fat pointer values in scope.
+// Verifies cleanup on early exit and continue semantics with RC values.
+
+@main () -> int = {
+    // Break from [str] iteration
+    let count1 = 0;
+    for s in ["alpha", "beta", "gamma", "delta"] do {
+        if s.length() == 5 then break;
+        count1 = count1 + 1;
+    };
+    let ok1 = count1 == 0;
+
+    // Continue past [str] elements
+    let count2 = 0;
+    for s in ["hi", "hello", "ok", "world"] do {
+        if s.length() <= 2 then continue;
+        count2 = count2 + 1;
+    };
+    let ok2 = count2 == 2;
+
+    // Break with inner fat value in scope
+    let result1 = 0;
+    for i in [1, 2, 3, 4, 5] do {
+        let inner_str = "abcdefghijklmnopqrstuvwxyz1234";
+        if i == 3 then break;
+        result1 = result1 + inner_str.length();
+    };
+    let ok3 = result1 == 60;
+
+    // Continue with inner fat value in scope
+    let result2 = 0;
+    for i in [1, 2, 3, 4, 5] do {
+        let inner_list = [10, 20, 30];
+        if i == 3 then continue;
+        result2 = result2 + inner_list.length();
+    };
+    let ok4 = result2 == 12;
+
+    // Break in for-yield — partial collection
+    let partial = for s in ["abc", "de", "fgh", "ijkl"] yield {
+        if s.length() > 2 then break;
+        s.length()
+    };
+    let total = 0;
+    for n in partial do {
+        total = total + n;
+    };
+    let ok5 = total == 0;
+
+    // Break in nested loops with fat values
+    let outer_total = 0;
+    for s in ["hello", "world"] do {
+        for i in [1, 2, 3] do {
+            if i == 2 then break;
+            outer_total = outer_total + s.length();
+        };
+    };
+    let ok6 = outer_total == 10;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}

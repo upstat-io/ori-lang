@@ -1,0 +1,75 @@
+// Valgrind fat matrix: F08 — For loop iteration with fat pointer elements.
+// This is the J15 bug area. Verifies iterator ownership, elem_dec_fn,
+// and cleanup on break/yield.
+
+@main () -> int = {
+    // T6: iterate [int] for-do
+    let total1 = 0;
+    for x in [10, 20, 30] do {
+        total1 = total1 + x;
+    };
+    let ok1 = total1 == 60;
+
+    // T7: iterate [str] for-do
+    let total2 = 0;
+    for s in ["hello", "world", "test"] do {
+        total2 = total2 + s.length();
+    };
+    let ok2 = total2 == 14;
+
+    // T7: iterate [str] for-yield
+    let lengths = for s in ["hello", "world"] yield s.length();
+    let total3 = 0;
+    for n in lengths do {
+        total3 = total3 + n;
+    };
+    let ok3 = total3 == 10;
+
+    // T7: iterate [str] with break
+    let count = 0;
+    for s in ["alpha", "beta", "gamma", "delta"] do {
+        if s.length() == 4 then break;
+        count = count + 1;
+    };
+    let ok4 = count == 1;
+
+    // T7: iterate [str] two iterations (iterator reuse)
+    let words = ["hello", "world"];
+    let total4 = 0;
+    for s in words do {
+        total4 = total4 + s.length();
+    };
+    for s in words do {
+        total4 = total4 + s.length();
+    };
+    let ok5 = total4 == 20;
+
+    // T17: iterate map entries
+    let m = {"a": 1, "b": 2, "c": 3};
+    let total5 = 0;
+    for entry in m do {
+        let (k, v) = entry;
+        total5 = total5 + v;
+    };
+    let ok6 = total5 == 6;
+
+    // Nested: outer [str], inner scalar accumulation
+    let total6 = 0;
+    for s in ["ab", "cde"] do {
+        for i in [1, 2] do {
+            total6 = total6 + s.length() + i;
+        };
+    };
+    let ok7 = total6 == 16;
+
+    // For-yield transform on fat elements
+    let upper_lens = for s in ["hello", "world", "test"] yield s.length() * 2;
+    let total7 = 0;
+    for n in upper_lens do {
+        total7 = total7 + n;
+    };
+    let ok8 = total7 == 28;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8
+        then 0 else 1
+}

@@ -1,0 +1,55 @@
+// Valgrind fat matrix: F07 — Fat pointer types in if/else branching.
+// Verifies that phi node merge and branch cleanup handle fat pointers correctly.
+
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    // T4: SSO string in branches
+    let s1 = if true then "hello" else "world";
+    let ok1 = s1.length() == 5;
+
+    // T5: heap string in branches
+    let s2 = if true then "abcdefghijklmnopqrstuvwxyz1234"
+        else "another_long_string_for_heap_alloc";
+    let ok2 = s2.length() == 30;
+
+    // T6: list scalar in branches
+    let xs = if true then [1, 2, 3] else [4, 5];
+    let ok3 = xs.length() == 3;
+
+    // T7: list fat in branches
+    let ws = if true then ["hello", "world"] else ["test"];
+    let ok4 = ws.length() == 2;
+
+    // T9: struct fat in branches
+    let n = if true then Named { name: "alice", id: 1 }
+        else Named { name: "bob", id: 2 };
+    let ok5 = n.name.length() == 5;
+
+    // T15: Option<int> in branches
+    let oi = if true then Some(42) else None;
+    let ok6 = is_some(option: oi);
+
+    // T16: Option<str> in branches
+    let os = if true then Some("hello") else None;
+    let ok7 = is_some(option: os);
+
+    // T17: map in branches
+    let m = if true then {"a": 1} else {"b": 2, "c": 3};
+    let ok8 = m.length() == 1;
+
+    // T18: tuple in branches
+    let t = if true then ("hello", 1) else ("world", 2);
+    let (ts, tn) = t;
+    let ok9 = ts.length() == 5 && tn == 1;
+
+    // Nested branches with fat values
+    let nested = if true then {
+        if true then "abcdefghijklmnopqrstuvwxyz1234"
+        else "short"
+    } else "other";
+    let ok10 = nested.length() == 30;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10
+        then 0 else 1
+}

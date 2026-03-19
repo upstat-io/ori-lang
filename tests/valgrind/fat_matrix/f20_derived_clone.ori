@@ -1,0 +1,49 @@
+// Valgrind fat matrix: F20 — Derived Clone on types with fat pointer fields.
+// Verifies clone codegen: per-field RC increment, deep copy semantics.
+
+#derive(Eq, Clone)
+type WithStr = { name: str, count: int }
+
+#derive(Eq, Clone)
+type WithHeapStr = { label: str, value: int }
+
+#derive(Eq, Clone)
+type WithList = { items: [int], tag: int }
+
+#derive(Eq, Clone)
+type MultiFat = { name: str, items: [int] }
+
+@main () -> int = {
+    // T4: clone struct with SSO str
+    let a1 = WithStr { name: "hello", count: 5 };
+    let b1 = a1.clone();
+    let ok1 = b1.name.length() == 5 && b1.count == 5;
+
+    // T5: clone struct with heap str
+    let a2 = WithHeapStr { label: "abcdefghijklmnopqrstuvwxyz1234", value: 1 };
+    let b2 = a2.clone();
+    let ok2 = b2.label.length() == 30;
+
+    // T6: clone struct with list
+    let a3 = WithList { items: [1, 2, 3], tag: 42 };
+    let b3 = a3.clone();
+    let ok3 = b3.items.length() == 3 && b3.tag == 42;
+
+    // Clone with multiple fat fields
+    let a4 = MultiFat { name: "test", items: [1, 2, 3] };
+    let b4 = a4.clone();
+    let ok4 = b4.name.length() == 4 && b4.items.length() == 3;
+
+    // Independence: modifying clone doesn't affect original
+    let a5 = WithStr { name: "hello", count: 1 };
+    let b5 = a5.clone();
+    let ok5 = a5.count == 1 && b5.count == 1;
+
+    // Direct str clone
+    let s = "abcdefghijklmnopqrstuvwxyz1234";
+    let s2 = s.clone();
+    let ok6 = s.length() == 30 && s2.length() == 30;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}

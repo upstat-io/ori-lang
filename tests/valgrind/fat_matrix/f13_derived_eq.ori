@@ -1,0 +1,51 @@
+// Valgrind fat matrix: F13 — Derived Eq on types with fat pointer fields.
+// Verifies $eq method codegen, field comparison, and RC during comparison.
+
+#derive(Eq)
+type WithStr = { name: str, count: int }
+
+#derive(Eq)
+type WithHeapStr = { label: str, value: int }
+
+#derive(Eq)
+type WithList = { items: [int], tag: int }
+
+#derive(Eq)
+type MultiFat = { name: str, id: int }
+
+@main () -> int = {
+    // T4/T9: struct with SSO str — equal
+    let a1 = WithStr { name: "hello", count: 5 };
+    let b1 = WithStr { name: "hello", count: 5 };
+    let ok1 = a1 == b1;
+
+    // T4/T9: struct with SSO str — not equal
+    let c1 = WithStr { name: "world", count: 5 };
+    let ok2 = a1 != c1;
+
+    // T5/T9: struct with heap str
+    let a2 = WithHeapStr { label: "abcdefghijklmnopqrstuvwxyz1234", value: 1 };
+    let b2 = WithHeapStr { label: "abcdefghijklmnopqrstuvwxyz1234", value: 1 };
+    let ok3 = a2 == b2;
+
+    // T6/T9: struct with list
+    let a3 = WithList { items: [1, 2, 3], tag: 1 };
+    let b3 = WithList { items: [1, 2, 3], tag: 1 };
+    let ok4 = a3 == b3;
+
+    // Not equal list
+    let c3 = WithList { items: [1, 2, 4], tag: 1 };
+    let ok5 = a3 != c3;
+
+    // Multi-fat equal
+    let a4 = MultiFat { name: "test", id: 1 };
+    let b4 = MultiFat { name: "test", id: 1 };
+    let ok6 = a4 == b4;
+
+    // Direct str equality (not derived, but exercises runtime)
+    let ok7 = "hello" == "hello";
+    let ok8 = "abcdefghijklmnopqrstuvwxyz1234" == "abcdefghijklmnopqrstuvwxyz1234";
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8
+        then 0 else 1
+}
