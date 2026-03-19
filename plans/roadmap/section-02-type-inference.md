@@ -1,7 +1,7 @@
 ---
 section: 2
 title: Complete Type Inference
-status: complete
+status: in-progress
 reviewed: false
 tier: 1
 goal: Full Hindley-Milner type inference
@@ -21,6 +21,9 @@ sections:
   - id: "2.4"
     title: Section Completion Checklist
     status: complete
+  - id: "2.5"
+    title: Post-Completion Bugs
+    status: not-started
 ---
 
 # Section 2: Complete Type Inference
@@ -111,4 +114,10 @@ All 11 compile-fail tests pass: `cargo st tests/compile-fail/`
 - [x] Spec and compile-fail tests pass — 101 Ori spec tests + 11 compile-fail [done] (2026-02-10)
 - [x] Run full test suite: `./test-all.sh` — all pass [done] (2026-02-10)
 
-**Exit Criteria Met**: Complete type inference with error messages and hints.
+---
+
+## 2.5 Post-Completion Bugs
+
+- [ ] **BUG**: Unconstrained type variables reach codegen — `let a = Ok("hello")` passes type checking but crashes at LLVM codegen with `_ori_drop$96` (unresolved `Idx(96)`). The Err type variable is never constrained, so codegen receives an unresolved type. Type checker should either report "cannot infer type for E" error or default unconstrained sum type params to `Never`. Discovered 2026-03-19 during RC-02-001 fix. <!-- unblocks:21A -->
+
+**Exit Criteria Met** (except 2.5 post-completion bug): Complete type inference with error messages and hints.
