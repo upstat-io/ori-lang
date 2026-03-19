@@ -204,3 +204,32 @@ pub extern "C" fn ori_list_concat(
         out_ptr.add(16).cast::<*mut u8>().write(new_data);
     }
 }
+
+/// Compare two lists of scalar elements for equality.
+///
+/// Both lists have layout `{len: i64, cap: i64, data: *mut u8}`.
+/// Compares lengths first, then `memcmp` on the raw data buffers.
+/// Only correct for scalar element types (int, float, bool, char, byte)
+/// where byte-level comparison matches semantic equality.
+#[no_mangle]
+pub extern "C" fn ori_list_eq_scalar(a: *const u8, b: *const u8, elem_size: i64) -> bool {
+    if a.is_null() || b.is_null() {
+        return a.is_null() && b.is_null();
+    }
+    unsafe {
+        let a_len = a.cast::<i64>().read();
+        let b_len = b.cast::<i64>().read();
+        if a_len != b_len {
+            return false;
+        }
+        let a_data = a.add(16).cast::<*const u8>().read();
+        let b_data = b.add(16).cast::<*const u8>().read();
+        if a_data == b_data {
+            return true; // Same buffer (shared via clone)
+        }
+        let byte_len = a_len as usize * elem_size.max(1) as usize;
+        let a_slice = std::slice::from_raw_parts(a_data, byte_len);
+        let b_slice = std::slice::from_raw_parts(b_data, byte_len);
+        a_slice == b_slice
+    }
+}

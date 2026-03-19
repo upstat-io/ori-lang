@@ -317,11 +317,16 @@ impl ArcInstr {
             }
             // CollectionReuse: old_var at position 0 is consumed (not owned);
             //   positions 1..=args.len() are owned (stored into buffer).
-            // ApplyIndirect: position 0 is the closure fat pointer (borrowed);
-            //   positions 1..=args.len() are user arguments (owned).
-            ArcInstr::CollectionReuse { args, .. } | ArcInstr::ApplyIndirect { args, .. } => {
-                pos >= 1 && pos <= args.len()
-            }
+            ArcInstr::CollectionReuse { args, .. } => pos >= 1 && pos <= args.len(),
+            // ApplyIndirect: lambda callees do NOT emit RcDec for their
+            // parameters — the caller is responsible. All positions are
+            // borrowed from the caller's perspective. Separate from the
+            // wildcard to document this semantic distinction.
+            #[expect(
+                clippy::match_same_arms,
+                reason = "documents semantic difference from wildcard"
+            )]
+            ArcInstr::ApplyIndirect { .. } => false,
             ArcInstr::Apply {
                 args,
                 arg_ownership,

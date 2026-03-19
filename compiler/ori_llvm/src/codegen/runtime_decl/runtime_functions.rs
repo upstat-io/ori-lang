@@ -803,6 +803,13 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_list_eq_scalar",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: false,
+    },
+    RtFn {
         name: "ori_str_ne",
         params: &[Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Bool),

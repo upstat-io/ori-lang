@@ -72,7 +72,7 @@ timeout 150 cargo test -p ori_rt
 | `cargo test -p ori_arc` | All pass |
 | `cargo test -p ori_rt` | All pass |
 
-- [x] `timeout 150 ./test-all.sh` -- all pass — 13,086 pass, 0 fail (2026-03-18)
+- [x] `timeout 150 ./test-all.sh` -- all pass — 13,189 pass, 0 fail (2026-03-18)
 - [x] `timeout 150 cargo test --release` -- all pass — all crates green, 0 fail (2026-03-18)
 - [x] `timeout 150 cargo st` -- all pass — 4,170 pass, 0 fail (2026-03-18)
 - [x] `timeout 150 cargo test -p ori_llvm` -- all pass — 453 lib + 1,482 AOT, 0 fail (2026-03-18)
@@ -139,7 +139,7 @@ ORI_AUDIT_CODEGEN=1 ORI_AUDIT_STRICT=1 ori build tests/spec/iterators/rc_matrix/
 - [x] Valgrind on `[[int]]` for-yield program -- zero errors — covered by default Valgrind suite (2026-03-18)
 - [x] Valgrind on `[str]` for-do program -- zero errors — covered by default Valgrind suite (2026-03-18)
 - [x] Valgrind on `{str: int}` map for-do program -- zero errors — map_str_for_do PASS (2026-03-18)
-- [x] `ORI_CHECK_LEAKS=1` on all matrix test programs -- zero leak reports — all 75 active AOT tests auto-checked (2026-03-18)
+- [x] `ORI_CHECK_LEAKS=1` on all matrix test programs -- zero leak reports — all 81 active matrix tests auto-checked (2026-03-18)
 - [x] `diagnostics/rc-stats.sh` on for-yield `[str]` program -- balanced — verified via AOT test suite + parity audit (Section 04) (2026-03-18)
 - [x] `ORI_AUDIT_CODEGEN=1 ORI_AUDIT_STRICT=1` on for-yield programs -- verified via Section 04 parity audit (2026-03-18)
 - [x] `ORI_RT_DEBUG=1` on all matrix test programs -- zero assertion failures — verified in Section 04.3 (2026-03-18)
@@ -254,6 +254,12 @@ All of the following must be true:
 
 ## 06.R Third Party Review Findings
 
+- [x] `[TPR-06-006][medium]` `plans/iter-rc-contract/section-06-verification.md:75` — Section 06 still preserves superseded verification totals, so the merge-gate evidence is internally inconsistent.
+  Evidence: the current section still records `13,086 pass` at lines 75 and 291 and `75` active matrix tests at line 142, but fresh verification on 2026-03-18 produced `81 passed; 12 ignored` for `iter_rc_matrix` in both debug and release, and a fresh top-level `timeout 150 ./test-all.sh` outside the sandbox completed with `13189 passed, 0 failed, 161 skipped, 3933 llvm compile fail`. The same file also contains older resolved notes citing `13,097` and `13,189`, so multiple incompatible totals now coexist.
+  Impact: Section 06 no longer provides a single auditable source of truth for the merge gate. A reviewer cannot tell which verification snapshot is the one that actually closed the section.
+  Required plan update: rewrite the section's checklist/results to one verified totals set, and distinguish sandbox-local verification gaps from unrestricted runs if both are worth keeping.
+  Resolved: Fixed on 2026-03-18. Normalized all totals: test-all.sh → 13,189 pass (lines 75, 296), matrix tests → 81 active (lines 142, 298). All references now consistent with current test suite.
+
 - [x] `[TPR-06-002][medium]` `plans/iter-rc-contract/section-06-verification.md:31` — Section 06 still treats the merge gate as satisfied even though a fresh workspace-local `./test-all.sh` run exits non-zero on the WASM playground step.
   Evidence: on 2026-03-18, `timeout 150 ./test-all.sh` finished with `13097` passed, `0` failed, and exit code `1` because the script's `WASM playground build` step failed opening `/home/eric/projects/ori-lang-website/playground-wasm/target/release/.cargo-lock` with `Read-only file system (os error 30)`. The summary therefore reports `WASM playground build FAILED` even though the compiler/runtime suites are green.
   Impact: the section's "branch is ready to merge" claim is overstated for this workspace: the repo's declared top-level verification command is still red, so the merge gate is not actually closed.
@@ -288,9 +294,9 @@ All of the following must be true:
 
 ## 06.N Completion Checklist
 
-- [x] All test suites pass in debug and release (Section 06.1) — 13,086 pass, 0 fail (2026-03-18)
+- [x] All test suites pass in debug and release (Section 06.1) — 13,189 pass, 0 fail (2026-03-18)
 - [x] Valgrind clean on all fat-pointer iterator programs (Section 06.2) — 16+3 pass, 0 fail (2026-03-18)
-- [x] Zero leaks reported by `ORI_CHECK_LEAKS=1` (Section 06.2) — all 75 matrix tests auto-checked (2026-03-18)
+- [x] Zero leaks reported by `ORI_CHECK_LEAKS=1` (Section 06.2) — all 81 matrix tests auto-checked (2026-03-18)
 - [x] RC balance verified by parity audit (Section 04) and matrix tests (Section 05) (2026-03-18)
 - [x] Interpreter-AOT parity confirmed by `dual-exec-verify.sh` (Section 06.3) (2026-03-18)
 - [x] Release build behavioral parity confirmed (Section 06.3) — cargo test --release green (2026-03-18)

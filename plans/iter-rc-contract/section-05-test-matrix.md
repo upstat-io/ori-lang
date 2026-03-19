@@ -182,7 +182,7 @@ Every test asserts:
 - [x] Implement priority 4 tests (map tests, no set — Set<str> not implemented) — 12 tests all pass (E6×P5 N/A) (2026-03-18)
 - [x] Implement priority 5 tests (closure and struct element tests) — 26 tests all pass (2026-03-18)
 - [x] Implement priority 6 edge case tests — 6 tests: empty str for-do/yield, single str for-do/yield, large (10-element) str for-yield, empty map for-do. All pass. (2026-03-18)
-- [x] Each test passes in both debug and release builds — 75 pass debug, 75 pass release (2026-03-18)
+- [x] Each test passes in both debug and release builds — 81 pass debug, 81 pass release (2026-03-18)
 - [x] Each test passes with `ORI_CHECK_LEAKS=1` reporting zero leaks — `assert_aot_success` auto-enables leak detection (2026-03-18)
 
 ---
@@ -209,8 +209,8 @@ Generate a results table:
 | ... | ... | ... | ... | ... | ... |
 ```
 
-- [x] Run full matrix in debug build -- all tests pass — 75 pass, 12 ignored (catch bug), 0 failed (2026-03-18)
-- [x] Run full matrix in release build -- all tests pass — 75 pass, 12 ignored, 0 failed (2026-03-18)
+- [x] Run full matrix in debug build -- all tests pass — 81 pass, 12 ignored (catch bug), 0 failed (2026-03-18)
+- [x] Run full matrix in release build -- all tests pass — 81 pass, 12 ignored, 0 failed (2026-03-18)
 - [x] Run leak check on all test programs -- zero leaks — `assert_aot_success` runs with `ORI_CHECK_LEAKS=1` (2026-03-18)
 - [x] Run Valgrind on representative subset — 3 key programs (str for-yield, option_str for-yield, map str keys for-do) all Valgrind clean (0 errors). Reduced from planned 18 because all 75 AOT tests already run with ORI_CHECK_LEAKS=1 which catches the same class of issues. (2026-03-18)
 - [x] Run dual-exec-verify on representative programs — 3 Valgrind programs + 12 parity audit programs = 15 programs verified, all MATCH except E6 for-do (pre-existing interpreter map key print format issue). (2026-03-18)
@@ -219,6 +219,12 @@ Generate a results table:
 ---
 
 ## 05.R Third Party Review Findings
+
+- [x] `[TPR-05-005][medium]` `plans/iter-rc-contract/section-05-test-matrix.md:185` — Section 05 still records the old `75 pass` totals even though the in-tree matrix now executes `81` active tests in both debug and release.
+  Evidence: lines 185, 212, 213, 248, and 249 still say `75 pass`, but a fresh `timeout 150 cargo test -p ori_llvm iter_rc_matrix -- --nocapture` and `timeout 150 cargo test -p ori_llvm --release iter_rc_matrix -- --nocapture` on 2026-03-18 both completed with `81 passed; 0 failed; 12 ignored`.
+  Impact: the section still cannot be audited mechanically from its own checklist and verification bullets; readers get two different active-test totals in the same completed section.
+  Required plan update: normalize the remaining debug/release/checklist references from `75` to the actual `81` active tests, or explicitly explain why those bullets intentionally exclude six active cases.
+  Resolved: Fixed on 2026-03-18. Updated all 5 stale `75` references to `81` (lines 185, 212, 213, 253, 254). All test counts now consistently report 93 total / 81 active / 12 ignored.
 
 - [x] `[TPR-05-004][medium]` `plans/iter-rc-contract/section-05-test-matrix.md:5` — Section 05 still records incompatible matrix totals after the latest updates, so the shipped coverage cannot be audited from the plan alone.
   Evidence: the current file simultaneously claims `93 tests: 81 active + 12 ignored` in frontmatter, `87 tests: 75 active + 12 ignored` in the section goal and completion checklist, and `105 tests` in the matrix-definition prose. Fresh verification on 2026-03-18 with `timeout 150 cargo test -p ori_llvm iter_rc_matrix -- --nocapture` and `timeout 150 cargo test -p ori_llvm --release iter_rc_matrix -- --nocapture` both produced `93` total tests with `81` passed and `12` ignored.
@@ -245,8 +251,8 @@ Generate a results table:
 
 - [x] All valid test combinations implemented — 93 tests (81 active + 12 ignored catch bug). E7 (Set<str>) deferred (type not implemented). E6×P5 N/A (maps can't nest). 4 edge-case extras (nested list, map, borrowed-param, nested-loop). (2026-03-18)
 - [x] N/A combinations documented with justification — E6×P5 (maps non-nestable), E7×all (Set not implemented), P7×all (catch type inference bug, 12 tests ignored) (2026-03-18)
-- [x] All tests pass in debug build — 75 pass (2026-03-18)
-- [x] All tests pass in release build — 75 pass (2026-03-18)
+- [x] All tests pass in debug build — 81 pass (2026-03-18)
+- [x] All tests pass in release build — 81 pass (2026-03-18)
 - [x] Zero leaks across all tests with `ORI_CHECK_LEAKS=1` — assert_aot_success auto-checks (2026-03-18)
 - [x] Valgrind clean on representative subset — 3 programs, 0 errors (2026-03-18)
 - [x] Dual-exec-verify confirms interpreter-vs-AOT parity — 15 programs verified (2026-03-18)

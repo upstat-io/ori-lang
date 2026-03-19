@@ -34,11 +34,10 @@ sections:
 
 **Context:** This is the critical path fix. Section 02 (elem_dec_fn) ensures element cleanup works correctly regardless of which dec reaches zero. This section ensures the correct NUMBER of decs. Without this fix, the double-free occurs even with the correct `elem_dec_fn`.
 
-**Partial work already landed (from Section 02 branch):**
-- `compiler/ori_arc/src/lower/control_flow/for_yield.rs:330`: `clear_mutable_names()` workaround — **BUG: breaks outer mutable assignment in AOT** (TPR-02-002)
-- `compiler/ori_arc/src/lower/scope/mod.rs:75`: Added `clear_mutable_names()` method
-- `compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs`: Changes for for-yield dead variable cleanup
-- These changes made for-yield on `[str]`/`[Option<str>]` pass AOT tests but introduced a regression where `sum = sum + x` inside for-yield body is silently dropped in AOT (eval returns 6, AOT returns 0).
+**Shipped implementation (2026-03-18):**
+- `compiler/ori_arc/src/lower/control_flow/for_yield.rs`: Iterator-based for-yield threads mutable variables through header/body/exit block params (SSA phi nodes), matching the for-do pattern.
+- `compiler/ori_arc/src/lower/control_flow/for_yield_option.rs`: Option for-yield uses `ori_list_new`/`push`/`take` with `LoopContext` for break/continue support.
+- The earlier `clear_mutable_names()` workaround was removed and replaced with proper mutable-variable SSA threading. Outer mutable assignments inside for-yield bodies now propagate correctly in AOT.
 
 **Design reference**: For-do's `__for_coll` phantom mechanism (`compiler/ori_arc/src/lower/control_flow/loops.rs:174-181`) works because it binds the collection as a mutable variable (via `scope.bind_mutable()` at line 180, only for `List | Set` tags -- line 174) BEFORE `.iter()`, then the loop infrastructure threads it through header/body/latch/exit as a block parameter. The exit block's `pre_scope` restore + param rebinding (`for_iterator.rs:206-209`) handles scope cleanup. The original variable's last use becomes the Jump to header, and the AIMS backward analysis sees only the block-param copy in the loop, emitting exactly one dec (from the dummy let in the exit block at `for_iterator.rs:196-204`).
 
@@ -223,6 +222,12 @@ All four are valid in for-yield but cannot work in AOT without `LoopContext`.
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-004][low]` `plans/iter-rc-contract/section-03-for-yield-rc.md:37` — Section 03's opening context still describes the removed `clear_mutable_names()` workaround as live branch state.
+  Evidence: the current lowering no longer contains `clear_mutable_names()` or `restore_mutable_names()`, and [for_yield.rs](/home/eric/projects/ori_lang_aims/compiler/ori_arc/src/lower/control_flow/for_yield.rs#L165) plus [for_yield_option.rs](/home/eric/projects/ori_lang_aims/compiler/ori_arc/src/lower/control_flow/for_yield_option.rs#L44) now thread mutable variables through block params directly. The section intro at lines 37-41 still says the branch has only partial work from Section 02 and that AOT currently drops outer mutable assignments.
+  Impact: the section is marked as completed work, but its lead-in still tells future readers the branch is mid-fix and currently regressed. That makes the implementation history and remaining responsibilities hard to trust.
+  Required plan update: rewrite the opening context to describe the shipped mutable-variable threading and Option break/continue support, not the removed workaround.
+  Resolved: Fixed on 2026-03-18. Rewrote opening context to describe shipped implementation: mutable-variable SSA threading in for_yield.rs, Option LoopContext in for_yield_option.rs, clear_mutable_names() workaround removed.
 
 - [x] `[TPR-03-001][medium]` `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs:1942` — The new iterator RC matrix is still incomplete for RC-managed map/set paths even though Section 03 is marked complete.
   Evidence: the branch adds four `{str: ...}` / `{...: str}` map tests at `fat_ptr_iter.rs:1942-2031`, but they are all `for-do`. The only `for-yield` map coverage in-tree remains the scalar smoke test at `compiler/ori_llvm/tests/aot/for_loops.rs:298`, and there are no fat-pointer `Set<T>` iteration tests in `compiler/ori_llvm/tests/aot/`. I also validated one ad hoc `{str: str}` `for-yield` program under `ORI_CHECK_LEAKS=1`, which passed, but that does not satisfy the permanent matrix requirement from `CLAUDE.md` / `.claude/rules/tests.md` / `.claude/rules/arc.md`.
