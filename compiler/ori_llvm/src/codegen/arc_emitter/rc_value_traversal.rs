@@ -31,7 +31,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars and runtime-tagged types: no static RC action
+            // Scalars: no RC action
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -42,9 +42,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering
-            | Tag::Result
-            | Tag::Enum => {}
+            | Tag::Ordering => {}
+
+            // Result/Enum: tag-switch per variant, inc RC children
+            Tag::Result | Tag::Enum => {
+                self.emit_inline_enum_inc(val, resolved, tag, count);
+            }
 
             // Str: SSO check + RC inc on heap data pointer
             Tag::Str => {
@@ -158,7 +161,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars and runtime-tagged types: no static RC action
+            // Scalars: no RC action
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -169,9 +172,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering
-            | Tag::Result
-            | Tag::Enum => {}
+            | Tag::Ordering => {}
+
+            // Result/Enum: tag-switch per variant, dec RC children
+            Tag::Result | Tag::Enum => {
+                self.emit_inline_enum_dec(val, resolved, tag);
+            }
 
             // Str: SSO check + RC dec on heap data pointer
             Tag::Str => {

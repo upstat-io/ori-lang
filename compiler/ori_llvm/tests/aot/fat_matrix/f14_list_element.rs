@@ -110,3 +110,87 @@ fn test_fm_list_elem_str_yield() {
         "fm_list_elem_str_yield",
     );
 }
+
+// T17: [Result<str, str>] — list of Result with heap string payloads (RC-02-001)
+#[test]
+fn test_fm_list_elem_result_str_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = [Ok("success long heap string here"), Err("failure long heap string here")];
+    if a.length() == 2 then 0 else 1
+}
+"#,
+        "fm_list_elem_result_str_str",
+    );
+}
+
+// T18: [Result<str, int>] — Ok variant has fat pointer, Err is scalar
+#[test]
+fn test_fm_list_elem_result_str_int() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = [Ok("success long heap string here"), Err(42)];
+    if a.length() == 2 then 0 else 1
+}
+"#,
+        "fm_list_elem_result_str_int",
+    );
+}
+
+// T19: [Result<int, str>] — Err variant has fat pointer, Ok is scalar
+#[test]
+fn test_fm_list_elem_result_int_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = [Ok(42), Err("failure long heap string here")];
+    if a.length() == 2 then 0 else 1
+}
+"#,
+        "fm_list_elem_result_int_str",
+    );
+}
+
+// T20: [Result<[int], str>] — Ok variant has list, Err has str
+#[test]
+fn test_fm_list_elem_result_list_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = [Ok([1, 2, 3]), Err("failure long heap string here")];
+    if a.length() == 2 then 0 else 1
+}
+"#,
+        "fm_list_elem_result_list_str",
+    );
+}
+
+// T21: Single-element [Result<str, str>] — just Ok with heap string
+#[test]
+fn test_fm_list_elem_result_single_ok() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a: [Result<str, str>] = [Ok("success long heap string here")];
+    if a.length() == 1 then 0 else 1
+}
+"#,
+        "fm_list_elem_result_single_ok",
+    );
+}
+
+// T22: Single-element [Result<str, str>] — just Err with heap string
+#[test]
+fn test_fm_list_elem_result_single_err() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a: [Result<str, str>] = [Err("failure long heap string here")];
+    if a.length() == 1 then 0 else 1
+}
+"#,
+        "fm_list_elem_result_single_err",
+    );
+}
