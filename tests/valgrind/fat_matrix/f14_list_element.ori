@@ -1,0 +1,54 @@
+// Valgrind fat matrix: F14 — Fat values stored as list elements.
+// Verifies element-level RC, iteration, and indexing.
+
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    // T4: [str] SSO elements
+    let xs1 = ["hi", "ok", "go"];
+    let ok1 = xs1.length() == 3;
+
+    // T7: [str] with iteration
+    let total1 = 0;
+    for s in ["hello", "world"] do {
+        total1 = total1 + s.length();
+    };
+    let ok2 = total1 == 10;
+
+    // T6: [[int]] nested lists
+    let xs2 = [[1, 2], [3, 4, 5], [6]];
+    let total2 = 0;
+    for inner in xs2 do {
+        total2 = total2 + inner.length();
+    };
+    let ok3 = total2 == 6;
+
+    // T9: [Named] structs in list
+    let xs3 = [Named { name: "alice", id: 1 }, Named { name: "bob", id: 2 }];
+    let total3 = 0;
+    for n in xs3 do {
+        total3 = total3 + n.name.length() + n.id;
+    };
+    let ok4 = total3 == 11;
+
+    // T16: [Option<str>] option elements
+    let xs4 = [Some("hello"), None, Some("world")];
+    let total4 = 0;
+    for opt in xs4 do {
+        if is_some(option: opt) then {
+            total4 = total4 + 1;
+        };
+    };
+    let ok5 = total4 == 2;
+
+    // For-yield on [str]
+    let lens = for s in ["abc", "de", "f"] yield s.length();
+    let total5 = 0;
+    for n in lens do {
+        total5 = total5 + n;
+    };
+    let ok6 = total5 == 6;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6
+        then 0 else 1
+}

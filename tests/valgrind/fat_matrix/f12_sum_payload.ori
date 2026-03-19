@@ -1,0 +1,61 @@
+// Valgrind fat matrix: F12 — Fat pointer types as sum type variant payloads.
+// Verifies tag+payload layout, variant construction, and match extraction RC.
+
+type Wrapper = Text(content: str) | Number(value: int);
+type FatWrapper = Items(data: [int]) | Label(name: str);
+type Multi = A(x: int) | B(s: str) | C(xs: [int]);
+
+@extract_text (w: Wrapper) -> int = match w {
+    Text(content) -> content.length(),
+    Number(value) -> value,
+};
+
+@main () -> int = {
+    // T4: SSO string payload
+    let w1 = Text(content: "hello");
+    let ok1 = extract_text(w: w1) == 5;
+
+    // T5: heap string payload
+    let w2 = Text(content: "abcdefghijklmnopqrstuvwxyz1234");
+    let ok2 = extract_text(w: w2) == 30;
+
+    // T6: list scalar payload
+    let w3 = Items(data: [1, 2, 3]);
+    let r3 = match w3 {
+        Items(data) -> data.length(),
+        Label(name) -> name.length(),
+    };
+    let ok3 = r3 == 3;
+
+    // T7: list fat payload (via Label variant)
+    let w4 = Label(name: "test");
+    let r4 = match w4 {
+        Items(data) -> data.length(),
+        Label(name) -> name.length(),
+    };
+    let ok4 = r4 == 4;
+
+    // Multi-variant match with fat payloads
+    let w5 = B(s: "abcdefghijklmnopqrstuvwxyz1234");
+    let r5 = match w5 {
+        A(x) -> x,
+        B(s) -> s.length(),
+        C(xs) -> xs.length(),
+    };
+    let ok5 = r5 == 30;
+
+    // None variant (no payload)
+    let w6 = Number(value: 42);
+    let ok6 = extract_text(w: w6) == 42;
+
+    // Payload passed to function
+    let w7 = Text(content: "hello");
+    let r7 = match w7 {
+        Text(content) -> content.length(),
+        Number(value) -> value,
+    };
+    let ok7 = r7 == 5;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7
+        then 0 else 1
+}

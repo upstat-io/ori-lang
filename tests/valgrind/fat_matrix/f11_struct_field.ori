@@ -1,0 +1,48 @@
+// Valgrind fat matrix: F11 — Fat pointer types as struct fields.
+// Verifies GEP, aggregate construction, and field-level RC correctness.
+
+type WithStr = { name: str, count: int }
+type WithHeapStr = { label: str, value: int }
+type WithList = { items: [int], tag: int }
+type WithListFat = { words: [str], id: int }
+type Nested = { inner: WithStr, extra: int }
+type MultiFat = { name: str, items: [int], label: str }
+type WithMap = { data: {str: int}, id: int }
+
+@use_with_str (w: WithStr) -> int = w.name.length() + w.count;
+
+@main () -> int = {
+    // T4/T9: str field
+    let w1 = WithStr { name: "hello", count: 5 };
+    let ok1 = w1.name.length() + w1.count == 10;
+
+    // T5/T9: heap str field
+    let w2 = WithHeapStr { label: "abcdefghijklmnopqrstuvwxyz1234", value: 1 };
+    let ok2 = w2.label.length() == 30;
+
+    // T6/T9: list scalar field
+    let w3 = WithList { items: [1, 2, 3], tag: 42 };
+    let ok3 = w3.items.length() + w3.tag == 45;
+
+    // T7/T9: list fat field
+    let w4 = WithListFat { words: ["hello", "world"], id: 1 };
+    let ok4 = w4.words.length() == 2;
+
+    // Nested struct with fat inner
+    let w5 = Nested { inner: WithStr { name: "alice", count: 1 }, extra: 10 };
+    let ok5 = w5.inner.name.length() + w5.extra == 15;
+
+    // Multiple fat fields
+    let w6 = MultiFat { name: "test", items: [1, 2], label: "abcdefghijklmnopqrstuvwxyz1234" };
+    let ok6 = w6.name.length() + w6.items.length() + w6.label.length() == 36;
+
+    // Fat struct field passed to function
+    let ok7 = use_with_str(w: WithStr { name: "hello", count: 5 }) == 10;
+
+    // Map field
+    let w8 = WithMap { data: {"a": 1, "b": 2}, id: 3 };
+    let ok8 = w8.data.length() + w8.id == 5;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8
+        then 0 else 1
+}

@@ -1,0 +1,72 @@
+// Valgrind fat matrix: F04 — Fat pointer types captured in closure environments.
+// This is the J17 bug area. Verifies closure env allocation, RC correctness,
+// and drop functions for each fat pointer capture type.
+
+type Named = { name: str, id: int }
+
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    // T4: SSO string capture
+    let greeting = "hello";
+    let f1 = (n: int) -> int = greeting.length() + n;
+    let ok1 = f1(5) == 10;
+
+    // T5: heap string capture
+    let prefix = "abcdefghijklmnopqrstuvwxyz1234";
+    let f2 = (n: int) -> int = prefix.length() + n;
+    let ok2 = f2(5) == 35;
+
+    // T5: heap string capture called twice (RC balance)
+    let a = f2(5);
+    let b = f2(10);
+    let ok3 = a + b == 75;
+
+    // T6: list of scalars
+    let xs = [10, 20, 30];
+    let f3 = (n: int) -> int = xs.length() + n;
+    let ok4 = f3(7) == 10;
+
+    // T7: list of fat pointers
+    let words = ["hello", "world", "test"];
+    let f4 = (n: int) -> int = words.length() + n;
+    let ok5 = f4(2) == 5;
+
+    // T9: struct with fat fields
+    let named = Named { name: "alice", id: 1 };
+    let f5 = (x: int) -> int = named.name.length() + named.id + x;
+    let ok6 = f5(4) == 10;
+
+    // T15: Option<int>
+    let opt = Some(42);
+    let f6 = (n: int) -> int = if is_some(option: opt) then n + 1 else n;
+    let ok7 = f6(9) == 10;
+
+    // T17: map
+    let m = {"a": 1, "b": 2};
+    let f7 = (n: int) -> int = m.length() + n;
+    let ok8 = f7(8) == 10;
+
+    // Multiple captures: str + [int]
+    let name = "abcdefghijklmnopqrstuvwxyz1234";
+    let nums = [1, 2, 3];
+    let f8 = (x: int) -> int = name.length() + nums.length() + x;
+    let ok9 = f8(7) == 40;
+
+    // Closure passed as argument with fat capture
+    let tag = "abcdefghijklmnopqrstuvwxyz1234";
+    let f9 = (n: int) -> int = tag.length() + n;
+    let ok10 = apply(f: f9, x: 5) == 35;
+
+    // Closure used in for loop body
+    let word = "hello";
+    let f10 = (n: int) -> int = word.length() + n;
+    let total = 0;
+    for i in [1, 2, 3] do {
+        total = total + f10(i);
+    };
+    let ok11 = total == 21;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11
+        then 0 else 1
+}
