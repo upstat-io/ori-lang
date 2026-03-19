@@ -23,30 +23,31 @@ Code journeys trace a single Ori program through the entire compiler pipeline (l
 | J12 | "I am an option" | option_type, error_propagation | 33 | PASS | PASS | 10.0/10 | PERFECT — ? operator 8 instr, CFG simplified |
 | J13 | "I am an iterator" | iterators, iterator_adapters, closures | 55 | PASS | PASS | 10.0/10 | PERFECT — zero user RC, full trampoline attrs |
 | **J14** | **"I am a fat pointer"** | strings, arc, fat_pointer | 65 | PASS | PASS | **9.4/10** | SSO guard works, 2 CF defects, duplicate ptrtoint |
-| **J15** | **"I am nested fat"** | lists, strings, arc, nested_fat | 18 | PASS | PASS | **6.2/10** | **2 CRITICAL: double-free on [str] elements, double drop in unwind** |
+| **J15** | **"I am nested fat"** | lists, strings, arc, nested_fat | 18 | PASS | PASS | **10.0/10** | FIXED (2026-03-18): elem_dec_fn + iter ownership contract + unwind path fixed. Dual-exec verified, leak check clean. |
 | **J16** | **"I am fat and moving"** | strings, arc, ownership_transfer | 42 | PASS | PASS | **9.4/10** | HIGH: field-by-field aggregate materialization (3-6x bloat), sret ABI correct |
-| **J17** | **"I am a captured fat pointer"** | strings, closures, capture | 10 | PASS | **FAIL** | **3.0/10** | **CRITICAL: closure capturing str — unresolved type variable at codegen** |
+| **J17** | **"I am a captured fat pointer"** | strings, closures, capture | 10 | PASS | PASS | **10.0/10** | FIXED (2026-03-18): AIMS param ownership applied to lambdas. AOT exit code 10 matches eval, leak check + Valgrind clean. |
 
 J1-J13: All PASS, all 10.0/10.
-**J14-J17 (Fat Pointer Series): Exposed 3 CRITICAL bugs and 1 HIGH codegen issue.**
+**J14-J17 (Fat Pointer Series): Originally exposed 3 CRITICAL bugs and 1 HIGH codegen issue. J15 and J17 now fixed (2026-03-18). J14 and J16 have minor remaining issues.**
 
 ## Fat Pointer Findings (J14-J17)
 
 The fat pointer journeys were specifically designed to stress-test the `FatPointer` RC strategy (`{i64 len, i64 cap, ptr data}` representation for strings). They revealed a **class of bugs** that the original J1-J13 journeys missed because those journeys either used scalar types or tested fat pointers in isolation (J9 `.length()` only, J10 `[int]` not `[str]`).
 
 ### CRITICAL-C15a: Double-free on `[str]` element cleanup
-**Journey**: J15 | **Status**: OPEN
-**Root cause**: Both `ori_iter_drop` (iterator cleanup) and `ori_buffer_rc_dec` (list destructor calling `_ori_elem_dec`) free the same string elements. The iterator takes ownership of elements during iteration but the list destructor doesn't know this.
-**Impact**: Memory corruption at runtime. Correct exit code masks the bug.
+**Journey**: J15 | **Status**: FIXED (2026-03-18)
+**Root cause**: Both `ori_iter_drop` (iterator cleanup) and `ori_buffer_rc_dec` (list destructor calling `_ori_elem_dec`) free the same string elements.
+**Fix**: Iterator element defs excluded from RcDec via `collect_iter_element_defs()`. Proper `elem_dec_fn` propagated. See iter-rc-contract Sections 01-02.
 
 ### CRITICAL-C15b: Double `ori_buffer_rc_dec` in unwind path
-**Journey**: J15 | **Status**: OPEN
+**Journey**: J15 | **Status**: FIXED (2026-03-18)
 **Root cause**: Landing pad in `@main` emits two `ori_buffer_rc_dec` calls on the same list buffer.
-**Impact**: Double-free if `count_chars` panics during iteration.
+**Fix**: Unwind path double-drop eliminated. See fat-pointer-hardening Section 01.3.
 
 ### CRITICAL-C17: Closure capturing str — codegen crash
-**Journey**: J17 | **Status**: OPEN
-**Root cause**: Monomorphization fails to propagate the concrete `str` type for closure parameters when the closure captures a fat pointer. Type variable `Idx(N)` leaks into LLVM codegen, causing: (1) lambda param lowered as `i64` instead of `{i64, i64, ptr}`, (2) `.length()` dispatch fails, (3) `ori_rc_dec` called with wrong type.
+**Journey**: J17 | **Status**: FIXED (2026-03-18)
+**Root cause**: `declare_and_process_lambda()` did NOT apply AIMS param ownership annotations before running the ARC pipeline. Lambda params defaulted to `Owned`, causing spurious `RcDec` on borrowed-param aliases.
+**Fix**: 12 lines added to `declare_and_process_lambda()` to apply AIMS contracts to lambda params. See fat-pointer-hardening Section 02.
 **Impact**: AOT compilation fails. Eval works correctly.
 
 ### HIGH-H16: Field-by-field aggregate materialization

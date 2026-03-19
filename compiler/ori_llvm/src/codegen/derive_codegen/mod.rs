@@ -24,7 +24,7 @@ use ori_types::{FieldDef, Idx, TypeEntry, TypeKind, VariantDef};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
-use super::abi::{compute_function_abi, FunctionAbi, ReturnPassing};
+use super::abi::{compute_function_abi, FunctionAbi, ParamPassing, ReturnPassing};
 use super::function_compiler::FunctionCompiler;
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
@@ -368,12 +368,32 @@ fn emit_method_call_for_derive<'a>(
     args: &[ValueId],
     name: &str,
 ) -> ValueId {
+    // Fixup args: if the callee expects Indirect/Reference, store the struct
+    // value to an alloca and pass the pointer instead.
+    let mut fixed_args: Vec<ValueId> = Vec::with_capacity(args.len());
+    for (i, &arg) in args.iter().enumerate() {
+        if let Some(param) = abi.params.get(i) {
+            match param.passing {
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    let param_ty = fc.resolve_type(param.ty);
+                    let param_ty_id = fc.builder_mut().register_type(param_ty);
+                    let alloca = fc.entry_alloca(param_ty_id, &format!("{name}.arg.{i}"));
+                    fc.builder_mut().store(arg, alloca);
+                    fixed_args.push(alloca);
+                }
+                _ => fixed_args.push(arg),
+            }
+        } else {
+            fixed_args.push(arg);
+        }
+    }
+
     match &abi.return_abi.passing {
         ReturnPassing::Sret { .. } => {
             let ret_ty = fc.resolve_type(abi.return_abi.ty);
             let ret_ty_id = fc.builder_mut().register_type(ret_ty);
             fc.builder_mut()
-                .call_with_sret(func_id, args, ret_ty_id, name)
+                .call_with_sret(func_id, &fixed_args, ret_ty_id, name)
                 .unwrap_or_else(|| {
                     warn!(name, "sret call in derive method produced no value");
                     fc.builder_mut().record_codegen_error();
@@ -382,7 +402,7 @@ fn emit_method_call_for_derive<'a>(
         }
         _ => fc
             .builder_mut()
-            .call(func_id, args, name)
+            .call(func_id, &fixed_args, name)
             .unwrap_or_else(|| {
                 warn!(name, "call in derive method produced no value");
                 fc.builder_mut().record_codegen_error();

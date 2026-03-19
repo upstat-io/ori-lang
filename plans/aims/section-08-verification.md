@@ -6,7 +6,7 @@ goal: "Prove AIMS correctness via behavioral equivalence, performance comparison
 depends_on: ["06", "13"]
 third_party_review:
   status: findings
-  updated: 2026-03-16
+  updated: 2026-03-18
 sections:
   - id: "08.1"
     title: "Behavioral Equivalence"
@@ -881,3 +881,13 @@ subsystem is tested in isolation only.
 
 - [ ] `[TPR-08-009][major]` `compiler/ori_llvm/src/codegen/arc_emitter/rc_value_traversal.rs:129-140,246-254` — Option tag-blind RC on payload (SYSTEMIC). `inc_value_rc_inner`/`dec_value_rc_inner` for `Tag::Option` extract field 1 (payload) and perform RC operations without checking runtime tag (field 0). When Option is `None`, field 1 is uninitialized — RC ops execute on garbage pointer. Code self-acknowledges: "latent bug — doesn't check runtime tag." Blast radius: any struct/tuple containing `Option<T>` where T is RC-managed, processed via `AggregateFields` strategy. Fix: add tag check — extract field 0, branch on `Some` vs `None`, only process field 1 in `Some` path.
 - [ ] `[TPR-08-010][minor]` `compiler/ori_llvm/src/codegen/arc_emitter/rc_value_traversal.rs:46-47,161-174` — Result/Enum no-ops in nested field traversal (SYSTEMIC). `Tag::Result` and `Tag::Enum` are treated as scalar no-ops in `inc_value_rc_inner`/`dec_value_rc_inner`. If a struct field has type `Result<str, str>` and the struct uses `AggregateFields` strategy, inner RC fields receive no management. Same root cause as TPR-08-009: `rc_value_traversal.rs` doesn't handle inline sum types during recursive field walks. Fix: dispatch nested sum-type fields to `InlineEnum` tag-switch logic (shared with `rc_helpers.rs`).
+
+**Review date:** 2026-03-18
+**Method:** targeted review-work pass on current tree + plan metadata
+**Scope:** AIMS status claims in `index.md`, `00-overview.md`, and Section 08 frontmatter/TPR state
+**Verdict:** FAIL — 0 correctness bugs, 1 metadata drift
+
+- [ ] `[TPR-08-011][medium]` `plans/aims/index.md:5` — Top-level AIMS status metadata still reports the plan as resolved and Section 08 as complete even though Section 08 remains in progress with open third-party findings.
+  Evidence: `plans/aims/index.md` sets `status: resolved` and marks Section 08 `Complete`, while `plans/aims/00-overview.md` says “All 13 sections complete” / “verification agree across the full system.” In contrast, `plans/aims/section-08-verification.md` is `status: in-progress` with `third_party_review.status: findings` and still carries open `TPR-08-009` and `TPR-08-010`.
+  Impact: Readers of the AIMS plan are told the verification story is closed when the owning verification section still records unresolved findings, violating the index’s own completion rule that downstream consumers use the same truths.
+  Required plan update: Sync `index.md` and `00-overview.md` to the current Section 08 state, or close the open Section 08 findings before restoring the top-level plan to `resolved`.

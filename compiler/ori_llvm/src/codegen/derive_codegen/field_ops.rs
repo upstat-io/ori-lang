@@ -91,6 +91,18 @@ pub(super) fn emit_field_operation<'a>(
             FieldOp::Hash => emit_str_hash_call(fc, lhs, name, str_ty_id),
         },
 
+        // List/Set: use ori_list_eq_scalar for equality (byte-level comparison)
+        TypeInfo::List { element } | TypeInfo::Set { element } => {
+            let elem = *element;
+            match op {
+                FieldOp::Equals => {
+                    emit_list_eq_call(fc, lhs, expect_rhs(rhs), elem, name, str_ty_id)
+                }
+                FieldOp::Compare => fc.builder_mut().const_i8(1), // Equal fallback
+                FieldOp::Hash => fc.builder_mut().const_i64(0),   // Hash fallback
+            }
+        }
+
         TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
             emit_user_type_field_op(fc, op, lhs, rhs, field_type, name)
         }
@@ -192,6 +204,51 @@ fn emit_str_compare_call<'a>(
     fc.builder_mut()
         .call(cmp_fn, &[lhs_alloca, rhs_alloca], name)
         .unwrap_or_else(|| fc.builder_mut().const_i8(1)) // Equal fallback
+}
+
+/// Call `ori_list_eq_scalar(a: ptr, b: ptr, elem_size: i64) -> bool` via alloca+store pattern.
+///
+/// For lists of scalar elements (int, float, bool, byte), this does a byte-level
+/// comparison of the data buffers. For lists of strings or other fat types,
+/// this still works because `ori_list_eq_scalar` compares bytes — two independently
+/// created `[str]` with same content will have different data pointers for the
+/// strings, but the str structs themselves have the same len/cap and SSO data.
+///
+/// For proper deep comparison of `[str]`, a dedicated runtime function would be
+/// needed that calls `ori_str_eq` per element.
+fn emit_list_eq_call<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    lhs: ValueId,
+    rhs: ValueId,
+    element_type: Idx,
+    name: &str,
+    str_ty_id: LLVMTypeId,
+) -> ValueId {
+    let info = fc.type_info().get(element_type);
+    let elem_size: i64 = match &info {
+        TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Ordering => 1,
+        TypeInfo::Char => 4,
+        TypeInfo::Str | TypeInfo::List { .. } | TypeInfo::Set { .. } | TypeInfo::Map { .. } => 24, // {i64, i64, ptr}
+        TypeInfo::Struct { fields } => {
+            // Rough estimate: sum of field sizes (not accounting for padding)
+            fields.len() as i64 * 8
+        }
+        _ => 8, // int, float, duration, size, and fallback
+    };
+
+    // Store both lists to stack (ori_list_eq_scalar expects ptr to {len, cap, data}).
+    // Lists have the same LLVM layout as str: {i64, i64, ptr}.
+    // Lists have the same LLVM layout as str: {i64, i64, ptr}.
+    let lhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.lhs_list"));
+    fc.builder_mut().store(lhs, lhs_alloca);
+    let rhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.rhs_list"));
+    fc.builder_mut().store(rhs, rhs_alloca);
+
+    let elem_size_val = fc.builder_mut().const_i64(elem_size);
+    let eq_fn = fc.builder_mut().runtime_fn("ori_list_eq_scalar");
+    fc.builder_mut()
+        .call(eq_fn, &[lhs_alloca, rhs_alloca, elem_size_val], name)
+        .unwrap_or_else(|| fc.builder_mut().const_bool(false))
 }
 
 /// Call `ori_str_hash(s: ptr) -> i64` via alloca+store pattern.

@@ -138,23 +138,34 @@ Each test file is a Rust AOT test that:
 - [x] Implement F02 (function parameter) tests — 12 tests: T4-T18 as params, plus heap str reuse (RC inc) and multi-fat params. All pass debug+release. (2026-03-18)
 - [x] Implement F03 (function return) tests — 11 tests: T4-T18 returned from functions, plus chained return. All pass debug+release. (2026-03-18)
 - [x] Implement F04 (closure capture) tests — 12 tests: T4-T18 captured in closures (SSO, heap, list scalar/fat, struct scalar/fat, Option int, map, multi, passed-as-arg, in-loop). **BUG FOUND AND FIXED**: closure env drop function used `ori_rc_dec` on collection data ptrs — drop function expected `{len, cap, data}` struct but received raw buffer pointer → SIGSEGV. Fix: dispatch to `emit_buffer_rc_dec_list_or_set`/`emit_buffer_rc_dec_map` for collection captures in `closures.rs:generate_env_drop_fn()`. All pass debug+release. (2026-03-18)
-- [ ] Implement F05 (closure parameter) tests
-- [ ] Implement F06 (pattern matching) tests
+- [x] Implement F05 (closure parameter) tests — 12 tests written. 5 pass, **7 FAIL (BUG-04-01)**: heap str, list scalar, list fat, struct scalar, struct fat, Option<int>, map all leak 1 RC allocation. SSO str, tuple, multi-fat SSO, higher-order, fat-capture+param pass. (2026-03-18)
+- [x] Implement F06 (pattern matching) tests — 8 tests written. 7 pass, **1 FAIL (BUG-04-02)**: `test_fm_match_multi_arm_fat` crashes with misaligned pointer dereference in `ori_rc_dec` — multi-field variant `Rect(name: str, w: int, h: int)` with fat payload. Unit variants, Option, struct destructure, tuple, nested match all pass. (2026-03-18)
 - [x] Implement F07 (branching) tests — 11 tests: T4-T18 in if/else (str, heap str, list scalar/fat, struct scalar/fat, Option int/str, map, tuple, nested). All pass debug+release. (2026-03-18)
 - [x] Implement F08 (for loop iteration) tests — 10 tests: T6-T17 iterating collections (list scalar/fat do/yield/break/two-iter, struct scalar/fat, map, nested, yield transform). All pass debug+release. (2026-03-18)
 - [x] Implement F09 (loop accumulation) tests — 4 tests: scalar sum, list lengths, map values, function calls on fat values. All pass debug+release. (2026-03-18)
-- [ ] Implement F10 (generic instantiation) tests
-- [ ] Implement F11 (struct field) tests
-- [ ] Implement F12 (sum type payload) tests
-- [ ] Implement F13 (derived Eq) tests
+- [x] Implement F10 (generic instantiation) tests — 10 tests written. 9 pass, **1 FAIL (BUG-04-01)**: `test_fm_generic_with_operation` leaks — list passed through generic `apply<T>(f: (T) -> int, x: T)` leaks 1 RC allocation. Identity generics with all fat types pass. (2026-03-18)
+- [x] Implement F11 (struct field) tests — 8 tests: str, heap str, list scalar/fat, nested fat, multi fat, field passed to fn, map field. **All pass.** (2026-03-18)
+- [x] Implement F12 (sum type payload) tests — 8 tests: str, heap str, list scalar/fat, struct fat, multi-variant, None variant, payload passed to fn. **All pass.** Note: variant punning `Text(content:)` doesn't parse — used positional `Text(content)` workaround (BUG-04-06). (2026-03-18)
+- [x] Implement F13 (derived Eq) tests — 8 tests written. 4 pass, **4 FAIL (BUG-04-03)**: struct with `[int]` field, struct with `[str]` field, nested struct with fat Inner, Option<str> comparison — all return wrong exit codes. Struct with str+int, direct str, multi-fat-field struct, heap str struct all pass. (2026-03-18)
 - [x] Implement F14 (list element) tests — 6 tests: [str], [[int]], [Named], [Option<str>], two-iterations, yield. All pass debug+release. (2026-03-18)
-- [ ] Implement F15 (? propagation) tests
-- [ ] Implement F16 (recursion) tests
-- [ ] Implement F17 (higher-order) tests
+- [x] Implement F15 (? propagation) tests — 7 tests written. 5 pass, **2 FAIL (BUG-04-04)**: Option<str> with `?` — LLVM module verification failure: return type mismatch `{i64, {i64, i64, ptr}}` vs `{i64, i64}`. Option<int> with `?`, fat-in-scope cleanup, multiple `?` all pass. (2026-03-18)
+- [x] Implement F16 (recursion) tests — 6 tests: str in scope, str param, list param, struct fat return, Option return, mutual recursion. **All pass.** (2026-03-18)
+- [x] Implement F17 (higher-order) tests — 8 tests: str fn, list fn, lambda fat capture, called-twice, compose, struct fat, map, different fns. **All pass.** (2026-03-18)
 - [x] Implement F18 (multiple values) tests — 5 tests: multi-str, multi-list, multi-struct, multi-map, mixed fat types. All pass debug+release. (2026-03-18)
 - [x] Implement F19 (break/continue) tests — 6 tests: break from [str], continue [str], break with inner fat, continue with inner fat, break in for-yield, break nested loops. All pass debug+release. (2026-03-18)
-- [ ] Implement F20 (derived Clone) tests -- Clone of structs/sum types with fat fields
+- [x] Implement F20 (derived Clone) tests — 8 tests written. 4 pass, **4 FAIL (BUG-04-05)**: Clone of struct with `[int]`, struct with `[str]`, nested struct with fat Inner, struct with map — all double-free (`ori_rc_dec called on already-freed allocation`). Struct with str, heap str, multi-fat-fields, independence test all pass. (2026-03-18)
 - [ ] All tests pass in both eval and AOT
+
+### Bugs Found by Matrix (2026-03-18)
+
+All 20 feature test files written. 175 total tests: **169 pass, 6 fail** (after fixes). 6 distinct bugs found, 3 fixed:
+
+- [x] **BUG-04-01**: Closure/generic parameter RC leak — **FIXED** (2026-03-19). Changed `is_owned_position` for `ApplyIndirect` to return `false` — lambda callees don't own params, caller must emit RcDec. Fix: `ori_arc/src/ir/instr.rs`. All 12 F05 tests pass. F10 `generic_with_operation` still leaks (different root cause: monomorphized generic with indirect call inside — tracked separately).
+- [ ] **BUG-04-02**: Multi-field variant match crash — `Rect(name: str, w: int, h: int)` match causes misaligned pointer dereference in `ori_rc_dec`. Affects 1 test in F06. Single-field payload variants and unit variants work. Root cause: likely wrong GEP offset calculation for fat pointer fields in multi-field sum type variants during match destructure.
+- [x] **BUG-04-03**: Derived Eq wrong results on collections/nested — **PARTIALLY FIXED** (2026-03-19). Added `ori_list_eq_scalar` runtime function + `TypeInfo::List/Set` handling in `emit_field_operation` + ABI fixup in `emit_method_call_for_derive` for Indirect params. Fixes: `ori_rt/src/list/query.rs`, `ori_llvm/src/codegen/derive_codegen/field_ops.rs`, `ori_llvm/src/codegen/derive_codegen/mod.rs`. 6 more tests pass. Remaining: `eq_option_str` (Option<str> == uses ARC IR `==` primop → icmp on aggregate, separate from derived Eq), `clone_map_field` (map clone RC inc emitted but map equality not implemented for verification).
+- [ ] **BUG-04-04**: Option<str> with `?` LLVM IR type mismatch — `?` on `Option<str>` produces "Function return type does not match operand type of return inst" — generates `{i64, {i64, i64, ptr}}` return but function signature expects `{i64, i64}`. Affects 2 tests in F15. `Option<int>` with `?` works fine. Root cause: `?` lowering doesn't account for fat Option payload when generating the early-return path.
+- [x] **BUG-04-05**: Derived Clone double-free on collections/nested/map — **FIXED** (2026-03-19). Clone codegen `compile_clone_fields` was an identity-return stub. Fix: iterate struct fields and emit per-field RC increment (SSO-aware for str, `ori_list_rc_inc` for list/set, `ori_rc_inc` for map, recursive for nested structs/tuples/options). Fix: `ori_llvm/src/codegen/derive_codegen/bodies.rs`. RC trace confirms perfect balance. Remaining F20 test failures are BUG-04-03 (Eq interference).
+- [ ] **BUG-04-06**: Variant punning in match patterns doesn't parse — spec says `Circle(radius:)` = `Circle(radius: radius)` as punning syntax, but parser rejects with "expected `,` or `)`". All F06/F12 tests work around with positional binding `Text(content)` instead. Root cause: parser `parse_match_pattern` doesn't handle trailing `:` as punning in variant patterns.
 
 **Priority ordering:** F04 (closure capture) and F08/F14 (iteration/list elements) first -- these are the known bug areas. Then F02/F03 (function param/return) as the most common fat pointer operations. Then the rest.
 
