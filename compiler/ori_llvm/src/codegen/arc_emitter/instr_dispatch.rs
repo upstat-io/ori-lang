@@ -5,10 +5,43 @@
 //! for field extraction from structs and enums.
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcVarId, RcStrategy, ValueRepr};
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 
 use super::context::{is_boxed_enum_field, EmittedValue};
+use super::drop_enum::compute_variant_field_offsets;
 use super::ArcIrEmitter;
+
+/// Compute the byte offset for a given payload field in an enum variant.
+///
+/// Searches all variants of the enum to find one where the field at
+/// `payload_field_idx` (0-based) has type matching `field_type`. Returns
+/// the byte offset within the `[M x i64]` payload area.
+///
+/// Falls back to `payload_field_idx * 8` if no matching variant is found
+/// (single-slot fields at sequential positions — the legacy behavior).
+fn enum_payload_byte_offset(
+    emitter: &ArcIrEmitter<'_, '_, '_, '_>,
+    enum_ty: Idx,
+    payload_field_idx: u32,
+    field_type: Idx,
+) -> u64 {
+    let resolved = emitter.pool.resolve_fully(enum_ty);
+    if emitter.pool.tag(resolved) != Tag::Enum {
+        return u64::from(payload_field_idx) * 8;
+    }
+    let variants = emitter.pool.enum_variants(resolved);
+    let fi = payload_field_idx as usize;
+    let resolved_ft = emitter.pool.resolve_fully(field_type);
+
+    for (_, fields) in &variants {
+        if fi < fields.len() && emitter.pool.resolve_fully(fields[fi]) == resolved_ft {
+            let offsets = compute_variant_field_offsets(fields, resolved, emitter);
+            return offsets.get(fi).copied().unwrap_or(0);
+        }
+    }
+    // Fallback: assume single-slot fields
+    u64::from(payload_field_idx) * 8
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a `Project` instruction (field extraction).
@@ -44,20 +77,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     super::super::type_info::TypeInfo::Enum { .. }
                 );
 
+                // Compute byte offset for this field within the payload.
+                let byte_offset = if is_general_enum {
+                    enum_payload_byte_offset(self, val_ty, field - 1, ty)
+                } else {
+                    0
+                };
+
                 // Fast path: extractvalue chain for general enum scalar fields.
                 // Avoids alloca+store+GEP+load (5 instr) with extractvalue (2-3 instr).
+                // The byte_offset must be i64-aligned for extractvalue indexing.
+                let slot_index = byte_offset / 8;
                 if is_general_enum
                     && !is_boxed_enum_field(self.pool, val_ty, ty)
                     && self.builder.is_struct_value(val)
                     && self.builder.is_single_slot_type(result_ty)
+                    && byte_offset % 8 == 0
                 {
                     let payload = self
                         .builder
                         .extract_value(val, 1, "proj.payload")
                         .expect("enum value should be a struct");
+                    #[expect(clippy::cast_possible_truncation, reason = "slot index fits u32")]
                     let raw = self.builder.extract_value_any(
                         payload,
-                        field - 1,
+                        slot_index as u32,
                         &format!("proj.{field}.raw"),
                     );
                     let converted =
@@ -76,12 +120,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let payload_ptr =
                         self.builder
                             .struct_gep(llvm_val_ty, alloca, 1, "proj.payload");
-                    let i64_ty = self.builder.i64_type();
-                    let slot_idx = self.builder.const_i64(i64::from(field - 1));
+                    let i8_ty = self.builder.i8_type();
+                    let offset_val = self.builder.const_i64(byte_offset as i64);
                     let slot_ptr = self.builder.gep(
-                        i64_ty,
+                        i8_ty,
                         payload_ptr,
-                        &[slot_idx],
+                        &[offset_val],
                         &format!("proj.{field}.gep"),
                     );
 
