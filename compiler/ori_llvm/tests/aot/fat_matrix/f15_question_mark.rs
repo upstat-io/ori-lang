@@ -54,7 +54,6 @@ fn test_fm_question_option_int_none() {
 
 // T16: ? on Option<str> — Some path
 #[test]
-#[ignore = "BUG-04-04: Option<str> with ? — LLVM IR type mismatch on fat option return"]
 fn test_fm_question_option_str_some() {
     assert_aot_success(
         r#"
@@ -76,7 +75,6 @@ fn test_fm_question_option_str_some() {
 
 // T16: ? on Option<str> — None path
 #[test]
-#[ignore = "BUG-04-04: Option<str> with ? — LLVM IR type mismatch on fat option return"]
 fn test_fm_question_option_str_none() {
     assert_aot_success(
         r#"
