@@ -333,3 +333,78 @@ fn write_array_to_list_from_data(data: *mut u8, len: i64, elem_size: i64, out_pt
         out_ptr.add(16).cast::<*mut u8>().write(data);
     }
 }
+
+/// Compare two maps for equality.
+///
+/// Two maps are equal when they have the same length and every key in map A
+/// exists in map B with an equal value. Uses `key_eq`/`key_hash` for key
+/// lookup and `val_eq` for value comparison.
+#[no_mangle]
+pub extern "C" fn ori_map_eq(
+    a: *const OriMap,
+    b: *const OriMap,
+    key_size: i64,
+    val_size: i64,
+    key_eq: extern "C" fn(*const u8, *const u8) -> bool,
+    key_hash: extern "C" fn(*const u8) -> i64,
+    val_eq: extern "C" fn(*const u8, *const u8) -> bool,
+) -> bool {
+    let (a_map, b_map) = unsafe {
+        if a.is_null() || b.is_null() {
+            return a.is_null() && b.is_null();
+        }
+        (&*a, &*b)
+    };
+
+    // Quick checks: lengths must match
+    if a_map.len != b_map.len {
+        return false;
+    }
+    // Both empty
+    if a_map.len == 0 {
+        return true;
+    }
+    // Same data pointer → identical
+    if a_map.data == b_map.data && a_map.cap == b_map.cap {
+        return true;
+    }
+
+    let ks = key_size.max(1) as usize;
+    let vs = val_size.max(1) as usize;
+    let a_cap = a_map.cap as usize;
+    let b_cap = b_map.cap as usize;
+    let a_layout = HashTableLayout::for_map(a_cap, ks, vs);
+    let b_layout = HashTableLayout::for_map(b_cap, ks, vs);
+
+    // For each occupied entry in A, look it up in B and compare values
+    let a_data = a_map.data.cast_const();
+    let b_data = b_map.data.cast_const();
+    let mut checked = 0usize;
+    let n = a_map.len as usize;
+
+    for bucket in 0..a_cap {
+        if unsafe { get_meta(a_data, bucket) } != META_OCCUPIED {
+            continue;
+        }
+        let a_key = unsafe { a_data.add(a_layout.keys_offset + bucket * ks) };
+        let a_val = unsafe { a_data.add(a_layout.vals_offset + bucket * vs) };
+        let hash = key_hash(a_key);
+
+        // Find the same key in B
+        let b_bucket =
+            unsafe { probe_find(b_data, b_cap, b_layout.keys_offset, a_key, hash, ks, key_eq) };
+        let Some(b_idx) = b_bucket else {
+            return false; // key not in B
+        };
+        let b_val = unsafe { b_data.add(b_layout.vals_offset + b_idx * vs) };
+        if !val_eq(a_val, b_val) {
+            return false; // values differ
+        }
+        checked += 1;
+        if checked >= n {
+            break;
+        }
+    }
+
+    true
+}

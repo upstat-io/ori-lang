@@ -192,6 +192,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem = *element;
                 self.emit_list_equals(lhs, rhs, elem)
             }
+            TypeInfo::Map { key, value } => {
+                let key = *key;
+                let value = *value;
+                self.emit_map_equals(lhs, rhs, key, value)
+            }
             _ => None,
         }
     }

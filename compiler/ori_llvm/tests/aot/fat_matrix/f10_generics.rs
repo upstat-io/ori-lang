@@ -162,7 +162,6 @@ fn test_fm_generic_multi_instantiation() {
 
 // Generic function with fat constraint (uses length)
 #[test]
-#[ignore = "BUG-04-01: generic indirect call leaks RC — monomorphized apply<T> with indirect f(x) inside"]
 fn test_fm_generic_with_operation() {
     assert_aot_success(
         r#"

@@ -24,6 +24,33 @@ use crate::ir::ArcFunction;
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 use crate::BuiltinOwnershipSets;
 
+/// Convert a `MemoryContract`'s params to `AnnotatedParam` list.
+fn contract_to_params(contract: &MemoryContract) -> Vec<AnnotatedParam> {
+    contract
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, pc)| {
+            let ownership =
+                if pc.consumption == Consumption::Dead || pc.cardinality == Cardinality::Absent {
+                    Ownership::Borrowed
+                } else {
+                    match pc.access {
+                        AccessClass::Borrowed => Ownership::Borrowed,
+                        AccessClass::Owned => Ownership::Owned,
+                    }
+                };
+            AnnotatedParam {
+                name: Name::from_raw(
+                    u32::try_from(i).unwrap_or_else(|_| panic!("param index {i} exceeds u32::MAX")),
+                ),
+                ty: ori_types::Idx::NONE,
+                ownership,
+            }
+        })
+        .collect()
+}
+
 /// Populate `arg_ownership` on all call sites from AIMS contracts.
 ///
 /// Converts each `MemoryContract` to an `AnnotatedSig` and delegates to
@@ -39,37 +66,10 @@ pub fn emit_arg_ownership(
     builtins: &BuiltinOwnershipSets,
     pool: &Pool,
 ) {
-    let sigs: FxHashMap<Name, AnnotatedSig> = contracts
+    let mut sigs: FxHashMap<Name, AnnotatedSig> = contracts
         .iter()
         .map(|(&name, contract)| {
-            let params = contract
-                .params
-                .iter()
-                .enumerate()
-                .map(|(i, pc)| {
-                    // Demand-driven RC elimination (Section 07.3.3): if the
-                    // callee never uses the parameter (Absent cardinality / Dead
-                    // consumption), mark it Borrowed so the caller skips RcInc.
-                    let ownership = if pc.consumption == Consumption::Dead
-                        || pc.cardinality == Cardinality::Absent
-                    {
-                        Ownership::Borrowed
-                    } else {
-                        match pc.access {
-                            AccessClass::Borrowed => Ownership::Borrowed,
-                            AccessClass::Owned => Ownership::Owned,
-                        }
-                    };
-                    AnnotatedParam {
-                        name: Name::from_raw(
-                            u32::try_from(i)
-                                .unwrap_or_else(|_| panic!("param index {i} exceeds u32::MAX")),
-                        ),
-                        ty: ori_types::Idx::NONE,
-                        ownership,
-                    }
-                })
-                .collect();
+            let params = contract_to_params(contract);
             (
                 name,
                 AnnotatedSig {
@@ -79,6 +79,47 @@ pub fn emit_arg_ownership(
             )
         })
         .collect();
+
+    // Monomorphized name resolution: ARC IR call sites use the original
+    // function name (e.g., "apply"), but contracts are keyed under the
+    // monomorphized name (e.g., "apply$m$Lint"). Add entries under the
+    // original name so call sites find the correct ownership annotations.
+    // When multiple monomorphizations exist, use conservative merge
+    // (Borrowed if ANY mono says Borrowed — safe: caller retains cleanup).
+    let mono_entries: Vec<(Name, AnnotatedSig)> = contracts
+        .iter()
+        .filter_map(|(&name, contract)| {
+            let name_str = interner.try_lookup(name)?;
+            let pos = name_str.find("$m$")?;
+            let orig_name = interner.intern(&name_str[..pos]);
+            // Skip if original name already in sigs (non-monomorphized version exists)
+            if sigs.contains_key(&orig_name) {
+                return None;
+            }
+            Some((
+                orig_name,
+                AnnotatedSig {
+                    params: contract_to_params(contract),
+                    return_type: ori_types::Idx::NONE,
+                },
+            ))
+        })
+        .collect();
+
+    for (orig_name, sig) in mono_entries {
+        sigs.entry(orig_name)
+            .and_modify(|existing| {
+                // Conservative merge: Borrowed wins (safer — caller retains cleanup)
+                for (i, param) in sig.params.iter().enumerate() {
+                    if let Some(ep) = existing.params.get_mut(i) {
+                        if param.ownership == Ownership::Borrowed {
+                            ep.ownership = Ownership::Borrowed;
+                        }
+                    }
+                }
+            })
+            .or_insert(sig);
+    }
 
     crate::rc_insert::annotate_arg_ownership(func, &sigs, interner, builtins, pool);
 }

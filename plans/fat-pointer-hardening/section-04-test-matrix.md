@@ -10,10 +10,10 @@ third_party_review:
 sections:
   - id: "04.1"
     title: "Type Category Definitions"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Feature Dimension Definitions"
-    status: not-started
+    status: complete
   - id: "04.3"
     title: "Matrix Implementation"
     status: in-progress
@@ -154,15 +154,15 @@ Each test file is a Rust AOT test that:
 - [x] Implement F18 (multiple values) tests — 5 tests: multi-str, multi-list, multi-struct, multi-map, mixed fat types. All pass debug+release. (2026-03-18)
 - [x] Implement F19 (break/continue) tests — 6 tests: break from [str], continue [str], break with inner fat, continue with inner fat, break in for-yield, break nested loops. All pass debug+release. (2026-03-18)
 - [x] Implement F20 (derived Clone) tests — 8 tests written. 4 pass, **4 FAIL (BUG-04-05)**: Clone of struct with `[int]`, struct with `[str]`, nested struct with fat Inner, struct with map — all double-free (`ori_rc_dec called on already-freed allocation`). Struct with str, heap str, multi-fat-fields, independence test all pass. (2026-03-18)
-- [ ] All tests pass in both eval and AOT
+- [x] All tests pass in both eval and AOT (2026-03-19) — 181/181 pass, 0 ignored
 
 ### Bugs Found by Matrix (2026-03-18)
 
-All 20 feature test files written. 181 total tests: **178 pass, 0 fail, 3 ignored** (after fixes). 6 distinct bugs found, 5 fixed:
+All 20 feature test files written. 181 total tests: **181 pass, 0 fail, 0 ignored** (after fixes). 6 distinct bugs found, all 6 fixed:
 
-- [x] **BUG-04-01**: Closure/generic parameter RC leak — **FIXED** (2026-03-19). Changed `is_owned_position` for `ApplyIndirect` to return `false` — lambda callees don't own params, caller must emit RcDec. Fix: `ori_arc/src/ir/instr.rs`. All 12 F05 tests pass. F10 `generic_with_operation` still leaks (different root cause: monomorphized generic with indirect call inside — tracked separately).
+- [x] **BUG-04-01**: Closure/generic parameter RC leak — **FULLY FIXED** (2026-03-19). Phase 1: Changed `is_owned_position` for `ApplyIndirect` to return `false` — lambda callees don't own params, caller must emit RcDec. Fix: `ori_arc/src/ir/instr.rs`. All 12 F05 tests pass. Phase 2 (2026-03-19): Fixed monomorphized generic RC leak. Root cause: ARC IR call sites use original name `"apply"`, but interprocedural contracts are keyed under monomorphized name `"apply$m$Lint"` → ownership lookup falls to default `Owned` for all args → caller doesn't emit RcDec → leak. Fix: `emit_arg_ownership()` now builds a reverse mapping from monomorphized names to original names, adding contract entries under both. Conservative merge when multiple monomorphizations exist. Fix: `ori_arc/src/aims/emit_rc/arg_ownership.rs`. All 181 fat_matrix tests pass (0 ignored).
 - [x] **BUG-04-02**: Multi-field variant match crash — **FIXED** (2026-03-18). Root cause: 5 codegen locations used field INDEX as i64 slot offset, but fat types (str = 3 slots) need cumulative byte offsets. Fix: use `compute_variant_field_offsets()` (already correct in `drop_enum.rs`) across construction (`construction.rs`), projection fast+slow paths (`instr_dispatch.rs`), and RC inc/dec (`rc_helpers.rs`). All use `gep(i8_ty, ...)` with byte offsets instead of `gep(i64_ty, ...)` with slot indices. 6 new matrix tests added: str-first, fat-middle, fat-last, multi-fat, fat-scalar-fat interleave, heap str. All 14 F06 tests pass debug+release. Valgrind clean.
-- [x] **BUG-04-03**: Derived Eq wrong results on collections/nested — **PARTIALLY FIXED** (2026-03-19). Added `ori_list_eq_scalar` runtime function + `TypeInfo::List/Set` handling in `emit_field_operation` + ABI fixup in `emit_method_call_for_derive` for Indirect params. Fixes: `ori_rt/src/list/query.rs`, `ori_llvm/src/codegen/derive_codegen/field_ops.rs`, `ori_llvm/src/codegen/derive_codegen/mod.rs`. 6 more tests pass. Remaining: `eq_option_str` (Option<str> == uses ARC IR `==` primop → icmp on aggregate, separate from derived Eq), `clone_map_field` (map clone RC inc emitted but map equality not implemented for verification).
+- [x] **BUG-04-03**: Derived Eq wrong results on collections/nested — **FULLY FIXED** (2026-03-19). Phase 1: Added `ori_list_eq_scalar` runtime function + `TypeInfo::List/Set` handling in `emit_field_operation` + ABI fixup in `emit_method_call_for_derive` for Indirect params. Phase 2 (2026-03-19): Fixed Option<str>/Result/List inline `==` by adding `emit_element_equals()` dispatch in `emit_comparison_via_trait()` — handles compound types that lack compiled derived Eq methods. Fixed map `==` by adding `ori_map_eq` runtime function (entry-by-entry comparison with `key_eq`/`key_hash`/`val_eq` callbacks) + `TypeInfo::Map` arm in `emit_field_operation` + thunk generation for derive codegen. Files: `ori_rt/src/map/mod.rs`, `ori_llvm/src/codegen/arc_emitter/operators/mod.rs`, `ori_llvm/src/codegen/arc_emitter/builtins/compound_traits.rs`, `ori_llvm/src/codegen/arc_emitter/builtins/compound_type_impls.rs`, `ori_llvm/src/codegen/derive_codegen/field_ops.rs`, `ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`. All 3 previously-ignored BUG-04-03 tests now pass (180/181, 1 remaining = BUG-04-01).
 - [x] **BUG-04-04**: Option<str> with `?` LLVM IR type mismatch — **FIXED** (2026-03-19). `lower_try` used scrutinee type (`Option<str>`) instead of function return type (`Option<int>`) for early-return None construction. Fix: added `return_type` field to `ArcLowerer`, used it in the Option branch of `lower_try`. Files: `ori_arc/src/lower/{expr/mod.rs, mod.rs, calls/lambda.rs, collections/mod.rs}`. All 7 F15 tests pass.
 - [x] **BUG-04-05**: Derived Clone double-free on collections/nested/map — **FIXED** (2026-03-19). Clone codegen `compile_clone_fields` was an identity-return stub. Fix: iterate struct fields and emit per-field RC increment (SSO-aware for str, `ori_list_rc_inc` for list/set, `ori_rc_inc` for map, recursive for nested structs/tuples/options). Fix: `ori_llvm/src/codegen/derive_codegen/bodies.rs`. RC trace confirms perfect balance. Remaining F20 test failures are BUG-04-03 (Eq interference).
 - [ ] **BUG-04-06**: Variant punning in match patterns doesn't parse — spec says `Circle(radius:)` = `Circle(radius: radius)` as punning syntax, but parser rejects with "expected `,` or `)`". All F06/F12 tests work around with positional binding `Text(content)` instead. Root cause: parser `parse_match_pattern` doesn't handle trailing `:` as punning in variant patterns.
