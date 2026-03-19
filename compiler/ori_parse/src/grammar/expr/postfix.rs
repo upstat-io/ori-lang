@@ -395,9 +395,20 @@ impl Parser<'_> {
             }
 
             let (name, value) = if p.cursor.is_named_arg_start() {
+                let arg_span = p.cursor.current_span();
                 let name = p.cursor.expect_ident_or_keyword()?;
                 p.cursor.expect(&TokenKind::Colon)?;
-                let value = p.parse_expr().into_result()?;
+
+                // Argument punning: `f(x:)` desugars to `f(x: x)`
+                // Spec: named_arg = identifier ":" [ expression ]
+                let value =
+                    if p.cursor.check(&TokenKind::Comma) || p.cursor.check(&TokenKind::RParen) {
+                        // Punning — create synthetic Expr::Ident with the argument name
+                        p.arena
+                            .alloc_expr(Expr::new(ExprKind::Ident(name), arg_span))
+                    } else {
+                        p.parse_expr().into_result()?
+                    };
                 (Some(name), value)
             } else {
                 let value = p.parse_expr().into_result()?;

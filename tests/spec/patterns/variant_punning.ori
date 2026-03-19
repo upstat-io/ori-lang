@@ -1,0 +1,67 @@
+// Spec: Variant Pattern Punning (approved 2026-02-21)
+// Tests for variant field punning: Circle(radius:) desugars to Circle(radius)
+
+use std.testing { assert_eq }
+
+// Single-field variant punning
+
+type Shape = Circle(radius: float) | Square(side: float);
+
+@area (s: Shape) -> float = match s {
+    Circle(radius:) -> radius * radius * 3.14,
+    Square(side:) -> side * side,
+}
+
+@test_single_field_punning tests @area () -> void = {
+    assert_eq(actual: area(s: Circle(radius: 2.0)), expected: 12.56);
+    assert_eq(actual: area(s: Square(side: 3.0)), expected: 9.0)
+}
+
+// Multi-field variant punning
+
+type Expr = Lit(value: int) | Add(left: int, right: int);
+
+@eval_expr (e: Expr) -> int = match e {
+    Lit(value:) -> value,
+    Add(left:, right:) -> left + right,
+}
+
+@test_multi_field_punning tests @eval_expr () -> void = {
+    assert_eq(actual: eval_expr(e: Lit(value: 42)), expected: 42);
+    assert_eq(actual: eval_expr(e: Add(left: 3, right: 7)), expected: 10)
+}
+
+// Option punning
+
+@unwrap_or_zero (o: Option<int>) -> int = match o {
+    Some(value:) -> value,
+    None -> 0,
+}
+
+@test_option_punning tests @unwrap_or_zero () -> void = {
+    assert_eq(actual: unwrap_or_zero(o: Some(42)), expected: 42);
+    assert_eq(actual: unwrap_or_zero(o: None), expected: 0)
+}
+
+// Result punning
+
+@result_to_int (r: Result<int, str>) -> int = match r {
+    Ok(value:) -> value,
+    Err(error:) -> -1,
+}
+
+@test_result_punning tests @result_to_int () -> void = {
+    assert_eq(actual: result_to_int(r: Ok(10)), expected: 10);
+    assert_eq(actual: result_to_int(r: Err("fail")), expected: -1)
+}
+
+// Mixed positional and punning (positional remains unchanged)
+
+@mixed_match (o: Option<int>) -> int = match o {
+    Some(x) -> x,
+    None -> 0,
+}
+
+@test_positional_still_works tests @mixed_match () -> void = {
+    assert_eq(actual: mixed_match(o: Some(99)), expected: 99)
+}
