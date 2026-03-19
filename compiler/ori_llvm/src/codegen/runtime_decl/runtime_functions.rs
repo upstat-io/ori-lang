@@ -809,6 +809,22 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: false,
     },
+    // ori_map_eq(a: ptr, b: ptr, key_size, val_size, key_eq, key_hash, val_eq) -> bool
+    RtFn {
+        name: "ori_map_eq",
+        params: &[
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: false,
+    },
     RtFn {
         name: "ori_str_ne",
         params: &[Ty::Ptr, Ty::Ptr],

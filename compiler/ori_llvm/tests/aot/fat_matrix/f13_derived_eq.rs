@@ -98,7 +98,6 @@ type Outer = { inner: Inner, count: int }
 
 // Sum type: Eq on Option<str>
 #[test]
-#[ignore = "BUG-04-03: Option<str> == uses ARC IR primop icmp on aggregate — needs runtime comparison"]
 fn test_fm_eq_option_str() {
     assert_aot_success(
         r#"
