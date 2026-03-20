@@ -707,3 +707,80 @@ fn test_closure_multi_capture() {
         "closure_multi_capture",
     );
 }
+
+/// Closure capturing another closure and calling it.
+///
+/// The outer closure's env holds `{ drop_fn, inner_closure }` where
+/// `inner_closure` is `{ fn_ptr, env_ptr }`. The env drop function
+/// must extract `env_ptr` from the inner closure, not pass the whole
+/// `{ ptr, ptr }` to `ori_rc_dec`. Semantic pin for closure-in-closure RC.
+#[test]
+fn test_closure_capturing_closure() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $inner = (x: int) -> int = x * 2;
+    let $outer = () -> int = inner(x: 21);
+    if outer() == 42 then 0 else 1
+}
+"#,
+        "closure_capturing_closure",
+    );
+}
+
+/// Nested closures — outer captures str, inner captures outer's captured str.
+#[test]
+fn test_nested_closure_fat_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $s = "hello world and then some extra text for heap allocation";
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    if outer() == 56 then 0 else 1
+}
+"#,
+        "nested_closure_fat_capture",
+    );
+}
+
+/// Closure returned from a function with a fat pointer capture.
+#[test]
+fn test_closure_returned_from_function() {
+    assert_aot_success(
+        r#"
+@make_greeter (greeting: str) -> (str) -> str = {
+    name -> `{greeting}, {name}!`
+}
+
+@main () -> int = {
+    let $greet = make_greeter(greeting: "Hello");
+    let $result = greet("world");
+    if result == "Hello, world!" then 0 else 1
+}
+"#,
+        "closure_returned_from_function",
+    );
+}
+
+/// Closure capturing `Option<str>` and pattern matching on it.
+#[test]
+fn test_closure_capturing_option_str_match() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $opt = Some("hello");
+    let $f = () -> int = {
+        match opt {
+            Some(s) -> s.length(),
+            None -> 0,
+        }
+    };
+    if f() == 5 then 0 else 1
+}
+"#,
+        "closure_capturing_option_str_match",
+    );
+}

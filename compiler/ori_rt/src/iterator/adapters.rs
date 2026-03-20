@@ -5,7 +5,7 @@
 
 use std::ptr;
 
-use super::state::{empty_range, IterState, PredicateFn, TransformFn};
+use super::state::{assert_elem_size, empty_range, IterState, PredicateFn, TransformFn};
 
 /// Create a mapped iterator adapter.
 ///
@@ -19,6 +19,7 @@ pub extern "C" fn ori_iter_map(
     transform_env: *mut u8,
     in_size: i64,
 ) -> *mut u8 {
+    assert_elem_size(in_size, "ori_iter_map");
     if iter.is_null() {
         return ptr::null_mut();
     }
@@ -43,6 +44,7 @@ pub extern "C" fn ori_iter_filter(
     predicate_env: *mut u8,
     elem_size: i64,
 ) -> *mut u8 {
+    assert_elem_size(elem_size, "ori_iter_filter");
     if iter.is_null() {
         return ptr::null_mut();
     }
@@ -103,6 +105,7 @@ pub extern "C" fn ori_iter_enumerate(iter: *mut u8) -> *mut u8 {
 /// Stops when either iterator is exhausted.
 #[no_mangle]
 pub extern "C" fn ori_iter_zip(left: *mut u8, right: *mut u8, left_elem_size: i64) -> *mut u8 {
+    assert_elem_size(left_elem_size, "ori_iter_zip");
     if left.is_null() || right.is_null() {
         if !left.is_null() {
             super::ori_iter_drop(left);

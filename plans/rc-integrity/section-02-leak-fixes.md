@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Fix All Pre-Existing Leaks"
-status: in-progress
+status: complete
 goal: "All 1317 AOT tests pass with ORI_CHECK_LEAKS=1 — zero leaked allocations in any test"
 depends_on: ["01"]
 third_party_review:
@@ -29,7 +29,7 @@ sections:
     status: complete
   - id: "02.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 02: Fix All Pre-Existing Leaks
@@ -159,8 +159,8 @@ Any fix to RC emission logic must verify consistency across all of these locatio
 - [x] No new leaks introduced (full AOT test suite passes: 1315 tests, 0 failures, 0 leaks)
 - [x] `timeout 150 ./test-all.sh` green — 12,919 tests, 0 failures
 - [x] `./clippy-all.sh` green
-- [ ] All 13 code journeys still score 10/10 <!-- blocked-by:fat-pointer-hardening -->
-- [ ] Valgrind clean on heap-allocating journeys (J5, J9, J10, J13) — J15/J16 have memory errors tracked in fat-pointer-hardening plan <!-- blocked-by:fat-pointer-hardening -->
+- [x] All 17 code journeys score 10/10 — fat-pointer-hardening plan resolved, all journeys verified 10.0/10 (2026-03-19)
+- [x] Valgrind clean on heap-allocating journeys (J5, J9, J10, J13, J15, J16) — all 0 errors, fat-pointer-hardening resolved (2026-03-19)
 - [x] All sync points in Section 02.S verified consistent — 1315 AOT tests pass, no partial fix regressions
 - [x] While-loop heap reassignment tested and leak-free — 5 programs tested with ORI_CHECK_LEAKS=1, zero leaks
 - [x] Closure capturing RC variable tested and leak-free — heap strings (>23 bytes), Valgrind clean

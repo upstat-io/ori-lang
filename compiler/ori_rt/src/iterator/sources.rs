@@ -3,7 +3,7 @@
 //! These are `extern "C"` functions called from LLVM-generated code to create
 //! iterators over lists, ranges, strings, and maps.
 
-use super::state::IterState;
+use super::state::{assert_elem_size, IterState};
 
 /// Create an iterator over a list's data buffer.
 ///
@@ -31,6 +31,7 @@ pub extern "C" fn ori_iter_from_list(
     elem_size: i64,
     elem_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
+    assert_elem_size(elem_size, "ori_iter_from_list");
     let state = IterState::List {
         data,
         len,
@@ -133,6 +134,7 @@ pub extern "C" fn ori_iter_from_map(
     key_dec_fn: Option<extern "C" fn(*mut u8)>,
     val_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
+    assert_elem_size(key_size + val_size, "ori_iter_from_map (key+val)");
     let state = IterState::Map {
         data,
         cap,
