@@ -16,7 +16,7 @@ use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
 use crate::graph::successor_block_ids;
-use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 
 use super::super::contract::{EffectSummary, FipContract, MemoryContract};
 use super::super::lattice::{AccessClass, AimsState, Cardinality, Locality, Uniqueness};
@@ -237,6 +237,8 @@ pub(crate) fn compute_block_entry_state(
     }
 
     // Block params are definitions (like phi nodes) — remove from entry state.
+    propagate_project_source_demand(func, &mut current, state_map);
+
     for &(param_var, _ty) in &block.params {
         current.remove(&param_var);
     }
@@ -254,6 +256,45 @@ pub(crate) fn compute_block_entry_state(
     BlockAnalysisResult {
         entry_state: current,
         effects: block_effects,
+    }
+}
+
+/// Propagate Project source demand: when a Project result has demand,
+/// its source must also have demand to prevent premature `RcDec`.
+///
+/// Handles the cross-block case: `%3 = Project %2.0` is in block A,
+/// but `%3` is used in block B. Without this, `%2` would have no demand
+/// at block B's entry, causing edge cleanup to emit a premature `RcDec`
+/// for `%2` — use-after-free when `%3` is still alive.
+fn propagate_project_source_demand(
+    func: &ArcFunction,
+    current: &mut FxHashMap<ArcVarId, AimsState>,
+    state_map: &AimsStateMap,
+) {
+    let mut extra_demand: Vec<(ArcVarId, AimsState)> = Vec::new();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, value, .. } = instr {
+                if let Some(&dst_state) = current.get(dst) {
+                    if dst_state.cardinality != Cardinality::Absent
+                        && !state_map.is_excluded(*value)
+                    {
+                        let src_demand = AimsState {
+                            access: AccessClass::Borrowed,
+                            cardinality: dst_state.cardinality,
+                            ..dst_state
+                        };
+                        extra_demand.push((*value, src_demand));
+                    }
+                }
+            }
+        }
+    }
+    for (var, demand) in extra_demand {
+        let joined = current
+            .get(&var)
+            .map_or(demand, |existing| existing.join(&demand));
+        current.insert(var, joined);
     }
 }
 
