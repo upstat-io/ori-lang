@@ -291,9 +291,7 @@ Batch complete (J[first]-J[last]). Adding 5 more...
 
 ### Step 5: Generate Overview (After All Journeys)
 
-**This step runs ONCE after all journeys in the run list are complete.**
-
-**Skip this step if**: only 1 journey was run (a single journey doesn't need an overview update).
+**This step runs ONCE after all journeys in the run list are complete — including single-journey runs.**
 
 **Wait for background agents**: Before generating the overview, check that all expected `NN-slug-results.md` files exist. If any are still being written by background agents, wait for their task notifications before proceeding.
 
