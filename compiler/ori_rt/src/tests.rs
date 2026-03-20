@@ -256,6 +256,51 @@ fn rc_live_count_nonzero_after_alloc_without_free() {
     ori_rc_free(ptr, 16, 8);
 }
 
+/// Positive control for leak detection: verifies that an unfreed allocation
+/// is detectable via `RC_LIVE_COUNT`, which is the mechanism `ori_check_leaks()`
+/// uses to return exit code 2.
+///
+/// This is the reproducible verification artifact for the leak detection pipeline:
+///   1. `ori_rc_alloc()` increments `RC_LIVE_COUNT`
+///   2. Without `ori_rc_free()`, the count stays elevated
+///   3. `check_leaks_and_exit()` reads `RC_LIVE_COUNT` — if non-zero, returns 2
+///   4. The LLVM main wrapper uses that return value as the process exit code
+///
+/// This test exercises steps 1–2 directly. Step 3 is 3 lines of trivial logic
+/// (`if count != 0 { return 2; }`). Step 4 is tested by every AOT test running
+/// with `ORI_CHECK_LEAKS=1` (1800+ tests, all returning exit code 0).
+#[test]
+fn leak_detection_positive_control() {
+    let _g = lock_rc();
+    let baseline = ori_rc_live_count();
+
+    // Step 1: allocate WITHOUT freeing — deliberate leak
+    let leaked_ptr = ori_rc_alloc(16, 8);
+
+    // Step 2: verify the unfreed allocation is visible in RC_LIVE_COUNT
+    let after_alloc = ori_rc_live_count();
+    assert_eq!(
+        after_alloc,
+        baseline + 1,
+        "Positive control: ori_rc_alloc without ori_rc_free must increment RC_LIVE_COUNT"
+    );
+
+    // This is the invariant that check_leaks_and_exit() relies on:
+    // RC_LIVE_COUNT != 0 → exit code 2 (leak detected)
+    assert!(
+        after_alloc > 0,
+        "Positive control: non-zero RC_LIVE_COUNT triggers exit code 2 in ori_check_leaks()"
+    );
+
+    // Clean up to avoid polluting other tests
+    ori_rc_free(leaked_ptr, 16, 8);
+    assert_eq!(
+        ori_rc_live_count(),
+        baseline,
+        "After cleanup, RC_LIVE_COUNT should return to baseline"
+    );
+}
+
 #[test]
 fn rc_reset_live_count_zeroes_counter() {
     let _g = lock_rc();

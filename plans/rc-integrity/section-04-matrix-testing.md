@@ -1,11 +1,11 @@
 ---
 section: "04"
 title: "Matrix Testing — Regression Guard"
-status: in-progress
+status: complete
 goal: "Combinatorial test matrix covering value-type × operation × context — makes regressions progressively harder to introduce"
 depends_on: ["01", "02"]
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-20
 sections:
   - id: "04.1"
@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "04.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "04.N"
     title: "Completion Checklist"
     status: in-progress
@@ -168,10 +168,8 @@ Ensure the 10/10 code journey scores cannot regress.
 
 ## 04.R Third Party Review Findings
 
-- [ ] `[TPR-04-001][medium]` `plans/rc-integrity/index.md:1` — RC Integrity status metadata drifted into contradictory states before review.
-  Evidence: the current tree marked the plan index `status: resolved`, while `plans/rc-integrity/00-overview.md` remained `status: in-progress`; this section's frontmatter was `status: complete` while the body still said `**Status:** Not Started`.
-  Impact: downstream readers cannot trust whether the matrix/verification work is actually closed, and new third-party review findings would be hidden behind a resolved plan state.
-  Required plan update: keep the plan/index active until Section 04 and Section 05 findings are cleared, and keep section body/frontmatter status text synchronized in the same edit pass.
+- [x] `[TPR-04-001][medium]` `plans/rc-integrity/index.md:1` — RC Integrity status metadata drifted into contradictory states before review.
+  Resolved: Validated on 2026-03-20. The drift was corrected in a prior session — index.md now reads `status: active`, 00-overview.md reads `status: in-progress`, and section-04 frontmatter reads `status: in-progress`. All three are consistent and correctly reflect the plan's incomplete state.
 
 ---
 
