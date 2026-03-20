@@ -113,6 +113,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.set_ccc(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
+        self.builder.add_uwtable_attribute(func_id);
+        self.builder.add_noundef_param_attribute(func_id, 0);
 
         // Cache before body generation to handle recursive types
         self.elem_dec_fn_cache.insert(element_type, func_id);
@@ -191,6 +193,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.set_ccc(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
+        self.builder.add_uwtable_attribute(func_id);
+        self.builder.add_noundef_param_attribute(func_id, 0);
 
         // Cache before body generation to handle recursive types
         self.elem_inc_fn_cache.insert(element_type, func_id);

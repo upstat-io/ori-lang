@@ -90,7 +90,7 @@ pub fn emit_arg_ownership(
         .iter()
         .filter_map(|(&name, contract)| {
             let name_str = interner.try_lookup(name)?;
-            let pos = name_str.find("$m$")?;
+            let pos = name_str.find(ori_ir::MONO_SEPARATOR)?;
             let orig_name = interner.intern(&name_str[..pos]);
             // Skip if original name already in sigs (non-monomorphized version exists)
             if sigs.contains_key(&orig_name) {

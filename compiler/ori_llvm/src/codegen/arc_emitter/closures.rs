@@ -5,6 +5,7 @@
 //! that bridge the closure calling convention to the lambda's flat convention.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
+use ori_arc::ownership::Ownership;
 use ori_ir::Name;
 use ori_types::Idx;
 
@@ -82,11 +83,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Remaining user params (the closure awaits these)
         let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..].to_vec();
 
+        // Capture ownership: which captures are borrowed (skip RC dec in drop fn).
+        let capture_ownership: Vec<Ownership> = self
+            .ctx
+            .lambda_capture_ownership
+            .get(&callee)
+            .cloned()
+            .unwrap_or_else(|| vec![Ownership::Owned; num_captures]);
+
         // == Allocate and pack the environment ==
         let env_ptr = if capture_types.is_empty() {
             self.builder.const_null_ptr()
         } else {
-            self.build_closure_env(args, &capture_types)
+            self.build_closure_env(args, &capture_types, &capture_ownership)
         };
 
         // == Generate wrapper function ==
@@ -95,6 +104,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             callee_func_id,
             &callee_abi,
             &capture_types,
+            &capture_ownership,
             &remaining_params,
             target_is_nounwind,
         );
@@ -111,7 +121,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Layout: `{ ptr drop_fn, cap_0_ty, cap_1_ty, ... }`
     /// Allocated via `ori_rc_alloc` (RC-tracked heap memory).
-    fn build_closure_env(&mut self, capture_vars: &[ArcVarId], capture_types: &[Idx]) -> ValueId {
+    fn build_closure_env(
+        &mut self,
+        capture_vars: &[ArcVarId],
+        capture_types: &[Idx],
+        capture_ownership: &[Ownership],
+    ) -> ValueId {
         // Build env struct type: { drop_fn: ptr, cap_0, cap_1, ... }
         let ptr_llvm = self.builder.scx().type_ptr().into();
         let mut env_fields: Vec<inkwell::types::BasicTypeEnum<'_>> = vec![ptr_llvm];
@@ -136,8 +151,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .emit_rt_call(rc_alloc_func, &[size_val, align_val], "env.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
 
-        // Generate drop function for this environment
-        let drop_fn_id = self.generate_env_drop_fn(env_struct_ty_id, capture_types, env_size);
+        // Generate drop function for this environment.
+        // Pass capture ownership so borrowed captures are NOT RC-dec'd.
+        let drop_fn_id =
+            self.generate_env_drop_fn(env_struct_ty_id, capture_types, capture_ownership, env_size);
         let drop_fn_ptr = self.builder.get_function_ptr(drop_fn_id);
 
         // Store drop_fn at field 0
@@ -173,6 +190,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         env_struct_ty_id: LLVMTypeId,
         capture_types: &[Idx],
+        _capture_ownership: &[Ownership],
         env_size: u64,
     ) -> FunctionId {
         let partial_id = self.partial_apply_counter;
@@ -201,6 +219,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let data_ptr = self.builder.get_param(func_id, 0);
 
         // RC dec each captured variable that needs it.
+        //
+        // The env struct physically owns each capture (it was copied into
+        // the env by build_closure_env). The drop function must dec all
+        // RC-needing captures regardless of the lambda's borrow annotation —
+        // the annotation controls the lambda BODY's treatment, not env ownership.
         //
         // Collections (List, Set, Map) need special handling: their drop
         // functions expect a pointer to the full `{len, cap, data}` struct,
@@ -312,6 +335,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         callee_func_id: FunctionId,
         callee_abi: &FunctionAbi,
         capture_types: &[Idx],
+        capture_ownership: &[Ownership],
         remaining_params: &[ParamAbi],
         target_is_nounwind: bool,
     ) -> ValueId {
@@ -385,6 +409,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let env_ptr_val = self.builder.get_param(wrapper_func_id, 0);
 
+        // Set current_function to wrapper so inc_value_rc creates blocks
+        // in the right function (it uses self.current_function for append_block).
+        let saved_current_function = self.current_function;
+        self.current_function = wrapper_func_id;
+
         // Build env struct type for GEP (same layout as build_closure_env)
         let ptr_llvm = self.builder.scx().type_ptr().into();
         let mut env_fields: Vec<inkwell::types::BasicTypeEnum<'_>> = vec![ptr_llvm];
@@ -423,13 +452,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Note: callee_abi.params does NOT include sret (sret is in return_abi),
             // so params[i] directly maps to the i-th capture parameter.
             let param_passing = callee_abi.params.get(i).map(|p| &p.passing);
+            // When the callee takes this capture as OWNED and the capture
+            // is RC-tracked, emit RcInc. The env drop function will dec
+            // the env's copy, and the lambda (or its downstream closures)
+            // will eventually dec the passed copy. Without this inc, nested
+            // closures cause double-free: both the outer env drop and the
+            // inner env drop dec the same refcount.
+            let ownership = capture_ownership
+                .get(i)
+                .copied()
+                .unwrap_or(Ownership::Owned);
+            let needs_inc = ownership == Ownership::Owned && self.classifier.needs_rc(cap_ty);
+
             if matches!(
                 param_passing,
                 Some(ParamPassing::Indirect { .. } | ParamPassing::Reference)
             ) {
+                // Reference passing: load value for RcInc, then pass pointer.
+                if needs_inc {
+                    let loaded = self
+                        .builder
+                        .load(field_ty, field_ptr, &format!("cap.{i}.inc"));
+                    self.inc_value_rc(loaded, cap_ty, 1);
+                }
                 callee_args.push(field_ptr);
             } else {
                 let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
+                if needs_inc {
+                    self.inc_value_rc(cap_val, cap_ty, 1);
+                }
                 callee_args.push(cap_val);
             }
         }
@@ -466,7 +517,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.ret(zero);
         }
 
-        // Restore builder position
+        // Restore builder position and emitter's current_function
+        self.current_function = saved_current_function;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);
