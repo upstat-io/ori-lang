@@ -3,7 +3,24 @@ paths:
   - "**arc**"
 ---
 
-# ARC Optimization
+# ARC Optimization — AIMS (ARC Intelligent Memory System)
+
+## Mission — READ THIS FIRST
+
+AIMS exists to replace fragmented memory-management heuristics with a **single sound semantic framework**. RC placement, reuse, COW, FIP, contracts, and TRMC are **not separate features** — they are facets of one model and must agree. The goal is not partial implementation of many ideas, but one trustworthy system whose claims are enforceable in code and verification.
+
+**Every change to ARC/AIMS code must preserve system coherence.** Fixing one subsystem while leaving another inconsistent is not a fix — it's a new bug. When you touch RC emission, ask if contracts still agree. When you touch contracts, ask if realization still matches. When you touch COW, ask if reuse and drop hints still cohere.
+
+### Non-Negotiable Invariants
+
+These hold at all times. Any change that violates one is a bug, not a tradeoff.
+
+1. **Contracts and realization must agree.** If `MemoryContract` says `FipContract::Certified`, the realized IR must have zero unmatched allocations/deallocations. If realization disproves the contract, correct the contract — not leave it stale.
+2. **Active rewrites must be sound.** `normalize_function()` transforms must produce identical observable behavior. Structural tests alone do not satisfy this — behavioral verification is required. If unverifiable, the rewrite must not run.
+3. **No pass may rely on stale summaries.** If a pipeline step modifies IR or updates an effect summary, all downstream consumers must see updated values. A verifier that runs before its inputs are available is a sequencing bug.
+4. **The enabled surface must be end-to-end verified.** Every active subsystem needs: implementation + invariant enforcement + verification (structural + behavioral + regression). Missing any of the three = incomplete.
+
+---
 
 ## Design
 

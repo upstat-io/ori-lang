@@ -52,6 +52,15 @@
 4. **Explicit effects**: capabilities (`uses Http`); mocking (`with Http = Mock in`)
 5. **ARC-safe**: no GC/borrow checker; capture by value; no shared mutable refs
 
+### AIMS — ARC Intelligent Memory System
+AIMS is a **unified semantic framework** — RC placement, reuse, COW, FIP, contracts, and TRMC are facets of one model, not separate features. Every memory decision flows through the unified lattice, contracts, and realization. **Non-negotiable invariants:**
+1. Contracts and realization must agree (FipContract::Certified ↔ zero unmatched alloc/dealloc)
+2. Active rewrites must be sound (identical observable behavior, behavioral verification required)
+3. No pass may rely on stale summaries (pipeline ordering is load-bearing)
+4. Every active subsystem must be end-to-end verified (implementation + invariant enforcement + tests)
+
+When fixing any AIMS-related bug: ask "does this preserve system coherence?" A fix in one subsystem that leaves another inconsistent is a new bug, not a fix. See `.claude/rules/arc.md` for full details.
+
 ---
 
 ## Compiler Coding Guidelines
