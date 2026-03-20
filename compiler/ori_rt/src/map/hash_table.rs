@@ -7,13 +7,13 @@
 //! # Memory Layout (Map)
 //!
 //! ```text
-//! [RC header (16 bytes)] [metadata (1 byte/bucket)] [padding] [keys] [values]
+//! [RC header (32 bytes)] [metadata (1 byte/bucket)] [padding] [keys] [values]
 //! ```
 //!
 //! # Memory Layout (Set)
 //!
 //! ```text
-//! [RC header (16 bytes)] [metadata (1 byte/bucket)] [padding] [elements]
+//! [RC header (32 bytes)] [metadata (1 byte/bucket)] [padding] [elements]
 //! ```
 //!
 //! - Metadata: 1 byte per bucket — EMPTY (0x00), OCCUPIED (0x01), TOMBSTONE (0xFF)
@@ -36,7 +36,7 @@ const LOAD_FACTOR_NUM: usize = 3;
 /// Load factor denominator.
 const LOAD_FACTOR_DEN: usize = 4;
 
-// ── Layout Computation ──────────────────────────────────────────────────
+// Layout Computation
 
 /// Describes the byte layout of a hash table data buffer.
 ///
@@ -90,7 +90,7 @@ const fn align_up(n: usize, align: usize) -> usize {
     (n + align - 1) & !(align - 1)
 }
 
-// ── Metadata Operations ─────────────────────────────────────────────────
+// Metadata Operations
 
 /// Read the metadata byte for a given bucket.
 ///
@@ -110,7 +110,7 @@ pub(crate) unsafe fn set_meta(data: *mut u8, bucket: usize, value: u8) {
     *data.add(bucket) = value;
 }
 
-// ── Probing ─────────────────────────────────────────────────────────────
+// Probing
 
 /// Probe for an existing key in the hash table.
 ///
@@ -177,7 +177,7 @@ pub(crate) unsafe fn probe_find_slot(data: *const u8, cap: usize, hash: i64) -> 
     unreachable!("hash table is full — load factor check failed");
 }
 
-// ── Capacity Management ─────────────────────────────────────────────────
+// Capacity Management
 
 /// Compute the smallest power-of-two capacity that can hold `required` entries
 /// at 75% load factor.
@@ -208,7 +208,7 @@ pub(crate) fn needs_rehash(len: usize, cap: usize) -> bool {
     len * LOAD_FACTOR_DEN >= cap * LOAD_FACTOR_NUM
 }
 
-// ── Rehashing ───────────────────────────────────────────────────────────
+// Rehashing
 
 /// Rehash a map's hash table into a new buffer with `new_cap` buckets.
 ///
@@ -293,7 +293,7 @@ pub(crate) unsafe fn rehash_set(
     new_data
 }
 
-// ── Counting ────────────────────────────────────────────────────────────
+// Counting
 
 /// Count the number of OCCUPIED entries in a hash table.
 ///

@@ -764,6 +764,232 @@ fn rc_realloc_null_returns_null() {
     assert!(ori_rc_realloc(std::ptr::null_mut(), 0, 64, 8).is_null());
 }
 
+// V4 elem_dec_fn header tests
+
+#[test]
+fn elem_dec_fn_null_initialized() {
+    let _g = lock_rc();
+    let data = ori_rc_alloc(64, 8);
+    assert!(!data.is_null());
+
+    // elem_dec_fn should be NULL immediately after allocation
+    let stored = unsafe { crate::rc::load_elem_dec_fn(data) };
+    assert!(stored.is_none(), "elem_dec_fn should be NULL after alloc");
+
+    ori_rc_free(data, 64, 8);
+}
+
+#[test]
+fn elem_dec_fn_store_and_load_roundtrip() {
+    let _g = lock_rc();
+    let data = ori_rc_alloc(64, 8);
+
+    extern "C" fn dummy_dec(_ptr: *mut u8) {}
+
+    // Store a function pointer
+    unsafe { crate::rc::store_elem_dec_fn(data, Some(dummy_dec)) };
+
+    // Load it back
+    let loaded = unsafe { crate::rc::load_elem_dec_fn(data) };
+    assert!(loaded.is_some(), "should load back non-NULL elem_dec_fn");
+
+    ori_rc_free(data, 64, 8);
+}
+
+#[test]
+fn elem_dec_fn_store_once_first_non_null_wins() {
+    let _g = lock_rc();
+    let data = ori_rc_alloc(64, 8);
+
+    extern "C" fn dec_a(_ptr: *mut u8) {}
+    extern "C" fn dec_b(_ptr: *mut u8) {}
+
+    let fn_a: extern "C" fn(*mut u8) = dec_a;
+
+    // First store wins
+    unsafe { crate::rc::store_elem_dec_fn_once(data, Some(dec_a)) };
+    let loaded_a = unsafe { crate::rc::load_elem_dec_fn(data) };
+    assert_eq!(
+        loaded_a.map(|f| f as *const () as usize),
+        Some(fn_a as *const () as usize)
+    );
+
+    // Second store is a no-op (first non-NULL wins)
+    unsafe { crate::rc::store_elem_dec_fn_once(data, Some(dec_b)) };
+    let loaded_b = unsafe { crate::rc::load_elem_dec_fn(data) };
+    assert_eq!(
+        loaded_b.map(|f| f as *const () as usize),
+        Some(fn_a as *const () as usize),
+        "store_once should keep the first non-NULL value"
+    );
+
+    ori_rc_free(data, 64, 8);
+}
+
+#[test]
+fn elem_dec_fn_store_once_null_is_noop() {
+    let _g = lock_rc();
+    let data = ori_rc_alloc(64, 8);
+
+    // Storing NULL via store_once should not change anything
+    unsafe { crate::rc::store_elem_dec_fn_once(data, None) };
+    let loaded = unsafe { crate::rc::load_elem_dec_fn(data) };
+    assert!(loaded.is_none(), "store_once(None) should not change NULL");
+
+    ori_rc_free(data, 64, 8);
+}
+
+#[test]
+fn elem_dec_fn_preserved_through_realloc() {
+    let _g = lock_rc();
+    let data = ori_rc_alloc(32, 8);
+
+    extern "C" fn my_dec(_ptr: *mut u8) {}
+
+    // Store elem_dec_fn, then realloc
+    unsafe { crate::rc::store_elem_dec_fn(data, Some(my_dec)) };
+
+    let new_data = ori_rc_realloc(data, 32, 128, 8);
+    assert!(!new_data.is_null());
+
+    // elem_dec_fn should be preserved (realloc copies header bytes)
+    let loaded = unsafe { crate::rc::load_elem_dec_fn(new_data) };
+    let expected: extern "C" fn(*mut u8) = my_dec;
+    assert_eq!(
+        loaded.map(|f| f as *const () as usize),
+        Some(expected as *const () as usize),
+        "elem_dec_fn must survive realloc"
+    );
+
+    ori_rc_free(new_data, 128, 8);
+}
+
+/// Semantic pin: buffer with stored `elem_dec_fn`, dec with NULL parameter.
+/// This test ONLY passes with header-based cleanup — it would fail if
+/// `ori_buffer_rc_dec` used the parameter instead of the header.
+#[test]
+fn semantic_pin_header_based_element_cleanup() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let _g = lock_rc();
+
+    static CLEANUP_COUNT: AtomicUsize = AtomicUsize::new(0);
+    CLEANUP_COUNT.store(0, Ordering::SeqCst);
+
+    extern "C" fn count_cleanup(_ptr: *mut u8) {
+        CLEANUP_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Allocate a buffer for 2 elements of 8 bytes each
+    let elem_size: i64 = 8;
+    let cap: i64 = 2;
+    let data_size = (cap as usize) * (elem_size as usize);
+    let data = ori_rc_alloc(data_size, 8);
+    assert!(!data.is_null());
+
+    // Bump RC to 2 so the first dec doesn't free
+    ori_rc_inc(data);
+    assert_eq!(ori_rc_count(data), 2);
+
+    // First dec with real elem_dec_fn (RC 2 → 1, stores in header)
+    ori_buffer_rc_dec(data, cap, cap, elem_size, Some(count_cleanup));
+    assert_eq!(ori_rc_count(data), 1);
+    assert_eq!(
+        CLEANUP_COUNT.load(Ordering::SeqCst),
+        0,
+        "no cleanup at RC=1"
+    );
+
+    // Second dec with NULL elem_dec_fn (RC 1 → 0, frees)
+    // Header-based cleanup should still call count_cleanup on 2 elements
+    ori_buffer_rc_dec(data, cap, cap, elem_size, None);
+    assert_eq!(
+        CLEANUP_COUNT.load(Ordering::SeqCst),
+        2,
+        "header-based cleanup should process 2 elements even with NULL parameter"
+    );
+}
+
+/// Slice test: `elem_dec_fn` stored on the original buffer's header is used
+/// when the slice's dec reaches zero.
+#[test]
+fn slice_uses_original_buffers_elem_dec_fn() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let _g = lock_rc();
+
+    static SLICE_CLEANUP: AtomicUsize = AtomicUsize::new(0);
+    SLICE_CLEANUP.store(0, Ordering::SeqCst);
+
+    extern "C" fn count_elem(_ptr: *mut u8) {
+        SLICE_CLEANUP.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Allocate a buffer for 4 elements of 8 bytes each
+    let elem_size: i64 = 8;
+    let cap: i64 = 4;
+    let data_size = (cap as usize) * (elem_size as usize);
+    let original = ori_rc_alloc(data_size, 8);
+    assert!(!original.is_null());
+
+    // Store elem_dec_fn on the original buffer
+    unsafe { crate::rc::store_elem_dec_fn(original, Some(count_elem)) };
+
+    // Create a slice: data offset = 16 bytes into original (skipping 2 elements)
+    let slice_data = unsafe { original.add(16) };
+    let slice_cap = crate::slice_encoding::make_slice_cap(16);
+
+    // Bump RC so the original doesn't die when the slice decs
+    ori_rc_inc(original); // RC = 2
+
+    // Dec via the slice path (with NULL elem_dec_fn parameter).
+    // slice_buffer_rc_dec stores to ORIGINAL's header, reads from ORIGINAL's header.
+    ori_buffer_rc_dec(slice_data, 2, slice_cap, elem_size, None);
+    // RC should be 1 now (slice decremented the original)
+    assert_eq!(ori_rc_count(original), 1);
+    assert_eq!(
+        SLICE_CLEANUP.load(Ordering::SeqCst),
+        0,
+        "no cleanup at RC=1"
+    );
+
+    // Final dec — free the original. Use the real function parameter this time.
+    ori_buffer_rc_dec(original, cap, cap, elem_size, Some(count_elem));
+    assert_eq!(
+        SLICE_CLEANUP.load(Ordering::SeqCst),
+        4,
+        "all 4 elements of original should be cleaned up"
+    );
+}
+
+/// Test `ori_buffer_drop_unique` reads `elem_dec_fn` from header, not parameter.
+#[test]
+fn drop_unique_reads_from_header() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let _g = lock_rc();
+
+    static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+    DROP_COUNT.store(0, Ordering::SeqCst);
+
+    extern "C" fn count_drop(_ptr: *mut u8) {
+        DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
+
+    let elem_size: i64 = 8;
+    let cap: i64 = 3;
+    let data_size = (cap as usize) * (elem_size as usize);
+    let data = ori_rc_alloc(data_size, 8);
+
+    // Pre-store elem_dec_fn in header
+    unsafe { crate::rc::store_elem_dec_fn(data, Some(count_drop)) };
+
+    // Call drop_unique with NULL parameter — should use header's function
+    ori_buffer_drop_unique(data, cap, cap, elem_size, None);
+    assert_eq!(
+        DROP_COUNT.load(Ordering::SeqCst),
+        3,
+        "drop_unique with NULL param should use header's elem_dec_fn"
+    );
+}
+
 #[test]
 fn memcpy_elements_copies_correctly() {
     let src: [u64; 4] = [10, 20, 30, 40];
@@ -6371,4 +6597,178 @@ fn cow_set_difference_disjoint_noop() {
     free_i64_set(d2, cap2);
     free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+// Slice element cleanup tests — verify that when a slice is the LAST owner,
+// ALL initialized elements in the original buffer are cleaned up, not just
+// the slice's visible range.
+
+/// Semantic pin: slice outlives original, ALL elements must be cleaned up.
+/// This test ONLY passes if `slice_buffer_rc_dec` uses the full element count
+/// from the header, not the slice's `len`. Currently fails: only slice-visible
+/// elements get `elem_dec_fn`.
+#[test]
+fn slice_last_owner_cleans_all_elements() {
+    let _g = lock_rc();
+
+    static CLEANUP: AtomicUsize = AtomicUsize::new(0);
+    CLEANUP.store(0, Ordering::SeqCst);
+
+    extern "C" fn count_cleanup(_ptr: *mut u8) {
+        CLEANUP.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Allocate buffer for 4 elements of 8 bytes each
+    let elem_size: i64 = 8;
+    let cap: i64 = 4;
+    let len: i64 = 4;
+    let data_size = (cap as usize) * (elem_size as usize);
+    let original = ori_rc_alloc(data_size, 8);
+    assert!(!original.is_null());
+
+    // Store elem_dec_fn in header
+    unsafe { crate::rc::store_elem_dec_fn(original, Some(count_cleanup)) };
+
+    // Create a slice covering elements 1..3 (middle 2 of 4)
+    // Slice data = original + 8 (skip 1 element)
+    let slice_offset: usize = 8;
+    let slice_data = unsafe { original.add(slice_offset) };
+    let slice_cap = crate::slice_encoding::make_slice_cap(slice_offset);
+
+    // Bump RC so original dropping doesn't free
+    ori_rc_inc(original); // RC = 2
+
+    // Original drops FIRST (RC 2 → 1, no element cleanup)
+    ori_buffer_rc_dec(original, len, cap, elem_size, Some(count_cleanup));
+    assert_eq!(ori_rc_count(original), 1);
+    assert_eq!(CLEANUP.load(Ordering::SeqCst), 0, "no cleanup at RC=1");
+
+    // Slice drops LAST (RC 1 → 0, should clean up ALL 4 elements)
+    ori_buffer_rc_dec(slice_data, 2, slice_cap, elem_size, Some(count_cleanup));
+    assert_eq!(
+        CLEANUP.load(Ordering::SeqCst),
+        4,
+        "all 4 elements must be cleaned up, not just the 2 visible to the slice"
+    );
+}
+
+/// Edge case: slice at end of buffer, elements at beginning leaked.
+#[test]
+fn slice_last_owner_at_end_cleans_all() {
+    let _g = lock_rc();
+
+    static CLEANUP: AtomicUsize = AtomicUsize::new(0);
+    CLEANUP.store(0, Ordering::SeqCst);
+
+    extern "C" fn count_cleanup(_ptr: *mut u8) {
+        CLEANUP.fetch_add(1, Ordering::SeqCst);
+    }
+
+    let elem_size: i64 = 8;
+    let cap: i64 = 4;
+    let len: i64 = 4;
+    let data_size = (cap as usize) * (elem_size as usize);
+    let original = ori_rc_alloc(data_size, 8);
+    assert!(!original.is_null());
+
+    unsafe { crate::rc::store_elem_dec_fn(original, Some(count_cleanup)) };
+
+    // Slice covers elements 2..4 (last 2), offset = 16 bytes
+    let slice_offset: usize = 16;
+    let slice_data = unsafe { original.add(slice_offset) };
+    let slice_cap = crate::slice_encoding::make_slice_cap(slice_offset);
+
+    ori_rc_inc(original); // RC = 2
+
+    // Original drops first
+    ori_buffer_rc_dec(original, len, cap, elem_size, Some(count_cleanup));
+    assert_eq!(CLEANUP.load(Ordering::SeqCst), 0);
+
+    // Slice drops last — should clean up all 4
+    ori_buffer_rc_dec(slice_data, 2, slice_cap, elem_size, Some(count_cleanup));
+    assert_eq!(
+        CLEANUP.load(Ordering::SeqCst),
+        4,
+        "elements 0-1 before the slice must also be cleaned up"
+    );
+}
+
+/// Edge case: empty slice (len=0) is last owner, all elements must be cleaned.
+#[test]
+fn empty_slice_last_owner_cleans_all() {
+    let _g = lock_rc();
+
+    static CLEANUP: AtomicUsize = AtomicUsize::new(0);
+    CLEANUP.store(0, Ordering::SeqCst);
+
+    extern "C" fn count_cleanup(_ptr: *mut u8) {
+        CLEANUP.fetch_add(1, Ordering::SeqCst);
+    }
+
+    let elem_size: i64 = 8;
+    let cap: i64 = 3;
+    let len: i64 = 3;
+    let data_size = (cap as usize) * (elem_size as usize);
+    let original = ori_rc_alloc(data_size, 8);
+    assert!(!original.is_null());
+
+    unsafe { crate::rc::store_elem_dec_fn(original, Some(count_cleanup)) };
+
+    // Empty slice at offset 8
+    let slice_offset: usize = 8;
+    let slice_data = unsafe { original.add(slice_offset) };
+    let slice_cap = crate::slice_encoding::make_slice_cap(slice_offset);
+
+    ori_rc_inc(original); // RC = 2
+
+    // Original drops first
+    ori_buffer_rc_dec(original, len, cap, elem_size, Some(count_cleanup));
+    assert_eq!(CLEANUP.load(Ordering::SeqCst), 0);
+
+    // Empty slice drops last — should still clean up all 3 elements
+    ori_buffer_rc_dec(slice_data, 0, slice_cap, elem_size, Some(count_cleanup));
+    assert_eq!(
+        CLEANUP.load(Ordering::SeqCst),
+        3,
+        "empty slice dropping should still clean all original elements"
+    );
+}
+
+/// Full-range slice (covers all elements) — baseline, no leak even before fix.
+#[test]
+fn full_range_slice_last_owner_cleans_all() {
+    let _g = lock_rc();
+
+    static CLEANUP: AtomicUsize = AtomicUsize::new(0);
+    CLEANUP.store(0, Ordering::SeqCst);
+
+    extern "C" fn count_cleanup(_ptr: *mut u8) {
+        CLEANUP.fetch_add(1, Ordering::SeqCst);
+    }
+
+    let elem_size: i64 = 8;
+    let cap: i64 = 4;
+    let len: i64 = 4;
+    let data_size = (cap as usize) * (elem_size as usize);
+    let original = ori_rc_alloc(data_size, 8);
+    assert!(!original.is_null());
+
+    unsafe { crate::rc::store_elem_dec_fn(original, Some(count_cleanup)) };
+
+    // Full-range slice: offset=0, len=4
+    let slice_cap = crate::slice_encoding::make_slice_cap(0);
+
+    ori_rc_inc(original); // RC = 2
+
+    // Original drops first
+    ori_buffer_rc_dec(original, len, cap, elem_size, Some(count_cleanup));
+    assert_eq!(CLEANUP.load(Ordering::SeqCst), 0);
+
+    // Full slice drops last — cleans up all 4 (same behavior with or without fix)
+    ori_buffer_rc_dec(original, 4, slice_cap, elem_size, Some(count_cleanup));
+    assert_eq!(
+        CLEANUP.load(Ordering::SeqCst),
+        4,
+        "full-range slice should clean all elements"
+    );
 }

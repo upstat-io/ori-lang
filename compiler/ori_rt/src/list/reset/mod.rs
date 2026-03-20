@@ -66,13 +66,11 @@ pub extern "C" fn ori_list_reset_buffer(
 }
 
 /// Check if a buffer is uniquely owned (RC == 1).
+///
+/// Delegates to `ori_rc_is_unique` which uses `AtomicI64` on the
+/// non-single-threaded path (V4: `strong_count` at `data_ptr - 8`).
 fn is_unique(data: *const u8) -> bool {
-    if data.is_null() {
-        return false;
-    }
-    // RC header is at data - 8 bytes.
-    let rc = unsafe { *(data.sub(8).cast::<i64>()) };
-    rc == 1
+    crate::rc::ori_rc_is_unique(data)
 }
 
 /// Reuse a uniquely-owned buffer for new elements.

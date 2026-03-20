@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 
 use super::RC_LIVE_COUNT;
 
-// ── RC Event Tracing ─────────────────────────────────────────────────
+// RC Event Tracing
 
 /// RC trace verbosity, cached from `ORI_TRACE_RC` env var.
 ///
@@ -124,6 +124,15 @@ pub(super) fn rc_trace_free(data_ptr: *const u8, size: usize, align: usize) {
     rc_trace_verbose_backtrace();
 }
 
+/// Trace an `ori_rc_realloc` event (address change).
+#[cold]
+#[inline(never)]
+pub(super) fn rc_trace_realloc(old_data_ptr: *const u8, new_data_ptr: *const u8, new_size: usize) {
+    let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+    eprintln!("[RC] realloc {old_data_ptr:p} → {new_data_ptr:p} size={new_size} (live={live})");
+    rc_trace_verbose_backtrace();
+}
+
 /// Print a backtrace if verbose tracing is enabled.
 #[cold]
 #[inline(never)]
@@ -133,7 +142,7 @@ fn rc_trace_verbose_backtrace() {
     }
 }
 
-// ── Leak Attribution (debug builds only) ─────────────────────────────
+// Leak Attribution (debug builds only)
 
 /// Monotonic allocation counter for leak attribution.
 ///
@@ -218,7 +227,7 @@ pub fn reset_alloc_registry() {
     RC_ALLOC_COUNTER.store(0, Ordering::Relaxed);
 }
 
-// ── Runtime Assertion Mode (ORI_RT_DEBUG) ─────────────────────────────
+// Runtime Assertion Mode (ORI_RT_DEBUG)
 
 /// Validate that the RC header at `data_ptr - 8` holds a plausible refcount.
 ///
@@ -337,7 +346,7 @@ pub(crate) fn rt_debug_bounds_warning(op: &str, index: i64, len: i64) {
     eprintln!("ori: ORI_RT_DEBUG — {op}: index {index} out of bounds (len={len})");
 }
 
-// ── Leak Detection ───────────────────────────────────────────────────
+// Leak Detection
 
 /// Check whether ARC leak detection is enabled via environment variable.
 ///
