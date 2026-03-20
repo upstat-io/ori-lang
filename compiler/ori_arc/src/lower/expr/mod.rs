@@ -22,9 +22,12 @@ pub(crate) struct LoopContext {
     pub exit_block: crate::ir::ArcBlockId,
     /// Block to jump to on `continue`.
     pub continue_block: crate::ir::ArcBlockId,
-    /// Mutable variable names in block-parameter order for SSA merge.
+    /// Mutable variables in block-parameter order for SSA merge.
     /// MUST be `Vec` (not `HashMap`) — order must match `add_block_param` order.
-    pub mutable_vars: Vec<Name>,
+    /// Each entry is `(name, header_param)` where `header_param` is the SSA
+    /// value at loop header entry — used as infallible fallback when
+    /// `scope.lookup(name)` fails during break/continue lowering.
+    pub mutable_vars: Vec<(Name, crate::ir::ArcVarId)>,
     /// For-yield specific: when set, break/continue handle list accumulation
     /// and thread the collection phantom parameter.
     pub yield_ctx: Option<ForYieldContext>,

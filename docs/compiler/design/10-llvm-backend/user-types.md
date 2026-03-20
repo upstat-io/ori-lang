@@ -27,7 +27,7 @@ Modern compilers face several layout decisions for user-defined types:
 
 ### Where Ori Sits
 
-Ori uses **inline struct layouts** with **declaration-order fields** and **separate discriminant tags** for sum types. Structs are LLVM named structs with fields at their native types. Enums use a `{ i8, max_payload }` representation with a one-byte tag. RC information flows from the type system (via `TypeInfo`) to the ARC pipeline (via `ArcClass` classification) to the LLVM backend (via drop function generation).
+Ori uses **inline struct layouts** with **declaration-order fields** and **separate discriminant tags** for sum types. Structs are LLVM named structs with fields at their native types. Enums use a `{ i8, max_payload }` representation with a one-byte tag. RC information flows from the type system (via `TypeInfo`) to the AIMS pipeline (via `ArcClass` classification) to the LLVM backend (via drop function generation).
 
 The key architectural decision is the `TypeInfo` enum — a unified representation that captures both the logical structure of each type and the information needed to generate correct LLVM code for it.
 
@@ -81,7 +81,7 @@ Each Ori type category maps to a `TypeInfo` variant:
 | `Iterator { item }` | `Iterator<T>` | `ptr` |
 | `Range` | `Range` | `{ i64, i64, i64, i64 }` |
 
-Each variant carries the information needed for downstream decisions: `List { element: Idx }` stores the element type's pool index, which the ARC system uses to generate element-level RC callbacks. `Struct { fields: Vec<(Name, Idx)> }` stores field names and types, which drop function generation uses to walk and decrement RC-managed fields.
+Each variant carries the information needed for downstream decisions: `List { element: Idx }` stores the element type's pool index, which AIMS uses to generate element-level RC callbacks. `Struct { fields: Vec<(Name, Idx)> }` stores field names and types, which drop function generation uses to walk and decrement RC-managed fields.
 
 ### TypeInfoStore
 
@@ -152,7 +152,7 @@ Impl block methods are compiled alongside module functions, following the same t
 
 1. **Phase 1 (Declaration)**: Each method is declared as an LLVM function with its computed ABI. The method's mangled name encodes the type and method name (e.g., `Point.distance` → `_ori_Point$distance`).
 
-2. **Phase 2 (Definition)**: Each method body is lowered through the ARC pipeline and emitted as LLVM IR via `ArcIrEmitter`. The method's `self` parameter is passed as the first argument, following the same calling convention as any other function parameter.
+2. **Phase 2 (Definition)**: Each method body is lowered through the AIMS pipeline and emitted as LLVM IR via `ArcIrEmitter`. The method's `self` parameter is passed as the first argument, following the same calling convention as any other function parameter.
 
 Methods are compiled as regular functions because Ori uses static dispatch for concrete types — the compiler knows the exact type at every call site. Dynamic dispatch only occurs through trait objects, which are handled separately by the trait system.
 
@@ -193,7 +193,7 @@ Project { dst: v2, ty: int_idx, src: v1, field: 0 }
 
 In the LLVM backend, this becomes an `extract_value` operation on the LLVM struct value at the field's index. The field index is known at compile time (determined by declaration order), so field access is a single LLVM instruction with no runtime lookup.
 
-For nested field access (`state.position.x`), each level produces a separate `Project` instruction. The ARC pipeline handles ownership correctly at each level — if `position` is shared, it gets an `RcInc` before the projection.
+For nested field access (`state.position.x`), each level produces a separate `Project` instruction. The AIMS pipeline handles ownership correctly at each level — if `position` is shared, it gets an `RcInc` before the projection.
 
 ## Enum Representation
 
@@ -226,7 +226,7 @@ For RC operations, enum values require tag-based dispatch: the `RcDec` path gene
 
 **Inline structs vs. pointer indirection.** Ori lays out struct fields inline — a `Point { x: int, y: int }` is 16 bytes of contiguous memory, not a pointer to a 16-byte allocation. This is faster for access (no pointer chase, better cache locality) but makes passing large structs by value expensive. The ABI system mitigates this by passing large structs via pointer (indirect passing), but the layout is still inline in memory.
 
-**Fixed tag size vs. niche optimization.** Using a fixed `i8` tag for all enums wastes space when the payload could encode the variant information (like using null for `None` in `Option<&T>`). Niche optimization would save memory but adds significant complexity to the layout algorithm, the codegen, and the ARC system (which must know where the tag is for each type). This is a future optimization opportunity.
+**Fixed tag size vs. niche optimization.** Using a fixed `i8` tag for all enums wastes space when the payload could encode the variant information (like using null for `None` in `Option<&T>`). Niche optimization would save memory but adds significant complexity to the layout algorithm, the codegen, and AIMS (which must know where the tag is for each type). This is a future optimization opportunity.
 
 **Static dispatch vs. vtables.** Ori compiles method calls as direct function calls, not vtable lookups. This means every concrete method call has zero dispatch overhead but requires monomorphization for generic code. The alternative — vtables for all types, like Java — would enable code sharing across generic instantiations but would add indirect call overhead to every method call.
 

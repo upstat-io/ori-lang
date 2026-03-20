@@ -956,7 +956,7 @@ If it's invisible to programmers, why spec it?
 1. **Implementer guidance** — Compiler contributors need to know what optimizations are legal and what invariants must hold. Without a spec, a well-meaning contributor might narrow `int` overflow to `i32` range, thinking it's "just an optimization."
 2. **Correctness boundary** — The as-if rule needs precise definition. "Observable behavior" must be enumerated (equality, hashing, formatting, overflow).
 3. **FFI contract** — FFI is the one place representation matters. The spec must define what representation FFI uses.
-4. **Cross-phase consistency** — Representation decisions in the codegen must be consistent with assumptions in the type checker, evaluator, and ARC system. The spec documents these consistency requirements.
+4. **Cross-phase consistency** — Representation decisions in the codegen must be consistent with assumptions in the type checker, evaluator, and AIMS. The spec documents these consistency requirements.
 5. **Target portability** — Different backends (LLVM, WASM, future JIT) need a shared understanding of what they may and may not optimize.
 
 ### Why Three Tiers?

@@ -2,26 +2,26 @@
 title: "ARC IR"
 description: "Ori Compiler Design — ARC IR Definitions and Type Classification"
 order: 901
-section: "ARC System"
+section: "AIMS"
 ---
 
 # ARC IR
 
 ## Why a Separate IR for Memory Management?
 
-Compilers use intermediate representations to bridge the gap between what programmers write and what machines execute. Each IR is designed for a specific kind of analysis, and the canonical IR that enters the ARC system — a typed expression tree with implicit control flow — is the wrong shape for reference counting analysis.
+Compilers use intermediate representations to bridge the gap between what programmers write and what machines execute. Each IR is designed for a specific kind of analysis, and the canonical IR that enters AIMS — a typed expression tree with implicit control flow — is the wrong shape for reference counting analysis.
 
 Reference counting decisions depend on **control flow**: when does a variable's last use occur? Does a value flow down both branches of an if/else? Is a value captured by a closure and thus outlives its declaring scope? Answering these questions requires explicit control flow — basic blocks, terminators, and a control flow graph where dataflow equations can be solved.
 
 The classical solution, used by virtually every optimizing compiler, is to lower the high-level AST into a **basic-block IR** where control flow is explicit. LLVM has LLVM IR. Rust has MIR. GHC has STG and then Cmm. [Lean 4](https://github.com/leanprover/lean4) has LCNF (Lean Compiler Normal Form). [Swift](https://github.com/swiftlang/swift) has SIL (Swift Intermediate Language). Each of these IRs shares the same fundamental structure: functions contain blocks, blocks contain sequential instructions and a terminator, and values are referenced by SSA-like variable IDs.
 
-Ori's ARC IR follows this pattern. It is lowered from the canonical IR (sugar-free expression tree) into basic blocks with explicit jumps, branches, and switches. Variables are SSA-like — each binding creates a fresh `ArcVarId`, and mutable variables are handled through block parameters at control flow merge points (the same mechanism as LLVM's phi nodes, but using block arguments instead). This structure makes liveness analysis, borrow inference, RC insertion, and reuse detection straightforward applications of standard dataflow algorithms.
+Ori's ARC IR follows this pattern. It is lowered from the canonical IR (sugar-free expression tree) into basic blocks with explicit jumps, branches, and switches. Variables are SSA-like — each binding creates a fresh `ArcVarId`, and mutable variables are handled through block parameters at control flow merge points (the same mechanism as LLVM's phi nodes, but using block arguments instead). This structure makes AIMS's backward dataflow analysis, contract computation, and unified realization straightforward applications of standard dataflow algorithms.
 
 ### What Makes ARC IR Distinctive
 
 ARC IR is not a general-purpose low-level IR like LLVM IR — it is a **domain-specific IR for reference counting analysis**. Every design decision serves this purpose:
 
-- **Type classification is embedded**: every variable carries its `ArcClass` (Scalar, DefiniteRef, PossibleRef), so RC passes never query the type system
+- **Type classification is embedded**: every variable carries its `ArcClass` (Scalar, DefiniteRef, PossibleRef), so AIMS analysis never queries the type system
 - **Ownership annotations are first-class**: function parameters carry `Ownership`, call arguments carry `ArgOwnership`
 - **RC operations are explicit instructions**: `RcInc` and `RcDec` are instructions with embedded `RcStrategy`, so the LLVM emitter pattern-matches directly without type queries
 - **Reuse is a first-class concept**: `Reset`/`Reuse` instructions model in-place allocation reuse as IR constructs, not ad-hoc pattern matching
@@ -31,7 +31,7 @@ ARC IR is not a general-purpose low-level IR like LLVM IR — it is a **domain-s
 
 ### ArcFunction
 
-A complete function body in ARC IR. Contains everything needed for all ARC analysis passes:
+A complete function body in ARC IR. Contains everything needed for AIMS analysis and realization:
 
 | Field | Type | Purpose |
 |-------|------|---------|
@@ -60,7 +60,7 @@ A basic block: optional parameters for control flow merges, a sequential instruc
 | `body` | `Vec<ArcInstr>` | Instructions in execution order |
 | `terminator` | `ArcTerminator` | How control exits this block |
 
-Block parameters are ARC IR's phi-node mechanism. When a mutable variable diverges across branches (if/else, match arms), the merge block receives both versions as block parameters, and each predecessor's `Jump` terminator passes its version as an argument. This is the same approach used by [MLIR](https://mlir.llvm.org/) and Swift SIL — structurally simpler than LLVM's phi nodes and easier to manipulate during ARC passes.
+Block parameters are ARC IR's phi-node mechanism. When a mutable variable diverges across branches (if/else, match arms), the merge block receives both versions as block parameters, and each predecessor's `Jump` terminator passes its version as an argument. This is the same approach used by [MLIR](https://mlir.llvm.org/) and Swift SIL — structurally simpler than LLVM's phi nodes and easier to manipulate during AIMS analysis.
 
 ### ID Types
 
@@ -76,7 +76,7 @@ A function parameter annotated with ownership:
 | `ty` | `Idx` | Type in the Pool |
 | `ownership` | `Ownership` | `Owned` or `Borrowed` (refined by borrow inference) |
 
-All parameters start as `Owned` during lowering and may be refined to `Borrowed` by borrow inference. This "start conservative, refine" approach ensures correctness — an `Owned` parameter that should be `Borrowed` wastes RC operations but is correct, while a `Borrowed` parameter that should be `Owned` would be a use-after-free.
+All parameters start as `Owned` during lowering and may be refined to `Borrowed` by AIMS's interprocedural contract computation. This "start conservative, refine" approach ensures correctness — an `Owned` parameter that should be `Borrowed` wastes RC operations but is correct, while a `Borrowed` parameter that should be `Owned` would be a use-after-free.
 
 ## Instruction Set
 
@@ -139,7 +139,7 @@ The `CtorKind` enum on `Construct` distinguishes: `Struct(Name)`, `EnumVariant {
 | `RcDec { var, strategy }` | Decrement reference count. If the count reaches zero, invoke the drop function to free the allocation. |
 | `IsShared { dst, var }` | Test whether `var`'s reference count is greater than 1. Returns a boolean. Used as a guard before in-place mutation (COW) and reuse expansion. |
 
-These instructions are **not present after lowering** — they are inserted by the RC insertion pass (Perceus algorithm) based on liveness analysis and ownership information. The `RcStrategy` embedded in each instruction tells the LLVM emitter exactly how to emit the operation, with no further type queries needed.
+These instructions are **not present after lowering** — they are inserted by AIMS's unified realization step based on the converged `AimsStateMap` and ownership information. The `RcStrategy` embedded in each instruction tells the LLVM emitter exactly how to emit the operation, with no further type queries needed.
 
 ### In-Place Mutation
 
@@ -157,7 +157,7 @@ These instructions support COW (copy-on-write) semantics: before mutating, the c
 | `Reset { var, token }` | Mark a value for potential in-place reuse. The `token` is an `ArcVarId` used to track the reuse opportunity. |
 | `Reuse { token, dst, ty, ctor, args }` | Construct a new value using the memory from a `Reset` token. If the reset value was uniquely owned, this is a zero-allocation construction. |
 
-`Reset`/`Reuse` are **intermediate instructions** — they are inserted by the reset/reuse detection pass and then **expanded** by the expansion pass into `IsShared` guards with fast-path (in-place) and slow-path (fresh allocation) branches. After expansion, no `Reset` or `Reuse` instructions remain in the IR.
+`Reset`/`Reuse` are **intermediate instructions** — they are inserted by AIMS's reuse emission step and then **expanded** into `IsShared` guards with fast-path (in-place) and slow-path (fresh allocation) branches. After expansion, no `Reset` or `Reuse` instructions remain in the IR.
 
 ## Terminators
 
@@ -173,11 +173,11 @@ Every block ends with exactly one terminator:
 | `Resume` | Resume unwinding after cleanup (re-raise a caught panic) |
 | `Unreachable` | Marks a block as provably unreachable (used after exhaustive match) |
 
-Terminators provide `used_vars()`, `uses_var(target)`, and `substitute_var(old, new)` for liveness analysis, reuse expansion, and RC identity propagation.
+Terminators provide `used_vars()`, `uses_var(target)`, and `substitute_var(old, new)` for AIMS backward analysis, reuse expansion, and RC identity propagation.
 
 ## Type Classification
 
-The three-way `ArcClass` classification is the foundation of all RC decisions. Every downstream pass — borrow inference, RC insertion, reset/reuse, elimination — consults the classification to determine whether a variable needs RC operations at all.
+The three-way `ArcClass` classification is the foundation of all RC decisions. Every AIMS step — contract computation, backward analysis, unified realization — consults the classification to determine whether a variable needs RC operations at all.
 
 ```mermaid
 flowchart TB
@@ -225,7 +225,7 @@ Iterators and `DoubleEndedIterator` are classified as `Scalar` despite being hea
 
 ## Value Representation
 
-`ValueRepr` bridges the type-level `ArcClass` to machine-level layout. Computed once per variable by `compute_var_reprs` at the start of the pipeline, then stored in the `var_reprs` parallel array.
+`ValueRepr` bridges the type-level `ArcClass` to machine-level layout. Computed once per variable by `compute_var_reprs` at the start of the AIMS pipeline, then stored in the `var_reprs` parallel array.
 
 | Repr | Layout | Examples |
 |------|--------|---------|
@@ -238,7 +238,7 @@ The derivation depends on both `ArcClass` and the Pool tag: `Scalar` classes alw
 
 ## RC Strategy
 
-`RcStrategy` refines `ValueRepr` specifically for RC operations — it encodes exactly how to find and manipulate the reference count for a given value shape. It is computed during RC insertion and **embedded in the `RcInc`/`RcDec` instructions themselves**, so the LLVM emitter pattern-matches directly without any Pool queries at emission time.
+`RcStrategy` refines `ValueRepr` specifically for RC operations — it encodes exactly how to find and manipulate the reference count for a given value shape. It is computed during AIMS realization and **embedded in the `RcInc`/`RcDec` instructions themselves**, so the LLVM emitter pattern-matches directly without any Pool queries at emission time.
 
 | Strategy | How It Works |
 |----------|-------------|
@@ -280,4 +280,4 @@ The key design insight: `RcStrategy` is **computed once and never recomputed**. 
 
 **Three-way classification vs two-way.** The `PossibleRef` class exists for pre-monomorphization conservative analysis. A simpler two-way system (Scalar vs Ref) would eliminate the third case but require monomorphization to complete before any ARC analysis can begin. The three-way system allows ARC analysis to start earlier, though in practice monomorphization happens first and `PossibleRef` rarely appears.
 
-**Domain-specific IR vs reusing LLVM IR.** ARC analysis could theoretically be done on LLVM IR directly, using LLVM's own SSA variables and basic blocks. But LLVM IR lacks the semantic information that ARC analysis needs — constructors, projections, ownership annotations, reuse tokens. A domain-specific IR makes these concepts first-class, at the cost of an additional lowering step (CanExpr → ARC IR → LLVM IR instead of CanExpr → LLVM IR directly).
+**Domain-specific IR vs reusing LLVM IR.** AIMS analysis could theoretically be done on LLVM IR directly, using LLVM's own SSA variables and basic blocks. But LLVM IR lacks the semantic information that AIMS needs — constructors, projections, ownership annotations, reuse tokens. A domain-specific IR makes these concepts first-class, at the cost of an additional lowering step (CanExpr → ARC IR → LLVM IR instead of CanExpr → LLVM IR directly).

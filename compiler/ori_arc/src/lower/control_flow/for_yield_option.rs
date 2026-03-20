@@ -142,12 +142,15 @@ impl ArcLowerer<'_> {
         // Set up LoopContext so break/continue work inside the yield body.
         // Option is not a loop — continue_block = exit_block (both break and
         // continue exit immediately since there's only one element to visit).
-        let mutable_var_names: Vec<_> = mut_info.iter().map(|(name, _, _)| *name).collect();
+        let mutable_var_entries: Vec<_> = mut_info
+            .iter()
+            .map(|&(name, pre_var, _)| (name, pre_var))
+            .collect();
         let prev_loop = self.loop_ctx.take();
         self.loop_ctx = Some(LoopContext {
             exit_block,
             continue_block: exit_block,
-            mutable_vars: mutable_var_names,
+            mutable_vars: mutable_var_entries,
             yield_ctx: Some(ForYieldContext {
                 list_ptr,
                 elem_size: elem_size_var,

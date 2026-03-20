@@ -51,6 +51,7 @@ pub extern "C" fn ori_iter_next(iter: *mut u8, out_ptr: *mut u8, elem_size: i64)
     if iter.is_null() || out_ptr.is_null() {
         return 0;
     }
+    state::assert_elem_size(elem_size, "ori_iter_next");
     let state = unsafe { &mut *iter.cast::<IterState>() };
     let has_next = unsafe { state.next(out_ptr, elem_size) };
     i8::from(has_next)

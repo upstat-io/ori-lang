@@ -15,7 +15,7 @@ The idea dates to George Collins' 1960 paper on list processing, making referenc
 
 Reference counting has a fundamental advantage over tracing garbage collection: **deterministic destruction**. When the last reference to an object disappears, the object is freed immediately — not at some later point when a garbage collector decides to run. This determinism makes resource management predictable (file handles close when expected, network connections release promptly) and eliminates the pause-time problem that plagues tracing collectors.
 
-The tradeoff is overhead: every copy increments, every scope exit decrements, and in a multithreaded program, these operations must be atomic. The [ARC analysis pass](../09-arc-system/index.md) exists to minimize this overhead through static analysis — eliminating redundant operations, inferring borrowed parameters, and enabling in-place mutation through uniqueness detection. But the operations that survive static optimization must actually execute at runtime, and this chapter describes the implementation of those operations.
+The tradeoff is overhead: every copy increments, every scope exit decrements, and in a multithreaded program, these operations must be atomic. The [AIMS analysis pass](../09-aims/index.md) exists to minimize this overhead through static analysis — eliminating redundant operations, inferring borrowed parameters, and enabling in-place mutation through uniqueness detection. But the operations that survive static optimization must actually execute at runtime, and this chapter describes the implementation of those operations.
 
 ### Atomic vs Non-Atomic
 
@@ -132,7 +132,7 @@ This Release-decrement / Acquire-fence-before-drop protocol is the standard sync
 - C++'s `shared_ptr` (both libstdc++ and libc++)
 - Lean 4's `lean_dec_ref` ([Lean runtime](https://github.com/leanprover/lean4/blob/master/src/runtime/object.h))
 
-**Drop callback.** If `drop_fn` is `Some`, it is called with the data pointer before deallocation. This handles recursive RC decrements for nested heap-allocated values. For example, a list of strings needs to decrement each string's RC before freeing the list buffer — the drop function walks the elements and calls `ori_rc_dec` on each one. The LLVM backend generates type-specialized drop functions for each concrete type (see [Drop Descriptors](../09-arc-system/drop-descriptors.md)).
+**Drop callback.** If `drop_fn` is `Some`, it is called with the data pointer before deallocation. This handles recursive RC decrements for nested heap-allocated values. For example, a list of strings needs to decrement each string's RC before freeing the list buffer — the drop function walks the elements and calls `ori_rc_dec` on each one. The LLVM backend generates type-specialized drop functions for each concrete type (see [Drop Descriptors](../09-aims/drop-descriptors.md)).
 
 **Null safety.** `ori_rc_dec(null, _)` is a no-op, matching `ori_rc_inc`.
 
@@ -279,7 +279,7 @@ The tracing check uses `OnceLock` to read the environment variable once and cach
 
 ## Interaction with ARC Analysis
 
-The ARC analysis pass determines statically where `ori_rc_inc` and `ori_rc_dec` calls belong. The runtime provides the actual implementations. The contract between them:
+The AIMS analysis pass determines statically where `ori_rc_inc` and `ori_rc_dec` calls belong. The runtime provides the actual implementations. The contract between them:
 
 1. Every value produced by `ori_rc_alloc` starts with count 1
 2. Every additional use requires an `ori_rc_inc`
@@ -290,7 +290,7 @@ The runtime performs no reachability analysis or cycle detection. Cycles are pre
 
 ## Prior Art
 
-**Rust's [`Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html)** uses the same Release/Acquire synchronization protocol. The key difference is that `Arc` is a library type with inline operations — there is no runtime function to call. Each `Arc::clone()` and `Arc::drop()` inlines the atomic operation at the call site. Ori uses runtime functions instead because the ARC analysis pass needs a single call target for each operation, and the LLVM backend generates calls to these targets.
+**Rust's [`Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html)** uses the same Release/Acquire synchronization protocol. The key difference is that `Arc` is a library type with inline operations — there is no runtime function to call. Each `Arc::clone()` and `Arc::drop()` inlines the atomic operation at the call site. Ori uses runtime functions instead because the AIMS analysis pass needs a single call target for each operation, and the LLVM backend generates calls to these targets.
 
 **Swift's [`swift_retain`/`swift_release`](https://github.com/swiftlang/swift/blob/main/stdlib/public/runtime/HeapObject.cpp)** are the closest analogs to `ori_rc_inc`/`ori_rc_dec`. Swift's refcount word packs additional information — a pinned flag, unowned reference count, and weak reference count — into the same 64-bit word using bit fields. Ori's simpler single-counter design reflects the absence of weak references and pinning in Ori's memory model.
 

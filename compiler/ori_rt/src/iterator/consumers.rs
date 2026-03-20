@@ -5,6 +5,7 @@
 
 use std::ptr;
 
+use super::state::assert_elem_size;
 use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
 
 // ── Collect ─────────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
 /// `elem_size` is the byte size of each element.
 #[no_mangle]
 pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut u8) {
+    assert_elem_size(elem_size, "ori_iter_collect");
     if iter.is_null() || out_ptr.is_null() {
         // Write empty list
         if !out_ptr.is_null() {
@@ -86,6 +88,7 @@ pub extern "C" fn ori_iter_collect_set(
         HashTableLayout, META_OCCUPIED,
     };
     use crate::set::{alloc_set_hash_buffer, write_set_struct};
+    assert_elem_size(elem_size, "ori_iter_collect_set");
 
     if iter.is_null() || out_ptr.is_null() {
         if !out_ptr.is_null() {
@@ -152,6 +155,7 @@ pub extern "C" fn ori_iter_collect_set(
 /// Count the remaining elements in the iterator, consuming it.
 #[no_mangle]
 pub extern "C" fn ori_iter_count(iter: *mut u8, elem_size: i64) -> i64 {
+    assert_elem_size(elem_size, "ori_iter_count");
     if iter.is_null() {
         return 0;
     }
@@ -180,6 +184,7 @@ pub extern "C" fn ori_iter_any(
     pred_env: *mut u8,
     elem_size: i64,
 ) -> i8 {
+    assert_elem_size(elem_size, "ori_iter_any");
     if iter.is_null() {
         return 0;
     }
@@ -212,6 +217,7 @@ pub extern "C" fn ori_iter_all(
     pred_env: *mut u8,
     elem_size: i64,
 ) -> i8 {
+    assert_elem_size(elem_size, "ori_iter_all");
     if iter.is_null() {
         return 1; // vacuously true for empty
     }
@@ -248,6 +254,7 @@ pub extern "C" fn ori_iter_find(
     elem_size: i64,
     out_ptr: *mut u8,
 ) {
+    assert_elem_size(elem_size, "ori_iter_find");
     if out_ptr.is_null() {
         if !iter.is_null() {
             drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
@@ -299,6 +306,7 @@ pub extern "C" fn ori_iter_for_each(
     each_env: *mut u8,
     elem_size: i64,
 ) {
+    assert_elem_size(elem_size, "ori_iter_for_each");
     if iter.is_null() {
         return;
     }
@@ -330,6 +338,8 @@ pub extern "C" fn ori_iter_fold(
     acc_size: i64,
     out_ptr: *mut u8,
 ) {
+    assert_elem_size(elem_size, "ori_iter_fold");
+    assert_elem_size(acc_size, "ori_iter_fold(acc)");
     if out_ptr.is_null() {
         if !iter.is_null() {
             drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });

@@ -39,12 +39,10 @@ impl ArcLowerer<'_> {
 
         // Collect mutable bindings for SSA merge through the loop.
         let pre_scope = self.scope.clone();
-        let mut mutable_var_names = Vec::new();
         let mut mut_info: Vec<(Name, ArcVarId, Idx)> = Vec::new();
 
         for (name, var) in pre_scope.mutable_bindings() {
             let var_ty = self.builder.var_type_or_unit(var);
-            mutable_var_names.push(name);
             mut_info.push((name, var, var_ty));
         }
 
@@ -187,10 +185,14 @@ impl ArcLowerer<'_> {
         self.bind_for_pattern(pattern, i_var, Idx::INT);
 
         let prev_loop = self.loop_ctx.take();
+        let mutable_var_entries: Vec<_> = header_mut_params
+            .iter()
+            .map(|&(name, _, param)| (name, param))
+            .collect();
         self.loop_ctx = Some(LoopContext {
             exit_block,
             continue_block: latch_block,
-            mutable_vars: mutable_var_names,
+            mutable_vars: mutable_var_entries,
             yield_ctx: None,
         });
 
@@ -199,7 +201,7 @@ impl ArcLowerer<'_> {
         if !self.builder.is_terminated() {
             let body_args: Vec<_> = header_mut_params
                 .iter()
-                .map(|(name, _, _)| self.scope.lookup(*name).unwrap_or_else(|| ArcVarId::new(0)))
+                .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param))
                 .collect();
             self.builder.terminate_jump(latch_block, body_args);
         }

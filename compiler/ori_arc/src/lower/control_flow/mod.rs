@@ -265,10 +265,8 @@ impl ArcLowerer<'_> {
             if let Some(ref ctx) = self.loop_ctx {
                 let exit_block = ctx.exit_block;
                 let mut args: Vec<_> = coll_param.into_iter().collect();
-                for name in &ctx.mutable_vars {
-                    if let Some(var) = self.scope.lookup(*name) {
-                        args.push(var);
-                    }
+                for &(name, fallback) in &ctx.mutable_vars {
+                    args.push(self.scope.lookup(name).unwrap_or(fallback));
                 }
                 tracing::debug!(
                     exit_bb = exit_block.index(),
@@ -289,10 +287,8 @@ impl ArcLowerer<'_> {
             if let Some(ref ctx) = self.loop_ctx {
                 let exit_block = ctx.exit_block;
                 let mut args = vec![break_val];
-                for name in &ctx.mutable_vars {
-                    if let Some(var) = self.scope.lookup(*name) {
-                        args.push(var);
-                    }
+                for &(name, fallback) in &ctx.mutable_vars {
+                    args.push(self.scope.lookup(name).unwrap_or(fallback));
                 }
                 tracing::debug!(
                     exit_bb = exit_block.index(),
@@ -333,10 +329,8 @@ impl ArcLowerer<'_> {
             if let Some(ref ctx) = self.loop_ctx {
                 let continue_block = ctx.continue_block;
                 let mut args: Vec<_> = coll_param.into_iter().collect();
-                for name in &ctx.mutable_vars {
-                    if let Some(var) = self.scope.lookup(*name) {
-                        args.push(var);
-                    }
+                for &(name, fallback) in &ctx.mutable_vars {
+                    args.push(self.scope.lookup(name).unwrap_or(fallback));
                 }
                 tracing::debug!(
                     continue_bb = continue_block.index(),
@@ -352,12 +346,7 @@ impl ArcLowerer<'_> {
             let args: Vec<_> = ctx
                 .mutable_vars
                 .iter()
-                .map(|name| {
-                    self.scope.lookup(*name).unwrap_or_else(|| {
-                        tracing::warn!(?name, "continue: mutable var missing from scope");
-                        ArcVarId::new(0)
-                    })
-                })
+                .map(|&(name, fallback)| self.scope.lookup(name).unwrap_or(fallback))
                 .collect();
             tracing::debug!(
                 continue_bb = continue_block.index(),
