@@ -57,7 +57,7 @@ sections:
 ## 5.1 Struct Types
 
 - [x] **Implement**: Parse `type Name = { field: Type, ... }` — spec/08-types.md § Struct Types, spec/10-declarations.md § Type Declarations [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_struct_type`
+  - [x] **Rust Tests**: STALE: `ori_parse/src/grammar/attr.rs — test_parse_struct_type` does not exist; actual parser tests in `ori_parse/src/tests/compositional.rs` (9 struct-related tests)
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` (30+ tests: basic, single field, empty, nested, many fields, mixed types, generic, with Option/List/Tuple/Function fields)
 
 - [x] **Implement**: Register struct in type environment — spec/10-declarations.md § Type Declarations [done] (2026-02-10)
@@ -73,7 +73,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct literal construction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — struct literal codegen (file does not exist)
-  - [x] **AOT Tests**: `ori_llvm/tests/aot/structs.rs` — 30 tests, 1 ignored (struct construction with int/bool/str/mixed fields, update syntax, nested structs, function params/returns, closures, derived Eq)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/structs.rs` — STALE: was "30 tests, 1 ignored"; now 32 passed, 0 ignored (struct construction with int/bool/str/mixed fields, update syntax, nested structs, function params/returns, closures, derived Eq)
 
 - [x] **Implement**: Shorthand `Point { x, y }` — spec/08-types.md § Struct Types [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — shorthand parsing
@@ -101,29 +101,29 @@ sections:
 ## 5.2 Sum Types (Enums) — COMPLETED 2026-01-28
 
 - [x] **Implement**: Parse `type Name = Variant1 | Variant2(Type)` [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_sum_type`
+  - [x] **Rust Tests**: STALE: `ori_parse/src/grammar/attr.rs — test_parse_sum_type` does not exist
   - [x] **Ori Tests**: `tests/spec/declarations/sum_types.ori` (30+ tests)
 
 - [x] **Implement**: Unit variants [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — included in `test_parse_sum_type`
+  - [x] **Rust Tests**: STALE: `ori_parse/src/grammar/attr.rs — test_parse_sum_type` does not exist
   - [x] **Ori Tests**: Color (Red|Green|Blue), Direction (NSEW), Toggle (On|Off), Status (4 variants)
 
 - [x] **Implement**: Single-field variants `Variant(Type)` [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — single-field variant parsing
+  - [x] **Rust Tests**: STALE: `ori_parse/src/grammar/attr.rs` reference does not exist
   - [x] **Ori Tests**: MyOption (MySome/MyNone), Message (Text/Empty)
   - [ ] **LLVM Support**: LLVM codegen for single-field variants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **AOT Tests**: STALE: was "No AOT coverage yet"; `cargo test -p ori_llvm -- enum` shows 17 passing tests (unit variants, construction, mixed variants, recursive enum, params/returns, derived Eq)
 
 - [x] **Implement**: Multi-field variants `Variant(x: Type, y: Type)` [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — multi-field variant parsing
+  - [x] **Rust Tests**: STALE: `ori_parse/src/grammar/attr.rs` reference does not exist
   - [x] **Ori Tests**: Shape (Circle/Rectangle), Point3D, Event (Click/KeyPress/Quit), Response (Success/Error)
   - [ ] **LLVM Support**: LLVM codegen for multi-field variants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **AOT Tests**: STALE: was "No AOT coverage yet"; covered by enum AOT tests above
 
 - [x] **Implement**: Struct variants [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — struct variant parsing (named fields)
+  - [x] **Rust Tests**: STALE: `ori_parse/src/grammar/attr.rs` reference does not exist
   - [x] **Ori Tests**: All multi-field variants use named fields
 
 - [x] **Implement**: Variant constructors [done] (2026-02-10)
@@ -131,15 +131,15 @@ sections:
   - [x] **Ori Tests**: All sum type tests construct variants; generic sum types (MyResult, MyOptional, LinkedList, Tree)
   - [ ] **LLVM Support**: LLVM codegen for variant constructors
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **AOT Tests**: STALE: was "No AOT coverage yet"; covered by enum AOT tests above
 
 - [x] **Implement**: Pattern matching on variants [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/` — variant pattern matching
   - [x] **Ori Tests**: Exhaustive match, wildcard, nested match, variable binding, recursive Expr eval
   - [ ] **LLVM Support**: LLVM codegen for variant pattern matching
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
-  - Note: `#derive(Eq)` for sum types NOT working (skipped in tests)
+  - [x] **AOT Tests**: STALE: was "No AOT coverage yet"; covered by enum AOT tests above
+  - STALE: Note claimed `#derive(Eq)` for sum types NOT working -- it IS working (tests pass in `sum_types.ori` lines 437-463 and `tests/spec/traits/derive/eq_sum.ori`)
 
 ---
 
@@ -148,7 +148,7 @@ sections:
 **Proposal**: `proposals/approved/newtype-pattern-proposal.md`
 
 - [x] **Implement**: Parse `type Name = ExistingType` [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_newtype`
+  - [x] **Rust Tests**: STALE: `ori_parse/src/grammar/attr.rs — test_parse_newtype` does not exist
   - [x] **Ori Tests**: `tests/spec/types/newtypes.ori` (UserId, Email, Age, Score)
 
 - [x] **Implement**: Distinct type identity (nominal) [done] (2026-02-10)
@@ -175,7 +175,7 @@ sections:
 ## 5.4 Generic Types
 
 - [x] **Implement**: Parse `type Name<T> = ...` [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — `test_parse_generic_type_with_bounds`
+  - [x] **Rust Tests**: STALE: `ori_parse/src/grammar/attr.rs — test_parse_generic_type_with_bounds` does not exist; actual tests in `ori_parse/src/grammar/ty/tests.rs` — `test_parse_generic_type`
   - [x] **Ori Tests**: `tests/spec/types/generic.ori` (Box<T>, Pair<A,B>, Container<T>, Wrapper<T>)
 
 - [x] **Implement**: Multiple parameters `<T, U>` [done] (2026-02-10)
@@ -274,21 +274,21 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
   - [x] **Ori Tests**: Used throughout test suite (struct_types.ori, sum_types.ori, traits/)
   - [ ] **LLVM Support**: LLVM codegen for Option type — inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_result_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **AOT Tests**: STALE: was "No AOT coverage yet"; `cargo test -p ori_llvm -- option` shows 94 passing tests (3 ignored)
 
 - [x] **Implement**: `Result<T, E>` with `Ok`/`Err` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/` — Result type handling
   - [x] **Ori Tests**: Used in traits/core/ tests, test suite
   - [ ] **LLVM Support**: LLVM codegen for Result type — inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_result_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **AOT Tests**: STALE: was "No AOT coverage yet"; `cargo test -p ori_llvm -- result` shows 48 passing tests
 
 - [x] **Implement**: `Ordering` with `Less`/`Equal`/`Greater` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/` — Ordering type handling
   - [x] **Ori Tests**: `tests/spec/types/ordering/methods.ori` (32 tests)
   - [ ] **LLVM Support**: LLVM codegen for Ordering type — i8 comparison in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **AOT Tests**: STALE: was "No AOT coverage yet"; `cargo test -p ori_llvm -- ordering` shows 7 passing tests
 
 - [ ] **Implement**: `Error` type — spec/17-errors-and-panics.md § Error Conventions
   - [ ] **Rust Tests**: `ori_types/src/infer/` — Error type handling
@@ -343,7 +343,7 @@ Replace `#derive(Trait)` with `type T: Trait = ...`. Derivation moves from attri
   - [ ] **LLVM Support**: LLVM codegen for derived Eq
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - [x] **AOT Tests**: `ori_llvm/tests/aot/structs.rs` — `test_struct_derived_eq`, `test_struct_derived_eq_string` (struct Eq with int and string fields)
-  - Note: Derive(Eq) for SUM TYPES not working (skipped in tests)
+  - STALE: Note claimed Derive(Eq) for SUM TYPES not working — it IS working (tests pass in `sum_types.ori` and `tests/spec/traits/derive/eq_sum.ori`)
 
 - [x] **Implement**: `#derive(Clone)` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/check/ (derive Clone)` — derive Clone generation
@@ -359,17 +359,16 @@ Replace `#derive(Trait)` with `type T: Trait = ...`. Derivation moves from attri
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `#derive(Printable)` — spec/10-declarations.md § Attributes
-  - [ ] **Rust Tests**: `ori_types/src/check/derives/printable.rs` — derive Printable generation
-  - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — skipped ("derive(Printable) not fully implemented")
+- [x] **Implement**: `#derive(Printable)` — spec/10-declarations.md § Attributes [done]
+  - [x] **Rust Tests**: `ori_types/src/check/derives/printable.rs` — derive Printable generation
+  - [x] **Ori Tests**: STALE: was "skipped" — `tests/spec/traits/derive/printable.ori` has 6 active passing tests (struct basic, str field, nested, payloadless variant, payload variant, multi-payload variant); `tests/spec/declarations/attributes.ori` `test_derive_printable` also passes
   - [ ] **LLVM Support**: LLVM codegen for derived Printable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
-  - Note: Works in traits/derive/all_derives.ori but skipped in declarations/attributes.ori
 
-- [ ] **Implement**: `#derive(Default)` — spec/10-declarations.md § Attributes
-  - [ ] **Rust Tests**: `ori_types/src/check/derives/default.rs` — derive Default generation
-  - [ ] **Ori Tests**: Not tested
+- [x] **Implement**: `#derive(Default)` — spec/10-declarations.md § Attributes [done]
+  - [x] **Rust Tests**: `ori_types/src/check/derives/default.rs` — derive Default generation
+  - [x] **Ori Tests**: STALE: was "Not tested" — `tests/spec/traits/derive/default.ori` has 6 active passing tests (basic int fields, multiple types, single field, float fields, Eq integration, nested default)
   - [ ] **LLVM Support**: LLVM codegen for derived Default
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -476,13 +475,13 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 - [x] Visibility: pub type, private by default [done]
 - [x] Associated functions: Type.method() for user types, Duration, Size [done]
 - [ ] Compound type inference (5.5) — entirely pending
-- [ ] Derive: Printable, Default — not working
-- [ ] Derive(Eq) for sum types — not working
+- [x] Derive: Printable, Default — STALE: was "not working"; both are working with dedicated test files (`tests/spec/traits/derive/printable.ori`, `tests/spec/traits/derive/default.ori`) [done]
+- [x] Derive(Eq) for sum types — STALE: was "not working"; IS working (tests pass in `sum_types.ori` and `tests/spec/traits/derive/eq_sum.ori`) [done]
 - [ ] Newtype `.inner` accessor migration — pending
 - [ ] Generic associated functions with type args — not tested
 - [ ] Trait associated functions — not tested
-- [ ] LLVM codegen for all type declarations — no dedicated test files
+- [ ] LLVM codegen for all type declarations — STALE: was "no dedicated test files"; significant AOT coverage exists (32 struct, 17 enum, 27 tuple, 94 Option, 48 Result, 7 Ordering tests); remaining gaps: shorthand/destructuring AOT, newtype AOT
 - [ ] Run full test suite: `./test-all.sh`
 
 **Exit Criteria**: User-defined structs and enums work
-**Status**: Evaluator support complete for core features. Type checker compound inference and several derive impls pending. Verified 2026-02-10.
+**Status**: Evaluator support complete for core features. Type checker compound inference pending. Derive(Eq) for sum types, Printable, Default all working (previously claimed not working). Significant AOT coverage exists. Verified 2026-02-10.

@@ -1,7 +1,7 @@
 ---
 section: 12
 title: Variadic Functions
-status: not-started
+status: in-progress
 reviewed: false
 tier: 4
 goal: Enable functions with variable number of arguments
@@ -11,7 +11,7 @@ spec:
 sections:
   - id: "12.1"
     title: Homogeneous Variadics
-    status: not-started
+    status: in-progress
   - id: "12.2"
     title: Minimum Argument Count
     status: not-started
@@ -20,7 +20,7 @@ sections:
     status: not-started
   - id: "12.4"
     title: C Variadic Interop
-    status: not-started
+    status: in-progress
   - id: "12.5"
     title: Variadic in Patterns
     status: not-started
@@ -40,8 +40,8 @@ sections:
 
 Adding variadic parameter support requires updates across these crates:
 
-1. **`ori_ir`** — Add `ParamKind::Variadic(Type)` or `is_variadic` flag on `Param` in AST
-2. **`ori_parse`** — Parse `...T` in parameter position, `...expr` spread in call position
+1. **`ori_ir`** — [done] `is_variadic: bool` on `Param`, `is_c_variadic: bool` on `ExternItem`, `is_spread: bool` on `CallArg`
+2. **`ori_parse`** — [done] Parse `...T` in parameter position, `...expr` spread in call position, `...` in extern blocks
 3. **`ori_types`** — Convert `...T` to `[T]` internally, validate spread type compatibility, enforce "last param only" rule
 4. **`ori_eval`** — Collect variadic args into list at call site, expand spread operator
 5. **`ori_llvm`** — Codegen for variadic arg collection (stack allocation or heap list), C variadic ABI (`va_list`) for extern functions
@@ -136,14 +136,14 @@ SpreadExpr       = '...' Expression ;
   - [ ] Spread operator `...expr`
   - [ ] Type rules
 
-- [ ] **Lexer**: Add `...` token (if not exists)
-  - [ ] Three-dot token
-  - [ ] Distinguish from range `..`
+- [x] **Lexer**: `...` token implemented (`DotDotDot = 58` in raw scanner, `DotDotDot` tag 92 in token kind)
+  - [x] Three-dot token (distinguished from `DotDot` and `DotDotEq`)
+  - [x] Distinguish from range `..`
 
-- [ ] **Parser**: Parse variadic parameters
-  - [ ] In function signatures
-  - [ ] Spread in call expressions
-  - [ ] Validation (last param only)
+- [x] **Parser**: Parse variadic parameters (tests pass: `ori_parse::tests::compositional` — 76 passed)
+  - [x] In function signatures (`is_variadic: true` on `Param`)
+  - [x] Spread in call expressions (`is_spread: true` on `CallArg`)
+  - [ ] Validation (last param only — may be deferred to type checker)
 
 - [ ] **Type checker**: Variadic type rules
   - [ ] Convert `...T` to `[T]` internally
@@ -291,9 +291,9 @@ unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
   - [ ] No type after `...`
   - [ ] Unsafe requirement
 
-- [ ] **Parser**: Parse C variadics
-  - [ ] `...` without type in extern
-  - [ ] Distinguish from Ori variadics
+- [x] **Parser**: Parse C variadics (2 dedicated tests in `compiler/oric/tests/phases/parse/extern_def.rs`, formatter handles `is_c_variadic`)
+  - [x] `...` without type in extern (`parse_extern_params()` in `ori_parse/src/grammar/item/extern_def.rs`)
+  - [x] Distinguish from Ori variadics (separate `ExternParam`/`ExternItem` types vs `Param`)
 
 - [ ] **Type checker**: C variadic rules
   - [ ] Must be in extern block

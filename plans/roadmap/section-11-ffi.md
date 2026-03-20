@@ -1,7 +1,7 @@
 ---
 section: 11
 title: Foreign Function Interface (FFI)
-status: not-started
+status: in-progress
 reviewed: false
 tier: 4
 goal: Enable Ori to call C libraries, system APIs, and JavaScript APIs (WASM target)
@@ -10,16 +10,16 @@ spec:
 sections:
   - id: "11.1"
     title: Extern Block Syntax
-    status: not-started
+    status: in-progress
   - id: "11.2"
     title: C ABI Types
     status: not-started
   - id: "11.3"
     title: "#repr Attribute"
-    status: not-started
+    status: in-progress
   - id: "11.4"
     title: Unsafe Blocks
-    status: not-started
+    status: in-progress
   - id: "11.5"
     title: FFI Capability
     status: not-started
@@ -108,21 +108,21 @@ extern "js" from "./utils.js" {
 
 ### Implementation
 
-- [ ] **Spec**: Add `spec/26-ffi.md` with extern block syntax
-  - [ ] Define extern block grammar
-  - [ ] Define calling conventions ("c", "js")
-  - [ ] Define linkage semantics
+- [x] **Spec**: `spec/26-ffi.md` with extern block syntax (250+ lines covering extern blocks, C types, CPtr, #repr, unsafe, JsValue, JsPromise)
+  - [x] Define extern block grammar (`grammar.ebnf` has `extern_block`, `extern_item`, `extern_params`, `extern_param`, `c_variadic`)
+  - [x] Define calling conventions ("c", "js")
+  - [x] Define linkage semantics
 
-- [ ] **Lexer**: Add tokens
-  - [ ] `extern` keyword
-  - [ ] String literals for ABI ("c", "js")
+- [x] **Lexer**: Add tokens
+  - [x] `extern` keyword (`KwExtern = 48` in `ori_ir/src/token/tag.rs`)
+  - [x] String literals for ABI ("c", "js")
 
-- [ ] **Parser**: Parse extern blocks
-  - [ ] `parse_extern_block()` in parser
-  - [ ] Add `ExternBlock` to AST
-  - [ ] Add `ExternItem` variants
-  - [ ] `from "lib"` library specification
-  - [ ] `as "name"` name mapping
+- [x] **Parser**: Parse extern blocks (20 passing tests in `compiler/oric/tests/phases/parse/extern_def.rs`)
+  - [x] `parse_extern_block()` in parser (`ori_parse/src/grammar/item/extern_def.rs`, 235 lines)
+  - [x] Add `ExternBlock` to AST (`ori_ir/src/ast/items/extern_def.rs`, 81 lines)
+  - [x] Add `ExternItem` variants (includes `is_c_variadic`, `alias`, params, return_ty)
+  - [x] `from "lib"` library specification
+  - [x] `as "name"` name mapping
 
 - [ ] **Type checker**: Validate extern declarations
   - [ ] Ensure types are FFI-safe
@@ -240,14 +240,14 @@ type CacheAligned = { value: int }
 
 ### Implementation
 
-- [ ] **IR**: Add `ReprKind` enum to struct type definitions
-  - [ ] `Default`, `C`, `Packed`, `Transparent`, `Aligned(u32)`, `CAligned(u32)`
+- [x] **IR**: `ReprAttr` enum in parser attrs (`ori_parse/src/grammar/attr/mod.rs`) with `C`, `Packed`, `Transparent`, `Aligned(u64)` variants
+  - [ ] Promote to `ReprKind` in IR proper (currently only in parser attr module)
 
-- [ ] **Parser**: Parse `#repr` attribute variants
-  - [ ] `#repr("c")` — existing
-  - [ ] `#repr("packed")` — new
-  - [ ] `#repr("transparent")` — new
-  - [ ] `#repr("aligned", N)` — new, validate power of two
+- [x] **Parser**: Parse `#repr` attribute variants (`parse_repr_attr()` with power-of-two validation)
+  - [x] `#repr("c")`
+  - [x] `#repr("packed")`
+  - [x] `#repr("transparent")`
+  - [x] `#repr("aligned", N)` — with power-of-two validation
 
 - [ ] **Type checker**: Validate #repr usage
   - [ ] Only valid on struct types (not sum types)
@@ -300,29 +300,30 @@ Inside `unsafe`:
 
 ### Implementation
 
-- [ ] **Spec**: Define unsafe block semantics
-  - [ ] List of unsafe operations
-  - [ ] Scoping rules
-  - [ ] Interaction with FFI capability
+- [x] **Spec**: Unsafe block semantics defined in `spec/26-ffi.md § Unsafe Expressions` and `grammar.ebnf` (`unsafe_expr = "unsafe" block_expr .`)
+  - [x] List of unsafe operations
+  - [x] Scoping rules
+  - [ ] Interaction with FFI capability (not enforced yet)
 
-- [ ] **Parser**: Parse unsafe blocks
-  - [ ] `unsafe` keyword
-  - [ ] Block expression
+- [x] **Parser**: Parse unsafe blocks (`parse_unsafe_expr()` in `ori_parse/src/grammar/expr/primary/specials.rs`)
+  - [x] `unsafe` keyword (`KwUnsafe = 35` in token/tag.rs)
+  - [x] Block expression
 
-- [ ] **Type checker**: Track unsafe context
+- [ ] **Type checker**: Track unsafe context (current impl is transparent — no `in_unsafe` flag)
+  - [x] Type check body expression (`ExprKind::Unsafe(inner) => infer_expr(engine, arena, *inner)`)
   - [ ] Set `in_unsafe` flag
   - [ ] Allow unsafe operations only in context
 
-- [ ] **Evaluator**: Execute unsafe operations
-  - [ ] Pointer dereference
-  - [ ] Raw memory access
+- [x] **Evaluator**: Execute unsafe blocks (transparent — `CanExpr::Unsafe(inner) => self.eval_can(inner)`)
+  - [ ] Pointer dereference (not yet implemented)
+  - [ ] Raw memory access (not yet implemented)
 
 - [ ] **LLVM Support**: LLVM codegen for unsafe blocks
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — unsafe blocks codegen
 - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Test**: `tests/spec/ffi/unsafe_blocks.ori`
-  - [ ] Basic unsafe block
+- [x] **Test**: `tests/spec/capabilities/unsafe_block.ori` (6 passing tests)
+  - [x] Basic unsafe block
   - [ ] Nested unsafe
   - [ ] Unsafe operations outside block (compile error)
 
@@ -675,10 +676,10 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
 
 ## Section Completion Checklist
 
-- [ ] All items above have checkboxes marked `[ ]`
-- [ ] Spec file `spec/26-ffi.md` complete
+- [ ] All items above have checkboxes marked `[x]`
+- [x] Spec file `spec/26-ffi.md` exists (250+ lines)
 - [ ] CLAUDE.md updated with FFI syntax
-- [ ] grammar.ebnf updated with extern blocks
+- [x] grammar.ebnf updated with extern blocks (`extern_block`, `extern_item`, `extern_params`, `extern_param`, `c_variadic`, `unsafe_expr`)
 - [ ] Can call libc functions (strlen, malloc, free)
 - [ ] Can call libm functions (sin, cos, sqrt)
 - [ ] Can create and use SQLite binding

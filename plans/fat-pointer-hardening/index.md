@@ -2,7 +2,7 @@
 reroute: true
 name: "Fat Ptr"
 full_name: "Fat Pointer Hardening: All 17 Journeys to 10/10"
-status: resolved
+status: active
 order: 1
 ---
 
@@ -19,7 +19,7 @@ order: 1
 ---
 
 ### Section 01: Iterator–Collection Ownership Contract
-**File:** `section-01-iterator-ownership.md` | **Status:** Not Started
+**File:** `section-01-iterator-ownership.md` | **Status:** In Progress
 
 ```
 double-free, [str], [T] where T: Drop, ori_iter_drop, ori_buffer_rc_dec

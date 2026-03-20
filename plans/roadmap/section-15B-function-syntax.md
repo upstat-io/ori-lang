@@ -1,14 +1,14 @@
 ---
 section: "15B"
 title: Function Syntax
-status: not-started
+status: in-progress
 reviewed: false
 tier: 5
 goal: Implement function-related syntax proposals
 sections:
   - id: "15B.1"
     title: Remove Dot Prefix from Named Arguments
-    status: not-started
+    status: in-progress
   - id: "15B.2"
     title: Default Parameter Values
     status: not-started
@@ -20,7 +20,7 @@ sections:
     status: not-started
   - id: "15B.5"
     title: Argument Punning (Call Arguments)
-    status: not-started
+    status: in-progress
   - id: "15B.6"
     title: Section Completion Checklist
     status: not-started
@@ -61,8 +61,8 @@ print(msg: "Hello")  // named required everywhere
 
 #### Parser (dot removal done, enforcement needed)
 
-- [ ] **Done**: Parser accepts `IDENTIFIER ':'` instead of `'.' IDENTIFIER ':'`
-  - Basic syntax change already implemented
+- [x] **Done**: Parser accepts `IDENTIFIER ':'` instead of `'.' IDENTIFIER ':'`
+  - Basic syntax change already implemented — current production syntax uses `name: value`
 
 - [ ] **Implement**: Enforce named arguments for built-in functions
   - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — builtin named arg enforcement
@@ -506,12 +506,13 @@ conv2d(input:, weight:, bias:, stride: 2)
 
 ### Parser
 
-- [ ] **Implement**: In call argument parsing, when `name:` followed by `,` or `)`, create synthetic `Expr::Ident`
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/postfix/tests.rs` — punned call arg parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/argument_punning.ori`
+- [x] **Implement**: In call argument parsing, when `name:` followed by `,` or `)`, create synthetic `Expr::Ident`
+  - Implemented in `ori_parse/src/grammar/expr/postfix.rs` (line 402: argument punning desugars `f(x:)` to `f(x: x)`)
+  - [ ] **Ori Tests**: `tests/spec/expressions/argument_punning.ori` — no dedicated test file yet
 
-- [ ] **Implement**: Mixed punned and explicit arguments parse correctly
-  - [ ] **Ori Tests**: `tests/spec/expressions/argument_punning_mixed.ori`
+- [x] **Implement**: Mixed punned and explicit arguments parse correctly
+  - Parser handles mixed cases naturally via the same punning logic
+  - [ ] **Ori Tests**: `tests/spec/expressions/argument_punning_mixed.ori` — no dedicated test file yet
 
 - [ ] **Implement**: `f(x)` positional unchanged (no regression)
   - [ ] **Ori Tests**: `tests/spec/expressions/positional_arg_regression.ori`

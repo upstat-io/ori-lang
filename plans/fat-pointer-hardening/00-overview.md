@@ -1,7 +1,7 @@
 ---
 plan: "fat-pointer-hardening"
 title: "Fat Pointer Hardening: All 17 Journeys to 10/10"
-status: not-started
+status: in-progress
 references:
   - "plans/code-journeys/overview.md"
   - "plans/code-journeys/14-fat-string-sharing-results.md"
@@ -120,7 +120,7 @@ Implementers MUST trace through `ori_arc` when debugging any of these root cause
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Iterator–Collection Ownership Contract | `section-01-iterator-ownership.md` | Not Started |
+| 01 | Iterator–Collection Ownership Contract | `section-01-iterator-ownership.md` | In Progress |
 | 02 | Monomorphization of Captured Types | `section-02-monomorphization.md` | Not Started |
 | 03 | Aggregate Value Emission | `section-03-aggregate-emission.md` | Not Started |
 | 04 | Combinatorial Test Matrix | `section-04-test-matrix.md` | Not Started |

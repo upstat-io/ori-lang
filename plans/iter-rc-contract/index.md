@@ -2,7 +2,7 @@
 reroute: true
 name: "Iter RC"
 full_name: "Iterator-Collection RC Ownership Contract"
-status: resolved
+status: active
 order: 1
 ---
 
@@ -52,7 +52,7 @@ drop_elements_and_free, ori_buffer_rc_dec
 ---
 
 ### Section 03: Fix For-Yield RC Scoping
-**File:** `section-03-for-yield-rc.md` | **Status:** Complete
+**File:** `section-03-for-yield-rc.md` | **Status:** In Progress
 
 ```
 for-yield, lower_for_yield_iterator, prepare_iterator, for_yield.rs

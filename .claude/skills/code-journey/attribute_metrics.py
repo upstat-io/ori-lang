@@ -160,11 +160,22 @@ def _is_trampoline_or_wrapper(func: Function) -> bool:
             or func.name.startswith("_ori_partial_"))
 
 
+def _is_fn_ptr_called(func: Function) -> bool:
+    """Functions called via function pointer (not direct call) need C ABI.
+
+    elem_dec functions are passed as function pointers to iterator/buffer
+    cleanup functions. They MUST use C calling convention.
+    Drop functions are already excluded via is_user_function.
+    """
+    return "_ori_elem_dec$" in func.name
+
+
 _ATTRIBUTE_RULES: list[tuple[str, callable, str]] = [
     ("fastcc",
      lambda f, c, l: (f.is_user_function and not f.is_entry_called
-                       and not c and not _is_trampoline_or_wrapper(f)),
-     "Internal user function (not entry-called, not closure, not trampoline)"),
+                       and not c and not _is_trampoline_or_wrapper(f)
+                       and not _is_fn_ptr_called(f)),
+     "Internal user function (not entry-called, not closure, not trampoline, not fn-ptr-called)"),
 
     # nounwind: handled specially in compute_attribute_metrics() because it
     # needs module-level callee lookup. Placeholder here for ordering.
@@ -268,7 +279,11 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
         # Per-parameter noundef
         for i, pattrs in enumerate(func.param_attributes):
             ptype = func.param_types[i] if i < len(func.param_types) else "?"
-            applicable = func.is_definition and ptype not in ("void",)
+            # sret params are output pointers, not input values — noundef
+            # doesn't apply (the pointer itself is valid, but the pointee
+            # is uninitialized output space, not an input value to check).
+            is_sret = "sret" in pattrs
+            applicable = func.is_definition and ptype not in ("void",) and not is_sret
             present = "noundef" in pattrs
 
             if applicable:

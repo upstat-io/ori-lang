@@ -336,6 +336,12 @@ Based on user choice:
 
 Checking off items without verification defeats the purpose of the roadmap.
 
+### Skills Are Tools — Run Them, Don't Reimplement Them
+
+**When a plan item says to run a skill (e.g., "Run `/code-journey`", "Run `.claude/skills/code-journey/extract-metrics.py`"), invoke it using the `Skill` tool.** Do NOT manually read the skill's SKILL.md and re-execute its steps yourself. The skill automates an entire pipeline — manually reimplementing it is less thorough, wastes context, and contradicts the plan's instruction.
+
+This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
+
 ### Before Writing Code
 
 1. **Read the spec** — Understand exactly what behavior is required

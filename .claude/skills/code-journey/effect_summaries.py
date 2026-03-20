@@ -131,10 +131,14 @@ RUNTIME_EFFECTS: dict[str, FunctionEffect] = {
     "ori_set_buffer_drop_unique": _eff(_N, [_M] + [_N] * 5),
 
     # --- Iterator sources (allocate heap-backed iterator state) ---
-    "ori_iter_from_list": _eff(_P, [_B] * 3, alloc=True),    # data, len, elem_size
-    "ori_iter_from_range": _eff(_P, [_N] * 4, alloc=True),   # start, end, step, incl
-    "ori_iter_from_str": _eff(_P, [_B], alloc=True),
-    "ori_iter_from_map": _eff(_P, [_B] * 4, alloc=True),
+    # Iterator sources consume (take ownership of) the pre-incremented
+    # collection reference. The ori_list_rc_inc/etc. before creation gives
+    # the iterator its own reference; the iterator releases it on drop.
+    # param 0 = collection data pointer (consumed via ownership transfer).
+    "ori_iter_from_list": _eff(_P, [_M, _N, _N, _N, _N], alloc=True),  # data, len, cap, elem_size, elem_dec_fn
+    "ori_iter_from_range": _eff(_P, [_N] * 4, alloc=True),   # start, end, step, incl (no RC objects)
+    "ori_iter_from_str": _eff(_P, [_M], alloc=True),          # str data (pre-inc'd)
+    "ori_iter_from_map": _eff(_P, [_M, _N, _N, _N], alloc=True),  # data, cap, key_size, val_size (pre-inc'd)
 
     # --- Iterator adapters (consume input iterator, return new) ---
     "ori_iter_map": _eff(_P, [_M, _B, _N], alloc=True),

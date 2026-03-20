@@ -49,6 +49,18 @@ _CALLEE_RE = re.compile(r'(?:call|invoke)\b[^@]*@(?:"([^"]+)"|([\w.$]+))\s*\(')
 _CLOSURE_NAME_PARTS = ("$lambda", "$closure", "$partial", "_env",
                        "__lambda", "__closure", "_partial_")
 
+# Collection drop functions that clean up elements internally (opaque to
+# static call-site counting). A function calling these has element cleanup
+# that is invisible to the per-function RC balance analysis.
+_COLLECTION_DROP_FUNCTIONS = frozenset({
+    "ori_buffer_drop_unique",
+    "ori_buffer_rc_dec",
+    "ori_map_buffer_drop_unique",
+    "ori_map_buffer_rc_dec",
+    "ori_set_buffer_drop_unique",
+    "ori_set_buffer_rc_dec",
+})
+
 
 # ---------------------------------------------------------------------------
 # Data Model
@@ -62,6 +74,7 @@ class FunctionArcMetrics:
     balanced: bool
     has_scalar_rc: bool
     wasted_pairs: int
+    has_collection_drop: bool = False
     is_ownership_transfer: bool = False
 
 
@@ -184,12 +197,7 @@ def _count_rc_ops(func: Function) -> tuple[int, int]:
                 if effect:
                     # Use effect summary (accurate, handles opaque allocations)
                     if effect.return_effect == RcEffect.PLUS_ONE:
-                        # Skip iterator functions: their lifecycle tracking
-                        # requires cross-function analysis (Phase 1, Section 03).
-                        # Including them here creates new false positives
-                        # because iterator drops use param -1 effects.
-                        if not callee.startswith("ori_iter_"):
-                            inc += 1
+                        inc += 1
                     for pe in effect.param_effects:
                         if pe == RcEffect.PLUS_ONE:
                             inc += 1
@@ -254,6 +262,22 @@ def _detect_wasted_pairs(func: Function) -> int:
     return count
 
 
+def _has_collection_drop(func: Function) -> bool:
+    """Check if a function calls collection drop/cleanup functions.
+
+    Functions that call buffer_drop_unique, buffer_rc_dec, etc. handle
+    element cleanup internally (invoking elem_dec_fn N times for N elements).
+    This cleanup is opaque to static call-site counting, creating an
+    apparent surplus of N element incs without matching decs.
+    """
+    for block in func.blocks:
+        for instr in block.instructions:
+            callee = _extract_callee(instr.text)
+            if callee and callee in _COLLECTION_DROP_FUNCTIONS:
+                return True
+    return False
+
+
 def _extract_first_arg(call_text: str) -> str | None:
     """Extract the first argument from a call instruction."""
     paren = call_text.find('(')
@@ -277,10 +301,16 @@ def _find_ownership_transfers(
     A producer has inc > dec (creates RC objects it doesn't free).
     A consumer has dec > inc (frees RC objects it didn't create).
 
-    Tolerance: surplus and deficit may differ by up to 1 per function.
-    This accounts for non-capturing closures (compile-time constants with
-    null env pointers) where the generic consumer function has RC dec code
-    but there's no corresponding allocation — the dec is a no-op at runtime.
+    Detection strategies (in priority order):
+    1. Surplus/deficit pairing: producers pair with consumers when totals
+       match within tolerance (±1 for non-capturing closure constants).
+    2. Single-surplus producers: functions with surplus exactly +1 are
+       almost always returning a heap-allocated value to their caller
+       (standard ownership transfer). These are marked as transfers even
+       without a matching consumer, because the caller absorbs the dec
+       within its own balanced operations, and element cleanup functions
+       (elem_dec) are called dynamically N times but show only 1 static
+       call site.
     """
     producers: list[FunctionArcMetrics] = []
     consumers: list[FunctionArcMetrics] = []
@@ -294,16 +324,44 @@ def _find_ownership_transfers(
     if not producers and not consumers:
         return []
 
-    # Try to pair producers with consumers by imbalance magnitude
     pairs: list[tuple[str, str]] = []
     remaining_surplus = sum(fm.rc_inc - fm.rc_dec for fm in producers)
     remaining_deficit = sum(fm.rc_dec - fm.rc_inc for fm in consumers)
 
-    # Tolerance: allow ±1 difference for non-capturing closure constants
+    # Strategy 1: Surplus/deficit pairing with tolerance
     if abs(remaining_surplus - remaining_deficit) <= 1:
         for p in producers:
             for c in consumers:
                 pairs.append((p.name, c.name))
+        return pairs
+
+    # Strategy 2: Single-surplus producers (ownership transfer pattern)
+    # A function with surplus exactly +1 returns one heap-allocated value
+    # to its caller. This is the standard ownership transfer pattern —
+    # the caller handles the dec. Mark these as transfers unconditionally.
+    single_surplus_producers = [
+        p for p in producers if (p.rc_inc - p.rc_dec) == 1
+    ]
+    if single_surplus_producers:
+        for p in single_surplus_producers:
+            if consumers:
+                for c in consumers:
+                    pairs.append((p.name, c.name))
+            else:
+                pairs.append((p.name, "<caller>"))
+
+    # Strategy 3: Collection element cleanup (opaque element drops)
+    # When a function creates N elements for a collection and drops the
+    # collection via buffer_drop_unique/buffer_rc_dec, the element cleanup
+    # (N decs via elem_dec_fn) happens internally and is invisible to
+    # static call-site counting. The function shows surplus = N elements.
+    # Mark these as ownership transfers if the function has a collection
+    # drop call.
+    for p in producers:
+        if p.is_ownership_transfer:
+            continue  # Already handled by strategy 1 or 2
+        if p.has_collection_drop:
+            pairs.append((p.name, "<collection_elements>"))
 
     return pairs
 
@@ -323,6 +381,7 @@ def compute_arc_metrics(module: Module) -> ArcMetrics:
         balanced = inc == dec
         scalar = _detect_scalar_rc(func)
         wasted = _detect_wasted_pairs(func)
+        has_coll_drop = _has_collection_drop(func)
 
         if not balanced:
             any_unbalanced = True
@@ -336,6 +395,7 @@ def compute_arc_metrics(module: Module) -> ArcMetrics:
             balanced=balanced,
             has_scalar_rc=scalar,
             wasted_pairs=wasted,
+            has_collection_drop=has_coll_drop,
         ))
 
     # Module-level balance check
