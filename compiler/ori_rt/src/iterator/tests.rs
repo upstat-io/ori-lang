@@ -598,3 +598,61 @@ fn null_iter_safety() {
     assert_eq!(ori_iter_all(ptr::null_mut(), gt_3, ptr::null_mut(), 8), 1);
     ori_iter_drop(ptr::null_mut()); // should not crash
 }
+
+// ── Output element size validation (TPR-01-005) ────────────────────────
+//
+// Consumer functions and ori_iter_next are `extern "C"`, so panics abort
+// rather than unwind. We test the assert_elem_size guard directly, then
+// verify normal and boundary element sizes work through the full pipeline.
+
+#[test]
+#[should_panic(expected = "exceeds MAX_ELEM_SIZE")]
+fn assert_elem_size_rejects_oversized() {
+    state::assert_elem_size((state::MAX_ELEM_SIZE + 1) as i64, "test");
+}
+
+#[test]
+#[should_panic(expected = "exceeds MAX_ELEM_SIZE")]
+fn assert_elem_size_rejects_negative() {
+    state::assert_elem_size(-1, "test");
+}
+
+#[test]
+fn assert_elem_size_accepts_zero() {
+    state::assert_elem_size(0, "test"); // should not panic
+}
+
+#[test]
+fn assert_elem_size_accepts_max() {
+    state::assert_elem_size(state::MAX_ELEM_SIZE as i64, "test");
+}
+
+#[test]
+fn assert_elem_size_accepts_typical() {
+    state::assert_elem_size(8, "test"); // int
+    state::assert_elem_size(24, "test"); // str
+    state::assert_elem_size(200, "test"); // large struct
+}
+
+// Semantic pin: normal-sized elements still work through consumers
+#[test]
+fn normal_sized_elem_passes_collect() {
+    let data: [i64; 3] = [10, 20, 30];
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
+    let mut out = [0u8; 24];
+    ori_iter_collect(iter, 8, out.as_mut_ptr());
+    let len = unsafe { out.as_ptr().cast::<i64>().read() };
+    assert_eq!(len, 3);
+}
+
+#[test]
+fn max_sized_elem_passes_collect() {
+    // Exactly MAX_ELEM_SIZE should be accepted (boundary test)
+    let max_size = state::MAX_ELEM_SIZE as i64;
+    let data = vec![0u8; state::MAX_ELEM_SIZE];
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 1, 0, max_size, None);
+    let mut out = [0u8; 24];
+    ori_iter_collect(iter, max_size, out.as_mut_ptr());
+    let len = unsafe { out.as_ptr().cast::<i64>().read() };
+    assert_eq!(len, 1);
+}

@@ -62,7 +62,7 @@ flowchart TB
     Parse → TypeCheck → Canonicalize"]
 
     Codegen["Code Generation
-    ARC Pipeline → LLVM IR"]
+    AIMS Pipeline → LLVM IR"]
 
     Verify["IR Verification
     LLVM verify + codegen audit"]

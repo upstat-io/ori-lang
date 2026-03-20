@@ -33,7 +33,7 @@ The practical difference shows up during development. In a push-based compiler, 
 
 ### The Fork Point
 
-Most compilers have a single pipeline ending in one backend. Ori's pipeline **forks** after canonicalization: the same canonical IR feeds both the tree-walking interpreter (fast feedback during development) and the ARC/LLVM pipeline (native performance for production). This fork is the reason canonicalization exists as a separate stage — without it, desugaring and pattern compilation would need to be duplicated in both backends.
+Most compilers have a single pipeline ending in one backend. Ori's pipeline **forks** after canonicalization: the same canonical IR feeds both the tree-walking interpreter (fast feedback during development) and the AIMS/LLVM pipeline (native performance for production). This fork is the reason canonicalization exists as a separate stage — without it, desugaring and pattern compilation would need to be duplicated in both backends.
 
 ## Pipeline Stages
 
@@ -176,12 +176,12 @@ Key characteristics:
 - Module caching for imports
 - Parallel test execution
 
-### 6. ARC Analysis (`ori_arc`)
+### 6. AIMS Analysis (`ori_arc`)
 
 **Input**: `CanonResult` + `Pool`
 **Output**: `Vec<ArcFunction>` (ARC IR with RC operations)
 
-The ARC pipeline transforms canonical IR into a basic-block IR with explicit reference counting:
+The AIMS pipeline transforms canonical IR into a basic-block IR with explicit reference counting:
 
 ```text
 CanExpr → lower → ArcFunction
@@ -245,7 +245,7 @@ flowchart TB
     F --> G["eval canonical IR"]
     D --> H["canonicalize
     (AOT path)"]
-    H --> I["ARC pipeline
+    H --> I["AIMS pipeline
     (ori_arc)"]
     I --> J["LLVM codegen
     (ori_llvm)"]
@@ -305,7 +305,7 @@ Each phase has its own tracing target for deeper inspection:
 ```bash
 ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori  # Type inference call tree
 ORI_LOG=ori_eval=debug ori run file.ori                    # Evaluator dispatch
-ORI_LOG=ori_arc=debug ori build file.ori                   # ARC pipeline passes
+ORI_LOG=ori_arc=debug ori build file.ori                   # AIMS pipeline passes
 ```
 
 Phase dumps provide full IR output at each boundary:

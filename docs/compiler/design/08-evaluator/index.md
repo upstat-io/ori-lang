@@ -256,4 +256,4 @@ The `ori_registry` crate provides `BUILTIN_TYPES` — the single source of truth
 - [Value System](value-system.md) — Runtime value representation, Heap<T>, factory methods
 - [Module Loading](module-loading.md) — Import resolution, Salsa-free registration
 - [Canonicalization](../07-canonicalization/index.md) — The phase that produces the evaluator's input
-- [ARC System](../09-arc-system/index.md) — The alternative backend consuming the same canonical IR
+- [AIMS](../09-aims/index.md) — The alternative backend consuming the same canonical IR

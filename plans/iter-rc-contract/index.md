@@ -2,7 +2,7 @@
 reroute: true
 name: "Iter RC"
 full_name: "Iterator-Collection RC Ownership Contract"
-status: active
+status: resolved
 order: 1
 ---
 

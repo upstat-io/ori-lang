@@ -2,7 +2,7 @@
 title: "Drop Descriptors"
 description: "Ori Compiler Design — Per-Type Drop Generation"
 order: 908
-section: "ARC System"
+section: "AIMS"
 ---
 
 # Drop Descriptors
@@ -132,6 +132,6 @@ flowchart TB
 
 **Per-type functions vs inline logic.** Drop functions are generated once per type and shared across all `RcDec` sites. Inline logic would avoid the function call overhead (one indirect call per drop) but would bloat code size for types used in many places. The function call overhead is negligible compared to the memory operations inside the drop, and the code size reduction improves instruction cache behavior.
 
-**Descriptor-based vs direct emission.** Drop descriptors are computed in `ori_arc` and consumed by `ori_llvm`, maintaining the backend-independence boundary. The alternative — having `ori_arc` generate LLVM IR directly — would eliminate the descriptor intermediate but would couple the ARC system to LLVM. The descriptor approach allows a future WASM or cranelift backend to generate its own drop functions from the same descriptors.
+**Descriptor-based vs direct emission.** Drop descriptors are computed in `ori_arc` and consumed by `ori_llvm`, maintaining the backend-independence boundary. The alternative — having `ori_arc` generate LLVM IR directly — would eliminate the descriptor intermediate but would couple AIMS to LLVM. The descriptor approach allows a future WASM or cranelift backend to generate its own drop functions from the same descriptors.
 
 **Forward-reference caching for recursion.** Inserting the function ID into the cache before generating the body is a standard technique (used by LLVM itself for recursive types). The alternative — detecting cycles and generating trampolines — would be more complex for no benefit, since LLVM natively supports forward function references.
