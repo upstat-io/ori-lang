@@ -5,8 +5,21 @@
 
 /// Maximum element size for stack scratch buffers in `next()`.
 ///
-/// Covers all current Ori types. Asserted at adapter creation time.
+/// Covers all current Ori types (str=24B, list=24B, practical structs <200B).
+/// Asserted at source/adapter creation time via `assert_elem_size`.
 pub(crate) const MAX_ELEM_SIZE: usize = 256;
+
+/// Assert that an element size fits in the stack scratch buffer.
+///
+/// Called at iterator source/adapter creation time to catch oversized elements
+/// before any `[0u8; MAX_ELEM_SIZE]` buffer is used.
+#[inline]
+pub(crate) fn assert_elem_size(elem_size: i64, context: &str) {
+    debug_assert!(
+        elem_size >= 0 && (elem_size as usize) <= MAX_ELEM_SIZE,
+        "{context}: element size {elem_size} exceeds MAX_ELEM_SIZE ({MAX_ELEM_SIZE})"
+    );
+}
 
 /// Trampoline signature for map: `(env, in_ptr, out_ptr) -> void`
 pub(crate) type TransformFn = extern "C" fn(*mut u8, *const u8, *mut u8);

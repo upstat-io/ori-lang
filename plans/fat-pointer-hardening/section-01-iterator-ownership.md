@@ -6,7 +6,7 @@ goal: "Fix the ownership contract between iterators and collections so that [T] 
 depends_on: []
 third_party_review:
   status: resolved
-  updated: 2026-03-18
+  updated: 2026-03-19
 sections:
   - id: "01.1"
     title: "Root Cause Analysis"
@@ -175,6 +175,9 @@ The fix must work for ALL collection element types that have Drop semantics, not
     - `test_borrowed_param_iterate_then_index`: indexing after iteration on borrowed param → elem_dec_fn issue
     - `test_nested_list_iteration`: nested `[[str]]` iteration → inner element RC issue
     - `test_matrix_option_str_yield`: for-yield + inline match on `[Option<str>]` → for-yield RC scoping issue, tracked in iter-rc-contract Section 03
+
+- [x] `[TPR-01-003][major]` `compiler/ori_rt/src/iterator/state.rs:9` — `MAX_ELEM_SIZE` (256 bytes) scratch buffer constant used in 15 iterator runtime locations (`next.rs:126,175`, `consumers.rs:40,104,161,188,220,267,307,353-355`) has no runtime assertion despite doc comment claiming "Asserted at adapter creation time." If a struct element exceeds 256 bytes (e.g., struct with 33+ i64 fields or deeply nested compound types), the scratch buffer overflows — stack buffer overflow (UB).
+  Resolved: Fixed on 2026-03-19. Added `assert_elem_size()` helper in `state.rs` with `debug_assert!` validation. Assertions added to all 5 source/adapter constructors: `ori_iter_from_list` (elem_size), `ori_iter_from_map` (key_size+val_size), `ori_iter_map` (in_size), `ori_iter_filter` (elem_size), `ori_iter_zip` (left_elem_size). Doc comment on `MAX_ELEM_SIZE` updated to reference `assert_elem_size`. 13,335 tests pass.
 
 ---
 

@@ -232,6 +232,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     ori_types::Tag::Map => {
                         self.emit_buffer_rc_dec_map(field_val, resolved);
                     }
+                    ori_types::Tag::Function => {
+                        // Closure: { fn_ptr, env_ptr } — extract env_ptr,
+                        // null-check, load dynamic drop_fn from env header.
+                        if let Some(env_ptr) =
+                            self.builder
+                                .extract_value(field_val, 1, &format!("cap.{i}.env"))
+                        {
+                            if !self.builder.is_const_null_ptr(env_ptr) {
+                                let is_null =
+                                    self.builder.is_null_ptr(env_ptr, &format!("cap.{i}.null"));
+                                let do_dec =
+                                    self.builder.append_block(func_id, &format!("cap.{i}.dec"));
+                                let skip_blk =
+                                    self.builder.append_block(func_id, &format!("cap.{i}.skip"));
+                                self.builder.cond_br(is_null, skip_blk, do_dec);
+
+                                self.builder.position_at_end(do_dec);
+                                let ptr_ty = self.builder.ptr_type();
+                                let drop_fn_val =
+                                    self.builder
+                                        .load(ptr_ty, env_ptr, &format!("cap.{i}.drop_fn"));
+                                let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
+                                self.builder.call(rc_dec_id, &[env_ptr, drop_fn_val], "");
+                                self.builder.br(skip_blk);
+
+                                self.builder.position_at_end(skip_blk);
+                            }
+                        }
+                    }
                     _ => {
                         let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
                         let drop_fn = self.get_or_generate_drop_fn(cap_ty);

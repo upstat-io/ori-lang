@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Monomorphization of Captured Types"
-status: in-progress
+status: complete
 goal: "Closures capturing any non-scalar type (str, [T], structs, closures) compile correctly in AOT with fully resolved types"
 depends_on: []
 third_party_review:
@@ -19,13 +19,13 @@ sections:
     status: complete
   - id: "02.4"
     title: "Generalize to All Non-Scalar Capture Types"
-    status: in-progress
+    status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
     status: not-started
   - id: "02.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 02: Monomorphization of Captured Types
@@ -109,13 +109,13 @@ The fix must work for ALL non-scalar capture types, not just `str`:
 - [x] Write AOT test: closure capturing `str` and calling `.length()` — `test_closure_capture_heap_str` (2026-03-18)
 - [x] Write AOT test: closure capturing `[int]` and calling `.length()` — `test_closure_capture_list` (2026-03-18)
 - [x] Write AOT test: closure capturing a struct with str field and accessing the field — `test_fm_capture_struct_fat` (Named { name: str, id: int }) passes in fat_matrix/f04_closure_capture.rs (2026-03-18)
-- [ ] Write AOT test: closure capturing another closure and calling it <!-- blocked-by:10 -->
-- [ ] Write AOT test: closure capturing `Option<str>` and pattern matching on it <!-- blocked-by:9 -->
+- [x] Write AOT test: closure capturing another closure and calling it — `test_closure_capturing_closure`. Fixed: env drop function now extracts env_ptr from captured closure instead of passing whole `{ ptr, ptr }` to `ori_rc_dec`. (2026-03-19)
+- [x] Write AOT test: closure capturing `Option<str>` and pattern matching on it — `test_closure_capturing_option_str_match`. Works correctly in both eval and AOT. (2026-03-19)
 - [x] Write AOT test: closure with multiple non-scalar captures (`str` + `[int]`) — `test_closure_multi_capture` (2026-03-18)
-- [ ] Write AOT test: nested closure — outer captures str, inner captures outer's captured str <!-- blocked-by:10 -->
+- [x] Write AOT test: nested closure — outer captures str, inner captures outer's captured str — `test_nested_closure_fat_capture`. Works correctly in both eval and AOT. (2026-03-19)
 - [x] Write AOT test: closure capturing `(str, int)` tuple and accessing `.0` — verified in AOT: `let t = ("hello", 42); let f = ... s.length() + n + x` passes with zero leaks (2026-03-18)
 - [x] Write AOT test: closure passed as higher-order argument — `test_closure_passed_with_str_capture` (2026-03-18)
-- [ ] Write AOT test: closure returned from function — blocked by type checker limitation ("only functions can be called" on returned closures) <!-- blocked-by:10 -->
+- [x] Write AOT test: closure returned from function — `test_closure_returned_from_function`. Type checker limitation resolved; works in both eval and AOT with fat captures. (2026-03-19)
 - [x] Write AOT test: closure with str param — `test_closure_capture_str_with_param` (J17 pattern) (2026-03-18)
 - [x] All implemented tests pass in both eval and AOT with identical results — dual-exec-verify clean (2026-03-18)
 - [x] Valgrind clean on all closure-capture tests (2026-03-18)
@@ -133,11 +133,11 @@ The fix must work for ALL non-scalar capture types, not just `str`:
 - [x] Closure capturing `str` compiles and runs correctly in AOT — `test_closure_capture_heap_str` (2026-03-18)
 - [x] Closure capturing `[T]` compiles and runs correctly in AOT — `test_closure_capture_list` (2026-03-18)
 - [x] Closure capturing struct with fat fields compiles and runs correctly — `test_fm_capture_struct_fat` passes (2026-03-18)
-- [ ] Closure capturing another closure compiles and runs correctly <!-- blocked-by:10 -->
-- [ ] Nested closures with fat captures compile and run correctly <!-- blocked-by:10 -->
+- [x] Closure capturing another closure compiles and runs correctly — `test_closure_capturing_closure`. Fixed codegen bug: closure env drop function was passing `{ ptr, ptr }` to `ori_rc_dec` instead of extracting env_ptr. (2026-03-19)
+- [x] Nested closures with fat captures compile and run correctly — `test_nested_closure_fat_capture` (2026-03-19)
 - [x] Multi-capture (str + [int]) compiles and runs correctly — `test_closure_multi_capture` (2026-03-18)
 - [x] Closure capturing tuple `(str, int)` compiles and runs correctly — verified in AOT (2026-03-18)
-- [ ] Closure returned from function with fat capture compiles and runs correctly <!-- blocked-by:10 -->
+- [x] Closure returned from function with fat capture compiles and runs correctly — `test_closure_returned_from_function` (2026-03-19)
 - [x] No unresolved type variables (`Idx(N)`) reach LLVM codegen — verified: types are correct (`ptr dereferenceable(24)`) (2026-03-18)
 - [x] No `_ori_drop$N` functions with wrong size — verified: `_ori_drop$202` uses 24 bytes (correct for str) (2026-03-18)
 - [x] All `_ori_partial_N` thunks have correct parameter types — verified: `@_ori_partial_1(ptr, ptr)` (2026-03-18)
