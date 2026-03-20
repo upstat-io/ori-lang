@@ -71,17 +71,21 @@ fn emit_defined_dead(
         return;
     }
 
-    // Skip defined-dead RcDec for parameter-borrowed variables.
-    // These are Let aliases of borrowed function parameters (e.g., the
-    // __for_coll phantom in the for-loop exit block). The caller handles
-    // their cleanup via own→borrow reconciliation.
+    // Skip defined-dead RcDec for ALL borrowed variables (both
+    // parameter-borrowed and project-borrowed). A defined-dead variable
+    // was never consumed, so no independent RC obligation exists:
     //
-    // Project-borrowed variables that come from iterator element extraction
-    // (__iter_next) also skip — their parent collection's elem_dec_fn
-    // handles cleanup. Other project-borrowed vars (e.g., struct field
-    // access, tuple destructuring) DO need RcDec as their source aggregate
-    // may not handle per-field cleanup.
-    if ctx.all_borrowed_defs.contains(&dst) && !ctx.project_borrowed_defs.contains(&dst) {
+    // - Parameter-borrowed: caller handles cleanup via own→borrow
+    //   reconciliation (e.g., __for_coll phantom threading).
+    // - Project-borrowed: parent aggregate's AggFields/Drop handles
+    //   field cleanup. Ghost copies (Let aliases of Project results
+    //   threaded through block params) create no RC obligation.
+    //
+    // Contrast with USED project-borrowed variables, which may need
+    // RcInc at owned call positions (handled by emit_pre_instr_incs)
+    // and corresponding RcDec at last use (handled by emit_last_use_decs
+    // via is_rc_managed → is_owned_at_entry filtering).
+    if ctx.all_borrowed_defs.contains(&dst) {
         return;
     }
     // Iterator-element projections: skip RcDec for elements extracted

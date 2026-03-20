@@ -2,7 +2,7 @@
 reroute: true
 name: "RC Elem Dec"
 full_name: "RC Header elem_dec_fn — Proper Element Cleanup for Fat Pointer Collections"
-status: queued
+status: active
 order: 1
 ---
 

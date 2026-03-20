@@ -1,11 +1,11 @@
 ---
 section: "03"
 title: "Fix For-Yield RC Scoping"
-status: in-progress
+status: complete
 goal: "Eliminate the spurious extra RcDec on the source collection in for-yield by properly scoping the collection variable so it dies at the Jump to header, matching the for-do pattern. Also fix the clear_mutable_names() workaround that breaks outer mutable variable assignment in for-yield AOT."
 third_party_review:
-  status: findings
-  updated: 2026-03-19
+  status: resolved
+  updated: 2026-03-20
 depends_on:
   - "01"
   - "02"
@@ -248,10 +248,8 @@ All four are valid in for-yield but cannot work in AOT without `LoopContext`.
 - [x] `[TPR-03-006][minor]` `compiler/ori_arc/src/lower/control_flow/for_yield_option.rs:131-134` — Guard-skip exit args use `filter_map(|&(name, _, _)| self.scope.lookup(name))` which silently drops names that fail scope lookup.
   Resolved: Fixed on 2026-03-19. Guard-skip now uses infallible `pre_var` from `mut_info` (same pattern as none_block). Body-exit uses `unwrap_or(pre_var)` fallback instead of `filter_map`. `mod.rs` continue path uses `unwrap_or_else` with tracing::warn instead of silently dropping.
 
-- [ ] `[TPR-03-007][medium]` `compiler/ori_arc/src/lower/control_flow/mod.rs:267` — The mutable-variable SSA fix is still incomplete: shared for-yield jump construction still silently drops or corrupts phi arguments on `break`/`continue` and the normal body back-edge.
-  Evidence: `lower_break()` and the for-yield branch of `lower_continue()` still build jump args with `if let Some(var) = self.scope.lookup(*name) { args.push(var); }` at `control_flow/mod.rs:267-272` and `control_flow/mod.rs:335-340`, so a missing mutable binding produces fewer jump args than the target block params expect. Separately, the normal for-yield back-edge still substitutes `ArcVarId::new(0)` when a mutable binding lookup fails at `control_flow/for_yield.rs:331-338`, which routes the first function-local variable into the phi slot instead of preserving the pre-threaded value or failing loudly.
-  Impact: Section 03 currently claims the SSA threading issue is resolved, but the shared control-flow helpers still contain latent malformed-jump behavior. Any future scope refactor or new for-yield shape that drops one mutable binding will produce invalid ARC SSA or mis-thread the wrong variable through the loop.
-  Required plan update: Reopen Section 03’s SSA/threading work. Replace the remaining `if let Some(...)` / `ArcVarId::new(0)` fallbacks with the same infallible pre-captured-param strategy used in `for_yield_option.rs`, and add an ARC-lowering test that exercises for-yield `break`/`continue` plus mutated outer bindings with jump-arg/param count assertions.
+- [x] `[TPR-03-007][medium]` `compiler/ori_arc/src/lower/control_flow/mod.rs:267` — The mutable-variable SSA fix is still incomplete: shared for-yield jump construction still silently drops or corrupts phi arguments on `break`/`continue` and the normal body back-edge.
+  Resolved: Fixed on 2026-03-20. Changed `LoopContext.mutable_vars` from `Vec<Name>` to `Vec<(Name, ArcVarId)>` — each entry now carries the header block param as infallible fallback. Updated all 5 creation sites (for_yield, for_iterator, for_range, loops, for_yield_option) and all 7 consumer sites. `lower_break()` and `lower_continue()` now use `scope.lookup(name).unwrap_or(fallback)` instead of `if let Some(var)` (silent drop). All 4 back-edge sites use `unwrap_or(param)` instead of `ArcVarId::new(0)`. All tests pass (8,265 Rust + 4,181 spec).
 
 ---
 

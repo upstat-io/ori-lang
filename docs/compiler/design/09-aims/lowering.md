@@ -2,7 +2,7 @@
 title: "Lowering"
 description: "Ori Compiler Design — CanExpr to ARC IR Lowering"
 order: 902
-section: "ARC System"
+section: "AIMS"
 ---
 
 # Lowering
@@ -13,7 +13,7 @@ Every optimizing compiler faces a fundamental representational challenge: the hi
 
 The process of converting a high-level IR into a lower-level one with explicit control flow is called **lowering**. It goes by different names in different compilers — Rust calls it "MIR building," LLVM calls it "instruction selection" (though that term is overloaded), GHC calls it "Core to STG" or "STG to Cmm" depending on the phase — but the fundamental operation is the same: walk the expression tree, emit instructions into basic blocks, and generate explicit jump/branch/switch terminators at control flow points.
 
-Ori's lowering pass converts canonical IR (`CanExpr`, a sugar-free typed expression tree with implicit control flow) into ARC IR (`ArcFunction`, basic blocks with SSA-like variables and explicit terminators). This is the first step of the ARC pipeline and produces the IR that all subsequent passes operate on.
+Ori's lowering pass converts canonical IR (`CanExpr`, a sugar-free typed expression tree with implicit control flow) into ARC IR (`ArcFunction`, basic blocks with SSA-like variables and explicit terminators). This is the first step of the AIMS pipeline and produces the IR that all subsequent analysis and realization steps operate on.
 
 ### The Challenge of SSA Construction
 
@@ -233,7 +233,7 @@ Match pattern compilation uses the separate decision tree pipeline, not the bind
 
 3. **Value representations populated after lowering** — both the main function and all lambda bodies get `var_reprs` computed via `compute_var_reprs` at the end of `lower_function_can()`.
 
-4. **Lambda bodies returned separately** — the caller receives the flat list and runs the ARC pipeline on each independently.
+4. **Lambda bodies returned separately** — the caller receives the flat list and runs the AIMS pipeline on each independently.
 
 5. **Block-parameter order is deterministic** — mutable variable merge uses `Vec` (not `HashMap`) for ordering, ensuring `Jump` arguments match `add_block_param` order.
 
@@ -259,4 +259,4 @@ Match pattern compilation uses the separate decision tree pipeline, not the bind
 
 **Flat lambda list vs hierarchical.** Nested lambdas are accumulated into a single flat list rather than a tree reflecting the nesting structure. This simplifies the caller (no recursive traversal needed) at the cost of losing nesting information. In practice, the nesting information is not needed after lowering — each `ArcFunction` is self-contained with its captures as explicit parameters.
 
-**Invoke vs Apply split.** The distinction between `Apply` (nounwind) and `Invoke` (may-unwind) could be deferred to the LLVM backend (all calls become `invoke`, and LLVM optimizes away unnecessary landing pads). Making the distinction during lowering allows the ARC pipeline to generate cleaner code for nounwind calls (no unwind edges, no cleanup blocks) at the cost of a classification decision during lowering.
+**Invoke vs Apply split.** The distinction between `Apply` (nounwind) and `Invoke` (may-unwind) could be deferred to the LLVM backend (all calls become `invoke`, and LLVM optimizes away unnecessary landing pads). Making the distinction during lowering allows the AIMS pipeline to generate cleaner code for nounwind calls (no unwind edges, no cleanup blocks) at the cost of a classification decision during lowering.

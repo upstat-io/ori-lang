@@ -13,7 +13,7 @@ sections:
     status: complete
   - id: "03.2"
     title: "J19 — RC Lifecycle (Nested Heap Structures)"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "J20 — COW Patterns (Shared vs Unique Mutation)"
     status: not-started
@@ -64,20 +64,20 @@ Journey theme: "I am a string builder." Exercises the exact pattern that caused 
 
 Journey theme: "I am a lifecycle." Exercises structs containing heap fields, passing them to functions, extracting fields, and letting them go out of scope.
 
-- [ ] Create `19-rc-lifecycle.ori` with:
+- [x] Create `19-rc-lifecycle.ori` with:
   - `type Container = { items: [int], name: str }` — struct with two heap fields
   - `@make_container(n: int) -> Container` — construct with heap fields
   - `@extract_and_use(c: Container) -> int` — project fields, use, let go
   - `@pass_through(c: Container) -> Container` — identity (tests ownership transfer)
   - `@nested_containers() -> int` — struct containing another struct with RC fields (exercises recursive aggregate drop)
   - `@main` — exercises all patterns, returns checkable integer
-- [ ] Verify interpreter produces correct result
-- [ ] Verify AOT produces correct result
-- [ ] Run `diagnostics/dual-exec-verify.sh` on J19 — behavioral equivalence
-- [ ] Run `ORI_CHECK_LEAKS=1` — zero leaks
-- [ ] Run valgrind — zero errors
-- [ ] Run `/code-journey` skill (via Skill tool) on the journey file — full pipeline: traces, deep scrutiny, scoring, results file
-- [ ] Create `19-rc-lifecycle-results.md` with full scoring breakdown
+- [x] Verify interpreter produces correct result — exit 51 ✓ (2026-03-20)
+- [x] Verify AOT produces correct result — exit 51 ✓ (2026-03-20). Required fix: defined-dead project-borrowed vars getting spurious RcDec (emit_defined_dead in walk_dec.rs). Fixed by skipping all borrowed defs in defined-dead context.
+- [x] Run `diagnostics/dual-exec-verify.sh` on J19 — behavioral equivalence — DUAL-EXECUTION: ALL VERIFIED (2026-03-20)
+- [x] Run `ORI_CHECK_LEAKS=1` — zero leaks — clean exit, no RC tracking output (2026-03-20)
+- [x] Run valgrind — zero errors — 0 errors from 0 contexts, 16 allocs, 16 frees, 0 bytes in use at exit (2026-03-20)
+- [x] Run `/code-journey` skill (via Skill tool) on the journey file — full pipeline: traces, deep scrutiny, scoring, results file (2026-03-20)
+- [x] Create `19-rc-lifecycle-results.md` with full scoring breakdown — 10.0/10, all 7 functions OPTIMAL, zero ARC violations, 100% attribute compliance (2026-03-20)
 
 ---
 

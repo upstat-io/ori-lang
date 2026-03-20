@@ -301,12 +301,15 @@ impl ArcLowerer<'_> {
 
         // Set up LoopContext so break/continue work inside the yield body.
         // Matches the for-do pattern in for_iterator.rs.
-        let mutable_var_names: Vec<_> = mut_info.iter().map(|(name, _, _)| *name).collect();
+        let mutable_var_entries: Vec<_> = header_mut_params
+            .iter()
+            .map(|&(name, _, param)| (name, param))
+            .collect();
         let prev_loop = self.loop_ctx.take();
         self.loop_ctx = Some(LoopContext {
             exit_block,
             continue_block: header_block,
-            mutable_vars: mutable_var_names,
+            mutable_vars: mutable_var_entries,
             yield_ctx: Some(ForYieldContext {
                 list_ptr,
                 elem_size: elem_size_var,
@@ -331,9 +334,9 @@ impl ArcLowerer<'_> {
             // Jump back to header with coll_param + updated mutable var values.
             let mut back_args: Vec<_> = coll_param.into_iter().collect();
             back_args.extend(
-                header_mut_params.iter().map(|(name, _, _)| {
-                    self.scope.lookup(*name).unwrap_or_else(|| ArcVarId::new(0))
-                }),
+                header_mut_params
+                    .iter()
+                    .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param)),
             );
             self.builder.terminate_jump(header_block, back_args);
         }

@@ -1,12 +1,12 @@
 ---
 section: "01"
 title: "Iterator–Collection Ownership Contract"
-status: in-progress
+status: complete
 goal: "Fix the ownership contract between iterators and collections so that [T] where T has Drop never double-frees elements"
 depends_on: []
 third_party_review:
-  status: findings
-  updated: 2026-03-19
+  status: resolved
+  updated: 2026-03-20
 sections:
   - id: "01.1"
     title: "Root Cause Analysis"
@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "01.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "01.N"
     title: "Completion Checklist"
     status: complete
@@ -182,10 +182,8 @@ The fix must work for ALL collection element types that have Drop semantics, not
 - [x] `[TPR-01-004][high]` `compiler/ori_rt/src/iterator/state.rs:17` — The `MAX_ELEM_SIZE` hardening is still release-unsafe because `assert_elem_size()` uses `debug_assert!`, while the runtime continues to allocate fixed 256-byte scratch buffers in release builds.
   Resolved: Fixed on 2026-03-19. Changed `debug_assert!` to `assert!` in `assert_elem_size()`. The check now fires in both debug and release builds, preventing stack buffer overflow from oversized iterator elements. 13,345 tests pass in debug + release.
 
-- [ ] `[TPR-01-005][high]` `compiler/ori_rt/src/iterator/consumers.rs:40` — The `MAX_ELEM_SIZE` hardening is still incomplete: the runtime still writes iterator outputs into fixed 256-byte consumer buffers without validating the OUTPUT element size.
-  Evidence: `ori_iter_collect` and `ori_iter_collect_set` still allocate `[0u8; MAX_ELEM_SIZE]` buffers at `consumers.rs:40` and `consumers.rs:104`, and the rest of the consumers do the same (`consumers.rs:151-365`). `ori_iter_next` also forwards unchecked `elem_size` straight into `state.next()` at `iterator/mod.rs:50-56`. The new guards only cover source/adapter inputs: `ori_iter_map` validates `in_size`, not the mapped output size (`compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator.rs:283-300` / `compiler/ori_rt/src/iterator/adapters.rs:16-29`), and `ori_iter_zip` validates only `left_elem_size`, not the combined zipped output (`compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator.rs:251-265` / `compiler/ori_rt/src/iterator/adapters.rs:107-120`).
-  Impact: A mapped iterator that produces a >256-byte element, or a zipped iterator whose combined tuple exceeds 256 bytes, can still overflow the runtime’s stack scratch buffers in both debug and release builds. The section’s current “preventing stack buffer overflow from oversized iterator elements” claim is therefore false.
-  Required plan update: Reopen Section 01 hardening. Add a shared output-size guard on every consumer entry point and `ori_iter_next`, validate mapped output size and zipped total output size (not just map input / zip left input), and add permanent tests covering oversized mapped and zipped iterator outputs in debug + release.
+- [x] `[TPR-01-005][high]` `compiler/ori_rt/src/iterator/consumers.rs:40` — The `MAX_ELEM_SIZE` hardening is still incomplete: the runtime still writes iterator outputs into fixed 256-byte consumer buffers without validating the OUTPUT element size.
+  Resolved: Fixed on 2026-03-20. Added `assert_elem_size()` output-size validation to all 8 consumer entry points (`ori_iter_collect`, `ori_iter_collect_set`, `ori_iter_count`, `ori_iter_any`, `ori_iter_all`, `ori_iter_find`, `ori_iter_for_each`, `ori_iter_fold` + accumulator size) and `ori_iter_next`. Added defensive `assert_elem_size` for right element size in `next_zipped`. 9 new tests in `iterator/tests.rs`: 5 assert_elem_size boundary tests + 2 semantic pin tests for normal and MAX_ELEM_SIZE elements. All consumers now validate output element size before using scratch buffers.
 
 ---
 

@@ -2,7 +2,7 @@
 title: "Decision Trees"
 description: "Ori Compiler Design — Pattern Compilation in ARC IR"
 order: 909
-section: "ARC System"
+section: "AIMS"
 ---
 
 # Decision Trees
@@ -13,7 +13,7 @@ Pattern matching is a central feature of ML-family languages, but the way progra
 
 The classical approach, developed by Augustsson (1985) and refined by [Maranget (2008)](https://doi.org/10.1017/S0956796808006771) in "Compiling Pattern Matching to Good Decision Trees," transforms pattern matrices into **decision trees** — branching structures where each internal node tests a single discriminant (enum tag, literal value, type tag) and each leaf represents a successful match. The goal is to minimize the number of tests executed on any path from root to leaf.
 
-Decision trees are compiled during [canonicalization](../07-canonicalization/pattern-compilation.md) and stored in a shared pool (`DecisionTreePool`). The ARC system's role is to **emit** these pre-compiled trees as basic blocks in ARC IR, converting the tree's branching structure into `Switch`, `Branch`, and `Jump` terminators that the LLVM backend can translate directly to machine code.
+Decision trees are compiled during [canonicalization](../07-canonicalization/pattern-compilation.md) and stored in a shared pool (`DecisionTreePool`). AIMS's role is to **emit** these pre-compiled trees as basic blocks in ARC IR, converting the tree's branching structure into `Switch`, `Branch`, and `Jump` terminators that the LLVM backend can translate directly to machine code.
 
 ## Decision Tree Structure
 
@@ -66,7 +66,7 @@ flowchart LR
     class Emit,LLVM native
 ```
 
-The split is deliberate: pattern compilation is a frontend concern (it depends on type information, exhaustiveness checking, and pattern semantics), while block emission is a backend concern (it produces the control flow graph that ARC analysis operates on). The `DecisionTreePool` is the handoff point between the two.
+The split is deliberate: pattern compilation is a frontend concern (it depends on type information, exhaustiveness checking, and pattern semantics), while block emission is a backend concern (it produces the control flow graph that AIMS analysis operates on). The `DecisionTreePool` is the handoff point between the two.
 
 ## Emission to ARC IR
 
@@ -125,6 +125,6 @@ Decision tree compilation is downstream of exhaustiveness checking, which runs d
 
 **Shared pool vs inline trees.** Decision trees are stored in a `DecisionTreePool` during canonicalization and retrieved by reference during ARC lowering. The alternative — embedding the tree structure directly in the canonical IR — would avoid the pool indirection but would complicate canonical IR with tree-specific types. The pool keeps the canonical IR focused on expressions.
 
-**Two-phase (compile then emit) vs single-phase.** Compiling decision trees during canonicalization and emitting during ARC lowering separates concerns: canonicalization handles pattern semantics, ARC lowering handles control flow. The alternative — compiling and emitting in one phase — would be simpler but would either pull pattern compilation into the ARC system (wrong abstraction level) or push block emission into canonicalization (wrong phase).
+**Two-phase (compile then emit) vs single-phase.** Compiling decision trees during canonicalization and emitting during ARC lowering separates concerns: canonicalization handles pattern semantics, ARC lowering handles control flow. The alternative — compiling and emitting in one phase — would be simpler but would either pull pattern compilation into AIMS (wrong abstraction level) or push block emission into canonicalization (wrong phase).
 
 **Heuristic column selection.** The choice of which column to split on affects tree size and runtime test count. Maranget's heuristic (prefer columns with many constructors, few wildcards) is simple and effective but not optimal in all cases. More sophisticated heuristics (e.g., considering the depth of sub-trees) could produce smaller trees but at higher compile-time cost.
