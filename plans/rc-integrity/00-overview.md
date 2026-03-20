@@ -1,7 +1,7 @@
 ---
 plan: "rc-integrity"
 title: "RC Integrity: Leak-Free Codegen & Matrix Regression Guard"
-status: in-progress
+status: complete
 references:
   - "plans/aims-10/"
   - "plans/aims-codegen-quality/"

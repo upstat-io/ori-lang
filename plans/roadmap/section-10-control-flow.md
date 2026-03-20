@@ -671,6 +671,7 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
 - [x] **Implement**: `catch(expr)` pattern — spec/17-errors-and-panics.md § Catching Panics [done] (2026-02-19)
   - [x] **Rust Tests**: `ori_patterns/src/builtins/catch/tests.rs` — catch_success, catch_error, name, required_props; `ori_types/src/infer/expr/tests.rs` — catch type inference
   - [x] **Ori Tests**: `tests/spec/patterns/catch.ori` — 7 tests: success, panic, message, div_zero, ok_value, string, nested
+  - [ ] **BUG**: catch() type inference returns `Result<() -> T, str>` instead of `Result<T, str>` — the expr: thunk's closure type leaks into the result type. Blocks 12 AOT unwind tests in `ori_llvm/tests/aot/iter_rc_matrix.rs` (6 types x 2 loop variants). Fix location: `ori_types/src/infer/expr/concurrency.rs:infer_catch()` — must unwrap thunk return type. <!-- unblocks:21A.5 -->
   - [ ] **LLVM Support**: LLVM codegen for catch pattern (simplified placeholder exists)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — catch pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet

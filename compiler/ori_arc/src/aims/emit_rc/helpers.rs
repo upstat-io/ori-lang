@@ -501,3 +501,62 @@ pub(crate) fn is_ownership_transfer(instr: &ArcInstr, func: &ArcFunction) -> boo
         _ => false,
     }
 }
+
+/// Collect borrowed-parameter variables that are receivers of COW calls.
+///
+/// These variables need an `RcInc` before the COW call to prevent the runtime
+/// from seeing the buffer as unique (RC=1) when the caller also holds a
+/// reference. Without this Inc, COW push/set/insert may realloc in place or
+/// dec the old buffer, invalidating the caller's pointer.
+/// Collect borrowed-parameter variables that are receivers of MUTATING COW
+/// calls (push, set, insert, remove, etc.). Excludes `iter` — which takes
+/// ownership of the buffer for iteration but never reallocs/frees it.
+pub(crate) fn collect_cow_borrowed_receivers(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+) -> FxHashSet<ArcVarId> {
+    use crate::ir::ArcTerminator;
+
+    let cow_names = crate::borrow::all_cow_method_names(interner);
+    // iter takes ownership but never mutates/frees — exclude from guard.
+    let iter_name = interner.intern("iter");
+    let param_borrowed = collect_param_borrowed_vars(func);
+    if param_borrowed.is_empty() {
+        return FxHashSet::default();
+    }
+
+    let mut result = FxHashSet::default();
+
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                if *callee != iter_name && cow_names.contains(callee) && !args.is_empty() {
+                    let receiver = args[0];
+                    if param_borrowed.contains(&receiver) {
+                        result.insert(receiver);
+                    }
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            if *callee != iter_name && cow_names.contains(callee) && !args.is_empty() {
+                let receiver = args[0];
+                if param_borrowed.contains(&receiver) {
+                    result.insert(receiver);
+                }
+            }
+        }
+    }
+
+    result
+}
+
+fn collect_param_borrowed_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    crate::aims::emit_rc::queries::collect_param_borrowed_vars(func)
+}
