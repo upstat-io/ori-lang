@@ -352,7 +352,12 @@ impl ArcLowerer<'_> {
             let args: Vec<_> = ctx
                 .mutable_vars
                 .iter()
-                .filter_map(|name| self.scope.lookup(*name))
+                .map(|name| {
+                    self.scope.lookup(*name).unwrap_or_else(|| {
+                        tracing::warn!(?name, "continue: mutable var missing from scope");
+                        ArcVarId::new(0)
+                    })
+                })
                 .collect();
             tracing::debug!(
                 continue_bb = continue_block.index(),

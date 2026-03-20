@@ -397,6 +397,20 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             debug!(?problem, "ARC pipeline problem (lambda)");
         }
 
+        // Store capture param ownership so emit_partial_apply can generate
+        // correct env drop functions: borrowed captures must NOT be RC-dec'd.
+        if lambda.num_captures > 0 {
+            let capture_ownership: Vec<ori_arc::Ownership> = lambda
+                .params
+                .iter()
+                .take(lambda.num_captures)
+                .map(|p| p.ownership)
+                .collect();
+            self.codegen_ctx
+                .lambda_capture_ownership
+                .insert(unique_name, capture_ownership);
+        }
+
         (unique_name, func_id, abi)
     }
 }
