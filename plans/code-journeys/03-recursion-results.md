@@ -2,7 +2,7 @@
 journey: 3
 slug: recursion
 theme: "I am recursive"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 61
 eval_result: 61

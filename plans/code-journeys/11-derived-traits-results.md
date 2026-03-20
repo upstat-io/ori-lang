@@ -2,7 +2,7 @@
 journey: 11
 slug: derived-traits
 theme: "I am a derived trait"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 33
 eval_result: 33
@@ -389,10 +389,10 @@ source_filename = "11-derived-traits"
 ; --- @check_struct_eq ---
 define fastcc noundef i64 @_ori_check_struct_eq() #0 {
 bb0:
-  %eq_trait = call fastcc i1 @"_ori_Point$eq"(%ori.Point { i64 10, i64 20 }, %ori.Point { i64 10, i64 20 })
-  %sel = select i1 %eq_trait, i64 3, i64 0
-  %eq_trait1 = call fastcc i1 @"_ori_Point$eq"(%ori.Point { i64 10, i64 20 }, %ori.Point { i64 10, i64 30 })
-  %neq = xor i1 %eq_trait1, true
+  %derived_eq = call fastcc i1 @"_ori_Point$eq"(%ori.Point { i64 10, i64 20 }, %ori.Point { i64 10, i64 20 })
+  %sel = select i1 %derived_eq, i64 3, i64 0
+  %derived_eq1 = call fastcc i1 @"_ori_Point$eq"(%ori.Point { i64 10, i64 20 }, %ori.Point { i64 10, i64 30 })
+  %neq = xor i1 %derived_eq1, true
   %sel2 = select i1 %neq, i64 4, i64 0
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %sel, i64 %sel2)
   %add.val = extractvalue { i64, i1 } %add, 0
@@ -411,10 +411,10 @@ add.ovf_panic:
 ; --- @check_sum_eq ---
 define fastcc noundef i64 @_ori_check_sum_eq() #0 {
 bb0:
-  %eq_trait = call fastcc i1 @"_ori_Color$eq"(%ori.Color zeroinitializer, %ori.Color zeroinitializer)
-  %sel = select i1 %eq_trait, i64 5, i64 0
-  %eq_trait1 = call fastcc i1 @"_ori_Color$eq"(%ori.Color zeroinitializer, %ori.Color { i64 2 })
-  %neq = xor i1 %eq_trait1, true
+  %derived_eq = call fastcc i1 @"_ori_Color$eq"(%ori.Color zeroinitializer, %ori.Color zeroinitializer)
+  %sel = select i1 %derived_eq, i64 5, i64 0
+  %derived_eq1 = call fastcc i1 @"_ori_Color$eq"(%ori.Color zeroinitializer, %ori.Color { i64 2 })
+  %neq = xor i1 %derived_eq1, true
   %sel2 = select i1 %neq, i64 6, i64 0
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %sel, i64 %sel2)
   %add.val = extractvalue { i64, i1 } %add, 0
@@ -439,12 +439,12 @@ bb0:
   %ref_arg = alloca %ori.Shape, align 8
   store %ori.Shape { i64 0, [2 x i64] [i64 10, i64 0] }, ptr %ref_arg, align 8
   store %ori.Shape { i64 0, [2 x i64] [i64 10, i64 0] }, ptr %ref_arg1, align 8
-  %eq_trait = call fastcc i1 @"_ori_Shape$eq"(ptr %ref_arg, ptr %ref_arg1)
-  %sel = select i1 %eq_trait, i64 7, i64 0
+  %derived_eq = call fastcc i1 @"_ori_Shape$eq"(ptr %ref_arg, ptr %ref_arg1)
+  %sel = select i1 %derived_eq, i64 7, i64 0
   store %ori.Shape { i64 0, [2 x i64] [i64 10, i64 0] }, ptr %ref_arg2, align 8
   store %ori.Shape { i64 1, [2 x i64] [i64 5, i64 8] }, ptr %ref_arg3, align 8
-  %eq_trait4 = call fastcc i1 @"_ori_Shape$eq"(ptr %ref_arg2, ptr %ref_arg3)
-  %neq = xor i1 %eq_trait4, true
+  %derived_eq4 = call fastcc i1 @"_ori_Shape$eq"(ptr %ref_arg2, ptr %ref_arg3)
+  %neq = xor i1 %derived_eq4, true
   %sel5 = select i1 %neq, i64 8, i64 0
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %sel, i64 %sel5)
   %add.val = extractvalue { i64, i1 } %add, 0
@@ -868,7 +868,7 @@ All 5 integer additions use checked overflow with `llvm.sadd.with.overflow.i64`,
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 869.9 KiB |
+| .text section | 870.1 KiB |
 | .rodata section | 133.5 KiB |
 | User code | ~750 bytes (7 user functions) |
 | Runtime | 99.9% of binary |
@@ -1027,12 +1027,12 @@ false:
 ```llvm
 ; IDEAL (12 instructions)
 define fastcc noundef i64 @_ori_check_struct_eq() nounwind memory(none) {
-  %eq1 = call fastcc i1 @"_ori_Point$eq"(...)
-  %sel1 = select i1 %eq1, i64 3, i64 0
-  %eq2 = call fastcc i1 @"_ori_Point$eq"(...)
-  %neq = xor i1 %eq2, true
+  %derived_eq = call fastcc i1 @"_ori_Point$eq"(...)
+  %sel = select i1 %derived_eq, i64 3, i64 0
+  %derived_eq1 = call fastcc i1 @"_ori_Point$eq"(...)
+  %neq = xor i1 %derived_eq1, true
   %sel2 = select i1 %neq, i64 4, i64 0
-  %add = call {i64,i1} @llvm.sadd.with.overflow.i64(i64 %sel1, i64 %sel2)
+  %add = call {i64,i1} @llvm.sadd.with.overflow.i64(i64 %sel, i64 %sel2)
   %val = extractvalue {i64,i1} %add, 0
   %ovf = extractvalue {i64,i1} %add, 1
   br i1 %ovf, label %panic, label %ok

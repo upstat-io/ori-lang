@@ -2,7 +2,7 @@
 journey: 5
 slug: closures
 theme: "I am a closure"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 27
 eval_result: 27

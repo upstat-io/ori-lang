@@ -2,7 +2,7 @@
 journey: 7
 slug: loops
 theme: "I am a loop"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 30
 eval_result: 30
@@ -88,9 +88,9 @@ related_journeys:
 }
 
 @main () -> int = {
-    let a = sum_loop(n: 5);   // = 15
-    let b = sum_for(n: 5);    // = 15
-    a + b                     // = 30
+    let a = sum_loop(n: 5);
+    let b = sum_for(n: 5);
+    a + b
 }
 ```
 
@@ -134,31 +134,31 @@ GtEq Ident(n) Then Break Semi Ident(total) PlusEq ...
 
 ```text
 Module
-├─ FnDecl @sum_loop
-│  ├─ Params: (n: int)
-│  ├─ Return: int
-│  └─ Body: Block
-│       ├─ Let i = 0
-│       ├─ Let total = 0
-│       ├─ Loop
-│       │    └─ Block
-│       │         ├─ If (i >= n) Then Break
-│       │         ├─ total += i + 1
-│       │         └─ i += 1
-│       └─ Ident(total)
-├─ FnDecl @sum_for
-│  ├─ Params: (n: int)
-│  ├─ Return: int
-│  └─ Body: Block
-│       ├─ Let total = 0
-│       ├─ For x In Range(1..=n) Do total += x
-│       └─ Ident(total)
-└─ FnDecl @main
-   ├─ Return: int
-   └─ Body: Block
-        ├─ Let a = sum_loop(n: 5)
-        ├─ Let b = sum_for(n: 5)
-        └─ BinOp(+): a + b
++-- FnDecl @sum_loop
+|  +-- Params: (n: int)
+|  +-- Return: int
+|  +-- Body: Block
+|       +-- Let i = 0
+|       +-- Let total = 0
+|       +-- Loop
+|       |    +-- Block
+|       |         +-- If (i >= n) Then Break
+|       |         +-- total += i + 1
+|       |         +-- i += 1
+|       +-- Ident(total)
++-- FnDecl @sum_for
+|  +-- Params: (n: int)
+|  +-- Return: int
+|  +-- Body: Block
+|       +-- Let total = 0
+|       +-- For x In Range(1..=n) Do total += x
+|       +-- Ident(total)
++-- FnDecl @main
+   +-- Return: int
+   +-- Body: Block
+        +-- Let a = sum_loop(n: 5)
+        +-- Let b = sum_for(n: 5)
+        +-- BinOp(+): a + b
 ```
 
 </details>
@@ -236,9 +236,9 @@ Module
 <summary>ARC annotations</summary>
 
 ```text
-@sum_loop: no heap values — pure scalar arithmetic with mutable locals
-@sum_for: no heap values — pure scalar arithmetic with range iteration
-@main: no heap values — pure scalar function calls and addition
+@sum_loop: no heap values -- pure scalar arithmetic with mutable locals
+@sum_for: no heap values -- pure scalar arithmetic with range iteration
+@main: no heap values -- pure scalar function calls and addition
 ```
 
 </details>
@@ -255,21 +255,21 @@ Module
 
 ```text
 @main()
-  └─ let a = @sum_loop(n: 5)
-       └─ let i = 0, total = 0
-       └─ loop iteration 1: i=0, i+1=1, total=0+1=1, i=1
-       └─ loop iteration 2: i=1, i+1=2, total=1+2=3, i=2
-       └─ loop iteration 3: i=2, i+1=3, total=3+3=6, i=3
-       └─ loop iteration 4: i=3, i+1=4, total=6+4=10, i=4
-       └─ loop iteration 5: i=4, i+1=5, total=10+5=15, i=5
-       └─ i(5) >= n(5): break
-       → 15
-  └─ let b = @sum_for(n: 5)
-       └─ let total = 0
-       └─ for x in 1..=5: total=0+1=1, 1+2=3, 3+3=6, 6+4=10, 10+5=15
-       → 15
-  └─ a + b = 15 + 15 = 30
-→ 30
+  +-- let a = @sum_loop(n: 5)
+       +-- let i = 0, total = 0
+       +-- loop iteration 1: i=0, i+1=1, total=0+1=1, i=1
+       +-- loop iteration 2: i=1, i+1=2, total=1+2=3, i=2
+       +-- loop iteration 3: i=2, i+1=3, total=3+3=6, i=3
+       +-- loop iteration 4: i=3, i+1=4, total=6+4=10, i=4
+       +-- loop iteration 5: i=4, i+1=5, total=10+5=15, i=5
+       +-- i(5) >= n(5): break
+       -> 15
+  +-- let b = @sum_for(n: 5)
+       +-- let total = 0
+       +-- for x in 1..=5: total=0+1=1, 1+2=3, 3+3=6, 6+4=10, 10+5=15
+       -> 15
+  +-- a + b = 15 + 15 = 30
+-> 30
 ```
 
 </details>
@@ -349,7 +349,6 @@ bb0:
   %proj.0 = extractvalue { i64, i64, i64, i64 } %ctor.3, 0
   %proj.1 = extractvalue { i64, i64, i64, i64 } %ctor.3, 1
   %proj.2 = extractvalue { i64, i64, i64, i64 } %ctor.3, 2
-  %proj.3 = extractvalue { i64, i64, i64, i64 } %ctor.3, 3
   br label %bb1
 
 bb1:                                              ; preds = %add.ok, %bb0
@@ -546,14 +545,14 @@ _ori_main:
 | # | Function | Actual | Ideal | Ratio | Verdict |
 |---|----------|--------|-------|-------|---------|
 | 1 | @sum_loop | 18 | 18 | 1.00x | OPTIMAL |
-| 2 | @sum_for | 25 | 25 | 1.00x | OPTIMAL |
+| 2 | @sum_for | 24 | 24 | 1.00x | OPTIMAL |
 | 3 | @main | 9 | 9 | 1.00x | OPTIMAL |
 
-**@sum_loop** (18 actual vs 18 ideal): All 18 instructions are justified. The initial `br label %bb1` in bb0 is a necessary phi predecessor entry. The loop contains 2 phi nodes for mutable state (i and total), 1 comparison, 2 overflow-checked additions (each requiring call + 2 extractvalue + conditional branch), the exit ret, and 2 panic paths. extract-metrics.py considers all instructions justified.
+**@sum_loop** (18 instructions): All justified. Entry block `br label %bb1` is a necessary phi predecessor. The loop header contains 2 phi nodes for mutable state (i and total), 1 comparison, and 1 conditional branch. The body has 2 overflow-checked additions (each: call + 2 extractvalue + conditional branch), an exit ret, and 2 panic paths with unreachable. Zero unjustified instructions.
 
-**@sum_for** (25 actual vs 25 ideal): OPTIMAL. The range struct construction (3 insertvalue + 4 extractvalue) plus the branch into the loop, the phi-based loop body with overflow-checked accumulation and step increment, and the exit/panic paths account for exactly the expected instruction count. LLVM's instcombine eliminates the construct-then-destructure pattern in the optimization pipeline.
+**@sum_for** (24 instructions): All justified. The range struct construction uses 3 insertvalue + 3 extractvalue (all 3 extracted fields are used: `%proj.0` for start, `%proj.1` for end bound, `%proj.2` for step). The loop body mirrors `@sum_loop` with phi-based iteration, overflow-checked accumulation and step increment, and panic paths. Note: the previous run extracted 4 fields (`%proj.3` for the inclusive flag) which was unused -- this extraction has been eliminated, reducing the function from 25 to 24 instructions. [NOTE-7]
 
-**@main** (9 actual vs 9 ideal): OPTIMAL. Two fastcc calls, one overflow-checked addition (call + 2 extractvalue + branch), one ret, and one panic path.
+**@main** (9 instructions): OPTIMAL. Two fastcc calls, one overflow-checked addition (call + 2 extractvalue + branch), one ret, and one panic path.
 
 ### 2. ARC Purity
 
@@ -613,7 +612,7 @@ All 5 addition operations are overflow-checked. Each uses the `llvm.sadd.with.ov
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 869.8 KiB |
+| .text section | 869.6 KiB |
 | .rodata section | 133.5 KiB |
 | User code (@sum_loop) | 141 bytes |
 | User code (@sum_for) | 160 bytes |
@@ -708,38 +707,37 @@ bb0:
 }
 ```
 
-**Delta**: +0 instructions. The actual code matches the ideal instruction count exactly. The `br label %bb1` in bb0 is counted as a necessary phi predecessor entry -- standard SSA form for phi-based loops.
+**Delta**: +0 instructions. The actual code matches the ideal instruction count exactly.
 
 #### @sum_for: Ideal vs Actual
 
 ```llvm
-; IDEAL (25 instructions) -- range struct construction included
+; IDEAL (24 instructions) -- range struct construction included
 define fastcc noundef i64 @_ori_sum_for(i64 noundef %n) nounwind memory(none) {
 entry:
-  ; Range struct construction (7 instructions)
+  ; Range struct construction (6 instructions -- only used fields extracted)
   %ctor.1 = insertvalue { i64, i64, i64, i64 } { i64 1, i64 undef, i64 undef, i64 undef }, i64 %n, 1
   %ctor.2 = insertvalue { i64, i64, i64, i64 } %ctor.1, i64 1, 2
   %ctor.3 = insertvalue { i64, i64, i64, i64 } %ctor.2, i64 1, 3
   %proj.0 = extractvalue { i64, i64, i64, i64 } %ctor.3, 0
   %proj.1 = extractvalue { i64, i64, i64, i64 } %ctor.3, 1
   %proj.2 = extractvalue { i64, i64, i64, i64 } %ctor.3, 2
-  %proj.3 = extractvalue { i64, i64, i64, i64 } %ctor.3, 3
   br label %loop
-  ; ... loop body identical to actual
+  ; ... loop body with phi-based iteration
 }
 ```
 
 ```llvm
-; ACTUAL (25 instructions) -- matches ideal
+; ACTUAL (24 instructions) -- matches ideal
 define fastcc noundef i64 @_ori_sum_for(i64 noundef %0) #0 {
 bb0:
-  ; ... range construction (7 instr) + br
+  ; ... range construction (6 instr) + br
 bb1:
   ; ... phi-based loop (identical structure)
 }
 ```
 
-**Delta**: +0 instructions. The actual code matches the expected instruction count. The range struct construct-then-destructure pattern is a codegen artifact that LLVM optimizes away, but it is counted as part of the expected overhead.
+**Delta**: +0 instructions. All 3 extracted range fields are used: `%proj.0` (start) feeds the initial phi value, `%proj.1` (end) feeds the loop condition, `%proj.2` (step) feeds the step increment. The unused `%proj.3` (inclusive flag) from the prior run has been eliminated.
 
 #### @main: Ideal vs Actual
 
@@ -768,7 +766,7 @@ panic:
 | Function | Ideal | Actual | Delta | Justified | Verdict |
 |----------|-------|--------|-------|-----------|---------|
 | @sum_loop | 18 | 18 | +0 | N/A | OPTIMAL |
-| @sum_for | 25 | 25 | +0 | N/A | OPTIMAL |
+| @sum_for | 24 | 24 | +0 | N/A | OPTIMAL |
 | @main | 9 | 9 | +0 | N/A | OPTIMAL |
 
 ### 8. Loops: Phi-Based Lowering
@@ -783,17 +781,17 @@ The `loop { ... break }` construct in `@sum_loop` is lowered to a textbook phi-b
 
 This is the standard SSA lowering for imperative loops with mutable variables. The compiler correctly converts mutable locals (`let i`, `let total`) to phi nodes rather than stack allocas, which is the optimal approach. The `break` statement is correctly lowered to a conditional branch to the exit block.
 
-The backedge from add.ok goes directly to bb1 with no intermediate trampoline block -- an improvement over earlier codegen that emitted an empty `add.ok4` block.
+The backedge from add.ok goes directly to bb1 with no intermediate trampoline block -- clean control flow with zero redundant branches.
 
 ### 9. Loops: Range Iteration Codegen
 
 The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range struct:
 
 1. **Range construction**: The `1..=n` expression creates a `{i64, i64, i64, i64}` struct representing `{start=1, end=n, step=1, inclusive=1}`. This is the canonical range representation.
-2. **Destructuring**: The range fields are immediately extracted via extractvalue, creating local SSA values `%proj.0` through `%proj.3`.
+2. **Destructuring**: The range fields are extracted via extractvalue, creating local SSA values `%proj.0` through `%proj.2`. Only the 3 fields actually used by the loop are extracted -- the `inclusive` flag (`%proj.3`) is no longer extracted, an improvement over the prior run. [NOTE-7]
 3. **Loop structure**: The iteration variable and accumulator use phi nodes. The loop condition uses `icmp sle` (signed less-or-equal) for inclusive ranges, compared to the `icmp sge` (signed greater-or-equal) used in the explicit loop.
 
-**Optimization opportunity**: The range construct-then-destructure pattern (3 insertvalue + 4 extractvalue) could be eliminated by threading constants directly into the phi nodes and loop condition. The `%proj.3` (inclusive flag) is extracted but never used -- the `sle` vs `slt` comparison already encodes inclusivity. However, LLVM's instcombine eliminates these in the optimization pipeline, so the runtime impact is zero. [LOW-1]
+**Optimization opportunity**: The range construct-then-destructure pattern (3 insertvalue + 3 extractvalue) could be eliminated by threading constants directly into the phi nodes and loop condition. However, LLVM's instcombine eliminates these in the optimization pipeline, so the runtime impact is zero. [NOTE-8]
 
 **Semantic equivalence**: The for-loop and explicit loop produce equivalent machine code structure at the LLVM IR level: both use phi-based iteration with overflow-checked arithmetic in the body. The main difference is the range struct overhead in the entry block. Both correctly produce 15 for input 5.
 
@@ -803,25 +801,25 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | IR Quality | Range construct-then-destructure with unused `%proj.3` in @sum_for | CONFIRMED | J7 |
-| 2 | NOTE | Attributes | Both loop functions correctly receive `memory(none)` | CONFIRMED | J7 |
-| 3 | NOTE | Loops | Correct phi-based lowering for mutable loop variables | CONFIRMED | J7 |
-| 4 | NOTE | Control Flow | Empty trampoline blocks eliminated -- direct backedges | CONFIRMED | J7 |
-| 5 | NOTE | Ranges | Inclusive range correctly uses `sle` comparison | CONFIRMED | J7 |
-| 6 | NOTE | ARC | Zero RC overhead for pure scalar loops | CONFIRMED | J7 |
+| 1 | NOTE | Attributes | Both loop functions correctly receive `memory(none)` | CONFIRMED | J7 |
+| 2 | NOTE | Loops | Correct phi-based lowering for mutable loop variables | CONFIRMED | J7 |
+| 3 | NOTE | Control Flow | Empty trampoline blocks eliminated -- direct backedges | CONFIRMED | J7 |
+| 4 | NOTE | Ranges | Inclusive range correctly uses `sle` comparison | CONFIRMED | J7 |
+| 5 | NOTE | ARC | Zero RC overhead for pure scalar loops | CONFIRMED | J7 |
+| 6 | NOTE | Codegen | Unused `%proj.3` (inclusive flag) eliminated since prior run | FIXED | J7 |
+| 7 | NOTE | IR Quality | Range construct-then-destructure is optimized away by LLVM | CONFIRMED | J7 |
 
-### LOW-1: Range struct construct-then-destructure with unused field
+### NOTE-1: Unused range field extraction eliminated
 
-**Location**: `@_ori_sum_for` bb0, insertvalue x3 + extractvalue x4
-**Impact**: 7 instructions in cold entry path (one-time cost); LLVM's instcombine optimizes these away, so zero runtime impact. The `%proj.3` extractvalue for the unused `inclusive` field is the only truly unnecessary instruction -- the `sle` vs `slt` comparison already encodes inclusivity.
-**Fix**: For constant ranges, thread values directly into phi nodes. Extract only used fields (skip `%proj.3`).
-**First seen**: Journey 7
-**Found in**: Optimal IR Comparison (Category 7), Loops: Range Iteration (Category 9)
+**Location**: `@_ori_sum_for` bb0
+**Impact**: Positive -- the codegen now extracts only the 3 range fields that are actually used (`start`, `end`, `step`), dropping the unused `inclusive` flag extraction (`%proj.3`). This reduces `@sum_for` from 25 to 24 instructions. The `sle` vs `slt` comparison already encodes inclusivity at the IR level.
+**Status**: FIXED (was LOW-1 in prior run)
+**Found in**: Instruction Purity (Category 1), Loops: Range Iteration (Category 9)
 
 ### NOTE-2: Both loop functions correctly receive memory(none)
 
 **Location**: `@_ori_sum_loop` and `@_ori_sum_for` function declarations
-**Impact**: Positive -- the fixed-point memory analysis correctly identifies both functions as having no memory effects. The `insertvalue`/`extractvalue` chain in `@sum_for` no longer confuses the purity analysis. This enables interprocedural optimizations including CSE across calls.
+**Impact**: Positive -- the fixed-point memory analysis correctly identifies both functions as having no memory effects. The `insertvalue`/`extractvalue` chain in `@sum_for` does not confuse the purity analysis. This enables interprocedural optimizations including CSE across calls.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-3: Correct phi-based loop lowering
@@ -833,7 +831,7 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 ### NOTE-4: Empty trampoline blocks eliminated
 
 **Location**: Both loop functions (add.ok backedge)
-**Impact**: Positive -- the backedge from add.ok goes directly to bb1 (the loop header) without an intermediate empty `add.ok4` trampoline block. This eliminates 2 blocks and 2 redundant unconditional branches from earlier codegen.
+**Impact**: Positive -- the backedge from add.ok goes directly to bb1 (the loop header) without an intermediate empty trampoline block. Zero redundant unconditional branches.
 **Found in**: Control Flow & Block Layout (Category 4)
 
 ### NOTE-5: Inclusive range comparison correctness
@@ -858,13 +856,13 @@ The `for x in 1..=n do body` construct in `@sum_for` is lowered through a range 
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
-| Other Findings | 15% | 9/10 | 1 low |
+| Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.8 / 10**
+**Overall: 10.0 / 10**
 
 ## Verdict
 
-Journey 7's loop codegen is excellent. Both `loop/break` and `for-in` range iteration produce optimal phi-based loops with correct overflow checking on all 5 arithmetic operations. The compiler correctly converts mutable locals to SSA phi nodes rather than stack allocas. Both `@sum_loop` and `@sum_for` correctly receive `memory(none)`, and the main wrapper now includes leak detection via `ori_check_leaks()`. The backedge trampoline blocks remain eliminated, producing clean control flow. The only remaining overhead is the range construct-then-destructure pattern in `@sum_for` (with one unused field extraction), which LLVM trivially eliminates. ARC is perfectly irrelevant -- zero RC operations for pure scalar loops.
+Journey 7's loop codegen achieves a perfect score. Both `loop/break` and `for-in` range iteration produce optimal phi-based loops with correct overflow checking on all 5 arithmetic operations. The compiler correctly converts mutable locals to SSA phi nodes rather than stack allocas. Both `@sum_loop` and `@sum_for` correctly receive `memory(none)` and `nounwind`, achieving 100% attribute compliance. The prior run's only deficiency -- an unused `%proj.3` extractvalue for the inclusive flag -- has been eliminated, bringing `@sum_for` from 25 to 24 instructions. ARC is perfectly irrelevant with zero RC operations for pure scalar loops.
 
 ## Cross-Journey Observations
 
@@ -876,6 +874,7 @@ Journey 7's loop codegen is excellent. Both `loop/break` and `for-in` range iter
 | noundef on params | J1 | J7 | CONFIRMED |
 | memory(none) analysis | J7 | J7 | CONFIRMED (both loop functions) |
 | Empty trampoline blocks | J7 | J7 | CONFIRMED (eliminated via CFG simplification) |
-| Leak detection wrapper | J7 | J7 | NEW (ori_check_leaks in main wrapper) |
+| Leak detection wrapper | J7 | J7 | CONFIRMED (ori_check_leaks in main wrapper) |
+| Unused field elimination | J7 | J7 | FIXED (%proj.3 no longer extracted) |
 
-The `memory(none)` analysis correctly handles the range struct pattern in `@sum_for`, and the CFG simplification pass keeps trampoline blocks eliminated. The main wrapper now integrates `ori_check_leaks()` for RC leak detection at program exit. All user functions receive the full complement of safety attributes.
+All user functions receive the full complement of safety attributes. The `memory(none)` analysis correctly handles the range struct pattern. The unused range field extraction has been eliminated since the prior run, achieving optimal instruction counts across all functions.
