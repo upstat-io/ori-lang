@@ -35,6 +35,15 @@ macro_rules! static_assert_size {
     };
 }
 
+/// Separator used in monomorphized function names.
+///
+/// When a generic function is monomorphized, its name is suffixed with this
+/// separator followed by the encoded type arguments (e.g., `foo$m$int_str`).
+///
+/// **Sync point**: Used by `ori_llvm` (monomorphize) and `ori_arc` (`arg_ownership`).
+/// Both crates MUST use this constant — never inline `"$m$"`.
+pub const MONO_SEPARATOR: &str = "$m$";
+
 mod arena;
 pub mod ast;
 pub mod builtin_constants;

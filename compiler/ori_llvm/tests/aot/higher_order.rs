@@ -784,3 +784,106 @@ fn test_closure_capturing_option_str_match() {
         "closure_capturing_option_str_match",
     );
 }
+
+// Nested closure RC matrix — covers double-free regression from wrapper
+// RcInc fix. Every test exercises a different type through the nested-capture
+// path: outer closure captures a value, inner closure re-captures it.
+
+/// Semantic pin: nested closure with str capture (the exact pattern that caused
+/// the double-free). Without the wrapper `RcInc` fix, this crashes with
+/// "`ori_rc_dec` called on already-freed allocation".
+#[test]
+fn test_nested_closure_str_semantic_pin() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $s = "this string is long enough to be heap allocated definitely";
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    let $result = outer();
+    if result == 58 then 0 else 1
+}
+"#,
+        "nested_closure_str_semantic_pin",
+    );
+}
+
+/// Nested closure capturing a list (fat pointer, RC-tracked).
+#[test]
+fn test_nested_closure_list_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $xs = [10, 20, 30, 40, 50];
+    let $outer = () -> int = {
+        let $inner = () -> int = xs.length();
+        inner()
+    };
+    if outer() == 5 then 0 else 1
+}
+"#,
+        "nested_closure_list_capture",
+    );
+}
+
+/// Nested closure capturing a closure (closure-in-closure-in-closure).
+#[test]
+fn test_nested_closure_closure_capture() {
+    assert_aot_success(
+        r#"
+@add_n (n: int) -> (int) -> int = x -> x + n;
+
+@main () -> int = {
+    let $f = add_n(n: 10);
+    let $outer = () -> int = {
+        let $inner = () -> int = f(5);
+        inner()
+    };
+    if outer() == 15 then 0 else 1
+}
+"#,
+        "nested_closure_closure_capture",
+    );
+}
+
+/// Nested closure with multiple captures (str + int).
+#[test]
+fn test_nested_closure_multi_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $s = "hello world plus extra text to force heap allocation here";
+    let $n = 42;
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length() + n;
+        inner()
+    };
+    if outer() == 99 then 0 else 1
+}
+"#,
+        "nested_closure_multi_capture",
+    );
+}
+
+/// Three levels of nested closure capture (outer → middle → inner).
+#[test]
+fn test_triple_nested_closure_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $s = "triple nested closure test with heap string allocation";
+    let $outer = () -> int = {
+        let $middle = () -> int = {
+            let $inner = () -> int = s.length();
+            inner()
+        };
+        middle()
+    };
+    if outer() == 54 then 0 else 1
+}
+"#,
+        "triple_nested_closure_capture",
+    );
+}

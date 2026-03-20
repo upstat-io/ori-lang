@@ -8,6 +8,7 @@
 //! - [`is_callee_intercepted`] — callee interception check shared by nounwind analysis and emission
 
 use ori_arc::ir::ValueRepr;
+use ori_arc::ownership::Ownership;
 use ori_ir::Name;
 use ori_types::{Idx, Pool, Tag};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -250,6 +251,13 @@ pub struct CodegenContext {
     /// ABI (`ccc` + phantom `ptr` env param) so `PartialApply` can point
     /// directly at them without generating a `_ori_partial_N` trampoline.
     pub non_capturing_lambdas: FxHashSet<Name>,
+    /// Per-lambda capture ownership: which captures are borrowed vs owned.
+    ///
+    /// When a lambda borrows a capture parameter, the closure's env drop
+    /// function must NOT RC-dec that capture — the caller retains ownership.
+    /// Maps lambda `Name` → ownership of each capture param (indexed by
+    /// position in the `PartialApply` args list).
+    pub lambda_capture_ownership: FxHashMap<Name, Vec<Ownership>>,
     /// Known-pure function names (no memory effects). These get the LLVM
     /// `memory(none)` attribute, enabling aggressive optimization.
     pub pure_functions: FxHashSet<Name>,

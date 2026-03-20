@@ -13,6 +13,10 @@ use ori_types::{Idx, Tag};
 ///
 /// TODO(type_strategy_registry/section-11): Extract shared type layout logic to `ori_ir`.
 /// This function duplicates `ori_llvm::codegen::type_info::TypeLayoutResolver::type_store_size()`.
+///
+/// **Sync point**: Must agree with `TypeLayoutResolver::type_store_size()` in `ori_llvm`
+/// (`compiler/ori_llvm/src/codegen/type_info/mod.rs`). Both compute the same logical size
+/// for every type.
 pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
     if depth > 16 {
         return 8; // Prevent infinite recursion on recursive types
@@ -21,10 +25,27 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
     let ty = pool.resolve_fully(ty);
     let tag = pool.tag(ty);
     match tag {
-        Tag::Bool | Tag::Byte => 1,
+        // 0-byte types
+        Tag::Unit | Tag::Never => 0,
+        // 1-byte types (matches TypeInfo::Bool/Byte/Ordering)
+        Tag::Bool | Tag::Byte | Tag::Ordering => 1,
+        // 4-byte types
         Tag::Char => 4,
-        Tag::Unit => 0,
-        Tag::Str | Tag::List | Tag::Set | Tag::Map => 24, // {i64, i64, ptr}
+        // 8-byte: scalars (i64/f64/i64-encoded) and opaque pointers (heap handles)
+        Tag::Int
+        | Tag::Float
+        | Tag::Duration
+        | Tag::Size
+        | Tag::Error
+        | Tag::Iterator
+        | Tag::DoubleEndedIterator
+        | Tag::Channel
+        | Tag::Range => 8,
+        // 16-byte fat pointer: {fn_ptr: ptr, env_ptr: ptr}
+        Tag::Function => 16,
+        // 24-byte fat values: {i64, i64, ptr}
+        Tag::Str | Tag::List | Tag::Set | Tag::Map => 24,
+        // Composite types: sum of fields
         Tag::Struct => pool
             .struct_fields(ty)
             .iter()
@@ -47,6 +68,41 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
             let err_size = pool_type_store_size(err_ty, pool, depth + 1);
             8 + ok_size.max(err_size)
         }
-        _ => 8, // Int, Float, Duration, Size, pointer-sized default
+        Tag::Enum => {
+            // Enum = {i64 tag, max(variant payloads)}
+            let variants = pool.enum_variants(ty);
+            let max_payload: i64 = variants
+                .iter()
+                .map(|(_, fields)| {
+                    fields
+                        .iter()
+                        .map(|&fty| pool_type_store_size(fty, pool, depth + 1))
+                        .sum::<i64>()
+                })
+                .max()
+                .unwrap_or(0);
+            8 + max_payload
+        }
+        // Meta-types should not appear in for-yield element positions.
+        // If they do, it's a compiler bug — panic rather than silently missize.
+        Tag::Var
+        | Tag::BoundVar
+        | Tag::RigidVar
+        | Tag::Scheme
+        | Tag::Projection
+        | Tag::ModuleNs
+        | Tag::Infer
+        | Tag::SelfType
+        | Tag::Named
+        | Tag::Applied
+        | Tag::Alias
+        | Tag::Borrowed => {
+            debug_assert!(
+                false,
+                "pool_type_store_size: unexpected meta-type tag {tag:?} — \
+                 this type should not appear in for-yield element positions"
+            );
+            8
+        }
     }
 }

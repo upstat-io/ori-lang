@@ -13,9 +13,13 @@ pub(crate) const MAX_ELEM_SIZE: usize = 256;
 ///
 /// Called at iterator source/adapter creation time to catch oversized elements
 /// before any `[0u8; MAX_ELEM_SIZE]` buffer is used.
+///
+/// Uses `assert!` (not `debug_assert!`) because the scratch buffers are
+/// fixed-size `[0u8; MAX_ELEM_SIZE]` in both debug and release builds —
+/// an oversized element causes a stack buffer overflow in release if unchecked.
 #[inline]
 pub(crate) fn assert_elem_size(elem_size: i64, context: &str) {
-    debug_assert!(
+    assert!(
         elem_size >= 0 && (elem_size as usize) <= MAX_ELEM_SIZE,
         "{context}: element size {elem_size} exceeds MAX_ELEM_SIZE ({MAX_ELEM_SIZE})"
     );

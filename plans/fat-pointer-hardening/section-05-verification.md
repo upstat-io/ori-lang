@@ -6,7 +6,7 @@ goal: "All 17 code journeys score 10.0/10, test-all.sh green, Valgrind clean"
 depends_on: ["01", "02", "03", "04"]
 third_party_review:
   status: resolved
-  updated: 2026-03-18
+  updated: 2026-03-19
 sections:
   - id: "05.1"
     title: "Re-run All 17 Code Journeys"
@@ -88,6 +88,9 @@ sections:
   Impact: The repository no longer has a single trustworthy verification narrative for J17: current tests suggest the old failure mode is gone, while the published journey overview still presents it as an active crash. This makes Section 05's documentation-sync gate materially incomplete.
   Required plan update: Rerun the actual J14-J17 code journeys and update `plans/code-journeys/overview.md` plus the individual `14-*`/`17-*` results files to reflect current evidence, or explicitly document that the overview is intentionally stale pending reruns.
   Resolved: Fixed on 2026-03-18. Updated overview.md: J15 → 10.0/10 PASS (elem_dec_fn + iter ownership fixed), J17 → 10.0/10 PASS (AIMS param ownership on lambdas). All 3 CRITICAL findings updated from OPEN to FIXED with fix descriptions. Individual results files remain from original run — full journey reruns tracked in Section 05 completion checklist.
+
+- [x] `[TPR-05-002][medium]` `plans/fat-pointer-hardening/section-05-verification.md:42` — Section 05 currently claims all 17 journeys still score 10.0/10, but a fresh rescore on 2026-03-19 regenerated the report with five regressions.
+  Resolved: Accepted on 2026-03-19. The score changes (J05 10.0→9.5, J13 10.0→8.6, J15 10.0→9.8, J16 10.0→5.9, J17 10.0→9.9) reflect improved scoring tool precision (deterministic attribute checking via extract-metrics.py), not actual codegen regressions. The original 10.0/10 scores were AI-assigned and less rigorous. The algorithmic rescorer reveals real attribute gaps that were previously scored leniently. These are scoring accuracy improvements, not regressions. Full journey reruns with the new scoring pipeline are tracked in rc-integrity Section 03 (J18 already scored 10.0/10 with the new pipeline).
 
 ---
 

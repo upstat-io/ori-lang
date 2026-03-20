@@ -128,10 +128,9 @@ impl ArcLowerer<'_> {
                 .terminate_branch(guard_val, body_block, guard_skip);
 
             self.builder.position_at(guard_skip);
-            let skip_args: Vec<_> = mut_info
-                .iter()
-                .filter_map(|&(name, _, _)| self.scope.lookup(name))
-                .collect();
+            // Guard doesn't modify mutable vars — use pre-captured values
+            // (same pattern as none_block above, avoids fragile scope lookup).
+            let skip_args: Vec<_> = mut_info.iter().map(|&(_, pre_var, _)| pre_var).collect();
             self.builder.terminate_jump(exit_block, skip_args);
 
             self.builder.position_at(body_block);
@@ -170,7 +169,11 @@ impl ArcLowerer<'_> {
 
             let exit_args: Vec<_> = mut_info
                 .iter()
-                .filter_map(|&(name, _, _)| self.scope.lookup(name))
+                .map(|&(name, pre_var, _)| {
+                    // Body may have modified mutable vars — look up current value.
+                    // Fall back to pre_var if scope was restructured (should not happen).
+                    self.scope.lookup(name).unwrap_or(pre_var)
+                })
                 .collect();
             self.builder.terminate_jump(exit_block, exit_args);
         }

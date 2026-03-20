@@ -593,4 +593,98 @@ fn type_store_size_containers() {
     // Tuple (int, int, int) = 24
     let tup3 = pool.tuple(&[Idx::INT, Idx::INT, Idx::INT]);
     assert_eq!(pool_type_store_size(tup3, &pool, 0), 24, "(int, int, int)");
+
+    // Function = {fn_ptr: ptr, env_ptr: ptr} = 16 (fat pointer closure)
+    let func = pool.function(&[Idx::INT], Idx::INT);
+    assert_eq!(
+        pool_type_store_size(func, &pool, 0),
+        16,
+        "Function = {{ptr, ptr}}"
+    );
+
+    // Ordering = i8 = 1 byte
+    assert_eq!(
+        pool_type_store_size(Idx::ORDERING, &pool, 0),
+        1,
+        "Ordering = i8"
+    );
+
+    // Never = uninhabited = 0 bytes
+    assert_eq!(
+        pool_type_store_size(Idx::NEVER, &pool, 0),
+        0,
+        "Never = void"
+    );
+}
+
+#[test]
+fn type_store_size_extended_types() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // Function = {fn_ptr: ptr, env_ptr: ptr} = 16 (fat pointer closure)
+    let func = pool.function(&[Idx::INT], Idx::INT);
+    assert_eq!(
+        pool_type_store_size(func, &pool, 0),
+        16,
+        "Function = {{ptr, ptr}}"
+    );
+
+    // Ordering = i8 = 1 byte
+    assert_eq!(
+        pool_type_store_size(Idx::ORDERING, &pool, 0),
+        1,
+        "Ordering = i8"
+    );
+
+    // Never = uninhabited = 0 bytes
+    assert_eq!(
+        pool_type_store_size(Idx::NEVER, &pool, 0),
+        0,
+        "Never = void"
+    );
+
+    // Simple enum: A | B(x: int) → {i64 tag, max(0, 8)} = 8 + 8 = 16
+    let variant_a_name = interner.intern("A");
+    let variant_b_name = interner.intern("B");
+    let enum_name = interner.intern("SimpleEnum");
+    let simple_enum = pool.enum_type(
+        enum_name,
+        &[
+            ori_types::EnumVariant {
+                name: variant_a_name,
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: variant_b_name,
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(simple_enum, &pool, 0),
+        16,
+        "A | B(int) = {{i64 tag, max(0, 8)}} = 16"
+    );
+
+    // Enum with str payload: A(s: str) | B → {i64 tag, max(24, 0)} = 8 + 24 = 32
+    let enum2_name = interner.intern("StrEnum");
+    let str_enum = pool.enum_type(
+        enum2_name,
+        &[
+            ori_types::EnumVariant {
+                name: variant_a_name,
+                field_types: vec![Idx::STR],
+            },
+            ori_types::EnumVariant {
+                name: variant_b_name,
+                field_types: vec![],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(str_enum, &pool, 0),
+        32,
+        "A(str) | B = {{i64 tag, max(24, 0)}} = 32"
+    );
 }

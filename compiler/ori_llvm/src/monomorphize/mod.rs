@@ -121,7 +121,7 @@ fn mangle_mono_name(
     let base = interner.lookup(fn_name);
     let mut mangled = String::with_capacity(base.len() + 4 + generic_args.len() * 6);
     mangled.push_str(base);
-    mangled.push_str("$m$");
+    mangled.push_str(ori_ir::MONO_SEPARATOR);
 
     for (i, arg) in generic_args.iter().enumerate() {
         if i > 0 {
