@@ -2,7 +2,7 @@
 reroute: true
 name: "Fat Ptr"
 full_name: "Fat Pointer Hardening: All 17 Journeys to 10/10"
-status: resolved
+status: active
 order: 1
 ---
 
