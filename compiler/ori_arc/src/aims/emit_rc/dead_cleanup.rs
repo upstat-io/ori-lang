@@ -16,8 +16,9 @@ use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::Cardinality;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 
-use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx};
+use super::helpers::{is_live_at_exit, is_owned_at_entry, BlockCtx, LastUse};
 use super::{block_id, rc_strategy};
+use crate::ir::RcStrategy;
 
 /// Phase A: `RcDec` for variables live at entry, unused in block, dead at exit.
 ///
@@ -28,7 +29,12 @@ use super::{block_id, rc_strategy};
 ///    `entry_states` entirely) — e.g., mutable-scope variables threaded
 ///    through loop exit blocks but never actually read. These are `RcPtr`
 ///    parameters that need cleanup even though the analysis didn't track them.
-pub(crate) fn emit_dead_at_entry_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<ArcInstr>) {
+pub(crate) fn emit_dead_at_entry_decs(
+    ctx: &BlockCtx<'_>,
+    new_body: &mut Vec<ArcInstr>,
+) -> Vec<(ArcVarId, RcStrategy, LastUse)> {
+    let mut deferred_parents = Vec::new();
+
     // Source 1: variables in entry_states.
     if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
         for (&var, &state) in entry_states {
@@ -49,6 +55,15 @@ pub(crate) fn emit_dead_at_entry_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<Arc
                 continue;
             }
             if ctx.use_info.contains_key(&var) || is_live_at_exit(ctx.state_map, ctx.blk, var) {
+                continue;
+            }
+            // Defer if this variable has live borrowed children (projections
+            // or their aliases still used in this block). The deferred dec is
+            // seeded into the forward walk, which emits it after the children die.
+            if let Some(&child_last) = ctx.child_effective_last_use.get(&var) {
+                if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                    deferred_parents.push((var, strategy, child_last));
+                }
                 continue;
             }
             if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
@@ -96,6 +111,8 @@ pub(crate) fn emit_dead_at_entry_decs(ctx: &BlockCtx<'_>, new_body: &mut Vec<Arc
             });
         }
     }
+
+    deferred_parents
 }
 
 /// Sweep for dead Invoke result variables across all blocks.

@@ -39,9 +39,9 @@ pub(super) fn emit_rc_unified(
     use crate::aims::emit_rc::{
         block_id, coalesce_block_rc, collect_all_borrowed_defs, collect_borrowed_defs,
         collect_defined_vars, collect_inline_enum_projected_defs, collect_iter_element_defs,
-        collect_project_borrowed_defs, compute_child_effective_last_use, emit_dead_at_entry_decs,
-        emit_dead_invoke_dsts, emit_edge_cleanup, emit_terminator_rc, precompute_block_uses,
-        BlockCtx,
+        collect_project_borrowed_defs, compute_child_effective_last_use,
+        compute_function_project_sources, emit_dead_at_entry_decs, emit_dead_invoke_dsts,
+        emit_edge_cleanup, emit_terminator_rc, precompute_block_uses, BlockCtx,
     };
 
     debug_assert!(
@@ -53,6 +53,7 @@ pub(super) fn emit_rc_unified(
     let project_borrowed_defs = collect_project_borrowed_defs(func);
     let iter_element_defs = collect_iter_element_defs(func, interner);
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
+    let func_project_sources = compute_function_project_sources(func);
     let iter_fn_name = interner.intern("iter");
     let mut all_death_events = Vec::new();
     let mut all_alloc_events = Vec::new();
@@ -65,7 +66,11 @@ pub(super) fn emit_rc_unified(
         let use_info = precompute_block_uses(&func.blocks[block_idx]);
         let defined_in_block = collect_defined_vars(&func.blocks[block_idx]);
         let borrowed_defs = collect_borrowed_defs(&func.blocks[block_idx]);
-        let child_elu = compute_child_effective_last_use(&func.blocks[block_idx], &use_info);
+        let child_elu = compute_child_effective_last_use(
+            &func.blocks[block_idx],
+            &use_info,
+            &func_project_sources,
+        );
 
         let old_body = std::mem::take(&mut func.blocks[block_idx].body);
         let mut new_body: Vec<ArcInstr> = Vec::with_capacity(old_body.len() * 2);
@@ -88,7 +93,10 @@ pub(super) fn emit_rc_unified(
         };
 
         // Phase A: RcDec for variables live at entry, unused, dead at exit.
-        emit_dead_at_entry_decs(&ctx, &mut new_body);
+        // Returns deferred decs for variables whose borrowed children are still
+        // alive (cross-block projections). These seed the forward walk's deferred
+        // list so the dec is emitted when the children die.
+        let deferred_parents = emit_dead_at_entry_decs(&ctx, &mut new_body);
 
         // Phase B: unified forward walk (decide() + inline event collection).
         let walk::BodyWalkResult {
@@ -97,7 +105,13 @@ pub(super) fn emit_rc_unified(
             death_events,
             alloc_events,
             walk_metrics,
-        } = walk::walk_body_unified(&ctx, &old_body, &mut new_body, iter_fn_name);
+        } = walk::walk_body_unified(
+            &ctx,
+            &old_body,
+            &mut new_body,
+            iter_fn_name,
+            deferred_parents,
+        );
         synergy.merge(&walk_metrics);
 
         // Phase C: terminator uses and cleanup.
