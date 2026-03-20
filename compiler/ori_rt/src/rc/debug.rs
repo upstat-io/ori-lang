@@ -179,10 +179,24 @@ fn alloc_registry() -> &'static Mutex<HashMap<usize, AllocEntry>> {
 ///
 /// Called from `ori_rc_alloc` when `ORI_CHECK_LEAKS=1` in debug builds.
 #[cfg(debug_assertions)]
-pub(super) fn alloc_registry_insert(data_ptr: *mut u8, size: usize, align: usize) {
+pub(crate) fn alloc_registry_insert(data_ptr: *mut u8, size: usize, align: usize) {
     let id = RC_ALLOC_COUNTER.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut reg) = alloc_registry().lock() {
         reg.insert(data_ptr as usize, (id, size, align));
+    }
+}
+
+/// Update size/alignment of an existing allocation in the registry.
+///
+/// Called from `ori_rc_realloc` when the pointer address stays the same
+/// (in-place realloc). Preserves the original `alloc_id`. (TPR-05-004)
+#[cfg(debug_assertions)]
+pub(crate) fn alloc_registry_update(data_ptr: *mut u8, new_size: usize, new_align: usize) {
+    if let Ok(mut reg) = alloc_registry().lock() {
+        if let Some(entry) = reg.get_mut(&(data_ptr as usize)) {
+            entry.1 = new_size;
+            entry.2 = new_align;
+        }
     }
 }
 
@@ -190,9 +204,22 @@ pub(super) fn alloc_registry_insert(data_ptr: *mut u8, size: usize, align: usize
 ///
 /// Called from `ori_rc_free` when `ORI_CHECK_LEAKS=1` in debug builds.
 #[cfg(debug_assertions)]
-pub(super) fn alloc_registry_remove(data_ptr: *mut u8) {
+pub(crate) fn alloc_registry_remove(data_ptr: *mut u8) {
     if let Ok(mut reg) = alloc_registry().lock() {
         reg.remove(&(data_ptr as usize));
+    }
+}
+
+/// Query the registry entry for a given data pointer.
+///
+/// Returns `Some((alloc_id, size, align))` if the pointer is tracked,
+/// `None` otherwise. Used by tests to verify metadata correctness.
+#[cfg(all(test, debug_assertions))]
+pub(crate) fn alloc_registry_query(data_ptr: *const u8) -> Option<(i64, usize, usize)> {
+    if let Ok(reg) = alloc_registry().lock() {
+        reg.get(&(data_ptr as usize)).copied()
+    } else {
+        None
     }
 }
 

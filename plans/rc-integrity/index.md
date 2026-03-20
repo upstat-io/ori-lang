@@ -59,7 +59,7 @@ dual-exec-verify.sh, behavioral equivalence
 ---
 
 ### Section 04: Matrix Testing — Regression Guard
-**File:** `section-04-matrix-testing.md` | **Status:** In Progress
+**File:** `section-04-matrix-testing.md` | **Status:** Complete
 
 ```
 matrix test, regression guard, leak matrix
@@ -74,7 +74,7 @@ journey guard, rc_matrix.rs, journey_guard.rs
 ---
 
 ### Section 05: Verification & Merge Gate
-**File:** `section-05-verification.md` | **Status:** In Progress
+**File:** `section-05-verification.md` | **Status:** Complete
 
 ```
 10/10, code journey scores, merge gate

@@ -165,11 +165,17 @@ pub extern "C" fn ori_rc_realloc(
     // Return data pointer (32 bytes past the header)
     let new_data = unsafe { new_base.add(RC_HEADER_SIZE) };
 
-    // Update leak tracker when realloc moved the block to a new address.
-    // std::alloc::realloc frees the old block internally — the leak tracker
-    // must be updated to avoid counting the old pointer as a leak and to
-    // track the new pointer instead.
-    if new_data != data_ptr {
+    // Update leak tracker metadata.
+    if new_data == data_ptr {
+        // Same address (in-place realloc) — update size/align metadata,
+        // preserving the original alloc_id. Without this, the registry
+        // retains stale size/alignment from the original allocation. (TPR-05-004)
+        #[cfg(debug_assertions)]
+        if super::check_leaks_enabled() {
+            super::debug::alloc_registry_update(new_data, new_data_size, align);
+        }
+    } else {
+        // Realloc moved the block — remove old entry, insert new one.
         #[cfg(debug_assertions)]
         if super::check_leaks_enabled() {
             super::debug::alloc_registry_remove(data_ptr);

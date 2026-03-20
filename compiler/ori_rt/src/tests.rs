@@ -809,6 +809,66 @@ fn rc_realloc_null_returns_null() {
     assert!(ori_rc_realloc(std::ptr::null_mut(), 0, 64, 8).is_null());
 }
 
+/// Registry metadata correctness: insert, update (same-address realloc),
+/// and remove operations maintain correct (id, size, align) entries.
+///
+/// Directly tests the registry functions without going through `ori_rc_alloc`
+/// / `ori_rc_realloc`, which gate registry calls on `check_leaks_enabled()`
+/// — a `OnceLock`-cached env var that is non-deterministic in the shared
+/// test process. (TPR-05-004 fix, TPR-05-005 determinism fix)
+#[test]
+fn alloc_registry_insert_update_query() {
+    use crate::rc::{
+        alloc_registry_insert, alloc_registry_query, alloc_registry_remove, alloc_registry_update,
+    };
+
+    let _g = lock_rc();
+
+    // Use a sentinel pointer (never dereferenced — only used as a map key)
+    let fake_ptr = 0xDEAD_BEEF_usize as *mut u8;
+
+    // Insert: register a new allocation
+    alloc_registry_insert(fake_ptr, 64, 8);
+    let entry = alloc_registry_query(fake_ptr.cast_const());
+    assert!(entry.is_some(), "insert should register the pointer");
+    let (id, size, align) = entry.unwrap();
+    assert_eq!(size, 64, "initial size should be 64");
+    assert_eq!(align, 8, "initial align should be 8");
+
+    // Update (same-address realloc path): size changes, id preserved
+    alloc_registry_update(fake_ptr, 128, 16);
+    let entry2 = alloc_registry_query(fake_ptr.cast_const());
+    assert!(entry2.is_some(), "update should keep the entry");
+    let (id2, size2, align2) = entry2.unwrap();
+    assert_eq!(id2, id, "update must preserve alloc_id");
+    assert_eq!(size2, 128, "updated size should be 128");
+    assert_eq!(align2, 16, "updated align should be 16");
+
+    // Update again (shrink)
+    alloc_registry_update(fake_ptr, 32, 8);
+    let entry3 = alloc_registry_query(fake_ptr.cast_const());
+    let (id3, size3, _) = entry3.unwrap();
+    assert_eq!(
+        id3, id,
+        "second update must still preserve original alloc_id"
+    );
+    assert_eq!(size3, 32, "shrunk size should be 32");
+
+    // Remove
+    alloc_registry_remove(fake_ptr);
+    assert!(
+        alloc_registry_query(fake_ptr.cast_const()).is_none(),
+        "remove should deregister the pointer"
+    );
+
+    // Update on nonexistent pointer is a no-op (doesn't panic)
+    alloc_registry_update(fake_ptr, 256, 32);
+    assert!(
+        alloc_registry_query(fake_ptr.cast_const()).is_none(),
+        "update on removed pointer should be a no-op"
+    );
+}
+
 // V4 elem_dec_fn header tests
 
 #[test]

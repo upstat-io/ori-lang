@@ -392,7 +392,7 @@ fn annotate_block(
 fn inject_cow_borrowed_receiver_incs(
     func: &mut crate::ir::ArcFunction,
     interner: &ori_ir::StringInterner,
-    _pool: &ori_types::Pool,
+    pool: &ori_types::Pool,
 ) {
     use crate::aims::emit_rc::collect_cow_borrowed_receivers;
     use crate::ir::{ArcInstr, ArcTerminator, RcStrategy};
@@ -402,11 +402,23 @@ fn inject_cow_borrowed_receiver_incs(
         return;
     }
 
+    // Pre-compute RcStrategy per receiver before entering the mutable loop
+    // (borrow dance: immutable access to func before mutable iteration).
+    let receiver_strategies: rustc_hash::FxHashMap<ArcVarId, RcStrategy> = cow_borrowed_receivers
+        .iter()
+        .map(|&var| {
+            let strategy = func.var_repr(var).map_or(RcStrategy::HeapPointer, |r| {
+                RcStrategy::from_var(r, pool, func.var_type(var))
+            });
+            (var, strategy)
+        })
+        .collect();
+
     let cow_names = crate::borrow::all_cow_method_names(interner);
 
     for block in &mut func.blocks {
         // Body instructions: Apply COW calls with borrowed receivers
-        let mut insertions: Vec<(usize, ArcVarId)> = Vec::new();
+        let mut insertions: Vec<(usize, ArcVarId, RcStrategy)> = Vec::new();
         for (i, instr) in block.body.iter().enumerate() {
             if let ArcInstr::Apply {
                 func: callee, args, ..
@@ -414,20 +426,20 @@ fn inject_cow_borrowed_receiver_incs(
             {
                 if cow_names.contains(callee) && !args.is_empty() {
                     let receiver = args[0];
-                    if cow_borrowed_receivers.contains(&receiver) {
-                        insertions.push((i, receiver));
+                    if let Some(&strategy) = receiver_strategies.get(&receiver) {
+                        insertions.push((i, receiver, strategy));
                     }
                 }
             }
         }
         // Insert in reverse order to preserve indices
-        for (idx, var) in insertions.into_iter().rev() {
+        for (idx, var, strategy) in insertions.into_iter().rev() {
             block.body.insert(
                 idx,
                 ArcInstr::RcInc {
                     var,
                     count: 1,
-                    strategy: RcStrategy::HeapPointer,
+                    strategy,
                 },
             );
         }
@@ -439,11 +451,11 @@ fn inject_cow_borrowed_receiver_incs(
         {
             if cow_names.contains(callee) && !args.is_empty() {
                 let receiver = args[0];
-                if cow_borrowed_receivers.contains(&receiver) {
+                if let Some(&strategy) = receiver_strategies.get(&receiver) {
                     block.body.push(ArcInstr::RcInc {
                         var: receiver,
                         count: 1,
-                        strategy: RcStrategy::HeapPointer,
+                        strategy,
                     });
                 }
             }
