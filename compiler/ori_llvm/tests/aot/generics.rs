@@ -431,7 +431,6 @@ fn test_generic_wrap_in_option() {
 }
 
 #[test]
-#[ignore = "Pre-existing AOT gap: match on Option leaks RC (not generic-specific)"]
 fn test_generic_option_match_leak() {
     // This test documents the leak — match on Option leaks even without generics.
     assert_aot_success(
@@ -589,7 +588,6 @@ type Pair<A, B> = { first: A, second: B };
 // ─── Monomorphized nounwind analysis ───
 
 #[test]
-#[ignore = "Pre-existing: two-pass nounwind analysis not yet downgrading invoke→call for monomorphized callees"]
 fn test_mono_nounwind_callee_uses_call_not_invoke() {
     // After the two-pass nounwind fix, _ori_main should call identity$m$int
     // with `call` (not `invoke`) because identity is trivially nounwind.

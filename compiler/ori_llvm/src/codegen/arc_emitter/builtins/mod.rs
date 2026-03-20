@@ -333,17 +333,45 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         None
     }
 
+    /// Emit slice-aware RC increment for a value.
+    ///
+    /// For List/Set: uses `ori_list_rc_inc(data, cap)` which handles
+    /// seamless slices (where `data` is interior to another buffer).
+    /// For other types: falls back to `ori_rc_inc(data)`.
+    fn emit_slice_aware_rc_inc(&mut self, val: ValueId, ty: ori_types::Idx) {
+        let resolved = self.pool.resolve_fully(ty);
+        let tag = self.pool.tag(resolved);
+        match tag {
+            ori_types::Tag::List | ori_types::Tag::Set => {
+                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                    let cap = self
+                        .builder
+                        .extract_value(val, 1, "rc_inc.cap")
+                        .unwrap_or_else(|| self.builder.const_i64(0));
+                    self.call_list_rc_inc(dp, cap, 1);
+                } else {
+                    self.call_rc_inc_all(&[val], 1);
+                }
+            }
+            _ => {
+                let rc_inc = self.builder.runtime_fn("ori_rc_inc");
+                let data_ptrs = self.extract_rc_data_ptrs(val, ty);
+                for data_ptr in data_ptrs {
+                    self.emit_rt_call(rc_inc, &[data_ptr], "");
+                }
+            }
+        }
+    }
+
     /// Emit RC increment + return receiver (clone for heap-backed types).
+    ///
+    /// Uses slice-aware `ori_list_rc_inc(data, cap)` for List/Set types.
     pub(crate) fn emit_rc_inc_clone(
         &mut self,
         val: ValueId,
         ty: ori_types::Idx,
     ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_rc_inc");
-        let data_ptrs = self.extract_rc_data_ptrs(val, ty);
-        for data_ptr in data_ptrs {
-            self.emit_rt_call(func_id, &[data_ptr], "");
-        }
+        self.emit_slice_aware_rc_inc(val, ty);
         Some(val)
     }
 
@@ -362,11 +390,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_ty: ori_types::Idx,
     ) -> Option<ValueId> {
         // RcInc the collection — the iterator will consume one reference.
-        let rc_inc = self.builder.runtime_fn("ori_rc_inc");
-        let data_ptrs = self.extract_rc_data_ptrs(receiver, receiver_ty);
-        for data_ptr in &data_ptrs {
-            self.emit_rt_call(rc_inc, &[*data_ptr], "");
-        }
+        // For List/Set: use slice-aware ori_list_rc_inc(data, cap) which
+        // handles seamless slices (where data is interior to another buffer).
+        self.emit_slice_aware_rc_inc(receiver, receiver_ty);
         match type_info {
             TypeInfo::List { element } | TypeInfo::Set { element } => {
                 self.emit_list_iter(receiver, receiver_ty, *element)
