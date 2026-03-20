@@ -21,7 +21,7 @@ order: 1
 ## Keyword Clusters by Section
 
 ### Section 01: Tooling — Leak Detection Infrastructure
-**File:** `section-01-tooling.md` | **Status:** In Progress
+**File:** `section-01-tooling.md` | **Status:** Complete
 
 ```
 ORI_CHECK_LEAKS, ori_check_leaks, leak detection, main wrapper
@@ -33,7 +33,7 @@ exit code 2, leak attribution, alloc_registry
 ---
 
 ### Section 02: Fix All Pre-Existing Leaks
-**File:** `section-02-leak-fixes.md` | **Status:** Not Started
+**File:** `section-02-leak-fixes.md` | **Status:** Complete
 
 ```
 RcDec, FatValue, RcPointer, Aggregate
@@ -46,7 +46,7 @@ slice leak, struct with heap field, list equality
 ---
 
 ### Section 03: Code Journeys — Expanded Coverage
-**File:** `section-03-journeys.md` | **Status:** Not Started
+**File:** `section-03-journeys.md` | **Status:** Complete
 
 ```
 code journey, string builder, loop accumulation
@@ -59,7 +59,7 @@ dual-exec-verify.sh, behavioral equivalence
 ---
 
 ### Section 04: Matrix Testing — Regression Guard
-**File:** `section-04-matrix-testing.md` | **Status:** Not Started
+**File:** `section-04-matrix-testing.md` | **Status:** In Progress
 
 ```
 matrix test, regression guard, leak matrix
@@ -74,7 +74,7 @@ journey guard, rc_matrix.rs, journey_guard.rs
 ---
 
 ### Section 05: Verification & Merge Gate
-**File:** `section-05-verification.md` | **Status:** Not Started
+**File:** `section-05-verification.md` | **Status:** In Progress
 
 ```
 10/10, code journey scores, merge gate
