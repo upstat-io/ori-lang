@@ -55,9 +55,10 @@ pub(super) fn walk_body_unified(
     old_body: &[ArcInstr],
     new_body: &mut Vec<ArcInstr>,
     iter_fn_name: ori_ir::Name,
+    initial_deferred: Vec<(ArcVarId, RcStrategy, LastUse)>,
 ) -> BodyWalkResult {
     let mut uses_so_far: FxHashMap<ArcVarId, usize> = FxHashMap::default();
-    let mut deferred: Vec<(ArcVarId, RcStrategy, LastUse)> = Vec::new();
+    let mut deferred: Vec<(ArcVarId, RcStrategy, LastUse)> = initial_deferred;
     let mut death_events = Vec::new();
     let mut alloc_events = Vec::new();
     let mut metrics = super::metrics::SynergyMetrics::default();

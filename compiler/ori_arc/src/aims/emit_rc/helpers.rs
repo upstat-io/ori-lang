@@ -161,6 +161,27 @@ pub(crate) fn collect_defined_vars(block: &ArcBlock) -> FxHashSet<ArcVarId> {
     defined
 }
 
+/// Compute a function-level mapping from Project destinations to their
+/// source variables, across all blocks.
+///
+/// Needed by [`compute_child_effective_last_use`] to detect cross-block
+/// Project relationships: a variable defined by `Project` in block A may
+/// be used (via `Let` aliases) in block B, and block B needs to know that
+/// those aliases borrow from the Project source.
+pub(crate) fn compute_function_project_sources(
+    func: &ArcFunction,
+) -> FxHashMap<ArcVarId, ArcVarId> {
+    let mut sources: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, value, .. } = instr {
+                sources.insert(*dst, *value);
+            }
+        }
+    }
+    sources
+}
+
 /// For each Project source variable in a block, compute the latest `LastUse`
 /// of any borrowed child (direct Project destinations or their Let aliases).
 ///
@@ -168,11 +189,17 @@ pub(crate) fn collect_defined_vars(block: &ArcBlock) -> FxHashSet<ArcVarId> {
 /// children are dead. The AIMS backward analysis doesn't track this
 /// relationship (it only propagates demand for direct uses), so the
 /// emission phase extends parent lifetimes using this map.
+///
+/// The `func_project_sources` parameter provides a function-level mapping
+/// from Project destinations to their source variables, enabling cross-block
+/// Project detection.
 pub(crate) fn compute_child_effective_last_use(
     block: &ArcBlock,
     use_info: &FxHashMap<ArcVarId, (usize, LastUse)>,
+    func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> FxHashMap<ArcVarId, LastUse> {
     // Build mapping from each borrowed child to its Project source.
+    // Start with block-local Projects.
     let mut child_to_parent: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
     for instr in &block.body {
         if let ArcInstr::Project { dst, value, .. } = instr {
@@ -180,8 +207,18 @@ pub(crate) fn compute_child_effective_last_use(
         }
     }
 
+    // Add cross-block Project results: any variable USED in this block that
+    // was defined by a Project in another block.
+    for &var in use_info.keys() {
+        if let Some(&parent) = func_project_sources.get(&var) {
+            child_to_parent.entry(var).or_insert(parent);
+        }
+    }
+
     // Extend to Let aliases: `Let { dst, Var(src) }` where `src` borrows
     // from a parent means `dst` also borrows from the same parent.
+    // Also handles cross-block: if `src` was a Project result from another
+    // block (present in func_project_sources), `dst` inherits that parent.
     let mut changed = true;
     while changed {
         changed = false;
@@ -192,7 +229,11 @@ pub(crate) fn compute_child_effective_last_use(
                 ..
             } = instr
             {
-                if let Some(&parent) = child_to_parent.get(src) {
+                let parent = child_to_parent
+                    .get(src)
+                    .copied()
+                    .or_else(|| func_project_sources.get(src).copied());
+                if let Some(parent) = parent {
                     if !child_to_parent.contains_key(dst) {
                         child_to_parent.insert(*dst, parent);
                         changed = true;
