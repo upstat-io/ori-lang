@@ -2,8 +2,9 @@
 
 use super::debug::rc_trace_dec;
 use super::{
-    call_drop_fn, ori_rc_data_size, ori_rc_free, rc_trace_enabled, rc_underflow_abort,
-    rt_debug_validate_rc,
+    call_drop_fn, load_elem_count, load_elem_dec_fn, ori_rc_data_size, ori_rc_free,
+    rc_trace_enabled, rc_underflow_abort, rt_debug_validate_rc, store_elem_count,
+    store_elem_dec_fn_once,
 };
 use crate::slice_encoding::{is_slice_cap, slice_original_data};
 
@@ -19,16 +20,23 @@ use std::sync::atomic::{AtomicI64, Ordering};
 /// free logic across cfg blocks.
 ///
 /// - `elem_data`: pointer to the start of elements for cleanup iteration
+/// - `header_data`: pointer to the RC-managed data area whose header holds `elem_dec_fn`
 /// - `free_data`: pointer to the RC-managed allocation to free
 /// - `free_size`: byte size to pass to `ori_rc_free`
+///
+/// Reads `elem_dec_fn` from `header_data`'s RC header (V4: at `header_data - 16`).
 fn drop_elements_and_free(
     elem_data: *mut u8,
     n: usize,
     es: usize,
-    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+    header_data: *mut u8,
     free_data: *mut u8,
     free_size: usize,
 ) {
+    // Read elem_dec_fn from the RC header — this is the stored value, not
+    // the parameter from the caller. Ensures cleanup happens even when the
+    // dec call that reached zero carried NULL.
+    let elem_dec_fn = unsafe { load_elem_dec_fn(header_data) };
     if let Some(f) = elem_dec_fn {
         for i in 0..n {
             call_drop_fn(f, unsafe { elem_data.add(i * es) });
@@ -87,6 +95,16 @@ pub extern "C" fn ori_buffer_rc_dec(
     #[cfg(debug_assertions)]
     rt_debug_check_not_freed(data.cast_const(), "ori_buffer_rc_dec");
 
+    // Store elem_dec_fn in the header (write-once: first non-NULL wins).
+    // Defense-in-depth: even after Section 02 stores at construction time,
+    // this ensures the header is populated if any caller passes a real fn.
+    unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
+
+    // Store elem_count so that if a slice is the last owner, it knows how
+    // many elements to clean up. Last-write-wins: the most recent non-slice
+    // dec's len is the authoritative element count.
+    unsafe { store_elem_count(data, len) };
+
     let es = elem_size.max(1) as usize;
     let n = len.max(0) as usize;
 
@@ -108,7 +126,7 @@ pub extern "C" fn ori_buffer_rc_dec(
         if prev <= 1 {
             atomic::fence(Ordering::Acquire);
             let total = cap.max(0) as usize * es;
-            drop_elements_and_free(data, n, es, elem_dec_fn, data, total);
+            drop_elements_and_free(data, n, es, data, data, total);
         }
     }
 
@@ -129,7 +147,7 @@ pub extern "C" fn ori_buffer_rc_dec(
 
         if should_drop {
             let total = cap.max(0) as usize * es;
-            drop_elements_and_free(data, n, es, elem_dec_fn, data, total);
+            drop_elements_and_free(data, n, es, data, data, total);
         }
     }
 }
@@ -138,20 +156,23 @@ pub extern "C" fn ori_buffer_rc_dec(
 ///
 /// When a seamless slice is dropped, it decs the *original* buffer's RC.
 /// If the original's RC reaches zero:
-/// 1. The slice's visible elements get `elem_dec_fn` called (best-effort
-///    cleanup — elements outside the slice's range are NOT cleaned up)
-/// 2. The buffer is freed using the stored `data_size` from the RC header
+/// 1. ALL initialized elements get `elem_dec_fn` called — the element count
+///    is read from the ORIGINAL buffer's `elem_count` header field (V5),
+///    not from the slice's `len`. This ensures elements outside the slice's
+///    visible range are also cleaned up.
+/// 2. Cleanup iterates from `original_data` (not `slice_data`) so all
+///    elements are reached regardless of slice offset.
+/// 3. The buffer is freed using the stored `data_size` from the RC header.
 ///
-/// This is a known limitation: if a slice is the last reference and its range
-/// doesn't cover all elements of the original buffer, elements outside the
-/// slice's range will have their child RCs leaked. This is acceptable because:
-/// - Most common case is scalar elements (int, float) with no child RCs
-/// - In practice, original lists usually outlive their slices
-/// - Full cleanup would require storing the original `len` in the header
+/// The `elem_count` field is populated by non-slice `ori_buffer_rc_dec` calls
+/// (which store their `len` in the header). If no non-slice dec ever ran
+/// (e.g., ownership transferred directly to a slice), `elem_count` is 0
+/// and no element cleanup occurs — this is safe because elements can only
+/// exist if a non-slice owner wrote them and will have stored `elem_count`.
 fn slice_buffer_rc_dec(
     original_data: *mut u8,
-    slice_data: *mut u8,
-    slice_len: i64,
+    _slice_data: *mut u8,
+    _slice_len: i64,
     elem_size: i64,
     elem_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) {
@@ -159,8 +180,10 @@ fn slice_buffer_rc_dec(
     #[cfg(debug_assertions)]
     rt_debug_check_not_freed(original_data.cast_const(), "slice_buffer_rc_dec");
 
+    // Store elem_dec_fn on the ORIGINAL buffer's header (not the slice).
+    unsafe { store_elem_dec_fn_once(original_data, elem_dec_fn) };
+
     let es = elem_size.max(1) as usize;
-    let n = slice_len.max(0) as usize;
 
     #[cfg(not(feature = "single-threaded"))]
     {
@@ -180,7 +203,17 @@ fn slice_buffer_rc_dec(
         if prev <= 1 {
             atomic::fence(Ordering::Acquire);
             let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
-            drop_elements_and_free(slice_data, n, es, elem_dec_fn, original_data, data_size);
+            // Read elem_count from ORIGINAL buffer's header — the full
+            // initialized element count, not the slice's visible range.
+            let elem_count = unsafe { load_elem_count(original_data) }.max(0) as usize;
+            drop_elements_and_free(
+                original_data,
+                elem_count,
+                es,
+                original_data,
+                original_data,
+                data_size,
+            );
         }
     }
 
@@ -201,7 +234,16 @@ fn slice_buffer_rc_dec(
 
         if should_drop {
             let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
-            drop_elements_and_free(slice_data, n, es, elem_dec_fn, original_data, data_size);
+            // Read elem_count from ORIGINAL buffer's header
+            let elem_count = unsafe { load_elem_count(original_data) }.max(0) as usize;
+            drop_elements_and_free(
+                original_data,
+                elem_count,
+                es,
+                original_data,
+                original_data,
+                data_size,
+            );
         }
     }
 }
@@ -241,6 +283,9 @@ pub extern "C" fn ori_buffer_drop_unique(
     #[cfg(debug_assertions)]
     rt_debug_check_not_freed(data.cast_const(), "ori_buffer_drop_unique");
 
+    // Store elem_dec_fn in header (write-once, defense-in-depth).
+    unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
+
     if rc_trace_enabled() {
         rc_trace_dec(data.cast_const(), 0);
     }
@@ -248,8 +293,9 @@ pub extern "C" fn ori_buffer_drop_unique(
     let es = elem_size.max(1) as usize;
     let n = len.max(0) as usize;
 
-    // Clean up element children (e.g., dec RC on strings inside [str]).
-    if let Some(f) = elem_dec_fn {
+    // Clean up element children — read from header, not parameter.
+    let stored_fn = unsafe { load_elem_dec_fn(data) };
+    if let Some(f) = stored_fn {
         for i in 0..n {
             call_drop_fn(f, unsafe { data.add(i * es) });
         }

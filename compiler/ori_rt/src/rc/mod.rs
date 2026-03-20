@@ -40,32 +40,23 @@ const SIGABRT_EXIT_CODE: i32 = 128 + 6;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-// ── Reference Counting (V3: 16-byte header, data-pointer style) ──────────
+// Reference Counting
 //
-// Heap layout for RC'd objects:
+// V5 header layout (32 bytes):
 //
-//   +──────────────────+──────────────────+───────────────────────+
-//   | data_size: i64    | strong_count: i64 | data bytes ...      |
-//   +──────────────────+──────────────────+───────────────────────+
-//   ^                   ^                   ^
-//   base (ptr - 16)     ptr - 8             data_ptr (returned by ori_rc_alloc)
+//   base+0          base+8            base+16          base+24           base+32
+//   [data_size: i64 | elem_dec_fn: ptr | elem_count: i64 | strong_count: i64 | data ...]
+//                                                                               ^
+//                                                                               data_ptr
 //
-// The data pointer points directly to user data, NOT to the header.
-// strong_count lives at `data_ptr - 8` (unchanged from V2).
-// data_size lives at `data_ptr - 16` (new in V3).
+// From data_ptr: strong_count = data-8, elem_count = data-16,
+//                elem_dec_fn = data-24, data_size = data-32
 //
-// Advantages:
-// - Data pointer can be passed to C FFI without adjustment
-// - Single pointer on stack (no separate header pointer)
-// - data_size enables seamless slice deallocation: when a slice is the
-//   last reference, it can compute the original data pointer and read
-//   the allocation size from the header without external bookkeeping
-// - strong_count stays at `data_ptr - 8`, so ALL refcount operations
-//   (inc, dec, count, is_unique) are unchanged from V2
-//
-// When refcount reaches zero, a type-specialized drop function handles:
-// 1. Decrementing reference counts of RC'd child fields
-// 2. Calling ori_rc_free(data_ptr, size, align) to release memory
+// strong_count stays at data_ptr - 8 — all RC operations are unchanged from V2/V3/V4.
+// elem_dec_fn stores the element destructor for collection buffers (V4).
+// elem_count stores the number of initialized elements for full-range cleanup (V5).
+//   When a slice is the last owner, elem_count tells slice_buffer_rc_dec how
+//   many elements to clean up (not just the slice's visible range).
 
 /// Live RC allocation counter for debugging and testing.
 ///
@@ -90,17 +81,139 @@ pub(crate) static RC_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
 /// so the only way to have this value is intentional pre-allocation.
 pub(crate) const MAX_REFCOUNT: i64 = isize::MAX as i64;
 
-// ── Core RC Functions ────────────────────────────────────────────────
+// Core RC Functions
 
 /// Size of the RC header in bytes.
 ///
-/// V3 layout: `[data_size: i64 | strong_count: i64 | data ...]`
-/// The header is 16 bytes: 8 for `data_size` + 8 for `strong_count`.
-pub const RC_HEADER_SIZE: usize = 16;
+/// V5 layout: `[data_size | elem_dec_fn | elem_count | strong_count | data ...]`
+/// The header is 32 bytes: 8 each for `data_size`, `elem_dec_fn`, `elem_count`,
+/// and `strong_count`.
+pub const RC_HEADER_SIZE: usize = 32;
+
+/// Byte offset from data pointer to the `elem_dec_fn` field in the RC header.
+///
+/// `data_ptr.sub(ELEM_DEC_FN_OFFSET)` reaches `elem_dec_fn` at base + 8.
+pub const ELEM_DEC_FN_OFFSET: usize = 24;
+
+/// Byte offset from data pointer to the `elem_count` field in the RC header.
+///
+/// `data_ptr.sub(ELEM_COUNT_OFFSET)` reaches `elem_count` at base + 16.
+/// Stores the number of initialized elements for full-range cleanup when
+/// a slice is the last owner.
+pub const ELEM_COUNT_OFFSET: usize = 16;
+
+/// Store an element destructor function pointer in the RC header.
+///
+/// Writes `f` at `data_ptr - 24` (the `elem_dec_fn` slot). If `f` is `None`,
+/// writes null. Used by `ori_buffer_rc_dec` to persist the element cleanup
+/// function so that any dec call reaching zero can perform element cleanup.
+///
+/// # Safety
+///
+/// `data` must have been returned by `ori_rc_alloc` (so `data - 24` is valid
+/// and 8-byte aligned within the RC header).
+pub unsafe fn store_elem_dec_fn(data: *mut u8, f: Option<extern "C" fn(*mut u8)>) {
+    let slot = data
+        .sub(ELEM_DEC_FN_OFFSET)
+        .cast::<Option<extern "C" fn(*mut u8)>>();
+    slot.write(f);
+}
+
+/// Load the element destructor function pointer from the RC header.
+///
+/// Reads from `data_ptr - 24` (the `elem_dec_fn` slot). Returns `None` if
+/// the slot is null (zero-initialized by `ori_rc_alloc`).
+///
+/// # Safety
+///
+/// `data` must have been returned by `ori_rc_alloc` (so `data - 24` is valid
+/// and 8-byte aligned within the RC header).
+pub unsafe fn load_elem_dec_fn(data: *mut u8) -> Option<extern "C" fn(*mut u8)> {
+    let slot = data
+        .sub(ELEM_DEC_FN_OFFSET)
+        .cast::<Option<extern "C" fn(*mut u8)>>();
+    slot.read()
+}
+
+/// Atomically store `elem_dec_fn` in the header using a write-once pattern.
+///
+/// If the current header value is NULL and `f` is non-NULL, stores `f`.
+/// If the header already has a non-NULL value, this is a no-op (the existing
+/// value is kept). Thread-safe: uses compare-exchange on the non-single-threaded
+/// path, plain write on the single-threaded path.
+///
+/// # Safety
+///
+/// `data` must have been returned by `ori_rc_alloc`.
+pub unsafe fn store_elem_dec_fn_once(data: *mut u8, f: Option<extern "C" fn(*mut u8)>) {
+    let Some(func) = f else { return };
+    let slot = data.sub(ELEM_DEC_FN_OFFSET);
+
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        use std::sync::atomic::AtomicPtr;
+        let atomic_slot = slot.cast::<AtomicPtr<()>>();
+        // CAS: null → func. If already non-null, the existing value wins.
+        // Relaxed ordering: the function pointer is always the same value for
+        // a given buffer type, so no synchronization is needed beyond atomicity.
+        let _ = (*atomic_slot).compare_exchange(
+            std::ptr::null_mut(),
+            func as *mut (),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let current = slot.cast::<*const ()>().read();
+        if current.is_null() {
+            slot.cast::<*const ()>().write(func as *const ());
+        }
+    }
+}
+
+/// Store the initialized element count in the RC header.
+///
+/// Writes `count` at `data_ptr - 16` (the `elem_count` slot). Non-slice callers
+/// of `ori_buffer_rc_dec` store their `len` here so that if a slice is the last
+/// owner, `slice_buffer_rc_dec` can read the full element count for cleanup.
+///
+/// Uses a "last write wins" strategy: each non-slice dec overwrites with the
+/// current `len`. Slices never write to this field. At RC → 0, the stored value
+/// reflects the element count from the most recent non-slice owner's dec call.
+///
+/// # Safety
+///
+/// `data` must have been returned by `ori_rc_alloc` (so `data - 16` is valid
+/// and 8-byte aligned within the RC header).
+pub unsafe fn store_elem_count(data: *mut u8, count: i64) {
+    let slot = data.sub(ELEM_COUNT_OFFSET).cast::<i64>();
+    slot.write(count);
+}
+
+/// Load the initialized element count from the RC header.
+///
+/// Reads from `data_ptr - 16` (the `elem_count` slot). Returns 0 if never
+/// stored (zero-initialized by `ori_rc_alloc`).
+///
+/// Used by `slice_buffer_rc_dec` to determine how many elements to clean up
+/// when a slice is the last owner of a buffer.
+///
+/// # Safety
+///
+/// `data` must have been returned by `ori_rc_alloc` (so `data - 16` is valid
+/// and 8-byte aligned within the RC header).
+pub unsafe fn load_elem_count(data: *mut u8) -> i64 {
+    let slot = data.sub(ELEM_COUNT_OFFSET).cast::<i64>();
+    slot.read()
+}
 
 /// Increment the reference count of an RC'd object.
 ///
-/// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
+/// `data_ptr` points to the data area (V5 header: `data_ptr - 8` = `strong_count`,
+/// `data_ptr - 16` = `elem_count`, `data_ptr - 24` = `elem_dec_fn`,
+/// `data_ptr - 32` = `data_size`).
 ///
 /// Uses `Relaxed` ordering: the increment only needs to be atomic, not
 /// ordered with respect to other memory operations. The incrementing

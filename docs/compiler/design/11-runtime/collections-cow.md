@@ -55,7 +55,7 @@ flowchart TB
     class Slow native
 ```
 
-Seamless slices always take the slow path because their `data` pointer is interior to another allocation. Calling `ori_rc_is_unique(data)` on a slice would read garbage from the wrong memory location — the RC header is at the *original* buffer's data pointer minus 16, not the slice's data pointer minus 16.
+Seamless slices always take the slow path because their `data` pointer is interior to another allocation. Calling `ori_rc_is_unique(data)` on a slice would read garbage from the wrong memory location — the RC header is at the *original* buffer's data pointer minus 32, not the slice's data pointer minus 32.
 
 ## Consuming Semantics
 
@@ -312,7 +312,7 @@ The slice's `data` pointer points directly to the first element within the origi
 
 ```
 original_data = slice_data - byte_offset
-RC header at original_data - 16
+RC header at original_data - 32
 ```
 
 Key properties:
