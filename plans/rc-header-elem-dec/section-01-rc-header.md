@@ -217,9 +217,9 @@ Ensure seamless slices correctly interact with the new header.
 - [x] All decorative banners removed from `mod.rs`, `debug.rs`, `hash_table.rs`
 - [x] All RC runtime tests pass (`timeout 150 cargo test -p ori_rt`) — 343 passed
 - [x] No regressions in AOT tests (`timeout 150 cargo test -p ori_llvm --test aot`) — 1729 passed
-- [ ] Valgrind clean on existing heap-allocating tests — 59/62 pass as of 2026-03-20; 3 COW failures remain:
-  - [ ] `tests/valgrind/cow/cow_leak_scenarios.ori` — 3 invalid reads (COW element access after free)
-  - [ ] `tests/valgrind/cow/cow_map_insert_remove.ori` — 4 invalid reads (COW map element access)
-  - [ ] `tests/valgrind/cow/cow_nested.ori` — 3 invalid reads (nested COW element access)
+- [ ] Valgrind clean on existing heap-allocating tests — 59/62 pass as of 2026-03-20; 3 COW failures remain (map-value double-free — blocked on Section 02 elem_dec_fn codegen integration):  <!-- blocked-by:02 -->
+  - [ ] `tests/valgrind/cow/cow_leak_scenarios.ori` — double-free: map `{int: [int]}` value lists freed by standalone RcDec AND map_buffer_cleanup
+  - [ ] `tests/valgrind/cow/cow_map_insert_remove.ori` — double-free: map `{str: int}` string keys freed by standalone RcDec AND map_buffer_cleanup
+  - [ ] `tests/valgrind/cow/cow_nested.ori` — double-free: map `{str: [int]}` value lists freed by standalone RcDec AND map_buffer_cleanup
   - [x] `tests/valgrind/cow/cow_sharing.ori` — 0 errors, 0 leaks (verified 2026-03-20)
   - [x] `tests/valgrind/trmc/trmc_tree_ops.ori` — 0 errors, 0 leaks (fixed 2026-03-20: AIMS backward analysis now propagates Project source demand through cross-block lifetimes)
