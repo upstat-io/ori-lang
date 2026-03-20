@@ -34,7 +34,7 @@ sections:
     status: in-progress
   - id: "6.9"
     title: Unsafe Capability (FFI Prep)
-    status: not-started
+    status: in-progress
   - id: "6.10"
     title: Default Implementations (def impl)
     status: in-progress
@@ -65,21 +65,21 @@ sections:
 > **SPEC**: `spec/20-capabilities.md`
 > **DESIGN**: `design/14-capabilities/index.md`
 
-**Status**: In-progress — Core evaluator working (6.1-6.8, 6.10 partial, ~36 test annotations across 6 test files); composition (6.11), resolution (6.12), intrinsics (6.14), unsafe (6.9) pending. LLVM tests missing. Verified 2026-02-10.
+**Status**: In-progress — Core evaluator working (6.1-6.8, 6.9 partial, 6.10 partial, ~49 active test annotations across 5 test files); STALE: was "~36 test annotations across 6 test files". Composition (6.11), resolution (6.12), intrinsics (6.14) pending. LLVM tests missing. Verified 2026-02-10.
 
 ---
 
 ## 6.1 Capability Declaration
 
 - [x] **Implement**: `uses` clause [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/lib.rs` — uses clause parsing (4 tests)
+  - [x] **Rust Tests**: STALE: was `ori_parse/src/lib.rs`; actual tests in `compiler/ori_parse/src/tests/parser.rs` — 4 tests (`test_uses_clause_single_capability`, `test_uses_clause_multiple_capabilities`, `test_uses_clause_with_where`, `test_no_uses_clause`)
   - [x] **Ori Tests**: `tests/spec/capabilities/declaration.ori` (3 tests)
   - [ ] **LLVM Support**: LLVM codegen for `uses` clause in function signatures
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Multiple capabilities [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/lib.rs` — multiple capabilities parsing
+  - [x] **Rust Tests**: STALE: was `ori_parse/src/lib.rs`; actual tests in `compiler/ori_parse/src/tests/parser.rs`
   - [x] **Ori Tests**: `tests/spec/capabilities/declaration.ori` — @save_and_log example
   - [ ] **LLVM Support**: LLVM codegen for multiple capabilities in function signatures
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
@@ -90,8 +90,8 @@ sections:
 ## 6.2 Capability Traits
 
 - [x] **Implement**: Capability traits [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_types/src/check/tests.rs` — 7 tests for capability trait validation
-  - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — 5 tests for capability traits
+  - [x] **Rust Tests**: STALE: `ori_types/src/check/tests.rs — 7 tests for capability trait validation` does not exist; capability checking is in `ori_types/src/infer/expr/calls/constraints.rs`, tested via Ori spec tests
+  - [x] **Ori Tests**: STALE: `tests/spec/capabilities/traits.ori` is entirely commented out (0 active tests); traits ARE defined in `library/std/prelude.ori`
   - [ ] **LLVM Support**: LLVM codegen for capability trait dispatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -103,22 +103,22 @@ sections:
 > **Note**: Renamed from `Async` to `Suspend` per `proposals/approved/rename-async-to-suspend-proposal.md`
 
 - [x] **Implement**: Explicit suspension declaration [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_types/src/check/tests.rs` — 4 tests (marker trait, signature storage, combined capabilities, sync function)
-  - [x] **Ori Tests**: `tests/spec/capabilities/async.ori` (test file exists)
+  - [x] **Rust Tests**: STALE: `ori_types/src/check/tests.rs — 4 tests` do not exist; only `module_checker_function_scope` exercises `has_capability()` generically
+  - [x] **Ori Tests**: STALE: `tests/spec/capabilities/async.ori` is intentionally empty (Ori uses `Suspend` capability, not `async`)
   - [ ] **LLVM Support**: LLVM codegen for explicit suspension declaration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Sync vs suspending behavior [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_types/src/check/tests.rs::test_sync_function_no_suspend_capability`
-  - [x] **Ori Tests**: `tests/spec/capabilities/async.ori`
+  - [x] **Rust Tests**: STALE: `ori_types/src/check/tests.rs::test_sync_function_no_suspend_capability` does not exist
+  - [x] **Ori Tests**: STALE: `tests/spec/capabilities/async.ori` is empty
 
 - [x] **Implement**: No `async` type modifier [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/lib.rs::test_no_async_type_modifier`, `test_async_keyword_reserved`
+  - [x] **Rust Tests**: STALE: was `ori_parse/src/lib.rs`; actual tests in `compiler/ori_parse/src/tests/parser.rs` — `test_no_async_type_modifier`, `test_async_as_identifier` (STALE: `test_async_keyword_reserved` does not exist; actual test is `test_async_as_identifier` which tests the opposite)
   - [x] **Ori Tests**: Design notes document this
 
 - [x] **Implement**: No `await` expression [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_types/src/check/tests.rs::test_await_syntax_not_supported`
+  - [x] **Rust Tests**: STALE: `ori_types/src/check/tests.rs::test_await_syntax_not_supported` does not exist; behavior confirmed via `await_not_supported()` error factory in evaluator
   - [x] **Ori Tests**: Design notes document this
 
 - [ ] **Implement**: Concurrency with `parallel` — spec/20-capabilities.md § Suspend Capability
@@ -131,7 +131,7 @@ sections:
 ## 6.4 Providing Capabilities
 
 - [x] **Implement**: `with...in` expression [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_parse/src/lib.rs` — with expression parsing (3 tests)
+  - [x] **Rust Tests**: STALE: was `ori_parse/src/lib.rs`; actual tests in `compiler/ori_parse/src/tests/parser.rs` — 3 tests (`test_with_capability_expression`, `test_with_capability_with_struct_provider`, `test_with_capability_nested`)
   - [x] **Rust Tests**: `ori_eval/src/interpreter/mod.rs` — with expression evaluation
   - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` (17 test annotations)
   - [ ] **LLVM Support**: LLVM codegen for `with...in` capability binding
@@ -151,7 +151,7 @@ sections:
 
 - [ ] **Implement**: Runtime capability propagation [partial]
   - [x] **Changes**: `FunctionValue` now stores capabilities, `eval_call` passes them to called functions
-  - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — tests capability propagation (direct use)
+  - [x] **Ori Tests**: STALE: `tests/spec/capabilities/traits.ori` is entirely commented out; propagation tested via `tests/spec/capabilities/propagation.ori`
   - [ ] **Implement**: `with...in` capability provision propagates to called functions — `with Cap = impl in callee()` should make `Cap` available inside `callee()`
   - [ ] **Ori Tests**: `tests/spec/expressions/with_expr.ori` — 2 tests `#skip("capability provision to called functions not implemented")`
   - [ ] **LLVM Support**: LLVM codegen for runtime capability propagation through calls
@@ -159,7 +159,7 @@ sections:
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Static transitive requirements [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_types/src/check/tests.rs` — 7 tests for capability propagation (E2014)
+  - [x] **Rust Tests**: STALE: `ori_types/src/check/tests.rs — 7 tests for E2014 propagation` do not exist; actual checking in `ori_types/src/infer/expr/calls/constraints.rs` (`check_call_capabilities`), tested via Ori spec tests
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — 7 test annotations for propagation
 
 - [x] **Implement**: Providing vs requiring [done] (2026-02-10)
@@ -209,7 +209,7 @@ sections:
 > **STATUS**: Complete — compile-time enforcement via E2014 propagation errors
 
 - [x] **Implement**: Compile-time enforcement [done] (2026-02-10)
-  - [x] **Rust Tests**: `ori_types/src/check/tests.rs` — 7 tests for E2014 propagation errors
+  - [x] **Rust Tests**: STALE: `ori_types/src/check/tests.rs — 7 tests for E2014` do not exist; enforcement code in `ori_types/src/infer/expr/calls/constraints.rs`. WEAK TESTS: no compile_fail negative tests verifying E2014 on violation
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — caller must declare or provide capabilities
 
 ---
@@ -229,15 +229,15 @@ sections:
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — unsafe block codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `unsafe { }` block expression (Phases 1-4 of proposal)
-  - [ ] Add `ExprKind::Unsafe(ExprId)` to IR
-  - [ ] Parse `unsafe { block_body }` (block-only form — no parenthesized form)
+- [ ] **Implement**: `unsafe { }` block expression (Phases 1-4 of proposal) [partial]
+  - [x] Add `ExprKind::Unsafe(ExprId)` to IR — done (`compiler/ori_ir/src/ast/expr.rs:306`)
+  - [x] Parse `unsafe { block_body }` — done (`compiler/ori_parse/src/grammar/expr/primary/specials.rs:111`)
   - [ ] Update grammar.ebnf (remove parenthesized form — done in proposal approval)
-  - [ ] Type checker: `UnsafeContext` tracking, E1250 diagnostic
-  - [ ] Evaluator: `ExprKind::Unsafe(inner)` → `eval_expr(inner)` (transparent)
-  - [ ] Visitor support in `ori_ir/src/visitor.rs`
+  - [x] Type checker: transparent inference — done (`compiler/ori_types/src/infer/expr/mod.rs:216`); `UnsafeContext` tracking and E1250 diagnostic NOT done
+  - [x] Evaluator: `ExprKind::Unsafe(inner)` → `eval_expr(inner)` (transparent) — done (`can_eval/mod.rs:337`)
+  - [x] Visitor support in `ori_ir/src/visitor.rs` — done (`compiler/ori_ir/src/visitor/walk_expr.rs:44`)
   - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs`, `ori_types/src/infer/expr/tests.rs`
-  - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe/eval.ori`
+  - [x] **Ori Tests**: `tests/spec/capabilities/unsafe_block.ori` — 6 tests (single expr, multi-stmt, nested, sub-expression, type preservation for str and bool), all pass
 
 - [ ] **Implement**: Unsafe capability requirements (deferred to Section 11)
   - [ ] Required for: raw pointer operations (future)
@@ -258,17 +258,17 @@ Introduce `def impl` syntax to declare a default implementation for a trait. Imp
 
 ### Implementation
 
-- [ ] **Implement**: Add `def` keyword to lexer — grammar.ebnf § DECLARATIONS
-  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — `def` token recognition
-  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+- [x] **Implement**: Add `def` keyword to lexer — grammar.ebnf § DECLARATIONS [done]
+  - [x] **Rust Tests**: `compiler/ori_lexer/src/keywords/mod.rs:59` — `"def" => Some(TokenKind::Def)`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori` — entirely commented out
 
-- [ ] **Implement**: Parse `def impl Trait { ... }` — grammar.ebnf § DECLARATIONS
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/item/impl_def.rs` — DefImpl AST node parsing (5 tests)
-  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori`
+- [x] **Implement**: Parse `def impl Trait { ... }` — grammar.ebnf § DECLARATIONS [done]
+  - [x] **Rust Tests**: `compiler/ori_parse/src/grammar/item/impl_def/mod.rs:187` — `parse_def_impl()` with 5 tests (basic, public, multiple methods, empty, multiple blocks), all pass
+  - [ ] **Ori Tests**: `tests/spec/capabilities/default-impl.ori` — entirely commented out
 
-- [ ] **Implement**: IR representation for DefImpl
-  - [ ] Add `DefImplDef` to module items (`ori_ir/src/ast/items/traits.rs`)
-  - [ ] Track def_impls in Module struct
+- [x] **Implement**: IR representation for DefImpl [done]
+  - [x] Add `DefImplDef` to module items — `DefImplDef` tracked in `Module.def_impls`
+  - [x] Track def_impls in Module struct
 
 - [ ] **Implement**: Type checking for `def impl`
   - [ ] **Rust Tests**: `ori_types/src/check/registration/` — register_def_impls
@@ -277,9 +277,9 @@ Introduce `def impl` syntax to declare a default implementation for a trait. Imp
   - [ ] Methods are associated (no self parameter)
   - [ ] One `def impl` per trait per module (coherence check)
 
-- [ ] **Implement**: Evaluator support for def impl dispatch
-  - [ ] **Rust Tests**: `ori_eval/src/module_registration.rs` — collect_def_impl_methods (2 tests)
-  - [ ] Methods registered under trait name for `TraitName.method()` calls
+- [x] **Implement**: Evaluator support for def impl dispatch [partial — method collection done, dispatch not done]
+  - [x] **Rust Tests**: `compiler/ori_eval/src/module_registration/mod.rs:371` — `collect_def_impl_methods()` with 2 Rust tests, all pass
+  - [ ] Methods registered under trait name for `TraitName.method()` calls — not done
 
 - [ ] **Implement**: Module export with default — 12-modules.md
   - [ ] Mark exports as "has default" when `def impl` exists
@@ -600,8 +600,8 @@ Extend `with...in` to support stateful effect handlers. The `handler(state: expr
 - [x] 6.1-6.5 complete (declaration, traits, suspend, providing, propagation) [done]
 - [x] 6.6 trait definitions in prelude (implementations in Section 7) [done]
 - [x] 6.7-6.8 complete (testing/mocking, compile-time enforcement) [done]
-- [ ] 6.9 Unsafe marker trait defined (FFI enforcement in Section 11)
-- [ ] 6.10 Default implementations (`def impl`) — test file exists (4 tests), implementation partial
+- [ ] 6.9 Unsafe — `unsafe { }` block works end-to-end in interpreter (IR, parser, typeck, eval, visitor, 6 tests pass); `Unsafe` as marker capability NOT done (no `uses Unsafe` enforcement, no E1250); LLVM codegen NOT done
+- [ ] 6.10 Default implementations (`def impl`) — lexer, parser (5 tests), IR, evaluator method collection (2 tests) done; type checking, module export, name resolution, dispatch, Ori-level integration NOT done
 - [ ] 6.11 Capability Composition — not started
 - [ ] 6.12 Default Implementation Resolution — not started
 - [ ] 6.13 Named Capability Sets (`capset`) — not started

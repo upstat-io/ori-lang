@@ -34,7 +34,7 @@ sections:
     status: in-progress
   - id: "14.9"
     title: Dependency-Aware Test Execution
-    status: not-started
+    status: in-progress
   - id: "14.10"
     title: Test Utilities
     status: not-started
@@ -309,8 +309,8 @@ When a function changes, run tests for that function AND tests for all functions
 
 ### 14.9.4 Change Detection
 
-- [ ] **Implement**: Detect changed functions from source diff
-  - [ ] **Rust Tests**: `oric/src/test/change_detection.rs` — diff detection
+- [x] **Implement**: Detect changed functions from source diff (11 passing Rust tests in `oric::test::change_detection` covering cache, body change, new/deleted function, floating tests, bidirectional index)
+  - [x] **Rust Tests**: `oric/src/test/change_detection.rs` — diff detection (11 tests pass)
   - [ ] **Ori Tests**: `tests/spec/testing/change_detection.ori`
   - [ ] **LLVM Support**: LLVM codegen for change detection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — change detection codegen

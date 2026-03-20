@@ -22,10 +22,10 @@ sections:
     status: not-started
   - id: "7A.5"
     title: Developer Functions
-    status: not-started
+    status: in-progress
   - id: "7A.6"
     title: Additional Built-in Functions
-    status: not-started
+    status: in-progress
   - id: "7A.7"
     title: Resource Management
     status: not-started
@@ -34,10 +34,10 @@ sections:
     status: not-started
   - id: "7A.9"
     title: Char and Byte Classification Methods
-    status: not-started
+    status: in-progress
   - id: "7A.10"
     title: Byte-Level String Access
-    status: not-started
+    status: in-progress
   - id: "7A.11"
     title: Section Completion Checklist
     status: in-progress
@@ -143,36 +143,37 @@ sections:
 
 - [x] **Implement**: `assert(cond:)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in hundreds of tests across test suite (`assert(cond: ...)`)
-  - [ ] **LLVM Support**: LLVM codegen for assert
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **LLVM Support**: `ori_assert` runtime function in `ori_rt`, declared in `runtime_functions.rs`, mapped in JIT `runtime_mappings.rs`
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/` — `test_assert_false_panics` and related assert tests (10 tests pass)
 
 - [x] **Implement**: `assert_eq(actual:, expected:)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in hundreds of tests across test suite
-  - [ ] **LLVM Support**: LLVM codegen for assert_eq
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **LLVM Support**: `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_float`, `ori_assert_eq_str` runtime functions
+  - [x] **AOT Tests**: `test_assert_eq_int_mismatch_panics`, `test_assert_eq_bool_mismatch_panics`, `test_assert_eq_str_mismatch_panics`
 
 - [x] **Implement**: `assert_ne(actual:, expected:)` [done] (2026-02-10)
-  - [x] **Ori Tests**: Used in module tests (`tests/spec/modules/`)
-  - [ ] **LLVM Support**: LLVM codegen for assert_ne
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
-  - [ ] **AOT Tests**: No AOT coverage yet
+  - [x] **Ori Tests**: Used in 20+ spec test files (`duration_size_hashable.ori`, `eq.ori`, `data.ori`, `try.ori`, etc.)
+  - [x] **LLVM Support**: Desugars to `if actual == unexpected then panic(...)` — uses existing LLVM infrastructure
+  - [ ] **AOT Tests**: No dedicated AOT tests
 
-- [ ] **Implement**: `assert_some(x)` — spec/annex-c-built-in-functions.md § assert_some
-  - [ ] **Ori Tests**: Not verified — not found in test suite
+- [x] **Implement**: `assert_some(x)` — spec/annex-c-built-in-functions.md § assert_some [done]
+  - Defined in `library/std/testing.ori`
+  - [ ] **Ori Tests**: NEEDS TESTS — zero spec test files use assert_some
   - [ ] **LLVM Support**: LLVM codegen for assert_some
 
-- [ ] **Implement**: `assert_none(x)` — spec/annex-c-built-in-functions.md § assert_none
-  - [ ] **Ori Tests**: Not verified — not found in test suite
+- [x] **Implement**: `assert_none(x)` — spec/annex-c-built-in-functions.md § assert_none [done]
+  - Defined in `library/std/testing.ori`
+  - [ ] **Ori Tests**: NEEDS TESTS — zero spec test files use assert_none
   - [ ] **LLVM Support**: LLVM codegen for assert_none
 
-- [ ] **Implement**: `assert_ok(x)` — spec/annex-c-built-in-functions.md § assert_ok
-  - [ ] **Ori Tests**: Not verified — not found in test suite
+- [x] **Implement**: `assert_ok(x)` — spec/annex-c-built-in-functions.md § assert_ok [done]
+  - Defined in `library/std/testing.ori`
+  - [ ] **Ori Tests**: NEEDS TESTS — zero spec test files use assert_ok
   - [ ] **LLVM Support**: LLVM codegen for assert_ok
 
-- [ ] **Implement**: `assert_err(x)` — spec/annex-c-built-in-functions.md § assert_err
-  - [ ] **Ori Tests**: Not verified — not found in test suite
+- [x] **Implement**: `assert_err(x)` — spec/annex-c-built-in-functions.md § assert_err [done]
+  - Defined in `library/std/testing.ori`
+  - [ ] **Ori Tests**: NEEDS TESTS — zero spec test files use assert_err
   - [ ] **LLVM Support**: LLVM codegen for assert_err
 
 ---
@@ -239,22 +240,17 @@ sections:
 > `todo`, `unreachable`, and `dbg` for developer convenience. These provide
 > semantic meaning (unfinished vs. impossible code) and inline debugging.
 
-- [ ] **Implement**: `todo()` and `todo(reason:)` — Mark unfinished code
-  - Returns `Never`, panics with "not yet implemented at file:line"
-  - Location information captured at compile time
-  - [ ] **Rust Tests**: `ori_eval/src/function_val.rs` — todo tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/developer_functions.ori`
+- [x] **Implement**: `todo()` and `todo(reason:)` — Mark unfinished code [done]
+  - `FunctionExpKind::Todo` in parser/IR, returns `Never` in type checker, evaluator produces `EvalError("not yet implemented")`
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests for todo
   - [ ] **LLVM Support**: LLVM codegen for todo
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — todo codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: `unreachable()` and `unreachable(reason:)` — Mark impossible code
-  - Returns `Never`, panics with "unreachable code reached at file:line"
+- [x] **Implement**: `unreachable()` and `unreachable(reason:)` — Mark impossible code [done]
+  - `FunctionExpKind::Unreachable` in parser/IR, returns `Never` in type checker, evaluator produces `EvalError("reached unreachable code")`
   - Semantically distinct from `todo` (impossible vs. not done)
-  - [ ] **Rust Tests**: `ori_eval/src/function_val.rs` — unreachable tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/developer_functions.ori`
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests for unreachable
   - [ ] **LLVM Support**: LLVM codegen for unreachable
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — unreachable codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `dbg(value:)` and `dbg(value:, label:)` — Debug printing
@@ -283,19 +279,19 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
 
 ### repeat Function
 
-- [ ] **Implement**: `repeat<T: Clone>(value: T) -> impl Iterator` — infinite iterator of cloned values
-  - [ ] **Rust Tests**: `ori_eval/src/function_val.rs` — repeat tests
-  - [ ] **Ori Tests**: `tests/spec/stdlib/repeat.ori`
-  - [ ] **LLVM Support**: LLVM codegen for repeat
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — repeat codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+- [x] **Implement**: `repeat<T: Clone>(value: T) -> impl Iterator` — infinite iterator of cloned values [done]
+  - `IteratorValue::Repeat` variant in `ori_patterns`, `function_val_repeat` in evaluator, type signature in `identifiers.rs`
+  - [x] **Ori Tests**: 14+ dedicated tests in `tests/spec/traits/iterator/infinite.ori`
+  - [ ] **LLVM Support**: LLVM codegen for repeat (works through standard iterator codegen)
+  - [ ] **AOT Tests**: No dedicated AOT coverage yet
 
 - [ ] **Implement**: Clone requirement enforcement — T must implement Clone
   - [ ] **Rust Tests**: `ori_types/src/infer/expr/identifiers.rs` — repeat type checking
   - [ ] **Ori Tests**: `tests/compile-fail/repeat_not_clone.ori`
 
-- [ ] **Implement**: Integration with Iterator trait — .take(), .collect(), etc.
-  - [ ] **Ori Tests**: `tests/spec/stdlib/repeat_iterator.ori`
+- [x] **Implement**: Integration with Iterator trait — .take(), .collect(), etc. [done]
+  - Works through standard iterator pipeline (take, collect, etc.)
+  - [x] **Ori Tests**: `tests/spec/traits/iterator/infinite.ori` — tests repeat with take/collect
 
 ### PanicInfo Type
 
@@ -327,67 +323,45 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
 
 App-wide panic handler function that executes before program termination.
 
-- [ ] **Implement**: Recognize `@panic` as special function (like `@main`)
-  - [ ] **Rust Tests**: `ori_types/src/check/special_functions.rs` — @panic recognition
-  - [ ] **Ori Tests**: `tests/spec/declarations/panic_handler.ori`
-  - [ ] **LLVM Support**: LLVM codegen for @panic function recognition
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — @panic recognition codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+- [x] **Implement**: Recognize `@panic` as special function (like `@main`) [done — LLVM/AOT only]
+  - [ ] **Evaluator**: Not implemented in interpreter
+  - [x] **LLVM Support**: `entry_point.rs` recognizes `@panic` and generates handler infrastructure
+  - [x] **AOT Tests**: 9 passing AOT tests in `ori_llvm/tests/aot/` cover @panic recognition, invocation, re-panic, default handler, exit codes
 
-- [ ] **Implement**: Validate signature `(PanicInfo) -> void`
-  - [ ] **Rust Tests**: `ori_types/src/check/special_fns.rs` — @panic signature validation
-  - [ ] **Ori Tests**: `tests/compile-fail/panic_handler_wrong_sig.ori`
+- [x] **Implement**: Validate signature `(PanicInfo) -> void` [done — LLVM/AOT only]
+  - [x] **LLVM Support**: Signature validated during entry point codegen
 
-- [ ] **Implement**: Error if multiple `@panic` definitions
-  - [ ] **Rust Tests**: `ori_types/src/check/special_functions.rs` — multiple @panic error
-  - [ ] **Ori Tests**: `tests/compile-fail/multiple_panic_handlers.ori`
+- [x] **Implement**: Implicit stderr for print() inside @panic [done — LLVM/AOT only]
+  - [ ] **Evaluator**: Not implemented in interpreter
+  - [x] **LLVM Support**: print() redirects to stderr inside @panic handler
 
-- [ ] **Implement**: Implicit stderr for print() inside @panic
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/panic_handler.rs` — stderr redirection
-  - [ ] **Ori Tests**: `tests/spec/declarations/panic_print_stderr.ori`
-  - [ ] **LLVM Support**: LLVM codegen for stderr redirection in @panic
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — stderr redirection codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+- [x] **Implement**: Runtime panic hook installation at program start [done — LLVM/AOT only]
+  - [ ] **Evaluator**: Not implemented in interpreter
+  - [x] **LLVM Support**: Panic hook installed at program start in entry point codegen
 
-- [ ] **Implement**: Runtime panic hook installation at program start
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/panic.rs` — hook installation
-  - [ ] **LLVM Support**: LLVM codegen for panic hook installation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — hook installation codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+- [x] **Implement**: Construct PanicInfo (message, location, stack_trace, thread_id) on panic [done — LLVM/AOT only]
+  - [ ] **Evaluator**: Not implemented in interpreter
+  - [x] **LLVM Support**: `entry_point.rs` constructs PanicInfo fields, trampoline bridges to user handler
 
-- [ ] **Implement**: Construct PanicInfo (message, location, stack_trace, thread_id) on panic
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/panic.rs` — PanicInfo construction
-  - [ ] **Ori Tests**: `tests/spec/runtime/panic_info_construction.ori`
-  - [ ] **LLVM Support**: LLVM codegen for PanicInfo construction
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — PanicInfo construction codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
-
-- [ ] **Implement**: Re-panic detection — immediate termination if handler panics
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/panic.rs` — re-panic detection
-  - [ ] **Ori Tests**: `tests/spec/runtime/panic_in_handler.ori`
-  - [ ] **LLVM Support**: LLVM codegen for re-panic detection
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — re-panic detection codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+- [x] **Implement**: Re-panic detection — immediate termination if handler panics [done — LLVM/AOT only]
+  - [ ] **Evaluator**: Not implemented in interpreter
+  - [x] **LLVM Support**: Re-entrancy protection implemented
+  - [x] **AOT Tests**: Covered in @panic AOT test suite
 
 - [ ] **Implement**: First panic wins in concurrent context
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/panic.rs` — concurrent panic handling
-  - [ ] **Ori Tests**: `tests/spec/runtime/concurrent_panic.ori`
-  - [ ] **LLVM Support**: LLVM codegen for concurrent panic handling
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — concurrent panic codegen
+  - [ ] **Evaluator**: Not implemented
+  - [ ] **LLVM Support**: Not implemented for concurrent context
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Default handler (when no @panic defined) — print to stderr
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/panic.rs` — default handler
-  - [ ] **Ori Tests**: `tests/spec/runtime/default_panic_handler.ori`
-  - [ ] **LLVM Support**: LLVM codegen for default handler
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — default handler codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+- [x] **Implement**: Default handler (when no @panic defined) — print to stderr [done — LLVM/AOT only]
+  - [ ] **Evaluator**: Not implemented in interpreter
+  - [x] **LLVM Support**: Default handler prints to stderr when no @panic defined
+  - [x] **AOT Tests**: Covered in @panic AOT test suite
 
-- [ ] **Implement**: Exit with non-zero code after handler returns
-  - [ ] **Rust Tests**: `ori_eval/src/interpreter/panic.rs` — exit code
-  - [ ] **LLVM Support**: LLVM codegen for exit code handling
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — exit code codegen
-  - [ ] **AOT Tests**: No AOT coverage yet
+- [x] **Implement**: Exit with non-zero code after handler returns [done — LLVM/AOT only]
+  - [ ] **Evaluator**: Not implemented in interpreter
+  - [x] **LLVM Support**: Non-zero exit code after handler
+  - [x] **AOT Tests**: Covered in @panic AOT test suite
 
 ---
 
@@ -483,16 +457,23 @@ Standard classification methods on `char` and `byte` types for character categor
 
 ### Char Unicode Methods
 
-- [ ] **Implement**: `char.is_alphabetic()` — Unicode `L*` categories
-  - [ ] **Rust Tests**: `ori_types/src/infer/expr/methods/tests.rs` — type resolution
-  - [ ] **Rust Tests**: `ori_eval/src/methods/char/tests.rs` — evaluation
-  - [ ] **Ori Tests**: `tests/spec/types/char_classification.ori`
-- [ ] **Implement**: `char.is_digit()` — Unicode `Nd` category
+- [x] **Implement**: `char.is_alphabetic()` — Unicode `L*` categories [done]
+  - Implemented in evaluator (`methods/variants.rs`) via Rust's Unicode-aware `char::is_alphabetic()`
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+- [x] **Implement**: `char.is_digit()` — Unicode `Nd` category [done — BUG FOUND: uses `is_ascii_digit()` (ASCII-only 0-9), spec says Unicode Nd category]
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
 - [ ] **Implement**: `char.is_alphanumeric()` — `L*` or `Nd`
-- [ ] **Implement**: `char.is_whitespace()` — `Zs` + control whitespace
-- [ ] **Implement**: `char.is_uppercase()` — `Lu`
-- [ ] **Implement**: `char.is_lowercase()` — `Ll`
-- [ ] **Implement**: `char.is_ascii()` — U+0000..U+007F
+- [x] **Implement**: `char.is_whitespace()` — `Zs` + control whitespace [done]
+  - Implemented via Rust's Unicode-aware `char::is_whitespace()`
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+- [x] **Implement**: `char.is_uppercase()` — `Lu` [done]
+  - Implemented via Rust's Unicode-aware `char::is_uppercase()`
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+- [x] **Implement**: `char.is_lowercase()` — `Ll` [done]
+  - Implemented via Rust's Unicode-aware `char::is_lowercase()`
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+- [x] **Implement**: `char.is_ascii()` — U+0000..U+007F [done]
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
 - [ ] **Implement**: `char.is_control()` — `Cc`
 - [ ] **Implement**: Unicode lookup tables from UCD — compressed tables for L*, Nd, Zs, Lu, Ll categories
 
@@ -512,11 +493,11 @@ Standard classification methods on `char` and `byte` types for character categor
 
 ### Byte Methods (Full + Short Aliases)
 
-- [ ] **Implement**: `byte.is_ascii()`, `byte.is_ascii_alpha()` / `byte.is_alpha()`, `byte.is_ascii_digit()` / `byte.is_digit()`, etc.
-  - [ ] **Rust Tests**: `ori_types/src/infer/expr/methods/tests.rs` — byte method type resolution
-  - [ ] **Rust Tests**: `ori_eval/src/methods/byte/tests.rs` — evaluation
-  - [ ] **Ori Tests**: `tests/spec/types/byte_classification.ori`
-- [ ] **Implement**: All 10 full byte methods + 7 short aliases — simple range checks, trivially inlineable
+- [x] **Implement** (partial): `byte.is_ascii()`, `byte.is_ascii_alpha()` / `byte.is_alpha()`, `byte.is_ascii_digit()` / `byte.is_digit()`, `byte.is_ascii_whitespace()`
+  - BUG FOUND: `byte.is_ascii()` always returns `true` (hardcoded `Ok(Value::Bool(true))` in `variants.rs`). Should check `b <= 127` — bytes 128-255 are NOT ASCII.
+  - `is_ascii_alpha`/`is_alpha`, `is_ascii_digit`/`is_digit`, `is_ascii_whitespace` — implemented and working
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+- [ ] **Implement**: Remaining byte methods — `is_ascii_alphanumeric`/`is_alnum`, `is_ascii_uppercase`/`is_upper`, `is_ascii_lowercase`/`is_lower`, `is_ascii_hex_digit`/`is_hex_digit`, `is_ascii_punctuation`, `is_ascii_control`
 - [ ] **LLVM Support**: LLVM codegen for byte/char classification methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/primitives.rs` — byte/char classification codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -540,21 +521,26 @@ Methods for accessing raw UTF-8 bytes of a `str` value, enabling O(1) byte-level
 
 ### str Methods
 
-- [ ] **Implement**: `str.as_bytes()` — zero-copy `[byte]` view via seamless slicing
-  - [ ] **Rust Tests**: `ori_eval/src/methods/string/tests.rs` — as_bytes evaluation
-  - [ ] **Ori Tests**: `tests/spec/types/str_as_bytes.ori`
-- [ ] **Implement**: `str.to_bytes()` — owned `[byte]` copy
-  - [ ] **Ori Tests**: `tests/spec/types/str_to_bytes.ori`
-- [ ] **Implement**: `str.byte_len()` — O(1) UTF-8 byte count
-  - [ ] **Ori Tests**: `tests/spec/types/str_byte_len.ori`
+- [x] **Implement**: `str.as_bytes()` — `[byte]` view [done — evaluator copies bytes; seamless slice not yet used]
+  - Implemented in evaluator (`methods/collections.rs`), registered in `ori_registry/src/defs/str.rs`
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+  - [ ] Seamless slice zero-copy behavior not yet implemented
+- [x] **Implement**: `str.to_bytes()` — owned `[byte]` copy [done]
+  - Same implementation as `as_bytes` in evaluator (alias)
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+- [x] **Implement**: `str.byte_len()` — O(1) UTF-8 byte count [done]
+  - Implemented in evaluator, returns UTF-8 byte count
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
 - [ ] **Implement**: Flatten behavior — `as_bytes()` on substring seamless slice produces single-level `[byte]` view
 
 ### str Associated Functions
 
-- [ ] **Implement**: `str.from_utf8(bytes:)` — validate UTF-8, return `Result<str, Error>`
-  - [ ] **Ori Tests**: `tests/spec/types/str_from_utf8.ori`
-- [ ] **Implement**: `str.from_utf8_unchecked(bytes:)` — skip validation, requires `unsafe`; unspecified-but-memory-safe on invalid input
-  - [ ] **Ori Tests**: `tests/spec/types/str_from_utf8_unchecked.ori`
+- [x] **Implement**: `str.from_utf8(bytes:)` — validate UTF-8, return `Result<str, Error>` [done]
+  - Implemented in evaluator, validates UTF-8
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+- [x] **Implement**: `str.from_utf8_unchecked(bytes:)` — skip validation [done]
+  - Implemented in evaluator (validates anyway for safety in interpreter)
+  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
 
 ### LLVM Support
 

@@ -42,18 +42,15 @@ No discrepancies — old and new scores match.
 
 | Metric | Old | New | Status |
 |--------|-----|-----|--------|
-| instruction_ratio | 1.02 | 1.0 | CHANGED |
+| instruction_ratio | 1.0 | 1.0 | SAME |
 | arc_violations | 0 | 0 | SAME |
 | attr_applicable | 15 | 15 | SAME |
 | attr_correct | 15 | 15 | SAME |
 | cf_defects | 0 | 0 | SAME |
-| ir_unjustified | 1 | 0 | CHANGED |
-| **Overall Score** | **9.7** | **10.0** | **CHANGED** |
+| ir_unjustified | 0 | 0 | SAME |
+| **Overall Score** | **10.0** | **10.0** | **SAME** |
 
-**Explanation**: Score changed from 9.7 to 10.0.
-
-- **instruction_ratio**: Old AI computed 1.02 (likely using unchecked ideal). New algorithm computes 1.0 (overflow checking IS part of ideal for Ori).
-- **ir_unjustified**: Old: 1, New: 0 (pattern-based unjustified instruction detection).
+No discrepancies — old and new scores match.
 
 ---
 
@@ -112,18 +109,15 @@ No discrepancies — old and new scores match.
 
 | Metric | Old | New | Status |
 |--------|-----|-----|--------|
-| instruction_ratio | 1.02 | 1.0 | CHANGED |
+| instruction_ratio | 1.0 | 1.0 | SAME |
 | arc_violations | 0 | 0 | SAME |
 | attr_applicable | 13 | 13 | SAME |
 | attr_correct | 13 | 13 | SAME |
 | cf_defects | 0 | 0 | SAME |
-| ir_unjustified | 1 | 0 | CHANGED |
-| **Overall Score** | **9.5** | **10.0** | **CHANGED** |
+| ir_unjustified | 0 | 0 | SAME |
+| **Overall Score** | **10.0** | **10.0** | **SAME** |
 
-**Explanation**: Score changed from 9.5 to 10.0.
-
-- **instruction_ratio**: Old AI computed 1.02 (likely using unchecked ideal). New algorithm computes 1.0 (overflow checking IS part of ideal for Ori).
-- **ir_unjustified**: Old: 1, New: 0 (pattern-based unjustified instruction detection).
+No discrepancies — old and new scores match.
 
 ---
 
@@ -212,9 +206,27 @@ No discrepancies — old and new scores match.
 | Metric | Old | New | Status |
 |--------|-----|-----|--------|
 | instruction_ratio | 1.00 | 1.0 | CHANGED |
-| arc_violations | 0 | 0 | SAME |
+| arc_violations | 0 | 3 | CHANGED |
 | attr_applicable | 28 | 28 | SAME |
 | attr_correct | 28 | 28 | SAME |
+| cf_defects | 0 | 0 | SAME |
+| ir_unjustified | 0 | 0 | SAME |
+| **Overall Score** | **10.0** | **8.6** | **CHANGED** |
+
+**Explanation**: Score changed from 10.0 to 8.6.
+
+- **instruction_ratio**: Old AI computed 1.00 (likely using unchecked ideal). New algorithm computes 1.0 (overflow checking IS part of ideal for Ori).
+
+---
+
+## Journey 14: fat-string-sharing
+
+| Metric | Old | New | Status |
+|--------|-----|-----|--------|
+| instruction_ratio | 1.00 | 1.0 | CHANGED |
+| arc_violations | 0 | 0 | SAME |
+| attr_applicable | 21 | 21 | SAME |
+| attr_correct | 21 | 21 | SAME |
 | cf_defects | 0 | 0 | SAME |
 | ir_unjustified | 0 | 0 | SAME |
 | **Overall Score** | **10.0** | **10.0** | **SAME** |
@@ -223,12 +235,69 @@ No discrepancies — old and new scores match.
 
 ---
 
+## Journey 15: fat-nested-collections
+
+| Metric | Old | New | Status |
+|--------|-----|-----|--------|
+| instruction_ratio | 1.17 | 1.0 | CHANGED |
+| arc_violations | 0 | 0 | SAME |
+| attr_applicable | 21 | 20 | CHANGED |
+| attr_correct | 21 | 18 | CHANGED |
+| cf_defects | 0 | 0 | SAME |
+| ir_unjustified | 0 | 0 | SAME |
+| **Overall Score** | **10.0** | **9.8** | **CHANGED** |
+
+**Explanation**: Score changed from 10.0 to 9.8.
+
+- **instruction_ratio**: Old AI computed 1.17 (likely using unchecked ideal). New algorithm computes 1.0 (overflow checking IS part of ideal for Ori).
+- **attributes**: Old AI counted 21 applicable / 21 correct. New algorithm found 20 applicable / 18 correct (deterministic per-param noundef checking, per-function rule table).
+
+---
+
+## Journey 16: fat-ownership-transfer
+
+| Metric | Old | New | Status |
+|--------|-----|-----|--------|
+| instruction_ratio | 1.00 | 1.0 | CHANGED |
+| arc_violations | 0 | 6 | CHANGED |
+| attr_applicable | 34 | 33 | CHANGED |
+| attr_correct | 34 | 33 | CHANGED |
+| cf_defects | 0 | 0 | SAME |
+| ir_unjustified | 0 | 0 | SAME |
+| **Overall Score** | **10.0** | **5.9** | **CHANGED** |
+
+**Explanation**: Score changed from 10.0 to 5.9.
+
+- **instruction_ratio**: Old AI computed 1.00 (likely using unchecked ideal). New algorithm computes 1.0 (overflow checking IS part of ideal for Ori).
+- **attributes**: Old AI counted 34 applicable / 34 correct. New algorithm found 33 applicable / 33 correct (deterministic per-param noundef checking, per-function rule table).
+
+---
+
+## Journey 17: fat-closure-capture
+
+| Metric | Old | New | Status |
+|--------|-----|-----|--------|
+| instruction_ratio | 1.00 | 1.0 | CHANGED |
+| arc_violations | 0 | 0 | SAME |
+| attr_applicable | 21 | 21 | SAME |
+| attr_correct | 21 | 20 | CHANGED |
+| cf_defects | 0 | 0 | SAME |
+| ir_unjustified | 0 | 0 | SAME |
+| **Overall Score** | **10.0** | **9.9** | **CHANGED** |
+
+**Explanation**: Score changed from 10.0 to 9.9.
+
+- **instruction_ratio**: Old AI computed 1.00 (likely using unchecked ideal). New algorithm computes 1.0 (overflow checking IS part of ideal for Ori).
+- **attributes**: Old AI counted 21 applicable / 21 correct. New algorithm found 21 applicable / 20 correct (deterministic per-param noundef checking, per-function rule table).
+
+---
+
 ## Summary
 
 | Stat | Count |
 |------|-------|
-| Total results files | 13 |
-| Successfully scored | 13 |
+| Total results files | 17 |
+| Successfully scored | 17 |
 | Skipped (no IR) | 0 |
-| Score changed | 3 |
-| Score unchanged | 10 |
+| Score changed | 5 |
+| Score unchanged | 12 |

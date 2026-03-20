@@ -71,9 +71,11 @@ sections:
 
 | Test Suite | Passed | Failed | Skipped | LCFail | Total |
 |------------|--------|--------|---------|--------|-------|
-| Ori spec (evaluator) | 3035 | 0 | 42 | - | 3077 |
+| Ori spec (evaluator) | 4181 | 0 | 42 | - | 4223 |
 | Ori spec (LLVM backend) | 1082 | 1 | 9 | 1985 | 3077 |
 | Rust unit tests (LLVM) | 527 | 0 | 15 | - | 542 |
+
+> Note: Evaluator test count updated 2026-03-19. LLVM backend counts may also be stale.
 
 ## Import Resolution (Unified Pipeline)
 
@@ -1146,21 +1148,21 @@ ori_llvm/src/
 - [x] Derive Comparable struct codegen: `emit_ordering_comparison` now dispatches to derived `compare` method and checks Ordering result (0=Less, 1=Equal, 2=Greater) for `<`/`>`/`<=`/`>=` <!-- test: test_aot_derive_comparable_struct -->
 - [x] ARC enum basic drop and string-payload drop: `test_arc_enum_basic_drop` and `test_arc_enum_with_string_payload` un-ignored and passing
 
-*Open:*
-- [ ] List mutation methods not in AOT builtin table: `.push()`, `.first()`, `.last()`, `.is_empty()`, `.concat()` <!-- test: test_aot_list_push, test_aot_list_first_last, test_aot_list_empty_operations, test_aot_list_concat -->
-- [ ] Map methods not in AOT builtin table: `.is_empty()`, `.get()`, `.insert()`, `.remove()`, `.keys()`, `.values()` <!-- test: test_aot_map_is_empty -->
-- [ ] `list[index]` subscript not resolved in AOT <!-- test: test_aot_list_index -->
-- [ ] Closure-returning-closure type inference: `let f = (n: int) -> (int) -> int = { (x: int) -> int = ... }` infers `()` return instead of `(int) -> int` <!-- test: test_aot_closure_capturing_closure, section: 02 -->
-- [ ] Enum variant constructors not declared as LLVM functions <!-- test: test_aot_enum_variant_constructors -->
-- [ ] Generic monomorphization not in ARC pipeline <!-- test: test_aot_generic_identity, test_aot_generic_pair -->
-- [ ] `catch(expr:)` not yet lowered through ARC pipeline <!-- test: test_aot_catch_basic, test_aot_catch_no_panic, test_aot_catch_nested -->
-- [ ] String interpolation produces wrong result <!-- test: test_aot_string_interpolation -->
+*Resolved (verified 2026-03-19):*
+- [x] List `.push()` now in AOT — `test_aot_list_push` passes
+- [x] List `.first()`/`.last()` now in AOT — `test_aot_list_first_last` passes
+- [x] List `.concat()` now in AOT — `test_aot_list_concat` passes
+- [x] `list[index]` subscript resolved in AOT — `test_aot_list_index` passes
+- [x] Map `.is_empty()` now in AOT — `test_aot_map_is_empty` passes
+- [x] Closure-returning-closure type inference fixed — `test_aot_closure_capturing_closure` passes
+- [x] Generic monomorphization working — `test_aot_generic_identity` and `test_aot_generic_pair` pass
+- [x] String interpolation fixed — `test_aot_string_interpolation` passes
 
-Cross-references to existing items:
-- Generic monomorphization → § 21.7 (**CRITICAL** — blocks 2,472+ test call sites)
-- Enum variant constructors → § 21.2 (blocks enums, recursive types)
-- `catch(expr:)` → § 21.5 (blocks panic recovery in AOT)
-- String interpolation → § 21.3
+*Open:*
+- [ ] `catch(expr:)` partially lowered — `test_aot_catch_success` passes, but `test_aot_catch_panic` and `test_aot_catch_div_by_zero` remain `#[ignore]` (inline panic in catch not intercepted)
+
+Cross-references to remaining open items:
+- `catch(expr:)` → § 21.5 (inline panic in catch blocks not intercepted)
 
 **New AOT tests added** (2026-02-23, 13 tests, all passing):
 derive_eq_struct (un-ignored), derive_eq_struct_not_equal, derive_eq_struct_with_strings,

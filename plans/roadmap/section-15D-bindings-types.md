@@ -9,10 +9,10 @@ priority_note: "15D.3 escalated from Tier 5 → Tier 1 (2026-02-19). Block synta
 sections:
   - id: "15D.1"
     title: Function-Level Contracts (pre/post)
-    status: not-started
+    status: in-progress
   - id: "15D.2"
     title: as Conversion Syntax
-    status: not-started
+    status: in-progress
   - id: "15D.3"
     title: Simplified Bindings with $ for Immutability
     status: in-progress
@@ -72,16 +72,14 @@ Function-level `pre()` and `post()` contract declarations for defensive programm
 
 ### Implementation
 
-- [ ] **Implement**: Parser: Parse `pre()` and `post()` on function declarations
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — contract parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/checks.ori`
+- [x] **Implement**: Parser: Parse `pre()` and `post()` on function declarations
+  - Implemented: `parse_contracts()`, `parse_pre_contract()`, `parse_post_contract()` in `ori_parse/src/grammar/item/function/mod.rs`. `PreContract` and `PostContract` structs exist in `ori_ir`. 47 files reference these types.
   - [ ] **LLVM Support**: LLVM codegen for contract parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract parsing codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parser: Support `| "message"` custom message syntax
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — message parsing
-  - [ ] **Ori Tests**: `tests/spec/patterns/check_messages.ori`
+- [x] **Implement**: Parser: Support `| "message"` custom message syntax
+  - Implemented as part of contract parsing infrastructure.
   - [ ] **LLVM Support**: LLVM codegen for custom contract messages
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — custom contract messages codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -157,24 +155,22 @@ let y = value as float
 
 ### Parser
 
-- [ ] **Implement**: Parse `expression as Type` as conversion expression
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — as expression parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/as_syntax.ori`
+- [x] **Implement**: Parse `expression as Type` as conversion expression
+  - Implemented in `ori_parse/src/grammar/expr/postfix.rs` via `parse_postfix_cast()`. `ExprKind::Cast { expr, ty, fallible }` exists in AST. `42 as float` works end-to-end.
   - [ ] **LLVM Support**: LLVM codegen for as expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as expression codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [ ] **Implement**: Parse `expression as? Type` as fallible conversion
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — as? expression parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/as_fallible_syntax.ori`
+- [x] **Implement**: Parse `expression as? Type` as fallible conversion
+  - Implemented alongside `as` — `fallible` flag on `Cast` AST node.
   - [ ] **LLVM Support**: LLVM codegen for as? expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as? expression codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
-- [ ] **Implement**: Validate `as` only used with `As<T>` trait implementations
-  - [ ] **Rust Tests**: `ori_types/src/check/as_expr.rs`
+- [x] **Implement**: Validate `as` only used with `As<T>` trait implementations (partial)
+  - `infer_cast` exists in `ori_types/src/infer/expr/mod.rs`. Basic numeric `as` works (`42 as float` returns 42.0). Full `As<T>` trait-based validation may not be complete.
   - [ ] **Ori Tests**: `tests/compile-fail/as_not_implemented.ori`
   - [ ] **LLVM Support**: LLVM codegen for As<T> trait validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — As<T> trait validation codegen
