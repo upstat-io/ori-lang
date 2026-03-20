@@ -2,7 +2,7 @@
 journey: 9
 slug: strings
 theme: "I am a string"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 13
 eval_result: 13
@@ -18,7 +18,7 @@ learning_objectives:
   - "Understand the SSO (Small String Optimization) guard pattern in RC cleanup"
   - "Compare ARC lifecycle for strings: allocation, borrowing, and conditional RC decrement"
   - "Observe how boolean short-circuit operators compile to constant propagation"
-  - "See how aggregate sret loads improved from per-field GEP to single-load pattern"
+  - "See nounwind analysis correctly propagate through string-handling functions"
 
 features:
   - strings
@@ -375,9 +375,9 @@ add.ovf_panic13:
   unreachable
 }
 
-; Function Attrs: uwtable
+; Function Attrs: nounwind uwtable
 ; --- @check_strings ---
-define fastcc noundef i64 @_ori_check_strings() #2 {
+define fastcc noundef i64 @_ori_check_strings() #1 {
 bb0:
   %str_len.self15 = alloca { i64, i64, ptr }, align 8
   %str_len.self5 = alloca { i64, i64, ptr }, align 8
@@ -459,9 +459,9 @@ rc_dec.sso_skip24:
   ret i64 %10
 }
 
-; Function Attrs: uwtable
+; Function Attrs: nounwind uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #2 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %call = call fastcc i64 @_ori_check_logic()
   %call1 = call fastcc i64 @_ori_check_strings()
@@ -479,36 +479,36 @@ add.ovf_panic:
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #3
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #4
+declare void @ori_panic_cstr(ptr) #3
 
 ; Function Attrs: nounwind
-declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #5
+declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #4
 
 ; Function Attrs: nounwind
-declare void @ori_str_empty(ptr noalias sret({ i64, i64, ptr })) #5
+declare void @ori_str_empty(ptr noalias sret({ i64, i64, ptr })) #4
 
 ; Function Attrs: nounwind
-declare i64 @ori_str_len(ptr) #5
+declare i64 @ori_str_len(ptr) #4
 
 ; Function Attrs: cold nounwind uwtable
 ; --- drop str ---
-define void @"_ori_drop$3"(ptr noundef %0) #6 {
+define void @"_ori_drop$3"(ptr noundef %0) #5 {
 entry:
   call void @ori_rc_free(ptr %0, i64 24, i64 8)
   ret void
 }
 
 ; Function Attrs: nounwind
-declare void @ori_rc_free(ptr, i64, i64) #5
+declare void @ori_rc_free(ptr, i64, i64) #4
 
 ; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
-declare void @ori_rc_dec(ptr, ptr) #7
+declare void @ori_rc_dec(ptr, ptr) #6
 
-; Function Attrs: uwtable
-define noundef i32 @main() #2 {
+; Function Attrs: nounwind uwtable
+define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -519,16 +519,15 @@ entry:
 }
 
 ; Function Attrs: nounwind
-declare i32 @ori_check_leaks() #5
+declare i32 @ori_check_leaks() #4
 
 attributes #0 = { nounwind memory(none) uwtable }
 attributes #1 = { nounwind uwtable }
-attributes #2 = { uwtable }
-attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #4 = { cold noreturn }
-attributes #5 = { nounwind }
-attributes #6 = { cold nounwind uwtable }
-attributes #7 = { nounwind memory(inaccessiblemem: readwrite) }
+attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
+attributes #5 = { cold nounwind uwtable }
+attributes #6 = { nounwind memory(inaccessiblemem: readwrite) }
 ```
 
 #### Disassembly
@@ -704,7 +703,7 @@ main:
 
 **@check_logic**: OPTIMAL. Boolean `&&`/`||` on constants are folded to `true`/`false` at compile time, then passed as constant arguments to `bool_to_int`. Three overflow-checked additions are necessary for the sum chain. All 23 instructions are justified.
 
-**@check_strings**: OPTIMAL. The 58 instructions break down as: 6 allocas for string sret buffers, 3 string construction calls (`ori_str_from_raw` x2, `ori_str_empty` x1), 3 single aggregate loads (`load { i64, i64, ptr }`), 3 store + `ori_str_len` call sequences (6 total), 3 SSO-guarded RC decrements (7 instructions each: extractvalue + ptrtoint + and + icmp ne + icmp eq + or + br = 21 total), 3 RC dec heap blocks (call + br = 6 total), 2 overflow-checked additions (call + 2 extractvalue + br = 8 total), 2 overflow panic blocks (call + unreachable = 4 total), and 1 ret. This is a significant improvement over the previous run's 88 instructions, achieved by replacing per-field GEP+load+insertvalue (9 instructions per string) with single aggregate `load` (1 instruction per string), eliminating the duplicate `ptrtoint` in SSO guards, and removing phase-boundary unconditional branches. [NOTE-1]
+**@check_strings**: OPTIMAL. The 58 instructions break down as: 6 allocas for string sret buffers, 3 string construction calls (`ori_str_from_raw` x2, `ori_str_empty` x1), 3 single aggregate loads (`load { i64, i64, ptr }`), 3 store + `ori_str_len` call sequences (6 total), 3 SSO-guarded RC decrements (7 instructions each: extractvalue + ptrtoint + and + icmp ne + icmp eq + or + br = 21 total), 3 RC dec heap blocks (call + br = 6 total), 2 overflow-checked additions (call + 2 extractvalue + br = 8 total), 2 overflow panic blocks (call + unreachable = 4 total), and 1 ret. All instructions structurally justified.
 
 **@main**: OPTIMAL. Two calls + one overflow-checked add + ret.
 
@@ -727,10 +726,10 @@ For "hello" (5 bytes) and "world!" (6 bytes), both fit within SSO. The empty str
 
 | Function | fastcc | nounwind | uwtable | noundef | cold | Notes |
 |----------|--------|----------|---------|---------|------|-------|
-| @bool_to_int | YES | YES | YES | YES | N/A | memory(none) -- excellent [NOTE-2] |
+| @bool_to_int | YES | YES | YES | YES | N/A | memory(none) -- excellent [NOTE-1] |
 | @check_logic | YES | YES | YES | YES | N/A | |
-| @check_strings | YES | NO | YES | YES | N/A | Correct: calls non-nounwind ori_str_len path |
-| @main | NO | NO | YES | YES | N/A | C calling convention (entry point) |
+| @check_strings | YES | YES | YES | YES | N/A | [NOTE-2] |
+| @main | NO | YES | YES | YES | N/A | C calling convention (entry point) |
 | @_ori_drop$3 | N/A | YES | YES | YES | YES | All attributes present |
 | @ori_panic_cstr | N/A | N/A | N/A | N/A | YES | cold noreturn -- correct |
 
@@ -738,7 +737,7 @@ For "hello" (5 bytes) and "world!" (6 bytes), both fit within SSO. The empty str
 
 **@bool_to_int** has the ideal attribute set: `nounwind memory(none)` -- the compiler correctly identified this function as pure (no memory access, cannot unwind).
 
-**@check_strings** is correctly missing `nounwind`: it calls `ori_rc_dec` which interacts with heap memory, meaning an unwind path exists through string operations. The two-pass fixed-point analysis correctly determined this.
+**@check_strings** now correctly has `nounwind`. The nounwind fixed-point analysis correctly determined that all callees (`ori_str_from_raw`, `ori_str_empty`, `ori_str_len`, `ori_rc_dec`, `ori_rc_free`) are declared `nounwind`, making `check_strings` itself nounwind. This is an improvement over the previous run where `check_strings` and `main` were missing `nounwind`. [NOTE-2]
 
 ### 4. Control Flow & Block Layout
 
@@ -746,10 +745,10 @@ For "hello" (5 bytes) and "world!" (6 bytes), both fit within SSO. The empty str
 |----------|--------|-------------|-------------------|-----------|-------|
 | @bool_to_int | 1 | 0 | 0 | 0 | |
 | @check_logic | 7 | 0 | 0 | 0 | |
-| @check_strings | 11 | 0 | 0 | 0 | [NOTE-1] |
+| @check_strings | 11 | 0 | 0 | 0 | |
 | @main | 3 | 0 | 0 | 0 | |
 
-**@check_strings** has 11 blocks (down from 14 in the previous run). The reduction comes from eliminating 3 unconditional phase-boundary branches that connected single-predecessor blocks. Each SSO guard still generates a correct 3-block diamond (check, heap-path, skip-path), and each overflow-checked add has a 2-block panic/ok split. Zero defects.
+**@check_strings** has 11 blocks: 1 entry, 3 SSO guard diamonds (check + heap-path + skip-path = 3x2 = 6), 2 overflow-checked adds (ok + panic = 2x2 = 4). Zero defects.
 
 ### 5. Overflow Checking
 
@@ -857,11 +856,6 @@ bb0:
 ; - 1 ret
 ; Total: 6 + 3 + 3 + 6 + 21 + 6 + 8 + 4 + 1 = 58
 ; All instructions structurally justified.
-;
-; Improvement from previous run: 88 -> 58 instructions (-34%)
-; - Per-field GEP+load+insertvalue (9 instr/string) replaced by single aggregate load (1 instr/string)
-; - Duplicate ptrtoint in SSO guards eliminated (8 -> 7 instr/guard)
-; - Phase-boundary unconditional branches removed (14 -> 11 blocks)
 ```
 
 **Delta**: +0 instructions. OPTIMAL.
@@ -896,7 +890,7 @@ panic:
 | @check_strings | 58 | 58 | +0 | N/A | OPTIMAL |
 | @main | 9 | 9 | +0 | N/A | OPTIMAL |
 
-### 8. Strings: Representation and Aggregate Load Improvement
+### 8. Strings: Representation and Aggregate Load Pattern
 
 Ori strings use a 3-field representation: `{ i64, i64, ptr }` -- the `OriStr` fat struct:
 - Field 0 (`i64`): inline data / pointer to heap buffer
@@ -905,7 +899,7 @@ Ori strings use a 3-field representation: `{ i64, i64, ptr }` -- the `OriStr` fa
 
 String literals are constructed via `ori_str_from_raw(ptr sret, ptr raw, i64 len)` which takes a destination sret pointer, a raw C string pointer, and the byte length. The empty string uses the specialized `ori_str_empty()` constructor.
 
-**Key improvement since the previous run**: The sret (struct return) pattern has been simplified from per-field GEP+load+insertvalue (9 instructions per string: 3 GEP + 3 load + 3 insertvalue) to a single aggregate `load { i64, i64, ptr }` (1 instruction per string). This eliminates 24 instructions across the 3 string constructions. The single-load pattern is valid because `{ i64, i64, ptr }` is a first-class aggregate in LLVM IR and the sret alloca provides a properly aligned memory source. [NOTE-1]
+The sret (struct return) pattern uses a single aggregate `load { i64, i64, ptr }` (1 instruction per string) rather than per-field GEP+load+insertvalue. This is valid because `{ i64, i64, ptr }` is a first-class aggregate in LLVM IR and the sret alloca provides a properly aligned memory source.
 
 ### 9. Strings: SSO Guard Pattern
 
@@ -921,34 +915,37 @@ Each string's RC decrement is guarded by an SSO (Small String Optimization) chec
 br i1 %5, label %rc_dec.sso_skip, label %rc_dec.heap
 ```
 
-This 7-instruction SSO guard checks two conditions: (1) high bit set = SSO string stored inline, (2) null pointer = no heap allocation. Both cases skip the `ori_rc_dec` call. Compared to the previous run which had 8 instructions per guard (with a duplicate `ptrtoint`), this version shares a single `ptrtoint` for both checks -- a clean improvement.
+This 7-instruction SSO guard checks two conditions: (1) high bit set = SSO string stored inline, (2) null pointer = no heap allocation. Both cases skip the `ori_rc_dec` call. The single `ptrtoint` is shared for both checks -- clean and efficient.
 
-### 10. Strings: Constant Folding Opportunity
+### 10. Strings: Nounwind Propagation Improvement
 
-The compiler correctly folds `true && true` to `true`, `true && false` to `false`, etc. at canonicalization time. However, it does not fold `bool_to_int(b: true)` to `1` -- the function calls are emitted with constant arguments rather than being inlined. This is acceptable behavior: LLVM's inliner handles this in release builds, and at `-O0` the calls provide clear debugging. Not a defect, just a potential compile-time optimization opportunity.
+The nounwind fixed-point analysis now correctly marks `@check_strings` and `@_ori_main` as `nounwind`. The trace shows the analysis computed nounwind_count=4 (all 4 user functions) in 2 passes. This is an improvement over the previous run where these functions lacked `nounwind` because the analysis was more conservative about functions calling `ori_rc_dec`.
+
+The improvement is significant for LLVM optimization: `nounwind` allows LLVM to eliminate exception handling tables and enables more aggressive inlining and code motion. The `ori_rc_dec` declaration now carries `nounwind memory(inaccessiblemem: readwrite)`, confirming it cannot unwind, which the fixed-point analysis correctly propagates to callers. [NOTE-2]
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | NOTE | Codegen | Aggregate sret load: 88 -> 58 instructions in @check_strings (-34%) | NEW | J9 |
-| 2 | NOTE | Attributes | Pure function detection: @bool_to_int gets memory(none) | CONFIRMED | J9 (prev) |
-| 3 | NOTE | ARC | Correct SSO-guarded conditional RC decrement for all 3 strings | CONFIRMED | J9 (prev) |
-| 4 | NOTE | Codegen | Excellent constant folding of boolean && / \|\| operators | CONFIRMED | J9 (prev) |
-| 5 | NOTE | Attributes | 100% attribute compliance across all functions (19/19) | CONFIRMED | J9 (prev) |
-| 6 | NOTE | Binary | RC leak detection integrated into main() wrapper | CONFIRMED | J9 (prev) |
+| 1 | NOTE | Attributes | Pure function detection: @bool_to_int gets memory(none) | CONFIRMED | J9 |
+| 2 | NOTE | Attributes | Nounwind now propagates through string-handling functions | FIXED | J9 |
+| 3 | NOTE | ARC | Correct SSO-guarded conditional RC decrement for all 3 strings | CONFIRMED | J9 |
+| 4 | NOTE | Codegen | Excellent constant folding of boolean && / \|\| operators | CONFIRMED | J9 |
+| 5 | NOTE | Attributes | 100% attribute compliance across all functions (19/19) | CONFIRMED | J9 |
+| 6 | NOTE | Binary | RC leak detection integrated into main() wrapper | CONFIRMED | J9 |
 
-### NOTE-1: Aggregate sret load improvement
-
-**Location**: @check_strings, all 3 string construction sequences
-**Impact**: Positive -- reduces @check_strings from 88 to 58 instructions (-34%). The per-field GEP+load+insertvalue pattern (9 instructions per string) has been replaced with a single `load { i64, i64, ptr }` (1 instruction per string). Additionally, the SSO guard's duplicate `ptrtoint` has been eliminated (8 -> 7 instructions per guard), and 3 phase-boundary unconditional branches between single-predecessor blocks have been removed (14 -> 11 blocks).
-**Found in**: Instruction Purity (Category 1), Strings: Representation (Category 8)
-
-### NOTE-2: Pure function detection yields memory(none)
+### NOTE-1: Pure function detection yields memory(none)
 
 **Location**: @bool_to_int
 **Impact**: Positive -- the `nounwind memory(none)` attribute set is ideal for a pure function, enabling maximum LLVM optimization
 **Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-2: Nounwind propagation improvement
+
+**Location**: @check_strings, @_ori_main, @main (C entry)
+**Impact**: Positive -- these functions now correctly have `nounwind`, gained via improved fixed-point analysis that recognizes `ori_rc_dec` (declared with `nounwind memory(inaccessiblemem: readwrite)`) as non-unwinding. This eliminates unnecessary exception handling tables and enables more aggressive LLVM optimization.
+**Previous**: In the 2026-03-19 run, `@check_strings` and `@_ori_main` had attribute group `#2 = { uwtable }` (missing `nounwind`). Now they use `#1 = { nounwind uwtable }`.
+**Found in**: Attributes & Calling Convention (Category 3), Nounwind Propagation (Category 10)
 
 ### NOTE-3: Correct SSO-guarded conditional RC decrement
 
@@ -990,7 +987,7 @@ The compiler correctly folds `true && true` to `true`, `true && false` to `false
 
 ## Verdict
 
-Journey 9's string codegen achieves a perfect score and shows meaningful improvement over the previous run. The headline change is the aggregate sret load optimization: `@check_strings` dropped from 88 to 58 instructions (-34%) by replacing per-field GEP+load+insertvalue sequences with single `load { i64, i64, ptr }` instructions, eliminating duplicate `ptrtoint` operations in SSO guards, and removing phase-boundary unconditional branches. ARC remains perfectly balanced with zero violations. Attribute compliance holds at 100% (19/19). The boolean logic side continues to demonstrate excellent constant folding, and the `memory(none)` annotation on `@bool_to_int` confirms the compiler's pure function analysis is working correctly.
+Journey 9's string codegen achieves a perfect score. All functions are OPTIMAL with zero unjustified instructions. The headline improvement in this re-run is nounwind propagation: `@check_strings` and `@_ori_main` now correctly carry the `nounwind` attribute, achieved through improved fixed-point analysis that recognizes `ori_rc_dec`'s `nounwind` declaration. This brings attribute compliance from the previous run's partial coverage to 100% (19/19). ARC remains perfectly balanced with zero violations, and the SSO guard pattern continues to work correctly for all three string values.
 
 ## Cross-Journey Observations
 
@@ -999,12 +996,12 @@ Journey 9's string codegen achieves a perfect score and shows meaningful improve
 | Overflow checking | J1 | J9 | CONFIRMED |
 | fastcc usage | J1 | J9 | CONFIRMED |
 | Constant folding (booleans) | J2 | J9 | CONFIRMED |
-| nounwind propagation | J1 | J9 | CONFIRMED |
+| nounwind propagation | J1 | J9 | IMPROVED (now propagates through string ops) |
 | ARC string lifecycle | J9 | J9 | CONFIRMED |
-| SSO guard pattern | J9 | J9 | IMPROVED (8 -> 7 instr/guard) |
+| SSO guard pattern | J9 | J9 | CONFIRMED |
 | memory(none) on pure functions | J9 | J9 | CONFIRMED |
 | Full attribute compliance | J9 | J9 | CONFIRMED |
 | RC leak detection in main() | J9 | J9 | CONFIRMED |
-| Aggregate sret load | J9 | J9 | NEW (replaces per-field GEP+load+insertvalue) |
+| Aggregate sret load | J9 | J9 | CONFIRMED |
 
-The most significant change in this re-run is the aggregate sret load pattern. Previously, each string construction required 9 instructions to move the sret result into SSA registers (3 GEP + 3 load + 3 insertvalue). Now a single `load { i64, i64, ptr }` replaces all 9, yielding a 34% instruction reduction in `@check_strings`. This improvement extends to any code that calls sret-returning functions (string operations, struct construction, etc.), so it should be visible across future journeys involving fat pointer types.
+The most significant change in this re-run is the nounwind propagation improvement. Previously, `@check_strings` and `@_ori_main` lacked `nounwind` because the analysis was conservative about functions calling `ori_rc_dec`. The fixed-point analysis now correctly recognizes that `ori_rc_dec` is declared `nounwind memory(inaccessiblemem: readwrite)` and propagates this through the call graph. This is particularly important for string-heavy code where every function transitively calls RC operations.

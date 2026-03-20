@@ -2,7 +2,7 @@
 journey: 17
 slug: fat-closure-capture
 theme: "I am a captured fat pointer"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 10
 eval_result: 10
@@ -11,15 +11,14 @@ aot_result: 10
 difficulty: complex
 prerequisites:
   - "Understanding of closures and variable capture"
-  - "Familiarity with fat pointer representations (str = {len, cap, ptr})"
-  - "ARC memory management for heap-allocated capture environments"
-  - "Indirect call conventions through function pointer + environment pairs"
+  - "Familiarity with fat pointers (str representation as {len, cap, ptr})"
+  - "Understanding of ARC and reference counting"
+  - "Concepts of partial application and indirect calls"
 learning_objectives:
-  - "See how a captured fat pointer (str) is stored in a heap-allocated closure environment"
-  - "Understand the partial application thunk pattern: fn_ptr + env_ptr pair with GEP-based capture forwarding"
-  - "Observe SSO-aware RC cleanup: bit 63 check on data pointer discriminates inline vs heap strings"
-  - "Compare the drop function for closure environments vs the drop function for strings"
-  - "Verify that borrow elision works inside the lambda body for both captured and parameter strings"
+  - "See how a fat pointer (str) is captured into a heap-allocated closure environment"
+  - "Understand the complete lifecycle: alloc env, store captures, call, drop env"
+  - "Observe SSO-aware RC dec sequences for captured strings"
+  - "Compare closure calling convention with direct function calls"
 
 features:
   - strings
@@ -27,9 +26,9 @@ features:
   - closures
   - capture
   - higher_order
-feature_description: "Closure capturing a fat pointer (str), partial application with heap-allocated environment, SSO-aware ARC cleanup, borrow elision on string method calls"
+feature_description: "Closure capturing a string (fat pointer) with method dispatch and ARC management"
 
-score: 10.0
+score: 9.8
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
@@ -37,7 +36,7 @@ score_breakdown:
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
-  other_findings: 10
+  other_findings: 9
 score_metrics:
   instruction_ratio: 1.00
   instruction_ratio_max: 1.00
@@ -55,24 +54,12 @@ score_metrics:
   bin_hard_fail: false
   other_critical: 0
   other_high: 0
-  other_low: 0
+  other_low: 1
 overflow_check: PASS
-
-bugs_found:
-  - id: C17
-    severity: CRITICAL
-    description: "Closure capturing str (fat pointer) produced unresolved type variable Idx(202) at LLVM codegen, causing IR verification failure"
-    status: FIXED
-    found_in: journey17
-    fixed_in: "prior to f561649f (verified 2026-03-19)"
-
+bugs_found: []
 related_journeys:
   - journey: 5
-    relationship: "Both test closure capture and partial application; J5 captures int (scalar), J17 captures str (fat pointer)"
-  - journey: 9
-    relationship: "Both test str operations and .length(); J9 without closures, J17 with str captured in closure"
-  - journey: 14
-    relationship: "Both test fat pointer ARC lifecycle; J14 tests sharing, J17 tests capture into closure env"
+    relationship: "Both test closure capture; J5 captures int (scalar), J17 captures str (fat pointer)"
 ---
 
 # Journey 17: "I am a captured fat pointer"
@@ -85,8 +72,6 @@ related_journeys:
 // Difficulty: complex
 // Features: strings, arc, closures, capture, higher_order
 // Expected: check_capture() = 10
-// NOTE: This journey exposes a compiler bug — closure capturing str
-//       triggers unresolved type variable at codegen (Idx leak)
 
 @check_capture () -> int = {
     let prefix = "hello";
@@ -104,16 +89,14 @@ related_journeys:
 | Eval    | 10        | 10       | (none) | (none) | PASS   |
 | AOT     | 10        | 10       | (none) | (none) | PASS   |
 
-**Bug status update**: The previously reported CRITICAL bug (C17 -- closure capturing str triggers unresolved type variable Idx(202) at codegen) has been **FIXED**. The prior run (2026-03-16) showed FAIL_AOT with exit code 1 and LLVM IR verification failure. Both backends now produce the correct result. Score improved from 3.0 to 9.9.
-
 ## Compiler Pipeline
 
 ### 1. Lexer
 
-> The lexer breaks raw source text into tokens. For this journey, it tokenizes string literals,
-> arrow operators for the lambda, dot operators for method calls, and the closure parameter.
+> The lexer (tokenizer) breaks raw source text into a stream of tokens -- the smallest
+> meaningful units like keywords, identifiers, operators, and literals.
 
-**Tokens**: 62 | **Keywords**: 2 (`let` x2) | **Identifiers**: 12 | **Errors**: 0
+**Tokens**: 62 | **Keywords**: 4 | **Identifiers**: 12 | **Errors**: 0
 
 <details>
 <summary>Token stream</summary>
@@ -123,7 +106,7 @@ Fn(@) Ident(check_capture) LParen RParen Arrow Ident(int) Eq
 LBrace Let Ident(prefix) Eq Str("hello") Semi
 Let Ident(f) Eq Ident(s) Arrow Ident(prefix) Dot Ident(length)
 LParen RParen Plus Ident(s) Dot Ident(length) LParen RParen Semi
-Ident(f) LParen Str("world") RParen RBrace Semi
+Ident(f) LParen Str("world") RParen RBrace
 Fn(@) Ident(main) LParen RParen Arrow Ident(int) Eq
 Ident(check_capture) LParen RParen Semi
 ```
@@ -132,8 +115,8 @@ Ident(check_capture) LParen RParen Semi
 
 ### 2. Parser
 
-> The parser builds an AST from tokens. Key structures here: a block expression containing
-> two let bindings (string literal and lambda) and a function call expression.
+> The parser transforms the flat token stream into a hierarchical Abstract Syntax Tree
+> (AST) -- a tree structure that represents the grammatical structure of the program.
 
 **Nodes**: 14 | **Max depth**: 4 | **Functions**: 2 | **Errors**: 0
 
@@ -161,84 +144,92 @@ Module
 
 ### 3. Type Checker
 
-> HM type inference resolves the lambda parameter `s` as `str` from the `.length()` call
-> context and the string argument "world". The closure captures `prefix: str` from the
-> enclosing scope. All types fully resolved with zero errors.
+> The type checker verifies that all expressions have compatible types using
+> Hindley-Milner type inference. It resolves type variables, checks constraints,
+> and ensures type safety without requiring explicit type annotations everywhere.
 
-**Constraints**: 14 | **Types inferred**: 6 | **Unifications**: 10 | **Errors**: 0
+**Constraints**: 12 | **Types inferred**: 6 | **Unifications**: 10 | **Errors**: 0
 
 <details>
 <summary>Inferred types</summary>
 
 ```ori
 @check_capture () -> int = {
-    let prefix: str = "hello";           // inferred: str
+    let prefix: str = "hello";
+    //                 ^ str (literal)
     let f: (str) -> int = s -> prefix.length() + s.length();
-    //     ^ closure type inferred from lambda body
-    //       captures prefix: str from enclosing scope
-    //       prefix.length() -> int, s.length() -> int, + -> int
-    f("world")  // -> int (lambda return type)
+    //     ^ inferred: (str) -> int
+    //       s: str (inferred from closure body)
+    //       prefix.length(): int (str method)
+    //       s.length(): int (str method)
+    //       + : (int, int) -> int
+    f("world")
+    // ^ int (return type of f)
 }
 
-@main () -> int = check_capture()  // -> int
+@main () -> int = check_capture()
+//                ^ int (return type of @check_capture)
 ```
 
 </details>
 
 ### 4. Canonicalization
 
-> The canonicalizer lowers the lambda into a named function with explicit capture,
-> transforms method calls to canonical form, and normalizes the block structure.
+> The canonicalizer transforms the typed AST into a simplified canonical form.
+> It desugars syntactic sugar, lowers complex expressions, and prepares the IR
+> for backend consumption.
 
-**Transforms**: 6 | **Desugared**: 1 (lambda to named closure) | **Errors**: 0
+**Transforms**: 15 | **Desugared**: 0 | **Errors**: 0
 
 <details>
 <summary>Key transformations</summary>
 
 ```text
-- Lambda `s -> prefix.length() + s.length()` lowered to
-  `__lambda_check_capture_0(prefix: str, s: str) -> int`
-- Method calls `prefix.length()` and `s.length()` canonicalized to
-  `ori_str_len(ptr)` runtime calls
-- Block normalized: 2 let statements + 1 tail expression
-- String constants "hello" and "world" registered
+- Lambda lowered to canonical closure form with capture list [prefix]
+- Method calls (prefix.length(), s.length()) resolved to str.length
+- Function bodies lowered to canonical expression form
+- Call arguments normalized to positional order
 ```
 
 </details>
 
 ### 5. ARC Pipeline
 
-> The ARC pipeline analyzes lifetimes for the captured str fat pointer. The capture `prefix`
-> is stored in a heap-allocated closure environment. The pipeline inserts RC ops for env
-> allocation and cleanup, with SSO-aware guards for the captured string.
+> The ARC (Automatic Reference Counting) pipeline analyzes value lifetimes and
+> inserts reference counting operations. It performs borrow inference to minimize
+> RC overhead -- parameters that are only read can be borrowed rather than owned.
 
-**RC ops inserted**: 5 | **Elided**: 2 | **Net ops**: 3
+**RC ops inserted**: 6 | **Elided**: 0 | **Net ops**: 6
 
 <details>
 <summary>ARC annotations</summary>
 
 ```text
-@check_capture: +1 rc_alloc (env), +2 ori_str_from_raw (SSO, no RC),
-                -1 rc_dec (str "world" data ptr, SSO-guarded skip),
-                -1 rc_dec (env via drop_fn)
-                Balanced: env alloc/dec paired, SSO strings skip RC
+@check_capture:
+  +1 ori_rc_alloc (closure env)
+  +2 ori_str_from_raw (creates two strings: "hello", "world")
+  -1 ori_rc_dec on "world" str (SSO-aware, after use)
+  -1 ori_rc_dec on closure env (via drop_fn dispatch)
+  Net: 3 inc, 2 dec — ownership of "hello" transferred into closure env
 
-@__lambda_check_capture_0: +0 rc_inc, +0 rc_dec
-                           Borrows both parameters (captured prefix and s)
+@__lambda_check_capture_0:
+  No RC ops — borrows both captured str and parameter str
 
-@partial_0_drop: -1 rc_dec (captured str in env, SSO-guarded),
-                 -1 ori_rc_free (env memory)
-                 Correct: cleans up env contents then env allocation
+@partial_0_drop:
+  -1 ori_rc_dec on captured str (SSO-aware)
+  +1 ori_rc_free on env allocation
+  Net: drop function, consumes ownership
 
-@partial_1: +0 rc_inc, +0 rc_dec — pure forwarding thunk
+@partial_1:
+  No RC ops — forwarding shim
 ```
 
 </details>
 
 ### Backend: Interpreter
 
-> The interpreter evaluates directly: binds "hello" to prefix, creates a closure capturing
-> prefix, calls the closure with "world", computes length("hello") + length("world") = 5 + 5 = 10.
+> The interpreter (eval path) executes the canonical IR directly, without
+> compilation. It serves as the reference implementation for correctness testing.
 
 **Result**: 10 | **Status**: PASS
 
@@ -249,11 +240,11 @@ Module
 @main()
   └─ @check_capture()
        ├─ let prefix = "hello"
-       ├─ let f = Lambda(captures: [prefix])
+       ├─ let f = <closure capturing prefix>
        └─ f("world")
-            └─ __lambda(prefix="hello", s="world")
-                 ├─ prefix.length() = 5
-                 ├─ s.length() = 5
+            └─ prefix.length() + s.length()
+                 ├─ "hello".length() = 5
+                 ├─ "world".length() = 5
                  └─ 5 + 5 = 10
 → 10
 ```
@@ -262,28 +253,22 @@ Module
 
 ### Backend: LLVM Codegen
 
-> The LLVM backend compiles closures as {fn_ptr, env_ptr} pairs. The captured str fat pointer
-> (24 bytes: len + cap + data_ptr) is stored in a heap-allocated environment alongside a drop
-> function pointer. The partial application thunk extracts the capture via GEP and forwards
-> to the actual lambda.
+> The LLVM backend compiles the canonical IR to LLVM IR, which is then compiled
+> to native machine code via LLVM's optimization and code generation pipeline.
+> This path produces ahead-of-time compiled binaries.
 
 #### ARC Pipeline
 
-**RC ops inserted**: 5 | **Elided**: 2 | **Net ops**: 3
+**RC ops inserted**: 6 | **Elided**: 0 | **Net ops**: 6
 
 <details>
 <summary>ARC annotations</summary>
 
 ```text
-@check_capture: ori_rc_alloc (env, 32 bytes, align 8)
-                ori_str_from_raw x2 (SSO strings "hello"/"world")
-                ori_rc_dec (str data ptr — SSO guard skips)
-                ori_rc_dec (env — via stored drop_fn pointer)
-                Net: balanced (alloc + 2 dec, SSO strings zero-cost)
-
-@__lambda_check_capture_0: 0 RC ops (borrows both str pointers)
-@partial_0_drop: ori_rc_dec (captured str, SSO-guarded) + ori_rc_free (env)
-@partial_1: 0 RC ops (forwarding only)
+@check_capture: +3 rc_inc (alloc env, 2x str_from_raw), +2 rc_dec (str, closure) — ownership transfer
+@__lambda_check_capture_0: +0 rc_inc, +0 rc_dec (borrows only)
+@partial_0_drop: +0 rc_inc, +1 rc_dec + 1 rc_free (teardown)
+@partial_1: +0 rc_inc, +0 rc_dec (forwarding shim)
 ```
 
 </details>
@@ -328,7 +313,7 @@ bb0:
   br i1 %rc_dec.skip_rc, label %rc_dec.sso_skip, label %rc_dec.heap
 
 rc_dec.heap:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data, ptr @"_ori_drop$3")  ; RC-- str
+  call void @ori_rc_dec(ptr %rc_dec.fat_data, ptr @"_ori_drop$3")
   br label %rc_dec.sso_skip
 
 rc_dec.sso_skip:
@@ -339,16 +324,16 @@ rc_dec.sso_skip:
 
 rc_dec.do:
   %rc_dec.drop_fn = load ptr, ptr %rc_dec.env, align 8
-  call void @ori_rc_dec(ptr %rc_dec.env, ptr %rc_dec.drop_fn)  ; RC--
+  call void @ori_rc_dec(ptr %rc_dec.env, ptr %rc_dec.drop_fn)
   br label %rc_dec.skip
 
 rc_dec.skip:
   ret i64 %icall
 }
 
-; Function Attrs: uwtable
+; Function Attrs: nounwind uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #1 {
+define noundef i64 @_ori_main() #0 {
 bb0:
   %call = call fastcc i64 @_ori_check_capture()
   ret i64 %call
@@ -358,11 +343,10 @@ bb0:
 ; --- @__lambda_check_capture_0 ---
 define fastcc noundef i64 @_ori___lambda_check_capture_0(ptr noundef nonnull dereferenceable(24) %0, ptr noundef nonnull dereferenceable(24) %1) #0 {
 bb0:
-  %param.load = load { i64, i64, ptr }, ptr %0, align 8
-  %param.load1 = load { i64, i64, ptr }, ptr %1, align 8
+  %param.load = load { i64, i64, ptr }, ptr %1, align 8
   %str.len = call i64 @ori_str_len(ptr %0)
-  %str.len2 = call i64 @ori_str_len(ptr %1)
-  %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %str.len, i64 %str.len2)
+  %str.len1 = call i64 @ori_str_len(ptr %1)
+  %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %str.len, i64 %str.len1)
   %add.val = extractvalue { i64, i1 } %add, 0
   %add.ovf = extractvalue { i64, i1 } %add, 1
   br i1 %add.ovf, label %add.ovf_panic, label %add.ok
@@ -375,24 +359,9 @@ add.ovf_panic:
   unreachable
 }
 
-; Function Attrs: nounwind
-declare i64 @ori_str_len(ptr) #2
-
-; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #3
-
-; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #4
-
-; Function Attrs: nounwind
-declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #2
-
-; Function Attrs: nounwind
-declare noalias ptr @ori_rc_alloc(i64, i64) #2
-
 ; Function Attrs: cold nounwind uwtable
 ; --- @partial_0_drop ---
-define void @_ori_partial_0_drop(ptr noundef %0) #5 {
+define void @_ori_partial_0_drop(ptr noundef %0) #4 {
 entry:
   %cap.0.ptr = getelementptr inbounds nuw { ptr, { i64, i64, ptr } }, ptr %0, i32 0, i32 1
   %cap.0 = load { i64, i64, ptr }, ptr %cap.0.ptr, align 8
@@ -403,24 +372,10 @@ entry:
   %rc_str.is_null = icmp eq i64 %rc_str.p2i, 0
   %rc_str.skip_rc = or i1 %rc_str.is_sso, %rc_str.is_null
   %rc.str_safe_ptr = select i1 %rc_str.skip_rc, ptr null, ptr %rc.data_ptr
-  call void @ori_rc_dec(ptr %rc.str_safe_ptr, ptr @"_ori_drop$3")  ; RC-- str
+  call void @ori_rc_dec(ptr %rc.str_safe_ptr, ptr @"_ori_drop$3")
   call void @ori_rc_free(ptr %0, i64 32, i64 8)
   ret void
 }
-
-; Function Attrs: cold nounwind uwtable
-; --- drop str ---
-define void @"_ori_drop$3"(ptr noundef %0) #5 {
-entry:
-  call void @ori_rc_free(ptr %0, i64 24, i64 8)
-  ret void
-}
-
-; Function Attrs: nounwind
-declare void @ori_rc_free(ptr, i64, i64) #2
-
-; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
-declare void @ori_rc_dec(ptr, ptr) #6
 
 ; Function Attrs: nounwind uwtable
 ; --- @partial_1 ---
@@ -430,28 +385,6 @@ entry:
   %result = call fastcc i64 @_ori___lambda_check_capture_0(ptr %cap.0.ptr, ptr %1)
   ret i64 %result
 }
-
-; Function Attrs: uwtable
-define noundef i32 @main() #1 {
-entry:
-  %ori_main_result = call i64 @_ori_main()
-  %exit_code = trunc i64 %ori_main_result to i32
-  %leak_check = call i32 @ori_check_leaks()
-  %has_leak = icmp ne i32 %leak_check, 0
-  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
-  ret i32 %final_exit
-}
-
-; Function Attrs: nounwind
-declare i32 @ori_check_leaks() #2
-
-attributes #0 = { nounwind uwtable }
-attributes #1 = { uwtable }
-attributes #2 = { nounwind }
-attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #4 = { cold noreturn }
-attributes #5 = { cold nounwind uwtable }
-attributes #6 = { nounwind memory(inaccessiblemem: readwrite) }
 ```
 
 #### Disassembly
@@ -459,29 +392,23 @@ attributes #6 = { nounwind memory(inaccessiblemem: readwrite) }
 ```asm
 _ori_check_capture:
   sub    $0x98,%rsp
-  lea    str_hello(%rip),%rsi        ; "hello"
+  lea    str(%rip),%rsi
   lea    0x68(%rsp),%rdi
   mov    $0x5,%edx
-  call   ori_str_from_raw            ; construct "hello" fat pointer
-  mov    0x68(%rsp),%rax             ; load {len, cap, ptr}
+  mov    %rdx,0x20(%rsp)
+  call   ori_str_from_raw          ; create "hello"
+  mov    0x68(%rsp),%rax           ; load str triple
   mov    %rax,0x18(%rsp)
   mov    0x70(%rsp),%rax
   mov    %rax,0x10(%rsp)
   mov    0x78(%rsp),%rax
   mov    %rax,0x8(%rsp)
-  mov    $0x20,%edi                  ; 32 bytes for env
-  mov    $0x8,%esi                   ; align 8
-  call   ori_rc_alloc                ; allocate closure env
-  lea    _ori_partial_0_drop(%rip),%r8
-  mov    %r8,(%rax)                  ; env[0] = drop_fn
-  mov    %rdi,0x18(%rax)             ; env[1] = captured str
-  mov    %rsi,0x10(%rax)
-  mov    %rcx,0x8(%rax)
-  lea    _ori_partial_1(%rip),%rcx   ; fn_ptr
-  ; ... create "world" str, indirect call ...
-  call   *%rax                       ; closure(env, "world")
-  ; ... SSO guard for str "world" RC cleanup ...
-  ; ... null guard for env RC cleanup ...
+  mov    $0x20,%edi
+  mov    $0x8,%esi
+  call   ori_rc_alloc              ; alloc 32-byte env
+  ; ... store drop_fn + captured str into env
+  ; ... create "world", indirect call, cleanup
+  add    $0x98,%rsp
   ret
 
 _ori_main:
@@ -492,30 +419,36 @@ _ori_main:
 
 _ori___lambda_check_capture_0:
   sub    $0x18,%rsp
-  mov    %rsi,(%rsp)                 ; save param s ptr
-  call   ori_str_len                 ; prefix.length()
-  mov    (%rsp),%rdi
-  mov    %rax,0x8(%rsp)              ; save len1
-  call   ori_str_len                 ; s.length()
+  mov    %rsi,(%rsp)               ; save param ptr
+  call   ori_str_len               ; prefix.length()
+  mov    (%rsp),%rdi               ; restore param ptr
+  mov    %rax,0x8(%rsp)            ; save prefix_len
+  call   ori_str_len               ; s.length()
   mov    %rax,%rcx
   mov    0x8(%rsp),%rax
-  add    %rcx,%rax                   ; len1 + len2
-  jo     .overflow_panic             ; overflow check
+  add    %rcx,%rax                 ; prefix_len + s_len
+  jo     .panic
   ret
 
 _ori_partial_0_drop:
   push   %rax
-  mov    0x18(%rdi),%rdi             ; load captured str data_ptr
-  ; ... SSO guard (bit 63 check) ...
-  call   ori_rc_dec                  ; dec captured str (skipped for SSO)
+  mov    %rdi,%rax
+  mov    %rax,(%rsp)
+  mov    0x18(%rax),%rdi           ; load captured str data ptr
+  ; SSO check + conditional RC dec
+  call   ori_rc_dec
   mov    (%rsp),%rdi
-  call   ori_rc_free                 ; free env (32 bytes)
+  mov    $0x20,%esi
+  mov    $0x8,%edx
+  call   ori_rc_free               ; free env (32 bytes, align 8)
+  pop    %rax
   ret
 
 _ori_partial_1:
   push   %rax
-  add    $0x8,%rdi                   ; GEP past drop_fn to capture[0]
+  add    $0x8,%rdi                 ; GEP past drop_fn to captured str
   call   _ori___lambda_check_capture_0
+  pop    %rcx
   ret
 ```
 
@@ -527,62 +460,59 @@ _ori_partial_1:
 |---|----------|--------|-------|-------|---------|
 | 1 | @check_capture | 34 | 34 | 1.00x | OPTIMAL |
 | 2 | @main | 2 | 2 | 1.00x | OPTIMAL |
-| 3 | @__lambda_check_capture_0 | 11 | 11 | 1.00x | OPTIMAL |
+| 3 | @__lambda_check_capture_0 | 10 | 9 | 1.11x | NEAR-OPTIMAL |
 | 4 | @partial_0_drop | 12 | 12 | 1.00x | OPTIMAL |
 | 5 | @partial_1 | 3 | 3 | 1.00x | OPTIMAL |
 
-All user functions are at optimal instruction count. Notable improvements vs the prior (broken) run:
-
-- `@check_capture`: 34 instructions (was 41) -- the fix eliminated the per-field GEP+load+insertvalue pattern for string construction, replacing it with a single `load {i64, i64, ptr}` aggregate. The "world" string also uses the streamlined pattern. Additionally, the str RC cleanup now appears before the env RC cleanup (correct order for nested ownership).
-- `@__lambda_check_capture_0`: 11 instructions (was 31) -- the fix resolved the type variable, so both parameters are now `ptr` (not `i64`), both `ori_str_len` calls are emitted, and no RC ops are needed in the lambda body (correct borrow elision).
-- `@partial_0_drop`: 12 instructions (was 21) -- streamlined aggregate load.
-
-The lambda body includes 2 dead loads (`%param.load` and `%param.load1`) that load the full `{i64, i64, ptr}` structs but are never used (only the ptr-based `ori_str_len` calls are used). These are DCE candidates that LLVM's optimizer will eliminate. [LOW-1]
+The lambda has one dead instruction: `%param.load = load { i64, i64, ptr }, ptr %1` loads the
+full 24-byte str triple but the result is never used. The function only needs `ptr %1` for the
+`ori_str_len` call. LLVM's dead code elimination will remove this in optimized builds, but it
+represents unnecessary work in debug mode. [LOW-1]
 
 ### 2. ARC Purity
 
 | Function | rc_inc | rc_dec | Balanced | Borrow Elision | Move Semantics |
 |----------|--------|--------|----------|----------------|----------------|
-| @check_capture | 1 (alloc) | 2 | YES (ownership) | N/A | 1 env ownership |
+| @check_capture | 3 | 2 | TRANSFER | N/A | 1 ownership transfer |
 | @main | 0 | 0 | YES | N/A | N/A |
-| @__lambda | 0 | 0 | YES | 2 elided (prefix, s) | N/A |
-| @partial_0_drop | 0 | 1+free | YES (cleanup) | N/A | N/A |
-| @partial_1 | 0 | 0 | YES | N/A | forwarding |
+| @__lambda | 0 | 0 | YES | 2 borrows | N/A |
+| @partial_0_drop | 0 | 1+free | TEARDOWN | N/A | consumes env |
+| @partial_1 | 0 | 0 | YES | 1 forward | N/A |
 
-**Verdict**: All functions balanced. No leaks detected. The closure env is allocated in `@check_capture` (RC=1), used via `@partial_1`, and decremented in `@check_capture`'s cleanup. The drop function `@partial_0_drop` handles the env's contents (the captured str). Excellent borrow elision in the lambda body: both the captured `prefix` and the parameter `s` are borrowed (passed by pointer), avoiding unnecessary rc_inc/rc_dec pairs. [NOTE-2]
-
-The SSO guard pattern is correct: both "hello" and "world" are 5 bytes (well under the 23-byte SSO threshold), so the bit-63 check will always skip RC for these strings. The guard is still necessary for correctness with longer strings.
-
-**Comparison to prior run**: The old IR had `ori_rc_dec(i64 %1, ...)` (type error -- i64 instead of ptr) and a phantom `_ori_drop$202` for an unresolved type variable. Both are eliminated.
+**Verdict**: ARC is correctly balanced across the closure lifecycle. `check_capture` allocates the
+env (+1) and creates two strings (+2), then drops the "world" string (-1) and the closure env (-1).
+The "hello" string ownership is transferred into the closure env and released by `partial_0_drop`.
+The lambda borrows both strings (no RC ops) -- excellent borrow elision. [NOTE-2]
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | noalias | readonly | cold | noundef | Notes |
-|----------|--------|----------|---------|----------|------|---------|-------|
-| @check_capture | YES | YES | N/A | N/A | NO | YES | |
-| @_ori_main | NO (C ABI) | NO | N/A | N/A | NO | YES | [LOW-3] |
-| @__lambda | YES | YES | N/A | N/A | NO | YES | nonnull+deref on ptrs |
-| @partial_0_drop | N/A | YES | N/A | N/A | YES | YES | cold is correct |
-| @partial_1 | N/A | YES | N/A | N/A | NO | YES | |
-| @main (C entry) | N/A | NO | N/A | N/A | NO | YES | entry point |
+| Function | fastcc | nounwind | noalias | noundef | cold | Notes |
+|----------|--------|----------|---------|---------|------|-------|
+| @check_capture | YES | YES | N/A | YES | NO | |
+| @main | NO (C) | YES | N/A | YES | NO | C ABI (entry) |
+| @__lambda | YES | YES | N/A | YES | NO | nonnull+deref on params |
+| @partial_0_drop | N/A | YES | N/A | YES | YES | Drop fn, correctly cold |
+| @partial_1 | N/A | YES | N/A | YES | NO | Shim, correctly not cold |
+| @_ori_drop$3 | N/A | YES | N/A | YES | YES | str drop, correctly cold |
 
-95.2% attribute compliance. `@_ori_main` missing `nounwind` is the only gap. The `cold` attribute on `@partial_0_drop` is appropriate since drop functions execute infrequently. The lambda parameters correctly carry `nonnull dereferenceable(24)` attributes, enabling LLVM to optimize pointer dereferences without null checks.
-
-**Improvement vs prior run**: The lambda now has `nounwind` (previously missing because the broken codegen prevented nounwind analysis from completing).
+All 21 applicable attribute checks pass. The `cold` attribute on drop functions is correct --
+drop paths are infrequent. The `nonnull dereferenceable(24)` on lambda parameters correctly
+indicates the str triple layout. 100% compliance. [NOTE-3]
 
 ### 4. Control Flow & Block Layout
 
 | Function | Blocks | Empty Blocks | Redundant Branches | Phi Nodes | Notes |
 |----------|--------|-------------|-------------------|-----------|-------|
-| @check_capture | 5 | 0 | 0 | 0 | SSO guard + null guard |
+| @check_capture | 5 | 0 | 0 | 0 | SSO + null check blocks |
 | @main | 1 | 0 | 0 | 0 | |
-| @__lambda | 3 | 0 | 0 | 0 | overflow check |
-| @partial_0_drop | 1 | 0 | 0 | 0 | |
+| @__lambda | 3 | 0 | 0 | 0 | Overflow check |
+| @partial_0_drop | 1 | 0 | 0 | 0 | Branchless via select |
 | @partial_1 | 1 | 0 | 0 | 0 | |
 
-Control flow is clean. The 5-block structure in `@check_capture` is the minimum: entry (bb0), str RC heap path (rc_dec.heap), SSO skip merge (rc_dec.sso_skip), env RC do path (rc_dec.do), and final return (rc_dec.skip). No empty blocks or redundant branches.
-
-**Improvement vs prior run**: The lambda went from 6 blocks (with SSO guard blocks inside the lambda) to 3 blocks (just the overflow check). The borrow elision eliminates all RC cleanup blocks from the lambda body.
+The 5-block structure in `check_capture` is clean: `bb0` (main path) branches on SSO check to
+`rc_dec.heap` or `rc_dec.sso_skip`, then `sso_skip` branches on env null check to `rc_dec.do`
+or `rc_dec.skip` (return). No empty blocks, no redundant branches. The `partial_0_drop` uses
+a `select` instruction for branchless SSO handling -- more efficient than branching.
 
 ### 5. Overflow Checking
 
@@ -590,73 +520,113 @@ Control flow is clean. The 5-block structure in `@check_capture` is the minimum:
 
 | Operation | Checked | Correct | Notes |
 |-----------|---------|---------|-------|
-| add (str lengths) | YES | YES | `llvm.sadd.with.overflow.i64` with both operands correct |
+| add (str lengths) | YES | YES | Uses llvm.sadd.with.overflow.i64 |
 
-**Improvement vs prior run**: The addition now correctly uses both `ori_str_len` results as operands. Previously, the second operand was `i64 0` (because `s.length()` was never called due to the unresolved type).
+The addition of two string lengths uses checked overflow. While string lengths cannot
+realistically overflow i64, this is correct safety behavior.
 
 ### 6. Binary Analysis
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.33 MiB (debug) |
+| Binary size | 6.32 MiB (debug) |
 | .text section | 885 KiB |
 | .rodata section | 134 KiB |
-| User code | ~324 bytes (6 functions) |
+| User code | ~350 bytes (6 functions) |
 | Runtime | >99% of binary |
 
-**Improvement vs prior run**: Binary now compiles successfully (was N/A due to LLVM IR verification failure).
+#### Disassembly: @check_capture
 
-#### Disassembly: @__lambda_check_capture_0 (16 native instructions)
+```asm
+_ori_check_capture:
+  sub    $0x98,%rsp
+  lea    str(%rip),%rsi
+  lea    0x68(%rsp),%rdi
+  mov    $0x5,%edx
+  mov    %rdx,0x20(%rsp)
+  call   ori_str_from_raw
+  mov    0x68(%rsp),%rax
+  mov    %rax,0x18(%rsp)
+  mov    0x70(%rsp),%rax
+  mov    %rax,0x10(%rsp)
+  mov    0x78(%rsp),%rax
+  mov    %rax,0x8(%rsp)
+  mov    $0x20,%edi
+  mov    $0x8,%esi
+  call   ori_rc_alloc
+  mov    0x8(%rsp),%rdi
+  mov    0x10(%rsp),%rsi
+  mov    0x18(%rsp),%rcx
+  mov    0x20(%rsp),%rdx
+  mov    %rax,0x38(%rsp)
+  lea    _ori_partial_0_drop(%rip),%r8
+  mov    %r8,(%rax)
+  mov    %rdi,0x18(%rax)
+  mov    %rsi,0x10(%rax)
+  mov    %rcx,0x8(%rax)
+  lea    _ori_partial_1(%rip),%rcx
+  mov    %rcx,0x30(%rsp)
+  mov    %rax,0x28(%rsp)
+  lea    str.1(%rip),%rsi
+  lea    0x80(%rsp),%rdi
+  call   ori_str_from_raw
+  ; ... indirect call, SSO dec, env dec, ret
+```
+
+#### Disassembly: @__lambda_check_capture_0
 
 ```asm
 _ori___lambda_check_capture_0:
   sub    $0x18,%rsp
   mov    %rsi,(%rsp)
-  call   ori_str_len                 ; prefix.length() = 5
+  call   ori_str_len
   mov    (%rsp),%rdi
   mov    %rax,0x8(%rsp)
-  call   ori_str_len                 ; s.length() = 5
-  add    %rcx,%rax                   ; 5 + 5 = 10
-  jo     .overflow_panic
+  call   ori_str_len
+  mov    %rax,%rcx
+  mov    0x8(%rsp),%rax
+  add    %rcx,%rax
+  seto   %al
+  jo     .panic
+  mov    0x10(%rsp),%rax
+  add    $0x18,%rsp
   ret
 ```
-
-Tight and correct: two `ori_str_len` calls, one checked `add`, return. No RC operations, no unnecessary register saves beyond callee-save spill.
-
-#### Disassembly: @partial_1 (4 native instructions)
-
-```asm
-_ori_partial_1:
-  push   %rax
-  add    $0x8,%rdi                   ; GEP past drop_fn to capture[0]
-  call   _ori___lambda_check_capture_0
-  ret
-```
-
-Minimal thunk: single `add` for the GEP, then tail call. This is the theoretical minimum for a partial application forwarder.
 
 ### 7. Optimal IR Comparison
 
 #### @check_capture: Ideal vs Actual
 
 ```llvm
-; IDEAL (34 instructions)
-; Must: create 2 strings (ori_str_from_raw), alloc env (ori_rc_alloc),
-; store drop_fn + capture, create {fn_ptr, env_ptr} pair, call closure,
-; SSO-guarded str RC cleanup, null-guarded env RC cleanup, return.
-; All 34 instructions justified.
+; IDEAL (34 instructions — same as actual)
+; The actual IR is essentially ideal for this function. Every instruction serves a purpose:
+; - 2 str_from_raw calls (creating "hello" and "world")
+; - 1 rc_alloc (closure env)
+; - 3 GEP/store (drop_fn + captured str into env)
+; - 1 insertvalue (partial_apply pair)
+; - 1 indirect call
+; - 7 instructions for SSO-aware str RC dec
+; - 5 instructions for closure env RC dec
+; - 2 loads, 2 stores, 1 alloca for str passing
+; - 1 extractvalue + 1 ret
 ```
 
-**Delta**: +0 instructions. OPTIMAL.
+```llvm
+; ACTUAL — see Generated LLVM IR above (34 instructions)
+```
+
+**Delta**: +0 instructions
 
 #### @__lambda_check_capture_0: Ideal vs Actual
 
 ```llvm
-; IDEAL (9 instructions, without dead loads)
-define fastcc noundef i64 @_ori___lambda_check_capture_0(ptr %0, ptr %1) nounwind {
+; IDEAL (9 instructions)
+define fastcc noundef i64 @_ori___lambda_check_capture_0(
+    ptr noundef nonnull dereferenceable(24) %0,
+    ptr noundef nonnull dereferenceable(24) %1) nounwind {
   %str.len = call i64 @ori_str_len(ptr %0)
-  %str.len2 = call i64 @ori_str_len(ptr %1)
-  %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %str.len, i64 %str.len2)
+  %str.len1 = call i64 @ori_str_len(ptr %1)
+  %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %str.len, i64 %str.len1)
   %add.val = extractvalue { i64, i1 } %add, 0
   %add.ovf = extractvalue { i64, i1 } %add, 1
   br i1 %add.ovf, label %add.ovf_panic, label %add.ok
@@ -669,25 +639,30 @@ add.ovf_panic:
 ```
 
 ```llvm
-; ACTUAL (11 instructions — 2 dead loads)
-; Includes %param.load and %param.load1 which load full {i64, i64, ptr}
-; structs but are never referenced. LLVM DCE will eliminate them.
+; ACTUAL (10 instructions — +1 dead load)
+; Includes: %param.load = load { i64, i64, ptr }, ptr %1, align 8  (DEAD)
+; Remaining 9 instructions identical to ideal
 ```
 
-**Delta**: +2 instructions (dead loads, pre-optimization). Counted as justified since LLVM's optimizer handles DCE.
+**Delta**: +1 instruction (dead `param.load` -- not harmful, removed by LLVM opt)
+
+#### @partial_0_drop: Ideal vs Actual
+
+```llvm
+; IDEAL (12 instructions — same as actual)
+; SSO-check + select + unconditional rc_dec + rc_free is correct and tight
+```
+
+**Delta**: +0 instructions
 
 #### @partial_1: Ideal vs Actual
 
 ```llvm
-; IDEAL (3 instructions)
-define noundef i64 @_ori_partial_1(ptr %0, ptr %1) nounwind {
-  %cap.0.ptr = getelementptr inbounds nuw { ptr, { i64, i64, ptr } }, ptr %0, i32 0, i32 1
-  %result = call fastcc i64 @_ori___lambda_check_capture_0(ptr %cap.0.ptr, ptr %1)
-  ret i64 %result
-}
+; IDEAL (3 instructions — same as actual)
+; GEP + call + ret — minimal forwarding shim
 ```
 
-**Delta**: +0 instructions. OPTIMAL.
+**Delta**: +0 instructions
 
 #### Module Summary
 
@@ -695,102 +670,94 @@ define noundef i64 @_ori_partial_1(ptr %0, ptr %1) nounwind {
 |----------|-------|--------|-------|-----------|---------|
 | @check_capture | 34 | 34 | +0 | N/A | OPTIMAL |
 | @main | 2 | 2 | +0 | N/A | OPTIMAL |
-| @__lambda | 9 | 11 | +2 | YES (pre-opt dead loads) | OPTIMAL |
+| @__lambda | 9 | 10 | +1 | NO (dead load) | NEAR-OPTIMAL |
 | @partial_0_drop | 12 | 12 | +0 | N/A | OPTIMAL |
 | @partial_1 | 3 | 3 | +0 | N/A | OPTIMAL |
 
-### 8. Closures: Fat Pointer Capture Representation
+### 8. Closures: Fat Pointer Capture
 
-The closure environment layout for a single str capture is:
+The closure captures `prefix: str`, a fat pointer represented as `{ i64, i64, ptr }` (len, cap,
+data_ptr). The capture flow is:
 
-```text
-Env (32 bytes, align 8):
-  offset 0:  ptr   drop_fn        ; -> @_ori_partial_0_drop
-  offset 8:  i64   str.len        ; captured "hello" length component
-  offset 16: i64   str.cap        ; captured "hello" capacity component
-  offset 24: ptr   str.data_ptr   ; captured "hello" data (SSO-tagged)
-```
+1. **Create string**: `ori_str_from_raw` writes the str triple to stack via sret
+2. **Allocate env**: `ori_rc_alloc(32, 8)` -- 8 bytes for drop_fn + 24 bytes for str triple
+3. **Store drop_fn**: GEP to field 0, store `@_ori_partial_0_drop`
+4. **Store captured str**: GEP to field 1, store the full `{ i64, i64, ptr }` triple
+5. **Create pair**: `insertvalue` builds `{ fn_ptr, env_ptr }`
 
-This is the minimum layout: 8 bytes for the drop function pointer (required for polymorphic env cleanup via `ori_rc_dec`) plus 24 bytes for the `{i64, i64, ptr}` str fat pointer. The `@partial_1` thunk uses a single `getelementptr ... i32 0, i32 1` to skip past the drop_fn and point directly at the captured str, which is then passed to the lambda as a borrowed pointer.
+The env layout `{ ptr, { i64, i64, ptr } }` is clean -- drop_fn at offset 0 (consistent
+convention), captured data immediately following. The 32-byte allocation is exactly right:
+8 (drop_fn) + 8 (len) + 8 (cap) + 8 (data_ptr) = 32.
 
-The closure pair representation `{ptr fn_ptr, ptr env_ptr}` is the same as J5 (closures with int capture), confirming that the closure ABI is uniform regardless of capture type. The difference is in the env size (32 bytes for str vs 16 bytes for int) and the drop function complexity (SSO-aware str cleanup vs trivial int cleanup).
+### 9. Closures: SSO-Aware Cleanup
 
-**Key fix**: In the prior run, the lambda parameter `s` was typed as `i64` (unresolved type variable), causing the partial application thunk to pass `i64` instead of `ptr`. Now both parameters are correctly typed as `ptr nonnull dereferenceable(24)`, and the partial thunk passes both as `ptr`.
+Both `check_capture` and `partial_0_drop` perform SSO-aware RC dec on strings, but use
+different strategies:
 
-### 9. Closures: SSO-Aware Drop Safety
+- **check_capture** (for "world" str): Uses a **branch** -- checks SSO flag and null, branches
+  to either `rc_dec.heap` or `rc_dec.sso_skip`. Skips the `ori_rc_dec` call entirely for SSO.
 
-The drop function `@_ori_partial_0_drop` demonstrates correct SSO-aware cleanup:
+- **partial_0_drop** (for captured "hello" str): Uses a **select** -- `select i1 %skip, ptr null,
+  ptr %data` to conditionally null out the pointer, then always calls `ori_rc_dec`. The runtime
+  handles null gracefully.
 
-1. **Load captured str**: GEP to offset 8, single `load {i64, i64, ptr}` (improved from field-by-field GEP+load in prior run)
-2. **Extract data ptr**: `extractvalue ... 2` gets the ptr field
-3. **SSO discrimination**: `ptrtoint` + `and` with bit 63 mask + `icmp ne` (SSO flag set?)
-4. **Null check**: `icmp eq` with 0 (empty string?)
-5. **Combined guard**: `or` of SSO and null checks
-6. **Conditional RC**: `select` between null and data_ptr, then unconditional `ori_rc_dec`
-7. **Free env**: `ori_rc_free(ptr, 32, 8)` -- deallocates the 32-byte environment
+Both strategies are correct. The branch approach saves a function call for SSO strings; the select
+approach is branchless but always pays the call overhead. For cold drop paths (marked `cold`),
+the select approach is acceptable. For hot paths, the branch approach is marginally better.
 
-The `select`-based pattern (vs the branch-based pattern in `@check_capture`) avoids a branch on the cold drop path. The `ori_rc_dec` with a null pointer is a no-op, so the select safely handles SSO strings.
+### 10. Closures: Calling Convention
 
-### 10. Closures: Borrow Elision in Lambda Body
+The indirect call convention is well-designed:
 
-The lambda `@__lambda_check_capture_0` takes both parameters as `ptr nonnull dereferenceable(24)` and performs zero RC operations. This is correct borrow elision:
+- **partial_1** (forwarding shim): Receives `(env_ptr, arg_ptr)`, GEPs past the drop_fn to the
+  captured str pointer, calls the lambda with `(captured_str_ptr, arg_ptr)`. This is a 3-instruction
+  shim -- minimal overhead.
 
-- The captured `prefix` is owned by the env (RC managed by `check_capture`'s cleanup path)
-- The parameter `s` is owned by the caller (RC managed by `check_capture`'s str cleanup path)
-- The lambda only reads via `ori_str_len(ptr)`, which is a pure read operation
+- **Lambda**: Takes two `ptr` parameters (both `nonnull dereferenceable(24)`), calls `ori_str_len`
+  on each. The lambda borrows both strings -- no RC ops needed.
 
-This means the entire lambda body is RC-free: two function calls, one checked add, and a return. This is excellent codegen for a closure that works with two fat pointer arguments. [NOTE-2]
-
-**Comparison to prior run**: The old lambda had 2 `ori_rc_dec` calls inside it (one correct for the captured str, one broken with `i64` for the parameter). The fix simultaneously resolved the type error AND enabled borrow elision, eliminating both RC calls.
+- **Argument passing**: The "world" string is passed by pointer via `icall.arg.tmp` alloca. This
+  avoids the aggregate-by-value issue that can cause problems with LLVM's FastISel in JIT mode.
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | IR Quality | Dead loads in lambda body (pre-optimization) | NEW | J17 |
-| 2 | NOTE | ARC | Excellent borrow elision for both captured and parameter str | NEW | J17 |
-| 3 | LOW | Attributes | Missing nounwind on @_ori_main | CONFIRMED | J1 |
-| 4 | NOTE | Closures | Uniform closure ABI works correctly with fat pointer captures | NEW | J17 |
-| 5 | NOTE | Bug Status | C17 Idx leak bug (closure capturing str) FIXED -- score 3.0 -> 9.9 | FIXED | J17 |
+| 1 | LOW | IR Quality | Dead `param.load` in lambda | NEW | J17 |
+| 2 | NOTE | ARC | Excellent borrow elision on lambda parameters | NEW | J17 |
+| 3 | NOTE | Attributes | 100% attribute compliance, correct cold on drop fns | NEW | J17 |
+| 4 | NOTE | Closures | Clean env layout, correct SSO-aware cleanup | NEW | J17 |
 
-### LOW-1: Dead loads in lambda body
+### LOW-1: Dead `param.load` in lambda
 
-**Location**: `@_ori___lambda_check_capture_0`, instructions `%param.load` and `%param.load1`
-**Impact**: 2 unnecessary load instructions in pre-optimization IR (LLVM DCE removes them)
-**Fix**: Skip full struct load when only ptr-based runtime calls are needed
+**Location**: `@_ori___lambda_check_capture_0`, first instruction
+**Impact**: 1 unnecessary 24-byte load in debug mode; removed by LLVM optimization passes
+**Fix**: Skip emitting the parameter load when the aggregate value is not needed (only pointer used)
 **First seen**: Journey 17
 **Found in**: Instruction Purity (Category 1), Optimal IR Comparison (Category 7)
 
-### NOTE-2: Excellent borrow elision on fat pointer parameters
+### NOTE-2: Excellent borrow elision on lambda parameters
 
-**Location**: `@_ori___lambda_check_capture_0` -- zero RC ops on either str parameter
-**Impact**: Positive. The lambda body is completely RC-free despite operating on two fat pointer strings. Both the captured prefix (owned by env) and the parameter s (owned by caller) are correctly borrowed.
-**Found in**: ARC Purity (Category 2), Closures: Borrow Elision (Category 10)
+**Location**: `@_ori___lambda_check_capture_0`
+**Impact**: Positive -- both the captured `prefix` and the parameter `s` are borrowed (passed by
+pointer), avoiding 2 rc_inc + 2 rc_dec operations per call. The str data is never copied.
+**Found in**: ARC Purity (Category 2)
 
-### LOW-3: Missing nounwind on @_ori_main
+### NOTE-3: 100% attribute compliance
 
-**Location**: `@_ori_main` function declaration
-**Impact**: LLVM generates unnecessary exception handling tables for the entry wrapper
-**Fix**: Add `nounwind` attribute (the function only calls `@check_capture` which is already nounwind)
-**First seen**: Journey 1
+**Location**: All functions
+**Impact**: Positive -- `nounwind` on all user functions, `cold` on drop paths, `noundef` on
+return values, `nonnull dereferenceable(24)` on str parameters, `fastcc` on internal functions,
+C calling convention on `main` and closure shims (required for indirect calls).
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-4: Uniform closure ABI with fat pointer captures
+### NOTE-4: Clean closure environment design
 
-**Location**: Entire closure infrastructure (`check_capture`, `partial_1`, `partial_0_drop`)
-**Impact**: Positive. The same `{fn_ptr, env_ptr}` representation and partial application pattern works correctly for fat pointer captures (str) as it does for scalar captures (int in J5). The env layout correctly accommodates the 24-byte str fat pointer with proper SSO-aware drop.
-**Found in**: Closures: Fat Pointer Capture Representation (Category 8)
-
-### NOTE-5: Bug C17 FIXED -- closure str capture now works
-
-**Location**: Previously affected closure capture of str values at codegen
-**Impact**: Previously CRITICAL -- unresolved type variable (Idx(202)) at codegen caused LLVM IR verification failure, AOT exit code 1, score 3.0. Now fully resolved: both eval and AOT produce correct result (10), score 9.9.
-**Prior symptoms** (all eliminated):
-- Lambda parameter typed as `i64` instead of `ptr` (fat pointer)
-- Missing `s.length()` call (addition used `0` as second operand)
-- `ori_rc_dec(i64, ptr)` type mismatch causing LLVM IR verification failure
-- Phantom `_ori_drop$202` for unresolved type variable
-**Found in**: Execution Results, all scrutiny categories
+**Location**: Closure env layout and lifecycle
+**Impact**: Positive -- env is exactly 32 bytes (no padding waste), drop_fn at offset 0 enables
+uniform cleanup, SSO-aware string cleanup prevents RC operations on small strings, ownership
+transfer of captured str eliminates redundant RC operations.
+**Found in**: Closures: Fat Pointer Capture (Category 8)
 
 ## Codegen Quality Score
 
@@ -798,27 +765,37 @@ This means the entire lambda body is RC-free: two function calls, one checked ad
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 9/10 | 95.2% compliance |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
-| Other Findings | 15% | 10/10 | No uncategorized findings |
+| Other Findings | 15% | 9/10 | 1 low |
 
-**Overall: 9.9 / 10**
+**Overall: 9.8 / 10**
 
 ## Verdict
 
-Journey 17 demonstrates a remarkable compiler improvement. The previously CRITICAL bug (C17 -- closure capturing str triggers Idx leak) has been fully resolved, lifting the score from 3.0 to 9.9. The codegen now correctly handles fat-pointer closure capture: the 24-byte str is stored in a heap-allocated environment, the partial application thunk correctly forwards via GEP, and the lambda body achieves complete borrow elision with zero RC operations. The only remaining gap is the recurring missing `nounwind` on `@_ori_main`. The fix also reduced total instruction count significantly (lambda: 31 -> 11, drop: 21 -> 12) by enabling aggregate loads and eliminating unnecessary RC cleanup in the lambda body.
+Journey 17's fat-pointer closure capture produces near-perfect codegen. The closure environment
+layout is tight (32 bytes, zero padding), ownership transfer of the captured string into the
+environment is correct, and the lambda achieves full borrow elision on both parameters. SSO-aware
+RC dec sequences correctly handle small string optimization. The only blemish is a dead
+`param.load` instruction in the lambda body, which LLVM optimization will eliminate. This journey
+validates that the compiler correctly handles fat pointer capture -- a critical feature intersection
+that previously caused crashes (see CLAUDE.md fat pointer bugs).
 
 ## Cross-Journey Observations
 
 | Feature | First Tested | This Journey | Status |
 |---------|-------------|--------------|--------|
-| Closure {fn_ptr, env_ptr} representation | J5 | J17 | CONFIRMED (works with fat pointers) |
-| SSO guard (bit 63 discrimination) | J9 | J17 | CONFIRMED (in closure env drop) |
-| Fat pointer ARC lifecycle | J14 | J17 | CONFIRMED (captured in closure env) |
-| Missing nounwind on @_ori_main | J1 | J17 | CONFIRMED |
-| Borrow elision on str parameters | J14 | J17 | CONFIRMED (inside lambda body) |
-| String .length() via ori_str_len | J9 | J17 | FIXED (now works when str captured in closure) |
+| Closure capture | J5 | J17 | CONFIRMED |
+| fastcc on internal fns | J1 | J17 | CONFIRMED |
+| nounwind on user fns | J5 | J17 | FIXED (was missing in J1) |
+| Overflow checking | J1 | J17 | CONFIRMED |
+| SSO-aware RC dec | N/A | J17 | NEW |
+| Fat pointer in closures | N/A | J17 | NEW |
 
-This journey validates the intersection of two previously-tested features (closures from J5 and fat pointers from J14). The prior run (2026-03-16) demonstrated a classic cross-feature interaction bug -- str works in direct use (J9) and closures work with scalar capture (J5), but the combination failed. That bug is now resolved, and the codegen quality at the intersection is excellent.
+Journey 5 captured an `int` (scalar) -- no ARC needed for the capture. Journey 17 captures a
+`str` (fat pointer) -- requiring heap allocation for the environment, ownership transfer, and
+SSO-aware cleanup. This is a significant step up in complexity, and the codegen handles it
+correctly. The previous compiler bug (unresolved type variable at codegen for closure-captured str)
+noted in the source file header has been fixed.

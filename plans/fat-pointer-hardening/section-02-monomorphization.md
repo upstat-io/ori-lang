@@ -1,11 +1,11 @@
 ---
 section: "02"
 title: "Monomorphization of Captured Types"
-status: in-progress
+status: complete
 goal: "Closures capturing any non-scalar type (str, [T], structs, closures) compile correctly in AOT with fully resolved types"
 depends_on: []
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-20
 sections:
   - id: "02.1"
@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "02.N"
     title: "Completion Checklist"
     status: complete
@@ -124,7 +124,8 @@ The fix must work for ALL non-scalar capture types, not just `str`:
 
 ## 02.R Third Party Review Findings
 
-- [ ] `[TPR-02-001][medium]` `compiler/ori_llvm/tests/aot/higher_order.rs:792` — The new nested-closure RC matrix still misses the borrowed-parameter re-capture path that the ownership-plumbing change explicitly claims to handle.
+- [x] `[TPR-02-001][medium]` `compiler/ori_llvm/tests/aot/higher_order.rs:792` — The new nested-closure RC matrix still misses the borrowed-parameter re-capture path that the ownership-plumbing change explicitly claims to handle.
+  Resolved: Validated and integrated on 2026-03-20. Added `test_nested_closure_borrowed_str_param` and `test_nested_closure_borrowed_list_param` as permanent regression tests covering nested re-capture of borrowed fat parameters (str + [int]). Both pass debug/release, leak-check clean.
   Evidence: The new tests at `higher_order.rs:792-889` cover nested re-capture of local fat values (`str`, `[int]`, closure, multi-capture, triple nest), but none exercise a nested closure re-capturing a fat value that entered the outer function as a borrowed parameter. The new code and comments in `define_phase.rs:400-411`, `context.rs:254-260`, and `closures.rs:86-98,154-157` introduce `lambda_capture_ownership` specifically for borrowed-vs-owned capture handling. I verified the missing matrix cell ad hoc on 2026-03-20 with `/tmp/review_nested_borrowed_param.ori`; it passed under both `target/debug/ori` and `target/release/ori` with `ORI_CHECK_LEAKS=1`, so this is a coverage gap rather than a live failure.
   Impact: This branch changed ownership-sensitive closure code without landing a permanent semantic pin for the exact borrowed nested-capture path it reasons about. A future regression in that path would not be caught by the committed higher-order matrix, violating the matrix-testing requirements in `CLAUDE.md` and `.claude/rules/tests.md`.
   Required plan update: Add a committed AOT regression test for nested closure re-capture of a borrowed fat parameter (at minimum `str`, ideally one additional RC-managed type) and count it in Section 02.4 / 02.N verification instead of relying on ad hoc validation.
