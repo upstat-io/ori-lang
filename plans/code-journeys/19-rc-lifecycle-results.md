@@ -625,43 +625,205 @@ bb0:
   %sret.load2 = load { i64, i64, ptr }, ptr %sret.tmp1, align 8
   %ctor.0 = insertvalue %ori.Nested undef, %ori.Container %sret.load, 0
   %ctor.1 = insertvalue %ori.Nested %ctor.0, { i64, i64, ptr } %sret.load2, 1
-  ; --- RC inc for nested.inner sharing (extract_and_use borrows) ---
   %rc_inc.f.0 = extractvalue %ori.Nested %ctor.1, 0
   %rc_inc.f.03 = extractvalue %ori.Container %rc_inc.f.0, 0
   %rc_inc.data = extractvalue { i64, i64, ptr } %rc_inc.f.03, 2
   %rc_inc.cap = extractvalue { i64, i64, ptr } %rc_inc.f.03, 1
   call void @ori_list_rc_inc(ptr %rc_inc.data, i64 %rc_inc.cap)
-  ; --- SSO-aware RC inc for Container.name str field ---
   %rc_inc.f.1 = extractvalue %ori.Container %rc_inc.f.0, 1
   %rc_inc.data4 = extractvalue { i64, i64, ptr } %rc_inc.f.1, 2
-  ; ... SSO check: ptrtoint, and with 0x8000000000000000, icmp ne ...
-  ; ... conditional ori_rc_inc if heap-allocated ...
-  ; --- SSO-aware RC inc for Nested.label str field ---
-  ; ... same SSO check pattern for label field ...
-  ; --- Call extract_and_use with nested.inner ---
+  %rc_inc.str.p2i = ptrtoint ptr %rc_inc.data4 to i64
+  %rc_inc.str.sso_flag = and i64 %rc_inc.str.p2i, -9223372036854775808
+  %rc_inc.str.is_sso = icmp ne i64 %rc_inc.str.sso_flag, 0
+  %rc_inc.str.is_null = icmp eq i64 %rc_inc.str.p2i, 0
+  %rc_inc.str.skip_rc = or i1 %rc_inc.str.is_sso, %rc_inc.str.is_null
+  br i1 %rc_inc.str.skip_rc, label %rc_inc.str_skip, label %rc_inc.str_heap
+
+rc_inc.str_heap:
+  call void @ori_rc_inc(ptr %rc_inc.data4)  ; RC++
+  br label %rc_inc.str_skip
+
+rc_inc.str_skip:
+  %rc_inc.f.15 = extractvalue %ori.Nested %ctor.1, 1
+  %rc_inc.data6 = extractvalue { i64, i64, ptr } %rc_inc.f.15, 2
+  %rc_inc.str.p2i9 = ptrtoint ptr %rc_inc.data6 to i64
+  %rc_inc.str.sso_flag10 = and i64 %rc_inc.str.p2i9, -9223372036854775808
+  %rc_inc.str.is_sso11 = icmp ne i64 %rc_inc.str.sso_flag10, 0
+  %rc_inc.str.is_null12 = icmp eq i64 %rc_inc.str.p2i9, 0
+  %rc_inc.str.skip_rc13 = or i1 %rc_inc.str.is_sso11, %rc_inc.str.is_null12
+  br i1 %rc_inc.str.skip_rc13, label %rc_inc.str_skip8, label %rc_inc.str_heap7
+
+rc_inc.str_heap7:
+  call void @ori_rc_inc(ptr %rc_inc.data6)  ; RC++
+  br label %rc_inc.str_skip8
+
+rc_inc.str_skip8:
   %proj.0 = extractvalue %ori.Nested %ctor.1, 0
   store %ori.Container %proj.0, ptr %ref_arg, align 8
   %call = call fastcc i64 @_ori_extract_and_use(ptr %ref_arg)
-  ; --- RC inc again for nested.inner.name access (second use) ---
-  ; ... ori_list_rc_inc + SSO check for name + SSO check for label ...
-  ; --- RC dec for first Container copy (scope cleanup) ---
-  ; ... ori_buffer_rc_dec for items + SSO ori_rc_dec for name ...
-  ; --- RC dec for Nested.label copy ---
-  ; ... SSO ori_rc_dec for label ...
-  ; --- Call ori_str_len for nested.label ---
+  %0 = extractvalue %ori.Nested %ctor.1, 0
+  %1 = extractvalue %ori.Container %0, 0
+  %2 = extractvalue { i64, i64, ptr } %1, 2
+  %3 = extractvalue { i64, i64, ptr } %1, 1
+  call void @ori_list_rc_inc(ptr %2, i64 %3)
+  %4 = extractvalue %ori.Container %0, 1
+  %5 = extractvalue { i64, i64, ptr } %4, 2
+  %6 = ptrtoint ptr %5 to i64
+  %7 = and i64 %6, -9223372036854775808
+  %8 = icmp ne i64 %7, 0
+  %9 = icmp eq i64 %6, 0
+  %10 = or i1 %8, %9
+  br i1 %10, label %rc_inc.str_skip21, label %rc_inc.str_heap20
+
+rc_inc.str_heap20:
+  call void @ori_rc_inc(ptr %5)  ; RC++
+  br label %rc_inc.str_skip21
+
+rc_inc.str_skip21:
+  %rc_inc.f.127 = extractvalue %ori.Nested %ctor.1, 1
+  %rc_inc.data28 = extractvalue { i64, i64, ptr } %rc_inc.f.127, 2
+  %rc_inc.str.p2i31 = ptrtoint ptr %rc_inc.data28 to i64
+  %rc_inc.str.sso_flag32 = and i64 %rc_inc.str.p2i31, -9223372036854775808
+  %rc_inc.str.is_sso33 = icmp ne i64 %rc_inc.str.sso_flag32, 0
+  %rc_inc.str.is_null34 = icmp eq i64 %rc_inc.str.p2i31, 0
+  %rc_inc.str.skip_rc35 = or i1 %rc_inc.str.is_sso33, %rc_inc.str.is_null34
+  br i1 %rc_inc.str.skip_rc35, label %rc_inc.str_skip30, label %rc_inc.str_heap29
+
+rc_inc.str_heap29:
+  call void @ori_rc_inc(ptr %rc_inc.data28)  ; RC++
+  br label %rc_inc.str_skip30
+
+rc_inc.str_skip30:
+  %proj.1 = extractvalue %ori.Nested %ctor.1, 1
+  %rc_dec.f.0 = extractvalue %ori.Nested %ctor.1, 0
+  %rc_dec.f.036 = extractvalue %ori.Container %rc_dec.f.0, 0
+  %rc.data_ptr = extractvalue { i64, i64, ptr } %rc_dec.f.036, 2
+  %rc.len = extractvalue { i64, i64, ptr } %rc_dec.f.036, 0
+  %rc.cap = extractvalue { i64, i64, ptr } %rc_dec.f.036, 1
+  call void @ori_buffer_rc_dec(ptr %rc.data_ptr, i64 %rc.len, i64 %rc.cap, i64 8, ptr null)
+  %rc_dec.f.1 = extractvalue %ori.Container %rc_dec.f.0, 1
+  %rc_dec.data = extractvalue { i64, i64, ptr } %rc_dec.f.1, 2
+  %rc_dec.str.p2i = ptrtoint ptr %rc_dec.data to i64
+  %rc_dec.str.sso_flag = and i64 %rc_dec.str.p2i, -9223372036854775808
+  %rc_dec.str.is_sso = icmp ne i64 %rc_dec.str.sso_flag, 0
+  %rc_dec.str.is_null = icmp eq i64 %rc_dec.str.p2i, 0
+  %rc_dec.str.skip_rc = or i1 %rc_dec.str.is_sso, %rc_dec.str.is_null
+  br i1 %rc_dec.str.skip_rc, label %rc_dec.str_skip, label %rc_dec.str_heap
+
+rc_dec.str_heap:
+  call void @ori_rc_dec(ptr %rc_dec.data, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.str_skip
+
+rc_dec.str_skip:
+  %rc_dec.f.137 = extractvalue %ori.Nested %ctor.1, 1
+  %rc_dec.data38 = extractvalue { i64, i64, ptr } %rc_dec.f.137, 2
+  %rc_dec.str.p2i41 = ptrtoint ptr %rc_dec.data38 to i64
+  %rc_dec.str.sso_flag42 = and i64 %rc_dec.str.p2i41, -9223372036854775808
+  %rc_dec.str.is_sso43 = icmp ne i64 %rc_dec.str.sso_flag42, 0
+  %rc_dec.str.is_null44 = icmp eq i64 %rc_dec.str.p2i41, 0
+  %rc_dec.str.skip_rc45 = or i1 %rc_dec.str.is_sso43, %rc_dec.str.is_null44
+  br i1 %rc_dec.str.skip_rc45, label %rc_dec.str_skip40, label %rc_dec.str_heap39
+
+rc_dec.str_heap39:
+  call void @ori_rc_dec(ptr %rc_dec.data38, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.str_skip40
+
+rc_dec.str_skip40:
   store { i64, i64, ptr } %proj.1, ptr %str_len.self, align 8
   %str.len = call i64 @ori_str_len(ptr %str_len.self)
-  ; --- Add inner_sum + label_len ---
-  ; ... checked add with overflow ...
-  ; --- Final cleanup: rc_dec for all remaining nested fields ---
-  ; ... ori_buffer_rc_dec for items, SSO ori_rc_dec for name, SSO ori_rc_dec for label ...
-  ; ... ori_buffer_rc_dec for items (second copy), SSO ori_rc_dec for name, SSO ori_rc_dec for label ...
-  ; --- Call ori_str_len for nested.inner.name ---
+  %11 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %call, i64 %str.len)
+  %12 = extractvalue { i64, i1 } %11, 0
+  %13 = extractvalue { i64, i1 } %11, 1
+  br i1 %13, label %add.ovf_panic, label %add.ok
+
+add.ok:
+  %proj.046 = extractvalue %ori.Nested %ctor.1, 0
+  %proj.147 = extractvalue %ori.Container %proj.046, 1
+  %rc_dec.f.048 = extractvalue %ori.Nested %ctor.1, 0
+  %rc_dec.f.049 = extractvalue %ori.Container %rc_dec.f.048, 0
+  %rc.data_ptr50 = extractvalue { i64, i64, ptr } %rc_dec.f.049, 2
+  %rc.len51 = extractvalue { i64, i64, ptr } %rc_dec.f.049, 0
+  %rc.cap52 = extractvalue { i64, i64, ptr } %rc_dec.f.049, 1
+  call void @ori_buffer_rc_dec(ptr %rc.data_ptr50, i64 %rc.len51, i64 %rc.cap52, i64 8, ptr null)
+  %rc_dec.f.153 = extractvalue %ori.Container %rc_dec.f.048, 1
+  %rc_dec.data54 = extractvalue { i64, i64, ptr } %rc_dec.f.153, 2
+  %rc_dec.str.p2i57 = ptrtoint ptr %rc_dec.data54 to i64
+  %rc_dec.str.sso_flag58 = and i64 %rc_dec.str.p2i57, -9223372036854775808
+  %rc_dec.str.is_sso59 = icmp ne i64 %rc_dec.str.sso_flag58, 0
+  %rc_dec.str.is_null60 = icmp eq i64 %rc_dec.str.p2i57, 0
+  %rc_dec.str.skip_rc61 = or i1 %rc_dec.str.is_sso59, %rc_dec.str.is_null60
+  br i1 %rc_dec.str.skip_rc61, label %rc_dec.str_skip56, label %rc_dec.str_heap55
+
+add.ovf_panic:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
+
+rc_dec.str_heap55:
+  call void @ori_rc_dec(ptr %rc_dec.data54, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.str_skip56
+
+rc_dec.str_skip56:
+  %rc_dec.f.162 = extractvalue %ori.Nested %ctor.1, 1
+  %rc_dec.data63 = extractvalue { i64, i64, ptr } %rc_dec.f.162, 2
+  %rc_dec.str.p2i66 = ptrtoint ptr %rc_dec.data63 to i64
+  %rc_dec.str.sso_flag67 = and i64 %rc_dec.str.p2i66, -9223372036854775808
+  %rc_dec.str.is_sso68 = icmp ne i64 %rc_dec.str.sso_flag67, 0
+  %rc_dec.str.is_null69 = icmp eq i64 %rc_dec.str.p2i66, 0
+  %rc_dec.str.skip_rc70 = or i1 %rc_dec.str.is_sso68, %rc_dec.str.is_null69
+  br i1 %rc_dec.str.skip_rc70, label %rc_dec.str_skip65, label %rc_dec.str_heap64
+
+rc_dec.str_heap64:
+  call void @ori_rc_dec(ptr %rc_dec.data63, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.str_skip65
+
+rc_dec.str_skip65:
+  %rc_dec.f.071 = extractvalue %ori.Nested %ctor.1, 0
+  %rc_dec.f.072 = extractvalue %ori.Container %rc_dec.f.071, 0
+  %rc.data_ptr73 = extractvalue { i64, i64, ptr } %rc_dec.f.072, 2
+  %rc.len74 = extractvalue { i64, i64, ptr } %rc_dec.f.072, 0
+  %rc.cap75 = extractvalue { i64, i64, ptr } %rc_dec.f.072, 1
+  call void @ori_buffer_rc_dec(ptr %rc.data_ptr73, i64 %rc.len74, i64 %rc.cap75, i64 8, ptr null)
+  %rc_dec.f.176 = extractvalue %ori.Container %rc_dec.f.071, 1
+  %rc_dec.data77 = extractvalue { i64, i64, ptr } %rc_dec.f.176, 2
+  %rc_dec.str.p2i80 = ptrtoint ptr %rc_dec.data77 to i64
+  %rc_dec.str.sso_flag81 = and i64 %rc_dec.str.p2i80, -9223372036854775808
+  %rc_dec.str.is_sso82 = icmp ne i64 %rc_dec.str.sso_flag81, 0
+  %rc_dec.str.is_null83 = icmp eq i64 %rc_dec.str.p2i80, 0
+  %rc_dec.str.skip_rc84 = or i1 %rc_dec.str.is_sso82, %rc_dec.str.is_null83
+  br i1 %rc_dec.str.skip_rc84, label %rc_dec.str_skip79, label %rc_dec.str_heap78
+
+rc_dec.str_heap78:
+  call void @ori_rc_dec(ptr %rc_dec.data77, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.str_skip79
+
+rc_dec.str_skip79:
+  %rc_dec.f.185 = extractvalue %ori.Nested %ctor.1, 1
+  %rc_dec.data86 = extractvalue { i64, i64, ptr } %rc_dec.f.185, 2
+  %rc_dec.str.p2i89 = ptrtoint ptr %rc_dec.data86 to i64
+  %rc_dec.str.sso_flag90 = and i64 %rc_dec.str.p2i89, -9223372036854775808
+  %rc_dec.str.is_sso91 = icmp ne i64 %rc_dec.str.sso_flag90, 0
+  %rc_dec.str.is_null92 = icmp eq i64 %rc_dec.str.p2i89, 0
+  %rc_dec.str.skip_rc93 = or i1 %rc_dec.str.is_sso91, %rc_dec.str.is_null92
+  br i1 %rc_dec.str.skip_rc93, label %rc_dec.str_skip88, label %rc_dec.str_heap87
+
+rc_dec.str_heap87:
+  call void @ori_rc_dec(ptr %rc_dec.data86, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.str_skip88
+
+rc_dec.str_skip88:
   store { i64, i64, ptr } %proj.147, ptr %str_len.self94, align 8
   %str.len95 = call i64 @ori_str_len(ptr %str_len.self94)
-  ; --- Final add + return ---
+  %add96 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %12, i64 %str.len95)
   %add.val97 = extractvalue { i64, i1 } %add96, 0
+  %add.ovf98 = extractvalue { i64, i1 } %add96, 1
+  br i1 %add.ovf98, label %add.ovf_panic100, label %add.ok99
+
+add.ok99:
   ret i64 %add.val97
+
+add.ovf_panic100:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
 }
 
 ; Function Attrs: nounwind uwtable
@@ -675,47 +837,116 @@ bb0:
   %sret.load = load %ori.Container, ptr %sret.tmp, align 8
   store %ori.Container %sret.load, ptr %ref_arg, align 8
   %call1 = call fastcc i64 @_ori_extract_and_use(ptr %ref_arg)
-  ; --- RC dec for inline Container (items buffer + str name) ---
   %0 = extractvalue %ori.Container %sret.load, 0
   %1 = extractvalue { i64, i64, ptr } %0, 2
   %2 = extractvalue { i64, i64, ptr } %0, 0
   %3 = extractvalue { i64, i64, ptr } %0, 1
   call void @ori_buffer_rc_dec(ptr %1, i64 %2, i64 %3, i64 8, ptr null)
   %4 = extractvalue %ori.Container %sret.load, 1
-  ; ... SSO check + conditional ori_rc_dec for str ...
+  %5 = extractvalue { i64, i64, ptr } %4, 2
+  %6 = ptrtoint ptr %5 to i64
+  %7 = and i64 %6, -9223372036854775808
+  %8 = icmp ne i64 %7, 0
+  %9 = icmp eq i64 %6, 0
+  %10 = or i1 %8, %9
+  br i1 %10, label %rc_dec.str_skip, label %rc_dec.str_heap
+
+rc_dec.str_heap:
+  call void @ori_rc_dec(ptr %5, ptr @"_ori_drop$3")  ; RC-- str
+  br label %rc_dec.str_skip
+
+rc_dec.str_skip:
   %call2 = call fastcc i64 @_ori_pass_through_sum(i64 4)
   %call3 = call fastcc i64 @_ori_nested_containers()
-  ; --- Three checked adds: a + b + c + d ---
   %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %call, i64 %call1)
-  ; ... overflow check chain ...
+  %add.val = extractvalue { i64, i1 } %add, 0
+  %add.ovf = extractvalue { i64, i1 } %add, 1
+  br i1 %add.ovf, label %add.ovf_panic, label %add.ok
+
+add.ok:
+  %add4 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %add.val, i64 %call2)
+  %add.val5 = extractvalue { i64, i1 } %add4, 0
+  %add.ovf6 = extractvalue { i64, i1 } %add4, 1
+  br i1 %add.ovf6, label %add.ovf_panic8, label %add.ok7
+
+add.ovf_panic:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
+
+add.ok7:
+  %add9 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %add.val5, i64 %call3)
+  %add.val10 = extractvalue { i64, i1 } %add9, 0
+  %add.ovf11 = extractvalue { i64, i1 } %add9, 1
+  br i1 %add.ovf11, label %add.ovf_panic13, label %add.ok12
+
+add.ovf_panic8:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
+
+add.ok12:
   ret i64 %add.val10
+
+add.ovf_panic13:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
 }
 
-; --- Runtime declarations ---
+; Function Attrs: nounwind
 declare ptr @ori_iter_from_range(i64, i64, i64, i1) #1
-declare ptr @ori_list_new(i64, i64) #1
-declare i8 @ori_iter_next(ptr, ptr, i64) #1
-declare void @ori_iter_drop(ptr) #1
-declare void @ori_list_take(ptr, ptr) #1
-declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #1
-declare void @ori_list_push(ptr, ptr, i64) #1
-declare void @ori_list_rc_inc(ptr, i64) #4
-declare ptr @ori_iter_from_list(ptr, i64, i64, i64, ptr) #1
-declare void @ori_buffer_rc_dec(ptr, i64, i64, i64, ptr) #4
-declare void @ori_rc_free(ptr, i64, i64) #1
-declare void @ori_rc_dec(ptr, ptr) #4
-declare void @ori_rc_inc(ptr) #4
-declare i64 @ori_str_len(ptr) #1
-declare i32 @ori_check_leaks() #1
 
-; --- Drop glue ---
+; Function Attrs: nounwind
+declare ptr @ori_list_new(i64, i64) #1
+
+; Function Attrs: nounwind
+declare i8 @ori_iter_next(ptr, ptr, i64) #1
+
+; Function Attrs: nounwind
+declare void @ori_iter_drop(ptr) #1
+
+; Function Attrs: nounwind
+declare void @ori_list_take(ptr, ptr) #1
+
+; Function Attrs: nounwind
+declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #1
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
+
+; Function Attrs: cold noreturn
+declare void @ori_panic_cstr(ptr) #3
+
+; Function Attrs: nounwind
+declare void @ori_list_push(ptr, ptr, i64) #1
+
+; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
+declare void @ori_list_rc_inc(ptr, i64) #4
+
+; Function Attrs: nounwind
+declare ptr @ori_iter_from_list(ptr, i64, i64, i64, ptr) #1
+
+; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
+declare void @ori_buffer_rc_dec(ptr, i64, i64, i64, ptr) #4
+
+; Function Attrs: cold nounwind uwtable
 define void @"_ori_drop$3"(ptr noundef %0) #5 {
 entry:
   call void @ori_rc_free(ptr %0, i64 24, i64 8)
   ret void
 }
 
-; --- Entry point ---
+; Function Attrs: nounwind
+declare void @ori_rc_free(ptr, i64, i64) #1
+
+; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
+declare void @ori_rc_dec(ptr, ptr) #4
+
+; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
+declare void @ori_rc_inc(ptr) #4
+
+; Function Attrs: nounwind
+declare i64 @ori_str_len(ptr) #1
+
+; Function Attrs: nounwind uwtable
 define noundef i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
@@ -725,6 +956,9 @@ entry:
   %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
   ret i32 %final_exit
 }
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #1
 
 attributes #0 = { nounwind uwtable }
 attributes #1 = { nounwind }

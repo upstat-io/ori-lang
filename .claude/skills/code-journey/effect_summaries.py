@@ -151,6 +151,22 @@ RUNTIME_EFFECTS: dict[str, FunctionEffect] = {
 
     # --- Iterator consumers (consume input iterator, no new allocation) ---
     "ori_iter_drop": _eff(_N, [_M]),
+    # fold: (iter, init_ptr, fold_fn, fold_env, elem_size, acc_size, out_ptr) -- 7 params
+    "ori_iter_fold": _eff(_N, [_M, _B, _B, _N, _N, _N, _N]),
+    # collect: (iter, elem_size, out_ptr) -- 3 params, writes list struct to out_ptr
+    "ori_iter_collect": _eff(_N, [_M, _N, _N]),
+    # collect_set: (iter, elem_size, elem_eq, elem_hash, out_ptr) -- 5 params
+    "ori_iter_collect_set": _eff(_N, [_M, _N, _N, _N, _N]),
+    # count: (iter, elem_size) -- 2 params, returns i64
+    "ori_iter_count": _eff(_N, [_M, _N]),
+    # any: (iter, pred_fn, pred_env, elem_size) -- 4 params, returns i8
+    "ori_iter_any": _eff(_N, [_M, _B, _N, _N]),
+    # all: (iter, pred_fn, pred_env, elem_size) -- 4 params, returns i8
+    "ori_iter_all": _eff(_N, [_M, _B, _N, _N]),
+    # find: (iter, pred_fn, pred_env, elem_size, out_ptr) -- 5 params
+    "ori_iter_find": _eff(_N, [_M, _B, _N, _N, _N]),
+    # for_each: (iter, each_fn, each_env, elem_size) -- 4 params
+    "ori_iter_for_each": _eff(_N, [_M, _B, _N, _N]),
 
     # --- Catch/recover (returns OriStr) ---
     "ori_catch_recover": _eff(_P, [], alloc=True),

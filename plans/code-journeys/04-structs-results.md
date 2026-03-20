@@ -2,7 +2,7 @@
 journey: 4
 slug: structs
 theme: "I am a struct"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 57
 eval_result: 57

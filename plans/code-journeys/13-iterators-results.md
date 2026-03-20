@@ -2,7 +2,7 @@
 journey: 13
 slug: iterators
 theme: "I am an iterator"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 55
 eval_result: 55
@@ -200,14 +200,16 @@ Module
 > inserts reference counting operations. It performs borrow inference to minimize
 > RC overhead -- parameters that are only read can be borrowed rather than owned.
 
-**RC ops inserted**: 2 | **Elided**: 0 | **Net ops**: 2
+**RC ops inserted**: 6 | **Elided**: 0 | **Net ops**: 6
 
 <details>
 <summary>ARC annotations</summary>
 
 ```text
 @square: no heap values — pure scalar arithmetic
-@main: +1 rc_inc, +1 rc_dec (list buffer managed by iterator runtime)
+@main: +3 rc_inc (list_alloc_data +1, iter_from_list +1, iter_map +1),
+       -3 rc_dec (iter_from_list -1 consumes data, iter_map -1 consumes iter,
+                  iter_fold -1 consumes iter) — BALANCED
 @__lambda_main_0: no heap values — closure wrapper, scalar pass-through
 @__lambda_main_1: no heap values — pure scalar addition
 ```
@@ -253,14 +255,15 @@ Module
 
 #### ARC Pipeline
 
-**RC ops inserted**: 2 | **Elided**: 0 | **Net ops**: 2
+**RC ops inserted**: 6 | **Elided**: 0 | **Net ops**: 6
 
 <details>
 <summary>ARC annotations</summary>
 
 ```text
 @square: +0 rc_inc, +0 rc_dec (no heap values — pure scalar)
-@main: +1 rc_inc, +1 rc_dec (list buffer; iterator runtime manages lifecycle)
+@main: +3 rc_inc, +3 rc_dec (BALANCED — via runtime effect summaries:
+       alloc_data +1, iter_from_list +1/-1, iter_map +1/-1, iter_fold -1)
 @__lambda_main_0: +0 rc_inc, +0 rc_dec (non-capturing closure, scalar pass-through)
 @__lambda_main_1: +0 rc_inc, +0 rc_dec (non-capturing closure, scalar arithmetic)
 @tramp_0: +0 rc_inc, +0 rc_dec (trampoline — pointer forwarding only)
@@ -550,13 +553,13 @@ Every instruction across all six user functions is justified. `@square` and `@__
 | Function | rc_inc | rc_dec | Balanced | Borrow Elision | Move Semantics |
 |----------|--------|--------|----------|----------------|----------------|
 | @square | 0 | 0 | YES | N/A | N/A |
-| @main | 1 | 1 | YES | N/A | 1 move (list to iter) |
+| @main | 3 | 3 | YES | N/A | Ownership chain: alloc -> iter -> map -> fold |
 | @__lambda_main_0 | 0 | 0 | YES | N/A | N/A |
 | @__lambda_main_1 | 0 | 0 | YES | N/A | N/A |
 | @tramp_0 | 0 | 0 | YES | N/A | N/A |
 | @tramp_1 | 0 | 0 | YES | N/A | N/A |
 
-**Verdict**: All functions balanced. The list buffer is allocated in `@main` and ownership is transferred to the iterator runtime via `ori_iter_from_list`. The runtime handles cleanup when the iterator is consumed by `ori_iter_fold`. No scalar RC operations -- the only RC pair is for the list buffer, which is a heap-allocated collection. [NOTE-1]
+**Verdict**: All functions balanced. The ownership chain is: `ori_list_alloc_data` (+1) allocates the list buffer, `ori_iter_from_list` (+1/-1) takes ownership and creates an iterator, `ori_iter_map` (+1/-1) consumes the list iterator and creates a mapped iterator, `ori_iter_fold` (-1) consumes the mapped iterator and produces the final result. Total: 3 inc, 3 dec = perfectly balanced. No scalar RC operations. [NOTE-1]
 
 ### 3. Attributes & Calling Convention
 

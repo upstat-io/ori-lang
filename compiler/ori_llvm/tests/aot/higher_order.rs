@@ -887,3 +887,52 @@ fn test_triple_nested_closure_capture() {
         "triple_nested_closure_capture",
     );
 }
+
+/// Semantic pin: nested closure re-captures a borrowed `str` parameter.
+/// The outer function receives `s` as a parameter (borrowed), the outer closure
+/// captures it, and the inner closure re-captures it. This exercises the
+/// `lambda_capture_ownership` path for borrowed-vs-owned capture handling
+/// (`define_phase.rs`, `context.rs`, `closures.rs`).
+#[test]
+fn test_nested_closure_borrowed_str_param() {
+    assert_aot_success(
+        r#"
+@make_getter (s: str) -> () -> int = {
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    outer
+}
+
+@main () -> int = {
+    let $f = make_getter(s: "borrowed parameter string that is long enough for heap allocation");
+    if f() == 65 then 0 else 1
+}
+"#,
+        "nested_closure_borrowed_str_param",
+    );
+}
+
+/// Nested closure re-captures a borrowed `[int]` parameter — second RC-managed
+/// type through the same borrowed-parameter re-capture path.
+#[test]
+fn test_nested_closure_borrowed_list_param() {
+    assert_aot_success(
+        r#"
+@make_counter (xs: [int]) -> () -> int = {
+    let $outer = () -> int = {
+        let $inner = () -> int = xs.length();
+        inner()
+    };
+    outer
+}
+
+@main () -> int = {
+    let $f = make_counter(xs: [10, 20, 30, 40, 50, 60, 70]);
+    if f() == 7 then 0 else 1
+}
+"#,
+        "nested_closure_borrowed_list_param",
+    );
+}

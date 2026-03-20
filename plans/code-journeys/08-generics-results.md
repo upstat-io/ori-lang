@@ -2,7 +2,7 @@
 journey: 8
 slug: generics
 theme: "I am generic"
-date: 2026-03-19
+date: 2026-03-20
 status: PASS
 expected: 57
 eval_result: 57
