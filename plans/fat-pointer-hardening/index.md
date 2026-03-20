@@ -37,7 +37,7 @@ map iteration, string iteration, IterState::Map, IterState::Str
 ---
 
 ### Section 02: Monomorphization of Captured Types
-**File:** `section-02-monomorphization.md` | **Status:** Not Started
+**File:** `section-02-monomorphization.md` | **Status:** In Progress
 
 ```
 closure, capture, str, fat pointer, unresolved type variable, Idx leak

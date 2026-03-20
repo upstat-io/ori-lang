@@ -1,12 +1,12 @@
 ---
 section: "02"
 title: "Monomorphization of Captured Types"
-status: complete
+status: in-progress
 goal: "Closures capturing any non-scalar type (str, [T], structs, closures) compile correctly in AOT with fully resolved types"
 depends_on: []
 third_party_review:
-  status: none
-  updated: null
+  status: findings
+  updated: 2026-03-20
 sections:
   - id: "02.1"
     title: "Root Cause Analysis"
@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: not-started
+    status: in-progress
   - id: "02.N"
     title: "Completion Checklist"
     status: complete
@@ -30,7 +30,7 @@ sections:
 
 # Section 02: Monomorphization of Captured Types
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** When a closure captures a non-scalar value (str, [T], struct, another closure) and calls methods on it or passes it to other functions, LLVM codegen receives fully resolved types for ALL variables in the closure body. No unresolved type variables (`Idx(N)`) leak to codegen. This applies to ALL non-scalar capture types, not just `str`.
 
 **Context:** J17 discovered that `let f = s -> prefix.length() + s.length()` where `prefix: str` crashes during AOT codegen. The root cause chain: (1) monomorphization fails to propagate the concrete `str` type for the closure's lambda parameter when the closure also captures a fat pointer, (2) the unresolved type variable `Idx(N)` leaks into LLVM codegen, (3) codegen generates `i64` instead of `{i64, i64, ptr}` for the parameter, (4) `.length()` dispatch fails, (5) `ori_rc_dec` gets wrong types. The eval path works because it resolves types dynamically.
@@ -124,7 +124,10 @@ The fix must work for ALL non-scalar capture types, not just `str`:
 
 ## 02.R Third Party Review Findings
 
-- None.
+- [ ] `[TPR-02-001][medium]` `compiler/ori_llvm/tests/aot/higher_order.rs:792` — The new nested-closure RC matrix still misses the borrowed-parameter re-capture path that the ownership-plumbing change explicitly claims to handle.
+  Evidence: The new tests at `higher_order.rs:792-889` cover nested re-capture of local fat values (`str`, `[int]`, closure, multi-capture, triple nest), but none exercise a nested closure re-capturing a fat value that entered the outer function as a borrowed parameter. The new code and comments in `define_phase.rs:400-411`, `context.rs:254-260`, and `closures.rs:86-98,154-157` introduce `lambda_capture_ownership` specifically for borrowed-vs-owned capture handling. I verified the missing matrix cell ad hoc on 2026-03-20 with `/tmp/review_nested_borrowed_param.ori`; it passed under both `target/debug/ori` and `target/release/ori` with `ORI_CHECK_LEAKS=1`, so this is a coverage gap rather than a live failure.
+  Impact: This branch changed ownership-sensitive closure code without landing a permanent semantic pin for the exact borrowed nested-capture path it reasons about. A future regression in that path would not be caught by the committed higher-order matrix, violating the matrix-testing requirements in `CLAUDE.md` and `.claude/rules/tests.md`.
+  Required plan update: Add a committed AOT regression test for nested closure re-capture of a borrowed fat parameter (at minimum `str`, ideally one additional RC-managed type) and count it in Section 02.4 / 02.N verification instead of relying on ad hoc validation.
 
 ---
 
