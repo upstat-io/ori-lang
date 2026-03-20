@@ -5,7 +5,7 @@ use ori_types::Idx;
 
 use crate::ir::{
     ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue,
-    PrimOp, RcStrategy,
+    PrimOp, RcStrategy, ValueRepr,
 };
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::uniqueness::CowMode;
@@ -3013,4 +3013,49 @@ fn mixed_invariant_only_invariant_removed() {
     } else {
         panic!("expected Jump terminator in bb3");
     }
+}
+
+/// Merge param with `FatValue` repr → Branch preserved (select would leak
+/// the non-selected heap allocation). Semantic pin for the if-else dead
+/// branch leak fix.
+#[test]
+fn select_not_folded_non_scalar_merge_param() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![ArcInstr::Let {
+            dst: v(1),
+            ty: Idx::INT, // type index doesn't matter, repr does
+            value: ArcValue::Literal(LitValue::Int(1)),
+        }],
+        then_args: vec![v(1)],
+        else_body: vec![ArcInstr::Let {
+            dst: v(2),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(2)),
+        }],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(3), Idx::INT)],
+        merge_result: v(3),
+        var_count: 4,
+    });
+    // Set the merge param's repr to FatValue (heap-allocated).
+    // var_reprs must cover all vars (0..4).
+    func.var_reprs = vec![
+        ValueRepr::Scalar,   // v(0) — cond
+        ValueRepr::FatValue, // v(1) — then arm
+        ValueRepr::FatValue, // v(2) — else arm
+        ValueRepr::FatValue, // v(3) — merge param
+    ];
+
+    fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(
+        has_branch,
+        "Branch must be preserved when merge param is FatValue — \
+         folding to Select would leak the non-selected heap allocation"
+    );
 }
