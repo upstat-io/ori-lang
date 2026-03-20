@@ -32,10 +32,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// | Map    | `{i64, i64, ptr}`              | field 2            |
     /// | Struct | `{field0, field1, ...}`         | recurse per field  |
     /// | Tuple  | `{elem0, elem1, ...}`          | recurse per elem   |
-    /// | Option | `{i64 tag, T payload}`         | recurse into inner |
-    /// | Result | `{i64 tag, payload}`           | recurse into ok/err|
-    /// | Enum   | `{i64 tag, payload}`           | recurse into fields|
-    /// | Other  | already a ptr                  | use directly        |
+    /// | Option  | `{i64 tag, T payload}`        | recurse into inner |
+    /// | Result  | `{i64 tag, payload}`          | recurse into ok/err|
+    /// | Enum    | `{i64 tag, payload}`          | recurse into fields|
+    /// | Function| `{ptr fn, ptr env}`           | env ptr (field 1)  |
+    /// | Other   | already a ptr                 | use directly       |
     pub(super) fn extract_rc_data_ptrs(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
         // Resolve type variables and Named/Applied/Alias to get the concrete tag.
         // The type checker may leave unresolved Var indices in compound types
@@ -100,6 +101,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // Enum variant tag + payload — can't statically know which
                 // variant is active. Skip RC at the aggregate level.
                 vec![]
+            }
+            Tag::Function => {
+                // Closure: { fn_ptr, env_ptr } — only env_ptr (field 1) is RC-managed.
+                // The fn_ptr is a code pointer, not heap-allocated.
+                if let Some(env_ptr) = self.builder.extract_value(val, 1, "rc.closure_env") {
+                    vec![env_ptr]
+                } else {
+                    vec![]
+                }
             }
             _ => vec![val],
         }

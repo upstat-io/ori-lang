@@ -4,8 +4,8 @@ title: "Fix Iterator elem_dec_fn (List, Map, Set)"
 status: in-progress
 goal: "Replace NULL elem_dec_fn/key_dec_fn/val_dec_fn with the real per-element drop functions in emit_list_iter() and emit_map_iter(), ensuring correct element cleanup regardless of which RcDec reaches zero"
 third_party_review:
-  status: resolved
-  updated: 2026-03-18
+  status: findings
+  updated: 2026-03-19
 depends_on:
   - "01"
 sections:
@@ -167,6 +167,11 @@ The `__for_coll` phantom ensures the AIMS `RcDec` comes AFTER `ori_iter_drop`. W
   Resolved: Accepted on 2026-03-18. Updated Section 03 status to `in-progress` to reflect partial work already done (`clear_mutable_names()` workaround, `dead_cleanup.rs` changes). Recorded the exact files modified in Section 03's context.
 - [x] `[TPR-02-004][low]` `plans/iter-rc-contract/section-02-elem-dec-fn.md:156` — The recorded `timeout 150 ./test-all.sh` “green” evidence is not currently reproducible from this workspace.
   Resolved: Accepted on 2026-03-18. The test suite itself passed (12,989 pass / 0 fail), but `test-all.sh` exit code was 1 due to WASM playground step (missing sibling repo) and summary parsing errors. The Section 02 fixes are not affected — narrowed evidence claim to workspace-local suites only.
+
+- [ ] `[TPR-02-005][minor]` `compiler/ori_arc/src/aims/emit_rc/arg_ownership.rs:93` — Monomorphization name separator `”$m$”` is an inline string literal. Source of truth is `compiler/ori_llvm/src/monomorphize/mod.rs:124`. If the separator changes in one location without the other, monomorphized functions would fail ownership annotation, causing either leaked references (over-conservative RC) or use-after-free (under-conservative RC).
+  Evidence: `arg_ownership.rs:93` contains `name_str.split(“$m$”)`. `monomorphize/mod.rs:124` contains the mangling that produces `$m$`-separated names. Only 2 production code occurrences.
+  Impact: Low — separator is stable and unlikely to change. But the fix is trivial (extract to a named constant in `ori_ir` or `ori_arc::ir`).
+  Required fix: Extract `”$m$”` to a named constant (e.g., `MONO_SEPARATOR`) in a shared location.
 
 ---
 
