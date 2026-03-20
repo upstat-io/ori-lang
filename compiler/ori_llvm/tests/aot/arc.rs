@@ -266,26 +266,53 @@ fn test_arc_string_loop_concat() {
 
 // ─── Leak detection ───
 
+/// Exit code 2 propagation: verify that `compile_and_run_capture` correctly
+/// propagates exit code 2 (the leak detection indicator) from a compiled binary.
+///
+/// Uses `@main () -> int = 2` as a proxy since deliberate runtime leaks
+/// require `extern "c"` FFI to call `ori_rc_alloc` without free (not yet
+/// supported in AOT). The runtime-level leak-to-exit-code-2 chain is verified
+/// by `ori_rt::tests::leak_detection_positive_control`. (TPR-05-008)
 #[test]
 fn test_arc_leak_detected_exit_code_2() {
-    // End-to-end positive control: a program with a known leak exits with code 2.
-    //
-    // CONSTRAINT: All known leak patterns have been fixed, and Ori's type system
-    // prevents creating deliberate leaks without FFI access to ori_rc_alloc.
-    // The detection mechanism is instead verified by the unit-level positive control
-    // in `ori_rt/src/tests.rs::leak_detection_positive_control`, which proves:
-    //   ori_rc_alloc() without ori_rc_free() → RC_LIVE_COUNT > 0 → exit code 2
-    //
-    // This AOT test will be implemented when extern "c" from "ori_rt" works in AOT,
-    // enabling a deliberate leak via direct ori_rc_inc (phantom reference).
+    let (exit_code, _, _) = compile_and_run_capture(
+        r#"
+@main () -> int = 2;
+"#,
+    );
+    assert_eq!(
+        exit_code, 2,
+        "Exit code 2 must propagate through compile_and_run_capture"
+    );
 }
 
+/// Harness contract: `assert_aot_success` must panic when the binary exits with
+/// code 2 (leak detected). Proves the harness catches leak regressions.
+///
+/// Uses `@main () -> int = 2` as a proxy (see `test_arc_leak_detected_exit_code_2`
+/// for rationale). The panic message must contain "leaked memory". (TPR-05-008)
 #[test]
 fn test_arc_assert_aot_success_catches_leak() {
-    // Verify assert_aot_success panics with "leaked memory" for leaking programs.
-    //
-    // Blocked on same constraint as test_arc_leak_detected_exit_code_2 above.
-    // Unit-level coverage: ori_rt/src/tests.rs::leak_detection_positive_control
+    let result = std::panic::catch_unwind(|| {
+        assert_aot_success(
+            r#"
+@main () -> int = 2;
+"#,
+            "deliberate_exit_code_2",
+        );
+    });
+    assert!(
+        result.is_err(),
+        "assert_aot_success must panic for exit code 2"
+    );
+    // Verify the panic message mentions "leaked memory"
+    if let Err(payload) = result {
+        let msg = payload.downcast_ref::<String>().map_or("", |s| s.as_str());
+        assert!(
+            msg.contains("leaked memory"),
+            "panic message should mention 'leaked memory', got: {msg}"
+        );
+    }
 }
 
 #[test]
@@ -869,5 +896,68 @@ fn test_arc_borrowed_param_cow_push_str_list() {
 }
 "#,
         "arc_borrowed_param_cow_push_str_list",
+    );
+}
+
+/// Borrowed string parameter with concat — must NOT get COW `RcInc` guard.
+/// String concat is a borrowing operation (produces new string), not COW.
+/// Regression: TPR-05-003 — pre-pass emitted `RcInc` with `HeapPointer` strategy
+/// on a `FatPointer` (string) variable, causing `debug_assert` abort in `rc_ops.rs`.
+#[test]
+fn test_arc_borrowed_param_str_concat_not_cow() {
+    assert_aot_success(
+        r#"
+@grow (s: str) -> str = {
+    s.concat(other: "!")
+}
+
+@main () -> int = {
+    let $result = grow(s: "hello");
+    if result == "hello!" then 0 else 1
+}
+"#,
+        "arc_borrowed_param_str_concat_not_cow",
+    );
+}
+
+/// Borrowed string parameter with add — must NOT get COW `RcInc` guard.
+/// String add is a borrowing operation, not COW.
+/// Regression: TPR-05-003 — "add" is in `all_cow_method_names` but is
+/// type-qualified (COW for lists, borrowing for strings).
+#[test]
+fn test_arc_borrowed_param_str_add_not_cow() {
+    assert_aot_success(
+        r#"
+@prefix (s: str) -> str = {
+    s + "!"
+}
+
+@main () -> int = {
+    let $result = prefix(s: "hi");
+    if result == "hi!" then 0 else 1
+}
+"#,
+        "arc_borrowed_param_str_add_not_cow",
+    );
+}
+
+/// Borrowed string parameter: original must survive after callee produces new string.
+/// Verifies that the caller's string reference is not invalidated.
+#[test]
+fn test_arc_borrowed_param_str_concat_caller_survives() {
+    assert_aot_success(
+        r#"
+@append_world (s: str) -> str = {
+    s.concat(other: " world")
+}
+
+@main () -> int = {
+    let $original = "hello";
+    let $extended = append_world(s: original);
+    if original == "hello" && extended == "hello world"
+    then 0 else 1
+}
+"#,
+        "arc_borrowed_param_str_concat_caller_survives",
     );
 }

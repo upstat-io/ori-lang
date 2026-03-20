@@ -28,12 +28,12 @@ sections:
     status: complete
   - id: "04.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 04: Matrix Testing — Regression Guard
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Build a combinatorial test matrix that covers the cross-product of (value type × operation × context). When any ARC pipeline change breaks leak-free behavior for a specific combination, the matrix test catches it immediately. The goal is to narrow the band of acceptable behavior so regressions become harder as the compiler grows.
 
 **Context:** The FatValue PrimOp bug existed because no test exercised "string in loop" — there were string tests and loop tests but not the combination. Matrix testing prevents this class of gap by systematically covering the cross-product.
@@ -170,6 +170,8 @@ Ensure the 10/10 code journey scores cannot regress.
 
 - [x] `[TPR-04-001][medium]` `plans/rc-integrity/index.md:1` — RC Integrity status metadata drifted into contradictory states before review.
   Resolved: Validated on 2026-03-20. The drift was corrected in a prior session — index.md now reads `status: active`, 00-overview.md reads `status: in-progress`, and section-04 frontmatter reads `status: in-progress`. All three are consistent and correctly reflect the plan's incomplete state.
+- [x] `[TPR-04-002][medium]` `plans/rc-integrity/section-04-matrix-testing.md:4` — RC Integrity status metadata is contradictory again in the current tree.
+  Resolved: Fixed on 2026-03-20. Synced all files in one pass: section-04 body/frontmatter/subsections all `complete`, `third_party_review.status: resolved`. Overview `status: complete`, index `status: resolved`. All 41/41 items checked, all TPR findings resolved. Section-05 also synced (36/36 items, 8 TPR findings resolved).
 
 ---
 

@@ -22,6 +22,7 @@
 //! - Lean 4 `RC.lean`: backward liveness-driven insertion with last-use opt
 
 pub mod arg_ownership;
+mod borrowed_defs;
 mod coalesce;
 pub mod cow;
 mod dead_cleanup;
@@ -45,16 +46,17 @@ pub(crate) use cow::is_borrow_disjoint_from_siblings;
 pub(crate) use drop_hints::{collect_borrowed_call_args, is_collection_var};
 
 // Re-exports for `realize/` unified forward walk (Section 10.2).
+pub(crate) use borrowed_defs::{
+    collect_all_borrowed_defs, collect_borrowed_defs, collect_cow_borrowed_receivers,
+    collect_inline_enum_projected_defs, collect_iter_element_defs, collect_project_borrowed_defs,
+};
 pub(crate) use coalesce::coalesce_block_rc;
 pub(crate) use dead_cleanup::{emit_dead_at_entry_decs, emit_dead_invoke_dsts};
 pub(crate) use edge_cleanup::emit_edge_cleanup;
 pub(crate) use forward_walk::emit_terminator_rc;
 pub(crate) use helpers::{
-    collect_all_borrowed_defs, collect_borrowed_defs, collect_cow_borrowed_receivers,
-    collect_defined_vars, collect_inline_enum_projected_defs, collect_iter_element_defs,
-    collect_project_borrowed_defs, compute_child_effective_last_use, is_consuming_primop,
-    is_live_at_exit, is_owned_at_entry, is_ownership_transfer, precompute_block_uses, BlockCtx,
-    LastUse,
+    collect_defined_vars, compute_child_effective_last_use, is_consuming_primop, is_live_at_exit,
+    is_owned_at_entry, is_ownership_transfer, precompute_block_uses, BlockCtx, LastUse,
 };
 
 /// Compute `RcStrategy` for a variable, returning `None` for scalars.
