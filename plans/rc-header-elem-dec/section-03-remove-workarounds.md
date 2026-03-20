@@ -2,7 +2,7 @@
 section: "03"
 title: "Remove Workarounds & Simplify"
 status: not-started
-goal: "Remove the phantom __for_coll binding and exit-block dummy reference, simplifying the ARC lowering"
+goal: "Remove the phantom __for_coll_N binding and exit-block dummy reference, simplifying the ARC lowering"
 depends_on: ["02"]
 reviewed: false
 third_party_review:
@@ -42,18 +42,18 @@ sections:
 
 **File:** `compiler/ori_arc/src/lower/control_flow/loops.rs`
 
-The phantom `__for_coll` mutable binding was added to thread the collection through the loop header, forcing AIMS to add RcInc. With the header storing elem_dec_fn, the ordering no longer matters — whoever reaches zero reads the function from the header.
+The phantom `__for_coll_N` mutable binding was added to thread the collection through the loop header, forcing AIMS to add RcInc. With the header storing elem_dec_fn, the ordering no longer matters — whoever reaches zero reads the function from the header.
 
-**Note**: The source code comment at `loops.rs:172-173` says the phantom is needed for "List, Set, Map", but the actual match expression at line 174 only handles `List | Set` — Map is excluded. This is a pre-existing documentation bug in the source code. <!-- reviewed: accuracy fix — noted code/comment discrepancy -->
+**Note**: The source code comment at `loops.rs:169-176` says the phantom is needed for "List, Set, Map", but the actual match expression at line 177 only handles `List | Set` — Map is excluded. This is a pre-existing documentation bug in the source code.
 
-- [ ] Remove the `needs_phantom` check and `scope.bind_mutable("__for_coll", iter_val)` block (lines ~174-179 in `loops.rs`) <!-- reviewed: accuracy fix — corrected line numbers -->
-- [ ] Remove the comments explaining the workaround
-- [ ] Also remove/update the `__for_coll` references in `list_builtins.rs` (lines ~118 and ~136) — comments explaining the phantom binding workaround <!-- reviewed: added — these comments reference the workaround too -->
+- [ ] Remove the `needs_phantom` check and `scope.bind_mutable(coll_name, iter_val)` block (lines ~177-184 in `loops.rs`)
+- [ ] Remove the comments explaining the workaround (lines 169-176)
+- [ ] Also remove/update the `__for_coll` references in `list_builtins.rs` (lines ~118 and ~142) — comments referencing the phantom binding workaround
 - [ ] Verify: the `__for_coll` name is not referenced anywhere else in the codebase (`grep -r "__for_coll"`)
 
-### Cleanup <!-- reviewed: hygiene fix -->
+### Cleanup
 
-- [ ] **[WASTE]** `compiler/ori_arc/src/lower/control_flow/loops.rs:173` — Comment says "List, Set, Map" but code at line 174 only matches `List | Set`. After removing the phantom binding, delete both the stale comment and the code. If any comments elsewhere reference `__for_coll`, remove them too.
+- [ ] **[WASTE]** `compiler/ori_arc/src/lower/control_flow/loops.rs:169-176` — Comment says "List, Set, Map" but code at line 177 only matches `List | Set`. After removing the phantom binding, delete both the stale comment and the code. If any comments elsewhere reference `__for_coll`, remove them too (check `for_yield.rs:62`, `walk_dec.rs:79`, `helpers.rs:359`).
 
 ---
 
@@ -63,14 +63,12 @@ The phantom `__for_coll` mutable binding was added to thread the collection thro
 
 The dummy `Let` after `ori_iter_drop` was added to keep the collection alive past the iterator drop. No longer needed.
 
-- [ ] Remove the `for_coll_name` lookup and `emit_let(coll_ty, ArcValue::Var(exit_param))` block (lines ~195-203 in `for_iterator.rs`) <!-- reviewed: accuracy fix — corrected line numbers -->
+- [ ] Remove the `__for_coll_N` lookup and `emit_let(coll_ty, ArcValue::Var(exit_param))` block (lines ~192-207 in `for_iterator.rs`)
 - [ ] Remove the comments explaining the ordering guarantee
 
 ---
 
 ## 03.2.5 Remove Dead `elem_dec_fn` Parameter from Iterator API (Option B Cleanup)
-
-<!-- reviewed: completeness fix — this was deferred as "if time permits" in Section 02.2; made mandatory -->
 
 **Files:** `compiler/ori_rt/src/iterator/sources.rs`, `compiler/ori_rt/src/iterator/state.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs`, `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`
 
@@ -89,11 +87,11 @@ With the header storing `elem_dec_fn`, the parameter in `ori_iter_from_list` and
 ## 03.3 Verify No Regressions
 
 - [ ] Run `timeout 150 cargo test -p ori_llvm --test aot` — all tests pass including unignored fat_ptr_iter tests
-- [ ] Run `timeout 150 ./test-all.sh` — all tests pass (Rust + spec tests) <!-- reviewed: accuracy fix — removed stale count -->
+- [ ] Run `timeout 150 ./test-all.sh` — all tests pass (Rust + spec tests)
 - [ ] Run `./clippy-all.sh` — no clippy warnings
-- [ ] Run `./fmt-all.sh` — no formatting issues <!-- reviewed: completeness fix -->
-- [ ] Verify ARC IR for `[str]` iteration is cleaner (no phantom __for_coll param in loop header) — dump with `ORI_DUMP_AFTER_ARC=1`
-- [ ] Verify `ori_iter_from_list` takes 4 parameters (not 5) in the LLVM IR output <!-- reviewed: completeness fix — verify Option B cleanup -->
+- [ ] Run `./fmt-all.sh` — no formatting issues
+- [ ] Verify ARC IR for `[str]` iteration is cleaner (no phantom __for_coll_N param in loop header) — dump with `ORI_DUMP_AFTER_ARC=1`
+- [ ] Verify `ori_iter_from_list` takes 4 parameters (not 5) in the LLVM IR output
 
 ---
 
@@ -109,7 +107,7 @@ With the header storing `elem_dec_fn`, the parameter in `ori_iter_from_list` and
 - [ ] No dummy reference after `ori_iter_drop` in exit block
 - [ ] `lower_for` is simpler (no phantom binding logic)
 - [ ] `lower_for_iterator` is simpler (no exit-block dummy reference)
-- [ ] `ori_iter_from_list` takes 4 parameters (dead `elem_dec_fn` removed) <!-- reviewed: completeness fix -->
-- [ ] `IterState::List` has no `elem_dec_fn` field <!-- reviewed: completeness fix -->
+- [ ] `ori_iter_from_list` takes 4 parameters (dead `elem_dec_fn` removed)
+- [ ] `IterState::List` has no `elem_dec_fn` field
 - [ ] All tests pass (`timeout 150 ./test-all.sh`)
-- [ ] `./clippy-all.sh` — zero warnings <!-- reviewed: completeness fix -->
+- [ ] `./clippy-all.sh` — zero warnings

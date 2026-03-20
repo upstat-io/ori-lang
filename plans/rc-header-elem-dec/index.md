@@ -19,11 +19,11 @@ order: 1
 ---
 
 ### Section 01: RC Header Extension
-**File:** `section-01-rc-header.md` | **Status:** Not Started
+**File:** `section-01-rc-header.md` | **Status:** In Progress
 
 ```
 RC_HEADER_SIZE, ori_rc_alloc, ori_rc_free, ori_rc_dec, ori_rc_realloc
-header layout, data_size, strong_count, elem_dec_fn, drop_fn_ptr
+header layout, data_size, strong_count, elem_dec_fn, drop_fn
 compiler/ori_rt/src/rc/mod.rs, compiler/ori_rt/src/rc/allocate.rs
 compiler/ori_rt/src/rc/list_rc.rs, ori_buffer_rc_dec, ori_buffer_drop_unique
 slice_buffer_rc_dec, element cleanup, RC header V4
@@ -54,7 +54,7 @@ ori_buffer_store_elem_dec (to be created)
 **File:** `section-03-remove-workarounds.md` | **Status:** Not Started
 
 ```
-__for_coll, phantom binding, dummy reference, ordering hack
+__for_coll_N, phantom binding, dummy reference, ordering hack
 lower_for, lower_for_iterator, exit block ordering
 compiler/ori_arc/src/lower/control_flow/loops.rs
 compiler/ori_arc/src/lower/control_flow/for_loops/for_iterator.rs

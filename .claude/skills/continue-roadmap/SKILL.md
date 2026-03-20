@@ -28,13 +28,23 @@ Use `plans/roadmap/index.md` to find sections by keyword. The index contains sea
 
 ### Step -1: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS)
 
-**Before doing ANYTHING else**, read the ENTIRE CLAUDE.md file — every single word, top to bottom:
+**Before doing ANYTHING else**, use the Read tool to read the ENTIRE CLAUDE.md file — every single line, top to bottom:
 
 ```
 Read file: CLAUDE.md
 ```
 
-This is mandatory. Do not skip, skim, or partially read. The rules in CLAUDE.md govern ALL behavior in this command. Proceed to Step 0 only after reading the complete file.
+**This is a BLOCKING requirement.** You MUST issue a Read tool call for CLAUDE.md and process every line of the result. Do not skip, skim, summarize, or partially read. Do not assume you already know the contents from earlier in the conversation — the file may have changed. Do not rely on CLAUDE.md content loaded into system context — issue the Read tool call explicitly. The rules in CLAUDE.md govern ALL behavior in this command. Proceed to Step 0 only after reading the complete file via the Read tool.
+
+### Step -1B: Re-read CLAUDE.md Between Tasks (MANDATORY)
+
+**Every time you finish a task and start the next one** (e.g., completing one checklist item and moving to the next, finishing TPR triage and starting implementation, switching between subsections), you MUST re-read CLAUDE.md in full via the Read tool before beginning the new task:
+
+```
+Read file: CLAUDE.md
+```
+
+This is not optional. Context window compression can silently drop CLAUDE.md rules that were loaded earlier. A fresh read ensures every rule is active in your working context. This applies within a single `/continue-roadmap` session — not just at the start.
 
 ### Step 0: Check for Active Reroute
 

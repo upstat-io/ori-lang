@@ -45,10 +45,10 @@ Both artifacts are built by `cargo b` (debug) or `cargo b --release` (release). 
 
 ### Data Pointer Convention
 
-RC allocations return a **data pointer** — a pointer to the user data region, past the 16-byte header — rather than a pointer to the allocation base. This seemingly small decision has deep consequences:
+RC allocations return a **data pointer** — a pointer to the user data region, past the 32-byte header — rather than a pointer to the allocation base. This seemingly small decision has deep consequences:
 
 - Generated code passes data pointers directly to C FFI without adjustment
-- Every RC operation recovers the header by subtracting a fixed offset (`ptr - 16` for the count, `ptr - 8` for the size)
+- Every RC operation recovers the header by subtracting a fixed offset (`ptr - 8` for the count, `ptr - 16` for elem_count, `ptr - 24` for elem_dec_fn, `ptr - 32` for the size)
 - The data pointer *is* the value — no wrapping, no indirection, no fat pointer needed
 
 This matches Swift's approach, where `HeapObject*` points to the object data (past the metadata/refcount header), and contrasts with CPython, where `PyObject*` points to the header and callers must offset to reach the data.
