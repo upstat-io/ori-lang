@@ -113,6 +113,13 @@ pub fn realize_rc_reuse(
         );
     }
 
+    // Sub-step A2: insert RcInc for borrowed-param COW receivers.
+    // Borrowed function params at COW call receiver positions need an RcInc
+    // to prevent the runtime from seeing the buffer as unique (RC=1) when the
+    // caller also holds a reference. Without this, COW push/set/insert may
+    // realloc in place or dec the old buffer, invalidating the caller's pointer.
+    inject_cow_borrowed_receiver_incs(func, interner, pool);
+
     // Sub-step B: unified RC emission + inline event collection.
     // Replaces emit_rc_ops() with a forward walk routing all decisions
     // through decide(), collecting death/alloc events inline.
@@ -370,3 +377,76 @@ fn annotate_block(
 }
 
 // emit_rc_unified and count_rc_ops moved to emit_unified.rs
+
+/// Pre-pass: inject `RcInc` before COW calls whose receiver is a borrowed
+/// function parameter (or alias thereof).
+///
+/// Borrowed parameters don't increment the refcount (that's the point of
+/// borrowing). But COW operations check `ori_rc_is_unique(data)` at runtime
+/// and will see RC=1 (the caller's sole reference), taking the fast path
+/// (realloc/mutate in place) — invalidating the caller's pointer.
+///
+/// By inserting an `RcInc` before the COW call, the runtime sees RC=2 and
+/// correctly takes the slow path (copy + dec old). The extra inc is matched
+/// by the COW slow path's dec of the old buffer.
+fn inject_cow_borrowed_receiver_incs(
+    func: &mut crate::ir::ArcFunction,
+    interner: &ori_ir::StringInterner,
+    _pool: &ori_types::Pool,
+) {
+    use crate::aims::emit_rc::collect_cow_borrowed_receivers;
+    use crate::ir::{ArcInstr, ArcTerminator, RcStrategy};
+
+    let cow_borrowed_receivers = collect_cow_borrowed_receivers(func, interner);
+    if cow_borrowed_receivers.is_empty() {
+        return;
+    }
+
+    let cow_names = crate::borrow::all_cow_method_names(interner);
+
+    for block in &mut func.blocks {
+        // Body instructions: Apply COW calls with borrowed receivers
+        let mut insertions: Vec<(usize, ArcVarId)> = Vec::new();
+        for (i, instr) in block.body.iter().enumerate() {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                if cow_names.contains(callee) && !args.is_empty() {
+                    let receiver = args[0];
+                    if cow_borrowed_receivers.contains(&receiver) {
+                        insertions.push((i, receiver));
+                    }
+                }
+            }
+        }
+        // Insert in reverse order to preserve indices
+        for (idx, var) in insertions.into_iter().rev() {
+            block.body.insert(
+                idx,
+                ArcInstr::RcInc {
+                    var,
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+            );
+        }
+
+        // Terminator: Invoke COW call — insert RcInc at end of body
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            if cow_names.contains(callee) && !args.is_empty() {
+                let receiver = args[0];
+                if cow_borrowed_receivers.contains(&receiver) {
+                    block.body.push(ArcInstr::RcInc {
+                        var: receiver,
+                        count: 1,
+                        strategy: RcStrategy::HeapPointer,
+                    });
+                }
+            }
+        }
+    }
+}

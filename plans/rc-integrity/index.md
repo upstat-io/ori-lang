@@ -2,7 +2,7 @@
 reroute: true
 name: "RC Integrity"
 full_name: "RC Integrity: Leak-Free Codegen & Matrix Regression Guard"
-status: active
+status: resolved
 order: 1
 ---
 

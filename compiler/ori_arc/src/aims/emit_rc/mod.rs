@@ -29,7 +29,7 @@ pub mod drop_hints;
 mod edge_cleanup;
 mod forward_walk;
 mod helpers;
-mod queries;
+pub(crate) mod queries;
 pub(crate) mod unwind_cleanup;
 
 use crate::ir::{ArcBlockId, ArcFunction, ArcVarId, RcStrategy};
@@ -50,10 +50,11 @@ pub(crate) use dead_cleanup::{emit_dead_at_entry_decs, emit_dead_invoke_dsts};
 pub(crate) use edge_cleanup::emit_edge_cleanup;
 pub(crate) use forward_walk::emit_terminator_rc;
 pub(crate) use helpers::{
-    collect_all_borrowed_defs, collect_borrowed_defs, collect_defined_vars,
-    collect_inline_enum_projected_defs, collect_iter_element_defs, collect_project_borrowed_defs,
-    compute_child_effective_last_use, is_consuming_primop, is_live_at_exit, is_owned_at_entry,
-    is_ownership_transfer, precompute_block_uses, BlockCtx, LastUse,
+    collect_all_borrowed_defs, collect_borrowed_defs, collect_cow_borrowed_receivers,
+    collect_defined_vars, collect_inline_enum_projected_defs, collect_iter_element_defs,
+    collect_project_borrowed_defs, compute_child_effective_last_use, is_consuming_primop,
+    is_live_at_exit, is_owned_at_entry, is_ownership_transfer, precompute_block_uses, BlockCtx,
+    LastUse,
 };
 
 /// Compute `RcStrategy` for a variable, returning `None` for scalars.

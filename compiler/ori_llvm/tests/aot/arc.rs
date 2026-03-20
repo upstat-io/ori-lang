@@ -268,21 +268,24 @@ fn test_arc_string_loop_concat() {
 
 #[test]
 fn test_arc_leak_detected_exit_code_2() {
-    // Verify that a program with a known leak exits with code 2 (not 0 or 1)
-    // and prints the "RC allocation(s) not freed" message to stderr.
+    // End-to-end positive control: a program with a known leak exits with code 2.
     //
-    // NOTE: This test is currently disabled because all previously-leaking
-    // patterns have been fixed. It needs a deliberately leaking Ori program,
-    // which requires extern FFI support for direct ori_rc_alloc calls.
-    // Re-enable when extern "c" from "ori_rt" is supported in AOT.
+    // CONSTRAINT: All known leak patterns have been fixed, and Ori's type system
+    // prevents creating deliberate leaks without FFI access to ori_rc_alloc.
+    // The detection mechanism is instead verified by the unit-level positive control
+    // in `ori_rt/src/tests.rs::leak_detection_positive_control`, which proves:
+    //   ori_rc_alloc() without ori_rc_free() → RC_LIVE_COUNT > 0 → exit code 2
+    //
+    // This AOT test will be implemented when extern "c" from "ori_rt" works in AOT,
+    // enabling a deliberate leak via direct ori_rc_inc (phantom reference).
 }
 
 #[test]
 fn test_arc_assert_aot_success_catches_leak() {
     // Verify assert_aot_success panics with "leaked memory" for leaking programs.
     //
-    // NOTE: Disabled — same reason as test_arc_leak_detected_exit_code_2.
-    // All known leak patterns have been fixed; no pure-Ori program leaks.
+    // Blocked on same constraint as test_arc_leak_detected_exit_code_2 above.
+    // Unit-level coverage: ori_rt/src/tests.rs::leak_detection_positive_control
 }
 
 #[test]
@@ -800,5 +803,71 @@ fn test_arc_loop_list_reassignment_no_leak() {
 }
 "#,
         "arc_loop_list_reassignment_no_leak",
+    );
+}
+
+// ─── Borrowed parameter + COW push ───
+
+/// Semantic pin: borrowed parameter passed to COW push must not invalidate
+/// the caller's reference. Without `RcInc` before the push, the push sees
+/// RC=1 (unique), reallocs in place, and the caller's pointer becomes stale.
+#[test]
+fn test_arc_borrowed_param_cow_push_use_after() {
+    assert_aot_success(
+        r#"
+@check (list: [int]) -> bool = {
+    let modified = list.push(99);
+    modified.len() == 4 && list.len() == 3
+}
+
+@main () -> int = {
+    let result = check(list: [1, 2, 3]);
+    if result then 0 else 1
+}
+"#,
+        "arc_borrowed_param_cow_push_use_after",
+    );
+}
+
+/// Borrowed parameter: diamond sharing — push on borrowed param, verify original.
+#[test]
+fn test_arc_borrowed_param_cow_push_diamond() {
+    assert_aot_success(
+        r#"
+@fork (base: [int], val: int) -> [int] = {
+    base.push(val)
+}
+
+@main () -> int = {
+    let base = [10, 20, 30];
+    let a = fork(base: base, val: 40);
+    let b = fork(base: base, val: 50);
+    if base.len() == 3 && a.len() == 4 && b.len() == 4
+        && a[3] == 40 && b[3] == 50
+    then 0 else 1
+}
+"#,
+        "arc_borrowed_param_cow_push_diamond",
+    );
+}
+
+/// Borrowed string list parameter: push on borrowed param with heap elements.
+#[test]
+fn test_arc_borrowed_param_cow_push_str_list() {
+    assert_aot_success(
+        r#"
+@extend_list (items: [str]) -> [str] = {
+    items.push("added")
+}
+
+@main () -> int = {
+    let original = ["hello", "world"];
+    let extended = extend_list(items: original);
+    if original.len() == 2 && extended.len() == 3
+        && original[0] == "hello" && extended[2] == "added"
+    then 0 else 1
+}
+"#,
+        "arc_borrowed_param_cow_push_str_list",
     );
 }
