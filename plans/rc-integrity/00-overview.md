@@ -122,8 +122,8 @@ The following findings are in files adjacent to (but not directly modified by) t
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Tooling — Leak Detection Infrastructure | `section-01-tooling.md` | In Progress |
-| 02 | Fix All Pre-Existing Leaks | `section-02-leak-fixes.md` | Not Started |
-| 03 | Code Journeys — Expanded Coverage | `section-03-journeys.md` | Not Started |
-| 04 | Matrix Testing — Regression Guard | `section-04-matrix-testing.md` | Not Started |
-| 05 | Verification & Merge Gate | `section-05-verification.md` | Not Started |
+| 01 | Tooling — Leak Detection Infrastructure | `section-01-tooling.md` | Complete |
+| 02 | Fix All Pre-Existing Leaks | `section-02-leak-fixes.md` | Complete |
+| 03 | Code Journeys — Expanded Coverage | `section-03-journeys.md` | Complete |
+| 04 | Matrix Testing — Regression Guard | `section-04-matrix-testing.md` | Complete |
+| 05 | Verification & Merge Gate | `section-05-verification.md` | Complete |
