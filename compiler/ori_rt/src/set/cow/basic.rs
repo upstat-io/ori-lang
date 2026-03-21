@@ -16,6 +16,9 @@ use crate::set::{alloc_set_hash_buffer, write_set_struct};
 /// - **Fast path** (unique, under load): Writes to empty/tombstone slot.
 /// - **Fast path** (unique, needs rehash): Rehash to 2x, then insert.
 /// - **Slow path** (shared or empty): Rehash into new buffer, insert.
+///
+/// `elem_dec_fn` is propagated from the old buffer's V5 RC header to
+/// any new buffer via `alloc_set_hash_buffer` / `rehash_set`.
 #[no_mangle]
 pub extern "C" fn ori_set_insert_cow(
     data: *mut u8,
@@ -131,6 +134,8 @@ pub extern "C" fn ori_set_insert_cow(
 /// - **Fast path** (unique, found): Sets metadata to TOMBSTONE. O(1).
 /// - **Fast path** (unique, last element): Frees buffer, returns empty.
 /// - **Slow path** (shared): Rehash all except removed into new buffer.
+///
+/// `elem_dec_fn` propagated from old buffer header to new buffer.
 #[no_mangle]
 pub extern "C" fn ori_set_remove_cow(
     data: *mut u8,

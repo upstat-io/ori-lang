@@ -84,10 +84,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // List construction: allocate data, store elements, build struct
                 let count = arg_vals.len();
                 let type_info = self.type_info.get(ty);
-                let elem_idx = match &type_info {
-                    super::super::type_info::TypeInfo::List { element } => *element,
-                    _ => ori_types::Idx::INT,
-                };
+                let elem_idx =
+                    if let super::super::type_info::TypeInfo::List { element } = &type_info {
+                        *element
+                    } else {
+                        debug_assert!(false, "ListLiteral TypeInfo mismatch: {type_info:?}");
+                        ori_types::Idx::INT
+                    };
                 let elem_llvm_ty = self.resolve_type(elem_idx);
                 let elem_size = self.element_store_size(elem_idx);
 
@@ -130,10 +133,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // Hash table layout: [metadata | keys | values]
                 let count = arg_vals.len() / 2;
                 let type_info = self.type_info.get(ty);
-                let (key_idx, val_idx) = match &type_info {
-                    super::super::type_info::TypeInfo::Map { key, value } => (*key, *value),
-                    _ => (Idx::INT, Idx::INT),
-                };
+                let (key_idx, val_idx) =
+                    if let super::super::type_info::TypeInfo::Map { key, value } = &type_info {
+                        (*key, *value)
+                    } else {
+                        debug_assert!(false, "MapLiteral TypeInfo mismatch: {type_info:?}");
+                        (Idx::INT, Idx::INT)
+                    };
                 let key_llvm_ty = self.resolve_type(key_idx);
                 let val_llvm_ty = self.resolve_type(val_idx);
                 let key_size = self.element_store_size(key_idx);
@@ -183,10 +189,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // Set literal: hash table layout [metadata | elements]
                 let count = arg_vals.len();
                 let type_info = self.type_info.get(ty);
-                let elem_idx = match &type_info {
-                    super::super::type_info::TypeInfo::Set { element } => *element,
-                    _ => Idx::INT,
-                };
+                let elem_idx =
+                    if let super::super::type_info::TypeInfo::Set { element } = &type_info {
+                        *element
+                    } else {
+                        debug_assert!(false, "SetLiteral TypeInfo mismatch: {type_info:?}");
+                        Idx::INT
+                    };
                 let elem_llvm_ty = self.resolve_type(elem_idx);
                 let elem_size = self.element_store_size(elem_idx);
 
@@ -420,7 +429,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | (CtorKind::SetLiteral, super::super::type_info::TypeInfo::Set { element }) => {
                 *element
             }
-            _ => Idx::INT,
+            _ => {
+                debug_assert!(
+                    false,
+                    "collection reuse TypeInfo mismatch: ctor={ctor:?}, info={type_info:?}"
+                );
+                Idx::INT
+            }
         };
 
         let elem_llvm_ty = self.resolve_type(elem_idx);

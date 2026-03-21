@@ -7,7 +7,7 @@ depends_on: []
 reviewed: true
 third_party_review:
   status: resolved
-  updated: 2026-03-20
+  updated: 2026-03-21
 sections:
   - id: "01.1"
     title: "Header Layout Change"
@@ -192,6 +192,10 @@ Ensure seamless slices correctly interact with the new header.
   Resolved: Validated on 2026-03-20. Accepted — real issue. `drop_elements_and_free` uses `slice_len` (not original buffer's element count) so elements outside the slice range leak their RC children. Implementation task added to 01.4: extend header with `elem_count` field for full-range cleanup.
 - [x] `[TPR-01-002][medium]` `plans/rc-header-elem-dec/section-01-rc-header.md:203` — Section 01 marks verification complete even though the recorded valgrind result still has five failing cases waived as "pre-existing" and "unrelated."
   Resolved: Validated on 2026-03-20. Accepted — all 5 failures confirmed still present (invalid reads/frees, not just leaks). Completion item un-checked and reworded. 5 COW/TRMC valgrind failures added as open items in 01.N.
+- [x] `[TPR-01-003][high]` `compiler/ori_arc/src/aims/intraprocedural/block.rs:269` — The cross-block `Project` liveness repair still misses `Let` aliases of projected values.
+  Resolved: Validated and fixed on 2026-03-21. Created `compute_project_alias_sources()` to precompute function-wide map from (Project destination + transitive Let aliases) → Project source. `propagate_project_source_demand()` now uses this map to propagate demand for any alias of a Project destination, not just direct destinations. 5 unit tests + 1 Valgrind regression test (`tests/valgrind/project_let_alias_cross_block.ori`) with 5 patterns (field-in-then, field-in-else, transitive-alias, branch-both, alias-in-loop).
+- [x] `[TPR-01-004][high]` `compiler/ori_arc/src/aims/intraprocedural/block.rs:285` — The new `Project` alias closure still stops at `Let` aliases and does not propagate through jump arguments into successor block params.
+  Resolved: Validated and fixed on 2026-03-21. Extended `compute_project_alias_sources()` Step 2 fixed-point loop to propagate through `Jump { args }` → target block params (phi-edge renaming), matching the pattern in `collect_param_borrowed_vars()`. 4 unit tests (direct jump, transitive chain, let-then-jump, loop header) + 1 semantic pin test (`project_block_param_cross_block_propagates_source_demand`) + 1 Valgrind regression test (`tests/valgrind/project_block_param_cross_block.ori`) with 5 patterns (merge, nested-merge, loop-header, both-fields-merge, field-with-computation). All 1006 ori_arc tests pass, 13492 total tests pass, Valgrind clean.
 
 ---
 

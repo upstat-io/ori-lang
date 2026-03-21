@@ -239,7 +239,7 @@ pub extern "C" fn ori_map_get(
     }
 }
 
-// ── Literal Construction ──────────────────────────────────────────────
+// Literal Construction
 
 /// Allocate a hash table buffer sized for `count` entries.
 ///

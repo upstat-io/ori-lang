@@ -47,6 +47,12 @@ pub(crate) enum IterState {
     /// both regular lists (`cap > 0`) and seamless slices (`cap < 0`, where
     /// the `SLICE_FLAG` is set). When `cap == 0` (e.g., Rust unit tests with
     /// stack data), no cleanup is performed.
+    ///
+    /// The `elem_dec_fn` field is passed to `ori_buffer_rc_dec` on Drop, which
+    /// stores it in the V5 RC header via `store_elem_dec_fn_once`. When RC
+    /// reaches zero, cleanup reads from the header (not the parameter). This
+    /// provides defense-in-depth: the header may already have `elem_dec_fn`
+    /// from construction time (Section 02.1), so both sources agree.
     List {
         data: *mut u8,
         len: i64,

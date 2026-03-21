@@ -123,6 +123,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// The real `elem_dec_fn` is passed so that WHOEVER performs the final
     /// `ori_buffer_rc_dec` (whether it's the AIMS pipeline's explicit `RcDec`
     /// or `ori_iter_drop`) properly cleans up element-level RC.
+    ///
+    /// Defense-in-depth: `elem_dec_fn` is ALSO stored in the buffer's RC header
+    /// at construction time (V5 header, Section 02.1). Both the parameter and
+    /// header provide the function; `store_elem_dec_fn_once` ensures they agree.
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,

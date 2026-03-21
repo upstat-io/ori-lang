@@ -14,6 +14,7 @@ pub mod cow_map_set;
 pub mod cross;
 pub mod depth;
 pub mod derives;
+pub mod elem_dec_scope;
 pub mod error_handling;
 pub mod fat_matrix;
 pub mod fat_ptr_iter;

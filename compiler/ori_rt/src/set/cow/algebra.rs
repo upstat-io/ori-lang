@@ -1,4 +1,7 @@
 //! COW set algebra: union, intersection, and difference.
+//!
+//! All functions propagate `elem_dec_fn` from old buffer V5 RC headers
+//! to new buffers via `alloc_set_hash_buffer` / `rehash_set`.
 
 use crate::map::hash_table::{
     get_meta, needs_rehash, next_hash_capacity, probe_find_slot, rehash_set, set_meta,
