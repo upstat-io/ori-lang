@@ -118,7 +118,6 @@ fn test_str_list_iter_collect() {
 // map.keys() on {str: int}
 
 #[test]
-#[ignore = "map double-free: standalone RcDec + map_buffer_cleanup both fire — tracked in section-02 02.N"]
 fn test_map_keys_str_scope_drop() {
     assert_aot_success(
         r#"

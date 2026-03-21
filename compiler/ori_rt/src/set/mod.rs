@@ -51,6 +51,9 @@ pub extern "C" fn ori_set_contains(
 ///
 /// Scans metadata for OCCUPIED buckets, copies elements to a contiguous list.
 /// Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
+///
+/// `elem_inc_fn` increments RC children of each copied element (see
+/// `ori_map_keys_to_list` for rationale).
 #[no_mangle]
 pub extern "C" fn ori_set_to_list(
     data: *const u8,
@@ -58,6 +61,7 @@ pub extern "C" fn ori_set_to_list(
     len: i64,
     elem_size: i64,
     elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+    elem_inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -77,9 +81,13 @@ pub extern "C" fn ori_set_to_list(
     let mut write_pos = 0usize;
     for bucket in 0..c {
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            let dst = unsafe { list_data.add(write_pos * es) };
             unsafe {
                 let src = data.add(layout.keys_offset + bucket * es);
-                std::ptr::copy_nonoverlapping(src, list_data.add(write_pos * es), es);
+                std::ptr::copy_nonoverlapping(src, dst, es);
+            }
+            if let Some(inc) = elem_inc_fn {
+                inc(dst);
             }
             write_pos += 1;
             if write_pos >= n {
