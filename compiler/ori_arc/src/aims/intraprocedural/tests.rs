@@ -3301,3 +3301,530 @@ fn context_events_recorded_despite_may_share_true() {
         "context events should be recorded despite may_share=true (gate is logged, not enforced)"
     );
 }
+
+// compute_project_alias_sources
+
+#[test]
+fn compute_project_alias_sources_direct_project() {
+    // v1 = Project v0.0
+    // Maps: v1 → v0
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Project {
+                dst: var(1),
+                ty: ty(0),
+                value: var(0),
+                field: 0,
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(sources.get(&var(1)), Some(&var(0)));
+    assert_eq!(sources.len(), 1);
+}
+
+#[test]
+fn compute_project_alias_sources_let_alias() {
+    // v1 = Project v0.0
+    // v2 = Let Var(v1)
+    // Maps: v1 → v0, v2 → v0
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(1)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
+    assert_eq!(
+        sources.get(&var(2)),
+        Some(&var(0)),
+        "Let alias of Project dst"
+    );
+    assert_eq!(sources.len(), 2);
+}
+
+#[test]
+fn compute_project_alias_sources_transitive_let_chain() {
+    // v1 = Project v0.0
+    // v2 = Let Var(v1)
+    // v3 = Let Var(v2)
+    // Maps: v1 → v0, v2 → v0, v3 → v0
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(1)),
+                },
+                ArcInstr::Let {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(2)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(sources.get(&var(1)), Some(&var(0)));
+    assert_eq!(sources.get(&var(2)), Some(&var(0)));
+    assert_eq!(sources.get(&var(3)), Some(&var(0)));
+    assert_eq!(sources.len(), 3);
+}
+
+#[test]
+fn compute_project_alias_sources_cross_block_let() {
+    // Block 0: v1 = Project v0.0; jump block1
+    // Block 1: v2 = Let Var(v1); return v2
+    // Maps: v1 → v0, v2 → v0
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(1)),
+                }],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
+    assert_eq!(
+        sources.get(&var(2)),
+        Some(&var(0)),
+        "cross-block Let alias of Project dst"
+    );
+}
+
+// Semantic pin: cross-block Project + Let alias demand propagation
+
+#[test]
+fn project_let_alias_cross_block_propagates_source_demand() {
+    // Semantic pin for TPR-01-003 fix.
+    //
+    // Block 0: v1 = Construct Struct; v2 = Project v1.0; v3 = Let Var(v2);
+    //          Branch cond → block1, block2
+    // Block 1: return v3    (uses Let alias of Project result)
+    // Block 2: return v4    (doesn't use v1, v2, or v3)
+    //
+    // Without the fix: Block 1's entry would have demand for v3 but NOT v1,
+    // causing edge cleanup to emit premature RcDec(v1) on the 0→1 edge.
+    // The fix ensures v1 has demand at Block 1's entry via the alias chain
+    // v3 → v2 → Project → v1.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![(var(0), ty(0))], // cond param
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: var(1),
+                        ty: ty(0),
+                        ctor: CtorKind::Struct(Name::from_raw(10)),
+                        args: vec![var(5)],
+                    },
+                    ArcInstr::Project {
+                        dst: var(2),
+                        ty: ty(0),
+                        value: var(1),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: var(3),
+                        ty: ty(0),
+                        value: ArcValue::Var(var(2)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: var(0),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(4),
+                    ty: ty(0),
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Return { value: var(4) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(6);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // The critical assertion: v1 (Project source) must have demand at
+    // Block 1's entry. Without the fix, only v3 (Let alias) would have
+    // demand here, and v1 would be absent — causing premature RcDec.
+    let v1_at_b1_entry = state_map.var_state_at_block_entry(block_id(1), var(1));
+    assert_ne!(
+        v1_at_b1_entry.cardinality,
+        Cardinality::Absent,
+        "v1 (Project source) must have demand at Block 1 entry — \
+         v3 (Let alias of v2 = Project v1.0) is live here, so v1 must stay alive"
+    );
+
+    // Also verify v3 has demand at Block 1's entry (used in Return).
+    let v3_at_b1_entry = state_map.var_state_at_block_entry(block_id(1), var(3));
+    assert_ne!(
+        v3_at_b1_entry.cardinality,
+        Cardinality::Absent,
+        "v3 must have demand at Block 1 entry (used in Return)"
+    );
+
+    // And v1 should NOT have demand at Block 2's entry (not used there).
+    let v1_at_b2_entry = state_map.var_state_at_block_entry(block_id(2), var(1));
+    assert_eq!(
+        v1_at_b2_entry.cardinality,
+        Cardinality::Absent,
+        "v1 should be absent at Block 2 entry (not used in Block 2)"
+    );
+}
+
+// compute_project_alias_sources — Jump arg → block param propagation (TPR-01-004)
+
+#[test]
+fn compute_project_alias_sources_jump_arg_to_block_param() {
+    // Block 0: v1 = Project v0.0; Jump block1, args=[v1]
+    // Block 1: params=[v2]; return v2
+    // Maps: v1 → v0, v2 → v0
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(1)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(2), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
+    assert_eq!(
+        sources.get(&var(2)),
+        Some(&var(0)),
+        "block param receiving Project dst via Jump arg"
+    );
+    assert_eq!(sources.len(), 2);
+}
+
+#[test]
+fn compute_project_alias_sources_transitive_jump_chain() {
+    // Block 0: v1 = Project v0.0; Jump block1, args=[v1]
+    // Block 1: params=[v2]; Jump block2, args=[v2]
+    // Block 2: params=[v3]; return v3
+    // Maps: v1 → v0, v2 → v0, v3 → v0
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(1)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(2), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(2),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![(var(3), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
+    assert_eq!(
+        sources.get(&var(2)),
+        Some(&var(0)),
+        "first block param in chain"
+    );
+    assert_eq!(
+        sources.get(&var(3)),
+        Some(&var(0)),
+        "second block param in transitive chain"
+    );
+    assert_eq!(sources.len(), 3);
+}
+
+#[test]
+fn compute_project_alias_sources_let_then_jump() {
+    // Block 0: v1 = Project v0.0; v2 = Let Var(v1); Jump block1, args=[v2]
+    // Block 1: params=[v3]; return v3
+    // Maps: v1 → v0, v2 → v0, v3 → v0
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: var(1),
+                        ty: ty(0),
+                        value: var(0),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: var(2),
+                        ty: ty(0),
+                        value: ArcValue::Var(var(1)),
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(3), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
+    assert_eq!(sources.get(&var(2)), Some(&var(0)), "Let alias");
+    assert_eq!(
+        sources.get(&var(3)),
+        Some(&var(0)),
+        "block param receiving Let alias of Project dst"
+    );
+    assert_eq!(sources.len(), 3);
+}
+
+#[test]
+fn compute_project_alias_sources_loop_header_param() {
+    // Block 0: v1 = Project v0.0; Jump block1, args=[v1]
+    // Block 1: params=[v2]; ... Jump block1, args=[v2] (back-edge)
+    //
+    // Loop header param v2 receives Project alias from entry AND back-edge.
+    // Maps: v1 → v0, v2 → v0
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(1)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(2), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(2)],
+                },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
+    assert_eq!(
+        sources.get(&var(2)),
+        Some(&var(0)),
+        "loop header param receiving Project alias"
+    );
+    assert_eq!(sources.len(), 2);
+}
+
+// Semantic pin: block-param Project demand propagation (TPR-01-004)
+
+#[test]
+fn project_block_param_cross_block_propagates_source_demand() {
+    // Semantic pin for TPR-01-004 fix.
+    //
+    // Block 0: v1 = Construct Struct(v5); v2 = Project v1.0;
+    //          Jump block1, args=[v2]
+    // Block 1: params=[v3]; return v3
+    //
+    // Without the fix: Block 1's entry would have demand for v3 (block param,
+    // used in Return) but NOT v1 (Project source), because v3 is not in
+    // project_alias_sources — causing edge cleanup to emit premature RcDec(v1)
+    // on the 0→1 edge. Use-after-free when v3 (aliasing v2 = Project v1.0)
+    // is used in Block 1.
+    //
+    // With the fix: v3 maps to v1 via Jump arg propagation in
+    // compute_project_alias_sources, so propagate_project_source_demand
+    // adds demand for v1 at Block 1's entry.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![(var(0), ty(0))], // entry param (unused, for var_types)
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: var(1),
+                        ty: ty(0),
+                        ctor: CtorKind::Struct(Name::from_raw(10)),
+                        args: vec![var(5)],
+                    },
+                    ArcInstr::Project {
+                        dst: var(2),
+                        ty: ty(0),
+                        value: var(1),
+                        field: 0,
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(3), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(6);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // Critical assertion: v1 (Project source) must have demand at Block 0's
+    // EXIT state. Without the fix, Block 1's entry has no demand for v1
+    // (because v3 isn't recognized as a Project alias), so Block 0's exit
+    // (derived from Block 1's entry) also has no v1 demand. RC emission
+    // would place RcDec(v1) after the Project, before the Jump — UAF.
+    let v1_at_b0_exit = state_map
+        .block_exit_states(block_id(0))
+        .and_then(|s| s.get(&var(1)).copied())
+        .unwrap_or(AimsState::BOTTOM);
+    assert_ne!(
+        v1_at_b0_exit.cardinality,
+        Cardinality::Absent,
+        "v1 (Project source) must have demand at Block 0 exit — \
+         v3 (block param = Jump arg v2 = Project v1.0) is live in Block 1"
+    );
+
+    // Also verify the access is Borrowed (Project source kept alive, not consumed).
+    assert_eq!(
+        v1_at_b0_exit.access,
+        AccessClass::Borrowed,
+        "Project source demand should be Borrowed"
+    );
+}

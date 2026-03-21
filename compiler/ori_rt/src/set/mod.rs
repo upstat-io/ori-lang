@@ -99,7 +99,7 @@ pub extern "C" fn ori_set_to_list(
     }
 }
 
-// ── Literal Construction ──────────────────────────────────────────────
+// Literal Construction
 
 /// Allocate a hash table buffer sized for `count` elements.
 ///

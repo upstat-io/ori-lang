@@ -16,11 +16,13 @@ use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
 use crate::graph::successor_block_ids;
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
 use super::super::contract::{EffectSummary, FipContract, MemoryContract};
 use super::super::lattice::{AccessClass, AimsState, Cardinality, Locality, Uniqueness};
 use super::super::transfer::{backward_demands, backward_terminator_demands, transfer_def};
+use super::effects::{accumulate_instr_effects, accumulate_terminator_effects};
+use super::project_aliases::propagate_project_source_demand;
 use super::state_map::AimsStateMap;
 
 /// Result of computing a block's entry state.
@@ -120,6 +122,7 @@ pub(crate) fn compute_block_entry_state(
     state_map: &AimsStateMap,
     sigs: &FxHashMap<Name, MemoryContract>,
     invoke_defs: &FxHashMap<ArcBlockId, Vec<ArcVarId>>,
+    project_alias_sources: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> BlockAnalysisResult {
     let block = &func.blocks[block_id.index()];
 
@@ -237,7 +240,7 @@ pub(crate) fn compute_block_entry_state(
     }
 
     // Block params are definitions (like phi nodes) — remove from entry state.
-    propagate_project_source_demand(func, &mut current, state_map);
+    propagate_project_source_demand(&mut current, state_map, project_alias_sources);
 
     for &(param_var, _ty) in &block.params {
         current.remove(&param_var);
@@ -256,45 +259,6 @@ pub(crate) fn compute_block_entry_state(
     BlockAnalysisResult {
         entry_state: current,
         effects: block_effects,
-    }
-}
-
-/// Propagate Project source demand: when a Project result has demand,
-/// its source must also have demand to prevent premature `RcDec`.
-///
-/// Handles the cross-block case: `%3 = Project %2.0` is in block A,
-/// but `%3` is used in block B. Without this, `%2` would have no demand
-/// at block B's entry, causing edge cleanup to emit a premature `RcDec`
-/// for `%2` — use-after-free when `%3` is still alive.
-fn propagate_project_source_demand(
-    func: &ArcFunction,
-    current: &mut FxHashMap<ArcVarId, AimsState>,
-    state_map: &AimsStateMap,
-) {
-    let mut extra_demand: Vec<(ArcVarId, AimsState)> = Vec::new();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Project { dst, value, .. } = instr {
-                if let Some(&dst_state) = current.get(dst) {
-                    if dst_state.cardinality != Cardinality::Absent
-                        && !state_map.is_excluded(*value)
-                    {
-                        let src_demand = AimsState {
-                            access: AccessClass::Borrowed,
-                            cardinality: dst_state.cardinality,
-                            ..dst_state
-                        };
-                        extra_demand.push((*value, src_demand));
-                    }
-                }
-            }
-        }
-    }
-    for (var, demand) in extra_demand {
-        let joined = current
-            .get(&var)
-            .map_or(demand, |existing| existing.join(&demand));
-        current.insert(var, joined);
     }
 }
 
@@ -508,70 +472,4 @@ fn apply_callee_contract(
     // If no contract found, backward_demands (called after this) already
     // adds Once demand per arg. The conservative Apply transfer function
     // handles the dst state.
-}
-
-// Effect accumulation (Section 09.2)
-
-/// Accumulate effects from an instruction into the block-level summary.
-///
-/// Called during the backward walk. `dst_demand` is the destination variable's
-/// demand state BEFORE it is removed from the current state (captures the
-/// downstream demand including locality, needed for `HeapEscaping` → `may_share`).
-fn accumulate_instr_effects(
-    instr: &crate::ir::ArcInstr,
-    dst_demand: Option<AimsState>,
-    state_map: &AimsStateMap,
-    sigs: &FxHashMap<Name, MemoryContract>,
-    effects: &mut EffectSummary,
-) {
-    match instr {
-        // Construct (non-scalar): may_allocate. If destination demand has
-        // locality > BlockLocal and the construct has args, may_share too
-        // (Section 09.1: HeapEscaping → may_share).
-        crate::ir::ArcInstr::Construct { dst, args, .. } => {
-            if !state_map.is_excluded(*dst) {
-                effects.may_allocate = true;
-                if !args.is_empty() {
-                    if let Some(demand) = dst_demand {
-                        if demand.locality > Locality::BlockLocal {
-                            effects.may_share = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // PartialApply (non-scalar): may_allocate (closure env allocation).
-        crate::ir::ArcInstr::PartialApply { dst, .. } => {
-            if !state_map.is_excluded(*dst) {
-                effects.may_allocate = true;
-            }
-        }
-
-        // Apply with known contract: union callee's EffectSummary.
-        crate::ir::ArcInstr::Apply { func: callee, .. } => {
-            if let Some(contract) = sigs.get(callee) {
-                *effects = effects.join(&contract.effects);
-            }
-        }
-
-        _ => {}
-    }
-}
-
-/// Accumulate effects from a terminator into the block-level summary.
-///
-/// `Invoke`: `may_throw` (Invoke exists because the call may unwind).
-/// Also unions callee's [`EffectSummary`] if known.
-fn accumulate_terminator_effects(
-    term: &ArcTerminator,
-    sigs: &FxHashMap<Name, MemoryContract>,
-    effects: &mut EffectSummary,
-) {
-    if let ArcTerminator::Invoke { func: callee, .. } = term {
-        effects.may_throw = true;
-        if let Some(contract) = sigs.get(callee) {
-            *effects = effects.join(&contract.effects);
-        }
-    }
 }

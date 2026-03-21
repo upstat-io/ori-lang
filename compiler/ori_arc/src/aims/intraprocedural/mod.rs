@@ -33,8 +33,10 @@
 mod tests;
 
 pub mod block;
+pub(crate) mod effects;
 pub(crate) mod fip_balance;
 pub(crate) mod post_convergence;
+pub(crate) mod project_aliases;
 pub mod state_map;
 
 pub(crate) use fip_balance::compute_requires_unique_params;
@@ -116,6 +118,10 @@ pub fn analyze_function(
     // remove these from the normal successor's entry state.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
+    // Precompute Project destination + transitive Let alias → Project source
+    // map. Static structure — computed once, reused across worklist iterations.
+    let project_alias_sources = project_aliases::compute_project_alias_sources(func);
+
     let iteration_limit = AimsState::iteration_limit(func.var_types.len(), func.blocks.len());
     let mut iteration = 0;
 
@@ -158,8 +164,14 @@ pub fn analyze_function(
 
             // Compute the block's entry state by walking instructions backward.
             // Also accumulates block-level effects (Section 09.2).
-            let result =
-                block::compute_block_entry_state(func, block_id, &state_map, sigs, &invoke_defs);
+            let result = block::compute_block_entry_state(
+                func,
+                block_id,
+                &state_map,
+                sigs,
+                &invoke_defs,
+                &project_alias_sources,
+            );
             state_map.accumulate_effect(result.effects);
             state_map.update_block_entry(block_id, result.entry_state);
         }
