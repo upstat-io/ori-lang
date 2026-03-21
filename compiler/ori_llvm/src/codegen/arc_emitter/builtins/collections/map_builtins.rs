@@ -70,7 +70,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.keys()` — extract keys as a new list.
     ///
-    /// Calls `ori_map_keys_to_list(data, cap, len, key_size, out_ptr)`.
+    /// Calls `ori_map_keys_to_list(data, cap, len, key_size, key_dec_fn, out_ptr)`.
     pub(crate) fn emit_map_keys(&mut self, receiver: ValueId, key_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_keys_to_list");
 
@@ -89,20 +89,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let key_size = self.element_store_size(key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
+        let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "keys.out", list_ty);
 
-        self.emit_rt_call(func_id, &[data, cap, len, key_size_val, out_alloca], "keys");
+        self.emit_rt_call(
+            func_id,
+            &[data, cap, len, key_size_val, key_dec_fn, out_alloca],
+            "keys",
+        );
 
         Some(self.builder.load(list_ty, out_alloca, "keys.val"))
     }
 
     /// Emit `map.values()` — extract values as a new list.
     ///
-    /// Calls `ori_map_values_to_list(data, cap, len, key_size, val_size, out_ptr)`.
+    /// Calls `ori_map_values_to_list(data, cap, len, key_size, val_size, val_dec_fn, out_ptr)`.
     pub(crate) fn emit_map_values(
         &mut self,
         receiver: ValueId,
@@ -113,6 +118,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (data, cap, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty);
+        let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -121,7 +127,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             func_id,
-            &[data, cap, len, key_size_val, val_size_val, out_alloca],
+            &[
+                data,
+                cap,
+                len,
+                key_size_val,
+                val_size_val,
+                val_dec_fn,
+                out_alloca,
+            ],
             "values",
         );
 

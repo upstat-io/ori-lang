@@ -33,9 +33,9 @@ sections:
 # Section 01: RC Header Extension
 
 **Status:** In Progress
-**Goal:** Extend the RC allocation header to store `elem_dec_fn`, ensuring element cleanup happens regardless of which `ori_buffer_rc_dec` call reaches zero.
+**Goal:** Extend the RC allocation header to store `elem_dec_fn` and `elem_count`, ensuring element cleanup happens regardless of which `ori_buffer_rc_dec` call reaches zero.
 
-**Context:** The current RC header is 16 bytes: `[data_size: i64 | strong_count: i64]`. The new V4 header adds 8 bytes for the element destructor function pointer: `[data_size: i64 | elem_dec_fn: ptr | strong_count: i64]` = 24 bytes. The `elem_dec_fn` slot MUST go between `data_size` and `strong_count` so that `strong_count` remains at `data_ptr - 8` — all existing RC operations (`ori_rc_inc`, `ori_rc_dec`, `ori_rc_count`, `ori_rc_is_unique`, `ori_buffer_rc_dec`) rely on this invariant.
+**Context:** The original RC header was 16 bytes (V3): `[data_size: i64 | strong_count: i64]`. This section extended it through V4 (24 bytes, adding `elem_dec_fn`) to V5 (32 bytes, adding `elem_count`). The final V5 layout is: `[data_size: i64 | elem_dec_fn: ptr | elem_count: i64 | strong_count: i64 | data]` = 32 bytes. The key invariant is that `strong_count` remains at `data_ptr - 8` -- all existing RC operations (`ori_rc_inc`, `ori_rc_dec`, `ori_rc_count`, `ori_rc_is_unique`, `ori_buffer_rc_dec`) rely on this.
 
 **Reference implementations:**
 - **Swift** `HeapObject.h`: Stores type metadata (including destructor) in a 2-word header alongside refcount.
@@ -49,14 +49,17 @@ sections:
 
 Change the header constant and document the new layout.
 
-**V4 offset reference** (all offsets in bytes):
+**V5 offset reference** (all offsets in bytes, final layout):
 
 | Field | From base | From data_ptr |
 |-------|-----------|---------------|
-| `data_size` | base + 0 | data - 24 |
-| `elem_dec_fn` | base + 8 | data - 16 |
-| `strong_count` | base + 16 | data - 8 |
-| `data` | base + 24 | data + 0 |
+| `data_size` | base + 0 | data - 32 |
+| `elem_dec_fn` | base + 8 | data - 24 |
+| `elem_count` | base + 16 | data - 16 |
+| `strong_count` | base + 24 | data - 8 |
+| `data` | base + 32 | data + 0 |
+
+Note: items below reference V4 (24-byte) values from the initial implementation. These were superseded by V5 (32-byte) in 01.4 (TPR-01-001). All items are complete.
 
 - [x] Change `RC_HEADER_SIZE` from `16` to `24`
 - [x] Update the doc comment on `RC_HEADER_SIZE` (line 97-98, currently "V3 layout: ... The header is 16 bytes: 8 for `data_size` + 8 for `strong_count`.") to "V4 layout: `[data_size: i64 | elem_dec_fn: *const () | strong_count: i64 | data ...]` The header is 24 bytes: 8 for `data_size` + 8 for `elem_dec_fn` + 8 for `strong_count`."
@@ -108,16 +111,18 @@ Update all allocation functions to account for the larger header.
 
 | File | Functions | Notes |
 |------|-----------|-------|
-| `list/cow.rs` | `ori_list_push_cow`, `ori_list_insert_cow`, `ori_list_reverse_cow` | Slow path creates new buffer |
-| `list/cow_structural.rs` | `ori_list_concat_cow`, `ori_list_flatten_cow` | Creates new buffer for result |
-| `list/cow_sort.rs` | `ori_list_sort_cow`, `ori_list_sort_by_cow`, merge sort helpers | Multiple `ori_rc_alloc` calls |
-| `list/query.rs` | `ori_list_filter`, `ori_list_slice_copy` | Creates filtered/copied buffers |
-| `list/slice.rs` | `ori_list_slice_materialized` | Materializes slice into owned buffer |
-| `list/mod.rs` | `ori_list_alloc_data`, `ori_list_new_with_data`, `ori_list_grow`, etc. | Core allocation paths |
+| `list/cow.rs` | `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow` | Slow path creates new buffer |
+| `list/cow_structural.rs` | `ori_list_insert_cow`, `ori_list_remove_cow` | Creates new buffer on slow path |
+| `list/cow_sort.rs` | `ori_list_concat_cow`, `ori_list_reverse_cow`, `ori_list_sort_cow`, `ori_list_sort_stable_cow` | Multiple `ori_rc_alloc` calls |
+| `list/query.rs` | `ori_list_reverse`, `ori_list_concat` | Creates new buffers via `ori_rc_alloc` |
+| `list/slice.rs` | `ori_list_materialize_slice` | Materializes slice into owned buffer |
+| `list/mod.rs` | `ori_list_alloc_data`, `ori_list_ensure_capacity`, `ori_list_new`, `ori_list_push_new`, `write_array_to_list` | Core allocation paths |
 | `list/reset/mod.rs` | `ori_list_reset_buffer` | Creates new buffer when reuse fails |
-| `iterator/consumers.rs` | `ori_iter_collect` | Creates output buffer for collect |
-| `set/mod.rs` | Set allocation functions | Creates set hash table buffers |
-| `map/mod.rs`, `map/hash_table.rs` | Map allocation functions | Creates map hash table buffers |
+| `iterator/consumers.rs` | `ori_iter_collect`, `ori_iter_collect_set` | Creates output buffer for collect (list and set) |
+| `set/mod.rs` | `alloc_set_hash_buffer`, `ori_set_to_list` | Hash table buffer + list buffer creation |
+| `map/mod.rs`, `map/hash_table.rs` | `ori_map_keys_to_list`, `ori_map_values_to_list`, `rehash_set`, map alloc | Map hash table buffers + list buffer creation |
+| `string/ops.rs` | `ori_str_split` | Creates `[str]` list buffer via direct `ori_rc_alloc` |
+| `lib.rs` | `ori_args_from_argv` | Creates `[str]` list buffer for `@main(args: [str])` |
 
 Each of these must propagate `elem_dec_fn` to the new buffer. The two approaches are: (a) the runtime function reads `elem_dec_fn` from the OLD buffer's header and writes it to the NEW buffer's header (recommended for COW functions that have access to the old buffer), or (b) the codegen always passes real `elem_dec_fn` to `ori_buffer_rc_dec` for the new buffer's type, and the first non-NULL write populates the header (works for `collect` and `alloc_data` where there is no "old buffer"). Section 02 must enumerate and handle each case.
 
@@ -204,7 +209,7 @@ Ensure seamless slices correctly interact with the new header.
 - [x] Map strategy decided and implemented (codegen-based — option c)
 - [x] `store_elem_dec_fn`/`load_elem_dec_fn` use atomic CAS for thread safety (non-single-threaded path)
 - [x] All dual `#[cfg]` branches updated (non-single-threaded + single-threaded) in list_rc.rs, set_rc.rs
-- [x] DWARF debug info in `create_rc_heap_type` updated for V4 layout
+- [x] DWARF debug info in `create_rc_heap_type` updated for V5 layout
 - [x] `test_rc_header_is_32_bytes` test updated for V5 layout (was `test_rc_header_is_24_bytes` in V4)
 - [x] All hardcoded "24" references in doc comments updated to 32 (allocate.rs, slice_encoding, hash_table.rs, mod.rs, docs/ including string-sso.md and collections-cow.md)
 - [x] `ori_rc_realloc` SAFETY comment updated; `elem_dec_fn` preservation through realloc documented

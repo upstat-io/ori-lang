@@ -21,7 +21,7 @@ pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut 
         return;
     }
     if str_ptr.is_null() || str_len <= 0 {
-        write_array_to_list(std::ptr::null(), 0, 4, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, 4, None, out_ptr);
         return;
     }
     let bytes = unsafe { std::slice::from_raw_parts(str_ptr, str_len as usize) };
@@ -29,7 +29,7 @@ pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut 
 
     let chars: Vec<i32> = s.chars().map(|c| c as i32).collect();
     let n = chars.len() as i64;
-    write_array_to_list(chars.as_ptr().cast(), n, 4, out_ptr);
+    write_array_to_list(chars.as_ptr().cast(), n, 4, None, out_ptr);
 }
 
 /// Split a string by a separator, returning a list of `OriStr` values.
@@ -47,6 +47,7 @@ pub extern "C" fn ori_str_split(
     str_len: i64,
     sep_ptr: *const u8,
     sep_len: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     let elem_size = std::mem::size_of::<OriStr>();
@@ -54,7 +55,7 @@ pub extern "C" fn ori_str_split(
         return;
     }
     if str_ptr.is_null() || str_len < 0 {
-        write_array_to_list(std::ptr::null(), 0, elem_size as i64, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, elem_size as i64, None, out_ptr);
         return;
     }
 
@@ -126,7 +127,10 @@ pub extern "C" fn ori_str_split(
         unsafe { elements.add(i).write(element) };
     }
 
+    // SAFETY: new_data was returned by ori_rc_alloc — header offsets are valid.
     unsafe {
+        crate::rc::store_elem_dec_fn(new_data, elem_dec_fn);
+        crate::rc::store_elem_count(new_data, n as i64);
         out_ptr.cast::<i64>().write(n as i64);
         out_ptr.cast::<i64>().add(1).write(n as i64);
         out_ptr.add(16).cast::<*mut u8>().write(new_data);

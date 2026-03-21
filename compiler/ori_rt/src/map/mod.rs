@@ -99,13 +99,14 @@ pub extern "C" fn ori_map_keys_to_list(
     cap: i64,
     len: i64,
     key_size: i64,
+    key_dec_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
         return;
     }
     if data.is_null() || len <= 0 {
-        write_array_to_list(std::ptr::null(), 0, key_size, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, key_size, None, out_ptr);
         return;
     }
 
@@ -116,6 +117,10 @@ pub extern "C" fn ori_map_keys_to_list(
 
     // Allocate destination list and copy OCCUPIED keys contiguously
     let list_data = crate::rc::ori_rc_alloc(n * ks, 8);
+    // SAFETY: list_data was just returned by ori_rc_alloc — header offsets are valid.
+    unsafe {
+        crate::rc::store_elem_dec_fn(list_data, key_dec_fn);
+    }
     let mut write_pos = 0usize;
     for bucket in 0..c {
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
@@ -130,6 +135,8 @@ pub extern "C" fn ori_map_keys_to_list(
         }
     }
 
+    // SAFETY: list_data was returned by ori_rc_alloc.
+    unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
     write_array_to_list_from_data(list_data, write_pos as i64, key_size, out_ptr);
 }
 
@@ -144,13 +151,14 @@ pub extern "C" fn ori_map_values_to_list(
     len: i64,
     key_size: i64,
     val_size: i64,
+    val_dec_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
         return;
     }
     if data.is_null() || len <= 0 {
-        write_array_to_list(std::ptr::null(), 0, val_size, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, val_size, None, out_ptr);
         return;
     }
 
@@ -162,6 +170,10 @@ pub extern "C" fn ori_map_values_to_list(
 
     // Allocate destination list and copy OCCUPIED values contiguously
     let list_data = crate::rc::ori_rc_alloc(n * vs, 8);
+    // SAFETY: list_data was just returned by ori_rc_alloc — header offsets are valid.
+    unsafe {
+        crate::rc::store_elem_dec_fn(list_data, val_dec_fn);
+    }
     let mut write_pos = 0usize;
     for bucket in 0..c {
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
@@ -176,6 +188,8 @@ pub extern "C" fn ori_map_values_to_list(
         }
     }
 
+    // SAFETY: list_data was returned by ori_rc_alloc.
+    unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
     write_array_to_list_from_data(list_data, write_pos as i64, val_size, out_ptr);
 }
 

@@ -1,13 +1,20 @@
 //! COW list concatenation, reverse, and sort operations.
-//!
-//! These are the "advanced" COW operations that either operate on two lists
-//! (concat) or require auxiliary data structures (sort indices, swap buffer).
+//! Advanced COW ops: two-list (concat) or auxiliary data structures (sort, swap).
 
 use crate::next_capacity;
-use crate::rc::{ori_rc_alloc, ori_rc_dec, ori_rc_free, ori_rc_is_unique, ori_rc_realloc};
+use crate::rc::{
+    load_elem_dec_fn, ori_rc_alloc, ori_rc_dec, ori_rc_free, ori_rc_is_unique, ori_rc_realloc,
+    store_elem_count, store_elem_dec_fn,
+};
 use crate::slice_encoding::{is_slice_cap, slice_original_data};
 
 use super::{dec_list_buffer, inc_copied_elements, write_list_output};
+
+// Propagate elem_dec_fn and elem_count from old to new buffer header.
+unsafe fn propagate_header(src: *mut u8, dst: *mut u8, count: i64) {
+    store_elem_dec_fn(dst, load_elem_dec_fn(src));
+    store_elem_count(dst, count);
+}
 
 /// Helper: copy list2's RC'd elements, incrementing child RC.
 fn copy_list2_elements(
@@ -131,6 +138,8 @@ pub extern "C" fn ori_list_concat_cow(
         let new_cap = next_capacity(0, new_len);
         let new_data = ori_rc_alloc(new_cap * es, ea);
         copy_list2_elements(new_data, data2, n2, es, false, inc_fn);
+        // Propagate header from list2 (source of elements)
+        unsafe { propagate_header(data2, new_data, n2 as i64) };
         dec_list_buffer(data1, cap1);
         dec_list_buffer(data2, cap2);
         unsafe { write_list_output(out_ptr, n2 as i64, new_cap as i64, new_data) };
@@ -190,6 +199,8 @@ pub extern "C" fn ori_list_concat_cow(
         inc_fn,
     );
     inc_copied_elements(new_data, n1, es, inc_fn);
+    // Propagate header from either source (both same-typed)
+    unsafe { propagate_header(data1, new_data, new_len as i64) };
     dec_list_buffer(data1, cap1);
     dec_consumed_list2(data2, cap2, es, ea);
     unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
@@ -281,6 +292,9 @@ pub extern "C" fn ori_list_reverse_cow(
 
     // Inc RC for all copied elements
     inc_copied_elements(new_data, n, es, inc_fn);
+
+    // Propagate header from source
+    unsafe { propagate_header(data, new_data, n as i64) };
 
     // Release old buffer (slice-aware)
     dec_list_buffer(data, cap);
@@ -421,6 +435,9 @@ fn list_sort_cow_impl(
 
     // Inc RC for all copied elements
     inc_copied_elements(new_data, n, es, inc_fn);
+
+    // Propagate header from source
+    unsafe { propagate_header(data, new_data, n as i64) };
 
     // Release old buffer (slice-aware)
     dec_list_buffer(data, cap);

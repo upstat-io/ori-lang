@@ -292,6 +292,7 @@ fn split_heap_string_long_pieces_are_slices() {
         content.len() as i64,
         sep.as_ptr(),
         sep.len() as i64,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -364,6 +365,7 @@ fn split_heap_string_short_pieces_use_sso() {
         content.len() as i64,
         sep.as_ptr(),
         sep.len() as i64,
+        None,
         out.as_mut_ptr(),
     );
 

@@ -259,6 +259,7 @@ pub(crate) unsafe fn rehash_map(
 /// Rehash a set's hash table into a new buffer with `new_cap` buckets.
 ///
 /// Same as `rehash_map` but for single-element (no values) layout.
+/// Stores `elem_dec_fn` in the new buffer's RC header for defense-in-depth.
 ///
 /// # Safety
 /// `old_data` must point to a valid hash table buffer with `old_cap` buckets.
@@ -268,6 +269,7 @@ pub(crate) unsafe fn rehash_set(
     new_cap: usize,
     elem_size: usize,
     elem_hash: extern "C" fn(*const u8) -> i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
     let old_layout = HashTableLayout::for_set(old_cap, elem_size);
     let new_layout = HashTableLayout::for_set(new_cap, elem_size);
@@ -275,6 +277,9 @@ pub(crate) unsafe fn rehash_set(
 
     // Initialize all metadata to EMPTY
     std::ptr::write_bytes(new_data, META_EMPTY, new_layout.metadata_bytes);
+
+    // Store elem_dec_fn in the new buffer's RC header
+    crate::rc::store_elem_dec_fn(new_data, elem_dec_fn);
 
     // Re-insert all OCCUPIED entries from old table
     for bucket in 0..old_cap {

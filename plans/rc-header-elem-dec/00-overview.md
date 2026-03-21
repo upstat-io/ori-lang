@@ -8,10 +8,10 @@ Eliminate all element-level memory leaks and double-frees when iterating over co
 
 When iterating a list `[T]` where `T` has Drop, two independent `ori_buffer_rc_dec` calls race to reach RC=0:
 
-1. **Iterator Drop** (`IterState::List` -> `ori_buffer_rc_dec(data, len, cap, es, elem_dec_fn)`) — passes whatever `elem_dec_fn` was stored in the `IterState::List` field at creation. Currently, `emit_list_iter` in `list_builtins.rs` passes NULL at construction time, so the iterator carries NULL.
+1. **Iterator Drop** (`IterState::List` -> `ori_buffer_rc_dec(data, len, cap, es, elem_dec_fn)`) -- passes whatever `elem_dec_fn` was stored in the `IterState::List` field at creation. Since the `iter-rc-contract` plan (2026-03-18), `emit_list_iter` passes the REAL `elem_dec_fn` (not NULL), so the iterator now carries a valid function.
 2. **Explicit RcDec** (`emit_buffer_rc_dec_list_or_set` -> `ori_buffer_rc_dec(data, len, cap, es, elem_dec_fn)`) — passes the real `elem_dec_fn` via `get_or_generate_elem_dec_fn(elem_type)`.
 
-**Whoever reaches zero determines whether elements are cleaned up.** If the iterator's NULL-carrying call wins, elements leak. If the explicit call wins, cleanup happens. This ordering is non-deterministic across patterns (function params, nested loops, break paths).
+**With the iter-rc-contract fix, both paths now carry real `elem_dec_fn`.** However, the header-based approach (this plan) provides defense-in-depth: even if a future code path passes NULL, the header ensures the function is available. The ordering dependency is eliminated — whoever reaches zero reads from the header.
 
 ### Current Workarounds (to be removed by this plan)
 
@@ -26,11 +26,11 @@ When iterating a list `[T]` where `T` has Drop, two independent `ori_buffer_rc_d
 | `[[int]]` nested iteration (intermittent) | Double-free: inner list freed by inner iterator, then outer cleanup |
 | `for w in words do { push_to_other_list(w) }` | Potential element use-after-free if iterator dec reaches zero |
 
-## Solution: RC Header V4
+## Solution: RC Header V5
 
-**Design Note — Maps**: Maps require TWO cleanup functions (`key_dec_fn` + `val_dec_fn`), not one. The single `elem_dec_fn` header slot works for lists and sets, but maps need a different approach. Recommended: option (c) — change `emit_map_iter` to pass real functions instead of NULL (codegen-based, no header change for maps). This must be resolved in Section 01.3 / Section 02.3 before implementation.
+**Design Note — Maps**: Maps require TWO cleanup functions (`key_dec_fn` + `val_dec_fn`), not one. The single `elem_dec_fn` header slot works for lists and sets, but maps need a different approach. **Decision (resolved)**: option (c) — `emit_map_iter` passes real functions (codegen-based, no header change for maps). Implemented by iter-rc-contract plan (2026-03-18). See Section 01.3 for decision rationale and Section 02.3 for verification.
 
-**Design Note — Sets**: Sets use `ori_set_buffer_rc_dec(data, cap, len, elem_size, elem_dec_fn)` which uses hash table layout (`[metadata | elements]`), NOT contiguous array layout. The header-based `elem_dec_fn` works for sets (single function), but the codegen must also store the `elem_dec_fn` at set construction time, not just list construction. `emit_set_construct` in `construction.rs` must be updated alongside list construction.
+**Design Note — Sets**: Sets use `ori_set_buffer_rc_dec(data, cap, len, elem_size, elem_dec_fn)` which uses hash table layout (`[metadata | elements]`), NOT contiguous array layout. The header-based `elem_dec_fn` works for sets (single function). Set construction codegen (`CtorKind::SetLiteral` in `construction.rs`) stores `elem_dec_fn` and `elem_count` at literal construction time (completed in Section 02.1). Sets do NOT need `elem_count` for cleanup (they use metadata scanning), but the field is stored for consistency.
 
 Extend the RC allocation header to 32 bytes, adding `elem_dec_fn` and `elem_count` slots:
 
@@ -61,27 +61,49 @@ Strictly sequential — each section depends on the previous.
 ## Implementation Sequence
 
 1. **Section 01** — Modify `ori_rt` runtime: extend header, update alloc/free/realloc, add `elem_dec_fn` store/load helpers, update all RC dec functions to read from header.
-2. **Section 02** — Wire up codegen: list construction (`emit_construct` / `CtorKind::ListLiteral` in `construction.rs`) stores `elem_dec_fn` in the RC header at buffer creation time; iterator Drop reads it from the header via `ori_buffer_rc_dec`. Map iteration passes real `key_dec_fn`/`val_dec_fn`. COW slow paths propagate `elem_dec_fn` from old to new buffer.
+2. **Section 02** — Wire up codegen: list and set construction stores `elem_dec_fn` AND `elem_count` in the RC header at buffer creation time. Map iteration already passes real `key_dec_fn`/`val_dec_fn` (fixed by iter-rc-contract plan, 2026-03-18). ALL COW slow paths (list, set, and map-to-list) propagate `elem_dec_fn` (and `elem_count` for list buffers) from old to new buffer. Buffer-creating runtime functions (`ori_map_keys_to_list`, `ori_map_values_to_list`, `ori_str_split`, `ori_set_to_list`, `write_array_to_list`) extended with `elem_dec_fn` parameter. Codegen emits header-store calls after `ori_iter_collect` and `ori_iter_collect_set` return. `alloc_set_hash_buffer` and `rehash_set` centralize `elem_dec_fn` propagation for set buffer allocations. `ori_args_from_argv` stores `elem_count` for the `[str]` args list. Four ABI sync points (runtime + LLVM IR + codegen must be single-commit changes).
 3. **Section 03** — Remove `__for_coll_N` phantom binding workaround, dummy reference in exit block, dead `elem_dec_fn` parameter from `ori_iter_from_list` and `IterState::List`. Simplify `lower_for` and `lower_for_iterator`.
-4. **Section 04** — Write combinatorial test matrix: 9 type categories x 10 language features x 4 execution modes. Split `fat_ptr_iter.rs` into directory module.
+4. **Section 04** — Write combinatorial test matrix: 9 type categories x 12 language features x 4 execution modes. Split `fat_ptr_iter.rs` into directory module.
 5. **Section 05** — Full verification pass: all tests green, valgrind clean, code journeys re-run, unignore tests, documentation updated.
 
 **CRITICAL — ABI boundary**: The RC header size change affects BOTH `ori_rt` (Rust runtime) AND `ori_llvm` (LLVM codegen). Both must agree on the header layout. Any LLVM IR that hardcodes pointer offsets for RC header fields (e.g., GEP with constant offsets) must be updated simultaneously. The `runtime_functions.rs` declarations in `ori_llvm` must match the updated `ori_rt` function signatures. This is a single-commit change — partial updates break the ABI contract.
 
 ## Plan-Level Warnings
 
-1. **`compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs` is 1469 lines** — far above the 500-line limit, but the file self-documents its exemption (it is a pure static data table). Adding `ori_buffer_store_elem_dec` to this file is acceptable, but do not add any logic here.
+1. **`compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs` is 1485 lines** — far above the 500-line limit, but the file self-documents its exemption (it is a pure static data table). `ori_buffer_store_elem_dec` and `ori_buffer_store_elem_count` have been added. Do not add any logic here.
 
 2. **ABI boundary is a single-commit change** — Sections 01 and 02 modify both `ori_rt` (Rust runtime) and `ori_llvm` (LLVM codegen). The `RC_HEADER_SIZE` constant change, the `ori_rc_alloc` pointer arithmetic change, and the LLVM IR constant offsets must all be committed together. Partial updates break the ABI contract and produce silent memory corruption.
 
-3. **COW slow path propagation (Section 02.1) is the most complex item** — There are 5 COW functions in `cow.rs` that allocate new buffers on the slow path. Each must propagate `elem_dec_fn` from old to new header. This is easy to implement but hard to audit exhaustively. Consider adding a `debug_assert!` in `ori_buffer_rc_dec` that warns if a buffer reaches zero with both NULL header and non-NULL parameter.
+3. **COW slow path propagation (Section 02.1) is the most complex item** — There are 20+ runtime functions across `cow.rs`, `cow_structural.rs`, `cow_sort.rs`, `query.rs`, `slice.rs`, `mod.rs`, `iterator/consumers.rs`, `set/cow/basic.rs`, `set/cow/algebra.rs`, and `set/mod.rs` that allocate new collection buffers via `ori_rc_alloc`. List buffer allocations must propagate BOTH `elem_dec_fn` AND `elem_count`. Set hash table buffer allocations must propagate `elem_dec_fn` only (sets use metadata scanning, not `elem_count`, for cleanup). Additionally, `ori_map_keys_to_list`, `ori_map_values_to_list`, `ori_str_split`, and `ori_set_to_list` require signature changes to accept `elem_dec_fn`, which cascades to LLVM IR declarations and codegen call sites. Consider adding a `debug_assert!` in `ori_buffer_rc_dec` that warns if a buffer reaches zero with both NULL header and non-NULL parameter.
 
-4. **Map approach must be decided before implementation** — Section 01.3 flags the map two-slot problem but recommends option (c) (codegen-based, not header-based). This decision should be finalized in review before starting implementation, as it affects whether maps benefit from the header at all.
+4. **Map approach decided: codegen-based (option c)** — Maps need TWO cleanup functions (key + value) that cannot fit in a single header slot. Section 01.3 resolved this: maps use the codegen-based approach where `emit_map_iter` passes real `key_dec_fn`/`val_dec_fn`. The header `elem_dec_fn` slot is used for lists and sets only.
+
+5. **Pre-existing stale "8-byte header" references in `list/mod.rs`** — Lines 83, 131, and 199 reference "8-byte refcount header" which was wrong even for V3 (16 bytes). These must be fixed to "32-byte RC header (V5)" as part of Section 02 cleanup. Similarly, `.claude/rules/runtime.md` line 29 says "8-byte header" (flagged in Section 05).
+
+6. **Pre-existing decorative banners in touched files** — `list/mod.rs` has 2 decorative banners, `iterator/consumers.rs` has 8 decorative banners. Per hygiene rules, these must be replaced with plain section comments when the files are touched during Section 02 implementation.
+
+7. **Plan references two phantom functions** — The original plan referenced `ori_list_filter` and `ori_list_slice_copy` in `query.rs`, but these functions do not exist. The actual allocating functions in `query.rs` are `ori_list_reverse` (line 122) and `ori_list_concat` (line 170). Also `ori_list_slice_materialized` was misspelled; the actual function is `ori_list_materialize_slice` (line 152 of `slice.rs`). These have been corrected in Sections 01 and 02.
+
+8. **`construction.rs` is at 499 lines** — one line below the 500-line limit. The Section 02 header-store additions consumed the remaining margin. If any further modifications are needed (Section 03 or 04), extract `emit_variant_via_insertvalue` and `emit_variant_via_alloca` (~130 lines combined) into a `variant_construction.rs` submodule before exceeding the limit.
+
+9. **`cow_sort.rs` is at 499 lines** — at the 500-line limit after Section 02.1 COW slow path propagation. If any further modifications are needed, extract `apply_permutation_in_place` (45 lines) into a helper submodule before exceeding the limit.
+
+10. **Function name mismatch in original plan** — Section 02 referenced `ori_map_keys` and `ori_map_values` but the actual runtime function names are `ori_map_keys_to_list` and `ori_map_values_to_list`. The plan also referenced `emit_list_iter_collect` in `list_builtins.rs` but the actual function is `emit_iter_collect` in `builtins/iterator_consumers.rs`. Corrected in Section 02.
+
+11. **`ori_args_from_argv` creates a `[str]` list buffer** — `lib.rs:303` allocates via `ori_rc_alloc` for `@main(args: [str])` programs. Added to Section 02 with header-store requirements. The `elem_dec_fn` for `str` is an LLVM-generated thunk (same issue as `ori_str_split`), so either add a parameter (ABI sync point) or rely on deferred store. `elem_count` can be stored internally.
+
+12. **Section 02 has 4 ABI sync points** — `ori_map_keys_to_list`, `ori_map_values_to_list`, `ori_str_split`, and `ori_set_to_list` all require simultaneous updates to runtime signature + LLVM IR declaration + codegen call site. A consolidated reference table is in Section 02.N. Partial updates produce silent memory corruption or linker errors.
+
+13. **Dead `_ea` (elem_align) computations in set COW** — `set/cow/basic.rs` (2 sites) and `set/cow/algebra.rs` (3 sites) accept `elem_align` from codegen, compute `_ea = elem_align.max(1) as usize`, then discard it. All actual buffer allocations hardcode alignment `8`. When adding `elem_dec_fn` propagation, resolve this: either pass `_ea` to allocation functions or remove the dead computation.
+
+14. **`map/mod.rs` re-export masks unused import** — Line 21 has `#[allow(unused_imports, reason = "used by cow.rs after rewrite")]` on the `pub(crate) use hash_table::{...}` block. `META_EMPTY` is NOT used by `cow.rs` (confirmed by grep). The `#[allow]` should be `#[expect]` or the unused item removed.
+
+15. **Second `vec![0u8; elem_size]` allocation in `cow_sort.rs`** — Plan warning 9 only mentions line 256 (`reverse_cow`). There is a second identical allocation at line 458 (`apply_permutation_in_place`). Both should use stack arrays.
 
 ## Success Criteria
 
-- [ ] `test_str_list_passed_to_two_functions` passes (currently `#[ignore]`)
-- [ ] `test_nested_list_iteration` passes (currently `#[ignore]`)
+- [ ] `test_str_list_passed_to_two_functions` passes reliably (currently active, not ignored)
+- [ ] `test_nested_list_iteration` passes reliably (currently active, not ignored)
 - [ ] Full combinatorial test matrix passes (Section 04)
 - [ ] Zero regressions: all existing tests pass (`timeout 150 ./test-all.sh`)
 - [ ] All tests pass in release build (`cargo b --release`) — debug and release differ due to FastISel
@@ -90,5 +112,5 @@ Strictly sequential — each section depends on the previous.
 - [ ] Code journeys J15-J17 re-run with improved scores
 - [ ] Phantom `__for_coll_N` workaround completely removed
 - [ ] Dead `elem_dec_fn` parameter removed from `ori_iter_from_list` and `IterState::List`
-- [ ] Map iteration passes real `key_dec_fn`/`val_dec_fn` (not NULL)
-- [ ] No stale "16-byte header" references in codebase
+- [x] Map iteration passes real `key_dec_fn`/`val_dec_fn` (not NULL) (implemented by iter-rc-contract plan, 2026-03-18)
+- [ ] No stale "16-byte header" or "24-byte header" references in codebase (V5 = 32 bytes)

@@ -231,6 +231,9 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_empty" => runtime::ori_str_empty as *const () as usize,
         "ori_map_empty" => runtime::map::ori_map_empty as *const () as usize,
         "ori_set_empty" => runtime::set::ori_set_empty as *const () as usize,
+        // Element header helpers
+        "ori_buffer_store_elem_dec" => runtime::ori_buffer_store_elem_dec as *const () as usize,
+        "ori_buffer_store_elem_count" => runtime::ori_buffer_store_elem_count as *const () as usize,
         // Buffer reuse
         "ori_list_reset_buffer" => runtime::ori_list_reset_buffer as *const () as usize,
         // Catch recovery (Itanium EH)
