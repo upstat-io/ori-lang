@@ -240,7 +240,12 @@ pub(crate) fn compute_block_entry_state(
     }
 
     // Block params are definitions (like phi nodes) — remove from entry state.
-    propagate_project_source_demand(&mut current, state_map, project_alias_sources);
+    propagate_project_source_demand(
+        &mut current,
+        state_map,
+        project_alias_sources,
+        &block.params,
+    );
 
     for &(param_var, _ty) in &block.params {
         current.remove(&param_var);

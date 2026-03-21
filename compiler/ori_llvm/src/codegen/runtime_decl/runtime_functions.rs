@@ -1387,15 +1387,16 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     // Iterator consumers — extern "C" (call callbacks internally, panics abort at boundary)
     RtFn {
         name: "ori_iter_collect",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        // (iter, elem_size, elem_inc_fn, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_collect_set",
-        // (iter, elem_size, elem_eq, elem_hash, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr],
+        // (iter, elem_size, elem_eq, elem_hash, elem_inc_fn, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,

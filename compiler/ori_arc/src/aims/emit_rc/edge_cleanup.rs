@@ -16,7 +16,7 @@ use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership, RcStrategy,
 };
 
-use super::{block_id, rc_strategy, EdgeDec};
+use super::{block_id, rc_strategy, DeferredDec, EdgeDec};
 
 /// Whether a variable should be treated as owned for RC purposes.
 ///
@@ -48,16 +48,18 @@ fn is_owned_for_rc(
 /// Emit `RcDec` on edges where a variable is live in the predecessor but
 /// dead in a particular successor.
 ///
-/// Also handles deferred parent `RcDec` operations from Phase B. These are
-/// parent aggregates whose `RcDec` was deferred because a borrowed child
-/// (from Project) is used in the block terminator. The parent's `RcDec`
-/// must go on ALL successor edges so it executes after the terminator.
+/// Also handles deferred `RcDec` operations from two sources:
+/// - **Phase B deferred parents** (`target: None`): parent aggregates whose
+///   `RcDec` was deferred because a borrowed child (from Project) is used in
+///   the block terminator. Emitted on ALL successor edges.
+/// - **Merge-edge decs** (`target: Some(succ)`): branch-local variables at
+///   merge blocks. Emitted ONLY on the edge to the specific merge successor.
 pub(crate) fn emit_edge_cleanup(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     pool: &Pool,
     all_borrowed_defs: &FxHashSet<ArcVarId>,
-    deferred_parent_decs: &FxHashMap<usize, Vec<(ArcVarId, RcStrategy)>>,
+    deferred_parent_decs: &FxHashMap<usize, Vec<DeferredDec>>,
 ) {
     let predecessors = compute_predecessors(func);
 
@@ -77,12 +79,32 @@ pub(crate) fn emit_edge_cleanup(
                 all_borrowed_defs,
                 &mut edge_decs,
             );
-            // Add deferred parent decs to both Invoke edges.
+            // Add deferred decs to Invoke edges. target=None → both edges,
+            // target=Some(succ) → only the matching edge.
             if let Some(decs) = deferred_parent_decs.get(&block_idx) {
                 if let ArcTerminator::Invoke { normal, unwind, .. } = &block.terminator {
-                    for &(var, strategy) in decs {
-                        edge_decs.push((block_idx, normal.index(), var, strategy));
-                        edge_decs.push((block_idx, unwind.index(), var, strategy));
+                    for &(target, var, strategy) in decs {
+                        match target {
+                            None => {
+                                edge_decs.push((block_idx, normal.index(), var, strategy));
+                                edge_decs.push((block_idx, unwind.index(), var, strategy));
+                            }
+                            Some(succ) if succ == normal.index() => {
+                                edge_decs.push((block_idx, normal.index(), var, strategy));
+                            }
+                            Some(succ) if succ == unwind.index() => {
+                                edge_decs.push((block_idx, unwind.index(), var, strategy));
+                            }
+                            Some(succ) => {
+                                debug_assert!(
+                                    false,
+                                    "merge-edge dec targets block {succ} which is neither \
+                                     normal ({}) nor unwind ({}) of Invoke in block {block_idx}",
+                                    normal.index(),
+                                    unwind.index(),
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -91,11 +113,25 @@ pub(crate) fn emit_edge_cleanup(
 
         let successors = successor_block_ids(&block.terminator);
 
-        // Add deferred parent decs to all successor edges.
+        // Add deferred decs to successor edges. target=None → all edges,
+        // target=Some(succ) → only the matching edge.
         if let Some(decs) = deferred_parent_decs.get(&block_idx) {
-            for succ_id in &successors {
-                for &(var, strategy) in decs {
-                    edge_decs.push((block_idx, succ_id.index(), var, strategy));
+            for &(target, var, strategy) in decs {
+                match target {
+                    None => {
+                        for succ_id in &successors {
+                            edge_decs.push((block_idx, succ_id.index(), var, strategy));
+                        }
+                    }
+                    Some(succ) => {
+                        debug_assert!(
+                            successors.iter().any(|s| s.index() == succ),
+                            "merge-edge dec targets block {succ} which is not a successor of block {block_idx}",
+                        );
+                        if successors.iter().any(|s| s.index() == succ) {
+                            edge_decs.push((block_idx, succ, var, strategy));
+                        }
+                    }
                 }
             }
         }
@@ -138,6 +174,11 @@ fn collect_branch_edge_decs(
     let Some(exit_states) = state_map.block_exit_states(blk) else {
         return;
     };
+
+    // Filter out variables defined downstream (from project-source demand
+    // propagation at merge points).
+    let defined_at_or_before = compute_defined_at_or_before(func, block_idx);
+
     for (&var, &state) in exit_states {
         if state.is_scalar() {
             continue;
@@ -149,6 +190,12 @@ fn collect_branch_edge_decs(
             state.cardinality,
             all_borrowed_defs,
         ) {
+            continue;
+        }
+        // Skip variables that are only defined downstream (in a successor
+        // block). These come from project-source demand propagation at
+        // merge points and don't actually exist at this block's exit.
+        if !defined_at_or_before.contains(&var) {
             continue;
         }
         for succ_id in successors {
@@ -210,20 +257,14 @@ fn apply_edge_decs(
 /// Collect edge-specific `RcDec` for Invoke terminators using
 /// `InvokeEdgeState` to determine normal vs unwind cleanup.
 ///
-/// Three categories of variables need cleanup:
-/// 1. Variables live at block exit (in `exit_states`) that die on specific
-///    edges — handled by the `exit_states` loop.
-/// 2. Borrowed Invoke args NOT in `exit_states` — these are used only by
-///    the Invoke terminator, so the backward analysis never propagates them
-///    to the exit boundary. The caller must still `RcDec` after the call.
-/// 3. Unwind cleanup for ownership-transferred args — when the callee
-///    panics (unwind leads to `Resume` or catch handler), it may not have
-///    consumed the ownership the caller transferred. The caller must
-///    reclaim and `RcDec` on the unwind edge.
-///
-/// Categories 1 and 2 exclude variables whose ownership was transferred to
-/// the callee via `ArgOwnership::Owned` on the **normal** path. Category 3
-/// handles the **unwind** path for those same variables.
+/// Three cleanup categories: (1) `exit_states` vars dying on specific edges,
+/// (2) borrowed `Invoke` args absent from `exit_states`, (3) unwind cleanup for
+/// ownership-transferred args. Categories 1-2 exclude `Owned` normal-path
+/// transfers; category 3 handles the unwind path for those same variables.
+#[expect(
+    clippy::too_many_lines,
+    reason = "3 cleanup categories in one function — extracting would fragment edge logic"
+)]
 fn collect_invoke_edge_decs(
     func: &ArcFunction,
     block_idx: usize,
@@ -248,19 +289,10 @@ fn collect_invoke_edge_decs(
     let edge_state = state_map.invoke_edge_state(blk);
     let exit_states = state_map.block_exit_states(blk);
 
-    // Track which variables get ownership-transfer cleanup on the unwind edge
-    // (Category 3), so Category 1 can skip them to avoid double-dec.
+    // Cat 3 vars — so Cat 1 can skip to avoid double-dec.
     let mut cat3_unwind_vars: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    // Category 3: unwind cleanup for ownership-transferred args.
-    //
-    // When the caller passes an arg as `Owned`, the callee is expected to
-    // handle the ref. But if the callee panics (unwind), it may not have
-    // consumed the ownership. The caller must RcDec on the unwind edge to
-    // reclaim the unclaimed ref.
-    //
-    // This applies regardless of whether the variable is alive downstream —
-    // the extra ref from the ownership transfer must be balanced.
+    // Category 3: unwind cleanup for Owned args (callee may not have consumed).
     for (i, &arg) in args.iter().enumerate() {
         let is_owned = arg_ownership
             .get(i)
@@ -280,6 +312,9 @@ fn collect_invoke_edge_decs(
         }
     }
 
+    // Precompute which variables are defined at or before this block.
+    let defined_at_or_before = compute_defined_at_or_before(func, block_idx);
+
     // Category 1: variables in exit_states that die on specific edges.
     if let (Some(edge_state), Some(exit_states)) = (edge_state, exit_states) {
         for (&var, &state) in exit_states {
@@ -295,9 +330,12 @@ fn collect_invoke_edge_decs(
             ) {
                 continue;
             }
-            // Skip variables whose ownership was transferred to the callee
-            // on the normal path. The callee handles cleanup on success.
-            // (On unwind, Category 3 already handles the reclaim.)
+            // Skip variables defined downstream (from project-source
+            // demand propagation). Same filter as collect_branch_edge_decs.
+            if !defined_at_or_before.contains(&var) {
+                continue;
+            }
+            // Ownership transferred → callee handles normal cleanup.
             if invoke_transfers_ownership(var, args, arg_ownership) {
                 continue;
             }
@@ -330,15 +368,8 @@ fn collect_invoke_edge_decs(
         }
     }
 
-    // Category 2: borrowed Invoke args not in exit_states.
-    //
-    // When a variable is passed as `Borrowed` to an Invoke, the caller retains
-    // ownership and must `RcDec` after the call. If the variable is not live in
-    // any successor (not in exit_states), the backward analysis never propagates
-    // it to the exit boundary, so the exit_states loop above misses it.
-    //
-    // Emit `RcDec` on both normal and unwind edges for these variables.
-    // (Owned args are excluded by the filter — ownership was transferred.)
+    // Category 2: borrowed Invoke args absent from exit_states — caller must
+    // still RcDec. Emit on both edges. Owned args excluded (transferred).
     for (i, &arg) in args.iter().enumerate() {
         if arg_ownership.get(i).copied() != Some(ArgOwnership::Borrowed) {
             continue;
@@ -346,12 +377,10 @@ fn collect_invoke_edge_decs(
         if state_map.is_excluded(arg) {
             continue;
         }
-        // Skip Project-defined (borrowed) variables. These don't have
-        // independent RC management — the source aggregate's RC covers them.
+        // Skip Project-defined (borrowed) vars — source aggregate handles RC.
         if all_borrowed_defs.contains(&arg) {
             continue;
         }
-        // Already handled by exit_states loop above.
         let in_exit_states = exit_states.is_some_and(|states| {
             states.get(&arg).is_some_and(|s| {
                 is_owned_for_rc(state_map, arg, s.access, s.cardinality, all_borrowed_defs)
@@ -429,6 +458,38 @@ fn insert_trampoline(func: &mut ArcFunction, pred_idx: usize, succ_idx: usize, d
         succ_id,
         trampoline_id,
     );
+}
+
+/// Compute the set of variables defined at or before a given block index.
+///
+/// Variables from project-source demand propagation at merge points may
+/// appear in exit states even though they're defined DOWNSTREAM (in branch
+/// successors). This function precomputes which variables actually exist
+/// at a given block, so edge cleanup can filter out phantom demand.
+///
+/// Assumes blocks are in topological order (entry = 0).
+fn compute_defined_at_or_before(func: &ArcFunction, up_to: usize) -> FxHashSet<ArcVarId> {
+    let mut set = FxHashSet::default();
+    for (bi, block) in func.blocks.iter().enumerate() {
+        if bi > up_to {
+            continue;
+        }
+        for &(param, _) in &block.params {
+            set.insert(param);
+        }
+        for instr in &block.body {
+            if let Some(dst) = instr.defined_var() {
+                set.insert(dst);
+            }
+        }
+        if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
+            set.insert(*dst);
+        }
+    }
+    for param in &func.params {
+        set.insert(param.var);
+    }
+    set
 }
 
 /// Retarget a terminator: replace references to `old_target` with `new_target`.
