@@ -3,6 +3,7 @@
 use ori_ir::Name;
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
@@ -3304,6 +3305,19 @@ fn context_events_recorded_despite_may_share_true() {
 
 // compute_project_alias_sources
 
+/// Assert that `var` maps to exactly one Project source `expected`.
+fn assert_single_source(
+    sources: &FxHashMap<ArcVarId, super::project_aliases::ProjectSources>,
+    v: ArcVarId,
+    expected: ArcVarId,
+    msg: &str,
+) {
+    let s = sources
+        .get(&v)
+        .unwrap_or_else(|| panic!("{msg}: no entry for {v:?}"));
+    assert_eq!(s.as_slice(), &[expected], "{msg}");
+}
+
 #[test]
 fn compute_project_alias_sources_direct_project() {
     // v1 = Project v0.0
@@ -3325,7 +3339,7 @@ fn compute_project_alias_sources_direct_project() {
     };
 
     let sources = super::project_aliases::compute_project_alias_sources(&func);
-    assert_eq!(sources.get(&var(1)), Some(&var(0)));
+    assert_single_source(&sources, var(1), var(0), "direct Project dst");
     assert_eq!(sources.len(), 1);
 }
 
@@ -3358,12 +3372,8 @@ fn compute_project_alias_sources_let_alias() {
     };
 
     let sources = super::project_aliases::compute_project_alias_sources(&func);
-    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
-    assert_eq!(
-        sources.get(&var(2)),
-        Some(&var(0)),
-        "Let alias of Project dst"
-    );
+    assert_single_source(&sources, var(1), var(0), "direct Project dst");
+    assert_single_source(&sources, var(2), var(0), "Let alias of Project dst");
     assert_eq!(sources.len(), 2);
 }
 
@@ -3402,9 +3412,9 @@ fn compute_project_alias_sources_transitive_let_chain() {
     };
 
     let sources = super::project_aliases::compute_project_alias_sources(&func);
-    assert_eq!(sources.get(&var(1)), Some(&var(0)));
-    assert_eq!(sources.get(&var(2)), Some(&var(0)));
-    assert_eq!(sources.get(&var(3)), Some(&var(0)));
+    assert_single_source(&sources, var(1), var(0), "v1");
+    assert_single_source(&sources, var(2), var(0), "v2");
+    assert_single_source(&sources, var(3), var(0), "v3");
     assert_eq!(sources.len(), 3);
 }
 
@@ -3445,11 +3455,12 @@ fn compute_project_alias_sources_cross_block_let() {
     };
 
     let sources = super::project_aliases::compute_project_alias_sources(&func);
-    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
-    assert_eq!(
-        sources.get(&var(2)),
-        Some(&var(0)),
-        "cross-block Let alias of Project dst"
+    assert_single_source(&sources, var(1), var(0), "direct Project dst");
+    assert_single_source(
+        &sources,
+        var(2),
+        var(0),
+        "cross-block Let alias of Project dst",
     );
 }
 
@@ -3585,12 +3596,8 @@ fn compute_project_alias_sources_jump_arg_to_block_param() {
     };
 
     let sources = super::project_aliases::compute_project_alias_sources(&func);
-    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
-    assert_eq!(
-        sources.get(&var(2)),
-        Some(&var(0)),
-        "block param receiving Project dst via Jump arg"
-    );
+    assert_single_source(&sources, var(1), var(0), "direct Project dst");
+    assert_single_source(&sources, var(2), var(0), "block param via Jump arg");
     assert_eq!(sources.len(), 2);
 }
 
@@ -3637,17 +3644,9 @@ fn compute_project_alias_sources_transitive_jump_chain() {
     };
 
     let sources = super::project_aliases::compute_project_alias_sources(&func);
-    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
-    assert_eq!(
-        sources.get(&var(2)),
-        Some(&var(0)),
-        "first block param in chain"
-    );
-    assert_eq!(
-        sources.get(&var(3)),
-        Some(&var(0)),
-        "second block param in transitive chain"
-    );
+    assert_single_source(&sources, var(1), var(0), "direct Project dst");
+    assert_single_source(&sources, var(2), var(0), "first block param in chain");
+    assert_single_source(&sources, var(3), var(0), "second block param in chain");
     assert_eq!(sources.len(), 3);
 }
 
@@ -3691,13 +3690,9 @@ fn compute_project_alias_sources_let_then_jump() {
     };
 
     let sources = super::project_aliases::compute_project_alias_sources(&func);
-    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
-    assert_eq!(sources.get(&var(2)), Some(&var(0)), "Let alias");
-    assert_eq!(
-        sources.get(&var(3)),
-        Some(&var(0)),
-        "block param receiving Let alias of Project dst"
-    );
+    assert_single_source(&sources, var(1), var(0), "direct Project dst");
+    assert_single_source(&sources, var(2), var(0), "Let alias");
+    assert_single_source(&sources, var(3), var(0), "block param via Let alias");
     assert_eq!(sources.len(), 3);
 }
 
@@ -3739,12 +3734,8 @@ fn compute_project_alias_sources_loop_header_param() {
     };
 
     let sources = super::project_aliases::compute_project_alias_sources(&func);
-    assert_eq!(sources.get(&var(1)), Some(&var(0)), "direct Project dst");
-    assert_eq!(
-        sources.get(&var(2)),
-        Some(&var(0)),
-        "loop header param receiving Project alias"
-    );
+    assert_single_source(&sources, var(1), var(0), "direct Project dst");
+    assert_single_source(&sources, var(2), var(0), "loop header param");
     assert_eq!(sources.len(), 2);
 }
 
@@ -3826,5 +3817,191 @@ fn project_block_param_cross_block_propagates_source_demand() {
         v1_at_b0_exit.access,
         AccessClass::Borrowed,
         "Project source demand should be Borrowed"
+    );
+}
+
+// compute_project_alias_sources — multi-predecessor merge (TPR-02-006)
+
+#[test]
+fn compute_project_alias_sources_multi_predecessor_merge() {
+    // Block 0: v2 = Project v0.0; Jump block2, args=[v2]
+    // Block 1: v3 = Project v1.0; Jump block2, args=[v3]
+    // Block 2: params=[v4]; return v4
+    //
+    // v4 can alias EITHER v0 (via v2) or v1 (via v3) depending on control flow.
+    // Both must be recorded as sources for v4.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(2),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(3),
+                    ty: ty(0),
+                    value: var(1),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(2),
+                    args: vec![var(3)],
+                },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![(var(4), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(4) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let sources = super::project_aliases::compute_project_alias_sources(&func);
+    assert_eq!(
+        sources.get(&var(2)).map(SmallVec::as_slice),
+        Some(&[var(0)][..]),
+        "v2 → v0"
+    );
+    assert_eq!(
+        sources.get(&var(3)).map(SmallVec::as_slice),
+        Some(&[var(1)][..]),
+        "v3 → v1"
+    );
+
+    // v4 must map to BOTH v0 and v1 (multi-predecessor merge).
+    let v4_sources = sources
+        .get(&var(4))
+        .expect("v4 must have Project alias sources");
+    assert!(
+        v4_sources.contains(&var(0)) && v4_sources.contains(&var(1)),
+        "v4 must alias both v0 and v1 at merge, got: {v4_sources:?}"
+    );
+    assert_eq!(v4_sources.len(), 2, "exactly two sources");
+}
+
+// Semantic pin: multi-predecessor merge demand propagation (TPR-02-006)
+
+#[test]
+fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
+    // Semantic pin for TPR-02-006 fix.
+    //
+    // Block 0 (entry): Branch(v0) → block1 | block2
+    // Block 1: v2 = Construct Struct(v6); v3 = Project v2.0; Jump block3, args=[v3]
+    // Block 2: v4 = Construct Struct(v7); v5 = Project v4.0; Jump block3, args=[v5]
+    // Block 3 (merge): params=[v8]; return v8
+    //
+    // Without fix: v8 aliases only one of v2/v4. One parent gets premature RcDec.
+    // With fix: v8 aliases both v2 AND v4. Demand propagates to both.
+    let func = ArcFunction {
+        var_types: vec![ty(0); 9],
+        blocks: vec![
+            // Block 0 (entry): branch to Block 1 or Block 2
+            ArcBlock {
+                id: block_id(0),
+                params: vec![(var(0), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: var(0),
+                    then_block: block_id(1),
+                    else_block: block_id(2),
+                },
+            },
+            // Block 1: construct aggregate, project field, jump to merge
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: var(2),
+                        ty: ty(0),
+                        ctor: CtorKind::Struct(Name::from_raw(10)),
+                        args: vec![var(6)],
+                    },
+                    ArcInstr::Project {
+                        dst: var(3),
+                        ty: ty(0),
+                        value: var(2),
+                        field: 0,
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(3),
+                    args: vec![var(3)],
+                },
+            },
+            // Block 2: construct DIFFERENT aggregate, project field, jump to merge
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: var(4),
+                        ty: ty(0),
+                        ctor: CtorKind::Struct(Name::from_raw(10)),
+                        args: vec![var(7)],
+                    },
+                    ArcInstr::Project {
+                        dst: var(5),
+                        ty: ty(0),
+                        value: var(4),
+                        field: 0,
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(3),
+                    args: vec![var(5)],
+                },
+            },
+            // Block 3 (merge): receives projected value from either predecessor
+            ArcBlock {
+                id: block_id(3),
+                params: vec![(var(8), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(8) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(9);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    // v2 (parent aggregate in Block 1) must have demand at Block 1 exit.
+    let v2_at_b1_exit = state_map
+        .block_exit_states(block_id(1))
+        .and_then(|s| s.get(&var(2)).copied())
+        .unwrap_or(AimsState::BOTTOM);
+    assert_ne!(
+        v2_at_b1_exit.cardinality,
+        Cardinality::Absent,
+        "v2 (parent aggregate, Block 1) must have demand — \
+         v8 (merge param) aliases v3 = Project v2.0"
+    );
+
+    // v4 (parent aggregate in Block 2) must have demand at Block 2 exit.
+    let v4_at_b2_exit = state_map
+        .block_exit_states(block_id(2))
+        .and_then(|s| s.get(&var(4)).copied())
+        .unwrap_or(AimsState::BOTTOM);
+    assert_ne!(
+        v4_at_b2_exit.cardinality,
+        Cardinality::Absent,
+        "v4 (parent aggregate, Block 2) must have demand — \
+         v8 (merge param) aliases v5 = Project v4.0"
     );
 }

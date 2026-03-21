@@ -986,3 +986,29 @@ fn test_arc_borrowed_param_str_concat_caller_survives() {
         "arc_borrowed_param_str_concat_caller_survives",
     );
 }
+
+// TPR-02-006: Project alias closure at CFG merge with two distinct parents.
+// The merge block param receives projections from two different aggregates
+// depending on control flow — both parents must stay alive.
+#[test]
+fn test_rc_project_merge_two_distinct_parents() {
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+type Pair = { first: str, second: str }
+
+@main () -> int = {
+    let $p1 = Pair { first: "alpha-long-string-heap", second: "beta-long-string-heap" };
+    let $p2 = Pair { first: "gamma-long-string-heap", second: "delta-long-string-heap" };
+    // Branch: merge param receives projection from different parent aggregates
+    let $result = if p1.first.len() > 0
+        then p1.first
+        else p2.first;
+    // Both p1 and p2 must stay alive until result is consumed
+    if result == "alpha-long-string-heap" then 0 else 1
+}
+"#,
+            "arc_project_merge_two_parents",
+        );
+    }
+}

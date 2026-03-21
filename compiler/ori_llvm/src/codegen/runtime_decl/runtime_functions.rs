@@ -510,21 +510,30 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_keys_to_list",
-        // (data, cap, len, key_size, key_dec_fn, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr, Ty::Ptr],
+        // (data, cap, len, key_size, key_dec_fn, key_inc_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_map_values_to_list",
-        // (data, cap, len, key_size, val_size, val_dec_fn, out_ptr)
+        // (data, cap, len, key_size, val_size, val_dec_fn, val_inc_fn, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
         ],
@@ -734,8 +743,16 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_to_list",
-        // (data, cap, len, elem_size, elem_dec_fn, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr, Ty::Ptr],
+        // (data, cap, len, elem_size, elem_dec_fn, elem_inc_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,

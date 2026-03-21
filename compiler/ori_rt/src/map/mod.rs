@@ -93,6 +93,11 @@ pub extern "C" fn ori_map_contains_key(
 ///
 /// Scans metadata for OCCUPIED buckets, copies keys to a contiguous list.
 /// Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
+///
+/// `key_inc_fn` is called on each copied key to increment its RC children
+/// (e.g., string data pointers). Without this, the new list and the map
+/// share ownership of the same RC-tracked data with only one reference,
+/// causing a double-free when both are cleaned up.
 #[no_mangle]
 pub extern "C" fn ori_map_keys_to_list(
     data: *const u8,
@@ -100,6 +105,7 @@ pub extern "C" fn ori_map_keys_to_list(
     len: i64,
     key_size: i64,
     key_dec_fn: Option<extern "C" fn(*mut u8)>,
+    key_inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -124,9 +130,16 @@ pub extern "C" fn ori_map_keys_to_list(
     let mut write_pos = 0usize;
     for bucket in 0..c {
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            let dst = unsafe { list_data.add(write_pos * ks) };
             unsafe {
                 let src = data.add(layout.keys_offset + bucket * ks);
-                std::ptr::copy_nonoverlapping(src, list_data.add(write_pos * ks), ks);
+                std::ptr::copy_nonoverlapping(src, dst, ks);
+            }
+            // RcInc copied element's children (e.g., string data pointers).
+            // The copy is a shallow bitwise copy — RC-tracked data is now
+            // shared between the map and the new list.
+            if let Some(inc) = key_inc_fn {
+                inc(dst);
             }
             write_pos += 1;
             if write_pos >= n {
@@ -144,6 +157,9 @@ pub extern "C" fn ori_map_keys_to_list(
 ///
 /// Scans metadata for OCCUPIED buckets, copies values to a contiguous list.
 /// Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
+///
+/// `val_inc_fn` increments RC children of each copied value (see
+/// `ori_map_keys_to_list` for rationale).
 #[no_mangle]
 pub extern "C" fn ori_map_values_to_list(
     data: *const u8,
@@ -152,6 +168,7 @@ pub extern "C" fn ori_map_values_to_list(
     key_size: i64,
     val_size: i64,
     val_dec_fn: Option<extern "C" fn(*mut u8)>,
+    val_inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -177,9 +194,13 @@ pub extern "C" fn ori_map_values_to_list(
     let mut write_pos = 0usize;
     for bucket in 0..c {
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            let dst = unsafe { list_data.add(write_pos * vs) };
             unsafe {
                 let src = data.add(layout.vals_offset + bucket * vs);
-                std::ptr::copy_nonoverlapping(src, list_data.add(write_pos * vs), vs);
+                std::ptr::copy_nonoverlapping(src, dst, vs);
+            }
+            if let Some(inc) = val_inc_fn {
+                inc(dst);
             }
             write_pos += 1;
             if write_pos >= n {
