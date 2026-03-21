@@ -35,7 +35,7 @@ unsafe fn propagate_elem_header(old_data: *mut u8, new_data: *mut u8, new_elem_c
 ///   realloc. RC preserved by realloc.
 /// - **Slow path** (shared or empty): New buffer allocated (RC=1), old elements
 ///   byte-copied, new element written. Old buffer's RC decremented (without
-///   element cleanup — element RC is the codegen's responsibility per §02.7).
+///   element cleanup — `elem_dec_fn` in the V5 RC header handles cleanup).
 ///
 /// # Element RC
 ///

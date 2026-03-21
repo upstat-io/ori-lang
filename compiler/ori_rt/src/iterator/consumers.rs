@@ -8,7 +8,7 @@ use std::ptr;
 use super::state::assert_elem_size;
 use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
 
-// ── Collect ─────────────────────────────────────────────────────────────
+// Collect
 
 /// Collect all remaining elements into a new list.
 ///
@@ -73,7 +73,7 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
-// ── Collect Set ─────────────────────────────────────────────────────────
+// Collect Set
 
 /// Collect all remaining elements into a new hash table set.
 ///
@@ -159,7 +159,7 @@ pub extern "C" fn ori_iter_collect_set(
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
-// ── Count ───────────────────────────────────────────────────────────────
+// Count
 
 /// Count the remaining elements in the iterator, consuming it.
 #[no_mangle]
@@ -181,7 +181,7 @@ pub extern "C" fn ori_iter_count(iter: *mut u8, elem_size: i64) -> i64 {
     count
 }
 
-// ── Any ─────────────────────────────────────────────────────────────────
+// Any
 
 /// Test if any element satisfies the predicate, consuming the iterator.
 ///
@@ -214,7 +214,7 @@ pub extern "C" fn ori_iter_any(
     i8::from(result)
 }
 
-// ── All ─────────────────────────────────────────────────────────────────
+// All
 
 /// Test if all elements satisfy the predicate, consuming the iterator.
 ///
@@ -247,7 +247,7 @@ pub extern "C" fn ori_iter_all(
     i8::from(result)
 }
 
-// ── Find ────────────────────────────────────────────────────────────────
+// Find
 
 /// Find the first element satisfying the predicate, consuming the iterator.
 ///
@@ -303,7 +303,7 @@ pub extern "C" fn ori_iter_find(
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
-// ── For Each ────────────────────────────────────────────────────────────
+// For Each
 
 /// Apply a function to each element, consuming the iterator.
 ///
@@ -330,7 +330,7 @@ pub extern "C" fn ori_iter_for_each(
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
-// ── Fold ────────────────────────────────────────────────────────────────
+// Fold
 
 /// Fold (reduce) the iterator with an accumulator, consuming it.
 ///

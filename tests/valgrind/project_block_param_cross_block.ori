@@ -1,0 +1,77 @@
+// Valgrind test: Project result flows through block param (via Jump arg).
+// Regression test for TPR-01-004: premature RcDec of aggregate parent
+// when a projected value is passed as a Jump argument to a successor
+// block param — the block param is not in the Project alias closure,
+// so the parent aggregate loses demand at the successor block entry.
+
+use std.testing { assert_eq };
+
+type Pair = { first: str, second: str };
+
+// Pattern 1: projected field flows through if/else merge block param
+@field_through_merge (p: Pair, cond: bool) -> str = {
+    if cond then p.first else p.second
+};
+
+// Pattern 2: projected field flows through nested merge (two levels of block params)
+@field_through_nested_merge (p: Pair, a: bool, b: bool) -> str = {
+    let inner = if a then p.first else p.second;
+    if b then inner else "fallback"
+};
+
+// Pattern 3: projected field flows through loop header param
+@field_through_loop (p: Pair) -> str = {
+    let result = p.first;
+    for _ in 0..3 do {
+        result = result
+    };
+    result
+};
+
+// Pattern 4: both fields merge into same block param from different paths
+@both_fields_merge (p: Pair, cond: bool) -> str = {
+    let x = if cond then p.first else p.second;
+    x
+};
+
+// Pattern 5: field projected, then passed through function call result merge
+@field_with_computation (p: Pair, cond: bool) -> int = {
+    let s = if cond then p.first else p.second;
+    s.len()
+};
+
+@main () -> int = {
+    let p = Pair { first: "hello", second: "world" };
+
+    // Pattern 1: merge block param
+    let r1 = field_through_merge(p: p, cond: true);
+    assert_eq(actual: r1, expected: "hello");
+    let r1b = field_through_merge(p: p, cond: false);
+    assert_eq(actual: r1b, expected: "world");
+
+    // Pattern 2: nested merge
+    let r2 = field_through_nested_merge(p: p, a: true, b: true);
+    assert_eq(actual: r2, expected: "hello");
+    let r2b = field_through_nested_merge(p: p, a: false, b: true);
+    assert_eq(actual: r2b, expected: "world");
+    let r2c = field_through_nested_merge(p: p, a: true, b: false);
+    assert_eq(actual: r2c, expected: "fallback");
+
+    // Pattern 3: loop header param
+    let r3 = field_through_loop(p: p);
+    assert_eq(actual: r3, expected: "hello");
+
+    // Pattern 4: both fields merge
+    let r4 = both_fields_merge(p: p, cond: true);
+    assert_eq(actual: r4, expected: "hello");
+    let r4b = both_fields_merge(p: p, cond: false);
+    assert_eq(actual: r4b, expected: "world");
+
+    // Pattern 5: field + computation
+    let r5 = field_with_computation(p: p, cond: true);
+    assert_eq(actual: r5, expected: 5);
+    let r5b = field_with_computation(p: p, cond: false);
+    assert_eq(actual: r5b, expected: 5);
+
+    0
+}

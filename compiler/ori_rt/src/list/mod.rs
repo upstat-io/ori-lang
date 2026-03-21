@@ -80,7 +80,7 @@ pub extern "C" fn ori_list_ensure_capacity(
 
     if list.data.is_null() {
         // Sentinel (empty list) → first allocation.
-        // Data buffers are RC-managed (8-byte refcount header) so COW
+        // Data buffers are RC-managed (32-byte V5 header) so COW
         // functions can call ori_rc_is_unique/ori_rc_dec on them.
         list.data = ori_rc_alloc(new_byte_size, elem_align);
     } else {
@@ -93,14 +93,14 @@ pub extern "C" fn ori_list_ensure_capacity(
     }
 }
 
-// ── List allocation/management ───────────────────────────────────────────
+// List allocation/management
 
 /// Allocate a new RC-boxed list struct with the given fields.
 ///
 /// The `OriList` metadata `{len, cap, data}` is RC-allocated via
 /// `ori_rc_alloc`. The data buffer (`data`) is plain-allocated separately
 /// and owned by the `OriList`. Returns a pointer to the `OriList` data area
-/// (RC header at `ptr - 8`).
+/// (RC header at `ptr - 32`; `strong_count` at `ptr - 8`).
 ///
 /// Returns null on allocation failure.
 #[no_mangle]
@@ -128,7 +128,7 @@ pub extern "C" fn ori_list_box_new(len: i64, cap: i64, data: *mut u8) -> *mut u8
 /// suitable for storing list elements directly. Used by codegen to allocate
 /// the data buffer before boxing it with `ori_list_box_new`.
 ///
-/// The buffer is **RC-managed** (8-byte refcount header, initial count = 1),
+/// The buffer is **RC-managed** (32-byte V5 header, initial count = 1),
 /// so COW functions can call `ori_rc_is_unique(data)` and `ori_rc_dec(data)`
 /// without UB. This is critical: all list data buffers must be allocated
 /// through `ori_rc_alloc` so the RC header is present and initialized.
@@ -148,7 +148,7 @@ pub extern "C" fn ori_list_alloc_data(capacity: i64, elem_size: i64) -> *mut u8 
 
 /// Allocate a new list with given capacity (full `OriList` struct on heap).
 ///
-/// Used by AOT code. JIT codegen should use `ori_list_alloc_data` instead.
+/// Used by JIT/test code. Not called from `arc_emitter/` codegen.
 #[no_mangle]
 pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
     let cap = capacity.max(0) as usize;
@@ -196,8 +196,8 @@ pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
 /// is heap-allocated. The list header lives on the stack and doesn't need
 /// freeing. Used by ARC cleanup when decrementing list refcounts.
 ///
-/// The buffer was allocated via `ori_rc_alloc` (RC-managed with 8-byte
-/// header), so we use `ori_rc_free` to deallocate correctly.
+/// The buffer was allocated via `ori_rc_alloc` (32-byte V5 RC header),
+/// so we use `ori_rc_free` (alignment 8) to deallocate correctly.
 #[no_mangle]
 pub extern "C" fn ori_list_free_data(data: *mut u8, capacity: i64, elem_size: i64) {
     if data.is_null() || capacity <= 0 {
@@ -291,7 +291,7 @@ pub extern "C" fn ori_list_take(list: *mut u8, out_ptr: *mut u8) {
     }
 }
 
-// ── Functional list operations ───────────────────────────────────────────
+// Functional list operations
 
 /// Create a new list with an element appended (functional push).
 ///

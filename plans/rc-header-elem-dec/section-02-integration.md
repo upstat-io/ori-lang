@@ -7,14 +7,14 @@ depends_on: ["01"]
 reviewed: false
 third_party_review:
   status: resolved
-  updated: 2026-03-20
+  updated: 2026-03-21
 sections:
   - id: "02.1"
     title: "Store elem_dec_fn and elem_count at Collection Construction"
     status: in-progress
   - id: "02.2"
     title: "Iterator Creation and Drop"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "Map and Set Integration"
     status: not-started
@@ -95,7 +95,7 @@ For COW slow paths, `elem_count` on the new buffer = number of elements actually
 - [x] `mod.rs`: `write_array_to_list` -- added `elem_dec_fn` parameter, stores both `elem_dec_fn` and `elem_count` in header after copy. All callers updated: `ori_str_chars` passes `None` (scalar `[char]`), `ori_set_to_list` empty path passes `None`, `ori_map_keys_to_list`/`ori_map_values_to_list` empty paths pass `None`. (2026-03-20)
 - [x] `reset/mod.rs`: `ori_list_reset_buffer` (line 34) -- creates new buffer when reuse fails. Does NOT need internal propagation; codegen handles it externally via `ori_buffer_store_elem_dec` + `ori_buffer_store_elem_count` calls after the reset returns (verified: `construction.rs:483-490` emits both header-store calls after reset). (2026-03-20, verification complete)
 - [x] `iterator/consumers.rs`: `ori_iter_collect` -- stores `elem_count(data, len)` after collection loop completes. `elem_dec_fn` stored by codegen after collect returns (LLVM-generated thunk). (2026-03-20)
-- [ ] `iterator/consumers.rs`: `ori_iter_collect_set` (line 85) -- no old buffer exists; use deferred store. Sets currently read `elem_dec_fn` from the parameter (not header), but storing in the header provides defense-in-depth. **Codegen fix required**: after `emit_iter_collect_set` (in `builtins/iterator_consumers.rs` line 51), emit `ori_buffer_store_elem_dec(result_data, elem_dec_fn)` on the output set buffer. Extract `data` from the loaded set struct via `extract_value`. This mirrors the pattern needed for `emit_iter_collect` (list collect).
+- [x] `iterator/consumers.rs`: `ori_iter_collect_set` (line 85) -- no old buffer exists; use deferred store. Sets currently read `elem_dec_fn` from the parameter (not header), but storing in the header provides defense-in-depth. **Codegen fix done**: `emit_iter_collect_set` emits `ori_buffer_store_elem_dec(result_data, elem_dec_fn)` on the output set buffer (2026-03-20, see line 171).
 
 ### `ori_args_from_argv` — Buffer-Creating Function
 
@@ -114,7 +114,7 @@ Set COW functions allocate new hash table buffers via `alloc_set_hash_buffer` (w
 - [x] `set/cow/algebra.rs`: `ori_set_union_cow` — `rehash_and_merge_set2` reads `elem_dec_fn` from `d1` header and passes to `rehash_set`. `set1 empty` path reads from `d2` header. (2026-03-20)
 - [x] `set/cow/algebra.rs`: `ori_set_intersection_cow` — reads `elem_dec_fn` from `d1` header, passes to `alloc_set_hash_buffer`. (2026-03-20)
 - [x] `set/cow/algebra.rs`: `ori_set_difference_cow` — reads `elem_dec_fn` from `d1` header, passes to `alloc_set_hash_buffer`. (2026-03-20)
-- [ ] `set/mod.rs`: `ori_set_to_list` (line 55, `ori_rc_alloc` at line 75) -- creates a LIST buffer from set contents. This is a list buffer, so BOTH `elem_dec_fn` AND `elem_count` must be stored. `elem_count` = number of elements copied. `elem_dec_fn` must be passed by caller or deferred.
+- [x] `set/mod.rs`: `ori_set_to_list` (line 55, `ori_rc_alloc` at line 75) -- creates a LIST buffer from set contents. Added `elem_dec_fn` parameter, stores both `elem_dec_fn` and `elem_count` in RC header (2026-03-20, see line 157-160).
 - [x] `set/mod.rs`: `alloc_set_hash_buffer` — centralized: added `elem_dec_fn` parameter, stores in header internally. All callers pass `elem_dec_fn` (from old header or `None` for fresh allocs). Covers `ori_set_literal_alloc`, `ori_iter_collect_set`, all set COW functions. (2026-03-20)
 - [x] `map/hash_table.rs`: `rehash_set` — centralized: added `elem_dec_fn` parameter, stores in header internally. All callers pass `elem_dec_fn` (from old header or `None`). Covers `ori_set_insert_cow`, `ori_set_union_cow`, `ori_iter_collect_set`. (2026-03-20)
 
@@ -124,8 +124,8 @@ Map COW functions allocate new hash table buffers. Maps use the codegen-based ap
 
 But map functions that create LIST buffers DO need propagation:
 
-- [ ] `map/mod.rs`: `ori_map_keys_to_list` (line 97, `ori_rc_alloc` at line 118) -- creates a `[K]` list. Needs `elem_dec_fn` + `elem_count` on the output list buffer. See `write_array_to_list_from_data` design decision below.
-- [ ] `map/mod.rs`: `ori_map_values_to_list` (line 141, `ori_rc_alloc` at line 164) -- creates a `[V]` list. Same requirement.
+- [x] `map/mod.rs`: `ori_map_keys_to_list` (line 97, `ori_rc_alloc` at line 118) -- creates a `[K]` list. Added `key_dec_fn` parameter, stores both `elem_dec_fn` and `elem_count` (2026-03-20, see lines 140-144).
+- [x] `map/mod.rs`: `ori_map_values_to_list` (line 141, `ori_rc_alloc` at line 164) -- creates a `[V]` list. Added `val_dec_fn` parameter, stores both (2026-03-20, see lines 141-144).
 
 ### Buffer-Creating Runtime Functions That Need Header Stores
 
@@ -181,37 +181,37 @@ Several runtime functions allocate new list buffers but lack access to `elem_dec
 
 ### Invariant Assertion
 
-- [ ] Add `debug_assert!` in `ori_buffer_rc_dec` (`list_rc.rs` line 72): after `store_elem_dec_fn_once` and before the RC decrement, assert `elem_dec_fn.is_none() || load_elem_dec_fn(data).is_some()`. This catches the case where a caller passes a real `elem_dec_fn` but the header was never populated (indicating a codegen path missed the `ori_buffer_store_elem_dec` call). Placement: must be in `ori_buffer_rc_dec`, NOT in `drop_elements_and_free` -- the latter does not receive the caller's `elem_dec_fn` parameter.
+- [x] Add `debug_assert!` in `ori_buffer_rc_dec` (`list_rc.rs`): after `store_elem_dec_fn_once` and before the RC decrement, assert `elem_dec_fn.is_none() || load_elem_dec_fn(data).is_some()`. Catches non-NULL caller with NULL header post-store. Added 2026-03-21.
 
 ### SSO String Correctness
 
-- [ ] Verify that `generate_elem_dec_fn_body` for `str` elements correctly handles mixed SSO/heap strings: it loads the `OriStr` struct (24 bytes), emits an SSO check via `emit_sso_check`, and only calls `ori_rc_dec` on heap-allocated strings. SSO strings (<= 23 bytes inline) are skipped. This behavior must match `dec_value_rc_inner` (`rc_value_traversal.rs` line ~183, `Tag::Str` arm).
+- [x] Verify that `generate_elem_dec_fn_body` for `str` elements correctly handles mixed SSO/heap strings: code reviewed on 2026-03-21 — `dec_value_rc` hits `Tag::Str` at `rc_value_traversal.rs:183`, extracts data pointer (field 2), `emit_sso_check` (MSB flag + null check), only calls `ori_rc_dec` on heap strings. SSO strings skipped. AOT test `test_str_list_mixed_sso_heap` confirms zero leaks with mixed "hi" (SSO) + long heap strings.
 
 ### AOT Tests
 
 All tests use `ORI_CHECK_LEAKS=1` to verify zero leaks unless otherwise noted.
 
-- [ ] `[str]` list goes out of scope without iteration -- verify zero leaks
-- [ ] `[[int]]` nested list goes out of scope -- verify zero leaks
-- [ ] `[str]` COW push on shared list (push creates new buffer) -- verify new buffer has correct `elem_dec_fn` and zero leaks
-- [ ] `[str]` with mixed SSO and heap strings -- list with `"hi"` (SSO, 2 bytes) and `"a_string_longer_than_twenty_three_bytes"` (heap) -- verify zero leaks
-- [ ] `ori_iter_collect` on `[str]` via `for w in words yield w` -- verify collected buffer has correct `elem_dec_fn` in header and zero leaks
-- [ ] `map.keys()` on `{str: int}` -- exercises `ori_map_keys_to_list` creating a new `[str]` buffer via direct `ori_rc_alloc` + `write_array_to_list_from_data`; verify zero leaks
-- [ ] `str.split(sep:)` returning `[str]` -- exercises `ori_str_split` creating a new `[OriStr]` buffer via direct `ori_rc_alloc`; verify zero leaks
+- [x] `[str]` list goes out of scope without iteration -- zero leaks (AOT test `test_str_list_scope_drop`, 2026-03-21)
+- [x] `[[int]]` nested list goes out of scope -- zero leaks (AOT test `test_nested_int_list_scope_drop`, 2026-03-21)
+- [x] `[str]` COW push on shared list (push creates new buffer) -- zero leaks (AOT test `test_str_list_cow_push_shared`, 2026-03-21)
+- [x] `[str]` with mixed SSO and heap strings -- zero leaks (AOT test `test_str_list_mixed_sso_heap`, 2026-03-21)
+- [x] `ori_iter_collect` on `[str]` via `for w in words yield w` -- zero leaks (AOT test `test_str_list_iter_collect`, 2026-03-21)
+- [ ] `map.keys()` on `{str: int}` -- double-free (map standalone RcDec + map_buffer_cleanup both fire). AOT test `test_map_keys_str_scope_drop` written and `#[ignore]`. Tracked in 02.N map double-free item.
+- [x] `str.split(sep:)` returning `[str]` -- zero leaks (AOT test `test_str_split_scope_drop`, 2026-03-21)
 
 ### Cleanup
 
 - [ ] **[WASTE]** `construction.rs` lines 89, 136, 189, 424 -- fallback `_ => ori_types::Idx::INT` silently returns INT as element type on TypeInfo mismatch. Add `tracing::warn!` or `debug_assert!` at each site so misclassification is visible. Affected arms: `ListLiteral` (89), `MapLiteral` (136), `SetLiteral` (189), `emit_collection_reuse` (424).
-- [ ] **[DRIFT]** `list_rc.rs:27` -- Doc comment on `drop_elements_and_free` says "V4: at `header_data - 16`". Update to "V5: at `header_data - 24`" (`ELEM_DEC_FN_OFFSET` is now 24).
-- [ ] **[DRIFT]** `list/mod.rs:83` -- Comment says "8-byte refcount header". Update to "32-byte RC header (V5)".
-- [ ] **[DRIFT]** `list/mod.rs:103` -- Comment says "RC header at `ptr - 8`". Update to "RC header at `ptr - 32`; strong_count at `ptr - 8`".
-- [ ] **[DRIFT]** `list/mod.rs:131` -- Comment says "RC-managed (8-byte refcount header, initial count = 1)". Update to "32-byte RC header (V5), initial count = 1".
-- [ ] **[DRIFT]** `list/mod.rs:199` -- Comment says "RC-managed with 8-byte header" in `ori_list_free_data` doc. The "8-byte" refers to the alignment parameter passed to `ori_rc_free`, not the header size -- but the comment is misleading. Reword to "32-byte RC header (V5), alignment 8" for clarity.
-- [ ] **[DRIFT]** `cow.rs:38` -- Doc comment on `ori_list_push_cow` slow path references "§02.7" (stale plan numbering). Update to reference the current header-based cleanup model.
-- [ ] **[DRIFT]** `list/reset/mod.rs:71` -- Comment says "V4: `strong_count` at `data_ptr - 8`". Update version label to V5 (offset itself is correct).
-- [ ] **[DRIFT]** `list/mod.rs:151` -- Doc comment on `ori_list_new` says "Used by AOT code." but grep confirms zero codegen callers — update to "Used by JIT/test code."
-- [ ] **[STYLE]** `list/mod.rs` lines 96, 294 -- 2 decorative banners. Replace with plain section comments.
-- [ ] **[STYLE]** `iterator/consumers.rs` lines 11, 76, 159, 181, 214, 247, 303, 330 -- 8 decorative banners. Replace with plain section comments.
+- [x] **[DRIFT]** `list_rc.rs:27` -- V4 → V5, `header_data - 16` → `header_data - 24` (2026-03-21)
+- [x] **[DRIFT]** `list/mod.rs:83` -- "8-byte refcount header" → "32-byte V5 header" (2026-03-21)
+- [x] **[DRIFT]** `list/mod.rs:103` -- "RC header at `ptr - 8`" → "RC header at `ptr - 32`; strong_count at `ptr - 8`" (2026-03-21)
+- [x] **[DRIFT]** `list/mod.rs:131` -- "8-byte refcount header" → "32-byte V5 header" (2026-03-21)
+- [x] **[DRIFT]** `list/mod.rs:199` -- "RC-managed with 8-byte header" → "32-byte V5 RC header, alignment 8" (2026-03-21)
+- [x] **[DRIFT]** `cow.rs:38` -- "§02.7" → "`elem_dec_fn` in the V5 RC header handles cleanup" (2026-03-21)
+- [x] **[DRIFT]** `list/reset/mod.rs:71` -- V4 → V5 label (2026-03-21)
+- [x] **[DRIFT]** `list/mod.rs:151` -- "Used by AOT code" → "Used by JIT/test code. Not called from arc_emitter/ codegen." (2026-03-21)
+- [x] **[STYLE]** `list/mod.rs` lines 96, 294 -- 2 decorative banners replaced with plain section comments (2026-03-21)
+- [x] **[STYLE]** `iterator/consumers.rs` lines 11, 76, 159, 181, 214, 247, 303, 330 -- 8 decorative banners replaced with plain section comments (2026-03-21)
 - [ ] **[WASTE]** `cow_sort.rs:256` -- `ori_list_reverse_cow` fast path allocates `vec![0u8; es]` on every call. For common element sizes (8, 16, 24 bytes), use a stack array `[0u8; 24]` with heap fallback for larger sizes.
 - [ ] **[WASTE]** `cow_sort.rs:458` -- `apply_permutation_in_place` allocates `vec![0u8; elem_size]` similarly. Same fix: stack array `[0u8; 24]` with heap fallback. Address alongside line 256 since both are in the same file.
 - [ ] **[LATENT]** `query.rs` lines 142, 199 -- `ori_list_reverse` and `ori_list_concat` use hardcoded alignment `8` in `ori_rc_alloc`. Safe for current Ori types (max align 8) but incorrect if element alignment exceeds 8. Add `elem_align` parameter or use a centralized alignment lookup.
@@ -234,28 +234,26 @@ With `elem_dec_fn` ALSO stored in the header at construction time (Section 02.1)
 
 ### Parameter Retention Decision
 
-- [ ] **Decide**: Keep or remove the `elem_dec_fn` parameter in `ori_iter_from_list`?
-  - **Option A (recommended for this section)**: Keep parameter for defense-in-depth. Both the parameter and header provide `elem_dec_fn`. Section 03 removes the parameter once the header-based approach is proven stable by the Section 04 test matrix.
-  - **Option B**: Remove parameter now. Runtime reads from header only. Correct long-term state but removes a safety net before the header approach is battle-tested.
-  - Record the decision in this section's completion notes.
+- [x] **Decide**: Keep or remove the `elem_dec_fn` parameter in `ori_iter_from_list`?
+  - **Decision: Option A** — Keep parameter for defense-in-depth. Both the parameter and header provide `elem_dec_fn`. Section 03 removes the parameter once the header-based approach is proven stable by the Section 04 test matrix. (2026-03-21)
 
 ### Integration Verification
 
-- [ ] Verify: when iterator's `ori_buffer_rc_dec` call reaches zero, it reads `elem_dec_fn` from the header and performs element cleanup
-- [ ] Verify: when explicit RcDec's `ori_buffer_rc_dec` call reaches zero, same behavior -- reads from header
-- [ ] Verify: `store_elem_dec_fn_once` CAS handles the case where both iterator Drop and explicit RcDec store to the same header -- first non-NULL wins, second is a no-op. Section 01 has a unit test (`elem_dec_fn_store_once_first_non_null_wins`), but verify the end-to-end runtime path exercises it under the two-dec scenario (iterator + explicit RcDec on the same buffer).
+- [x] Verify: when iterator's `ori_buffer_rc_dec` call reaches zero, it reads `elem_dec_fn` from the header and performs element cleanup — confirmed: `drop_elements_and_free` at `list_rc.rs:39` calls `load_elem_dec_fn(header_data)`, not the caller parameter. Iterator Drop → `ori_buffer_rc_dec` → `drop_elements_and_free` → reads from header. (2026-03-21)
+- [x] Verify: when explicit RcDec's `ori_buffer_rc_dec` call reaches zero, same behavior -- reads from header — confirmed: same code path. Both iterator and explicit decs go through `ori_buffer_rc_dec` which always delegates to `drop_elements_and_free` reading from header. (2026-03-21)
+- [x] Verify: `store_elem_dec_fn_once` CAS handles the case where both iterator Drop and explicit RcDec store to the same header -- first non-NULL wins, second is a no-op. Confirmed: `elem_header.rs:90-100` uses `compare_exchange(null → func)` — CAS fails if already non-NULL. Unit test `elem_dec_fn_store_once_first_non_null_wins` exists. End-to-end exercised by `test_str_list_explicit_last_owner` (both iterator dec and explicit dec hit `store_elem_dec_fn_once` on same buffer). (2026-03-21)
 
 ### AOT Tests
 
-- [ ] `[str]` iteration where iterator dec reaches zero first -- elements cleaned via header function, zero leaks
-- [ ] `[str]` iteration where explicit dec reaches zero first -- same behavior, zero leaks
-- [ ] Function parameter `[str]` -- callee iterates, caller uses after -- no double-free, no leak
-- [ ] `[str]` iteration + slice -- create list, take slice, iterate original via `for w in list do body` -- verify both iterator and slice store/read from the SAME buffer's header. When either is the last owner, elements are cleaned up correctly. Zero leaks, no double-free.
+- [x] `[str]` iteration where iterator dec reaches zero first -- `test_str_list_iter_last_owner` in `elem_dec_scope.rs`, zero leaks in debug + release (2026-03-21)
+- [x] `[str]` iteration where explicit dec reaches zero first -- `test_str_list_explicit_last_owner` in `elem_dec_scope.rs`, zero leaks in debug + release (2026-03-21)
+- [x] Function parameter `[str]` -- callee iterates, caller uses after -- `test_str_list_fn_param_iter` in `elem_dec_scope.rs`, no double-free, no leak in debug + release (2026-03-21)
+- [x] `[str]` iteration + slice -- `test_str_list_slice_then_iter` in `elem_dec_scope.rs`, uses `.take(count:)` seamless slice, iterates original, zero leaks in debug + release (2026-03-21)
 
 ### Cleanup
 
-- [ ] **[NOTE]** `list_builtins.rs:115-125` -- Doc comment on `emit_list_iter` documents that real `elem_dec_fn` is passed. After header-based approach is added, update doc to mention the header as a second safety net.
-- [ ] **[DRIFT]** `iterator/state.rs:49` -- Comment says `cap != 0` indicates RC-managed data but does not mention V5 header layout. `IterState::List` Drop at line 170 calls `ori_buffer_rc_dec` which reads `elem_dec_fn` from the header. Update the doc to note that cleanup relies on the header's `elem_dec_fn` (not just the `elem_dec_fn` field in the struct).
+- [x] **[NOTE]** `list_builtins.rs:115-125` -- Doc comment on `emit_list_iter` updated to mention V5 header as second safety net for `elem_dec_fn`. (2026-03-21)
+- [x] **[DRIFT]** `iterator/state.rs:49` -- Doc comment on `IterState::List` updated to explain V5 header defense-in-depth: `elem_dec_fn` stored in header via `store_elem_dec_fn_once`, cleanup reads from header not parameter. (2026-03-21)
 
 ---
 
@@ -312,6 +310,13 @@ Set construction codegen is complete (see 02.1 "Set Construction Codegen" -- `el
   Impact: The exact failure mode fixed by TPR-02-002 can regress without being caught by the existing evaluator suite; the current guard rails only prove declaration/mapping consistency (`jit_symbol_mappings_match_jit_allowed`), not end-to-end execution through MCJIT.
   Required follow-up: Add a focused evaluator integration test that JIT-compiles a function using at least one list or set literal, and ideally a collection-reuse path, then executes it successfully.
   Resolved: Accepted on 2026-03-20. Finding is factually correct — no functional JIT test exercises collection literal construction. Spec tests exercise JIT indirectly but provide no explicit regression guard. Integrated as a task in 02.N Cleanup.
+- [x] `[TPR-02-004][low]` `compiler/ori_rt/src/list/mod.rs:83` — Section 02 touched files still violate mandatory hygiene rules with stale RC-header comments and decorative section banners.
+  Resolved: Validated on 2026-03-21. Accepted — all 3 stale "8-byte refcount header" refs confirmed at list/mod.rs:83,131,199 and 4 decorative banners confirmed (list/mod.rs:96, map/mod.rs:242, iterator/consumers.rs:11, fat_ptr_iter.rs:15). Already integrated as cleanup tasks in 02.N (lines 425-436).
+- [x] `[TPR-02-005][high]` `compiler/ori_llvm/src/codegen/function_compiler/entry_point.rs:85` — The production `@main(args: [str])` AOT path is still broken, so Section 02’s `ori_args_from_argv` work has no end-to-end verification and the current safety note overstates reality.
+  Evidence: Fresh verification on 2026-03-21 with `timeout 150 cargo run -p oric --bin ori -- build /tmp/main_args_len.ori` for `@main (args: [str]) -> int = args.len();` fails LLVM verification: `Call parameter type does not match function signature! ... call i64 @_ori_main({ i64, i64, ptr } %args)`. The wrapper in `entry_point.rs` materializes `ori_args_from_argv` via `call_with_sret(...)` and forwards the loaded list struct directly to `_ori_main`, but there is no coverage for an args-bearing main signature in `compiler/ori_llvm/src/codegen/function_compiler/tests.rs` and no AOT/spec test exercises `@main(args: [str])`.
+  Impact: Any AOT program using the supported `@main(args: [str])` signature is currently uncompilable, and the Section 02 claim at `plans/rc-header-elem-dec/section-02-integration.md:104` that deferred `elem_dec_fn` handling is "safe" cannot be validated on the only production caller for `ori_args_from_argv`.
+  Required plan update: Fix the main-wrapper ABI/signature mismatch for args-bearing mains, add an end-to-end AOT regression test for `@main(args: [str])`, then re-evaluate whether deferring `elem_dec_fn` in `ori_args_from_argv` is still justified once slice/take/drop paths are executable.
+  Resolved: Validated and accepted on 2026-03-21. Bug confirmed — `generate_main_wrapper` loads sret result as `{i64, i64, ptr}` value but `_ori_main` expects `ptr` (Indirect ABI for 24-byte struct). Root cause: wrapper doesn’t consult callee’s param ABI. Integrated as blocking task in 02.N.
 
 ---
 
@@ -336,7 +341,7 @@ Set construction codegen is complete (see 02.1 "Set Construction Codegen" -- `el
 - [x] ALL set COW slow path functions propagate `elem_dec_fn` to new buffer via centralized `alloc_set_hash_buffer` and `rehash_set`: `insert_cow`, `remove_cow` (set/cow/basic.rs), `union_cow`, `intersection_cow`, `difference_cow` (set/cow/algebra.rs), `ori_iter_collect_set` (iterator/consumers.rs) (2026-03-20)
 - [x] `query.rs` functions (`ori_list_reverse`, `ori_list_concat`) propagate both `elem_dec_fn` and `elem_count` via direct copy (2026-03-20)
 - [x] `write_array_to_list` extended with `elem_dec_fn` parameter and stores both `elem_dec_fn` + `elem_count` internally. `ori_str_chars` passes `None`. (2026-03-20)
-- [ ] `ori_map_keys_to_list` stores `elem_dec_fn` + `elem_count` on list buffer after `ori_rc_alloc` (requires `key_dec_fn` parameter, LLVM decl + codegen update)
+- [x] `ori_map_keys_to_list` stores `elem_dec_fn` + `elem_count` on list buffer after `ori_rc_alloc` — `key_dec_fn` parameter added, LLVM decl + codegen updated (2026-03-20)
 - [x] `ori_map_values_to_list` stores `elem_dec_fn` + `elem_count` on list buffer (2026-03-20)
 - [x] `ori_str_split` stores `elem_dec_fn` + `elem_count` on list buffer via `elem_dec_fn` parameter + internal store (2026-03-20)
 - [x] `ori_set_to_list` stores `elem_dec_fn` + `elem_count` on list buffer via `elem_dec_fn` parameter (2026-03-20)
@@ -351,23 +356,23 @@ Set construction codegen is complete (see 02.1 "Set Construction Codegen" -- `el
 
 ### Invariant & Safety
 
-- [ ] `debug_assert!` in `ori_buffer_rc_dec` catches NULL header with non-NULL caller `elem_dec_fn` (placed in `ori_buffer_rc_dec`, NOT in `drop_elements_and_free`)
+- [x] `debug_assert!` in `ori_buffer_rc_dec` catches NULL header with non-NULL caller `elem_dec_fn` (placed in `ori_buffer_rc_dec`, NOT in `drop_elements_and_free`) — added 2026-03-21
 - [x] `test_rc_header_is_32_bytes` test existence verified -- exists at `compiler/ori_llvm/src/tests/runtime_tests.rs:289` (2026-03-20)
 - [ ] Map double-free root cause identified and Section 01.N blocked Valgrind failures resolved (3 tests)
 
 ### AOT Tests & Verification
 
-- [ ] `[str]` list scope drop -- zero leaks
-- [ ] `[[int]]` nested list scope drop -- zero leaks
-- [ ] `[str]` COW push on shared list -- zero leaks
-- [ ] SSO/heap mixed `[str]` -- zero leaks
-- [ ] `ori_iter_collect` on `[str]` -- output buffer has correct `elem_dec_fn`, zero leaks
-- [ ] `map.keys()` on `{str: int}` -- output `[str]` buffer has `elem_dec_fn`, zero leaks (exercises `ori_map_keys_to_list` direct alloc + `write_array_to_list_from_data` path)
-- [ ] `str.split(sep:)` returning `[str]` -- exercises `ori_str_split` direct `ori_rc_alloc` path, zero leaks
-- [ ] `[str]` iteration where iterator dec reaches zero first -- zero leaks
-- [ ] `[str]` iteration where explicit dec reaches zero first -- zero leaks
-- [ ] Function parameter `[str]` -- callee iterates, caller uses after -- no double-free, no leak
-- [ ] Iterator + slice cross-feature test -- list with elements, take slice, iterate original -- zero leaks
+- [x] `[str]` list scope drop -- zero leaks (`test_str_list_scope_drop`, 2026-03-21)
+- [x] `[[int]]` nested list scope drop -- zero leaks (`test_nested_int_list_scope_drop`, 2026-03-21)
+- [x] `[str]` COW push on shared list -- zero leaks (`test_str_list_cow_push_shared`, 2026-03-21)
+- [x] SSO/heap mixed `[str]` -- zero leaks (`test_str_list_mixed_sso_heap`, 2026-03-21)
+- [x] `ori_iter_collect` on `[str]` -- output buffer has correct `elem_dec_fn`, zero leaks (`test_str_list_iter_collect`, 2026-03-21)
+- [ ] `map.keys()` on `{str: int}` -- double-free (map standalone RcDec + map_buffer_cleanup). Test written, `#[ignore]`. Blocked on 02.N map double-free fix.
+- [x] `str.split(sep:)` returning `[str]` -- zero leaks (`test_str_split_scope_drop`, 2026-03-21)
+- [x] `[str]` iteration where iterator dec reaches zero first -- `test_str_list_iter_last_owner`, zero leaks in debug + release (2026-03-21)
+- [x] `[str]` iteration where explicit dec reaches zero first -- `test_str_list_explicit_last_owner`, zero leaks in debug + release (2026-03-21)
+- [x] Function parameter `[str]` -- callee iterates, caller uses after -- `test_str_list_fn_param_iter`, no double-free, no leak in debug + release (2026-03-21)
+- [x] Iterator + slice cross-feature test -- `test_str_list_slice_then_iter`, uses `.take(count:)` seamless slice, zero leaks in debug + release (2026-03-21)
 - [ ] `{str: int}` map iteration -- zero leaks (10x stability check)
 - [ ] `Set<str>` iteration -- zero leaks
 - [ ] `{str: int}` map passed to function, iterated inside -- zero leaks
@@ -376,9 +381,10 @@ Set construction codegen is complete (see 02.1 "Set Construction Codegen" -- `el
 - [ ] `Set<str>` union/intersection/difference -- zero leaks
 - [ ] `set.to_list()` on `Set<str>` -- exercises `ori_set_to_list` creating a new `[str]` buffer, zero leaks
 - [ ] `ori_iter_collect_set` on `Set<str>` via `for x in items yield x` with set target -- output set buffer has correct `elem_dec_fn`, zero leaks
-- [ ] `@main(args: [str])` with arguments -- exercises `ori_args_from_argv` creating `[str]` buffer, zero leaks (run AOT binary with args, verify `ORI_CHECK_LEAKS=1` clean)
-- [ ] `test_str_list_passed_to_two_functions` passes reliably (not ignored)
-- [ ] `test_nested_list_iteration` passes reliably (not ignored)
+- [ ] **[TPR-02-005]** Fix `generate_main_wrapper` in `entry_point.rs` — wrapper loads sret result as `{i64, i64, ptr}` struct value but `_ori_main` expects `ptr` (Indirect ABI for 24-byte param). Must consult callee's `param_abi.passing` and pass pointer for Indirect params instead of loading the value. Blocks `@main(args: [str])` AOT test below.
+- [ ] `@main(args: [str])` with arguments -- exercises `ori_args_from_argv` creating `[str]` buffer, zero leaks (run AOT binary with args, verify `ORI_CHECK_LEAKS=1` clean). Blocked on TPR-02-005 fix above.
+- [x] `test_str_list_passed_to_two_functions` passes reliably (not ignored) — verified 81/81 fat_ptr_iter tests pass (2026-03-21)
+- [x] `test_nested_list_iteration` passes reliably (not ignored) — verified in fat_ptr_iter.rs, passes (2026-03-21)
 
 ### Valgrind
 
@@ -418,18 +424,18 @@ If `ori_args_from_argv` option (a) is chosen: `lib.rs:303` + `runtime_functions.
 
 ### Cleanup
 
-- [ ] Stale "V4: at `header_data - 16`" comment in `list_rc.rs:27` updated to V5
-- [ ] Stale "8-byte refcount header" comments in `list/mod.rs` updated to "32-byte RC header (V5)" (lines 83, 103, 131, 199)
-- [ ] Stale "§02.7" reference in `cow.rs:38` updated to header-based cleanup model
-- [ ] Stale "V4" label in `list/reset/mod.rs:71` updated to V5
-- [ ] Decorative banners removed from `list/mod.rs` (2 banners) and `iterator/consumers.rs` (8 banners)
-- [ ] `construction.rs` fallback `_ => Idx::INT` patterns have `tracing::warn!` or `debug_assert!` (lines 89, 136, 189, 424)
-- [ ] `iterator/state.rs` doc comment updated to mention V5 header dependency for `elem_dec_fn` cleanup
-- [ ] `list_builtins.rs` doc comment updated to mention header as second safety net
-- [ ] `set/cow/basic.rs` and `set/cow/algebra.rs` doc comments updated for `elem_dec_fn` propagation
+- [x] Stale "V4: at `header_data - 16`" comment in `list_rc.rs:27` updated to V5 (2026-03-21)
+- [x] Stale "8-byte refcount header" comments in `list/mod.rs` updated to "32-byte V5 header" (lines 83, 103, 131, 199) (2026-03-21)
+- [x] Stale "§02.7" reference in `cow.rs:38` updated to V5 header-based cleanup model (2026-03-21)
+- [x] Stale "V4" label in `list/reset/mod.rs:71` updated to V5 (2026-03-21)
+- [x] Decorative banners removed from `list/mod.rs` (2), `iterator/consumers.rs` (8), `set/mod.rs` (1), `map/mod.rs` (1) — all replaced with plain section comments (2026-03-21)
+- [x] `construction.rs` fallback `_ => Idx::INT` patterns now have `debug_assert!(false, ...)` at all 4 sites (lines 89, 136, 189, 424) (2026-03-21)
+- [x] `iterator/state.rs` doc comment updated to mention V5 header defense-in-depth for `elem_dec_fn` cleanup (2026-03-21)
+- [x] `list_builtins.rs` doc comment updated to mention V5 header as second safety net (2026-03-21)
+- [x] `set/cow/basic.rs` and `set/cow/algebra.rs` doc comments updated for `elem_dec_fn` propagation (2026-03-21)
 - [x] `ori_list_push_new` codegen usage determined -- **JIT/test only** (not called from `arc_emitter/`); no codegen changes needed (2026-03-20)
 - [ ] **[TPR-02-003]** Add functional JIT evaluator integration test that compiles a list/set literal through MCJIT and executes successfully (regression guard for JIT symbol availability)
-- [ ] Decorative banners removed from `set/mod.rs` (1 banner at line 98) and `map/mod.rs` (1 banner at line 228)
+- [x] Decorative banners removed from `set/mod.rs` (1 banner) and `map/mod.rs` (1 banner) — included in batch above (2026-03-21)
 - [ ] `map/mod.rs:21-25` `#[allow(unused_imports)]` cleaned up: remove `META_EMPTY` from re-export (unused by `cow.rs`)
 - [ ] `map/mod.rs:329` dead `let _ = elem_size;` in `write_array_to_list_from_data` resolved (remove parameter or add assertion)
 - [ ] `set/cow/basic.rs` + `set/cow/algebra.rs` dead `_ea` computations removed or used (5 sites)

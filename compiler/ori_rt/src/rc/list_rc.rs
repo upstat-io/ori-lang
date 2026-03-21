@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 /// - `free_data`: pointer to the RC-managed allocation to free
 /// - `free_size`: byte size to pass to `ori_rc_free`
 ///
-/// Reads `elem_dec_fn` from `header_data`'s RC header (V4: at `header_data - 16`).
+/// Reads `elem_dec_fn` from `header_data`'s RC header (V5: at `header_data - 24`).
 fn drop_elements_and_free(
     elem_data: *mut u8,
     n: usize,
@@ -99,6 +99,19 @@ pub extern "C" fn ori_buffer_rc_dec(
     // Defense-in-depth: even after Section 02 stores at construction time,
     // this ensures the header is populated if any caller passes a real fn.
     unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
+
+    // Invariant: after store_elem_dec_fn_once, if the caller passed a
+    // non-NULL elem_dec_fn, the header must now have a non-NULL value
+    // (either this store succeeded, or a previous store already populated it).
+    #[cfg(debug_assertions)]
+    if elem_dec_fn.is_some() {
+        let header_fn = unsafe { load_elem_dec_fn(data) };
+        debug_assert!(
+            header_fn.is_some(),
+            "ori_buffer_rc_dec: header elem_dec_fn is NULL after store_elem_dec_fn_once \
+             with non-NULL caller elem_dec_fn"
+        );
+    }
 
     // Store elem_count so that if a slice is the last owner, it knows how
     // many elements to clean up. Last-write-wins: the most recent non-slice
