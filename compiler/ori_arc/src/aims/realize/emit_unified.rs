@@ -6,6 +6,7 @@
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
+use crate::aims::emit_rc::DeferredDec;
 use crate::aims::emit_reuse::{AllocEvent, DeathEvent};
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
@@ -41,7 +42,7 @@ pub(super) fn emit_rc_unified(
         collect_defined_vars, collect_inline_enum_projected_defs, collect_iter_element_defs,
         collect_project_borrowed_defs, compute_child_effective_last_use,
         compute_function_project_sources, emit_dead_at_entry_decs, emit_dead_invoke_dsts,
-        emit_edge_cleanup, emit_terminator_rc, precompute_block_uses, BlockCtx,
+        emit_edge_cleanup, emit_terminator_rc, precompute_block_uses, BlockCtx, DeferredDec,
     };
 
     debug_assert!(
@@ -55,9 +56,13 @@ pub(super) fn emit_rc_unified(
     let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
     let func_project_sources = compute_function_project_sources(func);
     let iter_fn_name = interner.intern("iter");
+    let predecessors = crate::graph::compute_predecessors(func);
     let mut all_death_events = Vec::new();
     let mut all_alloc_events = Vec::new();
-    let mut block_deferred: FxHashMap<usize, Vec<(ArcVarId, RcStrategy)>> = FxHashMap::default();
+    // Deferred decs routed to edge cleanup. Each entry:
+    // - `None` target: emit on ALL outgoing edges (Phase B deferred parents)
+    // - `Some(succ)` target: emit only on edge to `succ` (merge-edge decs)
+    let mut block_deferred: FxHashMap<usize, Vec<DeferredDec>> = FxHashMap::default();
     let mut synergy = metrics::SynergyMetrics::default();
 
     // Phase 1: per-block RC emission via unified forward walk.
@@ -92,11 +97,8 @@ pub(super) fn emit_rc_unified(
             child_effective_last_use: &child_elu,
         };
 
-        // Phase A: RcDec for variables live at entry, unused, dead at exit.
-        // Returns deferred decs for variables whose borrowed children are still
-        // alive (cross-block projections). These seed the forward walk's deferred
-        // list so the dec is emitted when the children die.
-        let deferred_parents = emit_dead_at_entry_decs(&ctx, &mut new_body);
+        // Phase A: dead-at-entry decs + merge-edge decs for branch-local vars.
+        let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);
 
         // Phase B: unified forward walk (decide() + inline event collection).
         let walk::BodyWalkResult {
@@ -117,11 +119,7 @@ pub(super) fn emit_rc_unified(
         // Phase C: terminator uses and cleanup.
         emit_terminator_rc(&ctx, block_idx, uses_so_far, &mut new_body);
 
-        // After last use of ctx, NLL releases the immutable borrow.
-
-        // For terminators without successors, emit deferred parent decs
-        // in the body. For terminators with successors, return them for
-        // edge cleanup.
+        // Terminators without successors: emit deferred in body. Others: edge cleanup.
         let edge_deferred = match &func.blocks[block_idx].terminator {
             ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
                 for &(var, strategy) in &terminator_deferred {
@@ -134,8 +132,19 @@ pub(super) fn emit_rc_unified(
 
         func.blocks[block_idx].body = new_body;
         if !edge_deferred.is_empty() {
-            block_deferred.insert(block_idx, edge_deferred);
+            let tagged: Vec<_> = edge_deferred
+                .into_iter()
+                .map(|(var, strat)| (None, var, strat))
+                .collect();
+            block_deferred.insert(block_idx, tagged);
         }
+        route_merge_edge_decs(
+            func,
+            block_idx,
+            &merge_edge_decs,
+            &predecessors,
+            &mut block_deferred,
+        );
 
         all_death_events.extend(death_events);
         all_alloc_events.extend(alloc_events);
@@ -156,6 +165,34 @@ pub(super) fn emit_rc_unified(
     (rc_count, all_death_events, all_alloc_events, synergy)
 }
 
+/// Route merge-edge decs to per-predecessor edge cleanup.
+///
+/// Each predecessor that DEFINES the variable gets the dec on its edge to
+/// the merge block ONLY (not all outgoing edges). This preserves successor
+/// identity so edge cleanup doesn't fire on unrelated edges.
+fn route_merge_edge_decs(
+    func: &ArcFunction,
+    block_idx: usize,
+    merge_edge_decs: &[(ArcVarId, RcStrategy)],
+    predecessors: &[Vec<usize>],
+    block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
+) {
+    if merge_edge_decs.is_empty() {
+        return;
+    }
+    let preds = &predecessors[block_idx];
+    for &(var, strategy) in merge_edge_decs {
+        for &pred_idx in preds {
+            if is_var_defined_in_block(&func.blocks[pred_idx], var) {
+                block_deferred
+                    .entry(pred_idx)
+                    .or_default()
+                    .push((Some(block_idx), var, strategy));
+            }
+        }
+    }
+}
+
 /// Count RC operations (`RcInc` + `RcDec`) in a function.
 fn count_rc_ops(func: &ArcFunction) -> usize {
     func.blocks
@@ -163,4 +200,26 @@ fn count_rc_ops(func: &ArcFunction) -> usize {
         .flat_map(|b| &b.body)
         .filter(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. }))
         .count()
+}
+
+/// Check if a variable is defined in a specific block.
+///
+/// A variable is "defined in block" if it's a block param, an instruction
+/// destination, or an Invoke result. Used to route Phase A merge-block decs
+/// to the correct per-predecessor edges.
+fn is_var_defined_in_block(block: &crate::ir::ArcBlock, var: ArcVarId) -> bool {
+    if block.params.iter().any(|&(p, _)| p == var) {
+        return true;
+    }
+    for instr in &block.body {
+        if instr.defined_var() == Some(var) {
+            return true;
+        }
+    }
+    if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
+        if *dst == var {
+            return true;
+        }
+    }
+    false
 }

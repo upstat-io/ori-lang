@@ -38,6 +38,11 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcVarId, RcStrategy};
 /// Edge-specific RC decrement: variable + strategy.
 pub(crate) type EdgeDec = (ArcVarId, RcStrategy);
 
+/// Deferred dec routed to edge cleanup.
+/// - `None` target: emit on ALL outgoing edges (Phase B deferred parents)
+/// - `Some(succ)` target: emit only on edge to `succ` (merge-edge decs)
+pub(crate) type DeferredDec = (Option<usize>, ArcVarId, RcStrategy);
+
 // Re-export for cow/drop_hints that import via `super::collect_rc_incremented_vars`.
 pub(crate) use queries::{collect_param_borrowed_vars, collect_rc_incremented_vars};
 

@@ -29,11 +29,31 @@ use crate::ir::RcStrategy;
 ///    `entry_states` entirely) — e.g., mutable-scope variables threaded
 ///    through loop exit blocks but never actually read. These are `RcPtr`
 ///    parameters that need cleanup even though the analysis didn't track them.
+///
+/// Returns `(deferred_parents, merge_edge_decs)`.
+#[expect(
+    clippy::type_complexity,
+    reason = "two-part return: deferred parents + merge-edge decs"
+)]
 pub(crate) fn emit_dead_at_entry_decs(
     ctx: &BlockCtx<'_>,
     new_body: &mut Vec<ArcInstr>,
-) -> Vec<(ArcVarId, RcStrategy, LastUse)> {
+) -> (
+    Vec<(ArcVarId, RcStrategy, LastUse)>,
+    Vec<(ArcVarId, RcStrategy)>,
+) {
     let mut deferred_parents = Vec::new();
+    let mut merge_edge_decs = Vec::new();
+
+    // Precompute predecessor count for merge-block filtering.
+    let predecessors = crate::graph::compute_predecessors(ctx.func);
+    let pred_count = predecessors.get(ctx.blk.index()).map_or(0, Vec::len);
+    let is_block_param = |v: ArcVarId| -> bool {
+        ctx.func.blocks[ctx.blk.index()]
+            .params
+            .iter()
+            .any(|&(p, _)| p == v)
+    };
 
     // Source 1: variables in entry_states.
     if let Some(entry_states) = ctx.state_map.block_entry_states(ctx.blk) {
@@ -56,6 +76,29 @@ pub(crate) fn emit_dead_at_entry_decs(
             }
             if ctx.use_info.contains_key(&var) || is_live_at_exit(ctx.state_map, ctx.blk, var) {
                 continue;
+            }
+            // Merge-block filter: at a block with >1 predecessor, variables
+            // that are NOT block params may come from project-source demand
+            // propagation and exist only on some predecessor paths. Emitting
+            // a block-level RcDec for them would fire on paths where they
+            // don't exist (double-free or undefined-var skip). Check that
+            // the variable is defined in ALL predecessor blocks (or received
+            // as their block param); if not, skip — the defining predecessor's
+            // forward walk handles cleanup via the deferred parent mechanism.
+            if pred_count > 1 && !is_block_param(var) && !ctx.defined_in_block.contains(&var) {
+                let all_preds_define_it = predecessors[ctx.blk.index()]
+                    .iter()
+                    .all(|&pred_idx| is_var_defined_in_block(&ctx.func.blocks[pred_idx], var));
+                if !all_preds_define_it {
+                    // Route to per-predecessor edge cleanup instead of
+                    // block-level RcDec. The edge cleanup will use
+                    // trampolines to emit RcDec only on the edges where
+                    // the variable actually exists.
+                    if let Some(strategy) = rc_strategy(ctx.func, var, ctx.pool) {
+                        merge_edge_decs.push((var, strategy));
+                    }
+                    continue;
+                }
             }
             // Defer if this variable has live borrowed children (projections
             // or their aliases still used in this block). The deferred dec is
@@ -112,7 +155,7 @@ pub(crate) fn emit_dead_at_entry_decs(
         }
     }
 
-    deferred_parents
+    (deferred_parents, merge_edge_decs)
 }
 
 /// Sweep for dead Invoke result variables across all blocks.
@@ -195,4 +238,26 @@ pub(crate) fn emit_dead_invoke_dsts(
             .body
             .insert(0, ArcInstr::RcDec { var, strategy });
     }
+}
+
+/// Check if a variable is defined within a specific block.
+///
+/// A variable is "defined in block" if it's a block param, an instruction
+/// destination, or an Invoke result of that block. Used to filter out
+/// phantom demand from project-source propagation at merge blocks.
+fn is_var_defined_in_block(block: &crate::ir::ArcBlock, var: ArcVarId) -> bool {
+    if block.params.iter().any(|&(p, _)| p == var) {
+        return true;
+    }
+    for instr in &block.body {
+        if instr.defined_var() == Some(var) {
+            return true;
+        }
+    }
+    if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
+        if *dst == var {
+            return true;
+        }
+    }
+    false
 }

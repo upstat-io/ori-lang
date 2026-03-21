@@ -143,21 +143,27 @@ fn merge_sources(
 /// has demand, ALL possible Project sources must also have demand to prevent
 /// premature `RcDec`.
 ///
-/// Handles five cases:
+/// Handles four cases:
 /// 1. Direct: `%3 = Project %2.0` in block A, `%3` used in block B
 /// 2. Aliased: `%3 = Project %2.0`, `%4 = Let %3`, `%4` used in block B
 /// 3. Transitive: chains of `Let` aliases from a Project destination
 /// 4. Block params (single predecessor): `Jump block1, args=[%3]`
-/// 5. Block params (multi-predecessor merge): param receives projections
-///    from different parent aggregates — demand propagates to ALL sources
 ///
 /// Without this, parent aggregates would have no demand at block B's entry,
 /// causing edge cleanup to emit premature `RcDec` — use-after-free when
 /// the borrowed child is still alive.
+///
+/// Note: for block params at multi-predecessor merge points, this propagates
+/// demand for ALL possible sources (from different predecessors). This is
+/// correct for the backward analysis (keeps parent aggregates alive on each
+/// predecessor's path) but the emission side must filter: variables that
+/// exist only on one predecessor path must NOT get block-level `RcDec` at the
+/// merge point. See `emit_dead_at_entry_decs` and `collect_branch_edge_decs`.
 pub(super) fn propagate_project_source_demand(
     current: &mut FxHashMap<ArcVarId, AimsState>,
     state_map: &AimsStateMap,
     project_alias_sources: &FxHashMap<ArcVarId, ProjectSources>,
+    _block_params: &[(ArcVarId, ori_types::Idx)],
 ) {
     let mut extra_demand: Vec<(ArcVarId, AimsState)> = Vec::new();
     for (&var, &state) in current.iter() {
