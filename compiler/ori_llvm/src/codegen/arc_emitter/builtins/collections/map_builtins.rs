@@ -70,7 +70,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.keys()` — extract keys as a new list.
     ///
-    /// Calls `ori_map_keys_to_list(data, cap, len, key_size, key_dec_fn, out_ptr)`.
+    /// Calls `ori_map_keys_to_list(data, cap, len, key_size, key_dec_fn, key_inc_fn, out_ptr)`.
+    /// `key_inc_fn` increments RC children of each copied key to prevent
+    /// double-free when both the map and the output list are dropped.
     pub(crate) fn emit_map_keys(&mut self, receiver: ValueId, key_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_keys_to_list");
 
@@ -90,6 +92,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_size = self.element_store_size(key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
         let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
+        let key_inc_fn = self.get_or_generate_elem_inc_fn(key_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -98,7 +101,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             func_id,
-            &[data, cap, len, key_size_val, key_dec_fn, out_alloca],
+            &[
+                data,
+                cap,
+                len,
+                key_size_val,
+                key_dec_fn,
+                key_inc_fn,
+                out_alloca,
+            ],
             "keys",
         );
 
@@ -107,7 +118,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.values()` — extract values as a new list.
     ///
-    /// Calls `ori_map_values_to_list(data, cap, len, key_size, val_size, val_dec_fn, out_ptr)`.
+    /// Calls `ori_map_values_to_list(data, cap, len, key_size, val_size,
+    /// val_dec_fn, val_inc_fn, out_ptr)`. `val_inc_fn` prevents double-free
+    /// on shared RC-tracked value data.
     pub(crate) fn emit_map_values(
         &mut self,
         receiver: ValueId,
@@ -119,6 +132,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (data, cap, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty);
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
+        let val_inc_fn = self.get_or_generate_elem_inc_fn(val_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -134,6 +148,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_size_val,
                 val_size_val,
                 val_dec_fn,
+                val_inc_fn,
                 out_alloca,
             ],
             "values",

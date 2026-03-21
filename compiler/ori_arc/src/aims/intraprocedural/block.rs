@@ -122,7 +122,7 @@ pub(crate) fn compute_block_entry_state(
     state_map: &AimsStateMap,
     sigs: &FxHashMap<Name, MemoryContract>,
     invoke_defs: &FxHashMap<ArcBlockId, Vec<ArcVarId>>,
-    project_alias_sources: &FxHashMap<ArcVarId, ArcVarId>,
+    project_alias_sources: &FxHashMap<ArcVarId, super::project_aliases::ProjectSources>,
 ) -> BlockAnalysisResult {
     let block = &func.blocks[block_id.index()];
 
