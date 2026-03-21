@@ -5,7 +5,10 @@
 //! All functions follow consuming semantics (see `cow.rs` module docs).
 
 use crate::next_capacity;
-use crate::rc::{ori_rc_alloc, ori_rc_is_unique, ori_rc_realloc, rt_debug_bounds_warning};
+use crate::rc::{
+    load_elem_dec_fn, ori_rc_alloc, ori_rc_is_unique, ori_rc_realloc, rt_debug_bounds_warning,
+    store_elem_count, store_elem_dec_fn,
+};
 use crate::slice_encoding::is_slice_cap;
 
 use super::{dec_list_buffer, inc_copied_elements, write_list_output};
@@ -122,6 +125,14 @@ pub extern "C" fn ori_list_insert_cow(
         inc_copied_elements(unsafe { new_data.add((idx + 1) * es) }, tail, es, inc_fn);
     }
 
+    // Propagate elem_dec_fn and elem_count from old header
+    if !data.is_null() {
+        unsafe {
+            store_elem_dec_fn(new_data, load_elem_dec_fn(data));
+            store_elem_count(new_data, new_len as i64);
+        }
+    }
+
     dec_list_buffer(data, cap);
 
     unsafe {
@@ -225,6 +236,12 @@ pub extern "C" fn ori_list_remove_cow(
     inc_copied_elements(new_data, idx, es, inc_fn);
     if tail_count > 0 {
         inc_copied_elements(unsafe { new_data.add(idx * es) }, tail_count, es, inc_fn);
+    }
+
+    // Propagate elem_dec_fn and elem_count from old header
+    unsafe {
+        store_elem_dec_fn(new_data, load_elem_dec_fn(data));
+        store_elem_count(new_data, new_len as i64);
     }
 
     dec_list_buffer(data, cap);

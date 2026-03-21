@@ -41,7 +41,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call(func_id, &[iter_ptr, elem_size_val, out_ptr], "");
 
         // Load the result list from the sret alloca
-        Some(self.builder.load(list_struct_ty, out_ptr, "collect.list"))
+        let result = self.builder.load(list_struct_ty, out_ptr, "collect.list");
+
+        // Store elem_dec_fn and elem_count in the new buffer's RC header.
+        // ori_iter_collect stores elem_count internally, but elem_dec_fn is
+        // an LLVM-generated thunk — must be stored by codegen after collect.
+        let result_data = self
+            .builder
+            .extract_value(result, 2, "collect.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let result_len = self
+            .builder
+            .extract_value(result, 0, "collect.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec, &[result_data, elem_dec_fn], "");
+        let store_count = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder
+            .call(store_count, &[result_data, result_len], "");
+
+        Some(result)
     }
 
     /// Emit `__collect_set(iter)` — collect iterator elements into a hash table set.
@@ -87,10 +108,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "",
         );
 
-        Some(
-            self.builder
-                .load(set_struct_ty, out_ptr, "collect_set.result"),
-        )
+        let result = self
+            .builder
+            .load(set_struct_ty, out_ptr, "collect_set.result");
+
+        // Store elem_dec_fn in the set buffer's RC header for defense-in-depth.
+        // Sets use metadata scanning for cleanup, not elem_count, so only
+        // elem_dec_fn is needed. The LLVM-generated thunk must be stored by codegen.
+        let result_data = self
+            .builder
+            .extract_value(result, 2, "collect_set.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec, &[result_data, elem_dec_fn], "");
+
+        Some(result)
     }
 
     pub(in crate::codegen) fn emit_iter_count(

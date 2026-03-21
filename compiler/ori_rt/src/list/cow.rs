@@ -6,12 +6,20 @@
 
 use crate::next_capacity;
 use crate::rc::{
-    ori_rc_alloc, ori_rc_is_unique, ori_rc_realloc, rt_debug_bounds_warning,
-    rt_debug_null_cow_warning,
+    load_elem_dec_fn, ori_rc_alloc, ori_rc_is_unique, ori_rc_realloc, rt_debug_bounds_warning,
+    rt_debug_null_cow_warning, store_elem_count, store_elem_dec_fn,
 };
 use crate::slice_encoding::is_slice_cap;
 
 use super::{dec_list_buffer, inc_copied_elements};
+
+// Propagate elem_dec_fn and elem_count from old buffer header to new buffer.
+// SAFETY: both pointers must have been returned by ori_rc_alloc.
+unsafe fn propagate_elem_header(old_data: *mut u8, new_data: *mut u8, new_elem_count: i64) {
+    let dec_fn = load_elem_dec_fn(old_data);
+    store_elem_dec_fn(new_data, dec_fn);
+    store_elem_count(new_data, new_elem_count);
+}
 
 /// COW-aware list push with consuming semantics.
 ///
@@ -131,6 +139,11 @@ pub extern "C" fn ori_list_push_cow(
         std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(old_len * es), es);
     }
 
+    // Propagate elem_dec_fn and elem_count from old header to new buffer
+    if !data.is_null() {
+        unsafe { propagate_elem_header(data, new_data, new_len as i64) };
+    }
+
     // Release our reference to the old buffer. For shared buffers (RC > 1),
     // this decrements without triggering deallocation. For empty (null), this
     // is a no-op. For slices, this decs the original buffer's RC.
@@ -245,6 +258,9 @@ pub extern "C" fn ori_list_pop_cow(
     }
     inc_copied_elements(new_data, new_len, es, inc_fn);
 
+    // Propagate elem_dec_fn and elem_count from old header
+    unsafe { propagate_elem_header(data, new_data, new_len as i64) };
+
     // Release our reference to the old buffer (slice-aware)
     dec_list_buffer(data, cap);
 
@@ -343,6 +359,9 @@ pub extern "C" fn ori_list_set_cow(
             inc_fn,
         );
     }
+
+    // Propagate elem_dec_fn and elem_count from old header
+    unsafe { propagate_elem_header(data, new_data, old_len as i64) };
 
     // Release our reference to the old buffer (slice-aware)
     dec_list_buffer(data, cap);

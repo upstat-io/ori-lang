@@ -28,7 +28,8 @@ fn rehash_and_merge_set2(
     elem_hash: extern "C" fn(*const u8) -> i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
-    let new_data = unsafe { rehash_set(d1, cap1, new_cap, es, elem_hash) };
+    let old_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
+    let new_data = unsafe { rehash_set(d1, cap1, new_cap, es, elem_hash, old_dec) };
     let new_layout = HashTableLayout::for_set(new_cap, es);
     for b in 0..cap2 {
         if unsafe { get_meta(d2, b) } != META_OCCUPIED {
@@ -92,7 +93,8 @@ pub extern "C" fn ori_set_union_cow(
     // set1 empty → copy set2
     if n1 == 0 || d1.is_null() {
         let new_cap = next_hash_capacity(n2);
-        let new_data = unsafe { rehash_set(d2, cap2, new_cap, es, elem_hash) };
+        let old_dec = unsafe { crate::rc::load_elem_dec_fn_const(d2.cast()) };
+        let new_data = unsafe { rehash_set(d2, cap2, new_cap, es, elem_hash, old_dec) };
         let new_layout = HashTableLayout::for_set(new_cap, es);
         if let Some(inc) = inc_fn {
             for b in 0..new_cap {
@@ -257,7 +259,8 @@ pub extern "C" fn ori_set_intersection_cow(
     }
 
     let new_cap = next_hash_capacity(result_len);
-    let new_data = alloc_set_hash_buffer(new_cap, es);
+    let old_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
+    let new_data = alloc_set_hash_buffer(new_cap, es, old_dec);
     let new_layout = HashTableLayout::for_set(new_cap, es);
 
     for b in 0..cap1 {
@@ -374,7 +377,8 @@ pub extern "C" fn ori_set_difference_cow(
     }
 
     let new_cap = next_hash_capacity(result_len);
-    let new_data = alloc_set_hash_buffer(new_cap, es);
+    let old_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
+    let new_data = alloc_set_hash_buffer(new_cap, es, old_dec);
     let new_layout = HashTableLayout::for_set(new_cap, es);
 
     for b in 0..cap1 {

@@ -83,7 +83,7 @@ declare_builtins! { emitter, ctx;
     ("str", "chars") => emitter.emit_str_chars(ctx.arg_vals[0]),
     ("str", "split") => {
         if ctx.arg_vals.len() >= 2 {
-            emitter.emit_str_split(ctx.arg_vals[0], ctx.arg_vals[1])
+            emitter.emit_str_split(ctx.arg_vals[0], ctx.arg_vals[1], ori_types::Idx::STR)
         } else {
             None
         }

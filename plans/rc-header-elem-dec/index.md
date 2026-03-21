@@ -19,33 +19,51 @@ order: 1
 ---
 
 ### Section 01: RC Header Extension
-**File:** `section-01-rc-header.md` | **Status:** In Progress
+**File:** `section-01-rc-header.md` | **Status:** In Progress (96% -- 3 Valgrind failures blocked on Section 02)
 
 ```
 RC_HEADER_SIZE, ori_rc_alloc, ori_rc_free, ori_rc_dec, ori_rc_realloc
-header layout, data_size, strong_count, elem_dec_fn, drop_fn
+header layout, data_size, strong_count, elem_dec_fn, elem_count, drop_fn
 compiler/ori_rt/src/rc/mod.rs, compiler/ori_rt/src/rc/allocate.rs
-compiler/ori_rt/src/rc/list_rc.rs, ori_buffer_rc_dec, ori_buffer_drop_unique
-slice_buffer_rc_dec, element cleanup, RC header V4
-16 bytes → 24 bytes, ABI change, alignment
+compiler/ori_rt/src/rc/elem_header.rs, compiler/ori_rt/src/rc/list_rc.rs
+ori_buffer_rc_dec, ori_buffer_drop_unique, slice_buffer_rc_dec
+store_elem_dec_fn, load_elem_dec_fn, store_elem_count, load_elem_count
+element cleanup, RC header V5, 16 bytes → 32 bytes, ABI change, alignment
 ```
 
 ---
 
 ### Section 02: Codegen & Runtime Integration
-**File:** `section-02-integration.md` | **Status:** Not Started
+**File:** `section-02-integration.md` | **Status:** In Progress
 
 ```
-emit_list_iter, emit_buffer_rc_dec_list_or_set, emit_buffer_drop_unique
-emit_map_iter, ori_map_buffer_rc_dec, key_dec_fn, val_dec_fn
+emit_list_iter (already passes real elem_dec_fn), emit_buffer_rc_dec_list_or_set, emit_buffer_drop_unique
+emit_map_iter (already passes real key/val dec fns), ori_map_buffer_rc_dec, key_dec_fn, val_dec_fn
 ori_iter_from_list, ori_iter_from_map, IterState::List, IterState::Map, elem_dec_fn parameter
+ori_buffer_store_elem_dec (created), ori_buffer_store_elem_count (created)
+elem_count propagation, SSO correctness, COW slow path propagation
+write_array_to_list, write_array_to_list_from_data, ori_list_push_new (JIT-only, resolved)
+ori_map_keys_to_list, ori_map_values_to_list, ori_set_to_list, ori_str_split
+alloc_set_hash_buffer, rehash_set, set COW propagation
+emit_iter_collect (builtins/iterator_consumers.rs), emit_iter_collect_set
+ori_args_from_argv (lib.rs, [str] buffer creation), ori_list_ensure_capacity (JIT-only)
+ori_list_new (JIT-only), ori_list_push (codegen-called), ABI sync points
+map double-free investigation, map_buffer_cleanup
 compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs
 compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/map_builtins.rs
+compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/string_builtins.rs
+compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs
 compiler/ori_llvm/src/codegen/arc_emitter/rc_buffer_ops.rs
 compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs
 compiler/ori_llvm/src/codegen/arc_emitter/construction.rs
+compiler/ori_rt/src/rc/elem_header.rs (new — extracted element header helpers)
 compiler/ori_rt/src/iterator/sources.rs, compiler/ori_rt/src/iterator/state.rs
-ori_buffer_store_elem_dec (to be created)
+compiler/ori_rt/src/list/cow.rs, cow_structural.rs, cow_sort.rs (list COW slow paths)
+compiler/ori_rt/src/list/query.rs, slice.rs, mod.rs (non-COW buffer creation)
+compiler/ori_rt/src/set/cow/basic.rs, cow/algebra.rs, mod.rs (set COW slow paths)
+compiler/ori_rt/src/map/mod.rs (map-to-list functions, codegen-based key/val dec)
+compiler/ori_rt/src/string/ops.rs (ori_str_split, direct alloc, needs elem_dec_fn param)
+compiler/ori_rt/src/iterator/consumers.rs (ori_iter_collect, ori_iter_collect_set)
 ```
 
 ---
@@ -55,9 +73,14 @@ ori_buffer_store_elem_dec (to be created)
 
 ```
 __for_coll_N, phantom binding, dummy reference, ordering hack
+for_coll_counter, propagate_borrowed_closure, for_yield.rs
 lower_for, lower_for_iterator, exit block ordering
 compiler/ori_arc/src/lower/control_flow/loops.rs
 compiler/ori_arc/src/lower/control_flow/for_loops/for_iterator.rs
+compiler/ori_arc/src/lower/control_flow/for_loops/for_yield.rs
+compiler/ori_arc/src/lower/expr/mod.rs (for_coll_counter field)
+compiler/ori_arc/src/aims/emit_rc/borrowed_defs.rs (propagate_borrowed_closure)
+compiler/ori_arc/src/aims/realize/walk_dec.rs (__for_coll reference)
 simplify, remove workaround, clean up
 remove dead elem_dec_fn parameter, ori_iter_from_list, IterState::List
 compiler/ori_rt/src/iterator/sources.rs, compiler/ori_rt/src/iterator/state.rs
@@ -72,10 +95,13 @@ compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs
 ```
 fat_ptr_iter, combinatorial, cross-product, test matrix
 [str], [[int]], [Option<str>], [{name: str}], Set<str>, closure capture
+SSO/heap mixed strings, T1b
 for-do, for-yield, for-break, for-continue, for-guard, slice iteration
 function parameter, nested loop, multi-call, COW interaction
+cow_push_str, collect_str, set_cow_insert, map_keys_str, str_split
+COW mutation, collection conversion, write_array_to_list
 valgrind, ORI_CHECK_LEAKS, dual-exec, behavioral equivalence, release build
-compiler/ori_llvm/tests/aot/fat_ptr_iter.rs, tests/valgrind/
+compiler/ori_llvm/tests/aot/fat_ptr_iter.rs, tests/valgrind/fat_ptr_iter/
 ```
 
 ---

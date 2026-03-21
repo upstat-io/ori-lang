@@ -5,7 +5,7 @@
 //! references (functional operations).
 
 use crate::io::ori_panic_cstr;
-use crate::rc::ori_rc_alloc;
+use crate::rc::{load_elem_dec_fn_const, ori_rc_alloc, store_elem_count, store_elem_dec_fn};
 use crate::string::{deref_str, OriStr};
 
 /// Bounds-checked element access: copy `elem_size` bytes at `data[index]` to `out_ptr`.
@@ -149,6 +149,12 @@ pub extern "C" fn ori_list_reverse(data: *const u8, len: i64, elem_size: i64, ou
         }
     }
 
+    // Propagate elem_dec_fn and elem_count from source
+    unsafe {
+        store_elem_dec_fn(new_data, load_elem_dec_fn_const(data));
+        store_elem_count(new_data, n as i64);
+    }
+
     unsafe {
         out_ptr.cast::<i64>().write(n as i64);
         out_ptr.cast::<i64>().add(1).write(n as i64);
@@ -199,6 +205,18 @@ pub extern "C" fn ori_list_concat(
         if !data2.is_null() && n2 > 0 {
             std::ptr::copy_nonoverlapping(data2, new_data.add(n1 * es), n2 * es);
         }
+    }
+
+    // Propagate elem_dec_fn from either source (both same-typed)
+    let src = if data1.is_null() { data2 } else { data1 };
+    if !src.is_null() {
+        unsafe {
+            store_elem_dec_fn(new_data, load_elem_dec_fn_const(src));
+            store_elem_count(new_data, total_len as i64);
+        }
+    }
+
+    unsafe {
         out_ptr.cast::<i64>().write(total_len as i64);
         out_ptr.cast::<i64>().add(1).write(total_len as i64);
         out_ptr.add(16).cast::<*mut u8>().write(new_data);

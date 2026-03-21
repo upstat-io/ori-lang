@@ -13,7 +13,9 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{assert_aot_success, compile_and_run_capture};
+use crate::util::{
+    assert_aot_success, compile_and_capture_ir, compile_and_run_capture, extract_function_ir,
+};
 
 // ─── Basic struct creation and drop ───
 
@@ -313,6 +315,29 @@ fn test_arc_assert_aot_success_catches_leak() {
             "panic message should mention 'leaked memory', got: {msg}"
         );
     }
+}
+
+/// Structural verification: the LLVM-generated main wrapper emits a call to
+/// `ori_check_leaks`. This is the missing link that TPR-05-009 identified —
+/// the proxy tests above prove exit code semantics, but only this test proves
+/// the codegen actually wires the leak-check call into the wrapper.
+///
+/// Combined with `ori_rt::tests::leak_detection_positive_control` (which proves
+/// the runtime function detects leaks and returns exit code 2), this creates
+/// a complete verification chain:
+///   codegen emits call → runtime detects leaks → exit code 2
+#[test]
+fn test_arc_main_wrapper_calls_ori_check_leaks() {
+    let ir = compile_and_capture_ir(
+        r#"
+@main () -> int = 0;
+"#,
+    );
+    let main_ir = extract_function_ir(&ir, "main");
+    assert!(
+        main_ir.contains("@ori_check_leaks"),
+        "main wrapper must call ori_check_leaks.\nMain IR:\n{main_ir}"
+    );
 }
 
 #[test]

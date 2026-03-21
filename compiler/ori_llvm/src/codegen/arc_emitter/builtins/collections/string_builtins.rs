@@ -12,6 +12,7 @@
 //! bytes" for SSO.
 
 use ori_arc::ir::ArcVarId;
+use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
 
@@ -153,12 +154,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `str.split(sep)` — returns `[str]` (list of strings).
     ///
-    /// Calls `ori_str_split(data_ptr, len, sep_data, sep_len, out_ptr)`.
+    /// Calls `ori_str_split(data_ptr, len, sep_data, sep_len, elem_dec_fn, out_ptr)`.
     /// SSO-safe: extracts data/len via runtime helpers.
     pub(crate) fn emit_str_split(
         &mut self,
         receiver: ValueId,
         separator: ValueId,
+        str_ty: Idx,
     ) -> Option<ValueId> {
         let split_fn = self.builder.runtime_fn("ori_str_split");
         let data_fn = self.builder.runtime_fn("ori_str_data");
@@ -182,6 +184,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .emit_rt_call(len_fn, &[sep_ptr], "split.sep.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
+        // elem_dec_fn for [str] element cleanup
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(str_ty);
+
         let list_ty = self.list_struct_type();
         let out_alloca =
             self.builder
@@ -189,7 +194,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             split_fn,
-            &[data_ptr, str_len, sep_data, sep_len, out_alloca],
+            &[
+                data_ptr,
+                str_len,
+                sep_data,
+                sep_len,
+                elem_dec_fn,
+                out_alloca,
+            ],
             "split",
         );
 

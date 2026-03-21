@@ -68,7 +68,8 @@ pub extern "C" fn ori_set_insert_cow(
 
         // Needs rehash — rehash to 2x capacity, then insert
         let new_cap = next_hash_capacity(new_len);
-        let new_data = unsafe { rehash_set(data, c, new_cap, es, elem_hash) };
+        let old_dec = unsafe { crate::rc::load_elem_dec_fn(data) };
+        let new_data = unsafe { rehash_set(data, c, new_cap, es, elem_hash, old_dec) };
         let new_layout = HashTableLayout::for_set(new_cap, es);
 
         let slot = unsafe { probe_find_slot(new_data, new_cap, hash) };
@@ -91,8 +92,13 @@ pub extern "C" fn ori_set_insert_cow(
 
     // SLOW PATH: shared or empty — rehash into new buffer + insert
     let new_cap = next_hash_capacity(new_len);
+    let old_dec = if data.is_null() {
+        None
+    } else {
+        unsafe { crate::rc::load_elem_dec_fn(data) }
+    };
     let new_data = if !data.is_null() && n > 0 {
-        let rehashed = unsafe { rehash_set(data, c, new_cap, es, elem_hash) };
+        let rehashed = unsafe { rehash_set(data, c, new_cap, es, elem_hash, old_dec) };
         // Inc RC for all rehashed elements
         let new_layout = HashTableLayout::for_set(new_cap, es);
         if let Some(inc) = inc_fn {
@@ -104,7 +110,7 @@ pub extern "C" fn ori_set_insert_cow(
         }
         rehashed
     } else {
-        alloc_set_hash_buffer(new_cap, es)
+        alloc_set_hash_buffer(new_cap, es, old_dec)
     };
 
     // Insert new element
@@ -189,7 +195,8 @@ pub extern "C" fn ori_set_remove_cow(
     // SLOW PATH: shared — rehash all except removed into new buffer
     let new_cap = next_hash_capacity(new_len);
     let new_layout = HashTableLayout::for_set(new_cap, es);
-    let new_data = alloc_set_hash_buffer(new_cap, es);
+    let old_dec = unsafe { crate::rc::load_elem_dec_fn(data) };
+    let new_data = alloc_set_hash_buffer(new_cap, es, old_dec);
     let old_layout = HashTableLayout::for_set(c, es);
 
     for b in 0..c {
