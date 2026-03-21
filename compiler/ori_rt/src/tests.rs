@@ -5371,7 +5371,7 @@ fn rc_alloc_i64_set(elems: &[i64], min_capacity: usize) -> (*mut u8, usize) {
     if cap == 0 {
         return (std::ptr::null_mut(), 0);
     }
-    let data = set::alloc_set_hash_buffer(cap, es);
+    let data = set::alloc_set_hash_buffer(cap, es, None);
     assert!(!data.is_null());
     let layout = map::hash_table::HashTableLayout::for_set(cap, es);
     for &e in elems {

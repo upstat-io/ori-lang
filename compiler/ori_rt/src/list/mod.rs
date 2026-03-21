@@ -391,7 +391,16 @@ pub(crate) fn inc_copied_elements(
 }
 
 /// Shared helper: copy a contiguous array into a new list struct via sret.
-pub(crate) fn write_array_to_list(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
+///
+/// Stores `elem_dec_fn` and `elem_count` in the new buffer's RC header
+/// for element cleanup when the buffer is freed.
+pub(crate) fn write_array_to_list(
+    data: *const u8,
+    len: i64,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+    out_ptr: *mut u8,
+) {
     if out_ptr.is_null() {
         return;
     }
@@ -414,6 +423,13 @@ pub(crate) fn write_array_to_list(data: *const u8, len: i64, elem_size: i64, out
     let new_data = ori_rc_alloc(total, 8);
     unsafe {
         std::ptr::copy_nonoverlapping(data, new_data, total);
+    }
+    // SAFETY: new_data was just returned by ori_rc_alloc — header offsets are valid.
+    unsafe {
+        crate::rc::store_elem_dec_fn(new_data, elem_dec_fn);
+        crate::rc::store_elem_count(new_data, n as i64);
+    }
+    unsafe {
         out_ptr.cast::<i64>().write(n as i64);
         out_ptr.cast::<i64>().add(1).write(n as i64);
         out_ptr.add(16).cast::<*mut u8>().write(new_data);

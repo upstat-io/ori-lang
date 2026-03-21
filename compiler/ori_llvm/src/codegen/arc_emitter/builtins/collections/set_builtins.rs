@@ -266,7 +266,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `set.to_list()` / `set.into()` — copies set data into a new list via sret.
     ///
-    /// Calls `ori_set_to_list(data, cap, len, elem_size, out_ptr)`.
+    /// Calls `ori_set_to_list(data, cap, len, elem_size, elem_dec_fn, out_ptr)`.
     pub(crate) fn emit_set_to_list(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_to_list");
 
@@ -274,6 +274,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -282,7 +283,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             func_id,
-            &[data_ptr, cap, len, elem_size, out_alloca],
+            &[data_ptr, cap, len, elem_size, elem_dec_fn, out_alloca],
             "set.to_list",
         );
 

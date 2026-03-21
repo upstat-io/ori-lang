@@ -330,6 +330,12 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
         unsafe { elements.add(i).write(element) };
     }
 
+    // Store elem_count in the RC header so slice-based cleanup knows the
+    // element count. elem_dec_fn is deferred — the LLVM-generated str thunk
+    // will be stored by the first ori_buffer_rc_dec via store_elem_dec_fn_once.
+    // SAFETY: data was just returned by ori_rc_alloc — header offsets are valid.
+    unsafe { rc::store_elem_count(data, count as i64) };
+
     OriList {
         len: count as i64,
         cap: count as i64,

@@ -111,6 +111,10 @@ sections:
   Resolved: Fixed on 2026-03-20. Both placeholder tests now have executable bodies:
   (1) `test_arc_leak_detected_exit_code_2` — compiles `@main () -> int = 2;` and verifies `compile_and_run_capture` returns exit code 2. Uses main's return value as proxy since genuine runtime leaks require `extern "c"` FFI (not yet in AOT). The runtime-level leak→exit-code-2 chain is separately verified by `ori_rt::tests::leak_detection_positive_control`.
   (2) `test_arc_assert_aot_success_catches_leak` — wraps `assert_aot_success` in `catch_unwind`, verifies it panics with "leaked memory" for exit code 2. Proves the harness contract catches leak regressions.
+- [x] `[TPR-05-009][medium]` `compiler/ori_llvm/tests/aot/arc.rs:269` — Section 05 still overstates negative AOT leak-path coverage: the new tests only proxy on a program that returns exit code `2`, so they do not verify that the LLVM-generated main wrapper actually calls `ori_check_leaks()` on leaked binaries.
+  Resolved: Fixed on 2026-03-20. Added `test_arc_main_wrapper_calls_ori_check_leaks` — an IR-level structural test that compiles a program, captures the LLVM IR, extracts the `main` wrapper function, and asserts it contains a `@ori_check_leaks` call. This proves the codegen wires the leak-check call into the wrapper. Combined with `ori_rt::tests::leak_detection_positive_control` (runtime-level proof that `RC_LIVE_COUNT != 0` → exit code 2), the full verification chain is now covered: codegen emits call → runtime detects leaks → exit code 2.
+- [x] `[TPR-05-010][medium]` `plans/rc-integrity/section-05-verification.md:1` — The current tree reopens Section 05 in prose, but the authoritative plan metadata still says the section and parent plan are complete/resolved.
+  Resolved: Fixed on 2026-03-20. The body text "In Progress" was stale — all checkboxes were already checked. Updated body text to "Complete" and synced all metadata (frontmatter, 00-overview.md, index.md) to `complete`/`resolved` in one pass.
 
 ---
 
@@ -123,6 +127,6 @@ sections:
 - [x] `cargo b --release && ./test-all.sh` green
 - [x] `diagnostics/dual-exec-verify.sh` — 11 mismatches, all pre-existing AOT gaps
 - [x] No new `#[ignore]` or `#skip` attributes added to suppress failures — 4 previously-ignored tests un-ignored (now pass)
-- [x] Branch `experiment/aims` is merge-ready — all TPR findings (001–008) resolved on 2026-03-20
+- [x] Branch `experiment/aims` is merge-ready — TPR-05-009 resolved with `test_arc_main_wrapper_calls_ori_check_leaks` (IR-level structural verification)
 
 **Exit Criteria:** All 70 matrix tests + 20 journey guards pass with zero leaks in both debug and release. No regressions. 4 previously-broken tests now pass. The select-fold leak and slice double-free bugs are fixed with semantic pin tests. Branch is ready to merge.

@@ -135,6 +135,22 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: false,
     },
+    // Element header helpers — store elem_dec_fn and elem_count in RC header
+    // at collection construction time (Section 02 of rc-header-elem-dec plan).
+    RtFn {
+        name: "ori_buffer_store_elem_dec",
+        params: &[Ty::Ptr, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_buffer_store_elem_count",
+        params: &[Ty::Ptr, Ty::I64],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // Assertions — extern "C-unwind" (call ori_panic on failure, must unwind)
     RtFn {
         name: "ori_assert",
@@ -494,16 +510,24 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_keys_to_list",
-        // (data, cap, len, key_size, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        // (data, cap, len, key_size, key_dec_fn, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_map_values_to_list",
-        // (data, cap, len, key_size, val_size, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        // (data, cap, len, key_size, val_size, val_dec_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -710,8 +734,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_to_list",
-        // (data, cap, len, elem_size, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        // (data, cap, len, elem_size, elem_dec_fn, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -760,7 +784,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_str_split",
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
+        // (str_ptr, str_len, sep_ptr, sep_len, elem_dec_fn, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,

@@ -109,6 +109,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.builder.store(val, elem_ptr);
                 }
 
+                // Store elem_dec_fn and elem_count in the RC header so that
+                // any RcDec reaching zero can perform element cleanup.
+                // For scalar elements, elem_dec_fn is null (no RC children) —
+                // the call writes null over zero-initialized null (idempotent).
+                let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_idx);
+                let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+                self.builder
+                    .call(store_dec_fn, &[data_ptr, elem_dec_fn], "");
+                let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
+                self.builder.call(store_count_fn, &[data_ptr, cap_val], "");
+
                 // Build list struct: {i64 len, i64 cap, ptr data}
                 self.builder
                     .build_struct(llvm_ty, &[cap_val, cap_val, data_ptr], "list")
@@ -208,6 +219,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         "set.put",
                     );
                 }
+
+                // Store elem_dec_fn and elem_count in the RC header.
+                let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_idx);
+                let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+                self.builder
+                    .call(store_dec_fn, &[data_ptr, elem_dec_fn], "");
+                let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
+                self.builder
+                    .call(store_count_fn, &[data_ptr, count_val], "");
 
                 // Build set struct: {i64 len, i64 cap, ptr data}
                 self.builder
@@ -457,6 +477,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .gep(elem_llvm_ty, new_data, &[idx], "reuse.elem_ptr");
             self.builder.store(val, elem_ptr);
         }
+
+        // Store elem_dec_fn and elem_count in the new buffer's RC header.
+        // ori_list_reset_buffer does NOT propagate internally — codegen
+        // handles it externally after the reset returns.
+        let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec_fn, &[new_data, elem_dec_fn], "");
+        let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder
+            .call(store_count_fn, &[new_data, new_len_val], "");
 
         // Load the output capacity.
         let result_cap = self.builder.load(i64_ty, out_cap_alloca, "reuse.cap");

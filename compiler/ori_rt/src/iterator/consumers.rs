@@ -56,6 +56,12 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
         len += 1;
     }
 
+    // Store elem_count in the new buffer's header (codegen stores elem_dec_fn
+    // after the collect call returns — it's an LLVM-generated thunk)
+    if !data.is_null() {
+        unsafe { crate::rc::store_elem_count(data, len as i64) };
+    }
+
     // Write OriList { len, cap, data } to out_ptr
     unsafe {
         out_ptr.cast::<i64>().write(len as i64);
@@ -102,7 +108,8 @@ pub extern "C" fn ori_iter_collect_set(
 
     let mut cap = next_hash_capacity(0);
     let mut len: usize = 0;
-    let mut data = alloc_set_hash_buffer(cap, es);
+    // elem_dec_fn stored by codegen after collect returns (LLVM-generated thunk)
+    let mut data = alloc_set_hash_buffer(cap, es, None);
 
     let mut elem_buf = [0u8; MAX_ELEM_SIZE];
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
@@ -129,7 +136,9 @@ pub extern "C" fn ori_iter_collect_set(
         // Rehash if load factor exceeded
         if needs_rehash(len + 1, cap) {
             let new_cap = cap * 2;
-            let new_data = unsafe { rehash_set(data, cap, new_cap, es, elem_hash) };
+            // Read elem_dec_fn from old buffer (may be None if codegen hasn't stored yet)
+            let old_dec = unsafe { crate::rc::load_elem_dec_fn(data) };
+            let new_data = unsafe { rehash_set(data, cap, new_cap, es, elem_hash, old_dec) };
             crate::ori_rc_free(data, layout.total_size, 8);
             data = new_data;
             cap = new_cap;
