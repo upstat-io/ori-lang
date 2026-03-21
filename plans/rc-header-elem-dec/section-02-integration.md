@@ -6,7 +6,7 @@ goal: "Wire up LLVM codegen and runtime so elem_dec_fn and elem_count are stored
 depends_on: ["01"]
 reviewed: false
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-21
 sections:
   - id: "02.1"
@@ -20,7 +20,7 @@ sections:
     status: not-started
   - id: "02.R"
     title: "Third Party Review Findings"
-    status: complete
+    status: in-progress
   - id: "02.N"
     title: "Completion Checklist"
     status: in-progress
@@ -317,6 +317,10 @@ Set construction codegen is complete (see 02.1 "Set Construction Codegen" -- `el
   Impact: Any AOT program using the supported `@main(args: [str])` signature is currently uncompilable, and the Section 02 claim at `plans/rc-header-elem-dec/section-02-integration.md:104` that deferred `elem_dec_fn` handling is "safe" cannot be validated on the only production caller for `ori_args_from_argv`.
   Required plan update: Fix the main-wrapper ABI/signature mismatch for args-bearing mains, add an end-to-end AOT regression test for `@main(args: [str])`, then re-evaluate whether deferring `elem_dec_fn` in `ori_args_from_argv` is still justified once slice/take/drop paths are executable.
   Resolved: Validated and accepted on 2026-03-21. Bug confirmed — `generate_main_wrapper` loads sret result as `{i64, i64, ptr}` value but `_ori_main` expects `ptr` (Indirect ABI for 24-byte struct). Root cause: wrapper doesn’t consult callee’s param ABI. Integrated as blocking task in 02.N.
+- [ ] `[TPR-02-006][high]` `compiler/ori_arc/src/aims/intraprocedural/project_aliases.rs:38` — The new block-param alias closure is still unsound at CFG merges because it records only one `Project` source per block parameter, even though a merge param may receive projected values from multiple predecessor aggregates.
+  Evidence: `compute_project_alias_sources()` stores aliases in `FxHashMap<ArcVarId, ArcVarId>` and only inserts a param mapping on `Entry::Vacant` at `project_aliases.rs:89`, so the first predecessor wins and later predecessors are dropped. This is not just theoretical: `collect_rc_incremented_vars()` in `compiler/ori_arc/src/aims/emit_rc/queries.rs:47` already documents the same multi-predecessor block-param pattern and has special handling for it. With the current `project_alias_sources` shape, a merge like `Jump merge, args=[Project a.0]` / `Jump merge, args=[Project b.0]` leaves the merge param mapped to only `a` or `b`, so `propagate_project_source_demand()` cannot conservatively keep both parent aggregates alive.
+  Impact: Cross-block projected borrows are still vulnerable to premature `RcDec` on one predecessor path when a merge block param can alias different parent aggregates depending on control flow. The recently added jump-to-param tests only cover same-parent cases (`p.first` vs `p.second`), so this regression surface is currently unpinned.
+  Required plan update: Represent block-param alias closure as a set/union of possible `Project` sources (or another conservative multi-source form), propagate demand to every possible parent aggregate, and add a semantic pin plus Valgrind/AOT coverage for a merge param fed by projections from two distinct parents.
 
 ---
 
