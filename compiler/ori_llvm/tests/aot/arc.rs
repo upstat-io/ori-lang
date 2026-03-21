@@ -990,25 +990,87 @@ fn test_arc_borrowed_param_str_concat_caller_survives() {
 // TPR-02-006: Project alias closure at CFG merge with two distinct parents.
 // The merge block param receives projections from two different aggregates
 // depending on control flow — both parents must stay alive.
+//
+// TPR-02-007/TPR-02-010: Branch-local RcDec must be emitted per-predecessor
+// (not block-level in merge), and only on the specific merge edge (not all
+// outgoing edges of the defining predecessor). Tests exercise BOTH branches
+// to confirm branch-local cleanup is correct regardless of which path is taken.
 #[test]
 fn test_rc_project_merge_two_distinct_parents() {
+    // Test 1: condition true → takes then-branch (p1.first selected, p2 cleaned up)
     for _ in 0..5 {
         assert_aot_success(
             r#"
 type Pair = { first: str, second: str }
 
 @main () -> int = {
-    let $p1 = Pair { first: "alpha-long-string-heap", second: "beta-long-string-heap" };
-    let $p2 = Pair { first: "gamma-long-string-heap", second: "delta-long-string-heap" };
-    // Branch: merge param receives projection from different parent aggregates
+    let $p1 = Pair { first: "alpha-heap-string-over-23-bytes!", second: "beta-heap-string-also-over-23-bytes!" };
+    let $p2 = Pair { first: "gamma-heap-string-over-23-bytes!", second: "delta-heap-string-also-over-23-bytes!" };
+    // Branch: merge param receives projection from different parent aggregates.
+    // Branch-local parent (p1 on then-path, p2 on else-path) must be cleaned
+    // up only on its own merge edge, not on the opposite path.
     let $result = if p1.first.len() > 0
         then p1.first
         else p2.first;
-    // Both p1 and p2 must stay alive until result is consumed
-    if result == "alpha-long-string-heap" then 0 else 1
+    if result == "alpha-heap-string-over-23-bytes!" then 0 else 1
 }
 "#,
-            "arc_project_merge_two_parents",
+            "arc_project_merge_then_branch",
+        );
+    }
+
+    // Test 2: condition false → takes else-branch (p2.first selected, p1 cleaned up)
+    for _ in 0..5 {
+        assert_aot_success(
+            r#"
+type Pair = { first: str, second: str }
+
+@main () -> int = {
+    let $p1 = Pair { first: "", second: "beta-heap-string-also-over-23-bytes!" };
+    let $p2 = Pair { first: "gamma-heap-string-over-23-bytes!", second: "delta-heap-string-also-over-23-bytes!" };
+    let $result = if p1.first.len() > 0
+        then p1.first
+        else p2.first;
+    if result == "gamma-heap-string-over-23-bytes!" then 0 else 1
+}
+"#,
+            "arc_project_merge_else_branch",
+        );
+    }
+}
+
+// TPR-02-010 regression: verify that merge-edge decs with successor scoping
+// don't cause leaks when both branches produce heap strings and the untaken
+// branch's parent aggregate needs cleanup via edge-specific RcDec.
+#[test]
+fn test_rc_project_merge_edge_scoped_cleanup() {
+    // Condition-variable driven selection between two structs, each containing
+    // heap strings. The untaken path's struct must be cleaned up on the edge
+    // (not in the merge block), and the taken path's struct must survive until
+    // its projected field is consumed.
+    for _ in 0..10 {
+        assert_aot_success(
+            r#"
+type Record = { name: str, data: str }
+
+@make_alpha () -> Record =
+    Record { name: "alpha-record-name-over-23-bytes!", data: "alpha-data-payload-over-23-bytes!" };
+
+@make_beta () -> Record =
+    Record { name: "beta-record-name-over-23-bytes!", data: "beta-data-payload-over-23-bytes!" };
+
+@main () -> int = {
+    let $a = make_alpha();
+    let $b = make_beta();
+    // Runtime-variable condition: a.name is 32 chars, b.name is 31 chars
+    let $pick = if a.name.len() > b.name.len()
+        then a.name
+        else b.name;
+    // Untaken branch's parent must be cleaned up without double-free or leak
+    if pick == "alpha-record-name-over-23-bytes!" then 0 else 1
+}
+"#,
+            "arc_merge_edge_scoped",
         );
     }
 }

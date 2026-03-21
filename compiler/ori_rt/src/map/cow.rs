@@ -102,10 +102,16 @@ fn cow_insert_existing(
     let layout = HashTableLayout::for_map(cap, ks, vs);
 
     if is_unique {
-        // FAST PATH: unique — overwrite value in place
+        // FAST PATH: unique — overwrite value in place.
+        // Inc new value (borrowed from caller) so the buffer owns a reference.
+        // TODO(arc): the old value at this bucket leaks — needs val_dec before
+        // overwrite. Requires adding val_dec parameter to this function.
         unsafe {
             let val_dst = data.add(layout.vals_offset + bucket * vs);
             std::ptr::copy_nonoverlapping(value, val_dst, vs);
+            if let Some(inc) = val_inc {
+                inc(val_dst);
+            }
         }
         write_map_struct(out_ptr, len as i64, cap as i64, data);
         return;
@@ -152,7 +158,8 @@ fn slow_copy_overwrite_value(
         std::ptr::copy_nonoverlapping(value, val_dst, vs);
     }
 
-    // Inc RC for all OCCUPIED keys and values (except overwritten value at bucket)
+    // Inc RC for all OCCUPIED keys and values (except overwritten value at bucket).
+    // The new value at bucket also needs inc — it was borrowed from the caller.
     for b in 0..cap {
         if unsafe { get_meta(new_data, b) } != META_OCCUPIED {
             continue;
@@ -160,10 +167,11 @@ fn slow_copy_overwrite_value(
         if let Some(inc) = key_inc {
             inc(unsafe { new_data.add(layout.keys_offset + b * ks) });
         }
-        if b != bucket {
-            if let Some(inc) = val_inc {
-                inc(unsafe { new_data.add(layout.vals_offset + b * vs) });
-            }
+        if let Some(inc) = val_inc {
+            // Inc all values including the overwritten one — the new value
+            // at bucket was borrowed from the caller, non-bucket values
+            // were shallow-copied from the old buffer. All need inc.
+            inc(unsafe { new_data.add(layout.vals_offset + b * vs) });
         }
     }
 
@@ -203,9 +211,19 @@ fn cow_insert_new(
             let layout = HashTableLayout::for_map(cap, ks, vs);
             let slot = unsafe { probe_find_slot(data, cap, hash) };
             unsafe {
-                std::ptr::copy_nonoverlapping(key, data.add(layout.keys_offset + slot * ks), ks);
-                std::ptr::copy_nonoverlapping(value, data.add(layout.vals_offset + slot * vs), vs);
+                let key_dst = data.add(layout.keys_offset + slot * ks);
+                let val_dst = data.add(layout.vals_offset + slot * vs);
+                std::ptr::copy_nonoverlapping(key, key_dst, ks);
+                std::ptr::copy_nonoverlapping(value, val_dst, vs);
                 set_meta(data, slot, META_OCCUPIED);
+                // Inc RC for newly inserted key/value — the caller borrowed
+                // them, so the buffer copy needs its own reference.
+                if let Some(inc) = key_inc {
+                    inc(key_dst);
+                }
+                if let Some(inc) = val_inc {
+                    inc(val_dst);
+                }
             }
             write_map_struct(out_ptr, new_len as i64, cap as i64, data);
             return;
@@ -219,17 +237,18 @@ fn cow_insert_new(
         // Insert new key into rehashed table
         let slot = unsafe { probe_find_slot(new_data, new_cap, hash) };
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                key,
-                new_data.add(new_layout.keys_offset + slot * ks),
-                ks,
-            );
-            std::ptr::copy_nonoverlapping(
-                value,
-                new_data.add(new_layout.vals_offset + slot * vs),
-                vs,
-            );
+            let key_dst = new_data.add(new_layout.keys_offset + slot * ks);
+            let val_dst = new_data.add(new_layout.vals_offset + slot * vs);
+            std::ptr::copy_nonoverlapping(key, key_dst, ks);
+            std::ptr::copy_nonoverlapping(value, val_dst, vs);
             set_meta(new_data, slot, META_OCCUPIED);
+            // Inc RC for newly inserted key/value.
+            if let Some(inc) = key_inc {
+                inc(key_dst);
+            }
+            if let Some(inc) = val_inc {
+                inc(val_dst);
+            }
         }
 
         // Free old buffer (unique, so direct free)
@@ -265,9 +284,18 @@ fn cow_insert_new(
     let new_layout = HashTableLayout::for_map(new_cap, ks, vs);
     let slot = unsafe { probe_find_slot(new_data, new_cap, hash) };
     unsafe {
-        std::ptr::copy_nonoverlapping(key, new_data.add(new_layout.keys_offset + slot * ks), ks);
-        std::ptr::copy_nonoverlapping(value, new_data.add(new_layout.vals_offset + slot * vs), vs);
+        let key_dst = new_data.add(new_layout.keys_offset + slot * ks);
+        let val_dst = new_data.add(new_layout.vals_offset + slot * vs);
+        std::ptr::copy_nonoverlapping(key, key_dst, ks);
+        std::ptr::copy_nonoverlapping(value, val_dst, vs);
         set_meta(new_data, slot, META_OCCUPIED);
+        // Inc RC for newly inserted key/value — borrowed from caller.
+        if let Some(inc) = key_inc {
+            inc(key_dst);
+        }
+        if let Some(inc) = val_inc {
+            inc(val_dst);
+        }
     }
 
     // Release old buffer reference

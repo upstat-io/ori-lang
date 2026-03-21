@@ -16,8 +16,16 @@ use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
 /// to the caller-provided `out_ptr` (sret pattern to avoid >16 byte return).
 ///
 /// `elem_size` is the byte size of each element.
+/// `elem_inc_fn` increments child RCs of each copied element. Required because
+/// the iterator's Drop will fire `elem_dec_fn` on the source buffer — without
+/// `RcInc`, both source and collected buffer share children with only one RC.
 #[no_mangle]
-pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut u8) {
+pub extern "C" fn ori_iter_collect(
+    iter: *mut u8,
+    elem_size: i64,
+    elem_inc_fn: Option<extern "C" fn(*mut u8)>,
+    out_ptr: *mut u8,
+) {
     assert_elem_size(elem_size, "ori_iter_collect");
     if iter.is_null() || out_ptr.is_null() {
         // Write empty list
@@ -51,7 +59,12 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
             cap = new_cap;
         }
         unsafe {
-            ptr::copy_nonoverlapping(elem_buf.as_ptr(), data.add(len * es), es);
+            let dst = data.add(len * es);
+            ptr::copy_nonoverlapping(elem_buf.as_ptr(), dst, es);
+            // Increment child RCs so collected element survives iterator Drop
+            if let Some(inc) = elem_inc_fn {
+                inc(dst);
+            }
         }
         len += 1;
     }
@@ -81,12 +94,16 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
 /// Returns a set `{ len: i64, cap: i64, data: *mut u8 }` by writing
 /// to the caller-provided `out_ptr` (sret pattern). Duplicates are
 /// skipped — only the first occurrence is kept.
+///
+/// `elem_inc_fn` increments child RCs of each inserted element. Required
+/// because the iterator's Drop fires `elem_dec_fn` on the source buffer.
 #[no_mangle]
 pub extern "C" fn ori_iter_collect_set(
     iter: *mut u8,
     elem_size: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     elem_hash: extern "C" fn(*const u8) -> i64,
+    elem_inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     use crate::map::hash_table::{
@@ -151,6 +168,10 @@ pub extern "C" fn ori_iter_collect_set(
             let dst = data.add(layout.keys_offset + bucket * es);
             ptr::copy_nonoverlapping(elem_buf.as_ptr(), dst, es);
             set_meta(data, bucket, META_OCCUPIED);
+            // Increment child RCs so collected element survives iterator Drop
+            if let Some(inc) = elem_inc_fn {
+                inc(dst);
+            }
         }
         len += 1;
     }

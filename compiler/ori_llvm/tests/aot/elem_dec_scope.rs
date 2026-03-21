@@ -115,6 +115,81 @@ fn test_str_list_iter_collect() {
     );
 }
 
+// .collect() method on [str] iterator — exercises ori_iter_collect runtime function.
+// This is different from for-yield (which uses an explicit ARC-managed loop).
+// Regression guard: ori_iter_collect must call elem_inc_fn after copying each
+// element, or the iterator's Drop double-frees shared child data.
+
+#[test]
+fn test_str_list_method_collect() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap string for testing iter collect element cleanup"
+    ];
+    let collected = words.iter().collect();
+    let ok = collected.len() == 2;
+    if ok then 0 else 1
+}
+"#,
+        "str_list_method_collect",
+    );
+}
+
+// {str: int} map iteration — verify elem_dec_fn on map keys via ownership transfer
+
+#[test]
+fn test_map_str_iteration() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {
+        "a very long key string that exceeds the twenty three byte SSO threshold for testing": 1,
+        "another long key string to exercise map iteration with fat pointer elements": 2,
+        "third key string also exceeding the SSO threshold for complete coverage": 3
+    };
+    let total = 0;
+    for entry in m do {
+        let (k, v) = entry;
+        total = total + v
+    };
+    if total == 6 then 0 else 1
+}
+"#,
+        "map_str_iteration",
+    );
+}
+
+// {str: int} map passed to function and iterated inside
+
+#[test]
+fn test_map_str_passed_to_fn() {
+    assert_aot_success(
+        r#"
+@sum_values (m: {str: int}) -> int = {
+    let total = 0;
+    for entry in m do {
+        let (k, v) = entry;
+        total = total + v
+    };
+    total
+};
+
+@main () -> int = {
+    let m = {
+        "a very long key string that exceeds the twenty three byte SSO threshold for testing": 10,
+        "another long key string to exercise function parameter map cleanup": 20
+    };
+    let result = sum_values(m: m);
+    if result == 30 then 0 else 1
+}
+"#,
+        "map_str_passed_to_fn",
+    );
+}
+
 // map.keys() on {str: int}
 
 #[test]
@@ -132,6 +207,57 @@ fn test_map_keys_str_scope_drop() {
 }
 "#,
         "map_keys_str_scope_drop",
+    );
+}
+
+// map.insert() with heap string key — double-free regression guard.
+// The inserted key is borrowed from the caller and shallow-copied into the
+// map's hash buffer. Without key_inc after the copy, the caller's RcDec
+// frees the string data while the map buffer still references it, causing
+// double-free when the map's drop function later fires key_dec_fn.
+#[test]
+fn test_map_insert_heap_str_key() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m: {str: int} = {};
+    let m = m.insert("this is a long key that definitely exceeds the SSO threshold", 42);
+    if m.len() == 1 then 0 else 1
+}
+"#,
+        "map_insert_heap_str_key",
+    );
+}
+
+// map.insert() with heap string value — exercises val_inc path.
+#[test]
+fn test_map_insert_heap_str_value() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m: {int: str} = {};
+    let m = m.insert(1, "a very long value string that exceeds SSO threshold for sure");
+    if m.len() == 1 then 0 else 1
+}
+"#,
+        "map_insert_heap_str_value",
+    );
+}
+
+// COW map insert shared — slow path with key_inc/val_inc on rehashed entries.
+#[test]
+fn test_map_cow_insert_shared_heap_key() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = {"this is a heap string key exceeding SSO": 10};
+    let shared = base;
+    let fork = shared.insert("another very long heap string key here", 20);
+    // base and fork both alive — shared entries rehashed + inc'd
+    if base.len() == 1 && fork.len() == 2 then 0 else 1
+}
+"#,
+        "map_cow_insert_shared_heap_key",
     );
 }
 

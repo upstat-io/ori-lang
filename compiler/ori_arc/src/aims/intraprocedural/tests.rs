@@ -3898,15 +3898,18 @@ fn compute_project_alias_sources_multi_predecessor_merge() {
 
 #[test]
 fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
-    // Semantic pin for TPR-02-006 fix.
+    // Semantic pin for TPR-02-006 fix + TPR-02-007/008 refinement.
     //
     // Block 0 (entry): Branch(v0) → block1 | block2
     // Block 1: v2 = Construct Struct(v6); v3 = Project v2.0; Jump block3, args=[v3]
     // Block 2: v4 = Construct Struct(v7); v5 = Project v4.0; Jump block3, args=[v5]
     // Block 3 (merge): params=[v8]; return v8
     //
-    // Without fix: v8 aliases only one of v2/v4. One parent gets premature RcDec.
-    // With fix: v8 aliases both v2 AND v4. Demand propagates to both.
+    // The backward analysis propagates demand for BOTH v2 and v4 to Block 3's
+    // entry (via project_alias_sources). This is correct: the demand
+    // propagation keeps parent aggregates alive per-predecessor. The emission
+    // layer filters branch-local variables at merge blocks, routing them to
+    // per-predecessor trampolines via edge cleanup.
     let func = ArcFunction {
         var_types: vec![ty(0); 9],
         blocks: vec![

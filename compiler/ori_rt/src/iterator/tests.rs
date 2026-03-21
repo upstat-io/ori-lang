@@ -216,7 +216,7 @@ fn collect_range() {
 
     // OriList layout: { i64 len, i64 cap, ptr data }
     let mut out = [0u8; 24];
-    ori_iter_collect(iter, 8, out.as_mut_ptr());
+    ori_iter_collect(iter, 8, None, out.as_mut_ptr());
 
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
     let data_ptr = unsafe { out.as_ptr().add(16).cast::<*mut u8>().read() };
@@ -640,7 +640,7 @@ fn normal_sized_elem_passes_collect() {
     let data: [i64; 3] = [10, 20, 30];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
     let mut out = [0u8; 24];
-    ori_iter_collect(iter, 8, out.as_mut_ptr());
+    ori_iter_collect(iter, 8, None, out.as_mut_ptr());
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
     assert_eq!(len, 3);
 }
@@ -652,7 +652,7 @@ fn max_sized_elem_passes_collect() {
     let data = vec![0u8; state::MAX_ELEM_SIZE];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 1, 0, max_size, None);
     let mut out = [0u8; 24];
-    ori_iter_collect(iter, max_size, out.as_mut_ptr());
+    ori_iter_collect(iter, max_size, None, out.as_mut_ptr());
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
     assert_eq!(len, 1);
 }
