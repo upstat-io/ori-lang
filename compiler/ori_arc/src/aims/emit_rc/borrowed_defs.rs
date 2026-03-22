@@ -205,8 +205,9 @@ pub(crate) fn collect_all_borrowed_defs(func: &ArcFunction) -> FxHashSet<ArcVarI
 /// 2. `Jump { target, args }` — when a borrowed variable is passed as a Jump
 ///    argument, the corresponding block parameter inherits borrowed status
 ///
-/// This handles the `__for_coll` pattern where a borrowed collection parameter
-/// is threaded through loop headers and exit blocks via block parameter passing.
+/// This handles any pattern where a borrowed variable is threaded through
+/// loop headers and exit blocks via block parameter passing (e.g., mutable
+/// variable SSA merge in for-loops).
 fn propagate_borrowed_closure(func: &ArcFunction, borrowed: &mut FxHashSet<ArcVarId>) {
     let mut changed = true;
     while changed {

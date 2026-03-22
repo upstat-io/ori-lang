@@ -62,7 +62,7 @@ Strictly sequential — each section depends on the previous.
 
 1. **Section 01** — Modify `ori_rt` runtime: extend header, update alloc/free/realloc, add `elem_dec_fn` store/load helpers, update all RC dec functions to read from header.
 2. **Section 02** — Wire up codegen: list and set construction stores `elem_dec_fn` AND `elem_count` in the RC header at buffer creation time. Map iteration already passes real `key_dec_fn`/`val_dec_fn` (fixed by iter-rc-contract plan, 2026-03-18). ALL COW slow paths (list, set, and map-to-list) propagate `elem_dec_fn` (and `elem_count` for list buffers) from old to new buffer. Buffer-creating runtime functions (`ori_map_keys_to_list`, `ori_map_values_to_list`, `ori_str_split`, `ori_set_to_list`, `write_array_to_list`) extended with `elem_dec_fn` parameter. Codegen emits header-store calls after `ori_iter_collect` and `ori_iter_collect_set` return. `alloc_set_hash_buffer` and `rehash_set` centralize `elem_dec_fn` propagation for set buffer allocations. `ori_args_from_argv` stores `elem_count` for the `[str]` args list. Four ABI sync points (runtime + LLVM IR + codegen must be single-commit changes).
-3. **Section 03** — Remove `__for_coll_N` phantom binding workaround, dummy reference in exit block, dead `elem_dec_fn` parameter from `ori_iter_from_list` and `IterState::List`. Simplify `lower_for` and `lower_for_iterator`.
+3. **Section 03** — Remove `__for_coll_N` phantom binding workaround (for-do path), for-yield `coll_param` collection threading (for-yield path), dummy references in exit blocks (both paths), dead `elem_dec_fn` parameter from `ori_iter_from_list` and `IterState::List`. Simplify `lower_for`, `lower_for_iterator`, `lower_for_yield_iterator`, `lower_break`, and `lower_continue`.
 4. **Section 04** — Write combinatorial test matrix: 9 type categories x 12 language features x 4 execution modes. Split `fat_ptr_iter.rs` into directory module.
 5. **Section 05** — Full verification pass: all tests green, valgrind clean, code journeys re-run, unignore tests, documentation updated.
 
@@ -84,9 +84,9 @@ Strictly sequential — each section depends on the previous.
 
 7. **Plan references two phantom functions** — The original plan referenced `ori_list_filter` and `ori_list_slice_copy` in `query.rs`, but these functions do not exist. The actual allocating functions in `query.rs` are `ori_list_reverse` (line 122) and `ori_list_concat` (line 170). Also `ori_list_slice_materialized` was misspelled; the actual function is `ori_list_materialize_slice` (line 152 of `slice.rs`). These have been corrected in Sections 01 and 02.
 
-8. **`construction.rs` is at 499 lines** — one line below the 500-line limit. The Section 02 header-store additions consumed the remaining margin. If any further modifications are needed (Section 03 or 04), extract `emit_variant_via_insertvalue` and `emit_variant_via_alloca` (~130 lines combined) into a `variant_construction.rs` submodule before exceeding the limit.
+8. **`construction.rs` was at 499 lines** — **Resolved in Section 02**: extracted `emit_variant_via_alloca` and `emit_variant_via_insertvalue` into `variant_construction.rs` (169 lines). `construction.rs` now 358 lines.
 
-9. **`cow_sort.rs` is at 499 lines** — at the 500-line limit after Section 02.1 COW slow path propagation. If any further modifications are needed, extract `apply_permutation_in_place` (45 lines) into a helper submodule before exceeding the limit.
+9. **`cow_sort.rs` was at 499 lines** — **Resolved in Section 02** (TPR-02-025): converted to directory module `cow_sort/`. `cow_sort/mod.rs` (324 lines) + `cow_sort/sort.rs` (215 lines). Both well under 500-line limit.
 
 10. **Function name mismatch in original plan** — Section 02 referenced `ori_map_keys` and `ori_map_values` but the actual runtime function names are `ori_map_keys_to_list` and `ori_map_values_to_list`. The plan also referenced `emit_list_iter_collect` in `list_builtins.rs` but the actual function is `emit_iter_collect` in `builtins/iterator_consumers.rs`. Corrected in Section 02.
 
@@ -96,9 +96,15 @@ Strictly sequential — each section depends on the previous.
 
 13. **Dead `_ea` (elem_align) computations in set COW** — `set/cow/basic.rs` (2 sites) and `set/cow/algebra.rs` (3 sites) accept `elem_align` from codegen, compute `_ea = elem_align.max(1) as usize`, then discard it. All actual buffer allocations hardcode alignment `8`. When adding `elem_dec_fn` propagation, resolve this: either pass `_ea` to allocation functions or remove the dead computation.
 
-14. **`map/mod.rs` re-export masks unused import** — Line 21 has `#[allow(unused_imports, reason = "used by cow.rs after rewrite")]` on the `pub(crate) use hash_table::{...}` block. `META_EMPTY` is NOT used by `cow.rs` (confirmed by grep). The `#[allow]` should be `#[expect]` or the unused item removed.
+14. **`map/mod.rs` re-export masks unused import** — **Resolved in Section 02**: the `#[allow(unused_imports)]` was removed. `META_EMPTY` IS used within `mod.rs` itself (line 50); the original plan claim that it was unused was incorrect.
 
 15. **Second `vec![0u8; elem_size]` allocation in `cow_sort.rs`** — Plan warning 9 only mentions line 256 (`reverse_cow`). There is a second identical allocation at line 458 (`apply_permutation_in_place`). Both should use stack arrays.
+
+16. **`compiler/ori_rt/src/iterator/mod.rs` has 2 decorative banners** — lines 43 and 60 (`// ── Extern C API — Core`, `// ── Extern C API — Cleanup`). Per hygiene rules, replace with plain section comments when touched during Section 03.2.5 implementation.
+
+17. **`compiler/ori_rt/src/iterator/tests.rs` has 22 decorative banners** — test section markers use `// ──` decorative style. Since Section 03.2.5 modifies 30+ `ori_iter_from_list` calls in this file, the banners should be replaced with plain `// Section name` comments in the same commit.
+
+18. **Section 01 body status drifted from frontmatter** — Frontmatter says `status: complete` but body text said `**Status:** In Progress`. Fixed to `Complete`.
 
 ## Success Criteria
 
@@ -110,7 +116,9 @@ Strictly sequential — each section depends on the previous.
 - [ ] Valgrind clean on all fat pointer iteration patterns
 - [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all AOT tests
 - [ ] Code journeys J15-J17 re-run with improved scores
-- [ ] Phantom `__for_coll_N` workaround completely removed
+- [ ] Phantom `__for_coll_N` workaround completely removed (for-do path)
+- [ ] For-yield `coll_param` collection threading completely removed (for-yield path)
+- [ ] `for_coll_counter` field and `ForYieldContext::coll_param` field removed from `ArcLowerer` / `ForYieldContext`
 - [ ] Dead `elem_dec_fn` parameter removed from `ori_iter_from_list` and `IterState::List`
 - [x] Map iteration passes real `key_dec_fn`/`val_dec_fn` (not NULL) (implemented by iter-rc-contract plan, 2026-03-18)
 - [ ] No stale "16-byte header" or "24-byte header" references in codebase (V5 = 32 bytes)

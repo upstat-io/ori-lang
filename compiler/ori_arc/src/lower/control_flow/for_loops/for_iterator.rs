@@ -189,23 +189,6 @@ impl ArcLowerer<'_> {
         self.builder
             .emit_apply(Idx::UNIT, iter_drop_name, vec![iter_val], None);
 
-        // Emit a dummy reference to the __for_coll phantom binding (if present)
-        // AFTER ori_iter_drop. This keeps the collection variable alive past the
-        // iterator drop, so the AIMS pass places the collection's RcDec AFTER
-        // ori_iter_drop. This ordering ensures the explicit RcDec (with the real
-        // elem_dec_fn) is the one that reaches zero and performs element cleanup,
-        // not the iterator's drop (which uses NULL elem_dec_fn).
-        // Match any __for_coll_N phantom (unique per nesting level).
-        if let Some(&(_, exit_param)) = exit_mut_params
-            .iter()
-            .find(|(name, _)| self.interner.lookup(*name).starts_with("__for_coll_"))
-        {
-            // A Let that reads the exit param — keeps it alive for AIMS analysis.
-            let coll_ty = self.builder.var_type_or_unit(exit_param);
-            self.builder
-                .emit_let(coll_ty, ArcValue::Var(exit_param), None);
-        }
-
         self.scope = pre_scope;
         for &(name, param) in &exit_mut_params {
             self.scope.bind_mutable(name, param);

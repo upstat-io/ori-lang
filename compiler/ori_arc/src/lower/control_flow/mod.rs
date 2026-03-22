@@ -245,16 +245,16 @@ impl ArcLowerer<'_> {
     ///
     /// For-do: exit block expects `[break_value, mut_var_0, mut_var_1, ...]`.
     /// For-yield: optionally pushes break value to list, then jumps to exit
-    /// with `[coll_param?, mut_var_0, mut_var_1, ...]`.
+    /// with `[mut_var_0, mut_var_1, ...]`.
     pub(crate) fn lower_break(&mut self, value: CanId) -> ArcVarId {
         // Extract for-yield info before mutable borrows (lower_expr needs &mut self).
         let yield_info = self
             .loop_ctx
             .as_ref()
             .and_then(|ctx| ctx.yield_ctx.as_ref())
-            .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name, yc.coll_param));
+            .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name));
 
-        if let Some((list_ptr, elem_size, push_name, coll_param)) = yield_info {
+        if let Some((list_ptr, elem_size, push_name)) = yield_info {
             // For-yield break: optionally push value, then jump to exit.
             if value.is_valid() {
                 let val = self.lower_expr(value);
@@ -264,7 +264,7 @@ impl ArcLowerer<'_> {
             // Re-borrow loop_ctx for jump args (mutable borrows are done).
             if let Some(ref ctx) = self.loop_ctx {
                 let exit_block = ctx.exit_block;
-                let mut args: Vec<_> = coll_param.into_iter().collect();
+                let mut args: Vec<ArcVarId> = Vec::new();
                 for &(name, fallback) in &ctx.mutable_vars {
                     args.push(self.scope.lookup(name).unwrap_or(fallback));
                 }
@@ -309,16 +309,16 @@ impl ArcLowerer<'_> {
     ///
     /// For-do: jumps to header with `[mut_var_0, mut_var_1, ...]`.
     /// For-yield: optionally pushes value to list, then jumps to header
-    /// with `[coll_param?, mut_var_0, mut_var_1, ...]`.
+    /// with `[mut_var_0, mut_var_1, ...]`.
     pub(crate) fn lower_continue(&mut self, value: CanId) -> ArcVarId {
         // Extract for-yield info before mutable borrows (lower_expr needs &mut self).
         let yield_info = self
             .loop_ctx
             .as_ref()
             .and_then(|ctx| ctx.yield_ctx.as_ref())
-            .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name, yc.coll_param));
+            .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name));
 
-        if let Some((list_ptr, elem_size, push_name, coll_param)) = yield_info {
+        if let Some((list_ptr, elem_size, push_name)) = yield_info {
             // For-yield continue: optionally push value, then jump to header.
             if value.is_valid() {
                 let val = self.lower_expr(value);
@@ -328,7 +328,7 @@ impl ArcLowerer<'_> {
             // Re-borrow loop_ctx for jump args (mutable borrows are done).
             if let Some(ref ctx) = self.loop_ctx {
                 let continue_block = ctx.continue_block;
-                let mut args: Vec<_> = coll_param.into_iter().collect();
+                let mut args: Vec<ArcVarId> = Vec::new();
                 for &(name, fallback) in &ctx.mutable_vars {
                     args.push(self.scope.lookup(name).unwrap_or(fallback));
                 }
