@@ -115,6 +115,31 @@ fn test_map_str_key_str_val_for_do() {
     );
 }
 
+// T8-F3: {str: int} map for-yield — derive values from map iteration.
+// Exercises emit_set_iter conversion under for-yield control flow.
+
+#[test]
+fn test_map_str_key_for_yield() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO": 10,
+        "another very long key that exceeds SSO too": 20,
+        "third long key exceeding SSO threshold": 30
+    };
+    let values = for (k, v) in m yield v;
+    let total = 0;
+    for v in values do {
+        total = total + v;
+    };
+    if total == 60 then 0 else 1
+}
+"#,
+        "map_str_key_for_yield",
+    );
+}
+
 // T9: Set<str> — set with string elements
 
 #[test]
@@ -137,5 +162,30 @@ fn test_set_str_iteration() {
 }
 "#,
         "set_str_iteration",
+    );
+}
+
+// T9-F3: Set<str> for-yield — exercises emit_set_iter conversion to list under
+// for-yield control flow. Both source set and derived list need cleanup.
+
+#[test]
+fn test_set_str_for_yield() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ].iter().collect();
+    let lengths = for item in s yield item.len();
+    let total = 0;
+    for n in lengths do {
+        total = total + n;
+    };
+    // 53 + 56 = 109
+    if total == 109 then 0 else 1
+}
+"#,
+        "set_str_for_yield",
     );
 }

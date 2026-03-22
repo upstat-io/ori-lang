@@ -96,3 +96,102 @@ fn test_push_element_borrowed_param_two_calls() {
         "push_element_borrowed_param_two_calls",
     );
 }
+
+// T2-F11: [[int]] COW push on shared list — inner list elements are RC-managed.
+
+#[test]
+fn test_nested_list_cow_push() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let lists = [[1, 2], [3, 4]];
+    let copy = lists;
+    copy = copy.push(value: [5, 6]);
+    let orig_sum = 0;
+    for inner in lists do {
+        for n in inner do { orig_sum = orig_sum + n; };
+    };
+    let copy_sum = 0;
+    for inner in copy do {
+        for n in inner do { copy_sum = copy_sum + n; };
+    };
+    // orig: 1+2+3+4=10, copy: 1+2+3+4+5+6=21
+    if orig_sum == 10 && copy_sum == 21 then 0 else 1
+}
+"#,
+        "nested_list_cow_push",
+    );
+}
+
+// T9-F11: Set<str> remove on shared set — elem_dec_fn called before tombstoning.
+
+#[test]
+fn test_set_str_cow_remove() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ].iter().collect();
+    let copy = s;
+    copy = copy.remove(value: "this is a very long string that exceeds SSO threshold");
+    let orig_count = 0;
+    for item in s do { orig_count = orig_count + 1; };
+    let copy_count = 0;
+    for item in copy do { copy_count = copy_count + 1; };
+    if orig_count == 2 && copy_count == 1 then 0 else 1
+}
+"#,
+        "set_str_cow_remove",
+    );
+}
+
+// T8-F11: {str: int} map insert overwriting existing key — old value cleaned up.
+
+#[test]
+fn test_map_str_insert_overwrite() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO threshold here": 10,
+        "another very long key that also exceeds the SSO thresh": 20
+    };
+    let copy = m;
+    copy = copy.insert(key: "this is a very long key exceeding SSO threshold here", value: 99);
+    let orig_total = 0;
+    for (k, v) in m do { orig_total = orig_total + v; };
+    let copy_total = 0;
+    for (k, v) in copy do { copy_total = copy_total + v; };
+    // orig: 10+20=30, copy: 99+20=119
+    if orig_total == 30 && copy_total == 119 then 0 else 1
+}
+"#,
+        "map_str_insert_overwrite",
+    );
+}
+
+// T8-F11: {str: int} map remove on shared map — key_dec_fn/val_dec_fn called.
+
+#[test]
+fn test_map_str_cow_remove() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {
+        "this is a very long key exceeding SSO threshold here": 10,
+        "another very long key that also exceeds the SSO thresh": 20
+    };
+    let copy = m;
+    copy = copy.remove(key: "this is a very long key exceeding SSO threshold here");
+    let orig_count = 0;
+    for (k, v) in m do { orig_count = orig_count + 1; };
+    let copy_count = 0;
+    for (k, v) in copy do { copy_count = copy_count + 1; };
+    if orig_count == 2 && copy_count == 1 then 0 else 1
+}
+"#,
+        "map_str_cow_remove",
+    );
+}

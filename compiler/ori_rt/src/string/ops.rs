@@ -7,7 +7,7 @@
 use crate::list::write_array_to_list;
 use crate::next_capacity;
 use crate::rc::{ori_rc_alloc, ori_rc_inc, ori_rc_is_unique};
-use crate::slice_encoding::make_slice_cap;
+use crate::slice_encoding::{is_slice_cap, make_slice_cap, slice_byte_offset};
 
 use super::{OriStr, OriStrHeap, OriStrSSO, SSO_FLAG, SSO_MAX_LEN};
 
@@ -41,10 +41,16 @@ pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut 
 /// as seamless slices (sharing the original buffer). Pieces <= 23 bytes
 /// use SSO (no heap allocation, no RC). This hybrid approach minimizes
 /// allocations while avoiding RC overhead for small pieces.
+///
+/// `str_cap` is the cap field of the source `OriStr` — needed to detect
+/// slice-backed strings (from `substring`, `trim`, or prior `split`).
+/// When the source is a seamless slice, sub-slices reference the original
+/// allocation with adjusted byte offsets.
 #[no_mangle]
 pub extern "C" fn ori_str_split(
     str_ptr: *const u8,
     str_len: i64,
+    str_cap: i64,
     sep_ptr: *const u8,
     sep_len: i64,
     elem_dec_fn: Option<extern "C" fn(*mut u8)>,
@@ -93,16 +99,25 @@ pub extern "C" fn ori_str_split(
     };
     let n = parts.len();
 
-    // Check if the source pointer is a heap string's data (not SSO).
-    // We can produce slices only when the source has an RC-managed buffer.
-    // The caller passes (str_ptr, str_len) which is the raw data pointer.
-    // If this is a heap string, str_ptr == heap.data — we can slice it.
-    // For SSO, str_ptr is a stack pointer — we can't slice it.
+    // Determine whether the source is backed by a heap allocation we can slice.
     //
-    // Heuristic: if str_len > SSO_MAX_LEN, it must be a heap string (SSO
-    // can only hold up to 23 bytes). For str_len <= 23, all pieces fit in
-    // SSO anyway, so no slice benefit.
-    let can_slice = str_len as usize > SSO_MAX_LEN;
+    // Three cases:
+    // - SSO (str_len <= 23): all pieces fit in SSO, no slicing needed
+    // - Heap (cap >= 0, str_len > 23): can slice, str_ptr is allocation data
+    // - Seamless slice (cap < 0 / SLICE_FLAG): can slice, str_ptr is interior
+    //   pointer — sub-slices must reference the original allocation with
+    //   adjusted byte offsets
+    let (can_slice, base_offset) = if is_slice_cap(str_cap) {
+        // Source is a seamless slice — sub-slices reference the original buffer
+        let parent_offset = slice_byte_offset(str_cap);
+        (true, parent_offset)
+    } else if str_len as usize > SSO_MAX_LEN {
+        // Source is a regular heap string — sub-slices reference str_ptr
+        (true, 0_usize)
+    } else {
+        // Source is SSO — no slicing possible (all pieces fit in SSO anyway)
+        (false, 0_usize)
+    };
 
     let total = n * elem_size;
     let new_data = crate::rc::ori_rc_alloc(total, std::mem::align_of::<OriStr>());
@@ -111,12 +126,14 @@ pub extern "C" fn ori_str_split(
     for (i, &(part_start, part_end)) in parts.iter().enumerate() {
         let part_len = part_end - part_start;
         let element = if can_slice && part_len > SSO_MAX_LEN {
-            // Heap source, long piece: create seamless slice
-            ori_rc_inc(str_ptr as *mut u8);
+            // Heap/slice source, long piece: create seamless slice.
+            // Use slice-aware RC inc — handles both heap and slice sources
+            // by computing the original allocation base when needed.
+            crate::rc::ori_str_rc_inc(str_ptr as *mut u8, str_cap);
             OriStr {
                 heap: OriStrHeap {
                     len: part_len as i64,
-                    cap: make_slice_cap(part_start),
+                    cap: make_slice_cap(base_offset + part_start),
                     data: unsafe { (str_ptr as *mut u8).add(part_start) },
                 },
             }

@@ -55,14 +55,16 @@ pub extern "C" fn ori_iter_from_range(start: i64, end: i64, step: i64, inclusive
 /// Create an iterator over a UTF-8 string, yielding Unicode codepoints.
 ///
 /// Takes a pointer to an `OriStr` (SSO-safe). For heap strings, the iterator
-/// takes an RC reference to the data pointer. For SSO strings, the inline bytes
-/// are copied to a heap buffer so the iterator outlives the source `OriStr`.
+/// takes an RC reference via `ori_str_rc_inc` (slice-aware). For SSO strings,
+/// the inline bytes are copied to a heap buffer so the iterator outlives the
+/// source `OriStr`.
 #[no_mangle]
 pub extern "C" fn ori_iter_from_str(s: *const crate::OriStr) -> *mut u8 {
     if s.is_null() {
         let state = IterState::Str {
             data: std::ptr::null_mut(),
             len: 0,
+            cap: 0,
             byte_offset: 0,
             owns_data: false,
         };
@@ -78,6 +80,7 @@ pub extern "C" fn ori_iter_from_str(s: *const crate::OriStr) -> *mut u8 {
             let state = IterState::Str {
                 data: std::ptr::null_mut(),
                 len: 0,
+                cap: 0,
                 byte_offset: 0,
                 owns_data: false,
             };
@@ -91,19 +94,25 @@ pub extern "C" fn ori_iter_from_str(s: *const crate::OriStr) -> *mut u8 {
         let state = IterState::Str {
             data: heap_copy,
             len,
+            cap: len,
             byte_offset: 0,
             owns_data: true,
         };
         Box::into_raw(Box::new(state)).cast()
     } else {
-        // Heap: take an RC reference to the existing data pointer.
+        // Heap: take an RC reference via slice-aware ori_str_rc_inc.
+        // For slice strings from str.split(), data is an interior pointer
+        // and cap has SLICE_FLAG set — ori_str_rc_inc finds the original
+        // buffer and increments that.
         let data = unsafe { str_ref.heap.data };
+        let cap = unsafe { str_ref.heap.cap };
         if !data.is_null() {
-            crate::ori_rc_inc(data);
+            crate::ori_str_rc_inc(data, cap);
         }
         let state = IterState::Str {
             data,
             len,
+            cap,
             byte_offset: 0,
             owns_data: true,
         };

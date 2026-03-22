@@ -808,8 +808,16 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_str_split",
-        // (str_ptr, str_len, sep_ptr, sep_len, elem_dec_fn, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
+        // (str_ptr, str_len, str_cap, sep_ptr, sep_len, elem_dec_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: None,
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -1122,6 +1130,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     RtFn {
         name: "ori_rc_dec",
         params: &[Ty::Ptr, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
+        jit_allowed: true,
+    },
+    // Slice-aware string RC inc: handles SSO, heap, and seamless slices.
+    RtFn {
+        name: "ori_str_rc_inc",
+        params: &[Ty::Ptr, Ty::I64],
         ret: None,
         attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
         jit_allowed: true,
