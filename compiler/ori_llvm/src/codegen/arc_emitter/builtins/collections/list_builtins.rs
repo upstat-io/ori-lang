@@ -112,7 +112,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(elem_val)
     }
 
-    /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size, elem_dec_fn)`.
+    /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size)`.
     ///
     /// The iterator takes ownership of one RC reference to the list data buffer.
     /// This function explicitly emits `ori_list_rc_inc` to give the iterator its
@@ -120,13 +120,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// is a borrowed function parameter). When the iterator is consumed/dropped,
     /// `Drop for IterState` calls `ori_buffer_rc_dec` to release this reference.
     ///
-    /// The real `elem_dec_fn` is passed so that WHOEVER performs the final
-    /// `ori_buffer_rc_dec` (whether it's the AIMS pipeline's explicit `RcDec`
-    /// or `ori_iter_drop`) properly cleans up element-level RC.
-    ///
-    /// Defense-in-depth: `elem_dec_fn` is ALSO stored in the buffer's RC header
-    /// at construction time (V5 header, Section 02.1). Both the parameter and
-    /// header provide the function; `store_elem_dec_fn_once` ensures they agree.
+    /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
+    /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
@@ -140,17 +135,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
 
-        // Pass the real elem_dec_fn as defense-in-depth. The V5 RC header
-        // also stores elem_dec_fn at construction time, and ori_buffer_rc_dec
-        // reads it from the header. This parameter provides a redundant copy
-        // that ori_iter_from_list stores via store_elem_dec_fn_once.
-        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[data_ptr, len, cap, elem_size_val, elem_dec_fn],
-            "list.iter",
-        )
+        self.emit_rt_call(func_id, &[data_ptr, len, cap, elem_size_val], "list.iter")
     }
     /// Emit `list.slice(start, end)` — zero-copy seamless slice.
     ///

@@ -69,7 +69,7 @@ compiler/ori_rt/src/iterator/consumers.rs (ori_iter_collect, ori_iter_collect_se
 ---
 
 ### Section 03: Remove Workarounds & Simplify
-**File:** `section-03-remove-workarounds.md` | **Status:** Not Started
+**File:** `section-03-remove-workarounds.md` | **Status:** In Progress
 
 ```
 __for_coll_N, phantom binding, dummy reference, ordering hack
