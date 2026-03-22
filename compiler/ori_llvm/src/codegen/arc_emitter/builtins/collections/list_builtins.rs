@@ -115,10 +115,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size)`.
     ///
     /// The iterator takes ownership of one RC reference to the list data buffer.
-    /// This function explicitly emits `ori_list_rc_inc` to give the iterator its
-    /// own reference — the ARC pipeline may not always do so (e.g., when the list
-    /// is a borrowed function parameter). When the iterator is consumed/dropped,
-    /// `Drop for IterState` calls `ori_buffer_rc_dec` to release this reference.
+    /// The caller is responsible for ensuring the buffer RC is incremented before
+    /// this call (via ARC arg-ownership for explicit `.iter()`, or via
+    /// `emit_slice_aware_rc_inc` in `emit_auto_iter` for auto-promoted methods).
+    /// When the iterator is consumed/dropped, `Drop for IterState` calls
+    /// `ori_buffer_rc_dec` to release this reference.
     ///
     /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
     /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
