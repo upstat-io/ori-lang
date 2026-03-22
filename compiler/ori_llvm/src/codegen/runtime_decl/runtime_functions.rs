@@ -1126,6 +1126,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
         jit_allowed: true,
     },
+    // Slice-aware string RC dec: handles SSO, heap, and seamless slices.
+    RtFn {
+        name: "ori_str_rc_dec",
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
+        jit_allowed: true,
+    },
     RtFn {
         name: "ori_rc_free",
         params: &[Ty::Ptr, Ty::I64, Ty::I64],
