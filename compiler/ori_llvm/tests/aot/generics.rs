@@ -598,6 +598,10 @@ fn test_mono_nounwind_callee_uses_call_not_invoke() {
 @main () -> int = identity(x: 42);
 "#,
     );
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
 
     // Find the _ori_main function in the IR and check for call vs invoke
     // to the monomorphized identity function.

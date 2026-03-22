@@ -19,7 +19,7 @@ order: 1
 ---
 
 ### Section 01: RC Header Extension
-**File:** `section-01-rc-header.md` | **Status:** In Progress (96% -- 3 Valgrind failures blocked on Section 02)
+**File:** `section-01-rc-header.md` | **Status:** Complete
 
 ```
 RC_HEADER_SIZE, ori_rc_alloc, ori_rc_free, ori_rc_dec, ori_rc_realloc

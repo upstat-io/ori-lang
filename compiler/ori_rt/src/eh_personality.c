@@ -15,6 +15,11 @@
  * (Rust side) before either raise path is invoked.
  */
 
+/* Exit code for fatal errors: 128 + 6 mirrors POSIX SIGABRT convention.
+ * We use _exit() instead of abort() because abort() raises SIGABRT which
+ * can hang when signal handlers interfere with process termination. */
+#define ORI_FATAL_EXIT_CODE (128 + 6)
+
 #ifdef _MSC_VER
 /* ═══════════════════════════════════════════════════════════════════
  * Windows SEH Implementation
@@ -120,11 +125,6 @@ int64_t ori_try_call(void (*thunk)(void *), void *ctx) {
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-
-/* Exit code for fatal errors: 128 + 6 mirrors POSIX SIGABRT convention.
- * We use _exit() instead of abort() because abort() raises SIGABRT which
- * can hang when signal handlers interfere with process termination. */
-#define ORI_FATAL_EXIT_CODE (128 + 6)
 
 /* ── DWARF pointer encoding constants ────────────────────────────── */
 

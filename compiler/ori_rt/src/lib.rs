@@ -343,6 +343,33 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
     }
 }
 
+/// Clean up the `[str]` buffer created by `ori_args_from_argv`.
+///
+/// Frees each heap string's data buffer, then frees the list buffer.
+/// Called by the main wrapper after `_ori_main` returns. The strings
+/// have refcount 1 (unique — created by `ori_args_from_argv`, passed
+/// by reference to `_ori_main` which does not increment).
+#[no_mangle]
+pub extern "C" fn ori_args_cleanup(data: *mut u8, len: i64) {
+    if data.is_null() || len <= 0 {
+        return;
+    }
+    let count = len as usize;
+    let elements = data.cast::<string::OriStr>();
+    for i in 0..count {
+        // SAFETY: elements[i] is within the allocated array (len <= capacity)
+        let s = unsafe { &*elements.add(i) };
+        if !s.is_sso() {
+            let heap = unsafe { s.heap };
+            if !heap.data.is_null() {
+                rc::ori_rc_free(heap.data, heap.cap as usize, 8);
+            }
+        }
+    }
+    let alloc_size = count * std::mem::size_of::<string::OriStr>();
+    rc::ori_rc_free(data, alloc_size, std::mem::align_of::<string::OriStr>());
+}
+
 // ── ori_try_call (C implementation, MSVC only) ──────────────────────────
 //
 // On MSVC, ori_try_call is implemented in eh_personality.c using __try/__except.

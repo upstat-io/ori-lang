@@ -46,6 +46,7 @@ pub extern "C" fn ori_map_insert_cow(
     key_hash: extern "C" fn(*const u8) -> i64,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    val_dec: Option<extern "C" fn(*mut u8)>,
     cow_mode: i32,
     out_ptr: *mut u8,
 ) {
@@ -70,7 +71,7 @@ pub extern "C" fn ori_map_insert_cow(
     if let Some(bucket) = found_bucket {
         // Key exists — overwrite value
         cow_insert_existing(
-            data, n, c, ks, vs, bucket, value, key_inc, val_inc, cow_mode, out_ptr,
+            data, n, c, ks, vs, bucket, value, key_inc, val_inc, val_dec, cow_mode, out_ptr,
         );
     } else {
         // New key — insert into hash table
@@ -95,6 +96,7 @@ fn cow_insert_existing(
     value: *const u8,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    val_dec: Option<extern "C" fn(*mut u8)>,
     cow_mode: i32,
     out_ptr: *mut u8,
 ) {
@@ -103,11 +105,13 @@ fn cow_insert_existing(
 
     if is_unique {
         // FAST PATH: unique — overwrite value in place.
-        // Inc new value (borrowed from caller) so the buffer owns a reference.
-        // TODO(arc): the old value at this bucket leaks — needs val_dec before
-        // overwrite. Requires adding val_dec parameter to this function.
+        // Dec old value's RC children before overwriting, then copy new value
+        // and inc it (borrowed from caller, so buffer copy needs its own ref).
         unsafe {
             let val_dst = data.add(layout.vals_offset + bucket * vs);
+            if let Some(dec) = val_dec {
+                dec(val_dst);
+            }
             std::ptr::copy_nonoverlapping(value, val_dst, vs);
             if let Some(inc) = val_inc {
                 inc(val_dst);
@@ -325,6 +329,8 @@ pub extern "C" fn ori_map_remove_cow(
     key_hash: extern "C" fn(*const u8) -> i64,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    key_dec: Option<extern "C" fn(*mut u8)>,
+    val_dec: Option<extern "C" fn(*mut u8)>,
     cow_mode: i32,
     out_ptr: *mut u8,
 ) {
@@ -359,7 +365,14 @@ pub extern "C" fn ori_map_remove_cow(
     if new_len == 0 {
         if !data.is_null() {
             let layout = HashTableLayout::for_map(c, ks, vs);
+            // Dec RC children of removed entry before freeing buffer
             if is_unique {
+                if let Some(dec) = key_dec {
+                    dec(unsafe { data.add(layout.keys_offset + bucket * ks) });
+                }
+                if let Some(dec) = val_dec {
+                    dec(unsafe { data.add(layout.vals_offset + bucket * vs) });
+                }
                 ori_rc_free(data, layout.total_size, 8);
             } else {
                 ori_rc_dec(data, None);
@@ -369,8 +382,15 @@ pub extern "C" fn ori_map_remove_cow(
         return;
     }
 
-    // FAST PATH: unique owner — tombstone in place
+    // FAST PATH: unique owner — dec removed entry, then tombstone
     if is_unique {
+        let layout = HashTableLayout::for_map(c, ks, vs);
+        if let Some(dec) = key_dec {
+            dec(unsafe { data.add(layout.keys_offset + bucket * ks) });
+        }
+        if let Some(dec) = val_dec {
+            dec(unsafe { data.add(layout.vals_offset + bucket * vs) });
+        }
         unsafe { set_meta(data, bucket, META_TOMBSTONE) };
         write_map_struct(out_ptr, new_len as i64, cap, data);
         return;
@@ -440,6 +460,7 @@ pub(crate) fn ori_map_update_cow(
     key_hash: extern "C" fn(*const u8) -> i64,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    val_dec: Option<extern "C" fn(*mut u8)>,
     cow_mode: i32,
     out_ptr: *mut u8,
 ) {
@@ -467,6 +488,6 @@ pub(crate) fn ori_map_update_cow(
     };
 
     cow_insert_existing(
-        data, n, c, ks, vs, bucket, new_value, key_inc, val_inc, cow_mode, out_ptr,
+        data, n, c, ks, vs, bucket, new_value, key_inc, val_inc, val_dec, cow_mode, out_ptr,
     );
 }

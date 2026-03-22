@@ -246,7 +246,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `map.insert(key, value)` — COW insert returning the (possibly mutated) map.
     ///
     /// Calls `ori_map_insert_cow(data, len, cap, key, value, key_size, val_size,
-    ///         key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)`.
+    ///         key_eq, key_hash, key_inc, val_inc, val_dec, cow_mode, out_ptr)`.
     pub(crate) fn emit_map_insert(
         &mut self,
         receiver: ValueId,
@@ -267,6 +267,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
         let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
         let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
+        let val_dec = self.get_or_generate_elem_dec_fn(val_ty);
 
         let map_ty = self.map_struct_type();
         let out = self
@@ -287,6 +288,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_hash,
                 key_inc,
                 val_inc,
+                val_dec,
                 cow_mode,
                 out,
             ],
@@ -298,8 +300,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.remove(key)` — COW remove returning the (possibly mutated) map.
     ///
+    /// Decs RC children of removed key/value on unique paths.
+    ///
     /// Calls `ori_map_remove_cow(data, len, cap, key, key_size, val_size,
-    ///         key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)`.
+    ///         key_eq, key_hash, key_inc, val_inc, key_dec, val_dec, cow_mode, out_ptr)`.
     pub(crate) fn emit_map_remove(
         &mut self,
         receiver: ValueId,
@@ -318,6 +322,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
         let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
         let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
+        let key_dec = self.get_or_generate_elem_dec_fn(key_ty);
+        let val_dec = self.get_or_generate_elem_dec_fn(val_ty);
 
         let map_ty = self.map_struct_type();
         let out = self
@@ -337,6 +343,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_hash,
                 key_inc,
                 val_inc,
+                key_dec,
+                val_dec,
                 cow_mode,
                 out,
             ],

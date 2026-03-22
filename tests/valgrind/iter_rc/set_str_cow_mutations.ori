@@ -1,0 +1,18 @@
+// Valgrind: Set<str> COW mutation patterns — insert, remove, union
+@main () -> int = {
+    let s1: Set<str> = [
+        "this is a long heap string alpha",
+        "this is a long heap string beta"
+    ].iter().collect();
+    let s2 = s1;
+    // COW insert on shared set
+    s2 = s2.insert(value: "this is a long heap string gamma");
+    // COW remove
+    s2 = s2.remove(value: "this is a long heap string alpha");
+    // Union with another set
+    let s3: Set<str> = [
+        "this is a long heap string delta"
+    ].iter().collect();
+    let s4 = s2.union(other: s3);
+    if s4.len() >= 2 then 0 else 1
+}

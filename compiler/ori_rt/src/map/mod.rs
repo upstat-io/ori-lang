@@ -18,7 +18,6 @@ pub mod cow;
 pub(crate) mod hash_table;
 
 use crate::list::write_array_to_list;
-#[allow(unused_imports, reason = "used by cow.rs after rewrite")]
 pub(crate) use hash_table::{
     get_meta, needs_rehash, next_hash_capacity, probe_find, probe_find_slot, rehash_map, set_meta,
     HashTableLayout, META_EMPTY, META_OCCUPIED, META_TOMBSTONE,
@@ -150,7 +149,7 @@ pub extern "C" fn ori_map_keys_to_list(
 
     // SAFETY: list_data was returned by ori_rc_alloc.
     unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
-    write_array_to_list_from_data(list_data, write_pos as i64, key_size, out_ptr);
+    write_array_to_list_from_data(list_data, write_pos as i64, out_ptr);
 }
 
 /// Extract map values as a new list.
@@ -211,7 +210,7 @@ pub extern "C" fn ori_map_values_to_list(
 
     // SAFETY: list_data was returned by ori_rc_alloc.
     unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
-    write_array_to_list_from_data(list_data, write_pos as i64, val_size, out_ptr);
+    write_array_to_list_from_data(list_data, write_pos as i64, out_ptr);
 }
 
 /// Look up a key in a map and return `Option<V>` via sret.
@@ -345,7 +344,7 @@ pub(crate) fn write_map_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut 
 ///
 /// Unlike `write_array_to_list` which allocates and copies, this takes
 /// ownership of an existing RC-allocated buffer.
-fn write_array_to_list_from_data(data: *mut u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
+fn write_array_to_list_from_data(data: *mut u8, len: i64, out_ptr: *mut u8) {
     if out_ptr.is_null() {
         return;
     }
@@ -361,7 +360,6 @@ fn write_array_to_list_from_data(data: *mut u8, len: i64, elem_size: i64, out_pt
         }
         return;
     }
-    let _ = elem_size; // used by caller for sizing
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(len); // cap = len

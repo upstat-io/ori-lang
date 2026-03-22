@@ -2,12 +2,32 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tempfile::TempDir;
 
 // AOT compile-and-run helpers
+
+/// Extract exit code from a process status, distinguishing signal kills from normal exits.
+///
+/// On Unix, processes killed by a signal (e.g., SIGSEGV=11, SIGABRT=6) have
+/// `status.code() == None`. This function maps signal-killed processes to
+/// `-(128 + signal)` (e.g., SIGSEGV → -139, SIGABRT → -134), matching the
+/// bash convention of 128+N for signal exits.
+///
+/// This is critical for panic-path tests: a post-panic crash (SIGSEGV) must be
+/// distinguishable from a clean panic exit (non-zero code).
+fn exit_code_from_status(status: ExitStatus) -> i32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return -(128 + signal);
+        }
+    }
+    status.code().unwrap_or(-1)
+}
 
 /// Get the workspace root directory (contains `Cargo.toml` + `compiler/`).
 fn workspace_root() -> PathBuf {
@@ -159,10 +179,146 @@ pub fn compile_and_run_capture(source: &str) -> (i32, String, String) {
         .output()
         .expect("Failed to execute binary");
 
-    let exit_code = run_result.status.code().unwrap_or(-1);
+    let exit_code = exit_code_from_status(run_result.status);
     let stdout = String::from_utf8_lossy(&run_result.stdout).to_string();
     let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
     (exit_code, stdout, stderr)
+}
+
+/// Compile and run an Ori program with arguments, capturing output.
+///
+/// Returns `(exit_code, stdout, stderr)`. Enables `ORI_CHECK_LEAKS=1`.
+pub fn compile_and_run_with_args(source: &str, args: &[&str]) -> (i32, String, String) {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
+        return (-1, String::new(), stderr);
+    }
+
+    let run_result = Command::new(&binary_path)
+        .args(args)
+        .env("ORI_CHECK_LEAKS", "1")
+        .output()
+        .expect("Failed to execute binary");
+
+    let exit_code = exit_code_from_status(run_result.status);
+    let stdout = String::from_utf8_lossy(&run_result.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
+    (exit_code, stdout, stderr)
+}
+
+/// Assert that an exit code does not indicate signal termination (crash).
+///
+/// On Unix, signal-killed processes are mapped to `-(128 + signal)` by
+/// `exit_code_from_status`. This function panics if the exit code indicates
+/// SIGSEGV (11 → -139), SIGABRT (6 → -134), SIGBUS (7 → -135), or any
+/// other signal. Use this in panic-path tests to distinguish clean panic
+/// propagation from post-panic crashes.
+pub fn assert_no_signal_crash(exit_code: i32, context: &str) {
+    if exit_code <= -128 {
+        let signal = -(exit_code + 128);
+        let signal_name = match signal {
+            6 => "SIGABRT",
+            7 => "SIGBUS",
+            11 => "SIGSEGV",
+            _ => "unknown signal",
+        };
+        panic!(
+            "{context}: process was killed by {signal_name} (signal {signal}), \
+             indicating a crash rather than clean panic propagation"
+        );
+    }
+}
+
+/// Compile and run an Ori program with arguments under Valgrind, checking for memory errors.
+///
+/// Returns `true` if Valgrind reports no errors, `false` if Valgrind found issues.
+/// Returns `None` if Valgrind is not available (test should be skipped).
+/// The program is expected to exit abnormally (e.g., panic) — only memory errors matter.
+pub fn compile_and_run_valgrind_with_args(source: &str, args: &[&str]) -> Option<(bool, String)> {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    // Check Valgrind availability
+    let valgrind_available = Command::new("valgrind")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !valgrind_available {
+        return None;
+    }
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_vg_{id}.ori"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_vg_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
+        return Some((false, format!("compilation failed:\n{stderr}")));
+    }
+
+    let mut vg_args = vec![
+        "--error-exitcode=42".to_string(),
+        "--leak-check=full".to_string(),
+        "--errors-for-leak-kinds=definite,possible".to_string(),
+        binary_path.to_str().unwrap().to_string(),
+    ];
+    for arg in args {
+        vg_args.push((*arg).to_string());
+    }
+
+    let vg_result = Command::new("valgrind")
+        .args(&vg_args)
+        .output()
+        .expect("Failed to execute valgrind");
+
+    let vg_stderr = String::from_utf8_lossy(&vg_result.stderr).to_string();
+
+    // Valgrind uses exit code 42 (our --error-exitcode) for memory errors.
+    // The program may exit with any code (e.g., panic exits non-zero) —
+    // we only care whether Valgrind itself detected errors.
+    let vg_exit = vg_result.status.code().unwrap_or(-1);
+    let clean = vg_exit != 42;
+
+    Some((clean, vg_stderr))
 }
 
 /// Compile an Ori program and capture its LLVM IR (via `ORI_DEBUG_LLVM=1`).
