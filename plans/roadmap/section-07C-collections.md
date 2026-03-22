@@ -346,7 +346,7 @@ sections:
 
 ## 7C.6 Iterator Traits
 
-> **PROPOSAL**: `proposals/drafts/iterator-traits-proposal.md`
+> **PROPOSAL**: `proposals/approved/iterator-traits-proposal.md`
 >
 > Formalize iteration with traits, enabling user types in `for` loops and generic iteration.
 
@@ -422,6 +422,26 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for iterator extension methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — iterator extension methods codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — 25 tests (0 ignored) covering map, filter, take, skip, count, any, all, find, fold, for_each, collect, zip, chain adapters/consumers via built-in iterator pipeline
+
+- [ ] **Implement**: Extended Iterator methods (19 new methods)
+  **Proposal**: `proposals/approved/iterator-extended-methods-proposal.md` [approved] (2026-03-22)
+  - [ ] **Phase 1 — Reductions**: `max`, `min`, `max_by`, `min_by`, `max_by_key`, `min_by_key`, `sum`, `sum_by`, `product`, `reduce`
+    - [ ] Registry: Add 10 `MethodDef` entries to `ori_registry/src/defs/iterator/mod.rs`
+    - [ ] Type checker: Method resolution in `ori_types`
+    - [ ] Evaluator: Consumer dispatch in `ori_eval/method_dispatch/iterator/consumers.rs`
+    - [ ] **Ori Tests**: `tests/spec/traits/iterator/reductions.ori`
+  - [ ] **Phase 2 — Adapters**: `filter_map`, `take_while`, `skip_while`
+    - [ ] Registry: Add 3 `MethodDef` entries
+    - [ ] Evaluator: New `IteratorValue` variants (`FilterMap`, `TakeWhile`, `SkipWhile`)
+    - [ ] Evaluator: `next()` dispatch in `ori_eval/method_dispatch/iterator/next.rs`
+    - [ ] **Ori Tests**: `tests/spec/traits/iterator/adapters_ext.ori`
+  - [ ] **Phase 3 — Index/Partition/Inspect**: `step_by`, `inspect`, `position`, `nth`, `partition`, `rposition`
+    - [ ] Registry: Add 6 `MethodDef` entries
+    - [ ] Evaluator: New `IteratorValue` variants (`StepBy`, `Inspect`)
+    - [ ] Evaluator: Consumer dispatch for `position`, `nth`, `partition`, `rposition`
+    - [ ] **Ori Tests**: `tests/spec/traits/iterator/index_partition.ori`
+  - [ ] **Phase 4 — LLVM Codegen**: AOT support for all 19 new methods
+    - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/iterators_ext.rs`
 
 ---
 
