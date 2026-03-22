@@ -56,6 +56,7 @@ mod rc_value_traversal;
 mod rpo;
 mod terminators;
 mod value_emission;
+mod variant_construction;
 
 pub use context::CodegenContext;
 use context::EmittedValue;

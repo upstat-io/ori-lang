@@ -119,11 +119,18 @@ pub extern "C" fn ori_list_contains_str(data: *const u8, len: i64, needle: *cons
 /// Allocates new data buffer, copies elements in reverse order.
 /// Writes `{len, len, new_data}` to `out_ptr` (sret pattern).
 #[no_mangle]
-pub extern "C" fn ori_list_reverse(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
+pub extern "C" fn ori_list_reverse(
+    data: *const u8,
+    len: i64,
+    elem_size: i64,
+    elem_align: i64,
+    out_ptr: *mut u8,
+) {
     if out_ptr.is_null() {
         return;
     }
     let es = elem_size.max(1) as usize;
+    let ea = elem_align.max(1) as usize;
     let n = len.max(0) as usize;
 
     if data.is_null() || n == 0 {
@@ -139,7 +146,7 @@ pub extern "C" fn ori_list_reverse(data: *const u8, len: i64, elem_size: i64, ou
     }
 
     let total = n * es;
-    let new_data = ori_rc_alloc(total, 8);
+    let new_data = ori_rc_alloc(total, ea);
 
     for i in 0..n {
         let src_offset = (n - 1 - i) * es;
@@ -173,12 +180,14 @@ pub extern "C" fn ori_list_concat(
     data2: *const u8,
     len2: i64,
     elem_size: i64,
+    elem_align: i64,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
         return;
     }
     let es = elem_size.max(1) as usize;
+    let ea = elem_align.max(1) as usize;
     let n1 = len1.max(0) as usize;
     let n2 = len2.max(0) as usize;
     let total_len = n1 + n2;
@@ -196,7 +205,7 @@ pub extern "C" fn ori_list_concat(
     }
 
     let total_bytes = total_len * es;
-    let new_data = ori_rc_alloc(total_bytes, 8);
+    let new_data = ori_rc_alloc(total_bytes, ea);
 
     unsafe {
         if !data1.is_null() && n1 > 0 {

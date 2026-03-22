@@ -1,0 +1,9 @@
+// Valgrind: [[int]] iteration — verify no memory errors with nested lists
+@main () -> int = {
+    let items = [[1, 2], [3, 4], [5, 6]];
+    let total = 0;
+    for sublist in items do {
+        total = total + sublist.len();
+    };
+    if total == 6 then 0 else 1
+}

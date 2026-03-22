@@ -13,13 +13,17 @@
 //! - [`define_phase`]: Function body definition (Phase 2) and ARC processing
 //! - [`nounwind`]: Two-pass nounwind analysis (prepare → analyze → emit)
 //! - [`impls`]: Impl method, test, and derived trait compilation
-//! - [`entry_point`]: AOT `main()` wrapper and panic trampoline
+//! - [`entry_point`]: AOT `main()` wrapper
+//! - [`seh_main_thunk`]: SEH/MSVC `ori_try_call` thunk for `@main(args:)`
+//! - [`panic_trampoline`]: Panic handler trampoline (`_ori_panic_trampoline`)
 
 mod define_phase;
 mod entry_point;
 mod impls;
 mod nounwind;
+mod panic_trampoline;
 mod purity_analysis;
+mod seh_main_thunk;
 
 pub use nounwind::PreparedFunction;
 

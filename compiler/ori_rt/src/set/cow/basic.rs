@@ -26,7 +26,7 @@ pub extern "C" fn ori_set_insert_cow(
     cap: i64,
     elem: *const u8,
     elem_size: i64,
-    elem_align: i64,
+    _elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     elem_hash: extern "C" fn(*const u8) -> i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
@@ -38,7 +38,6 @@ pub extern "C" fn ori_set_insert_cow(
     }
 
     let es = elem_size.max(1) as usize;
-    let _ea = elem_align.max(1) as usize;
     let n = len.max(0) as usize;
     let c = cap.max(0) as usize;
     let hash = elem_hash(elem);
@@ -62,8 +61,13 @@ pub extern "C" fn ori_set_insert_cow(
             let layout = HashTableLayout::for_set(c, es);
             let slot = unsafe { probe_find_slot(data, c, hash) };
             unsafe {
-                std::ptr::copy_nonoverlapping(elem, data.add(layout.keys_offset + slot * es), es);
+                let dst = data.add(layout.keys_offset + slot * es);
+                std::ptr::copy_nonoverlapping(elem, dst, es);
                 set_meta(data, slot, META_OCCUPIED);
+                // Inc RC — element borrowed from caller, buffer copy needs own ref
+                if let Some(inc) = inc_fn {
+                    inc(dst);
+                }
             }
             write_set_struct(out_ptr, new_len as i64, cap, data);
             return;
@@ -77,15 +81,16 @@ pub extern "C" fn ori_set_insert_cow(
 
         let slot = unsafe { probe_find_slot(new_data, new_cap, hash) };
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                elem,
-                new_data.add(new_layout.keys_offset + slot * es),
-                es,
-            );
+            let dst = new_data.add(new_layout.keys_offset + slot * es);
+            std::ptr::copy_nonoverlapping(elem, dst, es);
             set_meta(new_data, slot, META_OCCUPIED);
+            // Inc RC — element borrowed from caller, buffer copy needs own ref
+            if let Some(inc) = inc_fn {
+                inc(dst);
+            }
         }
 
-        // Free old buffer
+        // Free old buffer — elements moved via rehash (no element cleanup needed)
         let old_layout = HashTableLayout::for_set(c, es);
         ori_rc_free(data, old_layout.total_size, 8);
 
@@ -120,8 +125,13 @@ pub extern "C" fn ori_set_insert_cow(
     let new_layout = HashTableLayout::for_set(new_cap, es);
     let slot = unsafe { probe_find_slot(new_data, new_cap, hash) };
     unsafe {
-        std::ptr::copy_nonoverlapping(elem, new_data.add(new_layout.keys_offset + slot * es), es);
+        let dst = new_data.add(new_layout.keys_offset + slot * es);
+        std::ptr::copy_nonoverlapping(elem, dst, es);
         set_meta(new_data, slot, META_OCCUPIED);
+        // Inc RC — element borrowed from caller, buffer copy needs own ref
+        if let Some(inc) = inc_fn {
+            inc(dst);
+        }
     }
 
     ori_rc_dec(data, None);
@@ -131,10 +141,12 @@ pub extern "C" fn ori_set_insert_cow(
 /// COW-aware set remove with consuming semantics.
 ///
 /// - **No-op** (element not found): Returns input unchanged.
-/// - **Fast path** (unique, found): Sets metadata to TOMBSTONE. O(1).
-/// - **Fast path** (unique, last element): Frees buffer, returns empty.
-/// - **Slow path** (shared): Rehash all except removed into new buffer.
+/// - **Fast path** (unique, found): Decs removed element, then tombstones. O(1).
+/// - **Fast path** (unique, last element): Decs removed element, frees buffer.
+/// - **Slow path** (shared): Rehash all except removed into new buffer;
+///   removed element dec'd, kept elements inc'd.
 ///
+/// `elem_dec_fn` cleans up RC children of the removed element (e.g., str data).
 /// `elem_dec_fn` propagated from old buffer header to new buffer.
 #[no_mangle]
 pub extern "C" fn ori_set_remove_cow(
@@ -143,10 +155,11 @@ pub extern "C" fn ori_set_remove_cow(
     cap: i64,
     elem: *const u8,
     elem_size: i64,
-    elem_align: i64,
+    _elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     elem_hash: extern "C" fn(*const u8) -> i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     cow_mode: i32,
     out_ptr: *mut u8,
 ) {
@@ -155,7 +168,6 @@ pub extern "C" fn ori_set_remove_cow(
     }
 
     let es = elem_size.max(1) as usize;
-    let _ea = elem_align.max(1) as usize;
     let n = len.max(0) as usize;
     let c = cap.max(0) as usize;
 
@@ -179,10 +191,16 @@ pub extern "C" fn ori_set_remove_cow(
     // Special case: removing last element → empty sentinel
     if new_len == 0 {
         if !data.is_null() {
-            let layout = HashTableLayout::for_set(c, es);
             if is_unique {
+                // Unique: dec the removed element's RC children, then free buffer
+                let layout = HashTableLayout::for_set(c, es);
+                if let Some(dec) = elem_dec_fn {
+                    dec(unsafe { data.add(layout.keys_offset + bucket * es) });
+                }
                 ori_rc_free(data, layout.total_size, 8);
             } else {
+                // Shared: just drop our reference — surviving aliases will
+                // clean up elements when the buffer's refcount reaches zero
                 ori_rc_dec(data, None);
             }
         }
@@ -190,8 +208,12 @@ pub extern "C" fn ori_set_remove_cow(
         return;
     }
 
-    // FAST PATH: unique — tombstone in place
+    // FAST PATH: unique — dec removed element, then tombstone in place
     if is_unique {
+        let layout = HashTableLayout::for_set(c, es);
+        if let Some(dec) = elem_dec_fn {
+            dec(unsafe { data.add(layout.keys_offset + bucket * es) });
+        }
         unsafe { set_meta(data, bucket, META_TOMBSTONE) };
         write_set_struct(out_ptr, new_len as i64, cap, data);
         return;
