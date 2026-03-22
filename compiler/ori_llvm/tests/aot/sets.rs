@@ -145,3 +145,73 @@ fn test_aot_set_iter_count() {
         "set_iter_count",
     );
 }
+
+// Auto-promoted set iterator methods (no explicit .iter())
+// Semantic pins for TPR-03-001: emit_auto_iter must route Set through emit_set_iter
+
+#[test]
+fn test_aot_set_auto_fold() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let total = s.fold(initial: 0, op: (acc, x) -> acc + x);
+    if total == 6 then 0 else 1
+}
+"#,
+        "set_auto_fold",
+    );
+}
+
+#[test]
+fn test_aot_set_auto_count() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    if s.count() == 3 then 0 else 1
+}
+"#,
+        "set_auto_count",
+    );
+}
+
+#[test]
+fn test_aot_set_auto_any() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    if s.any(predicate: (x) -> x == 2) then 0 else 1
+}
+"#,
+        "set_auto_any",
+    );
+}
+
+#[test]
+fn test_aot_set_auto_all() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    if s.all(predicate: (x) -> x > 0) then 0 else 1
+}
+"#,
+        "set_auto_all",
+    );
+}
+
+#[test]
+fn test_aot_set_str_auto_fold() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s: Set<str> = ["a", "b", "c"].iter().collect();
+    let total = s.fold(initial: 0, op: (acc, _x) -> acc + 1);
+    if total == 3 then 0 else 1
+}
+"#,
+        "set_str_auto_fold",
+    );
+}

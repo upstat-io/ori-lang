@@ -1303,8 +1303,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     // Iterator constructors — all extern "C"
     RtFn {
         name: "ori_iter_from_list",
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
-        //        data   len   cap   es     elem_dec_fn
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64],
+        //        data   len   cap   elem_size
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,

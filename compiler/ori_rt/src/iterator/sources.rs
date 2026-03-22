@@ -9,28 +9,23 @@ use super::state::{assert_elem_size, IterState};
 ///
 /// `data` points to the list's contiguous RC-managed element storage.
 /// `len` is the number of elements. `cap` is the buffer capacity.
-/// `elem_size` is bytes per element. `elem_dec_fn` is the per-element
-/// RC cleanup function (null for scalar elements).
+/// `elem_size` is bytes per element.
 ///
 /// The iterator takes ownership of one RC reference to `data`. When the
 /// iterator is dropped (by a consumer function or `ori_iter_drop`),
 /// `Drop for IterState` calls `ori_buffer_rc_dec` to release the reference.
+/// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads the
+/// `elem_dec_fn` from the V5 RC header at cleanup time.
 ///
 /// The ARC pipeline is responsible for emitting `RcInc` before calling
 /// `.iter()` when the list variable has additional liveness (the inc gives
 /// the iterator its own reference). Dead list parameters in exit blocks
 /// are cleaned up by `emit_dead_at_entry_decs`.
 ///
-/// For Rust unit tests with stack-allocated data, pass `cap = 0` and
-/// `elem_dec_fn = None` — no cleanup is performed on drop.
+/// For Rust unit tests with stack-allocated data, pass `cap = 0` — no
+/// cleanup is performed on drop.
 #[no_mangle]
-pub extern "C" fn ori_iter_from_list(
-    data: *mut u8,
-    len: i64,
-    cap: i64,
-    elem_size: i64,
-    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
-) -> *mut u8 {
+pub extern "C" fn ori_iter_from_list(data: *mut u8, len: i64, cap: i64, elem_size: i64) -> *mut u8 {
     assert_elem_size(elem_size, "ori_iter_from_list");
     let state = IterState::List {
         data,
@@ -38,7 +33,6 @@ pub extern "C" fn ori_iter_from_list(
         pos: 0,
         cap,
         elem_size,
-        elem_dec_fn,
     };
     Box::into_raw(Box::new(state)).cast()
 }
