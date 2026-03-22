@@ -1,0 +1,13 @@
+// Valgrind: T1-F1 — full [str] iteration with for-do, all heap strings
+@main () -> int = {
+    let words = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "another very long string that also exceeds the SSO threshold",
+        "third long string for good measure in the test programs here"
+    ];
+    let total = 0;
+    for w in words do {
+        total += w.len();
+    };
+    if total == 179 then 0 else 1
+}

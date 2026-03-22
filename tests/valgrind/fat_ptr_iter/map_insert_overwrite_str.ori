@@ -1,0 +1,13 @@
+// Valgrind: {str: int} insert with existing key — old value cleaned up
+@main () -> int = {
+    let m = {
+        "alpha string that is long enough to exceed SSO threshold": 10,
+        "beta string that is also long enough for heap allocation": 20
+    };
+    m = m.insert(key: "alpha string that is long enough to exceed SSO threshold", value: 30);
+    let val = m["alpha string that is long enough to exceed SSO threshold"];
+    match val {
+        Some(v) -> if v == 30 then 0 else 1,
+        None -> 1
+    }
+}
