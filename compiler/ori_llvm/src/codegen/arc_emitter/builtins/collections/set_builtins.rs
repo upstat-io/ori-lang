@@ -116,11 +116,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `set.remove(elem)` — COW remove returning the (possibly mutated) set.
     ///
-    /// No-op if element not found. Fast path (unique): shifts left in place.
-    /// Slow path (shared): copies all except removed.
+    /// No-op if element not found. Fast path (unique): decs removed element,
+    /// then tombstones. Slow path (shared): copies all except removed.
     ///
     /// Calls `ori_set_remove_cow(data, len, cap, elem, elem_size, elem_align,
-    ///         elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)`.
+    ///         elem_eq, elem_hash, inc_fn, elem_dec_fn, cow_mode, out_ptr)`.
     pub(crate) fn emit_set_remove(
         &mut self,
         receiver: ValueId,
@@ -136,6 +136,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
         let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
         let set_ty = self.list_struct_type();
         let out = self
@@ -145,8 +146,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(
             func_id,
             &[
-                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
-                cow_mode, out,
+                data_ptr,
+                len,
+                cap,
+                elem_ptr,
+                elem_size,
+                elem_align,
+                elem_eq,
+                elem_hash,
+                inc_fn,
+                elem_dec_fn,
+                cow_mode,
+                out,
             ],
             "set.remove",
         );

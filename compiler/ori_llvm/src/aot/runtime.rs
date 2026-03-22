@@ -33,6 +33,29 @@ use std::path::{Path, PathBuf};
 
 use super::{LibraryKind, LinkInput, LinkLibrary};
 
+/// Strip Windows extended-length path prefix after `canonicalize()`.
+///
+/// `Path::canonicalize()` on Windows produces `\\?\C:\...` or `\\?\UNC\server\...`
+/// prefixed paths. MSVC's `link.exe` doesn't understand these — it mangles the
+/// `\\?\UNC\` prefix into `UNC\` (missing the leading `\\`), causing `LNK1181`.
+///
+/// This function converts extended paths back to normal form:
+/// - `\\?\UNC\server\share\...` → `\\server\share\...`
+/// - `\\?\C:\...` → `C:\...`
+fn normalize_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
+}
+
 /// Runtime library configuration.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
@@ -116,8 +139,9 @@ impl RuntimeConfig {
 
         // 1. Check relative to current executable (like rustc's sysroot discovery)
         if let Ok(exe_path) = std::env::current_exe() {
-            // Canonicalize to resolve symlinks (like rustc does)
-            let exe_path = exe_path.canonicalize().unwrap_or(exe_path);
+            // Canonicalize to resolve symlinks (like rustc does), then strip
+            // Windows extended-length prefix so MSVC linker gets valid paths.
+            let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
 
             if let Some(exe_dir) = exe_path.parent() {
                 // Dev layout: same directory as executable (target/release/)
@@ -146,7 +170,9 @@ impl RuntimeConfig {
                 // Standard FHS: /usr/local/bin/ori -> /usr/local/lib/libori_rt.a
                 let lib_path = exe_dir.join("../lib");
                 if Self::lib_exists(&lib_path, lib_name) {
-                    return Ok(Self::new(lib_path.canonicalize().unwrap_or(lib_path)));
+                    return Ok(Self::new(normalize_path(
+                        lib_path.canonicalize().unwrap_or(lib_path),
+                    )));
                 }
                 searched.push(lib_path);
             }
@@ -157,7 +183,7 @@ impl RuntimeConfig {
         // compiler/ori_rt/Cargo.toml` puts the staticlib in compiler/ori_rt/target/.
         // Detect the workspace root by walking up from the executable.
         if let Ok(exe_path) = std::env::current_exe() {
-            let exe_path = exe_path.canonicalize().unwrap_or(exe_path);
+            let exe_path = normalize_path(exe_path.canonicalize().unwrap_or(exe_path));
             // exe is at <workspace>/target/<profile>/ori → workspace = exe/../../../
             if let Some(workspace_root) = exe_path
                 .parent()

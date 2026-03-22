@@ -8,7 +8,7 @@
 //!   `ori_list_insert_cow`, `ori_list_remove_cow`, `ori_list_concat_cow`,
 //!   `ori_list_reverse_cow`, `ori_list_sort_cow`, `ori_list_sort_stable_cow`
 //! - **Queries**: `ori_list_first`, `ori_list_last`, `ori_list_contains_*`
-//! - **Functional**: `ori_list_push_new`, `ori_list_reverse`, `ori_list_concat`
+//! - **Functional**: `ori_list_reverse`, `ori_list_concat`
 
 mod cow;
 mod cow_sort;

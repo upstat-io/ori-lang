@@ -99,7 +99,6 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_list_push" => runtime::ori_list_push as *const () as usize,
         "ori_list_take" => runtime::ori_list_take as *const () as usize,
         "ori_list_box_new" => runtime::ori_list_box_new as *const () as usize,
-        "ori_list_push_new" => runtime::ori_list_push_new as *const () as usize,
         // List COW
         "ori_list_push_cow" => runtime::ori_list_push_cow as *const () as usize,
         "ori_list_pop_cow" => runtime::ori_list_pop_cow as *const () as usize,

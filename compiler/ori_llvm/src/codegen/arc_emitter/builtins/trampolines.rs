@@ -19,6 +19,7 @@ declare_builtins! { _emitter, _ctx; }
 
 use ori_types::Idx;
 
+use crate::codegen::abi::abi_size;
 use crate::codegen::value_id::{FunctionId, ValueId};
 
 use super::super::ArcIrEmitter;
@@ -143,30 +144,64 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .struct_gep(closure_struct_ty, env_ptr, 1, "tramp.env.gep");
         let ori_env = self.builder.load(ptr_ty, env_gep, "tramp.env");
 
-        // Resolve element LLVM type
+        // Resolve element LLVM type and determine ABI passing mode.
+        // Types > 16 bytes (e.g. str = 24 bytes) use indirect parameter
+        // passing and sret return in Ori's fastcc ABI.
         let elem_llvm_ty = self.resolve_type(elem_ty);
+        let elem_is_indirect = abi_size(elem_ty, self.type_info) > 16;
 
         match kind {
             TrampolineKind::Map => {
                 let in_ptr = self.builder.get_param(func_id, 1);
                 let out_ptr = self.builder.get_param(func_id, 2);
 
-                // Load input element
-                let elem = self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem");
-
-                // Call the Ori closure: result = ori_fn(ori_env, elem)
+                let result_idx = result_ty.unwrap_or(elem_ty);
                 let result_llvm_ty = result_ty.map_or(elem_llvm_ty, |ty| self.resolve_type(ty));
-                let result = self.builder.call_indirect(
-                    result_llvm_ty,
-                    &[ptr_ty, elem_llvm_ty],
-                    ori_fn,
-                    &[ori_env, elem],
-                    "tramp.result",
-                );
+                let result_is_indirect = abi_size(result_idx, self.type_info) > 16;
 
-                // Store result to out_ptr
-                if let Some(result_val) = result {
-                    self.builder.store(result_val, out_ptr);
+                if elem_is_indirect && result_is_indirect {
+                    // Both param and return are indirect (sret + ptr param).
+                    // Call: ori_fn(out_ptr, ori_env, in_ptr) -> void
+                    self.builder.call_indirect_void(
+                        &[ptr_ty, ptr_ty, ptr_ty],
+                        ori_fn,
+                        &[out_ptr, ori_env, in_ptr],
+                    );
+                } else if elem_is_indirect {
+                    // Param indirect, return direct (small result from large input).
+                    // Call: result = ori_fn(ori_env, in_ptr) -> T
+                    let result = self.builder.call_indirect(
+                        result_llvm_ty,
+                        &[ptr_ty, ptr_ty],
+                        ori_fn,
+                        &[ori_env, in_ptr],
+                        "tramp.result",
+                    );
+                    if let Some(result_val) = result {
+                        self.builder.store(result_val, out_ptr);
+                    }
+                } else if result_is_indirect {
+                    // Param direct, return indirect (large result from small input).
+                    let elem = self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem");
+                    // Call: ori_fn(out_ptr, ori_env, elem) -> void
+                    self.builder.call_indirect_void(
+                        &[ptr_ty, ptr_ty, elem_llvm_ty],
+                        ori_fn,
+                        &[out_ptr, ori_env, elem],
+                    );
+                } else {
+                    // Both direct — small types (original path).
+                    let elem = self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem");
+                    let result = self.builder.call_indirect(
+                        result_llvm_ty,
+                        &[ptr_ty, elem_llvm_ty],
+                        ori_fn,
+                        &[ori_env, elem],
+                        "tramp.result",
+                    );
+                    if let Some(result_val) = result {
+                        self.builder.store(result_val, out_ptr);
+                    }
                 }
                 self.builder.ret_void();
             }
@@ -174,18 +209,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TrampolineKind::Predicate => {
                 let elem_ptr = self.builder.get_param(func_id, 1);
 
-                // Load input element
-                let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
-
-                // Call: bool = ori_fn(ori_env, elem)
+                // Predicate always returns i1 (direct). Only elem may be indirect.
                 let bool_ty = self.builder.bool_type();
-                let result = self.builder.call_indirect(
-                    bool_ty,
-                    &[ptr_ty, elem_llvm_ty],
-                    ori_fn,
-                    &[ori_env, elem],
-                    "tramp.pred",
-                );
+                let result = if elem_is_indirect {
+                    // Pass pointer directly — closure expects indirect param.
+                    self.builder.call_indirect(
+                        bool_ty,
+                        &[ptr_ty, ptr_ty],
+                        ori_fn,
+                        &[ori_env, elem_ptr],
+                        "tramp.pred",
+                    )
+                } else {
+                    let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
+                    self.builder.call_indirect(
+                        bool_ty,
+                        &[ptr_ty, elem_llvm_ty],
+                        ori_fn,
+                        &[ori_env, elem],
+                        "tramp.pred",
+                    )
+                };
 
                 // Convert i1 -> i8 for C ABI
                 if let Some(pred_val) = result {
@@ -201,18 +245,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TrampolineKind::ForEach => {
                 let elem_ptr = self.builder.get_param(func_id, 1);
 
-                // Load input element
-                let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
-
-                // Call: ori_fn(ori_env, elem) — discard result
-                let unit_ty = self.builder.i64_type(); // Unit = i64
-                self.builder.call_indirect(
-                    unit_ty,
-                    &[ptr_ty, elem_llvm_ty],
-                    ori_fn,
-                    &[ori_env, elem],
-                    "tramp.foreach",
-                );
+                if elem_is_indirect {
+                    // Pass pointer directly — closure expects indirect param.
+                    // ForEach discards result; closure returns void for unit.
+                    self.builder.call_indirect_void(
+                        &[ptr_ty, ptr_ty],
+                        ori_fn,
+                        &[ori_env, elem_ptr],
+                    );
+                } else {
+                    let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
+                    let unit_ty = self.builder.i64_type(); // Unit = i64
+                    self.builder.call_indirect(
+                        unit_ty,
+                        &[ptr_ty, elem_llvm_ty],
+                        ori_fn,
+                        &[ori_env, elem],
+                        "tramp.foreach",
+                    );
+                }
                 self.builder.ret_void();
             }
 
@@ -221,24 +272,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_ptr = self.builder.get_param(func_id, 2);
                 let out_ptr = self.builder.get_param(func_id, 3);
 
+                let acc_idx = result_ty.unwrap_or(elem_ty);
                 let acc_llvm_ty = result_ty.map_or(elem_llvm_ty, |ty| self.resolve_type(ty));
+                let acc_is_indirect = abi_size(acc_idx, self.type_info) > 16;
 
-                // Load accumulator and element
-                let acc = self.builder.load(acc_llvm_ty, acc_ptr, "tramp.acc");
-                let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
+                // Load/pass accumulator and element based on ABI
+                let acc_arg = if acc_is_indirect {
+                    acc_ptr
+                } else {
+                    self.builder.load(acc_llvm_ty, acc_ptr, "tramp.acc")
+                };
+                let elem_arg = if elem_is_indirect {
+                    elem_ptr
+                } else {
+                    self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem")
+                };
 
-                // Call: new_acc = ori_fn(ori_env, acc, elem)
-                let result = self.builder.call_indirect(
-                    acc_llvm_ty,
-                    &[ptr_ty, acc_llvm_ty, elem_llvm_ty],
-                    ori_fn,
-                    &[ori_env, acc, elem],
-                    "tramp.fold",
-                );
+                let acc_arg_ty = if acc_is_indirect { ptr_ty } else { acc_llvm_ty };
+                let elem_arg_ty = if elem_is_indirect {
+                    ptr_ty
+                } else {
+                    elem_llvm_ty
+                };
 
-                // Store result to out_ptr
-                if let Some(result_val) = result {
-                    self.builder.store(result_val, out_ptr);
+                if acc_is_indirect {
+                    // Accumulator is indirect → sret return.
+                    // Call: ori_fn(out_ptr, ori_env, acc_ptr, elem_arg) -> void
+                    self.builder.call_indirect_void(
+                        &[ptr_ty, ptr_ty, acc_arg_ty, elem_arg_ty],
+                        ori_fn,
+                        &[out_ptr, ori_env, acc_arg, elem_arg],
+                    );
+                } else {
+                    // Accumulator is direct → direct return.
+                    let result = self.builder.call_indirect(
+                        acc_llvm_ty,
+                        &[ptr_ty, acc_arg_ty, elem_arg_ty],
+                        ori_fn,
+                        &[ori_env, acc_arg, elem_arg],
+                        "tramp.fold",
+                    );
+                    if let Some(result_val) = result {
+                        self.builder.store(result_val, out_ptr);
+                    }
                 }
                 self.builder.ret_void();
             }
