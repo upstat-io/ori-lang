@@ -48,18 +48,14 @@ pub(crate) enum IterState {
     /// the `SLICE_FLAG` is set). When `cap == 0` (e.g., Rust unit tests with
     /// stack data), no cleanup is performed.
     ///
-    /// The `elem_dec_fn` field is passed to `ori_buffer_rc_dec` on Drop, which
-    /// stores it in the V5 RC header via `store_elem_dec_fn_once`. When RC
-    /// reaches zero, cleanup reads from the header (not the parameter). This
-    /// provides defense-in-depth: the header may already have `elem_dec_fn`
-    /// from construction time (Section 02.1), so both sources agree.
+    /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
+    /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
     List {
         data: *mut u8,
         len: i64,
         pos: i64,
         cap: i64,
         elem_size: i64,
-        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     },
 
     /// Iterates over an integer range with step.
@@ -165,15 +161,15 @@ impl Drop for IterState {
                 len,
                 cap,
                 elem_size,
-                elem_dec_fn,
                 ..
             } => {
                 // cap != 0 indicates RC-managed data (from the compiler):
                 //   cap > 0 → regular list (cap is capacity)
                 //   cap < 0 → seamless slice (SLICE_FLAG set, ori_buffer_rc_dec handles it)
                 // cap == 0 indicates test data (stack-allocated, no cleanup).
+                // elem_dec_fn is read from the V5 RC header by ori_buffer_rc_dec.
                 if !data.is_null() && *cap != 0 {
-                    crate::ori_buffer_rc_dec(*data, *len, *cap, *elem_size, *elem_dec_fn);
+                    crate::ori_buffer_rc_dec(*data, *len, *cap, *elem_size, None);
                 }
             }
             IterState::Str {
