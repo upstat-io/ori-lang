@@ -48,21 +48,30 @@ alloc_set_hash_buffer, rehash_set, set COW propagation
 emit_iter_collect (builtins/iterator_consumers.rs), emit_iter_collect_set
 ori_args_from_argv (lib.rs, [str] buffer creation), ori_list_ensure_capacity (JIT-only)
 ori_list_new (JIT-only), ori_list_push (codegen-called), ABI sync points
-map double-free investigation, map_buffer_cleanup
+map double-free investigation, map_buffer_cleanup, key_inc_fn, val_inc_fn, elem_inc_fn
+branch-local RcDec, merge-edge cleanup, block_deferred, trampoline ABI, fat-pointer trampoline
+@main(args: [str]), generate_main_wrapper, ori_args_cleanup, invoke+landingpad, SEH unwind
+ori_set_remove_cow, ori_map_remove_cow, set intersection tombstone, set difference tombstone
+ori_map_insert_cow val_dec, ori_iter_collect elem_inc_fn, ori_iter_collect_set elem_inc_fn
+variant_construction.rs (extracted), cow_sort/ directory module, panic_trampoline.rs (extracted)
 compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs
 compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/map_builtins.rs
 compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/string_builtins.rs
 compiler/ori_llvm/src/codegen/arc_emitter/builtins/iterator_consumers.rs
+compiler/ori_llvm/src/codegen/arc_emitter/builtins/trampolines.rs
 compiler/ori_llvm/src/codegen/arc_emitter/rc_buffer_ops.rs
 compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs
 compiler/ori_llvm/src/codegen/arc_emitter/construction.rs
+compiler/ori_llvm/src/codegen/function_compiler/entry_point.rs
+compiler/ori_arc/src/aims/emit_rc/dead_cleanup.rs, edge_cleanup.rs, trampoline.rs
+compiler/ori_arc/src/aims/realize/emit_unified.rs
 compiler/ori_rt/src/rc/elem_header.rs (new — extracted element header helpers)
 compiler/ori_rt/src/iterator/sources.rs, compiler/ori_rt/src/iterator/state.rs
-compiler/ori_rt/src/list/cow.rs, cow_structural.rs, cow_sort.rs (list COW slow paths)
+compiler/ori_rt/src/list/cow.rs, cow_structural.rs, cow_sort/ (list COW slow paths)
 compiler/ori_rt/src/list/query.rs, slice.rs, mod.rs (non-COW buffer creation)
 compiler/ori_rt/src/set/cow/basic.rs, cow/algebra.rs, mod.rs (set COW slow paths)
-compiler/ori_rt/src/map/mod.rs (map-to-list functions, codegen-based key/val dec)
-compiler/ori_rt/src/string/ops.rs (ori_str_split, direct alloc, needs elem_dec_fn param)
+compiler/ori_rt/src/map/mod.rs, map/cow.rs (map-to-list, map insert/remove COW)
+compiler/ori_rt/src/string/ops.rs (ori_str_split, direct alloc)
 compiler/ori_rt/src/iterator/consumers.rs (ori_iter_collect, ori_iter_collect_set)
 ```
 
@@ -99,18 +108,22 @@ compiler/ori_llvm/src/evaluator/runtime_mappings.rs
 ---
 
 ### Section 04: Combinatorial Test Matrix
-**File:** `section-04-test-matrix.md` | **Status:** Not Started
+**File:** `section-04-test-matrix.md` | **Status:** In Progress
 
 ```
-fat_ptr_iter, combinatorial, cross-product, test matrix
-[str], [[int]], [Option<str>], [{name: str}], Set<str>, closure capture
-SSO/heap mixed strings, T1b
+fat_ptr_iter, combinatorial, cross-product, test matrix, file split, directory module
+T1-T9, F1-F14, M1-M4, type categories, language features, execution modes
+[str], [[int]], [[str]], [Option<str>], [{name: str}], Set<str>, {str: int}
+SSO/heap mixed strings, T1b, [Result<str, str>], [(str, int)]
 for-do, for-yield, for-break, for-continue, for-guard, slice iteration
 function parameter, nested loop, multi-call, COW interaction
 cow_push_str, collect_str, set_cow_insert, map_keys_str, str_split
-COW mutation, collection conversion, write_array_to_list
+COW mutation, collection conversion, write_array_to_list, method collect
+.iter().collect(), ori_iter_collect, elem_inc_fn, set remove, map remove
+set intersection, set difference, map insert overwrite, @main(args: [str])
 valgrind, ORI_CHECK_LEAKS, dual-exec, behavioral equivalence, release build
-compiler/ori_llvm/tests/aot/fat_ptr_iter.rs, tests/valgrind/fat_ptr_iter/
+semantic pin, iter_rc overlap, decorative banners, #[expect] lint discipline
+compiler/ori_llvm/tests/aot/fat_ptr_iter/, tests/valgrind/fat_ptr_iter/
 ```
 
 ---
@@ -119,10 +132,13 @@ compiler/ori_llvm/tests/aot/fat_ptr_iter.rs, tests/valgrind/fat_ptr_iter/
 **File:** `section-05-verification.md` | **Status:** Not Started
 
 ```
-test-all.sh, clippy-all.sh, valgrind, ORI_CHECK_LEAKS
+test-all.sh, clippy-all.sh, valgrind, ORI_CHECK_LEAKS, dual-exec-verify.sh
 code journey, J15, J16, J17, re-run, score
-unignore, remove #[ignore], regression guard
-fat-pointer-hardening Section 01.2 complete
+unignore, remove #[ignore], regression guard, release build verification
+documentation, runtime.md, data-structures.md, reference-counting.md
+stale header references, V3, V4, V5, 16-byte, 24-byte, 32-byte
+fat-pointer-hardening, rc-integrity, iter-rc-contract, plans update
+.claude/rules/runtime.md, plan status update
 ```
 
 ---

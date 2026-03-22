@@ -350,4 +350,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.emit_rt_call(func_id, &[ptr, drop_fn], "");
         }
     }
+
+    /// Call `ori_str_rc_dec(data_ptr, cap, drop_fn)` — handles SSO, heap, and slices.
+    pub(super) fn call_str_rc_dec(
+        &mut self,
+        data_ptr: super::ValueId,
+        cap: super::ValueId,
+        drop_fn: super::ValueId,
+    ) {
+        let func_id = self.builder.runtime_fn("ori_str_rc_dec");
+        self.emit_rt_call(func_id, &[data_ptr, cap, drop_fn], "");
+    }
 }

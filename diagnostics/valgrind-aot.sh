@@ -2,13 +2,15 @@
 # Run AOT-compiled Ori programs under Valgrind to detect memory errors.
 #
 # Usage:
-#   diagnostics/valgrind-aot.sh [options] [file.ori|directory ...]
+#   diagnostics/valgrind-aot.sh [options] [file.ori|directory ...] [-- args...]
 #
 # Options:
 #   --journeys         Run all code journey .ori files in plans/code-journeys/
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
 #   -h, --help         Show this help
+#
+# Arguments after -- are passed to the compiled binary (useful for @main(args:)).
 #
 # When no files are given, runs all .ori files in tests/valgrind/.
 #
@@ -35,6 +37,7 @@ source "$SCRIPT_DIR/_common.sh"
 USE_COLOR=auto
 FILES=()
 USE_JOURNEYS=0
+BINARY_ARGS=()
 
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
@@ -42,6 +45,7 @@ while [[ $# -gt 0 ]]; do
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
         --journeys) USE_JOURNEYS=1; shift ;;
+        --) shift; BINARY_ARGS=("$@"); break ;;
         -h|--help)
             sed -n '2,/^$/{ s/^# \?//; p }' "$0"
             exit 0
@@ -177,7 +181,7 @@ run_one() {
         --errors-for-leak-kinds=definite \
         --error-exitcode=42 \
         --log-file="$val_log" \
-        "$binary" >/dev/null 2>&1; echo $?) || true
+        "$binary" ${BINARY_ARGS[@]+"${BINARY_ARGS[@]}"} >/dev/null 2>&1; echo $?) || true
 
     if [[ "$exit_code" -eq 0 ]]; then
         printf "  %b  %s\n" "$SYM_PASS" "$name"

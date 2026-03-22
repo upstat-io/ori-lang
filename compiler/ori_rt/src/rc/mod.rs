@@ -271,6 +271,43 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     }
 }
 
+/// Decrement a string value's reference count, handling SSO, heap, and slices.
+///
+/// Strings may be:
+/// - SSO (`data_ptr` has high bit set or is null) → skip
+/// - Heap (cap >= 0) → `ori_rc_dec(data_ptr, drop_fn)`
+/// - Seamless slice (cap < 0, `SLICE_FLAG`) → compute original buffer pointer
+///   from the slice offset encoded in `cap`, then `ori_rc_dec(original, drop_fn)`
+///
+/// This mirrors `ori_buffer_rc_dec`'s slice handling for list buffers.
+#[no_mangle]
+pub extern "C" fn ori_str_rc_dec(
+    data_ptr: *mut u8,
+    cap: i64,
+    drop_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if data_ptr.is_null() {
+        return;
+    }
+
+    // SSO check: high bit (bit 63) of the data pointer field is set for SSO strings.
+    // In OriStr, SSO strings store the data inline, and the "data pointer" field
+    // is actually the last 8 bytes of inline data with the high bit set as a flag.
+    if (data_ptr as usize) & (1_usize << 63) != 0 {
+        return;
+    }
+
+    if crate::slice_encoding::is_slice_cap(cap) {
+        // Seamless slice: data_ptr is an interior pointer into the original
+        // string's RC allocation. Compute the original data pointer and dec that.
+        let original = crate::slice_encoding::slice_original_data(data_ptr, cap);
+        ori_rc_dec(original, drop_fn);
+    } else {
+        // Normal heap string: data_ptr is the start of an RC allocation.
+        ori_rc_dec(data_ptr, drop_fn);
+    }
+}
+
 /// Call a drop function with abort-on-panic guard.
 ///
 /// `ori_rc_dec` is declared `nounwind` in LLVM IR, meaning unwinding through

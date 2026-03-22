@@ -40,7 +40,7 @@ sections:
 
 ## 05.1 Verify Test Stability
 
-**File:** `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs`
+**File:** `compiler/ori_llvm/tests/aot/fat_ptr_iter/` (directory module after Section 04.0 split)
 
 - [ ] Verify `test_str_list_passed_to_two_functions` (currently active, not ignored) passes reliably
 - [ ] Verify `test_nested_list_iteration` (currently active, not ignored) passes reliably
@@ -54,7 +54,7 @@ sections:
 - [ ] `./clippy-all.sh` — zero warnings
 - [ ] `./fmt-all.sh` — no formatting changes
 - [ ] `cargo b --release` — release build succeeds
-- [ ] `timeout 150 cargo test -p ori_llvm --test aot` with release binary — all AOT tests pass in release mode
+- [ ] `timeout 150 cargo test -p ori_llvm --test aot --release` with release binary — all AOT tests pass in release mode
 - [ ] `diagnostics/valgrind-aot.sh` — zero errors on default test set
 - [ ] `diagnostics/dual-exec-verify.sh` — behavioral equivalence for all spec tests
 
@@ -77,7 +77,7 @@ Re-run code journeys J15-J17 to verify improved scores.
 - [ ] Update `plans/fat-pointer-hardening/section-01-iterator-ownership.md` — check off items completed by this plan
 - [ ] Update `plans/rc-integrity/section-02-leak-fixes.md` — check off items related to element cleanup
 - [ ] Add CLAUDE.md memory entry for the RC Header V5 layout change (32 bytes, 4 fields: data_size, elem_dec_fn, elem_count, strong_count)
-- [ ] Update `.claude/rules/runtime.md`: the "RefCount" row references "8-byte header, `drop_fn` for children" -- update to "32-byte header (V5), `elem_dec_fn` + `elem_count` in header for element cleanup". The current "8-byte" is wrong even for V3 (was 16 bytes) -- fix the full drift from V3 to V5 in one pass.
+- [ ] Update `.claude/rules/runtime.md`: the "RefCount" row references "8-byte header, `drop_fn` for children" -- update to "32-byte V5 header: `data_size`, `elem_dec_fn`, `elem_count`, `strong_count`; `drop_fn` for non-buffer RC objects". The current "8-byte" is wrong even for V3 (was 16 bytes) -- fix the full drift from V3 to V5 in one pass. Also add `ori_buffer_store_elem_dec` and `ori_buffer_store_elem_count` to the Functions table. (See also Cleanup [DRIFT] item below — same file, consolidated into one pass.)
 - [ ] Update `docs/compiler/design/11-runtime/data-structures.md`: update layout diagram, header size, and add `elem_dec_fn` + `elem_count` field documentation (V5 = 32 bytes)
 - [ ] Update `docs/compiler/design/11-runtime/reference-counting.md`: update all V3 references to V5, layout diagrams, size calculations (32 bytes, 4 fields)
 - [ ] Update `plans/value-semantics-optimization/section-05-seamless-slices.md`: references `RC_HEADER_SIZE = 16` at line 275 and `original_data - RC_HEADER_SIZE` throughout -- update to 32
@@ -88,7 +88,7 @@ Re-run code journeys J15-J17 to verify improved scores.
 
 ### Cleanup
 
-- [ ] **[DRIFT]** `.claude/rules/runtime.md` line 29 -- The "RefCount" row says "8-byte header" which was already wrong for V3 (should be "16-byte header"). Fix the full drift from V3 to V5 in one pass. Update to: `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free` (32-byte V5 header: `data_size`, `elem_dec_fn`, `elem_count`, `strong_count`; `drop_fn` for non-buffer RC objects). Also add `ori_buffer_store_elem_dec`, `ori_buffer_store_elem_count` to the Functions table.
+- [ ] **[DRIFT]** `.claude/rules/runtime.md` line 29 -- Consolidated with 05.4 bullet above. Same file, same fix — update "8-byte header" to V5 (32-byte) in one pass.
 - [ ] **[NOTE]** `compiler/ori_rt/src/rc/mod.rs` -- The V5 layout comment (lines 46-62) is already compact and matches the module doc (lines 1-8). No consolidation needed.
 
 ---
@@ -103,7 +103,7 @@ Re-run code journeys J15-J17 to verify improved scores.
 
 - [ ] Zero `#[ignore]` tests related to fat pointer iteration
 - [ ] All tests pass (`timeout 150 ./test-all.sh`)
-- [ ] All tests pass in release mode (`cargo b --release && timeout 150 cargo test -p ori_llvm --test aot`)
+- [ ] All tests pass in release mode (`cargo b --release && timeout 150 cargo test -p ori_llvm --test aot --release`)
 - [ ] Valgrind clean on all `tests/valgrind/fat_ptr_iter/` programs with release binary
 - [ ] All code journeys re-run with improved or maintained scores
 - [ ] Documentation updated (runtime rules, design docs, referenced plan files)
