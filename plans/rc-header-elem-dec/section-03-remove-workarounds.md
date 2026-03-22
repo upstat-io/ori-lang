@@ -1,12 +1,12 @@
 ---
 section: "03"
 title: "Remove Workarounds & Simplify"
-status: in-progress
+status: complete
 goal: "Remove the phantom __for_coll_N binding, exit-block dummy references, and for-yield coll_param threading, simplifying the ARC lowering"
 depends_on: ["02"]
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-22
 sections:
   - id: "03.1"
@@ -26,15 +26,15 @@ sections:
     status: complete
   - id: "03.R"
     title: "Third Party Review Findings"
-    status: in-progress
+    status: complete
   - id: "03.N"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 03: Remove Workarounds & Simplify
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** With elem_dec_fn stored in the RC header, the ordering workarounds in the ARC lowering are no longer needed. Remove them to simplify the code.
 
 **Depends on:** Section 02 (codegen must use header-based cleanup first).
@@ -150,15 +150,11 @@ With the header storing `elem_dec_fn`, the parameter in `ori_iter_from_list` and
 
 ## 03.R Third Party Review Findings
 
-- [ ] `[TPR-03-002][low]` `plans/rc-header-elem-dec/section-03-remove-workarounds.md:4` — Section 03 status metadata contradicts the document body and index.
-  Evidence: Frontmatter marks the section `complete` and `third_party_review.status: resolved`, and `plans/rc-header-elem-dec/index.md` still shows Section 03 as `Status: Complete`, but the section body still says `**Status:** In Progress`.
-  Impact: Readers cannot tell whether Section 03 is actually closed, so the review state is hidden behind conflicting metadata.
-  Required plan update: Align the section frontmatter, body status text, and index entry in one edit when the section is truly complete, or keep the section reopened until they agree.
+- [x] `[TPR-03-002][low]` `plans/rc-header-elem-dec/section-03-remove-workarounds.md:4` — Section 03 status metadata contradicts the document body and index.
+  Resolved: Aligned frontmatter (`status: complete`, `third_party_review.status: resolved`), body status text (`**Status:** Complete`), and index entry on 2026-03-22.
 
-- [ ] `[TPR-03-003][low]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs:118` — `emit_list_iter`'s doc comment still claims the function explicitly emits `ori_list_rc_inc`, but the implementation no longer does that.
-  Evidence: `list_builtins.rs:118-121` says the function explicitly emits `ori_list_rc_inc`, while the implementation only calls `ori_iter_from_list`; the RC handoff is handled by ARC arg-ownership/auto-iter logic instead of an in-function `ori_list_rc_inc`.
-  Impact: The comment misstates the ownership contract at a fragile iterator boundary, increasing the risk of future duplicate-inc or missing-inc changes.
-  Required plan update: Update the doc comment to describe the actual ownership path and remove the nonexistent `ori_list_rc_inc` claim.
+- [x] `[TPR-03-003][low]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs:118` — `emit_list_iter`'s doc comment still claims the function explicitly emits `ori_list_rc_inc`, but the implementation no longer does that.
+  Resolved: Updated doc comment on 2026-03-22 to describe the actual ownership path — caller is responsible for RC inc (via ARC arg-ownership or `emit_slice_aware_rc_inc` in `emit_auto_iter`).
 
 - [x] `[TPR-03-001][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/mod.rs:397` — Auto-iterator promotion still routes `Set` receivers through `emit_list_iter`, so methods like `Set.fold()` still iterate the hash-table buffer as if it were a contiguous list.
   Resolved: Validated and fixed on 2026-03-22. Split `TypeInfo::List | TypeInfo::Set` match arm in `emit_auto_iter()` so `Set` routes through `emit_set_iter()`. Added 5 semantic pin tests: `set_auto_fold`, `set_auto_count`, `set_auto_any`, `set_auto_all`, `set_str_auto_fold`.
