@@ -1,0 +1,15 @@
+// Valgrind: T6-F1 — [Result<str, str>] iteration with variant-dependent cleanup
+@main () -> int = {
+    let items: [Result<str, str>] = [
+        Ok("this string exceeds SSO threshold by being very long indeed"),
+        Err("error message that is also long enough to exceed SSO limit"),
+        Ok("another success string that exceeds the SSO threshold here")
+    ];
+    let ok_count = 0;
+    for r in items do {
+        if r.is_ok() then {
+            ok_count += 1;
+        }
+    };
+    if ok_count == 2 then 0 else 1
+}

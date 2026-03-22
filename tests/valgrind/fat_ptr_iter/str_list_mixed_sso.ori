@@ -1,0 +1,15 @@
+// Valgrind: T1b-F1 — [str] with mixed SSO/heap strings
+@main () -> int = {
+    let words = [
+        "hi",
+        "this string exceeds SSO threshold by being very long indeed",
+        "ok",
+        "another very long string that also exceeds the SSO threshold",
+        "x"
+    ];
+    let total = 0;
+    for w in words do {
+        total += w.len();
+    };
+    if total == 124 then 0 else 1
+}

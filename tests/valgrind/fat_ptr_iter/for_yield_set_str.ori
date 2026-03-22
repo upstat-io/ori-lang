@@ -1,0 +1,15 @@
+// Valgrind: for-yield on Set<str> — exercises emit_set_iter under for-yield
+@main () -> int = {
+    let s: Set<str> = [
+        "alpha string that is long enough to exceed SSO",
+        "beta string that is also long enough to exceed",
+        "gamma string with sufficient length for heap too"
+    ].iter().collect();
+    let lengths = for item in s yield item.len();
+    let total = 0;
+    for n in lengths do {
+        total += n;
+    };
+    // 46 + 46 + 48 = 140
+    if total == 140 then 0 else 1
+}

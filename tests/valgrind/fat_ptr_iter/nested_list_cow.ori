@@ -1,0 +1,17 @@
+// Valgrind: T2-F11 — [[int]] COW push on shared outer list
+@main () -> int = {
+    let original = [[1, 2], [3, 4]];
+    let shared = original;
+    shared = shared.push(value: [5, 6]);
+    let total_orig = 0;
+    for sublist in original do {
+        total_orig += sublist.len();
+    };
+    let total_shared = 0;
+    for sublist in shared do {
+        total_shared += sublist.len();
+    };
+    if total_orig == 4 then {
+        if total_shared == 6 then 0 else 1
+    } else 1
+}

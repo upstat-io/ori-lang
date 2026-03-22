@@ -181,12 +181,12 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     let a_len = a_bytes.len();
     let b_len = b_bytes.len();
 
-    // Short-circuit: empty operands
+    // Short-circuit: empty operands — must return owned copy, not alias
     if b_len == 0 {
-        return *a_ref;
+        return OriStr::from_bytes(a_bytes);
     }
     if a_len == 0 {
-        return *b_ref;
+        return OriStr::from_bytes(b_bytes);
     }
 
     let combined = a_len + b_len;
@@ -214,7 +214,11 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     //   cleanly frees the old allocation.
     if !a_ref.is_sso() {
         let heap = unsafe { &a_ref.heap };
-        if !heap.data.is_null() && ori_rc_is_unique(heap.data) && (heap.cap as usize) >= combined {
+        if !heap.data.is_null()
+            && !is_slice_cap(heap.cap)
+            && ori_rc_is_unique(heap.data)
+            && (heap.cap as usize) >= combined
+        {
             // Case 2: has capacity -- append in place, inc RC for caller's dec
             unsafe {
                 std::ptr::copy_nonoverlapping(b_bytes.as_ptr(), heap.data.add(a_len), b_len);
@@ -236,7 +240,13 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     let a_cap = if a_ref.is_sso() {
         0
     } else {
-        unsafe { a_ref.heap.cap as usize }
+        let cap = unsafe { a_ref.heap.cap };
+        // Slice caps have SLICE_FLAG set — not a real capacity
+        if is_slice_cap(cap) {
+            0
+        } else {
+            cap as usize
+        }
     };
     let new_cap = next_capacity(a_cap, combined);
     let new_data = ori_rc_alloc(new_cap, 1);
