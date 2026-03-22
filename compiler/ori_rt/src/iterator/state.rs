@@ -114,12 +114,13 @@ pub(crate) enum IterState {
     /// Iterates over a UTF-8 string, yielding Unicode codepoints (i32/char).
     ///
     /// When `owns_data` is true, the iterator holds an RC reference to the
-    /// string data and `Drop` calls `ori_buffer_rc_dec` to release it (dec
-    /// refcount + free when rc reaches 0). When false (e.g., Rust unit
-    /// tests), no cleanup is performed.
+    /// string data and `Drop` calls `ori_str_rc_dec` to release it. The `cap`
+    /// field carries the string's capacity (with possible `SLICE_FLAG`) so that
+    /// slice strings from `str.split()` are cleaned up correctly.
     Str {
         data: *mut u8,
         len: i64,
+        cap: i64,
         byte_offset: i64,
         owns_data: bool,
     },
@@ -174,17 +175,27 @@ impl Drop for IterState {
             }
             IterState::Str {
                 data,
-                len,
+                cap,
                 owns_data,
                 ..
             } => {
-                // String data is allocated via ori_rc_alloc (in ori_str_from_raw),
-                // so we must use ori_buffer_rc_dec to both dec the refcount AND
-                // free the memory when rc reaches 0. ori_rc_dec alone only decs
-                // the refcount without freeing.
-                // len=0 (no inner RC elements), cap=string byte length, elem_size=1.
                 if *owns_data && !data.is_null() {
-                    crate::ori_buffer_rc_dec(*data, 0, *len, 1, None);
+                    if crate::slice_encoding::is_slice_cap(*cap) {
+                        // Seamless slice from str.split(): data is an interior
+                        // pointer. Compute original buffer and dec its RC.
+                        // ori_buffer_rc_dec handles free on rc=0 using
+                        // stored data_size.
+                        let original = crate::slice_encoding::slice_original_data(*data, *cap);
+                        // len=0 (no inner RC elements), cap=data_size (from
+                        // header), elem_size=1.
+                        let data_size = crate::ori_rc_data_size(original.cast_const());
+                        crate::ori_buffer_rc_dec(original, 0, data_size, 1, None);
+                    } else {
+                        // Regular heap string or SSO copy: data is the start
+                        // of an RC allocation. cap is the byte capacity.
+                        // len=0 (no inner RC elements), elem_size=1.
+                        crate::ori_buffer_rc_dec(*data, 0, *cap, 1, None);
+                    }
                 }
             }
             IterState::Map {

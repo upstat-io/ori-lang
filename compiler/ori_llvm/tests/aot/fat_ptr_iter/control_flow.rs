@@ -211,3 +211,155 @@ fn test_matrix_str_nested_unwind() {
         "matrix_str_nested_unwind",
     );
 }
+
+// F4: For-guard (for x in coll if predicate do body)
+
+/// T1-F4: [str] for-do with guard — elements failing the guard must be cleaned up.
+#[test]
+fn test_str_list_for_do_guard() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "short",
+        "this is a very long string that exceeds SSO threshold",
+        "tiny",
+        "another very long string that also exceeds the threshold"
+    ];
+    let total = 0;
+    for w in words if w.len() > 10 do {
+        total = total + w.len();
+    };
+    // Only the two long strings: 53 + 56 = 109
+    if total == 109 then 0 else 1
+}
+"#,
+        "str_list_for_do_guard",
+    );
+}
+
+/// T2-F4: [[int]] for-do with guard — inner list elements skipped by guard cleaned up.
+#[test]
+fn test_nested_list_for_do_guard() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let lists = [[1, 2, 3], [10, 20, 30], [4, 5]];
+    let total = 0;
+    for inner in lists if inner.len() == 3 do {
+        for n in inner do {
+            total = total + n;
+        };
+    };
+    // [1,2,3] (len=3): 6. [10,20,30] (len=3): 60. [4,5] (len=2): skipped.
+    if total == 66 then 0 else 1
+}
+"#,
+        "nested_list_for_do_guard",
+    );
+}
+
+// F7: Continue (skip element)
+
+/// T1-F7: [str] for-do with continue — skipped str elements must be cleaned up.
+#[test]
+fn test_str_list_for_do_continue() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "skip this very long string because starts with skip xx",
+        "another very long string that also exceeds the threshold"
+    ];
+    let total = 0;
+    for w in words do {
+        if w.starts_with(prefix: "skip") then { continue; };
+        total = total + w.len();
+    };
+    // First (53) + third (56) = 109, skip middle.
+    if total == 109 then 0 else 1
+}
+"#,
+        "str_list_for_do_continue",
+    );
+}
+
+/// T2-F7: [[int]] for-do with continue — skipped inner lists must be cleaned up.
+#[test]
+fn test_nested_list_for_do_continue() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let lists = [[1, 2, 3], [100, 200], [4, 5, 6]];
+    let total = 0;
+    for inner in lists do {
+        if inner.len() == 2 then { continue; };
+        for n in inner do {
+            total = total + n;
+        };
+    };
+    // [1,2,3] = 6, skip [100,200], [4,5,6] = 15. Total = 21.
+    if total == 21 then 0 else 1
+}
+"#,
+        "nested_list_for_do_continue",
+    );
+}
+
+// F8: Iteration in match arm
+
+/// T1-F8: [str] iteration inside a match arm — cleanup regardless of which arm executes.
+#[test]
+fn test_str_list_iteration_in_match() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let maybe_words: Option<[str]> = Some([
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ]);
+    let total = match maybe_words {
+        Some(words) -> {
+            let t = 0;
+            for w in words do {
+                t = t + w.len();
+            };
+            t
+        },
+        None -> 0
+    };
+    // 53 + 56 = 109
+    if total == 109 then 0 else 1
+}
+"#,
+        "str_list_iteration_in_match",
+    );
+}
+
+// F9: Slice iteration
+
+/// T1-F9: [str] slice iteration — create list, take slice, iterate slice.
+/// Verifies `elem_dec_fn` is read from the ORIGINAL buffer's header.
+#[test]
+fn test_str_list_slice_iteration() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold",
+        "third very long string also well exceeding SSO threshold"
+    ];
+    let slice = words.slice(start: 0, end: 2);
+    let total = 0;
+    for w in slice do {
+        total = total + w.len();
+    };
+    // First two: 53 + 56 = 109
+    if total == 109 then 0 else 1
+}
+"#,
+        "str_list_slice_iteration",
+    );
+}

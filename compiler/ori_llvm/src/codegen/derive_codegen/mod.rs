@@ -15,6 +15,7 @@
 //! with payload comparison for payload variants planned).
 
 mod bodies;
+mod clone_rc;
 mod enum_bodies;
 mod field_ops;
 mod string_helpers;

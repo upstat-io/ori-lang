@@ -271,6 +271,35 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     }
 }
 
+/// Increment a string value's reference count, handling SSO, heap, and slices.
+///
+/// Strings may be:
+/// - SSO (`data_ptr` has high bit set or is null) → skip
+/// - Heap (cap >= 0) → `ori_rc_inc(data_ptr)`
+/// - Seamless slice (cap < 0, `SLICE_FLAG`) → compute original buffer pointer
+///   from the slice offset encoded in `cap`, then `ori_rc_inc(original)`
+///
+/// Symmetric to [`ori_str_rc_dec`]. Used by codegen for string values that may
+/// be seamless slices from `str.split()`.
+#[no_mangle]
+pub extern "C" fn ori_str_rc_inc(data_ptr: *mut u8, cap: i64) {
+    if data_ptr.is_null() {
+        return;
+    }
+
+    // SSO check: high bit (bit 63) of the data pointer field is set for SSO strings.
+    if (data_ptr as usize) & (1_usize << 63) != 0 {
+        return;
+    }
+
+    if crate::slice_encoding::is_slice_cap(cap) {
+        let original = crate::slice_encoding::slice_original_data(data_ptr, cap);
+        ori_rc_inc(original);
+    } else {
+        ori_rc_inc(data_ptr);
+    }
+}
+
 /// Decrement a string value's reference count, handling SSO, heap, and slices.
 ///
 /// Strings may be:
