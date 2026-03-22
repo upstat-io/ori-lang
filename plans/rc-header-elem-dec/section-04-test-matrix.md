@@ -197,7 +197,7 @@ Create standalone `.ori` programs for Valgrind testing (separate from the Rust A
 ### Cleanup
 
 - [ ] **[STYLE]** `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs` -- Remove all decorative `// -----------------------------------------------------------------------` banners. Replace with plain section comments. Apply during the directory-module split.
-- [ ] **[BLOAT]** `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs` -- Split into directory module with subfiles by category when adding the test matrix (see warning above). Target structure: `fat_ptr_iter/mod.rs` + category files.
+- [ ] **[BLOAT]** `compiler/ori_llvm/tests/aot/fat_ptr_iter.rs` -- Currently 2211 lines (4.4x the 500-line limit). Split into directory module with subfiles by category when adding the test matrix (see warning above). Target structure: `fat_ptr_iter/mod.rs` + category files. Split MUST happen BEFORE adding new tests, not after.
 
 ---
 

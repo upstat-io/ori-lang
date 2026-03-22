@@ -31,7 +31,7 @@ sections:
 
 # Section 01: RC Header Extension
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Extend the RC allocation header to store `elem_dec_fn` and `elem_count`, ensuring element cleanup happens regardless of which `ori_buffer_rc_dec` call reaches zero.
 
 **Context:** The original RC header was 16 bytes (V3): `[data_size: i64 | strong_count: i64]`. This section extended it through V4 (24 bytes, adding `elem_dec_fn`) to V5 (32 bytes, adding `elem_count`). The final V5 layout is: `[data_size: i64 | elem_dec_fn: ptr | elem_count: i64 | strong_count: i64 | data]` = 32 bytes. The key invariant is that `strong_count` remains at `data_ptr - 8` -- all existing RC operations (`ori_rc_inc`, `ori_rc_dec`, `ori_rc_count`, `ori_rc_is_unique`, `ori_buffer_rc_dec`) rely on this.

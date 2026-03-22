@@ -123,7 +123,6 @@ impl ArcLowerer<'_> {
                 func_name: self.func_name,
                 variant_ctors: self.variant_ctors,
                 type_subst: self.type_subst,
-                for_coll_counter: 0,
                 return_type: body_ty,
             };
             let result = lambda_lowerer.lower_expr(body);

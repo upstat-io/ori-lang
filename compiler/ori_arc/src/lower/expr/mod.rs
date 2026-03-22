@@ -44,9 +44,6 @@ pub(crate) struct ForYieldContext {
     pub elem_size: crate::ir::ArcVarId,
     /// Interned `"ori_list_push"` name.
     pub list_push_name: Name,
-    /// Collection phantom parameter from the header block (if present).
-    /// Prepended to exit/header jump args for RC cleanup ordering.
-    pub coll_param: Option<crate::ir::ArcVarId>,
 }
 
 // ArcLowerer
@@ -105,11 +102,6 @@ pub(crate) struct ArcLowerer<'a> {
     /// the substitution so the ARC lowerer emits type-specific RC operations.
     /// `None` for non-generic functions (zero overhead).
     pub(crate) type_subst: Option<&'a FxHashMap<Idx, Idx>>,
-    /// Counter for generating unique `__for_coll_N` phantom names.
-    ///
-    /// Prevents name collisions in nested for-loops where each level
-    /// needs its own collection phantom binding.
-    pub(crate) for_coll_counter: u32,
 }
 
 impl ArcLowerer<'_> {

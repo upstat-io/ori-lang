@@ -165,7 +165,6 @@ pub fn lower_function_can(
         func_name: name,
         variant_ctors: &variant_ctors,
         type_subst,
-        for_coll_counter: 0,
         return_type,
     };
 

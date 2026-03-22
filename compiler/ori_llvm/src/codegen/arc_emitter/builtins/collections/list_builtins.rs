@@ -140,11 +140,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
 
-        // Pass the real elem_dec_fn so that ANY final RcDec (whether from
-        // the AIMS pipeline or from ori_iter_drop) properly cleans up
-        // element-level RC. Previously NULL was passed here, relying on
-        // the __for_coll phantom mechanism — but for-yield and other paths
-        // where ori_iter_drop IS the final dec need the real function.
+        // Pass the real elem_dec_fn as defense-in-depth. The V5 RC header
+        // also stores elem_dec_fn at construction time, and ori_buffer_rc_dec
+        // reads it from the header. This parameter provides a redundant copy
+        // that ori_iter_from_list stores via store_elem_dec_fn_once.
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
         self.emit_rt_call(

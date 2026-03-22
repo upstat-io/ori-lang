@@ -76,7 +76,7 @@ fn emit_defined_dead(
     // was never consumed, so no independent RC obligation exists:
     //
     // - Parameter-borrowed: caller handles cleanup via own→borrow
-    //   reconciliation (e.g., __for_coll phantom threading).
+    //   reconciliation (e.g., mutable variable SSA threading).
     // - Project-borrowed: parent aggregate's AggFields/Drop handles
     //   field cleanup. Ghost copies (Let aliases of Project results
     //   threaded through block params) create no RC obligation.

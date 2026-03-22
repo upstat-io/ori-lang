@@ -28,7 +28,7 @@ sections:
 
 # Section 02: Codegen & Runtime Integration
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Wire up LLVM codegen to store `elem_dec_fn` and `elem_count` in the RC header at collection construction time. Ensure all buffer-freeing paths (COW slow paths, collect, slice materialization) propagate both fields to newly allocated buffers.
 
 **Depends on:** Section 01 (RC header must be extended first).
