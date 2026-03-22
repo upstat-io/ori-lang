@@ -130,8 +130,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_llvm_ty = self.resolve_type(element_type);
         let elem_val = self.builder.load(elem_llvm_ty, elem_ptr, "elem");
 
-        // Dec all RC children of the element value
-        self.dec_value_rc(elem_val, element_type);
+        // For str elements, use ori_str_rc_dec which handles seamless slices
+        // from str.split(). Normal dec_value_rc calls ori_rc_dec on the data
+        // pointer, but for slices the data pointer is an interior pointer into
+        // the original string's allocation — not the start of an RC block.
+        // Spec: ori_str_rc_dec checks SSO, SLICE_FLAG in cap, then delegates.
+        let resolved = self.pool.resolve_fully(element_type);
+        let tag = self.pool.tag(resolved);
+        if tag == ori_types::Tag::Str {
+            if let Some(dp) = self.builder.extract_value(elem_val, 2, "elem.data") {
+                let do_dec = self
+                    .builder
+                    .append_block(self.current_function, "elem_dec.str_heap");
+                let skip = self
+                    .builder
+                    .append_block(self.current_function, "elem_dec.str_skip");
+                let is_sso = self.emit_sso_check(dp, "elem_dec.str");
+                self.builder.cond_br(is_sso, skip, do_dec);
+
+                self.builder.position_at_end(do_dec);
+                let drop_fn = self.get_or_generate_drop_fn(element_type);
+                let cap = self
+                    .builder
+                    .extract_value(elem_val, 1, "elem.cap")
+                    .expect("str must have cap field");
+                self.call_str_rc_dec(dp, cap, drop_fn);
+                self.builder.br(skip);
+
+                self.builder.position_at_end(skip);
+            }
+        } else {
+            // Dec all RC children of the element value
+            self.dec_value_rc(elem_val, element_type);
+        }
 
         self.builder.ret_void();
         func_id
