@@ -1,20 +1,23 @@
 ---
 section: "03"
 title: "Remove Workarounds & Simplify"
-status: not-started
-goal: "Remove the phantom __for_coll_N binding and exit-block dummy reference, simplifying the ARC lowering"
+status: in-progress
+goal: "Remove the phantom __for_coll_N binding, exit-block dummy references, and for-yield coll_param threading, simplifying the ARC lowering"
 depends_on: ["02"]
-reviewed: false
+reviewed: true
 third_party_review:
   status: none
   updated: null
 sections:
   - id: "03.1"
     title: "Remove Phantom Binding from lower_for"
-    status: not-started
+    status: complete
+  - id: "03.1.5"
+    title: "Remove For-Yield Collection Threading"
+    status: complete
   - id: "03.2"
     title: "Remove Dummy Reference from lower_for_iterator"
-    status: not-started
+    status: complete
   - id: "03.2.5"
     title: "Remove Dead elem_dec_fn Parameter from Iterator API"
     status: not-started
@@ -31,10 +34,12 @@ sections:
 
 # Section 03: Remove Workarounds & Simplify
 
-**Status:** Not Started
+**Status:** In Progress
 **Goal:** With elem_dec_fn stored in the RC header, the ordering workarounds in the ARC lowering are no longer needed. Remove them to simplify the code.
 
 **Depends on:** Section 02 (codegen must use header-based cleanup first).
+
+**Ordering within this section:** Steps 03.1, 03.1.5, and 03.2 remove the for-loop workarounds and MUST be done together (they share state: `for_coll_counter`, `ForYieldContext::coll_param`, and `__for_coll_N` bindings). Step 03.2.5 (removing `elem_dec_fn` from the iterator API) is an independent change that can be done before or after the workaround removal, but doing it last is recommended to keep the removal steps focused and testable as a single unit.
 
 ---
 
@@ -46,21 +51,48 @@ The phantom `__for_coll_N` mutable binding was added to thread the collection th
 
 **Note**: The source code comment at `loops.rs:169-176` says the phantom is needed for "List, Set, Map", but the actual match expression at line 177 only handles `List | Set` — Map is excluded. This is a pre-existing documentation bug in the source code.
 
-- [ ] Remove the `needs_phantom` check and `scope.bind_mutable(coll_name, iter_val)` block (lines ~177-184 in `loops.rs`)
-- [ ] Remove the comments explaining the workaround (lines 169-176)
-- [ ] Also remove/update the `__for_coll` references in `list_builtins.rs` (lines ~118 and ~142) — comments referencing the phantom binding workaround
-- [ ] Verify: the `__for_coll` name is not referenced anywhere else in the codebase (`grep -r "__for_coll"`)
+- [x] Remove the `needs_phantom` check and `scope.bind_mutable(coll_name, iter_val)` block (lines 177-184 in `loops.rs`) (2026-03-21)
+- [x] Remove the comments explaining the workaround (lines 169-176) (2026-03-21)
+- [x] Verify: the `__for_coll` name is not referenced anywhere else in the compiler (`grep -r "__for_coll" compiler/` → 0 results) (2026-03-21)
+- [x] **[BUG FIX]** Set.iter() was using `emit_list_iter` directly, treating the hash table as a contiguous array — exposed by phantom removal. Fixed: `emit_set_iter` now converts via `ori_set_to_list` + explicit set buffer `ori_set_buffer_rc_dec` (2026-03-21)
 
-### Cleanup
+### Cleanup (03.1)
 
-- [ ] **[WASTE]** `compiler/ori_arc/src/lower/control_flow/loops.rs:169-184` -- Comment says "List, Set, Map" but code at line 177 only matches `List | Set`. After removing the phantom binding, delete both the stale comment and the code. ALL locations referencing `__for_coll` must be updated:
-  - [ ] `loops.rs:180-184` — phantom binding creation code (primary removal target)
-  - [ ] `for_iterator.rs:192-207` — dummy reference after `ori_iter_drop` (Section 03.2 handles this)
-  - [ ] `for_yield.rs:62` — doc comment referencing `__for_coll` phantom (update or remove)
-  - [ ] `expr/mod.rs:108-111` — `for_coll_counter` field and its doc comment (remove field entirely)
-  - [ ] `borrowed_defs.rs:208-209` — doc comment on `propagate_borrowed_closure` references `__for_coll` as the motivating use case. The function itself is generic (propagates borrowed-ness through Let aliases and Jump arg-to-param flows) and does NOT depend on `__for_coll` — only the comment mentions it. Update comment to describe the general mechanism without referencing the removed phantom.
-  - [ ] `walk_dec.rs:79` — comment referencing `__for_coll` phantom threading (update)
-  - [ ] `list_builtins.rs:142` — comment referencing `__for_coll` phantom mechanism (update to reference header-based approach)
+- [x] **[WASTE]** `compiler/ori_arc/src/lower/control_flow/loops.rs:169-184` — Removed phantom binding code and stale comment. ALL `__for_coll` references updated:
+  - [x] `loops.rs:177-184` — phantom binding creation code removed (2026-03-21)
+  - [x] `for_iterator.rs:192-207` — dummy reference after `ori_iter_drop` removed (Section 03.2) (2026-03-21)
+  - [x] `for_yield.rs:60-62` — `prepare_iterator()` doc comment updated (2026-03-21)
+  - [x] `for_yield.rs:86-96` — `prepare_iterator()` `coll` logic removed (Section 03.1.5) (2026-03-21)
+  - [x] `expr/mod.rs:108-112` — `for_coll_counter` field removed. Initialization sites at `lower/mod.rs:168` and `lower/calls/lambda.rs:126` also removed (2026-03-21)
+  - [x] `borrowed_defs.rs:208-209` — doc comment updated to describe generic mechanism without referencing removed phantom (2026-03-21)
+  - [x] `walk_dec.rs:79` — comment updated (2026-03-21)
+  - [x] `list_builtins.rs:143-147` — comment updated to reference header-based approach (2026-03-21)
+
+---
+
+## 03.1.5 Remove For-Yield Collection Threading
+
+**Files:** `compiler/ori_arc/src/lower/control_flow/for_yield.rs`, `compiler/ori_arc/src/lower/expr/mod.rs`, `compiler/ori_arc/src/lower/control_flow/mod.rs`
+
+The for-yield path has its own independent collection-phantom mechanism parallel to the for-do `__for_coll_N` binding. `prepare_iterator()` returns `coll_var = Some(iter_val)` for List/Set, which `lower_for_yield_iterator()` threads through header/exit blocks as `coll_param`/`exit_coll_param` block parameters, and emits a dummy let after `ori_iter_drop`. `ForYieldContext::coll_param` is used by `lower_break`/`lower_continue` to prepend the phantom to jump args. With the header storing `elem_dec_fn`, all of this is unnecessary.
+
+- [x] In `for_yield.rs` `prepare_iterator()`: simplified return type to `(ArcVarId, Idx)`, removed `coll` variable logic (2026-03-21)
+- [x] In `for_yield.rs` `lower_for_yield_iterator()`: removed `coll_var` parameter and all `coll_param`/`exit_coll_param` block parameter threading (2026-03-21)
+- [x] In `for_yield.rs` exit block: removed dummy reference to `exit_coll_param` after `ori_iter_drop` (2026-03-21)
+- [x] In `for_yield.rs` `lower_for_yield_iterator()` doc comment: updated block diagram — removed `coll_param` from header and exit_prep jump args (2026-03-21)
+- [x] In `for_yield.rs` `lower_for_yield_iterator()`: removed `#[expect(clippy::too_many_arguments)]` (2026-03-21)
+- [x] In `for_yield.rs` `ForYieldContext` construction: removed `coll_param` field initialization (2026-03-21)
+- [x] In `expr/mod.rs` `ForYieldContext`: removed `coll_param` field (2026-03-21)
+- [x] In `for_yield_option.rs:158`: removed `coll_param: None` and updated comment at line 88 (2026-03-21)
+- [x] In `control_flow/mod.rs` `lower_break()`: removed `coll_param` from for-yield break path (2026-03-21)
+- [x] In `control_flow/mod.rs` `lower_continue()`: removed `coll_param` from for-yield continue path (2026-03-21)
+- [x] **[NOTE]** `control_flow/mod.rs` shrunk from 494 to ~475 lines after `coll_param` removal. Safe margin restored. (2026-03-21)
+- [x] In `for_yield.rs` `lower_for_yield()` call site: updated destructuring from 3-tuple to 2-tuple (2026-03-21)
+
+### Cleanup (03.1.5)
+
+- [x] **[WASTE]** `for_yield.rs` — `lower_for_yield_iterator` shrunk ~40 lines. `#[expect(clippy::too_many_arguments)]` removed. `#[expect(clippy::too_many_lines)]` retained (function still > 50 lines but well under 100). (2026-03-21)
+- [x] **[NOTE]** `for_yield.rs` shrunk from 390 to ~345 lines. No split needed. (2026-03-21)
 
 ---
 
@@ -70,26 +102,38 @@ The phantom `__for_coll_N` mutable binding was added to thread the collection th
 
 The dummy `Let` after `ori_iter_drop` was added to keep the collection alive past the iterator drop. No longer needed.
 
-- [ ] Remove the `__for_coll_N` lookup and `emit_let(coll_ty, ArcValue::Var(exit_param))` block (lines ~192-207 in `for_iterator.rs`)
-- [ ] Remove the comments explaining the ordering guarantee
+- [x] Remove the `__for_coll_N` lookup and `emit_let(coll_ty, ArcValue::Var(exit_param))` block (lines ~192-207 in `for_iterator.rs`) (2026-03-21)
+- [x] Remove the comments explaining the ordering guarantee (2026-03-21)
 
 ---
 
-## 03.2.5 Remove Dead `elem_dec_fn` Parameter from Iterator API (Option B Cleanup)
+## 03.2.5 Remove Dead `elem_dec_fn` Parameter from Iterator API
 
-**Files:** `compiler/ori_rt/src/iterator/sources.rs`, `compiler/ori_rt/src/iterator/state.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs`, `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`
+**Files:** `compiler/ori_rt/src/iterator/sources.rs`, `compiler/ori_rt/src/iterator/state.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs`, `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`, `compiler/ori_llvm/src/evaluator/runtime_mappings.rs`
 
-With the header storing `elem_dec_fn`, the parameter in `ori_iter_from_list` and the field in `IterState::List` are redundant (the header provides the function).
+With the header storing `elem_dec_fn`, the parameter in `ori_iter_from_list` and the field in `IterState::List` are redundant (the header provides the function). Section 02.2 chose Option A (keep parameter for defense-in-depth while the header approach was unproven). Now that the header approach is proven stable by Sections 02-04, the redundant parameter is removed.
 
-- [ ] Remove `elem_dec_fn` parameter from `ori_iter_from_list` function signature in `sources.rs` (currently at line 32)
-- [ ] Remove `elem_dec_fn` field from `IterState::List` in `state.rs` (currently at line 56)
-- [ ] Update `IterState::List` Drop: `ori_buffer_rc_dec` call no longer needs to pass `elem_dec_fn` — pass NULL (the header provides it)
-- [ ] Update `emit_list_iter` in `list_builtins.rs`: remove the `elem_dec_fn` argument from the call to `ori_iter_from_list` (currently passes real function at line 144 — this becomes unnecessary when header provides it)
-- [ ] Update `ori_iter_from_list` declaration in `runtime_functions.rs`: remove the 5th parameter
-- [ ] Update any Rust unit tests in `compiler/ori_rt/src/iterator/tests.rs` that call `ori_iter_from_list` with 5 args — update to 4 args
-- [ ] Remove `ori_list_push_new` declaration from `runtime_functions.rs` and JIT symbol mapping from `runtime_mappings.rs` — zero codegen callers confirmed in Section 02; dead declaration creates confusion
-- [ ] Update `ori_iter_from_list` JIT symbol mapping in `runtime_mappings.rs` to match the new 4-parameter signature
+**WARNING -- ABI sync point**: This step changes the `ori_iter_from_list` signature from 5 to 4 parameters. All 4 locations MUST be updated in a single commit: (1) `ori_rt/src/iterator/sources.rs` (runtime impl), (2) `runtime_functions.rs` (LLVM IR declaration), (3) `list_builtins.rs` (codegen call site), (4) `runtime_mappings.rs` (JIT symbol). Partial updates cause linker errors or silent memory corruption.
+
+- [ ] Remove `elem_dec_fn` parameter from `ori_iter_from_list` function signature in `sources.rs` (currently at line 32). Also:
+  - [ ] Remove `elem_dec_fn,` from the `IterState::List { ... }` construction at line 41 (field must be removed from both the struct definition AND this construction site).
+  - [ ] Update the function doc comment (lines 20-25) — remove the reference to `elem_dec_fn = None` for test data. The doc should explain that element cleanup is entirely header-based (V5 RC header).
+- [ ] Remove `elem_dec_fn` field from `IterState::List` in `state.rs` (field at line 62; `List` variant starts at line 56). Also update the variant doc comment at lines 43-55 — remove the paragraph explaining `elem_dec_fn` defense-in-depth (lines 51-55), since the field will no longer exist. The doc should explain that element cleanup is entirely header-based.
+- [ ] Update `IterState::List` Drop (`state.rs:162-178`): the `drop()` match arm currently destructures `elem_dec_fn` (line 168) and passes `*elem_dec_fn` to `ori_buffer_rc_dec` (line 176). With the field removed, pass `None` instead — `ori_buffer_rc_dec` reads the function from the V5 RC header via `load_elem_dec_fn` at cleanup time. The destructuring pattern at lines 163-169 must also remove the `elem_dec_fn` field. **Safety**: passing `None` is safe because the header was populated at construction time (Section 02.1) and `ori_buffer_rc_dec` always reads from the header in its drop path (`drop_elements_and_free` calls `load_elem_dec_fn`).
+- [ ] Update `emit_list_iter` in `list_builtins.rs`: remove the `elem_dec_fn` argument from the call to `ori_iter_from_list` (currently passes real function at line 148, call at line 152 — this becomes unnecessary when header provides it). Also:
+  - [ ] Update the function doc comment (lines 115-129): remove the "real `elem_dec_fn`" explanation and the "Defense-in-depth" paragraph. Replace with a note that element cleanup is entirely header-based (V5 RC header).
+  - [ ] Remove the comment block at lines 143-147 explaining why `elem_dec_fn` is passed and referencing `__for_coll`.
+  - [ ] Remove `let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);` at line 148.
+  - [ ] Update the `emit_rt_call` args from `&[data_ptr, len, cap, elem_size_val, elem_dec_fn]` to `&[data_ptr, len, cap, elem_size_val]`.
+- [ ] Update `ori_iter_from_list` declaration in `runtime_functions.rs` (line 1305): remove the 5th parameter (`Ty::Ptr` for `elem_dec_fn`) and update the inline comment at line 1307. **Note**: `runtime_functions.rs` is 1528 lines — self-documenting exemption from the 500-line limit (pure static data table), but verify no logic has crept in.
+- [ ] Update Rust unit tests in `compiler/ori_rt/src/iterator/tests.rs` that call `ori_iter_from_list` with 5 args — update to 4 args. **There are 30+ call sites** across all iterator tests (next, map, filter, take, skip, enumerate, zip, chain, flatten, flat_map, cycle, collect, for_each, fold, slice drop). Each passes `None` as the 5th arg — remove that argument from every call.
+- [ ] Update `ori_iter_from_list` JIT symbol mapping in `compiler/ori_llvm/src/evaluator/runtime_mappings.rs` (line 204) to match the new 4-parameter signature
 - [ ] Run `timeout 150 cargo test -p ori_rt` and `timeout 150 cargo test -p ori_llvm --test aot` to verify
+
+### Cleanup (03.2.5)
+
+- [ ] **[STYLE]** `compiler/ori_rt/src/iterator/mod.rs:43,60` — Remove 2 decorative banners (`// ── Extern C API — Core ──...`, `// ── Extern C API — Cleanup ──...`). Replace with plain section comments.
+- [ ] **[STYLE]** `compiler/ori_rt/src/iterator/tests.rs` — Remove 20 decorative banners across test file (e.g., `// ── List iterator ───`, `// ── Range iterator ──`, etc.). Replace with plain section comments. Since this file has 30+ `ori_iter_from_list` calls being modified, clean banners in the same commit.
 
 ---
 
@@ -99,7 +143,7 @@ With the header storing `elem_dec_fn`, the parameter in `ori_iter_from_list` and
 - [ ] Run `timeout 150 ./test-all.sh` — all tests pass (Rust + spec tests)
 - [ ] Run `./clippy-all.sh` — no clippy warnings
 - [ ] Run `./fmt-all.sh` — no formatting issues
-- [ ] Verify ARC IR for `[str]` iteration is cleaner (no phantom __for_coll_N param in loop header) — dump with `ORI_DUMP_AFTER_ARC=1`
+- [ ] Verify ARC IR for `[str]` iteration is cleaner (no phantom `__for_coll_N` param in loop header, no `coll_param` in for-yield loop header) — dump with `ORI_DUMP_AFTER_ARC=1`
 - [ ] Verify `ori_iter_from_list` takes 4 parameters (not 5) in the LLVM IR output
 
 ---
@@ -112,16 +156,41 @@ With the header storing `elem_dec_fn`, the parameter in `ori_iter_from_list` and
 
 ## 03.N Completion Checklist
 
-- [ ] No references to `__for_coll` in the codebase (verify with `grep -rn "__for_coll" compiler/`)
-- [ ] No dummy reference after `ori_iter_drop` in exit block
+### Workaround Removal (03.1, 03.1.5, 03.2)
+
+- [ ] No references to `__for_coll` in compiler code (verify with `grep -rn "__for_coll" compiler/`)
+- [ ] No references to `coll_param` in for-yield collection-threading context (verify with `grep -rn "coll_param" compiler/ori_arc/src/lower/`)
+- [ ] No dummy reference after `ori_iter_drop` in exit block (both for-do and for-yield paths)
 - [ ] `lower_for` is simpler (no phantom binding logic)
 - [ ] `lower_for_iterator` is simpler (no exit-block dummy reference)
-- [ ] `for_coll_counter` field removed from `ExprLowerer` in `expr/mod.rs`
+- [ ] `lower_for_yield_iterator` is simpler (no `coll_var`/`coll_param` threading, no exit-block dummy reference)
+- [ ] `ForYieldContext::coll_param` field removed from `expr/mod.rs`
+- [ ] `lower_break` and `lower_continue` in `control_flow/mod.rs` no longer prepend `coll_param` to jump args
+- [ ] `prepare_iterator` in `for_yield.rs` no longer returns collection variable for phantom threading
+- [ ] `for_coll_counter` field removed from `ArcLowerer` in `expr/mod.rs`
+- [ ] `for_coll_counter: 0` initialization removed from `lower/mod.rs:168` and `lower/calls/lambda.rs:126`
 - [ ] `propagate_borrowed_closure` in `borrowed_defs.rs` updated (no stale `__for_coll` references)
+- [ ] `for_yield_option.rs:158` updated (no `coll_param: None` in `ForYieldContext` construction)
+- [ ] `for_yield_option.rs:88` comment updated (no reference to `coll_param`)
+- [ ] `lower_for_yield_iterator` doc comment block diagram updated (no `coll_param` in jump args)
+- [ ] `lower_for_yield_iterator` `#[expect(clippy::too_many_arguments)]` removed (parameter count reduced)
+
+### Iterator API Cleanup (03.2.5)
+
 - [ ] `ori_iter_from_list` takes 4 parameters (dead `elem_dec_fn` removed)
-- [ ] `ori_iter_from_list` JIT symbol mapping updated for 4-parameter signature
+- [ ] `ori_iter_from_list` doc comment updated to reflect header-based cleanup (no `elem_dec_fn` parameter)
+- [ ] `ori_iter_from_list` JIT symbol mapping in `evaluator/runtime_mappings.rs` updated for 4-parameter signature
 - [ ] `IterState::List` has no `elem_dec_fn` field
-- [ ] `ori_list_push_new` declaration removed from `runtime_functions.rs` and `runtime_mappings.rs`
+- [ ] `IterState::List` doc comment updated (lines 43-55 of `state.rs`): no reference to `elem_dec_fn` defense-in-depth
+- [ ] `IterState::List` Drop match arm destructuring pattern updated (no `elem_dec_fn` field)
+- [ ] 30+ `ori_iter_from_list` calls in `iterator/tests.rs` updated from 5 args to 4 args
+- [ ] `emit_list_iter` in `list_builtins.rs` doc comment and code updated — no reference to `elem_dec_fn` parameter or `__for_coll` phantom
+- [ ] Decorative banners in `iterator/mod.rs` and `iterator/tests.rs` replaced with plain section comments
+
+### Verification
+
 - [ ] All tests pass (`timeout 150 ./test-all.sh`)
 - [ ] All tests pass in release build (`cargo b --release && timeout 150 cargo test -p ori_llvm --test aot`)
-- [ ] `./clippy-all.sh` -- zero warnings
+- [ ] `./clippy-all.sh` — zero warnings
+- [ ] `lower_for_yield_iterator` function length verified under 100 lines after removals
+- [ ] `control_flow/mod.rs` file length verified under 500 lines after removals

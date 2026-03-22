@@ -42,39 +42,24 @@ impl ArcLowerer<'_> {
             self.lower_for_yield_option(pattern, iter_val, elem_ty, guard, body, result_ty)
         } else {
             // Range, Iterator, List, Set, Str, Map — all go through iterator loop.
-            let (iter_handle, elem_ty, coll_var) = self.prepare_iterator(iter_val, iter_ty, tag);
-            self.lower_for_yield_iterator(
-                pattern,
-                iter_handle,
-                elem_ty,
-                guard,
-                body,
-                result_ty,
-                coll_var,
-            )
+            let (iter_handle, elem_ty) = self.prepare_iterator(iter_val, iter_ty, tag);
+            self.lower_for_yield_iterator(pattern, iter_handle, elem_ty, guard, body, result_ty)
         }
     }
 
     /// Prepare an iterator handle from any iterable type.
     ///
-    /// Returns `(iterator_ptr_var, element_type, optional_collection_var)`.
-    /// The optional collection variable is `Some` for List/Set collections
-    /// that need a `__for_coll` phantom to ensure correct cleanup ordering.
-    fn prepare_iterator(
-        &mut self,
-        iter_val: ArcVarId,
-        iter_ty: Idx,
-        tag: Tag,
-    ) -> (ArcVarId, Idx, Option<ArcVarId>) {
+    /// Returns `(iterator_ptr_var, element_type)`.
+    fn prepare_iterator(&mut self, iter_val: ArcVarId, iter_ty: Idx, tag: Tag) -> (ArcVarId, Idx) {
         if tag == Tag::Range {
             let iter_name = self.interner.intern("iter");
             let iter_handle = self
                 .builder
                 .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
-            (iter_handle, Idx::INT, None)
+            (iter_handle, Idx::INT)
         } else if tag.is_iterator() {
             let elem_ty = self.pool.iterator_elem(iter_ty);
-            (iter_val, elem_ty, None)
+            (iter_val, elem_ty)
         } else {
             let elem_ty = self.extract_yield_elem_type(tag, iter_ty);
 
@@ -83,18 +68,7 @@ impl ArcLowerer<'_> {
                 .builder
                 .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
 
-            // For List/Set: return the collection variable so the yield
-            // loop can thread it as a block param. This makes the original
-            // variable die at the Jump to header (its last use), preventing
-            // the AIMS analysis from emitting a spurious extra RcDec in
-            // post-loop code. The header param takes over and its final
-            // use (dummy let in exit block) ensures cleanup ordering.
-            let coll = if matches!(tag, Tag::List | Tag::Set) {
-                Some(iter_val)
-            } else {
-                None
-            };
-            (iter_handle, elem_ty, coll)
+            (iter_handle, elem_ty)
         }
     }
 
@@ -128,22 +102,18 @@ impl ArcLowerer<'_> {
     ///
     /// ```text
     /// entry:     list_ptr = ori_list_new(8, elem_size)
-    ///            jump → header(coll_var, mut0, mut1, ...)
+    ///            jump → header(mut0, mut1, ...)
     /// header:    next = __iter_next(iter)
     ///            has_more = (tag != 0)
     ///            branch(has_more, body, exit_prep)
     /// body:      elem = project(next, 1)
     ///            body_val = lower(body)
     ///            ori_list_push(list_ptr, body_val, elem_size)
-    ///            jump → header(coll_param, mut0', mut1', ...)
-    /// exit_prep: jump → exit(coll_param, mut0, mut1, ...)
+    ///            jump → header(mut0', mut1', ...)
+    /// exit_prep: jump → exit(mut0, mut1, ...)
     /// exit:      ori_iter_drop(iter)
     ///            result = ori_list_take(list_ptr)
     /// ```
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "coll_var is an optional phantom for RC cleanup ordering — extracting a config struct would obscure the control flow"
-    )]
     #[expect(
         clippy::too_many_lines,
         reason = "iterator loop lowering with mutable-var SSA merge is inherently sequential"
@@ -156,7 +126,6 @@ impl ArcLowerer<'_> {
         guard: CanId,
         body: CanId,
         result_ty: Idx,
-        coll_var: Option<ArcVarId>,
     ) -> ArcVarId {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
@@ -208,31 +177,25 @@ impl ArcLowerer<'_> {
             self.builder
                 .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None);
 
-        // Header params: optional collection phantom + mutable vars.
-        let coll_param = coll_var.map(|cv| {
-            let coll_ty = self.builder.var_type_or_unit(cv);
-            self.builder.add_block_param(header_block, coll_ty)
-        });
+        // Header params: mutable vars from enclosing scope.
         let mut header_mut_params = Vec::new();
         for &(name, pre_var, var_ty) in &mut_info {
             let param = self.builder.add_block_param(header_block, var_ty);
             header_mut_params.push((name, pre_var, param));
         }
 
-        // Exit block params: optional collection phantom + mutable vars.
-        let exit_coll_param = coll_var.map(|_| {
-            let coll_ty = coll_param.map_or(Idx::UNIT, |cp| self.builder.var_type_or_unit(cp));
-            self.builder.add_block_param(exit_block, coll_ty)
-        });
+        // Exit block params: mutable vars.
         let mut exit_mut_params = Vec::new();
         for &(name, _, var_ty) in &mut_info {
             let param = self.builder.add_block_param(exit_block, var_ty);
             exit_mut_params.push((name, param));
         }
 
-        // Entry jump: pass coll_var + current mutable var values to header.
-        let mut entry_args: Vec<_> = coll_var.into_iter().collect();
-        entry_args.extend(header_mut_params.iter().map(|(_, pre_var, _)| *pre_var));
+        // Entry jump: pass current mutable var values to header.
+        let entry_args: Vec<_> = header_mut_params
+            .iter()
+            .map(|(_, pre_var, _)| *pre_var)
+            .collect();
         self.builder.terminate_jump(header_block, entry_args);
 
         // Header: bind mutable params, call __iter_next.
@@ -283,8 +246,10 @@ impl ArcLowerer<'_> {
 
             // Guard skip: jump back to header with unmodified mutable vars.
             self.builder.position_at(guard_skip);
-            let mut skip_args: Vec<_> = coll_param.into_iter().collect();
-            skip_args.extend(header_mut_params.iter().map(|&(_, _, param)| param));
+            let skip_args: Vec<_> = header_mut_params
+                .iter()
+                .map(|&(_, _, param)| param)
+                .collect();
             self.builder.terminate_jump(header_block, skip_args);
         } else {
             self.builder
@@ -314,7 +279,6 @@ impl ArcLowerer<'_> {
                 list_ptr,
                 elem_size: elem_size_var,
                 list_push_name: list_push,
-                coll_param,
             }),
         });
 
@@ -331,8 +295,8 @@ impl ArcLowerer<'_> {
                 None,
             );
 
-            // Jump back to header with coll_param + updated mutable var values.
-            let mut back_args: Vec<_> = coll_param.into_iter().collect();
+            // Jump back to header with updated mutable var values.
+            let mut back_args: Vec<ArcVarId> = Vec::new();
             back_args.extend(
                 header_mut_params
                     .iter()
@@ -343,11 +307,12 @@ impl ArcLowerer<'_> {
 
         self.loop_ctx = prev_loop;
 
-        // Exit prep: normal loop exhaustion path. Passes coll_param +
-        // current mutable var values to the exit block.
+        // Exit prep: normal loop exhaustion path.
         self.builder.position_at(exit_prep_block);
-        let mut prep_args: Vec<_> = coll_param.into_iter().collect();
-        prep_args.extend(header_mut_params.iter().map(|&(_, _, param)| param));
+        let prep_args: Vec<_> = header_mut_params
+            .iter()
+            .map(|&(_, _, param)| param)
+            .collect();
         self.builder.terminate_jump(exit_block, prep_args);
 
         // Exit: drop the iterator handle, then extract the final list.
@@ -355,14 +320,6 @@ impl ArcLowerer<'_> {
         let iter_drop = self.interner.intern("ori_iter_drop");
         self.builder
             .emit_apply(Idx::UNIT, iter_drop, vec![iter_val], None);
-
-        // Dummy reference to collection param AFTER ori_iter_drop.
-        // Keeps the collection alive past the iterator drop, so the
-        // AIMS pipeline's RcDec (with real elem_dec_fn) reaches zero.
-        if let Some(param) = exit_coll_param {
-            let coll_ty = self.builder.var_type_or_unit(param);
-            self.builder.emit_let(coll_ty, ArcValue::Var(param), None);
-        }
 
         // Restore scope with final mutable var values from the exit block.
         self.scope = pre_scope;

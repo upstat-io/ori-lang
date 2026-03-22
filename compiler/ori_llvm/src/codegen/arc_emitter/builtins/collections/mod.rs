@@ -462,7 +462,7 @@ declare_builtins! { emitter, ctx;
     },
     ("Set", "iter") => {
         if let TypeInfo::Set { element } = ctx.type_info {
-            emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
+            emitter.emit_set_iter(ctx.arg_vals[0], *element)
         } else {
             None
         }

@@ -312,6 +312,38 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(list_ty, out_alloca, "set.to_list.val"))
     }
 
+    /// Emit `set.iter()` — convert set to contiguous list, then create list iterator.
+    ///
+    /// Sets use hash table layout where elements are at non-contiguous positions
+    /// (interleaved with metadata). Calling `emit_list_iter` directly on a Set
+    /// creates an `IterState::List` that iterates contiguously — wrong for hash
+    /// tables. Instead: convert to a contiguous list via `ori_set_to_list`, then
+    /// create an iterator over that list.
+    ///
+    /// After conversion, the set buffer is explicitly decremented — the ARC
+    /// pipeline passes the set with `[own]`, expecting the callee to handle
+    /// cleanup. For lists, `IterState::List` Drop implicitly handles this
+    /// (same buffer). For sets, the iterator holds the converted list buffer
+    /// (different allocation), so we must explicitly dec the set buffer.
+    pub(crate) fn emit_set_iter(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
+        // Convert set to contiguous list (copies elements, incs element RCs).
+        let list_val = self.emit_set_to_list(receiver, elem_ty)?;
+
+        // Dec the set buffer — the converted list now owns the element references.
+        // The set buffer's RC was incremented by AIMS for the [own] parameter;
+        // this dec matches that inc, freeing the set buffer if no other refs exist.
+        let (data_ptr, len, cap) = self.extract_set_components(receiver);
+        let elem_size = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
+        self.emit_rt_call(func_id, &[data_ptr, cap, len, elem_size, elem_dec_fn], "");
+
+        // Create iterator from the contiguous list.
+        self.emit_list_iter(list_val, elem_ty, elem_ty)
+    }
+
     // Range methods
 
     /// Emit `range.iter()` — call `ori_iter_from_range(start, end, step, inclusive)`.

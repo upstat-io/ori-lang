@@ -34,7 +34,7 @@ element cleanup, RC header V5, 16 bytes → 32 bytes, ABI change, alignment
 ---
 
 ### Section 02: Codegen & Runtime Integration
-**File:** `section-02-integration.md` | **Status:** In Progress
+**File:** `section-02-integration.md` | **Status:** Complete
 
 ```
 emit_list_iter (already passes real elem_dec_fn), emit_buffer_rc_dec_list_or_set, emit_buffer_drop_unique
@@ -74,17 +74,26 @@ compiler/ori_rt/src/iterator/consumers.rs (ori_iter_collect, ori_iter_collect_se
 ```
 __for_coll_N, phantom binding, dummy reference, ordering hack
 for_coll_counter, propagate_borrowed_closure, for_yield.rs
-lower_for, lower_for_iterator, exit block ordering
+coll_param, coll_var, exit_coll_param, ForYieldContext, prepare_iterator
+lower_for, lower_for_iterator, lower_for_yield_iterator, exit block ordering
+lower_break coll_param, lower_continue coll_param
 compiler/ori_arc/src/lower/control_flow/loops.rs
 compiler/ori_arc/src/lower/control_flow/for_loops/for_iterator.rs
-compiler/ori_arc/src/lower/control_flow/for_loops/for_yield.rs
-compiler/ori_arc/src/lower/expr/mod.rs (for_coll_counter field)
+compiler/ori_arc/src/lower/control_flow/for_yield.rs
+compiler/ori_arc/src/lower/control_flow/for_yield_option.rs (coll_param: None in ForYieldContext)
+compiler/ori_arc/src/lower/control_flow/mod.rs (lower_break, lower_continue coll_param)
+compiler/ori_arc/src/lower/expr/mod.rs (for_coll_counter field, ForYieldContext::coll_param)
+compiler/ori_arc/src/lower/mod.rs (for_coll_counter initialization)
+compiler/ori_arc/src/lower/calls/lambda.rs (for_coll_counter initialization)
 compiler/ori_arc/src/aims/emit_rc/borrowed_defs.rs (propagate_borrowed_closure)
 compiler/ori_arc/src/aims/realize/walk_dec.rs (__for_coll reference)
 simplify, remove workaround, clean up
 remove dead elem_dec_fn parameter, ori_iter_from_list, IterState::List
 compiler/ori_rt/src/iterator/sources.rs, compiler/ori_rt/src/iterator/state.rs
+compiler/ori_rt/src/iterator/tests.rs (30+ ori_iter_from_list calls, 5 args -> 4 args)
+compiler/ori_llvm/src/codegen/arc_emitter/builtins/collections/list_builtins.rs (emit_list_iter)
 compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs
+compiler/ori_llvm/src/evaluator/runtime_mappings.rs
 ```
 
 ---

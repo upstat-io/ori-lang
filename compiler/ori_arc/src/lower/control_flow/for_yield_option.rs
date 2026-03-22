@@ -85,7 +85,7 @@ impl ArcLowerer<'_> {
             self.builder
                 .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None);
 
-        // Exit block params: mutable vars only (no coll_param for options).
+        // Exit block params: mutable vars.
         let mut exit_mut_params = Vec::new();
         for &(name, _, var_ty) in &mut_info {
             let param = self.builder.add_block_param(exit_block, var_ty);
@@ -155,7 +155,6 @@ impl ArcLowerer<'_> {
                 list_ptr,
                 elem_size: elem_size_var,
                 list_push_name: list_push,
-                coll_param: None,
             }),
         });
 
