@@ -1,0 +1,20 @@
+// Valgrind test: T1-F5 — [str] passed to function parameter twice.
+// Verifies no double-free when the same list is consumed by two calls.
+
+@sum_lengths (items: [str]) -> int = {
+    let total = 0;
+    for s in items do {
+        total += s.len();
+    };
+    total
+}
+
+@main () -> int = {
+    let words = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "another very long string that also exceeds the SSO threshold"
+    ];
+    let a = sum_lengths(items: words);
+    let b = sum_lengths(items: words);
+    if a == b then 0 else 1
+}

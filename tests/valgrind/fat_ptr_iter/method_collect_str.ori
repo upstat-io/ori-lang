@@ -1,0 +1,16 @@
+// Valgrind test: T1-F13 — [str].iter().collect() method collect path.
+// Verifies ori_iter_collect with elem_inc_fn for fat pointer elements.
+
+@main () -> int = {
+    let words = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "another very long string that also exceeds the SSO threshold",
+        "third long string for good measure in the test programs here"
+    ];
+    let collected: [str] = words.iter().collect();
+    let total = 0;
+    for w in collected do {
+        total += w.len();
+    };
+    if total == 179 then 0 else 1
+}

@@ -484,3 +484,276 @@ fn split_slice_backed_string_no_crash() {
     );
     ori_rc_free(heap_data, content.len(), 1);
 }
+
+// TPR-04-010: Slice-backed strings through string methods
+
+/// Semantic pin: `substring(...).to_uppercase()` must not crash on a
+/// slice-backed string. Without the `SLICE_FLAG` guard, `ori_rc_is_unique`
+/// dereferences an interior pointer → misaligned access → crash.
+#[test]
+fn to_uppercase_on_slice_backed_string() {
+    use super::ori_str_to_uppercase;
+    let _g = crate::test_helpers::lock_rc();
+
+    // Create heap string > 23 bytes
+    let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
+    let heap_data = unsafe { source.heap.data };
+
+    // Take a long substring → seamless slice (> 23 bytes to avoid SSO)
+    let sub = ori_str_substring(&source, 4, 43); // "quick brown fox jumps over the lazy dog"
+    assert!(!sub.is_sso());
+    assert!(is_slice_cap(unsafe { sub.heap.cap }));
+    assert_eq!(ori_rc_count(heap_data), 2);
+
+    // This must not crash — the old code calls ori_rc_is_unique on interior pointer
+    let upper = ori_str_to_uppercase(&sub);
+    assert_eq!(upper.as_bytes(), b"QUICK BROWN FOX JUMPS OVER THE LAZY DOG");
+
+    // upper should be a new allocation (slice is never unique for its parent)
+    if !upper.is_sso() {
+        let upper_data = unsafe { upper.heap.data };
+        if !is_slice_cap(unsafe { upper.heap.cap }) {
+            ori_rc_free(upper_data, upper.len(), 1);
+        }
+    }
+    ori_rc_dec(heap_data, None); // sub's reference
+    ori_rc_free(heap_data, 43, 1); // source
+}
+
+/// `to_lowercase` on a slice-backed string — same fix as `to_uppercase`.
+#[test]
+fn to_lowercase_on_slice_backed_string() {
+    use super::ori_str_to_lowercase;
+    let _g = crate::test_helpers::lock_rc();
+
+    let source = OriStr::from_heap(b"THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG");
+    let heap_data = unsafe { source.heap.data };
+
+    let sub = ori_str_substring(&source, 4, 43); // "QUICK BROWN FOX JUMPS OVER THE LAZY DOG"
+    assert!(!sub.is_sso());
+    assert!(is_slice_cap(unsafe { sub.heap.cap }));
+
+    let lower = ori_str_to_lowercase(&sub);
+    assert_eq!(lower.as_bytes(), b"quick brown fox jumps over the lazy dog");
+
+    if !lower.is_sso() {
+        let lower_data = unsafe { lower.heap.data };
+        if !is_slice_cap(unsafe { lower.heap.cap }) {
+            ori_rc_free(lower_data, lower.len(), 1);
+        }
+    }
+    ori_rc_dec(heap_data, None);
+    ori_rc_free(heap_data, 43, 1);
+}
+
+/// `replace` on a slice-backed string — same-length replacement must not crash.
+#[test]
+fn replace_on_slice_backed_string() {
+    use super::ori_str_replace;
+    let _g = crate::test_helpers::lock_rc();
+
+    let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
+    let heap_data = unsafe { source.heap.data };
+
+    let sub = ori_str_substring(&source, 4, 43); // "quick brown fox jumps over the lazy dog"
+    assert!(is_slice_cap(unsafe { sub.heap.cap }));
+
+    let from = OriStr::from_sso(b"fox");
+    let to = OriStr::from_sso(b"cat");
+    let result = ori_str_replace(&sub, &from, &to);
+    assert_eq!(
+        result.as_bytes(),
+        b"quick brown cat jumps over the lazy dog"
+    );
+
+    if !result.is_sso() {
+        let result_data = unsafe { result.heap.data };
+        if !is_slice_cap(unsafe { result.heap.cap }) {
+            ori_rc_free(result_data, result.len(), 1);
+        }
+    }
+    ori_rc_dec(heap_data, None);
+    ori_rc_free(heap_data, 43, 1);
+}
+
+/// `push_char` on a slice-backed string must not crash.
+#[test]
+fn push_char_on_slice_backed_string() {
+    use super::ori_str_push_char;
+    let _g = crate::test_helpers::lock_rc();
+
+    let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
+    let heap_data = unsafe { source.heap.data };
+
+    let sub = ori_str_substring(&source, 4, 43); // "quick brown fox jumps over the lazy dog"
+    assert!(is_slice_cap(unsafe { sub.heap.cap }));
+
+    let result = ori_str_push_char(&sub, '!' as u32);
+    assert_eq!(
+        result.as_bytes(),
+        b"quick brown fox jumps over the lazy dog!"
+    );
+
+    if !result.is_sso() {
+        let result_data = unsafe { result.heap.data };
+        if !is_slice_cap(unsafe { result.heap.cap }) {
+            ori_rc_free(result_data, result.len(), 1);
+        }
+    }
+    ori_rc_dec(heap_data, None);
+    ori_rc_free(heap_data, 43, 1);
+}
+
+/// `concat` on a slice-backed string must not crash.
+#[test]
+fn concat_on_slice_backed_string() {
+    use crate::string::ori_str_concat;
+    let _g = crate::test_helpers::lock_rc();
+
+    let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
+    let heap_data = unsafe { source.heap.data };
+
+    let sub = ori_str_substring(&source, 4, 43); // "quick brown fox jumps over the lazy dog"
+    assert!(is_slice_cap(unsafe { sub.heap.cap }));
+
+    let suffix = OriStr::from_sso(b"!");
+    let result = ori_str_concat(&sub, &suffix);
+    assert_eq!(
+        result.as_bytes(),
+        b"quick brown fox jumps over the lazy dog!"
+    );
+
+    if !result.is_sso() {
+        let result_data = unsafe { result.heap.data };
+        if !is_slice_cap(unsafe { result.heap.cap }) {
+            ori_rc_free(result_data, result.len(), 1);
+        }
+    }
+    ori_rc_dec(heap_data, None);
+    ori_rc_free(heap_data, 43, 1);
+}
+
+// TPR-04-011: repeat(1) double-free
+
+/// Semantic pin: `repeat(count: 1)` must return an owned clone, not `*s_ref`.
+/// Without the fix, both original and repeated value share the same heap.data
+/// pointer, and RC-decrementing both causes a double-free.
+#[test]
+fn repeat_one_returns_owned_clone() {
+    use super::ori_str_repeat;
+    let _g = crate::test_helpers::lock_rc();
+
+    let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
+    let heap_data = unsafe { source.heap.data };
+    assert_eq!(ori_rc_count(heap_data), 1);
+
+    let repeated = ori_str_repeat(&source, 1);
+    assert_eq!(repeated.as_bytes(), source.as_bytes());
+
+    // The repeated value MUST be a separate allocation (or SSO copy)
+    // — not sharing heap.data with source
+    if !repeated.is_sso() {
+        let rep_data = unsafe { repeated.heap.data };
+        assert_ne!(
+            rep_data, heap_data,
+            "repeat(1) must return a new allocation, not alias the original"
+        );
+        // Source RC should still be 1 (repeated has its own allocation)
+        assert_eq!(ori_rc_count(heap_data), 1);
+        // Clean up repeated
+        ori_rc_free(rep_data, repeated.len(), 1);
+    }
+
+    ori_rc_free(heap_data, 43, 1);
+}
+
+/// repeat(1) on a slice-backed string must also produce an owned clone.
+#[test]
+fn repeat_one_on_slice_backed_string() {
+    use super::ori_str_repeat;
+    let _g = crate::test_helpers::lock_rc();
+
+    let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
+    let heap_data = unsafe { source.heap.data };
+
+    let sub = ori_str_substring(&source, 4, 43); // "quick brown fox jumps over the lazy dog"
+    assert!(is_slice_cap(unsafe { sub.heap.cap }));
+    assert_eq!(ori_rc_count(heap_data), 2);
+
+    let repeated = ori_str_repeat(&sub, 1);
+    assert_eq!(
+        repeated.as_bytes(),
+        b"quick brown fox jumps over the lazy dog"
+    );
+
+    // Must be a new allocation, not sharing parent buffer
+    if !repeated.is_sso() {
+        let rep_data = unsafe { repeated.heap.data };
+        // Should not be an interior pointer into source
+        assert!(
+            !is_slice_cap(unsafe { repeated.heap.cap }),
+            "repeat(1) on a slice should produce a fresh heap string, not another slice"
+        );
+        ori_rc_free(rep_data, repeated.len(), 1);
+    }
+
+    ori_rc_dec(heap_data, None); // sub
+    ori_rc_free(heap_data, 43, 1); // source
+}
+
+// TPR-04-012: concat("") double-free
+
+/// Semantic pin: `heap_str.concat("")` must return an owned copy, not alias.
+#[test]
+fn concat_empty_right_returns_owned_clone() {
+    use crate::string::ori_str_concat;
+    let _g = crate::test_helpers::lock_rc();
+
+    let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
+    let heap_data = unsafe { source.heap.data };
+    assert_eq!(ori_rc_count(heap_data), 1);
+
+    let empty = OriStr::EMPTY;
+    let result = ori_str_concat(&source, &empty);
+    assert_eq!(result.as_bytes(), source.as_bytes());
+
+    // Result must be a separate allocation
+    if !result.is_sso() {
+        let result_data = unsafe { result.heap.data };
+        assert_ne!(
+            result_data, heap_data,
+            "concat('') must return a new allocation, not alias the original"
+        );
+        assert_eq!(ori_rc_count(heap_data), 1);
+        ori_rc_free(result_data, result.len(), 1);
+    }
+
+    ori_rc_free(heap_data, 43, 1);
+}
+
+/// `"".concat(heap_str)` — empty left operand, same fix.
+#[test]
+fn concat_empty_left_returns_owned_clone() {
+    use crate::string::ori_str_concat;
+    let _g = crate::test_helpers::lock_rc();
+
+    let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
+    let heap_data = unsafe { source.heap.data };
+    assert_eq!(ori_rc_count(heap_data), 1);
+
+    let empty = OriStr::EMPTY;
+    let result = ori_str_concat(&empty, &source);
+    assert_eq!(result.as_bytes(), source.as_bytes());
+
+    if !result.is_sso() {
+        let result_data = unsafe { result.heap.data };
+        assert_ne!(
+            result_data, heap_data,
+            "concat with empty left must return a new allocation"
+        );
+        assert_eq!(ori_rc_count(heap_data), 1);
+        ori_rc_free(result_data, result.len(), 1);
+    }
+
+    ori_rc_free(heap_data, 43, 1);
+}

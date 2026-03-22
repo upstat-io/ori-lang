@@ -1,0 +1,13 @@
+// Valgrind: T7-F1 — [(str, int)] iteration with per-field cleanup
+@main () -> int = {
+    let items = [
+        ("this string exceeds SSO threshold by being very long indeed", 10),
+        ("another very long string that also exceeds the SSO threshold", 20),
+        ("third long string for good measure in the test programs here", 30)
+    ];
+    let total = 0;
+    for pair in items do {
+        total += pair.1;
+    };
+    if total == 60 then 0 else 1
+}
