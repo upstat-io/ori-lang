@@ -5,7 +5,7 @@
 
 use crate::util::assert_aot_success;
 
-// --- Single call × full iteration ---
+// Single call × full iteration
 
 #[test]
 fn test_borrowed_str_list_single_call() {
@@ -84,7 +84,7 @@ type Item = { label: str, value: int }
     );
 }
 
-// --- Two sequential calls (the original bug scenario) ---
+// Two sequential calls (the original bug scenario)
 
 #[test]
 fn test_borrowed_str_list_two_calls() {
@@ -137,7 +137,7 @@ fn test_borrowed_int_list_two_calls() {
     );
 }
 
-// --- N calls in a loop ---
+// N calls in a loop
 
 #[test]
 fn test_borrowed_str_list_called_in_loop() {
@@ -169,7 +169,7 @@ fn test_borrowed_str_list_called_in_loop() {
     );
 }
 
-// --- Partial iteration (break) with borrowed param ---
+// Partial iteration (break) with borrowed param
 
 #[test]
 fn test_borrowed_str_list_partial_break_two_calls() {
@@ -201,7 +201,7 @@ fn test_borrowed_str_list_partial_break_two_calls() {
     );
 }
 
-// --- Yield with borrowed param ---
+// Yield with borrowed param
 
 #[test]
 fn test_borrowed_str_list_yield_two_calls() {
@@ -230,7 +230,7 @@ fn test_borrowed_str_list_yield_two_calls() {
     );
 }
 
-// --- COW after borrowed call ---
+// COW after borrowed call
 
 #[test]
 fn test_borrowed_param_then_cow_mutation() {
@@ -258,7 +258,7 @@ fn test_borrowed_param_then_cow_mutation() {
     );
 }
 
-// --- Chained callees: A calls B which iterates ---
+// Chained callees: A calls B which iterates
 
 #[test]
 fn test_chained_borrowed_callee() {
@@ -291,7 +291,7 @@ fn test_chained_borrowed_callee() {
     );
 }
 
-// --- Borrowed param: iterate + use list after loop ---
+// Borrowed param: iterate + use list after loop
 
 #[test]
 fn test_borrowed_param_use_after_iteration() {
@@ -321,7 +321,7 @@ fn test_borrowed_param_use_after_iteration() {
     );
 }
 
-// --- Borrowed param: two different lists passed to same function ---
+// Borrowed param: two different lists passed to same function
 
 #[test]
 fn test_two_different_borrowed_lists() {
@@ -352,7 +352,7 @@ fn test_two_different_borrowed_lists() {
     );
 }
 
-// --- Borrowed param: map iteration with string keys ---
+// Borrowed param: map iteration with string keys
 
 #[test]
 fn test_borrowed_map_str_keys_two_calls() {
@@ -380,7 +380,7 @@ fn test_borrowed_map_str_keys_two_calls() {
     );
 }
 
-// --- Combined scenarios: borrowed param + other features ---
+// Combined scenarios: borrowed param + other features
 
 #[test]
 fn test_borrowed_param_break_then_full_iteration() {

@@ -160,6 +160,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_rc_alloc" => runtime::ori_rc_alloc as *const () as usize,
         "ori_rc_inc" => runtime::ori_rc_inc as *const () as usize,
         "ori_rc_dec" => runtime::ori_rc_dec as *const () as usize,
+        "ori_str_rc_inc" => runtime::ori_str_rc_inc as *const () as usize,
         "ori_str_rc_dec" => runtime::ori_str_rc_dec as *const () as usize,
         "ori_rc_free" => runtime::ori_rc_free as *const () as usize,
         "ori_buffer_rc_dec" => runtime::ori_buffer_rc_dec as *const () as usize,

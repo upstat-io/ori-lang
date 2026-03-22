@@ -337,6 +337,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// For List/Set: uses `ori_list_rc_inc(data, cap)` which handles
     /// seamless slices (where `data` is interior to another buffer).
+    /// For Str: uses `ori_str_rc_inc(data, cap)` which handles SSO,
+    /// heap, and seamless slices from `str.split()`.
     /// For other types: falls back to `ori_rc_inc(data)`.
     fn emit_slice_aware_rc_inc(&mut self, val: ValueId, ty: ori_types::Idx) {
         let resolved = self.pool.resolve_fully(ty);
@@ -353,6 +355,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.call_rc_inc_all(&[val], 1);
                 }
             }
+            // Str: slice-aware RC inc via ori_str_rc_inc(data, cap).
+            // Handles SSO, heap, and seamless slices from str.split().
+            ori_types::Tag::Str => {
+                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                    let cap = self
+                        .builder
+                        .extract_value(val, 1, "rc_inc.str_cap")
+                        .unwrap_or_else(|| self.builder.const_i64(0));
+                    self.call_str_rc_inc(dp, cap, 1);
+                } else {
+                    self.call_rc_inc_all(&[val], 1);
+                }
+            }
             _ => {
                 let rc_inc = self.builder.runtime_fn("ori_rc_inc");
                 let data_ptrs = self.extract_rc_data_ptrs(val, ty);
@@ -365,7 +380,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit RC increment + return receiver (clone for heap-backed types).
     ///
-    /// Uses slice-aware `ori_list_rc_inc(data, cap)` for List/Set types.
+    /// Uses slice-aware RC inc for List/Set and Str types.
     pub(crate) fn emit_rc_inc_clone(
         &mut self,
         val: ValueId,
@@ -390,8 +405,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_ty: ori_types::Idx,
     ) -> Option<ValueId> {
         // RcInc the collection — the iterator will consume one reference.
-        // For List/Set: use slice-aware ori_list_rc_inc(data, cap) which
-        // handles seamless slices (where data is interior to another buffer).
+        // For List/Set: slice-aware ori_list_rc_inc(data, cap).
+        // For Str: slice-aware ori_str_rc_inc(data, cap).
         self.emit_slice_aware_rc_inc(receiver, receiver_ty);
         match type_info {
             TypeInfo::List { element } => self.emit_list_iter(receiver, receiver_ty, *element),

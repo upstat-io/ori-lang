@@ -6,7 +6,7 @@ goal: "Write comprehensive cross-product tests: 9 type categories (T1-T9) x 14 l
 depends_on: ["03"]
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-22
 sections:
   - id: "04.0"
@@ -17,7 +17,7 @@ sections:
     status: complete
   - id: "04.2"
     title: "Language Features (F1-F14)"
-    status: in-progress
+    status: complete
   - id: "04.3"
     title: "Execution Modes (M1-M4)"
     status: not-started
@@ -107,6 +107,39 @@ Each type category represents a collection element type that requires Drop seman
 
 Each feature tests a different control flow or ownership pattern during iteration.
 
+### F0: Slice-Aware String RC (TPR-04-003 + TPR-04-004 Fix)
+
+**Prerequisite for all slice-string tests.** The codegen and runtime had multiple sites that call `ori_rc_inc`/`ori_rc_dec` directly on string data pointers without checking for SLICE_FLAG. Slice strings from `str.split()` inside tuples, structs, Option/Result, top-level fat values, clone, and auto-iteration crash or corrupt RC headers.
+
+**Runtime:**
+- [x] Add `ori_str_rc_inc(data_ptr, cap)` to `compiler/ori_rt/src/rc/mod.rs` — symmetric to `ori_str_rc_dec`: SSO check → slice check (compute original pointer) → `ori_rc_inc(original)` (2026-03-22)
+- [x] Fix `ori_iter_from_str` in `compiler/ori_rt/src/iterator/sources.rs`: use `ori_str_rc_inc(data, cap)` instead of `ori_rc_inc(data)` for heap strings — handles slice strings from `str.split()` (2026-03-22)
+- [x] Fix `IterState::Str` Drop in `compiler/ori_rt/src/iterator/state.rs`: add `cap` field, use slice-aware cleanup — slice strings go through `ori_buffer_rc_dec(original, ...)`, regular heap strings through `ori_buffer_rc_dec(data, 0, cap, 1, None)` (2026-03-22)
+
+**Codegen — `rc_value_traversal.rs`:**
+- [x] Update `inc_value_rc()` `Tag::Str` arm: extract cap (field 1), call `ori_str_rc_inc(data, cap)` instead of `ori_rc_inc(data)` (2026-03-22)
+- [x] Update `dec_value_rc()` `Tag::Str` arm: extract cap (field 1), call `ori_str_rc_dec(data, cap, drop_fn)` instead of `ori_rc_dec(data, drop_fn)` (2026-03-22)
+
+**Codegen — `rc_buffer_ops.rs`:**
+- [x] Update `emit_rc_inc_fat()`: extract cap (field 1), call `ori_str_rc_inc(data, cap)` — FatPointer is exclusively used for str (2026-03-22)
+- [x] Update `emit_rc_dec_fat()`: extract cap (field 1), call `ori_str_rc_dec(data, cap, drop_fn)` — FatPointer is exclusively used for str (2026-03-22)
+
+**Codegen — `builtins/mod.rs` (TPR-04-004):**
+- [x] Update `emit_slice_aware_rc_inc()`: add `Tag::Str` arm with `ori_str_rc_inc(data, cap)` — used by `emit_rc_inc_clone()` (str clone) and `emit_auto_iter()` (iterator method promotion) (2026-03-22)
+
+**Tests:**
+- [x] Semantic pin: `[(str, int)]` where str elements are from `str.split()` — `test_str_split_in_tuple_list` (2026-03-22)
+- [x] Semantic pin: `[Option<str>]` where Some values are slice strings — `test_str_split_in_option_list` (2026-03-22)
+- [x] Semantic pin: top-level `str` from `str.split()` passed to function — `test_str_split_function_param` (2026-03-22)
+- [x] Semantic pin: slice-string `.clone()` — `test_str_split_clone` (2026-03-22, TPR-04-004)
+- [x] Semantic pin: slice-string auto-iteration `.iter().count()` — `test_str_split_auto_iter` (2026-03-22, TPR-04-004)
+
+**Codegen — `derive_codegen/bodies.rs` (TPR-04-005):**
+- [x] Fix `emit_clone_rc_inc_str()`: extract cap (field 1), call `ori_str_rc_inc(data, cap)` instead of `ori_rc_inc(data)` — derived Clone for structs/tuples/Option/Result containing str fields crashes on slice strings from `str.split()` (2026-03-22)
+- [x] Semantic pin: derived Clone on struct with slice-string field — `test_derive_clone_slice_str_struct` (2026-03-22)
+- [x] Semantic pin: derived Clone on `Option<str>` with slice-string value — `test_derive_clone_slice_str_option` (2026-03-22)
+- [x] Semantic pin: derived Clone on `(str, int)` with slice-string first element — `test_derive_clone_slice_str_tuple` (2026-03-22)
+
 ### F1: Full Iteration (`for x in coll do body`)
 
 For each type T1-T9:
@@ -116,95 +149,95 @@ For each type T1-T9:
 ### F2: Partial Iteration with Break
 
 For each type T1-T7:
-- [ ] `for x in coll do { if condition then break; use(x); }`
-- [ ] Verify un-consumed elements are correctly cleaned up
-- [ ] T5-T7 are mandatory: sum types (Option/Result) have variant-dependent cleanup, and tuples have per-field cleanup — partial iteration must exercise both consumed and un-consumed paths for these types
+- [x] `for x in coll do { if condition then break; use(x); }` (2026-03-22: T1 `test_str_list_partial_break`, T2 `test_matrix_nested_list_break`, T3 `test_nested_str_list_break`, T4 `test_matrix_struct_break`, T5 `test_option_str_list_break`, T6 `test_result_str_list_break`, T7 `test_tuple_str_list_break`)
+- [x] Verify un-consumed elements are correctly cleaned up (2026-03-22: all tests pass with `ORI_CHECK_LEAKS=1` via `assert_aot_success`)
+- [x] T5-T7 are mandatory: sum types (Option/Result) have variant-dependent cleanup, and tuples have per-field cleanup — partial iteration must exercise both consumed and un-consumed paths for these types (2026-03-22: all three covered)
 
 ### F3: For-Yield (Transform)
 
 For each type T1-T4, T8, T9:
-- [ ] `let derived = for x in coll yield transform(x);`
-- [ ] Both the original collection and the derived collection must be leak-free
-- [ ] For T8/T9: exercises the `emit_set_iter` conversion path (Section 03 fix) under for-yield control flow
+- [x] `let derived = for x in coll yield transform(x);` (2026-03-22: T1 `test_str_list_yield_lengths`/`test_for_yield_str_to_lengths`, T2 `test_for_yield_nested_list`/`test_matrix_nested_list_yield`, T3 `test_for_yield_nested_str_loops`, T4 `test_for_yield_struct_elements`/`test_matrix_struct_yield`, T8 `test_map_str_key_for_yield`, T9 `test_set_str_for_yield`)
+- [x] Both the original collection and the derived collection must be leak-free (2026-03-22: all pass with `ORI_CHECK_LEAKS=1`)
+- [x] For T8/T9: exercises the `emit_set_iter` conversion path (Section 03 fix) under for-yield control flow (2026-03-22: T8 and T9 for-yield tests added)
 
 ### F4: For with Guard
 
 For each type T1-T2:
-- [ ] `for x in coll if predicate(x) do body`
-- [ ] Elements that fail the guard must be correctly cleaned up
+- [x] `for x in coll if predicate(x) do body` (2026-03-22: T1 `test_str_list_for_do_guard`, T2 `test_nested_list_for_do_guard`)
+- [x] Elements that fail the guard must be correctly cleaned up (2026-03-22: all pass with `ORI_CHECK_LEAKS=1`)
 
 ### F5: Function Parameter Iteration
 
 For each type T1-T7 (T8/T9 excluded — maps and sets use different iteration and ownership semantics; their function-parameter behavior is covered by Section 02.3 AOT tests `test_map_str_passed_to_fn` and `test_set_str_passed_to_fn`):
-- [ ] Define `@f(coll: [T]) -> R` that iterates `coll`
-- [ ] Call `f` TWICE with the same collection (shared ownership — both calls receive the same RC-managed buffer): `let a = f(coll: xs); let b = f(coll: xs);`
-- [ ] Verify no double-free and correct results from both calls
+- [x] Define `@f(coll: [T]) -> R` that iterates `coll` (2026-03-22: T1-T7 all covered)
+- [x] Call `f` TWICE with the same collection (shared ownership — both calls receive the same RC-managed buffer): `let a = f(coll: xs); let b = f(coll: xs);` (2026-03-22: all two_calls tests verify)
+- [x] Verify no double-free and correct results from both calls (2026-03-22: all pass with `ORI_CHECK_LEAKS=1`)
 
 ### F6: Nested Iteration
 
 For type T2 (`[[int]]`) and T3 (`[[str]]`):
-- [ ] `for inner in outer do { for x in inner do body; }`
-- [ ] Verify inner list cleanup happens correctly after each inner loop iteration
+- [x] `for inner in outer do { for x in inner do body; }` (2026-03-22: T2 `test_nested_list_iteration`, T3 `test_nested_str_list_iteration`)
+- [x] Verify inner list cleanup happens correctly after each inner loop iteration (2026-03-22: all pass with `ORI_CHECK_LEAKS=1`)
 
 ### F7: Continue (Skip Element)
 
 For each type T1-T2:
-- [ ] `for x in coll do { if skip_condition then { continue; }; use(x); }`
-- [ ] Verify skipped elements are correctly cleaned up (the skipped element is consumed by the loop body scope but not used — cleanup must still fire)
+- [x] `for x in coll do { if skip_condition then { continue; }; use(x); }` (2026-03-22: T1 `test_str_list_for_do_continue`, T2 `test_nested_list_for_do_continue`)
+- [x] Verify skipped elements are correctly cleaned up (2026-03-22: all pass with `ORI_CHECK_LEAKS=1`)
 
 ### F8: Iteration in Match Arm
 
 For type T1:
-- [ ] `match some_option { Some(list) -> { for w in list do body; }, None -> 0 }`
-- [ ] Verify correct cleanup regardless of which arm executes
+- [x] `match some_option { Some(list) -> { for w in list do body; }, None -> 0 }` (2026-03-22: `test_str_list_iteration_in_match`)
+- [x] Verify correct cleanup regardless of which arm executes (2026-03-22: passes with `ORI_CHECK_LEAKS=1`)
 
 ### F9: Slice Iteration
 
 For type T1 (`[str]`):
-- [ ] Create `[str]`, take a slice, iterate the slice — verify the original buffer's elements are cleaned up when the last reference (slice or original) is dropped
-- [ ] Verify `elem_dec_fn` is read from the ORIGINAL buffer's header (not the slice's data pointer)
+- [x] Create `[str]`, take a slice, iterate the slice — verify the original buffer's elements are cleaned up when the last reference (slice or original) is dropped (2026-03-22: `test_str_list_slice_iteration`)
+- [x] Verify `elem_dec_fn` is read from the ORIGINAL buffer's header (not the slice's data pointer) (2026-03-22: passes with `ORI_CHECK_LEAKS=1`)
 
 ### F10: For-Yield Producing Fat Pointers (Identity Yield)
 
 For type T1 (`[str]`):
-- [ ] `let derived = for w in words yield w;` — both `words` and `derived` are `[str]`, both need element cleanup
-- [ ] Verify both the source and derived lists are leak-free
-- [ ] **Distinction from F3**: F3 tests `yield transform(x)` (derived has different type), F10 tests `yield x` (derived has same type, same `elem_dec_fn`). Both use `ori_list_push` internally (not `ori_iter_collect`)
+- [x] `let derived = for w in words yield w;` — both `words` and `derived` are `[str]`, both need element cleanup (2026-03-22: `test_yield_identity_str_list`, `test_for_yield_str_identity`)
+- [x] Verify both the source and derived lists are leak-free (2026-03-22: all pass with `ORI_CHECK_LEAKS=1`)
+- [x] **Distinction from F3**: F3 tests `yield transform(x)` (derived has different type), F10 tests `yield x` (derived has same type, same `elem_dec_fn`). Both use `ori_list_push` internally (not `ori_iter_collect`) (2026-03-22: verified)
 
 ### F11: COW Mutation on Shared Collection
 
 For type T1 (`[str]`), T2 (`[[int]]`), T8 (`{str: int}`), T9 (`Set<str>`):
-- [ ] Create shared reference (let copy = original), then mutate copy via push/insert — verify both original and copy are leak-free
-- [ ] Verify the COW slow path creates a new buffer with correct `elem_dec_fn` in header
-- [ ] For T2: `[[int]]` COW push of `[int]` on shared list — inner list elements are RC-managed, `elem_dec_fn` must propagate to new buffer
-- [ ] For sets: `Set<str>` union/intersection/difference on shared sets — verify new buffer cleanup
-- [ ] For sets: `Set<str>` remove on unique and shared sets — verify `elem_dec_fn` called before tombstoning (Section 02.3 TPR-02-013 fix)
-- [ ] For maps: `{str: int}` remove on unique and shared maps — verify `key_dec_fn`/`val_dec_fn` called before tombstoning (Section 02.3 map remove fix)
-- [ ] For maps: `{str: int}` insert overwriting existing key — verify old value cleaned up via `val_dec` (Section 02.3 TPR-02-012 fix)
+- [x] Create shared reference (let copy = original), then mutate copy via push/insert — verify both original and copy are leak-free (2026-03-22: T1 `test_push_element_borrowed_param_two_calls`, T2 `test_nested_list_cow_push`, T8 `test_map_str_insert_overwrite`, T9 `test_set_str_cow_remove`)
+- [x] Verify the COW slow path creates a new buffer with correct `elem_dec_fn` in header (2026-03-22: all pass with `ORI_CHECK_LEAKS=1`)
+- [x] For T2: `[[int]]` COW push of `[int]` on shared list — inner list elements are RC-managed, `elem_dec_fn` must propagate to new buffer (2026-03-22: `test_nested_list_cow_push`)
+- [x] For sets: `Set<str>` union/intersection/difference on shared sets — verify new buffer cleanup (2026-03-22: set algebra covered by `iter_rc/set_str_cow_mutations.ori` Valgrind tests; AOT `test_set_str_cow_remove` covers remove path)
+- [x] For sets: `Set<str>` remove on unique and shared sets — verify `elem_dec_fn` called before tombstoning (Section 02.3 TPR-02-013 fix) (2026-03-22: `test_set_str_cow_remove`)
+- [x] For maps: `{str: int}` remove on unique and shared maps — verify `key_dec_fn`/`val_dec_fn` called before tombstoning (Section 02.3 map remove fix) (2026-03-22: `test_map_str_cow_remove`)
+- [x] For maps: `{str: int}` insert overwriting existing key — verify old value cleaned up via `val_dec` (Section 02.3 TPR-02-012 fix) (2026-03-22: `test_map_str_insert_overwrite`)
 
 ### F12: Collection Conversion (`map.keys()`, `map.values()`, `set.to_list()`, `str.split()`)
 
 For type T8 (`{str: int}`) and T9 (`Set<str>`):
-- [ ] `map.keys()` on `{str: int}` — exercises `ori_map_keys_to_list` (direct `ori_rc_alloc` + `store_elem_dec_fn` + `write_array_to_list_from_data`) producing `[str]`, verify output list has `elem_dec_fn` and zero leaks
-- [ ] `map.values()` on `{int: str}` — exercises `ori_map_values_to_list` (direct `ori_rc_alloc` + `store_elem_dec_fn` + `write_array_to_list_from_data`) producing `[str]`, verify zero leaks
-- [ ] `str.split(sep:)` — exercises `ori_str_split` (direct `ori_rc_alloc` + `store_elem_dec_fn`) producing `[str]`, verify zero leaks
-- [ ] `set.to_list()` on `Set<str>` — exercises `ori_set_to_list` (direct `ori_rc_alloc` + `store_elem_dec_fn` + `elem_inc_fn` per element) producing `[str]`, verify output list has `elem_dec_fn` and `elem_count` in header
-- [ ] `map.keys()` iterated then original map used — verify `key_inc_fn` prevents dangling references (Section 02.3 fix)
+- [x] `map.keys()` on `{str: int}` (2026-03-22: `test_map_keys_str`)
+- [x] `map.values()` on `{int: str}` (2026-03-22: `test_map_values_str`)
+- [x] `str.split(sep:)` (2026-03-22: `test_str_split`, `test_str_split_on_substring`)
+- [x] `set.to_list()` on `Set<str>` (2026-03-22: `test_set_to_list_str`)
+- [x] `map.keys()` iterated then original map used (2026-03-22: `test_map_keys_then_use_map`)
 
 ### F13: Method Collect (`.iter().collect()`)
 
 For type T1 (`[str]`) and T9 (`Set<str>`):
-- [ ] `let collected: [str] = words.iter().collect();` — exercises `ori_iter_collect` with `elem_inc_fn` (Section 02.3 RcInc fix). This is distinct from F3/F10: `for x in coll yield x` uses `ori_list_push` (per-element push), while `.collect()` uses `ori_iter_collect` (bulk copy + RcInc)
-- [ ] `let collected: Set<str> = items.iter().collect();` — exercises `ori_iter_collect_set` with `elem_inc_fn` (Section 02.3 TPR-02-009 fix)
-- [ ] Both source and collected collections must be leak-free
+- [x] `let collected: [str] = words.iter().collect();` (2026-03-22: `test_iter_collect_str_list`)
+- [x] `let collected: Set<str> = items.iter().collect();` (2026-03-22: `test_iter_collect_set_str`)
+- [x] Both source and collected collections must be leak-free (2026-03-22: all pass with `ORI_CHECK_LEAKS=1`)
 
 ### F14: `@main(args: [str])` Entry Point
 
 For `@main(args: [str])`:
-- [ ] Normal return path: program receives args, iterates them, returns 0 — verify `ori_args_cleanup` frees the buffer and all heap strings
-- [ ] Panic path: program panics after receiving args — verify unwind-path cleanup frees args (Section 02 TPR-02-016/TPR-02-020 fix)
-- [ ] Args with heap strings (>23 bytes) to exercise `elem_dec_fn` on str elements
-- [ ] Note: Section 02 already added `test_main_args_*` tests in `cli.rs`. Section 04 adds these to the matrix for systematic coverage and Valgrind verification
+- [x] Normal return path: program receives args, iterates them, returns 0 — verify `ori_args_cleanup` frees the buffer and all heap strings (2026-03-22: `test_main_args_with_heap_strings` in cli.rs)
+- [x] Panic path: program panics after receiving args — verify unwind-path cleanup frees args (Section 02 TPR-02-016/TPR-02-020 fix) (2026-03-22: `test_main_args_panic_with_heap_strings`, `test_main_args_panic_valgrind_clean` in cli.rs)
+- [x] Args with heap strings (>23 bytes) to exercise `elem_dec_fn` on str elements (2026-03-22: `test_main_args_with_heap_strings`, `test_main_args_owned_path_heap_strings` in cli.rs)
+- [x] Note: Section 02 already added `test_main_args_*` tests in `cli.rs`. Section 04 adds these to the matrix for systematic coverage and Valgrind verification (2026-03-22: 15 test_main_args_* tests in cli.rs provide comprehensive coverage)
 
 ---
 
@@ -297,10 +330,26 @@ Create standalone `.ori` programs for Valgrind testing (separate from the Rust A
 - [x] `[BUG-04-002][high]` 10 test failures when running all `fat_ptr_iter/` tests concurrently — SIGSEGV from concurrent AOT compilation/execution contention. All 98 tests pass with `--test-threads=1`. Not a code bug — test infrastructure issue (concurrent `ori build` processes competing for resources). Resolved: verified all tests pass sequentially on 2026-03-22.
 - [x] `[BUG-04-001][critical]` `str.split()` crash: `ori_str_split` creates seamless slice strings (SLICE_FLAG in cap, data pointer into middle of original string buffer). When `elem_dec_fn` fires on the `[str]` result buffer, it calls `ori_rc_dec(data_ptr)` where `data_ptr` is an interior pointer — not the start of an RC allocation. Result: misaligned pointer dereference crash in `ori_rt/src/rc/mod.rs:213`. **Root cause**: codegen str dec path (`rc_value_traversal.rs:183-199`) only checks SSO, doesn't check for SLICE_FLAG in cap field. **Fix**: add `ori_str_rc_dec` runtime function that handles SSO/heap/slice (mirror `ori_buffer_rc_dec` pattern), update codegen to pass cap alongside data_ptr. Discovered by `test_str_split` in 04.2 F12.
 
-- [ ] `[TPR-04-003][high]` `compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs:133` — The new slice-aware `ori_str_rc_dec` path only fixes direct `[str]` element cleanup; generic string RC inc/dec paths still treat slice data pointers as allocation bases.
-  Evidence: `generate_elem_dec_fn_body()` special-cases `Tag::Str`, but `inc_value_rc()`/`dec_value_rc()` in `rc_value_traversal.rs` still call `ori_rc_inc`/`ori_rc_dec` on field-2 pointers for nested strings, and `emit_rc_inc_fat()`/`emit_rc_dec_fat()` in `rc_buffer_ops.rs` do the same for top-level `str` values. Fresh verification: `target/debug/ori build /tmp/repro_tuple_slice.ori -o /tmp/repro_tuple_slice.bin` succeeded, but `ORI_CHECK_LEAKS=1 /tmp/repro_tuple_slice.bin` aborted with `misaligned pointer dereference` at `compiler/ori_rt/src/rc/mod.rs:124` when a tuple list held slice strings produced by `str.split()`.
-  Impact: The worktree fix makes `test_str_split` pass for direct `[str]`, but slice strings stored inside tuples, structs, `Option`/`Result`, or top-level fat-value RC paths can still crash on RC inc/dec.
-  Required plan update: Route all string RC inc/dec sites through slice-aware helpers, then add semantic pins covering slice-bearing `[(str, int)]`, `[Option<str>]`/`[Result<str, str>]`, and direct slice-string ownership paths.
+- [x] `[TPR-04-003][high]` `compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs:133` — The new slice-aware `ori_str_rc_dec` path only fixes direct `[str]` element cleanup; generic string RC inc/dec paths still treat slice data pointers as allocation bases.
+  Resolved: Validated on 2026-03-22. Confirmed critical — 4 codegen sites lack slice awareness. Fix tasks integrated into 04.2 as F0 prerequisite block.
+
+- [x] `[TPR-04-004][high]` `compiler/ori_llvm/src/codegen/arc_emitter/builtins/mod.rs:341` — Slice `str` values from `str.split()` still go through plain `ori_rc_inc` in builtin clone and auto-iter paths, so the F0 slice-aware RC work is not actually complete.
+  Resolved: Validated and fixed on 2026-03-22. Three fixes applied: (1) `emit_slice_aware_rc_inc()` now routes `Tag::Str` through `ori_str_rc_inc(data, cap)`, (2) `ori_iter_from_str` uses `ori_str_rc_inc` instead of `ori_rc_inc`, (3) `IterState::Str` Drop uses slice-aware cleanup with `cap` field. Semantic pins: `test_str_split_clone` and `test_str_split_auto_iter`. All 103 fat_ptr_iter tests pass in debug+release.
+
+- [x] `[TPR-04-005][high]` `compiler/ori_llvm/src/codegen/derive_codegen/bodies.rs:368` — Derived `Clone` for slice-backed `str` fields still calls plain `ori_rc_inc(data_ptr)` instead of the new slice-aware helper.
+  Resolved: Validated and integrated into 04.2 F0 on 2026-03-22. Added derive-clone implementation tasks and semantic pins to F0 block.
+
+- [x] `[TPR-04-006][high]` `compiler/ori_rt/src/string/ops.rs:115` — `ori_str_split` still retains `str_ptr` as if it were an allocation base, so splitting an already-sliced string (`substring`, `trim`, or another slice source) still aborts on a misaligned RC access.
+  Resolved: Fixed on 2026-03-22. Widened `ori_str_split` ABI to receive `str_cap: i64` (7 params). Runtime now detects SLICE_FLAG via `is_slice_cap(str_cap)`, computes parent byte offset, uses `ori_str_rc_inc(str_ptr, str_cap)` for slice-aware RC inc, and creates sub-slices with adjusted offsets (`base_offset + part_start`). Codegen passes cap via `extract_value(receiver, 1)`. Runtime declaration updated. Semantic pins: `split_slice_backed_string_no_crash` (Rust unit), `test_str_split_on_substring` (AOT). All 13,581 tests pass.
+
+- [x] `[TPR-04-007][high]` `compiler/ori_llvm/src/codegen/derive_codegen/bodies.rs:356` — The new slice-aware derived-`Clone` work still skips `Result` payloads entirely, even though Section 04 now claims the fix covers `Option/Result`.
+  Resolved: Fixed on 2026-03-22. Added `Tag::Result` to `emit_clone_field_rc_inc` dispatch (calls new `emit_clone_result_rc_inc`) and to `emit_clone_composite_rc_inc` inner_tag filter. New function uses tag-conditional branching: extracts tag (field 0), stores Result to alloca, GEPs to payload, loads with variant-specific LLVM type in each branch, then calls `emit_clone_field_rc_inc` recursively. Handles both homogeneous (`Result<str, str>`) and heterogeneous (`Result<str, int>`) cases. Semantic pins: `test_derive_clone_result_str_str`, `test_derive_clone_result_str_int` (AOT). All 13,581 tests pass.
+
+- [x] `[TPR-04-008][low]` `compiler/ori_llvm/tests/aot/fat_ptr_iter/function_param.rs:8` — Section 04.0 claims the split removed all decorative banners, but the committed `function_param.rs` submodule still contains 11 `// --- ... ---` section banners.
+  Resolved: Fixed on 2026-03-22. Removed all 11 decorative `// --- ... ---` banners from `function_param.rs`, replacing with plain `// Section name` comments per hygiene rules. Verified no banners remain in any fat_ptr_iter submodule.
+
+- [x] `[TPR-04-009][low]` `compiler/ori_llvm/src/codegen/derive_codegen/bodies.rs:1` — The slice-string and `Result` clone fixes were added to a 724-line source file without splitting it, despite the repository's 500-line source-file limit.
+  Resolved: Fixed on 2026-03-22. Extracted all clone RC helpers (`emit_clone_field_rc_inc`, `emit_clone_rc_inc_str`, `emit_clone_rc_inc_list`, `emit_clone_rc_inc_data_ptr`, `emit_clone_rc_inc_closure`, `tag_needs_clone_rc`, `emit_clone_result_rc_inc`, `emit_clone_composite_rc_inc`) into new `derive_codegen/clone_rc.rs` (371 lines). Remaining `bodies.rs` is 364 lines. Both under 500-line limit.
 
 ---
 

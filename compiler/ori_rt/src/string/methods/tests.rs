@@ -1,7 +1,7 @@
 //! Tests for string slice operations (substring, trim, split).
 
-use crate::rc::{ori_rc_count, ori_rc_dec, ori_rc_free};
-use crate::slice_encoding::{is_slice_cap, slice_byte_offset, slice_original_data};
+use crate::rc::{ori_rc_count, ori_rc_dec, ori_rc_free, ori_rc_inc};
+use crate::slice_encoding::{is_slice_cap, make_slice_cap, slice_byte_offset, slice_original_data};
 use crate::string::OriStr;
 
 use super::ori_str_substring;
@@ -287,9 +287,12 @@ fn split_heap_string_long_pieces_are_slices() {
     let sep = b"|";
     let mut out = [0u8; 24];
 
+    // cap >= 0 for a regular heap string (not a slice)
+    let heap_cap = unsafe { source.heap.cap };
     ori_str_split(
         heap_data,
         content.len() as i64,
+        heap_cap,
         sep.as_ptr(),
         sep.len() as i64,
         None,
@@ -360,9 +363,11 @@ fn split_heap_string_short_pieces_use_sso() {
     let sep = b" ";
     let mut out = [0u8; 24];
 
+    let heap_cap = unsafe { source.heap.cap };
     ori_str_split(
         heap_data,
         content.len() as i64,
+        heap_cap,
         sep.as_ptr(),
         sep.len() as i64,
         None,
@@ -390,6 +395,91 @@ fn split_heap_string_short_pieces_use_sso() {
     crate::rc::ori_rc_free(
         list_data,
         7 * std::mem::size_of::<OriStr>(),
+        std::mem::align_of::<OriStr>(),
+    );
+    ori_rc_free(heap_data, content.len(), 1);
+}
+
+/// Semantic pin for TPR-04-006: splitting a slice-backed string must not crash.
+///
+/// Creates a heap string, takes a substring (seamless slice), then splits
+/// the substring. Without the `str_cap` parameter fix, `ori_str_split` would
+/// call `ori_rc_inc` on an interior pointer → misaligned access → crash.
+#[test]
+fn split_slice_backed_string_no_crash() {
+    use crate::string::ori_str_split;
+    let _g = crate::test_helpers::lock_rc();
+
+    // Create heap string: 60 bytes total, well over SSO_MAX_LEN
+    let content = b"AAAAAAAAAAAAAAAAAAAAAAAA|BBBBBBBBBBBBBBBBBBBBBBBB|CCCCCCCCCCCC";
+    let source = OriStr::from_heap(content);
+    let heap_data = unsafe { source.heap.data };
+    assert_eq!(ori_rc_count(heap_data), 1);
+
+    // Simulate a substring: take bytes [25..49] = "BBBBBBBBBBBBBBBBBBBBBBBB"
+    // This creates a seamless slice with data = heap_data + 25
+    let slice_offset = 25_usize;
+    let slice_len = 24_i64;
+    let slice_data = unsafe { heap_data.add(slice_offset) };
+    let slice_cap = make_slice_cap(slice_offset);
+
+    // Manually RC-inc the original for the slice reference
+    ori_rc_inc(heap_data);
+    assert_eq!(ori_rc_count(heap_data), 2);
+
+    // Now split the slice-backed string by "|" — no "|" in the slice range
+    // The source is a slice, so ori_str_split receives SLICE_FLAG in str_cap.
+    // The single piece (24 bytes > 23) should become a sub-slice of the ORIGINAL buffer.
+    let sep = b"|";
+    let mut out = [0u8; 24];
+
+    ori_str_split(
+        slice_data,
+        slice_len,
+        slice_cap,
+        sep.as_ptr(),
+        sep.len() as i64,
+        None,
+        out.as_mut_ptr(),
+    );
+
+    // Read list result
+    let len = unsafe { out.as_ptr().cast::<i64>().read() };
+    let list_data = unsafe { out.as_ptr().add(16).cast::<*mut u8>().read() };
+    assert_eq!(len, 1, "no separator found in slice → 1 piece");
+
+    // The single piece is 24 bytes > 23, so it should be a seamless slice
+    let elements = list_data.cast::<OriStr>();
+    let elem0 = unsafe { elements.read() };
+    assert!(
+        !elem0.is_sso(),
+        "24-byte piece should be heap/slice, not SSO"
+    );
+
+    let e0_heap = unsafe { &elem0.heap };
+    assert!(is_slice_cap(e0_heap.cap), "piece should be a slice");
+    assert_eq!(e0_heap.len, 24);
+
+    // The sub-slice's offset should be relative to the ORIGINAL buffer:
+    // base_offset (25) + part_start (0) = 25
+    assert_eq!(
+        slice_byte_offset(e0_heap.cap),
+        25,
+        "sub-slice offset should be 25 (parent offset + part offset)"
+    );
+
+    // Verify content
+    assert_eq!(elem0.as_bytes(), b"BBBBBBBBBBBBBBBBBBBBBBBB");
+
+    // RC: original (1) + slice ref (1) + sub-slice ref (1) = 3
+    assert_eq!(ori_rc_count(heap_data), 3);
+
+    // Clean up: dec sub-slice ref, dec slice ref, free list, free original
+    ori_rc_dec(heap_data, None); // sub-slice
+    ori_rc_dec(heap_data, None); // slice
+    crate::rc::ori_rc_free(
+        list_data,
+        std::mem::size_of::<OriStr>(),
         std::mem::align_of::<OriStr>(),
     );
     ori_rc_free(heap_data, content.len(), 1);

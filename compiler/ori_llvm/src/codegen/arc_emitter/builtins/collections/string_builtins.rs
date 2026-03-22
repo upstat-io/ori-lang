@@ -154,8 +154,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `str.split(sep)` — returns `[str]` (list of strings).
     ///
-    /// Calls `ori_str_split(data_ptr, len, sep_data, sep_len, elem_dec_fn, out_ptr)`.
-    /// SSO-safe: extracts data/len via runtime helpers.
+    /// Calls `ori_str_split(data_ptr, len, cap, sep_data, sep_len, elem_dec_fn, out_ptr)`.
+    /// SSO-safe: extracts data/len via runtime helpers. Passes cap for slice awareness
+    /// so that splitting a substring/trim result doesn't crash on misaligned RC access.
     pub(crate) fn emit_str_split(
         &mut self,
         receiver: ValueId,
@@ -166,13 +167,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let data_fn = self.builder.runtime_fn("ori_str_data");
         let len_fn = self.builder.runtime_fn("ori_str_len");
 
-        // Self string
+        // Self string — extract data, len, and cap
         let self_ptr = self.str_to_ptr(receiver, "split.self");
         let data_ptr = self
             .emit_rt_call(data_fn, &[self_ptr], "split.self.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let str_len = self
             .emit_rt_call(len_fn, &[self_ptr], "split.self.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        // Cap field (field 1) — needed for slice detection in the runtime.
+        // For SSO strings cap is meaningless (str_len <= 23 → no slicing).
+        // For heap strings cap >= 0. For slices cap has SLICE_FLAG.
+        let str_cap = self
+            .builder
+            .extract_value(receiver, 1, "split.self.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         // Separator string
@@ -197,6 +205,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &[
                 data_ptr,
                 str_len,
+                str_cap,
                 sep_data,
                 sep_len,
                 elem_dec_fn,
