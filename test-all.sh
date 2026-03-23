@@ -260,7 +260,14 @@ if [[ $PARALLEL -eq 1 ]]; then
 
     echo ""
 
-    # Phase 2: LLVM release build (sequential — shares target/ with workspace)
+    # Phase 2a: Debug build of ori_rt (ensures libori_rt.a staticlib is fresh for AOT tests)
+    # cargo test (Phase 1) builds rlib but not staticlib — AOT links against the .a file
+    echo "=== Building runtime library (debug) ==="
+    if ! cargo build -p ori_rt -q 2>&1; then
+        echo -e "  ${RED}✗ Runtime library debug build FAILED${NC}"
+    fi
+
+    # Phase 2b: LLVM release build (sequential — shares target/ with workspace)
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
     if ! cargo build -p oric -p ori_rt --release -q 2>&1; then
@@ -311,6 +318,10 @@ else
 
     run_rust_workspace || RUST_EXIT=1
     echo ""
+    echo "=== Building runtime library (debug) ==="
+    if ! cargo build -p ori_rt -q 2>&1; then
+        echo -e "  ${RED}✗ Runtime library debug build FAILED${NC}"
+    fi
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
     if ! cargo build -p oric -p ori_rt --release -q 2>&1; then
