@@ -3,6 +3,9 @@ section: "04"
 title: "Integer Narrowing Pipeline"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -226,3 +229,13 @@ The LLVM backend must emit narrowed types and insert sign-extension/truncation a
 - [ ] Performance: struct sizes measurably smaller for bounded-range fields
 
 **Exit Criteria:** Compiling a program with `struct Pixel { r: int, g: int, b: int, a: int }` where all fields are `0..255` produces a 4-byte struct (4 × i8) instead of 32-byte struct (4 × i64), verified by checking LLVM IR struct definitions.
+
+---
+
+## 04.R Third Party Review Findings
+
+- [ ] `[TPR-04-001][major]` `section-04-integer-narrowing.md:105` — **`AbiBoundary::ClosureCapture` listed but unspecified.** The variant appears in the `AbiBoundary` enum (§04.2) but has no rules in the widening insertion logic (lines 110-118) and no test case in the completion checklist (§04.5). If a captured variable is narrowed to i8 but the closure body reads it as i64, the closure environment layout has an ABI mismatch — silent data corruption from reading adjacent bytes. **Action:** Specify closure capture narrowing rules. Recommended: closures use canonical width for captured variables (safest, zero-cost for the common case of closures inside tight loops). Add test case for narrowed variable in closure capture. Consensus: 3/3 reviewers.
+
+- [ ] `[TPR-04-002][major]` `section-04-integer-narrowing.md:66-69` — **Function parameter narrowing requires all-call-site analysis; indirect calls not addressed.** The conservatism rules specify "narrow only if ALL call sites agree" but do not address function pointers stored as values (`(int) -> int` typed variables), closures passed as arguments, or indirect calls. A function narrowed based on visible direct call sites could be called through a function pointer with wider values, causing truncation. Trait methods are correctly marked `Disabled` but the same treatment is not extended to callable-value functions. **Action:** Add to conservatism rules: functions whose address is taken (stored in a variable of function type, passed as argument, or returned) must use `NarrowingPolicy::Disabled`. Consensus: 3/3 reviewers.
+
+- [ ] `[TPR-04-003][major]` `section-04-integer-narrowing.md:67` + `section-03-range-analysis.md:265-270,579` — **Struct field narrowing is unachievable with the specified range analysis.** §04.1 says "Struct fields: narrow aggressively" and the exit criteria requires `Pixel { r,g,b,a: int }` with 0..255 → 4-byte struct. However, §03's range analysis returns `Top` for all `Project` instructions (line 267-270: "Top unless we track per-field ranges") and `Top` for all `Construct` instructions (line 272-273). The type-level aggregation at §03 line 579 joins ALL int-typed variable ranges across ALL functions — which yields `Top` for any non-trivial program. There is no mechanism for per-field range tracking. **Action:** The plan needs either (a) per-field range tracking via `Construct` argument ranges aggregated by struct type and field position across all construction sites, or (b) a separate field-level analysis pass not covered by §03. The Pixel exit criteria is unachievable without this. Consensus: Agent 3 found, verified against plan text.

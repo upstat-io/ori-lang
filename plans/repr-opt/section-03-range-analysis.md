@@ -3,6 +3,9 @@ section: "03"
 title: "Value Range Analysis Framework"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -790,3 +793,9 @@ For cross-function narrowing, we need to propagate range information through fun
 - Division by range spanning zero: return Top (not panic). Shift by negative: return Top.
 
 **Exit Criteria:** Running range analysis on `tests/benchmarks/bench_small.ori` and other `tests/benchmarks/` programs produces non-trivial ranges (not all `Top`) for loop counters, index variables, and function parameters. Results logged at `debug` level.
+
+---
+
+## 03.R Third Party Review Findings
+
+- [ ] `[TPR-03-001][minor]` `section-03-range-analysis.md:458` — **Block parameter merging only handles `Jump` predecessors; `Invoke` normal successor may pass args.** The fixpoint loop at lines 430-458 only matches `ArcTerminator::Jump` when collecting predecessor arguments. Line 458 notes "Invoke normal successor also passes args — handle if needed" but leaves it unimplemented. Missing `Invoke` predecessor args default to `Bottom` (the join identity), which is conservative — no unsound narrowing occurs. However, values defined by function calls in loop bodies would never receive non-Top ranges for their block parameter contributions, reducing narrowing opportunities. **Action:** Add `Invoke` handling to the block parameter merge loop, or add an explicit checklist item to implement this as a follow-up.
