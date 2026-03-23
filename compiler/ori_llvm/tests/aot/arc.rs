@@ -1078,3 +1078,83 @@ type Record = { name: str, data: str }
         );
     }
 }
+
+// TPR-01-001 regression: verify that two distinct projected fields from the
+// same parent aggregate both survive edge cleanup when both escape via
+// terminator args. The old code stored a single `parent -> Project dst` in
+// `find_edge_decced_project_parents()`, so the second projection overwrote
+// the first and only one child got the compensating RcInc.
+//
+// Test matrix: struct destructuring (same parent), tuple destructuring,
+// and conditional merge — all with heap-allocated (>23 byte) str fields.
+#[test]
+fn test_rc_project_merge_edge_two_fields_escape() {
+    // Case 1: Struct destructuring — both fields projected from same parent.
+    for _ in 0..10 {
+        assert_aot_success(
+            r#"
+type Pair = { first: str, second: str }
+
+@make_pair () -> Pair =
+    Pair { first: "first-field-value-over-twenty-three!", second: "second-field-value-over-twenty-three!" };
+
+@main () -> int = {
+    let $p = make_pair();
+    let { first, second } = p;
+    if first == "first-field-value-over-twenty-three!"
+        then (if second == "second-field-value-over-twenty-three!" then 0 else 1)
+        else 2
+}
+"#,
+            "arc_merge_edge_two_fields_struct",
+        );
+    }
+    // Case 2: Conditional with both fields crossing a merge edge.
+    for _ in 0..10 {
+        assert_aot_success(
+            r#"
+type Pair = { first: str, second: str }
+
+@make_pair () -> Pair =
+    Pair { first: "first-field-value-over-twenty-three!", second: "second-field-value-over-twenty-three!" };
+
+@pick (cond: bool) -> (str, str) = {
+    let $p = make_pair();
+    let { first, second } = p;
+    if cond then (first, second) else (second, first)
+}
+
+@main () -> int = {
+    let $result = pick(cond: true);
+    let (f, s) = result;
+    if f == "first-field-value-over-twenty-three!"
+        then (if s == "second-field-value-over-twenty-three!" then 0 else 1)
+        else 2
+}
+"#,
+            "arc_merge_edge_two_fields_cond",
+        );
+    }
+    // Case 3: Three fields from same parent — ensures fix handles >2 fields.
+    for _ in 0..10 {
+        assert_aot_success(
+            r#"
+type Triple = { a: str, b: str, c: str }
+
+@make_triple () -> Triple =
+    Triple { a: "aaa-field-over-twenty-three-bytes!", b: "bbb-field-over-twenty-three-bytes!", c: "ccc-field-over-twenty-three-bytes!" };
+
+@main () -> int = {
+    let $t = make_triple();
+    let { a, b, c } = t;
+    if a == "aaa-field-over-twenty-three-bytes!"
+        then (if b == "bbb-field-over-twenty-three-bytes!"
+            then (if c == "ccc-field-over-twenty-three-bytes!" then 0 else 1)
+            else 2)
+        else 3
+}
+"#,
+            "arc_merge_edge_three_fields",
+        );
+    }
+}
