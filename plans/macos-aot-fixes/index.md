@@ -1,9 +1,10 @@
 ---
-parallel: false
+reroute: true
 name: "macOS AOT Fixes"
 full_name: "macOS AOT Failure Investigation"
 status: active
 reviewed: false
+order: 1
 ---
 
 # macOS AOT Failure Investigation
