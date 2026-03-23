@@ -1,0 +1,44 @@
+// Valgrind fat matrix: F10 — Generic instantiation with fat pointer types.
+// Verifies monomorphization correctness and RC for generic parameters.
+
+type Named = { name: str, id: int }
+
+@identity<T> (x: T) -> T = x;
+
+@apply<T> (f: (T) -> int, x: T) -> int = f(x);
+
+@main () -> int = {
+    // T4: SSO string through generic
+    let ok1 = identity(x: "hello").length() == 5;
+
+    // T5: heap string through generic
+    let ok2 = identity(x: "abcdefghijklmnopqrstuvwxyz1234").length() == 30;
+
+    // T6: list scalar through generic
+    let ok3 = identity(x: [1, 2, 3]).length() == 3;
+
+    // T7: list fat through generic
+    let ok4 = identity(x: ["hello", "world"]).length() == 2;
+
+    // T9: struct fat through generic
+    let n = identity(x: Named { name: "alice", id: 1 });
+    let ok5 = n.name.length() == 5;
+
+    // T17: map through generic
+    let ok6 = identity(x: {"a": 1}).length() == 1;
+
+    // T18: tuple through generic
+    let t = identity(x: ("hello", 42));
+    let (s, v) = t;
+    let ok7 = s.length() + v == 47;
+
+    // Generic with operation (apply)
+    let str_len = (s: str) -> int = s.length();
+    let ok8 = apply(f: str_len, x: "hello") == 5;
+
+    let list_len = (xs: [int]) -> int = xs.length();
+    let ok9 = apply(f: list_len, x: [1, 2, 3]) == 3;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9
+        then 0 else 1
+}

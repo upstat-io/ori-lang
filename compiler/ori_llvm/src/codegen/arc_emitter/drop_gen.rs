@@ -60,6 +60,9 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     emitter.builder.set_ccc(func_id);
     emitter.builder.add_nounwind_attribute(func_id);
     emitter.builder.add_cold_attribute(func_id);
+    emitter.builder.add_uwtable_attribute(func_id);
+    // noundef on data pointer param — Ori never passes poison pointers.
+    emitter.builder.add_noundef_param_attribute(func_id, 0);
 
     // Cache before body generation (cycle safety for recursive types)
     emitter.drop_fn_cache.insert(ty, func_id);
@@ -295,7 +298,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Extracts embedded data pointer(s) from aggregate types (Str, List, etc.)
     /// before calling `ori_rc_dec`, since the runtime expects raw pointers.
+    ///
+    /// Closures (`Tag::Function`) are special: the drop function is stored
+    /// dynamically in the env header (field 0 of the heap allocation), not
+    /// generated statically. Uses the same pattern as `emit_rc_dec_closure`.
     pub(super) fn emit_drop_rc_dec(&mut self, val: ValueId, field_type: Idx) {
+        let resolved = self.pool.resolve_fully(field_type);
+        let tag = self.pool.tag(resolved);
+
+        // Closures need dynamic drop fn from env header, not a static one.
+        if tag == ori_types::Tag::Function {
+            self.emit_closure_field_rc_dec(val);
+            return;
+        }
+
         let data_ptrs = self.extract_rc_data_ptrs(val, field_type);
         if data_ptrs.is_empty() {
             return;
@@ -304,6 +320,37 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         for ptr in data_ptrs {
             self.emit_drop_rc_dec_with_fn(ptr, drop_fn);
         }
+    }
+
+    /// Emit RC dec for a closure field value `{ fn_ptr, env_ptr }`.
+    ///
+    /// Extracts `env_ptr` (field 1), null-checks it, loads the dynamic
+    /// drop function from `env_ptr[0]`, and calls `ori_rc_dec(env_ptr, drop_fn)`.
+    fn emit_closure_field_rc_dec(&mut self, closure_val: ValueId) {
+        let Some(env_ptr) = self.builder.extract_value(closure_val, 1, "clos.env") else {
+            return;
+        };
+
+        // Non-capturing closures have a constant null env — skip entirely.
+        if self.builder.is_const_null_ptr(env_ptr) {
+            return;
+        }
+
+        let is_null = self.builder.is_null_ptr(env_ptr, "clos.null");
+        let do_dec = self.builder.append_block(self.current_function, "clos.dec");
+        let skip = self
+            .builder
+            .append_block(self.current_function, "clos.skip");
+        self.builder.cond_br(is_null, skip, do_dec);
+
+        self.builder.position_at_end(do_dec);
+        let ptr_ty = self.builder.ptr_type();
+        let drop_fn = self.builder.load(ptr_ty, env_ptr, "clos.drop_fn");
+        let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
+        self.emit_rt_call(rc_dec_id, &[env_ptr, drop_fn], "");
+        self.builder.br(skip);
+
+        self.builder.position_at_end(skip);
     }
 
     /// Emit `ori_rc_dec(val, drop_fn_ptr)` with a pre-computed drop function.

@@ -169,7 +169,7 @@ use std.testing { assert, assert_eq }
 
 @test_task_results tests @task_results () -> void = {
     let items = [1, -2, 3, -4, 5];
-    let results = for n in items yield process_item(n: n);
+    let results = for n in items yield process_item(n:);
     assert_eq(actual: results.len(), expected: 5);
     assert(cond: is_ok(r: results[0]));
     assert(cond: is_err(r: results[1]));
@@ -178,7 +178,7 @@ use std.testing { assert, assert_eq }
     assert(cond: is_ok(r: results[4]))
 }
 
-@task_results () -> [Result<int, str>] = for n in [1, -2, 3] yield process_item(n: n);
+@task_results () -> [Result<int, str>] = for n in [1, -2, 3] yield process_item(n:);
 
 // =============================================================================
 // spawn Pattern (Fire-and-Forget)
@@ -239,7 +239,7 @@ use std.testing { assert, assert_eq }
 @test_collect_all_semantics tests @collect_all_semantics () -> void = {
     let items = [1, 0, 3, 0, 5];
     let results = for n in items yield if n == 0 then Err("zero") else Ok(n * 2);
-    let oks = for r in results if is_ok(r: r) yield match r { Ok(v) -> v, Err(_) -> 0};
+    let oks = for r in results if is_ok(r:) yield match r { Ok(v) -> v, Err(_) -> 0};
     assert_eq(actual: oks, expected: [2, 6, 10])
 }
 

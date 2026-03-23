@@ -67,7 +67,7 @@ flowchart TB
     I --> J["Evaluator"]
     J --> K["ModuleEvalResult
     Value + stdout/stderr"]
-    I --> L["ARC Analysis"]
+    I --> L["AIMS Analysis"]
     L --> M["LLVM Codegen"]
     M --> N["Native Binary"]
 

@@ -330,6 +330,29 @@ fn jit_symbol_mappings_match_jit_allowed() {
     );
 }
 
+/// TPR-02-003: Verifies that `elem_dec`/`elem_count` buffer helpers are registered
+/// as JIT-allowed symbols, so MCJIT can resolve them when compiling list/set
+/// literals. Regression guard for RC header V5 JIT availability.
+#[test]
+fn jit_symbols_include_elem_header_helpers() {
+    use crate::evaluator::jit_symbol_mappings;
+
+    let mapping_names: BTreeSet<&str> = jit_symbol_mappings()
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+
+    let required = ["ori_buffer_store_elem_dec", "ori_buffer_store_elem_count"];
+
+    for name in &required {
+        assert!(
+            mapping_names.contains(name),
+            "elem header helper '{name}' missing from JIT symbol mappings — \
+             list/set literals will fail in MCJIT"
+        );
+    }
+}
+
 /// Validates that every runtime function has either `Nounwind` or documented
 /// justification for omitting it.
 ///

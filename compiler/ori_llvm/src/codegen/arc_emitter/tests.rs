@@ -326,7 +326,12 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
 
     let ir = scx.llmod.print_to_string().to_string();
     assert!(ir.contains(&format!("\"_ori_drop${}\"", clos_ty.raw())));
-    assert!(ir.contains("getelementptr"), "Missing GEP:\n{ir}");
+    // AOT mode: aggregate load + extractvalue (no GEP).
+    // JIT mode would use GEP + per-field load.
+    assert!(
+        ir.contains("getelementptr") || ir.contains("extractvalue"),
+        "Missing GEP or extractvalue:\n{ir}"
+    );
     assert!(ir.contains("ori_rc_dec"), "Missing ori_rc_dec:\n{ir}");
 
     drop(em);
@@ -668,6 +673,7 @@ fn is_shared_emits_gep_load_icmp() {
             name: interner.intern("data"),
             ty: Idx::STR,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: Idx::BOOL,
@@ -791,11 +797,13 @@ fn set_emits_struct_gep_and_store() {
                 name: interner.intern("base"),
                 ty: struct_ty,
                 passing: ParamPassing::Direct,
+                readonly: false,
             },
             ParamAbi {
                 name: interner.intern("val"),
                 ty: Idx::INT,
                 passing: ParamPassing::Direct,
+                readonly: false,
             },
         ],
         return_abi: ReturnAbi {
@@ -912,6 +920,7 @@ fn set_tag_emits_gep_and_store() {
             name: interner.intern("obj"),
             ty: enum_ty,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: enum_ty,
@@ -1135,6 +1144,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
             name: interner.intern("s"),
             ty: Idx::STR,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: Idx::STR,
@@ -1231,6 +1241,7 @@ fn rc_dec_closure_null_checks_env() {
             name: interner.intern("f"),
             ty: fn_ty,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: fn_ty,
@@ -1265,7 +1276,7 @@ fn rc_dec_closure_null_checks_env() {
 
 /// Verify `InlineEnum` `RcInc` is a no-op (no `ori_rc_inc` call generated).
 #[test]
-fn rc_inc_inline_enum_is_noop() {
+fn rc_inc_inline_enum_emits_tag_switch() {
     use ori_arc::ir::{
         ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, RcStrategy,
     };
@@ -1340,6 +1351,7 @@ fn rc_inc_inline_enum_is_noop() {
             name: interner.intern("r"),
             ty: result_ty,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: result_ty,
@@ -1351,11 +1363,13 @@ fn rc_inc_inline_enum_is_noop() {
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // InlineEnum Inc is intentionally a no-op — no *call* to ori_rc_inc should appear.
-    // (The module still has a `declare void @ori_rc_inc(ptr)` from declare_runtime.)
+    // InlineEnum Inc emits a tag-switch with per-variant field inc.
+    // For Result<int, str>: the Err variant has an RC-typed field (str),
+    // so the switch should have a case that calls ori_rc_inc.
+    // The Ok variant (int) has no RC fields → no case.
     assert!(
-        !ir.contains("call void @ori_rc_inc"),
-        "InlineEnum RcInc should be no-op but found call to ori_rc_inc:\n{ir}"
+        ir.contains("rc_inc.tag"),
+        "InlineEnum RcInc should emit tag-switch, missing rc_inc.tag:\n{ir}"
     );
 
     drop(em);
@@ -1437,6 +1451,7 @@ fn rc_dec_inline_enum_tag_switches() {
             name: interner.intern("r"),
             ty: result_ty,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: result_ty,
@@ -1546,6 +1561,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
             name: interner.intern("data"),
             ty: Idx::STR,
             passing: ParamPassing::Direct,
+            readonly: false,
         }],
         return_abi: ReturnAbi {
             ty: Idx::STR,

@@ -2,7 +2,7 @@
 journey: 1
 slug: arithmetic
 theme: "I am arithmetic"
-date: 2026-03-07
+date: 2026-03-20
 status: PASS
 expected: 33
 eval_result: 33
@@ -15,7 +15,7 @@ learning_objectives:
   - "Understand how arithmetic expressions are lowered to LLVM IR"
   - "See how overflow checking adds safety instructions to every operation"
   - "Compare ideal vs actual codegen for simple functions"
-  - "Learn what function attributes (nounwind, fastcc, noundef) mean and why they matter"
+  - "Learn what function attributes (nounwind, fastcc, noundef, memory) mean and why they matter"
 features:
   - arithmetic
   - function_calls
@@ -23,11 +23,11 @@ features:
   - int_literals
   - multiple_functions
 feature_description: "Basic arithmetic with function calls, let bindings, and integer operations"
-score: 9.8
+score: 10.0
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 10
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -38,8 +38,8 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 13
-  attr_correct: 12
+  attr_applicable: 10
+  attr_correct: 10
   attr_has_wrong: false
   cf_defects: 0
   cf_incorrect: false
@@ -209,11 +209,12 @@ The canonicalizer produces 20 canon nodes from 16 AST nodes (let bindings create
 
 > The ARC (Automatic Reference Counting) pipeline analyzes value lifetimes and inserts
 > reference counting operations. It performs borrow inference to minimize RC overhead --
-> parameters that are only read can be borrowed rather than owned.
+> parameters that are only read can be borrowed rather than owned. On the AIMS branch,
+> the unified lattice subsumes the previous multi-pass approach.
 
 **RC ops inserted**: 0 | **Elided**: 0 | **Net ops**: 0
 
-This program uses only `int` scalars (i64), which are value types stored directly in registers. No heap allocation occurs, so no reference counting is needed. This is the optimal outcome for a scalar-only program.
+This program uses only `int` scalars (i64), which are value types stored directly in registers. No heap allocation occurs, so no reference counting is needed. The AIMS unified lattice correctly identifies all values as scalar.
 
 <details>
 <summary>ARC annotations</summary>
@@ -222,6 +223,7 @@ This program uses only `int` scalars (i64), which are value types stored directl
 @add: no heap values -- pure scalar arithmetic (int params, int return)
 @main: no heap values -- all let bindings hold int scalars
 Total RC ops: 0 (optimal for scalar-only program)
+AIMS lattice: all values classified as scalar -- no RC analysis needed
 ```
 
 </details>
@@ -271,6 +273,7 @@ The eval trace shows the canonical execution order: `@main` evaluates the block,
 @_ori_add: +0 rc_inc, +0 rc_dec (pure scalar -- no heap values)
 @_ori_main: +0 rc_inc, +0 rc_dec (pure scalar -- no heap values)
 Nounwind analysis: 2 passes (fixed-point), both functions marked nounwind
+Memory analysis: @_ori_add marked memory(none) -- pure function, no observable side effects
 ```
 
 </details>
@@ -285,7 +288,7 @@ source_filename = "01-arithmetic"
 @ovf.msg.1 = private unnamed_addr constant [35 x i8] c"integer overflow on multiplication\00", align 1
 @ovf.msg.2 = private unnamed_addr constant [32 x i8] c"integer overflow on subtraction\00", align 1
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- @add ---
 define fastcc noundef i64 @_ori_add(i64 noundef %0, i64 noundef %1) #0 {
 bb0:
@@ -304,7 +307,7 @@ add.ovf_panic:                                    ; preds = %bb0
 
 ; Function Attrs: nounwind uwtable
 ; --- @main ---
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %call = call fastcc i64 @_ori_add(i64 3, i64 4)
   %mul = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %call, i64 5)
@@ -331,29 +334,36 @@ sub.ovf_panic:                                    ; preds = %mul.ok
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #2
+declare void @ori_panic_cstr(ptr) #3
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64) #2
 
-; Function Attrs: nounwind
-define i32 @main() #3 {
+; Function Attrs: nounwind uwtable
+define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
 
-attributes #0 = { nounwind uwtable }
-attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { cold noreturn }
-attributes #3 = { nounwind }
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
+
+attributes #0 = { nounwind memory(none) uwtable }
+attributes #1 = { nounwind uwtable }
+attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -399,11 +409,17 @@ attributes #3 = { nounwind }
    1b171:  lea    ovf.msg.2(%rip),%rdi
    1b178:  call   ori_panic_cstr
 
-000000000001b180 <main>:                        ; 8 bytes
-   1b180:  push   %rax
-   1b181:  call   _ori_main
-   1b186:  pop    %rcx
-   1b187:  ret
+000000000001b180 <main>:                        ; 29 bytes
+   1b180:  push   %rax                    ; align stack
+   1b181:  call   _ori_main               ; call Ori main
+   1b186:  mov    %eax,0x4(%rsp)          ; save exit code
+   1b18a:  call   ori_check_leaks         ; RC leak detection
+   1b18f:  mov    %eax,%ecx               ; leak result -> ecx
+   1b191:  mov    0x4(%rsp),%eax          ; reload exit code
+   1b195:  cmp    $0x0,%ecx               ; check if leaks detected
+   1b198:  cmovne %ecx,%eax              ; use leak code if nonzero
+   1b19b:  pop    %rcx                    ; restore stack
+   1b19c:  ret                            ; return final exit code
 ```
 
 ## Deep Scrutiny
@@ -414,7 +430,6 @@ attributes #3 = { nounwind }
 |---|----------|-------------|------------|-------|---------|
 | 1 | @add     | 7           | 7          | 1.00x | OPTIMAL |
 | 2 | @main    | 14          | 14         | 1.00x | OPTIMAL |
-| 3 | main wrapper | 3      | 3          | 1.00x | OPTIMAL |
 
 **@add (7 instructions)**: Every instruction is justified. The overflow-checked addition requires the intrinsic call (1), two extractvalues to split the result and overflow flag (2), a conditional branch (1), a return (1), and a panic path with call + unreachable (2). No wasted instructions. **OPTIMAL.**
 
@@ -431,26 +446,27 @@ attributes #3 = { nounwind }
 | @add     | 0      | 0      | YES      | N/A            | N/A            |
 | @main    | 0      | 0      | YES      | N/A            | N/A            |
 
-**Verdict**: Zero RC operations. Correct -- this program uses only `int` scalars (i64), which are value types requiring no reference counting. No `ori_rc_inc`, `ori_rc_dec`, or any RC-related calls present in the IR or disassembly. OPTIMAL.
+**Verdict**: Zero RC operations. Correct -- this program uses only `int` scalars (i64), which are value types requiring no reference counting. No `ori_rc_inc`, `ori_rc_dec`, or any RC-related calls present in the IR or disassembly. The AIMS unified lattice correctly classifies all values as scalars. OPTIMAL.
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | uwtable | noundef | noreturn | cold | Notes |
-|----------|--------|----------|---------|---------|----------|------|-------|
-| @add     | YES    | YES      | YES     | YES (params + ret) | N/A | N/A |       |
-| @main    | NO (C) | YES      | YES     | YES (ret) | N/A  | N/A  | C conv for entry point -- correct |
-| main wrapper | NO (C) | YES | NO      | N/A     | N/A      | N/A  | Missing uwtable [LOW-1] |
-| ori_panic_cstr | N/A | N/A | N/A     | N/A     | YES      | YES  | Both noreturn and cold present |
+| Function | fastcc | nounwind | uwtable | memory | noundef | noreturn | cold | Notes |
+|----------|--------|----------|---------|--------|---------|----------|------|-------|
+| @add     | YES    | YES      | YES     | none   | YES (params + ret) | N/A | N/A | [NOTE-1] |
+| @main    | NO (C) | YES      | YES     | N/A    | YES (ret) | N/A  | N/A  | C conv for entry point -- correct |
+| main wrapper | NO (C) | YES | YES     | N/A    | YES (ret) | N/A  | N/A  | All attributes present |
+| ori_panic_cstr | N/A | N/A | N/A     | N/A    | N/A     | YES      | YES  | Both noreturn and cold present [NOTE-2] |
+| ori_check_leaks | N/A | YES | N/A    | N/A    | N/A     | N/A      | N/A  | Leak detection runtime function |
 
-**@_ori_add uses `fastcc`**: Correct. Internal function benefits from fast calling convention (callee-pops, register preference). The `nounwind` attribute is present (fixed-point analysis confirms both user functions do not unwind). `uwtable` is present for stack unwinding support. `noundef` is present on both parameters and the return value, which is correct for non-optional `int` values.
+**@_ori_add uses `fastcc` with `memory(none)`**: Correct. Internal function benefits from fast calling convention. The `nounwind` attribute is present (fixed-point analysis confirms both user functions do not unwind). `memory(none)` tells LLVM that `@_ori_add` has no observable memory effects -- it only reads its arguments and produces a return value. This is correct for a pure arithmetic function. `uwtable` is present for stack unwinding. `noundef` is present on both parameters and the return value.
 
-**@_ori_main uses C convention**: Correct. Called from the C `main()` wrapper, must use C ABI for compatibility with the system entry point. Also marked `nounwind`, `uwtable`, and `noundef` on the return.
+**@_ori_main uses C convention**: Correct. Called from the C `main()` wrapper, must use C ABI for compatibility. Also marked `nounwind`, `uwtable`, and `noundef` on the return. Does not have `memory(none)` because it calls `@_ori_add` -- the memory attribute on non-leaf functions requires interprocedural analysis, and the compiler conservatively omits it since `@_ori_main` calls another function.
 
-**main wrapper has `nounwind` but not `uwtable`**: The C entry point wrapper has `#3 = { nounwind }` but is missing the `uwtable` attribute. Without `uwtable`, LLVM may not generate a proper `.eh_frame` unwind table entry for this function, which could impact debugger stack traces. Impact is minimal since the function is trivial (3 instructions).
+**main wrapper has full attribute coverage**: The C entry point wrapper has `nounwind`, `uwtable`, and `noundef` on its `i32` return. It now integrates `ori_check_leaks()` for RC leak detection at program exit.
 
-**`ori_panic_cstr` has both `cold` and `noreturn`**: This is correct and improved from a previous state where `noreturn` was missing. The `noreturn` attribute allows LLVM to eliminate dead code after panic calls and optimize branch layouts. The `cold` attribute helps branch prediction heuristics.
+**`ori_panic_cstr` has both `cold` and `noreturn`**: Correct. Enables dead code elimination and branch prediction heuristics.
 
-**Attribute compliance**: 13 applicable attributes checked. 12 of 13 correct -- only `uwtable` on the main wrapper is missing. 92.3% compliance.
+**Attribute compliance**: 10 applicable attributes checked (per extract-metrics.py). 10 of 10 correct. 100% compliance.
 
 ### 4. Control Flow & Block Layout
 
@@ -489,20 +505,20 @@ The panic messages are operation-specific (not generic), which is good for debug
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.25 MiB (6,554,584 bytes, debug) |
-| .text section | 868 KiB (889,409 bytes) |
-| .rodata section | 134 KiB (136,772 bytes) |
-| .debug_info | 1.56 MiB (1,638,828 bytes) |
-| .debug_str | 1.72 MiB (1,803,891 bytes) |
-| .eh_frame | 109 KiB (111,956 bytes) |
+| Binary size | 6.25 MiB (6,559,264 bytes, debug) |
+| .text section | 869 KiB (890,249 bytes) |
+| .rodata section | 134 KiB (136,737 bytes) |
+| .debug_info | 1.56 MiB (1,641,073 bytes) |
+| .debug_str | 1.72 MiB (1,804,569 bytes) |
+| .eh_frame | 109 KiB (112,104 bytes) |
 | User code (@add) | 31 bytes (0x1b100-0x1b11f) |
 | User code (@main) | 93 bytes (0x1b120-0x1b17d) |
-| User code (main wrapper) | 8 bytes (0x1b180-0x1b188) |
-| User code total | 132 bytes |
-| User code % of .text | 0.015% |
+| User code (main wrapper) | 29 bytes (0x1b180-0x1b19c) |
+| User code total | 153 bytes |
+| User code % of .text | 0.017% |
 | Runtime % of binary | ~99.98% |
 
-The binary is large due to static linking of `ori_rt` (the Ori runtime, which includes Rust's standard library for panic handling, I/O, memory allocation) and full debug symbols (3.28 MiB of .debug_* sections). The user's actual code is 132 bytes -- everything else is runtime infrastructure. This is expected for a debug build of a statically-linked binary.
+The binary is large due to static linking of `ori_rt` (the Ori runtime, which includes Rust's standard library for panic handling, I/O, memory allocation) and full debug symbols (3.28 MiB of .debug_* sections). The user's actual code is 153 bytes -- everything else is runtime infrastructure. This is expected for a debug build of a statically-linked binary. The main wrapper now includes RC leak detection logic (`ori_check_leaks`), adding 21 bytes over a minimal wrapper.
 
 #### Disassembly: @add
 
@@ -594,7 +610,7 @@ add.ovf_panic:
 
 ```llvm
 ; IDEAL (14 instructions)
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 entry:
   %sum = call fastcc i64 @_ori_add(i64 3, i64 4)
   %mul = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %sum, i64 5)
@@ -619,7 +635,7 @@ sub_panic:
 
 ```llvm
 ; ACTUAL (14 instructions)
-define noundef i64 @_ori_main() #0 {
+define noundef i64 @_ori_main() #1 {
 bb0:
   %call = call fastcc i64 @_ori_add(i64 3, i64 4)
   %mul = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %call, i64 5)
@@ -647,26 +663,32 @@ sub.ovf_panic:
 #### main wrapper: Ideal vs Actual
 
 ```llvm
-; IDEAL (3 instructions)
-define i32 @main() #3 {
+; IDEAL (6 instructions -- leak detection is mandatory for AIMS)
+define noundef i32 @main() #1 {
 entry:
   %r = call i64 @_ori_main()
   %c = trunc i64 %r to i32
-  ret i32 %c
+  %lk = call i32 @ori_check_leaks()
+  %has = icmp ne i32 %lk, 0
+  %fin = select i1 %has, i32 %lk, i32 %c
+  ret i32 %fin
 }
 ```
 
 ```llvm
-; ACTUAL (3 instructions)
-define i32 @main() #3 {
+; ACTUAL (6 instructions)
+define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
 ```
 
-**Delta**: 0 instructions. **OPTIMAL.**
+**Delta**: 0 instructions. **OPTIMAL.** The `ori_check_leaks` integration is mandatory for AIMS RC leak detection and adds zero unjustified overhead.
 
 #### Module Summary
 
@@ -674,8 +696,8 @@ entry:
 |----------|-------|--------|-------|-----------|---------|
 | @add     | 7     | 7      | +0    | N/A       | OPTIMAL |
 | @main    | 14    | 14     | +0    | N/A       | OPTIMAL |
-| main wrapper | 3 | 3      | +0    | N/A       | OPTIMAL |
-| **Total** | **24** | **24** | **+0** | | |
+| main wrapper | 6 | 6      | +0    | N/A       | OPTIMAL |
+| **Total** | **27** | **27** | **+0** | | |
 
 ### 8. Arithmetic: Let Binding Elimination
 
@@ -702,31 +724,28 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW      | Attributes | Missing `uwtable` on main wrapper | CONFIRMED | J1 |
-| 2 | NOTE     | Attributes | `noreturn` present on `ori_panic_cstr` | CONFIRMED | J1 |
-| 3 | NOTE     | Attributes | `noundef` on user function params and returns | CONFIRMED | J1 |
-| 4 | NOTE     | Instruction Purity | Let bindings eliminated to direct SSA -- O1-quality at O0 | CONFIRMED | J1 |
-| 5 | NOTE     | Instruction Purity | Both user functions match ideal IR exactly -- OPTIMAL | CONFIRMED | J1 |
+| 1 | NOTE     | Attributes | `memory(none)` on `@_ori_add` -- pure function optimization | NEW | J1 |
+| 2 | NOTE     | Attributes | `noreturn` + `cold` present on `ori_panic_cstr` | NEW | J1 |
+| 3 | NOTE     | Attributes | `noundef` on user function params and returns | NEW | J1 |
+| 4 | NOTE     | Instruction Purity | Let bindings eliminated to direct SSA -- O1-quality at O0 | NEW | J1 |
+| 5 | NOTE     | Instruction Purity | All user functions match ideal IR exactly -- OPTIMAL | NEW | J1 |
 
-### LOW-1: Missing `uwtable` on main wrapper
+### NOTE-1: `memory(none)` on `@_ori_add`
 
-**Location**: `define i32 @main() #3` where `#3 = { nounwind }` -- missing `uwtable`
-**Impact**: Without `uwtable`, LLVM may not generate a proper `.eh_frame` unwind table entry for the C entry point wrapper. This could impact debugger stack traces if a panic occurs during `@_ori_main`. The practical impact is minimal since the function is trivial (3 instructions: call, trunc, ret) and any panic would unwind from inside `@_ori_main` or `@_ori_add`, both of which have `uwtable`.
-**Fix**: Add `uwtable` to the main wrapper's attribute group. The attribute group should be `{ nounwind uwtable }`. This should be changed in `compiler/ori_llvm/src/codegen/function_compiler/entry_point.rs` where the C `main()` wrapper is generated.
-**First seen**: Journey 1
-**Status**: Still present -- confirmed on re-run.
+**Location**: `define fastcc noundef i64 @_ori_add(i64 noundef %0, i64 noundef %1) #0` where `#0 = { nounwind memory(none) uwtable }`
+**Impact**: Positive. The `memory(none)` attribute tells LLVM that `@_ori_add` has no observable memory effects -- it neither reads from nor writes to memory. This is correct for a pure arithmetic function that only operates on its scalar arguments. This enables LLVM to perform more aggressive optimizations: dead call elimination, call reordering, and common subexpression elimination.
 **Found in**: Attributes & Calling Convention (Category 3)
 
-### NOTE-2: `noreturn` present on `ori_panic_cstr`
+### NOTE-2: `noreturn` + `cold` present on `ori_panic_cstr`
 
-**Location**: `declare void @ori_panic_cstr(ptr) #2` where `#2 = { cold noreturn }`
-**Impact**: Positive. Both `cold` and `noreturn` are present. The `noreturn` attribute allows LLVM to fully optimize code paths after panic calls and improve branch layouts. Combined with the `unreachable` instruction at each call site, this provides redundant but complete non-return semantics.
+**Location**: `declare void @ori_panic_cstr(ptr) #3` where `#3 = { cold noreturn }`
+**Impact**: Positive. Both attributes are present. `noreturn` allows LLVM to eliminate dead code after panic calls. `cold` helps branch prediction heuristics place panic paths at the end of the function.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-3: `noundef` on user function parameters and returns
 
-**Location**: `@_ori_add` params (`i64 noundef %0, i64 noundef %1`) and return (`noundef i64`); `@_ori_main` return (`noundef i64`)
-**Impact**: Positive. The `noundef` attribute tells LLVM that these values are always well-defined (not `undef` or `poison`). This enables additional LLVM optimizations -- particularly for signed overflow checking, where undefined behavior semantics are critical. For Ori's `int` type (which is always initialized), this is always correct.
+**Location**: `@_ori_add` params (`i64 noundef %0, i64 noundef %1`) and return (`noundef i64`); `@_ori_main` return (`noundef i64`); `@main` return (`noundef i32`)
+**Impact**: Positive. The `noundef` attribute tells LLVM that these values are always well-defined. This enables additional optimizations -- particularly for signed overflow checking, where undefined behavior semantics are critical.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-4: Let bindings eliminated to direct SSA
@@ -735,7 +754,7 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 **Impact**: Positive. No `alloca`/`store`/`load` chains for scalar let bindings. Values flow directly from definition to use as SSA values. This is `-O1` quality codegen in a debug build.
 **Found in**: Arithmetic: Let Binding Elimination (Category 8)
 
-### NOTE-5: Both user functions match ideal IR exactly
+### NOTE-5: All user functions match ideal IR exactly
 
 **Location**: `_ori_add` and `_ori_main`
 **Impact**: Positive. Both user functions produce instruction counts exactly matching the hand-written ideal IR. @add: 7/7. @main: 14/14. The entire module has zero unjustified overhead.
@@ -745,16 +764,16 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
-| Instruction Efficiency | 15% | 10/10 | 1.00x avg ratio |
+| Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 92.3% compliance |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.8 / 10**
+**Overall: 10.0 / 10**
 
 ## Verdict
 
-Journey 1's arithmetic codegen is near-perfect. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction -- zero overhead beyond mandatory overflow checking. Attributes are strong: `nounwind`, `uwtable`, `noundef`, `cold`, and `noreturn` are all correctly applied where needed. The sole remaining gap is a missing `uwtable` on the C `main()` wrapper, which has negligible practical impact. Score is stable at 9.8/10 across re-runs.
+Journey 1's arithmetic codegen achieves a perfect score. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction with zero overhead beyond mandatory overflow checking. All attributes are correctly applied -- `memory(none)` on the pure `@_ori_add`, `nounwind` on all user functions via fixed-point analysis, `noundef` on all parameters and returns, and `cold noreturn` on panic paths. ARC is correctly absent for pure scalar arithmetic -- zero RC operations. The main wrapper now integrates RC leak detection via `ori_check_leaks`, which is optimal for the AIMS pipeline.

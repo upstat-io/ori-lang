@@ -10,7 +10,7 @@ use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use super::FunctionCompiler;
 use crate::codegen::abi::{
@@ -140,7 +140,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Remap PartialApply callee references in the parent function to use
         // the globally unique lambda names assigned during compilation.
         if !lambda_renames.is_empty() {
-            remap_partial_apply_names(&mut arc_func, &lambda_renames);
+            super::purity_analysis::remap_partial_apply_names(&mut arc_func, &lambda_renames);
         }
 
         // Lambda compilation changes builder.current_function to the last
@@ -173,6 +173,19 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             &self.codegen_ctx,
         );
         emitter.emit_function(&arc_func, abi);
+
+        // Post-emission CFG simplification: eliminate empty blocks and
+        // redundant branches created by if/else and overflow check lowering.
+        let fn_val = self.builder.get_function_value(func_id);
+        let cfg_stats = crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+        if cfg_stats.blocks_removed > 0 || cfg_stats.branches_simplified > 0 {
+            debug!(
+                name = name_str,
+                blocks_removed = cfg_stats.blocks_removed,
+                branches_simplified = cfg_stats.branches_simplified,
+                "cfg_simplify"
+            );
+        }
 
         // Mark nounwind after emission so LLVM's PruneEH pass can
         // optimize callers (even those compiled before this function).
@@ -212,6 +225,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         );
         emitter.emit_function(lambda, &abi);
 
+        // Post-emission CFG simplification
+        let fn_val = self.builder.get_function_value(func_id);
+        crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+
         if is_nounwind {
             self.codegen_ctx.nounwind_functions.insert(lambda_name);
             self.builder.add_nounwind_attribute(func_id);
@@ -229,6 +246,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 name: self.interner.intern(&format!("v{}", p.var.raw())),
                 ty: p.ty,
                 passing: compute_param_passing(p.ty, self.type_info),
+                readonly: false,
             })
             .collect();
 
@@ -252,30 +270,21 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Shared by both the immediate-emit path ([`Self::emit_arc_function`]) and
     /// the two-pass prepare path ([`Self::prepare_arc_function`]).
     pub(super) fn process_arc_function(&mut self, name: Name, arc_func: &mut ori_arc::ArcFunction) {
-        // Apply borrow inference annotations to ARC IR params.
+        // Apply AIMS param ownership from pre-computed contracts.
         // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
-        // Without this, RC insertion generates unnecessary RcInc/RcDec for
-        // params that borrow inference determined should be Borrowed.
-        if let Some(sig) = self.annotated_sigs.get(&name) {
-            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
-                param.ownership = annotated.ownership;
+        // AIMS contracts (from compute_aims_contracts()) provide the correct
+        // Owned/Borrowed per param.
+        debug!(name = %self.interner.lookup(name), "processing ARC function");
+        if let Some(contract) = self.aims_contracts.get(&arc_func.name) {
+            for (param, pc) in arc_func.params.iter_mut().zip(&contract.params) {
+                param.ownership = match pc.access {
+                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
+                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
+                };
             }
-        } else if !arc_func.params.is_empty() {
-            let name_str = self.interner.lookup(name);
-            warn!(
-                func = name_str,
-                params = arc_func.params.len(),
-                "borrow signature missing — compiling with all-Owned params"
-            );
         }
 
-        ori_arc::annotate_arg_ownership(
-            arc_func,
-            self.annotated_sigs,
-            self.interner,
-            &self.builtin_ownership,
-            self.pool,
-        );
+        // AIMS pipeline handles arg_ownership internally (Step 4: emit_arg_ownership).
         let arc_problems = ori_arc::run_arc_pipeline(
             arc_func,
             self.arc_classifier,
@@ -283,6 +292,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.pool,
             self.interner,
             &self.uniqueness_summaries,
+            &self.aims_contracts,
             self.verify_arc,
         );
         for problem in &arc_problems {
@@ -311,6 +321,23 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ) -> (Name, FunctionId, FunctionAbi) {
         let is_non_capturing = lambda.num_captures == 0;
 
+        // Apply AIMS param ownership from pre-computed contracts BEFORE the
+        // name change below. The contracts map uses the original lambda name
+        // (e.g., `__lambda_0` from lowering). Lambdas need correct
+        // Owned/Borrowed annotations so that collect_all_borrowed_defs()
+        // correctly identifies borrowed params and their Let aliases.
+        // Without this, edge cleanup emits spurious RcDec for
+        // borrowed-param aliases (double-free on captured non-scalar
+        // values like str, [T]).
+        if let Some(contract) = self.aims_contracts.get(&lambda.name) {
+            for (param, pc) in lambda.params.iter_mut().zip(&contract.params) {
+                param.ownership = match pc.access {
+                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
+                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
+                };
+            }
+        }
+
         let mut abi = self.compute_arc_function_abi(lambda);
 
         // Non-capturing lambdas use `ccc` so they match the closure calling
@@ -319,19 +346,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             abi.call_conv = CallConv::C;
         }
 
-        // Assign a globally unique lambda name to prevent cross-function
-        // collisions in codegen_ctx.functions. Each lower_function_can call
-        // numbers lambdas starting at 0, so two functions each containing a
-        // lambda both produce `__lambda_0`. The global counter ensures
-        // uniqueness across the entire module.
-        let counter = self.lambda_counter.get();
-        self.lambda_counter.set(counter + 1);
-        let unique_name = self.interner.intern(&format!("__lambda_{counter}"));
-        lambda.name = unique_name;
+        // Lambda names are globally unique from lowering (include parent function
+        // name: `__lambda_{parent}_{idx}`). No renaming needed — the AIMS contract
+        // map uses the same names, so ownership lookup succeeds. (BUG-04-07 fix)
+        let unique_name = lambda.name;
 
+        let lambda_name_str = self.interner.lookup(unique_name);
         let symbol = self
             .mangler
-            .mangle_function(self.module_path, &format!("__lambda_{counter}"));
+            .mangle_function(self.module_path, lambda_name_str);
 
         debug!(
             name = %self.interner.lookup(unique_name),
@@ -359,14 +382,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .functions
             .insert(unique_name, (func_id, abi.clone()));
 
-        // ARC processing
-        ori_arc::annotate_arg_ownership(
-            lambda,
-            self.annotated_sigs,
-            self.interner,
-            &self.builtin_ownership,
-            self.pool,
-        );
+        // ARC processing — AIMS pipeline handles arg_ownership internally.
         let arc_problems = ori_arc::run_arc_pipeline(
             lambda,
             self.arc_classifier,
@@ -374,90 +390,27 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.pool,
             self.interner,
             &self.uniqueness_summaries,
+            &self.aims_contracts,
             self.verify_arc,
         );
         for problem in &arc_problems {
             debug!(?problem, "ARC pipeline problem (lambda)");
         }
 
-        (unique_name, func_id, abi)
-    }
-
-    /// Check if an ARC function is nounwind (cannot unwind/panic).
-    ///
-    /// A function is nounwind if:
-    /// 1. All `Invoke` callees are already known-nounwind (in the set), AND
-    /// 2. No `Apply` calls a may-unwind function, AND
-    /// 3. No `ApplyIndirect` instructions exist (indirect calls through
-    ///    closures/function pointers are conservatively may-unwind).
-    ///
-    /// For `Apply` callees, three cases:
-    /// - **Runtime function with `Nounwind` attr**: safe (cannot unwind).
-    /// - **Runtime function WITHOUT `Nounwind` attr**: unsafe — may call
-    ///   `ori_panic` internally (e.g., `ori_list_get` on OOB, `ori_assert`
-    ///   on failure, allocating functions on OOM).
-    /// - **User-defined function**: check `nounwind_functions` set.
-    ///
-    /// Indirect calls (`ApplyIndirect`) cannot be statically resolved to a
-    /// known callee, so we must conservatively assume they may unwind. This
-    /// prevents UB when a closure target panics inside a `nounwind` function.
-    pub(super) fn is_arc_function_nounwind(&self, func: &ori_arc::ArcFunction) -> bool {
-        use crate::codegen::runtime_decl::runtime_functions::is_rt_fn_nounwind;
-
-        func.blocks.iter().all(|block| {
-            let term_ok = match &block.terminator {
-                ori_arc::ir::ArcTerminator::Invoke { func: callee, .. } => {
-                    self.codegen_ctx.nounwind_functions.contains(callee)
-                }
-                _ => true,
-            };
-            let instrs_ok = block.body.iter().all(|instr| match instr {
-                ori_arc::ir::ArcInstr::Apply { func: callee, .. } => {
-                    let s = self.interner.lookup(*callee);
-                    match is_rt_fn_nounwind(s) {
-                        // Known runtime function with Nounwind attribute
-                        Some(true) => true,
-                        // Known runtime function WITHOUT Nounwind — may unwind
-                        Some(false) => false,
-                        // Not a runtime function — check user function set
-                        None => self.codegen_ctx.nounwind_functions.contains(callee),
-                    }
-                }
-                // Indirect calls through closures/function pointers are
-                // conservatively treated as may-unwind — we cannot know
-                // the callee's unwind behavior at compile time.
-                //
-                // §02.5 decision: conservative (document limitation).
-                // Interprocedural proof (tracking all possible callees for
-                // every closure variable) is a significant analysis investment
-                // for a LOW-severity finding. The pessimistic result (using
-                // invoke instead of call) is always safe.
-                ori_arc::ir::ArcInstr::ApplyIndirect { .. } => false,
-                _ => true,
-            });
-            term_ok && instrs_ok
-        })
-    }
-}
-
-/// Remap `PartialApply { func, .. }` callee names in an ARC function.
-///
-/// After `declare_and_process_lambda` renames lambdas to globally unique names,
-/// the parent function's `PartialApply` instructions still reference the old
-/// per-function names (e.g., `__lambda_0`). This function updates them to
-/// match the new globally unique names so `emit_partial_apply` finds the
-/// correct entry in `codegen_ctx.functions`.
-pub(super) fn remap_partial_apply_names(func: &mut ori_arc::ArcFunction, renames: &[(Name, Name)]) {
-    for block in &mut func.blocks {
-        for instr in &mut block.body {
-            if let ori_arc::ArcInstr::PartialApply { ref mut func, .. } = instr {
-                for &(old, new) in renames {
-                    if *func == old {
-                        *func = new;
-                        break;
-                    }
-                }
-            }
+        // Store capture param ownership so emit_partial_apply can generate
+        // correct env drop functions: borrowed captures must NOT be RC-dec'd.
+        if lambda.num_captures > 0 {
+            let capture_ownership: Vec<ori_arc::Ownership> = lambda
+                .params
+                .iter()
+                .take(lambda.num_captures)
+                .map(|p| p.ownership)
+                .collect();
+            self.codegen_ctx
+                .lambda_capture_ownership
+                .insert(unique_name, capture_ownership);
         }
+
+        (unique_name, func_id, abi)
     }
 }

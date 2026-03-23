@@ -1,0 +1,13 @@
+// Valgrind: Set<str>.difference() — verifies elem_dec_fn on excluded elements
+@main () -> int = {
+    let a: Set<str> = [
+        "alpha string that is long enough to exceed SSO",
+        "beta string that is also long enough to exceed",
+        "gamma string with sufficient length for heap too"
+    ].iter().collect();
+    let b: Set<str> = [
+        "alpha string that is long enough to exceed SSO"
+    ].iter().collect();
+    let result = a.difference(other: b);
+    if result.len() == 2 then 0 else 1
+}

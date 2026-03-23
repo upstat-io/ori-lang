@@ -1,0 +1,17 @@
+// Valgrind: map.values() with fat-pointer values ({int: str}, {str: str})
+// TPR-02-018: Exercises val_inc_fn path in ori_map_values_to_list
+@main () -> void = {
+    let m1: {int: str} = {};
+    let m1 = m1.insert(1, "heap string value exceeding SSO threshold for map values testing");
+    let m1 = m1.insert(2, "another heap string value that is definitely over twenty three bytes");
+    let vals1 = m1.values();
+    if vals1.len() != 2 then panic(msg: "wrong val count for {int: str}");
+
+    let m2: {str: str} = {};
+    let m2 = m2.insert("heap key one exceeding SSO threshold here", "heap val one exceeding SSO threshold here");
+    let m2 = m2.insert("heap key two exceeding SSO threshold here", "heap val two exceeding SSO threshold here");
+    let vals2 = m2.values();
+    let keys2 = m2.keys();
+    if vals2.len() != 2 then panic(msg: "wrong val count for {str: str}");
+    if keys2.len() != 2 then panic(msg: "wrong key count for {str: str}");
+}

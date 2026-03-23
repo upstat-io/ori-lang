@@ -1,0 +1,12 @@
+// Valgrind test: for-yield on [str] with heap-allocated strings.
+// Verifies no double-free or leak in iterator RC cleanup path.
+
+@main () -> int = {
+    let items = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "another very long string that also exceeds the SSO threshold",
+        "third long string for good measure in the test programs here"
+    ];
+    let result = for s in items yield s;
+    if result.length() == 3 then 0 else 1
+}

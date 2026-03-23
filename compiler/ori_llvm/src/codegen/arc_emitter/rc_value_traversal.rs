@@ -31,7 +31,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars and runtime-tagged types: no static RC action
+            // Scalars: no RC action
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -42,27 +42,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering
-            | Tag::Result
-            | Tag::Enum => {}
+            | Tag::Ordering => {}
 
-            // Str: SSO check + RC inc on heap data pointer
+            // Result/Enum: tag-switch per variant, inc RC children
+            Tag::Result | Tag::Enum => {
+                self.emit_inline_enum_inc(val, resolved, tag, count);
+            }
+
+            // Str: slice-aware RC inc via ori_str_rc_inc(data, cap)
+            // Handles SSO, heap, and seamless slices from str.split().
             Tag::Str => {
                 if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
-                    let do_inc = self
+                    let cap = self
                         .builder
-                        .append_block(self.current_function, "rc_inc.str_heap");
-                    let skip = self
-                        .builder
-                        .append_block(self.current_function, "rc_inc.str_skip");
-                    let is_sso = self.emit_sso_check(dp, "rc_inc.str");
-                    self.builder.cond_br(is_sso, skip, do_inc);
-
-                    self.builder.position_at_end(do_inc);
-                    self.call_rc_inc_all(&[dp], count);
-                    self.builder.br(skip);
-
-                    self.builder.position_at_end(skip);
+                        .extract_value(val, 1, "rc_inc.str_cap")
+                        .unwrap_or_else(|| self.builder.const_i64(0));
+                    self.call_str_rc_inc(dp, cap, count);
                 }
             }
 
@@ -158,7 +153,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars and runtime-tagged types: no static RC action
+            // Scalars: no RC action
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -169,28 +164,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering
-            | Tag::Result
-            | Tag::Enum => {}
+            | Tag::Ordering => {}
 
-            // Str: SSO check + RC dec on heap data pointer
+            // Result/Enum: tag-switch per variant, dec RC children
+            Tag::Result | Tag::Enum => {
+                self.emit_inline_enum_dec(val, resolved, tag);
+            }
+
+            // Str: slice-aware RC dec via ori_str_rc_dec(data, cap, drop_fn)
+            // Handles SSO, heap, and seamless slices from str.split().
             Tag::Str => {
                 if let Some(dp) = self.builder.extract_value(val, 2, "rc_dec.data") {
-                    let do_dec = self
+                    let cap = self
                         .builder
-                        .append_block(self.current_function, "rc_dec.str_heap");
-                    let skip = self
-                        .builder
-                        .append_block(self.current_function, "rc_dec.str_skip");
-                    let is_sso = self.emit_sso_check(dp, "rc_dec.str");
-                    self.builder.cond_br(is_sso, skip, do_dec);
-
-                    self.builder.position_at_end(do_dec);
+                        .extract_value(val, 1, "rc_dec.str_cap")
+                        .unwrap_or_else(|| self.builder.const_i64(0));
                     let drop_fn = self.get_or_generate_drop_fn(ty);
-                    self.call_rc_dec_all(&[dp], drop_fn);
-                    self.builder.br(skip);
-
-                    self.builder.position_at_end(skip);
+                    self.call_str_rc_dec(dp, cap, drop_fn);
                 }
             }
 

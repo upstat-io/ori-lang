@@ -8,7 +8,7 @@ use super::compare::{
 };
 use super::helpers::{
     debug_value, escape_debug_char, require_args, require_bool_arg, require_byte_arg,
-    require_char_arg,
+    require_char_arg, require_scalar_int_arg,
 };
 use super::DispatchCtx;
 
@@ -53,6 +53,10 @@ pub fn dispatch_bool_method(
     // Hashable trait
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
+        Ok(Value::int(i64::from(a)))
+    // Conversion: to_int
+    } else if method == n.to_int {
+        require_args("to_int", 0, args.len())?;
         Ok(Value::int(i64::from(a)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "bool").into())
@@ -102,12 +106,55 @@ pub fn dispatch_char_method(
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
         Ok(Value::int(i64::from(c as u32)))
+    // Predicates
+    } else if method == n.is_alpha {
+        require_args("is_alpha", 0, args.len())?;
+        Ok(Value::Bool(c.is_alphabetic()))
+    } else if method == n.is_ascii {
+        require_args("is_ascii", 0, args.len())?;
+        Ok(Value::Bool(c.is_ascii()))
+    } else if method == n.is_digit {
+        require_args("is_digit", 0, args.len())?;
+        Ok(Value::Bool(c.is_ascii_digit()))
+    } else if method == n.is_lowercase {
+        require_args("is_lowercase", 0, args.len())?;
+        Ok(Value::Bool(c.is_lowercase()))
+    } else if method == n.is_uppercase {
+        require_args("is_uppercase", 0, args.len())?;
+        Ok(Value::Bool(c.is_uppercase()))
+    } else if method == n.is_whitespace {
+        require_args("is_whitespace", 0, args.len())?;
+        Ok(Value::Bool(c.is_whitespace()))
+    // Conversions
+    } else if method == n.to_byte {
+        require_args("to_byte", 0, args.len())?;
+        let code = c as u32;
+        u8::try_from(code).map(Value::Byte).map_err(|_| {
+            EvalError::new(format!(
+                "char '{c}' (U+{code:04X}) cannot be converted to byte (> 127)"
+            ))
+            .into()
+        })
+    } else if method == n.to_int {
+        require_args("to_int", 0, args.len())?;
+        Ok(Value::int(i64::from(c as u32)))
+    } else if method == n.to_lowercase {
+        require_args("to_lowercase", 0, args.len())?;
+        let lower: String = c.to_lowercase().collect();
+        let first = lower.chars().next().unwrap_or(c);
+        Ok(Value::Char(first))
+    } else if method == n.to_uppercase {
+        require_args("to_uppercase", 0, args.len())?;
+        let upper: String = c.to_uppercase().collect();
+        let first = upper.chars().next().unwrap_or(c);
+        Ok(Value::Char(first))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "char").into())
     }
 }
 
 /// Dispatch methods on byte values.
+#[expect(clippy::too_many_lines, reason = "exhaustive byte method dispatch")]
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
@@ -145,6 +192,89 @@ pub fn dispatch_byte_method(
     // Hashable trait
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
+        Ok(Value::int(i64::from(b)))
+    // Arithmetic operators
+    } else if method == n.add {
+        require_args("add", 1, args.len())?;
+        let other = require_byte_arg("add", &args, 0)?;
+        b.checked_add(other)
+            .map(Value::Byte)
+            .ok_or_else(|| EvalError::new("byte addition overflow").into())
+    } else if method == n.sub {
+        require_args("sub", 1, args.len())?;
+        let other = require_byte_arg("sub", &args, 0)?;
+        b.checked_sub(other)
+            .map(Value::Byte)
+            .ok_or_else(|| EvalError::new("byte subtraction overflow").into())
+    } else if method == n.mul {
+        require_args("mul", 1, args.len())?;
+        let other = require_byte_arg("mul", &args, 0)?;
+        b.checked_mul(other)
+            .map(Value::Byte)
+            .ok_or_else(|| EvalError::new("byte multiplication overflow").into())
+    } else if method == n.div {
+        require_args("div", 1, args.len())?;
+        let other = require_byte_arg("div", &args, 0)?;
+        if other == 0 {
+            Err(EvalError::new("division by zero").into())
+        } else {
+            // SAFETY(arithmetic): other != 0 verified above — u8 division cannot overflow
+            #[expect(clippy::arithmetic_side_effects, reason = "divisor != 0 checked above")]
+            Ok(Value::Byte(b / other))
+        }
+    } else if method == n.rem {
+        require_args("rem", 1, args.len())?;
+        let other = require_byte_arg("rem", &args, 0)?;
+        if other == 0 {
+            Err(EvalError::new("modulo by zero").into())
+        } else {
+            // SAFETY(arithmetic): other != 0 verified above — u8 remainder cannot overflow
+            #[expect(clippy::arithmetic_side_effects, reason = "divisor != 0 checked above")]
+            Ok(Value::Byte(b % other))
+        }
+    // Bitwise operators
+    } else if method == n.bit_and {
+        require_args("bit_and", 1, args.len())?;
+        let other = require_byte_arg("bit_and", &args, 0)?;
+        Ok(Value::Byte(b & other))
+    } else if method == n.bit_or {
+        require_args("bit_or", 1, args.len())?;
+        let other = require_byte_arg("bit_or", &args, 0)?;
+        Ok(Value::Byte(b | other))
+    } else if method == n.bit_xor {
+        require_args("bit_xor", 1, args.len())?;
+        let other = require_byte_arg("bit_xor", &args, 0)?;
+        Ok(Value::Byte(b ^ other))
+    } else if method == n.bit_not {
+        require_args("bit_not", 0, args.len())?;
+        Ok(Value::Byte(!b))
+    } else if method == n.shl {
+        require_args("shl", 1, args.len())?;
+        let shift = require_scalar_int_arg("shl", &args, 0)?;
+        byte_shift_left(b, shift.raw())
+    } else if method == n.shr {
+        require_args("shr", 1, args.len())?;
+        let shift = require_scalar_int_arg("shr", &args, 0)?;
+        byte_shift_right(b, shift.raw())
+    // Predicates
+    } else if method == n.is_ascii {
+        require_args("is_ascii", 0, args.len())?;
+        Ok(Value::Bool(true))
+    } else if method == n.is_ascii_alpha {
+        require_args("is_ascii_alpha", 0, args.len())?;
+        Ok(Value::Bool(b.is_ascii_alphabetic()))
+    } else if method == n.is_ascii_digit {
+        require_args("is_ascii_digit", 0, args.len())?;
+        Ok(Value::Bool(b.is_ascii_digit()))
+    } else if method == n.is_ascii_whitespace {
+        require_args("is_ascii_whitespace", 0, args.len())?;
+        Ok(Value::Bool(b.is_ascii_whitespace()))
+    // Conversions
+    } else if method == n.to_char {
+        require_args("to_char", 0, args.len())?;
+        Ok(Value::Char(char::from(b)))
+    } else if method == n.to_int {
+        require_args("to_int", 0, args.len())?;
         Ok(Value::int(i64::from(b)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "byte").into())
@@ -243,8 +373,45 @@ pub fn dispatch_option_method(
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
         Ok(Value::string(debug_value(&receiver)))
+    // Higher-order methods (cold path — string-based dispatch)
     } else {
-        Err(no_such_method(ctx.interner.lookup(method), "Option").into())
+        let method_str = ctx.interner.lookup(method);
+        dispatch_option_method_str(receiver, method_str, args)
+    }
+}
+
+/// String-based dispatch for Option higher-order methods.
+///
+/// These methods require closures that can only be evaluated with a full
+/// interpreter context. The dispatch handler validates argument count so
+/// the method is recognized (not `UndefinedMethod`).
+fn dispatch_option_method_str(receiver: Value, method: &str, args: Vec<Value>) -> EvalResult {
+    match method {
+        "map" | "and_then" | "flat_map" | "filter" | "or_else" => {
+            require_args(method, 1, args.len())?;
+            // These require a closure — wrong_arg_type when called without interpreter
+            Err(ori_patterns::wrong_arg_type(method, "function").into())
+        }
+        "expect" => {
+            require_args("expect", 1, args.len())?;
+            if let Value::Some(v) = &receiver {
+                Ok((**v).clone())
+            } else {
+                let msg = match &args[0] {
+                    Value::Str(s) => s.to_string(),
+                    _ => "expect failed on None".to_string(),
+                };
+                Err(EvalError::new(msg).into())
+            }
+        }
+        "or" => {
+            require_args("or", 1, args.len())?;
+            match &receiver {
+                Value::Some(_) => Ok(receiver),
+                _ => Ok(args.into_iter().next().unwrap_or(Value::None)),
+            }
+        }
+        _ => Err(no_such_method(method, "Option").into()),
     }
 }
 
@@ -326,8 +493,62 @@ pub fn dispatch_result_method(
         require_args("has_trace", 0, args.len())?;
         let has = result_inner_error(&receiver).is_some_and(ori_patterns::ErrorValue::has_trace);
         Ok(Value::Bool(has))
+    // Higher-order and projection methods (cold path — string-based dispatch)
     } else {
-        Err(no_such_method(ctx.interner.lookup(method), "Result").into())
+        let method_str = ctx.interner.lookup(method);
+        dispatch_result_method_str(&receiver, method_str, &args)
+    }
+}
+
+/// String-based dispatch for Result methods not covered by Name-based dispatch.
+fn dispatch_result_method_str(receiver: &Value, method: &str, args: &[Value]) -> EvalResult {
+    match method {
+        "map" | "map_err" | "and_then" | "or_else" => {
+            require_args(method, 1, args.len())?;
+            // These require a closure — wrong_arg_type when called without interpreter
+            Err(ori_patterns::wrong_arg_type(method, "function").into())
+        }
+        "ok" => {
+            require_args("ok", 0, args.len())?;
+            if let Value::Ok(v) = receiver {
+                Ok(Value::some((**v).clone()))
+            } else {
+                Ok(Value::None)
+            }
+        }
+        "err" => {
+            require_args("err", 0, args.len())?;
+            if let Value::Err(e) = receiver {
+                Ok(Value::some((**e).clone()))
+            } else {
+                Ok(Value::None)
+            }
+        }
+        "expect" => {
+            require_args("expect", 1, args.len())?;
+            if let Value::Ok(v) = receiver {
+                Ok((**v).clone())
+            } else {
+                let msg = match &args[0] {
+                    Value::Str(s) => s.to_string(),
+                    _ => "expect failed on Err".to_string(),
+                };
+                Err(EvalError::new(msg).into())
+            }
+        }
+        "expect_err" => {
+            require_args("expect_err", 1, args.len())?;
+            if let Value::Err(e) = receiver {
+                Ok((**e).clone())
+            } else {
+                let msg = match &args[0] {
+                    Value::Str(s) => s.to_string(),
+                    _ => "expect_err failed on Ok".to_string(),
+                };
+                Err(EvalError::new(msg).into())
+            }
+        }
+        _ => Err(no_such_method(method, "Result").into()),
     }
 }
 
@@ -342,4 +563,24 @@ fn result_inner_error(value: &Value) -> Option<&ori_patterns::ErrorValue> {
 /// Get the trace string from a Result's inner Error, or empty string.
 fn result_error_trace(value: &Value) -> String {
     result_inner_error(value).map_or_else(String::new, ori_patterns::ErrorValue::format_trace)
+}
+
+/// Byte left shift with range validation.
+fn byte_shift_left(b: u8, shift_val: i64) -> EvalResult {
+    if let Ok(shift_u32) = u32::try_from(shift_val) {
+        if shift_u32 < 8 {
+            return Ok(Value::Byte(b << shift_u32));
+        }
+    }
+    Err(EvalError::new(format!("shift amount {shift_val} out of range (0-7)")).into())
+}
+
+/// Byte right shift with range validation.
+fn byte_shift_right(b: u8, shift_val: i64) -> EvalResult {
+    if let Ok(shift_u32) = u32::try_from(shift_val) {
+        if shift_u32 < 8 {
+            return Ok(Value::Byte(b >> shift_u32));
+        }
+    }
+    Err(EvalError::new(format!("shift amount {shift_val} out of range (0-7)")).into())
 }

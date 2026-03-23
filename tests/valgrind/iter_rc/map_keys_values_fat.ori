@@ -1,0 +1,8 @@
+// Valgrind: map.keys() / map.values() with fat-pointer keys/values
+@main () -> void = {
+    let m = {"hello": 10, "world": 20, "test": 30};
+    let keys = m.keys();
+    let vals = m.values();
+    if keys.len() != 3 then panic(msg: "wrong key count");
+    if vals.len() != 3 then panic(msg: "wrong val count");
+}

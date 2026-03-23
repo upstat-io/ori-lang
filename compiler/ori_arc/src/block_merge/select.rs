@@ -72,6 +72,33 @@ pub(super) fn is_trivial_body(body: &[ArcInstr]) -> bool {
     })
 }
 
+/// Check if an arm block is eligible for select folding (criteria 2-4).
+fn is_eligible_arm(
+    func: &ArcFunction,
+    arm_idx: usize,
+    pred_counts: &[usize],
+    block_idx: usize,
+    label: &str,
+) -> bool {
+    if !func.blocks[arm_idx].params.is_empty() {
+        tracing::trace!(block = block_idx, "{label} block has params");
+        return false;
+    }
+    if pred_counts[arm_idx] != 1 {
+        tracing::trace!(
+            block = block_idx,
+            preds = pred_counts[arm_idx],
+            "{label} block has multiple predecessors"
+        );
+        return false;
+    }
+    if !is_trivial_body(&func.blocks[arm_idx].body) {
+        tracing::trace!(block = block_idx, "{label} body is not trivial");
+        return false;
+    }
+    true
+}
+
 /// Detect whether a block's `Branch` terminator forms a select-eligible
 /// diamond pattern. Returns `None` if any criterion fails.
 fn detect_select_diamond(
@@ -101,41 +128,11 @@ fn detect_select_diamond(
         return None;
     }
 
-    // Criterion 2: arm blocks have no params.
-    if !func.blocks[then_idx].params.is_empty() {
-        tracing::trace!(block = block_idx, "select: then block has params");
+    // Criteria 2-4: arm eligibility (no params, single pred, trivial body).
+    if !is_eligible_arm(func, then_idx, pred_counts, block_idx, "select: then") {
         return None;
     }
-    if !func.blocks[else_idx].params.is_empty() {
-        tracing::trace!(block = block_idx, "select: else block has params");
-        return None;
-    }
-
-    // Criterion 3: both arms have exactly 1 predecessor.
-    if pred_counts[then_idx] != 1 {
-        tracing::trace!(
-            block = block_idx,
-            then_preds = pred_counts[then_idx],
-            "select: then block has multiple predecessors"
-        );
-        return None;
-    }
-    if pred_counts[else_idx] != 1 {
-        tracing::trace!(
-            block = block_idx,
-            else_preds = pred_counts[else_idx],
-            "select: else block has multiple predecessors"
-        );
-        return None;
-    }
-
-    // Criterion 4: both bodies are trivial.
-    if !is_trivial_body(&func.blocks[then_idx].body) {
-        tracing::trace!(block = block_idx, "select: then body is not trivial");
-        return None;
-    }
-    if !is_trivial_body(&func.blocks[else_idx].body) {
-        tracing::trace!(block = block_idx, "select: else body is not trivial");
+    if !is_eligible_arm(func, else_idx, pred_counts, block_idx, "select: else") {
         return None;
     }
 
@@ -181,6 +178,25 @@ fn detect_select_diamond(
             "select: jump arg arity mismatch"
         );
         return None;
+    }
+
+    // Criterion 7: merge params must be scalar.
+    //
+    // Non-scalar values (FatVal, RcPointer, Aggregate) need RC management.
+    // Select materializes both operands eagerly, so the non-selected heap
+    // value would leak — there's no RcDec emitted for it. Keep the branch
+    // so only the taken arm's allocation runs.
+    for (param_var, _ty) in &func.blocks[then_target].params {
+        let repr = func.var_repr(*param_var).unwrap_or(ValueRepr::Scalar);
+        if !matches!(repr, ValueRepr::Scalar) {
+            tracing::trace!(
+                block = block_idx,
+                var = param_var.raw(),
+                ?repr,
+                "select: merge param is non-scalar — skipping to prevent RC leak"
+            );
+            return None;
+        }
     }
 
     Some(SelectDiamond {

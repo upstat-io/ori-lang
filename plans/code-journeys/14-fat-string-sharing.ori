@@ -1,0 +1,25 @@
+// Journey 14: "I am a fat pointer"
+// Slug: fat-string-sharing
+// Difficulty: complex
+// Features: strings, arc, function_calls, multiple_functions
+// Expected: sso_len() + heap_len() + shared_len(long) = 5 + 30 + 30 = 65
+
+@sso_len () -> int = {
+    let s = "hello";
+    s.length()
+}
+
+@heap_len () -> int = {
+    let s = "abcdefghijklmnopqrstuvwxyz1234";
+    s.length()
+}
+
+@shared_len (s: str) -> int = s.length();
+
+@main () -> int = {
+    let a = sso_len();
+    let b = heap_len();
+    let long = "abcdefghijklmnopqrstuvwxyz1234";
+    let c = shared_len(s: long);
+    a + b + c
+}

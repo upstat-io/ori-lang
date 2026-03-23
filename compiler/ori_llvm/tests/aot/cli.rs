@@ -19,7 +19,10 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-use crate::util::ori_binary;
+use crate::util::{
+    assert_no_signal_crash, compile_and_capture_ir, compile_and_run_valgrind_with_args,
+    compile_and_run_with_args, ori_binary, stdlib_path,
+};
 
 /// Create a simple Ori source file for testing.
 fn create_test_source(dir: &TempDir, name: &str, content: &str) -> PathBuf {
@@ -823,5 +826,422 @@ fn test_build_incremental_unchanged() {
     assert!(
         duration2 < duration1 / 2,
         "Incremental build not faster: first={duration1:?}, second={duration2:?}"
+    );
+}
+
+// TPR-02-005: @main(args: [str]) ABI fix — Indirect param passing
+
+#[test]
+fn test_main_args_no_arguments() {
+    let (exit_code, _, stderr) =
+        compile_and_run_with_args(r#"@main (args: [str]) -> int = args.len();"#, &[]);
+    assert_eq!(exit_code, 0, "expected 0 args, stderr: {stderr}");
+}
+
+#[test]
+fn test_main_args_with_sso_strings() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"@main (args: [str]) -> int = if args.len() == 2 then 0 else 1;"#,
+        &["hello", "world"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (leak-free), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_with_heap_strings() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"@main (args: [str]) -> int = if args.len() == 1 then 0 else 1;"#,
+        &["a very long string that definitely exceeds the twenty three byte SSO threshold for testing"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (leak-free with heap str), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_void_return() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"
+@main (args: [str]) -> void = {
+    let _ = args.len();
+}
+"#,
+        &["hello"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (void main with args), stderr: {stderr}"
+    );
+}
+
+// TPR-02-016: @main(args: [str]) must clean up args on unwind path.
+// When _ori_main panics, the C main wrapper must invoke/landingpad to
+// call ori_args_cleanup before re-raising, preventing args buffer leak.
+
+#[test]
+fn test_main_args_panic_does_not_segfault() {
+    // Panic with args — the wrapper must use invoke+landingpad to clean
+    // up the args list on the unwind path. Without the fix, this could
+    // leave the args buffer unfreed or cause UB if the exception escapes
+    // past a plain `call`.
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"@main (args: [str]) -> void = panic(msg: "boom");"#,
+        &["hello", "world"],
+    );
+    assert_no_signal_crash(exit_code, "test_main_args_panic_does_not_segfault");
+    assert_ne!(exit_code, 0, "panic should not exit cleanly");
+    assert!(
+        stderr.contains("ori panic: boom"),
+        "expected panic message in stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_panic_with_heap_strings() {
+    // Same as above but with heap-allocated strings (>23 bytes, beyond SSO).
+    // Ensures the args cleanup correctly frees heap string children.
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"@main (args: [str]) -> void = panic(msg: "boom");"#,
+        &["a very long string that definitely exceeds the twenty three byte SSO threshold"],
+    );
+    assert_no_signal_crash(exit_code, "test_main_args_panic_with_heap_strings");
+    assert_ne!(exit_code, 0, "panic should not exit cleanly");
+    assert!(
+        stderr.contains("ori panic: boom"),
+        "expected panic message in stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_panic_int_return() {
+    // @main(args: [str]) -> int that panics — same cleanup requirement.
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"@main (args: [str]) -> int = panic(msg: "crash");"#,
+        &["arg1"],
+    );
+    assert_no_signal_crash(exit_code, "test_main_args_panic_int_return");
+    assert_ne!(exit_code, 0, "panic should not exit cleanly");
+    assert!(
+        stderr.contains("ori panic: crash"),
+        "expected panic message in stderr, got: {stderr}"
+    );
+}
+
+// Semantic pin: the C main wrapper MUST use `invoke` (not `call`) for
+// `_ori_main` when @main takes args AND _ori_main can unwind, so the
+// unwind path can clean up the args buffer. This test would FAIL if
+// the invoke+landingpad fix is reverted.
+#[test]
+fn test_main_args_wrapper_uses_invoke_ir() {
+    // Use a program that can unwind (panic triggers exception).
+    // A nounwind @main (e.g., only calling print) correctly uses plain call.
+    let ir = compile_and_capture_ir(
+        r#"
+@main (args: [str]) -> void = {
+    if args.len() == 0 then panic(msg: "no args");
+}
+"#,
+    );
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+    let main_fn = ir
+        .split("define ")
+        .find(|s| s.contains("@main("))
+        .expect("expected `define ... @main(` in IR");
+
+    let is_seh = main_fn.contains("ori_try_call");
+    if is_seh {
+        // SEH/MSVC: uses ori_try_call thunk (not invoke) because
+        // RaiseException-based Ori panics are not caught by catchpad.
+        assert!(
+            main_fn.contains("call i64 @ori_try_call("),
+            "SEH main wrapper must use ori_try_call.\nIR:\n{main_fn}"
+        );
+        assert!(
+            main_fn.contains("seh.success") && main_fn.contains("seh.caught"),
+            "SEH main wrapper must branch to success/caught.\nIR:\n{main_fn}"
+        );
+    } else {
+        // Itanium: invoke + catch-all landingpad
+        assert!(
+            main_fn.contains("invoke void @_ori_main("),
+            "main wrapper must use `invoke` for _ori_main when it can unwind.\nIR:\n{main_fn}"
+        );
+        assert!(
+            main_fn.contains("landingpad"),
+            "main wrapper must have catch-all landing pad.\nIR:\n{main_fn}"
+        );
+        assert!(
+            main_fn.contains("catch ptr null"),
+            "main wrapper must use catch-all (catch ptr null), not cleanup.\nIR:\n{main_fn}"
+        );
+    }
+    // Must call ori_args_cleanup in both normal and catch/caught paths.
+    // This program uses args in a borrowed way (only .len()), so the
+    // wrapper retains ownership → cleanup on both paths.
+    let cleanup_call_count = main_fn.matches("call void @ori_args_cleanup").count();
+    assert!(
+        cleanup_call_count >= 2,
+        "ori_args_cleanup must be called in both normal and catch paths (found {cleanup_call_count}).\nIR:\n{main_fn}"
+    );
+}
+
+// When @main(args:) is nounwind (e.g., only calls print), plain call is correct.
+#[test]
+fn test_main_args_nounwind_uses_call_ir() {
+    let ir = compile_and_capture_ir(r#"@main (args: [str]) -> void = print(msg: "hi");"#);
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+    let main_fn = ir
+        .split("define ")
+        .find(|s| s.contains("@main("))
+        .expect("expected `define ... @main(` in IR");
+
+    // Nounwind @main should use plain call (no invoke needed)
+    assert!(
+        main_fn.contains("call void @_ori_main("),
+        "nounwind @main with args should use plain `call`.\nIR:\n{main_fn}"
+    );
+    assert!(
+        !main_fn.contains("invoke void @_ori_main("),
+        "nounwind @main should NOT use invoke.\nIR:\n{main_fn}"
+    );
+}
+
+// Verify that @main without args does NOT use invoke (no cleanup needed).
+#[test]
+fn test_main_no_args_wrapper_uses_call_ir() {
+    let ir = compile_and_capture_ir(r#"@main () -> void = print(msg: "hi");"#);
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+    let main_fn = ir
+        .split("define ")
+        .find(|s| s.contains("@main("))
+        .expect("expected `define ... @main(` in IR");
+
+    assert!(
+        main_fn.contains("call void @_ori_main()"),
+        "main wrapper without args should use plain `call`.\nIR:\n{main_fn}"
+    );
+    assert!(
+        !main_fn.contains("invoke"),
+        "main wrapper without args should NOT use invoke.\nIR:\n{main_fn}"
+    );
+}
+
+// TPR-02-020: Valgrind-based panic-path verification.
+// ORI_CHECK_LEAKS can't validate leak freedom on panic (unwind skips leak check).
+// Valgrind tracks allocations externally and detects leaks regardless of exit path.
+#[test]
+fn test_main_args_panic_valgrind_clean() {
+    let result = compile_and_run_valgrind_with_args(
+        r#"@main (args: [str]) -> void = panic(msg: "boom");"#,
+        &["a very long string that definitely exceeds the twenty three byte SSO threshold"],
+    );
+    match result {
+        None => {
+            eprintln!("skipping: valgrind not available");
+        }
+        Some((clean, vg_output)) => {
+            assert!(
+                clean,
+                "Valgrind detected memory errors on panic-path args cleanup:\n{vg_output}"
+            );
+        }
+    }
+}
+
+// TPR-02-021: Functional JIT test for collection construction.
+// Verifies that ori_buffer_store_elem_dec / ori_buffer_store_elem_count
+// resolve correctly when MCJIT compiles a list literal with fat-pointer
+// elements (str). If these symbols were missing or mismatched, the JIT
+// would fail with an unresolved symbol error.
+#[test]
+fn test_jit_str_list_construction() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join("jit_str_list.ori");
+
+    // A test function that creates a [str] list — forces codegen to emit
+    // ori_buffer_store_elem_dec (str has a drop fn) and
+    // ori_buffer_store_elem_count (3 elements).
+    fs::write(
+        &source_path,
+        r#"
+@test_str_list tests _ () -> void = {
+    let $words = ["hello", "world", "test"];
+    let $count = words.len();
+}
+"#,
+    )
+    .expect("Failed to write source");
+
+    let result = Command::new(ori_binary())
+        .args(["test", "--backend=llvm", source_path.to_str().unwrap()])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori test");
+
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+
+    assert!(
+        result.status.success(),
+        "JIT [str] list construction test failed.\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("1 passed"),
+        "expected 1 passed test, got:\n{stdout}\nstderr: {stderr}"
+    );
+}
+
+// TPR-02-026: @main(args: [str]) owned-path double-free fix.
+// When _ori_main takes ownership of args via Indirect ABI (e.g., passing
+// args through an owned function), the callee frees the buffer via its ARC
+// dec at function exit. The wrapper must NOT also call ori_args_cleanup on
+// the normal return path — that would double-free the buffer.
+
+#[test]
+fn test_main_args_owned_path_no_double_free() {
+    // This program passes `args` through an identity function that takes
+    // ownership — borrow inference promotes args to Owned, ABI uses Indirect.
+    // Without the fix, the wrapper double-frees the args buffer.
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"
+@id (xs: [str]) -> [str] = xs;
+
+@main (args: [str]) -> void = {
+    let _ = id(xs: args);
+}
+"#,
+        &["hello", "world"],
+    );
+    assert_no_signal_crash(exit_code, "test_main_args_owned_path_no_double_free");
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (no double-free, no leaks), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_owned_path_heap_strings() {
+    // Same as above but with heap-allocated strings (>23 bytes, beyond SSO).
+    // Exercises the elem_dec_fn path for fat-pointer element cleanup.
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"
+@id (xs: [str]) -> [str] = xs;
+
+@main (args: [str]) -> void = {
+    let _ = id(xs: args);
+}
+"#,
+        &["a very long string that definitely exceeds the twenty three byte SSO threshold"],
+    );
+    assert_no_signal_crash(exit_code, "test_main_args_owned_path_heap_strings");
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (no double-free with heap strings), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_owned_path_int_return() {
+    // Owned args path with int return — same double-free risk.
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        r#"
+@count (xs: [str]) -> int = xs.len();
+
+@main (args: [str]) -> int = count(xs: args);
+"#,
+        &["a", "b", "c"],
+    );
+    assert_no_signal_crash(exit_code, "test_main_args_owned_path_int_return");
+    assert_eq!(
+        exit_code, 3,
+        "expected exit 3 (args.len()), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_owned_path_valgrind_clean() {
+    // Valgrind verification: no memory errors on owned args path.
+    let result = compile_and_run_valgrind_with_args(
+        r#"
+@id (xs: [str]) -> [str] = xs;
+
+@main (args: [str]) -> void = {
+    let _ = id(xs: args);
+}
+"#,
+        &["a very long string that definitely exceeds the twenty three byte SSO threshold"],
+    );
+    match result {
+        None => {
+            eprintln!("skipping: valgrind not available");
+        }
+        Some((clean, vg_output)) => {
+            assert!(
+                clean,
+                "Valgrind detected memory errors on owned-args path:\n{vg_output}"
+            );
+        }
+    }
+}
+
+// Semantic pin: when @main takes args via owned Indirect ABI, the wrapper
+// must NOT call ori_args_cleanup on the normal return path. It must still
+// call it on the catch (unwind) path, because the callee's ARC dec hasn't
+// run if it unwound.
+#[test]
+fn test_main_args_owned_wrapper_ir_no_normal_cleanup() {
+    // This program uses args in an owned way (passed to id()).
+    // The wrapper should handle unwind but ori_args_cleanup only
+    // appears ONCE (catch/caught path), not twice.
+    let ir = compile_and_capture_ir(
+        r#"
+@id (xs: [str]) -> [str] = xs;
+
+@main (args: [str]) -> void = {
+    let _ = id(xs: args);
+    if false then panic(msg: "x");
+}
+"#,
+    );
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+    let main_fn = ir
+        .split("define ")
+        .find(|s| s.contains("@main("))
+        .expect("expected `define ... @main(` in IR");
+
+    let is_seh = main_fn.contains("ori_try_call");
+    if is_seh {
+        assert!(
+            main_fn.contains("call i64 @ori_try_call("),
+            "SEH main wrapper should use ori_try_call for owned-args path.\nIR:\n{main_fn}"
+        );
+    } else {
+        assert!(
+            main_fn.contains("invoke void @_ori_main("),
+            "main wrapper should use invoke for owned-args path.\nIR:\n{main_fn}"
+        );
+    }
+    // ori_args_cleanup called exactly ONCE: catch/caught path only.
+    // Normal/success path skips cleanup — callee owns the buffer.
+    let cleanup_call_count = main_fn.matches("call void @ori_args_cleanup").count();
+    assert_eq!(
+        cleanup_call_count, 1,
+        "ori_args_cleanup should be called once (catch only) for owned args, found {cleanup_call_count}.\nIR:\n{main_fn}"
     );
 }

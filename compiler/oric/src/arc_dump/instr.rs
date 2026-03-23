@@ -382,6 +382,7 @@ pub(crate) fn fmt_literal(out: &mut String, lit: &LitValue, interner: &StringInt
             write!(out, "{value}{unit:?}").unwrap();
         }
         LitValue::Unit => write!(out, "()").unwrap(),
+        LitValue::Null => write!(out, "null").unwrap(),
     }
 }
 

@@ -1,0 +1,17 @@
+// Valgrind: map.remove() with fat-pointer values ({int: str})
+// TPR-02-019: Exercises val_dec branches in ori_map_remove_cow
+@main () -> void = {
+    // Remove from multi-entry map (unique fast path, cow.rs:391)
+    let m: {int: str} = {};
+    let m = m.insert(1, "first heap string value that exceeds the SSO threshold of twenty three");
+    let m = m.insert(2, "second heap string value that exceeds the SSO threshold for testing");
+    let m = m.insert(3, "third heap string value that exceeds the SSO threshold for removal");
+    let m2 = m.remove(key: 2);
+    if m2.len() != 2 then panic(msg: "wrong len after remove");
+
+    // Remove last entry (empty sentinel path, cow.rs:373)
+    let single: {int: str} = {};
+    let single = single.insert(1, "only heap string value that exceeds the SSO threshold for testing");
+    let empty = single.remove(key: 1);
+    if empty.len() != 0 then panic(msg: "should be empty after remove last");
+}

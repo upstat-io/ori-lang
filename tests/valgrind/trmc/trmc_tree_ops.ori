@@ -1,0 +1,48 @@
+// Valgrind test: TRMC tree operations.
+// Verifies memory safety for recursive tree construction and traversal.
+
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Branch(l, r) -> tree_sum(t: l) + tree_sum(t: r),
+};
+
+@tree_count (t: Tree) -> int = match t {
+    Leaf(_) -> 1,
+    Branch(l, r) -> tree_count(t: l) + tree_count(t: r),
+};
+
+@tree_depth (t: Tree) -> int = match t {
+    Leaf(_) -> 1,
+    Branch(l, r) -> {
+        let $ld = tree_depth(t: l);
+        let $rd = tree_depth(t: r);
+        1 + (if ld > rd then ld else rd)
+    },
+};
+
+@build_balanced (depth: int, start: int) -> (Tree, int) = {
+    if depth <= 1 then (Leaf(value: start), start + 1)
+    else {
+        let (left, mid) = build_balanced(depth: depth - 1, start: start);
+        let (right, next) = build_balanced(depth: depth - 1, start: mid);
+        (Branch(left: left, right: right), next)
+    }
+};
+
+@main () -> int = {
+    // Build depth-5 balanced tree (31 nodes, 16 leaves).
+    let (tree, _) = build_balanced(depth: 5, start: 1);
+    let $count_ok = tree_count(t: tree) == 16;
+    let $depth_ok = tree_depth(t: tree) == 5;
+    // Sum of 1..16 = 136.
+    let $sum_ok = tree_sum(t: tree) == 136;
+
+    // Shared read — tree accessed multiple times.
+    let $s1 = tree_sum(t: tree);
+    let $s2 = tree_sum(t: tree);
+    let $shared_ok = s1 == s2;
+
+    if count_ok && depth_ok && sum_ok && shared_ok then 0 else 1
+}

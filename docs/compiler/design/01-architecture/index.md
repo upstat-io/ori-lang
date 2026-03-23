@@ -97,7 +97,7 @@ flowchart TB
     E --> F["ori_eval
     (interpreter)"]
     E --> G["ori_arc
-    (ARC analysis)"]
+    (AIMS analysis)"]
     G --> H["ori_llvm
     (native binary)"]
 
@@ -122,9 +122,9 @@ Every `CanNode` carries its resolved type from type checking, so downstream pass
 
 This architecture means that adding a new syntactic sugar to Ori requires changes in exactly two places: the parser (to recognize it) and the canonicalizer (to desugar it). Neither backend needs to change. Conversely, adding a new backend requires no changes to the frontend — it simply consumes `CanExpr` like the existing backends do.
 
-### ARC Memory Management (Lean 4 / Koka Inspired)
+### AIMS (Lean 4 / Koka Inspired)
 
-Ori uses automatic reference counting instead of a garbage collector or borrow checker. The `ori_arc` crate implements a research-grade ARC pipeline inspired by [Lean 4](https://leanprover.github.io/)'s LCNF IR and Koka's [FBIP](https://www.microsoft.com/en-us/research/publication/fp2-fully-in-place-functional-programming/) (Functional-But-In-Place) analysis.
+Ori uses automatic reference counting instead of a garbage collector or borrow checker. The `ori_arc` crate implements a research-grade AIMS pipeline inspired by [Lean 4](https://leanprover.github.io/)'s LCNF IR and Koka's [FBIP](https://www.microsoft.com/en-us/research/publication/fp2-fully-in-place-functional-programming/) (Functional-But-In-Place) analysis.
 
 **Three-way type classification** drives all RC decisions:
 
@@ -134,7 +134,7 @@ Ori uses automatic reference counting instead of a garbage collector or borrow c
 | `DefiniteRef` | Always heap-allocated (`str`, `[T]`, `{K: V}`) | Full RC tracking |
 | `PossibleRef` | Unknown at analysis time (unresolved generics) | Conservative RC |
 
-The ARC pipeline is a 10-pass transformation with load-bearing ordering:
+The AIMS pipeline is a 10-pass transformation with load-bearing ordering:
 
 ```mermaid
 flowchart TB
@@ -161,7 +161,7 @@ flowchart TB
     class A,B,C,D,E,F,G,H,I,J,K native
 ```
 
-The ARC IR is **backend-independent** — `ori_arc` has no LLVM dependency. The `arc_emitter` in `ori_llvm` translates ARC IR instructions to LLVM IR. This separation means the ARC analysis can be tested, debugged, and evolved without touching codegen.
+The ARC IR is **backend-independent** — `ori_arc` has no LLVM dependency. The `arc_emitter` in `ori_llvm` translates ARC IR instructions to LLVM IR. This separation means the AIMS analysis can be tested, debugged, and evolved without touching codegen.
 
 ### Capability-Based Effect System
 
@@ -258,7 +258,7 @@ flowchart TB
     ori_eval --> ori_patterns["ori_patterns
     (values)"]
     ori_canon --> ori_arc["ori_arc
-    (ARC analysis)"]
+    (AIMS analysis)"]
     ori_canon --> ori_types["ori_types
     (type system)"]
     ori_llvm["ori_llvm
@@ -298,7 +298,7 @@ flowchart TB
 
 - **`ori_patterns` depends only on `ori_ir`** — the Value system is type-agnostic. Runtime values don't need to know about the type pool or inference engine.
 - **`ori_eval` depends on `ori_patterns`, not `ori_types`** — the interpreter doesn't type-check. It trusts that upstream phases have already validated the program.
-- **`ori_arc` has no LLVM dependency** — ARC analysis is backend-independent. The analysis can be tested and evolved without an LLVM installation.
+- **`ori_arc` has no LLVM dependency** — AIMS analysis is backend-independent. The analysis can be tested and evolved without an LLVM installation.
 - **Pure functions live in library crates; Salsa queries live only in `oric`** — the CLI orchestrator owns the incremental computation framework, keeping library crates independent of the build system.
 
 ## Design Principles

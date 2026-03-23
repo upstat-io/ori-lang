@@ -124,6 +124,30 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
+    /// Add the `memory(none)` attribute to a function.
+    ///
+    /// Declares the function has no memory effects at all — no reads, writes,
+    /// or allocations. Pure scalar functions qualify (arithmetic, comparison).
+    /// Encoding: `0` (all memory locations = None).
+    pub fn add_memory_none_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("memory");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
+    /// Add the `memory(read)` attribute to a function.
+    ///
+    /// Declares the function only reads memory (no writes, no allocations).
+    /// Encoding: `DefaultMem:Ref | ArgMem:Ref | InaccessibleMem:Ref`
+    /// = `1 | (1 << 2) | (1 << 4)` = `21`.
+    pub fn add_memory_read_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("memory");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 21);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
     // -- Parameter attributes --
 
     /// Add the `sret(T)` attribute to a function parameter.
@@ -180,8 +204,8 @@ impl IrBuilder<'_, '_> {
     /// Add the `noundef` attribute to a function parameter.
     ///
     /// Declares the parameter value is never `undef` or `poison`. Ori's type
-    /// system guarantees all scalar values are initialized, so this is always
-    /// safe for scalar types (`i64`, `f64`, `i1`, `i32`, `i8`).
+    /// system guarantees all values are initialized, so this is safe for all
+    /// `Direct`-passing parameters (scalars and small aggregates ≤16 bytes).
     pub fn add_noundef_param_attribute(&mut self, func: FunctionId, param_index: u32) {
         let f = self.arena.get_function(func);
         let kind = Attribute::get_named_enum_kind_id("noundef");
@@ -191,13 +215,56 @@ impl IrBuilder<'_, '_> {
 
     /// Add the `noundef` attribute to a function's return value.
     ///
-    /// Declares the return value is never `undef` or `poison`. Safe for
-    /// scalar types where Ori guarantees the value is always initialized.
+    /// Declares the return value is never `undef` or `poison`. Safe for all
+    /// `Direct`-returning types where Ori guarantees full initialization.
     pub fn add_noundef_return_attribute(&mut self, func: FunctionId) {
         let f = self.arena.get_function(func);
         let kind = Attribute::get_named_enum_kind_id("noundef");
         let attr = self.scx.llcx.create_enum_attribute(kind, 0);
         f.add_attribute(AttributeLoc::Return, attr);
+    }
+
+    /// Add the `nonnull` attribute to a function parameter.
+    ///
+    /// Declares the pointer parameter is never null. Ori never passes null
+    /// pointers to functions — all Indirect/Reference params point to valid,
+    /// initialized memory. Enables LLVM to eliminate null checks and use
+    /// speculative loads.
+    pub fn add_nonnull_param_attribute(&mut self, func: FunctionId, param_index: u32) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("nonnull");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Param(param_index), attr);
+    }
+
+    /// Add the `dereferenceable(N)` attribute to a function parameter.
+    ///
+    /// Declares the pointer parameter points to at least `size_bytes` bytes
+    /// of valid memory. Enables LLVM to perform speculative loads without
+    /// null/bounds checks. The size is a minimum guarantee — underestimating
+    /// is legal (LLVM treats it as a lower bound).
+    pub fn add_dereferenceable_param_attribute(
+        &mut self,
+        func: FunctionId,
+        param_index: u32,
+        size_bytes: u64,
+    ) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("dereferenceable");
+        let attr = self.scx.llcx.create_enum_attribute(kind, size_bytes);
+        f.add_attribute(AttributeLoc::Param(param_index), attr);
+    }
+
+    /// Add the `readonly` attribute to a function parameter.
+    ///
+    /// Declares the callee will not write through this pointer. Enables LLVM
+    /// to hoist loads from this parameter and CSE across calls. Safe for
+    /// `Ownership::Borrowed` params that are passed by pointer (Indirect/Reference).
+    pub fn add_readonly_param_attribute(&mut self, func: FunctionId, param_index: u32) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("readonly");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Param(param_index), attr);
     }
 
     // -- Per-call-site attributes --

@@ -61,6 +61,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         ty,
                         tag_val,
                         &arg_vals,
+                        args,
                         &variant_field_types,
                     )
                 } else {
@@ -72,6 +73,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         ty,
                         tag_val,
                         &arg_vals,
+                        args,
                         &variant_field_types,
                     )
                 }
@@ -81,10 +83,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // List construction: allocate data, store elements, build struct
                 let count = arg_vals.len();
                 let type_info = self.type_info.get(ty);
-                let elem_idx = match &type_info {
-                    super::super::type_info::TypeInfo::List { element } => *element,
-                    _ => ori_types::Idx::INT,
-                };
+                let elem_idx =
+                    if let super::super::type_info::TypeInfo::List { element } = &type_info {
+                        *element
+                    } else {
+                        debug_assert!(false, "ListLiteral TypeInfo mismatch: {type_info:?}");
+                        ori_types::Idx::INT
+                    };
                 let elem_llvm_ty = self.resolve_type(elem_idx);
                 let elem_size = self.element_store_size(elem_idx);
 
@@ -106,6 +111,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.builder.store(val, elem_ptr);
                 }
 
+                // Store elem_dec_fn and elem_count in the RC header so that
+                // any RcDec reaching zero can perform element cleanup.
+                // For scalar elements, elem_dec_fn is null (no RC children) —
+                // the call writes null over zero-initialized null (idempotent).
+                let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_idx);
+                let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+                self.builder
+                    .call(store_dec_fn, &[data_ptr, elem_dec_fn], "");
+                let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
+                self.builder.call(store_count_fn, &[data_ptr, cap_val], "");
+
                 // Build list struct: {i64 len, i64 cap, ptr data}
                 self.builder
                     .build_struct(llvm_ty, &[cap_val, cap_val, data_ptr], "list")
@@ -116,10 +132,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // Hash table layout: [metadata | keys | values]
                 let count = arg_vals.len() / 2;
                 let type_info = self.type_info.get(ty);
-                let (key_idx, val_idx) = match &type_info {
-                    super::super::type_info::TypeInfo::Map { key, value } => (*key, *value),
-                    _ => (Idx::INT, Idx::INT),
-                };
+                let (key_idx, val_idx) =
+                    if let super::super::type_info::TypeInfo::Map { key, value } = &type_info {
+                        (*key, *value)
+                    } else {
+                        debug_assert!(false, "MapLiteral TypeInfo mismatch: {type_info:?}");
+                        (Idx::INT, Idx::INT)
+                    };
                 let key_llvm_ty = self.resolve_type(key_idx);
                 let val_llvm_ty = self.resolve_type(val_idx);
                 let key_size = self.element_store_size(key_idx);
@@ -169,10 +188,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // Set literal: hash table layout [metadata | elements]
                 let count = arg_vals.len();
                 let type_info = self.type_info.get(ty);
-                let elem_idx = match &type_info {
-                    super::super::type_info::TypeInfo::Set { element } => *element,
-                    _ => Idx::INT,
-                };
+                let elem_idx =
+                    if let super::super::type_info::TypeInfo::Set { element } = &type_info {
+                        *element
+                    } else {
+                        debug_assert!(false, "SetLiteral TypeInfo mismatch: {type_info:?}");
+                        Idx::INT
+                    };
                 let elem_llvm_ty = self.resolve_type(elem_idx);
                 let elem_size = self.element_store_size(elem_idx);
 
@@ -206,6 +228,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     );
                 }
 
+                // Store elem_dec_fn and elem_count in the RC header.
+                let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_idx);
+                let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+                self.builder
+                    .call(store_dec_fn, &[data_ptr, elem_dec_fn], "");
+                let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
+                self.builder
+                    .call(store_count_fn, &[data_ptr, count_val], "");
+
                 // Build set struct: {i64 len, i64 cap, ptr data}
                 self.builder
                     .build_struct(llvm_ty, &[count_val, cap_val, data_ptr], "set")
@@ -218,137 +249,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 unreachable!("closures use PartialApply, not Construct")
             }
         }
-    }
-
-    /// Emit a variant via pure `insertvalue` chain (no memory roundtrip).
-    ///
-    /// Handles two enum layouts:
-    /// - `{ i64, [M x i64] }` (user-defined enums) — nested insert at `[1, i]`
-    /// - `{ i64, T }` (Option/Result) — direct insert at field `1`
-    ///
-    /// Falls back to alloca if any field isn't single-word (can't insert
-    /// a multi-word value into an i64 array element).
-    fn emit_variant_via_insertvalue(
-        &mut self,
-        llvm_ty: super::super::value_id::LLVMTypeId,
-        ty: Idx,
-        tag_val: ValueId,
-        arg_vals: &[ValueId],
-        variant_field_types: &[Idx],
-    ) -> ValueId {
-        let mut result = self.builder.const_zero_ty(llvm_ty);
-        // Insert tag at index 0
-        result = self.builder.insert_value(result, tag_val, 0, "variant.tag");
-
-        if arg_vals.is_empty() {
-            return result;
-        }
-
-        // Check payload layout: array-wrapped vs direct.
-        let has_array_payload = self.builder.is_struct_field_array(llvm_ty, 1);
-
-        if has_array_payload {
-            // User-defined enum: `{ i64, [M x i64] }` — fields must be single-word.
-            if arg_vals.iter().all(|&v| self.builder.is_single_word(v)) {
-                for (i, &val) in arg_vals.iter().enumerate() {
-                    result = self.builder.insert_value_nested(
-                        result,
-                        val,
-                        &[1, i as u32],
-                        &format!("variant.f{i}"),
-                    );
-                }
-            } else {
-                // Multi-word fields (e.g. struct payloads like `Wrapper { value: int }`)
-                // can't be inserted into [M x i64] array slots via insertvalue.
-                // Delegate to alloca path which stores each field through GEP.
-                return self.emit_variant_via_alloca(
-                    llvm_ty,
-                    ty,
-                    tag_val,
-                    arg_vals,
-                    variant_field_types,
-                );
-            }
-        } else {
-            // Option/Result layout: `{ i64, T }` — insert payload directly.
-            // This only works when the value's LLVM type matches the struct
-            // field's type. E.g., `Ok(42)` for `Result<int, str>` carries i64
-            // but the payload slot is `{ i64, i64, ptr }` — type mismatch.
-            let types_match = arg_vals.iter().enumerate().all(|(i, &v)| {
-                self.builder
-                    .value_type_matches_struct_field(llvm_ty, 1 + i as u32, v)
-            });
-            if types_match {
-                for (i, &val) in arg_vals.iter().enumerate() {
-                    result = self.builder.insert_value(
-                        result,
-                        val,
-                        1 + i as u32,
-                        &format!("variant.f{i}"),
-                    );
-                }
-            } else {
-                // Type mismatch: fall back to alloca for correct byte layout.
-                return self.emit_variant_via_alloca(
-                    llvm_ty,
-                    ty,
-                    tag_val,
-                    arg_vals,
-                    variant_field_types,
-                );
-            }
-        }
-
-        result
-    }
-
-    /// Emit a variant via alloca+GEP+store+load (fallback for recursive fields).
-    ///
-    /// Used when any field is a boxed recursive reference. The RC-allocated
-    /// pointer must be stored through memory, then loaded back as i64.
-    fn emit_variant_via_alloca(
-        &mut self,
-        llvm_ty: super::super::value_id::LLVMTypeId,
-        ty: Idx,
-        tag_val: ValueId,
-        arg_vals: &[ValueId],
-        variant_field_types: &[Idx],
-    ) -> ValueId {
-        let alloca = self.builder.alloca(llvm_ty, "variant");
-
-        if arg_vals.is_empty() {
-            let zero = self.builder.const_zero_ty(llvm_ty);
-            self.builder.store(zero, alloca);
-        }
-
-        let tag_gep = self.builder.struct_gep(llvm_ty, alloca, 0, "variant.tag");
-        self.builder.store(tag_val, tag_gep);
-
-        if !arg_vals.is_empty() {
-            let payload_ptr = self
-                .builder
-                .struct_gep(llvm_ty, alloca, 1, "variant.payload");
-            let i64_ty = self.builder.i64_type();
-
-            for (i, &val) in arg_vals.iter().enumerate() {
-                let idx = self.builder.const_i64(i as i64);
-                let slot = self
-                    .builder
-                    .gep(i64_ty, payload_ptr, &[idx], "variant.field");
-
-                let field_ty = variant_field_types.get(i).copied();
-                if field_ty.is_some_and(|ft| is_boxed_enum_field(self.pool, ty, ft)) {
-                    let size = self.element_store_size(ty);
-                    let rc_ptr = self.rc_alloc(size, 8);
-                    self.builder.store(val, rc_ptr);
-                    self.builder.store(rc_ptr, slot);
-                } else {
-                    self.builder.store(val, slot);
-                }
-            }
-        }
-        self.builder.load(llvm_ty, alloca, "variant")
     }
 
     /// Emit a `CollectionReuse` instruction.
@@ -374,7 +274,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | (CtorKind::SetLiteral, super::super::type_info::TypeInfo::Set { element }) => {
                 *element
             }
-            _ => Idx::INT,
+            _ => {
+                debug_assert!(
+                    false,
+                    "collection reuse TypeInfo mismatch: ctor={ctor:?}, info={type_info:?}"
+                );
+                Idx::INT
+            }
         };
 
         let elem_llvm_ty = self.resolve_type(elem_idx);
@@ -431,6 +337,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .gep(elem_llvm_ty, new_data, &[idx], "reuse.elem_ptr");
             self.builder.store(val, elem_ptr);
         }
+
+        // Store elem_dec_fn and elem_count in the new buffer's RC header.
+        // ori_list_reset_buffer does NOT propagate internally — codegen
+        // handles it externally after the reset returns.
+        let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec_fn, &[new_data, elem_dec_fn], "");
+        let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder
+            .call(store_count_fn, &[new_data, new_len_val], "");
 
         // Load the output capacity.
         let result_cap = self.builder.load(i64_ty, out_cap_alloca, "reuse.cap");

@@ -1,0 +1,65 @@
+// Valgrind test: AIMS Matrix H — Drop hint, RC, and pass interactions.
+// Covers H1 (Lattice×Drop), H3 (Intra×Drop), H11 (RC×TailCall),
+// H12 (RC×Merge).
+// Verifies no leaks, double-frees, or use-after-free.
+
+type Wrapper = { name: str, value: int };
+
+// H1: Unique list dropped with drop hint.
+@test_h1 () -> bool = {
+    let $xs = for i in 1..61 yield i;
+    let sum = 0;
+    for x in xs do sum = sum + x;
+    sum == 1830
+};
+
+// H3: Precise death points — each collection freed at last use.
+@test_h3 () -> bool = {
+    let $a = "alpha-str";
+    let $b = "beta-beta-str";
+    let $xs = [10, 20, 30];
+    let $ys = [1, 2];
+    let $first = len(collection: a);
+    let $second = xs[0] + xs[1] + xs[2];
+    let $third = len(collection: b);
+    let $fourth = ys[0] + ys[1];
+    first == 9 && second == 60 && third == 13 && fourth == 3
+};
+
+// H11: Tail-recursive accumulator — no phantom RcInc after tail-call rewrite.
+type Node = End | Cell(value: int, next: Node);
+
+@sum_acc (list: Node, acc: int) -> int = match list {
+    End -> acc,
+    Cell(v, next) -> sum_acc(list: next, acc: acc + v),
+};
+
+@build_node (n: int) -> Node = {
+    if n <= 0 then End
+    else Cell(value: n, next: build_node(n: n - 1))
+};
+
+// H12: Block merge preserves RC operations.
+@test_h12 (w: Wrapper) -> int = {
+    let $base = w.value;
+    if base > 10 then {
+        let $extra = w.name;
+        len(collection: extra) + base
+    } else {
+        base * 2
+    }
+};
+
+@main () -> int = {
+    let $h1_ok = test_h1();
+    let $h3_ok = test_h3();
+
+    let $list = build_node(n: 80);
+    let $h11_ok = sum_acc(list: list, acc: 0) == 3240;
+
+    let $w1 = Wrapper { name: "hello world", value: 20 };
+    let $w2 = Wrapper { name: "test", value: 5 };
+    let $h12_ok = test_h12(w: w1) == 31 && test_h12(w: w2) == 10;
+
+    if h1_ok && h3_ok && h11_ok && h12_ok then 0 else 1
+}

@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 
 use super::RC_LIVE_COUNT;
 
-// ── RC Event Tracing ─────────────────────────────────────────────────
+// RC Event Tracing
 
 /// RC trace verbosity, cached from `ORI_TRACE_RC` env var.
 ///
@@ -124,6 +124,15 @@ pub(super) fn rc_trace_free(data_ptr: *const u8, size: usize, align: usize) {
     rc_trace_verbose_backtrace();
 }
 
+/// Trace an `ori_rc_realloc` event (address change).
+#[cold]
+#[inline(never)]
+pub(super) fn rc_trace_realloc(old_data_ptr: *const u8, new_data_ptr: *const u8, new_size: usize) {
+    let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+    eprintln!("[RC] realloc {old_data_ptr:p} → {new_data_ptr:p} size={new_size} (live={live})");
+    rc_trace_verbose_backtrace();
+}
+
 /// Print a backtrace if verbose tracing is enabled.
 #[cold]
 #[inline(never)]
@@ -133,7 +142,7 @@ fn rc_trace_verbose_backtrace() {
     }
 }
 
-// ── Leak Attribution (debug builds only) ─────────────────────────────
+// Leak Attribution (debug builds only)
 
 /// Monotonic allocation counter for leak attribution.
 ///
@@ -170,10 +179,24 @@ fn alloc_registry() -> &'static Mutex<HashMap<usize, AllocEntry>> {
 ///
 /// Called from `ori_rc_alloc` when `ORI_CHECK_LEAKS=1` in debug builds.
 #[cfg(debug_assertions)]
-pub(super) fn alloc_registry_insert(data_ptr: *mut u8, size: usize, align: usize) {
+pub(crate) fn alloc_registry_insert(data_ptr: *mut u8, size: usize, align: usize) {
     let id = RC_ALLOC_COUNTER.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut reg) = alloc_registry().lock() {
         reg.insert(data_ptr as usize, (id, size, align));
+    }
+}
+
+/// Update size/alignment of an existing allocation in the registry.
+///
+/// Called from `ori_rc_realloc` when the pointer address stays the same
+/// (in-place realloc). Preserves the original `alloc_id`. (TPR-05-004)
+#[cfg(debug_assertions)]
+pub(crate) fn alloc_registry_update(data_ptr: *mut u8, new_size: usize, new_align: usize) {
+    if let Ok(mut reg) = alloc_registry().lock() {
+        if let Some(entry) = reg.get_mut(&(data_ptr as usize)) {
+            entry.1 = new_size;
+            entry.2 = new_align;
+        }
     }
 }
 
@@ -181,9 +204,22 @@ pub(super) fn alloc_registry_insert(data_ptr: *mut u8, size: usize, align: usize
 ///
 /// Called from `ori_rc_free` when `ORI_CHECK_LEAKS=1` in debug builds.
 #[cfg(debug_assertions)]
-pub(super) fn alloc_registry_remove(data_ptr: *mut u8) {
+pub(crate) fn alloc_registry_remove(data_ptr: *mut u8) {
     if let Ok(mut reg) = alloc_registry().lock() {
         reg.remove(&(data_ptr as usize));
+    }
+}
+
+/// Query the registry entry for a given data pointer.
+///
+/// Returns `Some((alloc_id, size, align))` if the pointer is tracked,
+/// `None` otherwise. Used by tests to verify metadata correctness.
+#[cfg(all(test, debug_assertions))]
+pub(crate) fn alloc_registry_query(data_ptr: *const u8) -> Option<(i64, usize, usize)> {
+    if let Ok(reg) = alloc_registry().lock() {
+        reg.get(&(data_ptr as usize)).copied()
+    } else {
+        None
     }
 }
 
@@ -218,7 +254,7 @@ pub fn reset_alloc_registry() {
     RC_ALLOC_COUNTER.store(0, Ordering::Relaxed);
 }
 
-// ── Runtime Assertion Mode (ORI_RT_DEBUG) ─────────────────────────────
+// Runtime Assertion Mode (ORI_RT_DEBUG)
 
 /// Validate that the RC header at `data_ptr - 8` holds a plausible refcount.
 ///
@@ -248,7 +284,7 @@ fn rt_debug_validate_rc_impl(data_ptr: *const u8, op: &str) {
                  implausible refcount {rc} (expected 1..999999, \
                  likely use-after-free or corruption)"
             );
-            std::process::abort();
+            std::process::exit(super::SIGABRT_EXIT_CODE);
         }
     }
 }
@@ -278,7 +314,7 @@ pub(crate) fn rt_debug_check_not_freed(data_ptr: *const u8, op: &str) {
                 "ori: ORI_RT_DEBUG — {op} on {data_ptr:p}: \
                  pointer was already freed (use-after-free)"
             );
-            std::process::abort();
+            std::process::exit(super::SIGABRT_EXIT_CODE);
         }
     }
 }
@@ -295,7 +331,7 @@ pub(super) fn rt_debug_register_freed(data_ptr: *const u8) {
     if let Ok(mut set) = freed_set().lock() {
         if !set.insert(data_ptr as usize) {
             eprintln!("ori: ORI_RT_DEBUG — ori_rc_free on {data_ptr:p}: double-free detected");
-            std::process::abort();
+            std::process::exit(super::SIGABRT_EXIT_CODE);
         }
     }
 }
@@ -337,7 +373,7 @@ pub(crate) fn rt_debug_bounds_warning(op: &str, index: i64, len: i64) {
     eprintln!("ori: ORI_RT_DEBUG — {op}: index {index} out of bounds (len={len})");
 }
 
-// ── Leak Detection ───────────────────────────────────────────────────
+// Leak Detection
 
 /// Check whether ARC leak detection is enabled via environment variable.
 ///

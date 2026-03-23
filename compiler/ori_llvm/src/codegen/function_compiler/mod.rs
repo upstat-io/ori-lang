@@ -13,18 +13,21 @@
 //! - [`define_phase`]: Function body definition (Phase 2) and ARC processing
 //! - [`nounwind`]: Two-pass nounwind analysis (prepare → analyze → emit)
 //! - [`impls`]: Impl method, test, and derived trait compilation
-//! - [`entry_point`]: AOT `main()` wrapper and panic trampoline
+//! - [`entry_point`]: AOT `main()` wrapper
+//! - [`seh_main_thunk`]: SEH/MSVC `ori_try_call` thunk for `@main(args:)`
+//! - [`panic_trampoline`]: Panic handler trampoline (`_ori_panic_trampoline`)
 
 mod define_phase;
 mod entry_point;
 mod impls;
 mod nounwind;
+mod panic_trampoline;
+mod purity_analysis;
+mod seh_main_thunk;
 
 pub use nounwind::PreparedFunction;
 
-use std::cell::Cell;
-
-use ori_arc::{AnnotatedSig, ArcClassifier, UniquenessSummary};
+use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract, UniquenessSummary};
 use ori_ir::{Function, Name, Span, StringInterner};
 use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -34,7 +37,8 @@ use crate::aot::debug::DebugContext;
 use crate::aot::mangle::Mangler;
 
 use super::abi::{
-    compute_function_abi_with_ownership, CallConv, FunctionAbi, ParamPassing, ReturnPassing,
+    abi_size, compute_function_abi_with_ownership, CallConv, FunctionAbi, ParamPassing,
+    ReturnPassing,
 };
 use super::arc_emitter::CodegenContext;
 use super::ir_builder::IrBuilder;
@@ -58,8 +62,6 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     module_path: &'a str,
     /// Shared function-resolution lookup tables passed to [`ArcIrEmitter`].
     codegen_ctx: CodegenContext,
-    /// Module-wide lambda counter for unique lambda function names.
-    lambda_counter: Cell<u32>,
     /// Borrow inference results: function `Name` → annotated signature.
     /// `Ownership::Borrowed` + non-Scalar parameters use
     /// `ParamPassing::Reference` (pointer, no RC at call site).
@@ -68,10 +70,11 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     arc_classifier: &'a ArcClassifier<'tcx>,
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     debug_context: Option<&'a DebugContext<'ctx>>,
-    /// Pre-computed builtin ownership sets for ARC annotation.
-    builtin_ownership: ori_arc::BuiltinOwnershipSets,
-    /// Interprocedural uniqueness summaries for COW check elimination.
+    /// Interprocedural uniqueness summaries (unused — AIMS computes internally).
     uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
+    /// Pre-computed AIMS interprocedural contracts for param/arg ownership.
+    /// Populated by [`ori_arc::compute_aims_contracts`] before the per-function loop.
+    aims_contracts: FxHashMap<Name, MemoryContract>,
     /// Whether to run ARC IR verification in release builds.
     /// In debug builds, verification always runs regardless of this flag.
     verify_arc: bool,
@@ -98,9 +101,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
         uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
+        aims_contracts: FxHashMap<Name, MemoryContract>,
         verify_arc: bool,
     ) -> Self {
-        let builtin_ownership = ori_arc::BuiltinOwnershipSets::new(interner);
         Self {
             builder,
             type_info,
@@ -110,12 +113,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             mangler: Mangler::new(),
             module_path,
             codegen_ctx: CodegenContext::default(),
-            lambda_counter: Cell::new(0),
             annotated_sigs,
             arc_classifier,
             debug_context,
-            builtin_ownership,
             uniqueness_summaries,
+            aims_contracts,
             verify_arc,
         }
     }
@@ -215,52 +217,56 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         if let ReturnPassing::Sret { .. } = &abi.return_abi.passing {
             self.builder.add_sret_attribute(func_id, 0, return_llvm_id);
-            // noalias acceptance rule for sret: The sret pointer is a fresh
-            // stack alloca from the caller — it cannot alias any other
-            // accessible pointer. This is always safe.
-            //
-            // IMPORTANT: Do NOT add blanket `noalias` to regular pointer
-            // parameters. Ori's RC-managed buffers can alias when the same
-            // value is passed to multiple params (e.g., `f(a: xs, b: xs)`).
-            // A pointer param gets `noalias` if and only if:
-            //   (a) it is sret (this site) or COW out_ptr (runtime_decl.rs),
-            //   (b) it is a fresh `ori_rc_alloc` return (NoaliasReturn attr),
-            //   (c) it is COW StaticUnique at a call site (emitter_utils.rs).
-            // Any state not listed here must NOT get `noalias`.
+            // sret pointer is a fresh caller alloca — safe for noalias.
+            // Do NOT add noalias to regular ptr params — RC buffers can alias
+            // (e.g., `f(a: xs, b: xs)`). Only sret, ori_rc_alloc returns, and
+            // COW StaticUnique call sites qualify.
             self.builder.add_noalias_attribute(func_id, 0);
         }
 
-        // All EH-capable targets require uwtable for proper stack unwinding.
-        //
-        // - Windows (SEH): RtlVirtualUnwind needs .pdata/.xdata frame info.
-        // - macOS/Linux (Itanium): LLVM's TargetMachine (created via the C API)
-        //   defaults to ExceptionHandling::None, which suppresses .eh_frame
-        //   personality/LSDA generation. The `uwtable` attribute forces LLVM to
-        //   emit full unwind tables with CIE augmentation "zPLR" (personality +
-        //   LSDA), enabling _Unwind_RaiseException to find catch-all landing pads.
-        //   Without it, invoke/landingpad IR is emitted correctly but the MC layer
-        //   generates .eh_frame entries without personality references, causing
-        //   _URC_END_OF_STACK (code 5) on panic.
+        // uwtable: required for stack unwinding on all EH-capable targets.
+        // See `ir_builder/attributes.rs` for full rationale.
         self.builder.add_uwtable_attribute(func_id);
 
-        // §02.6: noundef on scalar params/returns — Ori values are always defined.
-        // Only scalar primitives (i64, f64, i1, i32, i8) get noundef; aggregates
-        // and pointers are excluded per conservative policy.
-        let mut nidx = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }))
-            + extra_leading_params.len() as u32;
+        // noundef on all non-Void params — Ori values are always fully defined.
+        // Direct params: the value itself is noundef (no poison/undef).
+        // Indirect/Reference params: the pointer is noundef (always a valid,
+        // defined address — never poison or undef). Also add readonly for borrowed.
+        //
+        // Extra leading params (e.g., phantom env ptr for non-capturing lambdas)
+        // also get noundef — a null pointer is still a defined value (not undef/poison).
+        let sret_offset = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
+        for (i, _) in extra_leading_params.iter().enumerate() {
+            self.builder
+                .add_noundef_param_attribute(func_id, sret_offset + i as u32);
+        }
+        let mut nidx = sret_offset + extra_leading_params.len() as u32;
         for param in &abi.params {
             if matches!(param.passing, ParamPassing::Direct) {
-                if self.type_info.get(param.ty).is_llvm_scalar() {
-                    self.builder.add_noundef_param_attribute(func_id, nidx);
-                }
+                self.builder.add_noundef_param_attribute(func_id, nidx);
                 nidx += 1;
             } else if !matches!(param.passing, ParamPassing::Void) {
+                // Indirect/Reference pointer params: noundef (pointer is defined),
+                // nonnull (Ori never passes null pointers), dereferenceable(N)
+                // (pointer points to at least N bytes of valid memory),
+                // + readonly if borrowed.
+                self.builder.add_noundef_param_attribute(func_id, nidx);
+                self.builder.add_nonnull_param_attribute(func_id, nidx);
+                // dereferenceable(N): abi_size may underestimate due to missing
+                // alignment padding, but underestimation is legal — LLVM treats
+                // dereferenceable as a minimum. See abi/mod.rs FIXME.
+                let size = abi_size(param.ty, self.type_info);
+                if size > 0 {
+                    self.builder
+                        .add_dereferenceable_param_attribute(func_id, nidx, size);
+                }
+                if param.readonly {
+                    self.builder.add_readonly_param_attribute(func_id, nidx);
+                }
                 nidx += 1;
             }
         }
-        if matches!(abi.return_abi.passing, ReturnPassing::Direct)
-            && self.type_info.get(abi.return_abi.ty).is_llvm_scalar()
-        {
+        if matches!(abi.return_abi.passing, ReturnPassing::Direct) {
             self.builder.add_noundef_return_attribute(func_id);
         }
 
@@ -497,7 +503,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::doc_markdown,
     clippy::default_trait_access,
     reason = "test code — style relaxed for clarity"

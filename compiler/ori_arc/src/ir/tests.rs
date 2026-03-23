@@ -1140,3 +1140,76 @@ fn next_block_id_and_push() {
     assert_eq!(func.spans[1].len(), 1); // one instr → one span slot
     assert_eq!(func.next_block_id(), ArcBlockId::new(2));
 }
+
+// is_owned_position
+
+#[test]
+fn is_owned_position_apply_indirect_closure_is_borrowed() {
+    // The closure position (pos 0) in ApplyIndirect is borrowed:
+    // the callee reads the env pointer but does NOT consume the fat pointer.
+    // The caller retains ownership and must RcDec after last use.
+    let instr = ArcInstr::ApplyIndirect {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        closure: ArcVarId::new(3),
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+    };
+    // All positions in ApplyIndirect are NOT owned — lambda callees
+    // don't emit RcDec for their parameters, so the caller is responsible.
+    assert!(
+        !instr.is_owned_position(0),
+        "closure position must be borrowed"
+    );
+    assert!(
+        !instr.is_owned_position(1),
+        "arg positions are caller-managed (not callee-owned)"
+    );
+    assert!(
+        !instr.is_owned_position(2),
+        "arg positions are caller-managed (not callee-owned)"
+    );
+    assert!(!instr.is_owned_position(3), "out of bounds → not owned");
+}
+
+#[test]
+fn is_owned_position_apply_indirect_no_args() {
+    let instr = ArcInstr::ApplyIndirect {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        closure: ArcVarId::new(3),
+        args: vec![],
+    };
+    // Position 0 = closure → NOT owned
+    assert!(
+        !instr.is_owned_position(0),
+        "closure position must be borrowed"
+    );
+    // Position 1 = out of bounds → not owned
+    assert!(!instr.is_owned_position(1));
+}
+
+#[test]
+fn is_owned_position_apply_respects_arg_ownership() {
+    let instr = ArcInstr::Apply {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        func: Name::new(1, 1),
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+    };
+    assert!(!instr.is_owned_position(0), "borrowed arg is not owned");
+    assert!(instr.is_owned_position(1), "owned arg is owned");
+}
+
+#[test]
+fn is_owned_position_construct_all_owned() {
+    let instr = ArcInstr::Construct {
+        dst: ArcVarId::new(5),
+        ty: Idx::INT,
+        ctor: crate::ir::CtorKind::Struct(Name::new(0, 0)),
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+    };
+    assert!(instr.is_owned_position(0));
+    assert!(instr.is_owned_position(1));
+    assert!(!instr.is_owned_position(2));
+}

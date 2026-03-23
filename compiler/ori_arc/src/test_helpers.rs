@@ -1,13 +1,12 @@
 //! Shared test utilities for ARC analysis passes.
 //!
-//! Consolidates factory functions used across `borrow`, `liveness`,
-//! `rc_insert`, `rc_elim`, `reset_reuse`, `expand_reuse`, and pipeline
-//! tests. Only compiled in test builds.
+//! Consolidates factory functions used across `borrow`, `liveness`, `aims`,
+//! and pipeline tests. Only compiled in test builds.
 
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcVarId};
+use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcParam, ArcVarId};
 use crate::ownership::Ownership;
 
 /// Shorthand for `ArcVarId::new(n)`.
@@ -76,40 +75,4 @@ pub(crate) fn borrowed_param(var: u32, ty: Idx) -> ArcParam {
         ty,
         ownership: Ownership::Borrowed,
     }
-}
-
-/// Count total RC ops (`RcInc` + `RcDec`) across the entire function.
-pub(crate) fn count_rc_ops(func: &ArcFunction) -> usize {
-    func.blocks
-        .iter()
-        .flat_map(|bl| bl.body.iter())
-        .filter(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. }))
-        .count()
-}
-
-/// Count total RC ops (`RcInc` + `RcDec`) in a single block.
-pub(crate) fn count_block_rc_ops(func: &ArcFunction, block_idx: usize) -> usize {
-    func.blocks[block_idx]
-        .body
-        .iter()
-        .filter(|i| matches!(i, ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. }))
-        .count()
-}
-
-/// Count `RcInc` for a specific var in a block.
-pub(crate) fn count_inc(func: &ArcFunction, block_idx: usize, var: ArcVarId) -> usize {
-    func.blocks[block_idx]
-        .body
-        .iter()
-        .filter(|i| matches!(i, ArcInstr::RcInc { var: v, .. } if *v == var))
-        .count()
-}
-
-/// Count `RcDec` for a specific var in a block.
-pub(crate) fn count_dec(func: &ArcFunction, block_idx: usize, var: ArcVarId) -> usize {
-    func.blocks[block_idx]
-        .body
-        .iter()
-        .filter(|i| matches!(i, ArcInstr::RcDec { var: v, .. } if *v == var))
-        .count()
 }

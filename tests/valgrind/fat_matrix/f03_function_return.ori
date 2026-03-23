@@ -1,0 +1,37 @@
+// Valgrind fat matrix: F03 — Fat pointer types returned from functions.
+// Verifies RC correctness when values are returned across function boundaries.
+
+type Named = { name: str, id: int }
+
+@make_str () -> str = "abcdefghijklmnopqrstuvwxyz1234";
+@make_list () -> [int] = [1, 2, 3, 4, 5];
+@make_list_fat () -> [str] = ["hello", "world", "test"];
+@make_struct () -> Named = Named { name: "alice", id: 1 };
+@make_map () -> {str: int} = {"a": 1, "b": 2};
+@make_tuple () -> (str, int) = ("hello", 42);
+@make_option_str () -> Option<str> = Some("hello");
+@make_option_none () -> Option<str> = None;
+
+@chain_return () -> str = {
+    let s = make_str();
+    s
+}
+
+@main () -> int = {
+    let ok1 = make_str().length() == 30;
+    let ok2 = make_list().length() == 5;
+    let ok3 = make_list_fat().length() == 3;
+    let ok4 = make_struct().name.length() == 5;
+    let ok5 = make_map().length() == 2;
+
+    let t = make_tuple();
+    let (s, n) = t;
+    let ok6 = s.length() + n == 47;
+
+    let ok7 = is_some(option: make_option_str());
+    let ok8 = is_none(option: make_option_none());
+    let ok9 = chain_return().length() == 30;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9
+        then 0 else 1
+}
