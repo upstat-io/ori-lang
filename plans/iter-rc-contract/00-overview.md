@@ -1,7 +1,7 @@
 ---
 plan: "iter-rc-contract"
 title: "Iterator-Collection RC Ownership Contract: Exhaustive Implementation Plan"
-status: in-progress
+status: complete
 supersedes:
   - "plans/fat-pointer-hardening/ (Section 01 — iterator ownership)"
 references:
