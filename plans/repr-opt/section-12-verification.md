@@ -92,7 +92,7 @@ Build a comprehensive test matrix covering every optimization through the full p
 - [ ] **§07 Enum Repr:**
   - `Option<bool>` → 1 byte (niche)
   - `Option<Ordering>` → 1 byte (niche)
-  - `Option<str>` → 16 bytes (null niche)
+  - `Option<str>` → 24 bytes (null data-ptr niche, no tag field — same size as str itself)
   - All-unit enum → tag only
   - Single-variant enum → newtype erasure
 
@@ -168,11 +168,15 @@ Verify that optimized code produces identical results to unoptimized code.
     - Narrowed struct fields with padding
     - Niche-filled enum pattern matching
 
+- [ ] **Create `diagnostics/asan-test.sh`** (new script — required for AddressSanitizer testing):
+  - Build `ori` with AddressSanitizer: `RUSTFLAGS="-Zsanitizer=address" cargo +nightly b --target x86_64-unknown-linux-gnu`
+  - Run the spec test suite with the ASan-enabled binary
+  - Run the Valgrind test suite programs through the ASan binary
+  - Exit non-zero if any ASan report fires (exit code check)
+  - Follow the pattern of `valgrind-aot.sh`: support `--no-color` flag, print summary at end
 - [ ] **AddressSanitizer (stack memory):**
   ```bash
-  # NOTE: diagnostics/asan-test.sh must be created as part of this section.
-  # It should build with ASan flags and run the spec + valgrind test suites.
-  ORI_ASAN=1 cargo b && ./diagnostics/asan-test.sh
+  ./diagnostics/asan-test.sh
   ```
   - Stack-promoted values must not be accessed after function return
   - No buffer overflows in packed bool arrays
@@ -196,11 +200,15 @@ Verify that optimized code produces identical results to unoptimized code.
   ./scripts/perf-baseline.sh --release > baseline.txt
   ```
 
+- [ ] **Create `scripts/perf-compare.sh`** (new script — required for baseline comparison):
+  - Takes two `perf-baseline.sh` output files as arguments
+  - Parses the table format from `perf-baseline.sh` (human-readable, not JSON)
+  - Reports per-benchmark delta, geometric mean improvement/regression, and highlights any metric exceeding its threshold
+  - Exits non-zero if any threshold is violated (per the targets table in §12.4)
+  - Follow the pattern of `cow-benchmark.sh --compare` for argument parsing and output formatting
 - [ ] **Post-optimization measurement:**
   ```bash
   ./scripts/perf-baseline.sh --release > optimized.txt
-  # NOTE: scripts/perf-compare.sh must be created as part of this section.
-  # It should parse two perf-baseline.sh outputs and report deltas.
   ./scripts/perf-compare.sh baseline.txt optimized.txt
   ```
 
@@ -260,6 +268,10 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
 
 - [ ] Update spec (`docs/ori_lang/v2026/spec/annex-e-system-considerations.md`):
   - Mark implemented optimizations as "implemented" vs "future"
+  - Update the built-in type representations table to match the current runtime baseline before adding new optimizations:
+    - `str` is the 24-byte SSO-capable form, not `{ len, data }`
+    - `Option<T>` / `Result<T, E>` currently lower with `i64` tags in LLVM, not `i8`
+    - RC-managed heap values currently use the V5 32-byte header (`data_size`, `elem_dec_fn`, `elem_count`, `strong_count`)
   - Add SSO/SVO to the built-in type representations table
 
 - [ ] Update `.claude/rules/` with:
@@ -272,12 +284,19 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
 
 ## 12.7 Completion Checklist
 
+**Scripts created in this section:**
+- [ ] `diagnostics/asan-test.sh` created and functional (builds ASan binary, runs spec+valgrind tests, exits non-zero on ASan report)
+- [ ] `scripts/perf-compare.sh` created and functional (parses `perf-baseline.sh` output, reports deltas, exits non-zero on threshold violations)
+- [ ] `tests/valgrind/threads/` directory created with `thread_local_only.ori` and `channel_send.ori`
+
+**Verification:**
 - [ ] Test matrix covers all §02-§11 features (every checkbox in 12.1)
 - [ ] Dual-execution verification: 0 mismatches across all spec tests
 - [ ] Valgrind: 0 errors across all Valgrind tests (old + new)
-- [ ] AddressSanitizer: 0 errors
+- [ ] AddressSanitizer: 0 errors (via `diagnostics/asan-test.sh`)
+- [ ] Helgrind: 0 races in threading test programs (via `./diagnostics/valgrind-aot.sh --helgrind tests/valgrind/threads/`)
 - [ ] Stress tests pass (10M allocations, 10K threads, 100MB packed array)
-- [ ] Performance baselined with before/after comparison
+- [ ] Performance baselined with before/after comparison (via `scripts/perf-compare.sh`)
 - [ ] No compile-time regression > 10%
 - [ ] Runtime improvement ≥ 10% on benchmark suite
 - [ ] Memory reduction ≥ 20% on struct-heavy benchmarks

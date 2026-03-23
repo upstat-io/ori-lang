@@ -51,47 +51,54 @@ sections:
 Current `str` representation: SSO-enabled `OriStr` union (24 bytes, inline ≤23 bytes / heap for longer strings).
 Previous representation was `{ len: i64, data: *const u8 }` (16 bytes, heap-allocated data).
 
-SSO representation: 24 bytes total, dual-mode:
-- **Inline mode** (len ≤ 22): data stored directly in the struct
-- **Heap mode** (len > 22): pointer to heap-allocated buffer
+SSO representation: 24 bytes total, dual-mode (see `ori_rt/src/string/mod.rs`):
+- **Inline mode** (len ≤ 23): data stored directly in the struct
+- **Heap mode** (len > 23): pointer to heap-allocated buffer
 
-- [ ] Define SSO string layout:
+- [ ] Verify existing SSO string layout (already implemented in `ori_rt/src/string/mod.rs`):
   ```
-  Inline mode (len ≤ 22):
-  ┌──────────────────────────────────┬────┐
-  │  data[0..21] (22 bytes inline)   │flag│
-  │  UTF-8 string data               │ =0 │
-  └──────────────────────────────────┴────┘
-  23 bytes total (padded to 24 for alignment)
+  Inline mode (len ≤ 23, SSO_MAX_LEN = 23):
+  ┌──────────────────────────────────┬─────┐
+  │  data[0..22] (23 bytes inline)   │flags│
+  │  UTF-8 string data               │ 0x80│  high bit=1 → SSO
+  └──────────────────────────────────┴─────┘  low 7 bits = length
+  24 bytes total (OriStrSSO: bytes[23] + flags u8)
 
-  Heap mode (len > 22):
-  ┌────────────┬────────────┬────────┬────┐
-  │  len (i64) │  data (ptr)│ cap    │flag│
-  │            │  heap-alloc│ (i32)  │ =1 │
-  └────────────┴────────────┴────────┴────┘
-  24 bytes total (reuses same space)
+  Heap mode (len > 23):
+  ┌────────────┬────────────┬──────────┐
+  │  len (i64) │  cap (i64) │data (ptr)│
+  │            │            │heap-alloc│
+  └────────────┴────────────┴──────────┘
+  24 bytes total (OriStrHeap: len i64 + cap i64 + data ptr)
+  Discriminator: byte 23 is MSB of data pointer — always 0 on
+  64-bit (canonical addressing), so high bit=0 → heap mode.
   ```
 
-- [ ] Verify existing runtime SSO functions (already in `ori_rt/src/string/ops.rs`):
+- [ ] Verify existing runtime SSO functions (spread across `ori_rt/src/string/ops.rs` and `ori_rt/src/string/methods/mod.rs`):
   ```rust
   // Already implemented — audit for correctness and completeness:
   extern "C" fn ori_str_len(s: *const OriStr) -> i64;
   extern "C" fn ori_str_data(s: *const OriStr) -> *const u8;
   extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr;
-  // If missing, add:
-  extern "C" fn ori_str_is_inline(s: *const OriStr) -> bool;
+  // OriStr::is_sso() method exists on the struct (not an extern "C" fn)
   ```
 
-- [ ] LLVM codegen changes:
-  - String creation: check length, use inline path for ≤ 22 bytes
-  - String access: branch on flag byte, read from inline or heap
-  - String concat: if result ≤ 22, use inline; else heap-alloc
-  - String drop: only free heap mode strings
+> **CODEBASE NOTE — TypeInfo::Str (`compiler/ori_llvm/src/codegen/type_info/info.rs:49`):**
+> `TypeInfo::Str` is currently documented as `{i64 len, i64 cap, ptr data}`. The SSO `OriStr` is a union with the same 24-byte footprint. Verify whether `storage_type()` for `TypeInfo::Str` actually returns the union type or just the heap struct type. If it returns the heap struct only, the SSO union needs a separate LLVM type for the inline case.
+
+- [ ] LLVM codegen changes — verify each is correctly implemented in `ori_llvm`:
+  - [ ] **String creation codegen** (`arc_emitter/construction.rs`): when the source is a string literal of known length ≤ 23, emit the inline `OriStrSSO` struct directly (no `ori_rc_alloc` call). When length is unknown or > 23, use the existing heap path.
+  - [ ] **String literal embedding** (`arc_emitter/value_emission.rs`): string literals must be emitted as `OriStr` (union of `OriStrSSO` / `OriStrHeap`), not as raw `{ i64, i64, ptr }`. Check that the LLVM struct type matches `OriStr` (24 bytes, not 16).
+  - [ ] **String access codegen** (`arc_emitter/`): every string field read must emit a branch on the SSO flag (high bit of byte 23). Verify this is done via `ori_str_len` and `ori_str_data` calls — not raw GEP+load which would bypass SSO mode detection.
+  - [ ] **String concat**: verify `ori_str_concat` correctly handles all 4 cases: (inline+inline)→inline, (inline+inline)→heap, (heap+inline)→heap, (heap+heap)→heap. Check that the result fits in SSO when both inputs fit.
+  - [ ] **String drop**: `arc_emitter/drop_gen.rs` must check SSO flag before emitting `ori_rc_dec` — inline strings have no RC header and must not call `ori_rc_dec`. Add a test verifying no `ori_rc_dec` call for a function that only uses short string literals.
+  - [ ] **TypeInfo LLVM type**: `type_info/info.rs` must return the 24-byte `OriStr` LLVM struct type for `TypeInfo::Str`, not the old 16-byte `{ i64, i64, ptr }`. Verify with a `size_of_val` assertion in tests.
 
 - [ ] ARC interaction:
   - Inline strings have NO RC header — they're value types (copy on assignment)
   - Heap strings retain their RC header
   - The SSO flag byte disambiguates at runtime
+  - [ ] Verify: assigning a short string literal copies the 24-byte struct (no `ori_rc_inc` emitted). Verify this in LLVM IR using `ORI_DUMP_AFTER_LLVM=1`.
 
 ---
 
@@ -101,9 +108,11 @@ SSO representation: 24 bytes total, dual-mode:
 
 Current `[T]` representation: `{ len: i64, cap: i64, data: *mut u8 }` (24 bytes, heap-allocated data).
 
-SVO representation: same size, dual-mode:
-- **Inline mode** (elements fit in 24 - 1 flag byte = 23 bytes): stored directly
-- **Heap mode**: pointer to heap-allocated buffer
+SVO representation: same 24-byte size, dual-mode:
+- **Inline mode** (elements fit in available inline bytes): stored directly
+- **Heap mode**: standard `{ len: i64, cap: i64, data: *mut u8 }` layout
+
+**Design note:** Unlike SSO (which uses the MSB of the data pointer as a discriminator because user-space pointers have MSB=0), SVO needs a different discriminator strategy. Options: (a) use a flag bit in `cap` (e.g., negative cap = inline mode), (b) use a sentinel in `len`, (c) use a separate approach. This must be designed during implementation — the discriminator must not conflict with the existing slice encoding (`SLICE_FLAG` uses bit 63 of cap).
 
 - [ ] Compute inline capacity per element type:
   ```rust
@@ -196,7 +205,21 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
 
 ## 11.5 Completion Checklist
 
-- [ ] Strings ≤ 22 bytes use SSO (no heap allocation)
+**Test matrix for §11 (write failing tests FIRST, verify they fail, then implement):**
+
+| Input | Expected representation | Semantic pin |
+|---|---|---|
+| `let s = "hi"` (2 bytes) | SSO inline — 0 `ori_rc_alloc` | Yes |
+| `let s = "a" * 23` (23 bytes) | SSO inline — 0 `ori_rc_alloc` | Yes — boundary |
+| `let s = "a" * 24` (24 bytes) | Heap — 1 `ori_rc_alloc` | Yes — just over |
+| `let list = []` | Inline (zero-cap) — 0 `ori_rc_alloc` | Yes — empty SVO |
+| `let list = [1, 2]` | SVO inline (2 ints) | Yes |
+| `let list = [1, 2, 3]` | SVO inline (3 ints, 3×8=24 > 23) → Heap | Yes — SVO boundary |
+| `let flags = [true, false, true]` | Packed bool | Yes — verify bitcount |
+| `[bool]` with 1M elements | ~125KB (vs ~1MB unpacked) | Yes — 8× compression |
+| `[int]` where elements are `0..255` | `[i8]` backing store (§04+§11 co-opt) | Yes |
+
+- [ ] Strings ≤ 23 bytes use SSO (no heap allocation)
 - [ ] Empty lists use inline mode (no heap allocation)
 - [ ] `[bool]` uses 1 bit per element (verified by memory measurement)
 - [ ] `[int]` with bounded elements uses narrow backing store
@@ -207,4 +230,4 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Performance: string-heavy benchmarks show measurable improvement from SSO
 
-**Exit Criteria:** Creating 10,000 short strings (≤ 10 chars each) results in ZERO heap allocations, verified by `ori_rc_alloc` call count = 0 in Valgrind output. `[bool]` with 1M elements uses ~125KB instead of ~1MB.
+**Exit Criteria:** Creating 10,000 short strings (≤ 23 bytes each) results in ZERO heap allocations for the string data itself, verified by `ori_rc_alloc` call count = 0 in Valgrind output. `[bool]` with 1M elements uses ~125KB instead of ~1MB. SSO string operations (concat, substring, trim, split) correctly handle inline-to-heap transitions.

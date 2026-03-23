@@ -138,11 +138,12 @@ Information flow — each stage enriches the ReprPlan:
   ├──→ §02 Transitive Triviality ─────────────────────────┐   │
   │                                                       │   │
   ├──→ §03 Range Analysis Framework ──┬──→ §04 Int Narrow │   │
-  │                                   └──→ §05 Float      │   │
+  │   (§03.1-§03.4 first,             └──→ §05 Float      │   │
+  │    then §03.5 interprocedural)                        │   │
   │                                                       │   │
   ├──→ §06 Struct Layout ◄────────────── (§04, §05)       │   │
   │                                                       │   │
-  ├──→ §07 Enum Repr ◄───────────────── (§04)             │   │
+  ├──→ §07 Enum Repr ◄───────────────── (§04, §05)        │   │
   │                                                       │   │
   ├──→ §08 Escape Analysis ◄─────────── (§02)             │   │
   │                                                       │   │
@@ -155,24 +156,30 @@ Information flow — each stage enriches the ReprPlan:
   §12 Verification ◄─────────────────── (ALL)             │   │
 ```
 
-- **§01** is the foundation — everything depends on it
+- **§01** is the foundation — everything depends on it; includes `--no-repr-opt` flag and `ori_repr` workspace registration
 - **§02, §03** are independent of each other and can be developed in parallel
+- **§03** subsections have an internal sequencing requirement: §03.1→§03.2→§03.4→§03.3→§03.5 (see §03.3 for why §03.4 must precede §03.3)
 - **§04, §05** both depend on §03 (range analysis) and can be developed in parallel
 - **§06** depends on §04/§05 (needs to know narrowed field types for layout)
-- **§07** depends on §04 (integer narrowing affects discriminant sizing)
+- **§07** depends on §04 and §05 (integer narrowing affects discriminant sizing; float narrowing may affect niche patterns in f32-typed fields)
 - **§08** depends on §02 (triviality affects escape classification)
 - **§09** depends on §02, §08 (triviality + escape determine RC width)
 - **§10** depends on §08, §09 (escape analysis + header decisions)
 - **§11** depends on §04, §06 (element narrowing + layout knowledge)
-- **§12** depends on all (verification is last)
+- **§12** depends on all (verification is last); §12 also creates `diagnostics/asan-test.sh` and `scripts/perf-compare.sh`
 
 **Cross-section interactions (must be co-implemented):**
 - **§04 + §06**: Integer narrowing changes field sizes, which changes struct layout. If narrowing lands without layout update, struct padding wastes the savings.
 - **§08 + §09**: Escape analysis determines which allocations are stack-local (no RC header) vs heap (need RC header). If escape analysis lands without header compression, heap allocations still use i64 headers unnecessarily.
-- **§02 + ori_arc pipeline**: Transitive triviality must agree with `ori_arc::ArcClassifier` (defined in `ori_arc/src/classify/mod.rs`, re-exported at crate root). If they disagree, codegen either emits unnecessary RC ops or skips needed ones. Both must use the same classification — `ori_types::triviality::classify_triviality()` is the single source of truth.
+- **§02 + ori_arc pipeline**: Transitive triviality must agree with `ori_arc::ArcClassifier` (defined in `ori_arc/src/classify/mod.rs`, re-exported at crate root via `pub use classify::ArcClassifier`). The ARC pipeline uses the `ArcClassification` trait (`ori_arc/src/lib.rs`) as the abstraction; `compute_drop_info()` and `run_arc_pipeline()` accept `&dyn ArcClassification`. If triviality and ArcClassifier disagree, codegen either emits unnecessary RC ops or skips needed ones. Both must use the same classification — `ori_types::triviality::classify_triviality()` is the single source of truth.
 - **§01.7 + §06**: `#repr` attributes (c, packed, transparent, aligned) are stored in ReprPlan by §01 but consumed by §06's layout algorithm. The layout pass must check `repr_attrs` before reordering fields. If §01 stores attrs but §06 ignores them, C-ABI structs get silently reordered → FFI bugs.
 - **§02 + ori_eval**: The evaluator (`ori_eval`) does NOT use triviality classification and is NOT affected by §02 or any other section in this plan. `ori_eval` uses Rust-native reference counting (no `ori_rc_*` calls). All representation optimizations are confined to the `ori_types → ori_arc → ori_repr → ori_llvm` pipeline.
 - **§02 standalone viability**: The core algorithm (`classify_triviality()` in `ori_types`) and the `ArcClassifier` delegation can be implemented and tested before §01 (ReprPlan) is complete. Only the `TypeInfoStore::is_trivial()` delegation to `ReprPlan` blocks on §01. This means §02 can begin implementation in parallel with §01.
+- **§03 + §01 (function_var_ranges field)**: §03's range analysis outputs `FxHashMap<ArcVarId, ValueRange>` per function. This must be stored in `ReprPlan::function_var_ranges` via `ReprPlan::set_var_ranges()`. Both the field and the method are defined in §01.2's `ReprPlan` struct. If §01.2 lands without this field, §03 has nowhere to write its results — §04 (which reads the results) cannot proceed.
+- **§04 + §07**: Integer narrowing (§04) reduces field sizes, which changes what invalid bit patterns are available as niches. §07's `find_niches()` must query `ReprPlan` for the narrowed `MachineRepr` of each field, not the canonical one. If §07 runs niche analysis on canonical (pre-narrowing) types, it will miss niches created by narrowing (e.g., a field narrowed to `i8` with range `[0, 2]` has 253 niche values that the canonical `i64` version does not).
+- **§05 + §07**: Float narrowing (§05) may produce `f32`-typed fields. `f32` NaN bit patterns (quiet NaN: `0x7FC00000` through `0x7FFFFFFF` and `0xFFC00000` through `0xFFFFFFFF`) are technically invalid "values" but IEEE 754 semantics make them complex to use as niches. §07 must conservatively skip NaN-based niches for `f32` fields unless it has verified the platform's NaN handling (leave as `vec![]` for `MachineRepr::Float { width: F32 }`).
+- **§01 + §12 (--no-repr-opt)**: The `--no-repr-opt` flag is defined in §01.3 (pipeline integration). §12.2 (dual-execution verification) depends on it to generate an unoptimized baseline for comparison. §01.3 must land before §12.2 can run comparison tests.
+- **§10 + §12 (helgrind)**: §10.4 adds `--helgrind` passthrough to `diagnostics/valgrind-aot.sh`. §12.3 uses this flag for threading stress tests. §10 must land before §12.3 can complete the threading verification checklist.
 
 ## Implementation Sequence
 
@@ -210,14 +217,40 @@ Phase 5 — Verification
 **Why this order:**
 - Phase 0 is pure infrastructure — no behavioral changes, just adds the ReprPlan data structure
 - Phase 1 must precede Phase 2 because narrowing decisions consume range analysis results and triviality info
-- Phase 2 must precede Phase 3 because struct layout needs narrowed field types
-- Within Phase 3: §06 and §07 can be parallel, but §11 must come after §06 (§11 uses layout info from §06)
+- Phase 2 must precede Phase 3 because struct layout needs narrowed field types, and enum niche analysis needs to know which fields are f32-typed (§05 output) to correctly identify f32 NaN niches
+- Within Phase 3: §06 and §07 can be parallel (both start after §04+§05 complete), but §11 must come after §06 (§11 uses layout info from §06)
 - Phase 4 is the critical path because ARC optimizations have the highest performance impact but are the most dangerous (incorrect RC = use-after-free or leak)
 - Phase 5 gates the release — nothing ships without full verification
 
 **Known failing tests (expected until plan completion):**
 
 None expected. Each section is additive — the current system works correctly with all types at canonical width. Narrowing is pure optimization; no tests should break unless there's a semantic equivalence bug (which must be caught in §12).
+
+## Codebase Findings to Fix Along the Way
+
+The following issues were found during the pre-implementation review. Each section that touches the relevant file must fix these as part of its work.
+
+### [DRIFT] `compiler/ori_llvm/src/codegen/type_info/info.rs` — stale `i8` doc comment on enum tag
+
+`TypeInfo::Enum` has a doc comment saying `{i8 tag, ...}` but the actual codegen (confirmed in §07 context note) emits `{i64 tag, ...}`. The stale comment will mislead anyone implementing §07 niche analysis.
+
+- [ ] **[DRIFT]** `compiler/ori_llvm/src/codegen/type_info/info.rs` — Update the `TypeInfo::Enum` doc comment to reflect `i64` tag (not `i8`). WHERE: search for "i8" near the Enum variant documentation. Fix along the way when implementing §07.
+
+### [DRIFT] `compiler/ori_arc/src/classify/mod.rs` vs `compiler/ori_llvm/src/codegen/type_info/store.rs` — Iterator triviality disagreement
+
+`ArcClassifier::classify_by_tag()` (line 169) returns `ArcClass::Scalar` for `Tag::Iterator | Tag::DoubleEndedIterator`. `TypeInfoStore::classify_trivial()` (line 205) returns `false` for `TypeInfo::Iterator { .. }`. These are live disagreements that cause codegen to emit unnecessary RC ops for iterator-typed values.
+
+- [ ] **[DRIFT]** Fixed by §02.1 when `classify_triviality()` becomes the single source of truth. Until §02 lands, no separate fix — just note the drift exists and that §02 resolves it.
+
+### [NOTE] `compiler/ori_arc/src/pipeline/aims_pipeline.rs:43` — `AimsPipelineConfig` is `pub(crate)`
+
+This is intentional (internal to `ori_arc`). §08.5's option (b) — passing escape info via `ReprPlan` — avoids requiring a visibility change. Not a bug; documented here for implementers.
+
+### [NOTE] `compiler/ori_arc/src/graph/mod.rs` — Three `pub(crate)` functions need `pub` for §03
+
+`compute_predecessors` (line 32), `successor_block_ids` (line 53), `compute_postorder` (line 122) must be changed to `pub` as the first step of §03. This is a valid API expansion (no semantic change, no breaking change within `ori_arc`).
+
+---
 
 ## Metrics (Current State)
 
@@ -247,7 +280,7 @@ None expected. Each section is additive — the current system works correctly w
 |   ↳ 03.2 Transfer functions | ~450 | **High** — mul/div corner cases | §01 |
 |   ↳ 03.3 Widening/narrowing + fixpoint | ~350 | **High** — block params, terminators, termination | §01 |
 |   ↳ 03.4 Conditional refinement | ~150 | Medium — 6 comparison operators | §01 |
-|   ↳ 03.5 Interprocedural (DEFERRABLE) | ~150 | **High** — SCC fixpoint | §01 |
+|   ↳ 03.5 Interprocedural (implement after 03.1-03.4) | ~150 | **High** — SCC fixpoint | §01 |
 |   ↳ 03.6 Config, tests, integration | ~50 | Low | §01 |
 | 04 Integer Narrowing | ~800 | High | §03 |
 |   ↳ 04.1 Width selection | ~200 | Medium | §03 |
@@ -257,7 +290,7 @@ None expected. Each section is additive — the current system works correctly w
 | 06 Struct Layout | ~700 | Medium | §04, §05 |
 |   ↳ 06.1 Field reordering | ~300 | Medium | §04 |
 |   ↳ 06.2 Padding minimization | ~200 | Medium | §04 |
-| 07 Enum Repr | ~900 | High | §04 |
+| 07 Enum Repr | ~900 | High | §04, §05 |
 |   ↳ 07.1 Niche filling | ~400 | High | §04 |
 |   ↳ 07.2 Discriminant narrowing | ~200 | Medium | §04 |
 |   ↳ 07.3 Tagged pointers | ~300 | High | §04 |
