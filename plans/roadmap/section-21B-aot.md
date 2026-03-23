@@ -5,7 +5,6 @@ status: in-progress
 reviewed: false
 tier: 8
 goal: Generate native executables and WebAssembly from Ori source code
-note: "Verification 2026-03-19 found significant implementation exists: 42 linker tests, 329 ori_rt tests, 24 ori build CLI tests, demangle/targets commands working. 0% was inaccurate."
 sections:
   - id: "21B.1"
     title: Target Configuration
@@ -116,12 +115,12 @@ sections:
   - [ ] WASM output (WebAssembly)
   - [ ] **Rust Tests**: `ori_llvm/src/aot/object.rs` (12 tests)
 
-- [x] **Implement**: Symbol mangling — `_ori_<module>$<function>` scheme in `ori_llvm/src/aot/mangle.rs`
-  - [x] `_ori_<module>_<function>` scheme
+- [ ] **Implement**: Symbol mangling — `_ori_<module>$<function>` scheme in `ori_llvm/src/aot/mangle.rs`
+  - [ ] `_ori_<module>_<function>` scheme
   - [ ] Type suffixes for overloads (generic mangling)
   - [ ] Trait method mangling
-  - [x] Demangle function for `ori demangle` command — 9 demangle tests pass in `oric/src/commands/demangle/tests.rs`
-  - [x] **Rust Tests**: `ori_llvm/src/aot/mangle.rs` (15 tests)
+  - [ ] Demangle function for `ori demangle` command
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/mangle.rs` (15 tests)
 
 - [ ] **Test**: Object file verification (HIGH priority)
   - [ ] ELF header validation (magic, class, endian)
@@ -235,12 +234,12 @@ sections:
 
 ## 21B.5 Linking
 
-- [x] **Implement**: Platform linker driver — `ori_llvm/src/aot/linker/` dispatch to cc/clang/link.exe/lld
-  - [x] Linux: invoke via `cc` or `ld`
-  - [x] macOS: invoke via `clang` or `ld64`
-  - [x] Windows: invoke `link.exe` or `lld-link`
-  - [x] LLD support (`--linker=lld`)
-  - [x] **Rust Tests**: 42 linker tests pass (`gcc_linker_*`, `msvc_linker_*`, `wasm_linker_*` variants)
+- [ ] **Implement**: Platform linker driver — `ori_llvm/src/aot/linker/` dispatch to cc/clang/link.exe/lld
+  - [ ] Linux: invoke via `cc` or `ld`
+  - [ ] macOS: invoke via `clang` or `ld64`
+  - [ ] Windows: invoke `link.exe` or `lld-link`
+  - [ ] LLD support (`--linker=lld`)
+  - [ ] **Rust Tests**: `ori_llvm/src/aot/linker.rs` (68 tests, 81% coverage)
 
 - [ ] **Implement**: Runtime library (libori_rt)
   - [ ] Consolidate Section 21A runtime functions
@@ -252,7 +251,7 @@ sections:
   - [ ] I/O: `ori_print`, `ori_stdin_read`
   - [ ] Static linking (default)
   - [ ] Dynamic linking (--link=dynamic)
-  - [ ] **Rust Tests**: `ori_rt/src/lib.rs` (329 tests), `ori_llvm/src/aot/runtime.rs` (4 tests)
+  - [ ] **Rust Tests**: `ori_rt/src/lib.rs` (19 tests), `ori_llvm/src/aot/runtime.rs` (4 tests)
 
 - [ ] **Implement**: Runtime library discovery
   - **Proposal**: `proposals/approved/runtime-library-discovery-proposal.md` APPROVED 2026-02-02
@@ -384,19 +383,19 @@ sections:
 
 ## 21B.8 CLI Integration
 
-- [x] **Implement**: `ori build` command
-  - [x] Parse all flags (--release, --target, --opt, etc.)
-  - [x] Output path handling (-o, --out-dir)
-  - [x] Emit mode (--emit=obj, llvm-ir, llvm-bc, asm)
-  - [x] Library modes (--lib, --dylib)
-  - [x] Verbose output (-v)
-  - [x] **Rust Tests**: 24 CLI tests pass (`test_build_basic`, `test_build_release`, `test_build_output_path`, `test_build_emit_llvm_ir`, `test_build_emit_assembly`, `test_build_emit_object`, `test_build_cross_compile_wasm_object`, `test_build_verbose`, etc.) + 1 ignored (incremental)
+- [ ] **Implement**: `ori build` command
+  - [ ] Parse all flags (--release, --target, --opt, etc.)
+  - [ ] Output path handling (-o, --out-dir)
+  - [ ] Emit mode (--emit=obj, llvm-ir, llvm-bc, asm)
+  - [ ] Library modes (--lib, --dylib)
+  - [ ] Verbose output (-v)
+  - [ ] **Rust Tests**: `oric/src/commands/build.rs` (36 tests)
   - [ ] **CLI Tests**: `ori_llvm/tests/aot/cli.rs` (25 tests)
 
-- [x] **Implement**: `ori targets` command
-  - [x] List all supported targets
-  - [x] `--installed` flag for targets with sysroots
-  - [x] **Rust Tests**: 26 targets-related tests pass. 8 tests in `oric/src/commands/targets/tests.rs`.
+- [ ] **Implement**: `ori targets` command
+  - [ ] List all supported targets
+  - [ ] `--installed` flag for targets with sysroots
+  - [ ] **Rust Tests**: `oric/src/commands/targets.rs` (8 tests, requires LLVM feature)
 
 - [ ] **Implement**: `ori target` command (cross-compilation)
   - [ ] `ori target add <target>` - download sysroot
@@ -405,10 +404,10 @@ sections:
   - [ ] Sysroot management
   - [ ] **Rust Tests**: `oric/src/commands/target.rs` (7 tests)
 
-- [x] **Implement**: `ori demangle` command
-  - [x] Parse mangled symbol names
-  - [x] Output demangled Ori names
-  - [x] **Rust Tests**: 9 tests in `oric/src/commands/demangle/tests.rs`
+- [ ] **Implement**: `ori demangle` command
+  - [ ] Parse mangled symbol names
+  - [ ] Output demangled Ori names
+  - [ ] **Rust Tests**: `oric/src/commands/demangle.rs` (9 tests, requires LLVM feature)
 
 - [ ] **Implement**: `ori run --compile` mode
   - [ ] AOT compile then execute
@@ -761,9 +760,9 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 - [ ] Code model tests (8 scenarios)
 
 **Linking (21B.5):**
-- [x] System linker driver (cc/clang/link.exe) — 42 tests pass
-- [x] LLD support
-- [ ] Runtime library (libori_rt) — 329 tests pass but wiring incomplete
+- [ ] System linker driver (cc/clang/link.exe)
+- [ ] LLD support
+- [ ] Runtime library (libori_rt)
 - [ ] Static and dynamic linking
 - [ ] Runtime library discovery (binary-relative, like rustc sysroot)
 - [ ] Linker error handling tests (8 scenarios)
@@ -785,10 +784,10 @@ Enable AOT compilation of Ori programs with imports. Currently, `ori build` prod
 - [ ] WASM advanced tests (10 scenarios)
 
 **CLI (21B.8):**
-- [x] `ori build` command — 24 CLI tests pass
-- [x] `ori targets` command — 26 tests pass
+- [ ] `ori build` command (with tests)
+- [ ] `ori targets` command (with tests)
 - [ ] `ori target add/remove` commands (with tests)
-- [x] `ori demangle` command — 9 tests pass
+- [ ] `ori demangle` command (with tests)
 - [ ] `ori run --compile` mode (with tests)
 - [ ] CLI integration tests (25 end-to-end tests)
 - [ ] Build incremental test (blocked on 21B.6 integration)

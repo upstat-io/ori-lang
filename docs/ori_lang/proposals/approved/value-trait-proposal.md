@@ -24,7 +24,7 @@ type Vec3: Value = { x: float, y: float, z: float }
 
 ## Problem Statement
 
-Ori's AIMS (ARC Intelligent Memory System) already optimizes small all-scalar structs to skip reference counting (the `ArcClassifier` in `ori_arc/src/classify/mod.rs` classifies them as `Scalar`). However, this optimization is **implicit and fragile**:
+Ori's ARC system already optimizes small all-scalar structs to skip reference counting (the `ArcClassifier` in `ori_arc/src/classify/mod.rs` classifies them as `Scalar`). However, this optimization is **implicit and fragile**:
 
 ### 1. Silent Performance Regression
 
