@@ -54,6 +54,8 @@ sections:
 
 **Visibility prerequisite:** `compute_postorder()` in `ori_arc::graph` is currently `pub(crate)`. It must be made `pub` (or a `pub` wrapper added) so `ori_repr` can compute RPO over `ArcFunction` blocks. This is a one-line visibility change in `ori_arc/src/graph/mod.rs:122`. Similarly, `successor_block_ids()` at line 53 is `pub(crate)` and must be made `pub` for `ori_repr` to build the predecessor map. Also `compute_predecessors()` at line 32 is `pub(crate)` and may be needed.
 
+**Field-range prerequisite (required for §04, not optional):** The range engine cannot stop at per-variable intervals. §04's struct-field narrowing target (`Pixel { r, g, b, a: int }` with 0..255 fields → 4 bytes) requires a field-level summary keyed by `(struct type, field index)` (and the analogous tuple path). This summary must be populated from `Construct` argument ranges and queried by `Project`; otherwise all field loads remain `Top` and §04's field-narrowing exit criteria are unachievable.
+
 > **FIRST STEP of §03:** Before any analysis code is written, make the three `pub(crate)` functions in `compiler/ori_arc/src/graph/mod.rs` into `pub`:
 > - Line 32: `pub(crate) fn compute_predecessors` → `pub fn compute_predecessors`
 > - Line 53: `pub(crate) fn successor_block_ids` → `pub fn successor_block_ids`
@@ -265,14 +267,18 @@ Transfer functions describe how each operation transforms value ranges.
           // Partial application: produces closure, not int. Always Top.
           ArcInstr::PartialApply { .. } => Top,
 
-          // Field projection: Top unless we track per-field ranges
-          // (future enhancement — could propagate struct field ranges).
+          // Field projection: query field-summary state when available.
+          // Returning Top here is acceptable only before the field-summary
+          // pass exists; §04 must NOT ship while Project remains an
+          // unconditional Top for struct/tuple fields.
           ArcInstr::Project { ty, .. } => {
               if !is_int_typed(*ty, pool) { return Top; }
               Top
           }
 
-          // Construction: produces composite value, not int. Always Top.
+          // Construction: updates field-summary state out-of-band. The
+          // instruction itself still produces a composite value, so the
+          // direct transfer result is Top.
           ArcInstr::Construct { .. } => Top,
 
           // --- RC operations (no dst — never produce a value) ---
@@ -579,7 +585,10 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
      /// Populated by §03, consumed by §04 (integer narrowing).
      function_var_ranges: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
      ```
-  2. **Type-level range aggregation:** For struct field narrowing and collection element narrowing, §04 aggregates per-variable ranges into per-type ranges. For each `Idx` that is `Tag::Int`, the type-level range is the join of all variable ranges for variables of that type across all functions. This aggregation is §04's responsibility, not §03's — §03 only stores the raw per-variable results.
+  2. **Structured summaries for downstream narrowing:** §03 must also expose summaries that preserve where a range came from:
+     - **Field summary:** `(struct_or_tuple_idx, field_index) -> ValueRange`, populated by joining `Construct` argument ranges across all construction sites.
+     - **Collection-element summary:** collection site / backing-store summaries used by §11 when element narrowing lands.
+     A raw "join all `int`-typed variables across all functions" summary is insufficient for §04 and would collapse most non-trivial programs to `Top`.
   3. **Query method:**
      ```rust
      impl ReprPlan {
@@ -749,10 +758,13 @@ For cross-function narrowing, we need to propagate range information through fun
 - [ ] `ArcTerminator::Invoke` handled in fixpoint loop — it defines a `dst` variable (same as `Apply`) and must have its range computed
 - [ ] Conditional refinement extracts ranges from `if x < N` patterns
 - [ ] Function signature propagation narrows parameters from call sites
+- [ ] `Construct` instructions populate a field-summary table keyed by `(struct_or_tuple_idx, field_index)` so downstream field narrowing is based on construction-site evidence, not on the join of unrelated `int` variables
+- [ ] `Project` instructions consult that field-summary table for struct/tuple fields; field projections are not left as unconditional `Top` when §04 field narrowing is enabled
 - [ ] Recursive functions handled via SCC-based fixpoint with bounded iterations (max 10 per SCC, max 50 total)
 - [ ] For `let x = 42`: range is exactly `[42, 42]`
 - [ ] For `for i in 0..100`: range of `i` is `[0, 99]`
 - [ ] For `let n = len(list)`: range is `[0, i64::MAX]`
+- [ ] For a constructor-only workload like `struct Pixel { r: int, g: int, b: int, a: int }` with all construction sites in `0..255`, the field-summary table records `[0, 255]` for all four fields (semantic pin for §03 → §04 handoff)
 - [ ] `./test-all.sh` green (range analysis is additive — no behavioral changes)
 - [ ] `./clippy-all.sh` green
 - [ ] Tracing: `ORI_LOG=ori_repr=debug` shows range computations for each function

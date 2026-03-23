@@ -130,7 +130,9 @@ Verify that optimized code produces identical results to unoptimized code.
 - [ ] Extend `./diagnostics/dual-exec-verify.sh` to compare:
   - **(a) Interpreter (eval)** vs **AOT with all optimizations**
   - **(b) AOT without optimizations** vs **AOT with all optimizations**
-  - Mode (b) requires a flag to disable representation optimization
+  - **(c) Interpreter (eval)** vs **AOT without optimizations** (sanity check for the bypass path itself)
+  - Mode (b)/(c) requires a flag to disable representation optimization
+  - Keep the script's existing interfaces (`[test-path]`, `--main-only`, `--test-only`, `--json`) working; `--compare-repr-opt` is an extension, not a rewrite
 
 - [ ] Add `--no-repr-opt` flag to `ori build`:
   - Skips all §02-§11 optimizations
@@ -139,7 +141,7 @@ Verify that optimized code produces identical results to unoptimized code.
 
 - [ ] Run comparison on ALL spec tests:
   ```bash
-  ./diagnostics/dual-exec-verify.sh --all --compare-repr-opt
+  ./diagnostics/dual-exec-verify.sh --compare-repr-opt tests/
   ```
   - Every test must produce bit-identical output (same values, same ordering)
   - Float comparisons must also be bit-identical — no ULP tolerance. The §05
@@ -177,6 +179,7 @@ Verify that optimized code produces identical results to unoptimized code.
   - Run the Valgrind test suite programs through the ASan binary
   - Exit non-zero if any ASan report fires (exit code check)
   - Follow the pattern of `valgrind-aot.sh`: support `--no-color` flag, print summary at end
+  - Document the environment restriction: this is a nightly + Linux/x86_64 workflow; if unavailable, the script must fail clearly rather than silently skipping
 - [ ] **AddressSanitizer (stack memory):**
   ```bash
   ./diagnostics/asan-test.sh
@@ -202,6 +205,7 @@ Verify that optimized code produces identical results to unoptimized code.
   # to parse the existing table format. Using .txt extension to match current output.
   ./scripts/perf-baseline.sh --release > baseline.txt
   ```
+  - Current baseline coverage is only `bench_hello`, `bench_small`, and `bench_medium`; add the string/struct/ARC-heavy programs before using the broader target table below as a release gate
 
 - [ ] **Create `scripts/perf-compare.sh`** (new script — required for baseline comparison):
   - Takes two `perf-baseline.sh` output files as arguments

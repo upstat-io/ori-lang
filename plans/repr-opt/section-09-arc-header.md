@@ -6,7 +6,7 @@ reviewed: false
 third_party_review:
   status: findings
   updated: 2026-03-23
-goal: "Narrow the refcount header from V5 (32 bytes: data_size + elem_dec_fn + elem_count + strong_count) based on proven sharing bounds, reducing per-object memory overhead"
+goal: "Specialize RC count storage and operations from the V5 header based on proven sharing bounds, using a genuinely smaller-than-32-byte header for bounded-count variants"
 inspired_by:
   - "Swift refcount encoding (stdlib/public/SwiftShims/RefCount.h — uses bitfields)"
   - "Lean4 RC header layout (src/runtime/object.h)"
@@ -29,7 +29,7 @@ sections:
 
 # Section 09: ARC Header Compression
 
-**Context:** The current runtime (`ori_rt`) unconditionally uses `i64` for the reference count, with `MAX_REFCOUNT = i64::MAX`. This is maximally safe but wasteful. The ARC pipeline already computes borrow/ownership information — extending this to bound the maximum refcount is a natural next step.
+**Context:** The current runtime (`ori_rt`) unconditionally uses `i64` for the reference count, with `MAX_REFCOUNT = i64::MAX`. The ARC pipeline already computes borrow/ownership information, so specializing RC count handling is a plausible next step. This section now explicitly commits to the smaller-header path: changing only the width of `strong_count` is insufficient unless the surrounding V5 layout is redesigned so bounded-count variants actually occupy fewer than 32 bytes.
 
 > **Warning (V5 header, 2026-03-22):** The RC header is now 32 bytes with 4 fields: `data_size` (i64), `elem_dec_fn` (ptr), `elem_count` (i64), `strong_count` (i64). This plan was drafted when the header had only 2 fields (data_size + strong_count). Any narrowing strategy must account for all 4 fields, not just the refcount. The `rc_ops!` macro code in Section 09.3 does not account for `elem_dec_fn` or `elem_count` and must be updated before implementation.
 
@@ -172,13 +172,12 @@ Map sharing bounds to RC header widths.
   //
   // Narrowing ONLY applies to strong_count. The other 3 fields
   // (data_size, elem_dec_fn, elem_count) remain at their canonical widths.
-  // This means the header size reduction is:
-  //   i64 strong_count (8B) → i32 (4B): saves 4 bytes per allocation
-  //   i64 strong_count (8B) → i16 (2B): saves 6 bytes per allocation
-  //   i64 strong_count (8B) → i8  (1B): saves 7 bytes per allocation
   //
-  // The narrow alloc/inc/dec/free functions must still lay out all 4
-  // header fields, just with a narrower strong_count.
+  // IMPORTANT: If the header remains padded/aligned to 32 bytes, these
+  // width-specific variants are a throughput/verification specialization,
+  // NOT a memory-footprint optimization. Do not claim per-allocation byte
+  // savings unless §09.3 first adopts a layout that is actually smaller
+  // than the current 32-byte V5 header.
   extern "C" fn ori_rc_alloc_i8(size: usize, align: usize) -> *mut u8;
   extern "C" fn ori_rc_inc_i8(data_ptr: *mut u8);
   extern "C" fn ori_rc_dec_i8(data_ptr: *mut u8, drop_fn: Option<...>);
@@ -199,14 +198,12 @@ The runtime must support multiple header widths without code bloat.
 
 **Risk warning:** The macro-generated RC operations below use raw pointer arithmetic and `unsafe`. Every `unsafe` block MUST have a `// SAFETY:` comment. The `padded_header` alignment logic is subtle — a bug causes data corruption in EVERY narrow-header allocation. Property-based testing with varying `(size, align)` pairs is essential. Note: `ori_rt` is a crate where `unsafe` IS allowed, so `#![deny(unsafe_code)]` does NOT apply here.
 
-- [ ] **Design the V5-narrow header layout** (BEFORE writing any code — this is a design document, not optional):
-  - Write a comment block in `rc/narrow.rs` specifying the exact memory layout for each narrow variant:
-    - `V5HeaderI32`: `{ data_size: i64, elem_dec_fn: usize, elem_count: i64, strong_count: i32, _pad: u32 }` — padding after `i32` to maintain 8-byte natural alignment for the payload start
-    - `V5HeaderI16`: `{ data_size: i64, elem_dec_fn: usize, elem_count: i64, strong_count: i16, _pad: [u8; 6] }` — 6 bytes padding to align payload to 8 bytes
-    - `V5HeaderI8`: `{ data_size: i64, elem_dec_fn: usize, elem_count: i64, strong_count: i8, _pad: [u8; 7] }` — 7 bytes padding to align payload to 8 bytes
-  - Verify header sizes: `V5HeaderI32 = 28+4 = 32 bytes`, `V5HeaderI16 = 26+6 = 32 bytes`, `V5HeaderI8 = 25+7 = 32 bytes` — ALL narrow header variants remain 32 bytes to match the canonical V5 header size. This is INTENTIONAL: keeping all headers the same size means the `elem_header.rs` accessors (`store_elem_dec_fn`, etc.) do NOT need to change their hardcoded offsets.
-  - Confirm: since all narrow headers are still 32 bytes, `data_ptr.sub(8).cast::<i32/i16/i8>()` correctly locates `strong_count` (at the same offset as the canonical `i64` strong_count, just narrower). No offset changes needed in `elem_header.rs`.
-  - Add `static_assert!` macros verifying sizes: `const _: () = assert!(std::mem::size_of::<V5HeaderI32>() == 32);` etc.
+- [ ] **Document the committed V5 layout strategy BEFORE writing any code**:
+  - This plan chooses **Option A — true memory optimization**.
+  - Redesign the header so bounded-count variants are actually smaller than 32 bytes (for example via variable offsets or a packed/bitfield strategy).
+  - Update `elem_header.rs` accessors and every caller that currently assumes fixed offsets.
+  - The previously proposed "narrow count plus padding back to 32 bytes" layout is NOT an acceptable final design for this section.
+  - Add compile-time layout assertions in `rc/narrow.rs` proving the bounded variants are smaller than the current 32-byte V5 header while preserving payload alignment.
 
 - [ ] Implement narrow RC operations for the V5 header layout:
 
@@ -228,17 +225,18 @@ The runtime must support multiple header widths without code bloat.
   4. The V5 header accessor functions in `ori_rt/src/rc/elem_header.rs` (`store_elem_dec_fn`, `load_elem_dec_fn`, etc.) use hardcoded offsets that must be updated or parameterized
 
   **Implementation approach:**
-  - Define a V5-narrow header struct for each width: `V5HeaderI32 { data_size: i64, elem_dec_fn: usize, elem_count: i64, strong_count: i32 }`
+  - Define the chosen header struct(s) and update all offset accessors consistently for the new smaller layouts.
   - Generate `ori_rc_alloc_i32`, `ori_rc_inc_i32`, `ori_rc_dec_i32` that use the narrow header struct
   - Update `DropFunctionGenerator` in `ori_llvm` to emit calls to width-specific free functions
-  - Add alignment padding between the narrow `strong_count` and payload to maintain payload alignment
+  - Add only the padding required to maintain payload alignment; do not re-expand the bounded variants back to 32 bytes
 
   ```rust
-  // Simplified sketch — the real implementation must handle V5 header fields:
-  rc_narrow_ops!(i8, i8, i8::MAX);    // saves 7 bytes per allocation
-  rc_narrow_ops!(i16, i16, i16::MAX); // saves 6 bytes per allocation
-  rc_narrow_ops!(i32, i32, i32::MAX); // saves 4 bytes per allocation
-  // i64 is the existing V5 implementation (no change)
+  // Simplified sketch — the real implementation must handle V5 header fields
+  // and prove the resulting layouts are genuinely smaller than 32 bytes.
+  rc_narrow_ops!(i8, i8, i8::MAX);
+  rc_narrow_ops!(i16, i16, i16::MAX);
+  rc_narrow_ops!(i32, i32, i32::MAX);
+  // i64 remains the existing 32-byte V5 implementation.
   ```
 
 - [ ] Atomic variants:
@@ -263,19 +261,20 @@ The runtime must support multiple header widths without code bloat.
 - [ ] Design the V5-narrow header layout document in `compiler/ori_rt/src/rc/narrow.rs` BEFORE writing any code:
   - WHERE: write a `// SAFETY:` comment block and `static_assert!` macros as specified in §09.3
   - All `unsafe` blocks in `narrow.rs` MUST have `// SAFETY:` comments per hygiene rules
-- [ ] Add `static_assert!` for each narrow header size (`V5HeaderI32 == 32`, `V5HeaderI16 == 32`, `V5HeaderI8 == 32`)
+- [ ] Add `static_assert!` proving each bounded layout is smaller than the current header (`size_of::<V5HeaderI32>() < 32`, `size_of::<V5HeaderI16>() < 32`, `size_of::<V5HeaderI8>() < 32`) and that payload alignment is preserved
 - [ ] Sharing bound analysis computes `Unique` for non-escaping allocations
 - [ ] Sharing bound analysis computes `Bounded(N)` for values with limited sharing
 - [ ] RC header width matches sharing bound: Unique→none, ≤127→i8, ≤32K→i16
 - [ ] Runtime has `ori_rc_alloc_i8`, `ori_rc_inc_i8`, `ori_rc_dec_i8` (and i16, i32) in `compiler/ori_rt/src/rc/narrow.rs`
 - [ ] Header overflow in release mode → immortal (never freed, no crash)
 - [ ] Header overflow in debug mode → trap with diagnostic
+- [ ] Benchmarks and diagnostics report measured per-allocation savings from the real chosen layouts, not from nominal refcount widths
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
-- [ ] Memory measurement: per-object overhead reduced from 8 bytes to 1-4 bytes for bounded types
+- [ ] The implementation keeps Option A explicit in code comments, layout assertions, and §12 benchmark expectations
 
-**Exit Criteria:** A program that creates 1M small heap objects with refcount ≤ 2 uses `ori_rc_alloc_i8` (1-byte header), verified by `grep "ori_rc_alloc_i8"` in LLVM IR. Total memory reduced by ~7MB vs. current implementation. Valgrind clean.
+**Exit Criteria:** A smaller-than-32-byte header strategy is implemented and verified end-to-end for bounded-count variants. The memory reduction is measured and documented from the real layout chosen in `rc/narrow.rs`, with payload alignment and drop-path correctness preserved. Valgrind clean.
 
 ---
 

@@ -113,6 +113,13 @@ Extend escape analysis (§08) to track thread boundaries.
 
 **Risk warning:** Non-atomic RC on a value that IS actually shared across threads causes data races (undefined behavior). The soundness of this entire section depends on §08's escape analysis and §10.1's thread escape analysis being correct. If the analysis is unsound, this creates UB that Valgrind (memcheck) will not catch — only helgrind/TSAN will. This section must be gated on §08 being fully verified first.
 
+- [ ] Add a debug-only RC mode guard before exposing any non-atomic runtime entry point:
+  - Store an `RcMode` flag (`Atomic` vs `NonAtomic`) in debug builds only, either in a side table or a debug-only header word
+  - `ori_rc_inc` / `ori_rc_dec` assert they are not touching an allocation marked non-atomic
+  - `ori_rc_inc_nonatomic` / `ori_rc_dec_nonatomic` assert they are not touching an allocation marked atomic
+  - Release builds pay zero cost for this guard
+  - This guard is mandatory; helgrind is a secondary verifier, not the only safety net
+
 - [ ] Implement non-atomic RC operations:
   ```rust
   #[no_mangle]
@@ -218,6 +225,7 @@ If a value transitions from thread-local to thread-shared (e.g., sent on a chann
 - [ ] Spawn captures correctly mark captured values as thread-shared
 - [ ] Width-specific non-atomic variants: `ori_rc_inc_nonatomic_i8`, `ori_rc_dec_nonatomic_i8`, `ori_rc_inc_nonatomic_i16`, `ori_rc_dec_nonatomic_i16` (combines with §09)
 - [ ] Add semantic pin test: a single-threaded program produces ZERO atomic RC operations in LLVM IR (all ops are `ori_rc_*_nonatomic`). This test can ONLY pass with thread-local analysis enabled.
+- [ ] Debug builds assert on RC-mode mismatches (atomic API used on non-atomic allocation or vice versa)
 - [ ] Non-atomic RC operations are measurably faster (benchmark ≥ 20% improvement in RC-heavy workloads)
 - [ ] `./diagnostics/dual-exec-verify.sh` passes — non-atomic RC produces identical behavior to atomic RC
 - [ ] Extend `diagnostics/valgrind-aot.sh` to accept an optional `--tool=helgrind` passthrough flag:
