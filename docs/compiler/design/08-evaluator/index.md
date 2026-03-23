@@ -225,7 +225,7 @@ Binary and unary operators use a **dual-dispatch** strategy for performance:
 
 ### Cross-Crate Method Consistency
 
-The `ori_registry` crate provides `BUILTIN_TYPES` — the single source of truth listing every built-in `(type_name, method_name)` pair. Both the evaluator and the type checker consume this registry. Consistency tests verify that every method in `ori_registry::BUILTIN_TYPES` is handled by both the evaluator and the type checker. Known exceptions — operator methods that the type checker handles via trait lookup rather than builtin handlers — are tracked in a `KNOWN_EVAL_ONLY` list.
+The `ori_registry` crate provides `BUILTIN_TYPES` — the single source of truth listing every built-in `(type_name, method_name)` pair. Both the evaluator and the type checker consume this registry. Enforcement tests (`every_registry_method_has_eval_dispatch_handler`, `every_registry_method_has_typeck_handler`) verify that every method in `ori_registry::BUILTIN_TYPES` is handled by both the evaluator and the type checker — with zero allowlists. Types without a `Value` representation (Channel, Iterator, DoubleEndedIterator) are skipped in eval dispatch testing since their methods are handled by specialized resolvers.
 
 ## Prior Art
 
@@ -256,4 +256,4 @@ The `ori_registry` crate provides `BUILTIN_TYPES` — the single source of truth
 - [Value System](value-system.md) — Runtime value representation, Heap<T>, factory methods
 - [Module Loading](module-loading.md) — Import resolution, Salsa-free registration
 - [Canonicalization](../07-canonicalization/index.md) — The phase that produces the evaluator's input
-- [ARC System](../09-arc-system/index.md) — The alternative backend consuming the same canonical IR
+- [AIMS](../09-aims/index.md) — The alternative backend consuming the same canonical IR

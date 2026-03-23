@@ -79,7 +79,11 @@ RUNTIME_EFFECTS: dict[str, FunctionEffect] = {
 
     # --- Deallocation (param -1) ---
     "ori_rc_dec": _eff(_N, [_M, _N]),                         # data_ptr, drop_fn
-    "ori_rc_free": _eff(_N, [_M, _N, _N]),                    # data_ptr, size, align
+    # ori_rc_free is raw memory deallocation, NOT an RC operation.
+    # It's called from drop functions (invoked by ori_rc_dec at RC=0).
+    # The RC decrement already happened in ori_rc_dec; ori_rc_free just
+    # frees the backing memory. Counting it as -1 double-counts the release.
+    "ori_rc_free": _eff(_N, [_N, _N, _N]),                    # data_ptr, size, align
     # (data, len, cap, elem_size, elem_dec_fn) -- 5 params
     "ori_buffer_rc_dec": _eff(_N, [_M] + [_N] * 4),
     "ori_buffer_drop_unique": _eff(_N, [_M] + [_N] * 4),
@@ -111,6 +115,9 @@ RUNTIME_EFFECTS: dict[str, FunctionEffect] = {
     "ori_format_bool": _eff(_P, [_N, _B, _N], alloc=True),
     "ori_format_char": _eff(_P, [_N, _B, _N], alloc=True),
 
+    # --- String empty (returns OriStr struct, SSO — no heap alloc but still +1 conceptually) ---
+    "ori_str_empty": _eff(_P, [], alloc=True),
+
     # --- Set allocation ---
     "ori_set_literal_alloc": _eff(_P, [_N, _N, _N], alloc=True),
     "ori_set_empty": _eff(_P, [], alloc=True),
@@ -124,10 +131,14 @@ RUNTIME_EFFECTS: dict[str, FunctionEffect] = {
     "ori_set_buffer_drop_unique": _eff(_N, [_M] + [_N] * 5),
 
     # --- Iterator sources (allocate heap-backed iterator state) ---
-    "ori_iter_from_list": _eff(_P, [_B] * 3, alloc=True),    # data, len, elem_size
-    "ori_iter_from_range": _eff(_P, [_N] * 4, alloc=True),   # start, end, step, incl
-    "ori_iter_from_str": _eff(_P, [_B], alloc=True),
-    "ori_iter_from_map": _eff(_P, [_B] * 4, alloc=True),
+    # Iterator sources consume (take ownership of) the pre-incremented
+    # collection reference. The ori_list_rc_inc/etc. before creation gives
+    # the iterator its own reference; the iterator releases it on drop.
+    # param 0 = collection data pointer (consumed via ownership transfer).
+    "ori_iter_from_list": _eff(_P, [_M, _N, _N, _N, _N], alloc=True),  # data, len, cap, elem_size, elem_dec_fn
+    "ori_iter_from_range": _eff(_P, [_N] * 4, alloc=True),   # start, end, step, incl (no RC objects)
+    "ori_iter_from_str": _eff(_P, [_M], alloc=True),          # str data (pre-inc'd)
+    "ori_iter_from_map": _eff(_P, [_M, _N, _N, _N], alloc=True),  # data, cap, key_size, val_size (pre-inc'd)
 
     # --- Iterator adapters (consume input iterator, return new) ---
     "ori_iter_map": _eff(_P, [_M, _B, _N], alloc=True),
@@ -140,6 +151,22 @@ RUNTIME_EFFECTS: dict[str, FunctionEffect] = {
 
     # --- Iterator consumers (consume input iterator, no new allocation) ---
     "ori_iter_drop": _eff(_N, [_M]),
+    # fold: (iter, init_ptr, fold_fn, fold_env, elem_size, acc_size, out_ptr) -- 7 params
+    "ori_iter_fold": _eff(_N, [_M, _B, _B, _N, _N, _N, _N]),
+    # collect: (iter, elem_size, out_ptr) -- 3 params, writes list struct to out_ptr
+    "ori_iter_collect": _eff(_N, [_M, _N, _N]),
+    # collect_set: (iter, elem_size, elem_eq, elem_hash, out_ptr) -- 5 params
+    "ori_iter_collect_set": _eff(_N, [_M, _N, _N, _N, _N]),
+    # count: (iter, elem_size) -- 2 params, returns i64
+    "ori_iter_count": _eff(_N, [_M, _N]),
+    # any: (iter, pred_fn, pred_env, elem_size) -- 4 params, returns i8
+    "ori_iter_any": _eff(_N, [_M, _B, _N, _N]),
+    # all: (iter, pred_fn, pred_env, elem_size) -- 4 params, returns i8
+    "ori_iter_all": _eff(_N, [_M, _B, _N, _N]),
+    # find: (iter, pred_fn, pred_env, elem_size, out_ptr) -- 5 params
+    "ori_iter_find": _eff(_N, [_M, _B, _N, _N, _N]),
+    # for_each: (iter, each_fn, each_env, elem_size) -- 4 params
+    "ori_iter_for_each": _eff(_N, [_M, _B, _N, _N]),
 
     # --- Catch/recover (returns OriStr) ---
     "ori_catch_recover": _eff(_P, [], alloc=True),

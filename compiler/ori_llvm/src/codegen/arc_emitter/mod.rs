@@ -21,6 +21,7 @@
 //! - [`closures`] — closure (partial application) emission and environment management
 //! - [`construction`] — value construction: structs, enums, lists, maps, sets
 //! - [`context`] — shared types: `CodegenContext`, `EmittedValue`, `InvokeMode`, `is_boxed_enum_field`
+//! - [`dead_unwind`] — dead unwind block detection (nounwind invoke targets)
 //! - [`drop_gen`] — per-type LLVM drop function generation (cached by mangled name)
 //! - [`emit_function`] — function-level emission orchestration
 //! - [`field_scan`] — field usage scanning for surgical struct loading
@@ -33,12 +34,13 @@
 mod apply;
 mod apply_helpers;
 mod apply_protocols;
-mod builtins;
+pub(crate) mod builtins;
 mod catch_thunk;
 mod catch_thunk_gen;
 mod closures;
 mod construction;
-mod context;
+pub(crate) mod context;
+mod dead_unwind;
 mod drop_enum;
 mod drop_gen;
 mod element_fn_gen;
@@ -54,14 +56,16 @@ mod rc_value_traversal;
 mod rpo;
 mod terminators;
 mod value_emission;
+mod variant_construction;
 
 pub use context::CodegenContext;
 use context::EmittedValue;
 
+use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
@@ -80,7 +84,7 @@ pub(super) enum FuncletPadKind {
     /// Currently unused: SEH catch blocks use the `ori_try_call` trampoline
     /// instead of LLVM `catchpad`. Retained for match exhaustiveness in
     /// `br_exiting_catchpad` and Jump terminator handlers.
-    #[allow(dead_code, reason = "retained for defensive match exhaustiveness")]
+    #[expect(dead_code, reason = "retained for defensive match exhaustiveness")]
     Catch,
     /// `cleanuppad` — exits via `cleanupret` (re-raises exception).
     Cleanup,
@@ -153,6 +157,36 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// The `FuncletPadKind` distinguishes catch (exits via `catchret`) from
     /// cleanup (exits via `cleanupret`).
     pub(super) current_funclet_pad: Option<(TokenId, FuncletPadKind)>,
+    /// Variables rooted at borrowed parameters (or Let-aliases thereof).
+    /// When storing an inline enum value to a boxed field, sub-pointers
+    /// must be incremented if the source is borrowed-rooted (the caller
+    /// retains a reference, so the boxed store creates an additional one).
+    borrowed_rooted_vars: FxHashSet<ArcVarId>,
+    /// Borrowed parameter pointer forwarding: maps `ArcVarId` → original LLVM
+    /// parameter pointer for variables received as `Reference`/`Indirect` params.
+    /// When passing such a variable to another function that also expects a
+    /// pointer, we forward the original pointer directly instead of creating
+    /// an alloca+store round-trip.
+    borrowed_param_ptrs: FxHashMap<ArcVarId, ValueId>,
+    /// Decomposed iterator-next results: maps the `Apply(__iter_next)` dst
+    /// `ArcVarId` → `(tag: ValueId, scratch_ptr: ValueId, elem_ty: LLVMTypeId)`.
+    ///
+    /// When `emit_project` encounters a `Project(value, field)` where `value`
+    /// is in this map, it returns the tag (field 0) or loads from scratch
+    /// (field 1) directly — avoiding the `{i64, T}` wrapper struct that the
+    /// legacy `emit_iter_next` built via `insertvalue`.
+    iter_next_decomposed: FxHashMap<ArcVarId, (ValueId, ValueId, super::value_id::LLVMTypeId)>,
+    /// The function's sret pointer (parameter 0 when return uses `Sret`).
+    /// Used by `call_with_sret` to forward the destination directly to a
+    /// runtime function, avoiding an intermediate alloca+load+store.
+    /// `take()`-semantics: consumed on first use to prevent multiple calls
+    /// from writing to the same sret pointer.
+    current_sret_ptr: Option<ValueId>,
+
+    /// The `ValueId` of the result loaded from a forwarded sret pointer.
+    /// When set, the `Return + Sret` terminator can skip the identity store
+    /// (the value is already at the sret destination).
+    sret_forwarded_result: Option<ValueId>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -190,7 +224,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             current_block_idx: 0,
             current_instr_idx: 0,
             current_funclet_pad: None,
+            borrowed_rooted_vars: FxHashSet::default(),
+            borrowed_param_ptrs: FxHashMap::default(),
+            iter_next_decomposed: FxHashMap::default(),
+            current_sret_ptr: None,
+            sret_forwarded_result: None,
         }
+    }
+
+    /// Check if a variable is rooted at a borrowed parameter.
+    ///
+    /// Returns `true` if the variable is a borrowed function parameter or
+    /// a Let-alias chain leading to one. Used by `emit_variant_via_alloca`
+    /// to decide whether storing an inline enum to a boxed field needs a
+    /// sub-pointer increment (borrowed → yes, consumed → no).
+    pub(super) fn is_var_borrowed_rooted(&self, var: ArcVarId) -> bool {
+        self.borrowed_rooted_vars.contains(&var)
     }
 }
 

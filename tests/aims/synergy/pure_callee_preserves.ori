@@ -1,0 +1,28 @@
+// AIMS synergy test: Effect × Uniqueness
+//
+// Dimensions: may_share==false preserves uniqueness through call
+//
+// Without effect: uniqueness degrades to MaybeShared after call
+// (conservative — callee might have RcInc'd it).
+// With effect: may_share==false → uniqueness preserved through call
+// → StaticUnique COW on subsequent push.
+//
+// Expected: 1 fewer runtime COW check on the push after the pure call.
+
+@sum_pure (items: [int]) -> int =
+    items.fold(initial: 0, op: (acc, x) -> acc + x);
+
+@test_pure () -> int = {
+    let nums = [1, 2, 3];
+    let $total = sum_pure(items: nums);
+    // AIMS should know: nums is still unique after sum_pure (may_share==false)
+    nums = nums.push(value: 4);
+    total + nums.len()
+};
+
+@main () -> void = {
+    let $result = test_pure();
+    // total=6, nums.len()=4 → 10
+    if result != 10 then panic(msg: "expected 10");
+    print(msg: "pure_callee_preserves: pass")
+}

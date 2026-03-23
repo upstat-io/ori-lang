@@ -19,9 +19,10 @@
 //!
 //! # Sync
 //!
-//! The LLVM backend maintains a parallel `BuiltinTable` with ownership metadata
-//! for codegen dispatch. A sync test in `ori_llvm` asserts that table's
-//! effective borrowing set is consistent with `ori_registry::Ownership::Borrow`.
+//! The LLVM backend's `BuiltinTable` registration reads from
+//! `ori_registry::BUILTIN_TYPES` and respects `Ownership::Borrow` annotations.
+//! A sync test in `ori_llvm` asserts the effective borrowing set matches this
+//! canonical list.
 
 use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
 use ori_ir::{Name, StringInterner};
@@ -45,6 +46,7 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "add",         // list + list (COW concat)
     "concat",      // list.concat (COW concat)
     "insert",      // list.insert (COW insert)
+    "iter",        // list.iter (iterator takes ownership of data buffer)
     "pop",         // list.pop (COW pop)
     "push",        // list.push (COW push)
     "remove",      // list.remove (COW remove)
@@ -54,17 +56,22 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "sort_stable", // list.sort_stable (COW sort, stable/TimSort)
 ];
 
-/// COW list methods that consume both receiver AND second argument (list2).
+/// COW list methods that consume both receiver AND second argument.
 ///
-/// For these methods, the runtime takes ownership of list2's buffer and checks
-/// uniqueness at runtime to skip RC increments when list2 is uniquely owned.
+/// For these methods, the runtime takes ownership of the second argument's data:
+/// - `add`/`concat`: list2's buffer is consumed (uniqueness-checked at runtime)
+/// - `push`: the element's bytes are copied into the list buffer, creating a
+///   new reference to any RC-managed data (e.g., str data pointers)
+///
 /// The ARC pipeline must mark arg[1] as `Owned` (no extra `RcDec`) in addition
-/// to the receiver.
+/// to the receiver. For `push`, this ensures AIMS emits `RcInc` on fat pointer
+/// elements borrowed from iterators.
 ///
 /// Sorted alphabetically.
 const CONSUMING_SECOND_ARG_METHOD_NAMES: &[&str] = &[
     "add",    // list + list (COW concat)
     "concat", // list.concat(other)
+    "push",   // list.push(value) — element stored in list buffer
 ];
 
 /// COW methods that consume ONLY the receiver; non-receiver args are borrowed.
@@ -249,6 +256,14 @@ impl BuiltinOwnershipSets {
                 .map(|pb| (interner.intern(pb.name()), pb.arg_ownership()))
                 .collect(),
         }
+    }
+
+    /// Check if a name is a known builtin method (in any ownership set).
+    pub fn is_builtin(&self, name: Name) -> bool {
+        self.borrowing.contains(&name)
+            || self.consuming_receiver.contains(&name)
+            || self.consuming_receiver_only.contains(&name)
+            || self.protocol.contains_key(&name)
     }
 
     /// Empty sets for unit tests that don't exercise builtin ownership.

@@ -18,6 +18,8 @@
 use ori_ir::Span;
 use rustc_hash::FxHashSet;
 
+use crate::aims::contract::MemoryContract;
+use crate::aims::lattice::Cardinality;
 use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId, ValueRepr};
 use crate::Ownership;
@@ -52,6 +54,12 @@ pub enum VerifyError {
         block: ArcBlockId,
         span: Option<Span>,
     },
+
+    /// Parameter with `Cardinality::Absent` has uses in the function body.
+    /// This indicates an inconsistency between the AIMS analysis result
+    /// and the actual IR: Absent means "zero forward uses", so no
+    /// instruction or terminator should reference this variable.
+    AbsentParamHasUses { var: ArcVarId, param_index: usize },
 }
 
 impl std::fmt::Display for VerifyError {
@@ -92,6 +100,14 @@ impl std::fmt::Display for VerifyError {
                     block.raw()
                 )?;
                 fmt_span(f, *span)
+            }
+            VerifyError::AbsentParamHasUses { var, param_index } => {
+                write!(
+                    f,
+                    "absent param has uses: v{} (param {param_index}) has Cardinality::Absent \
+                     but is referenced in the function body",
+                    var.raw(),
+                )
             }
         }
     }
@@ -286,6 +302,67 @@ fn is_scalar_var(func: &ArcFunction, var: ArcVarId) -> bool {
     func.var_reprs
         .get(var.index())
         .is_some_and(|repr| *repr == ValueRepr::Scalar)
+}
+
+// AIMS consistency checks
+
+/// Run structural checks plus AIMS-specific consistency checks.
+///
+/// Extends [`check_function`] with checks that require the AIMS
+/// [`MemoryContract`] — specifically, that parameters with
+/// `Cardinality::Absent` have no uses in the function body.
+pub fn check_function_with_contract(
+    func: &ArcFunction,
+    contract: &MemoryContract,
+) -> Vec<VerifyError> {
+    let mut errors = check_function(func);
+    check_absent_param_no_uses(func, contract, &mut errors);
+    errors
+}
+
+/// Parameters with `Cardinality::Absent` must have no uses in the function body.
+///
+/// Absent means the backward analysis found zero forward demand for this
+/// parameter. If the IR actually references the parameter, the analysis
+/// result is inconsistent — either the analysis is wrong or the IR was
+/// mutated after analysis.
+fn check_absent_param_no_uses(
+    func: &ArcFunction,
+    contract: &MemoryContract,
+    errors: &mut Vec<VerifyError>,
+) {
+    // Collect parameter vars that the contract says are Absent.
+    let absent_params: Vec<(usize, ArcVarId)> = func
+        .params
+        .iter()
+        .zip(&contract.params)
+        .enumerate()
+        .filter(|(_, (_, pc))| pc.cardinality == Cardinality::Absent)
+        .map(|(i, (param, _))| (i, param.var))
+        .collect();
+
+    if absent_params.is_empty() {
+        return;
+    }
+
+    // Collect all used variables across the function body.
+    let mut used = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            for var in instr.used_vars() {
+                used.insert(var);
+            }
+        }
+        for var in block.terminator.used_vars() {
+            used.insert(var);
+        }
+    }
+
+    for (param_index, var) in absent_params {
+        if used.contains(&var) {
+            errors.push(VerifyError::AbsentParamHasUses { var, param_index });
+        }
+    }
 }
 
 #[cfg(test)]

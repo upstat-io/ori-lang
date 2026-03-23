@@ -1,0 +1,12 @@
+// Valgrind test: for-do on {str: int} map with heap-allocated keys.
+// Exercises map iterator's key_dec_fn cleanup path.
+
+@main () -> int = {
+    let m = {
+        "this key string exceeds SSO threshold by being very long": 1,
+        "another long key string that also exceeds the threshold here": 2
+    };
+    let count = 0;
+    for (k, v) in m do count += 1;
+    if count == 2 then 0 else 1
+}

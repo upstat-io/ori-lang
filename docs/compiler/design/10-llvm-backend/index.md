@@ -33,15 +33,15 @@ Ori uses LLVM as its native code generation backend. The `ori_llvm` crate transl
 - **Multi-target support** — a single codegen implementation targets x86-64, AArch64, WebAssembly, and any other LLVM-supported architecture
 - **JIT and AOT** — the same LLVM module can be executed immediately in-process (JIT for `ori run`) or compiled to an object file for linking into a native executable (AOT for `ori build`)
 
-But Ori's LLVM backend is not a straightforward AST-to-LLVM translator. Between the type-checked program and LLVM IR sits an entire memory management layer — the [ARC pipeline](../09-arc-system/index.md) — and this shapes the backend's architecture in fundamental ways.
+But Ori's LLVM backend is not a straightforward AST-to-LLVM translator. Between the type-checked program and LLVM IR sits an entire memory management layer — the [AIMS pipeline](../09-aims/index.md) — and this shapes the backend's architecture in fundamental ways.
 
 ## What Makes Ori's LLVM Backend Distinctive
 
-### The ARC-First Pipeline: One Codegen Path
+### The AIMS-First Pipeline: One Codegen Path
 
 Most compilers that use LLVM translate their high-level IR directly into LLVM IR. Rust lowers its MIR (Mid-level IR) to LLVM IR. Swift lowers its SIL (Swift Intermediate Language) to LLVM IR. Zig lowers its AIR (Analyzed Intermediate Representation) to LLVM IR. In each case, there is a relatively direct correspondence between the compiler's own IR and the LLVM instructions that result.
 
-Ori takes a different path. **Every function body** — whether user-defined, derived from a trait, or generated for a closure — is first lowered from canonical IR to ARC IR by the `ori_arc` crate, and only then translated to LLVM IR by the `ArcIrEmitter`. There is no "direct" codegen path that bypasses ARC. This means the LLVM backend never sees high-level expressions like `a + b` or `if x then y else z` — it sees basic blocks with explicit reference counting instructions, ownership annotations, and reuse tokens.
+Ori takes a different path. **Every function body** — whether user-defined, derived from a trait, or generated for a closure — is first lowered from canonical IR to ARC IR by the `ori_arc` crate, and only then translated to LLVM IR by the `ArcIrEmitter`. There is no "direct" codegen path that bypasses AIMS. This means the LLVM backend never sees high-level expressions like `a + b` or `if x then y else z` — it sees basic blocks with explicit reference counting instructions, ownership annotations, and reuse tokens.
 
 This single-path design eliminates an entire class of bugs that plague dual-path backends. When a compiler has both a "simple" direct path and an "optimized" managed path, the two inevitably diverge: one handles an edge case the other doesn't, one emits correct RC operations while the other leaks, one handles closures correctly while the other miscompiles captures. By routing everything through ARC IR, Ori guarantees that the same instruction selection, calling convention, and RC lifecycle logic handles every function uniformly.
 
@@ -92,9 +92,9 @@ flowchart TB
 
     FuncComp["FunctionCompiler
     Phase 1: Declare all functions
-    Phase 2: Define bodies via ARC"]
+    Phase 2: Define bodies via AIMS"]
 
-    ArcPipeline["ARC Pipeline
+    ArcPipeline["AIMS Pipeline
     Lower → Borrow → Liveness
     RC Insert → Reset/Reuse → Eliminate"]
 
@@ -153,7 +153,7 @@ flowchart TB
 
 **IrBuilder** is the ID-based instruction builder that wraps inkwell. It maintains a `ValueArena` of all LLVM values, types, blocks, and functions, returning `Copy` ID handles. Methods are organized by category: constants, memory, arithmetic, comparisons, conversions, control flow, aggregates, calls, and PHI/type/block operations. It also tracks codegen errors (type mismatches during IR construction) and supports the `codegen_errors` diagnostic.
 
-**FunctionCompiler** orchestrates the two-phase compilation. In Phase 1, it walks all functions, computes their `FunctionAbi` (parameter passing conventions, sret returns, calling convention), and declares LLVM functions. Between phases, it runs nounwind analysis. In Phase 2, it defines each function body by invoking the ARC pipeline and emitting the result via `ArcIrEmitter`. It holds function resolution lookup tables, the symbol `Mangler`, ARC caches, and borrow inference results.
+**FunctionCompiler** orchestrates the two-phase compilation. In Phase 1, it walks all functions, computes their `FunctionAbi` (parameter passing conventions, sret returns, calling convention), and declares LLVM functions. Between phases, it runs nounwind analysis. In Phase 2, it defines each function body by invoking the AIMS pipeline and emitting the result via `ArcIrEmitter`. It holds function resolution lookup tables, the symbol `Mangler`, ARC caches, and borrow inference results.
 
 **ArcIrEmitter** is the core translation engine. It maps ARC IR variables to LLVM values (`ArcVarId` → `ValueId`), ARC IR blocks to LLVM basic blocks (`ArcBlockId` → `BlockId`), and walks each block's instructions in RPO (Reverse Post-Order) order, emitting LLVM IR. It caches drop functions, element RC callbacks, comparison thunks, and equality thunks per type. Every instruction type — `Apply`, `Construct`, `Project`, `RcInc`, `RcDec`, `IsShared`, `Reuse` — has a dedicated emission method in one of its submodules.
 
@@ -214,7 +214,7 @@ This information determines whether call sites use LLVM `call` (for nounwind cal
 
 ### Phase 2: Definition
 
-Each function body is compiled through the ARC pipeline — the sole codegen path:
+Each function body is compiled through the AIMS pipeline — the sole codegen path:
 
 ```mermaid
 flowchart LR
@@ -317,7 +317,7 @@ Ori's LLVM backend draws from several established compiler implementations, each
 
 **[rustc_codegen_llvm](https://github.com/rust-lang/rust/tree/master/compiler/rustc_codegen_llvm)** (Rust) — Ori's `SimpleCx` follows rustc's pattern of a minimal context wrapper that holds LLVM handles. Rust's codegen also uses a two-phase declare-then-define approach for the same reason: enabling mutual recursion without forward declarations. The key difference is that Rust's codegen lowers MIR (which already has explicit drops and borrow checking) directly to LLVM IR, while Ori interposes an ARC IR layer that performs its own reference counting analysis.
 
-**[Swift SIL](https://github.com/apple/swift/tree/main/lib/SIL)** (Swift) — Swift's compiler lowers to SIL (Swift Intermediate Language) before going to LLVM IR, similar to Ori's ARC IR interposition. Swift's SIL carries ARC operations explicitly (`strong_retain`, `strong_release`), and Swift's SIL optimizer eliminates redundant RC operations before LLVM IR emission. Ori's ARC pipeline serves the same purpose but is structurally different — it uses basic-block IR with ownership annotations rather than Swift's instruction-level approach.
+**[Swift SIL](https://github.com/apple/swift/tree/main/lib/SIL)** (Swift) — Swift's compiler lowers to SIL (Swift Intermediate Language) before going to LLVM IR, similar to Ori's ARC IR interposition. Swift's SIL carries ARC operations explicitly (`strong_retain`, `strong_release`), and Swift's SIL optimizer eliminates redundant RC operations before LLVM IR emission. Ori's AIMS pipeline serves the same purpose but is structurally different — it uses basic-block IR with ownership annotations rather than Swift's instruction-level approach.
 
 **[Lean 4 LCNF](https://github.com/leanprover/lean4/tree/master/src/Lean/Compiler/LCNF)** (Lean) — Lean's compiler lowers to LCNF (Lambda Calculus Normal Form) and then to C code (not LLVM IR directly). Lean's RC insertion algorithm (Perceus-inspired, like Ori's) operates on LCNF, and Lean's borrow inference is interprocedural — the same approach Ori uses. Ori adopted Lean's SCC-based borrow analysis and adapted it for a different target IR.
 

@@ -22,9 +22,28 @@ pub(crate) struct LoopContext {
     pub exit_block: crate::ir::ArcBlockId,
     /// Block to jump to on `continue`.
     pub continue_block: crate::ir::ArcBlockId,
-    /// Mutable variable names in block-parameter order for SSA merge.
+    /// Mutable variables in block-parameter order for SSA merge.
     /// MUST be `Vec` (not `HashMap`) — order must match `add_block_param` order.
-    pub mutable_vars: Vec<Name>,
+    /// Each entry is `(name, header_param)` where `header_param` is the SSA
+    /// value at loop header entry — used as infallible fallback when
+    /// `scope.lookup(name)` fails during break/continue lowering.
+    pub mutable_vars: Vec<(Name, crate::ir::ArcVarId)>,
+    /// For-yield specific: when set, break/continue handle list accumulation
+    /// and thread the collection phantom parameter.
+    pub yield_ctx: Option<ForYieldContext>,
+}
+
+/// Context for break/continue inside a for-yield loop.
+///
+/// Enables `lower_break`/`lower_continue` to push values to the
+/// accumulating list and prepend the collection phantom to jump args.
+pub(crate) struct ForYieldContext {
+    /// The `ori_list_new` result pointer — used with `ori_list_push`.
+    pub list_ptr: crate::ir::ArcVarId,
+    /// Element size literal — passed to `ori_list_push`.
+    pub elem_size: crate::ir::ArcVarId,
+    /// Interned `"ori_list_push"` name.
+    pub list_push_name: Name,
 }
 
 // ArcLowerer
@@ -58,6 +77,12 @@ pub(crate) struct ArcLowerer<'a> {
     ///
     /// Saved/restored around each `lower_block` so nesting works correctly.
     pub(crate) block_let_names: FxHashSet<Name>,
+    /// The return type of the function currently being lowered.
+    ///
+    /// Used by `lower_try()` to construct the early-return `None`/`Err`
+    /// with the correct type (must match the function signature, not the
+    /// scrutinee's type).
+    pub(crate) return_type: Idx,
     /// The name of the function currently being lowered.
     ///
     /// Used by `lower_exp_recurse()` to emit `Apply @func_name(...)` instead

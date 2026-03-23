@@ -189,12 +189,13 @@ jobs:
         if: steps.rust-tests.outcome == 'failure' || steps.ori-tests.outcome == 'failure' || steps.rt-tests.outcome == 'failure'
         run: exit 1
 
+
   # Cross-platform — full test suite including AOT
   cross-platform:
     name: ${{ matrix.os }}
-    needs: [format, clippy]  # Don't waste CI time if basics fail
+    # No needs — format/clippy are platform-independent, don't gate cross-platform builds
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

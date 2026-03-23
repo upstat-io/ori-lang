@@ -7,7 +7,7 @@
 //! For function/parameter attributes, see [`super::attributes`].
 
 use inkwell::module::Linkage;
-use inkwell::types::{BasicMetadataTypeEnum, BasicType};
+use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicType};
 
 use super::IrBuilder;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
@@ -82,6 +82,102 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .try_as_basic_value()
             .basic()
             .map(|v| self.arena.push_value(v))
+    }
+
+    /// Indirect call to a void-returning function through a function pointer.
+    ///
+    /// Used by trampolines calling closures that use sret ABI (the closure
+    /// writes its result through a pointer parameter and returns void).
+    pub fn call_indirect_void(
+        &mut self,
+        param_types: &[LLVMTypeId],
+        fn_ptr: ValueId,
+        args: &[ValueId],
+    ) {
+        let raw = self.arena.get_value(fn_ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(val_type = ?raw.get_type(), "call_indirect_void on non-pointer");
+            self.record_codegen_error();
+            return;
+        }
+        let ptr = raw.into_pointer_value();
+        let arg_vals: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = args
+            .iter()
+            .map(|&id| self.arena.get_value(id).into())
+            .collect();
+
+        let param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = param_types
+            .iter()
+            .map(|&id| self.arena.get_type(id).into())
+            .collect();
+        let fn_type = self.scx.type_void_func(&param_tys);
+
+        self.builder
+            .build_indirect_call(fn_type, ptr, &arg_vals, "")
+            .expect("call_indirect_void");
+    }
+
+    /// Indirect call to a void-returning function with sret first parameter.
+    ///
+    /// The first argument (`sret_ptr`) is marked with the `sret` attribute
+    /// so LLVM passes it in the ABI-correct register (X8 on ARM64, RDI on
+    /// `x86_64`). Remaining `args` follow as regular parameters.
+    ///
+    /// Used by trampolines calling closures that return large types (>16 bytes).
+    /// Both direct lambdas (explicit sret) and closure wrappers (sret passthrough)
+    /// use this convention, so the trampoline's indirect call must also.
+    pub fn call_indirect_with_sret(
+        &mut self,
+        sret_type: LLVMTypeId,
+        param_types: &[LLVMTypeId],
+        fn_ptr: ValueId,
+        sret_ptr: ValueId,
+        args: &[ValueId],
+    ) {
+        let raw = self.arena.get_value(fn_ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(val_type = ?raw.get_type(), "call_indirect_with_sret on non-pointer");
+            self.record_codegen_error();
+            return;
+        }
+        let ptr = raw.into_pointer_value();
+
+        // Build full param list: sret_ptr + remaining args
+        let mut all_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+            Vec::with_capacity(1 + args.len());
+        all_args.push(self.arena.get_value(sret_ptr).into());
+        for &id in args {
+            all_args.push(self.arena.get_value(id).into());
+        }
+
+        // Build function type: void(ptr, param_types...)
+        let ptr_ty: BasicMetadataTypeEnum<'ctx> = self.scx.type_ptr().into();
+        let mut all_param_tys: Vec<BasicMetadataTypeEnum<'ctx>> =
+            Vec::with_capacity(1 + param_types.len());
+        all_param_tys.push(ptr_ty);
+        for &id in param_types {
+            all_param_tys.push(self.arena.get_type(id).into());
+        }
+        let fn_type = self.scx.type_void_func(&all_param_tys);
+
+        let call_val = self
+            .builder
+            .build_indirect_call(fn_type, ptr, &all_args, "")
+            .expect("call_indirect_with_sret");
+
+        // Add sret attribute to the first parameter of the call instruction.
+        let sret_ty = self.arena.get_type(sret_type);
+        let sret_kind = inkwell::attributes::Attribute::get_named_enum_kind_id("sret");
+        let sret_attr = self
+            .scx
+            .llcx
+            .create_type_attribute(sret_kind, sret_ty.as_any_type_enum());
+        call_val.add_attribute(inkwell::attributes::AttributeLoc::Param(0), sret_attr);
+
+        // Also add noalias on the sret parameter (required by x86_64 ABI).
+        let noalias_kind = inkwell::attributes::Attribute::get_named_enum_kind_id("noalias");
+        let noalias_attr = self.scx.llcx.create_enum_attribute(noalias_kind, 0);
+        call_val.add_attribute(inkwell::attributes::AttributeLoc::Param(0), noalias_attr);
     }
 
     // -- sret call helper --

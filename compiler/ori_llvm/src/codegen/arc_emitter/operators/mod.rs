@@ -74,7 +74,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // fallback — these types are either uninhabited (Never) or
                 // have i64-compatible representation.
                 // TODO(typeck): register missing methods so Error type doesn't
-                // propagate to codegen. See Ordering.to_int() GAP.
+                // propagate to codegen. See roadmap section-07A (core built-ins).
                 tracing::warn!(
                     ?op,
                     ?type_tag,
@@ -208,14 +208,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             _ => return None,
         };
 
-        // Tuple equality: compare element-wise inline (no trait impl).
-        // Tuples aren't in type_idx_to_name so trait dispatch won't find them.
-        if let TypeInfo::Tuple { elements } = self.type_info.get(lhs_ty) {
-            let result = self.emit_tuple_equals(lhs, rhs, &elements);
+        // Compound type equality: inline comparison for built-in generic
+        // types (Tuple, Option, Result, List) that don't have compiled
+        // derived Eq methods in LLVM. Uses recursive element comparison
+        // via emit_element_equals().
+        if let Some(result) = self.emit_element_equals(lhs, rhs, lhs_ty) {
             return if negate {
-                result.map(|r| self.builder.not(r, "neq"))
+                Some(self.builder.not(result, "neq"))
             } else {
-                result
+                Some(result)
             };
         }
 

@@ -35,8 +35,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let val = self.var(*value);
                 match &abi.return_abi.passing {
                     ReturnPassing::Sret { .. } => {
-                        let sret_ptr = self.builder.get_param(self.current_function, 0);
-                        self.builder.store(val, sret_ptr);
+                        // Skip identity store when the return value was written
+                        // directly to the sret pointer via sret forwarding.
+                        let is_identity = self.sret_forwarded_result.is_some_and(|fwd| fwd == val);
+                        if !is_identity {
+                            let sret_ptr = self.builder.get_param(self.current_function, 0);
+                            self.builder.store(val, sret_ptr);
+                        }
                         self.builder.ret_void();
                     }
                     ReturnPassing::Direct => {
@@ -216,15 +221,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_name_str = self.interner.lookup(callee);
         let normal_block = self.block(normal);
         let is_nounwind = self.ctx.nounwind_functions.contains(&callee);
-        // An unwind block with no cleanup instructions (empty body + Resume
-        // terminator) has no LLVM basic block — emit_function() marks it dead.
-        // Using `call` instead of `invoke` is safe because there's nothing to
-        // unwind through. This eliminates empty landing pads for recursive
-        // functions and other cases where RC insertion found no live values.
-        let unwind_is_empty_cleanup = {
-            let ub = &arc_func.blocks[unwind.index()];
-            ub.body.is_empty() && matches!(ub.terminator, ArcTerminator::Resume)
-        };
+        // An unwind block with no effective cleanup (empty body or only
+        // no-op RcDecs on non-capturing closures + Resume terminator) has
+        // no LLVM basic block — emit_function() marks it dead.
+        // Using `call` instead of `invoke` is safe because there's nothing
+        // to unwind through.
+        let unwind_is_empty_cleanup =
+            !super::dead_unwind::has_effective_cleanup(&arc_func.blocks[unwind.index()], arc_func);
         // Builtin handlers (format calls, prelude functions, builtin methods)
         // always emit `call`, not `invoke`. Their unwind blocks are dead —
         // emit_function() already skipped creating LLVM blocks for them.
@@ -276,6 +279,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ret_passing,
                 ret_ty_idx,
                 &arg_vals,
+                arc_args,
                 mode,
                 arc_func,
             );
@@ -352,10 +356,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ret_passing: ReturnPassing,
         ret_ty_idx: Idx,
         arg_vals: &[ValueId],
+        arc_vars: &[ArcVarId],
         mode: InvokeMode,
         arc_func: &ArcFunction,
     ) {
-        let passed_args = self.apply_param_passing(arg_vals, params);
+        let passed_args = self.apply_param_passing_with_forwarding(arg_vals, arc_vars, params);
         let result = match &ret_passing {
             ReturnPassing::Sret { .. } => {
                 let ret_ty = self.resolve_type(ret_ty_idx);

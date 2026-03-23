@@ -1,0 +1,44 @@
+// Valgrind test: TRMC list map.
+// Verifies no use-after-free, double-free, or leaks during recursive
+// list construction and traversal.
+
+type List = Nil | Cons(head: int, tail: List);
+
+@map_inc (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h + 1, tail: map_inc(list: t)),
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@list_len (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + list_len(list: t),
+};
+
+@build_list (n: int) -> List = {
+    if n <= 0 then Nil
+    else Cons(head: n, tail: build_list(n: n - 1))
+};
+
+@main () -> int = {
+    // Build a 50-element list, map it, check sum and length.
+    let $list = build_list(n: 50);
+    let $mapped = map_inc(list: list);
+    let $len_ok = list_len(list: mapped) == 50;
+    // Original sum: 1+2+...+50 = 1275. Each incremented by 1: 1275 + 50 = 1325.
+    let $sum_ok = list_sum(list: mapped) == 1325;
+
+    // Test empty list path.
+    let $empty = map_inc(list: Nil);
+    let $empty_ok = list_len(list: empty) == 0;
+
+    // Test single element.
+    let $single = map_inc(list: Cons(head: 42, tail: Nil));
+    let $single_ok = list_sum(list: single) == 43;
+
+    if len_ok && sum_ok && empty_ok && single_ok then 0 else 1
+}

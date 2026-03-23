@@ -98,10 +98,19 @@ def compute_control_flow_metrics(module: Module) -> ControlFlowMetrics:
     any_incorrect = False
 
     for func in module.user_functions():
-        empty = sum(1 for b in func.blocks if _is_empty_block(b))
+        # Entry block (first block) is excluded from empty-block count — a
+        # preheader block (`br label %header` to a phi-bearing loop header)
+        # is structurally necessary for the phi to distinguish initial values
+        # from loop-carried values.
+        empty = sum(
+            1 for i, b in enumerate(func.blocks)
+            if _is_empty_block(b) and i != 0
+        )
+        # Entry block (i==0) preheaders are excluded — same rationale
+        # as for empty blocks (structural loop preheaders).
         redundant = sum(
             1 for i, b in enumerate(func.blocks)
-            if is_redundant_unconditional_branch(
+            if i != 0 and is_redundant_unconditional_branch(
                 b, func.blocks[i + 1] if i + 1 < len(func.blocks) else None
             )
         )

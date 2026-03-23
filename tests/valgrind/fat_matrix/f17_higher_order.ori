@@ -1,0 +1,47 @@
+// Valgrind fat matrix: F17 — Fat pointer types passed through higher-order functions.
+// Verifies indirect calls, type erasure, and RC across function boundaries.
+
+type Named = { name: str, id: int }
+
+@apply_str (f: (str) -> int, s: str) -> int = f(s);
+@apply_list (f: ([int]) -> int, xs: [int]) -> int = f(xs);
+@apply_twice (f: (str) -> int, s: str) -> int = f(s) + f(s);
+
+@compose (f: (int) -> int, g: (str) -> int, s: str) -> int = f(g(s));
+
+@main () -> int = {
+    // T4: SSO string through fn param
+    let str_len = (s: str) -> int = s.length();
+    let ok1 = apply_str(f: str_len, s: "hello") == 5;
+
+    // T5: heap string through fn param
+    let ok2 = apply_str(f: str_len, s: "abcdefghijklmnopqrstuvwxyz1234") == 30;
+
+    // T6: list through fn param
+    let list_len = (xs: [int]) -> int = xs.length();
+    let ok3 = apply_list(f: list_len, xs: [1, 2, 3]) == 3;
+
+    // Lambda with fat capture through higher-order
+    let prefix = "hello";
+    let with_prefix = (n: int) -> int = prefix.length() + n;
+    let ok4 = with_prefix(5) == 10;
+
+    // Called twice — RC must handle two usages
+    let ok5 = apply_twice(f: str_len, s: "abcdefghijklmnopqrstuvwxyz1234") == 60;
+
+    // Composition with fat values
+    let double = (n: int) -> int = n * 2;
+    let ok6 = compose(f: double, g: str_len, s: "hello") == 10;
+
+    // Struct fat through higher-order
+    let struct_fn = (n: Named) -> int = n.name.length() + n.id;
+    let ok7 = struct_fn(Named { name: "alice", id: 1 }) == 6;
+
+    // Multiple different functions on same fat value
+    let first_char = (s: str) -> int = 1;
+    let heap = "abcdefghijklmnopqrstuvwxyz1234";
+    let ok8 = apply_str(f: str_len, s: heap) + apply_str(f: first_char, s: heap) == 31;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8
+        then 0 else 1
+}

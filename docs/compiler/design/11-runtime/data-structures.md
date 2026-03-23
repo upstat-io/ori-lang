@@ -20,7 +20,7 @@ This chapter documents the memory layout of every core data type in the Ori runt
 
 ## RC Header
 
-All heap-allocated, reference-counted objects share a 16-byte header placed **before** the data pointer. This header is the foundation of the entire memory management system — every list buffer, map buffer, set buffer, and heap string buffer begins with this header.
+All heap-allocated, reference-counted objects share a 32-byte header placed **before** the data pointer. This header is the foundation of the entire memory management system — every list buffer, map buffer, set buffer, and heap string buffer begins with this header.
 
 ```mermaid
 flowchart LR
@@ -29,28 +29,36 @@ flowchart LR
         DS["data_size
         i64 · 8 bytes
         offset: base + 0"]
+        ED["elem_dec_fn
+        ptr · 8 bytes
+        offset: base + 8"]
+        EC["elem_count
+        i64 · 8 bytes
+        offset: base + 16"]
         SC["strong_count
         i64 · 8 bytes
-        offset: base + 8"]
+        offset: base + 24"]
         UD["User Data
         variable length
-        offset: base + 16"]
+        offset: base + 32"]
     end
 
-    DS --> SC --> UD
+    DS --> ED --> EC --> SC --> UD
 
     classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
-    class DS,SC,UD native
+    class DS,EC,SC,UD native
 ```
 
 | Field | Offset from data_ptr | Size | Description |
 |-------|---------------------|------|-------------|
-| `data_size` | -16 | 8 bytes | User data size in bytes |
+| `data_size` | -32 | 8 bytes | User data size in bytes |
+| `elem_dec_fn` | -24 | 8 bytes | Element destructor function pointer (or null) |
+| `elem_count` | -16 | 8 bytes | Number of initialized elements (for slice cleanup) |
 | `strong_count` | -8 | 8 bytes | Reference count (atomic i64) |
 
 The critical design choice: **`ori_rc_alloc` returns a pointer to the user data, not the allocation base.** All RC operations recover the header by subtracting from the data pointer. This means data pointers can be passed to C FFI without offset adjustment, and the common operation (accessing data) requires no arithmetic.
 
-Header size is `RC_HEADER_SIZE = 16`. Minimum alignment is 8 bytes, ensuring `strong_count` is naturally aligned for atomic operations on all architectures.
+Header size is `RC_HEADER_SIZE = 32`. Minimum alignment is 8 bytes, ensuring `strong_count` is naturally aligned for atomic operations on all architectures.
 
 ## OriList
 
@@ -123,7 +131,7 @@ The slice's `data` pointer points directly into the original buffer at the first
 
 ```
 original_data = slice_data - byte_offset
-RC header at original_data - 16
+RC header at original_data - 32
 ```
 
 ```mermaid

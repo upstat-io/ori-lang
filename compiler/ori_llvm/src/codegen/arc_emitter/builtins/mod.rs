@@ -78,7 +78,7 @@ mod iterator;
 mod iterator_consumers;
 mod list_traits;
 mod option_result;
-pub(super) mod prelude;
+pub(crate) mod prelude;
 mod primitives;
 mod traits;
 mod trampolines;
@@ -290,6 +290,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             if result.is_some() {
                 return result;
             }
+
+            // Auto-iter promotion: collection.iter_method(...) → collection.iter().iter_method(...)
+            // When a collection type (list, map, Set, str, range) has an unresolved method
+            // that IS a known iterator method, emit .iter() implicitly and forward.
+            if is_iterator_method(method_name) {
+                if let Some(iter_val) = self.emit_auto_iter(&type_info, arg_vals[0], receiver_ty) {
+                    let iter_info = TypeInfo::Iterator {
+                        element: auto_iter_element_type(&type_info),
+                    };
+                    let mut iter_args = vec![iter_val];
+                    iter_args.extend_from_slice(&arg_vals[1..]);
+                    let iter_ctx = BuiltinCtx {
+                        type_name: "Iterator",
+                        method: method_name,
+                        arg_vals: &iter_args,
+                        receiver_ty,
+                        type_info: &iter_info,
+                        arc_args: args,
+                        arc_func,
+                    };
+                    let iter_result = iterator::dispatch(self, &iter_ctx);
+                    if iter_result.is_some() {
+                        return iter_result;
+                    }
+                }
+            }
         }
 
         // Types without builtin names: Unit, Struct, Enum, Function
@@ -307,18 +333,144 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         None
     }
 
+    /// Emit slice-aware RC increment for a value.
+    ///
+    /// For List/Set: uses `ori_list_rc_inc(data, cap)` which handles
+    /// seamless slices (where `data` is interior to another buffer).
+    /// For Str: uses `ori_str_rc_inc(data, cap)` which handles SSO,
+    /// heap, and seamless slices from `str.split()`.
+    /// For other types: falls back to `ori_rc_inc(data)`.
+    fn emit_slice_aware_rc_inc(&mut self, val: ValueId, ty: ori_types::Idx) {
+        let resolved = self.pool.resolve_fully(ty);
+        let tag = self.pool.tag(resolved);
+        match tag {
+            ori_types::Tag::List | ori_types::Tag::Set => {
+                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                    let cap = self
+                        .builder
+                        .extract_value(val, 1, "rc_inc.cap")
+                        .unwrap_or_else(|| self.builder.const_i64(0));
+                    self.call_list_rc_inc(dp, cap, 1);
+                } else {
+                    self.call_rc_inc_all(&[val], 1);
+                }
+            }
+            // Str: slice-aware RC inc via ori_str_rc_inc(data, cap).
+            // Handles SSO, heap, and seamless slices from str.split().
+            ori_types::Tag::Str => {
+                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                    let cap = self
+                        .builder
+                        .extract_value(val, 1, "rc_inc.str_cap")
+                        .unwrap_or_else(|| self.builder.const_i64(0));
+                    self.call_str_rc_inc(dp, cap, 1);
+                } else {
+                    self.call_rc_inc_all(&[val], 1);
+                }
+            }
+            _ => {
+                let rc_inc = self.builder.runtime_fn("ori_rc_inc");
+                let data_ptrs = self.extract_rc_data_ptrs(val, ty);
+                for data_ptr in data_ptrs {
+                    self.emit_rt_call(rc_inc, &[data_ptr], "");
+                }
+            }
+        }
+    }
+
     /// Emit RC increment + return receiver (clone for heap-backed types).
+    ///
+    /// Uses slice-aware RC inc for List/Set and Str types.
     pub(crate) fn emit_rc_inc_clone(
         &mut self,
         val: ValueId,
         ty: ori_types::Idx,
     ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_rc_inc");
-        let data_ptrs = self.extract_rc_data_ptrs(val, ty);
-        for data_ptr in data_ptrs {
-            self.emit_rt_call(func_id, &[data_ptr], "");
-        }
+        self.emit_slice_aware_rc_inc(val, ty);
         Some(val)
+    }
+
+    /// Emit an implicit `.iter()` call for a collection type.
+    ///
+    /// The iterator takes ownership of one RC reference. Since the caller
+    /// didn't account for this (no explicit `.iter()` in the ARC IR), we
+    /// must `RcInc` the collection before creating the iterator.
+    ///
+    /// Returns the iterator pointer if the receiver is a collection that
+    /// supports iteration, `None` otherwise.
+    fn emit_auto_iter(
+        &mut self,
+        type_info: &TypeInfo,
+        receiver: ValueId,
+        receiver_ty: ori_types::Idx,
+    ) -> Option<ValueId> {
+        // RcInc the collection — the iterator will consume one reference.
+        // For List/Set: slice-aware ori_list_rc_inc(data, cap).
+        // For Str: slice-aware ori_str_rc_inc(data, cap).
+        self.emit_slice_aware_rc_inc(receiver, receiver_ty);
+        match type_info {
+            TypeInfo::List { element } => self.emit_list_iter(receiver, receiver_ty, *element),
+            TypeInfo::Set { element } => self.emit_set_iter(receiver, *element),
+            TypeInfo::Map { key, value } => self.emit_map_iter(receiver, *key, *value),
+            TypeInfo::Str => self.emit_str_iter(receiver),
+            TypeInfo::Range => self.emit_range_iter(receiver),
+            _ => None,
+        }
+    }
+}
+
+/// Known iterator method names for auto-iter promotion.
+fn is_iterator_method(name: &str) -> bool {
+    matches!(
+        name,
+        "fold"
+            | "map"
+            | "filter"
+            | "any"
+            | "all"
+            | "count"
+            | "find"
+            | "for_each"
+            | "collect"
+            | "take"
+            | "skip"
+            | "chain"
+            | "enumerate"
+            | "zip"
+            | "flat_map"
+            | "flatten"
+            | "join"
+    )
+}
+
+/// Extract the element type from a collection's `TypeInfo` for iterator
+/// dispatch after auto-iter promotion.
+fn auto_iter_element_type(type_info: &TypeInfo) -> ori_types::Idx {
+    match type_info {
+        TypeInfo::List { element } | TypeInfo::Set { element } => *element,
+        TypeInfo::Map { key, .. } => *key,
+        _ => ori_types::Idx::INT, // fallback for str (char→int), range (int)
+    }
+}
+
+/// NEVER CALLED. Exists solely so that Rust's exhaustive match checker
+/// forces updates to this crate when a new `TypeTag` variant is added.
+/// If you see a compile error pointing here, a new `TypeTag` was added
+/// to `ori_registry` without updating this crate's builtin codegen.
+fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
+    use ori_registry::TypeTag;
+    #[expect(
+        clippy::match_same_arms,
+        reason = "exhaustiveness guard — each arm must be explicit"
+    )]
+    match tag {
+        TypeTag::Int | TypeTag::Float | TypeTag::Bool | TypeTag::Char | TypeTag::Byte => {}
+        TypeTag::Unit | TypeTag::Never => {}
+        TypeTag::Duration | TypeTag::Size | TypeTag::Ordering => {}
+        TypeTag::Str | TypeTag::Error => {}
+        TypeTag::List | TypeTag::Map | TypeTag::Set | TypeTag::Range => {}
+        TypeTag::Tuple | TypeTag::Option | TypeTag::Result | TypeTag::Channel => {}
+        TypeTag::Function | TypeTag::Iterator | TypeTag::DoubleEndedIterator => {}
     }
 }
 

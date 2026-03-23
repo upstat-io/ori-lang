@@ -1,18 +1,66 @@
 - **Under construction** — Rust tooling trusted; Ori tooling (lexer, parser, typeck, eval, test runner) is NOT. Bugs are in the compiler, not user code.
-- **One system** — compiler, typeck, eval, codegen, tests, spec, stdlib are one machine. No "unrelated", "pre-existing", or "out of scope." Fix every issue encountered. Add discovered issues to todo list.
-- **Proper fixes only** — no workarounds, hacks, shortcuts, or temporary fixes. Correct architecture over quick hacks.
+
+## The One Rule: Correctness Above All
+
+**Every decision you make must optimize for correctness.** The most correct, clean, and proper fix is the ONLY acceptable fix. There are no countervailing concerns:
+
+- **Effort** is irrelevant. If the correct fix touches 10 files across 3 crates, that IS the fix.
+- **Time** is irrelevant. A proper fix that takes longer is the only option.
+- **Cost** is irrelevant. Complexity in service of correctness is not over-engineering.
+- **Scope** is irrelevant. There is no "out of scope" — there is only correct and incorrect.
+- **Risk** is irrelevant. "Safer to do the simple thing" is choosing incorrectness.
+- **Responsibility** is irrelevant. There is no "not my code" or "different subsystem."
+- **Current task** is irrelevant. "I was working on something else" is not a reason to do less.
+- **Ownership** is irrelevant. There is no ownership — every file, every crate, every subsystem is yours.
+- **Relatedness** is irrelevant. "That's a separate issue" does not exist.
+
+When you see two possible fixes — one simpler and one more correct — the simpler one does not exist. You do not weigh tradeoffs between correctness and convenience. There is no tradeoff. Correctness wins. Always.
+
+**Proper fixes only** — no workarounds, hacks, shortcuts, or temporary fixes. If the correct fix requires architectural change, that IS the work, not a reason to defer. If it requires refactoring a subsystem, that IS the fix, not a future improvement.
+
+## Ownership & Deferral
+
+- **One system, one owner: YOU** — compiler, typeck, eval, codegen, tests, spec, stdlib are one machine. Every bug, every failure, every interference is YOUR problem. You don't get to say "that's a different bug" or "that was already broken" or "my fix didn't cause that." If you found it, touched it, or your fix surfaced it — you own it. Fix every issue encountered. Add discovered issues to todo list.
+- **ZERO DEFERRAL on bugs** — when you discover a bug, issue, leak, performance problem, or anything broken: (1) IMMEDIATELY add it to your todo list, (2) fix it NOW in this session. No "tracked for later", no "known issue", no "pre-existing", no "separate fix needed". The discovery IS the assignment. There are zero valid reasons to defer — not scope, not complexity, not "it was already broken". If you found it, you fix it. **Pre-existing bugs MUST be fixed immediately** — "pre-existing" is diagnosis only, never justification for skipping.
+- **Comments are NOT documentation** — a code comment (`//`, `#[ignore = "..."]`, TODO) is non-visible and non-actionable. It does NOT count as documenting an issue. Discovered bugs that cannot be fixed immediately MUST be added to the active plan or roadmap as `- [ ]` checkbox items. A comment alone is NEVER sufficient — comments are invisible to the planning system.
+- **Tests that expose bugs = bugs found** — when writing tests (especially matrix tests), a failing test IS a bug discovery. Do NOT "fix the test to work around the bug" or say "this is a separate bug" and continue writing more tests. The moment a test reveals a bug: (1) STOP writing more tests, (2) add a `- [ ]` item to the active plan with the bug description, affected tests, and error category, (3) THEN decide whether to fix it now or continue testing. Rewriting a test to avoid a compiler bug without recording the bug is deferral — the test's purpose is to find bugs, and the bugs are the deliverable. "Completing the test matrix" is NOT more important than recording what the matrix found.
 - **When unsure, STOP and ASK** — don't guess or assume
 - **Fact-check** against spec. Consult `~/projects/reference_repos/lang_repos/` (Rust, Go, Zig, TS, Gleam, Elm, Roc, Swift, Koka, Lean 4).
 - **If you can't do it right, say so** — communicate blockers, don't ship bad code
 - **Continuous improvement everywhere** — if you see something wrong or suboptimal — stale docs, missing CLAUDE.md instructions, incomplete memory, unclear scripts, weak tests, imprecise error messages — fix it at the source. Never work around a problem when you can eliminate it. Every interaction should leave the project better than you found it.
 
-**TDD for bugs** — NEVER fix without tests first:
+## TDD for Bugs
+
+NEVER fix without tests first:
 1. **STOP** — resist urge to immediately change code
 2. **Consult spec** (`docs/ori_lang/v2026/spec/`) for intended behavior
-3. **Write MULTIPLE tests**: exact failing case, edge cases, related variations, regression guards
+3. **Write MATRIX tests** — not just "multiple." Every fix requires:
+   - **Exact failing case**: the specific input that triggered the bug
+   - **Edge cases**: empty, single-element, boundary conditions
+   - **Cross-type coverage**: if the fix is type-dependent, test ALL relevant types through the same code path (e.g., str, [int], Option<str>, closures, structs, maps, sets)
+   - **Cross-pattern coverage**: if the fix is pattern-dependent, test ALL relevant control-flow patterns (e.g., full iteration, break, yield, guard, nested, two-call)
+   - **Semantic pin**: at least one test that ONLY passes with the new semantics — this is the permanent regression guard
 4. **Verify tests fail** — if they pass, you misunderstand the bug
-5. **Fix the code**
+5. **Fix the code** — choose the most correct fix, not the simplest one
 6. **Tests pass unchanged** — needing to change tests = wrong tests or wrong fix
+7. **Verify matrix completeness** — missing cells in the type x pattern matrix are future regressions
+
+## Fix Completeness
+
+A fix is NOT done until ALL of these are true:
+- Matrix tests cover every type and pattern that flows through the changed code path
+- At least one semantic pin test exists that would fail if the fix is reverted
+- Debug AND release builds pass (FastISel behavior differs)
+- Plan/roadmap updated if the fix crosses section boundaries
+- The fix is architecturally correct — not merely functional. A workaround that passes tests is not a fix.
+
+## Stabilization Discipline
+
+- **Every fix becomes a permanent test** — no fix lands without a test that catches its regression
+- **Narrow the front** — complete one fix/section fully before starting another. RC + control-flow + lowering interactions multiply failure surfaces; concurrent changes across these domains compound risk
+- **Fix interference = reorder, don't skip** — when fixing Bug A causes Bug B to surface (new failures that weren't in the original test run), this is INTERFERENCE, not a "pre-existing issue to ignore." The correct response is: (1) revert or shelve Bug A's fix, (2) fix Bug B first (it's now a dependency), (3) re-apply Bug A's fix on top of Bug B's fix. Do NOT declare Bug A "fixed" when Bug B is interfering — that's shipping a regression. Do NOT rationalize Bug B as "pre-existing" to avoid dealing with it — the interference made it YOUR problem.
+- **Plan boundaries = implementation boundaries** — if a fix in Section X touches code owned by Section Y, update Section Y's plan before proceeding. No partial fixes absorbed silently across sections.
+- **Invariants are explicit** — if correctness depends on a property (RC balanced, scope restored, phantom inserted), it MUST be either a `debug_assert!` or a test. Implicit invariants become invisible regressions.
 
 ---
 
@@ -29,6 +77,15 @@
 3. **Dependency-aware**: tests in dep graph; changes propagate
 4. **Explicit effects**: capabilities (`uses Http`); mocking (`with Http = Mock in`)
 5. **ARC-safe**: no GC/borrow checker; capture by value; no shared mutable refs
+
+### AIMS — ARC Intelligent Memory System
+AIMS is a **unified semantic framework** — RC placement, reuse, COW, FIP, contracts, and TRMC are facets of one model, not separate features. Every memory decision flows through the unified lattice, contracts, and realization. **Non-negotiable invariants:**
+1. Contracts and realization must agree (FipContract::Certified ↔ zero unmatched alloc/dealloc)
+2. Active rewrites must be sound (identical observable behavior, behavioral verification required)
+3. No pass may rely on stale summaries (pipeline ordering is load-bearing)
+4. Every active subsystem must be end-to-end verified (implementation + invariant enforcement + tests)
+
+When fixing any AIMS-related bug: ask "does this preserve system coherence?" A fix in one subsystem that leaves another inconsistent is a new bug, not a fix. See `.claude/rules/arc.md` for full details.
 
 ---
 
@@ -55,6 +112,7 @@
 
 **Primary**: `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` (includes LLVM)
 **Tests**: `cargo t` (Rust, incl. LLVM), `cargo st` (Ori), `cargo st tests/spec/path/` (specific), `./llvm-test.sh`
+**MANDATORY TIMEOUT**: NEVER run tests without a timeout. Max 150 seconds (2m30s). Use `timeout 150` prefix for shell commands, `--timeout 150000` for Bash tool calls. If a test hangs past the timeout, you introduced a hanging test — kill it, find the cause, fix it.
 **Build**: `cargo c`/`cl`/`b`/`fmt` (all crates incl. LLVM)
 **LLVM/AOT**: `cargo b` (debug), `cargo b --release` (release) — LLVM is a default feature; `cargo test -p ori_llvm` (LLVM tests)
 **Release LTO**: `cargo build --profile release-lto` — fat LTO, ~20% faster binary, ~3.5x longer build. Output: `target/release-lto/ori`. Regular `--release` unaffected.
@@ -62,6 +120,7 @@
 **Phase dumps**: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR, superset of `ORI_DEBUG_LLVM`) | `ORI_EMIT_ARC_DOT=1` (GraphViz DOT) — stderr, zero release overhead
 **Runtime debug**: `ORI_TRACE_RC=1` (RC log) | `ORI_RT_DEBUG=1` (assertions) | `ORI_CHECK_LEAKS=1` (leak report)
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
+**AIMS**: The ARC pipeline uses the AIMS unified lattice — no feature flags needed. `diagnostics/aims-compare.sh` for behavioral + RC comparison.
 **Always run `./test-all.sh` after compiler changes.**
 **Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh`
 **Diagnostic scripts** (`diagnostics/`) — all support `--help`, `--no-color`/`--color`:
@@ -71,6 +130,12 @@
 - `dual-exec-debug.sh` — interpreter vs AOT comparison; auto-dumps on mismatch (`--verbose`)
 - `valgrind-aot.sh [file.ori ...]` — Valgrind memory errors (defaults to `tests/valgrind/`, not in test-all.sh)
 - `dual-exec-verify.sh [test-path]` — batch interpreter vs LLVM (`--test-only`, `--main-only`, `--json`)
+
+## Feature Flags
+
+| Flag | Crate | Effect |
+|------|-------|--------|
+| `cache` | `ori_arc` | Enables serde/bincode serialization for incremental compilation cache. |
 
 ## Versioning
 

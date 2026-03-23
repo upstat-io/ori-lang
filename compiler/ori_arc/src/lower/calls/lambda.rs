@@ -45,9 +45,30 @@ impl ArcLowerer<'_> {
             "lambda: lower"
         );
 
-        // Step 2: Get actual param types from the function type in the pool
-        let fn_param_types = if self.pool.tag(ty) == Tag::Function {
-            self.pool.function_params(ty)
+        // Step 2: Get actual param types from the function type in the pool.
+        //
+        // Lambda parameter types may contain unresolved type variables
+        // (Tag::Var) or generalized forall types. Resolve each through the
+        // pool's VarState chain AND any active type_subst from monomorphization.
+        // Without this, closures with polymorphic parameters (e.g., capturing
+        // str and calling .length() on the parameter) leave unresolved Idx
+        // values in the ARC IR, causing LLVM codegen failures.
+        let resolved_ty = self.pool.resolve_fully(ty);
+        let fn_param_types = if self.pool.tag(resolved_ty) == Tag::Function {
+            let params = self.pool.function_params(resolved_ty);
+            params
+                .into_iter()
+                .map(|p| {
+                    // First: resolve through pool VarState chains (inference links)
+                    let pool_resolved = self.pool.resolve_fully(p);
+                    // Second: apply body_type_map substitution (monomorphization)
+                    if let Some(subst) = self.type_subst {
+                        subst.get(&pool_resolved).copied().unwrap_or(pool_resolved)
+                    } else {
+                        pool_resolved
+                    }
+                })
+                .collect()
         } else {
             vec![Idx::UNIT; param_slice.len()]
         };
@@ -102,6 +123,7 @@ impl ArcLowerer<'_> {
                 func_name: self.func_name,
                 variant_ctors: self.variant_ctors,
                 type_subst: self.type_subst,
+                return_type: body_ty,
             };
             let result = lambda_lowerer.lower_expr(body);
             if !lambda_lowerer.builder.is_terminated() {
@@ -111,9 +133,15 @@ impl ArcLowerer<'_> {
 
         self.problems.append(&mut lambda_problems);
 
-        // Step 4: Assign unique name (after inner lambdas are pushed, so index is unique)
+        // Step 4: Assign globally unique name by including the parent function name.
+        // This prevents AIMS contract map collisions when multiple parent functions
+        // each define lambdas — e.g., test_str_sso's lambda won't collide with
+        // test_str_heap's lambda. (BUG-04-07 fix)
         let lambda_idx = self.lambdas.len();
-        let lambda_name = self.interner.intern(&format!("__lambda_{lambda_idx}"));
+        let parent = self.interner.lookup(self.func_name);
+        let lambda_name = self
+            .interner
+            .intern(&format!("__lambda_{parent}_{lambda_idx}"));
         let mut lambda_func =
             lambda_builder.finish(lambda_name, lambda_params, body_ty, entry, false);
         lambda_func.num_captures = captures.len();

@@ -10,13 +10,15 @@
 //! a handler here. `ori_list_take` is NOT a protocol builtin (it's a real
 //! runtime function with special sret handling).
 //!
-//! | Protocol              | Purpose                                  | Result type      |
+//! | Protocol              | Purpose                                  | Intercepted?     |
 //! |-----------------------|------------------------------------------|------------------|
-//! | `__iter_next`         | For-loop iteration protocol              | `{i64, T}`       |
-//! | `__collect_set`       | Collect iterator into `Set<T>`           | `{i64, i64, ptr}`|
-//! | `ori_list_take`       | For-yield list finalization (explicit sret)| `{i64, i64, ptr}`|
-//! | `ori_list_slice_drop` | List rest pattern (`[a, b, ..rest]`)     | `{i64, i64, ptr}`|
-//! | `__index`             | `receiver[index]` desugaring             | `T` or `Option<V>`|
+//! | `__iter_next`         | For-loop iteration protocol              | Yes              |
+//! | `__collect_set`       | Collect iterator into `Set<T>`           | Yes              |
+//! | `__index`             | `receiver[index]` desugaring             | Yes              |
+//! | `iter`                | Iterator creation (borrow inference only) | No (normal call) |
+//! | `ori_iter_drop`       | Iterator cleanup (borrow inference only)  | No (normal call) |
+//! | `ori_list_take`       | For-yield list finalization (non-PB)     | Yes (non-PB)     |
+//! | `ori_list_slice_drop` | List rest pattern (non-PB)               | Yes (non-PB)     |
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
@@ -41,19 +43,30 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Central protocol dispatch — exhaustive match enforced by compiler.
         // Adding a new ProtocolBuiltin variant will cause a compile error here.
         if let Some(protocol) = ProtocolBuiltin::from_name(callee_name) {
-            let result = match protocol {
-                ProtocolBuiltin::IterNext => {
-                    // __iter_next(iter, elem_ty_marker).
-                    // args[0] = iterator pointer, args[1] = zero marker carrying elem_ty.
-                    assert!(
-                        args.len() >= 2,
-                        "__iter_next requires 2 args, got {}",
-                        args.len()
-                    );
-                    let iter_ptr = self.var(args[0]);
-                    let elem_ty = func.var_type(args[1]);
-                    self.emit_iter_next(iter_ptr, elem_ty)
+            // IterNext uses decomposed emission (tag + scratch pointer separately)
+            // to avoid building an intermediate {i64, T} wrapper struct.
+            if matches!(protocol, ProtocolBuiltin::IterNext) {
+                assert!(
+                    args.len() >= 2,
+                    "__iter_next requires 2 args, got {}",
+                    args.len()
+                );
+                let iter_ptr = self.var(args[0]);
+                let elem_ty = func.var_type(args[1]);
+                if let Some((tag, scratch, elem_llvm_ty)) = self.emit_iter_next(iter_ptr, elem_ty) {
+                    self.iter_next_decomposed
+                        .insert(dst, (tag, scratch, elem_llvm_ty));
+                    self.def_var(dst, super::context::EmittedValue::Immediate(tag));
                 }
+                return true;
+            }
+
+            let result = match protocol {
+                // Iter and IterDrop are registered as ProtocolBuiltin for
+                // borrow inference only — they go through normal function
+                // dispatch (real runtime calls), not protocol intercept.
+                ProtocolBuiltin::Iter | ProtocolBuiltin::IterDrop => return false,
+
                 ProtocolBuiltin::CollectSet => {
                     // __collect_set(iter).
                     // Type-directed rewrite from collect() when target type is Set<T>.
@@ -88,6 +101,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         }
                     }
                 }
+                // IterNext handled above via early return.
+                ProtocolBuiltin::IterNext => unreachable!("IterNext handled above"),
             };
             if let Some(val) = result {
                 self.def_var_repr(dst, val, func);

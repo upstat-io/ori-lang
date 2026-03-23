@@ -1,106 +1,104 @@
-# Registry (ori_registry)
+---
+paths:
+  - "**registry**"
+---
 
-## Purpose
+# ori_registry
 
-**SSOT architectural center** for all builtin type behavioral specifications. The registry is one of four canonical homes in the compiler (see `impl-hygiene.md` → Paradigms → SSOT):
-
-| Center | Domain |
-|---|---|
-| **Registry** (`ori_registry`) | Builtin type behavior — methods, operators, memory strategy |
-| Type Pool (`ori_types`) | Type structure — interned types, type relationships |
-| AIMS (`ori_arc`) | Memory analysis — ownership, borrowing, uniqueness |
-| Repr-opt (`ori_llvm`) | Representation — layout, ABI, storage |
-
-The registry's contract: **zero dependencies, zero logic, only `const` data.** It defines WHAT builtins can do. Consuming crates define HOW.
+Pure-data crate. Zero dependencies, zero logic, zero `unsafe`. All data is `const`-constructible and lives in `.rodata`. Single source of truth for builtin type behavior across all compiler phases.
 
 ## Key Types
-- `TypeDef` — type definition (tag, name, memory strategy, methods, operators)
-- `MethodDef` — method specification (name, receiver ownership, params, returns, purity, kind)
-- `TypeTag` — enum of all 23 builtin types
-- `OpDefs` / `OpStrategy` — operator dispatch strategies per type
+
+| Type | Purpose |
+|------|---------|
+| `TypeTag` | `#[repr(u8)]` enum, 23 variants. Identity discriminant for all builtin types. |
+| `TypeDef` | Complete behavioral spec: tag, name, memory strategy, type params, methods, operators. |
+| `MethodDef` | 10 required fields: name, receiver, params, returns, trait_name, pure, backend_required, kind, dei_only, dei_propagation. |
+| `OpDefs` | 20 `OpStrategy` fields (one per operator). `Unsupported` = type error. |
+| `MemoryStrategy` | `Copy` / `Arc` / `Structural` — drives ARC classification. |
+| `Ownership` | `Borrow` / `Owned` / `Copy` — receiver and parameter passing. |
+| `ReturnTag` | Return/param type: `Concrete(TypeTag)`, `SelfType`, projections (`ElementType`, `KeyType`, etc.), wrappers (`Option(TypeTag)`, `ListOf(TypeProjection)`). |
 
 ## Query API
-- `find_type(TypeTag) -> Option<&TypeDef>` — type lookup
-- `find_method(TypeTag, &str) -> Option<&MethodDef>` — method lookup
-- `has_method(TypeTag, &str) -> bool` — existence check
-- `find_type_by_name(&str) -> Option<&TypeDef>` — name-based lookup
 
-## Adding a New Builtin Type
+```rust
+find_type(TypeTag::Str) -> Option<&'static TypeDef>
+find_method(TypeTag::Str, "len") -> Option<&'static MethodDef>  // DEI-aware
+has_method(TypeTag::Int, "abs") -> bool
+methods_for(TypeTag::Int) -> &'static [MethodDef]               // unfiltered
+method_names_for(TypeTag::Iterator) -> impl Iterator<Item = &str> // DEI-filtered
+borrowing_method_names() -> &'static [&'static str]             // sorted, deduped
+```
 
-1. **`ori_registry`**: Add `TypeTag` variant in `tags/mod.rs`
-2. **`ori_registry`**: Create `defs/<type_name>.rs` with `pub const TYPE_NAME: TypeDef = ...`
-3. **`ori_registry`**: Add to `BUILTIN_TYPES` array in `defs/mod.rs`
-4. **4 exhaustiveness guards break**: Update `_enforce_type_tag_exhaustiveness()` in:
+DEI aliasing: `DoubleEndedIterator` resolves to `Iterator` via `TypeTag::base_type()`. Plain `Iterator` queries exclude `dei_only` methods.
+
+## Adding a New Type
+
+1. Add variant to `TypeTag` in `tags/mod.rs`
+2. Add to `ALL_TYPE_TAGS` array in same file
+3. Update `TypeTag::name()` match arm
+4. Update `TypeTag::is_primitive()` / `is_generic()` if applicable
+5. Create `defs/type_name.rs` (or `defs/type_name/mod.rs` for large types)
+   - Define `static METHODS: &[MethodDef]` (sorted alphabetically by name)
+   - Define `pub static TYPE_NAME: TypeDef` with all 6 fields
+6. Add `mod type_name;` and `pub use self::type_name::TYPE_NAME;` in `defs/mod.rs`
+7. Add `&TYPE_NAME` to `BUILTIN_TYPES` array (in `TypeTag` discriminant order)
+8. Update `type_tag_all_contains_every_variant` expected count
+9. Add `_enforce_exhaustiveness` match arm in 4 consuming crates:
    - `ori_types/src/infer/expr/methods/mod.rs`
    - `ori_eval/src/methods/mod.rs`
    - `ori_arc/src/borrow/mod.rs`
    - `ori_llvm/src/codegen/arc_emitter/builtins/mod.rs`
-5. **Tests**: Run `cargo t -p ori_registry` (integrity), then `cargo t -p oric` (cross-phase enforcement)
+10. Implement handlers in each consuming crate
 
-## Adding a New Builtin Method
+## Adding a New Method
 
-1. **`ori_registry`**: Add `MethodDef` entry to the type's `methods` slice in `defs/<type>.rs`
-   - Keep methods **sorted alphabetically** (enforced by `registry_methods_sorted_per_type` test)
-   - All 10 `MethodDef` fields required (no defaults)
-2. **Enforcement tests guide you**: Run `cargo t -p oric` — failing tests show which phases need handlers:
-   - `every_registry_method_has_typeck_handler` — add handler in `ori_types`
-   - `every_registry_method_has_eval_handler` — add handler in `ori_eval` (or add to `METHODS_NOT_YET_IN_EVAL` temporarily)
-   - LLVM coverage tracked by `builtin_coverage_above_threshold`
-3. **ARC ownership**: If `receiver: Ownership::Borrow`, verify `every_registry_borrowing_method_in_arc_set` passes
-4. **Tests**: `cargo t -p ori_registry && cargo t -p oric`
+Add a `MethodDef` to the type's `METHODS` slice. **Must be sorted alphabetically** — `methods_sorted_by_name` test enforces this.
 
-## Adding a New Field to TypeDef/MethodDef
+Use convenience constructors:
+- `MethodDef::primitive(name, params, returns, trait_name, receiver)` — pure, backend_required, instance, no DEI
+- `MethodDef::compound(name, params, returns, trait_name, receiver, backend_required)` — configurable backend_required
+- `MethodDef::associated(name, params, returns)` — factory function, backend_required: false
+- `MethodDef::associated_backend(name, params, returns)` — factory function, backend_required: true
 
-1. Add the field to the struct in `ori_registry`
-2. Compilation fails in every `defs/*.rs` file — fill in each one
-3. Update consuming phases that read the field
-4. Add enforcement test if the field has cross-phase implications
+Common param patterns: `&[]` (no params), `&ONE_SELF_COPY`, `&ONE_SELF_BORROW`, `&ONE_SELF_OWNED`, `&TWO_SELF_COPY`. Custom params via `&[ParamDef { name, ty, ownership }]`.
 
-## Enforcement Architecture
+Copy types: receiver must be `Ownership::Borrow` (enforced by `all_receivers_documented` test).
 
-| Test | What It Catches | Location |
-|------|-----------------|----------|
-| `_enforce_type_tag_exhaustiveness()` | New TypeTag variant (compile-time) | 4 consuming crates |
-| `every_registry_method_has_typeck_handler` | Missing typeck handler | `oric/eval/tests/methods/consistency.rs` |
-| `every_registry_method_has_eval_handler` | Missing eval handler | `oric/eval/tests/methods/consistency.rs` |
-| `registry_op_strategies_cover_all_operators` | Missing LLVM operator handler | `ori_llvm/builtins/tests.rs` |
-| `every_registry_borrowing_method_in_arc_set` | Missing ARC borrow annotation | `oric/eval/tests/methods/consistency.rs` |
-| `backend_required_methods_fully_implemented` | Incomplete backend support | `oric/eval/tests/methods/consistency.rs` |
-| `no_duplicate_methods` | Copy-paste errors | `ori_registry/defs/tests.rs` |
-| `registry_methods_sorted_per_type` | Unsorted methods | `oric/eval/tests/methods/consistency.rs` |
-| `purity_cargo_toml_has_no_dependencies` | Dependency creep | `ori_registry/tests.rs` |
+## Sync Points
 
-## Key Files
-- `compiler/ori_registry/src/lib.rs` — crate root, query functions
-- `compiler/ori_registry/src/defs/` — type definitions (one file per type or group)
-- `compiler/ori_registry/src/tags/mod.rs` — TypeTag, Ownership, OpStrategy enums
-- `compiler/ori_registry/src/method/mod.rs` — MethodDef, ParamDef structs
-- `compiler/ori_registry/src/query/mod.rs` — query functions
-- `compiler/ori_registry/src/defs/tests.rs` — registry-level integrity tests
-- `compiler/oric/src/eval/tests/methods/consistency.rs` — cross-phase enforcement tests
+When you add/change a method with `backend_required: true`:
+1. **ori_types** — type checker method resolution (`infer/expr/methods/`)
+2. **ori_eval** — evaluator method dispatch (`methods/`)
+3. **ori_llvm** — LLVM codegen (`codegen/arc_emitter/builtins/`)
+4. **ori_arc** — borrow inference (if ownership semantics change)
 
-## Consumer Discipline — Query, Don't Copy
+Enforcement tests in each consuming crate verify coverage against the registry. A new `backend_required: true` method causes test failures until all backends implement it.
 
-The registry exists so that consuming crates **never need to hardcode builtin type knowledge**. Every violation of this principle is a **LEAK:scattered-knowledge** finding.
+## Tests to Run
 
-**Consumers MUST:**
-- Query `find_type()` / `find_method()` for type capabilities — never hardcode "str has method split"
-- Read `MethodDef` fields (receiver ownership, purity, params) — never re-derive them
-- Use `OpDefs` / `OpStrategy` for operator dispatch — never build parallel operator tables
-- Use `TypeTag` exhaustive matches for type dispatch — the compiler enforces completeness
+```bash
+# Registry integrity (sorted, no duplicates, purity, operator consistency)
+cargo test -p ori_registry
 
-**Consumers MUST NOT:**
-- Maintain local lookup tables that mirror registry data (e.g., a `HashMap<&str, ReturnType>` for method return types)
-- Hardcode type-specific behavior with `if tag == TypeTag::Str { ... }` when the registry already encodes the distinction (e.g., memory strategy, method availability)
-- Re-derive method signatures, parameter counts, or return types that `MethodDef` already specifies
-- Add `match TypeTag { ... }` arms that encode behavioral knowledge instead of querying the registry for it
+# Cross-phase enforcement tests (in oric)
+cargo test -p oric -- consistency
 
-**The litmus test**: if a consuming crate's match arm would need updating because a *builtin's behavior* changed (not because the *consumer's handling* changed), the consumer has leaked registry knowledge. The fix is to query the registry and dispatch on its answer.
+# LLVM builtin coverage + sync tests
+cargo test -p ori_llvm -- builtins
 
-**Acceptable type-specific dispatch**: Consumers legitimately need per-type *implementation* logic — e.g., `ori_eval` needs different code to evaluate `str.split()` vs `list.push()`. That's implementation dispatch (HOW), not behavioral knowledge (WHAT). The registry tells you WHAT methods exist and their signatures; the consumer implements HOW to execute them.
+# ARC borrow set sync tests
+cargo test -p ori_arc -- builtins
 
-## Purity Contract
-- Zero `[dependencies]` in Cargo.toml (test enforced)
-- All `TypeDef` constants are `const`-constructible (test enforced)
-- Core enums (`TypeTag`, `Ownership`, `OpStrategy`) are `Copy` (test enforced)
-- No IO, no allocation, no side effects, no `unsafe`
+# Full suite (always after registry changes)
+./test-all.sh
+```
+
+## Invariants
+
+- **Zero dependencies** — `Cargo.toml` has empty `[dependencies]` (enforced by `purity_cargo_toml_has_no_dependencies`)
+- **No unsafe** — scanned and enforced by `purity_no_unsafe_code`
+- **No heap types** — no `String`, `Vec`, `Box`, `Arc`, `HashMap` in source (enforced by `purity_no_heap_allocation_types`)
+- **No `&mut` in public API** — enforced by `purity_no_mutable_api`
+- **Methods sorted alphabetically** per TypeDef (enforced by `methods_sorted_by_name`)
+- **Every TypeTag has a TypeDef** except `Unit`, `Never`, `Function`, `DoubleEndedIterator` (enforced by `all_type_tags_present`)

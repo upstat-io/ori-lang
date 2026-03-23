@@ -318,7 +318,7 @@ fn rehash_set_preserves_entries() {
         }
 
         let new_cap = next_hash_capacity(elems.len() * 2);
-        let new_data = rehash_set(old_data, old_cap, new_cap, 8, i64_hash);
+        let new_data = rehash_set(old_data, old_cap, new_cap, 8, i64_hash, None);
         assert_eq!(count_occupied(new_data, new_cap), elems.len());
 
         let new_layout = HashTableLayout::for_set(new_cap, 8);

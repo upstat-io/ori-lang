@@ -51,9 +51,9 @@ This means closures compose naturally with Ori's value semantics — copying a c
 
 ### Capture Analysis in ARC IR
 
-Capture analysis happens during ARC lowering (in `ori_arc`), not during LLVM emission. The `ArcLowerer`'s `collect_captures` method walks the lambda body recursively, identifying free variables — identifiers that are used but not bound as lambda parameters. Each capture is recorded with its name, ARC variable ID, and type.
+Capture analysis happens during AIMS lowering (in `ori_arc`), not during LLVM emission. The `ArcLowerer`'s `collect_captures` method walks the lambda body recursively, identifying free variables — identifiers that are used but not bound as lambda parameters. Each capture is recorded with its name, ARC variable ID, and type.
 
-This early capture analysis means the ARC pipeline can reason about closure captures the same way it reasons about any other value: a captured list that is only read can be borrowed, a captured string gets an `RcInc` when the closure is created and an `RcDec` when it is destroyed. The LLVM backend never performs its own capture analysis — it receives pre-analyzed `PartialApply` instructions from the ARC IR.
+This early capture analysis means the AIMS pipeline can reason about closure captures the same way it reasons about any other value: a captured list that is only read can be borrowed, a captured string gets an `RcInc` when the closure is created and an `RcDec` when it is destroyed. The LLVM backend never performs its own capture analysis — it receives pre-analyzed `PartialApply` instructions from the ARC IR.
 
 ## Representation
 
@@ -183,7 +183,7 @@ Captures become the first parameters of the lambda's `ArcFunction` in the ARC IR
 
 **Value capture vs. reference capture.** Ori captures by value — each closure gets its own copy of captured variables. Go and Swift default to reference capture — the closure and the outer scope share the variable. Reference capture is more flexible (the closure can observe later mutations to the captured variable) but introduces aliasing, lifetime issues, and potential race conditions. Value capture aligns with Ori's value semantics: there is no shared mutable state, closures are self-contained, and captured values cannot be invalidated by changes in the outer scope.
 
-**Always heap-allocate vs. escape analysis.** Ori heap-allocates every capturing closure's environment. Swift performs escape analysis to determine whether a closure can be stack-allocated (non-escaping closures avoid heap allocation entirely). Escape analysis would be a significant optimization for Ori — closures passed to `map`, `filter`, and `fold` are almost never escaping — but it adds complexity to the type system and ARC pipeline. This is a future optimization opportunity.
+**Always heap-allocate vs. escape analysis.** Ori heap-allocates every capturing closure's environment. Swift performs escape analysis to determine whether a closure can be stack-allocated (non-escaping closures avoid heap allocation entirely). Escape analysis would be a significant optimization for Ori — closures passed to `map`, `filter`, and `fold` are almost never escaping — but it adds complexity to the type system and AIMS pipeline. This is a future optimization opportunity.
 
 **Drop function per closure vs. type metadata.** Ori generates a unique drop function for each closure's capture set. An alternative — storing type metadata in the environment and using a generic drop routine — would reduce code size but add runtime interpretation overhead. The per-closure approach produces slightly larger binaries but keeps drop-time overhead at a minimum (a sequence of GEPs and RC decrements, no metadata interpretation).
 

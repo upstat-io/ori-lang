@@ -41,8 +41,8 @@ class TestJourney1EndToEnd:
 
     def test_attribute_compliance(self):
         m = extract_metrics(_load_journey1_ir(), eval_exit=33, aot_exit=33, expected=33)
-        assert m["attr_applicable"] == 13
-        assert m["attr_correct"] == 12
+        assert m["attr_applicable"] == 10
+        assert m["attr_correct"] == 9
         assert m["attr_has_wrong"] is False
 
     def test_control_flow(self):

@@ -5,9 +5,10 @@
 
 use std::ptr;
 
+use super::state::assert_elem_size;
 use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
 
-// ── Collect ─────────────────────────────────────────────────────────────
+// Collect
 
 /// Collect all remaining elements into a new list.
 ///
@@ -15,8 +16,17 @@ use super::{FoldFn, ForEachFn, IterState, PredicateFn, MAX_ELEM_SIZE};
 /// to the caller-provided `out_ptr` (sret pattern to avoid >16 byte return).
 ///
 /// `elem_size` is the byte size of each element.
+/// `elem_inc_fn` increments child RCs of each copied element. Required because
+/// the iterator's Drop will fire `elem_dec_fn` on the source buffer — without
+/// `RcInc`, both source and collected buffer share children with only one RC.
 #[no_mangle]
-pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut u8) {
+pub extern "C" fn ori_iter_collect(
+    iter: *mut u8,
+    elem_size: i64,
+    elem_inc_fn: Option<extern "C" fn(*mut u8)>,
+    out_ptr: *mut u8,
+) {
+    assert_elem_size(elem_size, "ori_iter_collect");
     if iter.is_null() || out_ptr.is_null() {
         // Write empty list
         if !out_ptr.is_null() {
@@ -49,9 +59,20 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
             cap = new_cap;
         }
         unsafe {
-            ptr::copy_nonoverlapping(elem_buf.as_ptr(), data.add(len * es), es);
+            let dst = data.add(len * es);
+            ptr::copy_nonoverlapping(elem_buf.as_ptr(), dst, es);
+            // Increment child RCs so collected element survives iterator Drop
+            if let Some(inc) = elem_inc_fn {
+                inc(dst);
+            }
         }
         len += 1;
+    }
+
+    // Store elem_count in the new buffer's header (codegen stores elem_dec_fn
+    // after the collect call returns — it's an LLVM-generated thunk)
+    if !data.is_null() {
+        unsafe { crate::rc::store_elem_count(data, len as i64) };
     }
 
     // Write OriList { len, cap, data } to out_ptr
@@ -65,7 +86,7 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
-// ── Collect Set ─────────────────────────────────────────────────────────
+// Collect Set
 
 /// Collect all remaining elements into a new hash table set.
 ///
@@ -73,12 +94,16 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
 /// Returns a set `{ len: i64, cap: i64, data: *mut u8 }` by writing
 /// to the caller-provided `out_ptr` (sret pattern). Duplicates are
 /// skipped — only the first occurrence is kept.
+///
+/// `elem_inc_fn` increments child RCs of each inserted element. Required
+/// because the iterator's Drop fires `elem_dec_fn` on the source buffer.
 #[no_mangle]
 pub extern "C" fn ori_iter_collect_set(
     iter: *mut u8,
     elem_size: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     elem_hash: extern "C" fn(*const u8) -> i64,
+    elem_inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     use crate::map::hash_table::{
@@ -86,6 +111,7 @@ pub extern "C" fn ori_iter_collect_set(
         HashTableLayout, META_OCCUPIED,
     };
     use crate::set::{alloc_set_hash_buffer, write_set_struct};
+    assert_elem_size(elem_size, "ori_iter_collect_set");
 
     if iter.is_null() || out_ptr.is_null() {
         if !out_ptr.is_null() {
@@ -99,7 +125,8 @@ pub extern "C" fn ori_iter_collect_set(
 
     let mut cap = next_hash_capacity(0);
     let mut len: usize = 0;
-    let mut data = alloc_set_hash_buffer(cap, es);
+    // elem_dec_fn stored by codegen after collect returns (LLVM-generated thunk)
+    let mut data = alloc_set_hash_buffer(cap, es, None);
 
     let mut elem_buf = [0u8; MAX_ELEM_SIZE];
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
@@ -126,7 +153,9 @@ pub extern "C" fn ori_iter_collect_set(
         // Rehash if load factor exceeded
         if needs_rehash(len + 1, cap) {
             let new_cap = cap * 2;
-            let new_data = unsafe { rehash_set(data, cap, new_cap, es, elem_hash) };
+            // Read elem_dec_fn from old buffer (may be None if codegen hasn't stored yet)
+            let old_dec = unsafe { crate::rc::load_elem_dec_fn(data) };
+            let new_data = unsafe { rehash_set(data, cap, new_cap, es, elem_hash, old_dec) };
             crate::ori_rc_free(data, layout.total_size, 8);
             data = new_data;
             cap = new_cap;
@@ -139,6 +168,10 @@ pub extern "C" fn ori_iter_collect_set(
             let dst = data.add(layout.keys_offset + bucket * es);
             ptr::copy_nonoverlapping(elem_buf.as_ptr(), dst, es);
             set_meta(data, bucket, META_OCCUPIED);
+            // Increment child RCs so collected element survives iterator Drop
+            if let Some(inc) = elem_inc_fn {
+                inc(dst);
+            }
         }
         len += 1;
     }
@@ -147,11 +180,12 @@ pub extern "C" fn ori_iter_collect_set(
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
-// ── Count ───────────────────────────────────────────────────────────────
+// Count
 
 /// Count the remaining elements in the iterator, consuming it.
 #[no_mangle]
 pub extern "C" fn ori_iter_count(iter: *mut u8, elem_size: i64) -> i64 {
+    assert_elem_size(elem_size, "ori_iter_count");
     if iter.is_null() {
         return 0;
     }
@@ -168,7 +202,7 @@ pub extern "C" fn ori_iter_count(iter: *mut u8, elem_size: i64) -> i64 {
     count
 }
 
-// ── Any ─────────────────────────────────────────────────────────────────
+// Any
 
 /// Test if any element satisfies the predicate, consuming the iterator.
 ///
@@ -180,6 +214,7 @@ pub extern "C" fn ori_iter_any(
     pred_env: *mut u8,
     elem_size: i64,
 ) -> i8 {
+    assert_elem_size(elem_size, "ori_iter_any");
     if iter.is_null() {
         return 0;
     }
@@ -200,7 +235,7 @@ pub extern "C" fn ori_iter_any(
     i8::from(result)
 }
 
-// ── All ─────────────────────────────────────────────────────────────────
+// All
 
 /// Test if all elements satisfy the predicate, consuming the iterator.
 ///
@@ -212,6 +247,7 @@ pub extern "C" fn ori_iter_all(
     pred_env: *mut u8,
     elem_size: i64,
 ) -> i8 {
+    assert_elem_size(elem_size, "ori_iter_all");
     if iter.is_null() {
         return 1; // vacuously true for empty
     }
@@ -232,7 +268,7 @@ pub extern "C" fn ori_iter_all(
     i8::from(result)
 }
 
-// ── Find ────────────────────────────────────────────────────────────────
+// Find
 
 /// Find the first element satisfying the predicate, consuming the iterator.
 ///
@@ -248,6 +284,7 @@ pub extern "C" fn ori_iter_find(
     elem_size: i64,
     out_ptr: *mut u8,
 ) {
+    assert_elem_size(elem_size, "ori_iter_find");
     if out_ptr.is_null() {
         if !iter.is_null() {
             drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
@@ -287,7 +324,7 @@ pub extern "C" fn ori_iter_find(
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
-// ── For Each ────────────────────────────────────────────────────────────
+// For Each
 
 /// Apply a function to each element, consuming the iterator.
 ///
@@ -299,6 +336,7 @@ pub extern "C" fn ori_iter_for_each(
     each_env: *mut u8,
     elem_size: i64,
 ) {
+    assert_elem_size(elem_size, "ori_iter_for_each");
     if iter.is_null() {
         return;
     }
@@ -313,7 +351,7 @@ pub extern "C" fn ori_iter_for_each(
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
-// ── Fold ────────────────────────────────────────────────────────────────
+// Fold
 
 /// Fold (reduce) the iterator with an accumulator, consuming it.
 ///
@@ -330,6 +368,8 @@ pub extern "C" fn ori_iter_fold(
     acc_size: i64,
     out_ptr: *mut u8,
 ) {
+    assert_elem_size(elem_size, "ori_iter_fold");
+    assert_elem_size(acc_size, "ori_iter_fold(acc)");
     if out_ptr.is_null() {
         if !iter.is_null() {
             drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });

@@ -106,7 +106,9 @@ pub(crate) use rc::{check_leaks_enabled, RC_LIVE_COUNT};
 #[cfg(all(test, debug_assertions))]
 pub(crate) use rc::{freed_set, rt_debug_check_not_freed};
 #[cfg(test)]
-pub(crate) use rc::{rc_trace_enabled, rt_debug_validate_rc, MAX_REFCOUNT, RT_DEBUG_FORCE};
+pub(crate) use rc::{rc_trace_enabled, MAX_REFCOUNT};
+#[cfg(all(test, debug_assertions))]
+pub(crate) use rc::{rt_debug_validate_rc, RT_DEBUG_FORCE};
 
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::Ordering;
@@ -328,6 +330,12 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
         unsafe { elements.add(i).write(element) };
     }
 
+    // Store elem_count in the RC header so slice-based cleanup knows the
+    // element count. elem_dec_fn is deferred — the LLVM-generated str thunk
+    // will be stored by the first ori_buffer_rc_dec via store_elem_dec_fn_once.
+    // SAFETY: data was just returned by ori_rc_alloc — header offsets are valid.
+    unsafe { rc::store_elem_count(data, count as i64) };
+
     OriList {
         len: count as i64,
         cap: count as i64,
@@ -335,21 +343,52 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
     }
 }
 
-// ── ori_try_call (C implementation, MSVC only) ──────────────────────────
+/// Clean up the `[str]` buffer created by `ori_args_from_argv`.
+///
+/// Frees each heap string's data buffer, then frees the list buffer.
+/// Called by the main wrapper after `_ori_main` returns. The strings
+/// have refcount 1 (unique — created by `ori_args_from_argv`, passed
+/// by reference to `_ori_main` which does not increment).
+#[no_mangle]
+pub extern "C" fn ori_args_cleanup(data: *mut u8, len: i64) {
+    if data.is_null() || len <= 0 {
+        return;
+    }
+    let count = len as usize;
+    let elements = data.cast::<string::OriStr>();
+    for i in 0..count {
+        // SAFETY: elements[i] is within the allocated array (len <= capacity)
+        let s = unsafe { &*elements.add(i) };
+        if !s.is_sso() {
+            let heap = unsafe { s.heap };
+            if !heap.data.is_null() {
+                rc::ori_rc_free(heap.data, heap.cap as usize, 8);
+            }
+        }
+    }
+    let alloc_size = count * std::mem::size_of::<string::OriStr>();
+    rc::ori_rc_free(data, alloc_size, std::mem::align_of::<string::OriStr>());
+}
+
+// ── ori_try_call (C++ implementation, MSVC only) ────────────────────────
 //
-// On MSVC, ori_try_call is implemented in eh_personality.c using __try/__except.
+// On MSVC, ori_try_call is implemented in eh_personality_msvc.cpp using
+// C++ try/catch(OriPanicException&). Thunks are `C-unwind` because the
+// C++ exception from ori_raise_exception must propagate through them.
 // On Itanium, catch(expr:) uses LLVM invoke/landingpad directly.
 
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
 extern "C" {
-    fn ori_try_call(thunk: unsafe extern "C" fn(*mut u8), ctx: *mut u8) -> i64;
+    fn ori_try_call(thunk: unsafe extern "C-unwind" fn(*mut u8), ctx: *mut u8) -> i64;
 }
 
 /// Thunk adapter for `ori_run_main` → `ori_try_call`.
 ///
 /// Casts the context pointer back to a function pointer and calls it.
+/// `C-unwind` allows the C++ exception from `ori_raise_exception` to
+/// propagate through this thunk into `ori_try_call`'s catch handler.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
-unsafe extern "C" fn run_main_thunk(ctx: *mut u8) {
+unsafe extern "C-unwind" fn run_main_thunk(ctx: *mut u8) {
     let main_fn: extern "C" fn() = unsafe { std::mem::transmute(ctx) };
     main_fn();
 }
@@ -361,8 +400,8 @@ unsafe extern "C" fn run_main_thunk(ctx: *mut u8) {
 /// `ori_run_main` is not used on Itanium — the LLVM-generated `main()`
 /// wrapper calls `@main` directly.
 ///
-/// On Windows MSVC: delegates to the C `ori_try_call` which uses
-/// `__try`/`__except` to catch Ori's custom SEH exception.
+/// On Windows MSVC: delegates to the C++ `ori_try_call` which uses
+/// `try`/`catch(OriPanicException&)` to catch Ori panics.
 ///
 /// Exit codes:
 /// - **0**: success
@@ -407,6 +446,15 @@ fn check_leaks_and_exit() -> i32 {
         }
     }
     0
+}
+
+/// AOT-callable leak check — called from the LLVM-generated `main()` wrapper.
+///
+/// Returns 0 if no leaks (or `ORI_CHECK_LEAKS` not set), 2 if leaks detected.
+/// The `main` wrapper uses this to override the exit code when leaks are found.
+#[no_mangle]
+pub extern "C" fn ori_check_leaks() -> i32 {
+    check_leaks_and_exit()
 }
 
 #[cfg(test)]

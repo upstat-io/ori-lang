@@ -26,7 +26,11 @@ NOALIAS_RETURN_FUNCTIONS = frozenset({"ori_rc_alloc"})
 MUST_NOT_BE_NOUNWIND = frozenset({"ori_panic_cstr", "ori_panic"})
 
 # Indirect call detection (closures, function pointers)
-_INDIRECT_CALL_RE = re.compile(r'(?:call|invoke)\b[^@]*%\w+\s*\(')
+# LLVM register names can contain dots (e.g., %closure.fn_ptr), so use [\w.]+ not \w+
+_INDIRECT_CALL_RE = re.compile(r'(?:call|invoke)\b[^@]*%[\w.]+\s*\(')
+
+# Extract callee name from call/invoke: @name (possibly quoted)
+_CALLEE_RE = re.compile(r'@"?([\w.$]+)"?\s*\(')
 
 
 # ---------------------------------------------------------------------------
@@ -77,10 +81,43 @@ def _is_closure_function(func: Function) -> bool:
     - Name contains "$lambda" or "$closure" or "$partial"
     - Function body contains indirect calls (call/invoke through %reg)
     """
-    name_hints = ("$lambda", "$closure", "$partial")
+    # Both $ and __ prefixed forms: Ori uses __lambda/__partial,
+    # other compilers may use $lambda/$partial
+    name_hints = ("$lambda", "$closure", "$partial",
+                  "__lambda", "__closure", "_partial_")
     if any(hint in func.name for hint in name_hints):
         return True
     return _has_indirect_calls(func)
+
+
+def _all_callees_nounwind(func: Function, module: Module) -> bool:
+    """True if every call/invoke target in this function is nounwind.
+
+    Used for non-leaf functions: if the compiler proved all callees nounwind
+    (via two-pass fixed-point analysis), the function itself should be nounwind.
+    Returns True for functions with no call/invoke instructions.
+    """
+    for block in func.blocks:
+        for instr in block.instructions:
+            if instr.opcode not in ("call", "invoke"):
+                continue
+            # Indirect calls (closures) — can't determine nounwind
+            if _INDIRECT_CALL_RE.search(instr.text):
+                return False
+            m = _CALLEE_RE.search(instr.text)
+            if not m:
+                continue
+            callee_name = m.group(1)
+            # LLVM intrinsics are always nounwind
+            if callee_name.startswith("llvm."):
+                continue
+            callee = module.functions.get(f"@{callee_name}")
+            if callee is None:
+                # Try quoted form
+                callee = module.functions.get(f'@"{callee_name}"')
+            if callee and "nounwind" not in callee.attributes:
+                return False
+    return True
 
 
 def _is_leaf_function(func: Function, module: Module) -> bool:
@@ -114,30 +151,52 @@ def _is_attr_present(func: Function, attr: str) -> bool:
 
 
 # Each rule: (attr_name, applicable_when, description)
-# The applicable_when function takes (func, is_closure) -> bool.
+# The applicable_when function takes (func, is_closure, is_leaf) -> bool.
+def _is_trampoline_or_wrapper(func: Function) -> bool:
+    """Trampolines (_ori_tramp_N) and closure wrappers (_ori_partial_N) use C
+    calling convention by design — they bridge Ori closures to C ABI for the
+    runtime. They should NOT be expected to have fastcc."""
+    return (func.name.startswith("_ori_tramp_")
+            or func.name.startswith("_ori_partial_"))
+
+
+def _is_fn_ptr_called(func: Function) -> bool:
+    """Functions called via function pointer (not direct call) need C ABI.
+
+    elem_dec functions are passed as function pointers to iterator/buffer
+    cleanup functions. They MUST use C calling convention.
+    Drop functions are already excluded via is_user_function.
+    """
+    return "_ori_elem_dec$" in func.name
+
+
 _ATTRIBUTE_RULES: list[tuple[str, callable, str]] = [
     ("fastcc",
-     lambda f, c: f.is_user_function and not f.is_entry_called and not c,
-     "Internal user function (not entry-called, not closure)"),
+     lambda f, c, l: (f.is_user_function and not f.is_entry_called
+                       and not c and not _is_trampoline_or_wrapper(f)
+                       and not _is_fn_ptr_called(f)),
+     "Internal user function (not entry-called, not closure, not trampoline, not fn-ptr-called)"),
 
+    # nounwind: handled specially in compute_attribute_metrics() because it
+    # needs module-level callee lookup. Placeholder here for ordering.
     ("nounwind",
-     lambda f, c: f.is_definition and not c,
-     "Defined functions without indirect calls"),
+     lambda f, c, l: False,  # overridden per-function below
+     "Leaf functions or non-leaf with all-nounwind callees"),
 
     ("uwtable",
-     lambda f, c: f.is_definition and f.raw_name != "@main",
+     lambda f, c, l: f.is_definition and f.raw_name != "@main",
      "User-defined functions (not @main wrapper)"),
 
     ("noundef",
-     lambda f, c: f.is_definition and f.return_type != "void",
+     lambda f, c, l: f.is_definition and f.return_type != "void",
      "Non-void return type (Ori values are always defined)"),
 
     ("noreturn",
-     lambda f, c: f.is_runtime_decl and f.name in NORETURN_FUNCTIONS,
+     lambda f, c, l: f.is_runtime_decl and f.name in NORETURN_FUNCTIONS,
      "Functions that never return (panic/abort)"),
 
     ("cold",
-     lambda f, c: f.is_runtime_decl and f.name in COLD_FUNCTIONS,
+     lambda f, c, l: f.is_runtime_decl and f.name in COLD_FUNCTIONS,
      "Error/panic path functions"),
 ]
 
@@ -187,10 +246,24 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
     for func in functions_to_check:
         checks: list[AttributeCheck] = []
         is_closure = _is_closure_function(func)
+        is_leaf = _is_leaf_function(func, module)
         reason = "closure (indirect calls)" if is_closure else None
 
         for attr, applicable_fn, desc in _ATTRIBUTE_RULES:
-            applicable = applicable_fn(func, is_closure)
+            if attr == "nounwind":
+                # nounwind needs module-level callee lookup.
+                # Applicable if: definition, not @main, not closure, AND
+                # all callees (including runtime) are nounwind.
+                # This subsumes the old leaf-only check: leaf functions have
+                # no calls, so all callees are vacuously nounwind.
+                applicable = (
+                    func.is_definition
+                    and func.raw_name != "@main"
+                    and not is_closure
+                    and _all_callees_nounwind(func, module)
+                )
+            else:
+                applicable = applicable_fn(func, is_closure, is_leaf)
             present = _is_attr_present(func, attr)
 
             if applicable:
@@ -206,7 +279,11 @@ def compute_attribute_metrics(module: Module) -> AttributeMetrics:
         # Per-parameter noundef
         for i, pattrs in enumerate(func.param_attributes):
             ptype = func.param_types[i] if i < len(func.param_types) else "?"
-            applicable = func.is_definition and ptype not in ("void",)
+            # sret params are output pointers, not input values — noundef
+            # doesn't apply (the pointer itself is valid, but the pointee
+            # is uninitialized output space, not an input value to check).
+            is_sret = "sret" in pattrs
+            applicable = func.is_definition and ptype not in ("void",) and not is_sret
             present = "noundef" in pattrs
 
             if applicable:

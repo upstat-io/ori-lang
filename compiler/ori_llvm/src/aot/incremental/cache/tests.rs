@@ -1,14 +1,11 @@
 use super::*;
-use std::env;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 fn temp_cache_dir() -> PathBuf {
-    let dir = env::temp_dir().join(format!(
-        "ori_cache_test_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let pid = std::process::id();
+    let dir = std::env::temp_dir().join(format!("ori_cache_test_{pid}_{id}"));
     fs::create_dir_all(&dir).unwrap();
     dir
 }

@@ -5,6 +5,7 @@
 //! that bridge the closure calling convention to the lambda's flat convention.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
+use ori_arc::ownership::Ownership;
 use ori_ir::Name;
 use ori_types::Idx;
 
@@ -82,11 +83,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Remaining user params (the closure awaits these)
         let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..].to_vec();
 
+        // Capture ownership: which captures are borrowed (skip RC dec in drop fn).
+        let capture_ownership: Vec<Ownership> = self
+            .ctx
+            .lambda_capture_ownership
+            .get(&callee)
+            .cloned()
+            .unwrap_or_else(|| vec![Ownership::Owned; num_captures]);
+
         // == Allocate and pack the environment ==
         let env_ptr = if capture_types.is_empty() {
             self.builder.const_null_ptr()
         } else {
-            self.build_closure_env(args, &capture_types)
+            self.build_closure_env(args, &capture_types, &capture_ownership)
         };
 
         // == Generate wrapper function ==
@@ -95,6 +104,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             callee_func_id,
             &callee_abi,
             &capture_types,
+            &capture_ownership,
             &remaining_params,
             target_is_nounwind,
         );
@@ -111,7 +121,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Layout: `{ ptr drop_fn, cap_0_ty, cap_1_ty, ... }`
     /// Allocated via `ori_rc_alloc` (RC-tracked heap memory).
-    fn build_closure_env(&mut self, capture_vars: &[ArcVarId], capture_types: &[Idx]) -> ValueId {
+    fn build_closure_env(
+        &mut self,
+        capture_vars: &[ArcVarId],
+        capture_types: &[Idx],
+        capture_ownership: &[Ownership],
+    ) -> ValueId {
         // Build env struct type: { drop_fn: ptr, cap_0, cap_1, ... }
         let ptr_llvm = self.builder.scx().type_ptr().into();
         let mut env_fields: Vec<inkwell::types::BasicTypeEnum<'_>> = vec![ptr_llvm];
@@ -136,8 +151,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .emit_rt_call(rc_alloc_func, &[size_val, align_val], "env.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
 
-        // Generate drop function for this environment
-        let drop_fn_id = self.generate_env_drop_fn(env_struct_ty_id, capture_types, env_size);
+        // Generate drop function for this environment.
+        // Pass capture ownership so borrowed captures are NOT RC-dec'd.
+        let drop_fn_id =
+            self.generate_env_drop_fn(env_struct_ty_id, capture_types, capture_ownership, env_size);
         let drop_fn_ptr = self.builder.get_function_ptr(drop_fn_id);
 
         // Store drop_fn at field 0
@@ -173,6 +190,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         env_struct_ty_id: LLVMTypeId,
         capture_types: &[Idx],
+        _capture_ownership: &[Ownership],
         env_size: u64,
     ) -> FunctionId {
         let partial_id = self.partial_apply_counter;
@@ -189,6 +207,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.set_ccc(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
+        self.builder.add_uwtable_attribute(func_id);
+        // noundef on data pointer param — Ori never passes poison pointers.
+        self.builder.add_noundef_param_attribute(func_id, 0);
 
         // Generate body
         let entry = self.builder.append_block(func_id, "entry");
@@ -197,13 +218,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let data_ptr = self.builder.get_param(func_id, 0);
 
-        // RC dec each captured variable that needs it
+        // RC dec each captured variable that needs it.
+        //
+        // The env struct physically owns each capture (it was copied into
+        // the env by build_closure_env). The drop function must dec all
+        // RC-needing captures regardless of the lambda's borrow annotation —
+        // the annotation controls the lambda BODY's treatment, not env ownership.
+        //
+        // Collections (List, Set, Map) need special handling: their drop
+        // functions expect a pointer to the full `{len, cap, data}` struct,
+        // but `ori_rc_dec` only passes the raw data buffer pointer. Use
+        // the buffer RC dec helpers instead, which extract len/cap/data
+        // from the full value and call the appropriate runtime function.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "capture count bounded by lambda arity, well within u32 range"
         )]
         for (i, &cap_ty) in capture_types.iter().enumerate() {
-            // Check if this capture type needs RC management
             let needs_rc = self.classifier.needs_rc(cap_ty);
             if needs_rc {
                 let field_ty = self.resolve_type(cap_ty);
@@ -214,11 +245,53 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     &format!("cap.{i}.ptr"),
                 );
                 let field_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
-                let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
-                let drop_fn = self.get_or_generate_drop_fn(cap_ty);
-                let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
-                for data_ptr_val in data_ptrs {
-                    self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
+
+                let resolved = self.pool.resolve_fully(cap_ty);
+                let tag = self.pool.tag(resolved);
+                match tag {
+                    ori_types::Tag::List | ori_types::Tag::Set => {
+                        self.emit_buffer_rc_dec_list_or_set(field_val, resolved, tag);
+                    }
+                    ori_types::Tag::Map => {
+                        self.emit_buffer_rc_dec_map(field_val, resolved);
+                    }
+                    ori_types::Tag::Function => {
+                        // Closure: { fn_ptr, env_ptr } — extract env_ptr,
+                        // null-check, load dynamic drop_fn from env header.
+                        if let Some(env_ptr) =
+                            self.builder
+                                .extract_value(field_val, 1, &format!("cap.{i}.env"))
+                        {
+                            if !self.builder.is_const_null_ptr(env_ptr) {
+                                let is_null =
+                                    self.builder.is_null_ptr(env_ptr, &format!("cap.{i}.null"));
+                                let do_dec =
+                                    self.builder.append_block(func_id, &format!("cap.{i}.dec"));
+                                let skip_blk =
+                                    self.builder.append_block(func_id, &format!("cap.{i}.skip"));
+                                self.builder.cond_br(is_null, skip_blk, do_dec);
+
+                                self.builder.position_at_end(do_dec);
+                                let ptr_ty = self.builder.ptr_type();
+                                let drop_fn_val =
+                                    self.builder
+                                        .load(ptr_ty, env_ptr, &format!("cap.{i}.drop_fn"));
+                                let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
+                                self.builder.call(rc_dec_id, &[env_ptr, drop_fn_val], "");
+                                self.builder.br(skip_blk);
+
+                                self.builder.position_at_end(skip_blk);
+                            }
+                        }
+                    }
+                    _ => {
+                        let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
+                        let drop_fn = self.get_or_generate_drop_fn(cap_ty);
+                        let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
+                        for data_ptr_val in data_ptrs {
+                            self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
+                        }
+                    }
                 }
             }
         }
@@ -262,6 +335,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         callee_func_id: FunctionId,
         callee_abi: &FunctionAbi,
         capture_types: &[Idx],
+        capture_ownership: &[Ownership],
         remaining_params: &[ParamAbi],
         target_is_nounwind: bool,
     ) -> ValueId {
@@ -273,9 +347,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
 
-        // Build wrapper parameter types: ptr %env + remaining user params
+        // Determine return type and sret mode
         let ptr_ty = self.builder.ptr_type();
-        let mut wrapper_param_types = Vec::with_capacity(1 + remaining_params.len());
+        let ret_ty = self.resolve_type(callee_abi.return_abi.ty);
+        let has_sret = matches!(callee_abi.return_abi.passing, ReturnPassing::Sret { .. });
+        let is_void = matches!(callee_abi.return_abi.passing, ReturnPassing::Void);
+
+        // Build wrapper parameter types.
+        // When has_sret: [ptr sret_out, ptr env, user_params...]
+        // Otherwise:     [ptr env, user_params...]
+        let mut wrapper_param_types =
+            Vec::with_capacity(usize::from(has_sret) + 1 + remaining_params.len());
+        if has_sret {
+            wrapper_param_types.push(ptr_ty); // sret output pointer
+        }
         wrapper_param_types.push(ptr_ty); // env_ptr
         for param in remaining_params {
             match &param.passing {
@@ -290,17 +375,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        // Determine return type
-        let ret_ty = self.resolve_type(callee_abi.return_abi.ty);
-        let has_sret = matches!(callee_abi.return_abi.passing, ReturnPassing::Sret { .. });
-        let is_void = matches!(callee_abi.return_abi.passing, ReturnPassing::Void);
-
         // Declare wrapper function.
-        // When the callee uses sret (large return), the wrapper still returns
-        // the struct directly — it bridges from the callee's sret convention
-        // to a direct return for indirect callers. LLVM's codegen will lower
-        // the wrapper's `ret` to sret at the ABI level if needed.
-        let wrapper_func_id = if is_void {
+        // When has_sret, the wrapper uses explicit sret on its first parameter
+        // (matching the lambda's ABI). This is critical on ARM64 where sret
+        // goes in X8 — the trampoline's indirect call must agree with both the
+        // wrapper and the lambda on sret placement.
+        let wrapper_func_id = if is_void || has_sret {
             self.builder
                 .declare_void_function(&wrapper_name, &wrapper_param_types)
         } else {
@@ -308,8 +388,30 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .declare_function(&wrapper_name, &wrapper_param_types, ret_ty)
         };
         self.builder.set_ccc(wrapper_func_id);
+        self.builder.add_uwtable_attribute(wrapper_func_id);
         if target_is_nounwind {
             self.builder.add_nounwind_attribute(wrapper_func_id);
+        }
+
+        // Add sret + noalias attributes on the sret parameter.
+        if has_sret {
+            self.builder.add_sret_attribute(wrapper_func_id, 0, ret_ty);
+            self.builder.add_noalias_attribute(wrapper_func_id, 0);
+        }
+
+        // noundef on return value — Ori values are always defined.
+        if !is_void && !has_sret {
+            self.builder.add_noundef_return_attribute(wrapper_func_id);
+        }
+
+        // noundef on all params — sret, env pointer, and user params are always defined.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "wrapper params bounded by lambda arity, well within u32 range"
+        )]
+        for i in 0..wrapper_param_types.len() {
+            self.builder
+                .add_noundef_param_attribute(wrapper_func_id, i as u32);
         }
 
         // Generate wrapper body
@@ -317,7 +419,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(entry);
         self.builder.set_current_function(wrapper_func_id);
 
-        let env_ptr_val = self.builder.get_param(wrapper_func_id, 0);
+        // When has_sret: param 0 = sret_out, param 1 = env_ptr
+        // Otherwise:     param 0 = env_ptr
+        let env_param_idx: u32 = u32::from(has_sret);
+        let env_ptr_val = self.builder.get_param(wrapper_func_id, env_param_idx);
+
+        // Set current_function to wrapper so inc_value_rc creates blocks
+        // in the right function (it uses self.current_function for append_block).
+        let saved_current_function = self.current_function;
+        self.current_function = wrapper_func_id;
 
         // Build env struct type for GEP (same layout as build_closure_env)
         let ptr_llvm = self.builder.scx().type_ptr().into();
@@ -331,14 +441,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Unpack captures from env struct (fields 1..N)
         let mut callee_args = Vec::with_capacity(callee_abi.params.len());
 
-        // Handle sret: if callee uses sret, allocate a temp and pass it first
-        let sret_alloca = if has_sret {
-            let alloca = self.builder.alloca(ret_ty, "sret.tmp");
-            callee_args.push(alloca);
-            Some(alloca)
-        } else {
-            None
-        };
+        // Handle sret: pass the wrapper's sret parameter through to the callee.
+        if has_sret {
+            let sret_out = self.builder.get_param(wrapper_func_id, 0);
+            callee_args.push(sret_out);
+        }
 
         #[expect(
             clippy::cast_possible_truncation,
@@ -357,19 +464,43 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Note: callee_abi.params does NOT include sret (sret is in return_abi),
             // so params[i] directly maps to the i-th capture parameter.
             let param_passing = callee_abi.params.get(i).map(|p| &p.passing);
+            // When the callee takes this capture as OWNED and the capture
+            // is RC-tracked, emit RcInc. The env drop function will dec
+            // the env's copy, and the lambda (or its downstream closures)
+            // will eventually dec the passed copy. Without this inc, nested
+            // closures cause double-free: both the outer env drop and the
+            // inner env drop dec the same refcount.
+            let ownership = capture_ownership
+                .get(i)
+                .copied()
+                .unwrap_or(Ownership::Owned);
+            let needs_inc = ownership == Ownership::Owned && self.classifier.needs_rc(cap_ty);
+
             if matches!(
                 param_passing,
                 Some(ParamPassing::Indirect { .. } | ParamPassing::Reference)
             ) {
+                // Reference passing: load value for RcInc, then pass pointer.
+                if needs_inc {
+                    let loaded = self
+                        .builder
+                        .load(field_ty, field_ptr, &format!("cap.{i}.inc"));
+                    self.inc_value_rc(loaded, cap_ty, 1);
+                }
                 callee_args.push(field_ptr);
             } else {
                 let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
+                if needs_inc {
+                    self.inc_value_rc(cap_val, cap_ty, 1);
+                }
                 callee_args.push(cap_val);
             }
         }
 
-        // Forward remaining user params (wrapper params 1..N)
-        let mut wrapper_param_idx: u32 = 1; // 0 = env_ptr
+        // Forward remaining user params.
+        // When has_sret: params start at 2 (0=sret, 1=env)
+        // Otherwise: params start at 1 (0=env)
+        let mut wrapper_param_idx: u32 = env_param_idx + 1;
         for param in remaining_params {
             if param.passing != ParamPassing::Void {
                 let user_val = self.builder.get_param(wrapper_func_id, wrapper_param_idx);
@@ -383,14 +514,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Emit return
         if has_sret {
-            if let Some(alloca) = sret_alloca {
-                // Load from sret alloca and return... but wrapper is void for sret.
-                // Actually, the wrapper itself is called indirectly via ccc.
-                // ApplyIndirect doesn't use sret — it uses direct returns.
-                // So the wrapper must load from sret and return directly.
-                let loaded = self.builder.load(ret_ty, alloca, "sret.load");
-                self.builder.ret(loaded);
-            }
+            // Result was written through sret pointer — return void.
+            self.builder.ret_void();
         } else if is_void {
             self.builder.ret_void();
         } else if let Some(val) = result {
@@ -400,7 +525,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.ret(zero);
         }
 
-        // Restore builder position
+        // Restore builder position and emitter's current_function
+        self.current_function = saved_current_function;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);

@@ -1,7 +1,7 @@
 //! Phi nodes, type registration, block/function management for `IrBuilder`.
 
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue};
+use inkwell::values::{AsValueRef, BasicValue, BasicValueEnum, FunctionValue};
 
 use super::IrBuilder;
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
@@ -210,6 +210,62 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     /// Get the inkwell `FunctionValue` for any function ID.
     pub fn get_function_value(&self, id: FunctionId) -> FunctionValue<'ctx> {
         self.arena.get_function(id)
+    }
+
+    /// Check if a function is provably nounwind at the LLVM IR level.
+    ///
+    /// A function is nounwind if ALL its call/invoke targets are nounwind.
+    /// This is stricter than just checking for `invoke` — a `call` to a
+    /// non-nounwind function (e.g., `ori_panic`) means the exception can
+    /// propagate through the caller, making the caller NOT nounwind.
+    ///
+    /// Used by the post-hoc nounwind pass to retroactively add `nounwind`
+    /// to functions compiled before the two-pass analysis.
+    pub fn function_has_no_invoke(&self, id: FunctionId) -> bool {
+        use inkwell::attributes::{Attribute, AttributeLoc};
+        use inkwell::values::InstructionOpcode;
+
+        let nounwind_kind = Attribute::get_named_enum_kind_id("nounwind");
+        let func = self.arena.get_function(id);
+
+        for block in func.get_basic_blocks() {
+            for instr in block.get_instructions() {
+                let opcode = instr.get_opcode();
+                if opcode != InstructionOpcode::Call && opcode != InstructionOpcode::Invoke {
+                    continue;
+                }
+
+                // Use LLVM FFI to get the called function value directly.
+                // SAFETY: instr is a valid call/invoke instruction.
+                let called_val =
+                    unsafe { llvm_sys::core::LLVMGetCalledValue(instr.as_value_ref()) };
+                if called_val.is_null() {
+                    // Indirect call — conservatively may-unwind
+                    return false;
+                }
+
+                // Check if the called value is a function (not asm/intrinsic)
+                let is_function = unsafe { llvm_sys::core::LLVMIsAFunction(called_val) };
+                if is_function.is_null() {
+                    // Not a function (e.g., inline asm) — skip
+                    continue;
+                }
+
+                // Reconstruct FunctionValue to check its attributes
+                // SAFETY: is_function confirmed this is a function value
+                let callee_fn: inkwell::values::FunctionValue<'_> = unsafe {
+                    inkwell::values::FunctionValue::new(called_val)
+                        .expect("LLVMIsAFunction confirmed non-null function")
+                };
+                if callee_fn
+                    .get_enum_attribute(AttributeLoc::Function, nounwind_kind)
+                    .is_none()
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     /// Get a function parameter as a `ValueId`.

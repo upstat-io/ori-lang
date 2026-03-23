@@ -30,6 +30,14 @@ paths:
 ## Workspace Lints (deny level)
 `unsafe_code` (except `ori_rt`), `dead_code`, `unused`, `clippy::unwrap_used`, `clippy::expect_used`, `clippy::todo`, `clippy::unimplemented`, `clippy::dbg_macro`
 
+## Feature Flags
+
+| Feature | Crate | Purpose |
+|---------|-------|---------|
+| `cache` | `ori_arc` | Serialization support for incremental compilation cache |
+
+- The ARC pipeline always uses AIMS (no feature flag needed)
+
 ## Key Files
 - `Cargo.toml` — workspace config
 - `.cargo/config.toml` — aliases, LLVM path

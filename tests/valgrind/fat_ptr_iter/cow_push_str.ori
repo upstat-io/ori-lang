@@ -1,0 +1,20 @@
+// Valgrind: [str] COW push on shared list — verifies elem_dec_fn propagation
+@main () -> int = {
+    let original = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "another very long string that also exceeds the SSO threshold"
+    ];
+    let shared = original;
+    shared = shared.push(value: "third long string for good measure in the test programs here");
+    let total_orig = 0;
+    for w in original do {
+        total_orig += w.len();
+    };
+    let total_shared = 0;
+    for w in shared do {
+        total_shared += w.len();
+    };
+    if total_orig == 119 then {
+        if total_shared == 179 then 0 else 1
+    } else 1
+}

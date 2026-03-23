@@ -273,13 +273,13 @@ type Queue<T> = { items: [T] }
 
 @test_queue_basic tests @queue_basic () -> void = {
     let q = empty_queue();
-    let q = enqueue(q: q, item: 1);
-    let q = enqueue(q: q, item: 2);
-    let q = enqueue(q: q, item: 3);
+    let q = enqueue(q:, item: 1);
+    let q = enqueue(q:, item: 2);
+    let q = enqueue(q:, item: 3);
 
-    let (v1, q) = dequeue(q: q);
-    let (v2, q) = dequeue(q: q);
-    let (v3, _q) = dequeue(q: q);
+    let (v1, q) = dequeue(q:);
+    let (v2, q) = dequeue(q:);
+    let (v3, _q) = dequeue(q:);
 
     assert_eq(actual: v1, expected: Some(1));
     assert_eq(actual: v2, expected: Some(2));
@@ -288,18 +288,18 @@ type Queue<T> = { items: [T] }
 
 @queue_basic () -> Queue<int> = {
     let q = empty_queue();
-    enqueue(q: q, item: 42)
+    enqueue(q:, item: 42)
 }
 
 @test_queue_empty_dequeue tests @queue_empty_dequeue () -> void = {
     let q: Queue<int> = empty_queue();
-    let (v, _) = dequeue(q: q);
+    let (v, _) = dequeue(q:);
     assert_eq(actual: v, expected: None)
 }
 
 @queue_empty_dequeue () -> Option<int> = {
     let q: Queue<int> = empty_queue();
-    let (v, _) = dequeue(q: q);
+    let (v, _) = dequeue(q:);
     v
 }
 
@@ -335,7 +335,7 @@ type BoundedBuffer<T> = { items: [T], capacity: int }
 
 @make_buffer<T> (capacity: int) -> BoundedBuffer<T> = BoundedBuffer {
     items: [],
-    capacity: capacity,
+    capacity,
 }
 
 @buffer_push<T> (buf: BoundedBuffer<T>, item: T) -> (bool, BoundedBuffer<T>) = {
@@ -352,16 +352,16 @@ type BoundedBuffer<T> = { items: [T], capacity: int }
 
 @test_bounded_buffer tests @bounded_buffer () -> void = {
     let buf = make_buffer(capacity: 2);
-    let (ok1, buf) = buffer_push(buf: buf, item: 1);
-    let (ok2, buf) = buffer_push(buf: buf, item: 2);
-    let (ok3, buf) = buffer_push(buf: buf, item: 3);  // Should fail
+    let (ok1, buf) = buffer_push(buf:, item: 1);
+    let (ok2, buf) = buffer_push(buf:, item: 2);
+    let (ok3, buf) = buffer_push(buf:, item: 3);  // Should fail
 
     assert(cond: ok1);
     assert(cond: ok2);
     assert(cond: !ok3);
 
-    let (v1, buf) = buffer_pop(buf: buf);
-    let (v2, _) = buffer_pop(buf: buf);
+    let (v1, buf) = buffer_pop(buf:);
+    let (v2, _) = buffer_pop(buf:);
 
     assert_eq(actual: v1, expected: Some(1));
     assert_eq(actual: v2, expected: Some(2))

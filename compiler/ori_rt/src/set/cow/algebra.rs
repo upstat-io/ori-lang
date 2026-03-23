@@ -1,4 +1,7 @@
 //! COW set algebra: union, intersection, and difference.
+//!
+//! All functions propagate `elem_dec_fn` from old buffer V5 RC headers
+//! to new buffers via `alloc_set_hash_buffer` / `rehash_set`.
 
 use crate::map::hash_table::{
     get_meta, needs_rehash, next_hash_capacity, probe_find_slot, rehash_set, set_meta,
@@ -9,6 +12,36 @@ use crate::rc::{ori_rc_dec, ori_rc_free, ori_rc_is_unique};
 use crate::set::{alloc_set_hash_buffer, hash_set_contains, write_set_struct};
 
 use super::inc_copied_set_elements;
+
+/// Release a set buffer that the caller is done with.
+///
+/// **Unique (rc=1)**: Dec all occupied elements via `elem_dec_fn` from the
+/// V5 RC header, then free the buffer. Safe because no other references exist.
+///
+/// **Shared (rc>1)**: Just decrement the buffer refcount. Element cleanup
+/// happens when the last owner drops the buffer through the codegen scope-drop
+/// path. We must NOT dec elements here — other references still point to them.
+fn release_set_buffer(d1: *mut u8, cap: usize, es: usize, is_unique: bool) {
+    if d1.is_null() {
+        return;
+    }
+    if is_unique {
+        // Last owner — dec elements before freeing
+        let elem_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
+        if let Some(dec) = elem_dec {
+            let layout = HashTableLayout::for_set(cap, es);
+            for b in 0..cap {
+                if unsafe { get_meta(d1, b) } == META_OCCUPIED {
+                    dec(unsafe { d1.add(layout.keys_offset + b * es) });
+                }
+            }
+        }
+        let layout = HashTableLayout::for_set(cap, es);
+        ori_rc_free(d1, layout.total_size, 8);
+    } else {
+        ori_rc_dec(d1, None);
+    }
+}
 
 /// Rehash `d1` into a new buffer of `new_cap`, then insert all elements from
 /// `d2` that are not already in `d1`. Increments RC for each copied element.
@@ -28,7 +61,8 @@ fn rehash_and_merge_set2(
     elem_hash: extern "C" fn(*const u8) -> i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
-    let new_data = unsafe { rehash_set(d1, cap1, new_cap, es, elem_hash) };
+    let old_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
+    let new_data = unsafe { rehash_set(d1, cap1, new_cap, es, elem_hash, old_dec) };
     let new_layout = HashTableLayout::for_set(new_cap, es);
     for b in 0..cap2 {
         if unsafe { get_meta(d2, b) } != META_OCCUPIED {
@@ -65,7 +99,7 @@ pub extern "C" fn ori_set_union_cow(
     l2: i64,
     c2: i64,
     elem_size: i64,
-    elem_align: i64,
+    _elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     elem_hash: extern "C" fn(*const u8) -> i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
@@ -77,7 +111,6 @@ pub extern "C" fn ori_set_union_cow(
     }
 
     let es = elem_size.max(1) as usize;
-    let _ea = elem_align.max(1) as usize;
     let n1 = l1.max(0) as usize;
     let n2 = l2.max(0) as usize;
     let cap1 = c1.max(0) as usize;
@@ -92,7 +125,8 @@ pub extern "C" fn ori_set_union_cow(
     // set1 empty → copy set2
     if n1 == 0 || d1.is_null() {
         let new_cap = next_hash_capacity(n2);
-        let new_data = unsafe { rehash_set(d2, cap2, new_cap, es, elem_hash) };
+        let old_dec = unsafe { crate::rc::load_elem_dec_fn_const(d2.cast()) };
+        let new_data = unsafe { rehash_set(d2, cap2, new_cap, es, elem_hash, old_dec) };
         let new_layout = HashTableLayout::for_set(new_cap, es);
         if let Some(inc) = inc_fn {
             for b in 0..new_cap {
@@ -101,7 +135,7 @@ pub extern "C" fn ori_set_union_cow(
                 }
             }
         }
-        ori_rc_dec(d1, None);
+        release_set_buffer(d1, cap1, es, ori_rc_is_unique(d1));
         write_set_struct(out_ptr, n2 as i64, new_cap as i64, new_data);
         return;
     }
@@ -141,8 +175,13 @@ pub extern "C" fn ori_set_union_cow(
             let h = elem_hash(elem);
             let slot = unsafe { probe_find_slot(d1, cap1, h) };
             unsafe {
-                std::ptr::copy_nonoverlapping(elem, d1.add(layout1.keys_offset + slot * es), es);
+                let dst = d1.add(layout1.keys_offset + slot * es);
+                std::ptr::copy_nonoverlapping(elem, dst, es);
                 set_meta(d1, slot, META_OCCUPIED);
+                // Inc RC — element borrowed from set2, buffer copy needs own ref
+                if let Some(inc) = inc_fn {
+                    inc(dst);
+                }
             }
         }
         write_set_struct(out_ptr, result_len as i64, c1, d1);
@@ -155,13 +194,8 @@ pub extern "C" fn ori_set_union_cow(
         d1, cap1, d2, cap2, layout2, new_cap, es, elem_eq, elem_hash, inc_fn,
     );
 
-    // Release d1: free if unique (RC=1), decrement if shared (RC>1)
-    if is_unique {
-        let old_layout = HashTableLayout::for_set(cap1, es);
-        ori_rc_free(d1, old_layout.total_size, 8);
-    } else {
-        ori_rc_dec(d1, None);
-    }
+    // Release d1: dec elements and free/dec buffer
+    release_set_buffer(d1, cap1, es, is_unique);
     write_set_struct(out_ptr, result_len as i64, new_cap as i64, new_data);
 }
 
@@ -177,7 +211,7 @@ pub extern "C" fn ori_set_intersection_cow(
     l2: i64,
     c2: i64,
     elem_size: i64,
-    elem_align: i64,
+    _elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     elem_hash: extern "C" fn(*const u8) -> i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
@@ -189,7 +223,6 @@ pub extern "C" fn ori_set_intersection_cow(
     }
 
     let es = elem_size.max(1) as usize;
-    let _ea = elem_align.max(1) as usize;
     let n1 = l1.max(0) as usize;
     let n2 = l2.max(0) as usize;
     let cap1 = c1.max(0) as usize;
@@ -202,6 +235,15 @@ pub extern "C" fn ori_set_intersection_cow(
         if !d1.is_null() {
             let layout = HashTableLayout::for_set(cap1, es);
             if d1_is_unique {
+                // Dec each element's RC children before freeing (fat-pointer cleanup)
+                let elem_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
+                if let Some(dec) = elem_dec {
+                    for b in 0..cap1 {
+                        if unsafe { get_meta(d1, b) } == META_OCCUPIED {
+                            dec(unsafe { d1.add(layout.keys_offset + b * es) });
+                        }
+                    }
+                }
                 ori_rc_free(d1, layout.total_size, 8);
             } else {
                 ori_rc_dec(d1, None);
@@ -211,9 +253,10 @@ pub extern "C" fn ori_set_intersection_cow(
         return;
     }
 
-    // FAST PATH: unique — tombstone elements not in set2
+    // FAST PATH: unique — dec filtered elements, then tombstone
     if d1_is_unique {
         let layout1 = HashTableLayout::for_set(cap1, es);
+        let elem_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
         let mut result_len = 0usize;
         for b in 0..cap1 {
             if unsafe { get_meta(d1, b) } != META_OCCUPIED {
@@ -223,6 +266,10 @@ pub extern "C" fn ori_set_intersection_cow(
             if hash_set_contains(d2, cap2, es, elem, elem_eq, elem_hash) {
                 result_len += 1;
             } else {
+                // Dec RC children before tombstoning — tombstones skip cleanup
+                if let Some(dec) = elem_dec {
+                    dec(unsafe { d1.add(layout1.keys_offset + b * es) });
+                }
                 unsafe { set_meta(d1, b, crate::map::hash_table::META_TOMBSTONE) };
             }
         }
@@ -257,7 +304,8 @@ pub extern "C" fn ori_set_intersection_cow(
     }
 
     let new_cap = next_hash_capacity(result_len);
-    let new_data = alloc_set_hash_buffer(new_cap, es);
+    let old_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
+    let new_data = alloc_set_hash_buffer(new_cap, es, old_dec);
     let new_layout = HashTableLayout::for_set(new_cap, es);
 
     for b in 0..cap1 {
@@ -297,7 +345,7 @@ pub extern "C" fn ori_set_difference_cow(
     l2: i64,
     c2: i64,
     elem_size: i64,
-    elem_align: i64,
+    _elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     elem_hash: extern "C" fn(*const u8) -> i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
@@ -309,7 +357,6 @@ pub extern "C" fn ori_set_difference_cow(
     }
 
     let es = elem_size.max(1) as usize;
-    let _ea = elem_align.max(1) as usize;
     let n1 = l1.max(0) as usize;
     let n2 = l2.max(0) as usize;
     let cap1 = c1.max(0) as usize;
@@ -317,7 +364,9 @@ pub extern "C" fn ori_set_difference_cow(
 
     // set1 empty → result is empty
     if n1 == 0 || d1.is_null() {
-        ori_rc_dec(d1, None);
+        if !d1.is_null() {
+            release_set_buffer(d1, cap1, es, ori_rc_is_unique(d1));
+        }
         write_set_struct(out_ptr, 0, 0, std::ptr::null_mut());
         return;
     }
@@ -330,9 +379,10 @@ pub extern "C" fn ori_set_difference_cow(
 
     let is_unique = cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(d1));
 
-    // FAST PATH: unique — tombstone elements in set2
+    // FAST PATH: unique — dec filtered elements, then tombstone
     if is_unique {
         let layout1 = HashTableLayout::for_set(cap1, es);
+        let elem_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
         let mut result_len = n1;
         for b in 0..cap1 {
             if unsafe { get_meta(d1, b) } != META_OCCUPIED {
@@ -340,6 +390,10 @@ pub extern "C" fn ori_set_difference_cow(
             }
             let elem = unsafe { d1.add(layout1.keys_offset + b * es) };
             if hash_set_contains(d2, cap2, es, elem, elem_eq, elem_hash) {
+                // Dec RC children before tombstoning — tombstones skip cleanup
+                if let Some(dec) = elem_dec {
+                    dec(unsafe { d1.add(layout1.keys_offset + b * es) });
+                }
                 unsafe { set_meta(d1, b, crate::map::hash_table::META_TOMBSTONE) };
                 result_len -= 1;
             }
@@ -374,7 +428,8 @@ pub extern "C" fn ori_set_difference_cow(
     }
 
     let new_cap = next_hash_capacity(result_len);
-    let new_data = alloc_set_hash_buffer(new_cap, es);
+    let old_dec = unsafe { crate::rc::load_elem_dec_fn(d1) };
+    let new_data = alloc_set_hash_buffer(new_cap, es, old_dec);
     let new_layout = HashTableLayout::for_set(new_cap, es);
 
     for b in 0..cap1 {

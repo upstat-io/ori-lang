@@ -64,13 +64,21 @@ def extract_phi_values(text: str) -> list[str]:
 def is_redundant_unconditional_branch(
     block: BasicBlock, next_block: BasicBlock | None
 ) -> bool:
-    """True if block ends with `br label %X` where X is the next block.
+    """True if block is EMPTY (only a `br label %X`) and X is the next block.
 
-    This is a fall-through jump that serves no purpose.
+    A non-empty block's `br label %next` is a mandatory LLVM terminator
+    (LLVM has no implicit fall-through), not a defect. Only truly empty
+    blocks with a branch to the next block are redundant — they could be
+    eliminated by redirecting predecessors.
     """
     if not block.instructions:
         return False
-    last = block.instructions[-1]
+    # Only count truly empty blocks — single instruction = the terminator.
+    # Non-empty blocks need their terminator; it's not redundant.
+    non_phi = [i for i in block.instructions if i.opcode != 'phi']
+    if len(non_phi) != 1:
+        return False
+    last = non_phi[0]
     if last.opcode != 'br':
         return False
     # Must be unconditional (no i1 condition)

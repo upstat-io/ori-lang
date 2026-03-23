@@ -1,7 +1,7 @@
 ---
 name: code-journey
 description: Walk through the compiler as a piece of code, tracing both eval and LLVM paths to find issues
-argument-hint: "[code-description | file.ori | --summary | --infinity]"
+argument-hint: "[file.ori | --add N | --summary | --infinity]"
 ---
 
 # Code Journey
@@ -9,6 +9,12 @@ argument-hint: "[code-description | file.ori | --summary | --infinity]"
 **You are a piece of Ori code.** You journey through the compiler, experiencing every transformation from source text to final result. You take **two independent paths** — the eval (interpreter) path and the LLVM (AOT) path — and record exactly what happens to you at each stage. The goal: find issues — inefficiencies, boundary problems, performance issues, architecture gaps, memory concerns, behavioral mismatches.
 
 **LLVM codegen receives the deepest scrutiny.** The generated IR must be as close to hand-written optimal LLVM IR as possible. Every redundant instruction, every missing attribute, every suboptimal ARC operation, every unnecessary allocation is a finding. The standard is: **could a human write better IR for this code?** If yes, that's a finding.
+
+## CRITICAL: Scenario Preservation
+
+**NEVER rewrite, modify, or delete existing `.ori` journey files.** Existing scenarios are permanent regression fixtures. You run them as-is. If an existing scenario produces different results than its results file records, that's a regression finding — not a reason to update the scenario.
+
+**Only create NEW scenarios when explicitly asked** (via `--add` or `--infinity`). New scenarios fill gaps — they test situations not covered by existing journeys.
 
 ## CRITICAL: Schema Compliance
 
@@ -23,7 +29,7 @@ argument-hint: "[code-description | file.ori | --summary | --infinity]"
 ## CRITICAL: Context Conservation
 
 Each journey's analysis and results writing is delegated to a **background Task agent**. The main agent's job is:
-1. Create the journey code
+1. Identify which journey to run
 2. Run the commands (redirecting output to temp files)
 3. Spawn a background agent to analyze and write results
 4. Immediately move to the next journey
@@ -33,12 +39,13 @@ Each journey's analysis and results writing is delegated to a **background Task 
 ## Usage
 
 ```
-/code-journey                     # Run ONE journey (auto-pick next feature area), then stop
-/code-journey closures             # Run ONE journey focusing on closures, then stop
-/code-journey path/to/file.ori     # Run ONE journey with existing code, then stop
-/code-journey --summary            # Show journey gallery data (scan all frontmatter)
-/code-journey --infinity           # Loop through journeys continuously until termination condition
-/code-journey closures --infinity  # Start with closures, then keep going
+/code-journey                       # Run ALL existing journeys (re-analyze with current compiler)
+/code-journey 18-string-builder.ori  # Run ONE specific existing journey
+/code-journey plans/code-journeys/18-string-builder.ori  # Same, full path also works
+/code-journey --add 3               # Add 3 NEW scenarios (gap-filling), then run them
+/code-journey --add                  # Add 1 new scenario, then run it
+/code-journey --summary              # Show journey gallery data (scan all frontmatter)
+/code-journey --infinity             # Add 5 new scenarios, run them, add 5 more, repeat until termination
 ```
 
 ## Journey Directory
@@ -52,65 +59,55 @@ Skill definition files live in `.claude/skills/code-journey/`:
 - `SCHEMA.md` — format specification (single source of truth)
 - `score.py` — deterministic scoring script
 
-- `overview.md` — cross-journey summary (generated after all journeys complete)
-
 ---
 
 ## Execution Loop
 
-### Step 0: Determine Journey Number and Code
+### Step 0: Build the Run List
 
 **Scan existing journeys:**
 
 ```bash
+ls plans/code-journeys/*.ori 2>/dev/null | sort -V
 ls plans/code-journeys/*-results.md 2>/dev/null | sort -V
 ```
 
-Count completed journeys to determine the next number N.
+This gives you all existing scenarios and which ones have results files.
 
-**Parse arguments:**
+**Parse arguments and build the run list:**
 
-Check if `$ARGUMENTS` contains `--infinity`. If so, set **INFINITY_MODE = true** and strip `--infinity` from the arguments before further parsing. Otherwise, **INFINITY_MODE = false** (the default — run ONE journey and stop).
+- **If argument is a `.ori` file path** (e.g., `18-string-builder.ori` or `plans/code-journeys/18-string-builder.ori`): Run that ONE existing journey. Do NOT create new scenarios.
 
-**Choose or create code** (using the remaining arguments after stripping `--infinity`):
+- **If argument is `--summary`**: Scan all `*-results.md` frontmatter and display a summary table. Stop.
 
-- **If arguments contain a `.ori` file path**: Use that file as-is. Copy it to `plans/code-journeys/NN-slug.ori`.
-- **If arguments contain a description** (e.g., "closures", "pattern matching"): Create code targeting those features.
-- **If arguments are `--summary`**: Scan all `*-results.md` frontmatter and display a summary table. Stop.
-- **If no arguments** (or only `--infinity` was provided): Auto-pick by scanning existing journey frontmatter `features` fields to find untested feature areas from the controlled vocabulary in SCHEMA.md.
+- **If argument is `--add N`** (or `--add` without N, defaults to 1): Create N new scenarios first (see "Adding New Scenarios" below), then run them. Existing scenarios are NOT re-run.
 
-**Complexity Escalation — Organic, Not Hardcoded:**
+- **If argument is `--infinity`**: Set **INFINITY_MODE = true**. Add 5 new scenarios, run them. Then add 5 more, run them. Repeat until the termination condition is met (see Step 4).
 
-Start simple. Each journey adds ONE new language feature category on top of what previous journeys covered. Read existing journey frontmatter `features` to see what's been tested, then pick the next untested feature area. Progression ideas (not a fixed list — adapt based on what you find):
+- **If no arguments**: Run ALL existing `.ori` journeys that need re-analysis. A journey needs re-analysis if its `.ori` file exists. Results files are always regenerated (the compiler may have changed since the last run).
 
-- Bare literals, arithmetic, `let` bindings
-- Function calls, multiple functions
-- Branching, comparisons, if/else
-- Recursion
-- Structs, field access, nested structs
-- Closures, lambdas, higher-order functions
-- Pattern matching, `match`, destructuring, sum types
-- Loops, ranges, break/continue
-- Generics, type inference, monomorphization
-- Strings, ARC, string methods
-- Lists, list methods, COW
-- Derived traits (`Eq`, `Clone`, etc.)
-- `Option`/`Result`, `?` propagation
-- Iterators, iterator adapters
-- Maps, sets, nested collections
+### Adding New Scenarios (only when `--add` or `--infinity`)
 
-**The key rule: each journey should exercise features NOT covered by previous journeys.**
+**NEVER modify existing `.ori` files.** Only create new ones.
 
-**Code design principles:**
-- Each journey should produce a deterministic `int` result via `@main () -> int`
-- Include standardized header comments (see SCHEMA.md Source File Format)
-- Include a comment with the expected result calculation (e.g., `// Expected: (3+4)*5+1 = 36`)
-- Keep code small (< 30 lines) — focused on specific features, not comprehensive
-- When a feature area fails, try a DIFFERENT feature area before giving up
-- Pick a slug from the feature focus (e.g., `closures`, `pattern-matching`, `generics`)
-- Assign difficulty: `simple` (J1-4), `moderate` (J5-8), `complex` (J9+)
+1. **Scan existing journey frontmatter** — read `features` fields from all existing `*-results.md` to see what's already covered.
 
-Write the code to `plans/code-journeys/NN-slug.ori`.
+2. **Identify gaps** — find feature areas, patterns, and complexity levels NOT covered by existing journeys. Use the controlled vocabulary from SCHEMA.md. Consider:
+   - Feature areas: arithmetic, strings, lists, closures, generics, iterators, pattern matching, structs, loops, maps, sets, derived traits, Option/Result, etc.
+   - Patterns: simple expressions, nested calls, loops with heap reassignment, recursive structures, ownership transfer chains, COW mutations, etc.
+   - Complexity: ensure a mix of simple (< 10 lines, 1-2 features) and complex (20-30 lines, 3+ features interacting)
+
+3. **Create gap-filling scenarios** — each new journey should test a situation NOT covered by any existing journey. Design principles:
+   - Each journey produces a deterministic `int` result via `@main () -> int`
+   - Include standardized header comments (see SCHEMA.md Source File Format)
+   - Include a comment with the expected result calculation
+   - Keep code small (< 30 lines) — focused on specific features, not comprehensive
+   - Pick a slug from the feature focus (e.g., `closures`, `pattern-matching`, `generics`)
+   - Assign difficulty: `simple`, `moderate`, or `complex`
+
+4. **Number sequentially** — scan existing `.ori` files, find the highest number, add 1. Write to `plans/code-journeys/NN-slug.ori`.
+
+5. **When a feature area fails to compile**: Try a DIFFERENT feature area. Do NOT get stuck on one broken area.
 
 ### Step 1: Run Both Paths (Output to Temp Files)
 
@@ -264,32 +261,37 @@ Key format requirements from SCHEMA.md:
 Journey N (slug) complete: eval=[exit_code] aot=[exit_code]
 ```
 
-**If INFINITY_MODE = false (the default):** Stop here. The single journey is complete. The background agent will write the results. Print:
+**If running a single journey** (file path argument or `--add 1`): Stop here. Print:
 
 ```
 Journey N (slug) complete: eval=[exit_code] aot=[exit_code] — results pending in background
 ```
 
-**If INFINITY_MODE = true:** Evaluate whether to continue looping:
+**If running multiple journeys** (no args = all existing, or `--add N` with N > 1): Move to the next journey in the run list. Print ONE status line per journey.
 
-- **STOP** if and only if: **BOTH the eval path AND the LLVM path completely fail** (both crash, both produce wrong results, or the code can't compile at all). A single path failing is NOT grounds for stopping.
-- **If a feature area won't compile**: Try a DIFFERENT feature area. Only stop if you've tried 3+ different feature areas and ALL of them fail on BOTH paths.
+**If INFINITY_MODE = true**: After completing the current batch of 5:
 
-**If continuing** (infinity mode, default behavior): Print ONE status line:
+- **STOP** if: **BOTH the eval path AND the LLVM path completely fail** on a new scenario (both crash, both produce wrong results, or the code can't compile at all). A single path failing is NOT grounds for stopping.
+- **If a feature area won't compile**: Try a DIFFERENT feature area within the same batch. Only stop if you've tried 3+ different feature areas and ALL of them fail on BOTH paths.
+- **If the batch completed**: Add 5 MORE new scenarios (gap-filling), then run those. Repeat.
+
+Print ONE status line per journey:
 
 ```
-Journey N (slug) complete: eval=[exit_code] aot=[exit_code] — next: [feature area]
+Journey N (slug) complete: eval=[exit_code] aot=[exit_code]
 ```
 
-Then loop back to Step 0 for journey N+1. **Do not elaborate. Do not summarize findings. The background agent handles that.**
+After each batch of 5:
 
-**If stopping** (infinity mode, both paths failed): Print a brief termination message, then proceed to Step 5.
+```
+Batch complete (J[first]-J[last]). Adding 5 more...
+```
+
+**Do not elaborate. Do not summarize findings. The background agents handle that.**
 
 ### Step 5: Generate Overview (After All Journeys)
 
-**This step runs ONCE after all journeys are complete** — either after the single journey finishes (if results files from previous journeys also exist), after infinity mode terminates, or after a "redo all" completes.
-
-**Skip this step if**: only 1 results file exists total (a single journey with no history doesn't need an overview).
+**This step runs ONCE after all journeys in the run list are complete — including single-journey runs.**
 
 **Wait for background agents**: Before generating the overview, check that all expected `NN-slug-results.md` files exist. If any are still being written by background agents, wait for their task notifications before proceeding.
 
@@ -615,29 +617,31 @@ Findings from journey-specific categories (Cat 8+) or anything that doesn't fit 
 
 1. **NEVER ask the user anything.** Fully autonomous. No AskUserQuestion, no pauses, no confirmations.
 
-2. **NEVER read trace files into main context.** Trace data goes to temp files → background agent reads them. The main agent only sees exit codes and stdout.
+2. **NEVER modify existing `.ori` journey files.** They are permanent fixtures. Only create new ones when `--add` or `--infinity`.
 
-3. **SCHEMA.md is the law.** (Background agent rule) Read it first. Conform exactly. Frontmatter schema, section order, table schemas, code block tags, severity scale, scoring weights.
+3. **NEVER read trace files into main context.** Trace data goes to temp files → background agent reads them. The main agent only sees exit codes and stdout.
 
-4. **Record EXACT data.** (Background agent rule) No approximations — run commands and capture actual output.
+4. **SCHEMA.md is the law.** (Background agent rule) Read it first. Conform exactly. Frontmatter schema, section order, table schemas, code block tags, severity scale, scoring weights.
 
-5. **Two independent paths.** Eval and LLVM are separate — analyze each independently, compare at the end.
+5. **Record EXACT data.** (Background agent rule) No approximations — run commands and capture actual output.
 
-6. **Silent errors are the worst findings.** If the compiler silently produces wrong code instead of reporting an error, that's always CRITICAL.
+6. **Two independent paths.** Eval and LLVM are separate — analyze each independently, compare at the end.
 
-7. **Clear AOT cache before LLVM traces.** `rm -rf ~/.cache/ori` — otherwise you'll get cached results with no logs.
+7. **Silent errors are the worst findings.** If the compiler silently produces wrong code instead of reporting an error, that's always CRITICAL.
 
-8. **Cross-reference findings.** (Background agent rule) Check previous journey results frontmatter before writing. Mark findings as NEW, CONFIRMED, REGRESSED, or FIXED.
+8. **Clear AOT cache before LLVM traces.** `rm -rf ~/.cache/ori` — otherwise you'll get cached results with no logs.
 
-9. **Main context stays lean.** Between journeys, the main context should contain only: the journey code (~30 lines), exit codes (2 numbers), stdout (2 lines), and a 1-line status. Everything else is in temp files or handled by background agents.
+9. **Cross-reference findings.** (Background agent rule) Check previous journey results frontmatter before writing. Mark findings as NEW, CONFIRMED, REGRESSED, or FIXED.
 
-10. **LLVM scrutiny is non-negotiable.** The background agent MUST perform all 7 core categories. Skipping any is unacceptable. The Optimal IR Comparison (Category 7) is the most important — it makes waste visible by showing what perfection looks like next to reality.
+10. **Main context stays lean.** Between journeys, the main context should contain only: the journey code (~30 lines), exit codes (2 numbers), stdout (2 lines), and a 1-line status. Everything else is in temp files or handled by background agents.
 
-11. **Every instruction must justify its existence.** If an instruction in the emitted IR cannot be justified as necessary for correctness, it is a finding. "LLVM will optimize it away" is NOT a justification — we should not emit it in the first place. Clean input IR → faster compile times, better debug builds, and fewer optimizer-phase surprises.
+11. **LLVM scrutiny is non-negotiable.** The background agent MUST perform all 7 core categories. Skipping any is unacceptable. The Optimal IR Comparison (Category 7) is the most important — it makes waste visible by showing what perfection looks like next to reality.
 
-12. **File naming.** Use `NN-slug` format: `01-arithmetic.ori`, `01-arithmetic-results.md`. Zero-pad to 2 digits.
+12. **Every instruction must justify its existence.** If an instruction in the emitted IR cannot be justified as necessary for correctness, it is a finding. "LLVM will optimize it away" is NOT a justification — we should not emit it in the first place. Clean input IR → faster compile times, better debug builds, and fewer optimizer-phase surprises.
 
-13. **Educational annotations.** Each compiler pipeline phase MUST have a blockquote intro explaining what the phase does, summary metrics, and a `<details>` block with actual output. This is for the interactive web UI.
+13. **File naming.** Use `NN-slug` format: `01-arithmetic.ori`, `01-arithmetic-results.md`. Zero-pad to 2 digits.
+
+14. **Educational annotations.** Each compiler pipeline phase MUST have a blockquote intro explaining what the phase does, summary metrics, and a `<details>` block with actual output. This is for the interactive web UI.
 
 ---
 

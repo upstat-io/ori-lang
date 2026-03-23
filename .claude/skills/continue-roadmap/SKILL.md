@@ -26,6 +26,26 @@ Use `plans/roadmap/index.md` to find sections by keyword. The index contains sea
 
 ## Workflow
 
+### Step -1: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS)
+
+**Before doing ANYTHING else**, use the Read tool to read the ENTIRE CLAUDE.md file — every single line, top to bottom:
+
+```
+Read file: CLAUDE.md
+```
+
+**This is a BLOCKING requirement.** You MUST issue a Read tool call for CLAUDE.md and process every line of the result. Do not skip, skim, summarize, or partially read. Do not assume you already know the contents from earlier in the conversation — the file may have changed. Do not rely on CLAUDE.md content loaded into system context — issue the Read tool call explicitly. The rules in CLAUDE.md govern ALL behavior in this command. Proceed to Step 0 only after reading the complete file via the Read tool.
+
+### Step -1B: Re-read CLAUDE.md Between Tasks (MANDATORY)
+
+**Every time you finish a task and start the next one** (e.g., completing one checklist item and moving to the next, finishing TPR triage and starting implementation, switching between subsections), you MUST re-read CLAUDE.md in full via the Read tool before beginning the new task:
+
+```
+Read file: CLAUDE.md
+```
+
+This is not optional. Context window compression can silently drop CLAUDE.md rules that were loaded earlier. A fresh read ensures every rule is active in your working context. This applies within a single `/continue-roadmap` session — not just at the start.
+
 ### Step 0: Check for Active Reroute
 
 The scanner automatically detects reroutes from `plans/*/index.md` frontmatter. Each plan's `index.md` has:
@@ -90,6 +110,7 @@ The scanner detects frontmatter/body mismatches (`!! MISMATCH` annotations) at b
 4. **`frontmatter=in-progress` but 0 items checked** — Set frontmatter to `not-started`
 5. **Subsection status stale** — Apply the same rules per subsection, then recalculate section status
 6. **Section status stale after subsection fix** — If all subsections are `complete`, set section to `complete`
+7. **TPR consistency** — If `third_party_review.status: findings` but no unchecked TPR items exist, set to `resolved`. If unchecked TPR items exist but `third_party_review.status` is `none` or `resolved`, set to `findings`. If section `status` is `complete` but `third_party_review.status: findings`, set section to `in-progress`.
 
 **When to ask instead of auto-fix:**
 
@@ -100,18 +121,52 @@ After fixing, briefly note what was corrected (e.g., "Fixed stale frontmatter: S
 
 ### Step 1.7: Unreviewed Plan Gate
 
-After the scanner identifies the focus section, **check its frontmatter for `reviewed: false`**. This flag means `/review-plan` has NOT been run on this section — the plan may contain errors, missing steps, or architectural problems.
+After the scanner identifies the focus section, **check its frontmatter for `reviewed: false`**. This flag means the section's assumptions have NOT been validated against the current codebase — earlier section implementations may have changed the landscape.
 
 **If `reviewed: false` is present on the focus section:**
 
 1. **STOP** — do not begin implementation
 2. **Warn the user** via AskUserQuestion:
-   - "Section N has `reviewed: false` — /review-plan has not been run on this section. Implementing an unreviewed plan risks wasted work if the plan has errors."
+   - "Section N has `reviewed: false` — its assumptions haven't been validated against the current codebase (which may have changed during earlier section work). Implementing an unreviewed plan risks wasted work."
    - Options: **Run /review-plan now (Recommended)** | **Proceed anyway** | **Pick a different section**
-3. **If user chooses to review**: Run `/review-plan` on the section, then remove `reviewed: false` from the frontmatter (or set `reviewed: true`) after the review completes
-4. **If user chooses to proceed**: Continue, but note the risk in the summary output
+3. **If user chooses to review**: Run `/review-plan` on the **specific section file** (e.g., `plans/roadmap/section-03.md`). This is a single-section review — the pre-implementation gate. After the review agents confirm accuracy, the section is flipped to `reviewed: true`.
+4. **If user chooses to proceed**: Continue, but note the risk in the summary output. Leave `reviewed: false` — the user accepted the risk but the section is still unvalidated.
 
 **If `reviewed: false` is NOT present** (field absent or `reviewed: true`), proceed normally.
+
+### Step 1.9: Third Party Review Triage Gate
+
+After identifying the focus section, **check its frontmatter for `third_party_review.status: findings`**. This means an external reviewer (e.g. Codex) has recorded unresolved findings in the section's `## {NN}.R Third Party Review Findings` block.
+
+**If `third_party_review.status` is `findings`:**
+
+1. **STOP** — do not begin new implementation work
+2. **Read all unchecked items** in the `## {NN}.R Third Party Review Findings` block
+3. **Triage findings in priority order** (high → medium → low):
+   - For each finding, validate it against the codebase, spec, and current plan
+   - **CRITICAL: You MUST NOT dismiss a TPR finding because it is "not related" to the current plan or work.** Per CLAUDE.md: there is no "unrelated", "pre-existing", or "out of scope." If a TPR finding identifies a real issue in the codebase, it must be accepted and addressed — regardless of whether it falls within the current plan's stated scope. The only valid reason to reject a finding is that it is factually incorrect (the issue does not actually exist).
+   - **Accepted findings**: Add or update concrete implementation tasks in the relevant subsection(s). Mark the review item resolved with a note:
+     ```markdown
+     - [x] `[TPR-02-001][high]` `compiler/oric/src/foo.rs` — Description.
+       Resolved: Validated and integrated into 02.2 and 02.5 on YYYY-MM-DD.
+     ```
+   - **Rejected findings**: Do not delete — mark resolved with rejection rationale. **A finding may ONLY be rejected if it is factually incorrect** (the described issue does not actually exist in the codebase). "Not related to current plan", "out of scope", "pre-existing", and "not our problem" are NOT valid rejection reasons — per CLAUDE.md, there is no "unrelated" or "out of scope":
+     ```markdown
+     - [x] `[TPR-02-002][medium]` `compiler/oric/src/qux.rs` — Description.
+       Resolved: Rejected after validation on YYYY-MM-DD. [Rationale — must explain why the issue does not actually exist].
+     ```
+4. **After all findings are triaged**:
+   - Update `third_party_review.status` to `resolved` (if history exists) or `none`
+   - Update `third_party_review.updated` to today's date
+   - If accepted findings created new `[ ]` items, section `status` stays `in-progress`
+5. **Continue** to normal implementation (Step 2+) only after all open review findings are triaged
+
+**If `third_party_review.status` is `none` or `resolved`**, proceed normally.
+
+**Status rules enforced by this gate:**
+- A section cannot be `complete` while unchecked TPR items exist
+- `third_party_review.status: findings` forces section `status` to `in-progress`
+- All findings must be triaged before any new implementation work begins in that section
 
 ### Step 2: Determine Focus Section
 
@@ -244,6 +299,29 @@ Based on user choice:
 
 ## Implementation Guidelines
 
+### ZERO DEFERRAL — Implement, Don't Document For Later
+
+**If you understand a task well enough to write an implementation plan, you implement it.** Writing a detailed description of how to do the work and moving it to another section/plan IS deferral. The following are ALL banned:
+
+- Labeling an item "requires architectural change" and skipping it — architectural changes are the work, not a reason to avoid the work.
+- Moving items to a different roadmap section "for later" — if the item is in the current section, do it now.
+- Writing "deferred to roadmap X.Y" on an item — the item is HERE, in THIS section.
+- Marking a section complete while unchecked items remain, regardless of how they're annotated.
+- Describing an implementation approach in prose instead of implementing it — if you can write the approach, you can write the code.
+- Labeling items "lower priority" or "bonus" as justification for skipping — every checkbox is equal.
+
+**The ONLY valid reason to not implement an item is if you literally cannot** (missing information that requires user input, blocked on external dependency). In that case, use `AskUserQuestion` immediately — do not silently skip.
+
+### Plan Boundary Integrity
+
+**Fixes must not silently cross section boundaries.** When implementing a task in Section X:
+
+1. **Before modifying code**: Check if the code being modified is referenced by another section's tasks (grep for the file/function name in other section plans)
+2. **If cross-section modification is needed**: Update the other section's plan to reflect the change — add a note, update a checkbox, or add a new item
+3. **After completing a task**: Verify that no changes you made require updates to other sections' plans
+
+**Why:** Section 02/03 overlap happened because fixes in one section touched code paths critical to another section without updating that section's plan. This created invisible dependencies that compounded into cascading failures. Plan boundaries must match implementation boundaries.
+
 ### Scope Rule: ALL Checkboxes in the Section Are In Scope
 
 **Every `- [ ]` checkbox within the current section is part of that section's work — no exceptions.** This includes:
@@ -268,6 +346,12 @@ Based on user choice:
 
 Checking off items without verification defeats the purpose of the roadmap.
 
+### Skills Are Tools — Run Them, Don't Reimplement Them
+
+**When a plan item says to run a skill (e.g., "Run `/code-journey`", "Run `.claude/skills/code-journey/extract-metrics.py`"), invoke it using the `Skill` tool.** Do NOT manually read the skill's SKILL.md and re-execute its steps yourself. The skill automates an entire pipeline — manually reimplementing it is less thorough, wastes context, and contradicts the plan's instruction.
+
+This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
+
 ### Before Writing Code
 
 1. **Read the spec** — Understand exactly what behavior is required
@@ -284,14 +368,16 @@ Checking off items without verification defeats the purpose of the roadmap.
 ### After Writing Code
 
 1. **Run tests** — `./test-all.sh` to verify everything passes
-2. **Check formatting impact** — If syntax was added or changed:
+2. **Check for interference** — if your fix introduces NEW failures that weren't failing before, this is INTERFERENCE from another bug, not a "pre-existing issue." The correct response: revert your fix, fix the interfering bug first (it's now a dependency), then re-apply your fix. Never declare a bug fixed when the test suite has more failures than before your fix. Never rationalize the new failures as "pre-existing" — the interference made them your problem.
+3. **Verify matrix coverage** — if the fix is type-dependent or pattern-dependent, confirm that tests cover all relevant type x pattern combinations. Missing cells in the matrix are potential regressions. See `.claude/rules/tests.md` Matrix Testing Rule.
+4. **Check plan boundary integrity** — did this fix modify code referenced by another section's tasks? If yes, update that section's plan to reflect the change. No silent cross-section absorption.
+4. **Check formatting impact** — If syntax was added or changed:
    - Does the formatter handle the new syntax? Check `compiler/ori_fmt/`
    - Are formatting tests needed? Check/update `tests/spec/formatting/`
    - Run `./fmt-all.sh` to ensure formatter still works
-3. **Update section file** — Check off completed items with `[x]`
-4. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
-5. **Update parent plan files** — If section status changed, update `00-overview.md` and `index.md` status tables (see "Updating Section File Frontmatter" § "Update the parent plan's overview and index")
-6. **Commit with clear message** — Reference the section and task
+5. **Update section file** — Check off completed items with `[x]`
+6. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
+7. **Commit with clear message** — Reference the section and task
 
 ---
 
@@ -375,21 +461,11 @@ sections:
    - Any subsection in-progress → `status: in-progress`
    - All subsections not-started → `status: not-started`
 
-3. **Update the parent plan's overview and index** — this is MANDATORY when a section's status changes:
-   - **`00-overview.md`**: Update the section's status in BOTH the effort/status table AND the Quick Reference table. These are two separate tables that must stay in sync.
-   - **`index.md`**: Update the section's `**Status:**` line in its keyword cluster block, and the Status column in the Quick Reference table.
-   - **Plan-level status**: If all sections are now complete, update the plan's `status:` in `00-overview.md` frontmatter to `complete`.
-
-### When a Plan Completes
-
-When the final section of a plan is marked complete:
-
-1. **Update the plan's `00-overview.md` frontmatter**: `status: complete`
-2. **Update ALL status tables** in `00-overview.md` — effort table, Quick Reference, any other status tracking
-3. **Update `index.md`** — all section statuses, plan-level status in frontmatter
-4. **If the plan has a parent** (e.g., referenced by another plan's dependency list or the main roadmap), update the parent's references to reflect completion
-
-**Never leave overview/index status stale.** Section frontmatter, overview tables, and index entries must all agree. A section marked `complete` in its own frontmatter but `In Progress` in the overview is a bug.
+3. **Update `third_party_review` frontmatter** if the TPR block was modified:
+   - All TPR items resolved (checked) → `third_party_review.status: resolved`
+   - Unchecked TPR items remain → `third_party_review.status: findings`
+   - No TPR items (`- None.`) → `third_party_review.status: none`
+   - A section cannot be `complete` while `third_party_review.status: findings`
 
 ### Why This Matters
 

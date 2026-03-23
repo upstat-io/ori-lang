@@ -1,15 +1,11 @@
 use ori_types::{Idx, Pool};
 
-use ori_ir::Name;
-
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArgOwnership, CtorKind};
 use crate::ownership::Ownership;
-use crate::test_helpers::{b, count_rc_ops, make_func, v};
+use crate::test_helpers::{b, make_func, v};
 use rustc_hash::FxHashMap;
 
-use crate::{
-    compute_liveness, compute_refined_liveness, expand_reset_reuse, ArcClassifier, DominatorTree,
-};
+use ori_ir::Name;
 
 /// Run the full ARC pipeline via the public orchestration function.
 fn run_full_pipeline(
@@ -27,6 +23,7 @@ fn run_full_pipeline(
         pool,
     );
     let uniqueness_summaries = FxHashMap::default();
+    let aims_contracts = FxHashMap::default();
     crate::run_arc_pipeline(
         func,
         classifier,
@@ -34,130 +31,8 @@ fn run_full_pipeline(
         pool,
         &interner,
         &uniqueness_summaries,
+        &aims_contracts,
         false,
-    );
-}
-
-/// Verifies the correct pipeline order: expand BEFORE eliminate.
-///
-/// Creates a function with a constructor-reuse pattern. After expansion,
-/// new `RcInc`/`RcDec` instructions are generated (slow path `RcDec`, restored
-/// `RcInc`, fast path field `RcDec`). Running eliminate AFTER expansion
-/// ensures those ops are candidates for optimization.
-#[test]
-fn pipeline_order_expand_before_eliminate() {
-    // fn foo(x: str) -> str
-    //   head = Project(x, 0)       -- STR field
-    //   tail = Project(x, 1)       -- STR field
-    //   new_head = Apply(f, [head]) -- transform head
-    //   Reset(x, token)
-    //   result = Reuse(token, Struct, [new_head, tail])
-    //   Return result
-    let func = make_func(
-        vec![ArcParam {
-            var: v(0),
-            ty: Idx::STR,
-            ownership: Ownership::Owned,
-        }],
-        Idx::STR,
-        vec![ArcBlock {
-            id: b(0),
-            params: vec![],
-            body: vec![
-                ArcInstr::Project {
-                    dst: v(1),
-                    ty: Idx::STR,
-                    value: v(0),
-                    field: 0,
-                },
-                ArcInstr::Project {
-                    dst: v(2),
-                    ty: Idx::STR,
-                    value: v(0),
-                    field: 1,
-                },
-                ArcInstr::Apply {
-                    dst: v(3),
-                    ty: Idx::STR,
-                    func: Name::from_raw(99),
-                    args: vec![v(1)],
-                    arg_ownership: vec![ArgOwnership::Owned],
-                },
-                ArcInstr::Reset {
-                    var: v(0),
-                    token: v(4),
-                },
-                ArcInstr::Reuse {
-                    token: v(4),
-                    dst: v(5),
-                    ty: Idx::STR,
-                    ctor: CtorKind::Struct(Name::from_raw(10)),
-                    args: vec![v(3), v(2)],
-                },
-            ],
-            terminator: ArcTerminator::Return { value: v(5) },
-        }],
-        vec![
-            Idx::STR, // v0: param
-            Idx::STR, // v1: head
-            Idx::STR, // v2: tail
-            Idx::STR, // v3: new_head
-            Idx::STR, // v4: token
-            Idx::STR, // v5: result
-        ],
-    );
-
-    let pool = Pool::new();
-    let classifier = ArcClassifier::new(&pool);
-
-    // Run pipeline in correct order (skipping detect — IR has pre-placed Reset/Reuse).
-    // Uses classic functions directly (pub(crate)) to test ordering invariant.
-    let mut func_correct = func.clone();
-    {
-        let liveness = compute_liveness(&func_correct, &classifier);
-        crate::rc_insert::insert_rc_ops(&mut func_correct, &classifier, &liveness);
-        // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
-        expand_reset_reuse(&mut func_correct, &classifier, None);
-        crate::rc_elim::eliminate_rc_ops(&mut func_correct);
-    }
-
-    // No Reset/Reuse should remain after expansion
-    let has_reset = func_correct
-        .blocks
-        .iter()
-        .flat_map(|bl| bl.body.iter())
-        .any(|i| matches!(i, ArcInstr::Reset { .. }));
-    let has_reuse = func_correct
-        .blocks
-        .iter()
-        .flat_map(|bl| bl.body.iter())
-        .any(|i| matches!(i, ArcInstr::Reuse { .. }));
-    assert!(!has_reset, "no Reset instructions should remain");
-    assert!(!has_reuse, "no Reuse instructions should remain");
-
-    // Should have expanded into multiple blocks (original + fast + slow + merge)
-    assert!(
-        func_correct.blocks.len() >= 3,
-        "pipeline should expand into 3+ blocks, got {}",
-        func_correct.blocks.len()
-    );
-
-    // Run pipeline in WRONG order (eliminate before expand) for comparison
-    let mut func_wrong = func.clone();
-    let liveness = compute_liveness(&func_wrong, &classifier);
-    crate::rc_insert::insert_rc_ops(&mut func_wrong, &classifier, &liveness);
-    crate::rc_elim::eliminate_rc_ops(&mut func_wrong); // wrong: runs too early
-                                                       // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
-    expand_reset_reuse(&mut func_wrong, &classifier, None);
-
-    // Wrong order should have MORE remaining RC ops (expand generated
-    // new ones that eliminate already ran and couldn't clean up)
-    let correct_rc_count = count_rc_ops(&func_correct);
-    let wrong_rc_count = count_rc_ops(&func_wrong);
-    assert!(
-        correct_rc_count <= wrong_rc_count,
-        "correct pipeline order should have <= RC ops ({correct_rc_count}) \
-         than wrong order ({wrong_rc_count})"
     );
 }
 
@@ -181,7 +56,7 @@ fn pipeline_no_reuse_pattern() {
     );
 
     let pool = Pool::new();
-    let classifier = ArcClassifier::new(&pool);
+    let classifier = crate::ArcClassifier::new(&pool);
 
     let mut func = func;
     run_full_pipeline(&mut func, &classifier, &pool);
@@ -190,29 +65,22 @@ fn pipeline_no_reuse_pattern() {
     assert_eq!(func.blocks.len(), 1);
 }
 
-/// Full enhanced pipeline on raw IR with reuse pattern.
+/// Full AIMS pipeline on raw IR with reuse pattern.
 ///
-/// Exercises the production pipeline infrastructure:
-/// - `infer_derived_ownership` (per-variable ownership)
-/// - `DominatorTree` (for cross-block reset/reuse)
-/// - `compute_refined_liveness` (for aliasing checks)
-/// - `insert_rc_ops_with_ownership` (ownership-aware RC insertion)
-/// - `detect_reset_reuse_cfg` (intra + cross-block detection)
-/// - `eliminate_rc_ops_dataflow` (full-CFG elimination)
-/// - `analyze_fbip` (FBIP diagnostic report)
+/// Exercises the production pipeline infrastructure via `run_full_pipeline`:
+/// - AIMS backward dataflow analysis
+/// - RC emission from state map
+/// - Reuse emission from state map
+/// - Tail call detection + rewrite
+/// - Block merge
+/// - COW annotations + drop hints (post-merge)
+/// - FBIP enforcement
 #[test]
 fn full_pipeline_on_reuse_pattern() {
     use crate::fbip::analyze_fbip;
 
     // Raw IR: Project fields, Apply transform, Construct result.
     // No pre-placed Reset/Reuse — detection passes discover the pattern.
-    //
-    // fn foo(x: str) -> str
-    //   head = Project(x, 0)
-    //   tail = Project(x, 1)
-    //   new_head = Apply(f, [head])
-    //   result = Construct(Struct, [new_head, tail])
-    //   Return result
     let func = make_func(
         vec![ArcParam {
             var: v(0),
@@ -262,7 +130,7 @@ fn full_pipeline_on_reuse_pattern() {
     );
 
     let pool = Pool::new();
-    let classifier = ArcClassifier::new(&pool);
+    let classifier = crate::ArcClassifier::new(&pool);
 
     let mut func = func;
     run_full_pipeline(&mut func, &classifier, &pool);
@@ -279,20 +147,17 @@ fn full_pipeline_on_reuse_pattern() {
     );
 
     // Run FBIP analysis on the result
-    let dom_tree = DominatorTree::build(&func);
-    let (refined, _) = compute_refined_liveness(&func, &classifier);
+    let dom_tree = crate::DominatorTree::build(&func);
+    let (refined, _) = crate::compute_refined_liveness(&func, &classifier);
     let _fbip_report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
 }
 
 /// Pipeline output must be identical across multiple runs on the same input.
 ///
 /// Guards against non-deterministic iteration of `FxHashMap`/`FxHashSet`
-/// leaking into IR ordering. Runs the full pipeline N times on clones of
-/// the same input and asserts bitwise equality of the resulting `ArcFunction`.
+/// leaking into IR ordering.
 #[test]
 fn pipeline_determinism() {
-    // Use the reuse-pattern IR (same as full_pipeline_on_reuse_pattern)
-    // because it exercises expand_reuse, which iterates claimed-field maps.
     let base = make_func(
         vec![ArcParam {
             var: v(0),
@@ -342,7 +207,7 @@ fn pipeline_determinism() {
     );
 
     let pool = Pool::new();
-    let classifier = ArcClassifier::new(&pool);
+    let classifier = crate::ArcClassifier::new(&pool);
 
     let mut reference = base.clone();
     run_full_pipeline(&mut reference, &classifier, &pool);

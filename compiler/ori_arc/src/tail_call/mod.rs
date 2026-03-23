@@ -312,5 +312,152 @@ fn find_invoke_tail_calls(func: &ArcFunction, func_name: Name, sites: &mut Vec<T
     }
 }
 
+// Pre-emission tail-position analysis (Section 12.2)
+
+/// Check whether a function has any non-tail recursive calls to SCC peers.
+///
+/// Used at contract extraction time (pre-emission) to determine
+/// `has_unbounded_stack`. If all recursive calls are in syntactic tail
+/// position, the tail-call pass will rewrite them to loops, giving
+/// constant stack.
+///
+/// Unlike [`detect_tail_calls`], this does NOT check `RcDec` safety — no RC
+/// instructions exist at contract extraction time. It only checks structural
+/// tail position: the call result flows directly to a Return terminator,
+/// possibly through a single Jump.
+///
+/// # Parameters
+///
+/// - `func` — the function to check
+/// - `scc_peers` — names of functions in the same SCC (includes `func.name`)
+///
+/// Returns `true` if any recursive call is NOT in tail position (unbounded stack).
+pub(crate) fn has_non_tail_recursive_calls(
+    func: &ArcFunction,
+    scc_peers: &rustc_hash::FxHashSet<Name>,
+) -> bool {
+    // Collect variables that are in "tail position" — their value flows
+    // to a Return terminator (directly or through a single Jump→Return).
+    let tail_vars = collect_tail_position_vars(func);
+
+    for block in &func.blocks {
+        // Check body Apply instructions.
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if scc_peers.contains(callee) && !tail_vars.contains(dst) {
+                    tracing::trace!(
+                        block = ?block.id,
+                        callee = ?callee,
+                        "non-tail recursive Apply detected"
+                    );
+                    return true;
+                }
+            }
+        }
+
+        // Check Invoke terminators.
+        if let ArcTerminator::Invoke {
+            dst,
+            func: callee,
+            normal,
+            ..
+        } = &block.terminator
+        {
+            if scc_peers.contains(callee) {
+                // Invoke result flows to the normal successor block.
+                // Check if it reaches a Return from there.
+                if !invoke_result_in_tail_position(func, *dst, *normal) {
+                    tracing::trace!(
+                        block = ?block.id,
+                        callee = ?callee,
+                        "non-tail recursive Invoke detected"
+                    );
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Collect all variables whose value flows to a Return terminator.
+///
+/// A variable is in tail position if:
+/// 1. A block has `Return { value: var }` and `var` is defined in that block, OR
+/// 2. A block has `Return { value: param }` where `param` is a block parameter,
+///    and predecessors pass `var` at that parameter position via `Jump`.
+fn collect_tail_position_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+    let mut tail_vars = FxHashSet::default();
+
+    for block in &func.blocks {
+        let ArcTerminator::Return { value: ret_val } = &block.terminator else {
+            continue;
+        };
+
+        // Case 1: ret_val is a locally-defined variable → it's in tail position.
+        tail_vars.insert(*ret_val);
+
+        // Case 2: ret_val is a block parameter → trace back to predecessors.
+        let param_pos = block.params.iter().position(|(var, _)| *var == *ret_val);
+        if let Some(pos) = param_pos {
+            // Find all predecessors that Jump to this block and add their
+            // argument at this position to the tail set.
+            for pred_block in &func.blocks {
+                if let ArcTerminator::Jump { target, args } = &pred_block.terminator {
+                    if *target == block.id {
+                        if let Some(&arg) = args.get(pos) {
+                            tail_vars.insert(arg);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    tail_vars
+}
+
+/// Check if an Invoke result is in tail position via the normal successor.
+///
+/// The Invoke terminator defines `dst` in the normal block. Check if `dst`
+/// flows to a Return (directly or through a single Jump→Return).
+fn invoke_result_in_tail_position(
+    func: &ArcFunction,
+    dst: ArcVarId,
+    normal: crate::ir::ArcBlockId,
+) -> bool {
+    let normal_block = &func.blocks[normal.index()];
+
+    // Direct: normal block returns the invoke result.
+    if let ArcTerminator::Return { value } = &normal_block.terminator {
+        if *value == dst {
+            return true;
+        }
+    }
+
+    // Cross-block: normal block jumps to a merge block that returns.
+    if let ArcTerminator::Jump {
+        target,
+        args: jump_args,
+    } = &normal_block.terminator
+    {
+        if let Some(pos) = jump_args.iter().position(|v| *v == dst) {
+            let merge_block = &func.blocks[target.index()];
+            if let ArcTerminator::Return { value } = &merge_block.terminator {
+                let param = merge_block.params.get(pos).map(|(v, _)| *v);
+                if param == Some(*value) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests;
