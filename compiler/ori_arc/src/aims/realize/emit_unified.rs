@@ -38,11 +38,9 @@ pub(super) fn emit_rc_unified(
     metrics::SynergyMetrics,
 ) {
     use crate::aims::emit_rc::{
-        block_id, coalesce_block_rc, collect_all_borrowed_defs, collect_borrowed_defs,
-        collect_defined_vars, collect_inline_enum_projected_defs, collect_iter_element_defs,
-        collect_project_borrowed_defs, compute_child_effective_last_use,
-        compute_function_project_sources, emit_dead_at_entry_decs, emit_dead_invoke_dsts,
-        emit_edge_cleanup, emit_terminator_rc, precompute_block_uses, BlockCtx, DeferredDec,
+        coalesce_block_rc, collect_all_borrowed_defs, collect_inline_enum_projected_defs,
+        collect_iter_element_defs, collect_project_borrowed_defs, compute_function_project_sources,
+        emit_dead_invoke_dsts, emit_edge_cleanup, DeferredDec,
     };
 
     debug_assert!(
@@ -67,85 +65,21 @@ pub(super) fn emit_rc_unified(
 
     // Phase 1: per-block RC emission via unified forward walk.
     for block_idx in 0..func.blocks.len() {
-        let blk = block_id(block_idx);
-        let use_info = precompute_block_uses(&func.blocks[block_idx]);
-        let defined_in_block = collect_defined_vars(&func.blocks[block_idx]);
-        let borrowed_defs = collect_borrowed_defs(&func.blocks[block_idx]);
-        let child_elu = compute_child_effective_last_use(
-            &func.blocks[block_idx],
-            &use_info,
-            &func_project_sources,
-        );
-
-        let old_body = std::mem::take(&mut func.blocks[block_idx].body);
-        let mut new_body: Vec<ArcInstr> = Vec::with_capacity(old_body.len() * 2);
-
-        // NLL pattern: BlockCtx borrows func immutably; after last use of ctx,
-        // the borrow ends and func is available for mutation.
-        let ctx = BlockCtx {
-            func,
-            blk,
-            state_map,
-            defined_in_block: &defined_in_block,
-            borrowed_defs: &borrowed_defs,
-            all_borrowed_defs: &all_borrowed_defs,
-            project_borrowed_defs: &project_borrowed_defs,
-            iter_element_defs: &iter_element_defs,
-            inline_enum_projected_defs: &inline_enum_projected_defs,
-            use_info: &use_info,
-            pool,
-            child_effective_last_use: &child_elu,
-        };
-
-        // Phase A: dead-at-entry decs + merge-edge decs for branch-local vars.
-        let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);
-
-        // Phase B: unified forward walk (decide() + inline event collection).
-        let walk::BodyWalkResult {
-            uses_so_far,
-            terminator_deferred,
-            death_events,
-            alloc_events,
-            walk_metrics,
-        } = walk::walk_body_unified(
-            &ctx,
-            &old_body,
-            &mut new_body,
-            iter_fn_name,
-            deferred_parents,
-        );
-        synergy.merge(&walk_metrics);
-
-        // Phase C: terminator uses and cleanup.
-        emit_terminator_rc(&ctx, block_idx, uses_so_far, &mut new_body);
-
-        // Terminators without successors: emit deferred in body. Others: edge cleanup.
-        let edge_deferred = match &func.blocks[block_idx].terminator {
-            ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
-                for &(var, strategy) in &terminator_deferred {
-                    new_body.push(ArcInstr::RcDec { var, strategy });
-                }
-                Vec::new()
-            }
-            _ => terminator_deferred,
-        };
-
-        func.blocks[block_idx].body = new_body;
-        if !edge_deferred.is_empty() {
-            let tagged: Vec<_> = edge_deferred
-                .into_iter()
-                .map(|(var, strat)| (None, var, strat))
-                .collect();
-            block_deferred.insert(block_idx, tagged);
-        }
-        route_merge_edge_decs(
+        let (death_events, alloc_events, walk_metrics) = emit_block_rc(
             func,
             block_idx,
-            &merge_edge_decs,
+            state_map,
+            pool,
+            &all_borrowed_defs,
+            &project_borrowed_defs,
+            &iter_element_defs,
+            &inline_enum_projected_defs,
+            &func_project_sources,
+            iter_fn_name,
             &predecessors,
             &mut block_deferred,
         );
-
+        synergy.merge(&walk_metrics);
         all_death_events.extend(death_events);
         all_alloc_events.extend(alloc_events);
     }
@@ -161,7 +95,13 @@ pub(super) fn emit_rc_unified(
     // Phase 2 above. Edge cleanup may have created trampoline blocks with
     // AggFields dec — these dec ALL fields including projected ones still
     // live in the successor. The RcInc compensates.
-    emit_project_escape_incs(func, state_map, pool, &func_project_sources, &all_borrowed_defs);
+    emit_project_escape_incs(
+        func,
+        state_map,
+        pool,
+        &func_project_sources,
+        &all_borrowed_defs,
+    );
 
     // Phase 3: RC coalescing peephole — merge adjacent RC ops per block.
     for block in &mut func.blocks {
@@ -170,6 +110,104 @@ pub(super) fn emit_rc_unified(
 
     let rc_count = count_rc_ops(func);
     (rc_count, all_death_events, all_alloc_events, synergy)
+}
+
+/// Emit RC operations for a single block via the unified forward walk.
+///
+/// Returns `(death_events, alloc_events, walk_metrics)`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "block-level RC emission needs full context"
+)]
+fn emit_block_rc(
+    func: &mut ArcFunction,
+    block_idx: usize,
+    state_map: &AimsStateMap,
+    pool: &Pool,
+    all_borrowed_defs: &FxHashSet<ArcVarId>,
+    project_borrowed_defs: &FxHashSet<ArcVarId>,
+    iter_element_defs: &FxHashSet<ArcVarId>,
+    inline_enum_projected_defs: &FxHashSet<ArcVarId>,
+    func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
+    iter_fn_name: ori_ir::Name,
+    predecessors: &[Vec<usize>],
+    block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
+) -> (Vec<DeathEvent>, Vec<AllocEvent>, metrics::SynergyMetrics) {
+    use crate::aims::emit_rc::{
+        block_id, collect_borrowed_defs, collect_defined_vars, compute_child_effective_last_use,
+        emit_dead_at_entry_decs, emit_terminator_rc, precompute_block_uses, BlockCtx,
+    };
+
+    let blk = block_id(block_idx);
+    let use_info = precompute_block_uses(&func.blocks[block_idx]);
+    let defined_in_block = collect_defined_vars(&func.blocks[block_idx]);
+    let borrowed_defs = collect_borrowed_defs(&func.blocks[block_idx]);
+    let child_elu =
+        compute_child_effective_last_use(&func.blocks[block_idx], &use_info, func_project_sources);
+
+    let old_body = std::mem::take(&mut func.blocks[block_idx].body);
+    let mut new_body: Vec<ArcInstr> = Vec::with_capacity(old_body.len() * 2);
+
+    let ctx = BlockCtx {
+        func,
+        blk,
+        state_map,
+        defined_in_block: &defined_in_block,
+        borrowed_defs: &borrowed_defs,
+        all_borrowed_defs,
+        project_borrowed_defs,
+        iter_element_defs,
+        inline_enum_projected_defs,
+        use_info: &use_info,
+        pool,
+        child_effective_last_use: &child_elu,
+    };
+
+    let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);
+
+    let walk::BodyWalkResult {
+        uses_so_far,
+        terminator_deferred,
+        death_events,
+        alloc_events,
+        walk_metrics,
+    } = walk::walk_body_unified(
+        &ctx,
+        &old_body,
+        &mut new_body,
+        iter_fn_name,
+        deferred_parents,
+    );
+
+    emit_terminator_rc(&ctx, block_idx, uses_so_far, &mut new_body);
+
+    let edge_deferred = match &func.blocks[block_idx].terminator {
+        ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
+            for &(var, strategy) in &terminator_deferred {
+                new_body.push(ArcInstr::RcDec { var, strategy });
+            }
+            Vec::new()
+        }
+        _ => terminator_deferred,
+    };
+
+    func.blocks[block_idx].body = new_body;
+    if !edge_deferred.is_empty() {
+        let tagged: Vec<_> = edge_deferred
+            .into_iter()
+            .map(|(var, strat)| (None, var, strat))
+            .collect();
+        block_deferred.insert(block_idx, tagged);
+    }
+    route_merge_edge_decs(
+        func,
+        block_idx,
+        &merge_edge_decs,
+        predecessors,
+        block_deferred,
+    );
+
+    (death_events, alloc_events, walk_metrics)
 }
 
 /// Route merge-edge decs to per-predecessor edge cleanup.
@@ -251,9 +289,8 @@ fn emit_project_escape_incs(
         }
         let target_idx = target.index();
 
-        let doomed_parents = find_edge_decced_project_parents(
-            block, blk, args, state_map, func_project_sources,
-        );
+        let doomed_parents =
+            find_edge_decced_project_parents(block, blk, args, state_map, func_project_sources);
         if doomed_parents.is_empty() {
             continue;
         }
@@ -262,14 +299,26 @@ fn emit_project_escape_incs(
         let var_to_parent = build_var_to_parent(block, args, func_project_sources);
         let mut block_incs = Vec::new();
         for (arg_pos, &arg) in args.iter().enumerate() {
-            let Some(&parent) = var_to_parent.get(&arg) else { continue };
-            let Some(&project_dst) = doomed_parents.get(&parent) else { continue };
-            let Some(strategy) = rc_strategy(func, project_dst, pool) else { continue };
+            let Some(&parent) = var_to_parent.get(&arg) else {
+                continue;
+            };
+            let Some(&project_dst) = doomed_parents.get(&parent) else {
+                continue;
+            };
+            let Some(strategy) = rc_strategy(func, project_dst, pool) else {
+                continue;
+            };
 
-            block_incs.push(ArcInstr::RcInc { var: project_dst, count: 1, strategy });
+            block_incs.push(ArcInstr::RcInc {
+                var: project_dst,
+                count: 1,
+                strategy,
+            });
 
             let final_target = follow_jump_chain(func, target_idx);
-            if let Some(&(param_var, _)) = func.blocks.get(final_target)
+            if let Some(&(param_var, _)) = func
+                .blocks
+                .get(final_target)
                 .and_then(|b| b.params.get(arg_pos))
             {
                 let ps = rc_strategy(func, param_var, pool).unwrap_or(strategy);
@@ -287,7 +336,9 @@ fn emit_project_escape_incs(
     let mut seen: FxHashSet<(usize, u32)> = FxHashSet::default();
     for (succ_idx, var, strategy) in succ_decs {
         if succ_idx < func.blocks.len() && seen.insert((succ_idx, var.raw())) {
-            func.blocks[succ_idx].body.push(ArcInstr::RcDec { var, strategy });
+            func.blocks[succ_idx]
+                .body
+                .push(ArcInstr::RcDec { var, strategy });
         }
     }
 }
@@ -313,8 +364,15 @@ fn build_var_to_parent(
         }
     }
     for instr in &block.body {
-        if let ArcInstr::Let { dst, value: crate::ir::ArcValue::Var(src), .. } = instr {
-            let parent = map.get(src).copied()
+        if let ArcInstr::Let {
+            dst,
+            value: crate::ir::ArcValue::Var(src),
+            ..
+        } = instr
+        {
+            let parent = map
+                .get(src)
+                .copied()
                 .or_else(|| func_project_sources.get(src).copied());
             if let Some(p) = parent {
                 map.insert(*dst, p);
@@ -344,9 +402,13 @@ fn find_edge_decced_project_parents(
 
     let mut doomed: FxHashSet<ArcVarId> = FxHashSet::default();
     for &parent in var_to_parent.values() {
-        if !is_live_at_exit(state_map, blk, parent) { continue; }
+        if !is_live_at_exit(state_map, blk, parent) {
+            continue;
+        }
         for succ_id in &successors {
-            if state_map.var_state_at_block_entry(*succ_id, parent).cardinality
+            if state_map
+                .var_state_at_block_entry(*succ_id, parent)
+                .cardinality
                 == Cardinality::Absent
             {
                 doomed.insert(parent);
@@ -382,7 +444,10 @@ fn follow_jump_chain(func: &ArcFunction, mut idx: usize) -> usize {
         };
         // A trampoline block has body containing only RcDec instructions.
         let is_trampoline = !block.body.is_empty()
-            && block.body.iter().all(|i| matches!(i, ArcInstr::RcDec { .. }));
+            && block
+                .body
+                .iter()
+                .all(|i| matches!(i, ArcInstr::RcDec { .. }));
         if !is_trampoline {
             return idx;
         }
