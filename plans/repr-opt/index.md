@@ -32,7 +32,7 @@ Use `/benchmark short` after modifying hot paths.
 ## Keyword Clusters by Section
 
 ### Section 01: Representation IR & Decision Framework
-**File:** `section-01-repr-ir.md` | **Status:** Not Started
+**File:** `section-01-repr-ir.md` | **Status:** In Progress
 
 ```
 MachineRepr, ReprPlan, ReprDecision, DecisionSource, DecisionReason

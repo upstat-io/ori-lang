@@ -46,28 +46,6 @@ Read file: CLAUDE.md
 
 This is not optional. Context window compression can silently drop CLAUDE.md rules that were loaded earlier. A fresh read ensures every rule is active in your working context. This applies within a single `/continue-roadmap` session — not just at the start.
 
-### Step -0.5: Clean Working Tree Gate
-
-Before starting any new section work, **check for pending changes** in the working tree:
-
-```bash
-git status --short
-```
-
-**If the working tree is clean** (no output), proceed to Step 0.
-
-**If there are pending changes** (staged, unstaged, or untracked files):
-
-1. **STOP** — do not proceed to section work
-2. **Show a brief summary** of what's pending:
-   - Number of modified files, staged files, untracked files
-   - List the filenames (truncate to first 10 if many)
-3. **Use AskUserQuestion** with these options:
-   - **Run /commit-push (Recommended)** — commit and push all pending changes before continuing
-   - **Proceed anyway** — continue with a dirty working tree (user accepts the risk of mixing work)
-
-**Why:** Starting a new roadmap section with uncommitted changes from a previous section risks tangling unrelated work in the same commit, losing track of what belongs where, and making it harder to revert if something goes wrong. A clean slate per section keeps the git history meaningful.
-
 ### Step 0: Check for Active Reroute
 
 The scanner automatically detects reroutes from `plans/*/index.md` frontmatter. Each plan's `index.md` has:
@@ -178,9 +156,13 @@ After identifying the focus section, **check its frontmatter for `third_party_re
        Resolved: Rejected after validation on YYYY-MM-DD. [Rationale — must explain why the issue does not actually exist].
      ```
 4. **After all findings are triaged**:
-   - Update `third_party_review.status` to `resolved` (if history exists) or `none`
    - Update `third_party_review.updated` to today's date
-   - If accepted findings created new `[ ]` items, section `status` stays `in-progress`
+   - If ALL findings were rejected (no accepted findings created new `[ ]` items):
+     - Update `third_party_review.status` to `resolved`
+   - If ANY accepted findings created new `[ ]` implementation items:
+     - **Keep** `third_party_review.status: findings` — do NOT set to `resolved`
+     - Status transitions to `resolved` only when the accepted implementation tasks are complete and revalidated
+   - Section `status` stays `in-progress` while `third_party_review.status: findings`
 5. **Continue** to normal implementation (Step 2+) only after all open review findings are triaged
 
 **If `third_party_review.status` is `none` or `resolved`**, proceed normally.
@@ -189,6 +171,28 @@ After identifying the focus section, **check its frontmatter for `third_party_re
 - A section cannot be `complete` while unchecked TPR items exist
 - `third_party_review.status: findings` forces section `status` to `in-progress`
 - All findings must be triaged before any new implementation work begins in that section
+
+### Step 1.95: Clean Working Tree Gate
+
+Before starting implementation work, **check for pending changes** in the working tree:
+
+```bash
+git status --short
+```
+
+**If the working tree is clean** (no output), proceed to Step 2.
+
+**If there are pending changes** (staged, unstaged, or untracked files):
+
+1. **STOP** — do not proceed to implementation work
+2. **Show a brief summary** of what's pending:
+   - Number of modified files, staged files, untracked files
+   - List the filenames (truncate to first 10 if many)
+3. **Use AskUserQuestion** with these options:
+   - **Run /commit-push (Recommended)** — commit and push all pending changes before continuing
+   - **Proceed anyway** — continue with a dirty working tree (user accepts the risk of mixing work)
+
+**Why:** This gate runs after TPR triage (Step 1.9) so that serious bugs surfaced by third-party review are fixed before the commit prompt. Committing before TPR triage would lock in code that may need immediate changes. After TPR fixes are applied, a clean working tree ensures the next section's work is cleanly separable in git history.
 
 ### Step 2: Determine Focus Section
 
@@ -307,6 +311,20 @@ Use AskUserQuestion with options. The options depend on the blocker state:
 1. **Tackle deepest ready blocker (Recommended)** — Work on the READY blocker that unblocks the most items
 2. **Show blocker details** — See what the blocker requires and its dependency chain
 3. **Switch sections** — Work on a different section
+
+### Step 5.5: Subsection Pacing
+
+**After the user chooses to start work**, ask how they want to pace the section using AskUserQuestion:
+
+1. **Full section** — Run all subsections continuously without pausing
+2. **Subsection-by-subsection (Recommended)** — Pause after completing each subsection for review before continuing to the next
+
+**Why:** This gives the user control over execution granularity. Large sections can produce significant changes — pausing between subsections allows review, course-correction, and incremental commits.
+
+If the user chose "Full section", proceed through all subsections without stopping. If "Subsection-by-subsection", after completing each subsection's work (all its checkboxes), present a brief status update and use AskUserQuestion with:
+1. **Continue to next subsection** — Proceed to the next incomplete subsection
+2. **Commit and continue** — Commit current work, then proceed
+3. **Stop here** — End work for now (commit first if there are changes)
 
 ### Step 6: Execute Work
 
