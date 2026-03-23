@@ -1,0 +1,64 @@
+// Benchmark: String-heavy
+// Exercises: concatenation, searching, splitting, case conversion
+// Measures: string allocation, UTF-8 handling, ARC on strings
+
+@build_string (n: int) -> str = {
+    let s = "";
+    for i in 0..n do {
+        s = s + "x";
+    };
+    s
+}
+
+@count_char (s: str, target: str) -> int = {
+    let count = 0;
+    for i in 0..s.len() do {
+        if s[i] == target then count = count + 1;
+    };
+    count
+}
+
+@repeat_transform (s: str, n: int) -> str = {
+    let result = s;
+    for _ in 0..n do {
+        result = result.to_uppercase();
+        result = result.to_lowercase();
+    };
+    result
+}
+
+@main () -> int = {
+    // String building
+    let build_total = 0;
+    for _ in 0..100 do {
+        let s = build_string(n: 1000);
+        build_total = build_total + s.len();
+    };
+
+    // String searching
+    let search_total = 0;
+    let haystack = build_string(n: 5000);
+    for _ in 0..1000 do {
+        if haystack.contains("xxx") then search_total = search_total + 1;
+    };
+
+    // Case conversion
+    let case_total = 0;
+    for _ in 0..100 do {
+        let s = "Hello World Test String For Benchmark";
+        let transformed = repeat_transform(s: s, n: 100);
+        case_total = case_total + transformed.len();
+    };
+
+    // String concatenation patterns
+    let concat_total = 0;
+    for i in 0..1000 do {
+        let a = "hello";
+        let b = " ";
+        let c = "world";
+        let combined = a + b + c;
+        concat_total = concat_total + combined.len();
+    };
+
+    if build_total > 0 && search_total > 0 && case_total > 0 && concat_total > 0 then 0 else 1
+}
