@@ -9,7 +9,15 @@ These rules cover **code quality**: structure, naming, types, errors, performanc
 
 ## Finding Categories
 
-- **LEAK** — Data or control crossing a boundary it shouldn't (phase bleeding, backward reference, swallowed error). Default: **Critical**.
+- **LEAK** — Logic, data, or control living outside its canonical home. The most dangerous category — side logic is how clean architectures decay. Subcategories:
+  - **Phase bleeding**: a phase doing work that belongs to another phase
+  - **Backward reference**: later phase calling back into earlier phase
+  - **Swallowed error**: error silently dropped instead of propagated
+  - **Duplicated dispatch**: routing/matching logic duplicated outside the canonical dispatch point
+  - **Scattered knowledge**: type/method/operator behavior encoded ad hoc instead of read from the registry or canonical source
+  - **Validation bypass**: validation rules implemented at consumption sites instead of at the canonical validation point
+  - **Inline policy**: business logic (defaults, thresholds, formatting rules) hardcoded at call sites instead of centralized
+  Default: **Critical**. Every LEAK creates a second source of truth that WILL drift. Fix immediately — never defer.
 - **DRIFT** — Registration data present in one location but missing from a parallel sync point. Default: **Major**.
 - **GAP** — Feature supported in one phase but blocked/missing in another. Default: **Major**.
 - **WASTE** — Unnecessary allocation, clone, or transformation at boundary. Default: **Minor**.
@@ -18,6 +26,47 @@ These rules cover **code quality**: structure, naming, types, errors, performanc
 - **NOTE** — Observation, acceptable tradeoff, documented exception. Default: **Informational**.
 
 5+ findings clustered in one module = design problem; escalate to architectural review, not individual fixes.
+**LEAK escalation**: 3+ LEAKs in one module = systemic side logic; the module lacks a canonical dispatch/query point. Don't patch individual LEAKs — introduce the missing canonical home first.
+
+## Paradigms
+
+Two paradigms govern all hygiene rules. Every rule in this document is a specific application of one or both.
+
+### Single Source of Truth (SSOT)
+
+Every piece of knowledge in the compiler has exactly **one canonical home**. All other locations that need that knowledge **query** or **derive from** the canonical source — they never maintain independent copies. This is the foundation of global coherence.
+
+**Ori's architectural centers:**
+
+| Knowledge Domain | Canonical Home | Consumers Query Via |
+|---|---|---|
+| Builtin type behavior (methods, operators, memory) | `ori_registry` | `find_type()`, `find_method()`, `OpDefs` |
+| Type structure (interned types, relationships) | Type pool (`ori_types`) | Salsa queries, `TypeId` lookups |
+| Memory analysis facts (ownership, borrowing) | AIMS (`ori_arc`) | Borrow/ownership annotations on IR |
+| Representation decisions (layout, ABI) | repr-opt (`ori_llvm`) | Codegen queries |
+| Language semantics | Spec (`docs/ori_lang/v2026/spec/`) | Developer reference |
+| Syntax | Grammar (`spec/grammar.ebnf`) | Parser implementation |
+| Diagnostic identity | Error codes (`ori_diagnostic`) | Code-based matching |
+| Incremental computation | Salsa DB | Memoized query results |
+
+**Three failure modes:**
+
+1. **No home** — knowledge scattered with no canonical source. Fix: create the canonical home, migrate consumers to query it.
+2. **Multiple homes** — two+ locations both claiming authority, no clear winner. Fix: designate one as canonical, derive the rest via queries or generation.
+3. **Shadow home** — canonical source exists but consumers bypass it with local copies. This is a **LEAK** — fix by removing the local copy and wiring the consumer to the canonical source.
+
+**Enforcement mechanisms (pick the strongest one that applies):**
+
+1. **Type-level** (strongest): knowledge can only be constructed in one place. Consumers receive opaque handles (`TypeId`, `Name`, `ExprId`).
+2. **Compile-time**: exhaustive match on source-of-truth enum forces consumers to handle all cases.
+3. **Test-time**: exhaustiveness tests iterate the canonical list and verify all consumers are in sync (registry enforcement pattern).
+4. **Query pattern**: consumers call a function on the canonical owner rather than maintaining their own lookup table.
+
+**The test**: if you can answer "where is X defined?" with exactly one file path, SSOT holds. If you hesitate or name two places, it doesn't.
+
+### No Side Logic
+
+The complement of SSOT. Defined in detail in the "Side Logic" section below. Side logic is any logic living outside its canonical home — the mechanism by which SSOT degrades. Every LEAK finding is an SSOT violation in action.
 
 ## Phase Boundaries
 
@@ -46,6 +95,32 @@ These rules cover **code quality**: structure, naming, types, errors, performanc
 - **Type Checker**: uses error type (TyError) that unifies with anything; continues checking
 - **Evaluator**: accumulates errors, skips dependent evaluations
 - **Codegen**: aborts if any type errors remain — requires error-free input
+
+## Side Logic — Root of Architectural Decay
+
+Side logic is any logic that lives outside its canonical home. It is the primary mechanism by which clean architectures degrade into historical drift. Each instance creates a second source of truth that can diverge from the canonical one. In a compiler with strong architectural centers (registry for builtin behavior, pool for type structure, AIMS for memory facts, repr-opt for representation decisions), leaked logic directly undermines global coherence.
+
+**The cascade**: one side-logic shortcut invites another. Within months, the canonical source becomes "one of several places" that defines behavior, and eventually no single location is authoritative. This is irreversible without major refactoring.
+
+### Detection Heuristics
+
+1. **The "where would I look?" test**: If someone asks "where is X's behavior defined?" and the answer isn't a single location, there's a LEAK.
+2. **The "what if it changes?" test**: If changing behavior X requires edits in N locations and N > 1 (excluding tests and docs), there's a LEAK. The registry enforcement pattern (one source + validation tests) is the correct alternative.
+3. **The "copy-paste smell" test**: If a match arm, if-chain, or lookup table mirrors structure from another file, one of them is side logic.
+4. **The "special case" test**: If a function has `if type == SomeSpecificType { ... }` outside the canonical dispatch point for that type, it's side logic.
+
+### Common Side Logic Patterns (All Are LEAK)
+
+- **Ad hoc type knowledge**: Checking `is_string()` or `is_list()` to apply special behavior outside the registry/dispatch system. The registry defines behavior — consumers query it.
+- **Duplicated dispatch tables**: A match on `TypeTag` or `MethodKind` that parallels an existing canonical match elsewhere. Add a method to the canonical dispatcher instead.
+- **Inline defaults**: Hardcoding a default value, threshold, or policy at a call site instead of defining it in the type/config that owns it.
+- **Re-derived facts**: Computing something that a prior phase already computed and stored. Query the stored result.
+- **Format logic outside formatters**: Building display strings for types/values outside `Display`/`Debug`/diagnostic formatters.
+- **Validation at consumption**: Checking invariants at every use site instead of enforcing them at construction (parse-don't-validate pattern).
+
+### Remediation
+
+The fix for side logic is always the same: **move the logic to its canonical home and have the consumption site query/call it**. Never "fix" a LEAK by adding a comment explaining why the duplication exists. If the canonical home doesn't exist yet, create it — that's the real fix.
 
 ## Data Flow
 
@@ -127,10 +202,13 @@ Hot: lexer scan loop, parser expression/statement parsing, type inference unific
 
 ## Registration Sync Points
 
-- **Single source of truth**: one location is canonical, others derived/validated
-- **No manual mirroring**: centralize via `from_str()`, `all()`, iterator — not parallel lists
-- **Compile-time or test-time enforcement**: add test iterating source-of-truth list
+Application of the SSOT paradigm to enum variants, lookup tables, and parallel data structures.
+
+- **Canonical source drives all consumers**: one location is the source of truth — others derive from it or are validated against it. Never maintain independent parallel lists.
+- **No manual mirroring**: centralize via `from_str()`, `all()`, iterator — not parallel lists. If you must have parallel structure, generate or validate it from the canonical source.
+- **Compile-time or test-time enforcement**: add test iterating source-of-truth list. Prefer compile-time (exhaustive match) over test-time where possible.
 - **Flag drift as finding**: new variant in one location but missing from parallel = **DRIFT**
+- **Flag duplication as finding**: parallel lookup table that could query the canonical source instead = **LEAK:scattered-knowledge**
 - **New type checklist**: new pub types need: Debug derive, Display if user-facing, From conversions for cross-phase types, documentation, tests. New types trigger sync requirements — not just new enum variants.
 
 ## Gap Detection

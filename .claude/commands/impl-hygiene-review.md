@@ -112,6 +112,29 @@ Read `lib.rs` and key interface files to understand the public API surface.
 
 #### 4c. Audit Each Rule Category
 
+**LEAK Detection (highest priority — review this FIRST):**
+
+Side logic is the root of architectural decay. Every LEAK creates a second source of truth that WILL drift and cascade. Apply these checks aggressively — when in doubt, flag it.
+
+- [ ] **No duplicated dispatch**: match/if-chain on TypeTag, MethodKind, or operator kind exists ONLY at the canonical dispatch point? Any parallel match elsewhere is a LEAK — even if it produces correct results today.
+- [ ] **No scattered knowledge**: type behavior (methods, operators, memory strategy) read from the registry, never hardcoded? Any `if type == X { special_behavior }` outside the canonical dispatcher is a LEAK.
+- [ ] **No re-derived facts**: information computed by a prior phase is queried, not recomputed? Recomputing what's already stored creates a shadow source of truth.
+- [ ] **No inline policy**: defaults, thresholds, format strings, validation rules defined at their canonical home, not at consumption sites? If changing a default requires grep-and-replace across files, it's a LEAK.
+- [ ] **No validation at consumption**: invariants enforced at construction/entry, not checked at every use site? (parse-don't-validate)
+- [ ] **No format logic outside formatters**: Display/Debug/diagnostic strings built in their formatting impls, not inline at error sites?
+- [ ] **"Where would I look?" passes**: for every behavioral decision in this code, can you point to exactly ONE canonical location that defines it?
+- [ ] **"What if it changes?" passes**: if the behavior changed, would exactly ONE file need updating (plus tests/docs)? If N > 1, it's a LEAK.
+
+**Single Source of Truth (SSOT):**
+
+Every piece of knowledge has one canonical home. Consumers query — they don't copy. SSOT violations become LEAKs.
+
+- [ ] **Canonical home exists**: for every behavioral decision, type relationship, or dispatch rule in this code — is there exactly ONE file that defines it? If the knowledge has no home (scattered everywhere), that's a structural SSOT violation.
+- [ ] **No parallel authority**: are there two locations both claiming to define the same knowledge? (e.g., two match tables that both define "what methods does type X have?") Designate one as canonical, derive the other.
+- [ ] **Consumers query, don't cache**: do consumers of shared knowledge call a function/query on the canonical owner, or do they maintain a local lookup table? Local tables are shadow homes.
+- [ ] **Enforcement exists**: for every canonical source, is there a compile-time (exhaustive match) or test-time (exhaustiveness test) mechanism that catches consumers falling out of sync?
+- [ ] **Architectural centers respected**: does this code correctly query from: registry (builtin behavior), type pool (type structure), AIMS (memory facts), repr-opt (representation)? Or does it re-derive what these centers already know?
+
 **Phase Boundary Discipline:**
 - [ ] Data flows one way? (no callbacks to earlier phase, no reaching back)
 - [ ] No circular imports between phase crates?
@@ -200,7 +223,7 @@ The agent should create a plan that:
 1. Lists every LEAK, DRIFT, GAP, WASTE, EXPOSURE, and BLOAT finding with `file:line` references
 2. Groups by boundary (e.g., "lexer→parser", "parser→types")
 3. Estimates scope: "N boundaries, ~M findings"
-4. Orders: leaks first (phase bleeding), then drift (sync), then gaps (feature coverage), then bloat (file organization), then waste (perf), then exposure (type safety)
+4. Orders: **LEAKs first and separately** (side logic is the root of all evil — every LEAK is a ticking architectural bomb), then drift (sync), then gaps (feature coverage), then bloat (file organization), then waste (perf), then exposure (type safety). LEAKs must NEVER be deferred — they cascade.
 
 The **final section** of the plan must be a cleanup step:
 
@@ -232,14 +255,15 @@ Each section groups findings by boundary:
 
 ### Findings
 
-1. **[LEAK]** `file:line` — {description}
-2. **[DRIFT]** `file:line` — {description}
+1. **[LEAK:duplicated-dispatch]** `file:line` — {description} — **canonical home**: `{canonical_file:line}`
+2. **[LEAK:scattered-knowledge]** `file:line` — {description} — **canonical home**: `{canonical_file:line}`
+3. **[DRIFT]** `file:line` — {description}
    → covered by plans/{plan}/ ({section name})
-3. **[DRIFT] [PLANNED]** `file:line` — {description}
+4. **[DRIFT] [PLANNED]** `file:line` — {description}
    → fix described in plans/{plan}/{section}.md
-4. **[GAP]** `file:line` — {description}
-5. **[WASTE]** `file:line` — {description}
-6. **[EXPOSURE]** `file:line` — {description}
+5. **[GAP]** `file:line` — {description}
+6. **[WASTE]** `file:line` — {description}
+7. **[EXPOSURE]** `file:line` — {description}
 ```
 
 ## Important Rules

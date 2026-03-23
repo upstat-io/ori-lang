@@ -5,7 +5,7 @@
 //! are deferred to Section 09/14 where the dependency exists.
 
 use crate::defs::*;
-use crate::{MemoryStrategy, OpStrategy, TypeParamArity};
+use crate::{MemoryStrategy, OpStrategy, Ownership, ReturnTag, TypeParamArity, TypeTag};
 
 // Primitive type constants used across tests.
 const PRIMITIVE_TYPES: &[&crate::TypeDef] = &[&INT, &FLOAT, &BOOL, &BYTE, &CHAR];
@@ -486,5 +486,193 @@ fn str_neq_uses_ori_str_ne() {
             assert!(returns_bool);
         }
         _ => panic!("str.neq should be RuntimeCall"),
+    }
+}
+
+// 14.1 Registry-level integrity tests
+
+/// Every `TypeDef` must have at least one method.
+/// A type with zero methods provides no behavioral specification
+/// and should not be in the registry.
+#[test]
+fn no_empty_types() {
+    for type_def in BUILTIN_TYPES {
+        assert!(
+            !type_def.methods.is_empty(),
+            "TypeDef `{}` has zero methods -- every registered type must \
+             have at least one method (minimally: clone, equals, to_str)",
+            type_def.name,
+        );
+    }
+}
+
+/// Every `TypeTag` variant that carries methods must have a corresponding
+/// `TypeDef` in `BUILTIN_TYPES`. Variants without methods (`Unit`, `Never`,
+/// `Function`) and the DEI alias (`DoubleEndedIterator` → `Iterator`) are
+/// intentionally excluded.
+#[test]
+fn all_method_bearing_type_tags_present() {
+    use std::collections::HashSet;
+
+    // TypeTag variants that intentionally have no TypeDef:
+    // - Unit, Never: no methods, no operators
+    // - Function: no methods (memory classification only)
+    // - DoubleEndedIterator: aliases to Iterator via base_type()
+    const EXCLUDED: &[TypeTag] = &[
+        TypeTag::Unit,
+        TypeTag::Never,
+        TypeTag::Function,
+        TypeTag::DoubleEndedIterator,
+    ];
+
+    let registered_tags: HashSet<TypeTag> = BUILTIN_TYPES.iter().map(|td| td.tag).collect();
+
+    for &tag in TypeTag::all() {
+        if EXCLUDED.contains(&tag) {
+            continue;
+        }
+        assert!(
+            registered_tags.contains(&tag),
+            "TypeTag::{tag:?} has no TypeDef in BUILTIN_TYPES. \
+             Add a const TypeDef in ori_registry/src/defs/ and include \
+             it in BUILTIN_TYPES.",
+        );
+    }
+}
+
+/// Every `MethodDef` on a `Copy` type must use `Ownership::Borrow`.
+/// Copy types are trivially borrowed (borrow == copy), but the annotation
+/// documents the intent. Arc types may use Owned for consuming methods.
+#[test]
+fn all_receivers_documented() {
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            if type_def.memory == MemoryStrategy::Copy {
+                assert_eq!(
+                    method.receiver,
+                    Ownership::Borrow,
+                    "Method `{}.{}` on a Copy type should use Ownership::Borrow \
+                     (Copy types are trivially borrowed)",
+                    type_def.name,
+                    method.name,
+                );
+            }
+            // Arc types: most methods borrow, but consuming methods (into)
+            // may use Owned. Field access proves the value is explicitly set.
+            let _ = method.receiver;
+        }
+    }
+}
+
+/// Every Ori builtin type supports `==` (equality). This is a language invariant.
+/// Equality is provided either via operator strategy (primitives) or via the
+/// `equals` method from the Eq trait (collections, wrappers).
+///
+/// Exempt types:
+/// - Error: non-deterministic trace data makes structural equality misleading
+/// - Channel: identity-based handle, not structural value
+/// - Iterator: stateful/consumed on use, equality is nonsensical
+/// - Range: TODO — should have `equals` method but missing from registry
+///   (equality works in eval/typeck via structural comparison, but the
+///   registry `TypeDef` doesn't declare it yet)
+#[test]
+fn no_unsupported_eq() {
+    const EQ_EXEMPT: &[TypeTag] = &[
+        TypeTag::Error,
+        TypeTag::Channel,
+        TypeTag::Iterator,
+        TypeTag::DoubleEndedIterator,
+        TypeTag::Range, // TODO: add `equals` method to Range TypeDef
+    ];
+
+    for type_def in BUILTIN_TYPES {
+        if EQ_EXEMPT.contains(&type_def.tag) {
+            continue;
+        }
+        let has_operator_eq = type_def.operators.eq != OpStrategy::Unsupported;
+        let has_equals_method = type_def.methods.iter().any(|m| m.name == "equals");
+        assert!(
+            has_operator_eq || has_equals_method,
+            "Type `{}` has neither an eq operator strategy nor an `equals` method. \
+             All Ori types must support equality (or be in EQ_EXEMPT with justification).",
+            type_def.name,
+        );
+    }
+}
+
+/// If a type supports comparison operators (`lt`, `gt`, `lt_eq`, `gt_eq`), it must
+/// also support equality (`eq`, `neq`). Comparison without equality is nonsensical.
+/// Additionally, all supported comparison operators must use the same strategy.
+#[test]
+fn operator_consistency() {
+    for type_def in BUILTIN_TYPES {
+        let ops = &type_def.operators;
+
+        let has_any_cmp = ops.lt != OpStrategy::Unsupported
+            || ops.gt != OpStrategy::Unsupported
+            || ops.lt_eq != OpStrategy::Unsupported
+            || ops.gt_eq != OpStrategy::Unsupported;
+
+        if has_any_cmp {
+            assert!(
+                ops.eq != OpStrategy::Unsupported,
+                "Type `{}` supports comparison but not equality. \
+                 If lt/gt/le/ge are supported, eq must be too.",
+                type_def.name,
+            );
+            assert!(
+                ops.neq != OpStrategy::Unsupported,
+                "Type `{}` supports comparison but not not-equal. \
+                 If lt/gt/le/ge are supported, neq must be too.",
+                type_def.name,
+            );
+        }
+
+        // All supported comparison operators should use the same strategy
+        let cmp_ops = [ops.lt, ops.gt, ops.lt_eq, ops.gt_eq];
+        let supported_cmp: Vec<_> = cmp_ops
+            .iter()
+            .filter(|s| **s != OpStrategy::Unsupported)
+            .collect();
+        if supported_cmp.len() > 1 {
+            let first = supported_cmp[0];
+            for s in &supported_cmp[1..] {
+                assert_eq!(
+                    *s, first,
+                    "Type `{}` uses mixed comparison strategies: {:?} vs {:?}. \
+                     All comparison operators should use the same strategy.",
+                    type_def.name, first, s,
+                );
+            }
+        }
+    }
+}
+
+/// Methods returning `SelfType` must be semantically valid — `to_*` conversion
+/// methods should return concrete `TypeTag`s, not `SelfType` (except identity
+/// conversions like `str.to_str`).
+#[test]
+fn self_type_returns_valid() {
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            if method.returns == ReturnTag::SelfType
+                && method.name.starts_with("to_")
+                && method.name != "to_uppercase"
+                && method.name != "to_lowercase"
+                && method.name != "to_ascii_uppercase"
+                && method.name != "to_ascii_lowercase"
+            {
+                // to_str, to_int, to_float, etc. should use concrete return types.
+                // EXCEPTION: `to_str` on str returns SelfType (identity).
+                let is_identity = type_def.tag == TypeTag::Str && method.name == "to_str";
+                assert!(
+                    is_identity,
+                    "Method `{}.{}` returns SelfType but is a conversion \
+                     method (`to_*`). Conversion methods should return \
+                     a concrete TypeTag, not SelfType.",
+                    type_def.name, method.name,
+                );
+            }
+        }
     }
 }

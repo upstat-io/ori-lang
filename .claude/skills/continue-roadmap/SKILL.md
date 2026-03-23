@@ -469,7 +469,7 @@ sections:
 
 ### Why This Matters
 
-The website dynamically loads roadmap data from these YAML frontmatter blocks. Incorrect status values cause the roadmap page to show wrong progress information.
+The website dynamically loads roadmap data from these YAML frontmatter blocks. Incorrect status values cause the roadmap page to show wrong progress information. Overview and index files are the first thing read when resuming work — stale status there causes wasted time re-analyzing completed work.
 
 **Catch-all:** If frontmatter drifts despite these rules, Step 1.5 (Stale Frontmatter Auto-Fix) catches and corrects it at the start of every `/continue-roadmap` invocation.
 
@@ -530,6 +530,10 @@ When completing a roadmap item:
   - [ ] Check off completed items with `[x]`
   - [ ] Update subsection `status` in YAML frontmatter if subsection is now complete
   - [ ] Update section `status` in YAML frontmatter if all subsections are now complete
+- [ ] Update parent plan files (if section status changed):
+  - [ ] Update `00-overview.md` effort table and Quick Reference table
+  - [ ] Update `index.md` section status and Quick Reference table
+  - [ ] If plan complete: update plan-level `status:` frontmatter in both files
 - [ ] Commit with section reference in message
 
 ---

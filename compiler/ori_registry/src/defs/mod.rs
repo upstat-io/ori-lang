@@ -63,6 +63,9 @@ pub use self::iterator::ITERATOR;
 /// requires adding its `&'static TypeDef` here.
 ///
 /// Order matches `TypeTag` declaration order for predictable iteration.
+///
+// TODO(type_strategy_registry): Enforce completeness at compile time via
+// exhaustive match in a const fn (Section 14 of type_strategy_registry plan).
 pub static BUILTIN_TYPES: &[&crate::TypeDef] = &[
     // Sorted by TypeTag discriminant value (repr(u8))
     &INT,   // 0
