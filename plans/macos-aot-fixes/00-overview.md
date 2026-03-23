@@ -1,6 +1,6 @@
 ---
-status: complete
-reviewed: true
+status: in-progress
+reviewed: false
 ---
 
 # macOS AOT Fixes
@@ -12,21 +12,21 @@ CI run `23420458239` (PR #88) passed Linux fully but failed on macOS with 2 AOT 
 ## Checklist
 
 - [x] **Fix 1**: `arc::test_rc_project_merge_edge_scoped_cleanup` (exit 1) — implementation landed in commit `9d323f30`, reopened by `TPR-01-001`, resolved 2026-03-23
-- [x] **Fix 2**: `elem_dec_scope::test_trampoline_map_str_identity` (SIGSEGV -139) — implementation landed across `b53f147b..HEAD`, reopened by `TPR-02-001` and `TPR-02-002`, resolved 2026-03-23
+- [x] **Fix 2**: `elem_dec_scope::test_trampoline_map_str_identity` (SIGSEGV -139) — implementation landed across `b53f147b..HEAD`, reopened by `TPR-02-001` through `TPR-02-008`; all findings resolved and pinned by regressions 2026-03-23
 - [x] **Fix 3**: CI cross-platform timeout (10→30 min) — already done in `.github/workflows/ci.yml`
-- [x] All 3 fixes committed, pushed, CI green
+- [ ] All 3 fixes committed, pushed, CI green
 
 ---
 
-## Fix 1: Merge-Edge Scoped Cleanup (REOPENED)
+## Fix 1: Merge-Edge Scoped Cleanup (DONE)
 
 Commit `9d323f30` fixed the original root cause: `DeferredDec` emitted RC decrements on all successor edges instead of scoping them to the correct merge-edge successor. That work added `target_block` to `DeferredDec`.
 
-Third-party review on `2026-03-23` found a remaining gap: multi-field escaping projections from the same parent aggregate still collapse to one compensation path. Section 01 stays open until `TPR-01-001` is resolved and covered by a regression.
+Third-party review on `2026-03-23` found a remaining gap (multi-field escaping projections collapsing to one compensation path), which was resolved and pinned by `test_rc_project_merge_edge_multi_field` in the same session.
 
 ---
 
-## Fix 2: Trampoline Map Str Identity (REOPENED)
+## Fix 2: Trampoline Map Str Identity (DONE)
 
 **Root cause:** ARM64 sret calling convention mismatch in iterator trampolines.
 
@@ -47,12 +47,14 @@ On x86_64 this worked by coincidence because sret uses RDI (same register as fir
 
 4. **`arc_emitter/apply.rs`**: `emit_apply_indirect` now uses sret for closures returning large types (>16 bytes), matching the updated wrapper ABI.
 
-Third-party review on `2026-03-23` found two remaining gaps in that follow-up:
+Third-party review on `2026-03-23` identified six follow-up findings (TPR-02-001 through TPR-02-008). All were validated, resolved, and pinned by regressions:
 
-- wrapper declarations now mark the hidden sret pointer `noundef`, which conflicts with the existing IR-quality rule
-- indirect sret closure calls inside SEH funclets bypass the required `"funclet"` operand bundle on the Windows/MSVC path
-
-Section 02 stays open until `TPR-02-001` and `TPR-02-002` are resolved with targeted coverage.
+- Wrapper `noundef` on hidden sret params (fixed, pinned by `test_closure_wrapper_sret_no_noundef`)
+- SEH funclet operand bundles for indirect-sret calls (fixed, pinned by `seh_indirect_call_with_sret_and_funclet`)
+- Missing direct regression for SEH+sret helper (pinned by same test)
+- File-size violation in `closures.rs` (split to `closure_wrappers.rs`)
+- Weak semantic pins (strengthened with `.expect()`, removed silent-skip guards)
+- Environment-dependent release coverage (fixed by requiring debug binary, removing fallback)
 
 ---
 

@@ -333,10 +333,6 @@ fn test_arc_main_wrapper_calls_ori_check_leaks() {
 @main () -> int = 0;
 "#,
     );
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
     let main_ir = extract_function_ir(&ir, "main");
     assert!(
         main_ir.contains("@ori_check_leaks"),
