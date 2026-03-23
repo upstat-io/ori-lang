@@ -26,8 +26,8 @@ paths:
 | Category | Functions |
 |----------|-----------|
 | Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
-| RefCount | `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free` (8-byte header, `drop_fn` for children) |
-| Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_compare`, `ori_str_hash`, `ori_str_from_int/bool/float`, `ori_str_next_char` |
+| RefCount | `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free` (32-byte V5 header: `data_size`, `elem_dec_fn`, `elem_count`, `strong_count`; `drop_fn` for non-buffer RC objects), `ori_buffer_store_elem_dec`, `ori_buffer_store_elem_count` |
+| Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_compare`, `ori_str_hash`, `ori_str_from_int/bool/float`, `ori_str_next_char`, `ori_str_rc_inc`, `ori_str_rc_dec` |
 | I/O | `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool` |
 | Lists | `ori_list_new`, `ori_list_free`, `ori_list_len`, `ori_list_alloc_data`, `ori_list_free_data` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
@@ -38,7 +38,7 @@ paths:
 ## Submodules
 
 - `format/` — Template string interpolation (`ori_format_int/float/str/bool/char`)
-- `iterator.rs` — Iterator runtime (`ori_iter_from_list/range`, `ori_iter_next`, `ori_iter_map/filter/take/skip/enumerate/collect/count/drop`)
+- `iterator/` — Iterator runtime directory module (`mod.rs`, `sources.rs`, `state.rs`, `next.rs`, `adapters.rs`, `consumers.rs`, `tests.rs`). Entry points: `ori_iter_from_list` (4 params: data, len, elem_size, elem_dec_fn), `ori_iter_from_range`, `ori_iter_next`, `ori_iter_map/filter/take/skip/enumerate/collect/count/drop`
 
 ## JIT Panic Recovery
 

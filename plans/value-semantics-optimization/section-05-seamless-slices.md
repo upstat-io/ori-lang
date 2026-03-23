@@ -266,15 +266,17 @@ String slices follow the same pattern but must handle SSO strings specially.
 
 Slices require special RC handling because their data pointer doesn't point to the start of an RC allocation.
 
-- [x] **RC header expansion** (V2→V3): (2026-02-28) — `compiler/ori_rt/src/rc/mod.rs`
-  - Header expanded from 8 to 16 bytes: `[data_size: i64 | strong_count: i64 | data...]`
+- [x] **RC header expansion** (V2→V5): (2026-02-28, expanded 2026-03-22) — `compiler/ori_rt/src/rc/mod.rs`
+  - Header expanded from 8 to 32 bytes: `[data_size: i64 | elem_dec_fn: ptr | elem_count: i64 | strong_count: i64 | data...]`
   - `strong_count` stays at `data_ptr - 8` (all existing RC operations unchanged)
-  - `data_size` stored at `data_ptr - 16` (new; enables slice deallocation)
+  - `data_size` stored at `data_ptr - 32` (enables slice deallocation)
+  - `elem_dec_fn` stored at `data_ptr - 24` (element destructor function pointer)
+  - `elem_count` stored at `data_ptr - 16` (initialized element count for cleanup)
   - `ori_rc_alloc`, `ori_rc_free`, `ori_rc_realloc` updated internally
   - Added `ori_rc_data_size(data_ptr)` helper to read stored allocation size
-  - Added `RC_HEADER_SIZE = 16` public constant
+  - Added `RC_HEADER_SIZE = 32` public constant
   - LLVM codegen GEP to refcount (`-8`) unchanged — refcount stays at `data - 8`
-  - DWARF debug info updated in `builder_scope.rs` to reflect 3-field header
+  - DWARF debug info updated in `builder_scope.rs` to reflect V5 header
 
 - [x] **RC Inc for slices**: (2026-02-28) — `compiler/ori_rt/src/rc/collections.rs`
   - `ori_list_rc_inc(data, cap)`: if `is_slice_cap(cap)`, computes `original_data` via `slice_original_data`, then calls `ori_rc_inc(original_data)`. For regular lists, calls `ori_rc_inc(data)` directly.
@@ -285,7 +287,7 @@ Slices require special RC handling because their data pointer doesn't point to t
 
 - [x] **Element RC on slice drop**: (2026-02-28) — documented limitation
   - When a slice is the last reference and RC hits 0, only the slice's `len` elements get `elem_dec_fn` called (best-effort). Elements outside the slice's range may leak child RCs.
-  - Buffer itself is correctly freed using stored `data_size` from the V3 header.
+  - Buffer itself is correctly freed using stored `data_size` from the V5 header.
   - Acceptable because: most elements are scalars (no child RCs); originals usually outlive slices; full cleanup would require storing original `len` in header.
 
 - [x] Update `ori_arc`'s `RcStrategy` to handle slices: (2026-02-28) — Completed in 05.6. Both `emit_rc_inc_heap` and `inc_value_rc` now extract `cap` for List/Set and call `ori_list_rc_inc(data, cap)`. Added `"drop"`, `"slice"`, `"substring"`, `"take"` to `BORROWING_METHOD_NAMES` in `ori_arc/src/borrow/builtins.rs`.

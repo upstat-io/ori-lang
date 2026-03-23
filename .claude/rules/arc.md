@@ -92,6 +92,20 @@ Key constraint: steps 11a–12 use `AimsStateMap` via ArcVarId-keyed lookups (`v
 | `IsShared { dst, var }` | Check if refcount > 1 |
 | `Reuse { dst, ty, token, args }` | Reuse allocation (reset/reuse optimization) |
 
+## Protocol Builtins
+
+Compiler-internal protocol functions emitted by ARC lowering. These appear as `Apply` callees in ARC IR but are intercepted by the LLVM emitter -- they never become real function calls. Each variant carries per-argument ownership semantics so borrow inference handles them correctly.
+
+Source: `ori_ir/src/builtin_constants/protocol/mod.rs`
+
+| Variant | ARC IR Name | Args | Ownership | Purpose |
+|---------|------------|------|-----------|---------|
+| `Index` | `__index` | 2 | Borrowed, Borrowed | `receiver[index]` -- list/map indexing |
+| `Iter` | `iter` | 1 | Borrowed | Iterator creation from collection |
+| `IterNext` | `__iter_next` | 2 | Owned, Borrowed | Iterator advancement (iterator consumed, type marker borrowed) |
+| `IterDrop` | `ori_iter_drop` | 1 | Borrowed | Iterator cleanup (state freed internally) |
+| `CollectSet` | `__collect_set` | 1 | Owned | Set collection from iterator (iterator consumed) |
+
 ## Crate Structure
 
 | Module | Purpose |
