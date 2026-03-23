@@ -67,11 +67,13 @@ Given a `ValueRange`, select the minimum integer width that preserves the semant
 
 - [ ] Apply conservatism rules:
   - **Local variables**: narrow aggressively (widening is free in registers)
-  - **Struct fields**: narrow aggressively (saves memory per instance)
+  - **Struct fields**: narrow aggressively, but ONLY from §03's field-summary table built from `Construct` sites (not from the join of unrelated `int` variables)
   - **Function parameters**: narrow only if ALL call sites agree on the range
   - **Function returns**: narrow only if ALL callers can handle the narrow type
   - **Collection elements**: narrow aggressively (savings multiply by element count)
   - **Public API types**: do NOT narrow (external callers may pass full-range values)
+  - **Address-taken functions / indirect-call targets**: do NOT narrow parameters or returns; any function stored in a value of function type, passed as an argument, or returned uses canonical widths at the callable boundary
+  - **Closure captures**: captured values remain at canonical width in the closure environment unless and until a dedicated closure-environment layout contract is implemented and verified
 
 - [ ] Implement `NarrowingPolicy`:
   ```rust
@@ -114,6 +116,7 @@ At function boundaries and FFI, narrowed integers must be widened back to canoni
   - Before FFI call arguments: widen to C-ABI width
   - At module import boundaries: widen to canonical
   - When storing to generic collection: widen if collection is exported
+  - Closure environments: treat capture slots as canonical-width storage for this section; do not narrow captured `int` fields in the initial implementation
 
 - [ ] Cross-module narrowing via Merkle hashes:
   - If both modules agree on the range (via function signature annotations), use narrow type
@@ -206,6 +209,8 @@ The LLVM backend must emit narrowed types and insert sign-extension/truncation a
 | `struct Pair { x: int, y: int }` with fields `-32768..32767` | `{ i16, i16 }` (4 bytes) | Yes — `sizeof(Pair) == 4` |
 | Internal function `@f (n: int) -> int` where only call site passes `5` | parameter `n` uses `i8` | Yes — `sext` visible at call boundary |
 | `pub @f (n: int) -> int` — public API | parameter `n` stays `i64` | Yes — no narrowing at public boundary |
+| `let g = f; g(300)` / function passed as value | parameter stays `i64` | Yes — address-taken callables disabled |
+| Narrowed local captured by closure | capture storage stays canonical `i64` | Yes — no closure ABI mismatch |
 | Arithmetic `a + b` where `a, b ∈ [0, 100]` → result `[0, 200]` | `i16` or wider for result | Yes — overflow safety preserved |
 | Range `Top` (no analysis) | `i64` (canonical, no narrowing) | Yes — fallback is safe |
 | Trait method parameter | `i64` (no narrowing — unknown callers) | Yes — no narrowing |
@@ -218,7 +223,9 @@ The LLVM backend must emit narrowed types and insert sign-extension/truncation a
 - [ ] Struct field `x: int` in `struct Pair { x: int, y: int }` uses narrowed type when constructor values are bounded
 - [ ] Public function parameters are NOT narrowed (policy: `Disabled`)
 - [ ] Trait method parameters are NOT narrowed (unknown callers)
+- [ ] Address-taken / indirectly-called functions are NOT narrowed at their callable boundary
 - [ ] ABI boundaries correctly widen: `sext` visible in LLVM IR at function entry and return
+- [ ] Closure-captured ints stay canonical-width in the closure environment unless a separate closure-layout contract lands with its own tests
 - [ ] Struct field store/load inserts `trunc`/`sext` at boundaries (visible in LLVM IR)
 - [ ] Overflow guards inserted where narrowed arithmetic might overflow
 - [ ] Add semantic pin test: `struct Pixel { r: int, g: int, b: int, a: int }` with `0..255` fields → struct LLVM type is `{ i8, i8, i8, i8 }`, NOT `{ i64, i64, i64, i64 }`. This test can ONLY pass with narrowing enabled.
