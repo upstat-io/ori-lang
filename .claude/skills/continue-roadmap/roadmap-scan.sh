@@ -10,6 +10,22 @@ ROADMAP_DIR="${1:-plans/roadmap}"
 FOCUS_SECTION="${2:-}"
 first_incomplete=""
 
+# ── Portable key-value store (bash 3 compatible) ──
+# Uses temp directory: each "map" is a subdirectory, keys are filenames, values are file contents.
+_kvdir=$(mktemp -d)
+trap 'rm -rf "$_kvdir"' EXIT
+
+_kv_init() { mkdir -p "$_kvdir/$1"; }
+_kv_set() { printf '%s' "$3" > "$_kvdir/$1/$2"; }
+_kv_get() { cat "$_kvdir/$1/$2" 2>/dev/null || printf '%s' "${3:-}"; }
+_kv_keys() { local d="$_kvdir/$1"; if [[ -d "$d" ]]; then find "$d" -maxdepth 1 -type f -exec basename {} \; 2>/dev/null | sort; fi; }
+_kv_len() { local d="$_kvdir/$1"; if [[ -d "$d" ]]; then find "$d" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' '; else echo 0; fi; }
+_kv_inc() {
+    local cur
+    cur=$(_kv_get "$1" "$2" 0)
+    _kv_set "$1" "$2" "$((cur + 1))"
+}
+
 # ── Reroute detection from plan frontmatter ──
 # Scans plans/*/index.md for reroute/parallel plans with active/queued status
 has_active_reroute=false
@@ -89,11 +105,11 @@ find_section_file() {
 }
 
 # ── Pre-parse dependency graph from overview ──
-declare -A dep_of=()
+_kv_init dep_of
 if [[ -f "$ROADMAP_DIR/00-overview.md" ]]; then
     while read -r child parent; do
         [[ -z "$child" ]] && continue
-        dep_of["$child"]="$parent"
+        _kv_set dep_of "$child" "$parent"
     done < <(awk '
         BEGIN { last_sec = ""; in_graph = 0; in_code = 0 }
         /^## Dependency Graph/ { in_graph = 1; next }
@@ -214,8 +230,8 @@ for f in "$ROADMAP_DIR"/section-*.md; do
             # Count blocked vs unblocked, collect blocker section IDs and affected subsections
             total_blocked=0
             total_unblocked=0
-            declare -A blocker_item_counts=()
-            declare -A blocker_subs=()
+            _kv_init blocker_item_counts
+            _kv_init blocker_subs
             while IFS=$'\t' read -r lineno indent blockers subsection content; do
                 [[ -z "$lineno" ]] && continue
                 if [[ "$blockers" != "-" ]]; then
@@ -223,15 +239,15 @@ for f in "$ROADMAP_DIR"/section-*.md; do
                     IFS=',' read -ra bids <<< "$blockers"
                     for bid in "${bids[@]}"; do
                         bsec="${bid%%.*}"
-                        blocker_item_counts["$bsec"]=$(( ${blocker_item_counts["$bsec"]:-0} + 1 ))
-                        blocker_subs["${bsec}:${subsection}"]=1
+                        _kv_inc blocker_item_counts "$bsec"
+                        _kv_set blocker_subs "${bsec}:${subsection}" 1
                     done
                 else
                     total_unblocked=$((total_unblocked + 1))
                 fi
             done <<< "$blocker_data"
 
-            num_blocker_sections="${#blocker_item_counts[@]}"
+            num_blocker_sections=$(_kv_len blocker_item_counts)
             if [[ "$total_blocked" -gt 0 ]]; then
                 echo "Actionable: ${total_unblocked} unblocked, ${total_blocked} blocked (by ${num_blocker_sections} sections)"
             fi
@@ -239,10 +255,10 @@ for f in "$ROADMAP_DIR"/section-*.md; do
 
             # ── Subsection statuses with blocked counts ──
             # Pre-compute blocked count per subsection (## header)
-            declare -A sub_blocked_counts=()
+            _kv_init sub_blocked_counts
             while IFS=$'\t' read -r sid sbc; do
                 [[ -z "$sid" ]] && continue
-                sub_blocked_counts["$sid"]="$sbc"
+                _kv_set sub_blocked_counts "$sid" "$sbc"
             done < <(awk '
                 BEGIN { fm = 0; in_body = 0; cur_id = ""; blocked = 0; parent_bl = "" }
                 /^---$/ { fm++; next }
@@ -303,7 +319,7 @@ for f in "$ROADMAP_DIR"/section-*.md; do
                 fi
 
                 blocked_suffix=""
-                bc="${sub_blocked_counts["$sub_id"]:-0}"
+                bc=$(_kv_get sub_blocked_counts "$sub_id" 0)
                 if [[ "$bc" -gt 0 ]]; then
                     blocked_suffix=" [${bc} blocked]"
                 fi
@@ -339,9 +355,9 @@ for f in "$ROADMAP_DIR"/section-*.md; do
             fi
 
             # ── Blocker tree with readiness classification ──
-            if [[ "${#blocker_item_counts[@]}" -gt 0 ]]; then
+            if [[ "$(_kv_len blocker_item_counts)" -gt 0 ]]; then
                 echo "Blocker tree:"
-                sorted_blockers=($(echo "${!blocker_item_counts[@]}" | tr ' ' '\n' | sort -n))
+                sorted_blockers=($(_kv_keys blocker_item_counts | sort -n))
                 last_idx=$(( ${#sorted_blockers[@]} - 1 ))
                 for i in "${!sorted_blockers[@]}"; do
                     bsec="${sorted_blockers[$i]}"
@@ -370,7 +386,7 @@ for f in "$ROADMAP_DIR"/section-*.md; do
                             all_deps_ok=true
                             waiting_chain=""
                             while [[ "$depth" -lt 5 ]]; do
-                                dep="${dep_of[$current]:-}"
+                                dep=$(_kv_get dep_of "$current" "")
                                 [[ -z "$dep" ]] && break
                                 df=$(find_section_file "$dep")
                                 [[ -z "$df" || ! -f "$df" ]] && break
@@ -384,7 +400,7 @@ for f in "$ROADMAP_DIR"/section-*.md; do
                                 depth=$((depth + 1))
                             done
                             if $all_deps_ok; then
-                                dep="${dep_of[$bsec]:-}"
+                                dep=$(_kv_get dep_of "$bsec" "")
                                 readiness="READY${dep:+ (deps satisfied)}"
                                 [[ -z "$dep" ]] && readiness="READY (no deps)"
                             else
@@ -393,15 +409,13 @@ for f in "$ROADMAP_DIR"/section-*.md; do
                         fi
 
                         # Collect affected subsections (sorted)
-                        # Note: uses if/then instead of [[ ]] && echo to avoid
-                        # set -e killing the subshell when the last iteration's test fails
-                        affected=$(for key in "${!blocker_subs[@]}"; do
+                        affected=$(_kv_keys blocker_subs | while read -r key; do
                             if [[ "${key%%:*}" == "$bsec" ]]; then echo "${key#*:}"; fi
                         done | sort -V | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
                         [[ -z "$affected" ]] && affected="?"
 
                         # Tree connectors
-                        count="${blocker_item_counts[$bsec]}"
+                        count=$(_kv_get blocker_item_counts "$bsec" 0)
                         item_word="items"
                         [[ "$count" -eq 1 ]] && item_word="item"
                         if [[ "$i" -eq "$last_idx" ]]; then

@@ -295,22 +295,28 @@ fn emit_project_escape_incs(
             continue;
         }
 
-        // For each arg tracing to a doomed parent: RcInc + successor RcDec.
+        // For each arg tracing to a doomed parent: RcInc on the arg itself
+        // (the specific projected child that is escaping), plus a successor
+        // RcDec on the corresponding merge-block parameter.
+        //
+        // Previously this used a single `parent -> project_dst` map which
+        // collapsed multiple escaping children from the same parent into one
+        // slot. Now each arg gets its own RcInc keyed to its own identity.
         let var_to_parent = build_var_to_parent(block, args, func_project_sources);
         let mut block_incs = Vec::new();
         for (arg_pos, &arg) in args.iter().enumerate() {
             let Some(&parent) = var_to_parent.get(&arg) else {
                 continue;
             };
-            let Some(&project_dst) = doomed_parents.get(&parent) else {
+            if !doomed_parents.contains(&parent) {
                 continue;
-            };
-            let Some(strategy) = rc_strategy(func, project_dst, pool) else {
+            }
+            let Some(strategy) = rc_strategy(func, arg, pool) else {
                 continue;
             };
 
             block_incs.push(ArcInstr::RcInc {
-                var: project_dst,
+                var: arg,
                 count: 1,
                 strategy,
             });
@@ -385,14 +391,16 @@ fn build_var_to_parent(
 /// Find parent aggregates that will be edge-dec'd and have projected children
 /// escaping via terminator args.
 ///
-/// Returns a map from parent → Project dst (for RC strategy lookup).
+/// Returns the set of doomed parent variable IDs. Each arg that traces to a
+/// doomed parent needs its own compensating `RcInc` — the caller resolves
+/// per-arg identity, not this function.
 fn find_edge_decced_project_parents(
     block: &crate::ir::ArcBlock,
     blk: ArcBlockId,
     args: &[ArcVarId],
     state_map: &AimsStateMap,
     func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
-) -> FxHashMap<ArcVarId, ArcVarId> {
+) -> FxHashSet<ArcVarId> {
     use crate::aims::emit_rc::is_live_at_exit;
     use crate::aims::lattice::Cardinality;
     use crate::graph::successor_block_ids;
@@ -417,15 +425,7 @@ fn find_edge_decced_project_parents(
         }
     }
 
-    let mut result: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
-    for instr in &block.body {
-        if let ArcInstr::Project { dst, value, .. } = instr {
-            if doomed.contains(value) {
-                result.insert(*value, *dst);
-            }
-        }
-    }
-    result
+    doomed
 }
 
 /// Follow a chain of Jump terminators through trampoline blocks to find
