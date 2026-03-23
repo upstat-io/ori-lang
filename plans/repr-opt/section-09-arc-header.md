@@ -3,6 +3,9 @@ section: "09"
 title: "ARC Header Compression"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Narrow the refcount header from V5 (32 bytes: data_size + elem_dec_fn + elem_count + strong_count) based on proven sharing bounds, reducing per-object memory overhead"
 inspired_by:
   - "Swift refcount encoding (stdlib/public/SwiftShims/RefCount.h — uses bitfields)"
@@ -273,3 +276,9 @@ The runtime must support multiple header widths without code bloat.
 - [ ] Memory measurement: per-object overhead reduced from 8 bytes to 1-4 bytes for bounded types
 
 **Exit Criteria:** A program that creates 1M small heap objects with refcount ≤ 2 uses `ori_rc_alloc_i8` (1-byte header), verified by `grep "ori_rc_alloc_i8"` in LLVM IR. Total memory reduced by ~7MB vs. current implementation. Valgrind clean.
+
+---
+
+## 09.R Third Party Review Findings
+
+- [ ] `[TPR-09-001][critical]` `section-09-arc-header.md:199-206` — **Design contradicts exit criteria: narrow headers padded to 32 bytes yield zero memory savings.** The plan at line 204 states "ALL narrow header variants remain 32 bytes" with padding to maintain `elem_header.rs` offset compatibility. Lines 173-175 claim "saves 4/6/7 bytes per allocation" and the exit criteria claims "~7MB savings" — both impossible with 32-byte padded headers. The entire section's memory optimization premise collapses. **Action:** Either (a) redesign header layout with variable offsets (breaking `elem_header.rs` hardcoded offsets), (b) use Swift-style bitfield encoding in a single 64-bit word, (c) reframe the section around RC *elision* for `Unique` allocations (which saves the full 32 bytes — already done by §08 stack promotion), or (d) revise exit criteria to reflect actual benefit (narrower atomic operations for throughput, not memory reduction). Consensus: 3/3 reviewers, escalated from critical.
