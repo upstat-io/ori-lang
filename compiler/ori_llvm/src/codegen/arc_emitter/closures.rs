@@ -404,14 +404,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.add_noundef_return_attribute(wrapper_func_id);
         }
 
-        // noundef on all params — sret, env pointer, and user params are always defined.
+        // noundef on env pointer and user params — skip the hidden sret
+        // pointer (param 0 when has_sret) because sret is a compiler-managed
+        // ABI parameter, not a user value. Matches function_compiler.rs which
+        // uses sret_offset for the same purpose.
+        let sret_offset = u32::from(has_sret);
         #[expect(
             clippy::cast_possible_truncation,
             reason = "wrapper params bounded by lambda arity, well within u32 range"
         )]
-        for i in 0..wrapper_param_types.len() {
-            self.builder
-                .add_noundef_param_attribute(wrapper_func_id, i as u32);
+        for i in sret_offset..wrapper_param_types.len() as u32 {
+            self.builder.add_noundef_param_attribute(wrapper_func_id, i);
         }
 
         // Generate wrapper body

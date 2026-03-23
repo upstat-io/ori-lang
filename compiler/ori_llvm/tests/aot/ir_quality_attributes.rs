@@ -986,3 +986,61 @@ fn test_iter_for_yield_semantic_pin() {
     );
     assert_eq!(exit, 6, "expected 6 (1+2+3) — for-yield semantic pin");
 }
+
+// TPR-02-001 regression: closure wrappers returning >16-byte types via sret
+// must NOT add `noundef` on the hidden sret pointer parameter. The sret
+// pointer is a compiler-managed ABI parameter, not a user value.
+
+/// Verify that a capturing closure wrapper returning `str` (sret) does not
+/// mark the sret pointer `noundef`. Regular params should still have `noundef`.
+#[test]
+fn test_closure_wrapper_sret_no_noundef() {
+    let ir = crate::util::compile_and_capture_ir(
+        r#"
+@apply_transform (items: [str], transform: (str) -> str) -> [str] =
+    for item in items yield transform(item);
+
+@main () -> void = {
+    let $prefix = "hello-prefix-over-twenty-three!";
+    let $result = apply_transform(
+        items: ["world"],
+        transform: (s: str) -> str = `{prefix}: {s}`,
+    );
+    print(msg: result[0])
+}
+"#,
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    // Find any _ori_partial_* wrapper declaration — these are closure wrappers.
+    let wrapper_decl = ir.lines().find(|l| {
+        (l.contains("_ori_partial_") || l.contains("\"_ori_partial_"))
+            && l.contains("define ")
+            && l.contains("sret(")
+    });
+
+    if let Some(decl) = wrapper_decl {
+        // The sret pointer (param 0) should NOT have noundef.
+        // Parse: "define void @_ori_partial_N(ptr noalias sret(...) <NO noundef here>, ptr noundef ...)"
+        // Split at sret(...) and check the text BEFORE the next comma doesn't contain noundef
+        // after the sret attribute.
+        if let Some(sret_pos) = decl.find("sret(") {
+            // Text from sret( to next comma is the sret param
+            let after_sret = &decl[sret_pos..];
+            let sret_param_end = after_sret
+                .find(',')
+                .unwrap_or(after_sret.find(')').unwrap_or(after_sret.len()));
+            let sret_param_text = &after_sret[..sret_param_end];
+            assert!(
+                !sret_param_text.contains("noundef"),
+                "sret pointer parameter should NOT have noundef attribute:\n{decl}"
+            );
+        }
+    }
+    // Note: if no wrapper is found (e.g., optimizer inlined it), the test
+    // is a no-op — the attribute contract is only relevant for emitted wrappers.
+}
