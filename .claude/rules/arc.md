@@ -26,7 +26,7 @@ These hold at all times. Any change that violates one is a bug, not a tradeoff.
 
 - Inspired by Lean 4 LCNF IR | three-way classification: `Scalar`/`DefiniteRef`/`PossibleRef`
 - Backend-independent — `ori_arc` has no LLVM dependency | `arc_emitter` in `ori_llvm` translates ARC IR to LLVM IR
-- **Sole codegen path** (since 2026-02-24) — previous Tier 1 `ExprLowerer` removed (~11K lines). All LLVM codegen goes through ARC IR. See `plans/aot_codegen_pipeline/`
+- **Sole codegen path** (since 2026-02-24) — previous Tier 1 `ExprLowerer` removed (~11K lines). All LLVM codegen goes through ARC IR.
 
 ## Pipeline (AIMS unified lattice)
 

@@ -137,8 +137,6 @@ fn mangle_mono_name(
 }
 
 /// Encode a type as a compact string for name mangling.
-///
-/// See `plans/monomorphization/00-overview.md` § Name Mangling Scheme.
 #[expect(
     clippy::too_many_lines,
     reason = "type encoding dispatch over all Tag variants for name mangling"

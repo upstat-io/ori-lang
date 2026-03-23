@@ -2,7 +2,7 @@
 
 Reroute metadata lives in each plan's `index.md` frontmatter (`reroute: true`, `name`, `full_name`, `status`). The website discovers reroutes dynamically — no manual registry needed.
 
-> **Note**: Some completed sections reference `ori_ir::BUILTIN_METHODS`, `TYPECK_BUILTIN_METHODS`, `EVAL_BUILTIN_METHODS`, and `lower_builtin_methods.rs`. These have been superseded by `ori_registry::BUILTIN_TYPES` (see `plans/type_strategy_registry/`). Historical checkboxes describe what was done at the time; current implementations use the registry.
+> **Note**: Some completed sections reference `ori_ir::BUILTIN_METHODS`, `TYPECK_BUILTIN_METHODS`, `EVAL_BUILTIN_METHODS`, and `lower_builtin_methods.rs`. These have been superseded by `ori_registry::BUILTIN_TYPES`. Historical checkboxes describe what was done at the time; current implementations use the registry.
 
 ---
 
