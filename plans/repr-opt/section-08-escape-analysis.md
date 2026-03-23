@@ -49,7 +49,7 @@ The ori_arc pipeline currently uses liveness-based analysis for RC insertion, bu
 1. Connection graph escape analysis is interprocedural — requires whole-module fixed-point iteration that interacts with `ori_arc`'s existing borrow inference.
 2. Stack promotion (§08.3) changes allocation semantics — a bug means use-after-free. Requires the most thorough Valgrind testing of any section.
 3. Bump allocation (§08.4) adds a new runtime allocation scheme to `ori_rt` that must integrate with existing COW, slice, and RC infrastructure.
-4. §08.5 modifies `run_arc_pipeline()` parameters — the most sensitive function in the compiler.
+4. §08.5 touches the `run_arc_pipeline()` / AIMS integration seam — the most sensitive function in the compiler.
 
 **Recommended approach:** Implement §08.1 (intraprocedural) first as a standalone pass. Ship it, measure, and verify with Valgrind before attempting §08.2 (interprocedural) or §08.4 (bump allocation).
 
@@ -185,7 +185,7 @@ Cross-function escape analysis uses function summaries to track which parameters
 
 ## 08.3 Stack Promotion Codegen
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/mod.rs`, `compiler/ori_llvm/src/codegen/expr_compiler.rs`
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/construction.rs` (where `ori_rc_alloc` calls are emitted — replace with `alloca` for non-escaping values), `compiler/ori_llvm/src/codegen/arc_emitter/alloc.rs` (new file — allocation strategy dispatch)
 
 When escape analysis marks an allocation as `NoEscape`, generate stack allocation instead of heap.
 
@@ -279,35 +279,55 @@ This directly closes the "custom allocators" gap with Zig: Zig lets programmers 
 
 ## 08.5 Escape-Aware ARC Pipeline Integration
 
-**File(s):** `compiler/ori_arc/src/rc_insert/mod.rs`, `compiler/ori_arc/src/lib.rs`
+**File(s):** `compiler/ori_arc/src/pipeline/aims_pipeline.rs` (`AimsPipelineConfig`), `compiler/ori_arc/src/aims/emit_rc/` (RC emission), `compiler/ori_arc/src/lib.rs` (pipeline entry)
 
 Feed escape information into the ARC pipeline so it can skip RC operations.
 
-**Call site warning:** `run_arc_pipeline()` is called from `ori_arc/src/lib.rs` (`run_arc_pipeline_all`), `ori_llvm evaluator/compile.rs`, and `ori_llvm codegen/function_compiler`. Adding a parameter requires updating ALL call sites in the same commit.
+**Call site warning:** `run_arc_pipeline()` is currently invoked directly from `compiler/ori_arc/src/tests.rs` and `compiler/ori_llvm/src/codegen/function_compiler/define_phase.rs`; `run_arc_pipeline_all()` in `compiler/ori_arc/src/pipeline/mod.rs` is the internal batch wrapper that must stay in sync. If this section changes the public signature, update every direct caller in the same commit.
 
 - [ ] Add `EscapeInfo` to `run_arc_pipeline()` parameters:
   ```rust
+  // Current signature (ori_arc/src/pipeline/mod.rs):
   pub fn run_arc_pipeline(
       func: &mut ArcFunction,
-      classifier: &ArcClassifier,
-      sigs: &SignatureMap,
+      classifier: &dyn ArcClassification,
+      sigs: &FxHashMap<Name, AnnotatedSig>,
       pool: &Pool,
-      interner: &NameInterner,
-      escape_info: &EscapeInfo,  // NEW
-  ) -> ArcResult { ... }
+      interner: &ori_ir::StringInterner,
+      uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
+      aims_contracts: &FxHashMap<Name, MemoryContract>,
+      verify_arc: bool,
+      // escape_info: &EscapeInfo,  // NEW — adds a 9th parameter
+  ) -> Vec<ArcProblem> { ... }
   ```
-  **WARNING:** This function already has 5 parameters. Adding a 6th triggers the >3-4 params guideline. Consider a config struct (`ArcPipelineConfig` or passing `&ReprPlan` which includes escape info) to avoid accumulating parameters as later sections add more.
+  **WARNING:** This function already has 8 parameters, well past the >3-4 params guideline. Adding a 9th is not acceptable. The correct approach is to bundle escape info into an existing config struct. Options:
+  - **(a) Extend `AimsPipelineConfig`**: The AIMS pipeline already has `AimsPipelineConfig` (in `ori_arc/src/pipeline/aims_pipeline.rs:43`). Add `escape_info: Option<&EscapeInfo>` to it. `AimsPipelineConfig` is currently `pub(crate)`, but that is not a blocker if the config remains constructed and consumed entirely inside `ori_arc`; only a cross-crate construction path would require a visibility change.
+  - **(b) Pass via `ReprPlan`**: Since `ReprPlan` already stores escape info (§01.2), pass `&ReprPlan` instead of `&EscapeInfo` directly.
+  - Recommendation: option (b) — `ReprPlan` is the natural carrier for all representation decisions including escape info. This also avoids the visibility issue with `AimsPipelineConfig`.
 
-- [ ] In `insert_rc_ops_with_ownership()`:
-  - Skip `RcInc`/`RcDec` for variables whose allocation site is `NoEscape`
-  - Mark these variables as `DerivedOwnership::Fresh` with a `stack_promoted` flag
+- [ ] In `AimsPipelineConfig` (or the AIMS emit_rc path in `aims/emit_rc/`):
+  - Skip `RcInc`/`RcDec` emission for variables whose allocation site is `NoEscape` in `EscapeInfo`
+  - Stack-promoted allocations have no RC header → all RC ops are no-ops
 
-- [ ] In `detect_reset_reuse_cfg()`:
+- [ ] In `aims/emit_reuse/` (reset/reuse detection):
   - Stack-promoted values are always uniquely owned → always eligible for in-place reuse
 
 ---
 
 ## 08.6 Completion Checklist
+
+**Test matrix for §08 (write failing tests FIRST, verify they fail, then implement):**
+
+| Allocation pattern | Expected escape state | Expected allocation strategy | Semantic pin |
+|---|---|---|---|
+| `let x = Point { x: 1, y: 2 }; x.x + x.y` | `NoEscape` | Stack (alloca) | Yes — zero `ori_rc_alloc` |
+| `let list = [1, 2, 3]; len(list)` | `NoEscape` | Bump (dynamic) | Yes — zero `ori_rc_alloc` |
+| `let s = "hello"; print(s)` where `print` borrows | `ArgEscape` | Heap (normal) | Yes — 1 `ori_rc_alloc` |
+| `fn make_point() -> Point { Point { x: 1, y: 2 } }` | `GlobalEscape` | Heap | Yes — caller owns result |
+| `let closure = \|x\| x + 1` (no captures) | `ArgEscape` | Heap | Test captures correctly |
+| `chan.send(value)` | `GlobalEscape` | Heap | Yes — thread boundary |
+| Recursive struct `Node { value: int, next: Option<Node> }` | `GlobalEscape` | Heap | Yes — recursive |
+| `let pair = (1, 2); pair.0` | `NoEscape` | Stack | Yes — tuple on stack |
 
 - [ ] `let list = [1, 2, 3]; len(list)` — list is stack-promoted (no heap alloc)
 - [ ] `let s = str(42); print(s)` — string is stack-promoted if `print` borrows

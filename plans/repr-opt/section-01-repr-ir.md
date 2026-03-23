@@ -166,7 +166,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   | Tag | Canonical MachineRepr | LLVM Type | Notes |
   |-----|----------------------|-----------|-------|
   | `List` | `FatPointer(FatRepr::Collection)` | `{i64, i64, ptr}` | len + cap + data |
-  | `Option` | `Enum(...)` | `{i8, payload}` | Recurse into inner |
+  | `Option` | `Enum(...)` | `{i64, payload}` | Recurse into inner |
   | `Set` | `FatPointer(FatRepr::Collection)` | `{i64, i64, ptr}` | len + cap + data |
   | `Channel` | `OpaquePtr` | `ptr` | Runtime-managed |
   | `Range` | `Range` | `{i64, i64, i64, i64}` | start/end/step/incl |
@@ -177,7 +177,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   | Tag | Canonical MachineRepr | LLVM Type | Notes |
   |-----|----------------------|-----------|-------|
   | `Map` | `FatPointer(FatRepr::Collection)` | `{i64, i64, ptr}` | len + cap + data |
-  | `Result` | `Enum(...)` | `{i8, max(ok,err)}` | Recurse into ok/err |
+  | `Result` | `Enum(...)` | `{i64, max(ok,err)}` | Recurse into ok/err |
   | `Borrowed` | Reserved — error if reached | — | Future use |
 
   **Complex types (48-51):**
@@ -428,6 +428,12 @@ Each narrowing decision should be recorded with its justification, so that:
       /// empty until §08 populates it. Initially use `type EscapeInfo = ();`
       /// as a placeholder, replaced when §08 is implemented.
       escape_info: FxHashMap<Name, EscapeInfo>,
+      /// Per-function, per-variable ranges from §03 range analysis.
+      /// Key: function Name → (ArcVarId → ValueRange).
+      /// Populated by §03, consumed by §04 (integer narrowing for locals/fields).
+      /// NOTE: ValueRange is defined in §03 (range/mod.rs). Use `type ValueRange = ();`
+      /// as a placeholder until §03 is implemented.
+      function_var_ranges: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
       /// Audit trail — all decisions in order
       audit: Vec<ReprDecision>,
   }
@@ -448,6 +454,18 @@ Each narrowing decision should be recorded with its justification, so that:
       /// Get the canonical (un-narrowed) representation for a tag
       pub fn canonical(tag: Tag) -> MachineRepr { ... }
 
+      /// Record per-variable range analysis results for a function (§03 output).
+      /// Called after `range_fixpoint()` completes for a function.
+      pub fn set_var_ranges(
+          &mut self,
+          func: Name,
+          ranges: FxHashMap<ArcVarId, ValueRange>,
+      ) { ... }
+
+      /// Get the range for a variable in a function (from §03 range analysis).
+      /// Returns ValueRange::Top if no range was recorded.
+      pub fn var_range(&self, func: Name, var: ArcVarId) -> ValueRange { ... }
+
       /// Dump the audit trail for debugging
       pub fn dump_audit(&self, pool: &Pool) -> String { ... }
   }
@@ -457,7 +475,7 @@ Each narrowing decision should be recorded with its justification, so that:
 
 ## 01.3 Pipeline Integration Point
 
-**File(s):** `compiler/ori_llvm/src/codegen/type_info/mod.rs` (TypeLayoutResolver), `compiler/ori_llvm/src/codegen/type_info/store.rs` (TypeInfoStore — Tag→TypeInfo mapping), `compiler/ori_llvm/src/codegen/function_compiler/mod.rs` (FunctionCompiler), `compiler/ori_llvm/src/evaluator/compile.rs` (JIT entry point)
+**File(s):** `compiler/ori_llvm/src/codegen/type_info/mod.rs` (TypeLayoutResolver), `compiler/ori_llvm/src/codegen/type_info/store.rs` (TypeInfoStore — Tag→TypeInfo mapping), `compiler/ori_llvm/src/codegen/function_compiler/mod.rs` (FunctionCompiler), `compiler/ori_llvm/src/evaluator/compile.rs` (JIT entry point), `compiler/oric/src/commands/build/mod.rs`, `compiler/oric/src/commands/build_options.rs`
 
 The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The codegen must consume ReprPlan instead of computing representations inline.
 
@@ -503,6 +521,17 @@ The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The c
   - AOT path: the AOT build pipeline creates `ReprPlan` before constructing `FunctionCompiler`
   - `ReprPlan` is passed to `FunctionCompiler::new()` (there is no `ModuleCompiler` — `FunctionCompiler` is the two-pass declare/define orchestrator)
   - `FunctionCompiler` passes it to `TypeLayoutResolver`
+
+- [ ] Add `--no-repr-opt` flag to the `ori build` CLI (`compiler/oric/src/commands/build/mod.rs` + `compiler/oric/src/commands/build_options.rs`):
+  - When set, `compute_repr_plan()` still runs but immediately returns after `populate_canonical()` (canonical-only plan — same as current behavior)
+  - This flag is required by §12.2 for dual-execution comparison: AOT without optimizations vs. AOT with optimizations
+  - The flag name must be consistent: `--no-repr-opt` in CLI, `repr_opt_disabled: bool` in build config
+  - Add `ORI_NO_REPR_OPT=1` environment variable as an alternative (same effect as `--no-repr-opt`)
+
+- [ ] Keep `ori_repr` tracing compatible with the existing generic `ORI_LOG` / `RUST_LOG` filter in `compiler/oric/src/tracing_setup.rs`:
+  - No tracing registry change is needed today — `tracing_setup.rs` already forwards arbitrary targets through `EnvFilter`
+  - Emit `tracing` events from the new crate under target `ori_repr`
+  - Add a smoke test or manual verification step showing `ORI_LOG=ori_repr=trace ori build ...` surfaces `ori_repr` events without extra CLI wiring
 
 ---
 
@@ -728,6 +757,11 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 ## 01.10 Completion Checklist
 
+**TDD ordering:** Write §01.9 canonical representation tests BEFORE creating the `ori_repr` crate. All tests must fail (crate does not exist). Create the crate, implement the types, verify tests pass unchanged. Only then proceed to wiring into the pipeline (§01.3).
+
+- [ ] Write failing tests BEFORE implementation (see §01.9 for the full test list)
+- [ ] `ori_repr` added to workspace `Cargo.toml` `[members]` list
+- [ ] `ori_repr` added to root workspace `Cargo.toml` `[workspace.dependencies]` as a path dep so downstream crates can reference it
 - [ ] `ori_repr` crate compiles with `cargo check -p ori_repr`
 - [ ] `#![deny(unsafe_code)]` in `ori_repr/src/lib.rs` (pure analysis crate — no unsafe needed)
 - [ ] `//!` module doc on every `.rs` file in `ori_repr/src/` (required by hygiene rules)

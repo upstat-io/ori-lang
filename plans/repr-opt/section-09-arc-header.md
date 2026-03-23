@@ -160,9 +160,22 @@ Map sharing bounds to RC header widths.
     - **(c) Widen header** (complex): realloc with wider header at runtime
   - Recommendation: (a) for debug, (b) for release. The analysis proving the bound is sound, so overflow should never happen in correct programs. The trap catches bugs; the immortal fallback prevents crashes.
 
-- [ ] Generate per-width runtime functions (ABI matches existing i64 functions):
+- [ ] Generate per-width runtime functions:
   ```rust
-  // ori_rt additions — same 2-arg dec signature as ori_rc_dec:
+  // ori_rt additions for narrow refcount headers.
+  //
+  // CRITICAL: The current V5 header is 32 bytes with 4 fields:
+  //   data_size (i64), elem_dec_fn (ptr), elem_count (i64), strong_count (i64)
+  //
+  // Narrowing ONLY applies to strong_count. The other 3 fields
+  // (data_size, elem_dec_fn, elem_count) remain at their canonical widths.
+  // This means the header size reduction is:
+  //   i64 strong_count (8B) → i32 (4B): saves 4 bytes per allocation
+  //   i64 strong_count (8B) → i16 (2B): saves 6 bytes per allocation
+  //   i64 strong_count (8B) → i8  (1B): saves 7 bytes per allocation
+  //
+  // The narrow alloc/inc/dec/free functions must still lay out all 4
+  // header fields, just with a narrower strong_count.
   extern "C" fn ori_rc_alloc_i8(size: usize, align: usize) -> *mut u8;
   extern "C" fn ori_rc_inc_i8(data_ptr: *mut u8);
   extern "C" fn ori_rc_dec_i8(data_ptr: *mut u8, drop_fn: Option<...>);
@@ -183,114 +196,46 @@ The runtime must support multiple header widths without code bloat.
 
 **Risk warning:** The macro-generated RC operations below use raw pointer arithmetic and `unsafe`. Every `unsafe` block MUST have a `// SAFETY:` comment. The `padded_header` alignment logic is subtle — a bug causes data corruption in EVERY narrow-header allocation. Property-based testing with varying `(size, align)` pairs is essential. Note: `ori_rt` is a crate where `unsafe` IS allowed, so `#![deny(unsafe_code)]` does NOT apply here.
 
-- [ ] Implement generic RC operations parameterized by header width:
+- [ ] **Design the V5-narrow header layout** (BEFORE writing any code — this is a design document, not optional):
+  - Write a comment block in `rc/narrow.rs` specifying the exact memory layout for each narrow variant:
+    - `V5HeaderI32`: `{ data_size: i64, elem_dec_fn: usize, elem_count: i64, strong_count: i32, _pad: u32 }` — padding after `i32` to maintain 8-byte natural alignment for the payload start
+    - `V5HeaderI16`: `{ data_size: i64, elem_dec_fn: usize, elem_count: i64, strong_count: i16, _pad: [u8; 6] }` — 6 bytes padding to align payload to 8 bytes
+    - `V5HeaderI8`: `{ data_size: i64, elem_dec_fn: usize, elem_count: i64, strong_count: i8, _pad: [u8; 7] }` — 7 bytes padding to align payload to 8 bytes
+  - Verify header sizes: `V5HeaderI32 = 28+4 = 32 bytes`, `V5HeaderI16 = 26+6 = 32 bytes`, `V5HeaderI8 = 25+7 = 32 bytes` — ALL narrow header variants remain 32 bytes to match the canonical V5 header size. This is INTENTIONAL: keeping all headers the same size means the `elem_header.rs` accessors (`store_elem_dec_fn`, etc.) do NOT need to change their hardcoded offsets.
+  - Confirm: since all narrow headers are still 32 bytes, `data_ptr.sub(8).cast::<i32/i16/i8>()` correctly locates `strong_count` (at the same offset as the canonical `i64` strong_count, just narrower). No offset changes needed in `elem_header.rs`.
+  - Add `static_assert!` macros verifying sizes: `const _: () = assert!(std::mem::size_of::<V5HeaderI32>() == 32);` etc.
+
+- [ ] Implement narrow RC operations for the V5 header layout:
+
+  **CRITICAL DESIGN ISSUE:** The `rc_ops!` macro from the original plan assumes a simple single-field header where the refcount is immediately before the payload (`data_ptr.sub(1)`). This does NOT match the current V5 header layout:
+
+  ```
+  V5 Header (32 bytes):
+  ┌──────────────┬──────────────┬──────────────┬──────────────┐
+  │ data_size    │ elem_dec_fn  │ elem_count   │ strong_count │
+  │ (i64)        │ (ptr)        │ (i64)        │ (i64)        │
+  └──────────────┴──────────────┴──────────────┴──────────────┘
+                                                 ↑ this field narrows
+  ```
+
+  The narrow-header approach must:
+  1. Keep `data_size`, `elem_dec_fn`, `elem_count` at their current widths (they are semantically different from refcount)
+  2. Only narrow `strong_count` (the last field before payload)
+  3. The `rc_inc`/`rc_dec` functions locate `strong_count` at a fixed negative offset from `data_ptr` — this offset changes when `strong_count` is narrowed
+  4. The V5 header accessor functions in `ori_rt/src/rc/elem_header.rs` (`store_elem_dec_fn`, `load_elem_dec_fn`, etc.) use hardcoded offsets that must be updated or parameterized
+
+  **Implementation approach:**
+  - Define a V5-narrow header struct for each width: `V5HeaderI32 { data_size: i64, elem_dec_fn: usize, elem_count: i64, strong_count: i32 }`
+  - Generate `ori_rc_alloc_i32`, `ori_rc_inc_i32`, `ori_rc_dec_i32` that use the narrow header struct
+  - Update `DropFunctionGenerator` in `ori_llvm` to emit calls to width-specific free functions
+  - Add alignment padding between the narrow `strong_count` and payload to maintain payload alignment
+
   ```rust
-  // Macro-generated for each width
-  macro_rules! rc_ops {
-      ($width:ty, $suffix:ident, $max:expr) => {
-          #[no_mangle]
-          pub unsafe extern "C" fn paste!(ori_rc_alloc_, $suffix)(
-              size: usize, align: usize
-          ) -> *mut u8 {
-              let header_size = std::mem::size_of::<$width>();
-              // Pad header up to payload alignment so that
-              // base + padded_header is correctly aligned for the payload.
-              // Without this, narrow headers (i8/i16) would misalign
-              // payloads requiring 4- or 8-byte alignment.
-              let padded_header = header_size.max(align);
-              let total = size + padded_header;
-              let layout = Layout::from_size_align(
-                  total,
-                  align.max(std::mem::align_of::<$width>()),
-              ).unwrap();
-              let base = alloc(layout);
-              let data_ptr = base.add(padded_header);
-              // Store refcount immediately before the payload.
-              // This is where rc_inc/rc_dec will find it via .sub(1).
-              let rc_ptr = (data_ptr as *mut $width).sub(1);
-              *rc_ptr = 1;
-              data_ptr
-          }
-
-          #[no_mangle]
-          pub unsafe extern "C" fn paste!(ori_rc_inc_, $suffix)(data_ptr: *mut u8) {
-              if data_ptr.is_null() { return; }
-              let rc_ptr = (data_ptr as *mut $width).sub(1);
-              let old = *rc_ptr;
-              if old >= $max {
-                  // Promote to immortal (never freed)
-                  return;
-              }
-              *rc_ptr = old + 1;
-          }
-          /// Decrement refcount. On zero, call drop_fn which is responsible
-          /// for decrementing child RC fields AND calling ori_rc_free_$suffix.
-          ///
-          /// CONTRACT (matches existing ori_rc_dec):
-          ///   drop_fn does: (1) rc_dec each RC'd child field
-          ///                 (2) ori_rc_free_$suffix(data_ptr, size, align)
-          ///   rc_dec does NOT call free — that would be a double-free.
-          #[no_mangle]
-          pub unsafe extern "C" fn paste!(ori_rc_dec_, $suffix)(
-              data_ptr: *mut u8,
-              drop_fn: Option<extern "C" fn(*mut u8)>,
-          ) {
-              if data_ptr.is_null() { return; }
-              let rc_ptr = (data_ptr as *mut $width).sub(1);
-              let old = *rc_ptr;
-              // Underflow protection — matches ori_rc_dec (rc/mod.rs).
-              // NOT gated behind debug: one branch per dec (~0.5ns, always
-              // not-taken). Catches double-free bugs before they corrupt memory.
-              if old <= 0 {
-                  rc_underflow_abort(data_ptr);
-              }
-              if old >= $max {
-                  return; // immortal — never freed
-              }
-              let new = old - 1;
-              *rc_ptr = new;
-              if new == 0 {
-                  if let Some(f) = drop_fn {
-                      // Route through call_drop_fn (rc/mod.rs) — a
-                      // catch_unwind wrapper that aborts on panic.
-                      // ori_rc_dec_$suffix is declared nounwind in LLVM
-                      // IR, so unwinding through it is UB. This guard
-                      // matches the existing ori_rc_dec contract.
-                      call_drop_fn(f, data_ptr);
-                  }
-                  // drop_fn calls ori_rc_free_$suffix internally.
-                  // If drop_fn is None, the memory leaks — this should
-                  // not happen in well-formed programs (every RC type
-                  // must have a drop function).
-              }
-          }
-
-          /// Free an RC allocation. Called by drop functions (generated by
-          /// DropFunctionGenerator), NOT by ori_rc_dec directly.
-          ///
-          /// Reconstructs the original allocation base by reversing the
-          /// padded_header computation from ori_rc_alloc_$suffix.
-          #[no_mangle]
-          pub unsafe extern "C" fn paste!(ori_rc_free_, $suffix)(
-              data_ptr: *mut u8, size: usize, align: usize,
-          ) {
-              let header_size = std::mem::size_of::<$width>();
-              let padded_header = header_size.max(align);
-              let base = data_ptr.sub(padded_header);
-              let total = size + padded_header;
-              let layout = Layout::from_size_align_unchecked(
-                  total,
-                  align.max(std::mem::align_of::<$width>()),
-              );
-              dealloc(base, layout);
-          }
-      };
-  }
-
-  rc_ops!(i8, i8, i8::MAX);
-  rc_ops!(i16, i16, i16::MAX);
-  rc_ops!(i32, i32, i32::MAX);
-  // i64 is the existing implementation
+  // Simplified sketch — the real implementation must handle V5 header fields:
+  rc_narrow_ops!(i8, i8, i8::MAX);    // saves 7 bytes per allocation
+  rc_narrow_ops!(i16, i16, i16::MAX); // saves 6 bytes per allocation
+  rc_narrow_ops!(i32, i32, i32::MAX); // saves 4 bytes per allocation
+  // i64 is the existing V5 implementation (no change)
   ```
 
 - [ ] Atomic variants:
@@ -301,10 +246,25 @@ The runtime must support multiple header widths without code bloat.
 
 ## 09.4 Completion Checklist
 
+**Test matrix for §09 (write failing tests FIRST, verify they fail, then implement):**
+
+| Allocation pattern | Expected sharing bound | Expected RC width | Semantic pin |
+|---|---|---|---|
+| Non-escaping stack-promoted value (§08) | `Unique` | `None` (no header) | Yes — zero `ori_rc_alloc` |
+| Local value passed as borrowed param, no loop | `Bounded(2)` | `I8` | Yes — `ori_rc_alloc_i8` in IR |
+| Value in a loop body (inc inside loop) | `Unbounded` | `I64` | Yes — must NOT use narrow |
+| Globally-escaping value (returned) | `Unbounded` | `I64` | Yes — must use standard i64 |
+| Value shared with ≤ 127 callers in straight-line code | `Bounded(N ≤ 127)` | `I8` | Yes |
+| Recursive function sharing its parameter | `Unbounded` | `I64` | Yes |
+
+- [ ] Design the V5-narrow header layout document in `compiler/ori_rt/src/rc/narrow.rs` BEFORE writing any code:
+  - WHERE: write a `// SAFETY:` comment block and `static_assert!` macros as specified in §09.3
+  - All `unsafe` blocks in `narrow.rs` MUST have `// SAFETY:` comments per hygiene rules
+- [ ] Add `static_assert!` for each narrow header size (`V5HeaderI32 == 32`, `V5HeaderI16 == 32`, `V5HeaderI8 == 32`)
 - [ ] Sharing bound analysis computes `Unique` for non-escaping allocations
 - [ ] Sharing bound analysis computes `Bounded(N)` for values with limited sharing
 - [ ] RC header width matches sharing bound: Unique→none, ≤127→i8, ≤32K→i16
-- [ ] Runtime has `ori_rc_alloc_i8`, `ori_rc_inc_i8`, `ori_rc_dec_i8` (and i16, i32)
+- [ ] Runtime has `ori_rc_alloc_i8`, `ori_rc_inc_i8`, `ori_rc_dec_i8` (and i16, i32) in `compiler/ori_rt/src/rc/narrow.rs`
 - [ ] Header overflow in release mode → immortal (never freed, no crash)
 - [ ] Header overflow in debug mode → trap with diagnostic
 - [ ] `./test-all.sh` green

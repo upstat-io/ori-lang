@@ -145,13 +145,31 @@ Float narrowing is only applied under very strict conditions to avoid precision 
 
 ## 05.4 Completion Checklist
 
+**Test matrix for §05 (write failing tests FIRST, verify they fail, then implement):**
+
+| Input pattern | Expected narrowing | Semantic pin |
+|---|---|---|
+| Struct field `r: float` where all stored values are `0.0` | `float` (f32) in LLVM struct | Yes — no `double` in LLVM struct type |
+| Struct field `scale: float` storing constant `0.5` | `float` (f32) storage | Yes — `fptrunc` at store, `fpext` at load |
+| Struct field `scale: float` storing constant `1e300` (non-f32-exact) | `double` (f64) — no narrowing | Yes — `is_f32_exact(1e300) == false` |
+| Float arithmetic `a + b` → result stored in struct | `double` computation, NOT narrowed | Yes — no arithmetic narrowing |
+| `struct Color { r: float, g: float, b: float }` with all values from `0.0..=1.0` literal range | `float` fields (f32) | Yes — all literal values are f32-exact |
+| `float` field receiving arithmetic result | `double` — conservative (no narrowing) | Yes — arithmetic result stays f64 |
+| `is_f32_exact(0.1)` | `false` (0.1 is not f32-exact) | Yes — precision pin |
+| `is_f32_exact(0.5)` | `true` (exact in f32) | Yes |
+
+- [ ] Write failing test matrix BEFORE implementation (verify tests fail with current `double`-only codegen)
 - [ ] `is_f32_exact()` correctly identifies all f32-representable f64 values
-- [ ] Constants like `0.0`, `1.0`, `0.5`, `100.0` → narrowed to f32 in storage
-- [ ] Arithmetic on f64 values is NEVER narrowed (conservative by default)
-- [ ] `struct Color { r: float, g: float, b: float }` with values `0.0..1.0` uses f32 fields
+- [ ] `is_f32_exact(0.0)`, `is_f32_exact(1.0)`, `is_f32_exact(0.5)`, `is_f32_exact(100.0)` → `true`
+- [ ] `is_f32_exact(1.0/3.0)`, `is_f32_exact(1e300)`, `is_f32_exact(f64::NAN)` → `false`
+- [ ] Edge case: `is_f32_exact(-0.0)` → `true` (negative zero is f32-exact)
+- [ ] Constants like `0.0`, `1.0`, `0.5`, `100.0` → narrowed to f32 in struct field storage
+- [ ] Arithmetic on float values is NEVER narrowed (conservative by default)
+- [ ] `struct Color { r: float, g: float, b: float }` with literal `0.0..=1.0` values uses f32 fields
 - [ ] `fpext`/`fptrunc` visible at load/store boundaries in LLVM IR
-- [ ] `./diagnostics/dual-exec-verify.sh` passes (no precision differences)
-- [ ] `./test-all.sh` green
+- [ ] Add semantic pin test: a struct storing `0.5` uses `float` (f32) field in LLVM IR, with `fptrunc double to float` at store and `fpext float to double` at load. This test can ONLY pass with float narrowing enabled.
+- [ ] Bit-identical results: `./diagnostics/dual-exec-verify.sh` passes (zero precision differences)
+- [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
 - [ ] `./clippy-all.sh` green
 
 **Exit Criteria:** A program storing constant `0.5` in a struct field uses `float` (f32) in LLVM IR instead of `double` (f64), verified by inspecting generated IR. All floating-point spec tests continue to pass with bit-identical results.

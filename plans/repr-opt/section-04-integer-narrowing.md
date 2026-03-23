@@ -162,7 +162,7 @@ When a value is narrowed, arithmetic operations might overflow the narrow type e
 
 ## 04.4 LLVM Codegen Integration
 
-**File(s):** `compiler/ori_llvm/src/codegen/type_info/info.rs`, `compiler/ori_llvm/src/codegen/expr_compiler.rs`
+**File(s):** `compiler/ori_llvm/src/codegen/type_info/info.rs` (where `storage_type()` maps types to LLVM types), `compiler/ori_llvm/src/codegen/arc_emitter/value_emission.rs` (where integer literals are emitted — must emit narrowed constants), `compiler/ori_llvm/src/codegen/arc_emitter/construction.rs` (where struct fields are stored — must insert `trunc`/`sext` at field boundaries)
 
 The LLVM backend must emit narrowed types and insert sign-extension/truncation at boundaries.
 
@@ -194,13 +194,33 @@ The LLVM backend must emit narrowed types and insert sign-extension/truncation a
 
 ## 04.5 Completion Checklist
 
-- [ ] `select_int_width()` returns correct width for all test ranges
+**Test matrix for §04 (write failing tests FIRST, verify they fail, then implement):**
+
+| Input pattern | Expected narrowing | Semantic pin |
+|---|---|---|
+| `for i in 0..100` — loop counter | `i8` in LLVM IR | Yes — zero `i64` variable for `i` |
+| `struct Pixel { r: int, g: int, b: int, a: int }` with fields `0..255` | `{ i8, i8, i8, i8 }` (4 bytes) | Yes — `sizeof(Pixel) == 4` |
+| `struct Pair { x: int, y: int }` with fields `-32768..32767` | `{ i16, i16 }` (4 bytes) | Yes — `sizeof(Pair) == 4` |
+| Internal function `@f (n: int) -> int` where only call site passes `5` | parameter `n` uses `i8` | Yes — `sext` visible at call boundary |
+| `pub @f (n: int) -> int` — public API | parameter `n` stays `i64` | Yes — no narrowing at public boundary |
+| Arithmetic `a + b` where `a, b ∈ [0, 100]` → result `[0, 200]` | `i16` or wider for result | Yes — overflow safety preserved |
+| Range `Top` (no analysis) | `i64` (canonical, no narrowing) | Yes — fallback is safe |
+| Trait method parameter | `i64` (no narrowing — unknown callers) | Yes — no narrowing |
+| Cross-module call with agreed-upon range | narrow type if both sides agree | Yes — `sext` at module boundary |
+
+- [ ] Write failing test matrix BEFORE implementation (verify tests fail with current `i64` codegen)
+- [ ] `select_int_width()` returns correct width for all test ranges: `[-128,127]`→I8, `[-32768,32767]`→I16, `[-2^31,2^31-1]`→I32, `Top`/`Bottom`→I64
+- [ ] `select_int_width()` boundary cases: `[-128,128]`→I16 (not I8 — hi exceeds I8 max), `[-32769, 0]`→I32
 - [ ] Loop counters in `for i in 0..100` use `i8` in generated LLVM IR
 - [ ] Struct field `x: int` in `struct Pair { x: int, y: int }` uses narrowed type when constructor values are bounded
-- [ ] ABI boundaries correctly widen: `sext` visible in LLVM IR at function boundaries
+- [ ] Public function parameters are NOT narrowed (policy: `Disabled`)
+- [ ] Trait method parameters are NOT narrowed (unknown callers)
+- [ ] ABI boundaries correctly widen: `sext` visible in LLVM IR at function entry and return
+- [ ] Struct field store/load inserts `trunc`/`sext` at boundaries (visible in LLVM IR)
 - [ ] Overflow guards inserted where narrowed arithmetic might overflow
+- [ ] Add semantic pin test: `struct Pixel { r: int, g: int, b: int, a: int }` with `0..255` fields → struct LLVM type is `{ i8, i8, i8, i8 }`, NOT `{ i64, i64, i64, i64 }`. This test can ONLY pass with narrowing enabled.
 - [ ] No semantic change: `./diagnostics/dual-exec-verify.sh` passes (eval and AOT produce identical results)
-- [ ] `./test-all.sh` green
+- [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Performance: struct sizes measurably smaller for bounded-range fields

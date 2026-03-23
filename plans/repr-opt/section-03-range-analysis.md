@@ -49,7 +49,14 @@ sections:
 
 **Crate dependency:** Range analysis operates on `ArcFunction` (from `ori_arc::ir`). This means `ori_repr` depends on `ori_arc`. The dependency chain is `ori_types → ori_arc → ori_repr → ori_llvm`. This is correct: `ori_repr` reads from `ori_arc` IR but `ori_arc` does NOT depend on `ori_repr` (no cycle). The lattice types (`ValueRange`, `IntWidth`) live in `ori_repr` and do NOT reference `ori_arc` — only `fixpoint.rs` (which takes `&ArcFunction`) requires the `ori_arc` dependency.
 
-**Visibility prerequisite:** `compute_postorder()` in `ori_arc::graph` is currently `pub(crate)`. It must be made `pub` (or a `pub` wrapper added) so `ori_repr` can compute RPO over `ArcFunction` blocks. This is a one-line visibility change in `ori_arc/src/graph/mod.rs`. Similarly, `successor_block_ids()` is `pub(crate)` and must be made `pub` for `ori_repr` to build the predecessor map.
+**Visibility prerequisite:** `compute_postorder()` in `ori_arc::graph` is currently `pub(crate)`. It must be made `pub` (or a `pub` wrapper added) so `ori_repr` can compute RPO over `ArcFunction` blocks. This is a one-line visibility change in `ori_arc/src/graph/mod.rs:122`. Similarly, `successor_block_ids()` at line 53 is `pub(crate)` and must be made `pub` for `ori_repr` to build the predecessor map. Also `compute_predecessors()` at line 32 is `pub(crate)` and may be needed.
+
+> **FIRST STEP of §03:** Before any analysis code is written, make the three `pub(crate)` functions in `compiler/ori_arc/src/graph/mod.rs` into `pub`:
+> - Line 32: `pub(crate) fn compute_predecessors` → `pub fn compute_predecessors`
+> - Line 53: `pub(crate) fn successor_block_ids` → `pub fn successor_block_ids`
+> - Line 122: `pub(crate) fn compute_postorder` → `pub fn compute_postorder`
+>
+> Verify with `cargo c` that no existing callers within `ori_arc` are broken (they won't be — pub is a superset of pub(crate)). This unblocks all §03 file creation.
 
 **File organization:** 5 files in `compiler/ori_repr/src/range/` submodule — `mod.rs` (lattice + re-exports), `transfer.rs`, `fixpoint.rs`, `conditional.rs`, `signatures.rs`, plus `tests.rs` (sibling test convention, at `range/tests.rs` per `mod.rs` → sibling convention).
 
@@ -389,6 +396,11 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   //
   // IMPORTANT: ArcTerminator::Invoke also defines a variable (dst).
   // The fixpoint loop must process terminators, not just body instructions.
+  //
+  // NOTE: ori_ir::Name does NOT implement Display or Debug — use
+  // func.name.raw() in tracing macros (not %func.name or ?func.name).
+  // The interner is needed for string lookup: config.interner.lookup(func.name).
+  // Example: tracing::warn!(func = func.name.raw(), ...);
 
   /// Widening threshold — start widening after this many iterations.
   /// Named constant, not a magic number.
@@ -402,7 +414,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
       // Budget check: skip analysis for very large functions
       if func.blocks.len() > config.max_blocks {
           tracing::warn!(
-              func = %func.name,
+              func = func.name.raw(),
               blocks = func.blocks.len(),
               "skipping range analysis — function too large"
           );
@@ -533,7 +545,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
       }
 
       tracing::debug!(
-          func = %func.name,
+          func = func.name.raw(),
           iterations = iteration,
           non_top = ranges.values().filter(|r| !matches!(r, Top)).count(),
           "range analysis complete"
@@ -651,7 +663,7 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
 
 **File(s):** `compiler/ori_repr/src/range/signatures.rs`
 
-**Complexity warning:** This subsection is the most complex part of §03 and can be DEFERRED to a later iteration. §03.1-§03.4 provide useful intraprocedural ranges (loop counters, literal propagation, conditional refinement) without any cross-function analysis. Implement §03.5 only after §03.1-§03.4 are stable and tested. The intraprocedural analysis alone enables §04 integer narrowing for local variables and loop counters — the highest-value use cases.
+**Implementation order:** §03.5 MUST be implemented after §03.1-§03.4 are stable and passing all tests. The intraprocedural analysis (§03.1-§03.4) is a required prerequisite and should be fully verified before interprocedural propagation is added. However, §03.5 is not optional — without it, function parameters can never be narrowed (since their ranges are always `Top` intraprocedurally), and struct field narrowing across module boundaries is impossible. Both of these are core mission goals.
 
 **Risk:** Interprocedural fixpoint over SCCs is quadratic in the worst case (SCC size x iterations x function size). The budget caps mitigate this, but testing with real programs is essential before merging.
 
@@ -701,13 +713,33 @@ For cross-function narrowing, we need to propagate range information through fun
 
 ## 03.6 Completion Checklist
 
-**Implementation order:** 03.1 (lattice) → 03.2 (transfer functions) → 03.4 (conditional refinement) → 03.3 (fixpoint loop) → 03.5 (interprocedural, DEFERRABLE). Each step must pass tests before proceeding.
+**FIRST:** Change `pub(crate)` → `pub` for `compute_postorder`, `successor_block_ids`, `compute_predecessors` in `compiler/ori_arc/src/graph/mod.rs` (lines 32, 53, 122). Run `cargo c`. Only then proceed.
+
+**Implementation order:** 03.1 (lattice) → 03.2 (transfer functions) → 03.4 (conditional refinement) → 03.3 (fixpoint loop) → 03.5 (interprocedural — implement after 03.1-03.4 are stable and passing tests). Each step must pass tests before proceeding to the next.
+
+**Test matrix for §03 (required — write tests first, verify they fail, then implement):**
+
+| Input pattern | Expected non-Top result | Semantic pin |
+|---------------|------------------------|--------------|
+| `let x = 42` | `Bounded(42, 42)` | Yes — exact constant |
+| `let x = -1` | `Bounded(-1, -1)` | Yes — negative constant |
+| `for i in 0..100` | `Bounded(0, 99)` | Yes — loop counter |
+| `for i in 0..=100` | `Bounded(0, 100)` | Yes — inclusive range |
+| `let n = len(list)` | `Bounded(0, i64::MAX)` | Yes — len is non-negative |
+| `let b = byte_to_int(b'A')` | `Bounded(0, 255)` | Yes — byte range |
+| `let c = char_to_int('A')` | `Bounded(0, 0x10FFFF)` | Yes — char range |
+| `let x = a + b` where a,b in `[0,10]` | `Bounded(0, 20)` | Yes — add propagation |
+| `let x = a * b` where a in `[2,3]`, b in `[4,5]` | `Bounded(8, 15)` | Yes — mul propagation |
+| `let x = a / 0` | `Top` (don't panic) | Yes — division safety |
+| `if x < 100 then { x ... }` branch | x refined to `Bounded(.., 99)` in true branch | Yes — conditional |
+| Function parameter at non-public call site with constant arg | `Bounded(const, const)` | Yes — §03.5 interprocedural |
+| `pub` function parameter | `Top` (cannot narrow) | Yes — ABI boundary |
 
 - [ ] `ValueRange` lattice correctly implements join, meet, fits_in, min_width, is_constant, overlaps (in `range/mod.rs`); `widen` and `narrow` free functions correct (in `range/fixpoint.rs`)
 - [ ] Arithmetic transfer functions implemented: `range_add`, `range_sub`, `range_mul`, `range_div`, `range_mod`, `range_floordiv`, `range_neg` (PrimOp dispatched); bitwise: `range_bitand`, `range_bitor`, `range_bitxor`, `range_shl`, `range_shr`, `range_bitnot`; built-in function ranges: `range_len`, `range_count`, `range_byte_to_int`, `range_char_to_int`, `range_abs`
-- [ ] Top-level `transfer()` dispatcher has an arm for every `ArcInstr` variant (15 variants: `Let`, `Apply`, `ApplyIndirect`, `PartialApply`, `Project`, `Construct`, `RcInc`, `RcDec`, `IsShared`, `Set`, `SetTag`, `Reset`, `Reuse`, `CollectionReuse`, `Select`). Add a compile-time exhaustiveness test: the match must be non-`_` so new variants cause a build failure.
+- [ ] Top-level `transfer()` dispatcher has an arm for every `ArcInstr` variant (15+ variants: `Let`, `Apply`, `ApplyIndirect`, `PartialApply`, `Project`, `Construct`, `RcInc`, `RcDec`, `IsShared`, `Set`, `SetTag`, `Reset`, `Reuse`, `CollectionReuse`, `Select`; verify against `ori_arc/src/ir/instr.rs` at implementation time for any new variants). Add a compile-time exhaustiveness test: the match must be non-`_` so new variants cause a build failure.
 - [ ] Fixpoint loop handles all `ArcTerminator` variants (7: `Return`, `Jump`, `Branch`, `Switch`, `Invoke`, `Resume`, `Unreachable`). `Invoke` computes a range for `dst`; `Branch`/`Switch` produce refinements; others are no-ops. Use exhaustive match (no `_` arm) so new terminator variants cause a compile error.
-- [ ] `transfer_primop()` has an arm for every `BinaryOp` variant (23: `Add`, `Sub`, `Mul`, `Div`, `Mod`, `FloorDiv`, `MatMul`, `Eq`, `NotEq`, `Lt`, `LtEq`, `Gt`, `GtEq`, `And`, `Or`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`, `Range`, `RangeInclusive`, `Coalesce`) and every `UnaryOp` variant (4: `Neg`, `Not`, `BitNot`, `Try`). Non-`_` match for exhaustiveness.
+- [ ] `transfer_primop()` has an arm for every `BinaryOp` variant (22: `Add`, `Sub`, `Mul`, `Div`, `Mod`, `FloorDiv`, `MatMul`, `Eq`, `NotEq`, `Lt`, `LtEq`, `Gt`, `GtEq`, `And`, `Or`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`, `Range`, `RangeInclusive`, `Coalesce`) and every `UnaryOp` variant (4: `Neg`, `Not`, `BitNot`, `Try`). Non-`_` match for exhaustiveness. NOTE: `Pow`/`**` is a language operator but is NOT a `BinaryOp` variant — it desugars before reaching ARC IR. Verify against `ori_ir/src/ast/operators.rs` at implementation time.
 - [ ] Fixed-point iteration terminates within `max_iterations` for all test programs
 - [ ] Block parameters (`ArcBlock::params`) are processed at the start of each block in the fixpoint loop, joining ranges from all predecessor `Jump` instructions
 - [ ] Block terminators (`Branch`, `Switch`) propagate conditional range refinements to successor blocks

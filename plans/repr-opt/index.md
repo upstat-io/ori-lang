@@ -47,6 +47,10 @@ Salsa integration, incremental, invalidation, JIT hot-reload
 #repr("c"), #repr("packed"), #repr("transparent"), #repr("aligned", N)
 migration, TypeInfoStore → ReprPlan, Phase A/B/C
 Lean4 LCNF, Zig InternPool, Roc STLayoutInterner
+--no-repr-opt flag, ORI_NO_REPR_OPT, repr_opt_disabled, no-repr-opt CLI
+ori_repr workspace registration, Cargo.toml members
+set_var_ranges, function_var_ranges, var_range, ArcVarId ValueRange
+ori_repr tracing, ORI_LOG=ori_repr, tracing_setup
 ```
 
 ---
@@ -149,6 +153,8 @@ invalid bit pattern, spare bits, niche_value
 tagged pointer, low bits, alignment bits
 payload compression, variant layout, shared prefix
 Rust niche, Swift GenEnum, Zig optional
+f32 niche, float niche, NaN bit pattern, f32-typed field niche
+depends §04 integer narrowing, depends §05 float narrowing
 ```
 
 ---
@@ -205,7 +211,7 @@ Rust Rc/Arc, Swift isUniquelyReferenced, CPython GIL
 **File:** `section-11-collection-spec.md` | **Status:** Not Started
 
 ```
-SSO, small string optimization, inline string, 22 byte
+SSO, small string optimization, inline string, 23 byte
 SVO, small vector optimization, inline vector, SmallVec
 packed bool, bit packing, 1 bit per bool, PackedBoolArray
 narrow element, backing store, [i8], [i16], [f32]
