@@ -1,0 +1,81 @@
+// Benchmark: Allocation-heavy
+// Exercises: list creation, struct allocation, iteration, map operations
+// Measures: ARC overhead, allocation patterns, collection codegen
+
+type Point = { x: int, y: int }
+
+@make_points (n: int) -> [Point] =
+    for i in 0..n yield Point { x: i * 3 + 1, y: i * 7 - 2 };
+
+@sum_points (points: [Point]) -> int = {
+    let total = 0;
+    for p in points do {
+        total = total + p.x + p.y;
+    };
+    total
+}
+
+@filter_points (points: [Point], threshold: int) -> [Point] =
+    for p in points if p.x + p.y > threshold yield p;
+
+@transform_list (n: int) -> [int] =
+    for i in 0..n yield i * i + i + 1;
+
+@nested_lists (n: int) -> int = {
+    let total = 0;
+    for i in 0..n do {
+        let inner = for j in 0..100 yield i * 100 + j;
+        for v in inner do {
+            total = total + v;
+        };
+    };
+    total
+}
+
+@list_operations (n: int) -> int = {
+    let list = for i in 0..n yield i;
+    let doubled = for v in list yield v * 2;
+    let filtered = for v in doubled if v % 3 != 0 yield v;
+    let total = 0;
+    for v in filtered do {
+        total = total + v;
+    };
+    total
+}
+
+@main () -> int = {
+    // Build and sum many point lists
+    let point_sum = 0;
+    for _ in 0..1000 do {
+        let pts = make_points(n: 500);
+        point_sum = point_sum + sum_points(points: pts);
+    };
+
+    // Filter operations
+    let filter_sum = 0;
+    for _ in 0..1000 do {
+        let pts = make_points(n: 500);
+        let filtered = filter_points(points: pts, threshold: 100);
+        filter_sum = filter_sum + sum_points(points: filtered);
+    };
+
+    // List transformations
+    let transform_sum = 0;
+    for _ in 0..1000 do {
+        let t = transform_list(n: 1000);
+        for v in t do {
+            transform_sum = transform_sum + v;
+        };
+    };
+
+    // Nested list creation
+    let nested = nested_lists(n: 500);
+
+    // Chained list operations
+    let chained = 0;
+    for _ in 0..1000 do {
+        chained = chained + list_operations(n: 1000);
+    };
+
+    if point_sum != 0 && filter_sum != 0 && transform_sum != 0 && nested != 0 && chained != 0 then 0 else 1
+}

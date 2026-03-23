@@ -23,8 +23,12 @@ pub struct BuildOptions {
     pub target: Option<String>,
     /// Optimization level: 0, 1, 2, 3, s, z (--opt=<level>)
     pub opt_level: OptLevel,
+    /// Whether `opt_level` was explicitly set via `--opt=`.
+    pub opt_level_explicit: bool,
     /// Debug info level: 0, 1, 2 (--debug=<level>)
     pub debug_level: DebugLevel,
+    /// Whether `debug_level` was explicitly set via `--debug=`.
+    pub debug_level_explicit: bool,
     /// Output file path (-o, --output)
     pub output: Option<PathBuf>,
     /// Output directory (--out-dir)
@@ -43,6 +47,8 @@ pub struct BuildOptions {
     pub link_mode: LinkMode,
     /// LTO mode: off, thin, full (--lto)
     pub lto: LtoMode,
+    /// Whether `lto` was explicitly set via `--lto=`.
+    pub lto_explicit: bool,
     /// Parallel compilation jobs (--jobs)
     pub jobs: Option<usize>,
     /// Target CPU (--cpu)
@@ -63,7 +69,9 @@ impl Default for BuildOptions {
             release: false,
             target: None,
             opt_level: OptLevel::O0,
+            opt_level_explicit: false,
             debug_level: DebugLevel::Full,
+            debug_level_explicit: false,
             output: None,
             out_dir: None,
             emit: None,
@@ -73,6 +81,7 @@ impl Default for BuildOptions {
             linker: None,
             link_mode: LinkMode::Static,
             lto: LtoMode::Off,
+            lto_explicit: false,
             jobs: None,
             cpu: None,
             features: None,
@@ -88,13 +97,33 @@ impl BuildOptions {
     ///
     /// For boolean flags, uses OR (true wins).
     /// For Option fields, takes the new value if present.
-    /// For --release, also applies its implied `opt_level` and `debug_level`.
+    /// For `--release`, applies its implied `opt_level` and `debug_level`
+    /// as defaults; explicit `--opt=`/`--debug=`/`--lto=` always win.
     pub fn merge(&mut self, other: &Self) {
-        // Handle --release specially: it implies opt_level and debug_level
+        // --release sets defaults for opt_level and debug_level
         if other.release {
             self.release = true;
+            // Only apply --release defaults if not already explicitly overridden
+            if !self.opt_level_explicit {
+                self.opt_level = other.opt_level;
+            }
+            if !self.debug_level_explicit {
+                self.debug_level = other.debug_level;
+            }
+        }
+
+        // Explicit --opt=, --debug=, --lto= always override
+        if other.opt_level_explicit {
             self.opt_level = other.opt_level;
+            self.opt_level_explicit = true;
+        }
+        if other.debug_level_explicit {
             self.debug_level = other.debug_level;
+            self.debug_level_explicit = true;
+        }
+        if other.lto_explicit {
+            self.lto = other.lto;
+            self.lto_explicit = true;
         }
 
         // Option fields: take new value if present
@@ -288,12 +317,14 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
         } else if let Some(level) = arg.strip_prefix("--opt=") {
             if let Some(opt) = OptLevel::parse(level) {
                 options.opt_level = opt;
+                options.opt_level_explicit = true;
             } else {
                 eprintln!("warning: unknown optimization level '{level}', using O0");
             }
         } else if let Some(level) = arg.strip_prefix("--debug=") {
             if let Some(dbg) = DebugLevel::parse(level) {
                 options.debug_level = dbg;
+                options.debug_level_explicit = true;
             } else {
                 eprintln!("warning: unknown debug level '{level}', using full");
             }
@@ -328,6 +359,7 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
         } else if let Some(lto) = arg.strip_prefix("--lto=") {
             if let Some(mode) = LtoMode::parse(lto) {
                 options.lto = mode;
+                options.lto_explicit = true;
             } else {
                 eprintln!("warning: unknown LTO mode '{lto}', using off");
             }
