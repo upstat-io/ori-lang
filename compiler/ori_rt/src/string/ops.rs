@@ -235,21 +235,16 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     }
 
     // Case 4: allocate new (a is shared or SSO requiring promotion)
-    // Use a's current capacity as the base for amortized doubling growth,
-    // so repeated concats don't degrade to O(n) total allocations.
-    let a_cap = if a_ref.is_sso() {
-        0
-    } else {
-        let cap = unsafe { a_ref.heap.cap };
-        // Slice caps have SLICE_FLAG set — not a real capacity
-        if is_slice_cap(cap) {
-            0
-        } else {
-            cap as usize
-        }
-    };
-    let new_cap = next_capacity(a_cap, combined);
+    // Use combined length (not a's capacity) as the growth base. Using a_cap
+    // caused exponential blowup in loops like `s = s + "-" + "x"` where each
+    // iteration doubled a_cap twice (once per concat), reaching terabyte
+    // capacities after ~40 iterations and crashing allocators with limited
+    // virtual memory (e.g., CI runners).
+    let new_cap = next_capacity(combined, combined);
     let new_data = ori_rc_alloc(new_cap, 1);
+    if new_data.is_null() {
+        crate::ori_panic_cstr(c"out of memory in string concatenation".as_ptr());
+    }
     unsafe {
         std::ptr::copy_nonoverlapping(a_bytes.as_ptr(), new_data, a_len);
         std::ptr::copy_nonoverlapping(b_bytes.as_ptr(), new_data.add(a_len), b_len);
