@@ -77,8 +77,11 @@ pub(crate) fn is_callee_intercepted(
     if HANDLED_PRELUDE_NAMES.contains(&callee_name) {
         return true;
     }
-    // Protocol builtins (__iter_next, __collect_set, __index) are
-    // intercepted by try_emit_protocol and always emit `call`.
+    // All protocol builtins are nounwind (iterator creation/cleanup don't
+    // panic), so they're always safe to emit as `call` rather than `invoke`.
+    // Some (Index, IterNext, CollectSet) are also intercepted by
+    // try_emit_protocol(); others (Iter, IterDrop) go through normal
+    // function dispatch but are still nounwind.
     if ori_ir::builtin_constants::protocol::ProtocolBuiltin::from_name(callee_name).is_some() {
         return true;
     }

@@ -1,10 +1,11 @@
 //! Compiler-internal protocol functions emitted by ARC lowering.
 //!
-//! These names appear as `Apply` callees in ARC IR but are intercepted by the
-//! LLVM emitter — they never become real function calls. Each variant carries
-//! per-argument ownership semantics so borrow inference and RC insertion handle
-//! them correctly without falling through to the "unknown callee → all Owned"
-//! default.
+//! These names appear as `Apply` callees in ARC IR. Most are intercepted by
+//! the LLVM emitter (they never become real function calls), while `Iter` and
+//! `IterDrop` go through normal function dispatch — see [`ProtocolBuiltin::is_intercepted()`].
+//! Each variant carries per-argument ownership semantics so borrow inference
+//! and RC insertion handle them correctly without falling through to the
+//! "unknown callee → all Owned" default.
 
 /// Compiler-internal protocol functions emitted by ARC lowering / canonicalization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -64,6 +65,18 @@ impl ProtocolBuiltin {
             "ori_iter_drop" => Some(Self::IterDrop),
             "__collect_set" => Some(Self::CollectSet),
             _ => None,
+        }
+    }
+
+    /// Whether this protocol is intercepted by `try_emit_protocol()` in LLVM codegen.
+    ///
+    /// `Iter` and `IterDrop` are registered as `ProtocolBuiltin` for borrow
+    /// inference only — they go through normal function dispatch (real runtime
+    /// calls), not protocol intercept.
+    pub const fn is_intercepted(self) -> bool {
+        match self {
+            Self::Iter | Self::IterDrop => false,
+            Self::Index | Self::IterNext | Self::CollectSet => true,
         }
     }
 
