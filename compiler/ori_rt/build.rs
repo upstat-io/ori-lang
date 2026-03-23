@@ -6,17 +6,19 @@ fn main() {
 
     let mut build = cc::Build::new();
 
-    // --- EH implementation (all targets) ---
+    // --- EH implementation (platform-split) ---
     //
-    // eh_personality.c contains platform-gated code:
-    //   - MSVC (#ifdef _MSC_VER): SEH-based ori_raise_exception + ori_try_call
-    //   - Others: Itanium personality + ori_raise_exception via _Unwind_RaiseException
-    build.file("src/eh_personality.c");
-
+    // MSVC: eh_personality_msvc.cpp — C++ throw/catch so that LLVM's
+    //   __CxxFrameHandler3 personality executes cleanuppad blocks during
+    //   unwind. Win32 RaiseException bypasses C++ frame handlers.
+    //
+    // Others: eh_personality.c — Itanium personality + _Unwind_RaiseException.
     if is_msvc {
-        // MSVC: use /std:c11 (not -std=c11 which is a GCC/Clang flag)
-        build.flag("/std:c11");
+        build.file("src/eh_personality_msvc.cpp");
+        build.cpp(true);
+        build.flag("/EHsc"); // Enable C++ exception handling
     } else {
+        build.file("src/eh_personality.c");
         build.flag_if_supported("-std=c11");
         build.pic(true); // Required: Rust links test binaries as PIE
     }
@@ -62,8 +64,9 @@ fn main() {
 
     build.compile("ori_eh");
 
-    // Ensure Cargo rebuilds when C/asm sources change.
+    // Ensure Cargo rebuilds when C/C++/asm sources change.
     println!("cargo:rerun-if-changed=src/eh_personality.c");
+    println!("cargo:rerun-if-changed=src/eh_personality_msvc.cpp");
     println!("cargo:rerun-if-changed=src/test_forced_unwind.c");
     println!("cargo:rerun-if-changed=src/test_frames_x86_64.S");
     println!("cargo:rerun-if-changed=src/test_frames_aarch64.S");

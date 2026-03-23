@@ -147,14 +147,15 @@ pub unsafe fn jit_run_protected(func: unsafe extern "C" fn()) -> Result<(), Stri
 
     #[cfg(all(target_os = "windows", target_env = "msvc"))]
     {
-        // On MSVC, use ori_try_call (__try/__except) to catch SEH exceptions.
-        // Do NOT enter JIT mode — let ori_panic_cstr fall through to
-        // RaiseException, which ori_try_call catches.
+        // On MSVC, use ori_try_call (C++ try/catch) to catch OriPanicException.
+        // Do NOT enter JIT mode — let ori_panic fall through to
+        // ori_raise_exception (C++ throw), which ori_try_call catches.
+        // Thunk is `C-unwind` so the C++ exception can propagate through it.
         extern "C" {
-            fn ori_try_call(thunk: unsafe extern "C" fn(*mut u8), ctx: *mut u8) -> i64;
+            fn ori_try_call(thunk: unsafe extern "C-unwind" fn(*mut u8), ctx: *mut u8) -> i64;
         }
 
-        unsafe extern "C" fn jit_thunk(ctx: *mut u8) {
+        unsafe extern "C-unwind" fn jit_thunk(ctx: *mut u8) {
             let f: unsafe extern "C" fn() = unsafe { std::mem::transmute(ctx) };
             unsafe { f() };
         }
