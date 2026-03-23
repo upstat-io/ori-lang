@@ -53,7 +53,7 @@ sections:
     status: not-started
   - id: "21.16"
     title: Optimization Passes
-    status: in-progress
+    status: not-started
   - id: "21.17"
     title: Runtime Support
     status: in-progress
@@ -71,11 +71,9 @@ sections:
 
 | Test Suite | Passed | Failed | Skipped | LCFail | Total |
 |------------|--------|--------|---------|--------|-------|
-| Ori spec (evaluator) | 4181 | 0 | 42 | - | 4223 |
+| Ori spec (evaluator) | 3035 | 0 | 42 | - | 3077 |
 | Ori spec (LLVM backend) | 1082 | 1 | 9 | 1985 | 3077 |
 | Rust unit tests (LLVM) | 527 | 0 | 15 | - | 542 |
-
-> Note: Evaluator test count updated 2026-03-19. LLVM backend counts may also be stale.
 
 ## Import Resolution (Unified Pipeline)
 
@@ -895,82 +893,6 @@ Formalize the compiler's freedom to optimize machine representations while prese
   - [ ] Type debug info
   - [ ] DWARF/CodeView emission
 
-### 21.16.3 Function Attribute Compliance (from AIMS)
-
-Codegen quality items deferred from the AIMS codegen quality plan (2026-03-15). All completed work is in `experiment/aims` branch. Items below are self-contained with full implementation guidance.
-
-**Context:** AIMS Section 01 (regressions) is complete. Section 02 (attributes) is ~65% done. Sections 03-05 are not started. The `/code-journey` skill scores IR quality on 13 journey programs in `plans/code-journeys/*.ori`.
-
-**What's already done (2026-03-15):**
-- `noundef` on ALL `ParamPassing::Direct` params/returns (not just scalars) — `function_compiler/mod.rs:247-263`
-- `uwtable` on C main wrapper — `function_compiler/entry_point.rs:65`
-- `memory(none)` on pure scalar functions — `is_arc_function_pure()` in `define_phase.rs`, integrated into `compute_nounwind_set()` in `nounwind.rs`
-- Runtime function nounwind declarations verified correct
-- Nounwind two-pass analysis audited and working correctly
-- 27 function_compiler tests pass including `direct_aggregate_params_have_noundef`
-
-- [ ] **`readonly` on Indirect read-only params**: For `ParamPassing::Indirect` params where the callee only reads (never mutates), add LLVM `readonly` attribute. Enables LLVM to hoist loads and CSE across calls.
-  - **Why deferred**: Requires architectural change — threading `Ownership` annotation from `ori_arc` borrow inference through `ParamAbi` to the attribute application site. Currently, ABI computation is size-first: `Borrowed` + large type → `Indirect` (losing the ownership signal). `ParamAbi` only has `{ name, ty, passing }`, not ownership.
-  - **Implementation approach**: (a) Add `readonly: bool` field to `ParamAbi`. (b) In `compute_function_abi_with_ownership()`, set `readonly=true` when `Ownership::Borrowed`. (c) In `declare_function_llvm_with_extra_params()`, apply `builder.add_readonly_param_attribute()` for Indirect params with `readonly=true`. (d) Add `add_readonly_param_attribute` to `ir_builder/attributes.rs` (same pattern as `add_noalias_attribute`).
-  - **Alternative**: Mark ALL `ParamPassing::Reference` params as `readonly` (they're already semantically borrowed/read-only). This is simpler but doesn't cover large borrowed params that fall through to `Indirect`.
-  - **Files**: `codegen/abi/mod.rs`, `codegen/function_compiler/mod.rs`, `codegen/ir_builder/attributes.rs`
-- [ ] **Fix impl method nounwind gap**: Impl methods compiled via `compile_impls()` in `impls.rs` use the immediate-emit path (`emit_arc_function()`) BEFORE the two-pass nounwind analysis runs. This means impl methods calling nounwind callees still use `invoke` instead of `call`.
-  - **Approach (a) — correct**: Fold impl methods into the two-pass batch: modify `compile_impls()` to use `prepare_all_cached()` + `compute_nounwind_set()` + `emit_prepared_functions()` instead of direct `emit_arc_function()`. Requires refactoring the impl compilation path.
-  - **Approach (b) — simple**: Post-hoc nounwind pass: after ALL functions are emitted, walk LLVM functions and retroactively add `nounwind` to those that contain no `invoke` instructions. Simpler but less precise (misses transitive nounwind — A calls B calls C, where C is nounwind, B becomes nounwind, but post-hoc only sees B has no invoke because C was nounwind).
-  - **Impact**: Affects journeys with derived trait methods and impl methods. Currently derives are handled separately via `DerivedTrait::is_nounwind_derived()` in `derive_codegen`.
-  - **Files**: `codegen/function_compiler/impls.rs`, `codegen/function_compiler/nounwind.rs`
-- [ ] **`memory(read)` annotation**: For functions that read from struct fields but don't write/allocate. LLVM encoding: `create_enum_attribute(kind, 21)` (already implemented as `add_memory_read_attribute()` in `ir_builder/attributes.rs`). Detection criteria: all ARC IR instructions are `Let`, `Select`, or `Project` (no `Apply`/`Construct`/`Set`/RC ops), AND function may have Indirect params (reads via pointer are OK). Lower priority than `memory(none)` — fewer qualifying functions.
-- [ ] **`nonnull` + `dereferenceable` on Indirect params**: Ori pointer params are always non-null and point to valid memory of known size. Add `nonnull` and `dereferenceable(N)` attributes to `ParamPassing::Indirect` and `ParamPassing::Reference` params. Requires knowing the byte size of the pointed-to type (available from `TypeInfoStore`). Overlaps with Tier 3 pointer attributes above.
-
-### 21.16.4 CFG Cleanup (from AIMS)
-
-Post-emission LLVM IR contains unnecessary blocks from the ARC pipeline. These inflate code journey scores and inhibit LLVM optimization at O0.
-
-- [ ] **Empty trampoline block elimination**: The ARC emitter generates `br`-only blocks (empty block → single successor). These should be eliminated by a post-emission simplification pass. Common in J2, J3, J5, J7, J9, J10, J12.
-  - **Implementation**: Walk all blocks in a function after `emit_function()`. For each block with only a `br` instruction and no phi predecessors, redirect all predecessors to the successor and delete the block. Handle phi-node rewrites when the successor has phis.
-  - **CONSTRAINT**: SimplifyCFG only runs at O1+. Code journey scoring operates on O0 IR, so a pre-optimization simplification is needed.
-  - **BLOAT prerequisite**: `codegen/arc_emitter/emit_function.rs` is at 506 lines. Extract dead-unwind detection logic (lines 96-167) into `detect_dead_unwind_blocks()` to reclaim ~70 lines before adding simplification code.
-  - **Files**: `codegen/arc_emitter/emit_function.rs`
-- [ ] **Redundant entry block elimination**: Functions with empty entry blocks that just `br` to a header. Common in TCO functions (J3 `@gcd`, J7 `@sum_loop`).
-  - **CONSTRAINT**: An empty entry block that branches to a header with phi nodes CANNOT be simply eliminated — the phis need the entry block as an incoming edge. When merging `entry → header`: if entry is the ONLY predecessor, replace phis with their single incoming value. If header has OTHER predecessors (back-edges from tail calls), the entry block cannot be merged without rewriting phis.
-  - **Test**: Verify TCO still works in J3 `@gcd` after simplification (`ORI_DUMP_AFTER_LLVM=1`, check for `musttail call` or phi-based TCO pattern).
-
-### 21.16.5 IR Quality Polish (from AIMS)
-
-Specific IR patterns that inflate instruction count without semantic purpose.
-
-- [ ] **Range construct-then-destructure** (J7): Range iteration creates a full range struct then immediately destructures it. Investigate whether the pattern is in ARC IR lowering or LLVM emission. Fix: optimize to use scalar SSA values directly.
-- [ ] **SSO gating code redundancy** (J9): String operations emit SSO vs heap branching where both arms produce identical code. Fix: merge redundant branches (or detect at emission time).
-- [ ] **List struct extract/repack** (J10 `@count_items`): List (24 bytes) passed Indirect generates extract/repack at callee entry. This is correct behavior for the FastISel safety pattern (per-field GEP+load+insert_value). Verify ABI threshold — list structs (3x i64 = 24 bytes) should be Indirect on x86-64. If ABI is correct, this is expected and the instruction count is justified.
-
-### 21.16.6 Code Journey Score Baseline (from AIMS, 2026-03-15)
-
-Pre-AIMS baseline scores for the 13 code journeys. Use `/code-journey` skill to re-score after implementing items above. Journey source files: `plans/code-journeys/*.ori`. Scoring tool: `.claude/skills/code-journey/extract-metrics.py`.
-
-| Journey | Pre-AIMS | Target | Blocking Categories |
-|---------|----------|--------|-------------------|
-| J1 Arithmetic | 9.8 | 10.0 | Attr (uwtable on main — FIXED) |
-| J2 Branching | 9.2 | 9.8+ | CF (empty blocks), Attr |
-| J3 Recursion | 8.9 | 9.8+ | CF (entry blocks), Attr (nounwind) |
-| J4 Structs | 9.7 | 10.0 | Attr (noundef — FIXED) |
-| J5 Closures | 8.5 | 9.8+ | Attr (indirect call), CF |
-| J6 Patterns | 9.7 | 10.0 | Attr (noundef — FIXED) |
-| J7 Loops | 9.2 | 9.8+ | CF (entry blocks), IR (range construct) |
-| J8 Generics | 9.8 | 10.0 | Attr (noundef — FIXED) |
-| J9 Strings | 8.8 | 9.8+ | CF (SSO blocks), IR (SSO redundancy) |
-| J10 Lists | 8.7 | 9.8+ | CF (empty blocks), Attr (nounwind) |
-| J11 Derives | 9.7 | 10.0 | Attr (noundef — FIXED) |
-| J12 Error | 9.2 | 9.8+ | CF (empty blocks) |
-| J13 Iterators | 9.4 | 9.8+ | Attr (indirect call) |
-
-**Verification checklist** (run after completing 21.16.3-5):
-- [ ] Re-score all 13 journeys with `/code-journey`
-- [ ] All journeys score >= 9.8/10, simple journeys (J1, J4, J6, J8, J11) = 10.0
-- [ ] `ORI_CHECK_LEAKS=1` clean on heap-allocating journeys (J5, J9, J10, J13)
-- [ ] `diagnostics/dual-exec-verify.sh` passes (eval == AOT for all tests)
-- [ ] `cargo b --release && timeout 150 ./test-all.sh` green (release build — FastISel differs)
-- [ ] Update `plans/code-journeys/*-results.md` with new IR dumps and scores
-
 ---
 
 ## 21.17 Runtime Support
@@ -1148,21 +1070,21 @@ ori_llvm/src/
 - [x] Derive Comparable struct codegen: `emit_ordering_comparison` now dispatches to derived `compare` method and checks Ordering result (0=Less, 1=Equal, 2=Greater) for `<`/`>`/`<=`/`>=` <!-- test: test_aot_derive_comparable_struct -->
 - [x] ARC enum basic drop and string-payload drop: `test_arc_enum_basic_drop` and `test_arc_enum_with_string_payload` un-ignored and passing
 
-*Resolved (verified 2026-03-19):*
-- [x] List `.push()` now in AOT — `test_aot_list_push` passes
-- [x] List `.first()`/`.last()` now in AOT — `test_aot_list_first_last` passes
-- [x] List `.concat()` now in AOT — `test_aot_list_concat` passes
-- [x] `list[index]` subscript resolved in AOT — `test_aot_list_index` passes
-- [x] Map `.is_empty()` now in AOT — `test_aot_map_is_empty` passes
-- [x] Closure-returning-closure type inference fixed — `test_aot_closure_capturing_closure` passes
-- [x] Generic monomorphization working — `test_aot_generic_identity` and `test_aot_generic_pair` pass
-- [x] String interpolation fixed — `test_aot_string_interpolation` passes
-
 *Open:*
-- [ ] `catch(expr:)` partially lowered — `test_aot_catch_success` passes, but `test_aot_catch_panic` and `test_aot_catch_div_by_zero` remain `#[ignore]` (inline panic in catch not intercepted)
+- [ ] List mutation methods not in AOT builtin table: `.push()`, `.first()`, `.last()`, `.is_empty()`, `.concat()` <!-- test: test_aot_list_push, test_aot_list_first_last, test_aot_list_empty_operations, test_aot_list_concat -->
+- [ ] Map methods not in AOT builtin table: `.is_empty()`, `.get()`, `.insert()`, `.remove()`, `.keys()`, `.values()` <!-- test: test_aot_map_is_empty -->
+- [ ] `list[index]` subscript not resolved in AOT <!-- test: test_aot_list_index -->
+- [ ] Closure-returning-closure type inference: `let f = (n: int) -> (int) -> int = { (x: int) -> int = ... }` infers `()` return instead of `(int) -> int` <!-- test: test_aot_closure_capturing_closure, section: 02 -->
+- [ ] Enum variant constructors not declared as LLVM functions <!-- test: test_aot_enum_variant_constructors -->
+- [ ] Generic monomorphization not in ARC pipeline <!-- test: test_aot_generic_identity, test_aot_generic_pair -->
+- [ ] `catch(expr:)` not yet lowered through ARC pipeline <!-- test: test_aot_catch_basic, test_aot_catch_no_panic, test_aot_catch_nested -->
+- [ ] String interpolation produces wrong result <!-- test: test_aot_string_interpolation -->
 
-Cross-references to remaining open items:
-- `catch(expr:)` → § 21.5 (inline panic in catch blocks not intercepted)
+Cross-references to existing items:
+- Generic monomorphization → § 21.7 (**CRITICAL** — blocks 2,472+ test call sites)
+- Enum variant constructors → § 21.2 (blocks enums, recursive types)
+- `catch(expr:)` → § 21.5 (blocks panic recovery in AOT)
+- String interpolation → § 21.3
 
 **New AOT tests added** (2026-02-23, 13 tests, all passing):
 derive_eq_struct (un-ignored), derive_eq_struct_not_equal, derive_eq_struct_with_strings,
