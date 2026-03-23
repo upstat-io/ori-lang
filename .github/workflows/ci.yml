@@ -193,7 +193,7 @@ jobs:
   # Cross-platform — full test suite including AOT
   cross-platform:
     name: ${{ matrix.os }}
-    needs: [format, clippy]  # Don't waste CI time if basics fail
+    # No needs — format/clippy are platform-independent, don't gate cross-platform builds
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:

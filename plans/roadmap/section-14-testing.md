@@ -45,6 +45,9 @@ sections:
     title: Test Execution Model Implementation
     status: not-started
   - id: "14.13"
+    title: Test Pass History Cache
+    status: not-started
+  - id: "14.14"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -552,9 +555,103 @@ Test results are cached for incremental builds.
 
 ---
 
-## 14.13 Section Completion Checklist
+## 14.13 Test Pass History Cache
 
-- [ ] All items in 14.1-14.12 have all three checkboxes marked `[ ]`
+Record the last-passing git commit and timestamp for every test. When a test fails, display regression context: which commit it last passed on and when. This is a **diagnostic aid** — distinct from 14.11/14.12 which are performance optimizations (skip/reorder). No other test runner does this.
+
+**Motivation**: When a test fails, the developer's first question is "when did this break?" Today, the answer requires `git bisect` — a manual, slow process. With pass history, the test runner answers instantly: *"last passed on `46873fe` (2026-03-20, 3 commits ago)"*. Combined with Ori's `@target` annotations, it can even show per-function regression context.
+
+### 14.13.1 Cache Data Model
+
+- [ ] **Implement**: `TestPassEntry` struct — `{ commit: String, timestamp: DateTime<Utc>, backend: Backend }`
+  - [ ] Key: `(relative_file_path, test_name, backend)` — triple-keyed so interpreter and LLVM histories are independent
+  - [ ] Commit: short SHA from `git rev-parse --short HEAD` (or `"unknown"` outside git repos)
+  - [ ] Timestamp: UTC ISO-8601 string (no chrono dependency — use `std::time::SystemTime` formatted manually)
+  - [ ] **Rust Tests**: `oric/src/test/pass_history/tests.rs` — entry creation, serialization round-trip
+
+- [ ] **Implement**: `TestPassHistory` struct — in-memory representation of the full cache
+  - [ ] `entries: HashMap<(PathBuf, String, Backend), TestPassEntry>` — keyed by (file, test_name, backend)
+  - [ ] `load(path: &Path) -> Result<Self>` — deserialize from JSON, return empty on missing/corrupt file
+  - [ ] `save(&self, path: &Path) -> Result<()>` — serialize to JSON via temp file + atomic rename
+  - [ ] `record_pass(file: PathBuf, test_name: String, backend: Backend, commit: &str)` — upsert entry
+  - [ ] `last_pass(file: &Path, test_name: &str, backend: Backend) -> Option<&TestPassEntry>` — lookup
+  - [ ] **Rust Tests**: `oric/src/test/pass_history/tests.rs` — load/save round-trip, record_pass upsert, last_pass lookup, corrupt file recovery
+
+### 14.13.2 Cache File Format
+
+- [ ] **Implement**: JSON file at `.ori/test-history.json` — human-readable, debuggable
+  - [ ] Version field for forward compatibility: `{ "version": 1, "tests": { ... } }`
+  - [ ] Key format: `"relative/path.ori::test_name::interpreter"` (or `::llvm`)
+  - [ ] Relative paths (from project root) for portability across machines
+  - [ ] **Rust Tests**: `oric/src/test/pass_history/tests.rs` — JSON format validation, version handling
+
+- [ ] **Implement**: Add `serde` and `serde_json` dependencies to `oric` Cargo.toml
+  - [ ] `serde = { version = "1", features = ["derive"] }`
+  - [ ] `serde_json = "1"`
+  - [ ] Derive `Serialize`/`Deserialize` on `TestPassEntry` and `TestPassHistory`
+
+- [ ] **Implement**: Add `.ori/` to `.gitignore` — cache is machine-local, not committed
+
+### 14.13.3 Git Integration
+
+- [ ] **Implement**: `current_git_commit() -> Option<String>` — query git for short HEAD SHA
+  - [ ] Run `git rev-parse --short HEAD` via `std::process::Command`
+  - [ ] Return `None` if not in a git repo or git not installed (graceful degradation)
+  - [ ] Cache the result for the duration of the test run (single subprocess call)
+  - [ ] **Rust Tests**: `oric/src/test/pass_history/tests.rs` — git query (integration test, `#[ignore]` if no git)
+
+### 14.13.4 TestRunner Integration
+
+- [ ] **Implement**: Load pass history at start of `TestRunner::run()`
+  - [ ] Resolve `.ori/test-history.json` relative to project root (walk up from test path to find `.git` or `Cargo.toml`)
+  - [ ] Load existing history (or empty if first run)
+  - [ ] Query `current_git_commit()` once
+  - [ ] Pass history + commit to `run_file_with_interner()` via parameter or shared state
+
+- [ ] **Implement**: Record passes after each file completes
+  - [ ] For each `TestOutcome::Passed` in `FileSummary`, call `history.record_pass(...)`
+  - [ ] Use the resolved relative path and interner-looked-up test name
+
+- [ ] **Implement**: Save history at end of `TestRunner::run()`
+  - [ ] Create `.ori/` directory if it doesn't exist
+  - [ ] Write via atomic temp file + rename
+  - [ ] Failures to save are warnings (logged via `tracing::warn!`), never fatal
+
+- [ ] **Implement**: Pass history to failure reporting path
+  - [ ] `TestResult` or `FileSummary` carries `Option<TestPassEntry>` for failed tests
+  - [ ] Looked up from history after test execution, before reporting
+
+### 14.13.5 Failure Output Enhancement
+
+- [ ] **Implement**: Enhanced failure message in `print_file_results()` (`commands/test.rs`)
+  - [ ] On `FAIL`, look up `last_pass` from history
+  - [ ] If found: `FAIL: test_name - error message\n        last passed: abc1234 (2026-03-20 14:30 UTC)`
+  - [ ] If not found (first run or never passed): no extra line (silent)
+  - [ ] **Rust Tests**: `oric/src/commands/test/tests.rs` — output formatting with history context
+
+- [ ] **Implement**: Optional "N commits ago" annotation with `--verbose`
+  - [ ] Run `git rev-list --count <last_pass_commit>..HEAD` to compute distance
+  - [ ] Only in verbose mode (adds a subprocess call per failure)
+  - [ ] Format: `last passed: abc1234 (2026-03-20 14:30 UTC, 3 commits ago)`
+  - [ ] Graceful degradation: if git call fails, omit the "N commits ago" part
+  - [ ] **Rust Tests**: `oric/src/commands/test/tests.rs` — verbose commit distance
+
+### 14.13.6 Cache Maintenance
+
+- [ ] **Implement**: Stale entry tolerance — never prune automatically
+  - [ ] Old entries for deleted tests waste bytes but cause no harm
+  - [ ] No TTL, no LRU — the cache is append/upsert only
+  - [ ] Manual cleanup: `ori test --clear-history` deletes `.ori/test-history.json`
+
+- [ ] **Implement**: `--clear-history` CLI flag
+  - [ ] Deletes the cache file and starts fresh
+  - [ ] **Rust Tests**: `oric/src/commands/test/tests.rs` — clear history flag
+
+---
+
+## 14.14 Section Completion Checklist
+
+- [ ] All items in 14.1-14.13 have all three checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/19-testing.md` reflects implementation
 - [ ] CLAUDE.md updated if syntax/behavior changed
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

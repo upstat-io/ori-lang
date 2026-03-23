@@ -166,7 +166,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // MUST use call_indirect_with_sret to emit the sret attribute on
                 // the call instruction. Without it, LLVM places out_ptr in X0
                 // instead of X8, causing register misalignment and SIGSEGV.
-                let elem_arg_ty = if elem_is_indirect { ptr_ty } else { elem_llvm_ty };
+                let elem_arg_ty = if elem_is_indirect {
+                    ptr_ty
+                } else {
+                    elem_llvm_ty
+                };
                 let elem_arg = if elem_is_indirect {
                     in_ptr
                 } else {
