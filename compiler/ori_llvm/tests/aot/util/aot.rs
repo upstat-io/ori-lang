@@ -321,9 +321,36 @@ pub fn compile_and_run_valgrind_with_args(source: &str, args: &[&str]) -> Option
     Some((clean, vg_stderr))
 }
 
+/// Return the debug `ori` binary for IR capture.
+///
+/// IR dump (`ORI_DEBUG_LLVM=1`) is only available in debug builds — the release
+/// binary compiles out phase dumps via `dbg_set!`. IR-quality tests must use the
+/// debug binary to capture IR, regardless of the test harness build profile.
+///
+/// Panics if no debug binary exists. This is intentional: IR-quality tests are
+/// semantic pins that must never silently degrade to no-ops. If you see this
+/// panic in `cargo test --release`, run `cargo build` first to produce the
+/// debug binary.
+fn ir_capture_binary() -> PathBuf {
+    let workspace_root = workspace_root();
+    let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
+    let debug_path = workspace_root.join("target/debug").join(&exe);
+
+    if debug_path.exists() && has_llvm_support(&debug_path) {
+        return debug_path;
+    }
+    panic!(
+        "No debug ori binary found for IR capture.\n\
+         IR-quality tests require the debug binary (release compiles out IR dumps).\n\
+         Run `cargo build` to build the debug binary first."
+    );
+}
+
 /// Compile an Ori program and capture its LLVM IR (via `ORI_DEBUG_LLVM=1`).
 ///
-/// Returns the IR string from compilation stderr. Panics if compilation fails.
+/// Uses the debug `ori` binary for IR capture — the release binary compiles out
+/// phase dumps. Returns the IR string from compilation stderr. Panics if
+/// compilation fails.
 pub fn compile_and_capture_ir(source: &str) -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -336,7 +363,7 @@ pub fn compile_and_capture_ir(source: &str) -> String {
 
     fs::write(&source_path, source).expect("Failed to write source");
 
-    let compile_result = Command::new(ori_binary())
+    let compile_result = Command::new(ir_capture_binary())
         .args([
             "build",
             source_path.to_str().unwrap(),
