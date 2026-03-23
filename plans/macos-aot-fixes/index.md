@@ -2,7 +2,7 @@
 reroute: true
 name: "macOS AOT Fixes"
 full_name: "macOS AOT Failure Investigation"
-status: active
+status: resolved
 reviewed: false
 order: 1
 ---

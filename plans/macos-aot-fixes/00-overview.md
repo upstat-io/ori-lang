@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 reviewed: false
 ---
 
@@ -14,7 +14,7 @@ CI run `23420458239` (PR #88) passed Linux fully but failed on macOS with 2 AOT 
 - [x] **Fix 1**: `arc::test_rc_project_merge_edge_scoped_cleanup` (exit 1) — implementation landed in commit `9d323f30`, reopened by `TPR-01-001`, resolved 2026-03-23
 - [x] **Fix 2**: `elem_dec_scope::test_trampoline_map_str_identity` (SIGSEGV -139) — implementation landed across `b53f147b..HEAD`, reopened by `TPR-02-001` through `TPR-02-008`; all findings resolved and pinned by regressions 2026-03-23
 - [x] **Fix 3**: CI cross-platform timeout (10→30 min) — already done in `.github/workflows/ci.yml`
-- [ ] All 3 fixes committed, pushed, CI green
+- [x] All 3 fixes committed, pushed, CI green (pushed 2026-03-23)
 
 ---
 
