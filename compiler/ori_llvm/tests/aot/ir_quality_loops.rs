@@ -485,6 +485,49 @@ fn test_multiple_invariant_bindings_no_phi() {
 
 // Helpers
 
+/// Constant-step inclusive range emits only 3 range extractvalues, not 4.
+///
+/// When step and inclusive are compile-time constants, the `inclusive`
+/// field is never extracted — the bounds check is specialized to a single
+/// `icmp sle` without needing the runtime inclusive flag.
+#[test]
+fn test_range_constant_inclusive_skips_proj3() {
+    let ir = compile_and_capture_ir(
+        r"
+@sum_incl (n: int) -> int = {
+    let total = 0;
+    for i in 1..=n do {
+        total += i
+    };
+    total
+}
+
+@main () -> int = sum_incl(n: 5);
+",
+    );
+
+    if !ir.contains("define ") {
+        eprintln!("skipping: release binary does not emit IR");
+        return;
+    }
+
+    let fn_ir = extract_function_ir(&ir, "_ori_sum_incl");
+    // Count range-related extractvalues in bb0 (before the loop header).
+    // The range struct {start, end, step, inclusive} should produce only 3
+    // extractvalue instructions (fields 0, 1, 2) — field 3 (inclusive) deferred.
+    let bb0 = fn_ir.split("\nbb1:").next().unwrap_or(fn_ir);
+    let range_evs: Vec<&str> = bb0
+        .lines()
+        .filter(|l| l.contains("extractvalue { i64, i64, i64, i64 }"))
+        .collect();
+    assert_eq!(
+        range_evs.len(),
+        3,
+        "expected 3 range extractvalues (start, end, step), not 4.\nFound:\n{}",
+        range_evs.join("\n")
+    );
+}
+
 /// Find the loop header block in LLVM IR (block with phi nodes + conditional branch).
 fn find_loop_header(fn_ir: &str) -> String {
     let mut in_header = false;

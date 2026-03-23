@@ -1,6 +1,6 @@
 [package]
 name = "ori_arc"
-description = "ARC analysis for the Ori compiler (type classification, borrow inference, RC insertion)"
+description = "ARC analysis for the Ori compiler (type classification, borrow inference, RC insertion, AIMS unified lattice)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

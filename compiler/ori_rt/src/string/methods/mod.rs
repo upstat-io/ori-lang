@@ -162,15 +162,15 @@ pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
         return OriStr { sso };
     }
 
-    // Heap: try in-place if unique
+    // Heap: try in-place if unique (not a slice — slices share parent buffer)
     let heap = unsafe { &s_ref.heap };
-    if !heap.data.is_null() && ori_rc_is_unique(heap.data) {
+    if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
         let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
         data.make_ascii_uppercase();
         return *s_ref;
     }
 
-    // Shared heap: allocate new
+    // Shared heap or slice: allocate new
     let mut result = Vec::with_capacity(len);
     result.extend(bytes.iter().map(u8::to_ascii_uppercase));
     OriStr::from_bytes(&result)
@@ -205,7 +205,7 @@ pub extern "C" fn ori_str_to_lowercase(s: *const OriStr) -> OriStr {
     }
 
     let heap = unsafe { &s_ref.heap };
-    if !heap.data.is_null() && ori_rc_is_unique(heap.data) {
+    if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
         let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
         data.make_ascii_lowercase();
         return *s_ref;
@@ -234,10 +234,10 @@ pub extern "C" fn ori_str_replace(
     let from_str = unsafe { deref_str(from) };
     let to_str = unsafe { deref_str(to) };
 
-    // Same-length replacement on unique heap -> in-place
+    // Same-length replacement on unique heap -> in-place (not slices)
     if from_str.len() == to_str.len() && !from_str.is_empty() && !s_ref.is_sso() {
         let heap = unsafe { &s_ref.heap };
-        if !heap.data.is_null() && ori_rc_is_unique(heap.data) {
+        if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
             let len = s_ref.len();
             let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
             let from_bytes = from_str.as_bytes();
@@ -280,7 +280,7 @@ pub extern "C" fn ori_str_repeat(s: *const OriStr, count: i64) -> OriStr {
         return OriStr::EMPTY;
     }
     if n == 1 {
-        return *s_ref;
+        return OriStr::from_bytes(bytes);
     }
 
     let total = len.saturating_mul(n);
@@ -350,10 +350,10 @@ pub extern "C" fn ori_str_push_char(s: *const OriStr, ch: u32) -> OriStr {
         return OriStr { sso };
     }
 
-    // Cases 2-3: heap and uniquely owned
+    // Cases 2-3: heap and uniquely owned (not slices — can't mutate parent)
     if !s_ref.is_sso() {
         let heap = unsafe { &s_ref.heap };
-        if !heap.data.is_null() && ori_rc_is_unique(heap.data) {
+        if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
             if (heap.cap as usize) >= combined {
                 // Case 2: has capacity
                 unsafe {

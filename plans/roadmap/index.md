@@ -406,6 +406,9 @@ ori test, test runner
 #fail, expected failure
 private test, :: access
 test module, _test directory
+pass history, last passed, regression context
+test cache, test-history.json, .ori/
+git commit, bisect, when did this break
 ```
 
 ---

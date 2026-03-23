@@ -1143,22 +1143,15 @@ fn struct_load_field_alignment_x86_64() {
     let struct_llvm = scx.type_struct(&[i64_llvm, i64_llvm], false);
     let struct_ty = irb.register_type(struct_llvm.into());
 
-    // Load from ptr param — decomposed into per-field GEP+load+insertvalue
+    // Load from ptr param — AOT mode uses direct aggregate load.
     let param = irb.get_param(func, 0);
     let _val = irb.load(struct_ty, param, "s");
 
     let ir = scx.llmod.print_to_string().to_string();
-    // Each field load should have align 8
-    let align_8_count = ir.matches("align 8").count();
+    // AOT mode: single aggregate load with proper alignment
     assert!(
-        align_8_count >= 2,
-        "struct load should produce at least 2 field loads with align 8, \
-         found {align_8_count} 'align 8' occurrences:\n{ir}"
-    );
-    // No align 4 on i64 loads
-    assert!(
-        !ir.contains("load i64, ptr %s.f0.ptr, align 4"),
-        "struct field loads must NOT use align 4:\n{ir}"
+        ir.contains("load { i64, i64 }") && ir.contains("align 8"),
+        "AOT struct load should use aggregate load with align 8:\n{ir}"
     );
 }
 

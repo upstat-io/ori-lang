@@ -232,16 +232,23 @@ Each section file follows this structure. Sections range from focused (single su
 section: "{NN}"
 title: "{Title}"
 status: not-started
+reviewed: false
 goal: "{One-line measurable goal}"
 inspired_by:             # Reference implementations studied
   - "{Language/Tool} {pattern} ({file path})"
 depends_on: ["{NN}"]     # Other sections required first
+third_party_review:
+  status: none           # none | findings | resolved
+  updated: null          # YYYY-MM-DD when last touched
 sections:
   - id: "{NN}.1"
     title: "{Subsection}"
     status: not-started
   - id: "{NN}.2"
     title: "{Subsection}"
+    status: not-started
+  - id: "{NN}.R"
+    title: "Third Party Review Findings"
     status: not-started
   - id: "{NN}.N"
     title: "Completion Checklist"
@@ -338,6 +345,24 @@ the approach or adds requirements.}
 **Co-implementation requirement with Section {NN} ({topic}):**
 {Why this subsection and another section's work must land together.
 What breaks if only one lands. Be specific about the failure mode.}
+
+---
+
+## {NN}.R Third Party Review Findings
+
+<!-- Reserved for Codex or other external reviewers.
+If unresolved findings exist here:
+- section frontmatter `status` must be `in-progress`
+- `third_party_review.status` must be `findings`
+
+When all findings are triaged:
+- accepted findings are integrated into the relevant implementation subsection(s)
+- rejected findings are closed with rationale
+- all items in this block are marked resolved
+- `third_party_review.status` becomes `resolved` or `none`
+-->
+
+- None.
 
 ---
 

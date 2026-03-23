@@ -1,0 +1,27 @@
+// AIMS synergy test: Full 7-Dimension
+//
+// All 7 dimensions at optimal values for variable `b` at the match site:
+// - access = Owned
+// - consumption = Linear
+// - cardinality = Once
+// - uniqueness = Unique (from BlockLocal + Owned + Once via canonicalize)
+// - locality = BlockLocal (parameter — function-local)
+// - shape = ReusableCtor(Box)
+// - effect = NONE
+//
+// Expected: 0 RC ops on the local value, static reuse, no COW checks,
+// FIP-natural (alloc-balanced).
+
+type IntBox = Box(value: int);
+
+@inc_box (b: IntBox) -> IntBox = match b { Box(v) -> Box(value: v + 1) };
+
+@main () -> void = {
+    let $b = Box(value: 99);
+    let $result = inc_box(b: b);
+    let $value = match result {
+        Box(v) -> v,
+    };
+    if value != 100 then panic(msg: "expected 100");
+    print(msg: "seven_dimensions: pass")
+}

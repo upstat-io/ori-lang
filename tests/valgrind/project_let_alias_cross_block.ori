@@ -1,0 +1,78 @@
+// Valgrind test: Project result aliased via Let, used cross-block.
+// Regression test for TPR-01-003: premature RcDec of aggregate parent
+// when a Project destination is aliased and the alias is used in a
+// successor block — the alias has demand but the parent didn't get
+// demand propagated across the block boundary.
+
+use std.testing { assert_eq };
+
+type Pair = { first: str, second: str };
+
+// Pattern 1: field aliased, used in then-branch only
+@use_first_if (p: Pair, cond: bool) -> str = {
+    let f = p.first;
+    if cond then f else "default"
+};
+
+// Pattern 2: field aliased, used in else-branch only
+@use_second_unless (p: Pair, cond: bool) -> str = {
+    let s = p.second;
+    if cond then "default" else s
+};
+
+// Pattern 3: field aliased through two lets
+@transitive_alias (p: Pair) -> str = {
+    let a = p.first;
+    let b = a;
+    b
+};
+
+// Pattern 4: both fields aliased, used in different branches
+@branch_both (p: Pair, cond: bool) -> str = {
+    let f = p.first;
+    let s = p.second;
+    if cond then f else s
+};
+
+// Pattern 5: alias used in loop body (cross-block via loop header)
+@alias_in_loop (p: Pair) -> int = {
+    let name = p.first;
+    let count = 0;
+    for _ in 0..3 do {
+        // `name` borrows from `p`, used in loop body block
+        count = count + name.len()
+    };
+    count
+};
+
+@main () -> int = {
+    let p = Pair { first: "hello", second: "world" };
+
+    // Pattern 1
+    let r1 = use_first_if(p: p, cond: true);
+    assert_eq(actual: r1, expected: "hello");
+    let r1b = use_first_if(p: p, cond: false);
+    assert_eq(actual: r1b, expected: "default");
+
+    // Pattern 2
+    let r2 = use_second_unless(p: p, cond: false);
+    assert_eq(actual: r2, expected: "world");
+    let r2b = use_second_unless(p: p, cond: true);
+    assert_eq(actual: r2b, expected: "default");
+
+    // Pattern 3
+    let r3 = transitive_alias(p: p);
+    assert_eq(actual: r3, expected: "hello");
+
+    // Pattern 4
+    let r4 = branch_both(p: p, cond: true);
+    assert_eq(actual: r4, expected: "hello");
+    let r4b = branch_both(p: p, cond: false);
+    assert_eq(actual: r4b, expected: "world");
+
+    // Pattern 5
+    let r5 = alias_in_loop(p: p);
+    assert_eq(actual: r5, expected: 15);
+
+    0
+}

@@ -3,7 +3,7 @@ section: "09"
 title: "ARC Header Compression"
 status: not-started
 reviewed: false
-goal: "Narrow the refcount header from i64 (8 bytes) to i32/i16/i8 based on proven sharing bounds, reducing per-object memory overhead"
+goal: "Narrow the refcount header from V5 (32 bytes: data_size + elem_dec_fn + elem_count + strong_count) based on proven sharing bounds, reducing per-object memory overhead"
 inspired_by:
   - "Swift refcount encoding (stdlib/public/SwiftShims/RefCount.h — uses bitfields)"
   - "Lean4 RC header layout (src/runtime/object.h)"
@@ -27,6 +27,8 @@ sections:
 # Section 09: ARC Header Compression
 
 **Context:** The current runtime (`ori_rt`) unconditionally uses `i64` for the reference count, with `MAX_REFCOUNT = i64::MAX`. This is maximally safe but wasteful. The ARC pipeline already computes borrow/ownership information — extending this to bound the maximum refcount is a natural next step.
+
+> **Warning (V5 header, 2026-03-22):** The RC header is now 32 bytes with 4 fields: `data_size` (i64), `elem_dec_fn` (ptr), `elem_count` (i64), `strong_count` (i64). This plan was drafted when the header had only 2 fields (data_size + strong_count). Any narrowing strategy must account for all 4 fields, not just the refcount. The `rc_ops!` macro code in Section 09.3 does not account for `elem_dec_fn` or `elem_count` and must be updated before implementation.
 
 The challenge: RC header width must be a **compile-time** decision, but refcount values are **runtime** quantities. We need static analysis that proves an upper bound on the dynamic refcount.
 

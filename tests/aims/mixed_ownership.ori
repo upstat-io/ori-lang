@@ -1,0 +1,80 @@
+// AIMS edge case: mixed borrowed/owned call patterns.
+// Tests that AIMS correctly distinguishes values that are consumed
+// by a function call vs values that are still live after the call.
+
+// Consumes `items` — caller should not use it after
+@sum_list (items: [int]) -> int = {
+    items.fold(initial: 0, op: (acc, x) -> acc + x)
+};
+
+// Reads `prefix` but does not consume it
+@format_all (prefix: str, items: [int]) -> [str] = {
+    for item in items yield prefix + str(item)
+};
+
+// Takes two lists — first is consumed, second is read for length
+@extend_to_match (target: [int], source: [int]) -> [int] = {
+    let $target_len = target.len();
+    let $source_len = source.len();
+
+    if target_len >= source_len then target
+    else {
+        let extra = for _ in 0..(source_len - target_len) yield 0;
+        [...target, ...extra]
+    }
+};
+
+// Returns one of two inputs based on condition (ownership transfer)
+@pick (a: str, b: str, use_first: bool) -> str = {
+    if use_first then a else b
+};
+
+// Uses a value, then passes it along (borrow-then-move pattern)
+@inspect_and_sum (label: str, data: [int]) -> int = {
+    print(msg: `{label}: len={data.len()}`);
+    // `data` is still live — used after print
+    sum_list(items: data)
+};
+
+@main () -> void = {
+    // Test 1: value used after passing to non-consuming function
+    let $prefix = "item-";
+    let $nums = [1, 2, 3];
+    let $formatted = format_all(prefix: prefix, items: nums);
+    print(msg: `formatted = {formatted.debug()}`);
+    // `prefix` still alive — use it again
+    let $formatted2 = format_all(prefix: prefix, items: [10, 20]);
+    print(msg: `formatted2 = {formatted2.debug()}`);
+
+    // Test 2: value consumed (last use)
+    let $data = [10, 20, 30, 40];
+    let $total = sum_list(items: data);
+    // `data` consumed — not used after this
+    print(msg: `total = {total}`);
+
+    // Test 3: two values, one consumed and one not
+    let $short = [1, 2];
+    let $long = [10, 20, 30, 40, 50];
+    let $extended = extend_to_match(target: short, source: long);
+    // `long` still available after call (only read for length)
+    print(msg: `extended = {extended.debug()}`);
+    print(msg: `long len = {long.len()}`);
+
+    // Test 4: conditional ownership transfer
+    let $greeting = "hello";
+    let $farewell = "goodbye";
+    let $chosen1 = pick(a: greeting, b: farewell, use_first: true);
+    print(msg: `chosen1 = {chosen1}`);
+    let $chosen2 = pick(a: "hi", b: "bye", use_first: false);
+    print(msg: `chosen2 = {chosen2}`);
+
+    // Test 5: borrow-then-move chain
+    let $label = "dataset";
+    let $values = [5, 10, 15, 20, 25];
+    let $result = inspect_and_sum(label: label, data: values);
+    print(msg: `result = {result}`);
+    // `label` still available
+    print(msg: `label = {label}`);
+
+    print(msg: "mixed_ownership: done")
+}

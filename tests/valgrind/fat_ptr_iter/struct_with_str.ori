@@ -1,0 +1,17 @@
+// Valgrind test: T4-F1 — [{name: str}] full iteration.
+// Verifies elem_dec_fn correctly cleans up struct fields containing fat pointers.
+
+type Person = { name: str, age: int }
+
+@main () -> int = {
+    let people = [
+        Person { name: "Alice with a very long name exceeding SSO", age: 30 },
+        Person { name: "Bob with another very long name exceeding SSO", age: 25 },
+        Person { name: "Carol with yet another long name over SSO limit", age: 40 }
+    ];
+    let total_age = 0;
+    for p in people do {
+        total_age += p.age;
+    };
+    if total_age == 95 then 0 else 1
+}

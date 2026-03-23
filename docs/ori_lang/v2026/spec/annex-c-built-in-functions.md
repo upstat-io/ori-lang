@@ -495,8 +495,8 @@ Range<T>.contains(value: T) -> bool
 ```
 str.split(sep: str) -> [str]
 str.trim() -> str
-str.upper() -> str
-str.lower() -> str
+str.to_uppercase() -> str
+str.to_lowercase() -> str
 str.starts_with(prefix: str) -> bool
 str.ends_with(suffix: str) -> bool
 str.contains(substr: str) -> bool

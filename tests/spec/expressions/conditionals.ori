@@ -10,7 +10,7 @@ use std.testing { assert_eq, assert }
 
 @test_if_then_true_executes tests @if_then_true_executes () -> void = {
     let x = 0;
-    if_then_true_executes(x: x)
+    if_then_true_executes(x:)
 }
 
 @if_then_true_executes (x: int) -> void =

@@ -1,0 +1,15 @@
+// Valgrind test: nested for-loops on [[str]] with heap-allocated strings.
+// Verifies no double-free or leak in nested iterator RC cleanup path.
+
+@main () -> int = {
+    let lists = [
+        ["this string exceeds SSO threshold by being very long indeed",
+         "another very long string that also exceeds the SSO threshold"],
+        ["third long string for good measure in the test programs here"]
+    ];
+    let total = 0;
+    for xs in lists do {
+        for w in xs do total += w.length()
+    };
+    if total == 179 then 0 else 1
+}

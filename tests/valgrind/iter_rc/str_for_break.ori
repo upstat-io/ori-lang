@@ -1,0 +1,17 @@
+// Valgrind test: for-loop with break on [str] with heap-allocated strings.
+// Verifies no leak when breaking out of iteration early — remaining
+// iterator state and elements must be cleaned up correctly.
+
+@main () -> int = {
+    let words = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "another very long string that also exceeds the SSO threshold",
+        "third long string for good measure in the test programs here"
+    ];
+    let total = 0;
+    for w in words do {
+        total += w.length();
+        if total > 100 then break
+    };
+    if total > 100 then 0 else 1
+}

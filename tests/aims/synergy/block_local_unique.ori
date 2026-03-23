@@ -1,0 +1,21 @@
+// AIMS synergy test: Locality × Uniqueness
+//
+// Dimensions: BlockLocal + Owned + Once → Unique (Rule 4)
+//
+// Without locality: list is MaybeShared → Dynamic COW check on each push.
+// With locality: BlockLocal + Owned + Once → Unique → StaticUnique on each push.
+//
+// Expected: N fewer runtime COW checks (where N = number of pushes).
+
+@build_local () -> int = {
+    let nums = [1, 2, 3];
+    nums = nums.push(value: 4);
+    nums = nums.push(value: 5);
+    nums.len()
+};
+
+@main () -> void = {
+    let $result = build_local();
+    if result != 5 then panic(msg: "expected 5");
+    print(msg: "block_local_unique: pass")
+}

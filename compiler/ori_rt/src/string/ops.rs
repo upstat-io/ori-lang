@@ -7,7 +7,7 @@
 use crate::list::write_array_to_list;
 use crate::next_capacity;
 use crate::rc::{ori_rc_alloc, ori_rc_inc, ori_rc_is_unique};
-use crate::slice_encoding::make_slice_cap;
+use crate::slice_encoding::{is_slice_cap, make_slice_cap, slice_byte_offset};
 
 use super::{OriStr, OriStrHeap, OriStrSSO, SSO_FLAG, SSO_MAX_LEN};
 
@@ -21,7 +21,7 @@ pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut 
         return;
     }
     if str_ptr.is_null() || str_len <= 0 {
-        write_array_to_list(std::ptr::null(), 0, 4, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, 4, None, out_ptr);
         return;
     }
     let bytes = unsafe { std::slice::from_raw_parts(str_ptr, str_len as usize) };
@@ -29,7 +29,7 @@ pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut 
 
     let chars: Vec<i32> = s.chars().map(|c| c as i32).collect();
     let n = chars.len() as i64;
-    write_array_to_list(chars.as_ptr().cast(), n, 4, out_ptr);
+    write_array_to_list(chars.as_ptr().cast(), n, 4, None, out_ptr);
 }
 
 /// Split a string by a separator, returning a list of `OriStr` values.
@@ -41,12 +41,19 @@ pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut 
 /// as seamless slices (sharing the original buffer). Pieces <= 23 bytes
 /// use SSO (no heap allocation, no RC). This hybrid approach minimizes
 /// allocations while avoiding RC overhead for small pieces.
+///
+/// `str_cap` is the cap field of the source `OriStr` — needed to detect
+/// slice-backed strings (from `substring`, `trim`, or prior `split`).
+/// When the source is a seamless slice, sub-slices reference the original
+/// allocation with adjusted byte offsets.
 #[no_mangle]
 pub extern "C" fn ori_str_split(
     str_ptr: *const u8,
     str_len: i64,
+    str_cap: i64,
     sep_ptr: *const u8,
     sep_len: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     let elem_size = std::mem::size_of::<OriStr>();
@@ -54,7 +61,7 @@ pub extern "C" fn ori_str_split(
         return;
     }
     if str_ptr.is_null() || str_len < 0 {
-        write_array_to_list(std::ptr::null(), 0, elem_size as i64, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, elem_size as i64, None, out_ptr);
         return;
     }
 
@@ -92,16 +99,25 @@ pub extern "C" fn ori_str_split(
     };
     let n = parts.len();
 
-    // Check if the source pointer is a heap string's data (not SSO).
-    // We can produce slices only when the source has an RC-managed buffer.
-    // The caller passes (str_ptr, str_len) which is the raw data pointer.
-    // If this is a heap string, str_ptr == heap.data — we can slice it.
-    // For SSO, str_ptr is a stack pointer — we can't slice it.
+    // Determine whether the source is backed by a heap allocation we can slice.
     //
-    // Heuristic: if str_len > SSO_MAX_LEN, it must be a heap string (SSO
-    // can only hold up to 23 bytes). For str_len <= 23, all pieces fit in
-    // SSO anyway, so no slice benefit.
-    let can_slice = str_len as usize > SSO_MAX_LEN;
+    // Three cases:
+    // - SSO (str_len <= 23): all pieces fit in SSO, no slicing needed
+    // - Heap (cap >= 0, str_len > 23): can slice, str_ptr is allocation data
+    // - Seamless slice (cap < 0 / SLICE_FLAG): can slice, str_ptr is interior
+    //   pointer — sub-slices must reference the original allocation with
+    //   adjusted byte offsets
+    let (can_slice, base_offset) = if is_slice_cap(str_cap) {
+        // Source is a seamless slice — sub-slices reference the original buffer
+        let parent_offset = slice_byte_offset(str_cap);
+        (true, parent_offset)
+    } else if str_len as usize > SSO_MAX_LEN {
+        // Source is a regular heap string — sub-slices reference str_ptr
+        (true, 0_usize)
+    } else {
+        // Source is SSO — no slicing possible (all pieces fit in SSO anyway)
+        (false, 0_usize)
+    };
 
     let total = n * elem_size;
     let new_data = crate::rc::ori_rc_alloc(total, std::mem::align_of::<OriStr>());
@@ -110,12 +126,14 @@ pub extern "C" fn ori_str_split(
     for (i, &(part_start, part_end)) in parts.iter().enumerate() {
         let part_len = part_end - part_start;
         let element = if can_slice && part_len > SSO_MAX_LEN {
-            // Heap source, long piece: create seamless slice
-            ori_rc_inc(str_ptr as *mut u8);
+            // Heap/slice source, long piece: create seamless slice.
+            // Use slice-aware RC inc — handles both heap and slice sources
+            // by computing the original allocation base when needed.
+            crate::rc::ori_str_rc_inc(str_ptr as *mut u8, str_cap);
             OriStr {
                 heap: OriStrHeap {
                     len: part_len as i64,
-                    cap: make_slice_cap(part_start),
+                    cap: make_slice_cap(base_offset + part_start),
                     data: unsafe { (str_ptr as *mut u8).add(part_start) },
                 },
             }
@@ -126,7 +144,10 @@ pub extern "C" fn ori_str_split(
         unsafe { elements.add(i).write(element) };
     }
 
+    // SAFETY: new_data was returned by ori_rc_alloc — header offsets are valid.
     unsafe {
+        crate::rc::store_elem_dec_fn(new_data, elem_dec_fn);
+        crate::rc::store_elem_count(new_data, n as i64);
         out_ptr.cast::<i64>().write(n as i64);
         out_ptr.cast::<i64>().add(1).write(n as i64);
         out_ptr.add(16).cast::<*mut u8>().write(new_data);
@@ -160,12 +181,12 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     let a_len = a_bytes.len();
     let b_len = b_bytes.len();
 
-    // Short-circuit: empty operands
+    // Short-circuit: empty operands — must return owned copy, not alias
     if b_len == 0 {
-        return *a_ref;
+        return OriStr::from_bytes(a_bytes);
     }
     if a_len == 0 {
-        return *b_ref;
+        return OriStr::from_bytes(b_bytes);
     }
 
     let combined = a_len + b_len;
@@ -193,7 +214,11 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     //   cleanly frees the old allocation.
     if !a_ref.is_sso() {
         let heap = unsafe { &a_ref.heap };
-        if !heap.data.is_null() && ori_rc_is_unique(heap.data) && (heap.cap as usize) >= combined {
+        if !heap.data.is_null()
+            && !is_slice_cap(heap.cap)
+            && ori_rc_is_unique(heap.data)
+            && (heap.cap as usize) >= combined
+        {
             // Case 2: has capacity -- append in place, inc RC for caller's dec
             unsafe {
                 std::ptr::copy_nonoverlapping(b_bytes.as_ptr(), heap.data.add(a_len), b_len);
@@ -210,15 +235,16 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
     }
 
     // Case 4: allocate new (a is shared or SSO requiring promotion)
-    // Use a's current capacity as the base for amortized doubling growth,
-    // so repeated concats don't degrade to O(n) total allocations.
-    let a_cap = if a_ref.is_sso() {
-        0
-    } else {
-        unsafe { a_ref.heap.cap as usize }
-    };
-    let new_cap = next_capacity(a_cap, combined);
+    // Use combined length (not a's capacity) as the growth base. Using a_cap
+    // caused exponential blowup in loops like `s = s + "-" + "x"` where each
+    // iteration doubled a_cap twice (once per concat), reaching terabyte
+    // capacities after ~40 iterations and crashing allocators with limited
+    // virtual memory (e.g., CI runners).
+    let new_cap = next_capacity(combined, combined);
     let new_data = ori_rc_alloc(new_cap, 1);
+    if new_data.is_null() {
+        crate::ori_panic_cstr(c"out of memory in string concatenation".as_ptr());
+    }
     unsafe {
         std::ptr::copy_nonoverlapping(a_bytes.as_ptr(), new_data, a_len);
         std::ptr::copy_nonoverlapping(b_bytes.as_ptr(), new_data.add(a_len), b_len);

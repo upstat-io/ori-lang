@@ -1,0 +1,52 @@
+// AIMS TRMC test: list map with recursive constructor context.
+// Tests the core TRMC pattern: f(Cons(h, t)) = Cons(g(h), f(t)).
+// The recursive call result fills the tail field of the constructor.
+
+type List = Nil | Cons(head: int, tail: List);
+
+@map_inc (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h + 1, tail: map_inc(list: t)),
+};
+
+@map_double (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h * 2, tail: map_double(list: t)),
+};
+
+@to_array (list: List) -> [int] = match list {
+    Nil -> [],
+    Cons(h, t) -> [h, ...to_array(list: t)],
+};
+
+@list_len (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + list_len(list: t),
+};
+
+@main () -> void = {
+    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+
+    // Test map increment.
+    let $inc = map_inc(list: list);
+    let $inc_arr = to_array(list: inc);
+    print(msg: `inc = {inc_arr.debug()}`);
+    assert_eq(actual: inc_arr, expected: [2, 3, 4]);
+
+    // Test map double.
+    let $dbl = map_double(list: list);
+    let $dbl_arr = to_array(list: dbl);
+    print(msg: `dbl = {dbl_arr.debug()}`);
+    assert_eq(actual: dbl_arr, expected: [2, 4, 6]);
+
+    // Test empty list.
+    let $empty = map_inc(list: Nil);
+    assert_eq(actual: list_len(list: empty), expected: 0);
+
+    // Test single element.
+    let $single = map_inc(list: Cons(head: 42, tail: Nil));
+    let $single_arr = to_array(list: single);
+    assert_eq(actual: single_arr, expected: [43]);
+
+    print(msg: "trmc_list_map: all tests passed")
+}

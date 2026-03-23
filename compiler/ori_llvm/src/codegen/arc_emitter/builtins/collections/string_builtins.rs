@@ -11,6 +11,9 @@
 //! fields directly, because field 0 means "len" for heap but "first 8 inline
 //! bytes" for SSO.
 
+use ori_arc::ir::ArcVarId;
+use ori_types::Idx;
+
 use crate::codegen::value_id::ValueId;
 
 use super::super::super::ArcIrEmitter;
@@ -22,6 +25,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(crate) fn emit_str_length(&mut self, receiver: ValueId) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_str_len");
         let ptr = self.str_to_ptr(receiver, "str_len.self");
+        self.emit_rt_call(func_id, &[ptr], "str.len")
+    }
+
+    /// Emit `str.length()` with borrowed parameter forwarding.
+    ///
+    /// When the receiver is a borrowed parameter, forwards its pointer directly
+    /// to `ori_str_len` instead of creating an alloca+store round-trip.
+    pub(crate) fn emit_str_length_forwarded(
+        &mut self,
+        receiver: ValueId,
+        var: ArcVarId,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_str_len");
+        let ptr = self.str_to_ptr_forwarded(receiver, var, "str_len.self");
         self.emit_rt_call(func_id, &[ptr], "str.len")
     }
 
@@ -137,24 +154,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `str.split(sep)` — returns `[str]` (list of strings).
     ///
-    /// Calls `ori_str_split(data_ptr, len, sep_data, sep_len, out_ptr)`.
-    /// SSO-safe: extracts data/len via runtime helpers.
+    /// Calls `ori_str_split(data_ptr, len, cap, sep_data, sep_len, elem_dec_fn, out_ptr)`.
+    /// SSO-safe: extracts data/len via runtime helpers. Passes cap for slice awareness
+    /// so that splitting a substring/trim result doesn't crash on misaligned RC access.
     pub(crate) fn emit_str_split(
         &mut self,
         receiver: ValueId,
         separator: ValueId,
+        str_ty: Idx,
     ) -> Option<ValueId> {
         let split_fn = self.builder.runtime_fn("ori_str_split");
         let data_fn = self.builder.runtime_fn("ori_str_data");
         let len_fn = self.builder.runtime_fn("ori_str_len");
 
-        // Self string
+        // Self string — extract data, len, and cap
         let self_ptr = self.str_to_ptr(receiver, "split.self");
         let data_ptr = self
             .emit_rt_call(data_fn, &[self_ptr], "split.self.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let str_len = self
             .emit_rt_call(len_fn, &[self_ptr], "split.self.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        // Cap field (field 1) — needed for slice detection in the runtime.
+        // For SSO strings cap is meaningless (str_len <= 23 → no slicing).
+        // For heap strings cap >= 0. For slices cap has SLICE_FLAG.
+        let str_cap = self
+            .builder
+            .extract_value(receiver, 1, "split.self.cap")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         // Separator string
@@ -166,6 +192,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .emit_rt_call(len_fn, &[sep_ptr], "split.sep.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
+        // elem_dec_fn for [str] element cleanup
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(str_ty);
+
         let list_ty = self.list_struct_type();
         let out_alloca =
             self.builder
@@ -173,7 +202,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             split_fn,
-            &[data_ptr, str_len, sep_data, sep_len, out_alloca],
+            &[
+                data_ptr,
+                str_len,
+                str_cap,
+                sep_data,
+                sep_len,
+                elem_dec_fn,
+                out_alloca,
+            ],
             "split",
         );
 

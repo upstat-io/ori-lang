@@ -2,12 +2,15 @@
 # Run AOT-compiled Ori programs under Valgrind to detect memory errors.
 #
 # Usage:
-#   diagnostics/valgrind-aot.sh [options] [file.ori|directory ...]
+#   diagnostics/valgrind-aot.sh [options] [file.ori|directory ...] [-- args...]
 #
 # Options:
+#   --journeys         Run all code journey .ori files in plans/code-journeys/
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
 #   -h, --help         Show this help
+#
+# Arguments after -- are passed to the compiled binary (useful for @main(args:)).
 #
 # When no files are given, runs all .ori files in tests/valgrind/.
 #
@@ -33,12 +36,16 @@ source "$SCRIPT_DIR/_common.sh"
 # --- Defaults ---
 USE_COLOR=auto
 FILES=()
+USE_JOURNEYS=0
+BINARY_ARGS=()
 
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
     case $1 in
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
+        --journeys) USE_JOURNEYS=1; shift ;;
+        --) shift; BINARY_ARGS=("$@"); break ;;
         -h|--help)
             sed -n '2,/^$/{ s/^# \?//; p }' "$0"
             exit 0
@@ -106,6 +113,24 @@ else
     SYM_SKIP="SKIP"
 fi
 
+# --- Collect code journey files if --journeys ---
+if [[ $USE_JOURNEYS -eq 1 ]]; then
+    ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+    journey_dir="$ROOT_DIR/plans/code-journeys"
+    if [[ ! -d "$journey_dir" ]]; then
+        echo "Error: plans/code-journeys/ directory not found" >&2
+        exit 2
+    fi
+    for f in "$journey_dir"/*.ori; do
+        [[ -f "$f" ]] || continue
+        FILES+=("$f")
+    done
+    if [[ ${#FILES[@]} -eq 0 ]]; then
+        echo "Error: no .ori files found in $journey_dir" >&2
+        exit 2
+    fi
+fi
+
 # --- Collect files ---
 if [[ ${#FILES[@]} -eq 0 ]]; then
     ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -115,10 +140,9 @@ if [[ ${#FILES[@]} -eq 0 ]]; then
         echo "Usage: diagnostics/valgrind-aot.sh [options] [file.ori ...]" >&2
         exit 2
     fi
-    for f in "$test_dir"/*.ori; do
-        [[ -f "$f" ]] || continue
+    while IFS= read -r -d '' f; do
         FILES+=("$f")
-    done
+    done < <(find "$test_dir" -name '*.ori' -type f -print0 | sort -z)
     if [[ ${#FILES[@]} -eq 0 ]]; then
         echo "No .ori files found in $test_dir" >&2
         exit 2
@@ -153,11 +177,11 @@ run_one() {
     local exit_code
     exit_code=$(ORI_CHECK_LEAKS=1 valgrind \
         --leak-check=full \
-        --show-leak-kinds=definite,indirect \
+        --show-leak-kinds=all \
         --errors-for-leak-kinds=definite \
         --error-exitcode=42 \
         --log-file="$val_log" \
-        "$binary" >/dev/null 2>&1; echo $?) || true
+        "$binary" ${BINARY_ARGS[@]+"${BINARY_ARGS[@]}"} >/dev/null 2>&1; echo $?) || true
 
     if [[ "$exit_code" -eq 0 ]]; then
         printf "  %b  %s\n" "$SYM_PASS" "$name"

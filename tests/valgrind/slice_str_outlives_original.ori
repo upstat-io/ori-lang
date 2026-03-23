@@ -1,0 +1,76 @@
+// Valgrind test: [str] slice outlives original list (V5 elem_count fix).
+//
+// When a slice is the last owner of a buffer, ALL initialized elements
+// must be cleaned up — not just the slice's visible range. Without the
+// V5 elem_count header field, string elements outside the slice range
+// would leak their heap buffers ("definitely lost" in Valgrind).
+//
+// Uses heap-allocated strings (>23 bytes) to exceed SSO and ensure
+// RC-managed string buffers exist for Valgrind to detect.
+
+@main () -> int = {
+    // Test 1: Middle slice — elements before and after slice must be freed
+    let mid_ok = {
+        let orig = [
+            "alpha-heap-string-exceeds-sso",
+            "beta-heap-string-exceeds-sso-x",
+            "gamma-heap-string-exceeds-sso-",
+            "delta-heap-string-exceeds-sso-"
+        ];
+        let sl = orig.slice(start: 1, end: 3);
+        // orig drops first (last use at .slice), sl is last owner
+        // "alpha..." and "delta..." are outside slice range
+        sl.length() == 2 && sl[0] == "beta-heap-string-exceeds-sso-x"
+    };
+
+    // Test 2: End slice — elements at beginning must be freed
+    let end_ok = {
+        let orig = [
+            "first-heap-string-exceeds-sso-",
+            "second-heap-string-exceeds-sso",
+            "third-heap-string-exceeds-sso-",
+            "fourth-heap-string-exceeds-sso",
+            "fifth-heap-string-exceeds-sso-"
+        ];
+        let sl = orig.slice(start: 3, end: 5);
+        sl.length() == 2 && sl[0] == "fourth-heap-string-exceeds-sso"
+    };
+
+    // Test 3: Beginning slice — elements at end must be freed
+    let begin_ok = {
+        let orig = [
+            "hello-heap-string-exceeds-sso-",
+            "world-heap-string-exceeds-sso-",
+            "foo-heap-string-that-exceeds--",
+            "bar-heap-string-that-exceeds--"
+        ];
+        let sl = orig.slice(start: 0, end: 2);
+        sl.length() == 2 && sl[0] == "hello-heap-string-exceeds-sso-"
+    };
+
+    // Test 4: Empty slice — ALL elements must be freed by slice cleanup
+    let empty_ok = {
+        let orig = [
+            "aaa-heap-string-that-exceeds--",
+            "bbb-heap-string-that-exceeds--",
+            "ccc-heap-string-that-exceeds--"
+        ];
+        let sl = orig.slice(start: 1, end: 1);
+        sl.length() == 0
+    };
+
+    // Test 5: Single-element slice — other 3 must be freed
+    let single_ok = {
+        let orig = [
+            "only-this-one-heap-string-yes-",
+            "not-this-heap-string-at-all---",
+            "or-this-heap-string-at-all----",
+            "definitely-not-this-one-either"
+        ];
+        let sl = orig.slice(start: 0, end: 1);
+        sl.length() == 1 && sl[0] == "only-this-one-heap-string-yes-"
+    };
+
+    if mid_ok && end_ok && begin_ok && empty_ok && single_ok
+    then 0 else 1
+}

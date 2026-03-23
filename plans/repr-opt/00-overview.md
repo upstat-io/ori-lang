@@ -8,7 +8,6 @@ supersedes:
 references:
   - "docs/ori_lang/v2026/spec/annex-e-system-considerations.md"
   - "docs/ori_lang/proposals/approved/representation-optimization-proposal.md"
-  - "plans/value-semantics-optimization/"
   - "compiler/ori_arc/src/lib.rs"
   - "compiler/ori_llvm/src/codegen/type_info/"
 ---

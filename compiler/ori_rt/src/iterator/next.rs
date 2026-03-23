@@ -2,7 +2,7 @@
 
 use std::ptr;
 
-use super::state::{IterState, PredicateFn, TransformFn, MAX_ELEM_SIZE};
+use super::state::{assert_elem_size, IterState, PredicateFn, TransformFn, MAX_ELEM_SIZE};
 
 impl IterState {
     /// Advance the iterator, writing the next element to `out_ptr`.
@@ -218,6 +218,8 @@ impl IterState {
         out_ptr: *mut u8,
     ) -> bool {
         let right_elem_size = elem_size - left_elem_size;
+        // Validate right element size (left validated at adapter creation).
+        assert_elem_size(right_elem_size, "next_zipped(right)");
         // Advance left into front of output buffer
         if !left.next(out_ptr, left_elem_size) {
             return false;
