@@ -17,6 +17,7 @@
 
 mod collections;
 pub(crate) mod compare;
+mod dispatch_check;
 mod error;
 pub(crate) mod helpers;
 mod list;
@@ -29,6 +30,7 @@ mod variants;
 #[cfg(test)]
 mod tests;
 
+pub use dispatch_check::can_dispatch_builtin;
 pub(crate) use names::{BuiltinMethodNames, DispatchCtx};
 
 use ori_ir::{Name, StringInterner};

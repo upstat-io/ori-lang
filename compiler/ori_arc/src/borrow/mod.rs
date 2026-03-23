@@ -132,5 +132,45 @@ fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
     }
 }
 
+/// NEVER CALLED. Exists solely so that Rust's exhaustive match checker
+/// forces updates to this crate when a new `TypeTag` variant is added.
+/// If you see a compile error pointing here, a new `TypeTag` was added
+/// to `ori_registry` without updating the ARC pass's borrow inference.
+// Compile-time exhaustiveness guard (Roc pattern). See plans/type_strategy_registry/section-14.
+#[allow(
+    dead_code,
+    unreachable_code,
+    reason = "compile-time exhaustiveness guard — never called"
+)]
+fn _enforce_type_tag_exhaustiveness(tag: ori_registry::TypeTag) {
+    match tag {
+        // All 23 TypeTag variants — Copy types (scalar), Arc types (borrow set),
+        // Iterator (excluded), Function (capture analysis)
+        ori_registry::TypeTag::Int
+        | ori_registry::TypeTag::Float
+        | ori_registry::TypeTag::Bool
+        | ori_registry::TypeTag::Char
+        | ori_registry::TypeTag::Byte
+        | ori_registry::TypeTag::Duration
+        | ori_registry::TypeTag::Size
+        | ori_registry::TypeTag::Ordering
+        | ori_registry::TypeTag::Range
+        | ori_registry::TypeTag::Unit
+        | ori_registry::TypeTag::Never
+        | ori_registry::TypeTag::Str
+        | ori_registry::TypeTag::Error
+        | ori_registry::TypeTag::List
+        | ori_registry::TypeTag::Map
+        | ori_registry::TypeTag::Set
+        | ori_registry::TypeTag::Tuple
+        | ori_registry::TypeTag::Option
+        | ori_registry::TypeTag::Result
+        | ori_registry::TypeTag::Channel
+        | ori_registry::TypeTag::Iterator
+        | ori_registry::TypeTag::DoubleEndedIterator
+        | ori_registry::TypeTag::Function => {}
+    }
+}
+
 #[cfg(test)]
 mod tests;

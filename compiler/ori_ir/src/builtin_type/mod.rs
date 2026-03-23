@@ -10,16 +10,13 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```rust
 //! use ori_ir::{BuiltinType, TypeId};
 //!
 //! // Convert from TypeId
+//! let type_id = TypeId::INT;
 //! if let Some(builtin) = BuiltinType::from_type_id(type_id) {
-//!     match builtin {
-//!         BuiltinType::Int => println!("It's an int!"),
-//!         BuiltinType::Duration => println!("It's a duration!"),
-//!         _ => {}
-//!     }
+//!     assert!(matches!(builtin, BuiltinType::Int));
 //! }
 //!
 //! // Get display name
