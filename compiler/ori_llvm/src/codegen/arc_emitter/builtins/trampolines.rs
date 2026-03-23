@@ -159,44 +159,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let result_llvm_ty = result_ty.map_or(elem_llvm_ty, |ty| self.resolve_type(ty));
                 let result_is_indirect = abi_size(result_idx, self.type_info) > 16;
 
-                if elem_is_indirect && result_is_indirect {
-                    // Both param and return are indirect (sret + ptr param).
-                    // Call: ori_fn(out_ptr, ori_env, in_ptr) -> void
-                    self.builder.call_indirect_void(
-                        &[ptr_ty, ptr_ty, ptr_ty],
-                        ori_fn,
-                        &[out_ptr, ori_env, in_ptr],
-                    );
-                } else if elem_is_indirect {
-                    // Param indirect, return direct (small result from large input).
-                    // Call: result = ori_fn(ori_env, in_ptr) -> T
-                    let result = self.builder.call_indirect(
+                // Determine how element is passed and how result is returned.
+                // When result_is_indirect, the closure function (lambda or wrapper)
+                // uses sret — the first parameter is a `ptr sret` output pointer.
+                // On ARM64, sret uses X8 (not a regular parameter register), so we
+                // MUST use call_indirect_with_sret to emit the sret attribute on
+                // the call instruction. Without it, LLVM places out_ptr in X0
+                // instead of X8, causing register misalignment and SIGSEGV.
+                let elem_arg_ty = if elem_is_indirect { ptr_ty } else { elem_llvm_ty };
+                let elem_arg = if elem_is_indirect {
+                    in_ptr
+                } else {
+                    self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem")
+                };
+
+                if result_is_indirect {
+                    self.builder.call_indirect_with_sret(
                         result_llvm_ty,
-                        &[ptr_ty, ptr_ty],
+                        &[ptr_ty, elem_arg_ty],
                         ori_fn,
-                        &[ori_env, in_ptr],
-                        "tramp.result",
-                    );
-                    if let Some(result_val) = result {
-                        self.builder.store(result_val, out_ptr);
-                    }
-                } else if result_is_indirect {
-                    // Param direct, return indirect (large result from small input).
-                    let elem = self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem");
-                    // Call: ori_fn(out_ptr, ori_env, elem) -> void
-                    self.builder.call_indirect_void(
-                        &[ptr_ty, ptr_ty, elem_llvm_ty],
-                        ori_fn,
-                        &[out_ptr, ori_env, elem],
+                        out_ptr,
+                        &[ori_env, elem_arg],
                     );
                 } else {
-                    // Both direct — small types (original path).
-                    let elem = self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem");
                     let result = self.builder.call_indirect(
                         result_llvm_ty,
-                        &[ptr_ty, elem_llvm_ty],
+                        &[ptr_ty, elem_arg_ty],
                         ori_fn,
-                        &[ori_env, elem],
+                        &[ori_env, elem_arg],
                         "tramp.result",
                     );
                     if let Some(result_val) = result {
@@ -295,16 +285,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     elem_llvm_ty
                 };
 
+                // Same sret handling as Map (see ARM64 rationale above).
                 if acc_is_indirect {
-                    // Accumulator is indirect → sret return.
-                    // Call: ori_fn(out_ptr, ori_env, acc_ptr, elem_arg) -> void
-                    self.builder.call_indirect_void(
-                        &[ptr_ty, ptr_ty, acc_arg_ty, elem_arg_ty],
+                    self.builder.call_indirect_with_sret(
+                        acc_llvm_ty,
+                        &[ptr_ty, acc_arg_ty, elem_arg_ty],
                         ori_fn,
-                        &[out_ptr, ori_env, acc_arg, elem_arg],
+                        out_ptr,
+                        &[ori_env, acc_arg, elem_arg],
                     );
                 } else {
-                    // Accumulator is direct → direct return.
                     let result = self.builder.call_indirect(
                         acc_llvm_ty,
                         &[ptr_ty, acc_arg_ty, elem_arg_ty],
