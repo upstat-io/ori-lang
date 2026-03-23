@@ -189,54 +189,6 @@ jobs:
         if: steps.rust-tests.outcome == 'failure' || steps.ori-tests.outcome == 'failure' || steps.rt-tests.outcome == 'failure'
         run: exit 1
 
-  # AIMS pipeline — test with unified ARC pipeline (initially allowed to fail)
-  test-aims:
-    name: Test (AIMS)
-    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
-    needs: [format, clippy]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM 21
-        run: |
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends llvm-21 llvm-21-dev libpolly-21-dev clang-21 lld-21
-        env:
-          DEBIAN_FRONTEND: noninteractive
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: test-aims
-
-      - name: Clippy (AIMS)
-        run: cargo clippy --workspace --all-targets --features aims -- -D warnings
-        env:
-          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: Rust unit tests (AIMS)
-        run: cargo test --workspace --features aims
-        env:
-          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: Ori spec tests (AIMS interpreter)
-        run: |
-          cargo build --features aims
-          ./target/debug/ori test tests/
-        env:
-          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: LLVM AOT tests (AIMS)
-        run: cargo test -p ori_llvm --features aims
-        env:
-          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
   # Cross-platform — full test suite including AOT
   cross-platform:
