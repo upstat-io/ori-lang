@@ -370,21 +370,25 @@ pub extern "C" fn ori_args_cleanup(data: *mut u8, len: i64) {
     rc::ori_rc_free(data, alloc_size, std::mem::align_of::<string::OriStr>());
 }
 
-// ── ori_try_call (C implementation, MSVC only) ──────────────────────────
+// ── ori_try_call (C++ implementation, MSVC only) ────────────────────────
 //
-// On MSVC, ori_try_call is implemented in eh_personality.c using __try/__except.
+// On MSVC, ori_try_call is implemented in eh_personality_msvc.cpp using
+// C++ try/catch(OriPanicException&). Thunks are `C-unwind` because the
+// C++ exception from ori_raise_exception must propagate through them.
 // On Itanium, catch(expr:) uses LLVM invoke/landingpad directly.
 
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
 extern "C" {
-    fn ori_try_call(thunk: unsafe extern "C" fn(*mut u8), ctx: *mut u8) -> i64;
+    fn ori_try_call(thunk: unsafe extern "C-unwind" fn(*mut u8), ctx: *mut u8) -> i64;
 }
 
 /// Thunk adapter for `ori_run_main` → `ori_try_call`.
 ///
 /// Casts the context pointer back to a function pointer and calls it.
+/// `C-unwind` allows the C++ exception from `ori_raise_exception` to
+/// propagate through this thunk into `ori_try_call`'s catch handler.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
-unsafe extern "C" fn run_main_thunk(ctx: *mut u8) {
+unsafe extern "C-unwind" fn run_main_thunk(ctx: *mut u8) {
     let main_fn: extern "C" fn() = unsafe { std::mem::transmute(ctx) };
     main_fn();
 }
@@ -396,8 +400,8 @@ unsafe extern "C" fn run_main_thunk(ctx: *mut u8) {
 /// `ori_run_main` is not used on Itanium — the LLVM-generated `main()`
 /// wrapper calls `@main` directly.
 ///
-/// On Windows MSVC: delegates to the C `ori_try_call` which uses
-/// `__try`/`__except` to catch Ori's custom SEH exception.
+/// On Windows MSVC: delegates to the C++ `ori_try_call` which uses
+/// `try`/`catch(OriPanicException&)` to catch Ori panics.
 ///
 /// Exit codes:
 /// - **0**: success
