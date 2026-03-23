@@ -8,7 +8,9 @@ order: 1
 
 # Getting Started
 
-Ori is a general-purpose language where **if your code compiles, it works**. The compiler supports smart testing, tracks dependencies, and makes side effects explicit.
+Ori is a compiled language that produces **standalone native executables** — like C, Rust, or Go. Write your code, compile it, ship a single binary. No runtime or VM required on the target machine.
+
+The compiler also supports smart testing, dependency tracking, and explicit side effects.
 
 ## Installation
 
@@ -24,15 +26,16 @@ This installs the `ori` command-line tool. Verify it worked:
 ori --version
 ```
 
-You should see something like `ori 0.1.0`.
+You should see something like `Ori Compiler 2026.03.23`.
 
 ### What You Just Installed
 
 The `ori` command does several things:
 
-- **Compiles** your code and checks for errors
+- **Compiles** your code to native executables (Windows `.exe`, Linux ELF, macOS Mach-O)
+- **Runs** programs instantly via a built-in interpreter (for rapid development)
 - **Runs tests** automatically when you change functions
-- **Executes** programs
+- **Checks** your code for errors without running it
 - **Formats** code to a consistent style
 
 You'll use it constantly during development.
@@ -57,7 +60,29 @@ You should see:
 Hello, World!
 ```
 
-Congratulations — you've written your first Ori program. Now let's understand what you wrote.
+### Compile It to a Native Binary
+
+`ori run` uses the built-in interpreter for quick iteration. When you're ready to ship, compile to a native executable:
+
+```bash
+ori build hello.ori -o hello
+```
+
+Now run the compiled binary directly:
+
+```bash
+./hello
+```
+
+```
+Hello, World!
+```
+
+That `hello` file is a standalone native executable. You can copy it to another machine with the same operating system and it will run — no Ori installation needed, no runtime, no VM. This is a real compiled binary, the same kind that C or Rust produces.
+
+During development you'll mostly use `ori run` for speed. Use `ori build` when you're ready to produce a binary for distribution, deployment, or performance testing.
+
+Congratulations — you've written and compiled your first Ori program. Now let's understand what you wrote.
 
 ## Understanding the Syntax
 
@@ -307,9 +332,9 @@ Here are the commands you'll use most:
 
 | Command | What It Does |
 |---------|--------------|
-| `ori run file.ori` | Run a program (compiles, tests, then executes) |
-| `ori check file.ori` | Compile and test without running |
-| `ori check --no-test` | Compile only (useful for quick syntax checks) |
+| `ori run file.ori` | Run a program via the interpreter (fast iteration) |
+| `ori build file.ori` | Compile to a native executable (for shipping) |
+| `ori check file.ori` | Type-check and test without running |
 | `ori test` | Run all tests in the project |
 | `ori fmt file.ori` | Format code to standard style |
 
@@ -318,11 +343,11 @@ Here are the commands you'll use most:
 A typical workflow:
 
 1. **Write code** — Add or modify functions
-2. **Run `ori check`** — See if it compiles and tests pass
+2. **Run `ori run`** — See your changes immediately (uses the interpreter)
 3. **Fix issues** — Address any errors
-4. **Run `ori run`** — Execute the program
+4. **Run `ori build`** — Compile a native binary for distribution or deployment
 
-Because tests run automatically during `check`, you get immediate feedback when something breaks.
+Use `ori run` during development for instant feedback. Use `ori build` to produce optimized native executables for shipping.
 
 ## Program Entry Points
 
@@ -438,6 +463,10 @@ Hello, Charlie!
 ## Key Concepts Preview
 
 Before moving on, here's what makes Ori distinctive:
+
+### Compiled, Not Interpreted
+
+Ori is a compiled language. `ori build` produces native machine code — not bytecode, not JIT-compiled scripts, not interpreted source. The resulting binary is a standalone executable that runs at native speed with no dependencies. `ori run` uses a built-in interpreter for convenience during development, but the compiler is the real product.
 
 ### Everything Is an Expression
 
