@@ -30,7 +30,7 @@ sections:
 
 # Section 01: Iterator–Collection Ownership Contract
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** When iterating over `[T]` where `T` has Drop semantics (str, [T], closures, structs with Drop fields), exactly one entity owns each element at any point. No double-frees, no leaks. This applies to ALL such types, not just `[str]`.
 
 **Context:** J15 discovered that iterating over `[str]` causes a double-free. The iterator runtime (`ori_iter_drop`) frees each string element, AND the list destructor (`ori_buffer_rc_dec` calling `_ori_elem_dec`) also frees the same elements. This is because the ownership contract between iterators and collections was never defined for element types that themselves have RC — J10 tested `[int]` (scalar elements, no element-level RC) which masked the issue.

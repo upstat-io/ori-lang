@@ -143,7 +143,7 @@ fn list_sort_cow_impl(
     inc_copied_elements(new_data, n, es, inc_fn);
 
     // Propagate header from source
-    unsafe { propagate_header(data, new_data, n as i64) };
+    unsafe { propagate_header(data, cap, new_data, n as i64) };
 
     // Release old buffer (slice-aware)
     dec_list_buffer(data, cap);

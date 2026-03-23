@@ -11,8 +11,18 @@
 pub enum ProtocolBuiltin {
     /// `receiver[index]` — list/map indexing. Both args borrowed.
     Index,
+    /// Iterator creation from collection. Collection borrowed (not consumed).
+    ///
+    /// Emitted by `for...in` lowering as `Apply @iter(collection)`. The
+    /// iterator holds a reference to the collection's buffer; the collection
+    /// itself is not consumed. Without this entry, the "unknown callee →
+    /// all Owned" fallthrough promotes the collection parameter to Owned,
+    /// causing ABI mismatch for `@main(args: [str])`.
+    Iter,
     /// Iterator advancement. Iterator owned (consumed), type marker borrowed.
     IterNext,
+    /// Iterator cleanup. Iterator state borrowed (freed internally).
+    IterDrop,
     /// Set collection from iterator. Iterator owned (consumed).
     CollectSet,
 }
@@ -26,13 +36,21 @@ pub enum ProtocolArgOwnership {
 
 impl ProtocolBuiltin {
     /// All protocol builtins. Exhaustive — add new variants here.
-    pub const ALL: &[Self] = &[Self::Index, Self::IterNext, Self::CollectSet];
+    pub const ALL: &[Self] = &[
+        Self::Index,
+        Self::Iter,
+        Self::IterNext,
+        Self::IterDrop,
+        Self::CollectSet,
+    ];
 
     /// The internal name emitted in ARC IR.
     pub const fn name(self) -> &'static str {
         match self {
             Self::Index => "__index",
+            Self::Iter => "iter",
             Self::IterNext => "__iter_next",
+            Self::IterDrop => "ori_iter_drop",
             Self::CollectSet => "__collect_set",
         }
     }
@@ -41,7 +59,9 @@ impl ProtocolBuiltin {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "__index" => Some(Self::Index),
+            "iter" => Some(Self::Iter),
             "__iter_next" => Some(Self::IterNext),
+            "ori_iter_drop" => Some(Self::IterDrop),
             "__collect_set" => Some(Self::CollectSet),
             _ => None,
         }
@@ -51,7 +71,7 @@ impl ProtocolBuiltin {
     pub const fn arg_count(self) -> usize {
         match self {
             Self::Index | Self::IterNext => 2,
-            Self::CollectSet => 1,
+            Self::Iter | Self::IterDrop | Self::CollectSet => 1,
         }
     }
 
@@ -66,6 +86,7 @@ impl ProtocolBuiltin {
                 ProtocolArgOwnership::Borrowed,
                 ProtocolArgOwnership::Borrowed,
             ],
+            Self::Iter | Self::IterDrop => &[ProtocolArgOwnership::Borrowed],
             Self::IterNext => &[ProtocolArgOwnership::Owned, ProtocolArgOwnership::Borrowed],
             Self::CollectSet => &[ProtocolArgOwnership::Owned],
         }
@@ -73,43 +94,4 @@ impl ProtocolBuiltin {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn all_variants_covered() {
-        assert_eq!(ProtocolBuiltin::ALL.len(), 3);
-        for &pb in ProtocolBuiltin::ALL {
-            assert!(!pb.name().is_empty());
-            assert!(ProtocolBuiltin::from_name(pb.name()) == Some(pb));
-            assert_eq!(pb.arg_ownership().len(), pb.arg_count());
-        }
-    }
-
-    #[test]
-    fn from_name_returns_none_for_unknown() {
-        assert!(ProtocolBuiltin::from_name("unknown").is_none());
-        assert!(ProtocolBuiltin::from_name("ori_print").is_none());
-    }
-
-    #[test]
-    fn index_ownership_is_all_borrowed() {
-        let ownership = ProtocolBuiltin::Index.arg_ownership();
-        assert!(ownership
-            .iter()
-            .all(|o| *o == ProtocolArgOwnership::Borrowed));
-    }
-
-    #[test]
-    fn iter_next_ownership_is_owned_borrowed() {
-        let ownership = ProtocolBuiltin::IterNext.arg_ownership();
-        assert_eq!(ownership[0], ProtocolArgOwnership::Owned);
-        assert_eq!(ownership[1], ProtocolArgOwnership::Borrowed);
-    }
-
-    #[test]
-    fn collect_set_ownership_is_owned() {
-        let ownership = ProtocolBuiltin::CollectSet.arg_ownership();
-        assert_eq!(ownership[0], ProtocolArgOwnership::Owned);
-    }
-}
+mod tests;

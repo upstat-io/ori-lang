@@ -10,13 +10,15 @@
 //! a handler here. `ori_list_take` is NOT a protocol builtin (it's a real
 //! runtime function with special sret handling).
 //!
-//! | Protocol              | Purpose                                  | Result type      |
+//! | Protocol              | Purpose                                  | Intercepted?     |
 //! |-----------------------|------------------------------------------|------------------|
-//! | `__iter_next`         | For-loop iteration protocol              | `{i64, T}`       |
-//! | `__collect_set`       | Collect iterator into `Set<T>`           | `{i64, i64, ptr}`|
-//! | `ori_list_take`       | For-yield list finalization (explicit sret)| `{i64, i64, ptr}`|
-//! | `ori_list_slice_drop` | List rest pattern (`[a, b, ..rest]`)     | `{i64, i64, ptr}`|
-//! | `__index`             | `receiver[index]` desugaring             | `T` or `Option<V>`|
+//! | `__iter_next`         | For-loop iteration protocol              | Yes              |
+//! | `__collect_set`       | Collect iterator into `Set<T>`           | Yes              |
+//! | `__index`             | `receiver[index]` desugaring             | Yes              |
+//! | `iter`                | Iterator creation (borrow inference only) | No (normal call) |
+//! | `ori_iter_drop`       | Iterator cleanup (borrow inference only)  | No (normal call) |
+//! | `ori_list_take`       | For-yield list finalization (non-PB)     | Yes (non-PB)     |
+//! | `ori_list_slice_drop` | List rest pattern (non-PB)               | Yes (non-PB)     |
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
@@ -60,6 +62,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             let result = match protocol {
+                // Iter and IterDrop are registered as ProtocolBuiltin for
+                // borrow inference only — they go through normal function
+                // dispatch (real runtime calls), not protocol intercept.
+                ProtocolBuiltin::Iter | ProtocolBuiltin::IterDrop => return false,
+
                 ProtocolBuiltin::CollectSet => {
                     // __collect_set(iter).
                     // Type-directed rewrite from collect() when target type is Set<T>.

@@ -203,6 +203,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Determine callee ownership: Reference means callee borrows (wrapper
         // retains ownership), Indirect/Direct means callee takes ownership.
         let param_passing = abi.params.first().map(|p| &p.passing);
+        // Determine callee ownership: Reference means callee borrows (wrapper
+        // retains ownership), Indirect/Direct means callee takes ownership.
         let wrapper_owns_on_normal = matches!(param_passing, Some(ParamPassing::Reference));
 
         // Check callee's param ABI: Indirect/Reference means _ori_main

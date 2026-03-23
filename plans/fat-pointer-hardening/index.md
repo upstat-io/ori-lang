@@ -19,7 +19,7 @@ order: 1
 ---
 
 ### Section 01: Iterator–Collection Ownership Contract
-**File:** `section-01-iterator-ownership.md` | **Status:** In Progress
+**File:** `section-01-iterator-ownership.md` | **Status:** Complete
 
 ```
 double-free, [str], [T] where T: Drop, ori_iter_drop, ori_buffer_rc_dec

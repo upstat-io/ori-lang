@@ -34,7 +34,7 @@ sections:
 
 # Section 04: Combinatorial Test Matrix
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Write a comprehensive test matrix that covers fat pointer element cleanup across all type categories, language features, and execution modes. Every test must pass with `ORI_CHECK_LEAKS=1` and Valgrind.
 
 **Depends on:** Section 03 (workarounds removed, clean codegen).
@@ -385,13 +385,23 @@ Create standalone `.ori` programs for Valgrind testing (separate from the Rust A
 - [x] `[TPR-04-014][high]` `plans/rc-header-elem-dec/section-04-test-matrix.md:323` — Section 04 records F14 Valgrind as passing only on the no-args path, which does not exercise heap-string argument cleanup at all.
   Resolved: Validated on 2026-03-22. Confirmed leak: running `args_str_list.ori` with heap-string args (>23 bytes) under Valgrind shows 80 bytes definitely lost + 174 bytes indirectly lost from `ori_args_from_argv`. **Root cause**: borrow inference says `Owned` for `@main(args:)` param but ARC lowering reinterprets as `borrow` → ABI uses `Indirect` (callee-owns) but callee doesn't actually emit cleanup → neither wrapper nor callee frees the buffer. This is a phase mismatch between borrow inference and ARC lowering, tracked as BUG-04-003 below. The no-args Valgrind test passes correctly.
 
-- [x] `[BUG-04-003][high]` `@main(args: [str])` leaks argument buffer when args contain heap strings. Borrow inference says `Owned` → ABI `Indirect` → wrapper skips cleanup. ARC lowering says `[borrow]` → callee doesn't emit dec. Neither side frees. Requires fixing borrow inference to correctly identify borrowed params, or adding a post-ARC-lowering ABI reconciliation step. Tracked for Section 05 or repr-opt plan.
+- [x] `[BUG-04-003][high]` `@main(args: [str])` leaks argument buffer when args contain heap strings. Borrow inference says `Owned` → ABI `Indirect` → wrapper skips cleanup. ARC lowering says `[borrow]` → callee doesn't emit dec. Neither side frees.
+  Resolved: Fixed on 2026-03-22 by adding `ProtocolBuiltin::Iter` and `ProtocolBuiltin::IterDrop` with all-Borrowed arg ownership. Root cause was `iter` (for-loop iterator creation) falling through to the "unknown callee → all Owned" conservative default in borrow inference.
 
 - [x] `[TPR-04-015][medium]` `plans/rc-header-elem-dec/section-04-test-matrix.md:4` — Section 04 status/TPR metadata mismatch.
   Resolved: Fixed on 2026-03-22. Section status set to `in-progress`, `third_party_review.status: findings` retained while unchecked items exist.
 
 - [x] `[TPR-04-016][medium]` `.claude/rules/ori-syntax.md:223` — Spec/rules naming mismatch for string case methods.
   Resolved: Validated on 2026-03-22. The implementation uses `to_uppercase`/`to_lowercase` (registry). The spec uses `upper`/`lower`. The rules file was corrected to match the implementation. Spec update deferred to Section 05 documentation pass (the spec must be updated to match the implementation, not vice versa).
+
+- [x] `[TPR-04-017][high]` `compiler/ori_rt/src/lib.rs:303` — Heap-backed `@main(args: [str])` still leaks in the current tree, so Section 04's F14/Valgrind completion claim is not valid.
+  Resolved: Fixed on 2026-03-22. Root cause: borrow inference promoted `@main(args:)` from Borrowed → Owned because `iter` (the for-loop iterator creation function) was not registered in `ProtocolBuiltin` — the "unknown callee → all Owned" conservative fallthrough kicked in. This caused `ParamPassing::Indirect` (callee-owns) instead of `ParamPassing::Reference` (callee-borrows), so the C wrapper skipped `ori_args_cleanup` on normal return. Fix: added `ProtocolBuiltin::Iter` (all-borrowed) and `ProtocolBuiltin::IterDrop` (all-borrowed) to `ori_ir/builtin_constants/protocol.rs`. Now borrow inference correctly keeps the param as Borrowed → ABI produces Reference → wrapper calls cleanup → zero leaks. Verified via Valgrind with heap-backed args (254 bytes → 0 bytes) in both debug and release. All 13,622 tests pass.
+
+- [x] `[TPR-04-018][medium]` `plans/rc-header-elem-dec/section-04-test-matrix.md:4` — Section 04 metadata drifted back to `complete` / `resolved` even though the body says `In Progress` and the heap-args leak remains reproducible.
+  Resolved: Fixed on 2026-03-22. The F14 leak is now resolved (see TPR-04-017). Section 04 frontmatter will be updated to `complete` / `resolved` once all TPR items are checked off (this is the last one).
+
+- [x] `[TPR-04-019][low]` `compiler/ori_ir/src/builtin_constants/protocol.rs:97` — The unstaged `ProtocolBuiltin` follow-up expands an inline `#[cfg(test)] mod tests` in a touched Rust source file instead of extracting those tests to a sibling `tests.rs`.
+  Resolved: Fixed on 2026-03-22. Converted `protocol.rs` to directory module `protocol/mod.rs` + `protocol/tests.rs`. All 7 tests pass. Full build clean.
 
 ---
 

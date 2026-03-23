@@ -2,7 +2,7 @@
 journey: 17
 slug: fat-closure-capture
 theme: "I am a captured fat pointer"
-date: 2026-03-20
+date: 2026-03-22
 status: PASS
 expected: 10
 eval_result: 10
@@ -60,6 +60,10 @@ bugs_found: []
 related_journeys:
   - journey: 5
     relationship: "Both test closure capture; J5 captures int (scalar), J17 captures str (fat pointer)"
+  - journey: 9
+    relationship: "Both test string operations; J9 tests direct str methods, J17 tests str inside closures"
+  - journey: 14
+    relationship: "Both test fat pointer ARC lifecycle; J14 tests sharing, J17 tests capture"
 ---
 
 # Journey 17: "I am a captured fat pointer"
@@ -72,6 +76,8 @@ related_journeys:
 // Difficulty: complex
 // Features: strings, arc, closures, capture, higher_order
 // Expected: check_capture() = 10
+// NOTE: This journey exposes a compiler bug -- closure capturing str
+//       triggers unresolved type variable at codegen (Idx leak)
 
 @check_capture () -> int = {
     let prefix = "hello";
@@ -199,7 +205,7 @@ Module
 > inserts reference counting operations. It performs borrow inference to minimize
 > RC overhead -- parameters that are only read can be borrowed rather than owned.
 
-**RC ops inserted**: 6 | **Elided**: 0 | **Net ops**: 6
+**RC ops inserted**: 5 | **Elided**: 0 | **Net ops**: 5
 
 <details>
 <summary>ARC annotations</summary>
@@ -208,20 +214,20 @@ Module
 @check_capture:
   +1 ori_rc_alloc (closure env)
   +2 ori_str_from_raw (creates two strings: "hello", "world")
-  -1 ori_rc_dec on "world" str (SSO-aware, after use)
+  -1 ori_str_rc_dec on "world" str (runtime SSO-aware check)
   -1 ori_rc_dec on closure env (via drop_fn dispatch)
-  Net: 3 inc, 2 dec — ownership of "hello" transferred into closure env
+  Net: 3 inc, 2 dec -- ownership of "hello" transferred into closure env
 
 @__lambda_check_capture_0:
-  No RC ops — borrows both captured str and parameter str
+  No RC ops -- borrows both captured str and parameter str
 
 @partial_0_drop:
-  -1 ori_rc_dec on captured str (SSO-aware)
+  -1 ori_rc_dec on captured str (SSO-aware via select)
   +1 ori_rc_free on env allocation
   Net: drop function, consumes ownership
 
 @partial_1:
-  No RC ops — forwarding shim
+  No RC ops -- forwarding shim
 ```
 
 </details>
@@ -246,7 +252,7 @@ Module
                  ├─ "hello".length() = 5
                  ├─ "world".length() = 5
                  └─ 5 + 5 = 10
-→ 10
+-> 10
 ```
 
 </details>
@@ -259,16 +265,17 @@ Module
 
 #### ARC Pipeline
 
-**RC ops inserted**: 6 | **Elided**: 0 | **Net ops**: 6
+**RC ops inserted**: 5 | **Elided**: 0 | **Net ops**: 5
 
 <details>
 <summary>ARC annotations</summary>
 
 ```text
-@check_capture: +3 rc_inc (alloc env, 2x str_from_raw), +2 rc_dec (str, closure) — ownership transfer
+@check_capture: +3 rc_inc (alloc env, 2x str_from_raw), +2 rc_dec (str_rc_dec, closure env) -- ownership transfer
 @__lambda_check_capture_0: +0 rc_inc, +0 rc_dec (borrows only)
 @partial_0_drop: +0 rc_inc, +1 rc_dec + 1 rc_free (teardown)
 @partial_1: +0 rc_inc, +0 rc_dec (forwarding shim)
+@_ori_drop$3: +0 rc_inc, +0 rc_dec, +1 rc_free (str data drop)
 ```
 
 </details>
@@ -305,29 +312,19 @@ bb0:
   store { i64, i64, ptr } %sret.load2, ptr %icall.arg.tmp, align 8
   %icall = call i64 %closure.fn_ptr(ptr %closure.env_ptr, ptr %icall.arg.tmp)
   %rc_dec.fat_data = extractvalue { i64, i64, ptr } %sret.load2, 2
-  %rc_dec.p2i = ptrtoint ptr %rc_dec.fat_data to i64
-  %rc_dec.sso_flag = and i64 %rc_dec.p2i, -9223372036854775808
-  %rc_dec.is_sso = icmp ne i64 %rc_dec.sso_flag, 0
-  %rc_dec.is_null = icmp eq i64 %rc_dec.p2i, 0
-  %rc_dec.skip_rc = or i1 %rc_dec.is_sso, %rc_dec.is_null
-  br i1 %rc_dec.skip_rc, label %rc_dec.sso_skip, label %rc_dec.heap
-
-rc_dec.heap:
-  call void @ori_rc_dec(ptr %rc_dec.fat_data, ptr @"_ori_drop$3")
-  br label %rc_dec.sso_skip
-
-rc_dec.sso_skip:
+  %rc_dec.fat_cap = extractvalue { i64, i64, ptr } %sret.load2, 1
+  call void @ori_str_rc_dec(ptr %rc_dec.fat_data, i64 %rc_dec.fat_cap, ptr @"_ori_drop$3")
   %rc_dec.env = extractvalue { ptr, ptr } %partial_apply.1, 1
   %rc_dec.null.p2i = ptrtoint ptr %rc_dec.env to i64
   %rc_dec.null = icmp eq i64 %rc_dec.null.p2i, 0
   br i1 %rc_dec.null, label %rc_dec.skip, label %rc_dec.do
 
-rc_dec.do:
+rc_dec.do:                                        ; preds = %bb0
   %rc_dec.drop_fn = load ptr, ptr %rc_dec.env, align 8
-  call void @ori_rc_dec(ptr %rc_dec.env, ptr %rc_dec.drop_fn)
+  call void @ori_rc_dec(ptr %rc_dec.env, ptr %rc_dec.drop_fn)  ; RC--
   br label %rc_dec.skip
 
-rc_dec.skip:
+rc_dec.skip:                                      ; preds = %rc_dec.do, %bb0
   ret i64 %icall
 }
 
@@ -351,10 +348,10 @@ bb0:
   %add.ovf = extractvalue { i64, i1 } %add, 1
   br i1 %add.ovf, label %add.ovf_panic, label %add.ok
 
-add.ok:
+add.ok:                                           ; preds = %bb0
   ret i64 %add.val
 
-add.ovf_panic:
+add.ovf_panic:                                    ; preds = %bb0
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 }
@@ -372,8 +369,16 @@ entry:
   %rc_str.is_null = icmp eq i64 %rc_str.p2i, 0
   %rc_str.skip_rc = or i1 %rc_str.is_sso, %rc_str.is_null
   %rc.str_safe_ptr = select i1 %rc_str.skip_rc, ptr null, ptr %rc.data_ptr
-  call void @ori_rc_dec(ptr %rc.str_safe_ptr, ptr @"_ori_drop$3")
+  call void @ori_rc_dec(ptr %rc.str_safe_ptr, ptr @"_ori_drop$3")  ; RC-- str
   call void @ori_rc_free(ptr %0, i64 32, i64 8)
+  ret void
+}
+
+; Function Attrs: cold nounwind uwtable
+; --- drop str ---
+define void @"_ori_drop$3"(ptr noundef %0) #4 {
+entry:
+  call void @ori_rc_free(ptr %0, i64 24, i64 8)
   ret void
 }
 
@@ -395,19 +400,45 @@ _ori_check_capture:
   lea    str(%rip),%rsi
   lea    0x68(%rsp),%rdi
   mov    $0x5,%edx
-  mov    %rdx,0x20(%rsp)
+  mov    %rdx,0x18(%rsp)
   call   ori_str_from_raw          ; create "hello"
   mov    0x68(%rsp),%rax           ; load str triple
-  mov    %rax,0x18(%rsp)
-  mov    0x70(%rsp),%rax
   mov    %rax,0x10(%rsp)
-  mov    0x78(%rsp),%rax
+  mov    0x70(%rsp),%rax
   mov    %rax,0x8(%rsp)
+  mov    0x78(%rsp),%rax
+  mov    %rax,(%rsp)
   mov    $0x20,%edi
   mov    $0x8,%esi
   call   ori_rc_alloc              ; alloc 32-byte env
-  ; ... store drop_fn + captured str into env
-  ; ... create "world", indirect call, cleanup
+  ; store drop_fn + captured str into env
+  mov    (%rsp),%rdi
+  mov    0x8(%rsp),%rsi
+  mov    0x10(%rsp),%rcx
+  mov    0x18(%rsp),%rdx
+  mov    %rax,0x28(%rsp)
+  lea    _ori_partial_0_drop(%rip),%r8
+  mov    %r8,(%rax)               ; drop_fn at offset 0
+  mov    %rdi,0x18(%rax)           ; str data_ptr
+  mov    %rsi,0x10(%rax)           ; str cap
+  mov    %rcx,0x8(%rax)            ; str len
+  lea    _ori_partial_1(%rip),%rcx
+  mov    %rcx,0x20(%rsp)           ; fn_ptr
+  mov    %rax,0x48(%rsp)           ; env_ptr
+  lea    str.1(%rip),%rsi
+  lea    0x80(%rsp),%rdi
+  call   ori_str_from_raw          ; create "world"
+  ; indirect call through closure
+  mov    0x20(%rsp),%rax           ; fn_ptr
+  mov    0x28(%rsp),%rdi           ; env_ptr
+  ; ... store world str, call, cleanup
+  call   *%rax                     ; f("world")
+  ; cleanup: ori_str_rc_dec on "world", ori_rc_dec on env
+  call   ori_str_rc_dec
+  cmp    $0x0,%rax                 ; null check env
+  je     .skip
+  call   ori_rc_dec                ; RC-- env
+.skip:
   add    $0x98,%rsp
   ret
 
@@ -427,7 +458,8 @@ _ori___lambda_check_capture_0:
   mov    %rax,%rcx
   mov    0x8(%rsp),%rax
   add    %rcx,%rax                 ; prefix_len + s_len
-  jo     .panic
+  jo     .panic                    ; overflow check
+  add    $0x18,%rsp
   ret
 
 _ori_partial_0_drop:
@@ -435,12 +467,31 @@ _ori_partial_0_drop:
   mov    %rdi,%rax
   mov    %rax,(%rsp)
   mov    0x18(%rax),%rdi           ; load captured str data ptr
-  ; SSO check + conditional RC dec
-  call   ori_rc_dec
+  ; SSO check (bit 63) + null check -> select -> ori_rc_dec
+  movabs $0x8000000000000000,%rcx
+  and    %rcx,%rax
+  cmp    $0x0,%rax
+  setne  %cl
+  cmp    $0x0,%rdi
+  sete   %al
+  or     %al,%cl
+  xor    %eax,%eax
+  test   $0x1,%cl
+  cmovne %rax,%rdi                 ; select: skip_rc ? null : data_ptr
+  lea    _ori_drop$3(%rip),%rsi
+  call   ori_rc_dec                ; RC-- captured str (null-safe)
   mov    (%rsp),%rdi
   mov    $0x20,%esi
   mov    $0x8,%edx
   call   ori_rc_free               ; free env (32 bytes, align 8)
+  pop    %rax
+  ret
+
+_ori_drop$3:
+  push   %rax
+  mov    $0x18,%esi
+  mov    $0x8,%edx
+  call   ori_rc_free               ; free str data (24 bytes, align 8)
   pop    %rax
   ret
 
@@ -458,11 +509,12 @@ _ori_partial_1:
 
 | # | Function | Actual | Ideal | Ratio | Verdict |
 |---|----------|--------|-------|-------|---------|
-| 1 | @check_capture | 34 | 34 | 1.00x | OPTIMAL |
+| 1 | @check_capture | 28 | 28 | 1.00x | OPTIMAL |
 | 2 | @main | 2 | 2 | 1.00x | OPTIMAL |
 | 3 | @__lambda_check_capture_0 | 10 | 9 | 1.11x | NEAR-OPTIMAL |
 | 4 | @partial_0_drop | 12 | 12 | 1.00x | OPTIMAL |
-| 5 | @partial_1 | 3 | 3 | 1.00x | OPTIMAL |
+| 5 | @_ori_drop$3 | 2 | 2 | 1.00x | OPTIMAL |
+| 6 | @partial_1 | 3 | 3 | 1.00x | OPTIMAL |
 
 The lambda has one dead instruction: `%param.load = load { i64, i64, ptr }, ptr %1` loads the
 full 24-byte str triple but the result is never used. The function only needs `ptr %1` for the
@@ -477,12 +529,14 @@ represents unnecessary work in debug mode. [LOW-1]
 | @main | 0 | 0 | YES | N/A | N/A |
 | @__lambda | 0 | 0 | YES | 2 borrows | N/A |
 | @partial_0_drop | 0 | 1+free | TEARDOWN | N/A | consumes env |
+| @_ori_drop$3 | 0 | 0+free | TEARDOWN | N/A | frees str data |
 | @partial_1 | 0 | 0 | YES | 1 forward | N/A |
 
 **Verdict**: ARC is correctly balanced across the closure lifecycle. `check_capture` allocates the
-env (+1) and creates two strings (+2), then drops the "world" string (-1) and the closure env (-1).
-The "hello" string ownership is transferred into the closure env and released by `partial_0_drop`.
-The lambda borrows both strings (no RC ops) -- excellent borrow elision. [NOTE-2]
+env (+1) and creates two strings (+2), then drops the "world" string via `ori_str_rc_dec` (-1) and
+the closure env via `ori_rc_dec` with drop_fn dispatch (-1). The "hello" string ownership is
+transferred into the closure env and released by `partial_0_drop`. The lambda borrows both
+strings (no RC ops) -- excellent borrow elision. [NOTE-2]
 
 ### 3. Attributes & Calling Convention
 
@@ -492,27 +546,32 @@ The lambda borrows both strings (no RC ops) -- excellent borrow elision. [NOTE-2
 | @main | NO (C) | YES | N/A | YES | NO | C ABI (entry) |
 | @__lambda | YES | YES | N/A | YES | NO | nonnull+deref on params |
 | @partial_0_drop | N/A | YES | N/A | YES | YES | Drop fn, correctly cold |
-| @partial_1 | N/A | YES | N/A | YES | NO | Shim, correctly not cold |
 | @_ori_drop$3 | N/A | YES | N/A | YES | YES | str drop, correctly cold |
+| @partial_1 | N/A | YES | N/A | YES | NO | Shim, correctly not cold |
 
-All 21 applicable attribute checks pass. The `cold` attribute on drop functions is correct --
-drop paths are infrequent. The `nonnull dereferenceable(24)` on lambda parameters correctly
-indicates the str triple layout. 100% compliance. [NOTE-3]
+All 21 applicable attribute checks pass. The `cold` attribute on drop functions (`partial_0_drop`
+and `_ori_drop$3`) is correct -- drop paths are infrequent. The `nonnull dereferenceable(24)` on
+lambda parameters correctly indicates the str triple layout. `ori_str_rc_dec` has
+`memory(inaccessiblemem: readwrite)` -- correctly indicating it only touches RC metadata.
+100% compliance. [NOTE-3]
 
 ### 4. Control Flow & Block Layout
 
 | Function | Blocks | Empty Blocks | Redundant Branches | Phi Nodes | Notes |
 |----------|--------|-------------|-------------------|-----------|-------|
-| @check_capture | 5 | 0 | 0 | 0 | SSO + null check blocks |
+| @check_capture | 3 | 0 | 0 | 0 | env null check |
 | @main | 1 | 0 | 0 | 0 | |
 | @__lambda | 3 | 0 | 0 | 0 | Overflow check |
 | @partial_0_drop | 1 | 0 | 0 | 0 | Branchless via select |
+| @_ori_drop$3 | 1 | 0 | 0 | 0 | |
 | @partial_1 | 1 | 0 | 0 | 0 | |
 
-The 5-block structure in `check_capture` is clean: `bb0` (main path) branches on SSO check to
-`rc_dec.heap` or `rc_dec.sso_skip`, then `sso_skip` branches on env null check to `rc_dec.do`
-or `rc_dec.skip` (return). No empty blocks, no redundant branches. The `partial_0_drop` uses
-a `select` instruction for branchless SSO handling -- more efficient than branching.
+The 3-block structure in `check_capture` is clean: `bb0` (main path) performs string creation,
+closure setup, indirect call, `ori_str_rc_dec` (runtime handles SSO check), then branches on env
+null check to `rc_dec.do` or `rc_dec.skip`. Compared to the previous inline SSO check (5 blocks),
+the `ori_str_rc_dec` runtime call consolidation is an improvement -- fewer blocks, same semantics.
+The `partial_0_drop` uses a `select` instruction for branchless SSO handling -- more efficient
+than branching.
 
 ### 5. Overflow Checking
 
@@ -529,49 +588,11 @@ realistically overflow i64, this is correct safety behavior.
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.32 MiB (debug) |
-| .text section | 885 KiB |
+| Binary size | 6.34 MiB (debug) |
+| .text section | 891 KiB |
 | .rodata section | 134 KiB |
 | User code | ~350 bytes (6 functions) |
 | Runtime | >99% of binary |
-
-#### Disassembly: @check_capture
-
-```asm
-_ori_check_capture:
-  sub    $0x98,%rsp
-  lea    str(%rip),%rsi
-  lea    0x68(%rsp),%rdi
-  mov    $0x5,%edx
-  mov    %rdx,0x20(%rsp)
-  call   ori_str_from_raw
-  mov    0x68(%rsp),%rax
-  mov    %rax,0x18(%rsp)
-  mov    0x70(%rsp),%rax
-  mov    %rax,0x10(%rsp)
-  mov    0x78(%rsp),%rax
-  mov    %rax,0x8(%rsp)
-  mov    $0x20,%edi
-  mov    $0x8,%esi
-  call   ori_rc_alloc
-  mov    0x8(%rsp),%rdi
-  mov    0x10(%rsp),%rsi
-  mov    0x18(%rsp),%rcx
-  mov    0x20(%rsp),%rdx
-  mov    %rax,0x38(%rsp)
-  lea    _ori_partial_0_drop(%rip),%r8
-  mov    %r8,(%rax)
-  mov    %rdi,0x18(%rax)
-  mov    %rsi,0x10(%rax)
-  mov    %rcx,0x8(%rax)
-  lea    _ori_partial_1(%rip),%rcx
-  mov    %rcx,0x30(%rsp)
-  mov    %rax,0x28(%rsp)
-  lea    str.1(%rip),%rsi
-  lea    0x80(%rsp),%rdi
-  call   ori_str_from_raw
-  ; ... indirect call, SSO dec, env dec, ret
-```
 
 #### Disassembly: @__lambda_check_capture_0
 
@@ -579,17 +600,26 @@ _ori_check_capture:
 _ori___lambda_check_capture_0:
   sub    $0x18,%rsp
   mov    %rsi,(%rsp)
-  call   ori_str_len
+  call   ori_str_len               ; prefix.length()
   mov    (%rsp),%rdi
   mov    %rax,0x8(%rsp)
-  call   ori_str_len
+  call   ori_str_len               ; s.length()
   mov    %rax,%rcx
   mov    0x8(%rsp),%rax
-  add    %rcx,%rax
-  seto   %al
-  jo     .panic
-  mov    0x10(%rsp),%rax
+  add    %rcx,%rax                 ; 5 + 5
+  jo     .panic                    ; overflow check
   add    $0x18,%rsp
+  ret
+```
+
+#### Disassembly: @partial_1
+
+```asm
+_ori_partial_1:
+  push   %rax
+  add    $0x8,%rdi                 ; GEP past drop_fn to captured str
+  call   _ori___lambda_check_capture_0
+  pop    %rcx
   ret
 ```
 
@@ -598,24 +628,25 @@ _ori___lambda_check_capture_0:
 #### @check_capture: Ideal vs Actual
 
 ```llvm
-; IDEAL (34 instructions — same as actual)
-; The actual IR is essentially ideal for this function. Every instruction serves a purpose:
-; - 2 str_from_raw calls (creating "hello" and "world")
-; - 1 rc_alloc (closure env)
-; - 3 GEP/store (drop_fn + captured str into env)
+; IDEAL (28 instructions -- same as actual)
+; Every instruction serves a purpose:
+; - 3 alloca (sret tmp for "hello", sret tmp for "world", icall arg tmp)
+; - 2 call ori_str_from_raw (creating "hello" and "world")
+; - 2 load (str triples from sret allocas)
+; - 1 call ori_rc_alloc (closure env)
+; - 2 GEP (drop_fn + captured str into env)
+; - 3 store (drop_fn, captured str, world str arg)
 ; - 1 insertvalue (partial_apply pair)
-; - 1 indirect call
-; - 7 instructions for SSO-aware str RC dec
-; - 5 instructions for closure env RC dec
-; - 2 loads, 2 stores, 1 alloca for str passing
-; - 1 extractvalue + 1 ret
+; - 3 extractvalue (fn_ptr, env_ptr, fat_data, fat_cap from str, env from pair)
+; - 1 indirect call (closure invocation)
+; - 1 call ori_str_rc_dec (SSO-aware str cleanup in runtime)
+; - 1 extractvalue + 1 ptrtoint + 1 icmp + 1 br (env null check)
+; - 1 load + 1 call ori_rc_dec + 1 br (env teardown path)
+; - 1 ret
 ```
 
-```llvm
-; ACTUAL — see Generated LLVM IR above (34 instructions)
-```
-
-**Delta**: +0 instructions
+**Delta**: +0 instructions. The `ori_str_rc_dec` runtime call replaces the previous inline
+SSO-check sequence, saving 6 instructions and 2 blocks.
 
 #### @__lambda_check_capture_0: Ideal vs Actual
 
@@ -639,7 +670,7 @@ add.ovf_panic:
 ```
 
 ```llvm
-; ACTUAL (10 instructions — +1 dead load)
+; ACTUAL (10 instructions -- +1 dead load)
 ; Includes: %param.load = load { i64, i64, ptr }, ptr %1, align 8  (DEAD)
 ; Remaining 9 instructions identical to ideal
 ```
@@ -649,8 +680,17 @@ add.ovf_panic:
 #### @partial_0_drop: Ideal vs Actual
 
 ```llvm
-; IDEAL (12 instructions — same as actual)
+; IDEAL (12 instructions -- same as actual)
 ; SSO-check + select + unconditional rc_dec + rc_free is correct and tight
+```
+
+**Delta**: +0 instructions
+
+#### @_ori_drop$3: Ideal vs Actual
+
+```llvm
+; IDEAL (2 instructions -- same as actual)
+; rc_free + ret -- minimal str data drop
 ```
 
 **Delta**: +0 instructions
@@ -658,8 +698,8 @@ add.ovf_panic:
 #### @partial_1: Ideal vs Actual
 
 ```llvm
-; IDEAL (3 instructions — same as actual)
-; GEP + call + ret — minimal forwarding shim
+; IDEAL (3 instructions -- same as actual)
+; GEP + call + ret -- minimal forwarding shim
 ```
 
 **Delta**: +0 instructions
@@ -668,10 +708,11 @@ add.ovf_panic:
 
 | Function | Ideal | Actual | Delta | Justified | Verdict |
 |----------|-------|--------|-------|-----------|---------|
-| @check_capture | 34 | 34 | +0 | N/A | OPTIMAL |
+| @check_capture | 28 | 28 | +0 | N/A | OPTIMAL |
 | @main | 2 | 2 | +0 | N/A | OPTIMAL |
 | @__lambda | 9 | 10 | +1 | NO (dead load) | NEAR-OPTIMAL |
 | @partial_0_drop | 12 | 12 | +0 | N/A | OPTIMAL |
+| @_ori_drop$3 | 2 | 2 | +0 | N/A | OPTIMAL |
 | @partial_1 | 3 | 3 | +0 | N/A | OPTIMAL |
 
 ### 8. Closures: Fat Pointer Capture
@@ -691,19 +732,19 @@ convention), captured data immediately following. The 32-byte allocation is exac
 
 ### 9. Closures: SSO-Aware Cleanup
 
-Both `check_capture` and `partial_0_drop` perform SSO-aware RC dec on strings, but use
-different strategies:
+The string RC dec now uses two distinct strategies, split between the hot path and the cold drop path:
 
-- **check_capture** (for "world" str): Uses a **branch** -- checks SSO flag and null, branches
-  to either `rc_dec.heap` or `rc_dec.sso_skip`. Skips the `ori_rc_dec` call entirely for SSO.
+- **check_capture** (for "world" str): Uses `ori_str_rc_dec(data, cap, drop_fn)` -- a runtime
+  function that handles the SSO/null check internally. This is cleaner than the previous inline
+  approach: fewer IR instructions, single function call, same semantics. The runtime function has
+  `memory(inaccessiblemem: readwrite)` -- correctly indicating it only touches RC metadata.
 
 - **partial_0_drop** (for captured "hello" str): Uses a **select** -- `select i1 %skip, ptr null,
   ptr %data` to conditionally null out the pointer, then always calls `ori_rc_dec`. The runtime
-  handles null gracefully.
+  handles null gracefully. This is the correct approach for cold drop paths -- branchless, simple.
 
-Both strategies are correct. The branch approach saves a function call for SSO strings; the select
-approach is branchless but always pays the call overhead. For cold drop paths (marked `cold`),
-the select approach is acceptable. For hot paths, the branch approach is marginally better.
+The split is intentional: hot-path str cleanup uses a dedicated runtime function (`ori_str_rc_dec`),
+while cold-path env drop uses the generic `select` + `ori_rc_dec` pattern. Both are correct.
 
 ### 10. Closures: Calling Convention
 
@@ -723,10 +764,11 @@ The indirect call convention is well-designed:
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | IR Quality | Dead `param.load` in lambda | NEW | J17 |
-| 2 | NOTE | ARC | Excellent borrow elision on lambda parameters | NEW | J17 |
-| 3 | NOTE | Attributes | 100% attribute compliance, correct cold on drop fns | NEW | J17 |
-| 4 | NOTE | Closures | Clean env layout, correct SSO-aware cleanup | NEW | J17 |
+| 1 | LOW | IR Quality | Dead `param.load` in lambda | CONFIRMED | J17 |
+| 2 | NOTE | ARC | Excellent borrow elision on lambda parameters | CONFIRMED | J17 |
+| 3 | NOTE | Attributes | 100% attribute compliance, correct cold on drop fns | CONFIRMED | J17 |
+| 4 | NOTE | Closures | Clean env layout, correct SSO-aware cleanup | CONFIRMED | J17 |
+| 5 | NOTE | Codegen | str RC dec moved to `ori_str_rc_dec` runtime call -- 6 fewer IR instructions | NEW | J17 |
 
 ### LOW-1: Dead `param.load` in lambda
 
@@ -746,9 +788,10 @@ pointer), avoiding 2 rc_inc + 2 rc_dec operations per call. The str data is neve
 ### NOTE-3: 100% attribute compliance
 
 **Location**: All functions
-**Impact**: Positive -- `nounwind` on all user functions, `cold` on drop paths, `noundef` on
-return values, `nonnull dereferenceable(24)` on str parameters, `fastcc` on internal functions,
-C calling convention on `main` and closure shims (required for indirect calls).
+**Impact**: Positive -- `nounwind` on all user functions, `cold` on drop paths (`partial_0_drop`
+and `_ori_drop$3`), `noundef` on return values, `nonnull dereferenceable(24)` on str parameters,
+`fastcc` on internal functions, C calling convention on `main` and closure shims (required for
+indirect calls). `memory(inaccessiblemem: readwrite)` on `ori_rc_dec` and `ori_str_rc_dec`.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-4: Clean closure environment design
@@ -758,6 +801,15 @@ C calling convention on `main` and closure shims (required for indirect calls).
 uniform cleanup, SSO-aware string cleanup prevents RC operations on small strings, ownership
 transfer of captured str eliminates redundant RC operations.
 **Found in**: Closures: Fat Pointer Capture (Category 8)
+
+### NOTE-5: Runtime-consolidated str RC dec
+
+**Location**: `@_ori_check_capture`, str cleanup for "world"
+**Impact**: Positive -- the `ori_str_rc_dec(data, cap, drop_fn)` runtime call replaces what was
+previously an inline SSO-check sequence (6 instructions + 2 extra blocks). This reduces IR
+complexity while maintaining identical semantics. The `memory(inaccessiblemem: readwrite)` attribute
+allows LLVM to optimize around the call.
+**Found in**: Closures: SSO-Aware Cleanup (Category 9)
 
 ## Codegen Quality Score
 
@@ -777,11 +829,12 @@ transfer of captured str eliminates redundant RC operations.
 
 Journey 17's fat-pointer closure capture produces near-perfect codegen. The closure environment
 layout is tight (32 bytes, zero padding), ownership transfer of the captured string into the
-environment is correct, and the lambda achieves full borrow elision on both parameters. SSO-aware
-RC dec sequences correctly handle small string optimization. The only blemish is a dead
-`param.load` instruction in the lambda body, which LLVM optimization will eliminate. This journey
-validates that the compiler correctly handles fat pointer capture -- a critical feature intersection
-that previously caused crashes (see CLAUDE.md fat pointer bugs).
+environment is correct, and the lambda achieves full borrow elision on both parameters. The str
+RC dec for the "world" argument now uses the consolidated `ori_str_rc_dec` runtime call (down from
+inline SSO-check blocks), reducing `check_capture` from 34 to 28 instructions and from 5 to 3
+blocks. The only blemish is a dead `param.load` instruction in the lambda body, which LLVM
+optimization will eliminate. This journey validates that the compiler correctly handles fat pointer
+capture -- a critical feature intersection that previously caused crashes.
 
 ## Cross-Journey Observations
 
@@ -789,13 +842,14 @@ that previously caused crashes (see CLAUDE.md fat pointer bugs).
 |---------|-------------|--------------|--------|
 | Closure capture | J5 | J17 | CONFIRMED |
 | fastcc on internal fns | J1 | J17 | CONFIRMED |
-| nounwind on user fns | J5 | J17 | FIXED (was missing in J1) |
+| nounwind on user fns | J5 | J17 | CONFIRMED |
 | Overflow checking | J1 | J17 | CONFIRMED |
-| SSO-aware RC dec | N/A | J17 | NEW |
-| Fat pointer in closures | N/A | J17 | NEW |
+| SSO-aware RC dec | J9 | J17 | CONFIRMED |
+| Fat pointer in closures | N/A | J17 | CONFIRMED |
+| ori_str_rc_dec runtime | N/A | J17 | NEW |
 
 Journey 5 captured an `int` (scalar) -- no ARC needed for the capture. Journey 17 captures a
 `str` (fat pointer) -- requiring heap allocation for the environment, ownership transfer, and
-SSO-aware cleanup. This is a significant step up in complexity, and the codegen handles it
-correctly. The previous compiler bug (unresolved type variable at codegen for closure-captured str)
-noted in the source file header has been fixed.
+SSO-aware cleanup. The `ori_str_rc_dec` consolidation (new since last analysis) reduces IR
+complexity: the SSO check is now handled by the runtime rather than being inlined at every str
+cleanup site. This is a positive architectural improvement that benefits all str-using code paths.

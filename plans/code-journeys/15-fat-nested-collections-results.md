@@ -2,7 +2,7 @@
 journey: 15
 slug: fat-nested-collections
 theme: "I am nested fat"
-date: 2026-03-20
+date: 2026-03-22
 status: PASS
 expected: 18
 eval_result: 18
@@ -18,7 +18,7 @@ learning_objectives:
   - "See how list-of-strings creates nested ARC -- the list buffer holds string fat pointers, each string has its own RC"
   - "Understand element-level cleanup via _ori_elem_dec callback when the list buffer is dropped"
   - "Observe the iterator protocol over [str] -- fat pointer values copied out of the list buffer"
-  - "Compare per-field GEP+load codegen (old) vs aggregate load codegen (new) for fat pointer structs"
+  - "Understand how slice-aware ori_str_rc_dec replaced generic ori_rc_dec for correct string cleanup"
   - "Understand how nounwind propagation eliminates unnecessary landing pads and invoke instructions"
 
 features:
@@ -29,7 +29,7 @@ features:
   - loops
 feature_description: "Nested fat pointer collections: list of strings with element-level ARC, for-loop iteration, and multi-use list passing"
 
-score: 10.0
+score: 9.7
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
@@ -37,7 +37,7 @@ score_breakdown:
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
-  other_findings: 10
+  other_findings: 8
 score_metrics:
   instruction_ratio: 1.00
   instruction_ratio_max: 1.00
@@ -55,7 +55,7 @@ score_metrics:
   bin_hard_fail: false
   other_critical: 0
   other_high: 0
-  other_low: 0
+  other_low: 2
 overflow_check: PASS
 
 bugs_found:
@@ -123,7 +123,7 @@ related_journeys:
 | Eval    | 18        | 18       | (none) | (none) | PASS   |
 | AOT     | 18        | 18       | (none) | (none) | PASS   |
 
-Both backends produce the correct result. The AOT binary runs cleanly with no leak check failures or runtime errors. All three user functions are now marked `nounwind`, eliminating all exception handling infrastructure.
+Both backends produce the correct result. The AOT binary runs cleanly with no leak check failures. All three user functions are marked `nounwind`, eliminating exception handling infrastructure entirely.
 
 ## Compiler Pipeline
 
@@ -171,24 +171,24 @@ Ident(a) Plus Ident(b) RBrace
 
 ```text
 Module
-+-- FnDecl @count_chars
-|  +-- Params: (words: [str])
-|  +-- Return: int
-|  +-- Body: Block
-|       +-- Let total = 0
-|       +-- For w in words do total += w.length()
-|       +-- Ident(total)
-+-- FnDecl @total_items
-|  +-- Params: (xs: [str])
-|  +-- Return: int
-|  +-- Body: MethodCall(xs, length, [])
-+-- FnDecl @main
-   +-- Return: int
-   +-- Body: Block
-        +-- Let words = ["hello", "world", "12345"]
-        +-- Let a = count_chars(words: words)
-        +-- Let b = total_items(xs: words)
-        +-- BinOp(+, a, b)
+├─ FnDecl @count_chars
+│  ├─ Params: (words: [str])
+│  ├─ Return: int
+│  └─ Body: Block
+│       ├─ Let total = 0
+│       ├─ For w in words do total += w.length()
+│       └─ Ident(total)
+├─ FnDecl @total_items
+│  ├─ Params: (xs: [str])
+│  ├─ Return: int
+│  └─ Body: MethodCall(xs, length, [])
+└─ FnDecl @main
+   ├─ Return: int
+   └─ Body: Block
+        ├─ Let words = ["hello", "world", "12345"]
+        ├─ Let a = count_chars(words: words)
+        ├─ Let b = total_items(xs: words)
+        └─ BinOp(+, a, b)
 ```
 
 </details>
@@ -269,7 +269,7 @@ Module
 @main: +1 rc_inc (ori_list_rc_inc), +2 rc_dec (ori_buffer_rc_dec)
   - Normal path: 1x rc_dec (after count_chars) + 1x rc_dec (final cleanup in add.ok)
   - RC lifecycle: alloc(RC=1) -> rc_inc(RC=2) -> dec(RC=1) -> dec(RC=0, drop+elem cleanup)
-  - No unwind path -- all calls are nounwind, so no landing pads needed
+  - No unwind path: all calls are nounwind, no landing pads needed
 ```
 
 </details>
@@ -286,17 +286,17 @@ Module
 
 ```text
 @main()
-  +-- let words = ["hello", "world", "12345"]
-  +-- let a = @count_chars(words: ["hello", "world", "12345"])
-  |    +-- let total = 0
-  |    +-- for w in words:
-  |    |    +-- w = "hello", total = 0 + 5 = 5
-  |    |    +-- w = "world", total = 5 + 5 = 10
-  |    |    +-- w = "12345", total = 10 + 5 = 15
-  |    +-- total = 15
-  +-- let b = @total_items(xs: ["hello", "world", "12345"])
-  |    +-- xs.length() = 3
-  +-- a + b = 15 + 3 = 18
+  ├─ let words = ["hello", "world", "12345"]
+  ├─ let a = @count_chars(words: ["hello", "world", "12345"])
+  │    ├─ let total = 0
+  │    ├─ for w in words:
+  │    │    ├─ w = "hello", total = 0 + 5 = 5
+  │    │    ├─ w = "world", total = 5 + 5 = 10
+  │    │    └─ w = "12345", total = 10 + 5 = 15
+  │    └─ total = 15
+  ├─ let b = @total_items(xs: ["hello", "world", "12345"])
+  │    └─ xs.length() = 3
+  └─ a + b = 15 + 3 = 18
 -> 18
 ```
 
@@ -319,7 +319,7 @@ Module
 @count_chars: +1 rc_inc (ori_list_rc_inc), +0 explicit rc_dec
   - List parameter borrowed by-ref (ptr %0)
   - ori_list_rc_inc increments buffer RC to keep data alive during iteration
-  - ori_iter_from_list creates iterator with _ori_elem_dec$3 callback
+  - ori_iter_from_list creates iterator (4 args: data, len, cap, elem_size)
   - ori_iter_drop implicitly decrements buffer RC (balanced)
 @total_items: +0 rc_inc, +0 rc_dec (nounwind, readonly -- pure read)
 @main: +1 rc_inc (ori_list_rc_inc), +2 rc_dec (ori_buffer_rc_dec)
@@ -343,7 +343,7 @@ source_filename = "15-fat-nested-collections"
 
 ; Function Attrs: nounwind uwtable
 ; --- @count_chars ---
-define fastcc noundef i64 @_ori_count_chars(ptr noundef nonnull dereferenceable(24) %0) #0 {
+define fastcc noundef i64 @_ori_count_chars(ptr noundef nonnull readonly dereferenceable(24) %0) #0 {
 bb0:
   %iter_next.scratch = alloca { i64, i64, ptr }, align 8
   %param.load = load { i64, i64, ptr }, ptr %0, align 8
@@ -353,7 +353,7 @@ bb0:
   %list.data = extractvalue { i64, i64, ptr } %param.load, 2
   %list.len = extractvalue { i64, i64, ptr } %param.load, 0
   %list.cap = extractvalue { i64, i64, ptr } %param.load, 1
-  %list.iter = call ptr @ori_iter_from_list(ptr %list.data, i64 %list.len, i64 %list.cap, i64 24, ptr @"_ori_elem_dec$3")
+  %list.iter = call ptr @ori_iter_from_list(ptr %list.data, i64 %list.len, i64 %list.cap, i64 24)
   br label %bb1
 
 bb1:                                              ; preds = %bb2, %bb0
@@ -411,6 +411,8 @@ bb0:
   store { i64, i64, ptr } %sret.load2, ptr %list.elem_ptr5, align 8
   %list.elem_ptr6 = getelementptr inbounds { i64, i64, ptr }, ptr %list.data, i64 2
   store { i64, i64, ptr } %sret.load4, ptr %list.elem_ptr6, align 8
+  call void @ori_buffer_store_elem_dec(ptr %list.data, ptr @"_ori_elem_dec$3")
+  call void @ori_buffer_store_elem_count(ptr %list.data, i64 3)
   %list.2 = insertvalue { i64, i64, ptr } { i64 3, i64 3, ptr undef }, ptr %list.data, 2
   %rc_inc.data = extractvalue { i64, i64, ptr } %list.2, 2
   %rc_inc.cap = extractvalue { i64, i64, ptr } %list.2, 1
@@ -442,65 +444,33 @@ add.ovf_panic:                                    ; preds = %bb0
 
 ; Function Attrs: cold nounwind uwtable
 ; --- elem_dec.@3 ---
-define void @"_ori_elem_dec$3"(ptr noundef %0) #3 {
+define void @"_ori_elem_dec$3"(ptr noundef %0) #5 {
 entry:
   %elem = load { i64, i64, ptr }, ptr %0, align 8
-  %rc_dec.data = extractvalue { i64, i64, ptr } %elem, 2
-  %rc_dec.str.p2i = ptrtoint ptr %rc_dec.data to i64
-  %rc_dec.str.sso_flag = and i64 %rc_dec.str.p2i, -9223372036854775808
-  %rc_dec.str.is_sso = icmp ne i64 %rc_dec.str.sso_flag, 0
-  %rc_dec.str.is_null = icmp eq i64 %rc_dec.str.p2i, 0
-  %rc_dec.str.skip_rc = or i1 %rc_dec.str.is_sso, %rc_dec.str.is_null
-  br i1 %rc_dec.str.skip_rc, label %rc_dec.str_skip, label %rc_dec.str_heap
+  %elem.data = extractvalue { i64, i64, ptr } %elem, 2
+  %elem_dec.str.p2i = ptrtoint ptr %elem.data to i64
+  %elem_dec.str.sso_flag = and i64 %elem_dec.str.p2i, -9223372036854775808
+  %elem_dec.str.is_sso = icmp ne i64 %elem_dec.str.sso_flag, 0
+  %elem_dec.str.is_null = icmp eq i64 %elem_dec.str.p2i, 0
+  %elem_dec.str.skip_rc = or i1 %elem_dec.str.is_sso, %elem_dec.str.is_null
+  br i1 %elem_dec.str.skip_rc, label %elem_dec.str_skip, label %elem_dec.str_heap
 
-rc_dec.str_heap:                                  ; preds = %entry
-  call void @ori_rc_dec(ptr %rc_dec.data, ptr @"_ori_drop$3")  ; RC-- str
-  br label %rc_dec.str_skip
+elem_dec.str_heap:                                ; preds = %entry
+  %elem.cap = extractvalue { i64, i64, ptr } %elem, 1
+  call void @ori_str_rc_dec(ptr %elem.data, i64 %elem.cap, ptr @"_ori_drop$3")
+  br label %elem_dec.str_skip
 
-rc_dec.str_skip:                                  ; preds = %rc_dec.str_heap, %entry
+elem_dec.str_skip:                                ; preds = %elem_dec.str_heap, %entry
   ret void
 }
 
 ; Function Attrs: cold nounwind uwtable
 ; --- drop str ---
-define void @"_ori_drop$3"(ptr noundef %0) #3 {
+define void @"_ori_drop$3"(ptr noundef %0) #5 {
 entry:
   call void @ori_rc_free(ptr %0, i64 24, i64 8)
   ret void
 }
-
-; Runtime declarations
-declare void @ori_list_rc_inc(ptr, i64) #1
-declare ptr @ori_iter_from_list(ptr, i64, i64, i64, ptr) #2
-declare i8 @ori_iter_next(ptr, ptr, i64) #2
-declare void @ori_iter_drop(ptr) #2
-declare i64 @ori_str_len(ptr) #2
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #4
-declare void @ori_panic_cstr(ptr) #5
-declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #2
-declare ptr @ori_list_alloc_data(i64, i64) #2
-declare void @ori_buffer_rc_dec(ptr, i64, i64, i64, ptr) #1
-declare void @ori_rc_dec(ptr, ptr) #1
-declare void @ori_rc_free(ptr, i64, i64) #2
-declare i32 @ori_check_leaks() #2
-
-; Entry point wrapper
-define noundef i32 @main() #0 {
-entry:
-  %ori_main_result = call i64 @_ori_main()
-  %exit_code = trunc i64 %ori_main_result to i32
-  %leak_check = call i32 @ori_check_leaks()
-  %has_leak = icmp ne i32 %leak_check, 0
-  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
-  ret i32 %final_exit
-}
-
-attributes #0 = { nounwind uwtable }
-attributes #1 = { nounwind memory(inaccessiblemem: readwrite) }
-attributes #2 = { nounwind }
-attributes #3 = { cold nounwind uwtable }
-attributes #4 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #5 = { cold noreturn }
 ```
 
 #### Disassembly
@@ -514,7 +484,6 @@ _ori_count_chars:
    mov    0x8(%rax),%rsi            ; load list.cap
    call   ori_list_rc_inc           ; RC++ for iterator safety
    mov    $0x18,%ecx                ; elem_size = 24
-   lea    _ori_elem_dec$3(%rip),%r8 ; element destructor
    call   ori_iter_from_list        ; create iterator
    xor    %eax,%eax                 ; total = 0
 .loop:
@@ -541,51 +510,10 @@ _ori_count_chars:
 
 ```asm
 _ori_total_items:
-   mov    0x10(%rdi),%rax   ; load field 2 (data ptr) -- dead
+   mov    0x10(%rdi),%rax   ; load field 2 (data ptr) -- dead in debug
    mov    (%rdi),%rax       ; load field 0 (len) -- overwrites rax
-   mov    0x8(%rdi),%rcx    ; load field 1 (cap) -- dead
+   mov    0x8(%rdi),%rcx    ; load field 1 (cap) -- dead in debug
    ret
-```
-
-```asm
-_ori_main:
-   push   %r14
-   push   %rbx
-   sub    $0xf8,%rsp
-   ; --- create 3 strings via ori_str_from_raw ---
-   lea    "hello"(%rip),%rsi
-   lea    0x80(%rsp),%rdi
-   mov    $0x5,%edx
-   call   ori_str_from_raw          ; str[0] = "hello"
-   ; ... load aggregate ...
-   call   ori_str_from_raw          ; str[1] = "world"
-   ; ... load aggregate ...
-   call   ori_str_from_raw          ; str[2] = "12345"
-   ; --- allocate list buffer ---
-   mov    $0x3,%edi
-   mov    $0x18,%esi
-   call   ori_list_alloc_data       ; alloc 3x24 byte buffer
-   ; --- store 3 string fat pointers into buffer ---
-   ; ... 9 mov instructions for 3x {len,cap,data} ...
-   ; --- rc_inc for multi-use ---
-   call   ori_list_rc_inc           ; RC 1->2
-   ; --- call count_chars (plain call, nounwind) ---
-   lea    0xc8(%rsp),%rdi
-   call   _ori_count_chars          ; a = count_chars(words)
-   ; --- rc_dec after count_chars (RC 2->1) ---
-   call   ori_buffer_rc_dec
-   ; --- call total_items (plain call, nounwind) ---
-   lea    0xe0(%rsp),%rdi
-   call   _ori_total_items          ; b = total_items(words)
-   ; --- a + b with overflow check ---
-   add    %rcx,%rax
-   jo     .overflow_panic
-   ; --- final rc_dec (RC 1->0, drop + element cleanup) ---
-   call   ori_buffer_rc_dec
-   ret
-.overflow_panic:
-   lea    ovf.msg(%rip),%rdi
-   call   ori_panic_cstr
 ```
 
 ## Deep Scrutiny
@@ -596,68 +524,59 @@ _ori_main:
 |---|----------|--------|-------|-------|---------|
 | 1 | @count_chars | 25 | 25 | 1.00x | OPTIMAL |
 | 2 | @total_items | 3 | 3 | 1.00x | OPTIMAL |
-| 3 | @main | 41 | 41 | 1.00x | OPTIMAL |
-| 4 | @_ori_elem_dec$3 | 11 | 11 | 1.00x | OPTIMAL |
+| 3 | @main | 43 | 43 | 1.00x | OPTIMAL |
 
-**@count_chars** (25 actual vs 25 ideal): The loop body now passes the `iter_next.scratch` pointer directly to `ori_str_len` without option wrapping or alloca round-trip. The previous codegen had 31 instructions with +7 unjustified from option struct reconstruction and a separate `str_len.self` alloca. All 25 current instructions are justified: aggregate load for param, extractvalues for RC/iterator args, phi for accumulator, overflow-checked add, and iterator cleanup. One dead load (`%proj.1`) exists in the IR but is LLVM-level dead code that contributes zero runtime cost. [NOTE-1]
+**@count_chars** (25 instructions): Loads parameter, extracts data/cap for rc_inc, extracts data/len/cap for iterator creation, then enters the loop: phi for accumulator, iter_next call, zext+icmp for tag check, branch. Loop body: load scratch (dead -- see LOW-1), ori_str_len call, overflow-checked add (sadd.with.overflow + 2 extractvalues + branch). Exit: iter_drop + ret. Panic: ori_panic_cstr + unreachable. Every instruction serves a purpose in the iterator protocol or overflow safety. The dead load at `%proj.1` is the only waste but the tool counts it as justified since it's part of the iterator extraction pattern.
 
-**@total_items** (3 actual vs 3 ideal): A single aggregate load, one extractvalue for the length field, and ret. OPTIMAL. [NOTE-2]
+**@total_items** (3 instructions): load + extractvalue + ret. Truly minimal -- extracts just the length field from the fat pointer parameter.
 
-**@main** (41 actual vs 41 ideal): String construction via `ori_str_from_raw` + aggregate loads, list buffer allocation, element stores via GEP, rc_inc for sharing, two function calls (both plain `call`, not `invoke`), overflow-checked addition, and two `ori_buffer_rc_dec` calls for cleanup. No invoke/landingpad overhead -- all functions are nounwind. [NOTE-3]
-
-**@_ori_elem_dec$3** (11 actual vs 11 ideal): Clean aggregate load, SSO flag check via ptrtoint+and+icmp, null check, conditional ori_rc_dec. All instructions justified.
+**@main** (43 instructions): 5 allocas for sret temps and ref args, 3 ori_str_from_raw calls + loads, list_alloc_data, 3 GEP+stores for elements, buffer_store_elem_dec + buffer_store_elem_count, insertvalue to assemble list struct, 2 extractvalues + rc_inc for borrow, store + call count_chars, 3 extractvalues + rc_dec (release borrow), store + call total_items, overflow-checked add (4 instructions), branch to add.ok or panic. add.ok: 3 extractvalues + rc_dec (final cleanup) + ret. Panic block: 2 instructions. All justified for the amount of work being done.
 
 ### 2. ARC Purity
 
 | Function | rc_inc | rc_dec | Balanced | Borrow Elision | Move Semantics |
 |----------|--------|--------|----------|----------------|----------------|
-| @count_chars | 1 | 0 (explicit) / 1 (implicit via iter_drop) | YES | 1 (param borrowed by-ref) | 0 moves |
-| @total_items | 0 | 0 | YES | 1 (param borrowed, readonly) | 0 moves |
-| @main | 1 | 2 | YES (ownership transfer) | 0 | 0 |
-| @_ori_elem_dec$3 | 0 | 0-1 (conditional) | YES | N/A (callback) | 0 |
+| @count_chars | 1 | 0 (+1 implicit) | YES | N/A | N/A |
+| @total_items | 0 | 0 | YES | 1 elided | N/A |
+| @main | 1 | 2 | YES | N/A | 1 ownership transfer |
 
-**Verdict**: All functions are correctly balanced. No leaks or double-frees. Zero violations.
+**Verdict**: All functions are RC-balanced. The list lifecycle is clean:
 
-**RC lifecycle in @main**:
-1. `ori_list_alloc_data` creates buffer with implicit RC=1
-2. `ori_list_rc_inc` increments to RC=2 (needed for multi-use: count_chars then total_items)
-3. After `count_chars` returns: `ori_buffer_rc_dec` brings RC from 2 to 1
-4. In `add.ok`: `ori_buffer_rc_dec` brings RC from 1 to 0, triggering buffer drop which calls `_ori_elem_dec$3` on each of the 3 string elements
+1. `ori_list_alloc_data` creates list buffer (RC=1)
+2. `ori_list_rc_inc` bumps to RC=2 before passing to `count_chars`
+3. First `ori_buffer_rc_dec` after `count_chars` returns drops borrow (RC=1)
+4. Second `ori_buffer_rc_dec` in `add.ok` is final drop (RC=0), triggers element cleanup via `_ori_elem_dec$3`
+5. `_ori_elem_dec$3` iterates elements, calling `ori_str_rc_dec` for each heap string
 
-**RC lifecycle in @count_chars**:
-1. Receives list by-ref (no ownership transfer)
-2. `ori_list_rc_inc` increments caller's buffer RC to keep data alive during iteration
-3. `ori_iter_from_list` creates iterator backed by the list data
-4. Loop iterates all elements; `ori_iter_next` copies fat pointers out of buffer
-5. `ori_iter_drop` cleans up iterator state and implicitly decrements buffer RC
+The element-level destructor `_ori_elem_dec$3` correctly uses `ori_str_rc_dec` (slice-aware) with SSO guard: checks bit 63 of data pointer to skip RC for inline strings, and null check for safety. For these 5-char strings ("hello", "world", "12345"), SSO applies -- they fit in 23 bytes -- so the SSO guard short-circuits and no heap RC ops are needed for the string elements themselves.
 
-**No unwind path**: With all functions marked `nounwind`, there is no bb2 landing pad. The previous codegen had a `personality ptr @ori_eh_personality` and `invoke`/`landingpad` in `@main` with 2x `ori_buffer_rc_dec` for exception cleanup. This entire EH infrastructure has been correctly eliminated.
+`@count_chars` calls `ori_list_rc_inc` to keep the buffer alive during iteration. The matching decrement happens implicitly inside `ori_iter_drop`.
+
+`@total_items` achieves perfect borrow elision: the parameter is `readonly dereferenceable(24)`, no RC ops at all.
 
 ### 3. Attributes & Calling Convention
 
 | Function | fastcc | nounwind | noalias | readonly | cold | Notes |
 |----------|--------|----------|---------|----------|------|-------|
-| @count_chars | YES | YES | N/A | N/A | NO | [NOTE-4] nounwind now applied |
-| @total_items | YES | YES | N/A | YES | NO | [NOTE-2] readonly + nounwind |
-| @main (_ori_main) | C (correct) | YES | N/A | N/A | NO | [NOTE-3] nounwind enables plain call |
-| @_ori_elem_dec$3 | C | YES | N/A | N/A | YES | Correct: cold callback |
-| @_ori_drop$3 | C | YES | N/A | N/A | YES | Correct: cold destructor |
-| @main (entry) | C | YES | N/A | N/A | NO | Correct |
+| @count_chars | YES | YES | N/A | param | NO | |
+| @total_items | YES | YES | N/A | param | NO | |
+| @main | NO (C) | YES | N/A | N/A | NO | C calling convention for entry point |
+| @_ori_elem_dec$3 | NO (C) | YES | N/A | N/A | YES | cold -- only called during drop |
+| @_ori_drop$3 | NO (C) | YES | N/A | N/A | YES | cold -- only called during drop |
 
-**Attribute compliance**: 20/20 = 100.0%. All applicable attributes are correctly applied. No wrong attributes.
-
-The `nounwind` propagation analysis correctly determined that all 3 user functions are non-unwinding (the overflow panic calls `ori_panic_cstr` which is `cold noreturn`, not unwinding). This is a significant improvement from the previous analysis where `@count_chars` and `@_ori_main` lacked `nounwind`, requiring `invoke`/`landingpad` in `@main`.
+All user functions have `nounwind`, eliminating exception handling infrastructure. `fastcc` is correctly applied to non-entry user functions. Entry point `@main` correctly uses C calling convention. Element destructor and drop function are correctly marked `cold` since they only run during cleanup. Both `@count_chars` and `@total_items` have `readonly` on their list parameter, correctly indicating they don't modify the parameter pointer's memory. Runtime declarations have appropriate `memory(inaccessiblemem: readwrite)` on RC functions. 100% attribute compliance.
 
 ### 4. Control Flow & Block Layout
 
 | Function | Blocks | Empty Blocks | Redundant Branches | Phi Nodes | Notes |
 |----------|--------|-------------|-------------------|-----------|-------|
-| @count_chars | 4 | 0 | 0 | 1 (loop accumulator) | Clean loop with overflow panic |
-| @total_items | 1 | 0 | 0 | 0 | Single block, optimal |
-| @main | 3 | 0 | 0 | 0 | bb0 + add.ok + ovf_panic |
-| @_ori_elem_dec$3 | 3 | 0 | 0 | 0 | Clean SSO/null conditional |
+| @count_chars | 4 | 0 | 0 | 1 | phi for accumulator |
+| @total_items | 1 | 0 | 0 | 0 | |
+| @main | 3 | 0 | 0 | 0 | |
+| @_ori_elem_dec$3 | 3 | 0 | 0 | 0 | SSO guard branching |
+| @_ori_drop$3 | 1 | 0 | 0 | 0 | |
 
-**Verdict**: Control flow is clean across all functions. The `@count_chars` loop uses a proper phi node for the accumulator. The `@main` function now has only 3 blocks (bb0, add.ok, ovf_panic) -- reduced from 5 blocks in the previous analysis (which included bb1 normal, bb2 unwind for exception handling). No empty blocks or redundant branches.
+Control flow is clean throughout. `@count_chars` has the ideal loop structure: bb0 (setup) -> bb1 (loop header with phi) -> bb2 (loop body) or bb3 (exit). The phi node `%v512` for the running total is the correct pattern for a loop accumulator. `@main` splits into bb0 (main body), add.ok (normal exit), and add.ovf_panic (overflow path) -- minimal and clean. No empty blocks, no redundant unconditional branches.
 
 ### 5. Overflow Checking
 
@@ -665,190 +584,223 @@ The `nounwind` propagation analysis correctly determined that all 3 user functio
 
 | Operation | Checked | Correct | Notes |
 |-----------|---------|---------|-------|
-| total += w.length() | YES | YES | llvm.sadd.with.overflow in @count_chars bb2 |
-| a + b | YES | YES | llvm.sadd.with.overflow in @main bb0 |
+| add (count_chars loop) | YES | YES | llvm.sadd.with.overflow.i64 on total += str.len |
+| add (main a + b) | YES | YES | llvm.sadd.with.overflow.i64 on final sum |
 
-Both integer additions use `llvm.sadd.with.overflow.i64` with proper panic on overflow.
+Both addition operations use `llvm.sadd.with.overflow.i64` with branch to `ori_panic_cstr` on overflow. The overflow message is a shared constant: `"integer overflow on addition\0"`.
 
 ### 6. Binary Analysis
 
 | Metric | Value |
 |--------|-------|
-| Binary size | 6.39 MiB (debug) |
-| .text section | 908 KiB |
+| Binary size | 6.42 MiB (debug) |
+| .text section | 914 KiB |
 | .rodata section | 134 KiB |
-| User code | ~350 bytes (count_chars: ~190, total_items: ~12, main: ~140, elem_dec: ~50) |
+| User code (@count_chars) | 179 bytes (0x1c100-0x1c1b3) |
+| User code (@total_items) | 12 bytes (0x1c1c0-0x1c1cc) |
+| User code (@main) | 576 bytes (0x1c1d0-0x1c41a) |
+| User code (@_ori_elem_dec$3) | 88 bytes (0x1c420-0x1c478) |
+| User code (@_ori_drop$3) | 18 bytes (0x1c480-0x1c492) |
 | Runtime | >99% of binary |
 
 #### Disassembly: @total_items
 
 ```asm
 _ori_total_items:
-   mov    0x10(%rdi),%rax   ; load field 2 (data ptr) -- dead
-   mov    (%rdi),%rax       ; load field 0 (len) -- overwrites rax
-   mov    0x8(%rdi),%rcx    ; load field 1 (cap) -- dead
+   mov    0x10(%rdi),%rax   ; load data ptr (dead in debug)
+   mov    (%rdi),%rax       ; load len (overwrites rax)
+   mov    0x8(%rdi),%rcx    ; load cap (dead in debug)
    ret
 ```
 
-The native code shows 3 loads but only the length is used. The aggregate LLVM `load` materializes all 3 fields in debug mode (-O0). LLVM's register allocator reuses `%rax`, making the first load dead at the native level as well. The 2 dead loads are benign at -O0 and would be eliminated at -O1+. No functional defect. [LOW-1]
+`@total_items` compiles to 4 instructions (3 loads + ret), but 2 loads are dead -- they load fields that are never used. This is a debug-mode artifact; LLVM optimization passes would eliminate the dead loads. The function is still compact at 12 bytes.
+
+#### Disassembly: @_ori_elem_dec$3
+
+```asm
+_ori_elem_dec$3:
+   sub    $0x18,%rsp
+   mov    0x10(%rdi),%rcx         ; load data ptr
+   mov    (%rdi),%rax             ; load len (unused)
+   mov    0x8(%rdi),%rax          ; load cap
+   movabs $0x8000000000000000,%rdx ; SSO flag mask
+   and    %rdx,%rax               ; check bit 63
+   cmp    $0x0,%rax               ; is SSO?
+   setne  %al
+   cmp    $0x0,%rcx               ; is null?
+   sete   %cl
+   or     %cl,%al                 ; skip if SSO or null
+   test   $0x1,%al
+   jne    .skip                   ; -> skip RC dec
+   mov    cap,%rsi                ; load saved cap
+   mov    data,%rdi               ; load saved data ptr
+   lea    _ori_drop$3,%rdx        ; drop function
+   call   ori_str_rc_dec          ; RC-- (slice-aware)
+.skip:
+   add    $0x18,%rsp
+   ret
+```
+
+The SSO guard pattern is well-formed: checks bit 63 for inline-string flag and null-checks the pointer, short-circuiting the RC decrement for SSO strings. For this journey's 5-character strings, SSO applies, so the guard prevents unnecessary RC work.
 
 ### 7. Optimal IR Comparison
-
-#### @total_items: Ideal vs Actual
-
-```llvm
-; IDEAL (3 instructions)
-define fastcc noundef i64 @_ori_total_items(ptr noundef nonnull readonly dereferenceable(24) %0) nounwind {
-  %param.load = load { i64, i64, ptr }, ptr %0, align 8
-  %list.len = extractvalue { i64, i64, ptr } %param.load, 0
-  ret i64 %list.len
-}
-```
-
-```llvm
-; ACTUAL (3 instructions) -- MATCHES IDEAL
-define fastcc noundef i64 @_ori_total_items(ptr noundef nonnull readonly dereferenceable(24) %0) #0 {
-bb0:
-  %param.load = load { i64, i64, ptr }, ptr %0, align 8
-  %list.len = extractvalue { i64, i64, ptr } %param.load, 0
-  ret i64 %list.len
-}
-```
-
-**Delta**: 0 instructions. OPTIMAL.
 
 #### @count_chars: Ideal vs Actual
 
 ```llvm
 ; IDEAL (25 instructions)
-define fastcc noundef i64 @_ori_count_chars(ptr noundef nonnull dereferenceable(24) %0) nounwind {
+define fastcc noundef i64 @_ori_count_chars(ptr noundef nonnull readonly dereferenceable(24) %0) nounwind {
 bb0:
-  %scratch = alloca { i64, i64, ptr }, align 8
-  %param = load { i64, i64, ptr }, ptr %0, align 8
-  %data = extractvalue { i64, i64, ptr } %param, 2
-  %cap = extractvalue { i64, i64, ptr } %param, 1
-  call void @ori_list_rc_inc(ptr %data, i64 %cap)
-  %data2 = extractvalue { i64, i64, ptr } %param, 2
-  %len = extractvalue { i64, i64, ptr } %param, 0
-  %cap2 = extractvalue { i64, i64, ptr } %param, 1
-  %iter = call ptr @ori_iter_from_list(ptr %data2, i64 %len, i64 %cap2, i64 24, ptr @elem_dec)
-  br label %loop
-loop:
-  %total = phi i64 [0, %bb0], [%new_total, %body]
-  %has = call i8 @ori_iter_next(ptr %iter, ptr %scratch, i64 24)
+  %iter_next.scratch = alloca { i64, i64, ptr }, align 8
+  %param.load = load { i64, i64, ptr }, ptr %0, align 8
+  %rc_inc.data = extractvalue { i64, i64, ptr } %param.load, 2
+  %rc_inc.cap = extractvalue { i64, i64, ptr } %param.load, 1
+  call void @ori_list_rc_inc(ptr %rc_inc.data, i64 %rc_inc.cap)
+  %list.data = extractvalue { i64, i64, ptr } %param.load, 2
+  %list.len = extractvalue { i64, i64, ptr } %param.load, 0
+  %list.cap = extractvalue { i64, i64, ptr } %param.load, 1
+  %list.iter = call ptr @ori_iter_from_list(ptr %list.data, i64 %list.len, i64 %list.cap, i64 24)
+  br label %bb1
+bb1:
+  %v512 = phi i64 [ 0, %bb0 ], [ %sum, %bb2 ]
+  %has = call i8 @ori_iter_next(ptr %list.iter, ptr %iter_next.scratch, i64 24)
   %tag = zext i8 %has to i64
-  %cond = icmp ne i64 %tag, 0
-  br i1 %cond, label %body, label %exit
-body:
-  %dead = load { i64, i64, ptr }, ptr %scratch, align 8
-  %slen = call i64 @ori_str_len(ptr %scratch)
-  %r = call {i64,i1} @llvm.sadd.with.overflow.i64(i64 %total, i64 %slen)
-  %new_total = extractvalue {i64,i1} %r, 0
-  %ovf = extractvalue {i64,i1} %r, 1
-  br i1 %ovf, label %panic, label %loop
-exit:
-  call void @ori_iter_drop(ptr %iter)
-  ret i64 %total
+  %ne = icmp ne i64 %tag, 0
+  br i1 %ne, label %bb2, label %bb3
+bb2:
+  ; IDEAL would omit the dead %proj.1 load here
+  %str.len = call i64 @ori_str_len(ptr %iter_next.scratch)
+  %r = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %v512, i64 %str.len)
+  %sum = extractvalue { i64, i1 } %r, 0
+  %ovf = extractvalue { i64, i1 } %r, 1
+  br i1 %ovf, label %panic, label %bb1
+bb3:
+  call void @ori_iter_drop(ptr %list.iter)
+  ret i64 %v512
 panic:
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 }
 ```
 
-**Delta**: 0 instructions. OPTIMAL. The scratch buffer pointer is now passed directly to `ori_str_len` without option wrapping or alloca round-trip. One dead load (`%proj.1`/`%dead`) exists but has zero runtime cost since LLVM eliminates it during ISel. The previous codegen had +7 unjustified instructions from option struct reconstruction and separate `str_len.self` alloca.
+**Delta**: +1 instruction (dead `%proj.1` load in loop body). The actual IR loads the full fat pointer struct from the iterator scratch buffer even though only `ori_str_len` needs the pointer. This is functionally harmless and LLVM's dead-code elimination would remove it in optimized builds. [LOW-1]
+
+#### @total_items: Ideal vs Actual
+
+```llvm
+; IDEAL (3 instructions)
+define fastcc noundef i64 @_ori_total_items(ptr noundef nonnull readonly dereferenceable(24) %0) nounwind {
+bb0:
+  %param.load = load { i64, i64, ptr }, ptr %0, align 8
+  %list.len = extractvalue { i64, i64, ptr } %param.load, 0
+  ret i64 %list.len
+}
+```
+
+**Delta**: +0 instructions. OPTIMAL.
 
 #### @main: Ideal vs Actual
 
 ```llvm
-; IDEAL (41 instructions)
-; String creation (3x call + 3x load = 6), list alloc (1 call),
-; 3x GEP+store (6), list construction (1 insertvalue), rc_inc (2 extractvalue + 1 call),
-; ref_arg store + count_chars call (2), rc_dec (3 extractvalue + 1 call),
-; ref_arg7 store + total_items call (2), overflow add (4: call + 2 extractvalue + br),
-; add.ok: 3 extractvalue + 1 call rc_dec + ret (5),
-; ovf_panic: call + unreachable (2)
-; Total: 41
+; IDEAL (43 instructions)
+; The actual IR matches the ideal for this function. Every instruction is
+; justified by: string construction (3x ori_str_from_raw + load), list
+; allocation (alloc + 3x GEP+store + metadata stores + insertvalue),
+; RC management (rc_inc + 2x rc_dec), function calls (2x store + call),
+; overflow-checked addition (sadd + extractvalue x2 + branch), and
+; cleanup (extractvalue x3 + rc_dec + ret in add.ok block).
 ```
 
-**Delta**: 0 instructions. OPTIMAL. No invoke/landingpad overhead since all functions are nounwind.
+**Delta**: +0 instructions. OPTIMAL.
 
 #### Module Summary
 
 | Function | Ideal | Actual | Delta | Justified | Verdict |
 |----------|-------|--------|-------|-----------|---------|
-| @count_chars | 25 | 25 | +0 | N/A | OPTIMAL |
+| @count_chars | 24 | 25 | +1 | PARTIAL (dead load) | NEAR-OPTIMAL |
 | @total_items | 3 | 3 | +0 | N/A | OPTIMAL |
-| @main | 41 | 41 | +0 | N/A | OPTIMAL |
-| @_ori_elem_dec$3 | 11 | 11 | +0 | N/A | OPTIMAL |
+| @main | 43 | 43 | +0 | N/A | OPTIMAL |
 
-### 8. Nested ARC: List-of-Strings Cleanup
+### 8. ARC: Nested Element Cleanup
 
-The core test of this journey: when a `[str]` list is dropped, the list buffer destructor calls `_ori_elem_dec$3` on each string element, which checks the SSO flag and conditionally calls `ori_rc_dec` on the string's data pointer. This creates a two-level ARC cleanup chain:
+The `_ori_elem_dec$3` callback is the centerpiece of nested ARC correctness. When the list buffer's RC reaches zero, `ori_buffer_rc_dec` iterates through all elements and calls this function for each one. The function implements the SSO guard pattern for strings:
 
-1. **List buffer**: RC managed by `ori_list_rc_inc` / `ori_buffer_rc_dec`
-2. **String elements**: RC managed by `ori_rc_dec` via the `_ori_elem_dec$3` callback
+1. Load the string fat pointer from the element slot
+2. Extract the data pointer
+3. `ptrtoint` + bitwise AND with `0x8000000000000000` to check bit 63 (SSO flag)
+4. Also null-check the data pointer
+5. If SSO or null: skip RC decrement entirely
+6. If heap string: call `ori_str_rc_dec(data, cap, drop_fn)` to decrement the string's own RC
 
-The `_ori_elem_dec$3` callback correctly implements the SSO guard pattern:
-- Check if the data pointer has the SSO flag set (bit 63) -- if so, skip RC (inline string)
-- Check if the data pointer is null -- if so, skip RC
-- Otherwise, call `ori_rc_dec` on the heap-allocated string data
+This is the slice-aware version (`ori_str_rc_dec` instead of the older `ori_rc_dec`), which correctly handles both regular heap strings and string slices. The drop function `_ori_drop$3` calls `ori_rc_free(ptr, 24, 8)` to free the 24-byte allocation with 8-byte alignment.
 
-The 5-character strings ("hello", "world", "12345") are exactly at the SSO boundary -- they may or may not use heap allocation depending on the runtime's SSO threshold. The SSO guard ensures correct behavior in both cases.
+For this journey, all three strings ("hello", "world", "12345") are 5 characters and fit within the 23-byte SSO threshold. The SSO guard short-circuits, meaning zero heap RC operations occur during element cleanup. This is a strength of the codegen: it generates the full guard pattern even when SSO is guaranteed, ensuring correctness for any string content.
 
-### 9. Nounwind Propagation Impact
+### 9. Strings: SSO vs Heap Discrimination
 
-The most significant improvement since the previous analysis is the complete elimination of exception handling infrastructure. The nounwind fixed-point analysis (2 passes, 3 functions identified as nounwind) correctly determined that:
+All three string literals in this journey are 5 bytes ("hello", "world", "12345"), well within the 23-byte SSO limit. The codegen correctly:
 
-- `@count_chars` cannot unwind: `ori_panic_cstr` is `cold noreturn` (aborts, doesn't unwind), all other calls are runtime functions marked `nounwind`
-- `@total_items` cannot unwind: pure read, no calls that can throw
-- `@_ori_main` cannot unwind: calls only nounwind functions
+1. Stores null-terminated C string constants in `.rodata` (6 bytes each: 5 + null)
+2. Calls `ori_str_from_raw(sret, raw_ptr, len)` to create OriStr values -- SSO strings store their content inline in the fat pointer struct itself, with bit 63 of the data field set as an SSO marker
+3. The `_ori_elem_dec$3` SSO guard correctly identifies these as SSO and skips RC operations
 
-This eliminated from `@main`:
-- `personality ptr @ori_eh_personality` declaration
-- `invoke` instruction (replaced with `call`)
-- `landingpad` block (bb2) with 2x `ori_buffer_rc_dec` + `resume`
-- Total savings: ~12 instructions and 2 blocks
+There is no observed issue with SSO handling -- the guard pattern and the runtime cooperate correctly. [NOTE-3]
+
+### 10. Lists: Iterator Protocol Correctness
+
+The for-loop over `[str]` exercises the full iterator protocol:
+
+1. `ori_list_rc_inc` -- increment list buffer RC before creating iterator (prevents buffer from being freed while iterating)
+2. `ori_iter_from_list(data, len, cap, elem_size=24)` -- create iterator state (4 args, element destructor stored in buffer header)
+3. Loop: `ori_iter_next(iter, scratch, elem_size=24)` copies each 24-byte string fat pointer into the scratch buffer
+4. `ori_str_len(scratch_ptr)` reads the length from the copied string
+5. `ori_iter_drop(iter)` -- cleans up iterator and implicitly decrements the list buffer RC
+
+The iterator correctly handles fat pointer elements: each `ori_iter_next` copies a full 24-byte `{len, cap, data}` struct into the scratch alloca. The string is not RC-incremented for iteration because the iterator holds a borrow of the list buffer (via the rc_inc in step 1), and `ori_str_len` only reads the length field without consuming the string. [NOTE-4]
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Binary | Dead loads of cap/data fields in @total_items native code | CONFIRMED | J15 |
-| 2 | NOTE | IR Quality | @total_items codegen OPTIMAL (3 instructions, aggregate load) | CONFIRMED | J15 |
-| 3 | NOTE | IR Quality | @count_chars loop body now passes scratch ptr directly to ori_str_len | FIXED | J15 |
-| 4 | NOTE | Attributes | nounwind now applied to all 3 user functions | FIXED | J15 |
-| 5 | NOTE | Control Flow | @main reduced from 5 blocks to 3 via nounwind elimination of EH | FIXED | J15 |
+| 1 | LOW | IR Quality | Dead `%proj.1` load in @count_chars loop body | NEW | J15 |
+| 2 | LOW | Binary | Dead loads in @total_items disassembly (debug mode) | NEW | J15 |
+| 3 | NOTE | ARC | SSO guard correctly short-circuits for 5-byte strings | NEW | J15 |
+| 4 | NOTE | Iterators | Clean iterator protocol with implicit RC balance | NEW | J15 |
+| 5 | NOTE | ARC | Slice-aware ori_str_rc_dec in element destructor | NEW | J15 |
 
-### LOW-1: Dead loads in @total_items native code
+### LOW-1: Dead `%proj.1` load in @count_chars loop body
 
-**Location**: @total_items disassembly -- loads data and cap fields that are never used
-**Impact**: 2 unnecessary `mov` instructions at -O0. Would be eliminated at -O1+. The LLVM IR is correct (aggregate load), but the debug-mode native code materializes all 3 fields.
+**Location**: @count_chars, bb2 block, `%proj.1 = load { i64, i64, ptr }, ptr %iter_next.scratch, align 8`
+**Impact**: One unnecessary 24-byte load per loop iteration. LLVM optimization would eliminate this in release builds. In debug mode, this load is harmless but wasteful -- it reads the full string fat pointer from the scratch buffer even though only `ori_str_len` needs the pointer to the scratch buffer.
+**Fix**: The codegen should omit the load when the iterator element is only passed by pointer to a runtime function, not destructured in user code.
+**First seen**: Journey 15
+**Found in**: Optimal IR Comparison (Category 7)
+
+### LOW-2: Dead loads in @total_items disassembly (debug mode)
+
+**Location**: @total_items native code -- loads data ptr and cap fields that are never used
+**Impact**: 2 unnecessary memory loads (8 bytes each) per call. Debug-only issue; LLVM optimization would eliminate these dead loads. The aggregate `load { i64, i64, ptr }` in the LLVM IR is correct -- the dead loads are an artifact of unoptimized code generation.
+**Fix**: Not actionable -- this is inherent to debug-mode aggregate loads and would be eliminated by LLVM's dead store elimination pass.
 **First seen**: Journey 15
 **Found in**: Binary Analysis (Category 6)
 
-### NOTE-2: @total_items codegen OPTIMAL
+### NOTE-3: SSO guard correctly short-circuits for 5-byte strings
 
-**Location**: @total_items function body
-**Impact**: Positive -- 3 instructions with aggregate load pattern. Was previously 11 instructions with per-field GEP chains (3.67x ratio).
-**Found in**: Instruction Purity (Category 1)
+**Location**: @_ori_elem_dec$3
+**Impact**: Positive -- all string elements bypass heap RC operations via SSO detection, resulting in zero unnecessary RC work during list cleanup. The guard pattern (bit 63 check + null check) is well-formed and handles both SSO and heap strings correctly.
+**Found in**: ARC: Nested Element Cleanup (Category 8)
 
-### NOTE-3: @count_chars option wrapping eliminated
+### NOTE-4: Clean iterator protocol with implicit RC balance
 
-**Location**: @count_chars bb1/bb2 -- iterator next handling
-**Impact**: Positive -- the scratch buffer pointer is now passed directly to `ori_str_len` without option struct wrapping (+5 insertvalue/extractvalue) or alloca round-trip (+2 store/load). Saved 7 instructions per loop iteration.
-**Found in**: Optimal IR Comparison (Category 7)
+**Location**: @count_chars, full function
+**Impact**: Positive -- the iterator protocol achieves RC balance through implicit bookkeeping. The explicit `ori_list_rc_inc` at the start is matched by an implicit decrement inside `ori_iter_drop`. No explicit rc_dec is needed in user code, and the pattern is safe against early breaks (ori_iter_drop would still run).
+**Found in**: Lists: Iterator Protocol Correctness (Category 10)
 
-### NOTE-4: nounwind propagation complete
+### NOTE-5: Slice-aware ori_str_rc_dec in element destructor
 
-**Location**: All user function declarations
-**Impact**: Positive -- enables LLVM to skip exception handling tables. In `@main`, eliminates `invoke`/`landingpad`/`resume` infrastructure (~12 instructions, 2 blocks). All user code now uses plain `call` instructions.
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### NOTE-5: @main reduced from 5 blocks to 3
-
-**Location**: @main control flow
-**Impact**: Positive -- bb2 (unwind cleanup with 2x rc_dec) and the associated invoke/landingpad eliminated. Remaining blocks: bb0 (entry + all computation), add.ok (final cleanup + ret), add.ovf_panic (overflow panic).
-**Found in**: Control Flow & Block Layout (Category 4)
+**Location**: @_ori_elem_dec$3, elem_dec.str_heap block
+**Impact**: Positive -- the element destructor now uses `ori_str_rc_dec(ptr, i64, ptr)` instead of the older `ori_rc_dec(ptr, ptr)`. The new version passes the string's capacity, enabling correct handling of both regular heap strings and string slices (where the cap field encodes the original data pointer). This is a recent improvement from the slice-aware string methods work.
+**Found in**: ARC: Nested Element Cleanup (Category 8)
 
 ## Codegen Quality Score
 
@@ -860,24 +812,26 @@ This eliminated from `@main`:
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
-| Other Findings | 15% | 10/10 | No uncategorized findings |
+| Other Findings | 15% | 8/10 | 2 low |
 
-**Overall: 10.0 / 10**
+**Overall: 9.7 / 10**
 
 ## Verdict
 
-Journey 15 achieves a perfect 10.0/10, representing a dramatic improvement from the previous analysis (8.7/10). The two key advances are: (1) nounwind propagation now correctly identifies all user functions as non-unwinding, eliminating all exception handling infrastructure (invoke/landingpad/personality), and (2) the iterator loop body in `@count_chars` no longer wraps the next-element result in an option struct or copies through a separate alloca. All four user-visible functions achieve OPTIMAL instruction ratios (1.00x). ARC is correctly balanced across all paths with zero violations. The nested fat pointer cleanup chain (list buffer -> element callback -> SSO guard -> conditional RC dec) works flawlessly at runtime.
+Journey 15's nested fat pointer codegen is nearly flawless. The list-of-strings pattern exercises the most complex ARC scenario tested so far -- nested reference counting where the list buffer and each string element have independent lifetimes. The element destructor `_ori_elem_dec$3` with its SSO guard, the implicit RC balance through `ori_iter_drop`, and the slice-aware `ori_str_rc_dec` all work correctly in concert. The only blemishes are a dead load in the iterator loop body and dead field loads in debug-mode disassembly, neither of which affects correctness or release performance.
 
 ## Cross-Journey Observations
 
 | Feature | First Tested | This Journey | Status |
 |---------|-------------|--------------|--------|
-| String ARC (SSO guard) | J9 | J15 | CONFIRMED (SSO guard correct in _ori_elem_dec$3) |
-| List allocation + iteration | J10 | J15 | CONFIRMED (balanced, no double-free) |
-| Iterator protocol | J13 | J15 | CONFIRMED (iter_from_list/iter_next/iter_drop pattern) |
 | Overflow checking | J1 | J15 | CONFIRMED |
-| readonly attribute | J14 | J15 | CONFIRMED (correctly applied to @total_items) |
-| Aggregate load pattern | J14 | J15 | CONFIRMED (replaces per-field GEP chains across all functions) |
-| nounwind propagation | J15 | J15 | CONFIRMED (all 3 user functions, eliminates EH in @main) |
+| fastcc on user functions | J1 | J15 | CONFIRMED |
+| nounwind on all user functions | J9 | J15 | CONFIRMED |
+| SSO guard pattern | J9 | J15 | CONFIRMED |
+| List allocation + for-loop iteration | J10 | J15 | CONFIRMED |
+| Iterator protocol (iter_from_list/iter_next/iter_drop) | J10 | J15 | CONFIRMED |
+| Fat pointer aggregate loads | J14 | J15 | CONFIRMED |
+| Element destructor callback | NEW | J15 | NEW |
+| Slice-aware ori_str_rc_dec | NEW | J15 | NEW |
 
-The score improvement from 8.7 to 10.0 is driven by two factors: (1) the nounwind propagation analysis now covers all user functions, eliminating invoke/landingpad overhead in @main and reducing its block count from 5 to 3, and (2) the iterator loop body codegen in @count_chars no longer produces the option struct wrapping overhead, bringing it from 31 to 25 instructions (1.29x -> 1.00x).
+The element destructor callback (`_ori_elem_dec$3`) is new to J15 -- previous journeys with lists (J10) used `[int]` which has no element-level cleanup. The combination of list-buffer RC + per-element string RC is the first test of truly nested ARC in the journey series. The slice-aware `ori_str_rc_dec` replacing the older `ori_rc_dec` in the element destructor is also new, reflecting recent codegen improvements for string slice safety.
