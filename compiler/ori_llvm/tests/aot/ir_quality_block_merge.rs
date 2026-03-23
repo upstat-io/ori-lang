@@ -29,12 +29,6 @@ fn test_sequential_calls_no_bridge_blocks() {
 ",
     );
 
-    // ORI_DEBUG_LLVM is debug-only — release binary produces no IR.
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let main_ir = extract_function_ir(&ir, "_ori_main");
     let bridges = count_bridge_blocks(main_ir);
 
@@ -55,12 +49,6 @@ fn test_main_with_call_no_bridge_blocks() {
 @main () -> int = double(x: 21);
 ",
     );
-
-    // ORI_DEBUG_LLVM is debug-only — release binary produces no IR.
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
     let bridges = count_bridge_blocks(main_ir);
@@ -94,11 +82,6 @@ fn test_match_pure_values_no_bridge_blocks() {
 @main () -> int = classify(x: 2);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let classify_ir = extract_function_ir(&ir, "_ori_classify");
     let bridges = count_bridge_blocks(classify_ir);
@@ -145,11 +128,6 @@ fn test_match_call_arms_no_bridge_blocks() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let dispatch_ir = extract_function_ir(&ir, "_ori_dispatch");
     let bridges = count_bridge_blocks(dispatch_ir);
 
@@ -180,11 +158,6 @@ fn test_trivial_if_else_emits_select() {
 @main () -> int = pick(x: 5, a: 10, b: 20);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let pick_ir = extract_function_ir(&ir, "_ori_pick");
 
@@ -225,11 +198,6 @@ fn test_nontrivial_if_else_emits_diamond() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let pick_ir = extract_function_ir(&ir, "_ori_pick");
 
     // Should contain conditional branch (br i1).
@@ -252,11 +220,6 @@ fn test_if_else_with_negation_emits_diamond() {
 @main () -> int = pick(x: 5);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let pick_ir = extract_function_ir(&ir, "_ori_pick");
 
@@ -289,11 +252,6 @@ type Status = Active | Inactive | Pending;
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_to_code");
     let single_pred = count_single_pred_phis(fn_ir);
 
@@ -324,11 +282,6 @@ fn test_option_propagation_no_single_pred_phis() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_try_div");
     let single_pred = count_single_pred_phis(fn_ir);
 
@@ -353,11 +306,6 @@ fn test_single_entry_merge_uses_direct_value() {
 @main () -> int = pick(x: 1, a: 10, b: 20);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_pick");
     let single_pred = count_single_pred_phis(fn_ir);
@@ -389,11 +337,6 @@ fn test_synthetic_single_pred_phi_eliminated() {
 @main () -> int = synthetic(x: 5);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_synthetic");
     let single_pred = count_single_pred_phis(fn_ir);
@@ -429,11 +372,6 @@ fn test_single_break_loop_clean_exit() {
 @main () -> int = sum_loop(n: 5);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
@@ -475,11 +413,6 @@ fn test_multi_break_loop_no_dead_phis() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_multi_break");
 
     let dead = count_dead_phis(fn_ir);
@@ -512,11 +445,6 @@ fn test_multi_break_loop_preserves_live_params() {
 @main () -> int = search(n: 10);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_search");
 
