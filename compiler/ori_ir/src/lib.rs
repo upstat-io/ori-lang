@@ -7,6 +7,8 @@
 //! - Tokens and `TokenList` for lexer output
 //! - AST nodes (Expr, Stmt, Function, etc.)
 //! - Arena allocation for expressions
+//! - `BuiltinType` for IR-level type identity
+//! - `builtin_constants` for constant definitions
 //!
 //! # Salsa Compatibility
 //!
