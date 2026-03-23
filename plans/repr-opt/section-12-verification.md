@@ -3,6 +3,9 @@ section: "12"
 title: "Verification & Benchmarks"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Prove correctness and measure performance of all representation optimizations through exhaustive testing, dual-execution verification, memory safety validation, and performance benchmarks"
 inspired_by:
   - "Rust crater (tools/crater) — whole-ecosystem regression testing"
@@ -312,3 +315,9 @@ Run `/code-journey` to test the full pipeline end-to-end with progressively comp
 - RC operations: ≥ 40% fewer in generated LLVM IR
 - Correctness: 0 mismatches in dual-execution, 0 Valgrind errors
 - All commands: `./test-all.sh`, `./clippy-all.sh`, `./llvm-test.sh` green
+
+---
+
+## 12.R Third Party Review Findings
+
+- [ ] `[TPR-12-001][minor]` `section-12-verification.md:127-131` — **No interpreter vs AOT-unoptimized sanity test.** §12.2 specifies (a) interpreter vs AOT-optimized and (b) AOT-unoptimized vs AOT-optimized. Missing: (c) interpreter vs AOT with `--no-repr-opt` as a sanity check that the bypass flag itself works correctly. If codegen changes in §04/§06/§07 accidentally break the unoptimized path, comparison (b) would produce false positives. **Action:** Add comparison (c): interpreter vs AOT-unoptimized to the dual-execution verification matrix.

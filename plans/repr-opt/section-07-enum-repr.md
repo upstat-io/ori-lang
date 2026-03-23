@@ -3,6 +3,9 @@ section: "07"
 title: "Enum Representation Optimization"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Optimize enum layout with niche filling, discriminant narrowing, tagged pointers, and payload compression — matching Rust's enum layout optimizations"
 inspired_by:
   - "Rust niche optimization (compiler/rustc_abi/src/layout.rs, Niche struct)"
@@ -262,3 +265,9 @@ When variant payloads have different sizes, the current approach uses `max(sizeo
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 
 **Exit Criteria:** `Option<bool>` compiles to a single `i8` in LLVM IR (no struct wrapper), with `None = 2`, `Some(false) = 0`, `Some(true) = 1`. Verified by inspecting LLVM IR and running all Option-related spec tests.
+
+---
+
+## 07.R Third Party Review Findings
+
+- [ ] `[TPR-07-001][minor]` `section-07-enum-repr.md:92-97` — **FatPointer niche `field_index: 2` assumes fixed `{len, cap, data}` order; no explicit exemption from §06 reordering.** The niche analysis hard-codes `field_index: 2` for the data pointer. While FatPointer types use dedicated `TypeInfo` variants (`TypeInfo::Str`, `TypeInfo::List`, etc.) — NOT `TypeInfo::Struct` — and therefore are inherently exempt from §06's struct reordering algorithm, this exemption is implicit. **Action:** Add a note to §07.1 stating that internal representations (FatPointer, str, list, map, set, closure, range) are exempt from §06 field reordering because they are handled by dedicated `TypeInfo` variants, not `TypeInfo::Struct`. This prevents a future implementer from accidentally applying §06's layout algorithm to internal types.

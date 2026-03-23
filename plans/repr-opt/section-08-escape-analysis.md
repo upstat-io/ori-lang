@@ -3,6 +3,9 @@ section: "08"
 title: "Escape Analysis & Stack Promotion"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Determine which heap allocations never escape their defining function and promote them to stack allocations, eliminating ARC overhead entirely"
 inspired_by:
   - "Go escape analysis (cmd/compile/internal/escape/)"
@@ -343,3 +346,9 @@ Feed escape information into the ARC pipeline so it can skip RC operations.
 - [ ] Zero `ori_rc_alloc` calls for functions that only use non-escaping values
 
 **Exit Criteria:** A function that creates a temporary list, computes its length, and returns the length generates ZERO `ori_rc_alloc`/`ori_rc_dec` calls in LLVM IR. Verified by `grep -c "ori_rc" function.ll` returning 0. A function with a dynamic-size temporary collection uses `ori_bump_alloc` instead of `ori_rc_alloc`. Valgrind reports 0 heap leaks (bump regions properly freed).
+
+---
+
+## 08.R Third Party Review Findings
+
+- [ ] `[TPR-08-001][major]` `section-08-escape-analysis.md:223-277` — **Bump allocation (§08.4) is a separate runtime subsystem (~500+ LOC across 3 crates) embedded as a 56-line subsection.** §08.4 proposes new runtime functions (`ori_bump_alloc`, `ori_bump_free`), linked-list region growth, LLVM prologue/epilogue emission, COW interaction ("always StaticUnique"), and integration with existing RC infrastructure. This requires coordinated changes to `ori_rt`, `ori_repr`, and `ori_llvm`. The plan rates §08 as "VERY HIGH COMPLEXITY" and recommends shipping §08.1 first — but §08.4 is not separated into its own section or formally deferred. **Action:** Extract §08.4 into a standalone section (§08b) with its own completion checklist, exit criteria, and line estimates, OR explicitly defer bump allocation to a future plan and remove it from §08's exit criteria. The phased recommendation at line 54 is correct but should be formalized as a section boundary.

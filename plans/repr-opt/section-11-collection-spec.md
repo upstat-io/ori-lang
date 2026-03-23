@@ -3,6 +3,9 @@ section: "11"
 title: "Collection Specialization"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Optimize collection representations: small string optimization (SSO), small vector optimization (SVO), packed bool arrays, and narrow-element backing stores"
 inspired_by:
   - "C++ std::string SSO (libstdc++ basic_string.h — 15-byte inline buffer)"
@@ -231,3 +234,9 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
 - [ ] Performance: string-heavy benchmarks show measurable improvement from SSO
 
 **Exit Criteria:** Creating 10,000 short strings (≤ 23 bytes each) results in ZERO heap allocations for the string data itself, verified by `ori_rc_alloc` call count = 0 in Valgrind output. `[bool]` with 1M elements uses ~125KB instead of ~1MB. SSO string operations (concat, substring, trim, split) correctly handle inline-to-heap transitions.
+
+---
+
+## 11.R Third Party Review Findings
+
+- [ ] `[TPR-11-001][major]` `section-11-collection-spec.md:115` — **SVO discriminator conflicts with `SLICE_FLAG` (bit 63 of cap); solution deferred to implementation.** The plan acknowledges the conflict ("must not conflict with the existing slice encoding") but writes "This must be designed during implementation." `SLICE_FLAG = i64::MIN` (bit 63 of cap) is load-bearing for seamless slices — it's checked in `ori_buffer_rc_dec`, `propagate_elem_header`, `propagate_header`, and `IterState::List` Drop. Using negative cap for SVO inline mode would alias with slice caps (also negative). **Action:** Resolve the discriminator design before implementation. Options: (a) use a sentinel in `len` (e.g., `len = i64::MIN` for inline mode — never a valid length), (b) use a different bit in cap that doesn't conflict with SLICE_FLAG, (c) use a separate tag byte outside the existing 24-byte layout, (d) reserve a specific cap range (e.g., cap in `[i64::MIN+1, -2]` for SVO, `SLICE_FLAG | offset` for slices). Document the chosen approach in the plan. Consensus: 3/3 reviewers.

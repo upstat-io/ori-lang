@@ -3,6 +3,9 @@ section: "10"
 title: "Thread-Local Non-Atomic ARC"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Use non-atomic (plain load/store) reference counting for values that are provably never shared across threads, eliminating atomic operation overhead"
 inspired_by:
   - "Swift isUniquelyReferenced + non-atomic path (stdlib/public/core/ManagedBuffer.swift)"
@@ -230,3 +233,9 @@ If a value transitions from thread-local to thread-shared (e.g., sent on a chann
 - [ ] `./diagnostics/dual-exec-verify.sh` passes
 
 **Exit Criteria:** A single-threaded benchmark program shows 0 atomic RC operations in LLVM IR (all `ori_rc_*_nonatomic`). Performance benchmark shows ≥20% improvement in RC-heavy workloads vs. atomic-only baseline.
+
+---
+
+## 10.R Third Party Review Findings
+
+- [ ] `[TPR-10-001][major]` `section-10-thread-local-arc.md:117-148` — **Non-atomic RC has no debug-mode safety net; analysis wrong → silent UB.** The `ori_rc_inc_nonatomic` / `ori_rc_dec_nonatomic` functions use plain loads/stores (lines 120, 124: `*rc_ptr`). If thread escape analysis (§08+§10.1) is unsound for any value, concurrent access produces data race UB. The plan acknowledges this risk (line 111) but proposes no runtime fallback — only helgrind testing as a detection tool. No mechanism exists to verify at runtime that a value classified as thread-local is actually single-threaded. **Action:** Add a debug-mode `#[cfg(debug_assertions)]` per-allocation flag that records the RC mode (atomic vs non-atomic). Assert on mismatched access (e.g., `ori_rc_inc` called on an allocation marked non-atomic). Zero cost in release builds. This catches analysis bugs during development before they become silent data races in production. Consensus: 3/3 reviewers.
