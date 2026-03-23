@@ -14,16 +14,13 @@ sections:
     status: complete
   - id: "2.2"
     title: Expression Type Inference
-    status: complete
+    status: in-progress
   - id: "2.3"
     title: Type Error Improvements
     status: complete
   - id: "2.4"
     title: Section Completion Checklist
     status: complete
-  - id: "2.5"
-    title: Post-Completion Bugs
-    status: not-started
 ---
 
 # Section 2: Complete Type Inference
@@ -32,7 +29,7 @@ sections:
 
 > **SPEC**: `spec/08-types.md`, `spec/09-properties-of-types.md`
 
-**Status**: Complete — Full Hindley-Milner inference with actionable type error messages. STALE: Rust test count was 4,078 at time of writing (now 671 in ori_types); Ori spec test count was 101 (now 4181 total); compile-fail count was 11 (now 39 files). All tests pass.
+**Status**: Complete — Full Hindley-Milner inference with actionable type error messages. 4,078 Rust tests in workspace (all pass), 101 Ori spec tests across inference/bindings/lambdas/collections (all pass), all 11 compile-fail tests pass including 5 conversion hint tests (`int(x)`, `float(x)`, `str(x)`, `byte(x)`, `[x]`).
 
 ---
 
@@ -69,16 +66,16 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/lambdas.ori` — 29 tests (all pass)
   - [x] **Verified**: `apply(x -> x + 1, 41)` correctly infers x: int from context
 
-- [x] **Fix**: Closure-returning-closure inference bug [done] (2026-03-15)
-  - [x] `(n: int) -> (int) -> int = { (x: int) -> int = base + n + x }` — was a parser bug (keyword heuristic), fixed by speculative type parsing in `try_parse_lambda_return_type()` (commit 8f4477fa). AOT test `test_aot_closure_capturing_closure` passes. Added spec regression test `closure_returning_closure_annotated`.
+- [ ] **Fix**: Closure-returning-closure inference bug
+  - [ ] `(n: int) -> (int) -> int = { (x: int) -> int = base + n + x }` — infers `()` return instead of `(int) -> int` when outer closure returns inner closure (`test_aot_closure_capturing_closure`)
 
 - [x] **Implement**: Generic type argument inference — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/` — generic inference tests
-  - [x] **Ori Tests**: `tests/spec/inference/generics.ori` — 17 active tests (all pass); STALE: roadmap claimed 22 but 5 are vacuous stubs with placeholder functions
+  - [x] **Ori Tests**: `tests/spec/inference/generics.ori` — 22 tests (all pass)
 
 - [x] **Implement**: Collection element type inference — spec/08-types.md § Type Inference [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_types/src/infer/expr.rs` — collection inference tests
-  - [x] **Ori Tests**: STALE: `tests/spec/types/collections.ori` — all 35 tests are commented out (zero active). Collection inference IS tested indirectly through `unification.ori` and `generics.ori`.
+  - [x] **Ori Tests**: `tests/spec/types/collections.ori` — 35 tests (all pass)
   - [x] **Verified**: `[1, 2, 3]` infers `[int]`, `{"a": 1}` infers `{str: int}`
 
 ---
@@ -94,7 +91,7 @@ sections:
   - [x] **Rust Tests**: `ori_types/src/infer/env.rs` — 21 tests including edit distance for typo suggestions
   - [x] **Ori Tests**: `tests/compile-fail/type_hints.ori` — 5 non-skipped tests pass
   - [x] **Implement**: Conversion function suggestions in type mismatch errors (`int(x)`, `float(x)`, `str(x)`, `byte(x)`, `[x]`) [done] (2026-02-16)
-  - [x] **Ori Tests**: STALE: `tests/compile-fail/type_hints.ori` — 5 tests pass (roadmap claimed 10 but file only contains 5 conversion hint tests) [done] (2026-02-16)
+  - [x] **Ori Tests**: `tests/compile-fail/type_hints.ori` — all 10 tests pass (5 conversion hints + 5 existing) [done] (2026-02-16)
 
 - [x] **Implement**: Source location in errors — spec/08-types.md § Type Errors [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/compile-fail/return_type_mismatch.ori` — 1 test (passes)
@@ -108,16 +105,10 @@ All 11 compile-fail tests pass: `cargo st tests/compile-fail/`
 ## 2.4 Section Completion Checklist
 
 - [x] All 2.1 items complete — unification, occurs check, generalization, instantiation [done] (2026-02-10)
-- [x] All 2.2 items complete — local variable, lambda, generic, collection inference [done] (2026-03-15, closure-returning-closure bug verified fixed)
+- [ ] All 2.2 items complete — local variable, lambda, generic, collection inference (reopened: closure-returning-closure inference bug)
 - [x] All 2.3 items complete — expected/found, hints, source locations [done] (2026-02-10)
-- [x] STALE: Rust unit tests pass (ori_types) — was 3,792 at time of writing, now 671 in ori_types; all pass [done] (2026-02-10)
-- [x] STALE: Spec and compile-fail tests pass — was 101 Ori spec + 11 compile-fail at time of writing; now 4181 spec tests + 39 compile-fail files; all pass [done] (2026-02-10)
+- [x] 3,792 Rust unit tests pass (ori_types) [done] (2026-02-10)
+- [x] Spec and compile-fail tests pass — 101 Ori spec tests + 11 compile-fail [done] (2026-02-10)
 - [x] Run full test suite: `./test-all.sh` — all pass [done] (2026-02-10)
 
----
-
-## 2.5 Post-Completion Bugs
-
-- [ ] **BUG**: Unconstrained type variables reach codegen — `let a = Ok("hello")` passes type checking but crashes at LLVM codegen with `_ori_drop$96` (unresolved `Idx(96)`). The Err type variable is never constrained, so codegen receives an unresolved type. Type checker should either report "cannot infer type for E" error or default unconstrained sum type params to `Never`. Discovered 2026-03-19 during RC-02-001 fix. <!-- unblocks:21A -->
-
-**Exit Criteria Met** (except 2.5 post-completion bug): Complete type inference with error messages and hints.
+**Exit Criteria Met**: Complete type inference with error messages and hints.

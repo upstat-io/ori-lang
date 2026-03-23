@@ -28,7 +28,7 @@ sections:
     status: not-started
   - id: "10.4"
     title: Error Propagation (?)
-    status: in-progress
+    status: not-started
   - id: "10.5"
     title: Let Bindings
     status: in-progress
@@ -92,7 +92,6 @@ sections:
   - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_if_else_value`, `test_scope_if_else_computed`, `test_scope_if_block_branches`, `test_scope_if_else_string_value`, `test_scope_let_each_branch` (if-else branches producing same type: int, string, block values)
 
 - [ ] **Implement**: Without else: then-branch must be `void` or `Never` — spec/14-expressions.md § Conditional
-  - BUG FOUND: `let x = if true then 42` (non-void then-branch without else) is accepted by the type checker but should be a type error per spec. The type checker does not enforce that an if-without-else must produce void or Never.
   - [ ] **Rust Tests**: `ori_types/src/infer/expr/mod.rs` — void branch validation
   - [ ] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: N/A (compile-time check)
@@ -122,7 +121,7 @@ sections:
 
 - [x] **Implement**: Parse `for x in items do expr` — spec/14-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — for-do parsing
-  - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — 35 tests
+  - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — 29 tests
   - [ ] **LLVM Support**: LLVM codegen for for-do expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-do codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_sum`, `test_for_range_inclusive`, `test_for_range_empty`, `test_for_list_sum`, `test_for_list_empty`, `test_for_str_count_chars`, `test_for_str_empty`, `test_for_option_some`, `test_for_option_none`, `test_for_map_sum`, `test_for_map_entries` (for-do over Range, List, Str, Option, Map including empty iterables)
@@ -492,22 +491,25 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
 
 ## 10.4 Error Propagation (?)
 
-- [x] **Implement**: Parse postfix `?` operator — spec/16-control-flow.md § Error Propagation [done] — `ExprKind::Try(ExprId)` in parser, `CanExpr::Try` handled in type checker and evaluator, LLVM codegen proven by 6 AOT tests
-  - [x] **Rust Tests**: Parser, type checker, evaluator — `?` operator implemented end-to-end
-  - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori` — no dedicated spec test file yet
-  - [x] **LLVM Support**: LLVM codegen for `?` operator — proven by 6 passing AOT tests
+- [ ] **Implement**: Parse postfix `?` operator — spec/16-control-flow.md § Error Propagation
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — ? operator parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
+  - [ ] **LLVM Support**: LLVM codegen for ? operator
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — ? operator codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — `test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_option_some`, `test_err_try_option_none` (postfix `?` operator on both Result and Option)
 
-- [x] **Implement**: On `Result<T, E>`: unwrap `Ok` or return `Err` — spec/16-control-flow.md § On Result [done] — `CanExpr::Try` handles `Value::Ok(v)` unwrap, `Value::Err(_)` propagation with trace injection
-  - [x] **Rust Tests**: Evaluator — Result propagation via `CanExpr::Try` match arm
-  - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori` — no dedicated spec test file yet
-  - [x] **LLVM Support**: LLVM codegen for Result propagation — proven by AOT tests
+- [ ] **Implement**: On `Result<T, E>`: unwrap `Ok` or return `Err` — spec/16-control-flow.md § On Result
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/postfix.rs` — Result propagation
+  - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Result propagation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Result propagation codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — `test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_result_chain`, `test_err_try_result_early_exit`, `test_err_deep_try_chain` (`?` on Result unwrapping Ok, propagating Err, chaining, and early exit)
 
-- [x] **Implement**: On `Option<T>`: unwrap `Some` or return `None` — spec/16-control-flow.md § On Option [done] — `CanExpr::Try` handles `Value::Some(v)` unwrap, `Value::None` propagation
-  - [x] **Rust Tests**: Evaluator — Option propagation via `CanExpr::Try` match arm
-  - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori` — no dedicated spec test file yet
-  - [x] **LLVM Support**: LLVM codegen for Option propagation — proven by AOT tests
+- [ ] **Implement**: On `Option<T>`: unwrap `Some` or return `None` — spec/16-control-flow.md § On Option
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/postfix.rs` — Option propagation
+  - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
+  - [ ] **LLVM Support**: LLVM codegen for Option propagation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Option propagation codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — `test_err_try_option_some`, `test_err_try_option_none` (`?` on Option with Some and None paths)
 
 - [ ] **Implement**: Only valid in functions returning `Result`/`Option` — spec/16-control-flow.md § Error Propagation
@@ -624,10 +626,10 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
 
 - [x] **Implement**: Lexical scoping — spec/11-blocks-and-scope.md § Lexical Scoping [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — lexical scope tests
-  - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori` — 23 tests
+  - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori` — 3 tests (let_bindings_in_run, nested_run_shadowing, run_returns_last_expression)
   - [ ] **LLVM Support**: LLVM codegen for lexical scoping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — lexical scoping codegen
-  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_let_basic`, `test_scope_let_chain`, `test_scope_block_as_value`, `test_scope_nested_blocks_as_values`, `test_scope_shadow_in_nested_block`, `test_scope_shadow_three_levels`, `test_scope_shadow_in_loop` (lexical scoping with blocks, nesting, and control flow — all passing)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_let_basic`, `test_scope_let_chain`, `test_scope_block_as_value`, `test_scope_nested_blocks_as_values`, `test_scope_shadow_in_nested_block` [ignored], `test_scope_shadow_three_levels` [ignored], `test_scope_shadow_in_loop` [ignored] (lexical scoping with blocks, nesting, and control flow)
 
 - [x] **Implement**: No hoisting — spec/11-blocks-and-scope.md § No Hoisting [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — no hoisting tests
@@ -641,11 +643,11 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — let_shadow, let_shadow_different_type; `mutation.ori` — shadow_mutability
   - [ ] **LLVM Support**: LLVM codegen for shadowing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — shadowing codegen
-  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_shadow_same_type`, `test_scope_shadow_different_type`, `test_scope_shadow_uses_previous`, `test_scope_shadow_in_nested_block`, `test_scope_shadow_three_levels`, `test_scope_many_lets_same_name`, `test_scope_string_shadow` (same-type, cross-type, self-referential, and nested-block shadowing — all passing)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_shadow_same_type`, `test_scope_shadow_different_type`, `test_scope_shadow_uses_previous`, `test_scope_shadow_in_nested_block` [ignored], `test_scope_shadow_three_levels` [ignored], `test_scope_many_lets_same_name`, `test_scope_string_shadow` (same-type, cross-type, self-referential, and nested-block shadowing)
 
 - [x] **Implement**: Lambda capture by value — spec/11-blocks-and-scope.md § Lambda Capture [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — capture tests
-  - [x] **Ori Tests**: `tests/spec/expressions/lambdas.ori` — 30 tests (closure_capture, closure_capture_multiple, closure_nested)
+  - [x] **Ori Tests**: `tests/spec/expressions/lambdas.ori` — 29 tests (closure_capture, closure_capture_multiple, closure_nested)
   - [ ] **LLVM Support**: LLVM codegen for lambda capture by value
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — lambda capture codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_closure_captures_outer`, `test_scope_shadow_before_closure` (closure capture by value), `ori_llvm/tests/aot/higher_order.rs` — `test_hof_closure_capture_computation`, `test_hof_closure_capture_in_loop`, `test_hof_closure_bool_capture`, `test_hof_two_closures_same_capture`, `test_hof_nested_closure_deep`, `test_hof_make_adder`, `test_hof_make_multiplier`, `test_hof_make_predicate` (closure captures and returns)
@@ -671,7 +673,6 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
 - [x] **Implement**: `catch(expr)` pattern — spec/17-errors-and-panics.md § Catching Panics [done] (2026-02-19)
   - [x] **Rust Tests**: `ori_patterns/src/builtins/catch/tests.rs` — catch_success, catch_error, name, required_props; `ori_types/src/infer/expr/tests.rs` — catch type inference
   - [x] **Ori Tests**: `tests/spec/patterns/catch.ori` — 7 tests: success, panic, message, div_zero, ok_value, string, nested
-  - [ ] **BUG**: catch() type inference returns `Result<() -> T, str>` instead of `Result<T, str>` — the expr: thunk's closure type leaks into the result type. Blocks 12 AOT unwind tests in `ori_llvm/tests/aot/iter_rc_matrix.rs` (6 types x 2 loop variants). Fix location: `ori_types/src/infer/expr/concurrency.rs:infer_catch()` — must unwrap thunk return type. <!-- unblocks:21A.5 -->
   - [ ] **LLVM Support**: LLVM codegen for catch pattern (simplified placeholder exists)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — catch pattern codegen
   - [ ] **AOT Tests**: No AOT coverage yet
@@ -692,7 +693,7 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
   - [x] **Type Checker**: Resolve `HashLength` to receiver's length type (`int`) — `ori_types/src/infer/`
   - [x] **Evaluator**: Evaluate `HashLength` as `len(receiver)` in index context — `ori_eval/src/interpreter/mod.rs`
   - [x] **Ori Tests**: `tests/spec/expressions/index_access.ori` — hash_last, hash_second_last, hash_first, hash_middle, hash_arithmetic (35 total tests)
-  - [ ] **LLVM Support**: LLVM codegen for hash length in index — ARC pipeline handles `HashLength` via `hash_length` variable propagation; AOT test coverage needed
+  - [ ] **LLVM Support**: LLVM codegen for hash length in index (placeholder exists, needs real impl)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — hash length codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
@@ -701,7 +702,7 @@ If desugared in the parser to `loop { if !condition then break; body }`, only st
 - Parser recognizes `#` (TokenKind::Hash) as `ExprKind::HashLength` only inside index brackets
 - Type checker and evaluator already had full support for `HashLength`
 - 901 tests pass (up from 900)
-- ARC pipeline handles `HashLength` via `hash_length` variable propagation; AOT test coverage needed
+- LLVM has placeholder (returns 0), needs proper implementation later
 
 ---
 

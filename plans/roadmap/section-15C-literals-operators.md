@@ -1,14 +1,14 @@
 ---
 section: "15C"
 title: Literals & Operators
-status: in-progress
+status: not-started
 reviewed: false
 tier: 5
 goal: Implement string interpolation, spread operator, range step syntax, and pipe operator
 sections:
   - id: "15C.1"
     title: String Interpolation
-    status: in-progress
+    status: not-started
   - id: "15C.2"
     title: Spread Operator
     status: not-started
@@ -26,13 +26,13 @@ sections:
     status: not-started
   - id: "15C.7"
     title: Null Coalesce Operator
-    status: in-progress
+    status: not-started
   - id: "15C.8"
     title: Compound Assignment Operators
-    status: in-progress
+    status: not-started
   - id: "15C.9"
     title: MatMul Operator
-    status: in-progress
+    status: not-started
   - id: "15C.10"
     title: Power Operator
     status: not-started
@@ -73,21 +73,19 @@ Two string types:
 
 ### Lexer
 
-- [x] **Implement**: Add template string literal tokenization (backtick delimited)
-  - Implemented in `ori_lexer_core/src/raw_scanner/templates.rs` with SIMD-accelerated `skip_to_template_delim()`. Tags: `TemplateHead`, `TemplateTail`, `TemplateComplete`.
+- [ ] **Implement**: Add template string literal tokenization (backtick delimited)
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — template string tokenization
   - [ ] **Ori Tests**: `tests/spec/lexical/template_strings.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string tokenization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string tokenization codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Implement**: Handle `{expr}` interpolation boundaries (switch lexer modes)
-  - Scanner manages `template_depth` stack for nested interpolation.
+- [ ] **Implement**: Handle `{expr}` interpolation boundaries (switch lexer modes)
   - [ ] **LLVM Support**: LLVM codegen for interpolation boundaries
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — interpolation boundaries codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Implement**: Handle `{{` and `}}` escape for literal braces
-  - Implemented in templates.rs (line 29-33: peek for `{` to distinguish escape from interpolation).
+- [ ] **Implement**: Handle `{{` and `}}` escape for literal braces
   - [ ] **Ori Tests**: `tests/spec/lexical/template_brace_escape.ori`
   - [ ] **LLVM Support**: LLVM codegen for brace escaping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — brace escaping codegen
@@ -594,16 +592,17 @@ let count = get_count() ?? 0
 
 ### Evaluator
 
-- [x] **Implement**: Evaluate `??` for `Option<T>` — extract Some value or use default
-  - Implemented in `can_eval/operators.rs`. Lexer (`QuestionQuestion` token), parser (coalesce precedence level), evaluator, and type checker all handle `??`. Tests exist in `tests/spec/expressions/coalesce.ori` (all pass in full suite).
+- [ ] **Implement**: Evaluate `??` for `Option<T>` — extract Some value or use default
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/mod.rs` — coalesce evaluation
+  - [ ] **Ori Tests**: `tests/spec/expressions/coalesce.ori`
   - [ ] **LLVM Support**: LLVM codegen for null coalesce operator
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/coalesce_tests.rs` — coalesce codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
-- [x] **Implement**: Infer type for `a ?? b` — result is `T` where `a: Option<T>` and `b: T`
-  - Implemented in `ori_types/src/infer/expr/operators.rs`.
+- [ ] **Implement**: Infer type for `a ?? b` — result is `T` where `a: Option<T>` and `b: T`
+  - [ ] **Rust Tests**: `ori_types/src/infer/ (operators)` — coalesce type inference
   - [ ] **Ori Tests**: `tests/spec/types/coalesce_inference.ori`
 
 - [ ] **Implement**: Error for non-Option left operand
@@ -612,12 +611,10 @@ let count = get_count() ?? 0
 
 ### Edge Cases
 
-- [x] **Implement**: Short-circuit evaluation — don't evaluate right side if left is Some
-  - Confirmed by tests that panic on default evaluation when left is Some.
+- [ ] **Implement**: Short-circuit evaluation — don't evaluate right side if left is Some
   - [ ] **Ori Tests**: `tests/spec/expressions/coalesce_short_circuit.ori`
 
 - [ ] **Implement**: Chained coalesce — `a ?? b ?? c`
-  - Partially implemented. Some chaining tests have type info issues.
   - [ ] **Ori Tests**: `tests/spec/expressions/coalesce_chained.ori`
 
 ---
@@ -637,13 +634,14 @@ for item in items {
 
 ### Lexer
 
-- [x] **Implement**: Add 13 new raw token tags to `ori_lexer_core/src/tag/mod.rs`
-  - `PlusEq`, `MinusEq`, `StarEq`, `SlashEq`, `PercentEq`, `AtEq`, `AmpEq`, `PipeEq`, `CaretEq`, `ShlEq`, `ShrEq`, `AmpAmpEq`, `PipePipeEq` — all present (21 files reference compound assignment).
+- [ ] **Implement**: Add 13 new raw token tags to `ori_lexer_core/src/tag/mod.rs`
+  - `PlusEq`, `MinusEq`, `StarEq`, `SlashEq`, `PercentEq`, `AtEq`, `AmpEq`, `PipeEq`, `CaretEq`, `ShlEq`, `ShrEq`, `AmpAmpEq`, `PipePipeEq`
   - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
   - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — scanning tests
 
-- [x] **Implement**: Update raw scanner to scan compound assignment tokens
-  - Two-char and three-char compound tokens handled in `ori_lexer_core/src/raw_scanner/operators.rs`.
+- [ ] **Implement**: Update raw scanner to scan compound assignment tokens
+  - Two-char: `+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`
+  - Three-char: `<<=`, `>>=`, `&&=`, `||=`
   - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — replace `no_compound_assignment` test
 
 - [ ] **Implement**: Map raw tags to `TokenKind` in cooker
@@ -651,8 +649,10 @@ for item in items {
 
 ### Parser
 
-- [x] **Implement**: Parse compound assignment and desugar to `Assign { target, value: Binary/And/Or }`
-  - Implemented in `ori_parse/src/grammar/expr/mod.rs` with `compound_assign_op()` and `desugar_compound_assign()`. Desugars to `Assign { target, value: Binary }`.
+- [ ] **Implement**: Parse compound assignment and desugar to `Assign { target, value: Binary/And/Or }`
+  - Trait-based ops: map `PlusEq` → `BinaryOp::Add`, etc.
+  - Logical ops: map `AmpAmpEq` → `ExprKind::And`, `PipePipeEq` → `ExprKind::Or`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — compound assignment parsing
   - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/basic.ori`
   - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/field_access.ori`
   - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/subscript.ori`
@@ -690,8 +690,7 @@ Add `@` as a binary operator for matrix multiplication. Desugars to `MatMul` tra
 
 ### IR
 
-- [x] **Implement**: Add `MatMul` variant to `BinaryOp` + arms in `as_symbol()`, `precedence()`, `trait_method_name()`, `trait_name()`
-  - `BinaryOp::MatMul` exists with `as_symbol()` returning `"@"`, precedence 3, `trait_method_name()` returning `"mat_mul"`, `trait_name()` returning `"MatMul"`. Evaluator dispatch at `operator_dispatch.rs`.
+- [ ] **Implement**: Add `MatMul` variant to `BinaryOp` + arms in `as_symbol()`, `precedence()`, `trait_method_name()`, `trait_name()`
   - [ ] **Rust Tests**: `ori_ir/src/ast/tests.rs`
 
 ### Parser

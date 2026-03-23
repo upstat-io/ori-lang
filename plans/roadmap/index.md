@@ -583,10 +583,6 @@ runtime, ori_rt, built-in functions
 monomorphization, generic specialization, MonoInstance, GenericArg
 name mangling, $m$, mono function
 body_type_map, type substitution, scheme_var_ids
-noundef, nounwind, uwtable, readonly, memory(none)
-function attributes, attribute compliance, AIMS
-CFG cleanup, empty block, trampoline block
-IR quality, unjustified instructions, code journey
 ```
 
 > **Design document**: Monomorphization pipeline architecture documented in `docs/ori_lang/v2026/design/monomorphization-architecture.md`. Covers Phases 1-5, reference compiler study, `GenericArg` enum, ARC lowering integration, name mangling.

@@ -62,18 +62,18 @@ sections:
 ## 4.1 Module Definition
 
 - [x] **Implement**: Module structure — spec/18-modules.md § Module Structure [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` and `compiler/oric/tests/phases/parse/imports.rs`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — module loading tests
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` (10 tests, pub/private functions, types, config vars)
   - [ ] **LLVM Support**: LLVM codegen for module loading — multi_file.rs infrastructure exists, no dedicated tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — module loading codegen (file does not exist)
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Module corresponds to file — spec/18-modules.md § Module Structure [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — file mapping tests
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori`
 
 - [x] **Implement**: Module name from file path — spec/18-modules.md § Module Structure [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `generate_relative_candidates_file_module`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — path resolution tests (`test_generate_relative_candidates_file_module`)
   - [x] **Ori Tests**: N/A (tested via Rust unit tests)
 
 ---
@@ -83,31 +83,31 @@ sections:
 **Relative imports:**
 
 - [x] **Implement**: `use './path' { item1, item2 }` — spec/18-modules.md § Relative Imports [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — relative path parsing
   - [x] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori` (4 tests: add, make_multiplier, calculate, double)
 
 - [x] **Implement**: Parent `use '../utils' { helper }` — spec/18-modules.md § Relative Imports [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `generate_relative_candidates_parent_path`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — parent path resolution (`test_generate_relative_candidates`)
   - [x] **Ori Tests**: `tests/spec/modules/_test/use_imports.test.ori` (uses `"../use_imports"`)
 
 - [x] **Implement**: Subdirectory `use './http/client' { get }` — spec/18-modules.md § Relative Imports [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `generate_relative_candidates_nested_directory`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — subdirectory path resolution (`test_generate_relative_candidates_nested_directory`)
   - [x] **Ori Tests**: N/A (tested via Rust unit tests)
 
 **Module imports:**
 
 - [x] **Implement**: `use std.module { item }` — spec/18-modules.md § Module Imports [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `resolve_module_path_not_found`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — stdlib path resolution
   - [x] **Ori Tests**: All test files use `use std.testing { assert_eq }`
 
 - [ ] **Implement**: Nested `use std.net.http { get }` — spec/18-modules.md § Module Imports
-  - [ ] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; would be in `compiler/oric/src/imports/tests.rs`
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — nested module resolution
   - [ ] **Ori Tests**: N/A — no nested stdlib modules exist yet to test
 
 **Private imports:**
 
 - [x] **Implement**: `use './path' { ::private_item }` — spec/18-modules.md § Private Imports [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/tests/phases/parse/imports.rs` — `test_import_private_basic`, `test_import_private_with_alias`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — private import handling
   - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori` (2 tests: private fn access, private + public combo)
 
 - [x] **Implement**: `::` prefix — spec/18-modules.md § Private Imports [done] (2026-02-10)
@@ -147,7 +147,7 @@ sections:
   - Note: Basic re-export works; multi-level chain resolution pending (4.8)
 
 - [x] **Implement**: Private by default — spec/18-modules.md § Visibility [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/`; verified through Ori spec tests
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/` — visibility enforcement
   - [x] **Ori Tests**: `tests/spec/modules/_test/use_private.test.ori` (private access with `::` prefix)
 
 ---
@@ -155,37 +155,37 @@ sections:
 ## 4.4 Module Resolution
 
 - [x] **Implement**: File path resolution — spec/18-modules.md § Module Resolution [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `generate_relative_candidates_*` (4 tests)
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — path resolution tests (`test_generate_relative_candidates_*`)
   - [x] **Ori Tests**: `tests/spec/modules/_test/directory_module.test.ori` (file + dir modules), `_test/precedence.test.ori` (file precedence over dir)
 
 - [x] **Implement**: Module dependency graph — spec/18-modules.md § Dependency Graph [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `LoadingContext` tests; also `compiler/ori_llvm/src/aot/incremental/deps/tests.rs` (12 tests)
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — `LoadingContext` tests
   - [x] **Ori Tests**: N/A (tested via Rust unit tests)
   - Note: LLVM also has `DependencyGraph` in `ori_llvm/src/aot/incremental/deps.rs` for AOT multi-file
 
 - [x] **Implement**: Cycle detection — spec/18-modules.md § Cycle Detection, proposals/approved/no-circular-imports-proposal.md [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `loading_context_cycle_detection`, `loading_context_cycle_error`; also `compiler/ori_llvm/src/aot/multi_file/tests.rs` and `deps/tests.rs`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — `test_loading_context_cycle_detection`, `test_loading_context_cycle_error`
   - [x] **Ori Tests**: N/A (tested via Rust unit tests)
   - Note: LLVM multi_file.rs also has cycle detection (`CyclicDependency` error)
 
 - [ ] **Implement**: Enhanced cycle error messages — proposals/approved/no-circular-imports-proposal.md § Error Message
   - [ ] Show full cycle path in error (a.ori -> b.ori -> a.ori)
   - [ ] Include actionable help: "extract shared types", "use dependency inversion", "restructure boundaries"
-  - [ ] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; would be in `compiler/oric/src/imports/tests.rs`
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — cycle error formatting tests
   - [ ] **Ori Tests**: `tests/spec/modules/cycle_error_message.ori`
 
 - [ ] **Implement**: Report all cycles (not just first) — proposals/approved/no-circular-imports-proposal.md § Detection Algorithm
   - [ ] Continue detection after finding first cycle
   - [ ] Report each cycle with full path
-  - [ ] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; would be in `compiler/oric/src/imports/tests.rs`
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — multi-cycle detection tests
   - [ ] **Ori Tests**: `tests/spec/modules/multiple_cycles.ori`
 
 - [x] **Implement**: Name resolution — spec/18-modules.md § Name Resolution [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/`; actual tests in `compiler/oric/src/imports/tests.rs`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/` — name resolution tests
   - [x] **Ori Tests**: All import tests verify name resolution (use_imports, use_private, use_aliases, module_alias)
 
 - [x] **Implement**: Qualified access — spec/18-modules.md § Qualified Access [done] evaluator (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/`; qualified access verified through Ori spec tests
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/` — qualified access evaluation
   - [x] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori` (11 tests: `math.add()`, `math.multiply()`, etc.)
   - [ ] **LLVM Support**: LLVM codegen for qualified access dispatch — multi_file.rs has module-qualified mangling (`_ori_<module>$<function>`)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — qualified access codegen (file does not exist)
@@ -197,11 +197,11 @@ sections:
 ## 4.5 Test Modules
 
 - [x] **Implement**: `_test/` convention — spec/18-modules.md § Test Modules [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `is_test_module_valid`, `is_test_module_not_in_test_dir`, `is_test_module_wrong_extension`, `is_test_module_nested`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — test module detection (`test_is_test_module_valid`, `_not_in_test_dir`, `_wrong_extension`, `_nested`)
   - [x] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori` (2 tests)
 
 - [x] **Implement**: Test files access private items — spec/18-modules.md § Test Modules [done] (2026-02-10)
-  - [x] **Rust Tests**: STALE: was `ori_eval/src/interpreter/module/import.rs`; actual tests in `compiler/oric/src/imports/tests.rs` — `is_parent_module_import_valid`, `is_parent_module_import_sibling`, `is_parent_module_import_not_test`
+  - [x] **Rust Tests**: `ori_eval/src/interpreter/module/import.rs` — private access rules (`test_is_parent_module_import_*`)
   - [x] **Ori Tests**: `tests/spec/modules/_test/test_module_access.test.ori` (accesses private items without `::` prefix)
 
 ---

@@ -16,7 +16,7 @@ sections:
     status: in-progress
   - id: "7B.3"
     title: Error Return Traces
-    status: in-progress
+    status: not-started
   - id: "7B.4"
     title: Section Completion Checklist
     status: not-started
@@ -60,11 +60,11 @@ sections:
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_tests.rs` — Option.unwrap_or codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — Option unwrap_or for Some and None variants (test_err_option_unwrap_or_some, test_err_option_unwrap_or_none, test_err_option_chain_unwrap)
 
-- [x] **Implement**: `Option.ok_or` — spec/annex-c-built-in-functions.md § Option.ok_or [done — eval+registry]
-  - Eval: `variants.rs` — Some(v) -> Ok(v), None -> Err(error_arg). Registry: `option/mod.rs` with `ResultOfProjectionFresh` return type.
-  - [x] **Registry Tests**: `ori_registry/src/defs/option/tests.rs` — validates ok_or return type
-  - [ ] **Ori Tests**: NEEDS TESTS — no dedicated spec tests
+- [ ] **Implement**: `Option.ok_or` — spec/annex-c-built-in-functions.md § Option.ok_or
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Option.ok_or tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/option.ori`
   - [ ] **LLVM Support**: LLVM codegen for Option.ok_or
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_tests.rs` — Option.ok_or codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Option.and_then` — spec/annex-c-built-in-functions.md § Option.and_then
@@ -113,25 +113,25 @@ sections:
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.map_err codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Implement**: `Result.unwrap_or` — spec/annex-c-built-in-functions.md § Result.unwrap_or [done — eval+AOT]
-  - Eval: `variants.rs` — Ok returns inner, Err returns default arg
-  - [ ] **Rust Tests**: No dedicated Rust unit test for Result.unwrap_or
-  - [ ] **Ori Tests**: NEEDS TESTS — stale TODO in `generics.ori:191` incorrectly says "not implemented yet"
+- [ ] **Implement**: `Result.unwrap_or` — spec/annex-c-built-in-functions.md § Result.unwrap_or
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.unwrap_or tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result.unwrap_or
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.unwrap_or codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — Result unwrap_or for Ok and Err variants (test_err_result_unwrap_or_ok, test_err_result_unwrap_or_err)
 
-- [x] **Implement**: `Result.ok` — spec/annex-c-built-in-functions.md § Result.ok [done — eval only]
-  - Eval: `variants.rs` — Ok(v) -> Some(v), Err -> None
-  - [ ] **Rust Tests**: No dedicated Rust unit test
-  - [ ] **Ori Tests**: NEEDS TESTS — no spec tests
+- [ ] **Implement**: `Result.ok` — spec/annex-c-built-in-functions.md § Result.ok
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.ok tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result.ok
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.ok codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Implement**: `Result.err` — spec/annex-c-built-in-functions.md § Result.err [done — eval only]
-  - Eval: `variants.rs` — Err(e) -> Some(e), Ok -> None
-  - [ ] **Rust Tests**: No dedicated Rust unit test
-  - [ ] **Ori Tests**: NEEDS TESTS — no spec tests
+- [ ] **Implement**: `Result.err` — spec/annex-c-built-in-functions.md § Result.err
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.err tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result.err
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.err codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Result.and_then` — spec/annex-c-built-in-functions.md § Result.and_then
@@ -149,28 +149,32 @@ sections:
 
 Implements Result trace methods and context storage for error propagation debugging.
 
-- [x] **Implement**: `Result.trace()` — spec/17-errors-and-panics.md § Result Trace Methods [done — eval only]
-  - Eval: `variants.rs` delegates via `result_error_trace()` to `ErrorValue::format_trace()`
-  - [x] **Ori Tests**: `tests/spec/traits/traceable/result_delegation.ori` — tests `r.trace() != ""`
+- [ ] **Implement**: `Result.trace()` — spec/17-errors-and-panics.md § Result Trace Methods
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.trace tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result_traces.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result.trace
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.trace codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Implement**: `Result.trace_entries()` — spec/17-errors-and-panics.md § Result Trace Methods [done — eval only]
-  - Eval: `variants.rs` delegates to inner Error, converts TraceEntryData to struct values
-  - [x] **Ori Tests**: `tests/spec/traits/traceable/result_delegation.ori` — tests `r.trace_entries().len() == 1`
+- [ ] **Implement**: `Result.trace_entries()` — spec/17-errors-and-panics.md § Result Trace Methods
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.trace_entries tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result_traces.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result.trace_entries
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.trace_entries codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Implement**: `Result.has_trace()` — spec/17-errors-and-panics.md § Result Trace Methods [done — eval only]
-  - Eval: `variants.rs` delegates to inner ErrorValue
-  - [x] **Ori Tests**: `tests/spec/traits/traceable/result_delegation.ori` — tests `r.has_trace()`
+- [ ] **Implement**: `Result.has_trace()` — spec/17-errors-and-panics.md § Result Trace Methods
+  - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Result.has_trace tests
+  - [ ] **Ori Tests**: `tests/spec/stdlib/result_traces.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result.has_trace
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/result_tests.rs` — Result.has_trace codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
-- [x] **Implement**: Trace collection at `?` propagation — spec/17-errors-and-panics.md § Automatic Collection [done — eval only]
-  - Eval: `interpreter/can_eval/trace.rs` — `inject_trace_entry()` appends TraceEntryData with function name, file, line, column at each `?` site. Uses COW via `Heap::make_mut`.
-  - [x] **Ori Tests**: `tests/spec/traits/traceable/error_trace.ori` — single `?` trace entry, chained `?` two entries, Ok passthrough
+- [ ] **Implement**: Trace collection at `?` propagation — spec/17-errors-and-panics.md § Automatic Collection
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/propagation.rs` — trace collection tests
+  - [ ] **Ori Tests**: `tests/spec/errors/trace_collection.ori`
   - [ ] **LLVM Support**: LLVM codegen for trace collection
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_tests.rs` — trace collection codegen
   - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Context storage in Result — spec/17-errors-and-panics.md § Context Storage

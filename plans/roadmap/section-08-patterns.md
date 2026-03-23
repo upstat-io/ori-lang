@@ -121,13 +121,10 @@ The spec formalizes two distinct pattern categories:
 - [x] **Implement**: `.step:` property uses `self()` — spec/15-patterns.md § recurse [done] (2026-02-10)
 - [ ] **Implement**: Optional `.memo:` default false — spec/15-patterns.md § recurse
 - [ ] **Implement**: Optional `.parallel:` threshold — spec/15-patterns.md § recurse (stub: executes sequentially)
-  - BUG FOUND: `parallel` is NOT registered in `RecursePattern.optional_props()` (returns `["memo"]` only). Extra props like `parallel: 5` are silently ignored by `infer_recurse()` positional processing. Test `fib_parallel` passes because `parallel: 5` is silently dropped. Spec says `parallel: bool = false` but test uses int threshold.
 - [x] **Implement**: When `.condition` true, return `.base` — spec/15-patterns.md § recurse [done] (2026-02-10)
 - [x] **Implement**: Otherwise evaluate `.step` — spec/15-patterns.md § recurse [done] (2026-02-10)
 - [x] **Implement**: `self(...)` refers to recursive function — spec/15-patterns.md § recurse [done] (2026-02-10)
 - [ ] **Implement**: Memoization caches during top-level call — spec/15-patterns.md § recurse
-
-> BUG FOUND: `infer_recurse()` in `ori_types/src/infer/expr/concurrency.rs` processes props positionally (first=condition, second=base, third=step) regardless of names. `recurse(base: 1, condition: true, step: x)` would mis-assign types. The evaluator (`eval_can_recurse`) correctly uses name-based lookup via `find_prop_can_id`. Fix needed: align type checker with evaluator's name-based approach.
 
 ### Self Scoping (from approved proposal)
 
