@@ -140,17 +140,19 @@ fn test_ori_assert_eq_int_pass() {
     assert!(!did_panic());
 }
 
-// On MSVC, use ori_try_call (__try/__except in C) to catch the SEH exception.
+// On MSVC, use ori_try_call (C++ try/catch) to catch the OriPanicException.
 // On MSVC, _setjmp is a compiler intrinsic that expects a hidden frame pointer
 // argument — calling it via Rust FFI corrupts the stack (exit code 0xc0000028).
+// The thunk must be `C-unwind` because ori_panic throws a C++ exception that
+// must propagate through the thunk into ori_try_call's catch handler.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
 #[test]
 fn test_ori_assert_eq_int_fail() {
     extern "C" {
-        fn ori_try_call(thunk: unsafe extern "C" fn(*mut u8), ctx: *mut u8) -> i64;
+        fn ori_try_call(thunk: unsafe extern "C-unwind" fn(*mut u8), ctx: *mut u8) -> i64;
     }
 
-    unsafe extern "C" fn assert_42_43_thunk(_ctx: *mut u8) {
+    unsafe extern "C-unwind" fn assert_42_43_thunk(_ctx: *mut u8) {
         ori_assert_eq_int(42, 43);
     }
 
