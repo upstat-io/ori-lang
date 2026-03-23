@@ -347,9 +347,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
 
-        // Build wrapper parameter types: ptr %env + remaining user params
+        // Determine return type and sret mode
         let ptr_ty = self.builder.ptr_type();
-        let mut wrapper_param_types = Vec::with_capacity(1 + remaining_params.len());
+        let ret_ty = self.resolve_type(callee_abi.return_abi.ty);
+        let has_sret = matches!(callee_abi.return_abi.passing, ReturnPassing::Sret { .. });
+        let is_void = matches!(callee_abi.return_abi.passing, ReturnPassing::Void);
+
+        // Build wrapper parameter types.
+        // When has_sret: [ptr sret_out, ptr env, user_params...]
+        // Otherwise:     [ptr env, user_params...]
+        let mut wrapper_param_types =
+            Vec::with_capacity(usize::from(has_sret) + 1 + remaining_params.len());
+        if has_sret {
+            wrapper_param_types.push(ptr_ty); // sret output pointer
+        }
         wrapper_param_types.push(ptr_ty); // env_ptr
         for param in remaining_params {
             match &param.passing {
@@ -364,17 +375,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        // Determine return type
-        let ret_ty = self.resolve_type(callee_abi.return_abi.ty);
-        let has_sret = matches!(callee_abi.return_abi.passing, ReturnPassing::Sret { .. });
-        let is_void = matches!(callee_abi.return_abi.passing, ReturnPassing::Void);
-
         // Declare wrapper function.
-        // When the callee uses sret (large return), the wrapper still returns
-        // the struct directly — it bridges from the callee's sret convention
-        // to a direct return for indirect callers. LLVM's codegen will lower
-        // the wrapper's `ret` to sret at the ABI level if needed.
-        let wrapper_func_id = if is_void {
+        // When has_sret, the wrapper uses explicit sret on its first parameter
+        // (matching the lambda's ABI). This is critical on ARM64 where sret
+        // goes in X8 — the trampoline's indirect call must agree with both the
+        // wrapper and the lambda on sret placement.
+        let wrapper_func_id = if is_void || has_sret {
             self.builder
                 .declare_void_function(&wrapper_name, &wrapper_param_types)
         } else {
@@ -387,12 +393,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.add_nounwind_attribute(wrapper_func_id);
         }
 
+        // Add sret + noalias attributes on the sret parameter.
+        if has_sret {
+            self.builder.add_sret_attribute(wrapper_func_id, 0, ret_ty);
+            self.builder.add_noalias_attribute(wrapper_func_id, 0);
+        }
+
         // noundef on return value — Ori values are always defined.
-        if !is_void {
+        if !is_void && !has_sret {
             self.builder.add_noundef_return_attribute(wrapper_func_id);
         }
 
-        // noundef on all params — env pointer and user params are always defined.
+        // noundef on all params — sret, env pointer, and user params are always defined.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "wrapper params bounded by lambda arity, well within u32 range"
@@ -407,7 +419,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(entry);
         self.builder.set_current_function(wrapper_func_id);
 
-        let env_ptr_val = self.builder.get_param(wrapper_func_id, 0);
+        // When has_sret: param 0 = sret_out, param 1 = env_ptr
+        // Otherwise:     param 0 = env_ptr
+        let env_param_idx: u32 = u32::from(has_sret);
+        let env_ptr_val = self.builder.get_param(wrapper_func_id, env_param_idx);
 
         // Set current_function to wrapper so inc_value_rc creates blocks
         // in the right function (it uses self.current_function for append_block).
@@ -426,14 +441,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Unpack captures from env struct (fields 1..N)
         let mut callee_args = Vec::with_capacity(callee_abi.params.len());
 
-        // Handle sret: if callee uses sret, allocate a temp and pass it first
-        let sret_alloca = if has_sret {
-            let alloca = self.builder.alloca(ret_ty, "sret.tmp");
-            callee_args.push(alloca);
-            Some(alloca)
-        } else {
-            None
-        };
+        // Handle sret: pass the wrapper's sret parameter through to the callee.
+        if has_sret {
+            let sret_out = self.builder.get_param(wrapper_func_id, 0);
+            callee_args.push(sret_out);
+        }
 
         #[expect(
             clippy::cast_possible_truncation,
@@ -485,8 +497,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        // Forward remaining user params (wrapper params 1..N)
-        let mut wrapper_param_idx: u32 = 1; // 0 = env_ptr
+        // Forward remaining user params.
+        // When has_sret: params start at 2 (0=sret, 1=env)
+        // Otherwise: params start at 1 (0=env)
+        let mut wrapper_param_idx: u32 = env_param_idx + 1;
         for param in remaining_params {
             if param.passing != ParamPassing::Void {
                 let user_val = self.builder.get_param(wrapper_func_id, wrapper_param_idx);
@@ -500,14 +514,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Emit return
         if has_sret {
-            if let Some(alloca) = sret_alloca {
-                // Load from sret alloca and return... but wrapper is void for sret.
-                // Actually, the wrapper itself is called indirectly via ccc.
-                // ApplyIndirect doesn't use sret — it uses direct returns.
-                // So the wrapper must load from sret and return directly.
-                let loaded = self.builder.load(ret_ty, alloca, "sret.load");
-                self.builder.ret(loaded);
-            }
+            // Result was written through sret pointer — return void.
+            self.builder.ret_void();
         } else if is_void {
             self.builder.ret_void();
         } else if let Some(val) = result {

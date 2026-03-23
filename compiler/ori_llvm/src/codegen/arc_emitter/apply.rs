@@ -303,26 +303,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             let ret_ty = self.resolve_type(ty);
+            let ret_is_indirect =
+                crate::codegen::abi::abi_size(ty, self.type_info) > 16;
             tracing::trace!(
                 ?ty,
                 resolved_llvm_ty = ?self.builder.arena.get_type(ret_ty),
+                ret_is_indirect,
                 "emit_apply_indirect: resolved return type"
             );
-            let result = if let Some((pad, _kind)) = self.current_funclet_pad {
-                self.builder.call_indirect_with_funclet(
+
+            if ret_is_indirect {
+                // Large return type — closure uses sret. Allocate a buffer,
+                // call with sret, and load the result. On ARM64, sret goes
+                // in X8 via the sret attribute (not as a regular parameter).
+                let sret_alloca = self
+                    .builder
+                    .alloca(ret_ty, "icall.sret");
+                self.builder.call_indirect_with_sret(
+                    ret_ty,
+                    &param_types,
+                    fn_ptr,
+                    sret_alloca,
+                    &arg_vals,
+                );
+                let loaded = self.builder.load(ret_ty, sret_alloca, "icall.sret.load");
+                self.def_var_repr(dst, loaded, func);
+            } else if let Some((pad, _kind)) = self.current_funclet_pad {
+                let result = self.builder.call_indirect_with_funclet(
                     ret_ty,
                     &param_types,
                     fn_ptr,
                     &arg_vals,
                     pad,
                     "icall",
-                )
+                );
+                if let Some(val) = result {
+                    self.def_var_repr(dst, val, func);
+                }
             } else {
-                self.builder
-                    .call_indirect(ret_ty, &param_types, fn_ptr, &arg_vals, "icall")
-            };
-            if let Some(val) = result {
-                self.def_var_repr(dst, val, func);
+                let result = self.builder
+                    .call_indirect(ret_ty, &param_types, fn_ptr, &arg_vals, "icall");
+                if let Some(val) = result {
+                    self.def_var_repr(dst, val, func);
+                }
             }
         } else {
             tracing::error!(
