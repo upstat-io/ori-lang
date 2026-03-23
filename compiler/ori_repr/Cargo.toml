@@ -1,0 +1,20 @@
+[package]
+name = "ori_repr"
+description = "Representation optimization IR for the Ori compiler (MachineRepr, ReprPlan, narrowing decisions)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ori_ir.workspace = true
+ori_types.workspace = true
+ori_arc.workspace = true
+rustc-hash.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

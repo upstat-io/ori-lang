@@ -1,8 +1,11 @@
 ---
 section: "01"
 title: "Representation IR & Decision Framework"
-status: not-started
+status: in-progress
 reviewed: true
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -12,7 +15,7 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "MachineRepr Enum & ReprPlan Data Structure"
-    status: not-started
+    status: in-progress
   - id: "01.2"
     title: "ReprDecision Tracking"
     status: not-started
@@ -77,7 +80,7 @@ sections:
 
 The `MachineRepr` enum captures the physical representation chosen for each type. It must be rich enough to express all optimizations in §02-§11 but simple enough that codegen can pattern-match exhaustively.
 
-- [ ] Create new crate `ori_repr` with `Cargo.toml` entry
+- [x] Create new crate `ori_repr` with `Cargo.toml` entry
   - Dependencies from §01: `ori_types` (for `Pool`, `Idx`, `Tag`), `ori_ir` (for `Name` — the interned function identifier), `ori_arc` (for `ArcFunction`, `ArcVarId` — needed immediately for `compute_repr_plan()` signature and `escapes()` query), `rustc-hash` (workspace dep — for `FxHashMap`/`FxHashSet`), `tracing` (workspace dep — for `tracing::trace!` in query methods)
   - No dependency on `ori_llvm` — this is backend-independent
   - No dependency on `ori_eval` — this is evaluation-independent
@@ -85,7 +88,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   - **Verified**: `ori_types` has `Pool`, `Idx`, `Tag` in its pub API; `rustc-hash` is a workspace dep used by `ori_types`, `ori_arc`, and `ori_llvm`
   - Add `#![deny(unsafe_code)]` to `ori_repr/src/lib.rs` (pure analysis crate, same as `ori_ir`, `ori_types`, `ori_lexer`)
 
-- [ ] Define `MachineRepr` enum:
+- [x] Define `MachineRepr` enum:
   ```rust
   /// The physical representation of a type in generated code.
   /// Every Idx in the Pool maps to exactly one MachineRepr.
@@ -149,7 +152,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   pub enum FloatWidth { F32, F64 }
   ```
 
-- [ ] Implement `canonical(tag: Tag, pool: &Pool, idx: Idx) -> MachineRepr` for ALL Tag variants (this is the most critical part of §01 — it defines what "canonical" means for every Tag variant, ensuring the ReprPlan starts correct before any optimization runs):
+- [x] Implement `canonical(tag: Tag, pool: &Pool, idx: Idx) -> MachineRepr` for ALL Tag variants (this is the most critical part of §01 — it defines what "canonical" means for every Tag variant, ensuring the ReprPlan starts correct before any optimization runs):
 
   **Primitives (0-11):**
   | Tag | Canonical MachineRepr | LLVM Type | Notes |
@@ -222,9 +225,10 @@ The `MachineRepr` enum captures the physical representation chosen for each type
 
   **Validation:** The canonical mapping MUST produce the same LLVM types as the
   existing `TypeInfo::storage_type()` → `compute_type_info_inner()` pipeline.
-  A dedicated test iterates all types in a test Pool and asserts `canonical(tag).to_llvm_type() == TypeInfo::storage_type()`.
+  The parity test is implemented in §01.9 (storage type equivalence test, 29-type matrix) — not in this subsection.
+  See §01.9 for the full coverage matrix and test requirements.
 
-- [ ] Define `FatRepr` to distinguish collection/string fat pointers:
+- [x] Define `FatRepr` to distinguish collection/string fat pointers:
   ```rust
   #[derive(Debug, Clone, PartialEq, Eq, Hash)]
   pub enum FatRepr {
@@ -235,7 +239,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   }
   ```
 
-- [ ] Define `ClosureRepr`:
+- [x] Define `ClosureRepr`:
   ```rust
   #[derive(Debug, Clone, PartialEq, Eq, Hash)]
   pub struct ClosureRepr {
@@ -246,11 +250,32 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   }
   ```
 
+- [ ] **[TPR-01-005]** Fix `repr_size()`/`repr_align()` for Unit/Never in aggregate layouts:
+  - Split `repr_size()` into `field_size()` (for aggregate layout — Unit/Never = 0 bytes, align = 1) and `abi_size()` (for by-value lowering — Unit/Never = 8 bytes for LLVM i64 materialization)
+  - Update `compute_field_layout()` and `compute_payload_layout()` to use `field_size()`/`field_align()` instead of `repr_size()`/`repr_align()`
+  - Update `TupleRepr::to_machine_repr()` and enum variant sizing to use the field-layout variants
+  - Semantic pin tests: `((), bool)` size = 1 (not 16), `(bool, (), int)` size = 16 (Unit contributes 0), `Option<()>` tag + 0 payload, struct with Unit field doesn't inflate size
+  - Verify existing tests still pass (primitives where Unit is passed by-value should still use i64)
+
+- [ ] **[TPR-01-007]** Fix `canonical_panics_on_bound_var` test: rename to `canonical_panics_on_rigid_var` (matches what it actually tests), add a separate `canonical_panics_on_bound_var` test that constructs a real `BoundVar` via `pool.scheme()` extraction and passes it to `canonical()` with `#[should_panic]`
+
+- [ ] **[TPR-01-015]** Add cycle detection to `canonical()` for recursive user types:
+  - Add `visiting: &mut FxHashSet<Idx>` parameter (or internal wrapper) to track types currently being canonicalized
+  - When a type is encountered that is already in `visiting`, return `MachineRepr::RcPointer(RcRepr { ... })` — recursive positions are always heap-allocated behind a pointer in Ori's ARC model
+  - Insert resolved idx into `visiting` before recursing into struct fields / enum variant payloads, remove after
+  - Add semantic-pin tests: `type Tree = Leaf(int) | Node(Tree, Tree)` canonicalizes without stack overflow; recursive position yields `RcPointer`; non-recursive sibling fields are canonicalized normally
+
+- [ ] **[TPR-01-016]** Make `is_trivial_repr()` recursive for compound types:
+  - `MachineRepr::Struct(s)` → return `s.trivial` (already computed for the inner struct)
+  - `MachineRepr::Tuple(t)` → return `t.trivial`
+  - `MachineRepr::Enum(e)` → return `e.variants.iter().all(|v| v.fields.iter().all(is_trivial_repr))`
+  - Semantic-pin tests: struct containing `(int, bool)` is trivial; struct containing `(int, str)` is not; struct containing `Option<int>` (enum of all-scalar variants) — triviality depends on enum analysis (conservatively false until §02)
+
 **Derive requirement:** ALL sub-repr types (`StructRepr`, `EnumRepr`, `TupleRepr`, `FieldRepr`, `EnumTag`, `VariantRepr`, `RcRepr`, `FatRepr`, `ClosureRepr`) MUST derive `Debug, Clone, PartialEq, Eq, Hash` to match `MachineRepr`'s derives. Code blocks below include them explicitly.
 
 **File placement:** `TupleRepr`, `StructRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` → `compiler/ori_repr/src/struct_repr.rs`. `EnumRepr`, `EnumTag`, `VariantRepr` → `compiler/ori_repr/src/enum_repr.rs`. `MachineRepr`, `IntWidth`, `FloatWidth` → `compiler/ori_repr/src/repr.rs`. This matches the file layout table above and keeps all files under 500 lines.
 
-- [ ] Define `TupleRepr`:
+- [x] Define `TupleRepr`:
   ```rust
   #[derive(Debug, Clone, PartialEq, Eq, Hash)]
   pub struct TupleRepr {
@@ -262,7 +287,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   }
   ```
 
-- [ ] Define `StructRepr`:
+- [x] Define `StructRepr`:
   ```rust
   #[derive(Debug, Clone, PartialEq, Eq, Hash)]
   pub struct StructRepr {
@@ -294,7 +319,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   }
   ```
 
-- [ ] Define `EnumRepr`:
+- [x] Define `EnumRepr`:
   ```rust
   #[derive(Debug, Clone, PartialEq, Eq, Hash)]
   pub struct EnumRepr {
@@ -318,7 +343,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   }
   ```
 
-- [ ] Define `VariantRepr`:
+- [x] Define `VariantRepr`:
   ```rust
   #[derive(Debug, Clone, PartialEq, Eq, Hash)]
   pub struct VariantRepr {
@@ -344,7 +369,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   }
   ```
 
-- [ ] Define `RcRepr`:
+- [x] Define `RcRepr`:
   ```rust
   #[derive(Debug, Clone, PartialEq, Eq, Hash)]
   pub struct RcRepr {
@@ -983,6 +1008,16 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   - Complex types (4): `Function`, `Tuple`, `Struct` (with fields), `Enum` (with variants)
   - Named/resolved (3): `Named`→`Struct`, `Applied`→`Struct`, `Alias`→`Int`
 
+- [ ] **Zero-sized type aggregate tests (TPR-01-005):** Verify aggregates containing Unit/Never use zero-sized field layout:
+  - `((), bool)` → Tuple with size 1 (Unit contributes 0 bytes)
+  - `(bool, (), int)` → Tuple with size 16 (Unit contributes 0 bytes, align-padded)
+  - Struct with `{ x: (), y: int }` → size 8 (Unit field is zero-sized)
+  - `Option<()>` → Enum tag + 0 payload (Unit variant has no data)
+  - `(Never, int)` → Never variant is zero-sized in aggregate context
+  - **Semantic pin**: `((), bool)` size must NOT be 16 — this test fails if Unit is treated as 8-byte in aggregates
+
+- [ ] **BoundVar test fix (TPR-01-007):** Rename `canonical_panics_on_bound_var` to `canonical_panics_on_rigid_var` (matches what it actually tests). Add a new `canonical_panics_on_bound_var` test that constructs a real `BoundVar` fixture via `pool.scheme()` extraction and asserts `canonical()` panics on it.
+
 - [ ] **Error on unresolved types test:** Verify that `canonical()` on `Tag::Var`, `Tag::BoundVar`, `Tag::RigidVar`, `Tag::Scheme`, `Tag::Infer`, `Tag::SelfType` panics or returns an error. Each variant is a separate `#[should_panic]` test.
 
 - [ ] **FatPointer layout test:** Verify `FatRepr::Str` and `FatRepr::Collection` both produce `{i64, i64, ptr}` in LLVM, matching the existing collection layout.
@@ -992,6 +1027,58 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [ ] **Semantic pin test (zero behavioral change):** After §01 is wired into the pipeline (Phase A), compile `tests/benchmarks/bench_small.ori` twice — once with `--no-repr-opt` and once normally (which runs `populate_canonical()` but no narrowing). Assert the LLVM IR output is identical. This test fails if §01 wiring introduces any behavioral change.
 
 - [ ] **Verify tests pass in debug AND release:** `cargo test -p ori_repr` and `cargo test -p ori_repr --release` both green. `cargo test -p ori_llvm` green (equivalence test in §01.8 exercises LLVM IR generation).
+
+---
+
+## 01.R Third Party Review Findings
+
+- [x] `[TPR-01-001][high]` `compiler/ori_repr/src/canonical.rs:148` — Aggregate size accounting ignores ABI padding for tuples, structs, and enum payloads.
+  Resolved: Accepted and fixed on 2026-03-23. Replaced naive `estimate_size()` (field-size sum) with `compute_field_layout()` and `compute_payload_layout()` that walk fields with alignment padding between each field plus trailing padding to struct alignment. `TupleRepr::to_machine_repr()` and enum variant sizing also updated. Matrix tests: `(int, bool)=16`, `(bool, int)=16`, `(bool, bool)=2`, `struct(bool, int)=16`, `struct(int, float)=16`. Debug+release pass.
+
+- [x] `[TPR-01-002][high]` `compiler/ori_repr/src/struct_repr.rs:69` — `FatRepr::Collection` cannot faithfully represent maps because it stores only one element repr.
+  Resolved: Accepted and fixed on 2026-03-23. Added `FatRepr::Map { key_repr, value_repr }` variant. `canonical()` for `Tag::Map` now uses both `pool.map_key()` and `pool.map_value()`. `FatRepr::Collection` is now only for single-element collections (List, Set). Semantic pin test `canonical_map_retains_value_repr` verifies both key and value are preserved.
+
+- [x] `[TPR-01-003][high]` `compiler/ori_repr/src/canonical.rs:203` — Impossible-type paths are silently rewritten to `OpaquePtr` instead of failing fast.
+  Resolved: Accepted and fixed on 2026-03-23. Replaced `debug_assert!(false) + OpaquePtr` fallback with `panic!()` for Named/Applied/Alias, Borrowed, and Error. These now fail fast in both debug and release builds, consistent with Var/BoundVar/RigidVar/Scheme/etc. which already used `panic!()`. Added `#[should_panic] canonical_panics_on_error` test.
+
+- [x] `[TPR-01-004][medium]` `plans/repr-opt/section-01-repr-ir.md:16` — §01.1 is marked complete even though the foundational API surface it claims to establish does not exist yet.
+  Resolved: Rejected after validation on 2026-03-23. The file layout table in §01.1 describes the entire §01 crate across all subsections, not §01.1's scope. The 10 checked items under §01.1 are specifically the type definitions (MachineRepr, StructRepr, TupleRepr, etc.) and `canonical()`, all of which exist. The items the TPR references (plan.rs, query.rs, compute_repr_plan, NarrowingPolicy) are in §01.2–§01.4 and are correctly unchecked there.
+
+- [x] `[TPR-01-005][high]` `compiler/ori_repr/src/canonical.rs:334` — Aggregate layout treats `Unit`/`Never` as 8-byte fields even though §01.1 defines `MachineRepr::Unit` as zero-sized in memory.
+  Resolved: Accepted on 2026-03-23. Fix tasks integrated into §01.1 (split `repr_size`/`repr_align` into field-layout vs ABI-value variants so Unit/Never are zero-sized in aggregates) and §01.9 (aggregate tests with Unit/Never).
+
+- [x] `[TPR-01-006][medium]` `compiler/ori_repr/src/tests.rs:331` — §01.1 claims parity validation against the existing `TypeInfo` pipeline, but the new crate does not contain the promised parity test.
+  Resolved: Accepted on 2026-03-23. The parity test is tracked in §01.9 (storage type equivalence test, 29-type matrix). §01.1's validation text (line 226) is aspirational — the implementation is §01.9 scope. Cross-reference clarification added to §01.1.
+
+- [x] `[TPR-01-007][low]` `compiler/ori_repr/src/tests.rs:653` — The test named `canonical_panics_on_bound_var` never exercises a `BoundVar`.
+  Resolved: Accepted on 2026-03-23. Fix task integrated into §01.9 (rename test to match actual coverage, add real BoundVar fixture test).
+
+- [x] `[TPR-01-008][high]` `compiler/ori_repr/src/canonical.rs:249` — Aggregate layout still uses ABI-sized `Unit`/`Never` fields, so the accepted zero-sized-layout fix has not landed.
+  Resolved: Validated and confirmed on 2026-03-23. Fix tasks already integrated into §01.1 (line 253: split repr_size/repr_align into field vs ABI variants) and §01.9 (line 999: zero-sized aggregate semantic pins). Will be fixed as part of §01.1 completion.
+
+- [x] `[TPR-01-009][medium]` `compiler/ori_repr/src/tests.rs:653` — `canonical_panics_on_bound_var` still panics via `RigidVar`, so `Tag::BoundVar` has no direct regression test.
+  Resolved: Validated and confirmed on 2026-03-23. Fix tasks already integrated into §01.1 (line 260: rename test, add real BoundVar fixture) and §01.9 (line 1007: BoundVar test fix). Will be fixed as part of §01.1 completion.
+
+- [x] `[TPR-01-010][high]` `compiler/ori_repr/src/canonical.rs:249` — Aggregate layout still treats `Unit`/`Never` as 8-byte payload fields, so zero-sized aggregates are mis-modeled.
+  Resolved: Validated and accepted on 2026-03-23. Fix tasks already integrated into §01.1 (line 253: field_size/field_align vs abi_size/abi_align split) and §01.9 (line 999: zero-sized aggregate semantic pins). Will be fixed as part of §01.1 completion.
+
+- [x] `[TPR-01-011][medium]` `compiler/ori_repr/src/tests.rs:653` — `canonical_panics_on_bound_var` still does not exercise a `BoundVar`.
+  Resolved: Validated and accepted on 2026-03-23. Fix tasks already integrated into §01.1 (line 260: rename test, add real BoundVar fixture) and §01.9 (line 1007: BoundVar test fix). Will be fixed as part of §01.1 completion.
+
+- [x] `[TPR-01-012][medium]` `plans/repr-opt/section-01-repr-ir.md:6` — The section metadata says third-party review is resolved even though the accepted §01 findings above are still open in the current tree.
+  Resolved: Already addressed on 2026-03-23. Frontmatter was corrected to `third_party_review.status: findings` before this triage. Now that all TPR items are triaged (fix tasks integrated into §01.1 and §01.9), status updated to `resolved`.
+
+- [x] `[TPR-01-013][high]` `plans/repr-opt/section-01-repr-ir.md:6` — §01 still advertises `third_party_review.status: resolved` while the accepted zero-sized-layout and BoundVar-test fixes remain unchecked in the same section.
+  Resolved: Validated on 2026-03-23. The frontmatter was already corrected to `third_party_review.status: findings` in a prior session. The principle (keep `findings` until accepted fixes land) is actively being followed. The underlying process issue is addressed by TPR-01-014.
+
+- [x] `[TPR-01-014][medium]` `.claude/skills/continue-roadmap/SKILL.md:158` — The roadmap workflow resolves TPR state immediately after triage, even when accepted findings are converted into new unchecked implementation tasks.
+  Resolved: Accepted and fixed on 2026-03-23. Updated SKILL.md Step 1.9 to keep `third_party_review.status: findings` while accepted TPR findings have unchecked implementation tasks. Status only transitions to `resolved` when all accepted implementation tasks are complete or when all findings were rejected.
+
+- [x] `[TPR-01-015][high]` `compiler/ori_repr/src/canonical.rs:25` — `canonical()` has no cycle handling, so recursive user types recurse forever instead of preserving the existing boxed-recursion behavior.
+  Resolved: Accepted on 2026-03-23. Validated against codebase — `canonical()` has no `visiting` set or cycle detection. Recursive ADTs (e.g., `type Tree = Leaf(int) | Node(Tree, Tree)`) will stack overflow. Implementation tasks added to §01.1 (cycle detection) and §01.9 (recursive type tests).
+
+- [x] `[TPR-01-016][medium]` `compiler/ori_repr/src/canonical.rs:126` — Nested trivial aggregates are marked non-trivial because `is_trivial_repr()` only recognizes primitive leaves.
+  Resolved: Accepted on 2026-03-23. Validated against codebase — `is_trivial_repr()` only matches primitive variants, so nested `Struct`/`Tuple`/`Enum` fields always yield `false` even when all-scalar. Fix: make `is_trivial_repr()` recursive. Implementation tasks added to §01.1 (recursive triviality) and §01.9 (nested trivial aggregate tests).
 
 ---
 
