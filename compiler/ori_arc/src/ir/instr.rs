@@ -2,7 +2,7 @@
 //!
 //! [`ArcInstr`] represents a single instruction in an ARC IR basic block.
 //! Most produce a value bound to a `dst` variable. RC operations (`RcInc`,
-//! `RcDec`) are inserted by Section 07 and optimized by Section 08.
+//! `RcDec`) are inserted by the RC emission pass and optimized by RC elimination.
 
 use smallvec::{smallvec, SmallVec};
 
@@ -14,7 +14,7 @@ use super::{ArcValue, ArcVarId, ArgOwnership, CtorKind, RcStrategy};
 ///
 /// Instructions are executed sequentially within a block. Most produce
 /// a value bound to a `dst` variable. RC operations (`RcInc`, `RcDec`)
-/// are inserted by Section 07 and optimized by Section 08.
+/// are inserted by the RC emission pass and optimized by RC elimination.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum ArcInstr {
@@ -71,7 +71,7 @@ pub enum ArcInstr {
         args: Vec<ArcVarId>,
     },
 
-    // RC operations (inserted by Section 07)
+    // RC operations (inserted by RC emission pass)
     /// Increment reference count. `count` allows batched increments
     /// when a value is passed to multiple owned parameters. `strategy`
     /// tells the emitter how to perform the increment (no Pool queries).
@@ -85,7 +85,7 @@ pub enum ArcInstr {
     /// the emitter the cleanup approach (no Pool queries).
     RcDec { var: ArcVarId, strategy: RcStrategy },
 
-    // Reuse operations (inserted by Section 09)
+    // Reuse operations (inserted by reuse emission pass)
     /// Test whether a value's reference count is 1 (uniquely owned).
     /// Result is a `bool` bound to `dst`.
     IsShared { dst: ArcVarId, var: ArcVarId },
@@ -103,11 +103,11 @@ pub enum ArcInstr {
     SetTag { base: ArcVarId, tag: u64 },
 
     /// Reset intermediate: marks a value for potential reuse.
-    /// Expanded by Section 09 into `IsShared` + conditional reuse.
+    /// Expanded by reuse emission into `IsShared` + conditional reuse.
     Reset { var: ArcVarId, token: ArcVarId },
 
     /// Reuse intermediate: construct using a reuse token's memory.
-    /// Expanded by Section 09 into conditional alloc-or-reuse.
+    /// Expanded by reuse emission into conditional alloc-or-reuse.
     Reuse {
         token: ArcVarId,
         dst: ArcVarId,
@@ -162,8 +162,7 @@ impl ArcInstr {
     /// it defines). Side-effect-only instructions (`RcInc`, `RcDec`,
     /// `Set`, `SetTag`) return `None`.
     ///
-    /// Used by liveness analysis (Section 07.1), RC insertion (07.2),
-    /// and RC elimination (08).
+    /// Used by liveness analysis, RC emission, and RC elimination.
     pub fn defined_var(&self) -> Option<ArcVarId> {
         match self {
             ArcInstr::Let { dst, .. }
@@ -197,7 +196,7 @@ impl ArcInstr {
     /// common case (most instructions use 0-3 variables). Called in tight
     /// inner loops by liveness, RC insertion, RC elimination, and reset/reuse.
     ///
-    /// Used by liveness analysis (Section 07.1) for computing gen sets.
+    /// Used by liveness analysis for computing gen sets.
     pub fn used_vars(&self) -> SmallVec<[ArcVarId; 4]> {
         match self {
             ArcInstr::Let { value, .. } => match value {
@@ -255,8 +254,8 @@ impl ArcInstr {
     ///
     /// Zero-allocation alternative to `used_vars().contains(&var)`. Matches
     /// directly on instruction fields and short-circuits on the first hit.
-    /// Used by reset/reuse detection (Section 07.6) and RC elimination (08)
-    /// in inner loops where allocation per check is wasteful.
+    /// Used by reset/reuse detection and RC elimination in inner loops
+    /// where allocation per check is wasteful.
     pub fn uses_var(&self, target: ArcVarId) -> bool {
         match self {
             ArcInstr::Let { value, .. } => match value {
@@ -309,16 +308,25 @@ impl ArcInstr {
     /// Owned positions:
     /// - `Construct`, `PartialApply`: all args (`0..args.len()`)
     /// - `Apply`: args where `arg_ownership[pos] == Owned` (respects borrow inference)
-    /// - `ApplyIndirect`: closure + all args (`0..=args.len()`)
+    /// - `ApplyIndirect`: args only (`1..=args.len()`); closure (pos 0) is borrowed
     /// - Everything else: no owned positions (read-only uses)
     pub fn is_owned_position(&self, pos: usize) -> bool {
         match self {
             ArcInstr::Construct { args, .. } | ArcInstr::PartialApply { args, .. } => {
                 pos < args.len()
             }
-            // old_var at position 0 is consumed (not owned — RC handled internally).
-            // args at positions 1..=args.len() are owned (stored into buffer).
+            // CollectionReuse: old_var at position 0 is consumed (not owned);
+            //   positions 1..=args.len() are owned (stored into buffer).
             ArcInstr::CollectionReuse { args, .. } => pos >= 1 && pos <= args.len(),
+            // ApplyIndirect: lambda callees do NOT emit RcDec for their
+            // parameters — the caller is responsible. All positions are
+            // borrowed from the caller's perspective. Separate from the
+            // wildcard to document this semantic distinction.
+            #[expect(
+                clippy::match_same_arms,
+                reason = "documents semantic difference from wildcard"
+            )]
+            ArcInstr::ApplyIndirect { .. } => false,
             ArcInstr::Apply {
                 args,
                 arg_ownership,
@@ -329,7 +337,6 @@ impl ArcInstr {
                         .get(pos)
                         .is_none_or(|o| *o == ArgOwnership::Owned)
             }
-            ArcInstr::ApplyIndirect { args, .. } => pos <= args.len(),
             _ => false,
         }
     }
@@ -337,7 +344,7 @@ impl ArcInstr {
     /// Replace all occurrences of `old` with `new` in read positions.
     ///
     /// Defined variables (`dst`) are NOT substituted — only used variables.
-    /// Used by constructor reuse expansion (Section 09) to substitute
+    /// Used by constructor reuse expansion to substitute
     /// `reuse_dst -> reset_var` on the fast path.
     pub fn substitute_var(&mut self, old: ArcVarId, new: ArcVarId) {
         fn sub(v: &mut ArcVarId, old: ArcVarId, new: ArcVarId) {

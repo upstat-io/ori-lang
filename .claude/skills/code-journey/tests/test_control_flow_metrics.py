@@ -53,12 +53,17 @@ attributes #0 = { nounwind uwtable }
         assert cfm.total_defects >= 1
 
     def test_redundant_branch(self):
+        """Non-entry empty block with unconditional br to next block is redundant."""
         ir = """
-define fastcc i64 @_ori_f() #0 {
+define fastcc i64 @_ori_f(i1 %cond) #0 {
 entry:
-  br label %next
-next:
-  ret i64 42
+  br i1 %cond, label %then, label %empty
+then:
+  ret i64 1
+empty:
+  br label %merge
+merge:
+  ret i64 0
 }
 attributes #0 = { nounwind uwtable }
 """

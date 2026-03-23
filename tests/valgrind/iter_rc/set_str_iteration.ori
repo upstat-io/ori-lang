@@ -1,0 +1,12 @@
+// Valgrind: Set<str> iteration — verify no memory errors
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a long heap string exceeding SSO",
+        "another long heap string for testing"
+    ].iter().collect();
+    let count = 0;
+    for _ in s do {
+        count = count + 1;
+    };
+    if count == 2 then 0 else 1
+}

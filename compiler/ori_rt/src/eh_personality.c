@@ -15,6 +15,11 @@
  * (Rust side) before either raise path is invoked.
  */
 
+/* Exit code for fatal errors: 128 + 6 mirrors POSIX SIGABRT convention.
+ * We use _exit() instead of abort() because abort() raises SIGABRT which
+ * can hang when signal handlers interfere with process termination. */
+#define ORI_FATAL_EXIT_CODE (128 + 6)
+
 #ifdef _MSC_VER
 /* ═══════════════════════════════════════════════════════════════════
  * Windows SEH Implementation
@@ -56,8 +61,8 @@ void ori_raise_exception(void) {
     RaiseException(ORI_SEH_EXCEPTION_CODE, EXCEPTION_NONCONTINUABLE, 0, NULL);
     /* RaiseException does not return when EXCEPTION_NONCONTINUABLE is set
      * and a handler is found. If no handler exists, Windows terminates
-     * the process. This abort() is a safety net. */
-    abort();
+     * the process. This _exit() is a safety net. */
+    _exit(ORI_FATAL_EXIT_CODE);
 }
 
 /*
@@ -119,6 +124,7 @@ int64_t ori_try_call(void (*thunk)(void *), void *ctx) {
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 /* ── DWARF pointer encoding constants ────────────────────────────── */
 
@@ -494,7 +500,7 @@ void ori_raise_exception(void) {
     OriException *exc = (OriException *)malloc(sizeof(OriException));
     if (!exc) {
         fprintf(stderr, "ori: fatal — out of memory during panic\n");
-        abort();
+        _exit(ORI_FATAL_EXIT_CODE);
     }
     memset(exc, 0, sizeof(*exc));
     exc->header.exception_class = ORI_EXCEPTION_CLASS;
@@ -508,7 +514,7 @@ void ori_raise_exception(void) {
     fprintf(stderr,
         "ori: fatal — _Unwind_RaiseException returned (code %d)\n",
         (int)result);
-    abort();
+    _exit(ORI_FATAL_EXIT_CODE);
 }
 
 #endif /* _MSC_VER */

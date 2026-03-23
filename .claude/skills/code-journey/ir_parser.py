@@ -73,6 +73,11 @@ class Function:
         # behavior for a destructor but would flag as "unbalanced" in scoring.
         if "_ori_drop$" in self.name:
             return False
+        # Element dec/inc functions are called N times from collection cleanup
+        # (once per element). Static call-site counting always shows deficit
+        # (1 dec call site, N runtime invocations). Same pattern as drop fns.
+        if "_ori_elem_dec$" in self.name or "_ori_elem_inc$" in self.name:
+            return False
         return True
 
     @property

@@ -1,0 +1,26 @@
+// AIMS synergy test: Shape × Uniqueness × Cardinality
+//
+// Dimensions: ReusableCtor + Once + Unique → reuse recorded in event table
+//
+// Define a sum type and a function that maps it (destructure + reconstruct).
+// Without shape: reuse detected during emission scan.
+// With shape: reuse recorded in event table during analysis.
+//
+// Expected: same output, but reuse opportunity visible in state map
+// before emission (verified by Rust-level test).
+
+type IntBox = Box(value: int);
+
+@double_box (b: IntBox) -> IntBox = match b {
+    Box(v) -> Box(value: v * 2),
+};
+
+@main () -> void = {
+    let $b = Box(value: 21);
+    let $result = double_box(b: b);
+    let $value = match result {
+        Box(v) -> v,
+    };
+    if value != 42 then panic(msg: "expected 42");
+    print(msg: "reuse_during_analysis: pass")
+}

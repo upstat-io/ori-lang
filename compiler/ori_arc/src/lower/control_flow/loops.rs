@@ -24,12 +24,10 @@ impl ArcLowerer<'_> {
         let exit_block = self.builder.new_block();
 
         let pre_scope = self.scope.clone();
-        let mut mutable_var_names = Vec::new();
         let mut header_params = Vec::new();
 
         for (name, var) in pre_scope.mutable_bindings() {
             let var_ty = self.builder.var_type_or_unit(var);
-            mutable_var_names.push(name);
             let param_var = self.builder.add_block_param(header_block, var_ty);
             header_params.push((name, var, param_var));
         }
@@ -59,10 +57,15 @@ impl ArcLowerer<'_> {
         }
 
         let prev_loop = self.loop_ctx.take();
+        let mutable_var_entries: Vec<_> = header_params
+            .iter()
+            .map(|&(name, _, param)| (name, param))
+            .collect();
         self.loop_ctx = Some(LoopContext {
             exit_block,
             continue_block: header_block,
-            mutable_vars: mutable_var_names,
+            mutable_vars: mutable_var_entries,
+            yield_ctx: None,
         });
 
         self.lower_expr(body);
@@ -72,7 +75,7 @@ impl ArcLowerer<'_> {
         } else {
             let continue_args: Vec<_> = header_params
                 .iter()
-                .map(|(name, _, _)| self.scope.lookup(*name).unwrap_or_else(|| ArcVarId::new(0)))
+                .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param))
                 .collect();
             for (i, &(name, _, param)) in header_params.iter().enumerate() {
                 tracing::trace!(
@@ -162,6 +165,7 @@ impl ArcLowerer<'_> {
             // List, Map, Set, Str, etc. — convert to iterator via .iter(),
             // then use the iterator-based loop.
             let elem_ty = self.extract_iterable_elem_type(tag, iter_ty);
+
             let iter_name = self.interner.intern("iter");
             // Use INT for the iterator handle — it's an opaque pointer with no
             // RC semantics (cleanup is via ori_iter_drop, not RC dec).

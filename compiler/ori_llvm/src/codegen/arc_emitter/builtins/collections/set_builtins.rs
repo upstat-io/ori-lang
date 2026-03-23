@@ -116,11 +116,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `set.remove(elem)` — COW remove returning the (possibly mutated) set.
     ///
-    /// No-op if element not found. Fast path (unique): shifts left in place.
-    /// Slow path (shared): copies all except removed.
+    /// No-op if element not found. Fast path (unique): decs removed element,
+    /// then tombstones. Slow path (shared): copies all except removed.
     ///
     /// Calls `ori_set_remove_cow(data, len, cap, elem, elem_size, elem_align,
-    ///         elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)`.
+    ///         elem_eq, elem_hash, inc_fn, elem_dec_fn, cow_mode, out_ptr)`.
     pub(crate) fn emit_set_remove(
         &mut self,
         receiver: ValueId,
@@ -136,6 +136,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
         let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
         let set_ty = self.list_struct_type();
         let out = self
@@ -145,8 +146,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(
             func_id,
             &[
-                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
-                cow_mode, out,
+                data_ptr,
+                len,
+                cap,
+                elem_ptr,
+                elem_size,
+                elem_align,
+                elem_eq,
+                elem_hash,
+                inc_fn,
+                elem_dec_fn,
+                cow_mode,
+                out,
             ],
             "set.remove",
         );
@@ -266,7 +277,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `set.to_list()` / `set.into()` — copies set data into a new list via sret.
     ///
-    /// Calls `ori_set_to_list(data, cap, len, elem_size, out_ptr)`.
+    /// Calls `ori_set_to_list(data, cap, len, elem_size, elem_dec_fn,
+    /// elem_inc_fn, out_ptr)`. `elem_inc_fn` prevents double-free on
+    /// shared RC-tracked element data.
     pub(crate) fn emit_set_to_list(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_to_list");
 
@@ -274,6 +287,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -282,11 +297,51 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             func_id,
-            &[data_ptr, cap, len, elem_size, out_alloca],
+            &[
+                data_ptr,
+                cap,
+                len,
+                elem_size,
+                elem_dec_fn,
+                elem_inc_fn,
+                out_alloca,
+            ],
             "set.to_list",
         );
 
         Some(self.builder.load(list_ty, out_alloca, "set.to_list.val"))
+    }
+
+    /// Emit `set.iter()` — convert set to contiguous list, then create list iterator.
+    ///
+    /// Sets use hash table layout where elements are at non-contiguous positions
+    /// (interleaved with metadata). Calling `emit_list_iter` directly on a Set
+    /// creates an `IterState::List` that iterates contiguously — wrong for hash
+    /// tables. Instead: convert to a contiguous list via `ori_set_to_list`, then
+    /// create an iterator over that list.
+    ///
+    /// After conversion, the set buffer is explicitly decremented — the ARC
+    /// pipeline passes the set with `[own]`, expecting the callee to handle
+    /// cleanup. For lists, `IterState::List` Drop implicitly handles this
+    /// (same buffer). For sets, the iterator holds the converted list buffer
+    /// (different allocation), so we must explicitly dec the set buffer.
+    pub(crate) fn emit_set_iter(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
+        // Convert set to contiguous list (copies elements, incs element RCs).
+        let list_val = self.emit_set_to_list(receiver, elem_ty)?;
+
+        // Dec the set buffer — the converted list now owns the element references.
+        // The set buffer's RC was incremented by AIMS for the [own] parameter;
+        // this dec matches that inc, freeing the set buffer if no other refs exist.
+        let (data_ptr, len, cap) = self.extract_set_components(receiver);
+        let elem_size = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
+        self.emit_rt_call(func_id, &[data_ptr, cap, len, elem_size, elem_dec_fn], "");
+
+        // Create iterator from the contiguous list.
+        self.emit_list_iter(list_val, elem_ty, elem_ty)
     }
 
     // Range methods

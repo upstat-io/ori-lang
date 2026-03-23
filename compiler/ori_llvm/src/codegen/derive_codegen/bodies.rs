@@ -16,6 +16,7 @@ use ori_types::{FieldDef, Idx};
 use tracing::warn;
 
 use super::super::function_compiler::FunctionCompiler;
+use super::clone_rc::emit_clone_field_rc_inc;
 
 use super::field_ops::emit_field_operation;
 use super::string_helpers::{emit_field_to_string, emit_str_concat, emit_str_literal};
@@ -300,17 +301,44 @@ pub(super) fn compile_format_fields<'a>(
 
 // CloneFields: Clone
 
-/// Generate `clone(self: Self) -> Self` — identity return for value types.
+/// Generate `clone(self: Self) -> Self`.
+///
+/// Clone returns the same struct value (shallow copy). For fields that are
+/// heap-allocated (str, list, map, set, closures, nested fat structs), we
+/// must RC-increment the field's data pointer so the original and clone
+/// have independent RC lifecycles.
 pub(super) fn compile_clone_fields<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     trait_kind: DerivedTrait,
     type_name: Name,
     type_idx: Idx,
     type_name_str: &str,
-    _fields: &[FieldDef],
+    fields: &[FieldDef],
 ) {
     let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
     let self_val = setup.self_val.expect("CloneFields has self");
+
+    // RC-increment each heap-allocated field so the clone has independent
+    // ownership from the original.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field count bounded by struct definition"
+    )]
+    for (i, field) in fields.iter().enumerate() {
+        let pool = fc.type_info().pool();
+        let resolved = pool.resolve_fully(field.ty);
+        let tag = pool.tag(resolved);
+
+        let field_val = fc
+            .builder_mut()
+            .extract_value(self_val, i as u32, &format!("clone.f.{i}"));
+        let Some(fv) = field_val else {
+            continue;
+        };
+
+        emit_clone_field_rc_inc(fc, setup.func_id, fv, tag, resolved, i);
+    }
+
     emit_derive_return(fc, setup.func_id, &setup.abi, Some(self_val));
 }
 

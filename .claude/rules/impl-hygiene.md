@@ -186,6 +186,20 @@ Hot: lexer scan loop, parser expression/statement parsing, type inference unific
 - **No shared mutable state between passes**: inter-pass communication via IR only. Exception: diagnostic accumulation is append-only — passes may append but not read/mutate each other's diagnostics.
 - **Boundary validation**: `debug_assert!` invariants before crossing to next phase. Examples: all type variables resolved before codegen, no unreachable blocks in IR, RC ops balanced after ARC pass.
 
+## Invariant Explicitness
+
+- **Implicit invariants are invisible regressions.** If correctness depends on a property (RC balanced after loop, scope restored after block, phantom var inserted before iteration, elem_dec_fn non-NULL for heap types), it MUST be either:
+  - A `debug_assert!` at the point where the invariant is relied upon, OR
+  - A test that would fail if the invariant is violated
+- **Semantic changes require semantic pins.** When a fix changes observable behavior (RC emission pattern, element cleanup order, scope lifetime, dec function selection), add a regression test that ONLY passes with the new semantics. This test is the permanent guard against revert.
+- **Cross-section fixes require cross-section plan updates.** If implementing Section X requires changing code owned by Section Y, you MUST update Section Y's plan to reflect the change. A partial fix absorbed silently across section boundaries creates invisible dependencies that compound into cascading failures.
+
+## Narrow the Front
+
+- **Complete one fix fully before starting another.** RC + control-flow + lowering interactions multiply failure surfaces. Concurrent changes across these domains compound risk.
+- **"Fully" means**: fix + matrix tests + semantic pin + plan update. A fix without matrix tests is incomplete. A fix with tests but without plan update (when cross-section) is incomplete.
+- **Prefer depth over breadth.** Fix one element type across all patterns before fixing a second element type. Fix one loop variant completely before the other. This reduces the number of concurrent moving parts and makes failures narrow and explainable.
+
 ## Registration Sync Points
 
 Application of the SSOT paradigm to enum variants, lookup tables, and parallel data structures.

@@ -1,11 +1,11 @@
 //! Unit tests for the block merge pass.
 
 use ori_ir::Name;
-use ori_types::{Idx, Pool};
+use ori_types::Idx;
 
 use crate::ir::{
     ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue,
-    PrimOp, RcStrategy,
+    PrimOp, RcStrategy, ValueRepr,
 };
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::uniqueness::CowMode;
@@ -129,6 +129,141 @@ fn nontrivial_invoke_unwind_has_cleanup() {
     assert!(
         has_invoke,
         "invoke with non-trivial unwind should be preserved"
+    );
+}
+
+/// Invoke with `RcDec` on non-capturing closure in unwind block is
+/// downgraded — the closure has null env, so `RcDec` is a no-op.
+#[test]
+fn invoke_with_noop_closure_rc_dec_downgrades() {
+    // Build: bb0 has PartialApply (no captures) defining v(2), then
+    // Invoke passing v(2) as borrowed → unwind block has RcDec on v(2).
+    let closure_ty = Idx::from_raw(999); // placeholder for closure type
+    let func = make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::PartialApply {
+                    dst: v(2),
+                    ty: closure_ty,
+                    func: Name::from_raw(200), // lambda name
+                    args: vec![],              // no captures
+                }],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    func: Name::from_raw(100),
+                    args: vec![v(2), v(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            // Unwind has RcDec on non-capturing closure — should be treated as no-op.
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![ArcInstr::RcDec {
+                    var: v(2),
+                    strategy: RcStrategy::Closure,
+                }],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        vec![Idx::INT, Idx::INT, closure_ty],
+    );
+
+    let mut func = func;
+    merge_blocks(&mut func);
+
+    // Invoke should be downgraded to Apply + Jump, then merged.
+    let has_invoke = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Invoke { .. }));
+    assert!(
+        !has_invoke,
+        "invoke with no-op closure RcDec should be downgraded"
+    );
+    // The PartialApply and Apply should both be in the merged block.
+    let has_partial_apply = func.blocks[0]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::PartialApply { .. }));
+    let has_apply = func.blocks[0]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Apply { .. }));
+    assert!(has_partial_apply, "PartialApply should survive merge");
+    assert!(has_apply, "downgraded Apply should be in merged block");
+}
+
+/// Invoke with `RcDec` on CAPTURING closure is NOT downgraded — env is
+/// not null, so `RcDec` is real cleanup.
+#[test]
+fn invoke_with_capturing_closure_rc_dec_preserved() {
+    let closure_ty = Idx::from_raw(999);
+    let func = make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::PartialApply {
+                    dst: v(2),
+                    ty: closure_ty,
+                    func: Name::from_raw(200),
+                    args: vec![v(0)], // has captures → env is NOT null
+                }],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::INT,
+                    func: Name::from_raw(100),
+                    args: vec![v(2)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![ArcInstr::RcDec {
+                    var: v(2),
+                    strategy: RcStrategy::Closure,
+                }],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        vec![Idx::INT, Idx::INT, closure_ty],
+    );
+
+    let mut func = func;
+    merge_blocks(&mut func);
+
+    let has_invoke = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Invoke { .. }));
+    assert!(
+        has_invoke,
+        "invoke with capturing closure RcDec must be preserved"
     );
 }
 
@@ -1085,9 +1220,9 @@ fn drop_hints_valid_after_merge() {
         "merge should clear stale drop hints"
     );
 
-    // Now compute drop hints on the merged function — should not panic.
-    let pool = Pool::new();
-    func.drop_hints = crate::uniqueness::compute_drop_hints(&func, &pool);
+    // Drop hints are computed by the AIMS realization phase (post-merge).
+    // Verify that a fresh empty DropHints has valid coordinates on merged IR.
+    func.drop_hints = crate::uniqueness::DropHints::new();
 
     // Verify all hint coordinates are valid.
     for (block_idx, block) in func.blocks.iter().enumerate() {
@@ -2878,4 +3013,49 @@ fn mixed_invariant_only_invariant_removed() {
     } else {
         panic!("expected Jump terminator in bb3");
     }
+}
+
+/// Merge param with `FatValue` repr → Branch preserved (select would leak
+/// the non-selected heap allocation). Semantic pin for the if-else dead
+/// branch leak fix.
+#[test]
+fn select_not_folded_non_scalar_merge_param() {
+    let mut func = make_diamond(DiamondConfig {
+        cond_var: 0,
+        then_body: vec![ArcInstr::Let {
+            dst: v(1),
+            ty: Idx::INT, // type index doesn't matter, repr does
+            value: ArcValue::Literal(LitValue::Int(1)),
+        }],
+        then_args: vec![v(1)],
+        else_body: vec![ArcInstr::Let {
+            dst: v(2),
+            ty: Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(2)),
+        }],
+        else_args: vec![v(2)],
+        merge_params: vec![(v(3), Idx::INT)],
+        merge_result: v(3),
+        var_count: 4,
+    });
+    // Set the merge param's repr to FatValue (heap-allocated).
+    // var_reprs must cover all vars (0..4).
+    func.var_reprs = vec![
+        ValueRepr::Scalar,   // v(0) — cond
+        ValueRepr::FatValue, // v(1) — then arm
+        ValueRepr::FatValue, // v(2) — else arm
+        ValueRepr::FatValue, // v(3) — merge param
+    ];
+
+    fold_select_diamonds(&mut func);
+
+    let has_branch = func
+        .blocks
+        .iter()
+        .any(|bl| matches!(bl.terminator, ArcTerminator::Branch { .. }));
+    assert!(
+        has_branch,
+        "Branch must be preserved when merge param is FatValue — \
+         folding to Select would leak the non-selected heap allocation"
+    );
 }

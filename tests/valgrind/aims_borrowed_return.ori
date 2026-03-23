@@ -1,0 +1,42 @@
+// Valgrind test: borrowed param returned through block parameters.
+// Regression test for double-free when a borrowed function parameter
+// flows to a Return terminator through Jump → block params.
+// The contract extraction must detect this flow and mark the param Owned.
+
+type List = Nil | Cons(head: int, tail: List);
+
+// Accumulator pattern: `acc` is borrowed but returned in the Nil case
+// through a block parameter (Jump bb → Return block_param).
+@reverse_helper (list: List, acc: List) -> List = match list {
+    Nil -> acc,
+    Cons(h, t) -> reverse_helper(list: t, acc: Cons(head: h, tail: acc)),
+};
+
+@reverse (list: List) -> List = reverse_helper(list: list, acc: Nil);
+
+@sum_list (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + sum_list(list: t),
+};
+
+@len_list (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + len_list(list: t),
+};
+
+@main () -> int = {
+    // Build list [1, 2, 3, ..., 50]
+    let build = Nil;
+    for i in 0..50 do {
+        build = Cons(head: 50 - i, tail: build);
+    };
+    // sum(1..50) = 1275
+    let $sum_before = sum_list(list: build);
+
+    // Reverse: [50, 49, ..., 1]
+    let $rev = reverse(list: build);
+    let $sum_after = sum_list(list: rev);
+    let $len_after = len_list(list: rev);
+
+    if sum_before == 1275 && sum_after == 1275 && len_after == 50 then 0 else 1
+}

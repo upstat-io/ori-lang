@@ -237,7 +237,6 @@ type Info = { msg: str, code: int }
 // ─── Deep recursion with RC'd values ───
 
 #[test]
-#[ignore = "AOT gap: ARC lowerer variable resolution in recursive struct construction (var=18 undefined)"]
 fn test_mem_deep_recursion_200_with_strings() {
     // Each recursive call creates a new string-containing struct.
     // Tests that all 200 allocations are properly freed as the stack unwinds.

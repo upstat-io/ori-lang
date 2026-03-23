@@ -1,0 +1,85 @@
+type Node = EndNode | Cell(value: int, next: Node);
+type Bundle = { values: [int], marker: int };
+type Stream = EndStream | Left(v: int, next: Stream) | Right(v: int, next: Stream);
+
+@build_node (n: int) -> Node = {
+    if n <= 0 then EndNode
+    else Cell(value: n, next: build_node(n: n - 1))
+};
+
+@rewrite_node (node: Node) -> Node = match node {
+    EndNode -> EndNode,
+    Cell(v, next) -> Cell(value: v * 2 - 1, next: rewrite_node(node: next)),
+};
+
+@sum_node (node: Node) -> int = match node {
+    EndNode -> 0,
+    Cell(v, next) -> v + sum_node(node: next),
+};
+
+@len_node (node: Node) -> int = match node {
+    EndNode -> 0,
+    Cell(_, next) -> 1 + len_node(node: next),
+};
+
+@build_bundle (seed: int) -> Bundle = {
+    Bundle { values: [seed, seed + 1, seed + 2], marker: seed * 10 }
+};
+
+@inspect (xs: [int]) -> int = xs[0] + xs[1] + xs[2] + xs[3];
+
+@build_stream (n: int) -> Stream = {
+    if n <= 0 then EndStream
+    else {
+        let $tail = build_stream(n: n - 1);
+        if n % 2 == 0 then Left(v: n, next: tail) else Right(v: n, next: tail)
+    }
+};
+
+@rewrite_stream (s: Stream, flip: bool) -> Stream = match s {
+    EndStream -> EndStream,
+    Left(v, next) -> {
+        let $next_v = if flip then v + 1 else v + 1;
+        Left(v: next_v, next: rewrite_stream(s: next, flip: flip))
+    },
+    Right(v, next) -> {
+        let $next_v = if flip then v + 1 else v + 1;
+        Right(v: next_v, next: rewrite_stream(s: next, flip: flip))
+    },
+};
+
+@sum_stream (s: Stream) -> int = match s {
+    EndStream -> 0,
+    Left(v, next) -> v + sum_stream(s: next),
+    Right(v, next) -> v + sum_stream(s: next),
+};
+
+@main () -> int = {
+    let $node_input = build_node(n: 64);
+    let $node_output = rewrite_node(node: node_input);
+    let $fip_ok = len_node(node: node_output) == 64 && sum_node(node: node_output) == 4096;
+
+    let $bundle = build_bundle(seed: 9);
+    let $inter_ok = bundle.marker == 90
+        && bundle.values.len() == 3
+        && bundle.values[0] == 9
+        && bundle.values[1] == 10
+        && bundle.values[2] == 11;
+
+    let xs = [2, 4, 6, 8];
+    let $before = inspect(xs: xs);
+    xs = xs.push(10);
+    let $cow_ok = before == 20
+        && xs.len() == 5
+        && xs[0] == 2
+        && xs[1] == 4
+        && xs[2] == 6
+        && xs[3] == 8
+        && xs[4] == 10;
+
+    let $stream_input = build_stream(n: 60);
+    let $stream_output = rewrite_stream(s: stream_input, flip: true);
+    let $merge_ok = sum_stream(s: stream_output) == 1890;
+
+    if fip_ok && inter_ok && cow_ok && merge_ok then 0 else 1
+}

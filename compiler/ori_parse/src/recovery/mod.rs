@@ -257,7 +257,6 @@ pub const EXPR_FOLLOW: TokenSet = TokenSet::new()
     .with(TokenKind::Newline); // Line break
 
 // Additional recovery sets are defined as needed in the parser.
-// See plans/ori_parse_improvements/ for planned additions.
 
 /// Advance the cursor until reaching a token in the recovery set or EOF.
 ///

@@ -217,7 +217,17 @@ def _parse_params(text: str) -> tuple[list[str], list[set[str]]]:
             continue
 
         param_types.append(words[0])
-        param_attrs.append({w for w in words[1:] if w in PARAM_ATTRS})
+        # Handle parameterized attributes like sret({ i64, ptr }) and
+        # dereferenceable(N) — extract the base attribute name before '('
+        attrs = set()
+        for w in words[1:]:
+            if w in PARAM_ATTRS:
+                attrs.add(w)
+            elif '(' in w:
+                base = w[:w.index('(')]
+                if base in PARAM_ATTRS:
+                    attrs.add(base)
+        param_attrs.append(attrs)
 
     return param_types, param_attrs
 

@@ -1,0 +1,9 @@
+// Valgrind: @main(args: [str]) — verifies ori_args_from_argv cleanup
+// Run manually: ori build ... -o /tmp/args_test && valgrind /tmp/args_test arg1_long arg2_long
+@main (args: [str]) -> int = {
+    let total = 0;
+    for a in args do {
+        total += a.len();
+    };
+    if total >= 0 then 0 else 1
+}

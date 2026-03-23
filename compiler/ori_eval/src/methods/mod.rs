@@ -197,38 +197,20 @@ pub fn dispatch_builtin_method_str(
 /// NEVER CALLED. Exists solely so that Rust's exhaustive match checker
 /// forces updates to this crate when a new `TypeTag` variant is added.
 /// If you see a compile error pointing here, a new `TypeTag` was added
-/// to `ori_registry` without updating the evaluator's method dispatch.
-// Compile-time exhaustiveness guard (Roc pattern). See plans/type_strategy_registry/section-14.
-#[allow(
-    dead_code,
-    unreachable_code,
-    reason = "compile-time exhaustiveness guard — never called"
-)]
-fn _enforce_type_tag_exhaustiveness(tag: ori_registry::TypeTag) {
+/// to `ori_registry` without updating this crate's method dispatch.
+fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
+    use ori_registry::TypeTag;
+    #[expect(
+        clippy::match_same_arms,
+        reason = "exhaustiveness guard — each arm must be explicit"
+    )]
     match tag {
-        // All 23 TypeTag variants — dispatched via dispatch_builtin_method() + resolvers
-        ori_registry::TypeTag::Int
-        | ori_registry::TypeTag::Float
-        | ori_registry::TypeTag::Bool
-        | ori_registry::TypeTag::Char
-        | ori_registry::TypeTag::Byte
-        | ori_registry::TypeTag::Duration
-        | ori_registry::TypeTag::Size
-        | ori_registry::TypeTag::Ordering
-        | ori_registry::TypeTag::Str
-        | ori_registry::TypeTag::Error
-        | ori_registry::TypeTag::List
-        | ori_registry::TypeTag::Map
-        | ori_registry::TypeTag::Set
-        | ori_registry::TypeTag::Range
-        | ori_registry::TypeTag::Tuple
-        | ori_registry::TypeTag::Option
-        | ori_registry::TypeTag::Result
-        | ori_registry::TypeTag::Iterator
-        | ori_registry::TypeTag::DoubleEndedIterator
-        | ori_registry::TypeTag::Channel
-        | ori_registry::TypeTag::Function
-        | ori_registry::TypeTag::Unit
-        | ori_registry::TypeTag::Never => {}
+        TypeTag::Int | TypeTag::Float | TypeTag::Bool | TypeTag::Char | TypeTag::Byte => {}
+        TypeTag::Unit | TypeTag::Never => {}
+        TypeTag::Duration | TypeTag::Size | TypeTag::Ordering => {}
+        TypeTag::Str | TypeTag::Error => {}
+        TypeTag::List | TypeTag::Map | TypeTag::Set | TypeTag::Range => {}
+        TypeTag::Tuple | TypeTag::Option | TypeTag::Result | TypeTag::Channel => {}
+        TypeTag::Function | TypeTag::Iterator | TypeTag::DoubleEndedIterator => {}
     }
 }

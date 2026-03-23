@@ -6,6 +6,7 @@ use ori_types::Pool;
 use super::pool_type_store_size;
 
 use crate::ir::ArcTerminator;
+use crate::lower::ArcProblem;
 
 #[test]
 fn lower_block_with_let() {
@@ -401,6 +402,141 @@ fn for_range_with_mutable_vars_ssa_well_formed() {
     assert_jump_args_match_params(&func);
 }
 
+#[test]
+fn lower_index_assignment_reports_internal_error_instead_of_panicking() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let mut arena = CanArena::with_capacity(64);
+
+    let list_int = pool.list(Idx::INT);
+    let receiver = arena.push(CanNode::new(
+        CanExpr::Ident(Name::from_raw(100)),
+        Span::new(0, 1),
+        TypeId::from_raw(list_int.raw()),
+    ));
+    let index = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::new(2, 3),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let target = arena.push(CanNode::new(
+        CanExpr::Index { receiver, index },
+        Span::new(0, 3),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let value = arena.push(CanNode::new(
+        CanExpr::Int(42),
+        Span::new(6, 8),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let assign = arena.push(CanNode::new(
+        CanExpr::Assign { target, value },
+        Span::new(0, 8),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    let canon = CanonResult {
+        arena,
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        root: assign,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+    };
+
+    let mut problems = Vec::new();
+    let _ = super::super::super::lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::UNIT,
+        assign,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+
+    assert!(
+        problems.iter().any(|p| matches!(
+            p,
+            ArcProblem::InternalError {
+                message,
+                ..
+            } if message.contains("index assignment")
+        )),
+        "expected internal error for index assignment, got: {problems:?}"
+    );
+}
+
+#[test]
+fn lower_field_assignment_reports_internal_error_instead_of_panicking() {
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let mut arena = CanArena::with_capacity(64);
+
+    let receiver = arena.push(CanNode::new(
+        CanExpr::Ident(Name::from_raw(101)),
+        Span::new(0, 1),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let target = arena.push(CanNode::new(
+        CanExpr::Field {
+            receiver,
+            field: Name::from_raw(102),
+        },
+        Span::new(0, 3),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let value = arena.push(CanNode::new(
+        CanExpr::Int(7),
+        Span::new(6, 7),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let assign = arena.push(CanNode::new(
+        CanExpr::Assign { target, value },
+        Span::new(0, 7),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    let canon = CanonResult {
+        arena,
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        root: assign,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+    };
+
+    let mut problems = Vec::new();
+    let _ = super::super::super::lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::UNIT,
+        assign,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+
+    assert!(
+        problems.iter().any(|p| matches!(
+            p,
+            ArcProblem::InternalError {
+                message,
+                ..
+            } if message.contains("field assignment")
+        )),
+        "expected internal error for field assignment, got: {problems:?}"
+    );
+}
+
 // pool_type_store_size — cross-phase size agreement
 //
 // These values must match `TypeLayoutResolver::type_store_size()` in ori_llvm.
@@ -457,4 +593,98 @@ fn type_store_size_containers() {
     // Tuple (int, int, int) = 24
     let tup3 = pool.tuple(&[Idx::INT, Idx::INT, Idx::INT]);
     assert_eq!(pool_type_store_size(tup3, &pool, 0), 24, "(int, int, int)");
+
+    // Function = {fn_ptr: ptr, env_ptr: ptr} = 16 (fat pointer closure)
+    let func = pool.function(&[Idx::INT], Idx::INT);
+    assert_eq!(
+        pool_type_store_size(func, &pool, 0),
+        16,
+        "Function = {{ptr, ptr}}"
+    );
+
+    // Ordering = i8 = 1 byte
+    assert_eq!(
+        pool_type_store_size(Idx::ORDERING, &pool, 0),
+        1,
+        "Ordering = i8"
+    );
+
+    // Never = uninhabited = 0 bytes
+    assert_eq!(
+        pool_type_store_size(Idx::NEVER, &pool, 0),
+        0,
+        "Never = void"
+    );
+}
+
+#[test]
+fn type_store_size_extended_types() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+
+    // Function = {fn_ptr: ptr, env_ptr: ptr} = 16 (fat pointer closure)
+    let func = pool.function(&[Idx::INT], Idx::INT);
+    assert_eq!(
+        pool_type_store_size(func, &pool, 0),
+        16,
+        "Function = {{ptr, ptr}}"
+    );
+
+    // Ordering = i8 = 1 byte
+    assert_eq!(
+        pool_type_store_size(Idx::ORDERING, &pool, 0),
+        1,
+        "Ordering = i8"
+    );
+
+    // Never = uninhabited = 0 bytes
+    assert_eq!(
+        pool_type_store_size(Idx::NEVER, &pool, 0),
+        0,
+        "Never = void"
+    );
+
+    // Simple enum: A | B(x: int) → {i64 tag, max(0, 8)} = 8 + 8 = 16
+    let variant_a_name = interner.intern("A");
+    let variant_b_name = interner.intern("B");
+    let enum_name = interner.intern("SimpleEnum");
+    let simple_enum = pool.enum_type(
+        enum_name,
+        &[
+            ori_types::EnumVariant {
+                name: variant_a_name,
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: variant_b_name,
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(simple_enum, &pool, 0),
+        16,
+        "A | B(int) = {{i64 tag, max(0, 8)}} = 16"
+    );
+
+    // Enum with str payload: A(s: str) | B → {i64 tag, max(24, 0)} = 8 + 24 = 32
+    let enum2_name = interner.intern("StrEnum");
+    let str_enum = pool.enum_type(
+        enum2_name,
+        &[
+            ori_types::EnumVariant {
+                name: variant_a_name,
+                field_types: vec![Idx::STR],
+            },
+            ori_types::EnumVariant {
+                name: variant_b_name,
+                field_types: vec![],
+            },
+        ],
+    );
+    assert_eq!(
+        pool_type_store_size(str_enum, &pool, 0),
+        32,
+        "A(str) | B = {{i64 tag, max(24, 0)}} = 32"
+    );
 }

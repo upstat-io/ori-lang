@@ -70,7 +70,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.keys()` — extract keys as a new list.
     ///
-    /// Calls `ori_map_keys_to_list(data, cap, len, key_size, out_ptr)`.
+    /// Calls `ori_map_keys_to_list(data, cap, len, key_size, key_dec_fn, key_inc_fn, out_ptr)`.
+    /// `key_inc_fn` increments RC children of each copied key to prevent
+    /// double-free when both the map and the output list are dropped.
     pub(crate) fn emit_map_keys(&mut self, receiver: ValueId, key_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_keys_to_list");
 
@@ -89,20 +91,36 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let key_size = self.element_store_size(key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
+        let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
+        let key_inc_fn = self.get_or_generate_elem_inc_fn(key_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "keys.out", list_ty);
 
-        self.emit_rt_call(func_id, &[data, cap, len, key_size_val, out_alloca], "keys");
+        self.emit_rt_call(
+            func_id,
+            &[
+                data,
+                cap,
+                len,
+                key_size_val,
+                key_dec_fn,
+                key_inc_fn,
+                out_alloca,
+            ],
+            "keys",
+        );
 
         Some(self.builder.load(list_ty, out_alloca, "keys.val"))
     }
 
     /// Emit `map.values()` — extract values as a new list.
     ///
-    /// Calls `ori_map_values_to_list(data, cap, len, key_size, val_size, out_ptr)`.
+    /// Calls `ori_map_values_to_list(data, cap, len, key_size, val_size,
+    /// val_dec_fn, val_inc_fn, out_ptr)`. `val_inc_fn` prevents double-free
+    /// on shared RC-tracked value data.
     pub(crate) fn emit_map_values(
         &mut self,
         receiver: ValueId,
@@ -113,6 +131,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (data, cap, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty);
+        let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
+        let val_inc_fn = self.get_or_generate_elem_inc_fn(val_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -121,7 +141,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             func_id,
-            &[data, cap, len, key_size_val, val_size_val, out_alloca],
+            &[
+                data,
+                cap,
+                len,
+                key_size_val,
+                val_size_val,
+                val_dec_fn,
+                val_inc_fn,
+                out_alloca,
+            ],
             "values",
         );
 
@@ -217,7 +246,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `map.insert(key, value)` — COW insert returning the (possibly mutated) map.
     ///
     /// Calls `ori_map_insert_cow(data, len, cap, key, value, key_size, val_size,
-    ///         key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)`.
+    ///         key_eq, key_hash, key_inc, val_inc, val_dec, cow_mode, out_ptr)`.
     pub(crate) fn emit_map_insert(
         &mut self,
         receiver: ValueId,
@@ -238,6 +267,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
         let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
         let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
+        let val_dec = self.get_or_generate_elem_dec_fn(val_ty);
 
         let map_ty = self.map_struct_type();
         let out = self
@@ -258,6 +288,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_hash,
                 key_inc,
                 val_inc,
+                val_dec,
                 cow_mode,
                 out,
             ],
@@ -269,8 +300,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.remove(key)` — COW remove returning the (possibly mutated) map.
     ///
+    /// Decs RC children of removed key/value on unique paths.
+    ///
     /// Calls `ori_map_remove_cow(data, len, cap, key, key_size, val_size,
-    ///         key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)`.
+    ///         key_eq, key_hash, key_inc, val_inc, key_dec, val_dec, cow_mode, out_ptr)`.
     pub(crate) fn emit_map_remove(
         &mut self,
         receiver: ValueId,
@@ -289,6 +322,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
         let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
         let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
+        let key_dec = self.get_or_generate_elem_dec_fn(key_ty);
+        let val_dec = self.get_or_generate_elem_dec_fn(val_ty);
 
         let map_ty = self.map_struct_type();
         let out = self
@@ -308,6 +343,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_hash,
                 key_inc,
                 val_inc,
+                key_dec,
+                val_dec,
                 cow_mode,
                 out,
             ],
@@ -321,6 +358,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// The iterator takes ownership of one RC reference to the data buffer,
     /// releasing it via `ori_map_buffer_rc_dec` when dropped.
+    ///
+    /// Element cleanup contract: passes real key/val dec functions so that
+    /// `ori_map_buffer_rc_dec` properly cleans up RC children when the buffer
+    /// is freed. The AIMS pipeline marks destructured `(k, v)` variables as
+    /// borrowed (via `collect_iter_element_defs()` transitive Project chain
+    /// propagation), so AIMS skips their `RcDec` — the buffer's Drop handles
+    /// all element cleanup.
     pub(crate) fn emit_map_iter(
         &mut self,
         receiver: ValueId,
@@ -333,6 +377,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.extract_map_components(receiver, key_ty, val_ty);
 
         let owns_data = self.builder.const_bool(true);
+        // Real dec functions: `collect_iter_element_defs()` propagates
+        // borrowed status through transitive Project chains (tuple
+        // destructuring), so AIMS skips RcDec on destructured k/v.
+        // The buffer's drop (via ori_map_buffer_rc_dec) handles all
+        // element cleanup using these real dec functions.
         let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
 

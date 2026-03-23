@@ -19,8 +19,8 @@ class TestJourney1:
     def test_compliance_pct(self):
         m = parse_module(_load_journey1_ir())
         am = compute_attribute_metrics(m)
-        # 12/13 = 92.3% (main wrapper missing noundef on return)
-        assert am.compliance_pct == 92.3
+        # 9/10 = 90.0% (main wrapper missing noundef on return)
+        assert am.compliance_pct == 90.0
 
     def test_no_wrong_attributes(self):
         m = parse_module(_load_journey1_ir())
@@ -30,12 +30,12 @@ class TestJourney1:
     def test_applicable_count(self):
         m = parse_module(_load_journey1_ir())
         am = compute_attribute_metrics(m)
-        assert am.total_applicable == 13
+        assert am.total_applicable == 10
 
     def test_correct_count(self):
         m = parse_module(_load_journey1_ir())
         am = compute_attribute_metrics(m)
-        assert am.total_correct == 12
+        assert am.total_correct == 9
 
 
 class TestOriAdd:

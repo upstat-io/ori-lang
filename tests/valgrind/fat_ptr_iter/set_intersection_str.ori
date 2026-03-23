@@ -1,0 +1,14 @@
+// Valgrind: Set<str>.intersection() — verifies elem_dec_fn on tombstoned elements
+@main () -> int = {
+    let a: Set<str> = [
+        "alpha string that is long enough to exceed SSO",
+        "beta string that is also long enough to exceed",
+        "gamma string with sufficient length for heap too"
+    ].iter().collect();
+    let b: Set<str> = [
+        "alpha string that is long enough to exceed SSO",
+        "delta string that is long enough to exceed SSO"
+    ].iter().collect();
+    let result = a.intersection(other: b);
+    if result.len() == 1 then 0 else 1
+}

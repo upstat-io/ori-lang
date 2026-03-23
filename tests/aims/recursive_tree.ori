@@ -1,0 +1,91 @@
+// AIMS edge case: recursive tree traversal with reuse.
+// Tests that AIMS correctly handles recursive data structures,
+// reset/reuse opportunities on tree nodes, and RC across recursion.
+
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Branch(l, r) -> tree_sum(t: l) + tree_sum(t: r),
+};
+
+@tree_count (t: Tree) -> int = match t {
+    Leaf(_) -> 1,
+    Branch(l, r) -> tree_count(t: l) + tree_count(t: r),
+};
+
+@tree_depth (t: Tree) -> int = match t {
+    Leaf(_) -> 1,
+    Branch(l, r) -> {
+        let $ld = tree_depth(t: l);
+        let $rd = tree_depth(t: r);
+        1 + (if ld > rd then ld else rd)
+    },
+};
+
+// Build a balanced binary tree of given depth with incrementing values
+@build_tree (depth: int, start: int) -> (Tree, int) = {
+    if depth <= 1 then (Leaf(value: start), start + 1)
+    else {
+        let (left, next1) = build_tree(depth: depth - 1, start: start);
+        let (right, next2) = build_tree(depth: depth - 1, start: next1);
+        (Branch(left: left, right: right), next2)
+    }
+};
+
+// Map: transform all leaf values (potential reuse site)
+@tree_map (t: Tree, f: (int) -> int) -> Tree = match t {
+    Leaf(v) -> Leaf(value: f(v)),
+    Branch(l, r) -> Branch(
+        left: tree_map(t: l, f: f),
+        right: tree_map(t: r, f: f),
+    ),
+};
+
+// Collect leaves in order
+@tree_leaves (t: Tree) -> [int] = match t {
+    Leaf(v) -> [v],
+    Branch(l, r) -> {
+        let $left_leaves = tree_leaves(t: l);
+        let $right_leaves = tree_leaves(t: r);
+        [...left_leaves, ...right_leaves]
+    },
+};
+
+@main () -> void = {
+    // Test 1: manual tree, basic traversal
+    let $t1 = Branch(
+        left: Branch(
+            left: Leaf(value: 1),
+            right: Leaf(value: 2),
+        ),
+        right: Leaf(value: 3),
+    );
+    print(msg: `sum = {tree_sum(t: t1)}`);
+    print(msg: `count = {tree_count(t: t1)}`);
+    print(msg: `depth = {tree_depth(t: t1)}`);
+
+    // Test 2: build balanced tree of depth 4 (15 nodes)
+    let (tree, _) = build_tree(depth: 4, start: 1);
+    print(msg: `built sum = {tree_sum(t: tree)}`);
+    print(msg: `built count = {tree_count(t: tree)}`);
+    print(msg: `built depth = {tree_depth(t: tree)}`);
+
+    // Test 3: tree_map (reuse opportunity — old tree consumed)
+    let (src, _) = build_tree(depth: 3, start: 0);
+    let $mapped = tree_map(t: src, f: x -> x * 10);
+    print(msg: `mapped sum = {tree_sum(t: mapped)}`);
+    print(msg: `mapped leaves = {tree_leaves(t: mapped).debug()}`);
+
+    // Test 4: tree shared across multiple reads (no reuse)
+    let $shared = Branch(
+        left: Leaf(value: 10),
+        right: Leaf(value: 20),
+    );
+    let $s1 = tree_sum(t: shared);
+    let $s2 = tree_count(t: shared);
+    let $s3 = tree_depth(t: shared);
+    print(msg: `shared: sum={s1} count={s2} depth={s3}`);
+
+    print(msg: "recursive_tree: done")
+}

@@ -423,6 +423,10 @@ impl Parser<'_> {
     ///
     /// Returns an empty range for unit variants (when immediately followed by `)`),
     /// or a range with one or more patterns for variants with fields.
+    ///
+    /// Supports variant field punning per spec: `Circle(radius:)` desugars to
+    /// `Circle(radius)` (binding the field to a variable of the same name).
+    /// Spec: `variant_field` = identifier ":" [ `match_pattern` ] | `match_pattern`
     fn parse_variant_inner_patterns(&mut self) -> Result<MatchPatternRange, ParseError> {
         use crate::series::SeriesConfig;
 
@@ -433,6 +437,20 @@ impl Parser<'_> {
             if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
+
+            // Variant field punning: `name:` followed by `,` or `)` → Binding(name)
+            // Spec: variant_field = identifier ":" [ match_pattern ]
+            if p.cursor.is_named_arg_start() {
+                let after_colon = p.cursor.peek_kind_at(2);
+                if matches!(after_colon, TokenKind::Comma | TokenKind::RParen) {
+                    // Punning case: `Circle(radius:)` → Binding("radius")
+                    let name = p.cursor.expect_ident()?;
+                    p.cursor.advance(); // consume `:`
+                    elements.push(p.arena.alloc_match_pattern(MatchPattern::Binding(name)));
+                    return Ok(true);
+                }
+            }
+
             let pat = p.parse_match_pattern()?;
             elements.push(p.arena.alloc_match_pattern(pat));
             Ok(true)

@@ -23,6 +23,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         // sret pattern: allocate output list struct {i64 len, i64 cap, ptr data}
         let i64_llvm = self.builder.scx().type_i64().into();
@@ -37,11 +38,35 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "collect.out", list_struct_ty);
 
-        self.builder
-            .call(func_id, &[iter_ptr, elem_size_val, out_ptr], "");
+        self.builder.call(
+            func_id,
+            &[iter_ptr, elem_size_val, elem_inc_fn, out_ptr],
+            "",
+        );
 
         // Load the result list from the sret alloca
-        Some(self.builder.load(list_struct_ty, out_ptr, "collect.list"))
+        let result = self.builder.load(list_struct_ty, out_ptr, "collect.list");
+
+        // Store elem_dec_fn and elem_count in the new buffer's RC header.
+        // ori_iter_collect stores elem_count internally, but elem_dec_fn is
+        // an LLVM-generated thunk — must be stored by codegen after collect.
+        let result_data = self
+            .builder
+            .extract_value(result, 2, "collect.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let result_len = self
+            .builder
+            .extract_value(result, 0, "collect.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec, &[result_data, elem_dec_fn], "");
+        let store_count = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder
+            .call(store_count, &[result_data, result_len], "");
+
+        Some(result)
     }
 
     /// Emit `__collect_set(iter)` — collect iterator elements into a hash table set.
@@ -65,6 +90,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let hash_thunk = self
             .get_or_create_hash_thunk(elem_ty)
             .unwrap_or_else(|| self.builder.const_null_ptr());
+        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         // sret pattern: allocate output set struct {i64 len, i64 cap, ptr data}
         let i64_llvm = self.builder.scx().type_i64().into();
@@ -83,14 +109,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             func_id,
-            &[iter_ptr, elem_size_val, eq_thunk, hash_thunk, out_ptr],
+            &[
+                iter_ptr,
+                elem_size_val,
+                eq_thunk,
+                hash_thunk,
+                elem_inc_fn,
+                out_ptr,
+            ],
             "",
         );
 
-        Some(
-            self.builder
-                .load(set_struct_ty, out_ptr, "collect_set.result"),
-        )
+        let result = self
+            .builder
+            .load(set_struct_ty, out_ptr, "collect_set.result");
+
+        // Store elem_dec_fn in the set buffer's RC header for defense-in-depth.
+        // Sets use metadata scanning for cleanup, not elem_count, so only
+        // elem_dec_fn is needed. The LLVM-generated thunk must be stored by codegen.
+        let result_data = self
+            .builder
+            .extract_value(result, 2, "collect_set.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec, &[result_data, elem_dec_fn], "");
+
+        Some(result)
     }
 
     pub(in crate::codegen) fn emit_iter_count(

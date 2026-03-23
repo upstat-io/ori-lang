@@ -8,6 +8,27 @@ allowed-tools: Read, Grep, Glob, Agent, AskUserQuestion, Bash, Edit, Write
 
 Read a plan, cross-reference it against the codebase, spec, and hygiene rules, then fix problems directly via 4 sequential review agents. Report findings as a verdict.
 
+## Reviewed Field Semantics — CRITICAL
+
+The `reviewed: true/false` field in section frontmatter is a **pre-implementation gate** — it tracks whether a section has been validated against the current codebase right before implementation begins.
+
+**Why this exists:** As earlier sections are implemented, reality changes — deviations, discoveries, refactors, bug fixes. Later sections were written with assumptions that may now be stale. `reviewed: false` means "not yet validated against implementation reality."
+
+**Two modes — the mode determines whether `reviewed` gets flipped:**
+
+**Single-section review** (`/review-plan plans/foo/section-03.md`):
+This is the pre-implementation gate. You're validating one section right before working on it. After agents confirm ALL technical claims are accurate, flip `reviewed: true`. If fixes were needed, leave `reviewed: false` — fixes need their own validation pass.
+
+**Whole-plan review** (`/review-plan plans/foo/`):
+Improves quality across all sections, but does **NOT** change any `reviewed` values. You're reviewing the plan holistically, not gating specific sections for implementation. Fix content issues, but leave every section's `reviewed` field as-is.
+
+**Both modes:**
+- Section 01 should already be `reviewed: true` (starting point). Only flip to `false` if genuinely stale.
+- For a section to be marked `reviewed: true`, the agent must confirm:
+  1. All file paths, types, functions referenced still exist and are accurate
+  2. The approach is still valid given changes made by prior sections
+  3. No assumptions were invalidated by earlier implementation work
+
 ## Usage
 
 ```
@@ -19,6 +40,16 @@ Read a plan, cross-reference it against the codebase, spec, and hygiene rules, t
   - If a single file: reviews that file (and reads siblings for context)
 
 ## Workflow
+
+### Step 0: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS)
+
+**Before doing ANYTHING else**, read the ENTIRE CLAUDE.md file — every single word, top to bottom:
+
+```
+Read file: CLAUDE.md
+```
+
+This is mandatory. Do not skip, skim, or partially read. The rules in CLAUDE.md govern ALL behavior in this command. Proceed to Step 1 only after reading the complete file.
 
 ### Step 1: Read the Plan
 
@@ -63,6 +94,11 @@ Spawn an Agent with the following prompt (substitute `{plan_dir}` with the actua
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
 
+CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
+```
+Read file: CLAUDE.md
+```
+
 INSTRUCTIONS:
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
 2. Cross-reference every technical claim against the actual codebase:
@@ -73,6 +109,26 @@ INSTRUCTIONS:
 4. For every inaccuracy found, EDIT the plan files directly to fix them
 5. If a section references nonexistent code paths or wrong file locations, correct them
 6. Add a brief comment near each fix: <!-- reviewed: accuracy fix -->
+7. When reviewing TPR (Third Party Review) findings: you MUST NOT dismiss findings because they are "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md there is no "unrelated" or "out of scope." If a finding identifies a real issue, it must be accepted. Only reject findings that are factually incorrect (the issue does not actually exist).
+
+## CRITICAL: `reviewed` field in frontmatter
+
+Each section has a `reviewed: true/false` field in its YAML frontmatter. This tracks whether the section's assumptions have been validated against the CURRENT codebase right before implementation.
+
+**Two modes — check which one you're in:**
+
+**Mode A — Single-section review** (you were given a specific section file, not a directory):
+This is the pre-implementation gate. After confirming ALL technical claims are accurate:
+- If everything checks out: set `reviewed: true`
+- If you found inaccuracies and fixed them: LEAVE as `reviewed: false` — the fixes need validation
+- If you found issues you could not fix: LEAVE as `reviewed: false`
+
+**Mode B — Whole-plan review** (you were given a directory):
+Do NOT change any `reviewed` values. Fix inaccuracies in content, but leave `reviewed: true/false` as-is on every section. The whole-plan review improves quality but is not the pre-implementation gate.
+
+**Both modes:**
+- Section 01 should normally be `reviewed: true`. Only flip to `false` if it has genuinely stale content.
+- Sections already `reviewed: true`: verify they're still accurate. If stale, flip to `false` and note why.
 
 You may add missing sections, expand scope, or restructure if the plan is genuinely incomplete.
 After editing, list what you changed and why.
@@ -82,6 +138,11 @@ After editing, list what you changed and why.
 
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
+
+CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
+```
+Read file: CLAUDE.md
+```
 
 INSTRUCTIONS:
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
@@ -93,7 +154,9 @@ INSTRUCTIONS:
 3. Check for missing sync points — if the plan adds enum variants, new types, or registration entries, does it list ALL locations that must be updated together?
 4. For every gap found, EDIT the plan files directly to add the missing content
 5. Add missing checklist items, missing steps, missing test requirements
-6. Add a brief comment near each addition: <!-- reviewed: completeness fix -->
+6. Flag deferral traps: items labeled "bonus", "future", "lower priority", "nice to have", "stretch goal", or "requires architectural change". These invite the implementer to skip them. Rewrite as concrete, mandatory tasks or mark with explicit `<!-- blocked-by:X -->` if genuinely blocked. Remove all soft deferral language.
+7. Add a brief comment near each addition: <!-- reviewed: completeness fix -->
+8. When reviewing TPR (Third Party Review) findings: you MUST NOT dismiss findings because they are "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md there is no "unrelated" or "out of scope." If a finding identifies a real issue, it must be accepted. Only reject findings that are factually incorrect (the issue does not actually exist).
 
 You may add new sections, restructure, or expand scope if the plan has genuine gaps.
 After editing, list what you changed and why.
@@ -103,6 +166,11 @@ After editing, list what you changed and why.
 
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
+
+CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
+```
+Read file: CLAUDE.md
+```
 
 Your job is twofold: (1) ensure the plan itself follows hygiene rules, and (2) scan the actual codebase areas the plan will touch to find existing issues that should be cleaned up along the way. The principle: every plan section should leave the code better and cleaner than before.
 
@@ -156,6 +224,11 @@ After editing, list:
 ```
 You are reviewing an existing plan for the Ori compiler at {plan_dir}/.
 
+CRITICAL PREREQUISITE: Before starting, read the ENTIRE CLAUDE.md file (every word):
+```
+Read file: CLAUDE.md
+```
+
 INSTRUCTIONS:
 1. Read ALL files in {plan_dir}/ (index.md, 00-overview.md, and all section-*.md files)
 2. Review for clarity and internal consistency:
@@ -170,6 +243,11 @@ INSTRUCTIONS:
 5. Fix inconsistent terminology
 6. Update the overview if sections have changed during prior reviews
 7. Remove all <!-- reviewed: ... --> comments left by previous reviewers (clean up)
+8. Verify `reviewed` field consistency in frontmatter:
+   - Every section file MUST have a `reviewed: true/false` field
+   - If a section is missing the field, add `reviewed: false`
+   - Do NOT change any `reviewed` values — Agent 1 handles that based on accuracy validation
+   - Report any sections missing the field
 
 After editing, list what you changed and why.
 ```
@@ -194,6 +272,14 @@ After all four agents complete, consolidate their findings into a summary ranked
 
 #### Agent 4 — Clarity & Consistency
 - {list of edits made}
+
+### Review Status
+
+| Section | `reviewed` Before | `reviewed` After | Reason |
+|---------|------------------|-----------------|--------|
+| 01 | true | true | Starting point, confirmed accurate |
+| 02 | false | true/false | {reason} |
+| ... | ... | ... | ... |
 
 ### Remaining Concerns
 
@@ -226,3 +312,5 @@ requires human judgement rather than mechanical fixes.}
 5. **Check crate dependency order** — Implementation steps must respect: `ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric`.
 6. **Clean up after yourself** — Agent 4 removes all `<!-- reviewed: ... -->` markers.
 7. **Flag what can't be auto-fixed** — Architectural decisions and scope questions go in "Remaining Concerns" for human review.
+8. **No deferral traps** — Flag any plan items that create temptation to defer during implementation. Items labeled "bonus", "future", "lower priority", or "requires architectural change" are red flags. Every checkbox in a section must be implementable by the agent executing the section. If an item genuinely cannot be implemented within the section's scope (missing language feature, external dependency), it should be marked `<!-- blocked-by:X -->` with a concrete blocker — not soft language that invites skipping. Agents should rewrite soft deferral language into concrete, actionable tasks or explicit blockers.
+9. **No dismissing TPR findings as "unrelated"** — When triaging Third Party Review findings, you MUST NOT dismiss a finding because it is "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md: there is no "unrelated", "pre-existing", or "out of scope." If a TPR finding identifies a real issue in the codebase, it must be accepted and addressed. The ONLY valid reason to reject a TPR finding is that the described issue does not actually exist in the codebase (factually incorrect).

@@ -64,7 +64,7 @@ Both types are constrained to 24 bytes via `static_assert_size!`, ensuring that 
 
 ### Arc-Shared Decision Trees
 
-Decision trees are stored in a `DecisionTreePool` and wrapped in `Arc` for O(1) cloning. Both the tree-walking evaluator and the LLVM codegen share the exact same tree instances without copying. This matters because decision trees can be large for complex match expressions with nested patterns, and both backends need them simultaneously. The evaluator clones the `Arc` when entering a match (to release the borrow on `self`), and the ARC pipeline receives the same shared reference during codegen.
+Decision trees are stored in a `DecisionTreePool` and wrapped in `Arc` for O(1) cloning. Both the tree-walking evaluator and the LLVM codegen share the exact same tree instances without copying. This matters because decision trees can be large for complex match expressions with nested patterns, and both backends need them simultaneously. The evaluator clones the `Arc` when entering a match (to release the borrow on `self`), and the AIMS pipeline receives the same shared reference during codegen.
 
 ### Content-Addressed Constants
 
@@ -118,7 +118,7 @@ flowchart TB
     class ARC,LLVM native
 ```
 
-Canonicalization sits at the **fork point** between Ori's two execution paths. The tree-walking evaluator (`ori_eval`) consumes `CanonResult` directly for interpreted execution. The ARC pipeline (`ori_arc`) also consumes `CanonResult`, lowering it further into ARC IR for reference-counting optimization before LLVM codegen.
+Canonicalization sits at the **fork point** between Ori's two execution paths. The tree-walking evaluator (`ori_eval`) consumes `CanonResult` directly for interpreted execution. The AIMS pipeline (`ori_arc`) also consumes `CanonResult`, lowering it further into ARC IR for reference-counting optimization before LLVM codegen.
 
 Canonicalization is **not** a separate Salsa query. It runs inside `evaluated()` for the interpreter path, inside `check_source()` for the AOT/LLVM path, and inside the `check` command for pattern problem detection. This avoids a Salsa caching boundary at the canonical IR level — the canonical form is always fresh, never stale.
 
@@ -323,11 +323,11 @@ This unification means there is exactly one code path for pattern compilation �
 
 **Opportunistic constant folding vs. dedicated pass.** Constants are folded inline during lowering via `try_fold()` rather than in a separate constant-folding pass. This means folding happens at most once per node (when the node is constructed), which is efficient but limits folding to single-step rewrites — `(1 + 2) + 3` folds to `3 + 3` then to `6` through recursive lowering, but cross-expression folding (propagating a constant across `let` bindings) is not performed. A dedicated constant propagation pass could catch more opportunities but would require an additional traversal.
 
-**Pattern compilation delegation.** The Maranget decision tree algorithm currently lives in `ori_arc::decision_tree::compile`, and `ori_canon::patterns` delegates to it. This is an architectural compromise — the algorithm logically belongs in `ori_canon`, but it was first implemented in `ori_arc` for the ARC pipeline. Future work will move it to `ori_canon` as the single source of truth.
+**Pattern compilation delegation.** The Maranget decision tree algorithm currently lives in `ori_arc::decision_tree::compile`, and `ori_canon::patterns` delegates to it. This is an architectural compromise — the algorithm logically belongs in `ori_canon`, but it was first implemented in `ori_arc` for the AIMS pipeline. Future work will move it to `ori_canon` as the single source of truth.
 
 ## Related Documents
 
 - [Desugaring](desugaring.md) — Sugar elimination details and the 7 sugar variants
 - [Pattern Compilation](pattern-compilation.md) — Decision tree construction and exhaustiveness checking
 - [Constant Folding](constant-folding.md) — Compile-time evaluation and the ConstantPool
-- [ARC System](../09-arc-system/index.md) — ARC pipeline (consumes canonical IR)
+- [AIMS](../09-aims/index.md) — AIMS pipeline (consumes canonical IR)

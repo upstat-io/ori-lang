@@ -1346,3 +1346,285 @@ fn invoke_rewrite_moves_rc_decs_from_normal_block() {
         "normal block body should be empty after drain"
     );
 }
+
+// Pre-emission tail-position analysis (Section 12.2)
+
+#[test]
+fn constant_stack_non_recursive_is_false() {
+    // f(x) = x + 1 — no recursion, constant stack.
+    let blocks = vec![ArcBlock {
+        id: b(0),
+        params: vec![],
+        body: vec![let_int(1)],
+        terminator: ArcTerminator::Return { value: v(1) },
+    }];
+
+    let func = make_func_named(
+        Name::from_raw(1),
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 2],
+    );
+
+    // Empty SCC peers → not in recursive SCC.
+    let scc_peers = rustc_hash::FxHashSet::default();
+    assert!(
+        !has_non_tail_recursive_calls(&func, &scc_peers),
+        "non-recursive function should have constant stack"
+    );
+}
+
+#[test]
+fn constant_stack_tail_recursive_is_false() {
+    // gcd(a, b) — all self-recursive calls in tail position.
+    let interner = StringInterner::new();
+    let gcd = interner.intern("gcd");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(2)],
+            terminator: ArcTerminator::Branch {
+                cond: v(2),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(0)],
+            },
+        },
+        ArcBlock {
+            id: b(2),
+            params: vec![],
+            body: vec![let_int(3), apply(4, gcd, vec![v(1), v(3)])],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+    ];
+
+    let func = make_func_named(
+        gcd,
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 6],
+    );
+
+    let scc_peers: rustc_hash::FxHashSet<Name> = [gcd].into_iter().collect();
+    assert!(
+        !has_non_tail_recursive_calls(&func, &scc_peers),
+        "tail-recursive function should have constant stack"
+    );
+}
+
+#[test]
+fn constant_stack_non_tail_recursive_is_true() {
+    // f(n) = f(n - 1) + 1 — recursive call result used in addition.
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![ArcBlock {
+        id: b(0),
+        params: vec![],
+        body: vec![
+            apply(1, f, vec![v(0)]),
+            let_int(2), // represents v(1) + 1
+        ],
+        terminator: ArcTerminator::Return { value: v(2) },
+    }];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 3],
+    );
+
+    let scc_peers: rustc_hash::FxHashSet<Name> = [f].into_iter().collect();
+    assert!(
+        has_non_tail_recursive_calls(&func, &scc_peers),
+        "non-tail recursive function should have unbounded stack"
+    );
+}
+
+#[test]
+fn constant_stack_mutual_recursion_non_tail_is_true() {
+    // f(n) calls g(n) in non-tail position.
+    // Both f and g are in the same SCC.
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+    let g = interner.intern("g");
+
+    let blocks = vec![ArcBlock {
+        id: b(0),
+        params: vec![],
+        body: vec![
+            apply(1, g, vec![v(0)]),
+            let_int(2), // transforms g's result
+        ],
+        terminator: ArcTerminator::Return { value: v(2) },
+    }];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 3],
+    );
+
+    let scc_peers: rustc_hash::FxHashSet<Name> = [f, g].into_iter().collect();
+    assert!(
+        has_non_tail_recursive_calls(&func, &scc_peers),
+        "mutual recursion with non-tail call should have unbounded stack"
+    );
+}
+
+#[test]
+fn constant_stack_mutual_recursion_tail_is_false() {
+    // f(n) calls g(n) in tail position.
+    // Both f and g are in the same SCC.
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+    let g = interner.intern("g");
+
+    let blocks = vec![ArcBlock {
+        id: b(0),
+        params: vec![],
+        body: vec![apply(1, g, vec![v(0)])],
+        terminator: ArcTerminator::Return { value: v(1) },
+    }];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 2],
+    );
+
+    let scc_peers: rustc_hash::FxHashSet<Name> = [f, g].into_iter().collect();
+    assert!(
+        !has_non_tail_recursive_calls(&func, &scc_peers),
+        "mutual recursion with tail call should have constant stack"
+    );
+}
+
+#[test]
+fn constant_stack_invoke_tail_is_false() {
+    // Invoke in tail position (normal → Return).
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        invoke_block(0, vec![], 1, f, vec![v(0)], 1, 2),
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(1) },
+        },
+        ArcBlock {
+            id: b(2),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 2],
+    );
+
+    let scc_peers: rustc_hash::FxHashSet<Name> = [f].into_iter().collect();
+    assert!(
+        !has_non_tail_recursive_calls(&func, &scc_peers),
+        "invoke in tail position should have constant stack"
+    );
+}
+
+#[test]
+fn constant_stack_invoke_cross_block_tail_is_false() {
+    // Invoke → normal → Jump → merge(Return).
+    let interner = StringInterner::new();
+    let gcd = interner.intern("gcd");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(2)],
+            terminator: ArcTerminator::Branch {
+                cond: v(2),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(0)],
+            },
+        },
+        invoke_block(2, vec![], 3, gcd, vec![v(1)], 4, 5),
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(4), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(4) },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(3)],
+            },
+        },
+        ArcBlock {
+            id: b(5),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let func = make_func_named(
+        gcd,
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 5],
+    );
+
+    let scc_peers: rustc_hash::FxHashSet<Name> = [gcd].into_iter().collect();
+    assert!(
+        !has_non_tail_recursive_calls(&func, &scc_peers),
+        "invoke in cross-block tail position should have constant stack"
+    );
+}

@@ -10,10 +10,33 @@ paths:
 ## TDD for Bugs
 1. STOP — don't jump to fixing
 2. Consult spec for intended behavior
-3. Write MULTIPLE tests: exact case, edges, variations, guards
+3. Write MATRIX tests — not just "multiple":
+   - **Exact failing case**: the specific input that triggered the bug
+   - **Edge cases**: empty, single-element, boundary conditions
+   - **Cross-type matrix**: if the fix is type-dependent, test ALL relevant types through the same code path (str, [int], Option<str>, closures, structs, maps, sets)
+   - **Cross-pattern matrix**: if the fix is pattern-dependent, test ALL relevant control-flow patterns (full iteration, break, yield, guard, nested, two-call)
+   - **Semantic pin**: at least one test that ONLY passes with the new semantics — the permanent regression guard
 4. Verify tests FAIL (proves understanding)
 5. Fix the code
 6. Tests pass WITHOUT modification
+7. Verify matrix completeness — missing cells are future regressions
+
+## Matrix Testing Rule
+
+**Every fix that touches a code path shared by multiple types or patterns requires matrix coverage.** A fix to iterator cleanup that works for `str` but isn't tested with `[int]`, `Option<str>`, closures, and maps is incomplete. Dimensions:
+
+- **Type dimension**: all types that flow through the fixed code path
+- **Pattern dimension**: all control-flow patterns that exercise the fixed code path
+- **Backend dimension**: debug + release builds, interpreter + AOT parity
+
+A fix is complete when the matrix is covered. Missing cells are potential regressions waiting to happen.
+
+**Fix completeness checklist** — a fix is NOT done until:
+- [ ] Matrix tests cover every relevant type x pattern combination
+- [ ] At least one semantic pin test would fail if the fix is reverted
+- [ ] Debug AND release builds pass
+- [ ] `ORI_CHECK_LEAKS=1` reports zero leaks on all test programs
+- [ ] Plan/roadmap updated if the fix crosses section boundaries
 
 ## Anti-patterns (NEVER)
 - Remove test "because it doesn't work" — investigate WHY
@@ -21,6 +44,8 @@ paths:
 - Assume `#compile_fail`/`#fail` incorrect — compiler may be too permissive
 - Delete "redundant" tests — may cover different phases
 - Mark `#skip` without investigating — find root cause
+- Test only one type when the code path handles multiple types — matrix coverage required
+- Test only the happy path when break/yield/guard/nested are possible — pattern coverage required
 
 ## Investigation Order
 1. Lexer fully implements this?

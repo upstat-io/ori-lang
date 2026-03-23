@@ -1,0 +1,124 @@
+// Valgrind test: AIMS Matrix H — TRMC cross-system interactions.
+// Covers H2 (Lattice×TRMC), H5 (Intra×TRMC), H8 (Inter×TRMC),
+// H10 (RC×TRMC), H14 (Reuse×TRMC), H17 (COW×TRMC), H18 (Drop×TRMC),
+// H19 (FIP×TRMC), H20 (TRMC×TailCall), H21 (TRMC×Merge),
+// H22 (TRMC×Verify).
+// Verifies no leaks, double-frees, or use-after-free across all TRMC
+// interaction surfaces.
+
+type List = Nil | Cons(head: int, tail: List);
+type Chain = Done | Link(a: int, b: int, next: Chain);
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
+
+@build_list (n: int) -> List = {
+    if n <= 0 then Nil
+    else Cons(head: n, tail: build_list(n: n - 1))
+};
+
+@list_sum (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(list: t),
+};
+
+@list_len (list: List) -> int = match list {
+    Nil -> 0,
+    Cons(_, t) -> 1 + list_len(list: t),
+};
+
+// H2 + H5: TRMC-eligible recursive map (tests lattice canonicalization and
+// intraprocedural reconvergence on loop back-edge).
+@map_inc (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h + 1, tail: map_inc(list: t)),
+};
+
+// H10 + H17: Context var RC lifecycle and COW StaticUnique.
+@map_square (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> Cons(head: h * h, tail: map_square(list: t)),
+};
+
+// H14: Reuse in TRMC loop — scrutinee death + same-type construct.
+@build_chain (n: int) -> Chain = {
+    if n <= 0 then Done
+    else Link(a: n, b: n * 10, next: build_chain(n: n - 1))
+};
+
+@transform_chain (c: Chain) -> Chain = match c {
+    Done -> Done,
+    Link(a, b, next) -> Link(a: a * 2, b: b + 1, next: transform_chain(c: next)),
+};
+
+@chain_sum (c: Chain) -> int = match c {
+    Done -> 0,
+    Link(a, b, next) -> a + b + chain_sum(c: next),
+};
+
+// H20: TRMC + TailCall interaction — filter creates both TRMC and tail paths.
+@filter_even (list: List) -> List = match list {
+    Nil -> Nil,
+    Cons(h, t) -> {
+        if h % 2 == 0 then Cons(head: h, tail: filter_even(list: t))
+        else filter_even(list: t)
+    },
+};
+
+// H21: TRMC topology survives merge — tree operations.
+@inc_leaves (t: Tree) -> Tree = match t {
+    Leaf(v) -> Leaf(value: v + 1),
+    Branch(l, r) -> Branch(left: inc_leaves(t: l), right: inc_leaves(t: r)),
+};
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Branch(l, r) -> tree_sum(t: l) + tree_sum(t: r),
+};
+
+// H8: Caller sees refreshed contract from TRMC-rewritten callee.
+@caller (list: List) -> int = {
+    let $mapped = map_inc(list: list);
+    list_sum(list: mapped)
+};
+
+@main () -> int = {
+    // H2 + H5 + H22: Build, map, verify sum and length.
+    let $list = build_list(n: 100);
+    let $mapped = map_inc(list: list);
+    let $h2_ok = list_sum(list: mapped) == 5150 && list_len(list: mapped) == 100;
+
+    // H10 + H17: Context var lifecycle with squaring.
+    let $list2 = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3,
+        tail: Cons(head: 4, tail: Cons(head: 5, tail: Nil)))));
+    let $squared = map_square(list: list2);
+    let $h10_ok = list_sum(list: squared) == 55;
+
+    // H8: Inter × TRMC — caller uses refreshed contract.
+    let $list3 = Cons(head: 10, tail: Cons(head: 20, tail: Cons(head: 30, tail: Nil)));
+    let $h8_ok = caller(list: list3) == 63;
+
+    // H14: Reuse × TRMC.
+    let $chain = build_chain(n: 40);
+    let $chain_out = transform_chain(c: chain);
+    // a: 2*(1+..+40)=1640, b: (10+20+...+400)+40=8240, total=9880
+    let $h14_ok = chain_sum(c: chain_out) == 9880;
+
+    // H18 + H19: Build and consume — context root drop hint; FIP upgrade.
+    let $list4 = build_list(n: 30);
+    let $list4_mapped = map_inc(list: list4);
+    let $h18_ok = list_sum(list: list4_mapped) == 495;
+
+    // H20: TRMC × TailCall — filter with mixed TRMC/tail paths.
+    let $list5 = build_list(n: 20);
+    let $evens = filter_even(list: list5);
+    let $h20_ok = list_sum(list: evens) == 110 && list_len(list: evens) == 10;
+
+    // H21: TRMC × Merge — tree topology.
+    let $tree = Branch(
+        left: Branch(left: Leaf(value: 1), right: Leaf(value: 2)),
+        right: Leaf(value: 3),
+    );
+    let $tree_out = inc_leaves(t: tree);
+    let $h21_ok = tree_sum(t: tree_out) == 9;
+
+    if h2_ok && h10_ok && h8_ok && h14_ok && h18_ok && h20_ok && h21_ok then 0 else 1
+}

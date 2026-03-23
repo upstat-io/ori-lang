@@ -106,7 +106,9 @@ pub(crate) use rc::{check_leaks_enabled, RC_LIVE_COUNT};
 #[cfg(all(test, debug_assertions))]
 pub(crate) use rc::{freed_set, rt_debug_check_not_freed};
 #[cfg(test)]
-pub(crate) use rc::{rc_trace_enabled, rt_debug_validate_rc, MAX_REFCOUNT, RT_DEBUG_FORCE};
+pub(crate) use rc::{rc_trace_enabled, MAX_REFCOUNT};
+#[cfg(all(test, debug_assertions))]
+pub(crate) use rc::{rt_debug_validate_rc, RT_DEBUG_FORCE};
 
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::Ordering;
@@ -328,11 +330,44 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> O
         unsafe { elements.add(i).write(element) };
     }
 
+    // Store elem_count in the RC header so slice-based cleanup knows the
+    // element count. elem_dec_fn is deferred — the LLVM-generated str thunk
+    // will be stored by the first ori_buffer_rc_dec via store_elem_dec_fn_once.
+    // SAFETY: data was just returned by ori_rc_alloc — header offsets are valid.
+    unsafe { rc::store_elem_count(data, count as i64) };
+
     OriList {
         len: count as i64,
         cap: count as i64,
         data: data.cast::<u8>(),
     }
+}
+
+/// Clean up the `[str]` buffer created by `ori_args_from_argv`.
+///
+/// Frees each heap string's data buffer, then frees the list buffer.
+/// Called by the main wrapper after `_ori_main` returns. The strings
+/// have refcount 1 (unique — created by `ori_args_from_argv`, passed
+/// by reference to `_ori_main` which does not increment).
+#[no_mangle]
+pub extern "C" fn ori_args_cleanup(data: *mut u8, len: i64) {
+    if data.is_null() || len <= 0 {
+        return;
+    }
+    let count = len as usize;
+    let elements = data.cast::<string::OriStr>();
+    for i in 0..count {
+        // SAFETY: elements[i] is within the allocated array (len <= capacity)
+        let s = unsafe { &*elements.add(i) };
+        if !s.is_sso() {
+            let heap = unsafe { s.heap };
+            if !heap.data.is_null() {
+                rc::ori_rc_free(heap.data, heap.cap as usize, 8);
+            }
+        }
+    }
+    let alloc_size = count * std::mem::size_of::<string::OriStr>();
+    rc::ori_rc_free(data, alloc_size, std::mem::align_of::<string::OriStr>());
 }
 
 // ── ori_try_call (C implementation, MSVC only) ──────────────────────────
@@ -407,6 +442,15 @@ fn check_leaks_and_exit() -> i32 {
         }
     }
     0
+}
+
+/// AOT-callable leak check — called from the LLVM-generated `main()` wrapper.
+///
+/// Returns 0 if no leaks (or `ORI_CHECK_LEAKS` not set), 2 if leaks detected.
+/// The `main` wrapper uses this to override the exit code when leaks are found.
+#[no_mangle]
+pub extern "C" fn ori_check_leaks() -> i32 {
+    check_leaks_and_exit()
 }
 
 #[cfg(test)]

@@ -1,0 +1,15 @@
+// Valgrind test: guarded for-loop on [str] with heap-allocated strings.
+// Verifies no leak when guard filters out elements — filtered elements
+// must still be properly RC-decremented.
+
+@main () -> int = {
+    let words = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "short",
+        "another very long string that also exceeds the SSO threshold",
+        "tiny"
+    ];
+    let total = 0;
+    for w in words if w.length() > 10 do total += w.length();
+    if total > 100 then 0 else 1
+}

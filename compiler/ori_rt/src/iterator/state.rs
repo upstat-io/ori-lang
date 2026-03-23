@@ -5,8 +5,25 @@
 
 /// Maximum element size for stack scratch buffers in `next()`.
 ///
-/// Covers all current Ori types. Asserted at adapter creation time.
+/// Covers all current Ori types (str=24B, list=24B, practical structs <200B).
+/// Asserted at source/adapter creation time via `assert_elem_size`.
 pub(crate) const MAX_ELEM_SIZE: usize = 256;
+
+/// Assert that an element size fits in the stack scratch buffer.
+///
+/// Called at iterator source/adapter creation time to catch oversized elements
+/// before any `[0u8; MAX_ELEM_SIZE]` buffer is used.
+///
+/// Uses `assert!` (not `debug_assert!`) because the scratch buffers are
+/// fixed-size `[0u8; MAX_ELEM_SIZE]` in both debug and release builds —
+/// an oversized element causes a stack buffer overflow in release if unchecked.
+#[inline]
+pub(crate) fn assert_elem_size(elem_size: i64, context: &str) {
+    assert!(
+        elem_size >= 0 && (elem_size as usize) <= MAX_ELEM_SIZE,
+        "{context}: element size {elem_size} exceeds MAX_ELEM_SIZE ({MAX_ELEM_SIZE})"
+    );
+}
 
 /// Trampoline signature for map: `(env, in_ptr, out_ptr) -> void`
 pub(crate) type TransformFn = extern "C" fn(*mut u8, *const u8, *mut u8);
@@ -30,13 +47,15 @@ pub(crate) enum IterState {
     /// both regular lists (`cap > 0`) and seamless slices (`cap < 0`, where
     /// the `SLICE_FLAG` is set). When `cap == 0` (e.g., Rust unit tests with
     /// stack data), no cleanup is performed.
+    ///
+    /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
+    /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
     List {
         data: *mut u8,
         len: i64,
         pos: i64,
         cap: i64,
         elem_size: i64,
-        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     },
 
     /// Iterates over an integer range with step.
@@ -95,12 +114,13 @@ pub(crate) enum IterState {
     /// Iterates over a UTF-8 string, yielding Unicode codepoints (i32/char).
     ///
     /// When `owns_data` is true, the iterator holds an RC reference to the
-    /// string data and `Drop` calls `ori_buffer_rc_dec` to release it (dec
-    /// refcount + free when rc reaches 0). When false (e.g., Rust unit
-    /// tests), no cleanup is performed.
+    /// string data and `Drop` calls `ori_str_rc_dec` to release it. The `cap`
+    /// field carries the string's capacity (with possible `SLICE_FLAG`) so that
+    /// slice strings from `str.split()` are cleaned up correctly.
     Str {
         data: *mut u8,
         len: i64,
+        cap: i64,
         byte_offset: i64,
         owns_data: bool,
     },
@@ -142,30 +162,40 @@ impl Drop for IterState {
                 len,
                 cap,
                 elem_size,
-                elem_dec_fn,
                 ..
             } => {
                 // cap != 0 indicates RC-managed data (from the compiler):
                 //   cap > 0 → regular list (cap is capacity)
                 //   cap < 0 → seamless slice (SLICE_FLAG set, ori_buffer_rc_dec handles it)
                 // cap == 0 indicates test data (stack-allocated, no cleanup).
+                // elem_dec_fn is read from the V5 RC header by ori_buffer_rc_dec.
                 if !data.is_null() && *cap != 0 {
-                    crate::ori_buffer_rc_dec(*data, *len, *cap, *elem_size, *elem_dec_fn);
+                    crate::ori_buffer_rc_dec(*data, *len, *cap, *elem_size, None);
                 }
             }
             IterState::Str {
                 data,
-                len,
+                cap,
                 owns_data,
                 ..
             } => {
-                // String data is allocated via ori_rc_alloc (in ori_str_from_raw),
-                // so we must use ori_buffer_rc_dec to both dec the refcount AND
-                // free the memory when rc reaches 0. ori_rc_dec alone only decs
-                // the refcount without freeing.
-                // len=0 (no inner RC elements), cap=string byte length, elem_size=1.
                 if *owns_data && !data.is_null() {
-                    crate::ori_buffer_rc_dec(*data, 0, *len, 1, None);
+                    if crate::slice_encoding::is_slice_cap(*cap) {
+                        // Seamless slice from str.split(): data is an interior
+                        // pointer. Compute original buffer and dec its RC.
+                        // ori_buffer_rc_dec handles free on rc=0 using
+                        // stored data_size.
+                        let original = crate::slice_encoding::slice_original_data(*data, *cap);
+                        // len=0 (no inner RC elements), cap=data_size (from
+                        // header), elem_size=1.
+                        let data_size = crate::ori_rc_data_size(original.cast_const());
+                        crate::ori_buffer_rc_dec(original, 0, data_size, 1, None);
+                    } else {
+                        // Regular heap string or SSO copy: data is the start
+                        // of an RC allocation. cap is the byte capacity.
+                        // len=0 (no inner RC elements), elem_size=1.
+                        crate::ori_buffer_rc_dec(*data, 0, *cap, 1, None);
+                    }
                 }
             }
             IterState::Map {

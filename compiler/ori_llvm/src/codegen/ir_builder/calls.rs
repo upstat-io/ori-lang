@@ -84,6 +84,39 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .map(|v| self.arena.push_value(v))
     }
 
+    /// Indirect call to a void-returning function through a function pointer.
+    ///
+    /// Used by trampolines calling closures that use sret ABI (the closure
+    /// writes its result through a pointer parameter and returns void).
+    pub fn call_indirect_void(
+        &mut self,
+        param_types: &[LLVMTypeId],
+        fn_ptr: ValueId,
+        args: &[ValueId],
+    ) {
+        let raw = self.arena.get_value(fn_ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(val_type = ?raw.get_type(), "call_indirect_void on non-pointer");
+            self.record_codegen_error();
+            return;
+        }
+        let ptr = raw.into_pointer_value();
+        let arg_vals: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = args
+            .iter()
+            .map(|&id| self.arena.get_value(id).into())
+            .collect();
+
+        let param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = param_types
+            .iter()
+            .map(|&id| self.arena.get_type(id).into())
+            .collect();
+        let fn_type = self.scx.type_void_func(&param_tys);
+
+        self.builder
+            .build_indirect_call(fn_type, ptr, &arg_vals, "")
+            .expect("call_indirect_void");
+    }
+
     // -- sret call helper --
 
     /// Build a call to an sret function, hiding the ABI complexity.

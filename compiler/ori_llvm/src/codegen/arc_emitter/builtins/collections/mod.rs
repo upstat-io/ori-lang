@@ -17,8 +17,8 @@ mod string_builtins;
 declare_builtins! { emitter, ctx;
     // str
     ("str", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
-    ("str", "length") => emitter.emit_str_length(ctx.arg_vals[0]),
-    ("str", "len") => emitter.emit_str_length(ctx.arg_vals[0]),
+    ("str", "length") => emitter.emit_str_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0]),
+    ("str", "len") => emitter.emit_str_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0]),
     ("str", "is_empty") => emitter.emit_str_is_empty(ctx.arg_vals[0]),
     ("str", "concat") => {
         if ctx.arg_vals.len() >= 2 {
@@ -83,7 +83,7 @@ declare_builtins! { emitter, ctx;
     ("str", "chars") => emitter.emit_str_chars(ctx.arg_vals[0]),
     ("str", "split") => {
         if ctx.arg_vals.len() >= 2 {
-            emitter.emit_str_split(ctx.arg_vals[0], ctx.arg_vals[1])
+            emitter.emit_str_split(ctx.arg_vals[0], ctx.arg_vals[1], ori_types::Idx::STR)
         } else {
             None
         }
@@ -462,7 +462,7 @@ declare_builtins! { emitter, ctx;
     },
     ("Set", "iter") => {
         if let TypeInfo::Set { element } = ctx.type_info {
-            emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
+            emitter.emit_set_iter(ctx.arg_vals[0], *element)
         } else {
             None
         }
@@ -493,6 +493,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .create_entry_alloca(self.current_function, name, str_ty);
         self.builder.store(val, ptr);
         ptr
+    }
+
+    /// Like [`str_to_ptr`] but with borrowed parameter forwarding.
+    ///
+    /// If the variable has a known source pointer (from a `Reference`/`Indirect`
+    /// parameter), returns it directly instead of creating an alloca+store.
+    pub(crate) fn str_to_ptr_forwarded(
+        &mut self,
+        val: ValueId,
+        var: ori_arc::ir::ArcVarId,
+        name: &str,
+    ) -> ValueId {
+        if let Some(&src_ptr) = self.borrowed_param_ptrs.get(&var) {
+            return src_ptr;
+        }
+        self.str_to_ptr(val, name)
     }
 
     /// Alloca+store an element value and return the pointer.

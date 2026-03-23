@@ -514,7 +514,8 @@ fn lower_function_exp_panic_emits_unreachable() {
     );
 
     assert!(problems.is_empty());
-    // Panic lowers to: Apply(ori_panic, [msg]) + Unreachable terminator
+    // Panic lowers to: Invoke(ori_panic, [msg]) with normal → Unreachable
+    // and unwind → Resume (for cleanup landing pad support).
     let has_unreachable = func
         .blocks
         .iter()
@@ -525,12 +526,16 @@ fn lower_function_exp_panic_emits_unreachable() {
     );
 
     let panic_fn = interner.intern("ori_panic");
-    let has_panic_call = func.blocks.iter().any(|b| {
-        b.body
-            .iter()
-            .any(|instr| matches!(instr, ArcInstr::Apply { func: name, .. } if *name == panic_fn))
+    let has_panic_invoke = func.blocks.iter().any(|b| {
+        matches!(
+            &b.terminator,
+            ArcTerminator::Invoke { func: name, .. } if *name == panic_fn
+        )
     });
-    assert!(has_panic_call, "should call ori_panic runtime function");
+    assert!(
+        has_panic_invoke,
+        "should invoke ori_panic runtime function (not Apply — panic can unwind)"
+    );
 }
 
 #[test]

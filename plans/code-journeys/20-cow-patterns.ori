@@ -1,0 +1,49 @@
+// Journey 20: "I am copy-on-write"
+// Slug: cow-patterns
+// Difficulty: complex
+// Features: cow, strings, lists, slices, sharing, rc, uniqueness
+// Expected: unique_append() + shared_fork() + list_cow_loop() + slice_cow() = 32 + 55 + 10 + 8 = 105
+
+@unique_append () -> int = {
+    // Unique-owner string concatenation — COW fast path (in-place mutation).
+    // Start heap-allocated (>23 bytes for non-SSO) to ensure RC tracking.
+    let s = "abcdefghijklmnopqrstuvwxyz";
+    s = s + "123";
+    s = s + "456";
+    s.length()
+}
+
+@shared_fork () -> int = {
+    // Share a string, mutate one copy — COW slow path (copy-on-write).
+    // Verifies original is unchanged after fork.
+    let original = "abcdefghijklmnopqrstuvwxyz";
+    let copy = original;
+    let copy = copy + "!!!";
+    original.length() + copy.length()
+}
+
+@list_cow_loop () -> int = {
+    // List push in a loop — unique owner, COW fast path each iteration.
+    let xs = [0];
+    for i in 1..10 do {
+        xs = xs.push(i)
+    };
+    xs.length()
+}
+
+@slice_cow () -> int = {
+    // Create a slice from a list. The slice is a zero-copy view.
+    // Verify both original and slice have expected lengths.
+    // Drop both cleanly — exercises slice-aware RC dec.
+    let xs = [10, 20, 30, 40, 50];
+    let sl = xs.slice(1, 4);
+    xs.length() + sl.length()
+}
+
+@main () -> int = {
+    let a = unique_append();
+    let b = shared_fork();
+    let c = list_cow_loop();
+    let d = slice_cow();
+    a + b + c + d
+}

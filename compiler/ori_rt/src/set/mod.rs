@@ -51,19 +51,24 @@ pub extern "C" fn ori_set_contains(
 ///
 /// Scans metadata for OCCUPIED buckets, copies elements to a contiguous list.
 /// Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
+///
+/// `elem_inc_fn` increments RC children of each copied element (see
+/// `ori_map_keys_to_list` for rationale).
 #[no_mangle]
 pub extern "C" fn ori_set_to_list(
     data: *const u8,
     cap: i64,
     len: i64,
     elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+    elem_inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
         return;
     }
     if data.is_null() || len <= 0 {
-        write_array_to_list(std::ptr::null(), 0, elem_size, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, elem_size, None, out_ptr);
         return;
     }
 
@@ -76,9 +81,13 @@ pub extern "C" fn ori_set_to_list(
     let mut write_pos = 0usize;
     for bucket in 0..c {
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            let dst = unsafe { list_data.add(write_pos * es) };
             unsafe {
                 let src = data.add(layout.keys_offset + bucket * es);
-                std::ptr::copy_nonoverlapping(src, list_data.add(write_pos * es), es);
+                std::ptr::copy_nonoverlapping(src, dst, es);
+            }
+            if let Some(inc) = elem_inc_fn {
+                inc(dst);
             }
             write_pos += 1;
             if write_pos >= n {
@@ -87,15 +96,18 @@ pub extern "C" fn ori_set_to_list(
         }
     }
 
-    // Write list struct directly
+    // Store elem_dec_fn and elem_count in RC header (this is a list buffer)
+    // SAFETY: list_data was returned by ori_rc_alloc — header offsets are valid.
     unsafe {
+        crate::rc::store_elem_dec_fn(list_data, elem_dec_fn);
+        crate::rc::store_elem_count(list_data, write_pos as i64);
         out_ptr.cast::<i64>().write(write_pos as i64);
         out_ptr.cast::<i64>().add(1).write(write_pos as i64); // cap = len
         out_ptr.add(16).cast::<*mut u8>().write(list_data);
     }
 }
 
-// ── Literal Construction ──────────────────────────────────────────────
+// Literal Construction
 
 /// Allocate a hash table buffer sized for `count` elements.
 ///
@@ -114,7 +126,8 @@ pub extern "C" fn ori_set_literal_alloc(count: i64, elem_size: i64, out_cap: *mu
     }
     let es = elem_size.max(1) as usize;
     let cap = crate::map::hash_table::next_hash_capacity(count as usize);
-    let data = alloc_set_hash_buffer(cap, es);
+    // elem_dec_fn is stored by codegen after literal construction completes
+    let data = alloc_set_hash_buffer(cap, es, None);
     if !out_cap.is_null() {
         unsafe { out_cap.write(cap as i64) };
     }
@@ -165,14 +178,25 @@ pub(crate) fn write_set_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut 
 }
 
 /// Allocate a new hash table set buffer with all metadata initialized to EMPTY.
-pub(crate) fn alloc_set_hash_buffer(cap: usize, elem_size: usize) -> *mut u8 {
+///
+/// Stores `elem_dec_fn` in the RC header for defense-in-depth cleanup.
+/// Sets use metadata scanning (not `elem_count`) for element cleanup,
+/// so `elem_count` is not stored for set hash table buffers.
+pub(crate) fn alloc_set_hash_buffer(
+    cap: usize,
+    elem_size: usize,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) -> *mut u8 {
     let layout = HashTableLayout::for_set(cap, elem_size);
     if layout.total_size == 0 {
         return std::ptr::null_mut();
     }
     let data = crate::rc::ori_rc_alloc(layout.total_size, 8);
     if !data.is_null() {
-        unsafe { std::ptr::write_bytes(data, META_EMPTY, layout.metadata_bytes) };
+        unsafe {
+            std::ptr::write_bytes(data, META_EMPTY, layout.metadata_bytes);
+            crate::rc::store_elem_dec_fn(data, elem_dec_fn);
+        }
     }
     data
 }

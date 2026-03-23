@@ -39,9 +39,9 @@ Most compilers have one backend. Ori has two: a tree-walking interpreter for `or
 
 The compiler is built on the [Salsa](https://salsa-rs.netlify.app/) framework, which provides automatic incremental computation. Every phase — lexing, parsing, type checking, evaluation — is a Salsa query whose result is memoized. When a source file changes, only the affected queries re-execute. This matters for IDE integration: editing one function doesn't re-type-check the entire module.
 
-### ARC Memory Management (Not GC, Not Borrow Checking)
+### AIMS (ARC Intelligent Memory System) — Not GC, Not Borrow Checking
 
-Ori uses automatic reference counting with compile-time optimizations inspired by [Perceus](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) (Reinking et al., 2021) and [Lean 4](https://leanprover.github.io/). The ARC system performs borrow inference, liveness analysis, RC insertion/elimination, and reset/reuse — all as compiler passes over a dedicated ARC IR. This sits between the simplicity of garbage collection (no borrow checker for users to fight) and the determinism of manual memory management (no GC pauses).
+Ori uses automatic reference counting with compile-time optimizations inspired by [Perceus](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) (Reinking et al., 2021) and [Lean 4](https://leanprover.github.io/). AIMS performs interprocedural contract analysis, backward dataflow analysis, unified realization, and reuse emission — all as compiler passes over a dedicated ARC IR. This sits between the simplicity of garbage collection (no borrow checker for users to fight) and the determinism of manual memory management (no GC pauses).
 
 ### Expression-Based with No Return
 
@@ -110,7 +110,7 @@ flowchart TB
     class G,H native
 ```
 
-Each step is a Salsa query with automatic memoization. After canonicalization, the pipeline **forks**: the interpreter consumes canonical IR directly, while the ARC system lowers it to a basic-block SSA IR with explicit reference counting before LLVM codegen.
+Each step is a Salsa query with automatic memoization. After canonicalization, the pipeline **forks**: the interpreter consumes canonical IR directly, while AIMS lowers it to a basic-block SSA IR with explicit reference counting before LLVM codegen.
 
 ## Compiler Architecture
 
@@ -197,18 +197,18 @@ The compiler is organized as a multi-crate Rust workspace. Dependencies flow str
 - [Value System](08-evaluator/value-system.md) - Runtime value representation
 - [Module Loading](08-evaluator/module-loading.md) - Import resolution
 
-#### ARC System (Section 09)
+#### AIMS (Section 09)
 
-- [ARC System Overview](09-arc-system/index.md) - ARC pipeline overview, module structure
-- [ARC IR](09-arc-system/arc-ir.md) - IR definitions, type classification
-- [Lowering](09-arc-system/lowering.md) - CanExpr → ARC IR
-- [Borrow Inference](09-arc-system/borrow-inference.md) - Global ownership inference
-- [Liveness](09-arc-system/liveness.md) - Backward dataflow liveness analysis
-- [RC Insertion](09-arc-system/rc-insertion.md) - Perceus algorithm RC placement
-- [Reset/Reuse](09-arc-system/reset-reuse.md) - In-place constructor reuse
-- [RC Elimination](09-arc-system/rc-elimination.md) - Redundant RC pair removal
-- [Drop Descriptors](09-arc-system/drop-descriptors.md) - Per-type drop generation
-- [Decision Trees](09-arc-system/decision-trees.md) - Pattern compilation in ARC IR
+- [AIMS Overview](09-aims/index.md) - AIMS pipeline overview, module structure
+- [ARC IR](09-aims/arc-ir.md) - IR definitions, type classification
+- [Lowering](09-aims/lowering.md) - CanExpr → ARC IR
+- [Interprocedural Contracts](09-aims/borrow-inference.md) - SCC-based contract computation
+- [Backward Dataflow Analysis](09-aims/liveness.md) - 7D lattice analysis algorithm
+- [Unified Realization](09-aims/rc-insertion.md) - RC, reuse, COW, and drop emission
+- [Reuse Emission](09-aims/reset-reuse.md) - In-place constructor and collection reuse
+- [RC Optimization](09-aims/rc-elimination.md) - Redundancy avoidance and remaining elimination
+- [Drop Descriptors](09-aims/drop-descriptors.md) - Per-type drop generation
+- [Decision Trees](09-aims/decision-trees.md) - Pattern compilation in ARC IR
 
 #### LLVM Backend (Section 10)
 
