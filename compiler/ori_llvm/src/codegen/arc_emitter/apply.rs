@@ -303,8 +303,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             let ret_ty = self.resolve_type(ty);
-            let ret_is_indirect =
-                crate::codegen::abi::abi_size(ty, self.type_info) > 16;
+            let ret_is_indirect = crate::codegen::abi::abi_size(ty, self.type_info) > 16;
             tracing::trace!(
                 ?ty,
                 resolved_llvm_ty = ?self.builder.arena.get_type(ret_ty),
@@ -316,9 +315,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // Large return type — closure uses sret. Allocate a buffer,
                 // call with sret, and load the result. On ARM64, sret goes
                 // in X8 via the sret attribute (not as a regular parameter).
-                let sret_alloca = self
-                    .builder
-                    .alloca(ret_ty, "icall.sret");
+                let sret_alloca = self.builder.alloca(ret_ty, "icall.sret");
                 self.builder.call_indirect_with_sret(
                     ret_ty,
                     &param_types,
@@ -341,8 +338,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.def_var_repr(dst, val, func);
                 }
             } else {
-                let result = self.builder
-                    .call_indirect(ret_ty, &param_types, fn_ptr, &arg_vals, "icall");
+                let result =
+                    self.builder
+                        .call_indirect(ret_ty, &param_types, fn_ptr, &arg_vals, "icall");
                 if let Some(val) = result {
                     self.def_var_repr(dst, val, func);
                 }
