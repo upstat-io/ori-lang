@@ -2,7 +2,6 @@
 //!
 //! Systematic combinatorial testing of {type categories} x {language features}.
 //! Each sub-module tests one feature dimension across all applicable type categories.
-//! See `plans/fat-pointer-hardening/section-04-test-matrix.md` for the full matrix.
 
 pub mod f01_let_binding;
 pub mod f02_function_param;
