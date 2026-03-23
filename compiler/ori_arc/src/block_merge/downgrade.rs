@@ -11,7 +11,8 @@
 //! the block body, with terminator replaced by `Jump { target: normal }`.
 
 use crate::graph::compute_pred_counts;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+use crate::RcStrategy;
 
 use super::usize_to_block_id;
 
@@ -82,9 +83,14 @@ fn is_trivial_invoke(func: &ArcFunction, block_idx: usize, pred_counts: &[usize]
     let normal_idx = normal.index();
     let unwind_idx = unwind.index();
 
-    // Criterion 2: unwind block is trivial (empty + Resume + no params).
+    // Criterion 2: unwind block is trivial (empty or no-op cleanup +
+    // Resume + no params). No-op cleanup = all instructions are RcDec
+    // on non-capturing closures (null env → RcDec is a no-op).
     let ub = &func.blocks[unwind_idx];
-    if !ub.body.is_empty() || ub.terminator != ArcTerminator::Resume || !ub.params.is_empty() {
+    if ub.terminator != ArcTerminator::Resume || !ub.params.is_empty() {
+        return None;
+    }
+    if !ub.body.is_empty() && !is_all_noop_rc_decs(&ub.body, func) {
         return None;
     }
 
@@ -99,4 +105,43 @@ fn is_trivial_invoke(func: &ArcFunction, block_idx: usize, pred_counts: &[usize]
     }
 
     Some(normal_idx)
+}
+
+/// Check if all instructions are `RcDec` on non-capturing closures.
+fn is_all_noop_rc_decs(body: &[ArcInstr], func: &ArcFunction) -> bool {
+    body.iter().all(|instr| {
+        matches!(instr, ArcInstr::RcDec { var, strategy: RcStrategy::Closure }
+            if is_non_capturing_closure(func, *var))
+    })
+}
+
+/// Trace a variable's definition to check if it's a non-capturing closure.
+fn is_non_capturing_closure(func: &ArcFunction, var: ArcVarId) -> bool {
+    let mut current = var;
+    for _ in 0..8 {
+        let Some(instr) = find_var_def(func, current) else {
+            return false;
+        };
+        match instr {
+            ArcInstr::PartialApply { args, .. } => return args.is_empty(),
+            ArcInstr::Let {
+                value: ArcValue::Var(src),
+                ..
+            } => current = *src,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// Find the instruction that defines a variable.
+fn find_var_def(func: &ArcFunction, var: ArcVarId) -> Option<&ArcInstr> {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if instr.defined_var() == Some(var) {
+                return Some(instr);
+            }
+        }
+    }
+    None
 }

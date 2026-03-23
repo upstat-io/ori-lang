@@ -370,13 +370,13 @@ use std.testing { assert, assert_eq }
 @test_guard_pattern tests @guard_pattern () -> void = {
     // Common pattern: check non-null then use
     let opt = Some(42);
-    let result = is_some(opt: opt) && opt.unwrap_or(default: 0) > 0;
+    let result = is_some(opt:) && opt.unwrap_or(default: 0) > 0;
     assert(cond: result)
 }
 
 @guard_pattern () -> bool = {
     let opt = Some(42);
-    is_some(opt: opt) && opt.unwrap_or(default: 0) > 0
+    is_some(opt:) && opt.unwrap_or(default: 0) > 0
 }
 
 @test_default_pattern tests @default_pattern () -> void = {

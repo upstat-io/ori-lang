@@ -165,6 +165,7 @@ pub fn lower_function_can(
         func_name: name,
         variant_ctors: &variant_ctors,
         type_subst,
+        return_type,
     };
 
     let result_var = lowerer.lower_expr(body);

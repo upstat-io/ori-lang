@@ -1,113 +1,157 @@
-# Code Journeys — Overview
+# Code Journeys -- Overview
 
-Code journeys trace a single Ori program through the entire compiler pipeline (lexer, parser, typeck, canonicalization, interpreter, LLVM codegen, AOT binary) and perform deep scrutiny on the generated output. Each journey tests a specific language feature set.
+Code journeys trace a single Ori program through the entire compiler pipeline -- lexer, parser, type checker, canonicalization, interpreter, LLVM codegen, AOT binary -- and perform deep scrutiny on the generated output. Each journey targets a specific language feature set, scoring the compiler's codegen across seven dimensions: instruction efficiency, ARC correctness, attributes/safety, control flow, IR quality, binary quality, and other findings.
+
+Journeys are the primary mechanism for validating that the AIMS (ARC Intelligent Memory System) pipeline produces correct, efficient, and well-attributed LLVM IR. Every journey compares interpreter (eval) results against AOT (compiled binary) results to verify semantic equivalence.
+
+**Latest run**: 2026-03-22 (J15-J17 re-run with updated findings), 2026-03-20 (full re-run of all 20 journeys)
+**Branch**: `experiment/aims`
+**Previous runs**: 2026-03-19 (J1-J17 polish), 2026-03-16 (re-run J1-J17), 2026-03-15 (AIMS initial), 2026-03-07 to 2026-03-10 (old ARC system, `master`)
+**Journeys**: 20 total (4 simple, 4 moderate, 12 complex)
 
 ## Journey Index
 
 | # | Name | Features | Expected | Eval | AOT | Score | Key Findings |
 |---|------|----------|----------|------|-----|-------|--------------|
-| J1 | "I am arithmetic" | arithmetic, function_calls, let_bindings | 33 | PASS | PASS | 9.8/10 | OPTIMAL codegen on both functions, zero ARC ops |
-| J2 | "I am a branch" | branching, comparison | 17 | PASS | PASS | 9.2/10 | Branchless select for my_max, 5 empty blocks from if/else lowering |
-| J3 | "I am recursive" | recursion, comparison, arithmetic | 61 | PASS | PASS | 8.9/10 | Tail-call optimization on gcd, 77.8% attribute compliance |
-| J4 | "I am a struct" | struct_construction, field_access, nested_structs | 57 | PASS | PASS | 9.7/10 | All functions OPTIMAL, correct by-pointer passing for aggregates |
-| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 8.8/10 | Clean {ptr,ptr} representation, indirect call targets lack fastcc |
-| J6 | "I am a match" | pattern_matching, sum_types, destructuring | 41 | PASS | PASS | 9.7/10 | Branchless select chains for tag-only enums, near-perfect codegen |
-| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 9.2/10 | Correct phi-based loop lowering, empty trampoline blocks |
-| J8 | "I am generic" | generics, monomorphization, generic_structs | 57 | PASS | PASS | 9.8/10 | Zero-cost monomorphization, all functions at 1.00x ratio |
-| J9 | "I am a string" | strings, string_methods, arc | 13 | PASS | PASS | 8.8/10 | SSO gating correct, ARC balanced, branchless bool_to_int |
-| J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 8.7/10 | Borrow elision works, ARC balanced, correct iterator protocol |
-| J11 | "I am a derived trait" | derived_traits, trait_methods, sum_types | 33 | PASS | PASS | 9.7/10 | Excellent derived Eq for structs/unit-sums/payload-sums |
-| J12 | "I am an option" | option_type, pattern_matching, error_propagation | 33 | PASS | PASS | 9.1/10 | ? operator zero overhead, zero ARC for scalar Options |
-
-**All 12 journeys pass on both eval and AOT backends.** No behavioral mismatches, no crashes, no wrong results.
+| J1 | "I am arithmetic" | arithmetic, function_calls, let_bindings, int_literals | 33 | PASS | PASS | 10.0 | OPTIMAL codegen, memory(none) on pure functions, zero ARC |
+| J2 | "I am a branch" | branching, comparison, function_calls | 17 | PASS | PASS | 10.0 | Branchless select for max, hybrid branch+select for nested if |
+| J3 | "I am recursive" | recursion, comparison, arithmetic | 61 | PASS | PASS | 10.0 | TCO on gcd (loop lowering), zero empty blocks in fib, leak detection |
+| J4 | "I am a struct" | struct_construction, field_access, nested_structs | 57 | PASS | PASS | 10.0 | nonnull dereferenceable(32), memory(argmem: read) on ptr params |
+| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 10.0 | AIMS RC elision on @apply, uniform {ptr, ptr} closure ABI |
+| J6 | "I am a match" | pattern_matching, sum_types, destructuring, exhaustiveness | 41 | PASS | PASS | 10.0 | Branchless select chain for tag-only enums, unreachable default |
+| J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 10.0 | Range unused field extraction FIXED, phi-based loop lowering |
+| J8 | "I am generic" | generics, monomorphization, generic_structs, type_inference | 57 | PASS | PASS | 10.0 | Zero-cost abstraction, all generics at 1.00x instruction ratio |
+| J9 | "I am a string" | strings, string_methods, arc, branching | 13 | PASS | PASS | 10.0 | SSO guard pattern, nounwind propagation through string calls |
+| J10 | "I am a list" | lists, list_methods, loops, arc | 33 | PASS | PASS | 10.0 | Borrow elision on readonly params, drop_unique optimization |
+| J11 | "I am a derived trait" | derived_traits, trait_methods, struct_construction, sum_types | 33 | PASS | PASS | 10.0 | Shape$eq 30% instruction reduction, short-circuit equality |
+| J12 | "I am an option" | option_type, pattern_matching, error_propagation | 33 | PASS | PASS | 10.0 | ? operator OPTIMAL (zero overhead), CFG simplification |
+| J13 | "I am an iterator" | iterators, iterator_adapters, closures, higher_order | 55 | PASS | PASS | 10.0 | Null env for non-capturing closures, balanced ARC pipeline |
+| J14 | "I am a fat pointer" | strings, arc, function_calls | 65 | PASS | PASS | 10.0 | Borrow elision, aggregate load 9:1 reduction, nounwind complete |
+| J15 | "I am nested fat" | lists, strings, arc, loops | 18 | PASS | PASS | 9.7 | 2 LOWs: dead loop load, dead debug loads; SSO guard correct |
+| J16 | "I am fat and moving" | strings, arc, function_calls | 42 | PASS | PASS | 10.0 | sret ownership transfer, ori_str_rc_dec consolidation |
+| J17 | "I am a captured fat pointer" | strings, arc, closures, capture, higher_order | 10 | PASS | PASS | 9.8 | 1 LOW: dead param.load in lambda body |
+| J18 | "I am a string builder" | strings, string_methods, loops, ranges, arc, lists | 67 | PASS | PASS | 10.0 | SSO-to-heap promotion, phi-based str accumulation |
+| J19 | "I am a lifecycle" | struct_construction, nested_structs, loops, lists, strings, arc | 51 | PASS | PASS | 10.0 | Zero-cost pass_through, nested aggregate destruction cascade |
+| J20 | "I am copy-on-write" | cow, strings, lists, loops, ranges, arc | 105 | PASS | PASS | 10.0 | Static uniqueness analysis, seamless slices, COW fork protocol |
 
 ## Recurring Issues
 
-| Issue | Severity | Journeys | Description |
-|-------|----------|----------|-------------|
-| Empty trampoline/passthrough blocks | LOW | J2, J3, J5, J7, J9, J10, J12 | Blocks containing only `br label %next` — could be eliminated at emission time |
-| Missing `uwtable` on C main wrapper | LOW | J1, J2, J7, J8 | The `@main` entry wrapper uses attribute group without `uwtable` |
-| Missing `noundef` on some parameters | LOW | J4, J6, J8, J11 | Struct-typed and Box-typed params missing `noundef` annotation |
-| Missing `memory(...)` annotations | LOW | J5, J7, J12 | Pure read-only or side-effect-free functions lack `memory(read)` or `memory(none)` |
-| Redundant entry block branch | LOW | J3, J7, J12 | TCO loop lowering and loop/for emit an entry block with only `br label %loop.header` |
-| Attribute compliance below 80% | LOW | J3 (77.8%), J5 (~58%) | Closures' indirect call targets and recursive functions have lower compliance |
+Active issues appearing in the current run:
+
+| Issue | Severity | Journeys | Status | Description |
+|-------|----------|----------|--------|-------------|
+| Dead aggregate load on borrowed param | LOW | J15, J17 | OPEN | Lambda/loop loads full `{ i64, i64, ptr }` str fat pointer but only forwards the pointer to runtime. Harmless at -O1+ but present in debug builds. |
+| Dead loads in debug disassembly | LOW | J15 | OPEN | Unoptimized native code loads data ptr and cap fields that are never used. Artifact of debug-mode aggregate loads; eliminated by LLVM optimization passes. |
+
+**Summary**: 18 of 20 journeys report zero defects. J15 has 2 LOW findings (dead loads in loop body and debug disassembly), J17 has 1 LOW finding (dead param load in lambda). All are debug-only artifacts eliminated by LLVM optimization passes.
+
 ## Resolved Issues
 
-### ARC metrics false-positive on heap types — FIXED
-**First seen**: J9 (7.4/10), J10 (7.2/10) — ARC score capped at 3/10 by unbalanced gate
-**Fixed in**: Tooling rewrite (2026-03-07) — two root causes eliminated:
-1. **Drop function inclusion** (J9): `_ori_drop$*` functions passed `is_user_function` check despite being compiler-generated destructors. They naturally have 0 inc / 1 dec (calling `ori_rc_free`), which is correct behavior but flagged as unbalanced. Fix: exclude `_ori_drop$` from user function set in `ir_parser.py`.
-2. **Landingpad block inflation** (J10): `invoke` instructions create landingpad cleanup blocks with RC operations that execute *instead of* normal continuation during stack unwinding. Naive counting treats them as cumulative. Fix: skip landingpad blocks in `arc_metrics.py::_count_rc_ops()`.
-3. **Effect summaries** (both): `effect_summaries.py` correctly accounts for implicit allocations by runtime functions like `ori_str_from_raw` (+1 return effect) and `ori_list_alloc_data` (+1 return effect).
+Issues found and fixed across journey runs:
 
-### `noreturn` on `ori_panic_cstr` — FIXED
-**First seen**: Previous journey run
-**Fixed in**: Current run (J1 confirms `noreturn` + `cold`)
-**Description**: The `ori_panic_cstr` runtime function declaration now correctly has both `cold` and `noreturn` attributes.
+### Range unused field extraction -- FIXED
+**First seen**: Journey 7 (2026-03-16) | **Fixed in**: 2026-03-20 re-run
+**Description**: `extractvalue` for unused inclusive flag in exclusive range. Now eliminated -- J7 score 9.8 -> 10.0.
 
-### `nounwind` on user functions — FIXED
-**First seen**: Previous journey run (J1 originally missing)
-**Fixed in**: Current run (J2 confirms all user functions have `nounwind`)
-**Description**: User-defined functions now correctly propagate `nounwind` via attribute groups.
+### Missing nounwind on entry wrapper / @_ori_main -- FIXED
+**First seen**: J15, J17 (2026-03-16) | **Fixed in**: 2026-03-20 re-run
+**Description**: LLVM generated unnecessary EH tables for main wrapper lacking nounwind. Now correctly propagated through the entire call graph.
 
-### `noundef` on function parameters — FIXED
-**First seen**: Previous journey run
-**Fixed in**: Current run (J1 confirms `noundef` present on int params and returns)
-**Description**: Function parameters and return values now carry `noundef` annotations for integer types.
+### Dead aggregate loads on borrowed params -- FIXED (partial)
+**First seen**: J16, J17 (2026-03-19) | **Fixed in**: J16 fixed in 2026-03-20; J17 lambda still has 1 dead load
+**Description**: Full struct loaded but value unused -- pointer forwarded directly to runtime.
 
-### Struct codegen — IMPROVED
-**First seen**: Previous run (J4 scored 8.5)
-**Improved in**: Current run (J4 scores 9.7)
-**Description**: Struct construction and field access now score OPTIMAL — the redundant insertvalue/extractvalue round-trip noted previously has been resolved.
+### Option struct wrapping + alloca round-trip in iterator loop -- FIXED
+**First seen**: Journey 15 (2026-03-16) | **Fixed in**: 2026-03-20 re-run
+**Description**: Iterator next() wrapped has-next flag into option struct then immediately unwrapped. +7 unjustified instructions per iteration. Now eliminated -- J15 score 8.7 -> 9.7.
 
-## Score Trend
+### Missing nounwind on specific functions -- FIXED
+**First seen**: Journey 16 (2026-03-19) | **Fixed in**: 2026-03-20 re-run
+**Description**: @check_multi lacked nounwind despite all callees being nounwind. Now correctly propagated.
 
-| Difficulty | Journeys | Avg Score | Range |
-|------------|----------|-----------|-------|
-| Simple (J1-J4) | 4 | 9.4 | 8.9–9.8 |
-| Moderate (J5-J8) | 4 | 9.4 | 8.8–9.8 |
-| Complex (J9-J12) | 4 | 9.1 | 8.7–9.7 |
-| **Overall** | **12** | **9.3** | **8.7–9.8** |
+### C15-1: Double-free on [str] elements -- FIXED
+**First seen**: Journey 15 (2026-03-16) | **Fixed in**: Pre-J15 reanalysis
+**Description**: Iterator consumption + list buffer drop both decremented string element RCs. Aggregate load codegen + RC balance fix resolved it.
 
-### Score Distribution
+### C17: Closure capturing str -- Idx leak -- FIXED
+**First seen**: Journey 17 (2026-03-16) | **Fixed in**: Prior to f561649f (verified 2026-03-19)
+**Description**: Closure capturing a `str` produced an unresolved type variable Idx(202) at LLVM codegen. Score went from 3.0 to 9.8.
 
-- **9.5+** (near-perfect): J1 (9.8), J4 (9.7), J6 (9.7), J8 (9.8), J11 (9.7) — arithmetic, structs, pattern matching, generics, derived traits
-- **9.0–9.4** (strong): J2 (9.2), J7 (9.2), J12 (9.1) — branching, loops, options
-- **8.5–8.9** (solid): J3 (8.9), J5 (8.8), J9 (8.8), J10 (8.7) — recursion, closures, strings, lists
+### Aggregate field-by-field materialization -- FIXED
+**First seen**: J9, J14, J15, J16 (2026-03-16) | **Fixed by**: 2026-03-19 run
+**Description**: sret structs materialized via 9-instruction GEP+load+insertvalue chains. Now uses aggregate loads (9:1 reduction).
 
-### Observations
+### Landing pad over-generation -- FIXED
+**First seen**: J10, J14, J15, J16 (2026-03-16) | **Fixed by**: 2026-03-19 run
+**Description**: `invoke`+`landingpad`+`resume` used for calls to `nounwind` functions. Eliminated by fixed-point nounwind analysis.
 
-- **Scalar-only journeys score highest** — when no ARC is needed, the compiler's codegen is near-perfect (J1, J4, J6, J8, J11 all 9.7+)
-- **Heap-allocated types now score well** — strings (J9: 8.8) and lists (J10: 8.7) score 10/10 ARC after tooling fixes (effect summaries + drop exclusion + landingpad exclusion); remaining deductions are attribute compliance and control flow
-- **Attribute compliance is the most common deduction** — across all journeys, missing attributes (memory, noundef, uwtable) are the primary source of non-NOTE findings
-- **Instruction efficiency is excellent** — 7 of 12 journeys have functions at exactly 1.00x ratio (OPTIMAL), and none exceed 1.14x maximum
-- **Struct improvement** — J4 jumped from 8.5 to 9.7 since the previous run, confirming a codegen improvement in struct handling
-- **? operator is zero-overhead** — J12 confirms that `?` propagation compiles to the same code as manual match
+### SSO guard ptrtoint duplication -- FIXED
+**First seen**: J14 (2026-03-16) | **Fixed by**: 2026-03-19 run
+**Description**: SSO guard performed `ptrtoint` twice on the same pointer. Now single `ptrtoint` reused.
+
+### Empty trampoline blocks -- FIXED
+**First seen**: J5, J12 (2026-03-16) | **Fixed by**: CFG simplification pass
+**Description**: Unconditional `br` to next sequential block. Eliminated.
+
+## Score Trend by Difficulty Tier
+
+| Difficulty | Journeys | Count | Avg Score | Range |
+|------------|----------|-------|-----------|-------|
+| Simple (J1--J4) | J1, J2, J3, J4 | 4 | 10.0 | 10.0--10.0 |
+| Moderate (J5--J8) | J5, J6, J7, J8 | 4 | 10.0 | 10.0--10.0 |
+| Complex (J9--J20) | J9--J20 | 12 | 9.96 | 9.7--10.0 |
+| **Overall** | **J1--J20** | **20** | **9.98** | **9.7--10.0** |
+
+**Perfect scores**: 18 of 20 journeys (90%) score 10.0.
+**Near-perfect**: J15 at 9.7 (2 LOWs: dead loads in debug mode), J17 at 9.8 (1 LOW: dead param load in lambda).
+
+### Comparison with Previous Runs
+
+| Run | Avg Score | Perfect | Lowest | Key Change |
+|-----|-----------|---------|--------|------------|
+| 2026-03-16 (initial) | 9.5 | 8/17 | 3.0 (J17) | Baseline |
+| 2026-03-19 (polish) | 9.9 | 16/19 | 8.7 (J15) | Aggregate load, nounwind, CFG simplify |
+| 2026-03-20 (full re-run) | 10.0 | 19/20 | 9.8 (J17) | Iterator loop fix, range field elimination, nounwind propagation |
+| **2026-03-22 (latest)** | **9.98** | **18/20** | **9.7 (J15)** | **J15 re-scored with 2 LOWs; J16 improved to 10.0** |
+
+## Positive Patterns Across Journeys
+
+Recurring strengths observed consistently:
+
+| Pattern | Journeys | Description |
+|---------|----------|-------------|
+| `memory(none)` on pure functions | J1--J8, J11, J12 | Posthoc purity analysis correctly identifies functions with no memory effects |
+| `nounwind` propagation | J1--J20 | Fixed-point analysis propagates nounwind through entire call graph including string/ARC functions |
+| SSO guard correctness | J9, J14--J20 | Bit 63 check correctly discriminates SSO-inline vs heap-allocated strings for RC operations |
+| Borrow elision | J10, J14, J16--J19 | Read-only parameters receive `readonly dereferenceable` with zero RC overhead |
+| Branchless select | J2, J6, J12, J16 | Simple if/then/else with trivial arms compiles to `select` instead of branch |
+| Phi-based loop state | J3, J7, J10, J18 | Mutable loop accumulators use SSA phi nodes, not stack allocas |
+| Zero-cost abstractions | J5, J8, J12, J13 | Generics, closures, Option, and iterators compile with no overhead vs hand-written code |
+| Attribute compliance 100% | J1--J20 | All applicable LLVM attributes (noundef, nonnull, dereferenceable, fastcc, cold) correctly placed |
 
 ## Tooling Notes
 
-### `extract-metrics.py` — ARC False Positive on Heap Types — RESOLVED
-Three fixes in the tooling rewrite eliminated all ARC false positives on J9 and J10:
-1. `effect_summaries.py` — runtime function RC effect declarations (e.g., `ori_str_from_raw` returns +1)
-2. `ir_parser.py` — `_ori_drop$*` exclusion from user function set
-3. `arc_metrics.py` — landingpad block exclusion from RC counting
-
-J9 and J10 re-scored with fixed tooling: J9 7.4→8.8, J10 7.2→8.7 (ARC 3/10→10/10 on both).
-
-### `extract-metrics.py` — Quoted Function Names — RESOLVED
-The `ir_parser_internal.py` now handles both bare `@name` and quoted `@"name"` LLVM function name formats, supporting monomorphized generics like `@"_ori_first$24m$24int_int"`.
+- `effect_summaries.py` was missing 8 iterator consumer functions (`ori_iter_fold`, `ori_iter_collect`, etc.). Fixed during J13 re-analysis -- these functions consume their iterator param (param[0] = -1).
 
 ## Results Files
 
-- [Journey 1: "I am arithmetic"](01-arithmetic-results.md)
-- [Journey 2: "I am a branch"](02-branching-results.md)
-- [Journey 3: "I am recursive"](03-recursion-results.md)
-- [Journey 4: "I am a struct"](04-structs-results.md)
-- [Journey 5: "I am a closure"](05-closures-results.md)
-- [Journey 6: "I am a match"](06-pattern-matching-results.md)
-- [Journey 7: "I am a loop"](07-loops-results.md)
-- [Journey 8: "I am generic"](08-generics-results.md)
-- [Journey 9: "I am a string"](09-strings-results.md)
-- [Journey 10: "I am a list"](10-lists-results.md)
-- [Journey 11: "I am a derived trait"](11-derived-traits-results.md)
-- [Journey 12: "I am an option"](12-options-results.md)
+- [Journey 1: "I am arithmetic"](01-arithmetic-results.md) -- arithmetic, function_calls, let_bindings
+- [Journey 2: "I am a branch"](02-branching-results.md) -- branching, comparison
+- [Journey 3: "I am recursive"](03-recursion-results.md) -- recursion, comparison, arithmetic
+- [Journey 4: "I am a struct"](04-structs-results.md) -- struct_construction, field_access, nested_structs
+- [Journey 5: "I am a closure"](05-closures-results.md) -- closures, higher_order, capture
+- [Journey 6: "I am a match"](06-pattern-matching-results.md) -- pattern_matching, sum_types, destructuring
+- [Journey 7: "I am a loop"](07-loops-results.md) -- loops, ranges, break_continue
+- [Journey 8: "I am generic"](08-generics-results.md) -- generics, monomorphization, type_inference
+- [Journey 9: "I am a string"](09-strings-results.md) -- strings, string_methods, arc
+- [Journey 10: "I am a list"](10-lists-results.md) -- lists, list_methods, loops, arc
+- [Journey 11: "I am a derived trait"](11-derived-traits-results.md) -- derived_traits, trait_methods, sum_types
+- [Journey 12: "I am an option"](12-options-results.md) -- option_type, error_propagation
+- [Journey 13: "I am an iterator"](13-iterators-results.md) -- iterators, iterator_adapters, closures
+- [Journey 14: "I am a fat pointer"](14-fat-string-sharing-results.md) -- strings, arc, fat pointers
+- [Journey 15: "I am nested fat"](15-fat-nested-collections-results.md) -- lists, strings, arc, loops
+- [Journey 16: "I am fat and moving"](16-fat-ownership-transfer-results.md) -- strings, arc, ownership transfer
+- [Journey 17: "I am a captured fat pointer"](17-fat-closure-capture-results.md) -- strings, closures, capture, arc
+- [Journey 18: "I am a string builder"](18-string-builder-results.md) -- strings, loops, ranges, arc, lists
+- [Journey 19: "I am a lifecycle"](19-rc-lifecycle-results.md) -- nested_structs, loops, lists, strings, arc
+- [Journey 20: "I am copy-on-write"](20-cow-patterns-results.md) -- cow, strings, lists, slices, arc

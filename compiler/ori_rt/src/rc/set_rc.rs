@@ -2,7 +2,8 @@
 
 use super::debug::rc_trace_dec;
 use super::{
-    call_drop_fn, ori_rc_free, rc_trace_enabled, rc_underflow_abort, rt_debug_validate_rc,
+    call_drop_fn, load_elem_dec_fn, ori_rc_free, rc_trace_enabled, rc_underflow_abort,
+    rt_debug_validate_rc, store_elem_dec_fn_once,
 };
 
 #[cfg(debug_assertions)]
@@ -15,8 +16,9 @@ use std::sync::atomic::{AtomicI64, Ordering};
 /// Decrement the refcount of a set's hash table data buffer.
 ///
 /// Set data layout: `[metadata | elements]` (hash table with open addressing).
-/// When RC reaches 0, scans metadata for OCCUPIED buckets, calls `elem_dec_fn`
-/// on each, then frees the buffer.
+/// When RC reaches 0, reads `elem_dec_fn` from the RC header and scans
+/// metadata for OCCUPIED buckets, calling the stored function on each,
+/// then frees the buffer.
 #[no_mangle]
 pub extern "C" fn ori_set_buffer_rc_dec(
     data: *mut u8,
@@ -32,6 +34,9 @@ pub extern "C" fn ori_set_buffer_rc_dec(
     rt_debug_validate_rc(data.cast_const(), "ori_set_buffer_rc_dec");
     #[cfg(debug_assertions)]
     rt_debug_check_not_freed(data.cast_const(), "ori_set_buffer_rc_dec");
+
+    // Store elem_dec_fn in header (write-once, defense-in-depth).
+    unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
 
     let es = elem_size.max(1) as usize;
     let c = cap.max(0) as usize;
@@ -53,7 +58,7 @@ pub extern "C" fn ori_set_buffer_rc_dec(
 
         if prev <= 1 {
             atomic::fence(Ordering::Acquire);
-            set_buffer_cleanup(data, c, es, elem_dec_fn);
+            set_buffer_cleanup(data, c, es);
         }
     }
 
@@ -73,15 +78,16 @@ pub extern "C" fn ori_set_buffer_rc_dec(
         }
 
         if should_drop {
-            set_buffer_cleanup(data, c, es, elem_dec_fn);
+            set_buffer_cleanup(data, c, es);
         }
     }
 }
 
 /// Drop a set buffer that is known to be uniquely owned (RC == 1).
 ///
-/// Scans metadata for OCCUPIED buckets, calls `elem_dec_fn` on each,
-/// then frees the buffer. Skips atomic RC decrement.
+/// Reads `elem_dec_fn` from the RC header, scans metadata for OCCUPIED
+/// buckets, calls the stored function on each, then frees the buffer.
+/// Skips atomic RC decrement.
 #[no_mangle]
 pub extern "C" fn ori_set_buffer_drop_unique(
     data: *mut u8,
@@ -97,26 +103,28 @@ pub extern "C" fn ori_set_buffer_drop_unique(
     #[cfg(debug_assertions)]
     rt_debug_check_not_freed(data.cast_const(), "ori_set_buffer_drop_unique");
 
+    // Store elem_dec_fn in header (write-once, defense-in-depth).
+    unsafe { store_elem_dec_fn_once(data, elem_dec_fn) };
+
     if rc_trace_enabled() {
         rc_trace_dec(data.cast_const(), 0);
     }
 
     let es = elem_size.max(1) as usize;
     let c = cap.max(0) as usize;
-    set_buffer_cleanup(data, c, es, elem_dec_fn);
+    set_buffer_cleanup(data, c, es);
 }
 
 /// Clean up and free a set data buffer. Called when RC reaches 0.
-fn set_buffer_cleanup(
-    data: *mut u8,
-    cap: usize,
-    elem_size: usize,
-    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
-) {
+///
+/// Reads `elem_dec_fn` from the RC header instead of taking it as a parameter.
+fn set_buffer_cleanup(data: *mut u8, cap: usize, elem_size: usize) {
     use crate::map::hash_table::{get_meta, HashTableLayout, META_OCCUPIED};
 
     let layout = HashTableLayout::for_set(cap, elem_size);
 
+    // Read elem_dec_fn from header
+    let elem_dec_fn = unsafe { load_elem_dec_fn(data) };
     if let Some(f) = elem_dec_fn {
         for bucket in 0..cap {
             if unsafe { get_meta(data, bucket) } == META_OCCUPIED {

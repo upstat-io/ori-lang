@@ -315,10 +315,12 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     // -- ARC-specific Types --
 
     /// Create debug info for an ARC heap allocation:
-    /// `RC<T> = { data_size: i64, strong_count: i64, data: T }`.
+    /// `RC<T> = { data_size: i64, elem_dec_fn: ptr, elem_count: i64,
+    ///            strong_count: i64, data: T }`.
     ///
     /// This represents the heap layout of a reference-counted value.
-    /// The 16-byte header (`data_size` + `strong_count`) precedes the data.
+    /// The 32-byte V5 header (`data_size` + `elem_dec_fn` + `elem_count` +
+    /// `strong_count`) precedes the data.
     ///
     /// # Errors
     ///
@@ -331,6 +333,9 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         inner_size_bits: u64,
     ) -> Result<DICompositeType<'ctx>, DebugInfoError> {
         let int_ty = self.int_type()?.as_type();
+        // elem_dec_fn is a function pointer — use i64 for DWARF since there's
+        // no dedicated pointer debug type available. Size is 64 bits on 64-bit.
+        let ptr_as_int_ty = int_ty;
 
         let fields = [
             FieldInfo {
@@ -341,22 +346,36 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
                 line: 0,
             },
             FieldInfo {
+                name: "elem_dec_fn",
+                ty: ptr_as_int_ty,
+                size_bits: 64,
+                offset_bits: 64, // base + 8
+                line: 0,
+            },
+            FieldInfo {
+                name: "elem_count",
+                ty: int_ty,
+                size_bits: 64,
+                offset_bits: 128, // base + 16
+                line: 0,
+            },
+            FieldInfo {
                 name: "strong_count",
                 ty: int_ty,
                 size_bits: 64,
-                offset_bits: 64, // 8-byte offset
+                offset_bits: 192, // base + 24
                 line: 0,
             },
             FieldInfo {
                 name: "data",
                 ty: inner_type,
                 size_bits: inner_size_bits,
-                offset_bits: 128, // 16-byte header
+                offset_bits: 256, // base + 32 (32-byte header)
                 line: 0,
             },
         ];
 
-        let total_size = 128 + inner_size_bits;
+        let total_size = 256 + inner_size_bits;
         let type_name = format!("RC<{inner_name}>");
         Ok(self.create_struct_type(&type_name, 0, total_size, 64, &fields))
     }

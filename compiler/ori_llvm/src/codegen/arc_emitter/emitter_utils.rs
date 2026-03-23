@@ -27,6 +27,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mode = arc_func
             .cow_annotations
             .get(self.current_block_idx, self.current_instr_idx);
+        tracing::debug!(
+            block = self.current_block_idx,
+            instr = self.current_instr_idx,
+            ?mode,
+            "cow_mode_const queried"
+        );
         self.builder.const_i32(mode as i32)
     }
 

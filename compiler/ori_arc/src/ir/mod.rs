@@ -126,9 +126,29 @@ pub enum LitValue {
     Bool(bool),
     String(Name),
     Char(char),
-    Duration { value: u64, unit: DurationUnit },
-    Size { value: u64, unit: SizeUnit },
+    Duration {
+        value: u64,
+        unit: DurationUnit,
+    },
+    Size {
+        value: u64,
+        unit: SizeUnit,
+    },
     Unit,
+    /// Typed null reference — a zero-valued placeholder for reference fields
+    /// that will be overwritten by `Set` before any read.
+    ///
+    /// Used by the TRMC rewrite (Section 13.4) to fill constructor hole fields.
+    /// The variable carrying this value has the field's declared type, but the
+    /// runtime value is null (zero). RC operations on null are no-ops in the
+    /// runtime (`ori_rc_inc`/`ori_buffer_rc_dec` check for null).
+    ///
+    /// # Contract
+    ///
+    /// A `Null` literal **must** be consumed by a `Construct` instruction whose
+    /// corresponding field is overwritten by `Set` before any read of that field.
+    /// The post-rewrite verifier (Section 13.5) enforces this invariant.
+    Null,
 }
 
 // Primitive operations
@@ -191,7 +211,7 @@ pub enum CtorKind {
 /// A function parameter in the ARC IR, annotated with ownership.
 ///
 /// Ownership starts as `Owned` for all ref-typed parameters and is
-/// refined to `Borrowed` by borrow inference (Section 06.2).
+/// refined to `Borrowed` by borrow inference.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArcParam {
@@ -299,9 +319,8 @@ impl ArcTerminator {
 
     /// Replace all occurrences of `old` with `new` in variable positions.
     ///
-    /// Used by constructor reuse expansion (Section 09) to substitute
-    /// `reuse_dst → reset_var` on the fast path, where the result IS
-    /// the original object.
+    /// Used by constructor reuse expansion to substitute `reuse_dst → reset_var`
+    /// on the fast path, where the result IS the original object.
     pub fn substitute_var(&mut self, old: ArcVarId, new: ArcVarId) {
         fn sub(v: &mut ArcVarId, old: ArcVarId, new: ArcVarId) {
             if *v == old {

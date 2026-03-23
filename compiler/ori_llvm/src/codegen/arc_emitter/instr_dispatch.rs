@@ -5,18 +5,187 @@
 //! for field extraction from structs and enums.
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcVarId, RcStrategy, ValueRepr};
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 
 use super::context::{is_boxed_enum_field, EmittedValue};
+use super::drop_enum::compute_variant_field_offsets;
 use super::ArcIrEmitter;
+use crate::codegen::value_id::{LLVMTypeId, ValueId};
+
+/// Compute the byte offset for a given payload field in an enum variant.
+///
+/// Searches all variants of the enum to find one where the field at
+/// `payload_field_idx` (0-based) has type matching `field_type`. Returns
+/// the byte offset within the `[M x i64]` payload area.
+///
+/// Falls back to `payload_field_idx * 8` if no matching variant is found
+/// (single-slot fields at sequential positions — the legacy behavior).
+fn enum_payload_byte_offset(
+    emitter: &ArcIrEmitter<'_, '_, '_, '_>,
+    enum_ty: Idx,
+    payload_field_idx: u32,
+    field_type: Idx,
+) -> u64 {
+    let resolved = emitter.pool.resolve_fully(enum_ty);
+    if emitter.pool.tag(resolved) != Tag::Enum {
+        return u64::from(payload_field_idx) * 8;
+    }
+    let variants = emitter.pool.enum_variants(resolved);
+    let fi = payload_field_idx as usize;
+    let resolved_ft = emitter.pool.resolve_fully(field_type);
+
+    for (_, fields) in &variants {
+        if fi < fields.len() && emitter.pool.resolve_fully(fields[fi]) == resolved_ft {
+            let offsets = compute_variant_field_offsets(fields, resolved, emitter);
+            return offsets.get(fi).copied().unwrap_or(0);
+        }
+    }
+    // Fallback: assume single-slot fields
+    u64::from(payload_field_idx) * 8
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Handle `Project` on a decomposed `__iter_next` result.
+    ///
+    /// Field 0 returns the tag (already an `i64` in the `var_map`).
+    /// Field 1 loads the element from the scratch buffer and registers the
+    /// scratch pointer in `borrowed_param_ptrs` for downstream forwarding.
+    fn emit_project_iter_next(
+        &mut self,
+        dst: ArcVarId,
+        field: u32,
+        tag: ValueId,
+        scratch_ptr: ValueId,
+        elem_llvm_ty: LLVMTypeId,
+        func: &ArcFunction,
+    ) {
+        if field == 0 {
+            self.def_var_repr(dst, tag, func);
+        } else {
+            // Load element from scratch buffer (deferred from emit_iter_next).
+            let elem = self
+                .builder
+                .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"));
+            self.def_var_repr(dst, elem, func);
+            // Register scratch pointer for borrowed-parameter forwarding:
+            // downstream calls (e.g., ori_str_len) can forward the scratch
+            // pointer directly instead of alloca+store round-trip.
+            self.borrowed_param_ptrs.insert(dst, scratch_ptr);
+        }
+    }
+
+    /// Try to emit a `Project` for an enum/Result payload field.
+    ///
+    /// Returns `true` if the field was an enum/Result payload and was handled,
+    /// `false` if it should go through the normal `extractvalue` path.
+    #[expect(clippy::too_many_arguments, reason = "extracted from emit_project")]
+    fn try_emit_project_enum_payload(
+        &mut self,
+        dst: ArcVarId,
+        ty: Idx,
+        value: ArcVarId,
+        field: u32,
+        val: ValueId,
+        result_ty: LLVMTypeId,
+        func: &ArcFunction,
+    ) -> bool {
+        let val_ty = func.var_type(value);
+        let val_type_info = self.type_info.get(val_ty);
+        if !matches!(
+            val_type_info,
+            super::super::type_info::TypeInfo::Result { .. }
+                | super::super::type_info::TypeInfo::Enum { .. }
+        ) {
+            return false;
+        }
+
+        let is_general_enum = matches!(
+            val_type_info,
+            super::super::type_info::TypeInfo::Enum { .. }
+        );
+
+        // Compute byte offset for this field within the payload.
+        let byte_offset = if is_general_enum {
+            enum_payload_byte_offset(self, val_ty, field - 1, ty)
+        } else {
+            0
+        };
+
+        // Fast path: extractvalue chain for general enum scalar fields.
+        let slot_index = byte_offset / 8;
+        if is_general_enum
+            && !is_boxed_enum_field(self.pool, val_ty, ty)
+            && self.builder.is_struct_value(val)
+            && self.builder.is_single_slot_type(result_ty)
+            && byte_offset % 8 == 0
+        {
+            let payload = self
+                .builder
+                .extract_value(val, 1, "proj.payload")
+                .expect("enum value should be a struct");
+            #[expect(clippy::cast_possible_truncation, reason = "slot index fits u32")]
+            let raw = self.builder.extract_value_any(
+                payload,
+                slot_index as u32,
+                &format!("proj.{field}.raw"),
+            );
+            let converted =
+                self.builder
+                    .reinterpret_from_i64(raw, result_ty, &format!("proj.{field}"));
+            self.def_var_repr(dst, converted, func);
+            return true;
+        }
+
+        // Slow path: alloca+store+GEP+load for Result types, boxed fields,
+        // multi-word types, and pointer-sourced values.
+        let llvm_val_ty = self.resolve_type(val_ty);
+        let alloca = self.builder.alloca(llvm_val_ty, "proj.alloca");
+        self.builder.store(val, alloca);
+        if is_general_enum {
+            let payload_ptr = self
+                .builder
+                .struct_gep(llvm_val_ty, alloca, 1, "proj.payload");
+            let i8_ty = self.builder.i8_type();
+            let offset_val = self.builder.const_i64(byte_offset as i64);
+            let slot_ptr = self.builder.gep(
+                i8_ty,
+                payload_ptr,
+                &[offset_val],
+                &format!("proj.{field}.gep"),
+            );
+
+            if is_boxed_enum_field(self.pool, val_ty, ty) {
+                let ptr_ty = self.builder.ptr_type();
+                let rc_ptr = self
+                    .builder
+                    .load(ptr_ty, slot_ptr, &format!("proj.{field}.ptr"));
+                let loaded = self
+                    .builder
+                    .load(result_ty, rc_ptr, &format!("proj.{field}"));
+                self.def_var_repr(dst, loaded, func);
+            } else {
+                let loaded = self
+                    .builder
+                    .load(result_ty, slot_ptr, &format!("proj.{field}"));
+                self.def_var_repr(dst, loaded, func);
+            }
+        } else {
+            // Result: payload is a typed field at struct index 1.
+            let gep =
+                self.builder
+                    .struct_gep(llvm_val_ty, alloca, field, &format!("proj.{field}.gep"));
+            let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
+            self.def_var_repr(dst, loaded, func);
+        }
+        true
+    }
+
     /// Emit a `Project` instruction (field extraction).
     ///
-    /// For tagged union payload fields (Result, Enum), the LLVM storage type
-    /// may differ from the expected type (e.g., `int` payload stored in a
-    /// `{i64, i64, ptr}` slot of `Result<int, str>`). These use alloca + GEP + load
-    /// for type-safe extraction through pointer reinterpretation.
+    /// For tagged union payload fields (Result, Enum), delegates to
+    /// [`try_emit_project_enum_payload`](Self::try_emit_project_enum_payload).
+    /// For decomposed `__iter_next` results, delegates to
+    /// [`emit_project_iter_next`](Self::emit_project_iter_next).
     pub(super) fn emit_project(
         &mut self,
         dst: ArcVarId,
@@ -25,96 +194,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         field: u32,
         func: &ArcFunction,
     ) {
+        // Fast path: decomposed iter_next result — extract tag or element
+        // directly without going through the {i64, T} wrapper struct.
+        if let Some(&(tag, scratch_ptr, elem_llvm_ty)) = self.iter_next_decomposed.get(&value) {
+            self.emit_project_iter_next(dst, field, tag, scratch_ptr, elem_llvm_ty, func);
+            return;
+        }
+
         let val = self.var(value);
         let result_ty = self.resolve_type(ty);
 
         // For enum/Result payload fields (index > 0), the storage type may
         // differ from the variant's actual type. Use alloca + GEP + load to
         // reinterpret the bytes correctly through pointer casting.
-        if field > 0 {
-            let val_ty = func.var_type(value);
-            let val_type_info = self.type_info.get(val_ty);
-            if matches!(
-                val_type_info,
-                super::super::type_info::TypeInfo::Result { .. }
-                    | super::super::type_info::TypeInfo::Enum { .. }
-            ) {
-                let is_general_enum = matches!(
-                    val_type_info,
-                    super::super::type_info::TypeInfo::Enum { .. }
-                );
-
-                // Fast path: extractvalue chain for general enum scalar fields.
-                // Avoids alloca+store+GEP+load (5 instr) with extractvalue (2-3 instr).
-                if is_general_enum
-                    && !is_boxed_enum_field(self.pool, val_ty, ty)
-                    && self.builder.is_struct_value(val)
-                    && self.builder.is_single_slot_type(result_ty)
-                {
-                    let payload = self
-                        .builder
-                        .extract_value(val, 1, "proj.payload")
-                        .expect("enum value should be a struct");
-                    let raw = self.builder.extract_value_any(
-                        payload,
-                        field - 1,
-                        &format!("proj.{field}.raw"),
-                    );
-                    let converted =
-                        self.builder
-                            .reinterpret_from_i64(raw, result_ty, &format!("proj.{field}"));
-                    self.def_var_repr(dst, converted, func);
-                    return;
-                }
-
-                // Slow path: alloca+store+GEP+load for Result types, boxed fields,
-                // multi-word types, and pointer-sourced values.
-                let llvm_val_ty = self.resolve_type(val_ty);
-                let alloca = self.builder.alloca(llvm_val_ty, "proj.alloca");
-                self.builder.store(val, alloca);
-                if is_general_enum {
-                    let payload_ptr =
-                        self.builder
-                            .struct_gep(llvm_val_ty, alloca, 1, "proj.payload");
-                    let i64_ty = self.builder.i64_type();
-                    let slot_idx = self.builder.const_i64(i64::from(field - 1));
-                    let slot_ptr = self.builder.gep(
-                        i64_ty,
-                        payload_ptr,
-                        &[slot_idx],
-                        &format!("proj.{field}.gep"),
-                    );
-
-                    if is_boxed_enum_field(self.pool, val_ty, ty) {
-                        // Recursive field: stored as RC pointer in the payload.
-                        // Load the pointer, then load the struct from the heap.
-                        let ptr_ty = self.builder.ptr_type();
-                        let rc_ptr =
-                            self.builder
-                                .load(ptr_ty, slot_ptr, &format!("proj.{field}.ptr"));
-                        let loaded = self
-                            .builder
-                            .load(result_ty, rc_ptr, &format!("proj.{field}"));
-                        self.def_var_repr(dst, loaded, func);
-                    } else {
-                        let loaded =
-                            self.builder
-                                .load(result_ty, slot_ptr, &format!("proj.{field}"));
-                        self.def_var_repr(dst, loaded, func);
-                    }
-                } else {
-                    // Result: payload is a typed field at struct index 1.
-                    let gep = self.builder.struct_gep(
-                        llvm_val_ty,
-                        alloca,
-                        field,
-                        &format!("proj.{field}.gep"),
-                    );
-                    let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
-                    self.def_var_repr(dst, loaded, func);
-                }
-                return;
-            }
+        if field > 0
+            && self.try_emit_project_enum_payload(dst, ty, value, field, val, result_ty, func)
+        {
+            return;
         }
 
         if let Some(extracted) = self
@@ -145,6 +241,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ArcInstr::Let { dst, ty, value } => {
                 let val = self.emit_value(value, *ty, func);
                 self.def_var_repr(*dst, val, func);
+                // Propagate borrowed parameter source pointers through aliases.
+                // When `Let { dst, Var(src) }`, if src has a known source pointer
+                // (from a borrowed param), dst inherits it for pointer forwarding.
+                if let ori_arc::ir::ArcValue::Var(src) = value {
+                    if let Some(&ptr) = self.borrowed_param_ptrs.get(src) {
+                        self.borrowed_param_ptrs.insert(*dst, ptr);
+                    }
+                }
             }
 
             ArcInstr::Apply {

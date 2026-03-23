@@ -26,8 +26,16 @@ impl ArcLowerer<'_> {
     /// Runtime functions (`ori_*`) and compiler-internal helpers (`__*`)
     /// are known to never unwind. User-defined functions may panic, so
     /// they require `Invoke` terminators for cleanup.
+    ///
+    /// Exception: `ori_panic` and `ori_assert_*` raise exceptions via
+    /// `_Unwind_RaiseException` — they are `noreturn` but NOT nounwind.
+    /// Classifying them as nounwind prevents the ARC pipeline from
+    /// generating cleanup landing pads, causing RC leaks on unwind.
     fn is_nounwind_call(&self, name: Name) -> bool {
         let s = self.interner.lookup(name);
+        if s.starts_with("ori_panic") || s.starts_with("ori_assert") {
+            return false;
+        }
         s.starts_with("ori_") || s.starts_with("__")
     }
 

@@ -1963,7 +1963,6 @@ fn test_aot_catch_success() {
 }
 
 #[test]
-#[ignore = "AOT gap: inline panic in catch — invoke only intercepts callee-function panics, not same-function inline code"]
 fn test_aot_catch_panic() {
     assert_aot_success(
         r#"

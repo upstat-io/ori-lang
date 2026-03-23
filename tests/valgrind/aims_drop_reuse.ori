@@ -1,0 +1,44 @@
+type Chain = End | Link(a: int, b: int, next: Chain);
+
+@build_chain (n: int) -> Chain = {
+    if n <= 0 then End
+    else Link(a: n, b: n * 3, next: build_chain(n: n - 1))
+};
+
+@rewrite_chain (c: Chain) -> Chain = match c {
+    End -> End,
+    Link(a, b, next) -> Link(a: a + 1, b: b - 1, next: rewrite_chain(c: next)),
+};
+
+@score_chain (c: Chain) -> int = match c {
+    End -> 0,
+    Link(a, b, next) -> a + b + score_chain(c: next),
+};
+
+@len_chain (c: Chain) -> int = match c {
+    End -> 0,
+    Link(_, _, next) -> 1 + len_chain(c: next),
+};
+
+@main () -> int = {
+    let $xs = for i in 1..91 yield i;
+    let sum = 0;
+    for x in xs do sum = sum + x;
+    let $drop_ok = sum == 4095;
+
+    let $s1 = "drop-point-alpha";
+    let $s2 = "drop-point-beta-beta";
+    let $arr = [3, 4, 5];
+    let $u1 = len(collection: s1);
+    let $u2 = arr[0] + arr[1] + arr[2];
+    let $u3 = len(collection: s2);
+    let $death_ok = u1 == 16 && u2 == 12 && u3 == 20;
+
+    let $input = build_chain(n: 75);
+    let $before = score_chain(c: input);
+    let $output = rewrite_chain(c: input);
+    let $after = score_chain(c: output);
+    let $reuse_ok = before == after && len_chain(c: output) == 75;
+
+    if drop_ok && death_ok && reuse_ok then 0 else 1
+}

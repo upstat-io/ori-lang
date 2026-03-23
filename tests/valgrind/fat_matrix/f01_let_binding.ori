@@ -1,0 +1,63 @@
+// Valgrind fat matrix: F01 — Let binding with all fat pointer type categories.
+// Verifies that values bound via let are correctly allocated and freed.
+
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    // T4: SSO string
+    let s1 = "hello";
+    let ok1 = s1.length() == 5;
+
+    // T5: heap string (>23 bytes)
+    let s2 = "abcdefghijklmnopqrstuvwxyz1234";
+    let ok2 = s2.length() == 30;
+
+    // T6: list of scalars
+    let xs = [1, 2, 3, 4, 5];
+    let ok3 = xs.length() == 5;
+
+    // T7: list of fat pointers
+    let words = ["hello", "world", "test"];
+    let ok4 = words.length() == 3;
+
+    // T9: struct with fat fields
+    let n = Named { name: "alice", id: 1 };
+    let ok5 = n.name.length() == 5;
+
+    // T15: Option<int>
+    let oi = Some(42);
+    let oni: Option<int> = None;
+    let ok6 = is_some(option: oi) && is_none(option: oni);
+
+    // T16: Option<str>
+    let os = Some("hello");
+    let ons: Option<str> = None;
+    let ok7 = is_some(option: os) && is_none(option: ons);
+
+    // T17: map
+    let m = {"a": 1, "b": 2, "c": 3};
+    let ok8 = m.length() == 3;
+
+    // T18: tuple (mixed)
+    let t = ("hello", 42);
+    let (ts, tn) = t;
+    let ok9 = ts.length() + tn == 47;
+
+    // T14: closure with fat capture
+    let prefix = "abcdefghijklmnopqrstuvwxyz1234";
+    let f = (x: int) -> int = prefix.length() + x;
+    let ok10 = f(5) == 35;
+
+    // Multiple fat values + rebinding
+    let r1 = "abcdefghijklmnopqrstuvwxyz1234";
+    let r2 = "another_long_string_for_heap_alloc";
+    let rlist = [1, 2, 3];
+    let ok11 = r1.length() + r2.length() + rlist.length() == 67;
+
+    let rebind = "abcdefghijklmnopqrstuvwxyz1234";
+    let rebind = "short";
+    let ok12 = rebind.length() == 5;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12
+        then 0 else 1
+}

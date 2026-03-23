@@ -8,7 +8,9 @@
 //! the true original allocation.
 
 use crate::next_capacity;
-use crate::rc::{ori_rc_alloc, ori_rc_dec, ori_rc_inc};
+use crate::rc::{
+    load_elem_dec_fn, ori_rc_alloc, ori_rc_dec, ori_rc_inc, store_elem_count, store_elem_dec_fn,
+};
 use crate::slice_encoding::{is_slice_cap, make_slice_cap, slice_byte_offset, slice_original_data};
 
 use super::{inc_copied_elements, write_list_output};
@@ -189,6 +191,12 @@ pub extern "C" fn ori_list_materialize_slice(
 
     // Inc RC for all copied elements (new buffer is a new reference)
     inc_copied_elements(new_data, n, es, inc_fn);
+
+    // Propagate elem_dec_fn from ORIGINAL buffer header (not slice data ptr)
+    unsafe {
+        store_elem_dec_fn(new_data, load_elem_dec_fn(original));
+        store_elem_count(new_data, n as i64);
+    }
 
     // Dec original buffer RC (slice no longer references it)
     ori_rc_dec(original, None);

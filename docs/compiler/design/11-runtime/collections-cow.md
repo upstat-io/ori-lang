@@ -16,7 +16,7 @@ Copy-on-Write (COW) is a technique that combines the safety of immutable value s
 
 The concept originates in operating systems — Unix's `fork()` system call uses COW to share memory pages between parent and child processes, copying a page only when one process writes to it. The technique was adopted by language runtimes when persistent data structures became impractical for performance-critical paths. Swift's standard library collections (`Array`, `Dictionary`, `Set`) all use COW, and the pattern has influenced every ARC-based language since.
 
-For Ori, COW is the mechanism that makes value semantics practical. Without COW, every mutation of a list would require copying the entire buffer — O(n) for every push, every index assignment, every sort. With COW, the common case (unique owner) is O(1), and the copy only happens when the data is actually shared. The ARC analysis pass works to ensure that the common case *is* the unique-owner case, by eliminating unnecessary reference count increments and inferring borrowed parameters. But the runtime must handle both paths correctly.
+For Ori, COW is the mechanism that makes value semantics practical. Without COW, every mutation of a list would require copying the entire buffer — O(n) for every push, every index assignment, every sort. With COW, the common case (unique owner) is O(1), and the copy only happens when the data is actually shared. The AIMS analysis pass works to ensure that the common case *is* the unique-owner case, by eliminating unnecessary reference count increments and inferring borrowed parameters. But the runtime must handle both paths correctly.
 
 ### The Uniqueness Test
 
@@ -55,7 +55,7 @@ flowchart TB
     class Slow native
 ```
 
-Seamless slices always take the slow path because their `data` pointer is interior to another allocation. Calling `ori_rc_is_unique(data)` on a slice would read garbage from the wrong memory location — the RC header is at the *original* buffer's data pointer minus 16, not the slice's data pointer minus 16.
+Seamless slices always take the slow path because their `data` pointer is interior to another allocation. Calling `ori_rc_is_unique(data)` on a slice would read garbage from the wrong memory location — the RC header is at the *original* buffer's data pointer minus 32, not the slice's data pointer minus 32.
 
 ## Consuming Semantics
 
@@ -141,7 +141,7 @@ Removes the last element. The element must be extracted before calling pop (via 
 
 Replaces the element at a given index.
 
-**Fast path (unique):** Overwrites `elem_size` bytes at `data + index * elem_size`. The old element's RC management is the codegen's responsibility — the ARC analysis pass has already inserted the appropriate decrement before the set operation.
+**Fast path (unique):** Overwrites `elem_size` bytes at `data + index * elem_size`. The old element's RC management is the codegen's responsibility — the AIMS analysis pass has already inserted the appropriate decrement before the set operation.
 
 **Slow path (shared):** Allocates a new buffer, copies all elements, overwrites the element at `index`, increments RCs for all copied elements except the overwritten one.
 
@@ -312,7 +312,7 @@ The slice's `data` pointer points directly to the first element within the origi
 
 ```
 original_data = slice_data - byte_offset
-RC header at original_data - 16
+RC header at original_data - 32
 ```
 
 Key properties:
@@ -376,7 +376,7 @@ With explicit sret, the LLVM codegen controls the destination address. This is i
 | Set insert | O(n) scan + O(1) | O(n) scan + O(n) copy |
 | Set union | O(n×m) membership | O(n×m) + copy |
 
-The fast path is the common case. The ARC analysis pass works to ensure that collections reach mutation points with a reference count of 1 — through borrowed parameter inference, move semantics, and RC elimination. When it succeeds (which is most of the time for typical Ori programs), every mutation in the table above hits the fast path.
+The fast path is the common case. The AIMS analysis pass works to ensure that collections reach mutation points with a reference count of 1 — through interprocedural contracts, move semantics, and precise RC placement. When it succeeds (which is most of the time for typical Ori programs), every mutation in the table above hits the fast path.
 
 ## Prior Art
 

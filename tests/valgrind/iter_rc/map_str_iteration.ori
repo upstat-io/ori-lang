@@ -1,0 +1,9 @@
+// Valgrind: {str: int} map iteration — verify no memory errors
+@main () -> int = {
+    let m = {"hello": 1, "world": 2, "test": 3};
+    let total = 0;
+    for (k, v) in m do {
+        total = total + v;
+    };
+    if total == 6 then 0 else 1
+}

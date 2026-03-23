@@ -1,0 +1,74 @@
+// Spec: Argument Punning (approved 2026-02-21)
+// Tests for call argument punning: f(x:) desugars to f(x: x)
+
+use std.testing { assert_eq }
+
+// Single-param punning
+
+@double (n: int) -> int = n * 2;
+
+@test_single_punning tests @double () -> void = {
+    let n = 5;
+    assert_eq(actual: double(n:), expected: 10)
+}
+
+// Multi-param punning
+
+@add (a: int, b: int) -> int = a + b;
+
+@test_multi_punning tests @add () -> void = {
+    let a = 3;
+    let b = 7;
+    assert_eq(actual: add(a:, b:), expected: 10)
+}
+
+// Mixed punned and explicit
+
+@compute (x: int, y: int, z: int) -> int = x + y * z;
+
+@test_mixed_punning tests @compute () -> void = {
+    let x = 1;
+    assert_eq(actual: compute(x:, y: 2, z: 3), expected: 7)
+}
+
+// Punning with string args
+
+@greet (name: str) -> str = `hello {name}`;
+
+@test_str_punning tests @greet () -> void = {
+    let name = "world";
+    assert_eq(actual: greet(name:), expected: "hello world")
+}
+
+// Punning in method calls
+
+type Counter = { value: int }
+
+impl Counter {
+    @new (value: int) -> Counter = Counter { value: value };
+    @add (self, amount: int) -> int = self.value + amount;
+}
+
+@test_method_punning tests _ () -> void = {
+    let value = 42;
+    let $c = Counter.new(value:);
+    assert_eq(actual: c.value, expected: 42);
+    let amount = 8;
+    assert_eq(actual: c.add(amount:), expected: 50)
+}
+
+// Punning preserves non-punned args
+
+@range_sum (start: int, end: int, step: int) -> int = {
+    let total = 0;
+    for i in start..end by step do {
+        total += i
+    };
+    total
+}
+
+@test_partial_punning tests @range_sum () -> void = {
+    let start = 0;
+    let step = 2;
+    assert_eq(actual: range_sum(start:, end: 10, step:), expected: 20)
+}

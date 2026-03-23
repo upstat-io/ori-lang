@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 pub extern "C" fn ori_map_buffer_rc_dec(
     data: *mut u8,
     cap: i64,
-    len: i64,
+    _len: i64,
     key_size: i64,
     val_size: i64,
     key_dec_fn: Option<extern "C" fn(*mut u8)>,
@@ -37,7 +37,6 @@ pub extern "C" fn ori_map_buffer_rc_dec(
 
     let ks = key_size.max(1) as usize;
     let vs = val_size.max(1) as usize;
-    let n = len.max(0) as usize;
     let c = cap.max(0) as usize;
 
     #[cfg(not(feature = "single-threaded"))]
@@ -57,7 +56,7 @@ pub extern "C" fn ori_map_buffer_rc_dec(
 
         if prev <= 1 {
             atomic::fence(Ordering::Acquire);
-            map_buffer_cleanup(data, c, n, ks, vs, key_dec_fn, val_dec_fn);
+            map_buffer_cleanup(data, c, ks, vs, key_dec_fn, val_dec_fn);
         }
     }
 
@@ -77,7 +76,7 @@ pub extern "C" fn ori_map_buffer_rc_dec(
         }
 
         if should_drop {
-            map_buffer_cleanup(data, c, n, ks, vs, key_dec_fn, val_dec_fn);
+            map_buffer_cleanup(data, c, ks, vs, key_dec_fn, val_dec_fn);
         }
     }
 }
@@ -86,10 +85,14 @@ pub extern "C" fn ori_map_buffer_rc_dec(
 ///
 /// Scans metadata for OCCUPIED buckets and calls `key_dec_fn`/`val_dec_fn`
 /// on each occupied key/value. Frees the buffer using hash table layout size.
+///
+/// Maps use parameter-based dec functions (not header-based) because they
+/// require TWO cleanup functions (key + value) but the RC header has only
+/// one `elem_dec_fn` slot. Section 02 will store dec functions at codegen
+/// time via `emit_map_iter`.
 fn map_buffer_cleanup(
     data: *mut u8,
     cap: usize,
-    _len: usize,
     key_size: usize,
     val_size: usize,
     key_dec_fn: Option<extern "C" fn(*mut u8)>,
@@ -132,7 +135,7 @@ fn map_buffer_cleanup(
 pub extern "C" fn ori_map_buffer_drop_unique(
     data: *mut u8,
     cap: i64,
-    len: i64,
+    _len: i64,
     key_size: i64,
     val_size: i64,
     key_dec_fn: Option<extern "C" fn(*mut u8)>,
@@ -151,9 +154,8 @@ pub extern "C" fn ori_map_buffer_drop_unique(
 
     let ks = key_size.max(1) as usize;
     let vs = val_size.max(1) as usize;
-    let n = len.max(0) as usize;
     let c = cap.max(0) as usize;
 
     // Clean up key and value children.
-    map_buffer_cleanup(data, c, n, ks, vs, key_dec_fn, val_dec_fn);
+    map_buffer_cleanup(data, c, ks, vs, key_dec_fn, val_dec_fn);
 }

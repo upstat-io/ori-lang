@@ -18,7 +18,6 @@ pub mod cow;
 pub(crate) mod hash_table;
 
 use crate::list::write_array_to_list;
-#[allow(unused_imports, reason = "used by cow.rs after rewrite")]
 pub(crate) use hash_table::{
     get_meta, needs_rehash, next_hash_capacity, probe_find, probe_find_slot, rehash_map, set_meta,
     HashTableLayout, META_EMPTY, META_OCCUPIED, META_TOMBSTONE,
@@ -93,19 +92,26 @@ pub extern "C" fn ori_map_contains_key(
 ///
 /// Scans metadata for OCCUPIED buckets, copies keys to a contiguous list.
 /// Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
+///
+/// `key_inc_fn` is called on each copied key to increment its RC children
+/// (e.g., string data pointers). Without this, the new list and the map
+/// share ownership of the same RC-tracked data with only one reference,
+/// causing a double-free when both are cleaned up.
 #[no_mangle]
 pub extern "C" fn ori_map_keys_to_list(
     data: *const u8,
     cap: i64,
     len: i64,
     key_size: i64,
+    key_dec_fn: Option<extern "C" fn(*mut u8)>,
+    key_inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
         return;
     }
     if data.is_null() || len <= 0 {
-        write_array_to_list(std::ptr::null(), 0, key_size, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, key_size, None, out_ptr);
         return;
     }
 
@@ -116,12 +122,23 @@ pub extern "C" fn ori_map_keys_to_list(
 
     // Allocate destination list and copy OCCUPIED keys contiguously
     let list_data = crate::rc::ori_rc_alloc(n * ks, 8);
+    // SAFETY: list_data was just returned by ori_rc_alloc — header offsets are valid.
+    unsafe {
+        crate::rc::store_elem_dec_fn(list_data, key_dec_fn);
+    }
     let mut write_pos = 0usize;
     for bucket in 0..c {
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            let dst = unsafe { list_data.add(write_pos * ks) };
             unsafe {
                 let src = data.add(layout.keys_offset + bucket * ks);
-                std::ptr::copy_nonoverlapping(src, list_data.add(write_pos * ks), ks);
+                std::ptr::copy_nonoverlapping(src, dst, ks);
+            }
+            // RcInc copied element's children (e.g., string data pointers).
+            // The copy is a shallow bitwise copy — RC-tracked data is now
+            // shared between the map and the new list.
+            if let Some(inc) = key_inc_fn {
+                inc(dst);
             }
             write_pos += 1;
             if write_pos >= n {
@@ -130,13 +147,18 @@ pub extern "C" fn ori_map_keys_to_list(
         }
     }
 
-    write_array_to_list_from_data(list_data, write_pos as i64, key_size, out_ptr);
+    // SAFETY: list_data was returned by ori_rc_alloc.
+    unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
+    write_array_to_list_from_data(list_data, write_pos as i64, out_ptr);
 }
 
 /// Extract map values as a new list.
 ///
 /// Scans metadata for OCCUPIED buckets, copies values to a contiguous list.
 /// Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
+///
+/// `val_inc_fn` increments RC children of each copied value (see
+/// `ori_map_keys_to_list` for rationale).
 #[no_mangle]
 pub extern "C" fn ori_map_values_to_list(
     data: *const u8,
@@ -144,13 +166,15 @@ pub extern "C" fn ori_map_values_to_list(
     len: i64,
     key_size: i64,
     val_size: i64,
+    val_dec_fn: Option<extern "C" fn(*mut u8)>,
+    val_inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
         return;
     }
     if data.is_null() || len <= 0 {
-        write_array_to_list(std::ptr::null(), 0, val_size, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, val_size, None, out_ptr);
         return;
     }
 
@@ -162,12 +186,20 @@ pub extern "C" fn ori_map_values_to_list(
 
     // Allocate destination list and copy OCCUPIED values contiguously
     let list_data = crate::rc::ori_rc_alloc(n * vs, 8);
+    // SAFETY: list_data was just returned by ori_rc_alloc — header offsets are valid.
+    unsafe {
+        crate::rc::store_elem_dec_fn(list_data, val_dec_fn);
+    }
     let mut write_pos = 0usize;
     for bucket in 0..c {
         if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            let dst = unsafe { list_data.add(write_pos * vs) };
             unsafe {
                 let src = data.add(layout.vals_offset + bucket * vs);
-                std::ptr::copy_nonoverlapping(src, list_data.add(write_pos * vs), vs);
+                std::ptr::copy_nonoverlapping(src, dst, vs);
+            }
+            if let Some(inc) = val_inc_fn {
+                inc(dst);
             }
             write_pos += 1;
             if write_pos >= n {
@@ -176,7 +208,9 @@ pub extern "C" fn ori_map_values_to_list(
         }
     }
 
-    write_array_to_list_from_data(list_data, write_pos as i64, val_size, out_ptr);
+    // SAFETY: list_data was returned by ori_rc_alloc.
+    unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
+    write_array_to_list_from_data(list_data, write_pos as i64, out_ptr);
 }
 
 /// Look up a key in a map and return `Option<V>` via sret.
@@ -225,7 +259,7 @@ pub extern "C" fn ori_map_get(
     }
 }
 
-// ── Literal Construction ──────────────────────────────────────────────
+// Literal Construction
 
 /// Allocate a hash table buffer sized for `count` entries.
 ///
@@ -310,7 +344,7 @@ pub(crate) fn write_map_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut 
 ///
 /// Unlike `write_array_to_list` which allocates and copies, this takes
 /// ownership of an existing RC-allocated buffer.
-fn write_array_to_list_from_data(data: *mut u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
+fn write_array_to_list_from_data(data: *mut u8, len: i64, out_ptr: *mut u8) {
     if out_ptr.is_null() {
         return;
     }
@@ -326,10 +360,84 @@ fn write_array_to_list_from_data(data: *mut u8, len: i64, elem_size: i64, out_pt
         }
         return;
     }
-    let _ = elem_size; // used by caller for sizing
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(len); // cap = len
         out_ptr.add(16).cast::<*mut u8>().write(data);
     }
+}
+
+/// Compare two maps for equality.
+///
+/// Two maps are equal when they have the same length and every key in map A
+/// exists in map B with an equal value. Uses `key_eq`/`key_hash` for key
+/// lookup and `val_eq` for value comparison.
+#[no_mangle]
+pub extern "C" fn ori_map_eq(
+    a: *const OriMap,
+    b: *const OriMap,
+    key_size: i64,
+    val_size: i64,
+    key_eq: extern "C" fn(*const u8, *const u8) -> bool,
+    key_hash: extern "C" fn(*const u8) -> i64,
+    val_eq: extern "C" fn(*const u8, *const u8) -> bool,
+) -> bool {
+    let (a_map, b_map) = unsafe {
+        if a.is_null() || b.is_null() {
+            return a.is_null() && b.is_null();
+        }
+        (&*a, &*b)
+    };
+
+    // Quick checks: lengths must match
+    if a_map.len != b_map.len {
+        return false;
+    }
+    // Both empty
+    if a_map.len == 0 {
+        return true;
+    }
+    // Same data pointer → identical
+    if a_map.data == b_map.data && a_map.cap == b_map.cap {
+        return true;
+    }
+
+    let ks = key_size.max(1) as usize;
+    let vs = val_size.max(1) as usize;
+    let a_cap = a_map.cap as usize;
+    let b_cap = b_map.cap as usize;
+    let a_layout = HashTableLayout::for_map(a_cap, ks, vs);
+    let b_layout = HashTableLayout::for_map(b_cap, ks, vs);
+
+    // For each occupied entry in A, look it up in B and compare values
+    let a_data = a_map.data.cast_const();
+    let b_data = b_map.data.cast_const();
+    let mut checked = 0usize;
+    let n = a_map.len as usize;
+
+    for bucket in 0..a_cap {
+        if unsafe { get_meta(a_data, bucket) } != META_OCCUPIED {
+            continue;
+        }
+        let a_key = unsafe { a_data.add(a_layout.keys_offset + bucket * ks) };
+        let a_val = unsafe { a_data.add(a_layout.vals_offset + bucket * vs) };
+        let hash = key_hash(a_key);
+
+        // Find the same key in B
+        let b_bucket =
+            unsafe { probe_find(b_data, b_cap, b_layout.keys_offset, a_key, hash, ks, key_eq) };
+        let Some(b_idx) = b_bucket else {
+            return false; // key not in B
+        };
+        let b_val = unsafe { b_data.add(b_layout.vals_offset + b_idx * vs) };
+        if !val_eq(a_val, b_val) {
+            return false; // values differ
+        }
+        checked += 1;
+        if checked >= n {
+            break;
+        }
+    }
+
+    true
 }

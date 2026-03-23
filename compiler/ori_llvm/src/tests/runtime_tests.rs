@@ -286,28 +286,85 @@ fn test_rc_inc_dec_lifecycle() {
 }
 
 #[test]
-fn test_rc_header_is_16_bytes() {
-    // V3: header is [data_size: i64 | strong_count: i64] = 16 bytes
+fn test_rc_header_is_32_bytes() {
+    // V5: header is [data_size | elem_dec_fn | elem_count | strong_count] = 32 bytes
     let data = runtime::ori_rc_alloc(32, 8);
     assert!(!data.is_null());
 
-    // The strong_count is at data - 8. Verify the offset:
+    // strong_count at data - 8 (unchanged from V2/V3/V4)
     let rc_ptr = unsafe { data.sub(8) };
     let rc_from_base = unsafe { *(rc_ptr.cast::<i64>()) };
     assert_eq!(rc_from_base, 1, "strong_count at data_ptr - 8 should be 1");
 
-    // The data_size is at data - 16. Verify the stored size:
-    let size_ptr = unsafe { data.sub(16) };
-    let data_size = unsafe { *(size_ptr.cast::<i64>()) };
-    assert_eq!(data_size, 32, "data_size at data_ptr - 16 should be 32");
+    // elem_count at data - 16 (new in V5, zero-initialized)
+    let elem_count_ptr = unsafe { data.sub(16) };
+    let elem_count = unsafe { *(elem_count_ptr.cast::<i64>()) };
+    assert_eq!(elem_count, 0, "elem_count at data_ptr - 16 should be 0");
 
-    // ori_rc_data_size should return the same value
+    // elem_dec_fn at data - 24 (was at data - 16 in V4)
+    let elem_dec_ptr = unsafe { data.sub(24) };
+    let elem_dec_fn = unsafe { *(elem_dec_ptr.cast::<*const ()>()) };
+    assert!(
+        elem_dec_fn.is_null(),
+        "elem_dec_fn at data_ptr - 24 should be NULL"
+    );
+
+    // data_size at data - 32 (was at data - 24 in V4)
+    let size_ptr = unsafe { data.sub(32) };
+    let data_size = unsafe { *(size_ptr.cast::<i64>()) };
+    assert_eq!(data_size, 32, "data_size at data_ptr - 32 should be 32");
+
+    // ori_rc_data_size should return the same value (uses RC_HEADER_SIZE constant)
     assert_eq!(runtime::ori_rc_data_size(data.cast_const()), 32);
 
     extern "C" fn drop_32(data_ptr: *mut u8) {
         runtime::ori_rc_free(data_ptr, 32, 8);
     }
     runtime::ori_rc_dec(data, Some(drop_32));
+}
+
+#[test]
+fn test_rc_realloc_preserves_header_fields() {
+    // Verify that ori_rc_realloc preserves elem_dec_fn and elem_count
+    // through reallocation (system realloc preserves min(old, new) bytes).
+    let data = runtime::ori_rc_alloc(32, 8);
+    assert!(!data.is_null());
+
+    // Store elem_dec_fn and elem_count in the header
+    extern "C" fn dummy_dec(_: *mut u8) {}
+    runtime::ori_buffer_store_elem_dec(data, Some(dummy_dec));
+    runtime::ori_buffer_store_elem_count(data, 42);
+
+    // Verify stored correctly before realloc
+    let elem_count_before = unsafe { *(data.sub(16).cast::<i64>()) };
+    assert_eq!(elem_count_before, 42);
+    let dec_fn_before = unsafe { *(data.sub(24).cast::<usize>()) };
+    assert_ne!(dec_fn_before, 0, "elem_dec_fn should be non-NULL");
+
+    // Realloc to a larger buffer
+    let new_data = runtime::ori_rc_realloc(data, 32, 64, 8);
+    assert!(!new_data.is_null());
+
+    // Verify header fields are preserved after realloc
+    let rc = unsafe { *(new_data.sub(8).cast::<i64>()) };
+    assert_eq!(rc, 1, "strong_count preserved through realloc");
+
+    let elem_count_after = unsafe { *(new_data.sub(16).cast::<i64>()) };
+    assert_eq!(elem_count_after, 42, "elem_count preserved through realloc");
+
+    let dec_fn_after = unsafe { *(new_data.sub(24).cast::<usize>()) };
+    assert_eq!(
+        dec_fn_after, dec_fn_before,
+        "elem_dec_fn preserved through realloc"
+    );
+
+    let data_size = unsafe { *(new_data.sub(32).cast::<i64>()) };
+    assert_eq!(data_size, 64, "data_size updated to new size");
+
+    extern "C" fn drop_64(data_ptr: *mut u8) {
+        runtime::ori_rc_free(data_ptr, 64, 8);
+    }
+    runtime::ori_rc_dec(new_data, Some(drop_64));
 }
 
 #[test]

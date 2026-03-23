@@ -62,8 +62,8 @@ pub(crate) fn jit_symbol_mappings() -> Vec<(&'static str, usize)> {
 
 /// Resolve a runtime function name to its native address.
 ///
-/// TODO(codegen-purity/section-07): Generate this mapping from `RT_FUNCTIONS` data
-/// instead of maintaining a manual mirror. See plans/codegen-purity/ for details.
+/// TODO: Generate this mapping from `RT_FUNCTIONS` data
+/// instead of maintaining a manual mirror.
 ///
 /// This is the single point where function names are mapped to Rust function
 /// pointers. Adding a new `jit_allowed: true` entry to `RT_FUNCTIONS` requires
@@ -99,7 +99,6 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_list_push" => runtime::ori_list_push as *const () as usize,
         "ori_list_take" => runtime::ori_list_take as *const () as usize,
         "ori_list_box_new" => runtime::ori_list_box_new as *const () as usize,
-        "ori_list_push_new" => runtime::ori_list_push_new as *const () as usize,
         // List COW
         "ori_list_push_cow" => runtime::ori_list_push_cow as *const () as usize,
         "ori_list_pop_cow" => runtime::ori_list_pop_cow as *const () as usize,
@@ -161,6 +160,8 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_rc_alloc" => runtime::ori_rc_alloc as *const () as usize,
         "ori_rc_inc" => runtime::ori_rc_inc as *const () as usize,
         "ori_rc_dec" => runtime::ori_rc_dec as *const () as usize,
+        "ori_str_rc_inc" => runtime::ori_str_rc_inc as *const () as usize,
+        "ori_str_rc_dec" => runtime::ori_str_rc_dec as *const () as usize,
         "ori_rc_free" => runtime::ori_rc_free as *const () as usize,
         "ori_buffer_rc_dec" => runtime::ori_buffer_rc_dec as *const () as usize,
         "ori_buffer_drop_unique" => runtime::ori_buffer_drop_unique as *const () as usize,
@@ -231,6 +232,9 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_empty" => runtime::ori_str_empty as *const () as usize,
         "ori_map_empty" => runtime::map::ori_map_empty as *const () as usize,
         "ori_set_empty" => runtime::set::ori_set_empty as *const () as usize,
+        // Element header helpers
+        "ori_buffer_store_elem_dec" => runtime::ori_buffer_store_elem_dec as *const () as usize,
+        "ori_buffer_store_elem_count" => runtime::ori_buffer_store_elem_count as *const () as usize,
         // Buffer reuse
         "ori_list_reset_buffer" => runtime::ori_list_reset_buffer as *const () as usize,
         // Catch recovery (Itanium EH)

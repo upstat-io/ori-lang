@@ -1,0 +1,51 @@
+// AIMS edge case: closure capture with multiple escaping variables.
+// Tests that RC increments/decrements are correct when closures capture
+// variables by value, some used once, some used multiple times.
+
+@make_adder (base: int) -> (int) -> int = {
+    x -> base + x
+};
+
+@make_formatter (prefix: str, suffix: str) -> (int) -> str = {
+    n -> prefix + str(n) + suffix
+};
+
+@make_multi_use (a: int, b: int, c: int) -> () -> int = {
+    () -> a * a + b + c * c
+};
+
+@main () -> void = {
+    // Test 1: single captured variable
+    let $add10 = make_adder(base: 10);
+    print(msg: `add10(5) = {add10(5)}`);
+    print(msg: `add10(20) = {add10(20)}`);
+
+    // Test 2: two captured variables
+    let $fmt = make_formatter(prefix: "[", suffix: "]");
+    print(msg: `fmt(42) = {fmt(42)}`);
+    print(msg: `fmt(0) = {fmt(0)}`);
+
+    // Test 3: three captured variables, mixed usage counts
+    let $calc = make_multi_use(a: 3, b: 10, c: 4);
+    // 3*3 + 10 + 4*4 = 9 + 10 + 16 = 35
+    print(msg: `calc() = {calc()}`);
+
+    // Test 4: closures stored in a list and called
+    let $closures = [
+        make_adder(base: 1),
+        make_adder(base: 100),
+        make_adder(base: 1000),
+    ];
+    let results = for f in closures yield f(7);
+    print(msg: `mapped results = {results.debug()}`);
+
+    // Test 5: closure outlives the scope that created it
+    let $delayed = {
+        let $local_x = 999;
+        let $local_y = 1;
+        () -> local_x + local_y
+    };
+    print(msg: `delayed() = {delayed()}`);
+
+    print(msg: "closure_capture: done")
+}

@@ -88,6 +88,7 @@ fn declare_simple_function() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -127,6 +128,7 @@ fn declare_void_function() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -161,6 +163,7 @@ fn declare_sret_function() {
         &annotated_sigs,
         &classifier,
         None,
+        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -205,6 +208,7 @@ fn declare_main_uses_c_calling_convention() {
         &annotated_sigs,
         &classifier,
         None,
+        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -277,6 +281,7 @@ fn generic_functions_are_skipped() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
     fc.declare_all(&[func], &[sig]);
@@ -334,6 +339,7 @@ fn function_map_returns_all_declared() {
         &annotated_sigs,
         &classifier,
         None,
+        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -456,6 +462,7 @@ fn compile_impls_populates_method_functions_map() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
 
@@ -550,6 +557,7 @@ fn module_path_appears_in_mangled_name() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -602,6 +610,7 @@ fn scalar_params_have_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -645,6 +654,7 @@ fn scalar_return_has_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -663,19 +673,20 @@ fn scalar_return_has_noundef() {
 }
 
 #[test]
-fn aggregate_params_no_noundef() {
+fn indirect_params_have_noundef() {
     let pool = Pool::new();
     let ctx = Context::create();
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
-    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_aggregate_params"));
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_indirect_params"));
     let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let func_name = interner.intern("process_str");
     let s_name = interner.intern("s");
 
-    // Str is an aggregate (24-byte {len, cap, data}), should NOT get noundef
+    // Str is 24 bytes ({len, cap, data}) → Indirect passing (ptr)
+    // The pointer itself is always a defined, valid address — noundef applies.
     let sig = make_sig(func_name, vec![s_name], vec![Idx::STR], Idx::UNIT, false);
 
     let classifier = ArcClassifier::new(&pool);
@@ -691,6 +702,7 @@ fn aggregate_params_no_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -699,17 +711,70 @@ fn aggregate_params_no_noundef() {
     drop(builder);
     drop(resolver);
 
-    // Check the function declaration line only (avoid matching module name)
     let ir = scx.llmod.print_to_string().to_string();
     let decl_line = ir
         .lines()
         .find(|l| l.contains("@_ori_process_str"))
         .unwrap();
 
-    // Str is passed indirect (>16 bytes). The ptr param should NOT have noundef.
+    // Indirect pointer params get noundef (pointer value is always defined).
     assert!(
-        !decl_line.contains("noundef"),
-        "aggregate/pointer params should NOT have noundef:\n{decl_line}"
+        decl_line.contains("noundef"),
+        "Indirect (pointer) params should have noundef:\n{decl_line}"
+    );
+}
+
+#[test]
+fn direct_aggregate_params_have_noundef() {
+    let mut pool = Pool::new();
+    // (int, int) = 16 bytes → Direct passing → should get noundef
+    let pair = pool.tuple(&[Idx::INT, Idx::INT]);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_direct_aggregate"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+
+    let func_name = interner.intern("process_pair");
+    let p_name = interner.intern("p");
+
+    let sig = make_sig(func_name, vec![p_name], vec![pair], Idx::INT, false);
+
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+        FxHashMap::default(),
+        false,
+    );
+    fc.declare_function(func_name, &sig, Span::DUMMY);
+
+    drop(fc);
+    drop(builder);
+    drop(resolver);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    let decl_line = ir
+        .lines()
+        .find(|l| l.contains("@_ori_process_pair"))
+        .unwrap();
+
+    // Direct aggregate param (≤16 bytes) AND int return both get noundef.
+    let noundef_count = decl_line.matches("noundef").count();
+    assert_eq!(
+        noundef_count, 2,
+        "expected 2 noundef (tuple param + int return), got {noundef_count}:\n{decl_line}"
     );
 }
 
@@ -728,7 +793,7 @@ fn mixed_params_selective_noundef() {
     let s_name = interner.intern("s");
     let f_name = interner.intern("f");
 
-    // Mix: int (scalar), str (aggregate), float (scalar)
+    // Mix: int (Direct), str (Indirect, 24 bytes), float (Direct)
     let sig = make_sig(
         func_name,
         vec![n_name, s_name, f_name],
@@ -750,6 +815,7 @@ fn mixed_params_selective_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
+        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -762,12 +828,12 @@ fn mixed_params_selective_noundef() {
     let ir = scx.llmod.print_to_string().to_string();
     let decl_line = ir.lines().find(|l| l.contains("@_ori_mixed")).unwrap();
 
-    // Should have noundef on int param, float param, and bool return.
-    // Str param (passed as ptr, Indirect) should NOT have noundef.
+    // All params and Direct return get noundef:
+    // - int (Direct), str (Indirect pointer), float (Direct), bool return (Direct)
     let noundef_count = decl_line.matches("noundef").count();
     assert_eq!(
-        noundef_count, 3,
-        "expected 3 noundef (int param + float param + bool return), got {noundef_count}:\n{decl_line}"
+        noundef_count, 4,
+        "expected 4 noundef (int + str ptr + float params + bool return), got {noundef_count}:\n{decl_line}"
     );
 }
 
@@ -793,6 +859,7 @@ fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         annotated_sigs,
         classifier,
         None,
+        FxHashMap::default(),
         FxHashMap::default(),
         false,
     )
@@ -992,7 +1059,7 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let fc = make_nounwind_fc(
+    let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
@@ -1002,6 +1069,13 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
         &classifier,
     );
 
+    // Register the callee as a declared user function so the intercepted
+    // heuristic correctly identifies it as a user function (not a builtin).
+    let unknown_name = interner.intern("unknown_fn");
+    fc.codegen_ctx
+        .functions
+        .insert(unknown_name, (FunctionId::NONE, make_test_abi(&pool)));
+
     // Invoke to a callee NOT in nounwind set → NOT nounwind
     let func = make_arc_func(
         &interner,
@@ -1010,7 +1084,7 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
         ArcTerminator::Invoke {
             dst: ArcVarId::new(1),
             ty: Idx::INT,
-            func: interner.intern("unknown_fn"),
+            func: unknown_name,
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
             normal: ArcBlockId::new(1),
@@ -1139,7 +1213,10 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
         &classifier,
     );
 
-    // Call to user function not in nounwind_functions set → NOT nounwind
+    // Call to user function not in nounwind_functions set → NOT nounwind.
+    // Use empty args to avoid the builtin method interception path
+    // (which would recognize a call with a builtin-typed first arg as
+    // an intercepted builtin method).
     let func = make_arc_func(
         &interner,
         "caller_of_unknown",
@@ -1147,8 +1224,8 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
             dst: ArcVarId::new(1),
             ty: Idx::INT,
             func: interner.intern("some_user_function"),
-            args: vec![ArcVarId::new(0)],
-            arg_ownership: vec![ArgOwnership::Owned],
+            args: vec![],
+            arg_ownership: vec![],
         }],
         ArcTerminator::Return {
             value: ArcVarId::new(1),
@@ -1318,8 +1395,18 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
         &classifier,
     );
 
-    // Callee: panicking function — NOT nounwind
+    // Register both functions as declared so the intercepted heuristic
+    // correctly identifies them as user functions (not builtins).
     let callee_name = interner.intern("might_panic");
+    let caller_name = interner.intern("caller");
+    fc.codegen_ctx
+        .functions
+        .insert(callee_name, (FunctionId::NONE, make_test_abi(&pool)));
+    fc.codegen_ctx
+        .functions
+        .insert(caller_name, (FunctionId::NONE, make_test_abi(&pool)));
+
+    // Callee: panicking function — NOT nounwind
     let callee = make_arc_func(
         &interner,
         "might_panic",
@@ -1336,7 +1423,6 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
     );
 
     // Caller: invokes might_panic
-    let caller_name = interner.intern("caller");
     let caller = make_arc_func(
         &interner,
         "caller",
@@ -1666,4 +1752,61 @@ fn make_test_abi(pool: &Pool) -> FunctionAbi {
         },
         call_conv: CallConv::Fast,
     }
+}
+
+#[test]
+fn main_wrapper_has_noundef_return() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_main_wrapper_noundef"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
+    let mut builder = IrBuilder::new(&scx);
+
+    let main_name = interner.intern("main");
+
+    // Declare @main () -> void (simplest signature)
+    let sig = make_sig(main_name, vec![], vec![], Idx::UNIT, true);
+
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+    let mut fc = FunctionCompiler::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        "",
+        &annotated_sigs,
+        &classifier,
+        None,
+        FxHashMap::default(),
+        FxHashMap::default(),
+        false,
+    );
+
+    // Declare the Ori _ori_main function so generate_main_wrapper can find it
+    fc.declare_function(main_name, &sig, Span::DUMMY);
+
+    // Generate the C main wrapper
+    let generated = fc.generate_main_wrapper(main_name, &sig, None);
+    assert!(generated, "main wrapper should be generated");
+
+    drop(fc);
+    drop(builder);
+    drop(resolver);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    // Find the C main definition (not _ori_main)
+    let main_line = ir
+        .lines()
+        .find(|l| l.contains("define") && l.contains("@main(") && !l.contains("_ori_main"))
+        .unwrap_or_else(|| panic!("no @main definition found in IR:\n{ir}"));
+
+    // The i32 return should have noundef
+    assert!(
+        main_line.contains("noundef"),
+        "C main wrapper return should have noundef attribute:\n{main_line}"
+    );
 }
