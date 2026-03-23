@@ -1,3 +1,8 @@
+---
+status: in-progress
+reviewed: false
+---
+
 # macOS AOT Fixes
 
 ## Context
@@ -6,20 +11,22 @@ CI run `23420458239` (PR #88) passed Linux fully but failed on macOS with 2 AOT 
 
 ## Checklist
 
-- [x] **Fix 1**: `arc::test_rc_project_merge_edge_scoped_cleanup` (exit 1) — already fixed in commit `9d323f30`
-- [x] **Fix 2**: `elem_dec_scope::test_trampoline_map_str_identity` (SIGSEGV -139) — **fixed: ARM64 sret ABI mismatch**
+- [ ] **Fix 1**: `arc::test_rc_project_merge_edge_scoped_cleanup` (exit 1) — implementation landed in commit `9d323f30`, reopened by `TPR-01-001`
+- [ ] **Fix 2**: `elem_dec_scope::test_trampoline_map_str_identity` (SIGSEGV -139) — implementation landed across `b53f147b..HEAD`, reopened by `TPR-02-001` and `TPR-02-002`
 - [x] **Fix 3**: CI cross-platform timeout (10→30 min) — already done in `.github/workflows/ci.yml`
 - [ ] All 3 fixes committed, pushed, CI green
 
 ---
 
-## Fix 1: Merge-Edge Scoped Cleanup (DONE)
+## Fix 1: Merge-Edge Scoped Cleanup (REOPENED)
 
-Fixed in commit `9d323f30`. Root cause: `DeferredDec` emitted RC decrements on ALL successor edges instead of scoping them to the correct merge-edge successor. Fix added a `target_block` field to `DeferredDec`.
+Commit `9d323f30` fixed the original root cause: `DeferredDec` emitted RC decrements on all successor edges instead of scoping them to the correct merge-edge successor. That work added `target_block` to `DeferredDec`.
+
+Third-party review on `2026-03-23` found a remaining gap: multi-field escaping projections from the same parent aggregate still collapse to one compensation path. Section 01 stays open until `TPR-01-001` is resolved and covered by a regression.
 
 ---
 
-## Fix 2: Trampoline Map Str Identity (DONE)
+## Fix 2: Trampoline Map Str Identity (REOPENED)
 
 **Root cause:** ARM64 sret calling convention mismatch in iterator trampolines.
 
@@ -30,7 +37,7 @@ On ARM64 AAPCS64, the `sret` (struct return) pointer goes in register X8, NOT in
 
 On x86_64 this worked by coincidence because sret uses RDI (same register as first parameter).
 
-**Fix** (3 files):
+**Fix** (4 files):
 
 1. **`ir_builder/calls.rs`**: Added `call_indirect_with_sret()` — indirect call with explicit `sret` + `noalias` attributes on the first parameter, ensuring LLVM places it in X8 on ARM64.
 
@@ -39,6 +46,13 @@ On x86_64 this worked by coincidence because sret uses RDI (same register as fir
 3. **`arc_emitter/closures.rs`**: Closure wrappers now use explicit sret when the callee uses sret — declared as `void(ptr sret, ptr env, ...)` instead of `RetTy(ptr env, ...)`. This ensures wrappers and lambdas have the same ABI from the trampoline's perspective.
 
 4. **`arc_emitter/apply.rs`**: `emit_apply_indirect` now uses sret for closures returning large types (>16 bytes), matching the updated wrapper ABI.
+
+Third-party review on `2026-03-23` found two remaining gaps in that follow-up:
+
+- wrapper declarations now mark the hidden sret pointer `noundef`, which conflicts with the existing IR-quality rule
+- indirect sret closure calls inside SEH funclets bypass the required `"funclet"` operand bundle on the Windows/MSVC path
+
+Section 02 stays open until `TPR-02-001` and `TPR-02-002` are resolved with targeted coverage.
 
 ---
 
