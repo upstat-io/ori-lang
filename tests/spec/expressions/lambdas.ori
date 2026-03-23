@@ -367,3 +367,22 @@ use std.testing { assert_eq }
     let curried_add = a -> b -> a + b;
     curried_add(5)(3)
 }
+
+// Closure returning closure with explicit return type annotation (regression test)
+@test_closure_returning_closure_annotated tests @closure_returning_closure_annotated () -> void = {
+    let base = 10;
+    let make_adder = (n: int) -> (int) -> int = {
+        (x: int) -> int = base + n + x
+    };
+    let add5 = make_adder(n: 5);
+    assert_eq(actual: add5(x: 2), expected: 17)
+}
+
+@closure_returning_closure_annotated () -> int = {
+    let base = 10;
+    let make_adder = (n: int) -> (int) -> int = {
+        (x: int) -> int = base + n + x
+    };
+    let add5 = make_adder(n: 5);
+    add5(x: 2)
+}

@@ -1,0 +1,10 @@
+// Valgrind: set.to_list() with Set<str>
+@main () -> int = {
+    let s: Set<str> = [
+        "this is a long heap string alpha",
+        "this is a long heap string beta",
+        "this is a long heap string gamma"
+    ].iter().collect();
+    let items = s.to_list();
+    if items.len() == 3 then 0 else 1
+}

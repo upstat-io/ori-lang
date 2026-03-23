@@ -24,7 +24,7 @@ Languages that use **automatic reference counting** (ARC) as their memory manage
 
 Swift pioneered this pattern in a production setting. The Swift runtime provides `swift_retain` and `swift_release` (the equivalents of `ori_rc_inc` and `ori_rc_dec`), along with type metadata, protocol conformance tables, and heap object management. Lean 4 follows a similar pattern with its `lean_inc_ref` and `lean_dec_ref` functions. In both cases, the compiler's static analysis determines *where* to call these functions, and the runtime provides *what* those functions do.
 
-Ori's `ori_rt` crate follows this pattern: the [ARC analysis pass](../09-arc-system/index.md) determines statically where reference count operations belong, and the runtime provides the atomic increment/decrement implementations, copy-on-write collection mutations, string operations, and I/O primitives that the generated code calls into.
+Ori's `ori_rt` crate follows this pattern: the [AIMS analysis pass](../09-aims/index.md) determines statically where reference count operations belong, and the runtime provides the atomic increment/decrement implementations, copy-on-write collection mutations, string operations, and I/O primitives that the generated code calls into.
 
 ## What Makes Ori's Runtime Distinctive
 
@@ -45,10 +45,10 @@ Both artifacts are built by `cargo b` (debug) or `cargo b --release` (release). 
 
 ### Data Pointer Convention
 
-RC allocations return a **data pointer** — a pointer to the user data region, past the 16-byte header — rather than a pointer to the allocation base. This seemingly small decision has deep consequences:
+RC allocations return a **data pointer** — a pointer to the user data region, past the 32-byte header — rather than a pointer to the allocation base. This seemingly small decision has deep consequences:
 
 - Generated code passes data pointers directly to C FFI without adjustment
-- Every RC operation recovers the header by subtracting a fixed offset (`ptr - 16` for the count, `ptr - 8` for the size)
+- Every RC operation recovers the header by subtracting a fixed offset (`ptr - 8` for the count, `ptr - 16` for elem_count, `ptr - 24` for elem_dec_fn, `ptr - 32` for the size)
 - The data pointer *is* the value — no wrapping, no indirection, no fat pointer needed
 
 This matches Swift's approach, where `HeapObject*` points to the object data (past the metadata/refcount header), and contrasts with CPython, where `PyObject*` points to the header and callers must offset to reach the data.
@@ -78,7 +78,7 @@ flowchart TB
     Source["Source .ori"] --> Parse["Parse"]
     Parse --> TypeCheck["Type Check"]
     TypeCheck --> Canon["Canonicalize"]
-    Canon --> ARC["ARC Analysis
+    Canon --> ARC["AIMS Analysis
     RC insertion"]
     ARC --> LLVM["LLVM Codegen
     call @ori_rc_dec
@@ -241,5 +241,5 @@ These modes compose: `ORI_TRACE_RC=1 ORI_CHECK_LEAKS=1 ORI_RT_DEBUG=1 ./binary` 
 - [Collections & COW](./collections-cow.md) — Copy-on-write mutation protocol, list/map/set operations
 - [String SSO](./string-sso.md) — Small string optimization, SSO/heap discrimination, COW string operations
 - [Data Structures](./data-structures.md) — Memory layouts for OriList, OriMap, OriSet, OriStr, iterators
-- [ARC System](../09-arc-system/index.md) — The analysis pass that determines where RC operations are inserted
+- [AIMS](../09-aims/index.md) — The analysis pass that determines where RC operations are inserted
 - [LLVM Backend](../10-llvm-backend/index.md) — The code generator that emits calls to runtime functions

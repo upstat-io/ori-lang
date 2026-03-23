@@ -143,10 +143,71 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) has_trace: Name,
     pub(crate) with_trace: Name,
     pub(crate) message: Name,
+
+    // Bool conversion
+    pub(crate) to_int: Name,
+
+    // Char predicates and conversions
+    pub(crate) is_alpha: Name,
+    pub(crate) is_ascii: Name,
+    pub(crate) is_digit: Name,
+    pub(crate) is_lowercase: Name,
+    pub(crate) is_uppercase: Name,
+    pub(crate) is_whitespace: Name,
+    pub(crate) to_byte: Name,
+
+    // Byte predicates and conversions
+    pub(crate) is_ascii_alpha: Name,
+    pub(crate) is_ascii_digit: Name,
+    pub(crate) is_ascii_whitespace: Name,
+    pub(crate) to_char: Name,
+
+    // Int methods
+    pub(crate) abs: Name,
+    pub(crate) byte: Name,
+    pub(crate) clamp: Name,
+    pub(crate) f: Name,
+    pub(crate) is_even: Name,
+    pub(crate) is_negative: Name,
+    pub(crate) is_odd: Name,
+    pub(crate) is_positive: Name,
+    pub(crate) is_zero: Name,
+    pub(crate) max: Name,
+    pub(crate) min: Name,
+    pub(crate) pow: Name,
+    pub(crate) signum: Name,
+    pub(crate) to_float: Name,
+
+    // Float math methods
+    pub(crate) acos: Name,
+    pub(crate) asin: Name,
+    pub(crate) atan: Name,
+    pub(crate) atan2: Name,
+    pub(crate) cbrt: Name,
+    pub(crate) ceil: Name,
+    pub(crate) cos: Name,
+    pub(crate) exp: Name,
+    pub(crate) floor: Name,
+    pub(crate) is_finite: Name,
+    pub(crate) is_infinite: Name,
+    pub(crate) is_nan: Name,
+    pub(crate) is_normal: Name,
+    pub(crate) ln: Name,
+    pub(crate) log10: Name,
+    pub(crate) log2: Name,
+    pub(crate) round: Name,
+    pub(crate) sin: Name,
+    pub(crate) sqrt: Name,
+    pub(crate) tan: Name,
+    pub(crate) trunc: Name,
 }
 
 impl BuiltinMethodNames {
     /// Pre-intern all builtin method names.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive initializer for all builtin method names"
+    )]
     pub(crate) fn new(interner: &StringInterner) -> Self {
         Self {
             // Common trait methods
@@ -262,6 +323,58 @@ impl BuiltinMethodNames {
             has_trace: interner.intern("has_trace"),
             with_trace: interner.intern("with_trace"),
             message: interner.intern("message"),
+            // Bool conversion
+            to_int: interner.intern("to_int"),
+            // Char predicates and conversions
+            is_alpha: interner.intern("is_alpha"),
+            is_ascii: interner.intern("is_ascii"),
+            is_digit: interner.intern("is_digit"),
+            is_lowercase: interner.intern("is_lowercase"),
+            is_uppercase: interner.intern("is_uppercase"),
+            is_whitespace: interner.intern("is_whitespace"),
+            to_byte: interner.intern("to_byte"),
+            // Byte predicates and conversions
+            is_ascii_alpha: interner.intern("is_ascii_alpha"),
+            is_ascii_digit: interner.intern("is_ascii_digit"),
+            is_ascii_whitespace: interner.intern("is_ascii_whitespace"),
+            to_char: interner.intern("to_char"),
+            // Int methods
+            abs: interner.intern("abs"),
+            byte: interner.intern("byte"),
+            clamp: interner.intern("clamp"),
+            f: interner.intern("f"),
+            is_even: interner.intern("is_even"),
+            is_negative: interner.intern("is_negative"),
+            is_odd: interner.intern("is_odd"),
+            is_positive: interner.intern("is_positive"),
+            is_zero: interner.intern("is_zero"),
+            max: interner.intern("max"),
+            min: interner.intern("min"),
+            pow: interner.intern("pow"),
+            signum: interner.intern("signum"),
+            to_float: interner.intern("to_float"),
+            // Float math methods
+            acos: interner.intern("acos"),
+            asin: interner.intern("asin"),
+            atan: interner.intern("atan"),
+            atan2: interner.intern("atan2"),
+            cbrt: interner.intern("cbrt"),
+            ceil: interner.intern("ceil"),
+            cos: interner.intern("cos"),
+            exp: interner.intern("exp"),
+            floor: interner.intern("floor"),
+            is_finite: interner.intern("is_finite"),
+            is_infinite: interner.intern("is_infinite"),
+            is_nan: interner.intern("is_nan"),
+            is_normal: interner.intern("is_normal"),
+            ln: interner.intern("ln"),
+            log10: interner.intern("log10"),
+            log2: interner.intern("log2"),
+            round: interner.intern("round"),
+            sin: interner.intern("sin"),
+            sqrt: interner.intern("sqrt"),
+            tan: interner.intern("tan"),
+            trunc: interner.intern("trunc"),
         }
     }
 }

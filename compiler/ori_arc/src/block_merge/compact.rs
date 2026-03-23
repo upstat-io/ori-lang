@@ -55,6 +55,13 @@ pub(crate) fn compact_blocks(func: &mut ArcFunction) {
     let old_spans: Vec<_> = func.spans.drain(..).collect();
     let mut new_blocks = Vec::with_capacity(counter);
     let mut new_spans = Vec::with_capacity(counter);
+    debug_assert_eq!(
+        old_blocks.len(),
+        old_spans.len(),
+        "compact: blocks/spans length mismatch: {} blocks vs {} spans",
+        old_blocks.len(),
+        old_spans.len()
+    );
     for (i, (mut block, spans)) in old_blocks.into_iter().zip(old_spans).enumerate() {
         if reachable[i] {
             block.id = remap_to_block_id(remap[i]);
@@ -66,6 +73,16 @@ pub(crate) fn compact_blocks(func: &mut ArcFunction) {
     // Rewrite targets in surviving blocks.
     for block in &mut new_blocks {
         remap_terminator_targets(&mut block.terminator, &remap);
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        assert_eq!(
+            new_blocks.len(),
+            counter,
+            "compact: expected {counter} blocks but got {}",
+            new_blocks.len()
+        );
     }
 
     func.blocks = new_blocks;
@@ -88,7 +105,14 @@ fn remap_to_block_id(entry: Option<usize>) -> ArcBlockId {
 /// Rewrite all `ArcBlockId` references in a terminator using a remap table.
 fn remap_terminator_targets(term: &mut ArcTerminator, remap: &[Option<usize>]) {
     fn remap_id(id: &mut ArcBlockId, remap: &[Option<usize>]) {
-        *id = remap_to_block_id(remap[id.index()]);
+        let idx = id.index();
+        assert!(
+            idx < remap.len(),
+            "compact: block {idx} references block beyond function ({} blocks). \
+             This indicates a terminator pointing to a non-existent block.",
+            remap.len()
+        );
+        *id = remap_to_block_id(remap[idx]);
     }
 
     match term {

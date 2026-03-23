@@ -39,12 +39,10 @@ impl ArcLowerer<'_> {
 
         // Collect mutable bindings for SSA merge through the loop.
         let pre_scope = self.scope.clone();
-        let mut mutable_var_names = Vec::new();
         let mut mut_info: Vec<(Name, ArcVarId, Idx)> = Vec::new();
 
         for (name, var) in pre_scope.mutable_bindings() {
             let var_ty = self.builder.var_type_or_unit(var);
-            mutable_var_names.push(name);
             mut_info.push((name, var, var_ty));
         }
 
@@ -85,14 +83,16 @@ impl ArcLowerer<'_> {
         let start = self.builder.emit_project(Idx::INT, iter_val, 0, None);
         let end = self.builder.emit_project(Idx::INT, iter_val, 1, None);
         let step = self.builder.emit_project(Idx::INT, iter_val, 2, None);
-        let inclusive = self.builder.emit_project(Idx::INT, iter_val, 3, None);
 
         // Specialization: detect compile-time-constant step and inclusive
         // to emit a single bounds-check instruction instead of the general
         // 8-instruction condition. At -O1+ LLVM constant-folds anyway, but
         // at -O0 this reduces header bloat from 8 instructions to 1.
+        //
+        // Query inclusive without emitting a Project — only extract it in
+        // the general path where it's actually needed.
         let step_lit = self.builder.get_literal_int(step);
-        let incl_lit = self.builder.get_literal_int(inclusive);
+        let incl_lit = self.builder.get_field_literal_int(iter_val, 3);
 
         // Zero-step guard: only needed when step is unknown at compile time.
         // Known non-zero steps (1, -1, etc.) skip the guard entirely.
@@ -150,8 +150,11 @@ impl ArcLowerer<'_> {
                 },
                 None,
             ),
-            // General path: 8-instruction sign-aware condition.
-            _ => self.emit_general_range_condition(i_var, end, step, inclusive),
+            // General path: extract inclusive field only here where it's needed.
+            _ => {
+                let inclusive = self.builder.emit_project(Idx::INT, iter_val, 3, None);
+                self.emit_general_range_condition(i_var, end, step, inclusive)
+            }
         };
 
         if guard.is_valid() {
@@ -182,10 +185,15 @@ impl ArcLowerer<'_> {
         self.bind_for_pattern(pattern, i_var, Idx::INT);
 
         let prev_loop = self.loop_ctx.take();
+        let mutable_var_entries: Vec<_> = header_mut_params
+            .iter()
+            .map(|&(name, _, param)| (name, param))
+            .collect();
         self.loop_ctx = Some(LoopContext {
             exit_block,
             continue_block: latch_block,
-            mutable_vars: mutable_var_names,
+            mutable_vars: mutable_var_entries,
+            yield_ctx: None,
         });
 
         self.lower_expr(body);
@@ -193,7 +201,7 @@ impl ArcLowerer<'_> {
         if !self.builder.is_terminated() {
             let body_args: Vec<_> = header_mut_params
                 .iter()
-                .map(|(name, _, _)| self.scope.lookup(*name).unwrap_or_else(|| ArcVarId::new(0)))
+                .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param))
                 .collect();
             self.builder.terminate_jump(latch_block, body_args);
         }

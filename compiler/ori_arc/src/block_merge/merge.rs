@@ -38,6 +38,16 @@ pub(crate) fn merge_jump_chains(func: &mut ArcFunction) {
                 };
                 let b_idx = target.index();
 
+                // Bounds guard.
+                if b_idx >= pred_counts.len() {
+                    tracing::warn!(
+                        block = a_idx,
+                        target = b_idx,
+                        blocks = func.blocks.len(),
+                        "Jump target out of bounds in merge_jump_chains"
+                    );
+                    continue;
+                }
                 // Self-loop guard.
                 if a_idx == b_idx {
                     continue;

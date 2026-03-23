@@ -2715,16 +2715,12 @@ fn into_not_on_named_types_via_builtins() {
     );
 }
 
-// ========================================================================
-// Registry Migration Validation (§09.9)
-// ========================================================================
+// Registry migration validation
 
 /// Every instance method in the registry resolves via `resolve_builtin_method`.
 ///
 /// This is the forward-coverage test: iterates all `BUILTIN_TYPES` from the
 /// registry and verifies that every non-associated method resolves to `Some(_)`.
-/// Supersedes old per-phase method lists — `ori_registry::BUILTIN_TYPES`
-/// is now the single source of truth.
 #[test]
 fn registry_method_coverage_complete() {
     use ori_registry::{TypeTag, BUILTIN_TYPES};

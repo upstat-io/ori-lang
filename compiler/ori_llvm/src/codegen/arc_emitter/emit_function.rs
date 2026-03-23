@@ -9,7 +9,8 @@ use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::context::EmittedValue;
-use super::field_scan::scan_used_fields;
+use super::dead_unwind::debug_assert_dead_unwind_unreachable;
+use super::field_scan::{compute_pointer_only_params, scan_used_fields};
 use super::ArcIrEmitter;
 use super::FuncletPadKind;
 use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
@@ -26,6 +27,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Used by dead unwind detection (to skip creating LLVM blocks) and by
     /// [`Self::emit_invoke`] (to use `Call` mode instead of `Invoke`).
+    ///
+    /// Delegates to the shared [`super::context::is_callee_intercepted`] free
+    /// function for the actual 6-condition check.
     pub(super) fn callee_will_be_intercepted(
         &self,
         callee: Name,
@@ -33,50 +37,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         func: &ArcFunction,
     ) -> bool {
         let callee_name = self.interner.lookup(callee);
-
-        // Format call interceptor: `ori_format_*` prefix
-        if callee_name.starts_with("ori_format_") {
-            return true;
-        }
-
-        // Prelude function interceptor: exact name match
-        if super::builtins::prelude::HANDLED_PRELUDE_NAMES.contains(&callee_name) {
-            return true;
-        }
-
-        // Builtin method interceptor: receiver is a builtin type AND the
-        // callee is not resolvable by the method dispatch chain steps that
-        // respect invoke mode (method_functions, declared functions, mono
-        // dispatch). Only then does try_emit_builtin_method handle it with
-        // `call` instead of respecting invoke mode.
-        //
-        // Critical: declared user functions (in ctx.functions) are resolved
-        // by the dispatch chain and DO respect invoke mode — they must NOT
-        // be treated as intercepted.
-        if self.ctx.functions.contains_key(&callee) {
-            return false;
-        }
-        if let Some(&first_arg) = args.first() {
-            let receiver_ty = func.var_type(first_arg);
-            let type_info = self.type_info.get(receiver_ty);
-            if type_info.builtin_type_name().is_some() {
-                if let Some(type_name) = self.ctx.type_idx_to_name.get(&receiver_ty) {
-                    if !self
-                        .ctx
-                        .method_functions
-                        .contains_key(&(*type_name, callee))
-                    {
-                        return true;
-                    }
-                } else {
-                    // Builtin type but no type_idx_to_name entry — method
-                    // dispatch chain can't resolve it, will be intercepted
-                    return true;
-                }
-            }
-        }
-
-        false
+        super::context::is_callee_intercepted(
+            callee_name,
+            callee,
+            args,
+            func,
+            self.ctx,
+            self.type_info,
+        )
     }
 
     /// Emit an entire `ArcFunction` as LLVM IR.
@@ -91,80 +59,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Pre-scan: find dead unwind blocks. With nounwind analysis,
         // Invoke terminators calling known-nounwind functions are downgraded
         // to `call` + `br`, so their unwind blocks become dead code.
-        // This must happen before block pre-creation so we can skip creating
-        // LLVM basic blocks for dead blocks entirely.
-        let mut all_invoke_unwind = rustc_hash::FxHashSet::default();
-        let mut unwind_blocks = rustc_hash::FxHashSet::default();
-        for block in &func.blocks {
-            if let ArcTerminator::Invoke {
-                unwind,
-                func: callee,
-                args,
-                ..
-            } = &block.terminator
-            {
-                all_invoke_unwind.insert(unwind.index());
-                // An unwind block is "live" (needs an invoke) only when:
-                // (a) the callee is not proven nounwind,
-                // (b) the callee is not intercepted by a builtin handler
-                //     (format calls, prelude builtins, builtin methods all
-                //     emit `call` regardless of invoke mode), AND
-                // (c) the unwind block has actual cleanup instructions
-                //     (RcDec etc. inserted by the RC pass).
-                // If any condition fails, the block is dead — no LLVM block
-                // is created and no landing pad is emitted.
-                let ub = &func.blocks[unwind.index()];
-                let has_cleanup =
-                    !ub.body.is_empty() || !matches!(ub.terminator, ArcTerminator::Resume);
-                let callee_uses_call = self.ctx.nounwind_functions.contains(callee)
-                    || self.callee_will_be_intercepted(*callee, args, func);
-                if !callee_uses_call && has_cleanup {
-                    unwind_blocks.insert(unwind.index());
-                }
-            }
-        }
+        let unwind_result = self.detect_dead_unwind_blocks(func);
+        let dead_unwind = unwind_result.dead;
+        let unwind_blocks = unwind_result.live;
 
-        // Dead unwind blocks: targets only of nounwind Invokes (downgraded to call).
-        // These blocks have no predecessors and must not be emitted.
-        let dead_unwind: rustc_hash::FxHashSet<usize> = all_invoke_unwind
-            .difference(&unwind_blocks)
-            .copied()
-            .collect();
-
-        // Invariant: dead unwind blocks must not be reachable via non-Invoke edges.
-        // If a Jump/Branch/Switch targets a dead block, the detection is broken.
-        debug_assert!(
-            {
-                let mut ok = true;
-                for block in &func.blocks {
-                    let non_invoke_targets: Vec<usize> = match &block.terminator {
-                        ArcTerminator::Jump { target, .. } => vec![target.index()],
-                        ArcTerminator::Branch {
-                            then_block,
-                            else_block,
-                            ..
-                        } => {
-                            vec![then_block.index(), else_block.index()]
-                        }
-                        ArcTerminator::Switch { cases, default, .. } => {
-                            let mut t: Vec<usize> = cases.iter().map(|(_, b)| b.index()).collect();
-                            t.push(default.index());
-                            t
-                        }
-                        ArcTerminator::Invoke { normal, .. } => vec![normal.index()],
-                        _ => vec![],
-                    };
-                    for target in non_invoke_targets {
-                        if dead_unwind.contains(&target) {
-                            ok = false;
-                        }
-                    }
-                }
-                ok
-            },
-            "dead unwind block is reachable via non-Invoke terminator — \
-             dead_unwind detection invariant violated"
-        );
+        debug_assert_dead_unwind_unreachable(func, &dead_unwind);
 
         // Pre-create LLVM blocks, skipping only dead unwind blocks.
         //
@@ -204,6 +103,53 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // This enables surgical struct loading — only accessed fields are loaded.
         let used_fields = scan_used_fields(func);
 
+        // Identify parameters whose loaded aggregate value is never needed.
+        // These params are only used as Apply/Invoke args where pointer
+        // forwarding (via borrowed_param_ptrs) handles everything. Skipping
+        // the load eliminates dead `%param.load` instructions in the IR.
+        let pointer_only = compute_pointer_only_params(func, |callee, args| {
+            let callee_name = self.interner.lookup(callee);
+            // Not intercepted → ABI path → pointer forwarding handles args
+            if !super::context::is_callee_intercepted(
+                callee_name,
+                callee,
+                args,
+                func,
+                self.ctx,
+                self.type_info,
+            ) {
+                return true;
+            }
+            // Intercepted, but str.length/str.len use str_to_ptr_forwarded
+            // which checks borrowed_param_ptrs — loaded value not needed.
+            if (callee_name == "length" || callee_name == "len") && !args.is_empty() {
+                let receiver_ty = func.var_type(args[0]);
+                if self.pool.tag(receiver_ty) == ori_types::Tag::Str {
+                    return true;
+                }
+            }
+            false
+        });
+
+        // Invariant: pointer-only params must not have RcInc/RcDec in the ARC IR.
+        // Borrowed params shouldn't get RC ops from the AIMS pipeline. If this
+        // fires, the param was incorrectly classified as pointer-only.
+        #[cfg(debug_assertions)]
+        for block in &func.blocks {
+            for instr in &block.body {
+                match instr {
+                    ArcInstr::RcInc { var, .. } | ArcInstr::RcDec { var, .. } => {
+                        debug_assert!(
+                            !pointer_only.contains(var),
+                            "pointer-only param v{} has RC operation — cannot skip load",
+                            var.raw(),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Bind function parameters (respecting ABI passing modes).
         // Reference and Indirect params arrive as pointers — load the actual
         // value so ARC IR sees the struct, not the pointer.
@@ -211,7 +157,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Non-capturing lambdas have a phantom `ptr %_env` prepended to their
         // LLVM param list (so they're directly callable as closures). Skip it
         // by adding 1 to the starting index.
-        let sret_offset = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
+        let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
+        let sret_offset = u32::from(has_sret);
+        // Register sret pointer for sret forwarding optimization.
+        // When the function returns a large struct via sret, the first parameter
+        // is the caller-allocated return slot. We can forward this directly to
+        // inner call_with_sret calls to avoid intermediate alloca+load+store.
+        if has_sret {
+            self.current_sret_ptr = Some(self.builder.get_param(self.current_function, 0));
+        }
         let phantom_env_offset = u32::from(self.ctx.non_capturing_lambdas.contains(&func.name));
         let needs_loads = abi.params.iter().any(|p| {
             matches!(
@@ -240,33 +194,93 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         .get_param(self.current_function, llvm_param_idx);
                     let ty = self.resolve_type(param.ty);
 
-                    // Surgical loading: only load fields actually used.
-                    // `None` in the map = all fields needed, `Some(set)` = selective.
-                    let field_set = used_fields.get(&param.var);
-                    let loaded = if let Some(selective) = field_set {
-                        self.builder.load_struct_selective(
-                            ty,
-                            ptr_param,
-                            selective.as_ref(),
-                            "param.load",
-                        )
+                    if pointer_only.contains(&param.var) {
+                        // Parameter's loaded value is never used — all Apply/Invoke
+                        // callees forward the pointer via borrowed_param_ptrs.
+                        // Bind a zero-init value (no load instruction emitted).
+                        let zero = self.builder.const_zero_ty(ty);
+                        self.def_var_repr(param.var, zero, func);
                     } else {
-                        // Variable not in usage map at all — unused param.
-                        // Load nothing (zero-init). The aggregate is never read.
-                        self.builder.load_struct_selective(
-                            ty,
-                            ptr_param,
-                            Some(&FxHashSet::default()),
-                            "param.load",
-                        )
-                    };
-                    self.def_var_repr(param.var, loaded, func);
+                        // Surgical loading: only load fields actually used.
+                        // `None` in the map = all fields needed, `Some(set)` = selective.
+                        let field_set = used_fields.get(&param.var);
+                        let loaded = if let Some(selective) = field_set {
+                            self.builder.load_struct_selective(
+                                ty,
+                                ptr_param,
+                                selective.as_ref(),
+                                "param.load",
+                            )
+                        } else {
+                            // Variable not in usage map at all — unused param.
+                            // Load nothing (zero-init). The aggregate is never read.
+                            self.builder.load_struct_selective(
+                                ty,
+                                ptr_param,
+                                Some(&FxHashSet::default()),
+                                "param.load",
+                            )
+                        };
+                        self.def_var_repr(param.var, loaded, func);
+                    }
+                    // Register source pointer for borrowed parameter forwarding.
+                    // When this variable is passed to another function that also
+                    // expects a pointer, we forward ptr_param directly instead
+                    // of alloca+store of the loaded value.
+                    self.borrowed_param_ptrs.insert(param.var, ptr_param);
                     llvm_param_idx += 1;
                 }
                 ParamPassing::Void => {
                     // No physical LLVM param — bind to a zero/unit constant
                     let zero = self.builder.const_i64(0);
                     self.def_var(param.var, EmittedValue::Immediate(zero));
+                }
+            }
+        }
+
+        // Pre-compute set of variables rooted at borrowed parameters.
+        // When storing inline enums to boxed fields, borrowed-rooted vars
+        // need sub-pointer inc (the caller retains a reference). Consumed
+        // (owned) vars don't need it (move semantics).
+        self.borrowed_rooted_vars.clear();
+        {
+            use ori_arc::Ownership;
+            for param in &func.params {
+                if param.ownership == Ownership::Borrowed {
+                    self.borrowed_rooted_vars.insert(param.var);
+                }
+            }
+            // Trace alias chains: Let{Var} + Jump block-param passing.
+            let mut changed = true;
+            while changed {
+                changed = false;
+                for block in &func.blocks {
+                    // Let { dst, Var(src) } — direct alias
+                    for instr in &block.body {
+                        if let ArcInstr::Let {
+                            dst,
+                            value: ori_arc::ir::ArcValue::Var(src),
+                            ..
+                        } = instr
+                        {
+                            if self.borrowed_rooted_vars.contains(src)
+                                && self.borrowed_rooted_vars.insert(*dst)
+                            {
+                                changed = true;
+                            }
+                        }
+                    }
+                    // Jump { target, args } — args[i] flows to target.params[i]
+                    if let ori_arc::ir::ArcTerminator::Jump { target, args } = &block.terminator {
+                        let target_params = &func.blocks[target.index()].params;
+                        for (arg, &(param_var, _)) in args.iter().zip(target_params.iter()) {
+                            if self.borrowed_rooted_vars.contains(arg)
+                                && self.borrowed_rooted_vars.insert(param_var)
+                            {
+                                changed = true;
+                            }
+                        }
+                    }
                 }
             }
         }

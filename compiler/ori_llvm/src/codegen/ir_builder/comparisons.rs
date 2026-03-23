@@ -84,6 +84,15 @@ impl IrBuilder<'_, '_> {
 
     // -- Pointer comparisons --
 
+    /// Check at compile time whether a value is a constant null pointer.
+    ///
+    /// Returns `true` if the LLVM value is a `ConstantPointerNull`.
+    /// No LLVM instructions are emitted — this is a static check.
+    pub fn is_const_null_ptr(&self, val: ValueId) -> bool {
+        let raw = self.arena.get_value(val);
+        matches!(raw, inkwell::values::BasicValueEnum::PointerValue(p) if p.is_null())
+    }
+
     /// Check whether a pointer value is null.
     ///
     /// Converts `ptr → i64` then `icmp eq i64 %val, 0`. Works for any pointer,

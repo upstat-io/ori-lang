@@ -172,3 +172,59 @@ fn get_literal_int_project_non_literal_arg() {
 
     assert_eq!(builder.get_literal_int(proj), None);
 }
+
+#[test]
+fn get_field_literal_int_without_project() {
+    // Query a field's literal value without emitting a Project instruction.
+    let mut builder = ArcIrBuilder::new();
+
+    let step_let = builder.fresh_var(Idx::INT);
+    builder.blocks[0].body.push(ArcInstr::Let {
+        dst: step_let,
+        ty: Idx::INT,
+        value: ArcValue::Literal(LitValue::Int(1)),
+    });
+
+    let incl_let = builder.fresh_var(Idx::INT);
+    builder.blocks[0].body.push(ArcInstr::Let {
+        dst: incl_let,
+        ty: Idx::INT,
+        value: ArcValue::Literal(LitValue::Int(0)),
+    });
+
+    let struct_var = builder.fresh_var(Idx::INT);
+    builder.blocks[0].body.push(ArcInstr::Construct {
+        dst: struct_var,
+        ty: Idx::INT,
+        ctor: CtorKind::Tuple,
+        args: vec![step_let, incl_let],
+    });
+
+    // No Project emitted — query directly from the Construct
+    assert_eq!(builder.get_field_literal_int(struct_var, 0), Some(1));
+    assert_eq!(builder.get_field_literal_int(struct_var, 1), Some(0));
+    assert_eq!(builder.get_field_literal_int(struct_var, 2), None); // out of bounds
+}
+
+#[test]
+fn get_field_literal_int_runtime_value() {
+    let mut builder = ArcIrBuilder::new();
+
+    let runtime = builder.fresh_var(Idx::INT);
+    let other = builder.fresh_var(Idx::INT);
+    builder.blocks[0].body.push(ArcInstr::Let {
+        dst: runtime,
+        ty: Idx::INT,
+        value: ArcValue::Var(other),
+    });
+
+    let struct_var = builder.fresh_var(Idx::INT);
+    builder.blocks[0].body.push(ArcInstr::Construct {
+        dst: struct_var,
+        ty: Idx::INT,
+        ctor: CtorKind::Tuple,
+        args: vec![runtime],
+    });
+
+    assert_eq!(builder.get_field_literal_int(struct_var, 0), None);
+}

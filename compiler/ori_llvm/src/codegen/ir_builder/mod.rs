@@ -29,6 +29,8 @@
 //! | Attributes | `attributes` |
 //! | Phi / Types / Blocks | `phi_types_blocks` |
 
+pub(crate) mod cfg_simplify;
+
 mod aggregates;
 mod arithmetic;
 mod attributes;

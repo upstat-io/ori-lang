@@ -1,0 +1,67 @@
+// AIMS edge case: COW chain with multiple sequential mutations.
+// Tests that uniqueness analysis correctly identifies in-place mutation
+// opportunities and that copy-on-write triggers when needed.
+
+@build_list () -> [int] = {
+    let list = [1, 2, 3];
+
+    // Sequential pushes — each should be in-place if unique
+    list = list.push(value: 4);
+    list = list.push(value: 5);
+    list = list.push(value: 6);
+
+    list
+};
+
+@mutate_chain (input: [int]) -> [int] = {
+    let list = input;
+
+    // Sequential push + reverse (COW operations)
+    list = list.push(value: 100);
+    list = list.push(value: 200);
+    list = list.push(value: 300);
+    list = list.reverse();
+
+    list
+};
+
+@main () -> void = {
+    // Test 1: sequential pushes
+    let $built = build_list();
+    print(msg: `built = {built.debug()}`);
+
+    // Test 2: mutation chain on unique list
+    let $mutated = mutate_chain(input: [10, 20, 30, 40]);
+    print(msg: `mutated = {mutated.debug()}`);
+
+    // Test 3: shared list forces COW on mutation
+    let $original = [1, 2, 3, 4, 5];
+    let $alias = original;
+    // `original` is shared with `alias`, so push must COW
+    let $pushed = original.push(value: 6);
+    print(msg: `original len = {original.len()}`);
+    print(msg: `alias len = {alias.len()}`);
+    print(msg: `pushed len = {pushed.len()}`);
+
+    // Test 4: map then collect (functional chain)
+    let $nums = [1, 2, 3, 4, 5];
+    let $doubled = for n in nums yield n * 2;
+    let $filtered = for n in doubled if n > 4 yield n;
+    print(msg: `doubled = {doubled.debug()}`);
+    print(msg: `filtered = {filtered.debug()}`);
+
+    // Test 5: string mutations (SSO + COW interaction)
+    let $s = "hello";
+    let $s2 = s + " world";
+    let $s3 = s2 + "!";
+    print(msg: `s = {s}`);
+    print(msg: `s3 = {s3}`);
+
+    // Test 6: nested list construction
+    let $rows = for i in 0..3 yield {
+        for j in 0..3 yield i * 3 + j
+    };
+    print(msg: `rows = {rows.debug()}`);
+
+    print(msg: "cow_chain: done")
+}

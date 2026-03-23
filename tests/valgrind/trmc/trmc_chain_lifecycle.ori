@@ -1,0 +1,40 @@
+// Valgrind test: TRMC chain lifecycle.
+// Tests RC correctness for 3-field constructor patterns.
+// Uses int fields only — str fields in recursive enums hit a pre-existing
+// misalignment bug (enum payload layout for multi-word + boxed pointer).
+
+type Chain = End | Link(id: int, tag: int, next: Chain);
+
+@chain_len (c: Chain) -> int = match c {
+    End -> 0,
+    Link(_, _, next) -> 1 + chain_len(c: next),
+};
+
+@chain_id_sum (c: Chain) -> int = match c {
+    End -> 0,
+    Link(id, _, next) -> id + chain_id_sum(c: next),
+};
+
+@build_chain (n: int) -> Chain = {
+    if n <= 0 then End
+    else Link(id: n, tag: n * 10, next: build_chain(n: n - 1))
+};
+
+@main () -> int = {
+    // Build chain, verify structure.
+    let $chain = build_chain(n: 30);
+    let $len_ok = chain_len(c: chain) == 30;
+    // Sum of 1..30 = 465.
+    let $sum_ok = chain_id_sum(c: chain) == 465;
+
+    // Build and immediately drop — tests cleanup.
+    let _ = build_chain(n: 10);
+
+    // Build, share, then drop — tests RC under sharing.
+    let $shared = build_chain(n: 5);
+    let $l1 = chain_len(c: shared);
+    let $l2 = chain_len(c: shared);
+    let $share_ok = l1 == 5 && l2 == 5;
+
+    if len_ok && sum_ok && share_ok then 0 else 1
+}

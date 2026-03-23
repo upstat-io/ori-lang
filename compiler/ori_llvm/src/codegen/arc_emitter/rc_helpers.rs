@@ -1,12 +1,17 @@
-//! RC data pointer extraction and inline enum cleanup for [`ArcIrEmitter`].
+//! RC data pointer extraction and inline enum inc/dec for [`ArcIrEmitter`].
 //!
 //! Provides methods to extract RC-managed heap data pointers from aggregate
 //! values (List, Str, Map, Set, Struct, Tuple, Option) for `ori_rc_inc`/`ori_rc_dec`,
-//! and inline tag-based cleanup for enum-like types (Result, Enum).
+//! and inline tag-based RC traversal for enum-like types (Result, Enum).
+//!
+//! Both `emit_inline_enum_inc` and `emit_inline_enum_dec` use the same
+//! tag-switch pattern with per-variant field traversal, shared via
+//! `collect_variant_rc_fields`.
 
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
+use super::drop_enum::compute_variant_field_offsets;
 use super::ArcIrEmitter;
 use crate::codegen::value_id::ValueId;
 
@@ -27,10 +32,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// | Map    | `{i64, i64, ptr}`              | field 2            |
     /// | Struct | `{field0, field1, ...}`         | recurse per field  |
     /// | Tuple  | `{elem0, elem1, ...}`          | recurse per elem   |
-    /// | Option | `{i64 tag, T payload}`         | recurse into inner |
-    /// | Result | `{i64 tag, payload}`           | recurse into ok/err|
-    /// | Enum   | `{i64 tag, payload}`           | recurse into fields|
-    /// | Other  | already a ptr                  | use directly        |
+    /// | Option  | `{i64 tag, T payload}`        | recurse into inner |
+    /// | Result  | `{i64 tag, payload}`          | recurse into ok/err|
+    /// | Enum    | `{i64 tag, payload}`          | recurse into fields|
+    /// | Function| `{ptr fn, ptr env}`           | env ptr (field 1)  |
+    /// | Other   | already a ptr                 | use directly       |
     pub(super) fn extract_rc_data_ptrs(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
         // Resolve type variables and Named/Applied/Alias to get the concrete tag.
         // The type checker may leave unresolved Var indices in compound types
@@ -96,6 +102,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // variant is active. Skip RC at the aggregate level.
                 vec![]
             }
+            Tag::Function => {
+                // Closure: { fn_ptr, env_ptr } — only env_ptr (field 1) is RC-managed.
+                // The fn_ptr is a code pointer, not heap-allocated.
+                if let Some(env_ptr) = self.builder.extract_value(val, 1, "rc.closure_env") {
+                    vec![env_ptr]
+                } else {
+                    vec![]
+                }
+            }
             _ => vec![val],
         }
     }
@@ -142,21 +157,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ptrs
     }
 
-    /// Emit inline tag-based cleanup for enum-like types (Result, Enum).
+    /// Collect per-variant RC field info for an inline enum.
     ///
-    /// These types are stack-allocated (no RC header) but may contain
-    /// RC-typed fields in their variants. We store the value to a
-    /// temporary alloca, load the tag, switch on it, and Dec the
-    /// appropriate variant's RC fields.
-    ///
-    /// For `Result<int, str>`: tag 0 (Ok) → nothing; tag 1 (Err) → Dec str.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "enum dec emits per-variant switch with RC field drops"
-    )]
-    pub(super) fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
-        // Collect per-variant RC field info
-        let variant_rc_fields: Vec<Vec<(u32, Idx)>> = match pool_tag {
+    /// Returns a vec-of-vecs: `[variant_idx][field_idx] = (field_position, field_type)`.
+    /// Empty inner vec means the variant has no RC fields.
+    fn collect_variant_rc_fields(&self, resolved_ty: Idx, pool_tag: Tag) -> Vec<Vec<(u32, Idx)>> {
+        match pool_tag {
             Tag::Result => {
                 let ok_ty = self.pool.result_ok(resolved_ty);
                 let err_ty = self.pool.result_err(resolved_ty);
@@ -171,6 +177,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     vec![]
                 };
                 vec![ok_fields, err_fields]
+            }
+            Tag::Option => {
+                let inner = self.pool.option_inner(resolved_ty);
+                let some_fields = if self.classifier.needs_rc(inner) {
+                    vec![(0_u32, inner)]
+                } else {
+                    vec![]
+                };
+                // Some=0 (has payload), None=1 (empty)
+                vec![some_fields, vec![]]
             }
             Tag::Enum => {
                 let variants = self.pool.enum_variants(resolved_ty);
@@ -192,10 +208,143 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     })
                     .collect()
             }
-            _ => return,
+            _ => vec![],
+        }
+    }
+
+    /// Emit inline tag-based RC inc for enum-like types (Result, Enum).
+    ///
+    /// These types are stack-allocated (no RC header) but may contain
+    /// RC-typed fields in their variants. We store the value to a
+    /// temporary alloca, load the tag, switch on it, and Inc the
+    /// appropriate variant's RC fields.
+    ///
+    /// Mirrors `emit_inline_enum_dec` structurally.
+    pub(super) fn emit_inline_enum_inc(
+        &mut self,
+        val: ValueId,
+        resolved_ty: Idx,
+        pool_tag: Tag,
+        count: u32,
+    ) {
+        let variant_rc_fields = self.collect_variant_rc_fields(resolved_ty, pool_tag);
+
+        if variant_rc_fields.iter().all(Vec::is_empty) {
+            return;
+        }
+
+        let enum_llvm_ty = self.resolve_type(resolved_ty);
+        let alloca = self.builder.alloca(enum_llvm_ty, "rc_inc.enum");
+        self.builder.store(val, alloca);
+
+        let i64_ty = self.builder.i64_type();
+        let tag_ptr = self
+            .builder
+            .struct_gep(enum_llvm_ty, alloca, 0, "rc_inc.tag.ptr");
+        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_inc.tag");
+
+        let done_block = self
+            .builder
+            .append_block(self.current_function, "rc_inc.done");
+
+        // Get full variant field lists for byte-offset computation (Enum only)
+        let all_variant_fields: Vec<Vec<Idx>> = if pool_tag == Tag::Enum {
+            self.pool
+                .enum_variants(resolved_ty)
+                .into_iter()
+                .map(|(_, fields)| fields)
+                .collect()
+        } else {
+            Vec::new()
         };
 
-        // If no variant has RC fields, nothing to clean up
+        let mut cases = Vec::new();
+        for (i, fields) in variant_rc_fields.iter().enumerate() {
+            if fields.is_empty() {
+                continue;
+            }
+            let block = self
+                .builder
+                .append_block(self.current_function, &format!("rc_inc.v{i}"));
+            let tag_const = self.builder.const_i64(i as i64);
+            cases.push((tag_const, block, fields.as_slice(), i));
+        }
+
+        let switch_cases: Vec<_> = cases
+            .iter()
+            .map(|(tag, block, _, _)| (*tag, *block))
+            .collect();
+        self.builder.switch(tag_val, done_block, &switch_cases);
+
+        for &(_, block, fields, variant_idx) in &cases {
+            self.builder.position_at_end(block);
+
+            // Compute byte offsets for this variant's fields
+            let offsets = all_variant_fields
+                .get(variant_idx)
+                .map(|vf| compute_variant_field_offsets(vf, resolved_ty, self))
+                .unwrap_or_default();
+
+            for &(field_index, field_type) in fields {
+                if matches!(pool_tag, Tag::Result | Tag::Option) {
+                    let field_llvm_ty = self.resolve_type(field_type);
+                    let struct_idx = 1 + field_index;
+                    let field_ptr = self.builder.struct_gep(
+                        enum_llvm_ty,
+                        alloca,
+                        struct_idx,
+                        "rc_inc.payload.ptr",
+                    );
+                    let field_val = self
+                        .builder
+                        .load(field_llvm_ty, field_ptr, "rc_inc.payload");
+                    self.inc_value_rc(field_val, field_type, count);
+                } else if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_inc.payload");
+                    let i8_ty = self.builder.i8_type();
+                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                    let idx = self.builder.const_i64(byte_off as i64);
+                    let field_ptr =
+                        self.builder
+                            .gep(i8_ty, payload_ptr, &[idx], "rc_inc.field.ptr");
+                    let ptr_ty = self.builder.ptr_type();
+                    let rc_ptr = self.builder.load(ptr_ty, field_ptr, "rc_inc.field.rc");
+                    self.call_rc_inc_all(&[rc_ptr], count);
+                } else {
+                    let field_llvm_ty = self.resolve_type(field_type);
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_inc.payload");
+                    let i8_ty = self.builder.i8_type();
+                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                    let idx = self.builder.const_i64(byte_off as i64);
+                    let field_ptr =
+                        self.builder
+                            .gep(i8_ty, payload_ptr, &[idx], "rc_inc.field.ptr");
+                    let field_val = self.builder.load(field_llvm_ty, field_ptr, "rc_inc.field");
+                    self.inc_value_rc(field_val, field_type, count);
+                }
+            }
+
+            self.builder.br(done_block);
+        }
+
+        self.builder.position_at_end(done_block);
+    }
+
+    /// Emit inline tag-based cleanup for enum-like types (Result, Enum).
+    ///
+    /// These types are stack-allocated (no RC header) but may contain
+    /// RC-typed fields in their variants. We store the value to a
+    /// temporary alloca, load the tag, switch on it, and Dec the
+    /// appropriate variant's RC fields.
+    ///
+    /// For `Result<int, str>`: tag 0 (Ok) → nothing; tag 1 (Err) → Dec str.
+    pub(super) fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
+        let variant_rc_fields = self.collect_variant_rc_fields(resolved_ty, pool_tag);
+
         if variant_rc_fields.iter().all(Vec::is_empty) {
             return;
         }
@@ -217,6 +366,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .append_block(self.current_function, "rc_dec.done");
 
+        // Get full variant field lists for byte-offset computation (Enum only)
+        let all_variant_fields: Vec<Vec<Idx>> = if pool_tag == Tag::Enum {
+            self.pool
+                .enum_variants(resolved_ty)
+                .into_iter()
+                .map(|(_, fields)| fields)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         // Build switch cases for variants with RC fields
         let mut cases = Vec::new();
         for (i, fields) in variant_rc_fields.iter().enumerate() {
@@ -227,20 +387,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .builder
                 .append_block(self.current_function, &format!("rc_dec.v{i}"));
             let tag_const = self.builder.const_i64(i as i64);
-            cases.push((tag_const, block, fields.as_slice()));
+            cases.push((tag_const, block, fields.as_slice(), i));
         }
 
-        let switch_cases: Vec<_> = cases.iter().map(|(tag, block, _)| (*tag, *block)).collect();
+        let switch_cases: Vec<_> = cases
+            .iter()
+            .map(|(tag, block, _, _)| (*tag, *block))
+            .collect();
         self.builder.switch(tag_val, done_block, &switch_cases);
 
         // Emit per-variant cleanup
-        for &(_, block, fields) in &cases {
+        for &(_, block, fields, variant_idx) in &cases {
             self.builder.position_at_end(block);
 
+            // Compute byte offsets for this variant's fields
+            let offsets = all_variant_fields
+                .get(variant_idx)
+                .map(|vf| compute_variant_field_offsets(vf, resolved_ty, self))
+                .unwrap_or_default();
+
             for &(field_index, field_type) in fields {
-                // Result: typed payload fields at struct index 1+
+                // Result/Option: typed payload fields at struct index 1+
                 // General Enum: payload is [M x i64] at struct field 1
-                if pool_tag == Tag::Result {
+                if matches!(pool_tag, Tag::Result | Tag::Option) {
                     let field_llvm_ty = self.resolve_type(field_type);
                     let struct_idx = 1 + field_index;
                     let field_ptr = self.builder.struct_gep(
@@ -258,11 +427,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
-                    let i64_ty = self.builder.i64_type();
-                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let i8_ty = self.builder.i8_type();
+                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                    let idx = self.builder.const_i64(byte_off as i64);
                     let field_ptr =
                         self.builder
-                            .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
+                            .gep(i8_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
                     let ptr_ty = self.builder.ptr_type();
                     let rc_ptr = self.builder.load(ptr_ty, field_ptr, "rc_dec.field.rc");
                     let drop_fn = self.get_or_generate_drop_fn(field_type);
@@ -272,11 +442,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
-                    let i64_ty = self.builder.i64_type();
-                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let i8_ty = self.builder.i8_type();
+                    let byte_off = offsets.get(field_index as usize).copied().unwrap_or(0);
+                    let idx = self.builder.const_i64(byte_off as i64);
                     let field_ptr =
                         self.builder
-                            .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
+                            .gep(i8_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
                     let field_val = self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field");
                     self.dec_value_rc(field_val, field_type);
                 }

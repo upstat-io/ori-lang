@@ -9,15 +9,17 @@
 
 mod allocate;
 mod debug;
+mod elem_header;
 mod list_rc;
 mod map_rc;
 mod set_rc;
 
 pub use allocate::*;
 #[cfg(all(test, debug_assertions))]
-pub(crate) use debug::freed_set;
-#[cfg(test)]
-pub(crate) use debug::RT_DEBUG_FORCE;
+pub(crate) use debug::{
+    alloc_registry_insert, alloc_registry_query, alloc_registry_remove, alloc_registry_update,
+    freed_set, RT_DEBUG_FORCE,
+};
 #[cfg(debug_assertions)]
 pub(crate) use debug::{alloc_registry_report, rt_debug_check_not_freed};
 pub(crate) use debug::{
@@ -26,42 +28,40 @@ pub(crate) use debug::{
 };
 #[cfg(debug_assertions)]
 pub use debug::{reset_alloc_registry, reset_freed_set};
+pub use elem_header::*;
 pub use list_rc::*;
 pub use map_rc::*;
 pub use set_rc::*;
 
 use debug::{rc_trace_dec, rc_trace_inc};
 
+/// Exit code for fatal RC errors (underflow, double-free, drop panic).
+/// 128 + 6 mirrors the POSIX convention for SIGABRT (signal 6).
+/// We use `exit()` instead of `abort()` because `abort()` raises SIGABRT
+/// which can hang when signal handlers interfere with process termination.
+const SIGABRT_EXIT_CODE: i32 = 128 + 6;
+
 #[cfg(not(feature = "single-threaded"))]
 use std::sync::atomic;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-// ── Reference Counting (V3: 16-byte header, data-pointer style) ──────────
+// Reference Counting
 //
-// Heap layout for RC'd objects:
+// V5 header layout (32 bytes):
 //
-//   +──────────────────+──────────────────+───────────────────────+
-//   | data_size: i64    | strong_count: i64 | data bytes ...      |
-//   +──────────────────+──────────────────+───────────────────────+
-//   ^                   ^                   ^
-//   base (ptr - 16)     ptr - 8             data_ptr (returned by ori_rc_alloc)
+//   base+0          base+8            base+16          base+24           base+32
+//   [data_size: i64 | elem_dec_fn: ptr | elem_count: i64 | strong_count: i64 | data ...]
+//                                                                               ^
+//                                                                               data_ptr
 //
-// The data pointer points directly to user data, NOT to the header.
-// strong_count lives at `data_ptr - 8` (unchanged from V2).
-// data_size lives at `data_ptr - 16` (new in V3).
+// From data_ptr: strong_count = data-8, elem_count = data-16,
+//                elem_dec_fn = data-24, data_size = data-32
 //
-// Advantages:
-// - Data pointer can be passed to C FFI without adjustment
-// - Single pointer on stack (no separate header pointer)
-// - data_size enables seamless slice deallocation: when a slice is the
-//   last reference, it can compute the original data pointer and read
-//   the allocation size from the header without external bookkeeping
-// - strong_count stays at `data_ptr - 8`, so ALL refcount operations
-//   (inc, dec, count, is_unique) are unchanged from V2
-//
-// When refcount reaches zero, a type-specialized drop function handles:
-// 1. Decrementing reference counts of RC'd child fields
-// 2. Calling ori_rc_free(data_ptr, size, align) to release memory
+// strong_count stays at data_ptr - 8 — all RC operations are unchanged from V2/V3/V4.
+// elem_dec_fn stores the element destructor for collection buffers (V4).
+// elem_count stores the number of initialized elements for full-range cleanup (V5).
+//   When a slice is the last owner, elem_count tells slice_buffer_rc_dec how
+//   many elements to clean up (not just the slice's visible range).
 
 /// Live RC allocation counter for debugging and testing.
 ///
@@ -77,21 +77,29 @@ pub(crate) static RC_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
 /// to negative counts, which would cause use-after-free.
 ///
 /// Value: `isize::MAX` (same as Rust's `Arc`). On 64-bit systems this is
-/// `i64::MAX` (9.2 quintillion) — unreachable in practice, but the check
-/// costs essentially nothing (one compare per `ori_rc_inc`).
+/// `i64::MAX` (9.2 quintillion) — unreachable through normal increments.
+///
+/// Also serves as the **immortal sentinel**: objects with refcount equal to
+/// `MAX_REFCOUNT` are immortal. `ori_rc_inc` and `ori_rc_dec` skip (no-op)
+/// when they encounter this value. This is safe because reaching `MAX_REFCOUNT`
+/// through increments is physically impossible (~9.2 quintillion increments),
+/// so the only way to have this value is intentional pre-allocation.
 pub(crate) const MAX_REFCOUNT: i64 = isize::MAX as i64;
 
-// ── Core RC Functions ────────────────────────────────────────────────
+// Core RC Functions
 
 /// Size of the RC header in bytes.
 ///
-/// V3 layout: `[data_size: i64 | strong_count: i64 | data ...]`
-/// The header is 16 bytes: 8 for `data_size` + 8 for `strong_count`.
-pub const RC_HEADER_SIZE: usize = 16;
+/// V5 layout: `[data_size | elem_dec_fn | elem_count | strong_count | data ...]`
+/// The header is 32 bytes: 8 each for `data_size`, `elem_dec_fn`, `elem_count`,
+/// and `strong_count`.
+pub const RC_HEADER_SIZE: usize = 32;
 
 /// Increment the reference count of an RC'd object.
 ///
-/// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
+/// `data_ptr` points to the data area (V5 header: `data_ptr - 8` = `strong_count`,
+/// `data_ptr - 16` = `elem_count`, `data_ptr - 24` = `elem_dec_fn`,
+/// `data_ptr - 32` = `data_size`).
 ///
 /// Uses `Relaxed` ordering: the increment only needs to be atomic, not
 /// ordered with respect to other memory operations. The incrementing
@@ -115,11 +123,13 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
             let prev = (*rc_ptr).fetch_add(1, Ordering::Relaxed);
 
-            // Overflow protection: abort if refcount was already at the maximum.
-            // fetch_add returns the *previous* value, so prev == MAX_REFCOUNT
-            // means the new value overflowed. Matches Rust's Arc::clone check.
+            // Immortal sentinel: skip if refcount is MAX_REFCOUNT. Immortal
+            // objects (e.g., pre-allocated empty string) have their RC set to
+            // MAX_REFCOUNT at creation and never participate in RC operations.
+            // Undo the increment we just did.
             if prev == MAX_REFCOUNT {
-                rc_overflow_abort();
+                (*rc_ptr).fetch_sub(1, Ordering::Relaxed);
+                return;
             }
 
             if rc_trace_enabled() {
@@ -129,8 +139,9 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
         #[cfg(feature = "single-threaded")]
         {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            // Immortal sentinel: skip for immortal objects.
             if *rc_ptr == MAX_REFCOUNT {
-                rc_overflow_abort();
+                return;
             }
             *rc_ptr += 1;
 
@@ -141,17 +152,6 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
     }
 }
 
-/// Abort on refcount overflow.
-///
-/// Separate `#[cold]` function keeps the fast path in `ori_rc_inc` small
-/// and avoids polluting the instruction cache with error handling code.
-#[cold]
-#[inline(never)]
-fn rc_overflow_abort() -> ! {
-    eprintln!("ori: refcount overflow — aborting (possible reference cycle or infinite clone)");
-    std::process::abort();
-}
-
 /// Abort on refcount underflow (decrement of already-zero refcount).
 ///
 /// Separate `#[cold]` function keeps the fast path in `ori_rc_dec` small.
@@ -160,9 +160,17 @@ fn rc_overflow_abort() -> ! {
 #[cold]
 #[inline(never)]
 pub(super) fn rc_underflow_abort(data_ptr: *mut u8) -> ! {
-    eprintln!("ori: FATAL — ori_rc_dec called on already-freed allocation at {data_ptr:p}");
-    eprintln!("ori: this is a double-free bug in the compiler's RC codegen");
-    std::process::abort();
+    // Use raw write to stderr fd to avoid deadlocking on the stderr lock
+    // held by the Rust test harness (eprintln! acquires that lock).
+    use std::io::Write;
+    let msg = format!(
+        "ori: FATAL — ori_rc_dec called on already-freed allocation at {data_ptr:p}\n\
+         ori: this is a double-free bug in the compiler's RC codegen\n"
+    );
+    let _ = std::io::stderr().write_all(msg.as_bytes());
+    // Use _exit equivalent instead of abort() — abort() raises SIGABRT which
+    // can hang when signal handlers interfere. Exit code mirrors SIGABRT convention.
+    std::process::exit(SIGABRT_EXIT_CODE);
 }
 
 /// Decrement the reference count. If it reaches zero, call the drop function.
@@ -198,6 +206,16 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     // and 8-byte aligned. AtomicI64 has the same layout as i64.
     #[cfg(not(feature = "single-threaded"))]
     {
+        // Immortal sentinel check: read refcount first. If MAX_REFCOUNT,
+        // this is an immortal object — skip the decrement entirely.
+        let current_rc = unsafe {
+            let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).load(Ordering::Relaxed)
+        };
+        if current_rc == MAX_REFCOUNT {
+            return;
+        }
+
         let prev = unsafe {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
             (*rc_ptr).fetch_sub(1, Ordering::Release)
@@ -229,6 +247,10 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     {
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            // Immortal sentinel: skip for immortal objects.
+            if *rc_ptr == MAX_REFCOUNT {
+                return;
+            }
             // Release-mode underflow detection (single-threaded path)
             if *rc_ptr <= 0 {
                 rc_underflow_abort(data_ptr);
@@ -249,6 +271,72 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     }
 }
 
+/// Increment a string value's reference count, handling SSO, heap, and slices.
+///
+/// Strings may be:
+/// - SSO (`data_ptr` has high bit set or is null) → skip
+/// - Heap (cap >= 0) → `ori_rc_inc(data_ptr)`
+/// - Seamless slice (cap < 0, `SLICE_FLAG`) → compute original buffer pointer
+///   from the slice offset encoded in `cap`, then `ori_rc_inc(original)`
+///
+/// Symmetric to [`ori_str_rc_dec`]. Used by codegen for string values that may
+/// be seamless slices from `str.split()`.
+#[no_mangle]
+pub extern "C" fn ori_str_rc_inc(data_ptr: *mut u8, cap: i64) {
+    if data_ptr.is_null() {
+        return;
+    }
+
+    // SSO check: high bit (bit 63) of the data pointer field is set for SSO strings.
+    if (data_ptr as usize) & (1_usize << 63) != 0 {
+        return;
+    }
+
+    if crate::slice_encoding::is_slice_cap(cap) {
+        let original = crate::slice_encoding::slice_original_data(data_ptr, cap);
+        ori_rc_inc(original);
+    } else {
+        ori_rc_inc(data_ptr);
+    }
+}
+
+/// Decrement a string value's reference count, handling SSO, heap, and slices.
+///
+/// Strings may be:
+/// - SSO (`data_ptr` has high bit set or is null) → skip
+/// - Heap (cap >= 0) → `ori_rc_dec(data_ptr, drop_fn)`
+/// - Seamless slice (cap < 0, `SLICE_FLAG`) → compute original buffer pointer
+///   from the slice offset encoded in `cap`, then `ori_rc_dec(original, drop_fn)`
+///
+/// This mirrors `ori_buffer_rc_dec`'s slice handling for list buffers.
+#[no_mangle]
+pub extern "C" fn ori_str_rc_dec(
+    data_ptr: *mut u8,
+    cap: i64,
+    drop_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if data_ptr.is_null() {
+        return;
+    }
+
+    // SSO check: high bit (bit 63) of the data pointer field is set for SSO strings.
+    // In OriStr, SSO strings store the data inline, and the "data pointer" field
+    // is actually the last 8 bytes of inline data with the high bit set as a flag.
+    if (data_ptr as usize) & (1_usize << 63) != 0 {
+        return;
+    }
+
+    if crate::slice_encoding::is_slice_cap(cap) {
+        // Seamless slice: data_ptr is an interior pointer into the original
+        // string's RC allocation. Compute the original data pointer and dec that.
+        let original = crate::slice_encoding::slice_original_data(data_ptr, cap);
+        ori_rc_dec(original, drop_fn);
+    } else {
+        // Normal heap string: data_ptr is the start of an RC allocation.
+        ori_rc_dec(data_ptr, drop_fn);
+    }
+}
+
 /// Call a drop function with abort-on-panic guard.
 ///
 /// `ori_rc_dec` is declared `nounwind` in LLVM IR, meaning unwinding through
@@ -260,8 +348,8 @@ pub(super) fn call_drop_fn(f: extern "C" fn(*mut u8), data_ptr: *mut u8) {
         f(data_ptr);
     }));
     if result.is_err() {
-        eprintln!("ori: drop function panicked — aborting (drop must not unwind)");
-        std::process::abort();
+        eprintln!("ori: drop function panicked — terminating (drop must not unwind)");
+        std::process::exit(SIGABRT_EXIT_CODE);
     }
 }
 

@@ -1,0 +1,106 @@
+// Valgrind fat matrix: F13 — Derived Eq on types with fat pointer fields.
+// Verifies $eq method codegen, field comparison, and RC during comparison.
+
+#derive(Eq)
+type WithStr = { name: str, count: int }
+
+#derive(Eq)
+type WithHeapStr = { label: str, value: int }
+
+#derive(Eq)
+type WithList = { items: [int], tag: int }
+
+#derive(Eq)
+type MultiFat = { name: str, id: int }
+
+#derive(Eq)
+type WithStrList = { items: [str] }
+
+#derive(Eq)
+type MapListVal = { m: {str: [int]} }
+
+// TPR-04-003: wrapper element types
+#derive(Eq)
+type WithOptList = { items: [Option<str>] }
+
+#derive(Eq)
+type WithOptField = { name: Option<str>, id: int }
+
+@main () -> int = {
+    // T4/T9: struct with SSO str — equal
+    let a1 = WithStr { name: "hello", count: 5 };
+    let b1 = WithStr { name: "hello", count: 5 };
+    let ok1 = a1 == b1;
+
+    // T4/T9: struct with SSO str — not equal
+    let c1 = WithStr { name: "world", count: 5 };
+    let ok2 = a1 != c1;
+
+    // T5/T9: struct with heap str
+    let a2 = WithHeapStr { label: "abcdefghijklmnopqrstuvwxyz1234", value: 1 };
+    let b2 = WithHeapStr { label: "abcdefghijklmnopqrstuvwxyz1234", value: 1 };
+    let ok3 = a2 == b2;
+
+    // T6/T9: struct with list
+    let a3 = WithList { items: [1, 2, 3], tag: 1 };
+    let b3 = WithList { items: [1, 2, 3], tag: 1 };
+    let ok4 = a3 == b3;
+
+    // Not equal list
+    let c3 = WithList { items: [1, 2, 4], tag: 1 };
+    let ok5 = a3 != c3;
+
+    // Multi-fat equal
+    let a4 = MultiFat { name: "test", id: 1 };
+    let b4 = MultiFat { name: "test", id: 1 };
+    let ok6 = a4 == b4;
+
+    // Direct str equality (not derived, but exercises runtime)
+    let ok7 = "hello" == "hello";
+    let ok8 = "abcdefghijklmnopqrstuvwxyz1234" == "abcdefghijklmnopqrstuvwxyz1234";
+
+    // BUG-04-03b: list of heap strings — deep equality via ori_list_eq_deep
+    let $list_a = WithStrList { items: ["aaaaaaaaaaaaaaaaaaaaaaaa1", "bbbbbbbbbbbbbbbbbbbbbbbb2"] };
+    let $list_b = WithStrList { items: ["aaaaaaaaaaaaaaaaaaaaaaaa1", "bbbbbbbbbbbbbbbbbbbbbbbb2"] };
+    let ok9 = list_a == list_b;
+
+    // BUG-04-03b: list of heap strings — not equal
+    let $list_c = WithStrList { items: ["aaaaaaaaaaaaaaaaaaaaaaaa1", "cccccccccccccccccccccccc3"] };
+    let ok10 = list_a != list_c;
+
+    // BUG-04-03b: empty list equality
+    let $empty_a = WithStrList { items: [] };
+    let $empty_b = WithStrList { items: [] };
+    let ok11 = empty_a == empty_b;
+
+    // BUG-04-03c: map with composite value type {str: [int]}
+    let $map_a = MapListVal { m: {"key": [10, 20]} };
+    let $map_b = MapListVal { m: {"key": [10, 20]} };
+    let ok12 = map_a == map_b;
+
+    // BUG-04-03c: map with composite value type — not equal
+    let $map_c = MapListVal { m: {"key": [10, 30]} };
+    let ok13 = map_a != map_c;
+
+    // TPR-04-003: list of Option<str> — deep equality on wrapper elements
+    let $opt_a = WithOptList { items: [Some("abcdefghijklmnopqrstuvwx"), None] };
+    let $opt_b = WithOptList { items: [Some("abcdefghijklmnopqrstuvwx"), None] };
+    let ok14 = opt_a == opt_b;
+
+    // TPR-04-003: Option<str> as direct struct field
+    let $of_a = WithOptField { name: Some("abcdefghijklmnopqrstuvwx"), id: 1 };
+    let $of_b = WithOptField { name: Some("abcdefghijklmnopqrstuvwx"), id: 1 };
+    let $of_c = WithOptField { name: None, id: 1 };
+    let ok15 = of_a == of_b;
+    let ok16 = of_a != of_c;
+
+    // TPR-04-005: [Named] list equality where Named has fat fields (str = 24 bytes)
+    let $ns_a = [MultiFat { name: "alice", id: 1 }, MultiFat { name: "bob has a very long name here", id: 2 }];
+    let $ns_b = [MultiFat { name: "alice", id: 1 }, MultiFat { name: "bob has a very long name here", id: 2 }];
+    let $ns_c = [MultiFat { name: "alice", id: 1 }, MultiFat { name: "charlie", id: 3 }];
+    let ok17 = ns_a == ns_b;
+    let ok18 = ns_a != ns_c;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && ok10 && ok11 && ok12 && ok13 && ok14 && ok15 && ok16 && ok17 && ok18
+        then 0 else 1
+}

@@ -33,13 +33,13 @@ The key characteristic of Ori's instruction selection is that the source IR is *
 
 The `ArcIrEmitter` is the **only** way Ori generates LLVM IR. Every function body — user-defined functions, derived trait methods, closure bodies, entry point wrappers — flows through the same emitter. There is no "direct" codegen path that bypasses ARC analysis, no "fast path" for simple functions, no separate handling for compiler-generated code.
 
-This single-path design was a deliberate architectural choice. An earlier version of the backend had a dual-path system: simple functions used a direct `ExprLowerer` that translated canonical expressions to LLVM IR without ARC analysis, while complex functions used the ARC pipeline. The dual-path system was removed (roughly 11,000 lines of code) because it was a constant source of bugs — the two paths would diverge on edge cases, producing correct code in one path and incorrect code in the other. The single ARC path eliminated this class of bugs entirely.
+This single-path design was a deliberate architectural choice. An earlier version of the backend had a dual-path system: simple functions used a direct `ExprLowerer` that translated canonical expressions to LLVM IR without ARC analysis, while complex functions used the AIMS pipeline. The dual-path system was removed (roughly 11,000 lines of code) because it was a constant source of bugs — the two paths would diverge on edge cases, producing correct code in one path and incorrect code in the other. The single ARC path eliminated this class of bugs entirely.
 
 ### RPO Block Emission
 
 Basic blocks are emitted in **Reverse Post-Order** (RPO), not in the order they appear in the ARC IR arrays. This ordering guarantee is necessary for correct SSA construction: in SSA form, every use of a value must be dominated by its definition, and RPO ensures that every block's dominators are visited before the block itself.
 
-RPO ordering is particularly important because the ARC pipeline's `expand_reuse` pass appends fast-path/slow-path/merge blocks whose terminators may target blocks that appear earlier in the array. Without RPO, the emitter might try to emit a branch to a block that hasn't been created yet, or build a PHI node for a block whose predecessors haven't been visited.
+RPO ordering is particularly important because the AIMS pipeline's `expand_reuse` pass appends fast-path/slow-path/merge blocks whose terminators may target blocks that appear earlier in the array. Without RPO, the emitter might try to emit a branch to a block that hasn't been created yet, or build a PHI node for a block whose predecessors haven't been visited.
 
 The RPO traversal is computed once from the ARC IR's control flow graph before emission begins: build a CFG adjacency list from terminators, compute post-order via iterative DFS, then reverse.
 
@@ -264,7 +264,7 @@ This separation means the emitter never needs to reason about variable liveness 
 
 ## Design Tradeoffs
 
-**Single codegen path vs. tiered compilation.** All functions go through ARC IR, even trivially simple ones that need no RC operations. A tiered approach — direct emission for simple functions, ARC pipeline for complex ones — would reduce compilation time for simple functions but would reintroduce the dual-path divergence bugs that motivated the single-path design. The ARC pipeline is fast enough for simple functions (an empty function produces a two-block, zero-instruction ARC function) that the simplicity benefit outweighs the speed cost.
+**Single codegen path vs. tiered compilation.** All functions go through ARC IR, even trivially simple ones that need no RC operations. A tiered approach — direct emission for simple functions, AIMS pipeline for complex ones — would reduce compilation time for simple functions but would reintroduce the dual-path divergence bugs that motivated the single-path design. The AIMS pipeline is fast enough for simple functions (an empty function produces a two-block, zero-instruction ARC function) that the simplicity benefit outweighs the speed cost.
 
 **RPO emission vs. natural order.** RPO traversal adds a pre-computation step (DFS + reversal) before emission. Emitting blocks in array order would be simpler but would produce incorrect SSA in cases where the `expand_reuse` pass creates blocks out of dominance order. The RPO computation is O(n) in the number of blocks and adds negligible time relative to the LLVM instruction emission.
 

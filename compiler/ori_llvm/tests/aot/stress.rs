@@ -363,6 +363,108 @@ fn test_stress_string_concat_varied() {
     );
 }
 
+// Semantic pin: capacity must not grow exponentially in repeated concat loops.
+// Before fix, 50 iterations produced 52TB allocations; now max ~210 bytes.
+#[test]
+fn test_stress_string_concat_loop_100() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "";
+    for i in 0..100 do {
+        s = s + "a"
+    };
+    if s.len() == 100 then 0 else 1
+}
+"#,
+        "stress_string_concat_loop_100",
+    );
+}
+
+#[test]
+fn test_stress_string_concat_two_per_iter() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "x";
+    for i in 0..100 do {
+        s = s + "." + "y"
+    };
+    // 1 + 100*2 = 201
+    if s.len() == 201 then 0 else 1
+}
+"#,
+        "stress_string_concat_two_per_iter",
+    );
+}
+
+#[test]
+fn test_stress_string_concat_three_per_iter() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "";
+    for i in 0..50 do {
+        s = s + "a" + "b" + "c"
+    };
+    // 50 * 3 = 150
+    if s.len() == 150 then 0 else 1
+}
+"#,
+        "stress_string_concat_three_per_iter",
+    );
+}
+
+#[test]
+fn test_stress_string_concat_with_interpolation() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "";
+    for i in 0..50 do {
+        s = s + "-"
+    };
+    if s.len() == 50 then 0 else 1
+}
+"#,
+        "stress_string_concat_with_interpolation",
+    );
+}
+
+#[test]
+fn test_stress_string_concat_empty_operands() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "hello";
+    for i in 0..100 do {
+        s = s + ""
+    };
+    if s.len() == 5 then 0 else 1
+}
+"#,
+        "stress_string_concat_empty_operands",
+    );
+}
+
+#[test]
+fn test_stress_string_concat_sso_to_heap() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    // Start within SSO (23 bytes), cross to heap, keep going
+    let s = "abcdefghij";
+    for i in 0..30 do {
+        s = s + "xy"
+    };
+    // 10 + 30*2 = 70
+    if s.len() == 70 then 0 else 1
+}
+"#,
+        "stress_string_concat_sso_to_heap",
+    );
+}
+
 // ─── List of structs ───
 
 #[test]

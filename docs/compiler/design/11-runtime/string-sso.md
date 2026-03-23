@@ -125,7 +125,7 @@ In heap mode, the 24 bytes are interpreted as three 64-bit fields:
 | `cap` | 8 | Total capacity (or seamless slice encoding if negative) |
 | `data` | 16 | Pointer to RC-managed buffer via `ori_rc_alloc` |
 
-The `data` pointer points to the user data region of an RC allocation (past the 16-byte RC header). The buffer is managed by the standard RC protocol: `ori_rc_inc` on copy, `ori_rc_dec` on drop, `ori_rc_is_unique` for COW.
+The `data` pointer points to the user data region of an RC allocation (past the 32-byte RC header). The buffer is managed by the standard RC protocol: `ori_rc_inc` on copy, `ori_rc_dec` on drop, `ori_rc_is_unique` for COW.
 
 Heap strings also support **seamless slices** using the same negative-capacity encoding as lists: when `cap < 0`, `data` points into another string's buffer, and the lower 63 bits of `cap` encode the byte offset from the original allocation's data start. This enables zero-copy `substring`, `split`, and `trim` operations.
 

@@ -2,7 +2,7 @@
 journey: 8
 slug: generics
 theme: "I am generic"
-date: 2026-03-07
+date: 2026-03-20
 status: PASS
 expected: 57
 eval_result: 57
@@ -23,11 +23,11 @@ features:
   - generic_structs
   - type_inference
 feature_description: "Generic functions, generic structs, monomorphization, and type inference"
-score: 9.8
+score: 10.0
 score_breakdown:
   instruction_efficiency: 10
   arc_correctness: 10
-  attributes_safety: 8
+  attributes_safety: 10
   control_flow: 10
   ir_quality: 10
   binary_quality: 10
@@ -38,7 +38,7 @@ score_metrics:
   arc_violations: 0
   arc_has_unbalanced: false
   arc_has_scalar_rc: false
-  attr_applicable: 23
+  attr_applicable: 21
   attr_correct: 21
   attr_has_wrong: false
   cf_defects: 0
@@ -226,6 +226,8 @@ Module
 > The ARC (Automatic Reference Counting) pipeline analyzes value lifetimes and
 > inserts reference counting operations. It performs borrow inference to minimize
 > RC overhead -- parameters that are only read can be borrowed rather than owned.
+> On the AIMS branch, analysis uses the unified lattice for intraprocedural and
+> interprocedural passes.
 
 **RC ops inserted**: 0 | **Elided**: 0 | **Net ops**: 0
 
@@ -233,10 +235,13 @@ Module
 <summary>ARC annotations</summary>
 
 ```text
-@identity$m$int: no heap values -- pure scalar passthrough
-@first$m$int_int: no heap values -- pure scalar passthrough
-@get_value$m$int: no heap values -- Box<int> is a value type (single i64 field)
-@main: no heap values -- all values are scalars (int)
+@identity$m$int: no heap values -- pure scalar passthrough (FBIP certified)
+@first$m$int_int: no heap values -- pure scalar passthrough (FBIP certified)
+@get_value$m$int: no heap values -- Box<int> is a value type (single i64 field, FBIP certified)
+@main: no heap values -- all values are scalars (int, FBIP certified)
+
+AIMS intraprocedural: all 4 functions converged in 1 iteration
+AIMS interprocedural: 4/4 user functions FIP-certified, 4/4 FBIP
 ```
 
 </details>
@@ -329,46 +334,53 @@ add.ovf_panic7:
   unreachable
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- first$m$int_int ---
-define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #0 {
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #1 {
 bb0:
   ret i64 %0
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- get_value$m$int ---
-define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box %0) #0 {
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) #1 {
 bb0:
   %proj.0 = extractvalue %ori.Box %0, 0
   ret i64 %proj.0
 }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(none) uwtable
 ; --- identity$m$int ---
-define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #0 {
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #1 {
 bb0:
   ret i64 %0
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
-declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #1
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
 
 ; Function Attrs: cold noreturn
-declare void @ori_panic_cstr(ptr) #2
+declare void @ori_panic_cstr(ptr) #3
 
-; Function Attrs: nounwind
-define i32 @main() #3 {
+; Function Attrs: nounwind uwtable
+define noundef i32 @main() #0 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
-  ret i32 %exit_code
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
 }
 
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
+
 attributes #0 = { nounwind uwtable }
-attributes #1 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
-attributes #2 = { cold noreturn }
-attributes #3 = { nounwind }
+attributes #1 = { nounwind memory(none) uwtable }
+attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
 ```
 
 #### Disassembly
@@ -376,26 +388,26 @@ attributes #3 = { nounwind }
 ```asm
 _ori_main:
   sub    $0x28,%rsp
-  mov    $0x2a,%edi
+  mov    $0x2a,%edi           ; identity(42)
   call   _ori_identity$m$int
-  mov    %rax,0x10(%rsp)
-  mov    $0xa,%edi
+  mov    %rax,0x10(%rsp)      ; save a
+  mov    $0xa,%edi            ; first(10, 20)
   mov    $0x14,%esi
   call   _ori_first$m$int_int
-  mov    %rax,0x8(%rsp)
-  mov    $0x5,%edi
+  mov    %rax,0x8(%rsp)       ; save b
+  mov    $0x5,%edi            ; get_value(Box{5})
   call   _ori_get_value$m$int
   mov    0x8(%rsp),%rcx
   mov    %rax,%rdx
   mov    0x10(%rsp),%rax
   mov    %rdx,0x18(%rsp)
-  add    %rcx,%rax
+  add    %rcx,%rax            ; a + b
   mov    %rax,0x20(%rsp)
   seto   %al
   jo     .ovf_panic1
   mov    0x18(%rsp),%rcx
   mov    0x20(%rsp),%rax
-  add    %rcx,%rax
+  add    %rcx,%rax            ; (a+b) + c
   mov    %rax,(%rsp)
   seto   %al
   jo     .ovf_panic2
@@ -426,6 +438,12 @@ _ori_identity$m$int:
 main:
   push   %rax
   call   _ori_main
+  mov    %eax,0x4(%rsp)       ; save exit code
+  call   ori_check_leaks      ; RC leak detection
+  mov    %eax,%ecx
+  mov    0x4(%rsp),%eax
+  cmp    $0x0,%ecx
+  cmovne %ecx,%eax            ; use leak code if nonzero
   pop    %rcx
   ret
 ```
@@ -460,20 +478,23 @@ All four monomorphized functions produce the minimum possible instruction count.
 | @get_value$m$int | 0 | 0 | YES | N/A | N/A |
 | @main | 0 | 0 | YES | N/A | N/A |
 
-**Verdict**: No heap values in any function. All operations are on scalars (i64) or value-type structs (Box<int> = single i64). Zero RC operations. OPTIMAL.
+**Verdict**: No heap values in any function. All operations are on scalars (i64) or value-type structs (Box<int> = single i64). Zero RC operations. OPTIMAL. AIMS interprocedural analysis confirms all 4 functions as FIP/FBIP certified.
 
 ### 3. Attributes & Calling Convention
 
-| Function | fastcc | nounwind | uwtable | noundef(ret) | noundef(params) | Notes |
-|----------|--------|----------|---------|--------------|-----------------|-------|
-| @identity$m$int | YES | YES | YES | YES | YES (1/1) | |
-| @first$m$int_int | YES | YES | YES | YES | YES (2/2) | |
-| @get_value$m$int | YES | YES | YES | YES | NO (0/1) | [LOW-1] |
-| @main (entry) | N/A | YES | YES | YES | N/A | |
-| @main (wrapper) | N/A | YES | N/A | NO | N/A | [LOW-2] |
-| ori_panic_cstr | N/A | N/A | N/A | N/A | cold=YES, noreturn=YES | |
+| Function | fastcc | nounwind | uwtable | memory | noundef(ret) | noundef(params) | Notes |
+|----------|--------|----------|---------|--------|--------------|-----------------|-------|
+| @identity$m$int | YES | YES | YES | none | YES | YES (1/1) | |
+| @first$m$int_int | YES | YES | YES | none | YES | YES (2/2) | |
+| @get_value$m$int | YES | YES | YES | none | YES | YES (1/1) | [NOTE-3] |
+| @main (entry) | N/A | YES | YES | N/A | YES | N/A | |
+| @main (wrapper) | N/A | YES | YES | N/A | YES | N/A | |
+| ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | cold=YES, noreturn=YES | |
+| ori_check_leaks | N/A | N/A | N/A | N/A | N/A | nounwind=YES | |
 
-**Compliance**: 21/23 applicable attributes correct (91.3%).
+**Compliance**: 21/21 applicable attributes correct (100.0%).
+
+All three monomorphized helper functions share the `memory(none)` attribute, correctly recognizing that `identity` and `first` are pure passthrough functions and that `get_value`'s `extractvalue` on a by-value struct argument is also a pure operation (no memory load needed -- the struct is passed in registers).
 
 ### 4. Control Flow & Block Layout
 
@@ -502,9 +523,9 @@ Both integer additions in `@main` are checked with `@llvm.sadd.with.overflow.i64
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.25 MiB (debug) |
-| .text section | 868.6 KiB |
+| .text section | 869.6 KiB |
 | .rodata section | 133.5 KiB |
-| User code | 158 bytes (4 user fns + wrapper) |
+| User code | 157 bytes (4 user fns + wrapper) |
 | Runtime | >99.9% of .text |
 
 #### Disassembly: @identity$m$int
@@ -551,11 +572,11 @@ _ori_main:
   mov    %rax,0x8(%rsp)       ; save b
   mov    $0x5,%edi            ; get_value(Box{5})
   call   _ori_get_value$m$int
-  ; ... overflow-checked additions ...
+  ; ... overflow-checked a + b, then (a+b) + c ...
   ret
 ```
 
-31 instructions, 125 bytes (debug build). All spills to stack are expected at -O0.
+31 instructions, 137 bytes (debug build). All spills to stack are expected at -O0.
 
 ### 7. Optimal IR Comparison
 
@@ -563,14 +584,14 @@ _ori_main:
 
 ```llvm
 ; IDEAL (1 instruction)
-define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) nounwind {
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) nounwind memory(none) {
   ret i64 %0
 }
 ```
 
 ```llvm
 ; ACTUAL (1 instruction)
-define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #0 {
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #1 {
 bb0:
   ret i64 %0
 }
@@ -582,14 +603,14 @@ bb0:
 
 ```llvm
 ; IDEAL (1 instruction)
-define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) nounwind {
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) nounwind memory(none) {
   ret i64 %0
 }
 ```
 
 ```llvm
 ; ACTUAL (1 instruction)
-define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #0 {
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #1 {
 bb0:
   ret i64 %0
 }
@@ -601,7 +622,7 @@ bb0:
 
 ```llvm
 ; IDEAL (2 instructions)
-define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box %0) nounwind {
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) nounwind memory(none) {
   %v = extractvalue %ori.Box %0, 0
   ret i64 %v
 }
@@ -609,7 +630,7 @@ define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box %0) nounwind {
 
 ```llvm
 ; ACTUAL (2 instructions)
-define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box %0) #0 {
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) #1 {
 bb0:
   %proj.0 = extractvalue %ori.Box %0, 0
   ret i64 %proj.0
@@ -621,7 +642,7 @@ bb0:
 #### @main: Ideal vs Actual
 
 ```llvm
-; IDEAL (16 instructions — with overflow checking)
+; IDEAL (16 instructions -- with overflow checking)
 define noundef i64 @_ori_main() nounwind {
   %a = call fastcc i64 @"_ori_identity$24m$24int"(i64 42)
   %b = call fastcc i64 @"_ori_first$24m$24int_int"(i64 10, i64 20)
@@ -648,7 +669,7 @@ panic2:
 
 ```llvm
 ; ACTUAL (16 instructions)
-; [identical structure to ideal — see Generated LLVM IR section above]
+; [identical structure to ideal -- see Generated LLVM IR section above]
 ```
 
 **Delta**: +0 instructions. OPTIMAL.
@@ -662,7 +683,7 @@ panic2:
 | @get_value$m$int | 2 | 2 | +0 | N/A | OPTIMAL |
 | @main | 16 | 16 | +0 | N/A | OPTIMAL |
 
-### 8. Generics: Monomorphization
+### 8. Generics: Monomorphization Quality
 
 This journey tests the compiler's monomorphization pipeline -- how generic functions are specialized to concrete types at compile time.
 
@@ -687,42 +708,51 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 
 5. **Single-field struct optimization**: `Box<int>` is a single-field struct containing `i64`. The compiler passes it directly in a register (via `%ori.Box { i64 5 }` as a literal argument). At the machine level, field extraction is a no-op -- all three helper functions compile to identical `mov %rdi, %rax; ret`.
 
+6. **Memory attribute precision**: All three monomorphized helper functions are marked `memory(none)` -- correctly recognizing that `identity` and `first` are pure passthrough functions, and that `get_value`'s `extractvalue` on a by-value struct argument is also a pure operation (no memory load needed since the struct is passed in registers).
+
+7. **AIMS pipeline integration**: All 4 functions converge in a single intraprocedural iteration with zero cross-dimension interactions. The interprocedural pass certifies all 4 as FIP (frame-independent) and FBIP (fully borrowing), confirming that monomorphization introduces no hidden allocation or reference counting overhead.
+
+8. **RC leak detection in entry wrapper**: The `main()` C wrapper now integrates `ori_check_leaks()` to detect RC leaks at program exit. If any leaks are detected, the leak check exit code overrides the program's exit code. For this journey, no leaks are possible (all values are scalars), so the leak check always returns 0 and the program exit code 57 passes through unchanged.
+
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | LOW | Attributes | Missing noundef on %ori.Box parameter of @get_value$m$int | NEW | J8 |
-| 2 | LOW | Attributes | Missing noundef on @main wrapper return value | CONFIRMED | J1 |
-| 3 | NOTE | Monomorphization | Zero-cost abstraction: all generic functions compile to optimal IR | NEW | J8 |
-| 4 | NOTE | Instruction Purity | All 4 user functions at exactly 1.00x ratio | NEW | J8 |
+| 1 | NOTE | Monomorphization | Zero-cost abstraction: all generic functions compile to optimal IR | CONFIRMED | J8 |
+| 2 | NOTE | Instruction Purity | All 4 user functions at exactly 1.00x ratio | CONFIRMED | J8 |
+| 3 | NOTE | Attributes | All helper functions memory(none) -- correct for by-value struct extractvalue | CONFIRMED | J8 |
+| 4 | NOTE | Attributes | Full 100% attribute compliance (21/21) | CONFIRMED | J8 |
+| 5 | NOTE | Binary | RC leak detection integrated into entry wrapper | NEW | J8 |
 
-### LOW-1: Missing noundef on %ori.Box parameter of @get_value$m$int
-
-**Location**: `@"_ori_get_value$24m$24int"(%ori.Box %0)` -- parameter %0 lacks `noundef`
-**Impact**: LLVM cannot assume the struct value is well-defined, preventing certain optimizations
-**Fix**: Mark struct parameters with `noundef` when all fields are defined types
-**First seen**: Journey 8
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### LOW-2: Missing noundef on @main wrapper return value
-
-**Location**: `define i32 @main() #3` -- return type lacks `noundef`
-**Impact**: Minor -- LLVM may not optimize the return path as aggressively
-**Fix**: Add `noundef` to the i32 return type of the C main wrapper
-**First seen**: Journey 1
-**Found in**: Attributes & Calling Convention (Category 3)
-
-### NOTE-3: Zero-cost abstraction achieved
+### NOTE-1: Zero-cost abstraction achieved
 
 **Location**: All monomorphized functions
 **Impact**: Positive -- generics add zero runtime overhead
-**Found in**: Generics: Monomorphization (Category 8)
+**Found in**: Generics: Monomorphization Quality (Category 8)
 
-### NOTE-4: Perfect instruction efficiency across all functions
+### NOTE-2: Perfect instruction efficiency across all functions
 
 **Location**: All 4 user functions
 **Impact**: Positive -- every function achieves the theoretical minimum instruction count
 **Found in**: Instruction Purity (Category 1)
+
+### NOTE-3: get_value correctly marked memory(none)
+
+**Location**: `@"_ori_get_value$24m$24int"` shares attribute group `#1 = { nounwind memory(none) uwtable }` with `identity` and `first`
+**Impact**: Positive -- the AIMS pipeline correctly recognizes that `extractvalue` on a by-value struct argument performs no memory access. This enables LLVM to treat `get_value` as fully pure for optimization purposes.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-4: Full attribute compliance maintained
+
+**Location**: All functions
+**Impact**: Positive -- 21/21 applicable attributes correct across all user functions, entry points, and runtime declarations. 100% compliance.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-5: RC leak detection in entry wrapper
+
+**Location**: `@main()` C wrapper now calls `ori_check_leaks()` after `_ori_main()` returns
+**Impact**: Positive -- provides runtime verification that no RC leaks occur. The wrapper uses `select` to override the exit code if leaks are detected. For this scalar-only journey, the check is a no-op but validates the leak detection infrastructure.
+**Found in**: Binary Analysis (Category 6)
 
 ## Codegen Quality Score
 
@@ -730,17 +760,17 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
 | ARC Correctness | 20% | 10/10 | 0 violations |
-| Attributes & Safety | 10% | 8/10 | 91.3% compliance |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
 | Binary Quality | 10% | 10/10 | 0 defects |
 | Other Findings | 15% | 10/10 | No uncategorized findings |
 
-**Overall: 9.8 / 10**
+**Overall: 10.0 / 10**
 
 ## Verdict
 
-Journey 8's generics codegen is near-perfect. Monomorphization produces fully specialized functions that are indistinguishable from hand-written equivalents -- all four user functions achieve the theoretical minimum instruction count (1.00x ratio). The generic struct `Box<T>` is lowered to an efficient single-field LLVM struct type passed directly in registers. The only imperfections are two missing `noundef` attributes: one on a struct parameter and one on the C main wrapper return. ARC is irrelevant for this journey since all values are scalars or value-type structs with zero heap allocation.
+Journey 8's generics codegen achieves a perfect score. Monomorphization produces fully specialized functions indistinguishable from hand-written equivalents -- all four user functions hit the theoretical minimum instruction count (1.00x ratio across the board). The three helper functions all carry `memory(none)`, correctly recognizing that `identity`, `first`, and `get_value` (which uses `extractvalue` on a by-value struct) are pure operations. The entry wrapper now integrates `ori_check_leaks()` for runtime RC leak detection, confirming zero leaks for this scalar-only journey.
 
 ## Cross-Journey Observations
 
@@ -749,7 +779,9 @@ Journey 8's generics codegen is near-perfect. Monomorphization produces fully sp
 | Overflow checking | J1 | J8 | CONFIRMED |
 | fastcc usage | J1 | J8 | CONFIRMED |
 | nounwind on all user functions | J1 | J8 | CONFIRMED |
-| Missing noundef on @main wrapper | J1 | J8 | CONFIRMED |
+| noundef on @main wrapper return | J1 | J8 | CONFIRMED |
 | Struct field access via extractvalue | J4 | J8 | CONFIRMED |
+| memory(none) on pure functions | J8 | J8 | CONFIRMED |
+| RC leak detection in entry wrapper | J8 | J8 | NEW |
 
-The monomorphization pipeline is the highlight of this journey. Unlike previous journeys that tested runtime features, this journey validates a compile-time transformation. The compiler correctly specializes all three generic patterns (identity function, projection function, and struct field accessor) to their optimal concrete forms. The `Box<int>` struct type demonstrates that generic structs are also fully specialized, with the single `i64` field accessed via a zero-cost `extractvalue` instruction.
+The monomorphization pipeline remains the highlight of this journey. All user functions achieve OPTIMAL instruction counts with zero overhead from generics. The `Box<int>` struct type demonstrates optimal behavior -- a single `i64` field accessed via zero-cost `extractvalue` at the IR level and a simple register move at the machine level. The new `ori_check_leaks()` integration in the entry wrapper adds runtime leak verification without affecting user code quality.

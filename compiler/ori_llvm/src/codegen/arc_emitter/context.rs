@@ -5,7 +5,10 @@
 //! - [`InvokeMode`] — call vs invoke dispatch control
 //! - [`CodegenContext`] — shared function-resolution lookup tables
 //! - [`is_boxed_enum_field`] — recursive enum field detection
+//! - [`is_callee_intercepted`] — callee interception check shared by nounwind analysis and emission
 
+use ori_arc::ir::ValueRepr;
+use ori_arc::ownership::Ownership;
 use ori_ir::Name;
 use ori_types::{Idx, Pool, Tag};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -13,8 +16,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use super::super::abi::FunctionAbi;
 use super::super::value_id::{BlockId, FunctionId, ValueId};
 use crate::codegen::arc_emitter::ArcIrEmitter;
-
-use ori_arc::ir::ValueRepr;
+use crate::codegen::type_info::TypeInfoStore;
 
 // Recursive enum detection
 
@@ -24,12 +26,98 @@ use ori_arc::ir::ValueRepr;
 /// resolved enum type — meaning the field must be RC-boxed when stored in the
 /// enum payload. Layout: stored as an 8-byte RC pointer instead of inline.
 ///
+/// Checks `Tag::Enum`, `Tag::Result`, and `Tag::Option` — the three enum-like
+/// tags that could contain recursive self-references requiring RC boxing.
+/// Currently only `Tag::Enum` can be self-recursive, but `Result`/`Option` are
+/// included defensively for forward-compatibility with future type system changes.
+///
 /// Only handles direct self-recursion (e.g., `type Tree = Node(Tree, Tree)`).
 /// Mutual recursion (`type A = X(B)`, `type B = Y(A)`) is not yet supported.
 pub(super) fn is_boxed_enum_field(pool: &Pool, enum_type: Idx, field_type: Idx) -> bool {
     let enum_resolved = pool.resolve_fully(enum_type);
     let field_resolved = pool.resolve_fully(field_type);
-    pool.tag(enum_resolved) == Tag::Enum && enum_resolved == field_resolved
+    matches!(
+        pool.tag(enum_resolved),
+        Tag::Enum | Tag::Result | Tag::Option
+    ) && enum_resolved == field_resolved
+}
+
+// Callee interception detection
+
+/// Check if a callee will be intercepted by builtin handlers during emission.
+///
+/// Intercepted calls always emit `call` (never `invoke`), so they are
+/// effectively nounwind from the caller's perspective. Shared by both
+/// [`FunctionCompiler::is_arc_function_nounwind`] (nounwind analysis) and
+/// [`ArcIrEmitter::callee_will_be_intercepted`] (emission).
+///
+/// The six checks, in order:
+/// 1. Format call interceptor (`ori_format_*` prefix)
+/// 2. Prelude function interceptor (exact name match)
+/// 3. Protocol builtins (`__iter_next`, `__collect_set`, `__index`)
+/// 4. Declared user functions — NOT intercepted (normal dispatch)
+/// 5. Runtime functions (`ori_*`, `__*`) — NOT intercepted
+/// 6. Builtin method heuristic: receiver is a builtin type and callee is not
+///    in the method dispatch chain
+pub(crate) fn is_callee_intercepted(
+    callee_name: &str,
+    callee: Name,
+    args: &[ori_arc::ir::ArcVarId],
+    func: &ori_arc::ArcFunction,
+    ctx: &CodegenContext,
+    type_info: &TypeInfoStore<'_>,
+) -> bool {
+    use super::builtins::prelude::HANDLED_PRELUDE_NAMES;
+
+    // Format call interceptor
+    if callee_name.starts_with("ori_format_") {
+        return true;
+    }
+    // Prelude function interceptor
+    if HANDLED_PRELUDE_NAMES.contains(&callee_name) {
+        return true;
+    }
+    // All protocol builtins are nounwind (iterator creation/cleanup don't
+    // panic), so they're always safe to emit as `call` rather than `invoke`.
+    // Some (Index, IterNext, CollectSet) are also intercepted by
+    // try_emit_protocol(); others (Iter, IterDrop) go through normal
+    // function dispatch but are still nounwind.
+    if ori_ir::builtin_constants::protocol::ProtocolBuiltin::from_name(callee_name).is_some() {
+        return true;
+    }
+    // Declared user functions use normal dispatch — NOT intercepted
+    if ctx.functions.contains_key(&callee) {
+        return false;
+    }
+    // Runtime functions have their own emission paths — NOT intercepted
+    if callee_name.starts_with("ori_") || callee_name.starts_with("__") {
+        return false;
+    }
+    // Monomorphized generic dispatch: callee name resolves to a generic
+    // function via lookup_mono_dispatch() during emission — NOT intercepted.
+    // Without this check, a generic call like `identity(s)` where `s: str`
+    // would fall through to the builtin method heuristic (str receiver →
+    // true), incorrectly treating a may-unwind user function as intercepted.
+    if ctx.mono_dispatch.contains_key(&callee) {
+        return false;
+    }
+    // Builtin method: receiver is a builtin type and not in method_functions
+    if let Some(&first_arg) = args.first() {
+        let receiver_ty = func.var_type(first_arg);
+        let info = type_info.get(receiver_ty);
+        if info.builtin_type_name().is_some() {
+            if let Some(type_name) = ctx.type_idx_to_name.get(&receiver_ty) {
+                if !ctx.method_functions.contains_key(&(*type_name, callee)) {
+                    return true;
+                }
+            } else {
+                // Builtin type but no type_idx_to_name entry — method
+                // dispatch chain can't resolve it, will be intercepted.
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Tagged LLVM value carrying its memory representation.
@@ -166,6 +254,19 @@ pub struct CodegenContext {
     /// ABI (`ccc` + phantom `ptr` env param) so `PartialApply` can point
     /// directly at them without generating a `_ori_partial_N` trampoline.
     pub non_capturing_lambdas: FxHashSet<Name>,
+    /// Per-lambda capture ownership: which captures are borrowed vs owned.
+    ///
+    /// When a lambda borrows a capture parameter, the closure's env drop
+    /// function must NOT RC-dec that capture — the caller retains ownership.
+    /// Maps lambda `Name` → ownership of each capture param (indexed by
+    /// position in the `PartialApply` args list).
+    pub lambda_capture_ownership: FxHashMap<Name, Vec<Ownership>>,
+    /// Known-pure function names (no memory effects). These get the LLVM
+    /// `memory(none)` attribute, enabling aggressive optimization.
+    pub pure_functions: FxHashSet<Name>,
+    /// Known read-only function names (reads memory, no writes). These get
+    /// the LLVM `memory(read)` attribute. Strictly weaker than `pure_functions`.
+    pub readonly_functions: FxHashSet<Name>,
 }
 
 // Re-export convenience method on ArcIrEmitter for use by submodules
@@ -174,7 +275,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Check if a field type creates a direct recursive reference within an enum.
     ///
     /// Convenience wrapper around [`is_boxed_enum_field`] using the emitter's pool.
-    #[allow(
+    #[expect(
         dead_code,
         reason = "convenience for submodules that don't have direct pool access"
     )]

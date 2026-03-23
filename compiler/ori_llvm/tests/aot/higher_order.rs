@@ -618,3 +618,321 @@ fn test_hof_two_noncapturing_in_different_functions() {
         "hof_two_noncapturing_diff_fns",
     );
 }
+
+// Closure captures of non-scalar (fat pointer) types.
+//
+// These tests verify that lambdas capturing heap-allocated values (str, [T])
+// have correct RC management. The root cause of the bug was that
+// declare_and_process_lambda() did not apply AIMS param ownership to lambda
+// params before running the ARC pipeline, causing collect_all_borrowed_defs()
+// to miss borrowed params and their Let aliases. Edge cleanup then emitted
+// spurious RcDec for borrowed-param aliases, causing double-free.
+
+/// Closure capturing a heap-allocated str (>23 bytes, exceeds SSO).
+/// Without the fix, `ori_rc_dec` is called on already-freed allocation.
+#[test]
+fn test_closure_capture_heap_str() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "this is a long string that exceeds SSO threshold of twenty three bytes";
+    let f = () -> s.length();
+    if f() == 70 then 0 else 1
+}
+"#,
+        "closure_capture_heap_str",
+    );
+}
+
+/// Closure capturing `[int]` and calling `.length()`.
+#[test]
+fn test_closure_capture_list() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let f = () -> xs.length();
+    if f() == 5 then 0 else 1
+}
+"#,
+        "closure_capture_list",
+    );
+}
+
+/// Closure with str capture and a str parameter — the J17 pattern.
+#[test]
+fn test_closure_capture_str_with_param() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let prefix = "hello world prefix that exceeds SSO limit by far";
+    let f = s -> prefix.length() + s.length();
+    if f("world") == 53 then 0 else 1
+}
+"#,
+        "closure_capture_str_with_param",
+    );
+}
+
+/// Closure passed as argument with a heap str capture — higher-order with
+/// fat pointer capture.
+#[test]
+fn test_closure_passed_with_str_capture() {
+    assert_aot_success(
+        r#"
+@apply (f: (str) -> int, s: str) -> int = f(s);
+
+@main () -> int = {
+    let prefix = "a very long prefix string that exceeds SSO threshold";
+    let f = s -> prefix.length() + s.length();
+    if apply(f: f, s: "world") == 57 then 0 else 1
+}
+"#,
+        "closure_passed_with_str_capture",
+    );
+}
+
+/// Multiple non-scalar captures (str + [int]).
+#[test]
+fn test_closure_multi_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "hello world with extra padding to exceed SSO threshold";
+    let xs = [1, 2, 3];
+    let f = () -> s.length() + xs.length();
+    if f() == 57 then 0 else 1
+}
+"#,
+        "closure_multi_capture",
+    );
+}
+
+/// Closure capturing another closure and calling it.
+///
+/// The outer closure's env holds `{ drop_fn, inner_closure }` where
+/// `inner_closure` is `{ fn_ptr, env_ptr }`. The env drop function
+/// must extract `env_ptr` from the inner closure, not pass the whole
+/// `{ ptr, ptr }` to `ori_rc_dec`. Semantic pin for closure-in-closure RC.
+#[test]
+fn test_closure_capturing_closure() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $inner = (x: int) -> int = x * 2;
+    let $outer = () -> int = inner(x: 21);
+    if outer() == 42 then 0 else 1
+}
+"#,
+        "closure_capturing_closure",
+    );
+}
+
+/// Nested closures — outer captures str, inner captures outer's captured str.
+#[test]
+fn test_nested_closure_fat_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $s = "hello world and then some extra text for heap allocation";
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    if outer() == 56 then 0 else 1
+}
+"#,
+        "nested_closure_fat_capture",
+    );
+}
+
+/// Closure returned from a function with a fat pointer capture.
+#[test]
+fn test_closure_returned_from_function() {
+    assert_aot_success(
+        r#"
+@make_greeter (greeting: str) -> (str) -> str = {
+    name -> `{greeting}, {name}!`
+}
+
+@main () -> int = {
+    let $greet = make_greeter(greeting: "Hello");
+    let $result = greet("world");
+    if result == "Hello, world!" then 0 else 1
+}
+"#,
+        "closure_returned_from_function",
+    );
+}
+
+/// Closure capturing `Option<str>` and pattern matching on it.
+#[test]
+fn test_closure_capturing_option_str_match() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $opt = Some("hello");
+    let $f = () -> int = {
+        match opt {
+            Some(s) -> s.length(),
+            None -> 0,
+        }
+    };
+    if f() == 5 then 0 else 1
+}
+"#,
+        "closure_capturing_option_str_match",
+    );
+}
+
+// Nested closure RC matrix — covers double-free regression from wrapper
+// RcInc fix. Every test exercises a different type through the nested-capture
+// path: outer closure captures a value, inner closure re-captures it.
+
+/// Semantic pin: nested closure with str capture (the exact pattern that caused
+/// the double-free). Without the wrapper `RcInc` fix, this crashes with
+/// "`ori_rc_dec` called on already-freed allocation".
+#[test]
+fn test_nested_closure_str_semantic_pin() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $s = "this string is long enough to be heap allocated definitely";
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    let $result = outer();
+    if result == 58 then 0 else 1
+}
+"#,
+        "nested_closure_str_semantic_pin",
+    );
+}
+
+/// Nested closure capturing a list (fat pointer, RC-tracked).
+#[test]
+fn test_nested_closure_list_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $xs = [10, 20, 30, 40, 50];
+    let $outer = () -> int = {
+        let $inner = () -> int = xs.length();
+        inner()
+    };
+    if outer() == 5 then 0 else 1
+}
+"#,
+        "nested_closure_list_capture",
+    );
+}
+
+/// Nested closure capturing a closure (closure-in-closure-in-closure).
+#[test]
+fn test_nested_closure_closure_capture() {
+    assert_aot_success(
+        r#"
+@add_n (n: int) -> (int) -> int = x -> x + n;
+
+@main () -> int = {
+    let $f = add_n(n: 10);
+    let $outer = () -> int = {
+        let $inner = () -> int = f(5);
+        inner()
+    };
+    if outer() == 15 then 0 else 1
+}
+"#,
+        "nested_closure_closure_capture",
+    );
+}
+
+/// Nested closure with multiple captures (str + int).
+#[test]
+fn test_nested_closure_multi_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $s = "hello world plus extra text to force heap allocation here";
+    let $n = 42;
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length() + n;
+        inner()
+    };
+    if outer() == 99 then 0 else 1
+}
+"#,
+        "nested_closure_multi_capture",
+    );
+}
+
+/// Three levels of nested closure capture (outer → middle → inner).
+#[test]
+fn test_triple_nested_closure_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let $s = "triple nested closure test with heap string allocation";
+    let $outer = () -> int = {
+        let $middle = () -> int = {
+            let $inner = () -> int = s.length();
+            inner()
+        };
+        middle()
+    };
+    if outer() == 54 then 0 else 1
+}
+"#,
+        "triple_nested_closure_capture",
+    );
+}
+
+/// Semantic pin: nested closure re-captures a borrowed `str` parameter.
+/// The outer function receives `s` as a parameter (borrowed), the outer closure
+/// captures it, and the inner closure re-captures it. This exercises the
+/// `lambda_capture_ownership` path for borrowed-vs-owned capture handling
+/// (`define_phase.rs`, `context.rs`, `closures.rs`).
+#[test]
+fn test_nested_closure_borrowed_str_param() {
+    assert_aot_success(
+        r#"
+@make_getter (s: str) -> () -> int = {
+    let $outer = () -> int = {
+        let $inner = () -> int = s.length();
+        inner()
+    };
+    outer
+}
+
+@main () -> int = {
+    let $f = make_getter(s: "borrowed parameter string that is long enough for heap allocation");
+    if f() == 65 then 0 else 1
+}
+"#,
+        "nested_closure_borrowed_str_param",
+    );
+}
+
+/// Nested closure re-captures a borrowed `[int]` parameter — second RC-managed
+/// type through the same borrowed-parameter re-capture path.
+#[test]
+fn test_nested_closure_borrowed_list_param() {
+    assert_aot_success(
+        r#"
+@make_counter (xs: [int]) -> () -> int = {
+    let $outer = () -> int = {
+        let $inner = () -> int = xs.length();
+        inner()
+    };
+    outer
+}
+
+@main () -> int = {
+    let $f = make_counter(xs: [10, 20, 30, 40, 50, 60, 70]);
+    if f() == 7 then 0 else 1
+}
+"#,
+        "nested_closure_borrowed_list_param",
+    );
+}

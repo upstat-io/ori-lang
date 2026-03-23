@@ -15,7 +15,7 @@ The idea dates to George Collins' 1960 paper on list processing, making referenc
 
 Reference counting has a fundamental advantage over tracing garbage collection: **deterministic destruction**. When the last reference to an object disappears, the object is freed immediately — not at some later point when a garbage collector decides to run. This determinism makes resource management predictable (file handles close when expected, network connections release promptly) and eliminates the pause-time problem that plagues tracing collectors.
 
-The tradeoff is overhead: every copy increments, every scope exit decrements, and in a multithreaded program, these operations must be atomic. The [ARC analysis pass](../09-arc-system/index.md) exists to minimize this overhead through static analysis — eliminating redundant operations, inferring borrowed parameters, and enabling in-place mutation through uniqueness detection. But the operations that survive static optimization must actually execute at runtime, and this chapter describes the implementation of those operations.
+The tradeoff is overhead: every copy increments, every scope exit decrements, and in a multithreaded program, these operations must be atomic. The [AIMS analysis pass](../09-aims/index.md) exists to minimize this overhead through static analysis — eliminating redundant operations, inferring borrowed parameters, and enabling in-place mutation through uniqueness detection. But the operations that survive static optimization must actually execute at runtime, and this chapter describes the implementation of those operations.
 
 ### Atomic vs Non-Atomic
 
@@ -25,12 +25,18 @@ The standard approach, used by Rust's `Arc`, Swift's `swift_retain`/`swift_relea
 
 ## RC Header Layout
 
-Every RC-managed allocation uses a 16-byte header placed immediately before the user data:
+Every RC-managed allocation uses a 32-byte header placed immediately before the user data:
 
 ```mermaid
 flowchart LR
-    subgraph Header ["RC Header (16 bytes)"]
+    subgraph Header ["RC Header (32 bytes)"]
         DS["data_size
+        i64 (8 bytes)
+        offset: ptr - 32"]
+        ED["elem_dec_fn
+        ptr (8 bytes)
+        offset: ptr - 24"]
+        EC["elem_count
         i64 (8 bytes)
         offset: ptr - 16"]
         SC["strong_count
@@ -43,28 +49,30 @@ flowchart LR
         (variable length)"]
     end
 
-    DS --> SC --> UD
+    DS --> ED --> EC --> SC --> UD
 
     classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
-    class DS,SC,UD native
+    class DS,EC,SC,UD native
 ```
 
 The layout as a conceptual struct:
 
 ```
 struct RcHeader {
-    data_size: i64,     // offset -16 from data_ptr
-    strong_count: i64,  // offset -8 from data_ptr
+    data_size: i64,        // offset -32 from data_ptr
+    elem_dec_fn: *fn,      // offset -24 from data_ptr
+    elem_count: i64,       // offset -16 from data_ptr
+    strong_count: i64,     // offset -8 from data_ptr
 }
 ```
 
 Three design decisions shape this layout:
 
-**Data pointer, not header pointer.** `ori_rc_alloc` returns a pointer to the user data — past the header — not to the allocation base. The runtime recovers the header by subtracting 16 bytes from the data pointer. This provides C FFI transparency: callers see a normal data pointer and can pass it directly to external C functions without adjustment. This matches Swift's approach (where `HeapObject*` points past the metadata) and contrasts with CPython (where `PyObject*` points to the refcount).
+**Data pointer, not header pointer.** `ori_rc_alloc` returns a pointer to the user data — past the header — not to the allocation base. The runtime recovers the header by subtracting 32 bytes from the data pointer. This provides C FFI transparency: callers see a normal data pointer and can pass it directly to external C functions without adjustment. This matches Swift's approach (where `HeapObject*` points past the metadata) and contrasts with CPython (where `PyObject*` points to the refcount).
 
 **`data_size` in the header.** Storing the allocation size in the header rather than requiring callers to pass it to every RC operation is essential for seamless slices. A slice holds an interior pointer into another allocation's buffer. When the slice is the last reference and the underlying allocation must be freed, the runtime needs the allocation's size for `dealloc` — and the slice does not know this size. The header provides it.
 
-**Natural alignment of `strong_count`.** The `data_size` field preceding `strong_count` ensures the count is always 8-byte aligned without additional padding. This matters because atomic operations on misaligned addresses cause faults on some architectures (ARM, RISC-V) and performance penalties on others (x86 with split cache lines).
+**Natural alignment of `strong_count`.** All header fields are 8-byte i64 or pointer values, so `strong_count` is always 8-byte aligned without additional padding. This matters because atomic operations on misaligned addresses cause faults on some architectures (ARM, RISC-V) and performance penalties on others (x86 with split cache lines).
 
 ## Core Operations
 
@@ -76,12 +84,14 @@ ori_rc_alloc(size: i64, align: i64) -> *mut u8
 
 Allocates a new RC-managed block and returns the data pointer:
 
-1. Computes total allocation: `RC_HEADER_SIZE + size` (where `RC_HEADER_SIZE = 16`)
+1. Computes total allocation: `RC_HEADER_SIZE + size` (where `RC_HEADER_SIZE = 32`)
 2. Allocates via `std::alloc::alloc` with alignment `max(align, 8)`
 3. Writes `data_size = size` at offset 0
-4. Writes `strong_count = 1` at offset 8 (the initial reference belongs to the caller)
-5. Increments `RC_LIVE_COUNT` (atomic, for leak detection)
-6. Returns `alloc_ptr + 16`
+4. Writes `elem_dec_fn = null` at offset 8 (caller may set later)
+5. Writes `elem_count = 0` at offset 16
+6. Writes `strong_count = 1` at offset 24 (the initial reference belongs to the caller)
+7. Increments `RC_LIVE_COUNT` (atomic, for leak detection)
+8. Returns `alloc_ptr + 32`
 
 The minimum alignment of 8 bytes is enforced regardless of the requested alignment. This ensures the `strong_count` field is always aligned for atomic operations, even when the caller requests 1-byte alignment for byte buffers.
 
@@ -132,7 +142,7 @@ This Release-decrement / Acquire-fence-before-drop protocol is the standard sync
 - C++'s `shared_ptr` (both libstdc++ and libc++)
 - Lean 4's `lean_dec_ref` ([Lean runtime](https://github.com/leanprover/lean4/blob/master/src/runtime/object.h))
 
-**Drop callback.** If `drop_fn` is `Some`, it is called with the data pointer before deallocation. This handles recursive RC decrements for nested heap-allocated values. For example, a list of strings needs to decrement each string's RC before freeing the list buffer — the drop function walks the elements and calls `ori_rc_dec` on each one. The LLVM backend generates type-specialized drop functions for each concrete type (see [Drop Descriptors](../09-arc-system/drop-descriptors.md)).
+**Drop callback.** If `drop_fn` is `Some`, it is called with the data pointer before deallocation. This handles recursive RC decrements for nested heap-allocated values. For example, a list of strings needs to decrement each string's RC before freeing the list buffer — the drop function walks the elements and calls `ori_rc_dec` on each one. The LLVM backend generates type-specialized drop functions for each concrete type (see [Drop Descriptors](../09-aims/drop-descriptors.md)).
 
 **Null safety.** `ori_rc_dec(null, _)` is a no-op, matching `ori_rc_inc`.
 
@@ -167,10 +177,10 @@ ori_rc_realloc(data_ptr: *mut u8, old_size: i64, new_size: i64, align: i64) -> *
 
 Resizes an RC-managed buffer. This function **requires unique ownership** — the caller must have verified `ori_rc_is_unique` beforehand:
 
-1. Computes old and new layouts including the 16-byte header
+1. Computes old and new layouts including the 32-byte header
 2. Calls `std::alloc::realloc` on the header pointer
 3. Updates `data_size` in the header to `new_size`
-4. Returns the new data pointer (`realloc_result + 16`)
+4. Returns the new data pointer (`realloc_result + 32`)
 
 If reallocation fails, the process aborts. There is no fallible reallocation API — out-of-memory is treated as unrecoverable, matching Rust's default allocator behavior.
 
@@ -192,7 +202,7 @@ Unconditionally deallocates an RC-managed buffer without checking the reference 
 ori_rc_data_size(data_ptr: *mut u8) -> i64
 ```
 
-Reads the `data_size` field from the header at `data_ptr - 16`. Used by slice operations that need the underlying buffer's allocation size for deallocation without the caller passing it explicitly.
+Reads the `data_size` field from the header at `data_ptr - 32`. Used by slice operations that need the underlying buffer's allocation size for deallocation without the caller passing it explicitly.
 
 ## Synchronization Model
 
@@ -279,7 +289,7 @@ The tracing check uses `OnceLock` to read the environment variable once and cach
 
 ## Interaction with ARC Analysis
 
-The ARC analysis pass determines statically where `ori_rc_inc` and `ori_rc_dec` calls belong. The runtime provides the actual implementations. The contract between them:
+The AIMS analysis pass determines statically where `ori_rc_inc` and `ori_rc_dec` calls belong. The runtime provides the actual implementations. The contract between them:
 
 1. Every value produced by `ori_rc_alloc` starts with count 1
 2. Every additional use requires an `ori_rc_inc`
@@ -290,7 +300,7 @@ The runtime performs no reachability analysis or cycle detection. Cycles are pre
 
 ## Prior Art
 
-**Rust's [`Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html)** uses the same Release/Acquire synchronization protocol. The key difference is that `Arc` is a library type with inline operations — there is no runtime function to call. Each `Arc::clone()` and `Arc::drop()` inlines the atomic operation at the call site. Ori uses runtime functions instead because the ARC analysis pass needs a single call target for each operation, and the LLVM backend generates calls to these targets.
+**Rust's [`Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html)** uses the same Release/Acquire synchronization protocol. The key difference is that `Arc` is a library type with inline operations — there is no runtime function to call. Each `Arc::clone()` and `Arc::drop()` inlines the atomic operation at the call site. Ori uses runtime functions instead because the AIMS analysis pass needs a single call target for each operation, and the LLVM backend generates calls to these targets.
 
 **Swift's [`swift_retain`/`swift_release`](https://github.com/swiftlang/swift/blob/main/stdlib/public/runtime/HeapObject.cpp)** are the closest analogs to `ori_rc_inc`/`ori_rc_dec`. Swift's refcount word packs additional information — a pinned flag, unowned reference count, and weak reference count — into the same 64-bit word using bit fields. Ori's simpler single-counter design reflects the absence of weak references and pinning in Ori's memory model.
 
@@ -300,9 +310,9 @@ The runtime performs no reachability analysis or cycle detection. Cycles are pre
 
 ## Design Tradeoffs
 
-**16-byte header vs smaller headers.** Some RC implementations use smaller headers — Swift packs refcount data into 8 bytes using bit fields, Lean uses a combined tag/refcount word. Ori uses 16 bytes because storing `data_size` alongside `strong_count` enables seamless slice deallocation without external bookkeeping. The 8-byte cost per allocation is modest — a program with 10,000 live heap objects uses 80 KB of header overhead.
+**32-byte header vs smaller headers.** Some RC implementations use smaller headers — Swift packs refcount data into 8 bytes using bit fields, Lean uses a combined tag/refcount word. Ori uses 32 bytes because storing `data_size`, `elem_dec_fn`, `elem_count`, and `strong_count` together enables seamless slice deallocation, full-range element cleanup, and self-describing cleanup without external bookkeeping. The 24-byte cost per allocation beyond the refcount is modest — a program with 10,000 live heap objects uses 240 KB of header overhead.
 
-**Data pointer vs header pointer.** Returning the data pointer (past the header) rather than the header pointer adds a subtraction to every RC operation (`ptr - 8` to reach the count). The benefit is FFI transparency — data pointers can be passed to C functions without adjustment, and the common operation (accessing data) requires no offset calculation. The subtraction is a single LEA instruction on x86, with zero latency impact due to address generation units.
+**Data pointer vs header pointer.** Returning the data pointer (past the header) rather than the header pointer adds a subtraction to every RC operation (`ptr - 8` to reach the count, `ptr - 32` to reach the size). The benefit is FFI transparency — data pointers can be passed to C functions without adjustment, and the common operation (accessing data) requires no offset calculation. The subtraction is a single LEA instruction on x86, with zero latency impact due to address generation units.
 
 **Always-on underflow detection.** Checking for underflow on every decrement adds a branch. The alternative — only checking in debug mode — risks silent corruption in release builds. The branch is always not-taken in correct programs, so branch prediction makes it effectively free. The cost of the check (~0.5ns per decrement) is negligible compared to the cost of debugging memory corruption from an undetected double-free.
 

@@ -98,14 +98,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "index",
         );
 
-        Some(self.builder.load(elem_llvm_ty, out_alloca, "index.val"))
+        let elem_val = self.builder.load(elem_llvm_ty, out_alloca, "index.val");
+
+        // ori_list_get does a raw memcpy — the extracted element shares
+        // the collection's RC children (e.g., str data pointers) without
+        // incrementing their RC. Emit RcInc on the extracted element so
+        // the caller owns its own reference. The AIMS pipeline will emit
+        // RcDec when the element goes out of scope, which balances this inc.
+        if !self.classifier.is_scalar(elem_ty) {
+            self.inc_value_rc(elem_val, elem_ty, 1);
+        }
+
+        Some(elem_val)
     }
 
-    /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size, elem_dec_fn)`.
+    /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size)`.
     ///
     /// The iterator takes ownership of one RC reference to the list data buffer.
-    /// When the iterator is consumed/dropped, the runtime's `Drop for IterState`
-    /// calls `ori_buffer_rc_dec` to release the reference.
+    /// The caller is responsible for ensuring the buffer RC is incremented before
+    /// this call (via ARC arg-ownership for explicit `.iter()`, or via
+    /// `emit_slice_aware_rc_inc` in `emit_auto_iter` for auto-promoted methods).
+    /// When the iterator is consumed/dropped, `Drop for IterState` calls
+    /// `ori_buffer_rc_dec` to release this reference.
+    ///
+    /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
+    /// `elem_dec_fn` from the V5 RC header at cleanup time (Section 02.1).
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
@@ -119,15 +136,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
 
-        // Generate the per-element dec function for RC-managed element types.
-        // For scalar elements (int, float, etc.) this is null.
-        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[data_ptr, len, cap, elem_size_val, elem_dec_fn],
-            "list.iter",
-        )
+        self.emit_rt_call(func_id, &[data_ptr, len, cap, elem_size_val], "list.iter")
     }
     /// Emit `list.slice(start, end)` — zero-copy seamless slice.
     ///

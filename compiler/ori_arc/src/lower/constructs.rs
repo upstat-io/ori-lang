@@ -107,8 +107,12 @@ impl ArcLowerer<'_> {
                 self.interner.intern("ori_panic_cstr")
             };
 
+            // Panic functions raise exceptions via _Unwind_RaiseException.
+            // Use Invoke (not Apply) so the ARC pipeline can generate cleanup
+            // landing pads for RC-managed variables on the unwind path.
+            // The normal continuation is unreachable (panic never returns).
             self.builder
-                .emit_apply(Idx::UNIT, fn_name, vec![val], Some(span));
+                .emit_invoke(Idx::UNIT, fn_name, vec![val], Some(span));
         } else {
             let msg = self.interner.intern("explicit panic");
             let msg_var = self.builder.emit_let(
@@ -118,9 +122,12 @@ impl ArcLowerer<'_> {
             );
             let fn_name = self.interner.intern("ori_panic_cstr");
             self.builder
-                .emit_apply(Idx::UNIT, fn_name, vec![msg_var], Some(span));
+                .emit_invoke(Idx::UNIT, fn_name, vec![msg_var], Some(span));
         }
 
+        // emit_invoke already created normal + unwind blocks and positioned
+        // at the normal block. Terminate the normal block as unreachable
+        // (panic never returns on the normal path).
         self.builder.terminate_unreachable();
         self.emit_unit_in_new_block()
     }
@@ -145,7 +152,7 @@ impl ArcLowerer<'_> {
         );
         let fn_name = self.interner.intern("ori_panic_cstr");
         self.builder
-            .emit_apply(Idx::UNIT, fn_name, vec![msg_var], Some(span));
+            .emit_invoke(Idx::UNIT, fn_name, vec![msg_var], Some(span));
         self.builder.terminate_unreachable();
         self.emit_unit_in_new_block()
     }

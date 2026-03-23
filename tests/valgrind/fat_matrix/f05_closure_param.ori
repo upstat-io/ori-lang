@@ -1,0 +1,60 @@
+// Valgrind fat matrix: F05 — Fat pointer types passed through closure calls.
+// Verifies RC correctness when fat values are passed as closure parameters.
+//
+// NOTE: Higher-order lambda (closure taking closure+str) excluded due to
+// AIMS lambda naming collision bug — when multiple parent functions each
+// define __lambda_0, ownership annotations cross-contaminate. The pattern
+// is tested in isolation by AOT test f05_closure_param::test_fm_closure_param_higher_order.
+
+type Named = { name: str, id: int };
+
+@test_str_sso () -> bool = {
+    let f = (s: str) -> int = s.length();
+    f("hello") == 5
+}
+
+@test_str_heap () -> bool = {
+    let f = (s: str) -> int = s.length();
+    f("abcdefghijklmnopqrstuvwxyz1234") == 30
+}
+
+@test_list_scalar () -> bool = {
+    let f = (xs: [int]) -> int = xs.length();
+    f([1, 2, 3]) == 3
+}
+
+@test_list_fat () -> bool = {
+    let f = (xs: [str]) -> int = xs.length();
+    f(["hello", "world"]) == 2
+}
+
+@test_struct_fat () -> bool = {
+    let f = (n: Named) -> int = n.name.length() + n.id;
+    f(Named { name: "alice", id: 1 }) == 6
+}
+
+@test_map () -> bool = {
+    let f = (m: {str: int}) -> int = m.length();
+    f({"a": 1, "b": 2}) == 2
+}
+
+@test_tuple () -> bool = {
+    let f = (t: (str, int)) -> int = {
+        let (s, n) = t;
+        s.length() + n
+    };
+    f(("hello", 42)) == 47
+}
+
+@main () -> int = {
+    let ok1 = test_str_sso();
+    let ok2 = test_str_heap();
+    let ok3 = test_list_scalar();
+    let ok4 = test_list_fat();
+    let ok5 = test_struct_fat();
+    let ok6 = test_map();
+    let ok7 = test_tuple();
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7
+        then 0 else 1
+}

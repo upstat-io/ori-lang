@@ -1,0 +1,5 @@
+// Valgrind: str.split(sep:) returning [str]
+@main () -> void = {
+    let parts = "hello world test".split(sep: " ");
+    if parts.len() != 3 then panic(msg: "wrong part count");
+}

@@ -1,0 +1,64 @@
+// Valgrind fat matrix: F06 — Pattern matching on fat pointer types.
+// Verifies decision tree codegen, extractvalue, and variant offset correctness.
+
+type Named = { name: str, id: int }
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int) | Label(text: str);
+type FatShape = Tagged(label: str, size: int) | Plain(value: int);
+
+@main () -> int = {
+    // T4: match on Option<str> — Some SSO
+    let r1 = match Some("hi") {
+        Some(s) -> s.length(),
+        None -> 0,
+    };
+    let ok1 = r1 == 2;
+
+    // T5: match on Option<str> — Some heap
+    let r2 = match Some("abcdefghijklmnopqrstuvwxyz1234") {
+        Some(s) -> s.length(),
+        None -> 0,
+    };
+    let ok2 = r2 == 30;
+
+    // T16: match on Option<str> — None
+    let none_str: Option<str> = None;
+    let r3 = match none_str {
+        Some(s) -> s.length(),
+        None -> 99,
+    };
+    let ok3 = r3 == 99;
+
+    // T9: match struct with fat fields
+    let n = Named { name: "alice", id: 1 };
+    let r4 = match n {
+        { name, id } -> name.length() + id,
+    };
+    let ok4 = r4 == 6;
+
+    // Sum type with str payload — variant offset correctness
+    let shape = Label(text: "hello");
+    let r5 = match shape {
+        Circle(radius) -> radius,
+        Rectangle(width, height) -> width + height,
+        Label(text) -> text.length(),
+    };
+    let ok5 = r5 == 5;
+
+    // Fat variant with str-first field
+    let fs = Tagged(label: "test", size: 42);
+    let r6 = match fs {
+        Tagged(label, size) -> label.length() + size,
+        Plain(value) -> value,
+    };
+    let ok6 = r6 == 46;
+
+    // Multiple match arms, each with fat values
+    let r7 = match [1, 2, 3].length() {
+        3 -> "three".length(),
+        _ -> 0,
+    };
+    let ok7 = r7 == 5;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok7
+        then 0 else 1
+}

@@ -196,33 +196,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Inc a fat value (str = `{i64 len, i64 cap, ptr data}`).
     ///
-    /// Data pointer is always at field 2. SSO strings (inline, no heap)
-    /// are detected by the MSB of the data pointer field and skipped.
+    /// Calls `ori_str_rc_inc(data, cap)` which handles SSO, heap, and seamless
+    /// slices from `str.split()`. The runtime function checks for `SLICE_FLAG`
+    /// in cap and finds the original buffer for slices.
     pub(super) fn emit_rc_inc_fat(&mut self, var: ori_arc::ir::ArcVarId, count: u32) {
         let val = self.var(var);
         let Some(data_ptr) = self.builder.extract_value(val, 2, "rc_inc.fat_data") else {
             return;
         };
-        let do_inc = self
+        let cap = self
             .builder
-            .append_block(self.current_function, "rc_inc.heap");
-        let skip = self
-            .builder
-            .append_block(self.current_function, "rc_inc.sso_skip");
-        let is_sso = self.emit_sso_check(data_ptr, "rc_inc");
-        self.builder.cond_br(is_sso, skip, do_inc);
-
-        self.builder.position_at_end(do_inc);
-        self.call_rc_inc_all(&[data_ptr], count);
-        self.builder.br(skip);
-
-        self.builder.position_at_end(skip);
+            .extract_value(val, 1, "rc_inc.fat_cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        self.call_str_rc_inc(data_ptr, cap, count);
     }
 
-    /// Dec a fat value.
+    /// Dec a fat value (str = `{i64 len, i64 cap, ptr data}`).
     ///
-    /// Data pointer at field 2, drop function from the variable's type.
-    /// SSO strings are detected and skipped (no heap allocation to free).
+    /// Calls `ori_str_rc_dec(data, cap, drop_fn)` which handles SSO, heap, and
+    /// seamless slices from `str.split()`. The runtime function checks for
+    /// `SLICE_FLAG` in cap and finds the original buffer for slices.
     pub(super) fn emit_rc_dec_fat(
         &mut self,
         var: ori_arc::ir::ArcVarId,
@@ -233,21 +226,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let Some(data_ptr) = self.builder.extract_value(val, 2, "rc_dec.fat_data") else {
             return;
         };
-        let do_dec = self
+        let cap = self
             .builder
-            .append_block(self.current_function, "rc_dec.heap");
-        let skip = self
-            .builder
-            .append_block(self.current_function, "rc_dec.sso_skip");
-        let is_sso = self.emit_sso_check(data_ptr, "rc_dec");
-        self.builder.cond_br(is_sso, skip, do_dec);
-
-        self.builder.position_at_end(do_dec);
+            .extract_value(val, 1, "rc_dec.fat_cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
         let drop_fn = self.get_or_generate_drop_fn(ty);
-        self.call_rc_dec_all(&[data_ptr], drop_fn);
-        self.builder.br(skip);
-
-        self.builder.position_at_end(skip);
+        self.call_str_rc_dec(data_ptr, cap, drop_fn);
     }
 
     /// Check if a string's data pointer field indicates SSO (inline storage).
@@ -262,6 +246,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         prefix: &str,
     ) -> super::ValueId {
         let i64_ty = self.builder.i64_type();
+        // Single ptrtoint — reuse for both SSO check and null check.
         let ptr_int = self
             .builder
             .ptr_to_int(data_ptr, i64_ty, &format!("{prefix}.p2i"));
@@ -273,10 +258,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let is_sso = self
             .builder
             .icmp_ne(masked, zero, &format!("{prefix}.is_sso"));
-        // Also skip if null (empty heap strings)
+        // Reuse ptr_int for null check (avoids duplicate ptrtoint)
         let is_null = self
             .builder
-            .is_null_ptr(data_ptr, &format!("{prefix}.null"));
+            .icmp_eq(ptr_int, zero, &format!("{prefix}.is_null"));
         self.builder
             .or(is_sso, is_null, &format!("{prefix}.skip_rc"))
     }
