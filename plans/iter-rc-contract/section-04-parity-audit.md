@@ -25,7 +25,7 @@ sections:
 
 # Section 04: For-Do / For-Yield Parity Audit
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Systematically compare for-do and for-yield ARC IR for all 6 implemented element types (5 list + 1 map; `Set<str>` deferred until type exists), confirming that both loop variants produce identical RC semantics. Document any remaining differences and justify them.
 
 **Context:** After Sections 02 and 03 fix the two bugs, this audit verifies the fixes produce correct results across the full element-type spectrum. For-do and for-yield have different purposes (side effects vs list building), so their ARC IR will differ structurally. But the RC operations on the SOURCE COLLECTION must be semantically identical: 1 alloc, 1 inc (for iterator), 2 decs (iterator drop + AIMS cleanup).

@@ -19,7 +19,7 @@ sections:
 
 # Section 01: Root Cause Analysis & Design
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Fully document the two interacting bugs -- NULL `elem_dec_fn` in `emit_list_iter()` and the spurious extra `RcDec` in for-yield lowering -- tracing each from root cause through the pipeline to the observable failure. No code changes in this section; it establishes the analysis that drives Sections 02-06.
 
 **Context:** The iterator-collection RC ownership contract has two bugs that interact destructively. Bug 1 (NULL `elem_dec_fn`) means that whichever dec reaches zero on the list buffer will fail to clean up elements with RC children (str, nested lists, closures, etc.), causing memory leaks. Bug 2 (for-yield spurious RcDec) means the AIMS pipeline emits 3 decs for 2 incs on the source collection, causing a double-free. Together, they mean for-yield on `[str]` or `[Option<str>]` both leaks elements AND double-frees the buffer.

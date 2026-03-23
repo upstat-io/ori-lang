@@ -25,7 +25,7 @@ sections:
 
 # Section 05: Comprehensive Test Matrix
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Build a combinatorial test matrix covering 6 implemented element types (Set<str> deferred until type exists), 8 iteration patterns, and 2 loop variants. 93 tests: 81 active + 12 ignored (catch type inference bug). Every valid combination must have an AOT test that verifies correct output AND correct RC behavior (no leaks, no double-frees).
 
 **Context:** The bugs in Sections 02-03 were discovered through specific element type + pattern combinations. A comprehensive matrix prevents regression and catches interactions between element types and loop structures that unit tests miss.

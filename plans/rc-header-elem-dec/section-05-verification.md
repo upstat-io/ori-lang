@@ -6,8 +6,8 @@ goal: "Full verification pass, confirm test stability, re-run code journeys, upd
 depends_on: ["04"]
 reviewed: true
 third_party_review:
-  status: none
-  updated: null
+  status: resolved
+  updated: 2026-03-22
 sections:
   - id: "05.1"
     title: "Verify Test Stability"
@@ -130,7 +130,11 @@ Re-run code journeys J15-J17 using the `/code-journey` skill (via the Skill tool
 
 ## 05.R Third Party Review Findings
 
-- None.
+- [x] `[TPR-05-001][medium]` `plans/iter-rc-contract/00-overview.md:4` — Section 05 claims the stale `plans/iter-rc-contract/` references were swept, but the current tree still leaves that plan in contradictory states: the index is `status: resolved`, while the overview remains `status: in-progress`, `section-01-root-cause.md` still says `**Status:** Not Started`, and Sections 04-06 still say `**Status:** In Progress`.
+  Resolved: Fixed on 2026-03-22. Updated all iter-rc-contract plan files: overview frontmatter `status: complete`, section-01/04/05/06 body text aligned to `**Status:** Complete`.
+
+- [x] `[TPR-05-002][low]` `compiler/ori_llvm/src/codegen/arc_emitter/context.rs:80` — The new `ProtocolBuiltin::Iter` / `IterDrop` follow-up is not fully synchronized across the LLVM emitter. `try_emit_protocol()` explicitly declines to intercept those variants (`apply_protocols.rs:64-69`), but the shared `is_callee_intercepted()` helper still treats every `ProtocolBuiltin` as intercepted. Current behavior is masked because `iter` falls through to builtin-method emission and `ori_iter_drop` is already declared `nounwind`, but the shared dispatch model and its “single source of truth” comments are now false.
+  Resolved: Fixed on 2026-03-22. Added `ProtocolBuiltin::is_intercepted()` (returns false for Iter/IterDrop, true for others) and `is_nounwind()` test coverage. Updated `is_callee_intercepted()` comment to explain that ALL protocol builtins are nounwind (safe as `call`), while only some are intercepted by `try_emit_protocol()`. Updated `apply_protocols.rs` module doc to distinguish these two concepts.
 
 ---
 
@@ -173,3 +177,7 @@ Re-run code journeys J15-J17 using the `/code-journey` skill (via the Skill tool
 - [x] `plans/fat-pointer-hardening/index.md` Section 01 entry says "Complete"
 - [x] `plans/rc-integrity/section-02-leak-fixes.md` body says "Complete"
 - [x] `plans/iter-rc-contract/index.md` Section 03 entry says "Complete"
+- [x] `plans/iter-rc-contract/` overview and section body/frontmatter statuses align with the resolved index and completion claims
+
+### Sync Integrity
+- [x] `ProtocolBuiltin` dispatch metadata matches the actual LLVM emission path for every variant (`Iter` / `IterDrop` included)

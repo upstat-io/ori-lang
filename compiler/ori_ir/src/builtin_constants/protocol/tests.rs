@@ -50,3 +50,23 @@ fn collect_set_ownership_is_owned() {
     let ownership = ProtocolBuiltin::CollectSet.arg_ownership();
     assert_eq!(ownership[0], ProtocolArgOwnership::Owned);
 }
+
+#[test]
+fn is_intercepted_matches_dispatch() {
+    // Iter and IterDrop go through normal function dispatch, not protocol intercept.
+    assert!(!ProtocolBuiltin::Iter.is_intercepted());
+    assert!(!ProtocolBuiltin::IterDrop.is_intercepted());
+    // All others are intercepted by try_emit_protocol().
+    assert!(ProtocolBuiltin::Index.is_intercepted());
+    assert!(ProtocolBuiltin::IterNext.is_intercepted());
+    assert!(ProtocolBuiltin::CollectSet.is_intercepted());
+}
+
+#[test]
+fn is_intercepted_exhaustive() {
+    // Ensure every variant has a defined interception status.
+    for &pb in ProtocolBuiltin::ALL {
+        // Just calling is_intercepted() proves the match is exhaustive.
+        let _ = pb.is_intercepted();
+    }
+}
