@@ -14,7 +14,7 @@
 //! # Cross-Reference
 //!
 //! - Trait features: `plans/roadmap/section-03-traits.md`
-//! - Module checker design: `plans/types_v2/section-08b-module-checker.md`
+//! - Module checker design: `ori_types/src/check/mod.rs`
 
 mod builtin_types;
 mod consts;

@@ -630,7 +630,7 @@ fn test_arc_alias_chain_three_way_use() {
 // - Path-sensitive cleanup (Switch / branch successors)
 // - Exact RcInc placement in the unified forward walk
 //
-// Ref: plans/aims/section-08-verification.md §08.5 Matrix A
+// AIMS verification Matrix A: RC placement correctness
 
 // A1: Scalar Project from aliased scrutinee.
 // catch(expr:) returns Result<str, str>. Matching on the result creates an

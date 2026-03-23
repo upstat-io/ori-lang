@@ -17,7 +17,7 @@
 //!
 //! # References
 //!
-//! - Section 10 of the AIMS plan (`plans/aims/section-10-unified-realization.md`)
+//! - AIMS unified realization (Perceus-inspired RC + reuse)
 //! - Perceus (Reinking et al., PLDI 2021): unified RC + reuse
 //! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
 

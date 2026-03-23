@@ -421,7 +421,6 @@ pub enum FipContract {
     /// `FIPTree`'s `fip(n)` pattern — e.g., tree insertion allocates exactly
     /// one node (`Bounded(1)`). Compiler-inferred from allocation balance
     /// tracking (`allocs - reuses = n`), not a user annotation.
-    /// (See: plans/aims-literature-review/section-03-fiptree.md)
     Bounded(u16),
 }
 
