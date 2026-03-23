@@ -56,6 +56,8 @@ Rust's niche optimization is the gold standard. We study and match it.
 
 A "niche" is an invalid bit pattern in a type. If an enum variant's payload has a niche, we can use it to encode a different variant, eliminating the explicit tag.
 
+**Layout boundary note:** Internal runtime representations such as `FatPointer`, `str`, `[T]`, `{K:V}`, `Set<T>`, closures, and ranges are exempt from §06 field reordering. They are represented by dedicated `MachineRepr` / `TypeInfo` variants, not by `MachineRepr::Struct`, so `field_index: 2` on `FatPointer` is stable unless this section explicitly changes that dedicated runtime layout.
+
 - [ ] Define `Niche`:
   ```rust
   pub struct Niche {

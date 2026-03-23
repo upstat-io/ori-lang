@@ -33,7 +33,7 @@ sections:
 
 # Section 11: Collection Specialization
 
-**Context:** Collections are Ori's most common heap allocation. Every `str`, `[T]`, `{K:V}`, and `{T}` allocates on the heap today. For small collections, the allocation overhead (8-byte RC header + heap pointer indirection) dominates the actual data. SSO and SVO eliminate this overhead for the common case.
+**Context:** Collections remain one of Ori's most common allocation surfaces, but the current baseline is mixed: `str` already uses the 24-byte SSO-capable `OriStr` representation, while `[T]`, `{K:V}`, and `{T}` still use heap-backed 24-byte headers plus RC-managed backing storage with the V5 32-byte RC header. This section therefore starts as an audit/regression-guard pass for the existing string path, then adds new collection optimizations (SVO, packed bool arrays, narrow-element backing stores) on top of that baseline.
 
 **Reference implementations:**
 - **C++ libstdc++** `basic_string.h`: 15-byte inline buffer in the string object itself
@@ -50,6 +50,11 @@ sections:
 **File(s):** `compiler/ori_rt/src/string/` (existing module — SSO already implemented), `compiler/ori_llvm/src/codegen/type_info/info.rs`
 
 **NOTE:** SSO is already implemented in `ori_rt/src/string/` using `OriStrSSO` (inline <=23 bytes) / `OriStrHeap` (heap mode) with `SSO_FLAG` and `SSO_MAX_LEN`. This section is an **audit and completion task**, not greenfield implementation. Remaining work: (1) verify SSO is fully integrated with LLVM codegen, (2) ensure all string operations preserve SSO mode when possible, (3) measure actual SSO hit rates on real programs.
+
+**Verified current coverage (2026-03-23):**
+- `compiler/ori_rt/src/tests.rs` already contains extensive SSO runtime coverage
+- `compiler/ori_llvm/tests/aot/string_sso.rs` already passes with 45 AOT tests
+- `TypeInfo::Str` already lowers to a 24-byte `{ i64, i64, ptr }`-compatible storage shape in `compiler/ori_llvm/src/codegen/type_info/info.rs`
 
 Current `str` representation: SSO-enabled `OriStr` union (24 bytes, inline ≤23 bytes / heap for longer strings).
 Previous representation was `{ len: i64, data: *const u8 }` (16 bytes, heap-allocated data).
@@ -87,7 +92,7 @@ SSO representation: 24 bytes total, dual-mode (see `ori_rt/src/string/mod.rs`):
   ```
 
 > **CODEBASE NOTE — TypeInfo::Str (`compiler/ori_llvm/src/codegen/type_info/info.rs:49`):**
-> `TypeInfo::Str` is currently documented as `{i64 len, i64 cap, ptr data}`. The SSO `OriStr` is a union with the same 24-byte footprint. Verify whether `storage_type()` for `TypeInfo::Str` actually returns the union type or just the heap struct type. If it returns the heap struct only, the SSO union needs a separate LLVM type for the inline case.
+> `TypeInfo::Str` already returns a 24-byte `{i64 len, i64 cap, ptr data}`-compatible storage shape. That is layout-compatible with the current `OriStr` union, so this subsection is about preserving and testing that contract, not reintroducing a new 24-byte type from scratch.
 
 - [ ] LLVM codegen changes — verify each is correctly implemented in `ori_llvm`:
   - [ ] **String creation codegen** (`arc_emitter/construction.rs`): when the source is a string literal of known length ≤ 23, emit the inline `OriStrSSO` struct directly (no `ori_rc_alloc` call). When length is unknown or > 23, use the existing heap path.
@@ -95,7 +100,7 @@ SSO representation: 24 bytes total, dual-mode (see `ori_rt/src/string/mod.rs`):
   - [ ] **String access codegen** (`arc_emitter/`): every string field read must emit a branch on the SSO flag (high bit of byte 23). Verify this is done via `ori_str_len` and `ori_str_data` calls — not raw GEP+load which would bypass SSO mode detection.
   - [ ] **String concat**: verify `ori_str_concat` correctly handles all 4 cases: (inline+inline)→inline, (inline+inline)→heap, (heap+inline)→heap, (heap+heap)→heap. Check that the result fits in SSO when both inputs fit.
   - [ ] **String drop**: `arc_emitter/drop_gen.rs` must check SSO flag before emitting `ori_rc_dec` — inline strings have no RC header and must not call `ori_rc_dec`. Add a test verifying no `ori_rc_dec` call for a function that only uses short string literals.
-  - [ ] **TypeInfo LLVM type**: `type_info/info.rs` must return the 24-byte `OriStr` LLVM struct type for `TypeInfo::Str`, not the old 16-byte `{ i64, i64, ptr }`. Verify with a `size_of_val` assertion in tests.
+  - [ ] **TypeInfo LLVM type regression guard**: keep `TypeInfo::Str` at the current 24-byte layout-compatible shape and add/keep tests that fail if it regresses toward the old 16-byte model
 
 - [ ] ARC interaction:
   - Inline strings have NO RC header — they're value types (copy on assignment)
@@ -222,11 +227,12 @@ When §04 narrows an element type (e.g., `int` → `i8`), the collection's backi
 | `[bool]` with 1M elements | ~125KB (vs ~1MB unpacked) | Yes — 8× compression |
 | `[int]` where elements are `0..255` | `[i8]` backing store (§04+§11 co-opt) | Yes |
 
-- [ ] Strings ≤ 23 bytes use SSO (no heap allocation)
+- [ ] Existing strings ≤ 23 bytes remain SSO (no regression from the current baseline)
 - [ ] Empty lists use inline mode (no heap allocation)
 - [ ] `[bool]` uses 1 bit per element (verified by memory measurement)
 - [ ] `[int]` with bounded elements uses narrow backing store
 - [ ] SSO strings correctly handle concat, slice, and iteration
+- [ ] Existing SSO suites remain green: `compiler/ori_rt` runtime SSO tests and `compiler/ori_llvm/tests/aot/string_sso.rs`
 - [ ] SVO lists correctly handle push, pop, and growth
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green

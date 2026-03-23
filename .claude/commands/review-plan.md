@@ -17,7 +17,7 @@ The `reviewed: true/false` field in section frontmatter is a **pre-implementatio
 **Two modes — the mode determines whether `reviewed` gets flipped:**
 
 **Single-section review** (`/review-plan plans/foo/section-03.md`):
-This is the pre-implementation gate. You're validating one section right before working on it. After agents confirm ALL technical claims are accurate, flip `reviewed: true`. If fixes were needed, leave `reviewed: false` — fixes need their own validation pass.
+This is the pre-implementation gate. You're validating one section right before working on it. After all 4 agents complete, flip `reviewed: true` — the sequential pipeline IS the validation (Agent 1 fixes issues, Agents 2-4 each verify the updated plan against the codebase). The only exception: if agents flagged issues they could NOT fix (requiring human judgement), leave `reviewed: false`.
 
 **Whole-plan review** (`/review-plan plans/foo/`):
 Improves quality across all sections, but does **NOT** change any `reviewed` values. You're reviewing the plan holistically, not gating specific sections for implementation. Fix content issues, but leave every section's `reviewed` field as-is.
@@ -138,9 +138,9 @@ Each section has a `reviewed: true/false` field in its YAML frontmatter. This tr
 
 **Mode A — Single-section review** (you were given a specific section file, not a directory):
 This is the pre-implementation gate. After confirming ALL technical claims are accurate:
-- If everything checks out: set `reviewed: true`
-- If you found inaccuracies and fixed them: LEAVE as `reviewed: false` — the fixes need validation
-- If you found issues you could not fix: LEAVE as `reviewed: false`
+- If everything checks out (no fixes needed): set `reviewed: true`
+- If you found inaccuracies and fixed them: set `reviewed: true` — the 4-agent sequential pipeline validates the fixes (Agents 2-4 each verify the updated plan against the codebase)
+- If you found issues you could NOT fix (require human judgement): LEAVE as `reviewed: false`
 
 **Mode B — Whole-plan review** (you were given a directory):
 Do NOT change any `reviewed` values. Fix inaccuracies in content, but leave `reviewed: true/false` as-is on every section. The whole-plan review improves quality but is not the pre-implementation gate.
@@ -334,10 +334,11 @@ INSTRUCTIONS:
 ## Part 3: Final Cleanup
 
 9. Remove all <!-- reviewed: ... --> comments left by previous reviewers
-10. Verify `reviewed` field consistency in frontmatter:
+10. Verify and finalize `reviewed` field in frontmatter:
     - Every section file MUST have a `reviewed: true/false` field
     - If a section is missing the field, add `reviewed: false`
-    - Do NOT change any `reviewed` values — Agent 1 handles that
+    - **Single-section review (Mode A):** After your final coherence check, set `reviewed: true` — the 4-agent pipeline has validated the section. Exception: if any agent flagged unfixable issues requiring human judgement, leave `reviewed: false`.
+    - **Whole-plan review (Mode B):** Do NOT change any `reviewed` values.
     - Report any sections missing the field
 11. Final coherence check: read through the entire plan one more time. Does it tell a complete, sequential story from start to finish? If the previous agents added sections or expanded scope, verify the additions are consistent with the rest.
 
