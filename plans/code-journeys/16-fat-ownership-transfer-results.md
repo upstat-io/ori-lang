@@ -2,7 +2,7 @@
 journey: 16
 slug: fat-ownership-transfer
 theme: "I am fat and moving"
-date: 2026-03-20
+date: 2026-03-22
 status: PASS
 expected: 42
 eval_result: 42
@@ -18,7 +18,7 @@ learning_objectives:
   - "See how fat pointer ownership transfers across function boundaries via sret and borrow"
   - "Understand that make_string returns via sret (rc_inc, no rc_dec) and the caller owns the result"
   - "Observe borrow elision on read-only string parameters (get_len, longer take ptr readonly)"
-  - "See SSO guard pattern (bit 63 + null check) guarding every rc_dec on string data pointers"
+  - "See how ori_str_rc_dec encapsulates SSO guard + RC decrement into a single runtime call"
   - "Understand how multiple string temporaries in check_multi are created, used, and cleaned up"
 
 features:
@@ -26,7 +26,7 @@ features:
   - arc
   - function_calls
   - multiple_functions
-feature_description: "Fat pointer ownership transfer across function boundaries, sret returns, borrow elision for read-only parameters, SSO guard patterns, multiple string temporaries lifecycle"
+feature_description: "Fat pointer ownership transfer across function boundaries, sret returns, borrow elision for read-only parameters, ori_str_rc_dec runtime cleanup, multiple string temporaries lifecycle"
 
 score: 10.0
 score_breakdown:
@@ -59,7 +59,7 @@ overflow_check: PASS
 bugs_found: []
 related_journeys:
   - journey: 9
-    relationship: "Both test string ARC lifecycle with SSO guards; J9 tests boolean logic + empty strings, J16 focuses on ownership transfer across function boundaries"
+    relationship: "Both test string ARC lifecycle; J9 tests boolean logic + empty strings, J16 focuses on ownership transfer across function boundaries"
   - journey: 14
     relationship: "Both test fat pointer strings; J14 tests sharing and borrow elision, J16 tests ownership transfer with sret returns and multi-temporary cleanup"
   - journey: 15
@@ -72,19 +72,44 @@ related_journeys:
 
 ```ori
 // Journey 16: "I am fat and moving"
+// Slug: fat-ownership-transfer
+// Difficulty: complex
+// Features: strings, arc, function_calls, multiple_functions
+// Expected: check_pass() + check_return() + check_multi() = 5 + 26 + 11 = 42
+
 @get_len (s: str) -> int = s.length();
-@check_pass () -> int = { let s = "hello"; get_len(s: s) }
+
+@check_pass () -> int = {
+    let s = "hello";
+    get_len(s: s)
+}
+
 @make_string () -> str = "abcdefghijklmnopqrstuvwxyz";
-@check_return () -> int = { let s = make_string(); s.length() }
+
+@check_return () -> int = {
+    let s = make_string();
+    s.length()
+}
+
 @longer (a: str, b: str) -> int = {
-    let la = a.length(); let lb = b.length();
+    let la = a.length();
+    let lb = b.length();
     if la > lb then la else lb
 }
+
 @check_multi () -> int = {
-    let x = "hello"; let y = "wonderful"; let z = "ab";
+    let x = "hello";
+    let y = "wonderful";
+    let z = "ab";
     longer(a: x, b: y) + z.length()
 }
-@main () -> int = { let a = check_pass(); let b = check_return(); let c = check_multi(); a + b + c }
+
+@main () -> int = {
+    let a = check_pass();
+    let b = check_return();
+    let c = check_multi();
+    a + b + c
+}
 ```
 
 ## Execution Results
@@ -250,11 +275,11 @@ Module
 
 ```text
 @get_len: +0 rc_inc, +0 rc_dec (borrow elision: s is read-only, passed by ptr)
-@check_pass: +1 rc_inc (str_from_raw), +1 rc_dec (drop temp after call) — balanced
+@check_pass: +1 rc_inc (str_from_raw), +1 rc_dec (ori_str_rc_dec after call) — balanced
 @make_string: +1 rc_inc (str_from_raw), +0 rc_dec (ownership transfer to caller)
-@check_return: +0 rc_inc (receives ownership), +1 rc_dec (drops after use) — balanced via transfer
+@check_return: +0 rc_inc (receives ownership), +1 rc_dec (ori_str_rc_dec after use) — balanced via transfer
 @longer: +0 rc_inc, +0 rc_dec (borrow elision: both a and b read-only, passed by ptr)
-@check_multi: +3 rc_inc (3x str_from_raw), +3 rc_dec (drops x, y, z after use) — balanced
+@check_multi: +3 rc_inc (3x str_from_raw), +3 rc_dec (3x ori_str_rc_dec after use) — balanced
 @main: +0 rc_inc, +0 rc_dec (pure int arithmetic)
 ```
 
@@ -313,11 +338,11 @@ Module
 
 ```text
 @get_len: +0 rc_inc, +0 rc_dec (borrow elision: ptr readonly dereferenceable(24))
-@check_pass: +1 rc_inc (str_from_raw), +1 rc_dec (SSO-guarded drop) — balanced
+@check_pass: +1 rc_inc (str_from_raw), +1 rc_dec (ori_str_rc_dec) — balanced
 @make_string: +1 rc_inc (str_from_raw via sret), +0 rc_dec (ownership transfer out)
-@check_return: +0 rc_inc (receives ownership via sret), +1 rc_dec (SSO-guarded drop) — balanced
+@check_return: +0 rc_inc (receives ownership via sret), +1 rc_dec (ori_str_rc_dec) — balanced
 @longer: +0 rc_inc, +0 rc_dec (borrow elision: both ptrs readonly dereferenceable(24))
-@check_multi: +3 rc_inc (3x str_from_raw), +3 rc_dec (3x SSO-guarded drops) — balanced
+@check_multi: +3 rc_inc (3x str_from_raw), +3 rc_dec (3x ori_str_rc_dec) — balanced
 @main: +0 rc_inc, +0 rc_dec (pure int results)
 ```
 
@@ -354,18 +379,8 @@ bb0:
   store { i64, i64, ptr } %sret.load, ptr %ref_arg, align 8
   %call = call fastcc i64 @_ori_get_len(ptr %ref_arg)
   %0 = extractvalue { i64, i64, ptr } %sret.load, 2
-  %1 = ptrtoint ptr %0 to i64
-  %2 = and i64 %1, -9223372036854775808
-  %3 = icmp ne i64 %2, 0
-  %4 = icmp eq i64 %1, 0
-  %5 = or i1 %3, %4
-  br i1 %5, label %rc_dec.sso_skip, label %rc_dec.heap
-
-rc_dec.heap:
-  call void @ori_rc_dec(ptr %0, ptr @"_ori_drop$3")  ; RC-- str
-  br label %rc_dec.sso_skip
-
-rc_dec.sso_skip:
+  %1 = extractvalue { i64, i64, ptr } %sret.load, 1
+  call void @ori_str_rc_dec(ptr %0, i64 %1, ptr @"_ori_drop$3")
   ret i64 %call
 }
 
@@ -389,18 +404,8 @@ bb0:
   store { i64, i64, ptr } %sret.load, ptr %str_len.self, align 8
   %str.len = call i64 @ori_str_len(ptr %str_len.self)
   %0 = extractvalue { i64, i64, ptr } %sret.load, 2
-  %1 = ptrtoint ptr %0 to i64
-  %2 = and i64 %1, -9223372036854775808
-  %3 = icmp ne i64 %2, 0
-  %4 = icmp eq i64 %1, 0
-  %5 = or i1 %3, %4
-  br i1 %5, label %rc_dec.sso_skip, label %rc_dec.heap
-
-rc_dec.heap:
-  call void @ori_rc_dec(ptr %0, ptr @"_ori_drop$3")  ; RC-- str
-  br label %rc_dec.sso_skip
-
-rc_dec.sso_skip:
+  %1 = extractvalue { i64, i64, ptr } %sret.load, 1
+  call void @ori_str_rc_dec(ptr %0, i64 %1, ptr @"_ori_drop$3")
   ret i64 %str.len
 }
 
@@ -434,11 +439,28 @@ bb0:
   store { i64, i64, ptr } %sret.load, ptr %ref_arg, align 8
   store { i64, i64, ptr } %sret.load2, ptr %ref_arg5, align 8
   %call = call fastcc i64 @_ori_longer(ptr %ref_arg, ptr %ref_arg5)
-  ; ... SSO-guarded RC cleanup for x, y, z ...
-  %str.len = call i64 @ori_str_len(ptr %str_len.self)
-  %6 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %call, i64 %str.len)
-  ; ... overflow check ...
-  ret i64 %7
+  %0 = extractvalue { i64, i64, ptr } %sret.load, 2
+  %1 = extractvalue { i64, i64, ptr } %sret.load, 1
+  call void @ori_str_rc_dec(ptr %0, i64 %1, ptr @"_ori_drop$3")
+  %2 = extractvalue { i64, i64, ptr } %sret.load2, 2
+  %3 = extractvalue { i64, i64, ptr } %sret.load2, 1
+  call void @ori_str_rc_dec(ptr %2, i64 %3, ptr @"_ori_drop$3")
+  store { i64, i64, ptr } %sret.load4, ptr %str_len.self, align 8
+  %4 = call i64 @ori_str_len(ptr %str_len.self)
+  %5 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %call, i64 %4)
+  %6 = extractvalue { i64, i1 } %5, 0
+  %7 = extractvalue { i64, i1 } %5, 1
+  br i1 %7, label %add.ovf_panic, label %add.ok
+
+add.ok:
+  %rc_dec.fat_data8 = extractvalue { i64, i64, ptr } %sret.load4, 2
+  %rc_dec.fat_cap9 = extractvalue { i64, i64, ptr } %sret.load4, 1
+  call void @ori_str_rc_dec(ptr %rc_dec.fat_data8, i64 %rc_dec.fat_cap9, ptr @"_ori_drop$3")
+  ret i64 %6
+
+add.ovf_panic:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
 }
 
 ; Function Attrs: nounwind uwtable
@@ -470,6 +492,24 @@ add.ovf_panic7:
   call void @ori_panic_cstr(ptr @ovf.msg)
   unreachable
 }
+
+; --- Runtime declarations ---
+declare i64 @ori_str_len(ptr) #1
+declare void @ori_str_from_raw(ptr noalias sret({ i64, i64, ptr }), ptr, i64) #1
+define void @"_ori_drop$3"(ptr noundef %0) #2 { entry: call void @ori_rc_free(ptr %0, i64 24, i64 8); ret void }
+declare void @ori_rc_free(ptr, i64, i64) #1
+declare void @ori_str_rc_dec(ptr, i64, ptr) #3
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #4
+declare void @ori_panic_cstr(ptr) #5
+define noundef i32 @main() #0 { entry: %r = call i64 @_ori_main(); %e = trunc i64 %r to i32; %l = call i32 @ori_check_leaks(); %h = icmp ne i32 %l, 0; %f = select i1 %h, i32 %l, i32 %e; ret i32 %f }
+declare i32 @ori_check_leaks() #1
+
+; attributes #0 = { nounwind uwtable }
+; attributes #1 = { nounwind }
+; attributes #2 = { cold nounwind uwtable }
+; attributes #3 = { nounwind memory(inaccessiblemem: readwrite) }
+; attributes #4 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+; attributes #5 = { cold noreturn }
 ```
 
 #### Disassembly
@@ -488,21 +528,19 @@ _ori_check_pass:
   lea    rdi, [rsp+0x18]
   mov    edx, 0x5
   call   ori_str_from_raw          ; construct OriStr
-  mov    rdx, [rsp+0x28]           ; save data ptr
-  ; ... copy to ref_arg, call _ori_get_len ...
-  ; ... SSO guard: test bit 63, skip RC if SSO/null ...
-  ; ... ori_rc_dec if heap ...
+  ; ... load fields, copy to ref_arg, call _ori_get_len ...
+  ; ... extractvalue data+cap, call ori_str_rc_dec ...
   mov    rax, [rsp+0x10]           ; return int result
   add    rsp, 0x48
   ret
-; 144 bytes
+; 112 bytes
 
 _ori_make_string:
   push   rax
-  mov    rax, rdi                  ; sret ptr
+  mov    rax, rdi                  ; save sret pointer
   lea    rsi, [rip+str.1]          ; "abcdefghijklmnopqrstuvwxyz"
-  mov    edx, 0x1a
-  call   ori_str_from_raw
+  mov    edx, 0x1a                 ; length = 26
+  call   ori_str_from_raw          ; construct into sret
   pop    rcx
   ret
 ; 32 bytes — ownership transfer via sret
@@ -512,37 +550,37 @@ _ori_check_return:
   lea    rdi, [rsp+0x18]
   call   _ori_make_string          ; receives ownership via sret
   ; ... load, copy to str_len.self, call ori_str_len ...
-  ; ... SSO guard + rc_dec ...
+  ; ... extractvalue data+cap, call ori_str_rc_dec ...
   mov    rax, [rsp+0x10]
   add    rsp, 0x48
   ret
-; 144 bytes
+; 100 bytes
 
 _ori_longer:
   sub    rsp, 0x18
-  mov    [rsp+0x8], rsi
+  mov    [rsp+0x8], rsi            ; save ptr to b
   call   ori_str_len               ; len(a)
-  mov    rdi, [rsp+0x8]
-  mov    [rsp+0x10], rax
+  mov    rdi, [rsp+0x8]            ; restore ptr to b
+  mov    [rsp+0x10], rax           ; save la
   call   ori_str_len               ; len(b)
-  mov    rcx, [rsp+0x10]
-  cmp    rcx, rax
-  cmovg  rax, rcx                  ; select max
+  mov    rcx, [rsp+0x10]           ; restore la
+  cmp    rcx, rax                  ; la > lb?
+  cmovg  rax, rcx                  ; branchless select
   add    rsp, 0x18
   ret
 ; 48 bytes — clean, no RC (borrow elision)
 
 _ori_check_multi:
-  sub    rsp, 0xe8                 ; large frame for 3 strings + args
+  sub    rsp, 0xf8                 ; large frame for 3 strings + args
   ; ... construct x, y, z via ori_str_from_raw ...
   ; ... copy x, y to ref_args, call _ori_longer ...
-  ; ... SSO-guarded RC cleanup for x, y ...
+  ; ... ori_str_rc_dec for x, then for y ...
   ; ... copy z to str_len.self, call ori_str_len ...
   ; ... checked add (longer result + z.length) ...
-  ; ... SSO-guarded RC cleanup for z ...
-  add    rsp, 0xe8
+  ; ... ori_str_rc_dec for z on normal path ...
+  add    rsp, 0xf8
   ret
-; 560 bytes
+; 456 bytes
 
 _ori_main:
   sub    rsp, 0x28
@@ -554,7 +592,7 @@ _ori_main:
   ; ... checked add a + b, then + c ...
   add    rsp, 0x28
   ret
-; 128 bytes
+; 112 bytes
 ```
 
 ## Deep Scrutiny
@@ -564,20 +602,20 @@ _ori_main:
 | # | Function | Actual | Ideal | Ratio | Verdict |
 |---|----------|--------|-------|-------|---------|
 | 1 | @get_len | 2 | 2 | 1.00x | OPTIMAL |
-| 2 | @check_pass | 16 | 16 | 1.00x | OPTIMAL |
+| 2 | @check_pass | 10 | 10 | 1.00x | OPTIMAL |
 | 3 | @make_string | 3 | 3 | 1.00x | OPTIMAL |
-| 4 | @check_return | 16 | 16 | 1.00x | OPTIMAL |
+| 4 | @check_return | 10 | 10 | 1.00x | OPTIMAL |
 | 5 | @longer | 5 | 5 | 1.00x | OPTIMAL |
-| 6 | @check_multi | 51 | 51 | 1.00x | OPTIMAL |
+| 6 | @check_multi | 33 | 33 | 1.00x | OPTIMAL |
 | 7 | @main | 16 | 16 | 1.00x | OPTIMAL |
 
-Every function achieves OPTIMAL 1.00x ratio. The instruction counts include:
+Every function achieves OPTIMAL 1.00x ratio. Key instruction breakdown:
 - `@get_len`: 1 call + 1 ret -- minimal borrow thunk
 - `@make_string`: 1 call + 1 load + 1 ret -- sret construction with dead load (see NOTE-1)
 - `@longer`: 2 calls + 1 icmp + 1 select + 1 ret -- branchless max via select
-- `@check_pass`/`@check_return`: str construction + call + SSO guard (6 instructions: extractvalue, ptrtoint, and, icmp, icmp, or, br) + conditional rc_dec + ret
-- `@check_multi`: 3x str construction + 2x store for ref_args + call to longer + 2x SSO guard cleanup + str_len + overflow-checked add + 1x SSO guard cleanup + ret
-- `@main`: 3 calls + 2x overflow-checked add (5 instructions each: call, extractvalue x2, br) + ret
+- `@check_pass`/`@check_return`: 2 alloca + call(from_raw/make_string) + load + store + call(get_len/str_len) + 2 extractvalue + call(str_rc_dec) + ret = 10 each
+- `@check_multi`: 6 alloca + 3x(call+load) + 2 store + call(longer) + 2x(2 extractvalue + call str_rc_dec) + store + call(str_len) + call(sadd.overflow) + 2 extractvalue + br + 2 extractvalue + call(str_rc_dec) + ret + call(panic) + unreachable = 33
+- `@main`: 3 calls + 2x(call + 2 extractvalue + br) + call(panic) + unreachable + ret + call(panic) + unreachable = 16
 
 ### 2. ARC Purity
 
@@ -591,7 +629,11 @@ Every function achieves OPTIMAL 1.00x ratio. The instruction counts include:
 | @check_multi | 3 | 3 | YES | 0 | 0 |
 | @main | 0 | 0 | YES | N/A | 0 |
 
-**Verdict**: Module-level ARC is perfectly balanced. `make_string` creates one OriStr via `ori_str_from_raw` (rc_inc) and transfers ownership to the caller via sret without decrementing. `check_return` receives ownership and decrements after use. This is correct ownership transfer semantics -- the rc_inc in `make_string` is paired with the rc_dec in `check_return`. All SSO-guarded rc_dec paths correctly skip RC for inline strings (bit 63 check + null check).
+**Module total**: 5 rc_inc, 5 rc_dec -- perfectly balanced.
+
+**Verdict**: Module-level ARC is perfectly balanced. `make_string` creates one OriStr via `ori_str_from_raw` (rc_inc) and transfers ownership to the caller via sret without decrementing. `check_return` receives ownership and decrements via `ori_str_rc_dec` after use. This is correct ownership transfer semantics. All cleanup uses `ori_str_rc_dec(data_ptr, cap, drop_fn)` which handles SSO discrimination internally -- a cleaner pattern than the inline SSO guard seen in earlier journeys.
+
+**Note**: `extract-metrics.py` reports 9 ARC violations because `ori_str_rc_dec` is not yet in its effect_summaries table (tooling gap -- the function is a string-specific RC decrement that takes `(ptr, i64, ptr)` and should be counted as -1 on the first parameter). Manual verification confirms all functions are balanced.
 
 ### 3. Attributes & Calling Convention
 
@@ -606,22 +648,23 @@ Every function achieves OPTIMAL 1.00x ratio. The instruction counts include:
 | @main | C-cc | YES | N/A | N/A | NO | C convention for entry |
 | @drop$3 | N/A | YES | N/A | N/A | YES | cold drop fn |
 | @ori_panic_cstr | N/A | N/A | N/A | N/A | YES | cold noreturn |
+| @ori_str_rc_dec | N/A | YES | N/A | N/A | NO | memory(inaccessiblemem: readwrite) [NOTE-5] |
 
-**Verdict**: 33/33 attribute checks pass (100% compliance). All user functions marked `nounwind`. Borrow-elided parameters correctly annotated `readonly dereferenceable(24)`. Sret return correctly annotated `noalias sret({i64, i64, ptr})`. Drop function correctly `cold`. Entry point uses C calling convention.
+**Verdict**: 33/33 attribute checks pass (100% compliance). All user functions marked `nounwind`. Borrow-elided parameters correctly annotated `readonly dereferenceable(24)`. Sret return correctly annotated `noalias sret({i64, i64, ptr})`. Drop function correctly `cold`. `ori_str_rc_dec` has `memory(inaccessiblemem: readwrite)` -- correctly indicates it may modify RC metadata without affecting visible memory.
 
 ### 4. Control Flow & Block Layout
 
 | Function | Blocks | Empty Blocks | Redundant Branches | Phi Nodes | Notes |
 |----------|--------|-------------|-------------------|-----------|-------|
 | @get_len | 1 | 0 | 0 | 0 | |
-| @check_pass | 3 | 0 | 0 | 0 | SSO guard 3-block diamond |
+| @check_pass | 1 | 0 | 0 | 0 | straight-line (no SSO guard) |
 | @make_string | 1 | 0 | 0 | 0 | |
-| @check_return | 3 | 0 | 0 | 0 | SSO guard 3-block diamond |
+| @check_return | 1 | 0 | 0 | 0 | straight-line (no SSO guard) |
 | @longer | 1 | 0 | 0 | 0 | branchless via select |
-| @check_multi | 9 | 0 | 0 | 0 | 3x SSO guard diamonds + ovf |
+| @check_multi | 3 | 0 | 0 | 0 | ovf check + 2 exit paths |
 | @main | 5 | 0 | 0 | 0 | 2x overflow diamonds |
 
-**Verdict**: Zero defects. All blocks are reachable and non-empty. SSO guard patterns create minimal 3-block diamonds (entry -> heap/skip -> merge). The `@longer` function uses `select` instead of branching -- branchless codegen for `if la > lb then la else lb`. Overflow check blocks are clean diamond patterns with `unreachable` terminators.
+**Verdict**: Zero defects. The shift from inline SSO guards to `ori_str_rc_dec` runtime calls has reduced `check_pass` and `check_return` from 3 blocks each (SSO diamond) to 1 block (straight-line). `check_multi` has 3 blocks: the main block, `add.ok` (cleanup z + return), and `add.ovf_panic`. The overflow check produces a clean diamond pattern. `@longer` uses `select` for branchless `if la > lb then la else lb`.
 
 ### 5. Overflow Checking
 
@@ -640,9 +683,9 @@ All 3 addition operations use checked overflow intrinsics with panic on overflow
 | Metric | Value |
 |--------|-------|
 | Binary size | 6.3 MiB (debug) |
-| .text section | 886 KiB |
+| .text section | 891 KiB |
 | .rodata section | 134 KiB |
-| User code | 1,128 bytes (7 functions + drop + main wrapper) |
+| User code | ~868 bytes (7 functions + drop + main wrapper) |
 | Runtime | >99% of binary |
 
 #### Disassembly: @get_len
@@ -714,10 +757,30 @@ bb0:
 
 **Delta**: 0 instructions -- OPTIMAL.
 
+#### @check_pass: Ideal vs Actual
+
+```llvm
+; IDEAL (10 instructions)
+define fastcc i64 @_ori_check_pass() nounwind {
+  %sret.tmp = alloca { i64, i64, ptr }, align 8
+  %ref_arg = alloca { i64, i64, ptr }, align 8
+  call void @ori_str_from_raw(ptr %sret.tmp, ptr @str, i64 5)
+  %sret.load = load { i64, i64, ptr }, ptr %sret.tmp, align 8
+  store { i64, i64, ptr } %sret.load, ptr %ref_arg, align 8
+  %call = call fastcc i64 @_ori_get_len(ptr %ref_arg)
+  %data = extractvalue { i64, i64, ptr } %sret.load, 2
+  %cap = extractvalue { i64, i64, ptr } %sret.load, 1
+  call void @ori_str_rc_dec(ptr %data, i64 %cap, ptr @"_ori_drop$3")
+  ret i64 %call
+}
+```
+
+**Delta**: 0 instructions -- OPTIMAL. The aggregate load + store for passing by reference, and the single `ori_str_rc_dec` call for cleanup, are all necessary.
+
 #### @make_string: Ideal vs Actual
 
 ```llvm
-; IDEAL (2 instructions — the load is dead but harmless)
+; IDEAL (2 instructions -- the load is dead but harmless)
 define fastcc void @_ori_make_string(ptr noalias sret({i64, i64, ptr}) %out) nounwind {
   call void @ori_str_from_raw(ptr %out, ptr @str.1, i64 26)
   ret void
@@ -768,11 +831,11 @@ bb0:
 | Function | Ideal | Actual | Delta | Justified | Verdict |
 |----------|-------|--------|-------|-----------|---------|
 | @get_len | 2 | 2 | +0 | N/A | OPTIMAL |
-| @check_pass | 16 | 16 | +0 | N/A | OPTIMAL |
+| @check_pass | 10 | 10 | +0 | N/A | OPTIMAL |
 | @make_string | 2 | 3 | +1 | YES (dead load, DCE removes) | OPTIMAL |
-| @check_return | 16 | 16 | +0 | N/A | OPTIMAL |
+| @check_return | 10 | 10 | +0 | N/A | OPTIMAL |
 | @longer | 5 | 5 | +0 | N/A | OPTIMAL |
-| @check_multi | 51 | 51 | +0 | N/A | OPTIMAL |
+| @check_multi | 33 | 33 | +0 | N/A | OPTIMAL |
 | @main | 16 | 16 | +0 | N/A | OPTIMAL |
 
 ### 8. Fat Pointer: Ownership Transfer Protocol
@@ -781,64 +844,65 @@ This journey's central feature: fat pointer ownership transfer across function b
 
 **Protocol observed:**
 1. **Sret return** (`@make_string`): Caller allocates stack space, passes pointer as first arg. Callee constructs OriStr directly into caller's buffer via `ori_str_from_raw`. The rc_inc happens inside `ori_str_from_raw` (for heap strings). Callee does NOT rc_dec -- it transfers ownership out.
-2. **Caller receives ownership** (`@check_return`): After calling `make_string`, the caller holds an OriStr with refcount=1. After using it (calling `ori_str_len`), the caller rc_dec's with SSO guard. This correctly releases the heap-allocated 26-char string.
+2. **Caller receives ownership** (`@check_return`): After calling `make_string`, the caller holds an OriStr with refcount=1. After using it (calling `ori_str_len`), the caller calls `ori_str_rc_dec` which handles SSO discrimination internally. This correctly releases the heap-allocated 26-char string.
 3. **Borrow elision** (`@get_len`, `@longer`): Read-only string parameters are passed by pointer (`ptr readonly dereferenceable(24)`). The caller retains ownership. No rc_inc/rc_dec at the call site. The function reads through the pointer without touching RC.
 
 This is correct ARC ownership transfer: the invariant that every rc_inc is paired with exactly one rc_dec is maintained across function boundaries via the ownership transfer protocol.
 
-### 9. Fat Pointer: SSO Guard Pattern
+### 9. Fat Pointer: Runtime-Level SSO Discrimination
 
-Every `rc_dec` on a string data pointer is guarded by the SSO check pattern:
+The codegen has evolved from inline SSO guard patterns (6-instruction sequence with `ptrtoint`, `and`, `icmp`, `icmp`, `or`, `br`) to a single `ori_str_rc_dec` runtime call that handles SSO discrimination internally.
 
+**Previous pattern (J14/earlier J16)**:
 ```llvm
-%data = extractvalue { i64, i64, ptr } %str, 2    ; extract data ptr
-%p2i = ptrtoint ptr %data to i64                   ; convert to int
-%sso_flag = and i64 %p2i, -9223372036854775808     ; check bit 63
-%is_sso = icmp ne i64 %sso_flag, 0                 ; SSO if bit 63 set
-%is_null = icmp eq i64 %p2i, 0                     ; null check
-%skip = or i1 %is_sso, %is_null                    ; skip if either
-br i1 %skip, label %sso_skip, label %heap          ; branch to RC or skip
+%p2i = ptrtoint ptr %data to i64
+%sso = and i64 %p2i, -9223372036854775808     ; bit 63 check
+%is_sso = icmp ne i64 %sso, 0
+%is_null = icmp eq i64 %p2i, 0
+%skip = or i1 %is_sso, %is_null
+br i1 %skip, label %sso_skip, label %heap
+; heap: call void @ori_rc_dec(ptr %data, ptr @drop_fn)
 ```
 
-This 6-instruction guard appears before every `ori_rc_dec` call on string data:
-- `check_pass`: 1 guard (for local "hello")
-- `check_return`: 1 guard (for returned 26-char string)
-- `check_multi`: 3 guards (for x, y, z)
+**Current pattern**:
+```llvm
+%data = extractvalue { i64, i64, ptr } %str, 2
+%cap = extractvalue { i64, i64, ptr } %str, 1
+call void @ori_str_rc_dec(ptr %data, i64 %cap, ptr @"_ori_drop$3")
+```
 
-All 5 guards are structurally correct. The guard correctly skips RC for:
-- SSO strings (bit 63 set in data pointer -- all strings <= 23 bytes are SSO)
-- Null data pointers (empty strings or uninitialized)
-
-In this journey, "hello" (5), "wonderful" (9), and "ab" (2) are all SSO (< 24 bytes), so their guards will skip RC at runtime. Only "abcdefghijklmnopqrstuvwxyz" (26 bytes) is heap-allocated and will actually call `ori_rc_dec`.
+This reduces the cleanup sequence from 8+ instructions (6 guard + branch + call) with 3 basic blocks to 3 instructions with 1 basic block. The SSO check still happens, but inside `ori_str_rc_dec`, which examines the cap field to determine SSO status. The `memory(inaccessiblemem: readwrite)` attribute on `ori_str_rc_dec` correctly indicates it only touches RC metadata, not visible program state.
 
 ### 10. Fat Pointer: Multi-Temporary Lifecycle
 
 `@check_multi` manages 3 simultaneous string temporaries with correct lifecycle ordering:
 
-1. **Construction phase**: All 3 strings constructed via `ori_str_from_raw` (x, y, z)
+1. **Construction phase**: All 3 strings constructed via `ori_str_from_raw` (x, y, z), each with aggregate load to extract fields
 2. **Use phase**: x and y copied to `ref_arg`/`ref_arg5` and passed by ptr to `@longer`
-3. **Cleanup phase 1**: After `@longer` returns, x's data ptr is SSO-guard checked and rc_dec'd, then y's data ptr
+3. **Cleanup phase 1**: After `@longer` returns, x's `(data, cap)` extracted and passed to `ori_str_rc_dec`, then y's
 4. **Use phase 2**: z copied to `str_len.self`, `ori_str_len` called
 5. **Arithmetic**: overflow-checked add of longer result + z.length()
-6. **Cleanup phase 2**: z's data ptr is SSO-guard checked and rc_dec'd
+6. **Cleanup phase 2**: On normal path (`add.ok`), z's `(data, cap)` extracted and passed to `ori_str_rc_dec`
 7. **Return**: integer result
 
-The ordering is significant: x and y are cleaned up before z is used for length. This is correct -- x and y are no longer needed after `@longer` returns, so their temporaries can be released immediately. z must survive until after `ori_str_len` completes.
+The ordering is significant: x and y are cleaned up before z is used for length. This is correct -- x and y are no longer needed after `@longer` returns, so their temporaries can be released immediately. z must survive until after `ori_str_len` completes. On the overflow panic path, z is leaked (the panic terminates the process, so this is acceptable).
 
 ## Findings
 
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
-| 1 | NOTE | IR Quality | Dead sret load in @make_string eliminated by DCE | NEW | J16 |
+| 1 | NOTE | IR Quality | Dead sret load in @make_string eliminated by DCE | CONFIRMED | J14 |
 | 2 | NOTE | Attributes | Borrow elision on read-only str params with readonly attr | CONFIRMED | J14 |
-| 3 | NOTE | ARC | Correct ownership transfer via sret without rc_dec at boundary | NEW | J16 |
-| 4 | NOTE | Control Flow | Branchless if/then/else via select in @longer | NEW | J16 |
+| 3 | NOTE | ARC | Correct ownership transfer via sret without rc_dec at boundary | CONFIRMED | J14 |
+| 4 | NOTE | Control Flow | Branchless if/then/else via select in @longer | CONFIRMED | J2 |
+| 5 | NOTE | ARC | Upgraded from inline SSO guard to ori_str_rc_dec runtime call | NEW | J16 |
 
 ### NOTE-1: Dead sret load in @make_string
 
 **Location**: `@_ori_make_string`, `%sret.load = load { i64, i64, ptr }, ptr %0, align 8`
 **Impact**: One dead load instruction that LLVM DCE will eliminate in optimized builds. Zero runtime impact in release mode.
 **Context**: The codegen materializes the sret load for potential use by the ARC pipeline, but since `make_string` transfers ownership out (no rc_dec needed), the load result is unused.
+**First seen**: Journey 14
 **Found in**: Optimal IR Comparison (Category 7)
 
 ### NOTE-2: Excellent borrow elision on string parameters
@@ -860,14 +924,23 @@ The ordering is significant: x and y are cleaned up before z is used for length.
 
 **Location**: `@longer`, `if la > lb then la else lb`
 **Impact**: Positive -- compiles to `icmp sgt` + `select` instead of branch diamond, producing faster code on modern CPUs (no branch prediction penalty)
+**First seen**: Journey 2
 **Found in**: Control Flow & Block Layout (Category 4)
+
+### NOTE-5: Upgraded to ori_str_rc_dec runtime call
+
+**Location**: All string cleanup sites (check_pass, check_return, check_multi)
+**Impact**: Positive -- replaces 8+ instruction inline SSO guard with 3-instruction runtime call. Reduces basic block count (check_pass: 3->1 blocks, check_return: 3->1 blocks). SSO discrimination still happens but inside the runtime function.
+**Context**: `ori_str_rc_dec(ptr data, i64 cap, ptr drop_fn)` takes the data pointer, capacity, and drop function, handling SSO/null checks internally. The `memory(inaccessiblemem: readwrite)` attribute correctly constrains the call's side effects.
+**First seen**: Journey 16 (evolution from J14's inline SSO guard pattern)
+**Found in**: Fat Pointer: Runtime-Level SSO Discrimination (Category 9)
 
 ## Codegen Quality Score
 
 | Category | Weight | Score | Notes |
 |----------|--------|-------|-------|
 | Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
-| ARC Correctness | 20% | 10/10 | 0 violations |
+| ARC Correctness | 20% | 10/10 | 0 violations (5 inc, 5 dec, module balanced) |
 | Attributes & Safety | 10% | 10/10 | 100.0% compliance |
 | Control Flow | 10% | 10/10 | 0 defects |
 | IR Quality | 20% | 10/10 | 0 unjustified instructions |
@@ -878,18 +951,19 @@ The ordering is significant: x and y are cleaned up before z is used for length.
 
 ## Verdict
 
-Journey 16 demonstrates flawless fat pointer ownership transfer across function boundaries. The sret convention correctly moves string ownership from `make_string` to `check_return` without any RC operations at the boundary -- the rc_inc in construction pairs with the rc_dec in the receiving function. Borrow elision on `get_len` and `longer` avoids all unnecessary RC traffic for read-only parameters. The SSO guard pattern (bit 63 + null check) correctly gates every rc_dec, and `check_multi` manages 3 simultaneous string temporaries with correct lifecycle ordering. All 7 functions achieve OPTIMAL 1.00x instruction ratio, all attributes are correct, and branchless codegen for `if/then/else` via `select` is a standout optimization.
+Journey 16 demonstrates flawless fat pointer ownership transfer across function boundaries with an improved codegen compared to earlier runs. The sret convention correctly moves string ownership from `make_string` to `check_return` without any RC operations at the boundary. Borrow elision on `get_len` and `longer` avoids all unnecessary RC traffic for read-only parameters. The upgrade from inline SSO guard patterns (6-instruction + 3-block diamond) to `ori_str_rc_dec` runtime calls (3-instruction, single block) is a notable improvement -- it reduces IR complexity while preserving correctness. All 7 functions achieve OPTIMAL 1.00x instruction ratio, all attributes are correct, and branchless codegen for `if/then/else` via `select` remains a standout optimization.
 
 ## Cross-Journey Observations
 
 | Feature | First Tested | This Journey | Status |
 |---------|-------------|--------------|--------|
-| SSO guard pattern | J9 | J16 | CONFIRMED (5 instances, all correct) |
-| Borrow elision on str params | J14 | J16 | CONFIRMED (3 params, multi-param case new) |
+| SSO discrimination | J9 | J16 | EVOLVED (inline guard -> ori_str_rc_dec runtime) |
+| Borrow elision on str params | J14 | J16 | CONFIRMED (3 params, multi-param case) |
 | Overflow checking | J1 | J16 | CONFIRMED (3 additions, all checked) |
 | fastcc on user functions | J1 | J16 | CONFIRMED (6/7, main uses C-cc) |
 | nounwind on all functions | J14 | J16 | CONFIRMED (all 7 + drop) |
 | Fat pointer sret return | J14 | J16 | CONFIRMED (make_string returns str via sret) |
 | Branchless select for if/else | J2 | J16 | CONFIRMED (longer uses cmovg) |
-| Ownership transfer via sret | NEW | J16 | NEW (make_string -> check_return boundary) |
-| Multi-temporary lifecycle | NEW | J16 | NEW (check_multi: 3 strings with ordered cleanup) |
+| Ownership transfer via sret | J14 | J16 | CONFIRMED (make_string -> check_return) |
+| Multi-temporary lifecycle | J16 | J16 | CONFIRMED (check_multi: 3 strings, ordered cleanup) |
+| ori_str_rc_dec runtime cleanup | NEW | J16 | NEW (replaces inline SSO guard pattern) |

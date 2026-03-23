@@ -34,7 +34,7 @@ sections:
 
 # Section 02: Fix All Pre-Existing Leaks
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** All 1317 AOT tests pass with `ORI_CHECK_LEAKS=1` enabled — zero leaked RC allocations in any test program.
 
 **Context:** Fixing `ORI_CHECK_LEAKS` for AOT (Section 01) exposed 23 pre-existing leaks across diverse patterns. The FatValue PrimOp bug (`is_consuming_primop` checking `!= Scalar` instead of `== RcPointer`) was already fixed, resolving 7 of the original 30 failures. The remaining 23 fall into distinct categories that need separate fixes.

@@ -9,14 +9,27 @@ use crate::rc::{
     load_elem_dec_fn, ori_rc_alloc, ori_rc_is_unique, ori_rc_realloc, rt_debug_bounds_warning,
     rt_debug_null_cow_warning, store_elem_count, store_elem_dec_fn,
 };
-use crate::slice_encoding::is_slice_cap;
+use crate::slice_encoding::{is_slice_cap, slice_original_data};
 
 use super::{dec_list_buffer, inc_copied_elements};
 
 // Propagate elem_dec_fn and elem_count from old buffer header to new buffer.
-// SAFETY: both pointers must have been returned by ori_rc_alloc.
-unsafe fn propagate_elem_header(old_data: *mut u8, new_data: *mut u8, new_elem_count: i64) {
-    let dec_fn = load_elem_dec_fn(old_data);
+// When `old_data` is a slice interior pointer, resolves to the original
+// allocation's data pointer before reading the header.
+// SAFETY: `new_data` must have been returned by `ori_rc_alloc`.
+//         `old_data` must be either an `ori_rc_alloc` pointer or a slice into one.
+unsafe fn propagate_elem_header(
+    old_data: *mut u8,
+    old_cap: i64,
+    new_data: *mut u8,
+    new_elem_count: i64,
+) {
+    let header_data = if is_slice_cap(old_cap) {
+        slice_original_data(old_data, old_cap)
+    } else {
+        old_data
+    };
+    let dec_fn = load_elem_dec_fn(header_data);
     store_elem_dec_fn(new_data, dec_fn);
     store_elem_count(new_data, new_elem_count);
 }
@@ -141,7 +154,7 @@ pub extern "C" fn ori_list_push_cow(
 
     // Propagate elem_dec_fn and elem_count from old header to new buffer
     if !data.is_null() {
-        unsafe { propagate_elem_header(data, new_data, new_len as i64) };
+        unsafe { propagate_elem_header(data, cap, new_data, new_len as i64) };
     }
 
     // Release our reference to the old buffer. For shared buffers (RC > 1),
@@ -259,7 +272,7 @@ pub extern "C" fn ori_list_pop_cow(
     inc_copied_elements(new_data, new_len, es, inc_fn);
 
     // Propagate elem_dec_fn and elem_count from old header
-    unsafe { propagate_elem_header(data, new_data, new_len as i64) };
+    unsafe { propagate_elem_header(data, cap, new_data, new_len as i64) };
 
     // Release our reference to the old buffer (slice-aware)
     dec_list_buffer(data, cap);
@@ -361,7 +374,7 @@ pub extern "C" fn ori_list_set_cow(
     }
 
     // Propagate elem_dec_fn and elem_count from old header
-    unsafe { propagate_elem_header(data, new_data, old_len as i64) };
+    unsafe { propagate_elem_header(data, cap, new_data, old_len as i64) };
 
     // Release our reference to the old buffer (slice-aware)
     dec_list_buffer(data, cap);

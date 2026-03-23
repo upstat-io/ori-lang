@@ -18,8 +18,15 @@ use super::{dec_list_buffer, inc_copied_elements, write_list_output};
 const STACK_MAX: usize = 24;
 
 // Propagate elem_dec_fn and elem_count from old to new buffer header.
-unsafe fn propagate_header(src: *mut u8, dst: *mut u8, count: i64) {
-    store_elem_dec_fn(dst, load_elem_dec_fn(src));
+// When `src` is a slice interior pointer, resolves to the original
+// allocation's data pointer before reading the header.
+unsafe fn propagate_header(src: *mut u8, src_cap: i64, dst: *mut u8, count: i64) {
+    let header_src = if is_slice_cap(src_cap) {
+        slice_original_data(src, src_cap)
+    } else {
+        src
+    };
+    store_elem_dec_fn(dst, load_elem_dec_fn(header_src));
     store_elem_count(dst, count);
 }
 
@@ -146,7 +153,7 @@ pub extern "C" fn ori_list_concat_cow(
         let new_data = ori_rc_alloc(new_cap * es, ea);
         copy_list2_elements(new_data, data2, n2, es, false, inc_fn);
         // Propagate header from list2 (source of elements)
-        unsafe { propagate_header(data2, new_data, n2 as i64) };
+        unsafe { propagate_header(data2, cap2, new_data, n2 as i64) };
         dec_list_buffer(data1, cap1);
         dec_list_buffer(data2, cap2);
         unsafe { write_list_output(out_ptr, n2 as i64, new_cap as i64, new_data) };
@@ -207,7 +214,7 @@ pub extern "C" fn ori_list_concat_cow(
     );
     inc_copied_elements(new_data, n1, es, inc_fn);
     // Propagate header from either source (both same-typed)
-    unsafe { propagate_header(data1, new_data, new_len as i64) };
+    unsafe { propagate_header(data1, cap1, new_data, new_len as i64) };
     dec_list_buffer(data1, cap1);
     dec_consumed_list2(data2, cap2, es, ea);
     unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
@@ -310,7 +317,7 @@ pub extern "C" fn ori_list_reverse_cow(
     inc_copied_elements(new_data, n, es, inc_fn);
 
     // Propagate header from source
-    unsafe { propagate_header(data, new_data, n as i64) };
+    unsafe { propagate_header(data, cap, new_data, n as i64) };
 
     // Release old buffer (slice-aware)
     dec_list_buffer(data, cap);

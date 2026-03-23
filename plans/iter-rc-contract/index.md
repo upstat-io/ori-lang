@@ -6,6 +6,8 @@ status: resolved
 order: 1
 ---
 
+> **Historical Note:** The `__for_coll` phantom binding mechanism described in this plan was removed by the `rc-header-elem-dec` plan (2026-03-22) and replaced with header-based element cleanup via `elem_dec_fn` in the V5 RC header. References to `__for_coll` below are historical.
+
 # Iterator-Collection RC Ownership Contract Index
 
 > **Maintenance Notice:** Update this index when adding/modifying sections.
@@ -52,7 +54,7 @@ drop_elements_and_free, ori_buffer_rc_dec
 ---
 
 ### Section 03: Fix For-Yield RC Scoping
-**File:** `section-03-for-yield-rc.md` | **Status:** In Progress
+**File:** `section-03-for-yield-rc.md` | **Status:** Complete
 
 ```
 for-yield, lower_for_yield_iterator, prepare_iterator, for_yield.rs

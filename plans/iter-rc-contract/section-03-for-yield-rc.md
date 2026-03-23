@@ -27,9 +27,11 @@ sections:
     status: complete
 ---
 
+> **Historical Note:** The `__for_coll` phantom binding mechanism described in this plan was removed by the `rc-header-elem-dec` plan (2026-03-22) and replaced with header-based element cleanup via `elem_dec_fn` in the V5 RC header. References to `__for_coll` below are historical.
+
 # Section 03: Fix For-Yield RC Scoping
 
-**Status:** In Progress
+**Status:** Complete
 **Goal:** Fix the for-yield lowering so the source collection's RC is correctly balanced: 1 alloc + 1 inc (for the iterator) = 2 refs, and exactly 2 decs (one from `ori_iter_drop`, one from the AIMS pipeline). Currently, the AIMS pipeline emits 3 decs because the original collection variable is still visible in the post-loop scope.
 
 **Context:** This is the critical path fix. Section 02 (elem_dec_fn) ensures element cleanup works correctly regardless of which dec reaches zero. This section ensures the correct NUMBER of decs. Without this fix, the double-free occurs even with the correct `elem_dec_fn`.

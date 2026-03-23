@@ -2,7 +2,7 @@
 reroute: true
 name: "RC Elem Dec"
 full_name: "RC Header elem_dec_fn — Proper Element Cleanup for Fat Pointer Collections"
-status: active
+status: resolved
 order: 1
 ---
 
@@ -108,7 +108,7 @@ compiler/ori_llvm/src/evaluator/runtime_mappings.rs
 ---
 
 ### Section 04: Combinatorial Test Matrix
-**File:** `section-04-test-matrix.md` | **Status:** Complete
+**File:** `section-04-test-matrix.md` | **Status:** Complete (175/175)
 
 ```
 fat_ptr_iter, combinatorial, cross-product, test matrix, file split, directory module
@@ -129,16 +129,24 @@ compiler/ori_llvm/tests/aot/fat_ptr_iter/, tests/valgrind/fat_ptr_iter/
 ---
 
 ### Section 05: Verification & Cleanup
-**File:** `section-05-verification.md` | **Status:** Not Started
+**File:** `section-05-verification.md` | **Status:** Complete
 
 ```
 test-all.sh, clippy-all.sh, valgrind, ORI_CHECK_LEAKS, dual-exec-verify.sh
-code journey, J15, J16, J17, re-run, score
-unignore, remove #[ignore], regression guard, release build verification
+code journey, J15, J16, J17, re-run, score, /code-journey skill
+test stability, 10 runs, regression guard, release build verification
 documentation, runtime.md, data-structures.md, reference-counting.md
 stale header references, V3, V4, V5, 16-byte, 24-byte, 32-byte
 fat-pointer-hardening, rc-integrity, iter-rc-contract, plans update
-.claude/rules/runtime.md, plan status update
+value-semantics-optimization, repr-opt/section-09-arc-header, stale plan references
+.claude/rules/runtime.md, .claude/rules/arc.md, CLAUDE.md memory, plan status update
+ori_str_rc_inc, ori_str_rc_dec, ori_buffer_store_elem_dec, ori_buffer_store_elem_count
+annex-c-built-in-functions.md, str.upper, str.lower, to_uppercase, to_lowercase, spec naming
+ori_str_split 7-param ABI, ProtocolBuiltin::Iter, ProtocolBuiltin::IterDrop
+clone_rc.rs, derive_codegen/bodies.rs extraction, args_str_list.ori heap-string Valgrind
+concurrent test sensitivity, --test-threads=1, BUG-04-002, BUG-04-003
+test_str_split_in_tuple_list, test_main_args_with_heap_strings, sequential pass
+write_array_to_list, ori_rc_alloc propagation, structural integrity sweep
 ```
 
 ---
