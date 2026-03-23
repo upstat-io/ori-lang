@@ -394,7 +394,7 @@ After ALL research passes complete, synthesize findings into a structured archit
 3. **Implementation pattern** — the exact pattern that analogous features follow, and how this plan should follow it (from Pass 3)
 4. **Design decisions** — for each decision, the recommended approach with evidence from prior art (from Pass 4)
 5. **All sync points** — every enum, match, registry that must be updated together
-6. **All existing tests** — what's covered, what's missing
+6. **Test strategy** — existing coverage AND planned test requirements per section: what tests exist (from Pass 1-2), what matrix dimensions (types x patterns) each section needs, where semantic pin tests are needed
 7. **All unclear items** — things the research couldn't determine
 8. **All existing bugs found** — bugs discovered during research (these go into the plan)
 9. **Hygiene pre-scan** — files that need splitting or cleanup
@@ -468,7 +468,12 @@ For each section, in order from 01 to N:
 - **Registration sync points**: List ALL sync points from research for any new enum variant/type/entry
 - **Analogous pattern**: Reference the analogous feature's implementation pattern — "Follow the same pattern as {feature} in {files}"
 - **Code examples**: Show target implementation based on actual code patterns found during research, not invented patterns
-- **Test strategy**: Based on existing test patterns found in Phase 2
+- **Test strategy**: Every section that modifies code MUST include matrix testing and pinning requirements per CLAUDE.md — this is not deferred to implementation or review:
+  - **Matrix dimensions**: Identify ALL types and ALL control-flow patterns that flow through the changed code path. The plan must name these explicitly (e.g., "test with str, [int], Option<str>, closures, structs, maps" and "test full iteration, break, yield, guard, nested, two-call"). Missing cells are future regressions.
+  - **Semantic pin**: At least one test per behavioral change that ONLY passes with the new semantics — a permanent regression guard. The plan must describe what the pin tests.
+  - **TDD ordering**: "Write failing test matrix BEFORE implementation" as the section's FIRST checklist item; "Verify all tests pass in debug and release" as the LAST item.
+  - **Test types**: Specify which test categories (Rust unit tests in sibling `tests.rs`, Ori spec tests in `tests/spec/`, AOT tests in `ori_llvm/tests/aot/`, Valgrind tests in `tests/valgrind/`).
+  - A section without explicit matrix dimensions and semantic pin requirements is NOT executable.
 - **Dependencies on prior sections**: Explicitly reference what earlier sections provide. "This section uses the {type} defined in Section {N} ({file path})."
 - **What this section provides to later sections**: State what downstream sections will depend on. "Section {M} will use the {API/type/pattern} established here."
 
@@ -538,6 +543,7 @@ Do a quick self-audit:
 4. **No placeholder content** — no "TBD", no "placeholder keywords", no "to be determined"
 5. **No assumptions** — every technical claim traces to research
 6. **No contradictions** — cohesion check passed clean
+7. **Test strategy per section** — every code-modifying section has: explicit matrix dimensions (types x patterns), semantic pin requirements, TDD ordering (failing tests first, debug+release last)
 
 Fix any issues found.
 
@@ -629,6 +635,17 @@ plans/error-recovery/
 - Do NOT create items that are descriptions of work rather than work itself. "Investigate whether X" is acceptable; "Document the approach for Y" when Y can be implemented is not.
 - If an item genuinely cannot be done within the section (blocked by an unimplemented language feature, needs user decision), use `<!-- blocked-by:X -->` with a concrete blocker reference — not vague language.
 - Every item must pass this test: "Can the implementing agent, with access to the codebase, complete this item in a single session?" If no, break it into items that can.
+
+## Matrix Testing & Semantic Pinning Rule
+
+**Every section that modifies compiler code must specify its test strategy at plan creation time.** This is not deferred to implementation or to `/review-plan` — the plan itself must describe:
+
+1. **Matrix dimensions**: The types and control-flow patterns that flow through the section's code paths. These are the rows and columns of the test matrix. Name them explicitly — "str, [int], Option<str>, closures, structs, maps, sets" for type dimension; "full iteration, break, yield, guard, nested, two-call" for pattern dimension. Missing cells are future regressions.
+2. **Semantic pin**: At least one test per behavioral change that ONLY passes with the new semantics. Without a pin, a regression can silently revert the fix. The plan must describe what each pin tests.
+3. **TDD discipline**: The section's first checklist item writes the failing test matrix. The section's last checklist item verifies debug + release. Tests frame the implementation, not follow it.
+4. **Cross-section coverage**: If a fix in Section N touches code owned by Section M, the test matrix must cover Section M's types and patterns too. Plan boundaries = test boundaries.
+
+A section without these is not executable per CLAUDE.md. The `/review-plan` skill (Agent 4) enforces this during review — but catching it at creation time avoids the review rejection cycle.
 
 ## Zero Assumptions Rule
 

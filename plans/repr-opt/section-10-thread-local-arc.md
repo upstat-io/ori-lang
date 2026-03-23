@@ -115,12 +115,13 @@ Extend escape analysis (§08) to track thread boundaries.
   #[no_mangle]
   pub unsafe extern "C" fn ori_rc_inc_nonatomic(data_ptr: *mut u8) {
       if data_ptr.is_null() { return; }
-      let rc_ptr = (data_ptr as *mut i64).sub(1);
-      let count = *rc_ptr;  // plain load
+      // SAFETY: data_ptr was returned by ori_rc_alloc; strong_count is at data_ptr - 8.
+      let rc_ptr = data_ptr.sub(8).cast::<i64>();
+      let count = *rc_ptr;  // plain load (no atomic)
       if count >= MAX_REFCOUNT {
           std::process::abort();
       }
-      *rc_ptr = count + 1;  // plain store
+      *rc_ptr = count + 1;  // plain store (no atomic)
   }
 
   #[no_mangle]
@@ -129,14 +130,15 @@ Extend escape analysis (§08) to track thread boundaries.
       drop_fn: Option<extern "C" fn(*mut u8)>,
   ) {
       if data_ptr.is_null() { return; }
-      let rc_ptr = (data_ptr as *mut i64).sub(1);
-      let count = *rc_ptr;  // plain load
+      // SAFETY: data_ptr was returned by ori_rc_alloc; strong_count is at data_ptr - 8.
+      let rc_ptr = data_ptr.sub(8).cast::<i64>();
+      let count = *rc_ptr;  // plain load (no atomic)
       // Underflow protection — matches ori_rc_dec (rc/mod.rs).
       // Always-on, not debug-only. Catches double-free bugs.
       if count <= 0 {
           rc_underflow_abort(data_ptr);
       }
-      *rc_ptr = count - 1;  // plain store
+      *rc_ptr = count - 1;  // plain store (no atomic)
       if count == 1 {
           // Last reference — drop via abort-on-panic guard.
           // ori_rc_dec_nonatomic is nounwind; unwinding through it is UB.
@@ -194,12 +196,35 @@ If a value transitions from thread-local to thread-shared (e.g., sent on a chann
 
 ## 10.4 Completion Checklist
 
+**Test matrix for §10 (write failing tests FIRST, verify they fail, then implement):**
+
+| Program pattern | Expected RC variant | Semantic pin |
+|---|---|---|
+| Single-threaded program with many RC operations | All `ori_rc_inc_nonatomic` / `ori_rc_dec_nonatomic` calls | Yes — zero `ori_rc_inc` (atomic) in LLVM IR |
+| Single-threaded program: no `spawn()`, no `channel()` calls | ALL values use non-atomic RC (whole-program optimization) | Yes — zero atomic RC ops in IR |
+| Multi-threaded: `spawn()` captures a list | Captured list uses atomic RC; local list in spawned fn uses non-atomic | Yes — split atomic/non-atomic |
+| `chan.send(value)` — value crosses channel | `value` promoted to atomic RC before send | Yes — `ori_rc_inc` (atomic) before send |
+| Value created AFTER `spawn()` in spawned closure | Non-atomic (thread-local to that thread) | Yes — post-spawn local stays non-atomic |
+| Width-specific non-atomic: bounded value + thread-local | `ori_rc_inc_nonatomic_i8` / `ori_rc_dec_nonatomic_i8` | Yes — narrow + non-atomic combined |
+| Non-atomic RC correct behavior: single-thread dec to 0 | Value dropped correctly (same semantics as atomic) | Yes — correctness equivalence |
+
+- [ ] Write failing test matrix BEFORE implementation (verify tests fail with current all-atomic codegen)
 - [ ] Single-threaded programs: ALL RC operations use `ori_rc_*_nonatomic` variants
 - [ ] Multi-threaded programs: only thread-shared values use atomic RC
 - [ ] Channel sends correctly mark values as thread-shared
 - [ ] Spawn captures correctly mark captured values as thread-shared
-- [ ] Non-atomic RC operations are measurably faster (benchmark)
-- [ ] No data races: run `valgrind --tool=helgrind` directly on AOT binaries (NOTE: `valgrind-aot.sh` does not currently accept `--tool=` passthrough; either extend the script or invoke helgrind manually)
+- [ ] Width-specific non-atomic variants: `ori_rc_inc_nonatomic_i8`, `ori_rc_dec_nonatomic_i8`, `ori_rc_inc_nonatomic_i16`, `ori_rc_dec_nonatomic_i16` (combines with §09)
+- [ ] Add semantic pin test: a single-threaded program produces ZERO atomic RC operations in LLVM IR (all ops are `ori_rc_*_nonatomic`). This test can ONLY pass with thread-local analysis enabled.
+- [ ] Non-atomic RC operations are measurably faster (benchmark ≥ 20% improvement in RC-heavy workloads)
+- [ ] `./diagnostics/dual-exec-verify.sh` passes — non-atomic RC produces identical behavior to atomic RC
+- [ ] Extend `diagnostics/valgrind-aot.sh` to accept an optional `--tool=helgrind` passthrough flag:
+  - Add `--helgrind` flag to the script: when present, pass `--tool=helgrind --fair-sched=yes` to valgrind instead of `--tool=memcheck`
+  - This is a concrete shell script change, not "invoke manually"
+  - File: `diagnostics/valgrind-aot.sh` (modify the valgrind invocation line)
+- [ ] Run helgrind on AOT binaries compiled from multi-threaded Ori programs (channel + spawn patterns): `./diagnostics/valgrind-aot.sh --helgrind tests/valgrind/threads/`
+- [ ] Create `tests/valgrind/threads/` directory with at minimum:
+  - `thread_local_only.ori` — single-threaded program with many RC operations → no helgrind races
+  - `channel_send.ori` — program that sends values through a channel → helgrind must find no races
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/dual-exec-verify.sh` passes

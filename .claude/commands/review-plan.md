@@ -243,6 +243,11 @@ INSTRUCTIONS:
    - Does it follow test file conventions (sibling tests.rs)?
 6. Reorder items within sections if they violate crate dependency ordering (ori_lexer → ori_parse → ori_ir → ori_types → ori_eval → ori_llvm → oric)
 7. Add warnings for steps that are particularly complex or risky
+8. Verify every code-modifying section includes matrix testing requirements:
+   - Does the section specify its test matrix dimensions (which types x which patterns)?
+   - Does it include at least one semantic pin requirement (a test that ONLY passes with the new semantics)?
+   - Does it specify TDD ordering (failing tests FIRST, debug+release verification LAST)?
+   - If missing, add concrete test checklist items based on the codebase research — identify the types and patterns that flow through the code the section modifies
 
 ## Part 2: Codebase Scan — "Leave It Better Than You Found It"
 
@@ -402,5 +407,5 @@ requires human judgement rather than mechanical fixes.}
 8. **NEVER scope down — always expand** — If the plan doesn't fulfill its mission, grow the plan. Add sections, add checkboxes, add detail. "Requires architectural change" is not a reason to defer — it IS the work. Every gap in mission fulfillment must be filled with concrete, actionable items.
 9. **No deferral traps** — Flag any plan items that create temptation to defer during implementation. Items labeled "bonus", "future", "lower priority", or "requires architectural change" are red flags. Every checkbox in a section must be implementable by the agent executing the section. If an item genuinely cannot be implemented within the section's scope (missing language feature, external dependency), it should be marked `<!-- blocked-by:X -->` with a concrete blocker — not soft language that invites skipping. Agents should rewrite soft deferral language into concrete, actionable tasks or explicit blockers.
 10. **No dismissing TPR findings as "unrelated"** — When triaging Third Party Review findings, you MUST NOT dismiss a finding because it is "not related" to the current plan, "out of scope", or "pre-existing." Per CLAUDE.md: there is no "unrelated", "pre-existing", or "out of scope." If a TPR finding identifies a real issue in the codebase, it must be accepted and addressed. The ONLY valid reason to reject a TPR finding is that the described issue does not actually exist in the codebase (factually incorrect).
-11. **Testing rigor is non-negotiable** — Every section that modifies code must have a test strategy meeting CLAUDE.md requirements: matrix tests (type x pattern coverage), semantic pins, TDD (tests before fix), debug + release verification. A section without adequate test coverage is not executable.
+11. **Testing rigor is non-negotiable** — Every section that modifies code must have a test strategy meeting CLAUDE.md requirements: matrix tests (type x pattern coverage with explicit dimension names), semantic pins (tests that ONLY pass with the new semantics), TDD ordering (failing tests as first item, debug+release as last item), and cross-section coverage when touching shared code paths. Plans should arrive with these from `/create-plan`, but if missing, Agent 3 and Agent 4 must add them — a section without matrix dimensions and semantic pins is not executable.
 12. **Cohesive sequential strategy** — The plan must read as one continuous strategy. Each section builds on prior sections. No orphan sections, no circular dependencies, no implicit prerequisites.

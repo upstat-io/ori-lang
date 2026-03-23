@@ -183,6 +183,22 @@ Tuples are anonymous structs. Apply the same optimization.
 
 ## 06.5 Completion Checklist
 
+**Test matrix for §06 (write failing tests FIRST, verify they fail, then implement):**
+
+| Struct definition | Expected layout | Semantic pin |
+|---|---|---|
+| `struct { a: bool, b: int, c: bool }` | 16 bytes: `int` first (offset 0), `bool` fields at offset 8 and 9 | Yes — 16 bytes, not 24 |
+| `struct { x: int, y: int }` | 16 bytes (unchanged — already optimal) | Yes — no regression |
+| `struct { a: byte, b: byte, c: byte, d: byte, e: int }` | 16 bytes: `int` first at offset 0, bytes at 8-11 | Yes — 12 bytes data + 4 padding = 16 |
+| `(bool, int, bool)` tuple | Same layout as equivalent struct | Yes — tuple reorder matches struct |
+| `#repr("c") struct { a: bool, b: int, c: bool }` | 24 bytes (declaration order preserved) | Yes — no reorder with `#repr("c")` |
+| `#repr("transparent") struct Wrap { inner: int }` | 8 bytes, same alignment as `int` | Yes — no wrapper overhead |
+| `#repr("aligned", 16) struct Foo { x: int }` | 8 bytes data, alignment ≥ 16 | Yes — forced alignment |
+| `#repr("transparent")` with 2 non-ZST fields | Compile error | Yes — validation enforced |
+| `#repr("packed")` combined with `#repr("aligned", N)` | Compile error | Yes — incompatible attrs |
+| Zero-sized field `()` in struct | No storage contribution, correct offset | Yes — ZST handling |
+
+- [ ] Write failing test matrix BEFORE implementation (verify tests fail with current declaration-order layout)
 - [ ] `struct { a: bool, b: int, c: bool }` uses 16 bytes not 24 (field storage = 10, rounded to max_align 8 = 16)
 - [ ] `struct { x: int, y: int }` uses 16 bytes (no change — already optimal)
 - [ ] `(bool, int, bool)` uses same layout as the equivalent struct
@@ -192,9 +208,11 @@ Tuples are anonymous structs. Apply the same optimization.
 - [ ] `#repr("aligned", N)` combined with `#repr("c")` works correctly
 - [ ] `#repr("transparent")` with >1 non-ZST field produces compile error
 - [ ] `#repr("packed")` combined with `#repr("aligned")` produces compile error
-- [ ] Field access codegen uses correct offsets from `StructRepr`
+- [ ] Field access codegen uses correct offsets from `StructRepr` (field declarations still use original indices)
 - [ ] Pattern matching on structs works correctly with reordered fields
-- [ ] `./test-all.sh` green
+- [ ] Tuple destructuring works with reordered layout (`.0`, `.1`, `.2` map to correct memory offsets)
+- [ ] Add semantic pin test: `struct { a: bool, b: int, c: bool, d: byte }` has LLVM struct type `{ i64, i8, i8, i8, [5 x i8] }` (int first, then bytes, then padding). This test can ONLY pass with field reordering enabled.
+- [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 
