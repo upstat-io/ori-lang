@@ -152,7 +152,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
             .cloned()
             .collect();
-        let narrowing_policy = if std::env::var("ORI_NO_REPR_OPT").is_ok() {
+        let narrowing_policy = if ori_repr::NarrowingPolicy::env_disabled() {
             ori_repr::NarrowingPolicy::Disabled
         } else {
             ori_repr::NarrowingPolicy::Aggressive
