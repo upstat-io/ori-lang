@@ -18,6 +18,7 @@
 mod canonical;
 mod enum_repr;
 pub mod escape;
+mod plan;
 pub mod range;
 mod repr;
 mod struct_repr;
@@ -27,5 +28,9 @@ mod tests;
 
 pub use canonical::canonical;
 pub use enum_repr::{EnumRepr, EnumTag, VariantRepr};
+pub use plan::{
+    DecisionReason, DecisionSource, NarrowingPolicy, RcStrategy, ReprAttribute, ReprDecision,
+    ReprPlan,
+};
 pub use repr::{FloatWidth, IntWidth, MachineRepr};
 pub use struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
