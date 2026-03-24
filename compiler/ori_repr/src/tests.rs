@@ -1868,3 +1868,25 @@ fn repr_c_semantic_pin() {
     // Other types should still have None.
     assert_eq!(plan.repr_attr(Idx::INT), None);
 }
+
+#[test]
+fn repr_c_aligned_stored_and_retrieved() {
+    // §01.7: CAligned(16) from merged c + aligned → ReprAttribute::CAligned(16).
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(106), &[]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::CAligned(16))];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        Some(&ReprAttribute::CAligned(16)),
+        "#repr(\"c\") + #repr(\"aligned\", 16) must be stored as ReprAttribute::CAligned(16)"
+    );
+}
+
+#[test]
+fn repr_convert_c_aligned_roundtrip() {
+    // §01.7 semantic pin: CAligned survives the ReprAttrKind → ReprAttribute conversion.
+    let kind = ori_ir::ReprAttrKind::CAligned(32);
+    let attr = crate::convert_repr_attr_kind(&kind);
+    assert_eq!(attr, ReprAttribute::CAligned(32));
+}

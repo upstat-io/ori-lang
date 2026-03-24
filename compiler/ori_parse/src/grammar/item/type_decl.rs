@@ -13,6 +13,7 @@ fn convert_repr_attr(attr: &ReprAttr) -> ReprAttrKind {
         ReprAttr::C => ReprAttrKind::C,
         ReprAttr::Packed => ReprAttrKind::Packed,
         ReprAttr::Transparent => ReprAttrKind::Transparent,
+        // CAligned is never produced by the parser — it's merged in type checking
         ReprAttr::Aligned(n) => ReprAttrKind::Aligned(n),
     }
 }
@@ -96,7 +97,7 @@ impl Parser<'_> {
             span: start_span.merge(end_span),
             visibility,
             derives: attrs.derive_traits,
-            repr: attrs.repr.as_ref().map(convert_repr_attr),
+            repr_attrs: attrs.repr_attrs.iter().map(convert_repr_attr).collect(),
         })
     }
 
