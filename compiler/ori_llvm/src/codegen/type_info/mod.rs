@@ -267,8 +267,8 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
     /// Resolve an enum type with two-phase creation for cycle safety.
     ///
-    /// Layout: `{ i8 tag, [M x i64] payload }` where M is enough i64s to
-    /// hold the largest variant's fields.
+    /// Layout: `{ i64 tag, [M x i64] payload }` where M is enough i64s to
+    /// hold the largest variant's fields. All-unit enums omit the payload.
     fn resolve_enum(&self, idx: Idx, variants: &[EnumVariantInfo]) -> BasicTypeEnum<'ll> {
         // Cycle detection
         if self.resolving.borrow().contains(&idx) {

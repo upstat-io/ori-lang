@@ -35,11 +35,6 @@ type Shape = Circle(radius: float) | Rect(width: float, height: float);
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_extract");
 
     // Match arm blocks should NOT contain `proj.alloca` (the alloca+store pattern
@@ -73,11 +68,6 @@ type IntEnum = A(x: int) | B(x: int, y: int);
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_extract_b");
 
     assert!(
@@ -105,11 +95,6 @@ type Point = { x: int, y: int, z: int, w: int };
 @main () -> int = get_x(p: Point { x: 42, y: 0, z: 0, w: 0 });
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_get_x");
 
@@ -143,11 +128,6 @@ type Rect = { x: int, y: int, width: int, height: int };
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_area");
 
     // Should load exactly 2 fields (width at index 2, height at index 3).
@@ -178,11 +158,6 @@ type Big = { a: int, b: int, c: int, d: int };
 @main () -> int = forward(p: Big { a: 1, b: 2, c: 3, d: 4 });
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_forward");
 
@@ -230,11 +205,6 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_left_val");
 
     // Boxed enum fields (recursive types) MUST still use alloca path —
@@ -267,11 +237,6 @@ fn test_noreturn_panic_has_unreachable_no_cleanup() {
 @main () -> int = may_panic(x: 5);
 "#,
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
 
@@ -335,11 +300,6 @@ fn test_noreturn_panic_else_arm_continues() {
 "#,
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_may_panic");
 
     // The function must still contain a `ret` for the else arm.
@@ -364,11 +324,6 @@ fn test_checked_binop_overflow_still_has_unreachable() {
 @main () -> int = add_checked(a: 9223372036854775807, b: 1);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_add_checked");
 
@@ -418,11 +373,6 @@ fn test_tail_recursive_gcd_has_no_self_call() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_gcd");
 
     // The function must NOT contain a recursive call to itself.
@@ -467,11 +417,6 @@ fn test_overflow_string_dedup_single_global_per_message() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     // Count occurrences of the addition overflow message.
     // With dedup, "integer overflow on addition" appears exactly once as
     // a global constant, even though there are 3 addition sites.
@@ -506,9 +451,6 @@ fn test_str_param_pointer_only_no_load() {
 @main () -> int = get_len(s: "hello");
 "#,
     );
-    if !ir.contains("define ") {
-        return;
-    }
     let fn_ir = extract_function_ir(&ir, "_ori_get_len");
     // No aggregate load — pointer forwarding handles everything.
     assert!(
@@ -535,9 +477,6 @@ fn test_multi_str_param_pointer_only_no_loads() {
 @main () -> int = longer(a: "hi", b: "hello");
 "#,
     );
-    if !ir.contains("define ") {
-        return;
-    }
     let fn_ir = extract_function_ir(&ir, "_ori_longer");
     // Both str params are pointer-only (only used for .length()).
     let agg_loads = fn_ir.matches("load { i64, i64, ptr }").count();
@@ -559,9 +498,6 @@ fn test_str_param_mixed_use_still_loads() {
 @main () -> int = process(s: "world");
 "#,
     );
-    if !ir.contains("define ") {
-        return;
-    }
     let fn_ir = extract_function_ir(&ir, "_ori_process");
     // `s` is used in string concat (needs loaded value) AND length (pointer-only).
     // The concat forces a load — param is NOT pointer-only.
@@ -626,9 +562,6 @@ fn test_nounwind_callee_uses_call() {
 @main () -> int = check();
 "#,
     );
-    if !ir.contains("define ") {
-        return;
-    }
     let fn_ir = extract_function_ir(&ir, "_ori_check");
     // get_len is nounwind (only calls builtin length method),
     // so check should use `call`, not `invoke`.
@@ -662,9 +595,6 @@ fn test_single_predecessor_block_merged() {
 @main () -> int = check();
 "#,
     );
-    if !ir.contains("define ") {
-        return;
-    }
     let fn_ir = extract_function_ir(&ir, "_ori_check");
     // After nounwind downgrade + block merging, check should have
     // no unconditional `br label %bb1` followed by a single-predecessor bb1.
@@ -694,9 +624,6 @@ fn test_sso_guard_single_ptrtoint() {
 @main () -> int = check();
 "#,
     );
-    if !ir.contains("define ") {
-        return;
-    }
     let fn_ir = extract_function_ir(&ir, "_ori_check");
     // Each SSO guard should have exactly 1 ptrtoint. Count per-guard:
     // the pattern is `ptrtoint ptr %X to i64` followed by sso_flag/is_null checks.

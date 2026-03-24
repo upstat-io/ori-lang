@@ -947,6 +947,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_repr"
+version = "2026.3.23-alpha.1"
+dependencies = [
+ "ori_arc",
+ "ori_ir",
+ "ori_types",
+ "pretty_assertions",
+ "rustc-hash",
+ "tracing",
+]
+
+[[package]]
 name = "ori_rt"
 version = "2026.3.23-alpha.1"
 dependencies = [

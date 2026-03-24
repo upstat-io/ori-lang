@@ -38,7 +38,7 @@ Common cycle sources in other languages:
 
 ### 21.1.2 The solution: sequential data flow
 
-Ori's function sequences (`run`, `try`, `match`) enforce **linear data flow**:
+Ori's block expressions enforce **linear data flow**:
 
 ```
 input ──▶ step A ──▶ step B ──▶ step C ──▶ output
@@ -65,10 +65,11 @@ There is no mechanism for `saved` to reference the function `process`, or for `e
 
 | Pattern | Data Flow | Cycle Prevention |
 |---------|-----------|------------------|
-| `{ a \n b \n c }` | Linear sequence | Each step sees only prior bindings |
-| `try { a? \n b? \n c? }` | Linear with early exit | Same as blocks |
+| `{ a; b; c }` | Linear sequence | Each step sees only prior bindings |
+| `try { a?; b?; c? }` | Linear with early exit | Same as blocks |
 | `match x { ... }` | Branching | Each branch is independent |
-| `recurse(...)` | Iteration | State passed explicitly, no self-reference |
+| `for x in xs do ...` | Iteration | Loop variable rebinding, no self-reference |
+| `loop { ... }` | Iteration | State via mutable bindings, no self-reference |
 | `parallel(...)` | Fan-out/fan-in | Results collected, no cross-task references |
 
 ### 21.1.4 Closures capture by value
@@ -129,7 +130,7 @@ type Graph = { nodes: [NodeData], edges: [(int, int)] }
 
 Pure ARC works in Ori because:
 
-1. **Sequences enforce DAGs** — Data flows forward through `run`/`try`/`match`
+1. **Blocks enforce DAGs** — Data flows forward through `{ }` blocks, `try`, `match`
 2. **Value capture prevents closure cycles** — No reference back to enclosing scope
 3. **Type restrictions prevent structural cycles** — Self-referential types forbidden
 4. **No shared mutable references** — Single ownership of mutable data
@@ -155,11 +156,11 @@ All reference count operations are atomic. This ensures correct deallocation whe
 
 | Operation | Atomic Instruction | Memory Ordering |
 |-----------|-------------------|-----------------|
-| Increment | Fetch-add | Acquire |
+| Increment | Fetch-add | Relaxed |
 | Decrement | Fetch-sub | Release |
 | Deallocation check | Fence before free | Acquire |
 
-The acquire fence before deallocation ensures the deallocating task observes all prior writes to the object from other tasks.
+Increment uses Relaxed ordering because the incrementing thread already has access to the object. Decrement uses Release ordering to ensure all prior writes to the object are visible to other threads that may subsequently decrement. The Acquire fence before deallocation ensures the deallocating task observes all prior writes to the object from all other tasks.
 
 The observable behavior shall be identical regardless of whether atomic or non-atomic operations are used.
 
@@ -281,6 +282,8 @@ An implementation may optimize reference counting operations provided the follow
 2. `Drop.drop` is called exactly once per value, in the order specified by [§ Destruction Order](#2133-destruction-order)
 3. No value is accessed after deallocation
 
+### 21.4.1 Permitted optimizations
+
 The following optimizations are permitted:
 
 | Optimization | Description |
@@ -290,13 +293,22 @@ The following optimizations are permitted:
 | Move optimization | Elide the increment/decrement pair when a value is transferred on last use |
 | Redundant pair elimination | Remove an increment immediately followed by a decrement on the same value |
 | Constructor reuse | Reuse the existing allocation when the reference count is one (requires a runtime uniqueness check) |
+| Copy-on-write | Mutating operations on collections and strings check reference uniqueness at runtime. If the reference count is one, the operation mutates in place; if shared, the operation copies before mutating. |
 | Seamless slicing | Slice operations (`take`, `skip`, `slice`, `substring`, `trim`) may return a zero-copy view into the original allocation rather than copying elements. The view shares the original allocation's reference count. |
-| Small value inlining | Small values (e.g., short strings) may be stored inline without heap allocation. The threshold is implementation-defined. |
+| Small value inlining | Small values (e.g., short strings ≤23 bytes) may be stored inline without heap allocation. The threshold is implementation-defined. |
 | Early drop | Deallocate a value before scope end when it is provably unreferenced for the remainder of the scope |
+| Tail-modulo-cons (TRMC) | Tail-recursive functions that construct values can rewrite allocation patterns to build results in-place, avoiding intermediate allocations. |
+| Functional in-place (FIP) | Functions that consume a uniquely-owned argument and produce a structurally similar result may be certified as functional-in-place, enabling allocation-free execution. |
 
 These are permissions, not requirements. A conforming implementation may perform all, some, or none of these optimizations.
 
-NOTE  Constructor reuse (copy-on-write) preserves value semantics: `let b = a; b = b.push(x)` shall not modify `a`, regardless of whether the implementation copies or mutates in place. The optimization is transparent to user code.
+NOTE  Copy-on-write preserves value semantics: `let b = a; b = b.push(value: x)` shall not modify `a`, regardless of whether the implementation copies or mutates in place. The optimization is transparent to user code.
+
+### 21.4.2 AIMS — ARC Intelligent Memory System
+
+The reference implementation uses AIMS, a unified semantic framework that replaces traditional sequential optimization passes (borrow inference → liveness → RC insertion → reuse → elimination) with a single abstract interpreter over a multi-dimensional product lattice. All memory facts about every variable — ownership, consumption pattern, usage count, uniqueness proof, escape scope, reuse shape, and effect classification — are computed simultaneously in one converging backward dataflow analysis. All outputs (RC operations, reuse tokens, copy-on-write annotations, drop hints, FIP certification) are projections of the same converged state.
+
+NOTE  AIMS is an implementation strategy, not a language requirement. A conforming implementation may use any optimization approach that preserves the observable behavior specified above.
 
 ## 21.5 Ownership and borrowing
 
@@ -373,7 +385,19 @@ Classification is transitive: if any field of a compound type is a reference typ
 
 Classification is independent of type size. A struct with ten `int` fields is scalar. A struct with one `str` field is a reference type regardless of its total size.
 
-### 21.7.4 Generic type parameters
+### 21.7.4 Value types
+
+A type that implements the `Value` trait is stored inline (bitwise copy, no reference counting, no `Drop`). All fields of a `Value` type shall themselves be `Value`. The `Value` trait implies `Clone` and `Sendable`.
+
+Primitive scalar types (`int`, `float`, `bool`, `char`, `byte`, `void`, `Duration`, `Size`, `Ordering`) implicitly satisfy `Value`. User-defined types opt in via the type declaration:
+
+```ori
+type Point: Value, Eq = { x: float, y: float }
+```
+
+A `Value` type shall not exceed 512 bytes. Types exceeding 256 bytes produce a warning.
+
+### 21.7.5 Generic type parameters
 
 Unresolved type parameters are conservatively treated as reference types. After monomorphization, all type parameters are concrete and classification is exact.
 

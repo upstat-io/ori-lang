@@ -82,7 +82,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Tag::Struct => self.extract_rc_from_struct_fields(val, resolved),
             Tag::Tuple => self.extract_rc_from_tuple_elems(val, resolved),
             Tag::Option => {
-                // {i8 tag, T payload} — recurse into inner type at field 1
+                // {i64 tag, T payload} — recurse into inner type at field 1
                 let inner = self.pool.option_inner(resolved);
                 if self.classifier.needs_rc(inner) {
                     if let Some(field) = self.builder.extract_value(val, 1, "rc.opt_inner") {

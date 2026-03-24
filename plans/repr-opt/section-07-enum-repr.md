@@ -3,13 +3,16 @@ section: "07"
 title: "Enum Representation Optimization"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Optimize enum layout with niche filling, discriminant narrowing, tagged pointers, and payload compression — matching Rust's enum layout optimizations"
 inspired_by:
   - "Rust niche optimization (compiler/rustc_abi/src/layout.rs, Niche struct)"
   - "Rust Option<&T> = pointer with null niche (compiler/rustc_abi/src/lib.rs)"
   - "Swift enum layout (lib/IRGen/GenEnum.cpp)"
   - "Zig optional representation (src/Type.zig)"
-depends_on: ["04"]
+depends_on: ["04", "05"]
 sections:
   - id: "07.1"
     title: "Niche Filling"
@@ -30,11 +33,11 @@ sections:
 
 # Section 07: Enum Representation Optimization
 
-**Context:** Today, Ori enums use `{i8 tag, [M x i64] payload}` — every enum has an explicit tag byte plus the maximum variant payload. This wastes memory:
-- `Option<int>`: 16 bytes (i8 tag + 7 padding + i64 value) → could be 8 bytes (niche in i64 is not practical, but tagged pointer is)
-- `Option<bool>`: 2 bytes (i8 tag + i8 value) → could be 1 byte (value 2 = None)
-- `Option<&str>`: 24 bytes (i8 tag + 7 pad + 16 bytes ptr+len) → could be 16 bytes (null ptr = None)
-- All-unit enum with ≤256 variants: 1 byte (already optimized)
+**Context:** Today, Ori enums use `{i64 tag, [M x i64] payload}` — every enum has a full i64 tag plus the maximum variant payload (padded to i64 word size). This wastes memory:
+- `Option<int>`: 16 bytes (i64 tag + i64 value) → could be 8 bytes via niche or tagged pointer
+- `Option<bool>`: 16 bytes (i64 tag + padded i1 value) → could be 1 byte (value 2 = None)
+- `Option<str>`: 32 bytes (i64 tag + 24-byte str payload) → could be 24 bytes (null ptr = None)
+- All-unit enum with N variants: 8 bytes (i64 tag only, no payload) → could be 1 byte (i8 tag)
 
 Rust's niche optimization is the gold standard. We study and match it.
 
@@ -43,7 +46,7 @@ Rust's niche optimization is the gold standard. We study and match it.
 - **Rust** `compiler/rustc_abi/src/lib.rs`: `NaiveLayout`, `LayoutData`, `Variants::Multiple`
 - **Swift** `lib/IRGen/GenEnum.cpp`: Multi-payload enum layout with spare bits analysis
 
-**Depends on:** §04 (narrowed integer types create new niches).
+**Depends on:** §04 (narrowed integer types create new niches — e.g., a narrowed `i8` field with range `[0, 2]` has 253 unused values as niches), §05 (float-narrowed fields may have niche patterns — e.g., `f32` has NaN spare bits usable for Option optimization, though the value must be checked carefully against IEEE 754 NaN semantics before use).
 
 ---
 
@@ -52,6 +55,8 @@ Rust's niche optimization is the gold standard. We study and match it.
 **File(s):** `compiler/ori_repr/src/layout/enum_repr.rs`, `compiler/ori_repr/src/layout/niche.rs`
 
 A "niche" is an invalid bit pattern in a type. If an enum variant's payload has a niche, we can use it to encode a different variant, eliminating the explicit tag.
+
+**Layout boundary note:** Internal runtime representations such as `FatPointer`, `str`, `[T]`, `{K:V}`, `Set<T>`, closures, and ranges are exempt from §06 field reordering. They are represented by dedicated `MachineRepr` / `TypeInfo` variants, not by `MachineRepr::Struct`, so `field_index: 2` on `FatPointer` is stable unless this section explicitly changes that dedicated runtime layout.
 
 - [ ] Define `Niche`:
   ```rust
@@ -89,9 +94,11 @@ A "niche" is an invalid bit pattern in a type. If an enum variant's payload has 
               field_index: 0, offset: 0, available: 1, start: 0, // null = niche
           }],
 
-          // Fat pointer (str): null data ptr
+          // Fat pointer (str, [T], {K:V}): layout is {i64 len, i64 cap, ptr data}
+          // Niche is at field_index 2 (the data pointer, field 0=len, 1=cap, 2=data)
+          // null data pointer (0) indicates None — heap data is never null
           MachineRepr::FatPointer(_) => vec![Niche {
-              field_index: 1, offset: 0, available: 1, start: 0,
+              field_index: 2, offset: 0, available: 1, start: 0,
           }],
 
           // Nested enum: if it has unused discriminant values
@@ -227,16 +234,42 @@ When variant payloads have different sizes, the current approach uses `max(sizeo
 
 ## 07.5 Completion Checklist
 
+**Test matrix for §07 (write failing tests FIRST, verify they fail, then implement):**
+
+| Type | Expected representation | Semantic pin |
+|---|---|---|
+| `Option<bool>` | 1 byte `i8`: `Some(false)=0`, `Some(true)=1`, `None=2` | Yes — `sizeof == 1`, no struct wrapper |
+| `Option<Ordering>` | 1 byte `i8`: `Some(Less)=0`, `Some(Equal)=1`, `Some(Greater)=2`, `None=3` | Yes — `sizeof == 1` |
+| `Option<str>` | 24 bytes (null data ptr niche for None, no tag field) | Yes — `sizeof == sizeof(str)` |
+| `Option<[int]>` | 24 bytes (null data ptr niche for None) | Yes — `sizeof == sizeof([int])` |
+| `Option<int>` | 16 bytes (no niche available in i64 — must use explicit tag) | Yes — `sizeof == 16` |
+| All-unit enum `type Dir = North \| South \| East \| West` | `i8` tag, no payload | Yes — `sizeof == 1` |
+| Single-variant enum `type Wrapper(val: int)` | newtype erasure — same as `int` (no tag) | Yes — `sizeof == 8` |
+| `Result<bool, Ordering>` | 1 byte (niche from bool payload covers Ordering variants) | Yes — niche across Result arms |
+| Narrowed `i8` field with range `[0, 2]` after §04 | 253 niche values available | Yes — §04+§07 interaction |
+| `f32`-typed field after §05 | NaN niches conservatively skipped | Yes — no NaN-based niche |
+| Pattern match on `Option<bool>` with niche repr | Correct values: `None` = 2, `Some(false)` = 0 | Yes — match produces correct results |
+
+- [ ] Write failing test matrix BEFORE implementation (verify tests fail with current `{ i64 tag, payload }` layout)
 - [ ] `Option<bool>` → 1 byte (niche value 2 for None)
 - [ ] `Option<Ordering>` → 1 byte (niche value 3+ for None)
-- [ ] `Option<str>` → 16 bytes (null ptr niche for None, no tag byte)
-- [ ] `Option<[int]>` → 24 bytes (null ptr niche)
+- [ ] `Option<str>` → 24 bytes (null ptr niche for None, no tag byte — same size as str itself)
+- [ ] `Option<[int]>` → 24 bytes (null ptr niche — same size as [int] itself)
 - [ ] All-unit enums → tag-only (no payload) — already working, verify preserved
 - [ ] Single-variant enums → newtype erasure (no tag)
 - [ ] Discriminant uses minimum width (i8 for ≤256, i16 for ≤65536)
-- [ ] `./test-all.sh` green
+- [ ] Niche analysis queries `ReprPlan` for narrowed field types, not canonical types (§04+§07 interaction)
+- [ ] `f32`-typed fields (from §05) use empty niche list (NaN-based niches conservatively skipped)
+- [ ] Pattern matching codegen correctly reads niche-encoded variants (the match is the most dangerous codegen path)
+- [ ] Add semantic pin test: `Option<bool>` LLVM type is `i8` (not `{ i64, i1 }`), with `None` encoded as integer 2. This test can ONLY pass with niche optimization enabled.
+- [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
-- [ ] Pattern matching codegen correctly reads niche-encoded variants
 
 **Exit Criteria:** `Option<bool>` compiles to a single `i8` in LLVM IR (no struct wrapper), with `None = 2`, `Some(false) = 0`, `Some(true) = 1`. Verified by inspecting LLVM IR and running all Option-related spec tests.
+
+---
+
+## 07.R Third Party Review Findings
+
+- [ ] `[TPR-07-001][minor]` `section-07-enum-repr.md:92-97` — **FatPointer niche `field_index: 2` assumes fixed `{len, cap, data}` order; no explicit exemption from §06 reordering.** The niche analysis hard-codes `field_index: 2` for the data pointer. While FatPointer types use dedicated `TypeInfo` variants (`TypeInfo::Str`, `TypeInfo::List`, etc.) — NOT `TypeInfo::Struct` — and therefore are inherently exempt from §06's struct reordering algorithm, this exemption is implicit. **Action:** Add a note to §07.1 stating that internal representations (FatPointer, str, list, map, set, closure, range) are exempt from §06 field reordering because they are handled by dedicated `TypeInfo` variants, not `TypeInfo::Struct`. This prevents a future implementer from accidentally applying §06's layout algorithm to internal types.
