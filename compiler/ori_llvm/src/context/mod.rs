@@ -68,6 +68,12 @@ impl<'ll> SimpleCx<'ll> {
         self.llcx.i8_type()
     }
 
+    /// Get the i16 type.
+    #[inline]
+    pub fn type_i16(&self) -> inkwell::types::IntType<'ll> {
+        self.llcx.i16_type()
+    }
+
     /// Get the i32 type.
     #[inline]
     pub fn type_i32(&self) -> inkwell::types::IntType<'ll> {
@@ -78,6 +84,12 @@ impl<'ll> SimpleCx<'ll> {
     #[inline]
     pub fn type_i64(&self) -> inkwell::types::IntType<'ll> {
         self.llcx.i64_type()
+    }
+
+    /// Get the f32 type.
+    #[inline]
+    pub fn type_f32(&self) -> inkwell::types::FloatType<'ll> {
+        self.llcx.f32_type()
     }
 
     /// Get the f64 type.
