@@ -69,15 +69,10 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     interner: Option<&'a StringInterner>,
     /// Representation plan from `ori_repr` (Phase A migration).
     ///
-    /// When present, type lookups consult the `ReprPlan` first. When absent
-    /// (or when the plan has no entry for a type), falls back to `TypeInfoStore`.
-    /// This enables incremental migration: §01 passes `Some(&plan)` with
-    /// canonical-only decisions (zero behavioral change), later sections add
-    /// narrowed representations.
-    #[expect(
-        dead_code,
-        reason = "Phase A: wired through but not yet read — §01.8 adds the routing logic"
-    )]
+    /// When present, type lookups consult the `ReprPlan` first for non-recursive
+    /// types (primitives, fat pointers, opaque pointers). When absent (or when
+    /// the plan has no entry for a type, or the type requires recursive
+    /// resolution), falls back to `TypeInfoStore`.
     repr_plan: Option<&'a ori_repr::ReprPlan>,
     /// Types currently being resolved (cycle detection).
     ///
@@ -163,6 +158,74 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         resolved
     }
 
+    /// Try to convert a `MachineRepr` to an LLVM type for non-recursive types.
+    ///
+    /// Returns `Some` for primitives, fat pointers, opaque pointers, closures,
+    /// and ranges — these have fixed LLVM layouts independent of child type
+    /// resolution. Returns `None` for recursive types (Struct, Enum, Tuple,
+    /// `StackPromoted`) that require `TypeInfoStore`'s two-phase creation pattern.
+    fn try_repr_to_llvm_type(&self, repr: &ori_repr::MachineRepr) -> Option<BasicTypeEnum<'ll>> {
+        use ori_repr::{FloatWidth, IntWidth, MachineRepr};
+
+        match repr {
+            MachineRepr::Int { width, .. } => Some(match width {
+                IntWidth::I8 => self.scx.type_i8().into(),
+                IntWidth::I16 => self.scx.type_i16().into(),
+                IntWidth::I32 => self.scx.type_i32().into(),
+                IntWidth::I64 => self.scx.type_i64().into(),
+            }),
+            MachineRepr::Float { width } => Some(match width {
+                FloatWidth::F32 => self.scx.type_f32().into(),
+                FloatWidth::F64 => self.scx.type_f64().into(),
+            }),
+            MachineRepr::Bool => Some(self.scx.type_i1().into()),
+            MachineRepr::Char => Some(self.scx.type_i32().into()),
+            MachineRepr::Byte | MachineRepr::Ordering => Some(self.scx.type_i8().into()),
+            MachineRepr::Duration | MachineRepr::Size | MachineRepr::Unit | MachineRepr::Never => {
+                Some(self.scx.type_i64().into())
+            }
+            MachineRepr::Range => Some(
+                self.scx
+                    .type_struct(
+                        &[
+                            self.scx.type_i64().into(),
+                            self.scx.type_i64().into(),
+                            self.scx.type_i64().into(),
+                            self.scx.type_i64().into(),
+                        ],
+                        false,
+                    )
+                    .into(),
+            ),
+            MachineRepr::FatPointer(_) => Some(
+                self.scx
+                    .type_struct(
+                        &[
+                            self.scx.type_i64().into(),
+                            self.scx.type_i64().into(),
+                            self.scx.type_ptr().into(),
+                        ],
+                        false,
+                    )
+                    .into(),
+            ),
+            MachineRepr::OpaquePtr | MachineRepr::RcPointer(_) => Some(self.scx.type_ptr().into()),
+            MachineRepr::Closure(_) => Some(
+                self.scx
+                    .type_struct(
+                        &[self.scx.type_ptr().into(), self.scx.type_ptr().into()],
+                        false,
+                    )
+                    .into(),
+            ),
+            // Recursive types — require two-phase creation via TypeInfoStore.
+            MachineRepr::Struct(_)
+            | MachineRepr::Enum(_)
+            | MachineRepr::Tuple(_)
+            | MachineRepr::StackPromoted { .. } => None,
+        }
+    }
+
     /// Inner resolve implementation, separated for depth guard.
     fn resolve_inner(&self, idx: Idx) -> BasicTypeEnum<'ll> {
         // Cycle detection: if we're already resolving this type, we've
@@ -176,6 +239,16 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             }
             // For non-Struct/Enum cycles, fall back to i64
             return self.scx.type_i64().into();
+        }
+
+        // Phase A: consult ReprPlan first for non-recursive types.
+        // When the plan has a decision and the type can be converted without
+        // recursive resolution, use the ReprPlan path directly.
+        if let Some(repr) = self.repr_plan.and_then(|p| p.get_repr(idx)) {
+            if let Some(llvm_ty) = self.try_repr_to_llvm_type(repr) {
+                return llvm_ty;
+            }
+            // Recursive types (Struct, Enum, Tuple) fall through to TypeInfoStore.
         }
 
         let info = self.store.get(idx);
