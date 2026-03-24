@@ -169,24 +169,6 @@ impl ReprPlan {
         });
     }
 
-    /// Query the representation for a type with trace-level logging.
-    ///
-    /// Same as [`get_repr`] but emits a `tracing::trace!` event showing
-    /// the type tag and its resolved representation. Use when debugging
-    /// codegen queries; the non-traced [`get_repr`] is preferred in hot
-    /// loops where per-type logging would be excessive.
-    #[must_use]
-    pub fn get_repr_traced(&self, idx: Idx, pool: &Pool) -> Option<&MachineRepr> {
-        let repr = self.get_repr(idx);
-        tracing::trace!(
-            idx = ?idx,
-            type_tag = ?pool.tag(idx),
-            repr = ?repr,
-            "ReprPlan query"
-        );
-        repr
-    }
-
     /// Dump the audit trail for debugging.
     ///
     /// Returns a human-readable string with all decisions in insertion order.

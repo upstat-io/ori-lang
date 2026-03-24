@@ -234,7 +234,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     symbol_prefix: &str,
     import_sigs: &[(Name, FunctionSig)],
     target_triple: Option<&str>,
-    no_repr_opt: bool,
+    narrowing_policy: ori_repr::NarrowingPolicy,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     use ori_llvm::codegen::eh_model::EhModel;
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
@@ -314,11 +314,6 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
             .cloned()
             .collect();
-        let narrowing_policy = if no_repr_opt {
-            ori_repr::NarrowingPolicy::Disabled
-        } else {
-            ori_repr::NarrowingPolicy::Aggressive
-        };
         let repr_plan = ori_repr::compute_repr_plan(pool, &all_arc_funcs, narrowing_policy);
 
         // Create type resolver with the repr plan.

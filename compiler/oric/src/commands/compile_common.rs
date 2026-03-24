@@ -139,7 +139,7 @@ pub fn compile_to_llvm<'ctx>(
     canon: &CanonResult,
     source_path: &str,
     target_triple: Option<&str>,
-    no_repr_opt: bool,
+    narrowing_policy: ori_repr::NarrowingPolicy,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     let module_name = Path::new(source_path)
         .file_stem()
@@ -158,7 +158,7 @@ pub fn compile_to_llvm<'ctx>(
         "", // No symbol prefix for single-file compilation
         &[],
         target_triple,
-        no_repr_opt,
+        narrowing_policy,
     )
 }
 
@@ -192,7 +192,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
     target_triple: Option<&str>,
-    no_repr_opt: bool,
+    narrowing_policy: ori_repr::NarrowingPolicy,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     // arc_cache and module_hash reserved for future ARC IR disk caching
     // integration with the Salsa path (Section 12.14 watch-mode).
@@ -230,6 +230,6 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         module_name, // Multi-file: symbol prefix matches module name
         &import_sigs,
         target_triple,
-        no_repr_opt,
+        narrowing_policy,
     )
 }
