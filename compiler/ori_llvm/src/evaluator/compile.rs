@@ -144,10 +144,23 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
         let store = TypeInfoStore::new(self.pool);
-        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
+        let classifier = ori_arc::ArcClassifier::new(self.pool);
+
+        // Compute representation plan (§01 — canonical reprs only).
+        let all_arc_funcs: Vec<ori_arc::ArcFunction> = arc_cache
+            .values()
+            .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+            .cloned()
+            .collect();
+        let narrowing_policy = if std::env::var("ORI_NO_REPR_OPT").is_ok() {
+            ori_repr::NarrowingPolicy::Disabled
+        } else {
+            ori_repr::NarrowingPolicy::Aggressive
+        };
+        let repr_plan = ori_repr::compute_repr_plan(self.pool, &all_arc_funcs, narrowing_policy);
+        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
         let mut builder = IrBuilder::new_jit(scx_ref);
         type_registration::register_user_types(&resolver, user_types);
-        let classifier = ori_arc::ArcClassifier::new(self.pool);
 
         let mono_functions = crate::monomorphize::collect_mono_functions(
             mono_instances,

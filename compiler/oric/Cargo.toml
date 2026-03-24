@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [features]
 default = ["llvm"]
-llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 21 installed; always on
+llvm = ["dep:ori_llvm", "dep:ori_arc", "dep:ori_repr"]  # Requires LLVM 21 installed; always on
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
@@ -41,6 +41,9 @@ ori_llvm = { path = "../ori_llvm", optional = true }
 
 # ARC analysis (required for LLVM codegen borrow inference)
 ori_arc = { path = "../ori_arc", optional = true }
+
+# Representation optimization (LLVM codegen: type narrowing decisions)
+ori_repr = { path = "../ori_repr", optional = true }
 
 # Concurrency and hashing
 parking_lot.workspace = true

@@ -10,8 +10,127 @@ use ori_types::{Idx, Pool, Tag};
 use rustc_hash::FxHashSet;
 
 use crate::enum_repr::{EnumRepr, EnumTag, VariantRepr};
+use crate::plan::{DecisionReason, DecisionSource, ReprDecision, ReprPlan};
 use crate::repr::{FloatWidth, IntWidth, MachineRepr};
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
+
+/// Populate the `ReprPlan` with canonical representations for all types in the pool.
+///
+/// Iterates over the 12 primitive indices and all dynamically allocated types,
+/// calling [`canonical()`] for each. Skips error types and the reserved
+/// primitive range (12–63). Each canonical decision is recorded in the plan
+/// with `DecisionSource::Canonical`.
+pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
+    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+
+    // Canonicalize primitives (0–11).
+    for raw in 0..Idx::PRIMITIVE_COUNT {
+        let idx = Idx::from_raw(raw);
+        if idx == Idx::ERROR {
+            continue;
+        }
+        let repr = canonical(pool, idx);
+        plan.set_repr(
+            idx,
+            ReprDecision {
+                source: DecisionSource::Canonical,
+                type_idx: idx,
+                repr,
+                reason: DecisionReason::Canonical,
+            },
+        );
+    }
+
+    // Canonicalize dynamic types (FIRST_DYNAMIC..pool_len).
+    let mut populated: u32 = 0;
+    let mut skipped: u32 = 0;
+    for raw in Idx::FIRST_DYNAMIC..pool_len {
+        let idx = Idx::from_raw(raw);
+        let tag = pool.tag(idx);
+
+        // Skip unresolved / internal types that should not reach codegen.
+        if matches!(
+            tag,
+            Tag::Var
+                | Tag::BoundVar
+                | Tag::RigidVar
+                | Tag::Scheme
+                | Tag::Projection
+                | Tag::ModuleNs
+                | Tag::Infer
+                | Tag::SelfType
+        ) {
+            continue;
+        }
+
+        // Skip types that contain unresolved type variables (e.g., generic
+        // function signatures like `(T) -> T`). These are type-checker
+        // artifacts that won't reach codegen — only monomorphized types do.
+        let flags = pool.flags(idx);
+        if flags.has_vars() {
+            continue;
+        }
+
+        // Skip types that resolve_fully() can't fully resolve (Named/Applied/
+        // Alias pointing to unregistered or circular types). These are
+        // type-checker artifacts that won't reach codegen.
+        let resolved = pool.resolve_fully(idx);
+        let resolved_tag = pool.tag(resolved);
+        if matches!(
+            resolved_tag,
+            Tag::Named
+                | Tag::Applied
+                | Tag::Alias
+                | Tag::Var
+                | Tag::BoundVar
+                | Tag::RigidVar
+                | Tag::Scheme
+                | Tag::Projection
+                | Tag::ModuleNs
+                | Tag::Infer
+                | Tag::SelfType
+                | Tag::Borrowed
+                | Tag::Error
+        ) {
+            continue;
+        }
+
+        // Use try_canonical() to gracefully handle composite types whose
+        // children contain unresolvable type-checker artifacts (Error, Borrowed,
+        // Var inside generic struct fields, etc.). These types won't reach
+        // codegen — the TypeInfoStore fallback handles them.
+        if let Some(repr) = try_canonical(pool, idx) {
+            plan.set_repr(
+                idx,
+                ReprDecision {
+                    source: DecisionSource::Canonical,
+                    type_idx: idx,
+                    repr,
+                    reason: DecisionReason::Canonical,
+                },
+            );
+            populated += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    tracing::debug!(
+        primitives = Idx::PRIMITIVE_COUNT - 1,
+        populated,
+        skipped,
+        "populated canonical representations"
+    );
+}
+
+/// Try to compute the canonical representation, returning `None` if the type
+/// contains unresolvable children (type variables, error types, etc.).
+///
+/// Used by [`populate_canonical()`] which iterates ALL pool types, including
+/// type-checker artifacts that `canonical()` would panic on.
+fn try_canonical(pool: &Pool, idx: Idx) -> Option<MachineRepr> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| canonical(pool, idx))).ok()
+}
 
 /// Compute the canonical machine representation for a type.
 ///

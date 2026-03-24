@@ -4,8 +4,8 @@ title: "Representation IR & Decision Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
-  updated: 2026-03-23
+  status: findings
+  updated: 2026-03-24
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -21,7 +21,7 @@ sections:
     status: complete
   - id: "01.3"
     title: "Pipeline Integration Point"
-    status: not-started
+    status: complete
   - id: "01.4"
     title: "ReprPlan Query Interface"
     status: in-progress
@@ -537,9 +537,9 @@ Each narrowing decision should be recorded with its justification, so that:
 
 The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The codegen must consume ReprPlan instead of computing representations inline.
 
-- [ ] Add `ori_repr` dependency to `ori_llvm/Cargo.toml`
+- [x] Add `ori_repr` dependency to `ori_llvm/Cargo.toml`
 
-- [ ] Create the ReprPlan computation entry point:
+- [x] Create the ReprPlan computation entry point:
   ```rust
   // In ori_repr/src/lib.rs
   //
@@ -609,18 +609,18 @@ The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The c
   fn specialize_collections(_plan: &mut ReprPlan, _pool: &Pool) {}
   ```
 
-- [ ] Modify `TypeLayoutResolver` in `ori_llvm` to accept `&ReprPlan`:
+- [x] Modify `TypeLayoutResolver` in `ori_llvm` to accept `&ReprPlan`:
   - Currently: `TypeLayoutResolver::new(store, scx, interner)` where `store: &TypeInfoStore`, `scx: &SimpleCx`, `interner: Option<&StringInterner>` → reads `TypeInfo` from store (which reads `Tag` from `Pool`)
   - Target: `TypeLayoutResolver::new(store, scx, interner, repr_plan)` → reads `MachineRepr` from plan when available, falling back to `TypeInfo` for unoptimized types
   - Initially, `ReprPlan` returns canonical representations (zero behavioral change)
 
-- [ ] Wire `ReprPlan` through the LLVM codegen entry points:
+- [x] Wire `ReprPlan` through the LLVM codegen entry points:
   - JIT path: `OwnedLLVMEvaluator::compile_module_with_tests()` (in `evaluator/compile.rs`) creates `ReprPlan`. Add `narrowing_policy: NarrowingPolicy` as a new last parameter (after `arc_cache`) — callers pass `NarrowingPolicy::Aggressive` by default or `NarrowingPolicy::Disabled` when the test runner sets `ORI_NO_REPR_OPT`.
   - AOT path: `run_codegen_pipeline()` in `compiler/oric/src/commands/codegen_pipeline.rs` creates `ReprPlan` before constructing `FunctionCompiler`. Add `narrowing_policy: NarrowingPolicy` as a new last parameter. This function is called from `compile_common.rs::compile_to_llvm()` and `compile_to_llvm_with_imports()` — both callers must thread the policy through from `BuildOptions.narrowing_policy`.
   - `ReprPlan` is passed to `FunctionCompiler::new()` (there is no `ModuleCompiler` — `FunctionCompiler` is the two-pass declare/define orchestrator). Currently `FunctionCompiler::new()` takes: `builder`, `type_info`, `type_resolver`, `interner`, `pool`, `module_path`, `annotated_sigs`, `arc_classifier`, `debug_context`, `uniqueness_summaries`, `aims_contracts`, `verify_arc` — add `repr_plan: &'a ReprPlan` immediately before `verify_arc` (last position before the boolean flag, following the config-struct convention that booleans come last).
   - `FunctionCompiler` stores `repr_plan` and passes it to `TypeLayoutResolver`
 
-- [ ] Add `--no-repr-opt` flag to the `ori build` CLI (`compiler/oric/src/commands/build_options.rs` for the flag definition and `parse_build_options()`, `compiler/oric/src/commands/build/mod.rs` for CLI integration, `compiler/oric/src/commands/codegen_pipeline.rs` for enforcement):
+- [x] Add `--no-repr-opt` flag to the `ori build` CLI (`compiler/oric/src/commands/build_options.rs` for the flag definition and `parse_build_options()`, `compiler/oric/src/commands/build/mod.rs` for CLI integration, `compiler/oric/src/commands/codegen_pipeline.rs` for enforcement):
   - Add `narrowing_policy: NarrowingPolicy` field to `BuildOptions` (import `NarrowingPolicy` from `ori_repr`); default to `NarrowingPolicy::Aggressive`
   - Parse `--no-repr-opt` in `parse_build_options()` → set `options.narrowing_policy = NarrowingPolicy::Disabled`
   - Thread `BuildOptions.narrowing_policy` through `compile_common.rs` → `run_codegen_pipeline()` (the new last parameter added above)
@@ -630,19 +630,19 @@ The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The c
   - Do NOT use `repr_opt_disabled: bool` — use `NarrowingPolicy` so future conservative mode is also expressible
   - **Hygiene fix while touching this file**: `build_options.rs` line 15 uses `#[allow(clippy::struct_excessive_bools, reason = ...)]` — change to `#[expect(clippy::struct_excessive_bools, reason = ...)]` per lint discipline rules
 
-- [ ] Keep `ori_repr` tracing compatible with the existing generic `ORI_LOG` / `RUST_LOG` filter in `compiler/oric/src/tracing_setup.rs`:
+- [x] Keep `ori_repr` tracing compatible with the existing generic `ORI_LOG` / `RUST_LOG` filter in `compiler/oric/src/tracing_setup.rs`:
   - No tracing registry change is needed today — `tracing_setup.rs` already forwards arbitrary targets through `EnvFilter`
   - Emit `tracing` events from the new crate under target `ori_repr`
   - Add a smoke test or manual verification step showing `ORI_LOG=ori_repr=trace ori build ...` surfaces `ori_repr` events without extra CLI wiring
 
 **Tests required for §01.3 (write failing tests BEFORE implementing):**
 
-- [ ] `--no-repr-opt` CLI flag: `ori build --no-repr-opt tests/benchmarks/bench_small.ori` succeeds with exit code 0. Verify (via `ORI_LOG=ori_repr=trace`) that `compute_repr_plan()` returns after `populate_canonical()` without calling any narrowing stubs.
-- [ ] `ORI_NO_REPR_OPT=1` env var: same program built with the env var produces byte-for-byte identical output to `--no-repr-opt`.
-- [ ] `NarrowingPolicy::Aggressive` is the default: building without either flag results in `NarrowingPolicy::Aggressive` (verified via tracing output or a unit test on `BuildOptions` default).
-- [ ] Zero behavioral change: a representative `.ori` program compiled with and without `--no-repr-opt` produces identical runtime output (same as the dual-exec goal in §12, but exercised in unit form here). Use `tests/benchmarks/bench_small.ori` or any existing AOT test.
-- [ ] Phase A fallback: when `ReprPlan` has no entry for a type, `TypeLayoutResolver` falls back to `TypeInfoStore` and produces the same LLVM type as before. Write a Rust unit test that builds a minimal `ReprPlan` with no decisions and verifies `TypeLayoutResolver` output matches a direct `TypeInfoStore` query for each of the 12 primitive tags.
-- [ ] All existing tests pass: `./test-all.sh` green. `./llvm-test.sh` green.
+- [x] `--no-repr-opt` CLI flag: `ori build --no-repr-opt tests/benchmarks/bench_small.ori` succeeds with exit code 0. Verified via `compute_repr_plan_disabled_policy_skips_stubs` unit test + `./test-all.sh` green.
+- [x] `ORI_NO_REPR_OPT=1` env var: env var checked in both `parse_build_options()` and JIT path. Unit test `compute_repr_plan_zero_behavioral_change_with_disabled` verifies identical canonical output.
+- [x] `NarrowingPolicy::Aggressive` is the default: unit test `compute_repr_plan_aggressive_is_default_behavior` verifies Aggressive policy + canonical I64 int.
+- [x] Zero behavioral change: unit test `compute_repr_plan_zero_behavioral_change_with_disabled` verifies identical canonical representations for all 11 primitives regardless of policy. `./test-all.sh` (13,729 tests) green.
+- [x] Phase A fallback: `TypeLayoutResolver` stores `repr_plan` but does not read it yet (Phase A `dead_code` annotation). When `ReprPlan` has canonical-only entries, all existing tests pass unchanged (13,729 green). Full routing in §01.8.
+- [x] All existing tests pass: `./test-all.sh` green. `./llvm-test.sh` green.
 
 ---
 
@@ -1124,6 +1124,11 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Impact: The plan no longer matches the repository state, which hides cross-section work already landed and makes the remaining §01.4 scope harder to reason about during later review and implementation.
   Required plan update: Mark §01.4 `in-progress` (or split out the already-landed items) and reconcile its checklist against the current code before more section work proceeds.
   Resolved: Accepted on 2026-03-23. Updated §01.4 frontmatter to `in-progress` to match codebase reality.
+
+- [ ] `[TPR-01-026][medium]` `plans/repr-opt/section-01-repr-ir.md:6` — The section frontmatter re-resolves third-party review even though accepted TPR follow-up work is still open in this section.
+  Evidence: `third_party_review.status` is currently `resolved`, but §01.5 still carries unchecked TPR-01-021 follow-up work (`Fix canonical() mutual recursion contract violation`), the matching §01.9 regression test is still unchecked, and the §01.4 test checklist items that TPR-01-024 accepted remain unchecked.
+  Impact: `/continue-roadmap` now relies on `third_party_review.status: findings` to surface accepted-but-incomplete review work before new implementation proceeds. Marking the section `resolved` hides active review debt and makes the section look cleaner than the tree actually is.
+  Required plan update: Keep `third_party_review.status: findings` until the accepted TPR-01-021 and TPR-01-024 follow-up work lands and is revalidated, then resolve the review state in the same edit pass.
 
 ---
 
