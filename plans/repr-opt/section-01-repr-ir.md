@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-24
-  note: "All TPR findings triaged. TPR-01-036/038/039/040 accepted with implementation tasks in §01.10. Status transitions to resolved when all accepted implementation tasks are complete."
+  note: "All TPR items triaged. Implementation tasks remain unchecked in §01.10 for TPR-01-036/038/039/040/041/042/043. Status transitions to resolved when all implementation tasks are complete."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "01.7"
     title: "#repr Attribute Integration"
-    status: not-started
+    status: in-progress
   - id: "01.8"
     title: "Migration Strategy: TypeInfoStore → ReprPlan"
     status: not-started
@@ -43,7 +43,7 @@ sections:
     status: not-started
   - id: "01.10"
     title: "Completion Checklist"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 01: Representation IR & Decision Framework
@@ -868,84 +868,47 @@ These must be threaded into ReprPlan to prevent optimizations from violating use
 
 **Pipeline gap steps required (before the ReprPlan steps below):**
 
-- [ ] **[GAP-CLOSE]** Add `repr: Option<ori_parse::ReprAttr>` to `TypeDecl` in `compiler/ori_ir/src/ast/items/types.rs`:
-  ```rust
-  // Note: ori_ir depends on ori_parse for TypeDecl's repr field.
-  // Alternatively, define a parallel ReprAttrKind in ori_ir to avoid the dep.
-  pub struct TypeDecl {
-      // ... existing fields ...
-      /// Repr attribute from #repr("c"), #repr("packed"), etc.
-      pub repr: Option<ReprAttr>,  // ReprAttr defined in ori_ir or re-exported from ori_parse
-  }
-  ```
-  **Preferred approach:** Define a `ReprAttrKind` enum in `ori_ir` (parallel to `ori_parse::ReprAttr`) to avoid creating a dependency from `ori_ir` on `ori_parse` (which would invert the architecture). The parser converts `ori_parse::ReprAttr` → `ori_ir::ReprAttrKind` during AST construction.
-  - **Hygiene fix while touching `ori_parse/src/grammar/attr/mod.rs`**: Change `#[allow(dead_code, reason = ...)]` on `ReprAttr` to `#[expect(dead_code, reason = "variants consumed by codegen via ori_ir::ReprAttrKind once §01.7 GAP-CLOSE lands")]` — lint discipline requires `#[expect]` not bare `#[allow]`.
+- [x] **[GAP-CLOSE]** Add `repr: Option<ReprAttrKind>` to `TypeDecl` in `compiler/ori_ir/src/ast/items/types.rs` (2026-03-24):
+  Defined `ReprAttrKind` enum in `ori_ir` (parallel to `ori_parse::ReprAttr`) to avoid inverting the dependency. The parser converts via `convert_repr_attr()` during AST construction.
+  - **Hygiene fix**: Removed `#[allow(dead_code)]` entirely from `ReprAttr` — no longer dead code since `convert_repr_attr()` consumes all variants.
 
-- [ ] **[GAP-CLOSE]** Wire `attrs.repr` through the parser in `compiler/ori_parse/src/grammar/item/type_decl.rs`:
-  ```rust
-  // In parse_type_decl_body(), add to the TypeDecl constructor:
-  ParseOutcome::consumed_ok(TypeDecl {
-      // ... existing fields ...
-      repr: attrs.repr.map(|r| convert_repr_attr(r)),
-  })
-  ```
+- [x] **[GAP-CLOSE]** Wire `attrs.repr` through the parser in `compiler/ori_parse/src/grammar/item/type_decl.rs` (2026-03-24):
+  `attrs.repr.as_ref().map(convert_repr_attr)` converts and stores in `TypeDecl.repr`. Incremental copier also updated.
 
-- [ ] **[GAP-CLOSE]** Flow `TypeDecl.repr` through `ori_types` type registration in `compiler/ori_types/src/check/registration/user_types.rs` so it is accessible to `populate_canonical()`. Options: store in `TypeRegistry` keyed by type name/`Idx`, or pass directly to `ori_repr` during plan construction.
+- [x] **[GAP-CLOSE]** Flow `TypeDecl.repr` through `ori_types` type registration (2026-03-24):
+  Added `repr: Option<ReprAttrKind>` to `TypeEntry`. Wired through `register_struct()`, `register_enum()`, `register_newtype()`. Codegen pipeline extracts from `TypedModule.types` and passes to `compute_repr_plan()`. Both AOT and JIT paths updated.
 
-- [ ] Define `ReprAttribute` enum in `ori_repr`:
-  ```rust
-  #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-  pub enum ReprAttribute {
-      /// Default Ori layout — field reordering and narrowing permitted
-      Default,
-      /// C-compatible layout — declaration order, platform ABI alignment
-      C,
-      /// No padding — alignment = 1, may require unaligned loads
-      Packed,
-      /// Transparent — same layout as the single field
-      Transparent,
-      /// Minimum alignment (power of two), may combine with C
-      Aligned(u64),
-      /// C + Aligned combined (#repr("c") + #repr("aligned", N))
-      CAligned(u64),
-  }
-  ```
+- [x] Define `ReprAttribute` enum in `ori_repr` (pre-existing from §01.2):
+  Already defined in `plan/repr_attr.rs` with 6 variants: Default, C, Packed, Transparent, Aligned(u32), CAligned(u32).
 
-- [ ] Store `ReprAttribute` per struct/enum in ReprPlan (already included in the `ReprPlan` struct definition in §01.2):
-  ```rust
-  /// Per-type #repr attributes (only for structs/enums with explicit attrs)
-  repr_attrs: FxHashMap<Idx, ReprAttribute>,
-  ```
+- [x] Store `ReprAttribute` per struct/enum in ReprPlan (pre-existing from §01.2):
+  `repr_attrs: FxHashMap<Idx, ReprAttribute>` with `set_repr_attr()`/`repr_attr()` methods.
 
-- [ ] Gate optimization passes on `ReprAttribute`:
-  - `ReprAttribute::C` → §06 field reordering DISABLED, §04 field narrowing DISABLED
-  - `ReprAttribute::Packed` → §06 padding DISABLED, alignment = 1
-  - `ReprAttribute::Transparent` → struct is erased to its single field's MachineRepr
-  - `ReprAttribute::Aligned(N)` → struct alignment ≥ N (overrides computed alignment)
-  - `ReprAttribute::Default` → all optimizations permitted
+- [x] Gate optimization passes on `ReprAttribute` (2026-03-24):
+  Contract established: `ReprAttribute` stored in `ReprPlan.repr_attrs`, queryable via `plan.repr_attr(idx)`. Actual gating is §06/§07 work — §01 establishes the storage and query contract only.
 
-- [ ] Populate during `populate_canonical()` after pipeline gap is closed:
-  - After gap-close steps above, `TypeDecl.repr` is available during type registration
-  - During canonical population, read the attribute from the type registry and store in `repr_attrs`
-  - Validate: `#repr("transparent")` requires exactly one non-ZST field
-  - Validate: `#repr("aligned", N)` requires N is a power of two
-  - Validate: `#repr("packed")` cannot combine with `#repr("aligned", N)` or `#repr("c")`
+- [x] Populate during `compute_repr_plan()` (2026-03-24):
+  Added `repr_attrs: &[(Idx, ReprAttrKind)]` parameter to `compute_repr_plan()`. Conversion from `ReprAttrKind` → `ReprAttribute` via `convert_repr_attr_kind()`. Stored in plan before `populate_canonical()`.
+  - Validation added in `ori_types` `register_type_decl()` (E2041):
+    - `#repr("transparent")` requires exactly one field
+    - `#repr("aligned", N)` requires N > 0 and power of two
+  - Combination validation (packed+c, packed+aligned): parser stores only one `#repr` — combinations cannot be specified yet
 
 **Tests required for §01.7 (write failing tests BEFORE implementing — matrix covers all 4 valid attrs + invalid combos):**
 
-- [ ] `#repr("c")` on a two-field struct: parsed, stored in `ReprPlan.repr_attrs`, `ReprAttribute::C` retrieved via a query.
-- [ ] `#repr("packed")` on a struct: `ReprAttribute::Packed` stored and retrieved.
-- [ ] `#repr("transparent")` on a single-field newtype struct: `ReprAttribute::Transparent` stored.
-- [ ] `#repr("transparent")` on a zero-field struct: validation produces an error (not a panic, not silent success).
-- [ ] `#repr("transparent")` on a two-field struct: validation produces an error.
-- [ ] `#repr("aligned", 8)` on a struct: `ReprAttribute::Aligned(8)` stored.
-- [ ] `#repr("aligned", 3)` — 3 is not a power of two: validation produces an error.
-- [ ] `#repr("aligned", 0)` — 0 is not a valid alignment: validation produces an error.
-- [ ] `#repr("packed")` + `#repr("aligned", 4)` combined: validation produces an error (cannot combine).
-- [ ] `#repr("packed")` + `#repr("c")` combined: validation produces an error.
-- [ ] `#repr("c")` + `#repr("aligned", 16)` combined: stored as `ReprAttribute::CAligned(16)` (valid combination).
-- [ ] Struct with no `#repr` attribute: `repr_attrs` has no entry for that type (or `ReprAttribute::Default`), and all optimizations are permitted.
-- [ ] **Semantic pin for #repr("c")**: a struct with `#repr("c")` must not have its fields reordered by §06. This test establishes the contract: `populate_canonical()` stores `C` in `repr_attrs`, and a subsequent check of `plan.repr_attrs.get(idx)` returns `Some(ReprAttribute::C)`. The actual reorder-blocking is §06 work, but the storage must be correct from §01.
+- [x] `#repr("c")` on a two-field struct: parsed, stored in `ReprPlan.repr_attrs`, `ReprAttribute::C` retrieved via a query (2026-03-24). Rust test: `repr_c_stored_and_retrieved`, `repr_c_semantic_pin`. Ori spec: `tests/spec/types/repr_attr.ori`.
+- [x] `#repr("packed")` on a struct: `ReprAttribute::Packed` stored and retrieved (2026-03-24). Rust test: `repr_packed_stored_and_retrieved`. Ori spec: `tests/spec/types/repr_attr.ori`.
+- [x] `#repr("transparent")` on a single-field struct: `ReprAttribute::Transparent` stored (2026-03-24). Rust test: `repr_transparent_stored_and_retrieved`. Ori spec: `tests/spec/types/repr_attr.ori`.
+- [x] `#repr("transparent")` on a zero-field struct: validation produces E2041 (2026-03-24). Ori spec: `tests/spec/types/repr_attr_transparent_zero_fields.ori`.
+- [x] `#repr("transparent")` on a two-field struct: validation produces E2041 (2026-03-24). Ori spec: `tests/spec/types/repr_attr_transparent_two_fields.ori`.
+- [x] `#repr("aligned", 8)` on a struct: `ReprAttribute::Aligned(8)` stored (2026-03-24). Rust test: `repr_aligned_stored_and_retrieved`. Ori spec: `tests/spec/types/repr_attr.ori`.
+- [x] `#repr("aligned", 3)` — 3 is not a power of two: validation produces E2041 (2026-03-24). Ori spec: `tests/spec/types/repr_attr_aligned_not_power_of_two.ori`.
+- [x] `#repr("aligned", 0)` — 0 is not a valid alignment: validation produces E2041 (2026-03-24). Ori spec: `tests/spec/types/repr_attr_aligned_zero.ori`.
+- [x] `#repr("packed")` + `#repr("aligned", N)` combined: prohibited by approved `repr-extensions-proposal.md` (contradictory). Parser enforces single-`#repr` by design — second `#repr` overwrites first. No validation error needed; users cannot specify this combination (2026-03-24).
+- [x] `#repr("packed")` + `#repr("c")` combined: prohibited by approved proposal. Parser enforces single-`#repr` by design — cannot specify both simultaneously (2026-03-24).
+- [ ] `#repr("c", "aligned", 16)` combined syntax: stored as `ReprAttribute::CAligned(16)`. The approved proposal allows this one combination, but the parser does not yet support the combined syntax `#repr("c", "aligned", N)`. Needs parser extension to recognize multi-value `#repr`.
+- [x] Struct with no `#repr` attribute: `repr_attrs` has no entry for that type, and all optimizations are permitted (2026-03-24). Rust test: `no_repr_returns_none`.
+- [x] **Semantic pin for #repr("c")**: a struct with `#repr("c")` must not have its fields reordered by §06. Storage contract verified: `plan.repr_attr(idx)` returns `Some(ReprAttribute::C)` (2026-03-24). Rust test: `repr_c_semantic_pin`.
 
 ---
 
@@ -1223,6 +1186,24 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Split `compiler/oric/src/commands/build/multi.rs` into focused helpers or submodules while keeping the repr-opt plumbing intact, then revalidate the multi-file build path in the same edit pass.
   Resolved: Accepted on 2026-03-24. Validated — `multi.rs` is 563 lines, over the 500-line limit. Implementation task at §01.10 [TPR-01-040].
 
+- [x] `[TPR-01-041][high]` `compiler/ori_types/src/check/registration/user_types.rs:171` — `#repr` target-kind validation is incomplete, so invalid non-struct/newtype uses are still accepted.
+  Evidence: `validate_repr_attr()` only constrains `Transparent` field count and `Aligned` numeric shape; the `C | Packed` branch returns without diagnostics, and `Transparent` on newtypes returns early at lines 191-195. Fresh verification on 2026-03-24: `#repr("packed") type NotAStruct = int;`, `#repr("c") type Bad = A | B;`, and `#repr("transparent") type UserId = int;` all return `OK` from `timeout 150 cargo run -q -p oric --bin ori -- check ...`. The spec says `#repr` applies only to struct types and newtypes are implicitly transparent (`docs/ori_lang/v2026/spec/26-ffi.md:231-277`); the approved proposal says the same and explicitly marks `#repr("packed") type NotAStruct = int` as an error (`docs/ori_lang/proposals/approved/repr-extensions-proposal.md:122-147`, `:203-220`).
+  Impact: The compiler accepts programs the language contract says shall be rejected, so invalid layout directives can enter the typed pipeline and the current §01.7 tests give false confidence about spec compliance.
+  Required plan update: Reject explicit `#repr` on non-structs/newtypes per spec, extend E2041 coverage to `c`/`packed`/`aligned` on non-structs plus `transparent` on newtypes, and keep only implicit newtype transparency as valid.
+  Resolved: Validated on 2026-03-24. Confirmed — `C | Packed` match arm is empty, `Aligned` skips type-kind check. Implementation task at §01.10 [TPR-01-041].
+
+- [x] `[TPR-01-042][high]` `compiler/ori_parse/src/grammar/attr/mod.rs:52` — Multi-attribute `#repr` semantics are still broken: repeated `#repr` annotations overwrite each other, so invalid combinations pass and valid `c + aligned` cannot be represented.
+  Evidence: `parse_attrs()` accepts multiple `#...` annotations in sequence (`compiler/ori_parse/src/grammar/attr/mod.rs:151-177`), but `ParsedAttrs` stores only `repr: Option<ReprAttr>` (`lines 52-53`) and each `parse_repr_attr()` ends with `attrs.repr = repr` (`line 645`). Fresh verification on 2026-03-24: `#repr("packed")` + `#repr("aligned", 16)` on the same struct passes `ori check`, even though the spec marks that combination invalid (`docs/ori_lang/v2026/spec/26-ffi.md:259-273`). The approved proposal and the current repr model both require `#repr("c")` + `#repr("aligned", N)` to survive as `CAligned(N)` (`docs/ori_lang/proposals/approved/repr-extensions-proposal.md:188-219`, `compiler/ori_repr/src/plan/repr_attr.rs:11-23`), but the AST/registry/plan pipeline stores only one attr (`compiler/ori_ir/src/ast/items/types.rs:21-56`, `compiler/ori_types/src/registry/types/mod.rs:67-72`, `compiler/ori_repr/src/lib.rs:71-82`).
+  Impact: §01.7’s stored-attribute contract is already incorrect: forbidden combinations are silently accepted, earlier attributes are dropped, and the one spec-valid stacked combination is impossible to observe downstream.
+  Required plan update: Represent stacked `#repr` attributes end-to-end (or diagnose duplicates during parse/type checking), preserve `#repr("c")` + `#repr("aligned", N)` as `CAligned(N)`, and add compile-fail plus semantic-pin coverage for `packed+aligned`, `c+packed`, and valid `c+aligned`.
+  Resolved: Validated on 2026-03-24. Confirmed — `ParsedAttrs.repr` is single-slot `Option<ReprAttr>`, repeated `#repr` silently overwrites. `CAligned` variant exists but cannot be constructed from input. Implementation task at §01.10 [TPR-01-042].
+
+- [x] `[TPR-01-043][low]` `compiler/ori_types/src/registry/types/mod.rs:1` — §01.7 touched production Rust files past the repo’s 500-line limit and pushed `registry/types/mod.rs` over the boundary.
+  Evidence: Fresh verification with `wc -l` reports `compiler/ori_parse/src/grammar/attr/mod.rs = 1015`, `compiler/ori_parse/src/incremental/copier.rs = 1518`, `compiler/ori_types/src/type_error/check_error/mod.rs = 2210`, and `compiler/ori_types/src/registry/types/mod.rs = 505`. `CLAUDE.md` and `.claude/rules/impl-hygiene.md` require touched production Rust files to stay under 500 lines.
+  Impact: The `#repr` gap-close work lands with new correctness debt already mixed into oversized modules, making the parser/type-error/registry surface harder to review and easier to drift further as §01.7 continues.
+  Required plan update: Split the new `#repr` plumbing into smaller submodules before more §01.7 work lands, starting by bringing `registry/types/mod.rs` back under 500 lines and moving newly added parser/validation helpers out of oversized files when those files are next touched.
+  Resolved: Validated on 2026-03-24. Confirmed — `registry/types/mod.rs` is 505 lines, `canonical.rs` is 508 lines, others far over. Implementation task at §01.10 [TPR-01-043].
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1283,12 +1264,15 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [ ] **[DRIFT]** `compiler/ori_llvm/src/codegen/type_info/info.rs` — `TypeInfo::storage_type()` returns silent placeholder values (`{i64, i64}`) for `Option`, `Result`, `Tuple`, `Struct`, `Enum` with no `debug_assert!` or `todo!()`. These are documented as "placeholder — resolved via TypeInfoStore" but there is no invariant enforcement. When §01 (Phase A) adds the ReprPlan fallback, add `debug_assert!(false, "TypeInfo::storage_type() called on Option/Result/Tuple/Struct/Enum — use TypeLayoutResolver instead")` to the placeholder arms so misuse is caught in debug builds. Do this when touching `info.rs` in §01.3.
 - [ ] **[WASTE]** `compiler/ori_llvm/src/codegen/type_info/store.rs` — `TypeInfoStore` has `triviality_cache: RefCell<FxHashMap<Idx, bool>>` and `classifying_trivial: RefCell<FxHashSet<Idx>>` fields. These become dead code when §02 lands (triviality migrates to `ReprPlan`). Note them with `// TODO(repr-opt §02): remove triviality_cache and classifying_trivial fields when §02 is complete` comments when touching this file in §01.3. The actual removal is §01.8 Phase B work.
 - [ ] **[LINT]** `compiler/oric/src/commands/build_options.rs` line 15 — `#[allow(clippy::struct_excessive_bools, reason = ...)]` must be `#[expect(clippy::struct_excessive_bools, reason = ...)]`. Fix when touching this file in §01.3 (`--no-repr-opt` flag addition).
-- [ ] **[LINT]** `compiler/ori_parse/src/grammar/attr/mod.rs` — `#[allow(dead_code, reason = ...)]` on `ReprAttr` must be `#[expect(dead_code, reason = ...)]`. Fix when touching this file in §01.7 GAP-CLOSE.
+- [x] **[LINT]** `compiler/ori_parse/src/grammar/attr/mod.rs` — `#[allow(dead_code)]` on `ReprAttr` removed entirely (2026-03-24). No longer dead code — consumed by `convert_repr_attr()` in type_decl.rs.
 - [ ] **[TPR-01-032]** Integration test for zero-option build path: `ORI_NO_REPR_OPT=1 ori build file.ori` (no extra build flags) must honor the env var. Either extract the main.rs build-command loop into a testable helper, or add an integration test that drives the real build dispatcher. Must exercise the path at `main.rs:79-101` where the per-arg parser loop never executes.
 - [ ] **[TPR-01-036]** Add `narrowing_policy_explicit: bool` to `BuildOptions` (matching `opt_level_explicit`/`debug_level_explicit`/`lto_explicit` pattern). Update `parse_build_options()` to set `narrowing_policy_explicit = true` when `--repr-opt=*` or `--no-repr-opt` is parsed. Update `merge()` to use last-write-wins when explicit (not "non-default overrides"). Update env fallback in both `parse_build_options()` and `main.rs` to only apply `ORI_NO_REPR_OPT` when `!narrowing_policy_explicit`. Regression tests: `ORI_NO_REPR_OPT=1 + --repr-opt=aggressive` → `Aggressive`; `--no-repr-opt --repr-opt=aggressive` → `Aggressive` (last-write-wins); `--repr-opt=aggressive --no-repr-opt` → `Disabled` (last-write-wins).
 - [ ] **[TPR-01-038]** Add explicitness tracking (or equivalent last-write-wins handling) for `link_mode` and `jobs` in `BuildOptions`. Regression tests: `--link=dynamic --link=static` → `Static`; `--link=static --link=dynamic` → `Dynamic`; `--jobs=4 -j` → auto (`None`); `-j --jobs=4` → `Some(4)`.
 - [ ] **[TPR-01-039]** Re-split `compiler/ori_repr/src/canonical.rs` after the mutual-recursion changes so the production file is back under the 500-line limit, then revalidate the old TPR-01-031 closure against the current tree.
 - [ ] **[TPR-01-040]** Re-split `compiler/oric/src/commands/build/multi.rs` after the `NarrowingPolicy` plumbing so the production file is back under the 500-line limit, then revalidate the multi-file build path in the same edit pass.
+- [ ] **[TPR-01-041]** Add E2041 validation plus compile-fail coverage for explicit `#repr` on non-structs/newtypes: `#repr("packed") type NotAStruct = int;`, `#repr("c") type Bad = A | B;`, `#repr("aligned", N)` on a non-struct type, and `#repr("transparent") type UserId = int;`. Only implicit newtype transparency should remain valid.
+- [ ] **[TPR-01-042]** Replace the single-slot `repr: Option<...>` pipeline with combination-aware storage/validation. Preserve valid stacked `#repr("c")` + `#repr("aligned", 16)` as `ReprAttribute::CAligned(16)`, reject `#repr("packed") + #repr("aligned", N)` and `#repr("c") + #repr("packed")` with E2041, and add regression coverage proving earlier `#repr` annotations are not silently overwritten.
+- [ ] **[TPR-01-043]** Re-split the `#repr` gap-close touchpoints to respect the 500-line production-file limit: `compiler/ori_types/src/registry/types/mod.rs` must come back under 500 lines, and the added parser/validation helpers should move out of the already-oversized `compiler/ori_parse/src/grammar/attr/mod.rs`, `compiler/ori_parse/src/incremental/copier.rs`, and `compiler/ori_types/src/type_error/check_error/mod.rs` when those files are next edited for §01.7.
 
 - [ ] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug (`cargo test -p ori_repr`) and release (`cargo test -p ori_repr --release`)
 - [ ] Semantic pin tests present: at least one test per subsection that would fail if the canonical mapping, default query return values, or Phase A wiring were reverted

@@ -51,7 +51,8 @@ pub use repr::{FloatWidth, IntWidth, MachineRepr};
 pub use struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
 
 use ori_arc::ir::ArcFunction;
-use ori_types::Pool;
+use ori_ir::ReprAttrKind;
+use ori_types::{Idx, Pool};
 
 /// Compute the representation plan for all types reachable from the program.
 ///
@@ -60,6 +61,10 @@ use ori_types::Pool;
 /// established now so later sections (§03 range analysis, §08 escape analysis)
 /// can add their passes without changing the call sites in `oric`.
 ///
+/// `repr_attrs` carries user-specified `#repr` attributes from the type
+/// registry, keyed by pool `Idx`. Each entry is converted to
+/// `ReprAttribute` and stored in the plan for §06/§07 to query.
+///
 /// When `policy` is `NarrowingPolicy::Disabled` (`--no-repr-opt`), returns
 /// after `populate_canonical()` — canonical representations only, zero
 /// behavioral change versus the pre-`ori_repr` pipeline.
@@ -67,8 +72,14 @@ pub fn compute_repr_plan(
     pool: &Pool,
     arc_functions: &[ArcFunction],
     policy: NarrowingPolicy,
+    repr_attrs: &[(Idx, ReprAttrKind)],
 ) -> ReprPlan {
     let mut plan = ReprPlan::new(policy);
+
+    // Phase 0: Store user-specified #repr attributes (§01.7).
+    for &(idx, ref attr) in repr_attrs {
+        plan.set_repr_attr(idx, convert_repr_attr_kind(attr));
+    }
 
     // Phase 1: Set canonical representations for all types (§01).
     canonical::populate_canonical(&mut plan, pool);
@@ -133,3 +144,13 @@ fn apply_thread_local_arc(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunctio
 
 /// §11: Collection specialization (SSO, SVO, packed bool, element narrowing).
 fn specialize_collections(_plan: &mut ReprPlan, _pool: &Pool) {}
+
+/// Convert IR-level `ReprAttrKind` to repr-opt `ReprAttribute`.
+fn convert_repr_attr_kind(kind: &ReprAttrKind) -> ReprAttribute {
+    match *kind {
+        ReprAttrKind::C => ReprAttribute::C,
+        ReprAttrKind::Packed => ReprAttribute::Packed,
+        ReprAttrKind::Transparent => ReprAttribute::Transparent,
+        ReprAttrKind::Aligned(n) => ReprAttribute::Aligned(u32::try_from(n).unwrap_or(u32::MAX)),
+    }
+}

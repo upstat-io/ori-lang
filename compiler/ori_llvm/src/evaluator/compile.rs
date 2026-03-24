@@ -166,7 +166,12 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 ori_repr::NarrowingPolicy::Aggressive
             }
         });
-        let repr_plan = ori_repr::compute_repr_plan(self.pool, &all_arc_funcs, policy);
+        // Extract #repr attributes from user types for the repr plan.
+        let repr_attrs: Vec<(ori_types::Idx, ori_ir::ReprAttrKind)> = user_types
+            .iter()
+            .filter_map(|te| te.repr.map(|r| (te.idx, r)))
+            .collect();
+        let repr_plan = ori_repr::compute_repr_plan(self.pool, &all_arc_funcs, policy, &repr_attrs);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
         let mut builder = IrBuilder::new_jit(scx_ref);
         type_registration::register_user_types(&resolver, user_types);

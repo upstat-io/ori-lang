@@ -1,0 +1,5 @@
+// #repr("aligned", 0) — 0 is not valid: must produce E2041.
+#compile_fail(code: "E2041", message: "alignment must be greater than zero")
+
+#repr("aligned", 0)
+type BadAlign = { value: int }

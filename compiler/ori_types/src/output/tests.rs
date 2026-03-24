@@ -265,6 +265,7 @@ fn type_def_export() {
         type_params: vec![],
         visibility: Visibility::Public,
         merkle_hash: 0,
+        repr: None,
     });
 
     assert_eq!(module.type_count(), 1);

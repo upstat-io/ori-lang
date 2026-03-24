@@ -11,6 +11,25 @@ use super::super::ranges::GenericParamRange;
 use super::super::Visibility;
 use super::traits::WhereClause;
 
+/// User-specified representation attribute (`#repr(...)`).
+///
+/// Parsed by `ori_parse` and stored in the AST as a data-only enum.
+/// Converted to `ori_repr::ReprAttribute` during representation planning.
+///
+/// Defined in `ori_ir` (not `ori_parse`) to keep the dependency direction
+/// `ori_parse → ori_ir` — `TypeDecl` stores this, so it must live in `ori_ir`.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+pub enum ReprAttrKind {
+    /// `#repr("c")` — C-compatible layout (no field reordering).
+    C,
+    /// `#repr("packed")` — no padding between fields.
+    Packed,
+    /// `#repr("transparent")` — same layout as the single field.
+    Transparent,
+    /// `#repr("aligned", N)` — minimum alignment (power of two).
+    Aligned(u64),
+}
+
 /// A user-defined type declaration.
 ///
 /// ```ori
@@ -33,6 +52,8 @@ pub struct TypeDecl {
     pub visibility: Visibility,
     /// Derived traits: `#[derive(Eq, Clone)]`
     pub derives: Vec<Name>,
+    /// Representation attribute: `#repr("c")`, `#repr("packed")`, etc.
+    pub repr: Option<ReprAttrKind>,
 }
 
 impl Spanned for TypeDecl {
