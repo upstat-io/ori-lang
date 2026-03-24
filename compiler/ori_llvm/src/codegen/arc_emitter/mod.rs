@@ -18,6 +18,7 @@
 //! # Submodules
 //!
 //! - [`builtins`] — builtin method emission (string, list, map, iterator ops)
+//! - [`closure_wrappers`] — closure wrapper function generation (`_ori_partial_N` trampolines)
 //! - [`closures`] — closure (partial application) emission and environment management
 //! - [`construction`] — value construction: structs, enums, lists, maps, sets
 //! - [`context`] — shared types: `CodegenContext`, `EmittedValue`, `InvokeMode`, `is_boxed_enum_field`
@@ -37,6 +38,7 @@ mod apply_protocols;
 pub(crate) mod builtins;
 mod catch_thunk;
 mod catch_thunk_gen;
+mod closure_wrappers;
 mod closures;
 mod construction;
 pub(crate) mod context;

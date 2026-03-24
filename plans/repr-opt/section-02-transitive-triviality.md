@@ -36,10 +36,12 @@ sections:
 # Section 02: Transitive Triviality & ARC Elision
 
 **Context:** Two independent triviality systems exist today:
-1. `ori_arc::ArcClassifier` (re-exported at crate root; internal module `ori_arc::classify` is `pub(crate)`) — used during ARC IR lowering, classifies as `Scalar`/`DefiniteRef`/`PossibleRef`
-2. `ori_llvm::codegen::type_info::TypeInfoStore::is_trivial()` — used during LLVM codegen, walks type tree
+1. `ori_arc::ArcClassifier` (defined in `ori_arc/src/classify/mod.rs`, `ArcClass` enum re-exported at `ori_arc/src/lib.rs`) — used during ARC IR lowering, classifies as `Scalar`/`DefiniteRef`/`PossibleRef`
+2. `ori_llvm::codegen::type_info` has TWO `is_trivial()` methods:
+   - `TypeInfo::is_trivial()` (on the enum, in `info.rs`) — conservative: returns `false` for ALL compound types (Option, Result, Tuple, Struct, Enum, Iterator)
+   - `TypeInfoStore::is_trivial()` (on the store, in `store.rs`) — transitive: walks child types recursively with cycle detection and caching, correctly classifies `Option<int>` as trivial
 
-These MUST agree, but they use different algorithms and data structures, and they **currently disagree** on iterators: `ArcClassifier` classifies `Iterator`/`DoubleEndedIterator` as `Scalar` (Box-allocated, no RC header), while `TypeInfoStore::is_trivial()` classifies them as non-trivial (heap-backed). Unifying them ensures no redundant RC operations on types that can never hold heap references.
+Both the `TypeInfo::is_trivial()` method and `ArcClassifier` **currently disagree** on iterators: `ArcClassifier` classifies `Iterator`/`DoubleEndedIterator` as `Scalar` (Box-allocated, no RC header), while `TypeInfo::is_trivial()` classifies them as non-trivial. The transitive `TypeInfoStore::is_trivial()` also classifies iterators as non-trivial because it delegates to `TypeInfo::is_trivial()` for leaf types. Unifying them ensures no redundant RC operations on types that can never hold heap references.
 
 **Reference implementations:**
 - **Swift** `lib/SIL/SILType.cpp`: `isTrivial()` walks type structure recursively, caches results
@@ -63,6 +65,12 @@ If §01 is incomplete, the core algorithm (`classify_triviality()` in `ori_types
 **File(s):** `compiler/ori_types/src/triviality/mod.rs` (NOT `ori_repr` — avoids circular dep since both `ori_arc` and `ori_repr` depend on `ori_types`), `compiler/ori_arc/src/classify/mod.rs`
 
 Today, `ArcClassifier` and `TypeInfoStore::is_trivial()` duplicate logic. We need a single source of truth.
+
+> **CODEBASE FINDING (Iterator/DoubleEndedIterator — both systems):**
+> - `ArcClassifier::classify_by_tag()` (`compiler/ori_arc/src/classify/mod.rs:169`) returns `ArcClass::Scalar` for `Tag::Iterator | Tag::DoubleEndedIterator`.
+> - `TypeInfoStore::classify_trivial()` (`compiler/ori_llvm/src/codegen/type_info/store.rs:205`) returns `false` for `TypeInfo::Iterator { .. }` (classified as non-trivial).
+> - `TypeInfo::is_trivial()` (on the enum, `compiler/ori_llvm/src/codegen/type_info/info.rs:335`) also returns `false` for `Self::Iterator { .. }`.
+> - This is the LIVE disagreement that §02 resolves. When implementing the delegation, ensure `classify_triviality()` returns `Triviality::Trivial` for `Tag::Iterator | Tag::DoubleEndedIterator`, matching `ArcClassifier` (which is correct: iterators are Box-allocated with no RC header).
 
 - [ ] Create `compiler/ori_types/src/triviality/mod.rs` with the `Triviality` enum and `classify_triviality()` entry point (placed in `ori_types`, NOT `ori_repr`, to avoid circular deps — both `ori_arc` and `ori_repr` depend on `ori_types`):
   ```rust
@@ -94,10 +102,13 @@ Today, `ArcClassifier` and `TypeInfoStore::is_trivial()` duplicate logic. We nee
   ```
 
 - [ ] Wire up delegation from both consumers (no duplicate logic allowed):
-  - `ori_arc::ArcClassifier::classify()` delegates to `ori_types::classify_triviality()`, mapping: `Trivial` → `ArcClass::Scalar`, `NonTrivial` → `ArcClass::DefiniteRef`, `Unknown` → `ArcClass::PossibleRef`
+  - `ori_arc::ArcClassifier::classify_by_tag()` (`compiler/ori_arc/src/classify/mod.rs:152`) — replace body with `ori_types::classify_triviality()` call; keep existing `RefCell<FxHashMap<Idx, ArcClass>>` cache intact. Map: `Trivial` → `ArcClass::Scalar`, `NonTrivial` → `ArcClass::DefiniteRef`, `Unknown` → `ArcClass::PossibleRef`
   - `ori_repr::ReprPlan::is_trivial()` delegates to `ori_types::classify_triviality()`
 
 - [ ] Make `TypeInfoStore::is_trivial()` delegate to `ReprPlan::is_trivial()`:
+  - WHERE: `compiler/ori_llvm/src/codegen/type_info/store.rs:160` (the `is_trivial()` method) — this currently has its own transitive walk via `classify_trivial()`. After §01 is complete, replace the body to query `ReprPlan`. Until then, the existing walk in `store.rs` remains the implementation.
+  - WHERE: `compiler/ori_llvm/src/codegen/type_info/store.rs:177` (the `classify_trivial()` helper) — mark as `// TODO(repr-opt/02): remove when TypeInfoStore delegates to ReprPlan`. Do NOT remove until ReprPlan is live.
+  - **[DRIFT]** `compiler/ori_llvm/src/codegen/type_info/store.rs:204-207` — `TypeInfoStore::classify_trivial()` returns `false` for `TypeInfo::Iterator { .. }`, contradicting `ArcClassifier`'s `Scalar` classification. This drift is resolved when §02.1 installs `classify_triviality()` as the single source of truth. Until then, the codegen may emit unnecessary RC ops for iterator-typed values.
   - `ReprPlan` caches the result from the triviality pass
   - Codegen never re-computes triviality
 
@@ -333,38 +344,54 @@ The recursive walk must handle all compound types and detect cycles (recursive s
 
 ---
 
+### 02.1 Completion
+
+- [ ] Add `pub mod triviality;` to `compiler/ori_types/src/lib.rs` — WHERE: after existing `pub mod` declarations
+- [ ] Confirm `ori_arc` already depends on `ori_types`; no `compiler/ori_arc/Cargo.toml` edit is needed for this section
+- [ ] Verify `cargo c` (check all) succeeds after wiring delegation
+
+---
+
 ## 02.3 ARC Elision in ori_arc Pipeline
 
-**File(s):** `compiler/ori_arc/src/rc_insert/mod.rs`, `compiler/ori_arc/src/classify/mod.rs`
+**File(s):** `compiler/ori_arc/src/aims/emit_rc/mod.rs` (via `ArcClassification::is_scalar()`), `compiler/ori_arc/src/classify/mod.rs`
 
 When the triviality pass marks a type as Trivial, the ARC pipeline must skip ALL RC operations for values of that type.
 
-- [ ] In `rc_insert`, check triviality before inserting `RcInc`/`RcDec`:
-  - If the variable's type is `Trivial` in the `ReprPlan`, skip RC insertion entirely
+- [ ] In the AIMS pipeline (`aims/emit_rc/`), RC insertion is gated by `classifier.is_scalar(ty)`. Since `ArcClassifier` will delegate to `classify_triviality()` after §02.1, `Option<int>` variables will return `is_scalar() = true` and get NO RC ops inserted. No separate change to `aims/emit_rc/` is needed beyond the ArcClassifier delegation:
+  - The AIMS pipeline calls `ArcClassification::is_scalar(ty)` before emitting `RcInc`/`RcDec`
+  - After §02.1 wires `ArcClassifier::classify()` to `classify_triviality()`, `Option<int>` → `Scalar` → no RC
   - This must work for compound types: `Option<int>` variables must skip RC even though `Option` itself has a generic form that might need RC
 
 - [ ] In `compute_var_reprs()` (`compiler/ori_arc/src/ir/repr.rs`), set `ValueRepr::Scalar` for all trivial types:
+  - WHERE: `compiler/ori_arc/src/ir/repr.rs` — `compute_var_reprs()` function
   - `ValueRepr` has four variants: `Scalar`, `RcPointer`, `Aggregate`, `FatValue`
   - Currently, `Option<T>` always gets `ValueRepr::Aggregate` regardless of T (driven by `ValueRepr::from_arc_class()` + `from_ref_tag()`)
   - With triviality, `Option<int>` should get `ValueRepr::Scalar` (no RC fields)
   - The fix point is `ValueRepr::from_arc_class()`: when `ArcClass::Scalar`, result is already `Scalar`; the real change is making `ArcClassifier` return `Scalar` for trivially-composed compound types
+  - Verify: add a test in `compiler/ori_arc/src/ir/tests.rs` (or create sibling `repr/tests.rs`) asserting `compute_var_reprs()` returns `ValueRepr::Scalar` for a variable of type `Option<int>` after §02.1 is implemented
 
 - [ ] Update `drop/mod.rs` — `compute_drop_info()` should return `None` for trivial types:
+  - WHERE: `compiler/ori_arc/src/drop/mod.rs:130-141` (`compute_drop_info()` function)
   - Currently, `compute_drop_info()` returns `None` only when `classifier.is_scalar(ty)` is true (line 135). For `PossibleRef` types whose children are all scalar, it returns `Some(DropInfo { kind: DropKind::Trivial })` — a trivial drop that still generates a drop function (just `ori_rc_free` + ret).
   - With unified triviality, these should return `None` (no drop function needed at all)
   - Note: `compute_fields_drop()` already returns `DropKind::Trivial` (not `DropKind::Fields([])`) when no fields need RC; the issue is that `compute_drop_info` wraps it in `Some(DropInfo)` instead of returning `None`
+  - Verify: add a test in `compiler/ori_arc/src/drop/tests.rs` asserting `compute_drop_info(option_int_idx, &classifier, &pool)` returns `None` after §02.1 wires `ArcClassifier` to `classify_triviality()`
 
 ---
 
 ## 02.4 Drop Function Elision
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs`
+**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/rc_ops.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/rc_value_traversal.rs`
 
-When `compute_drop_info()` returns `None`, the LLVM drop function generator must NOT emit a drop function. This saves code size and eliminates dead function definitions.
+When `compute_drop_info()` returns `None`, the LLVM emitter must treat that as "no RC-managed heap object here". The current `get_or_generate_drop_fn()` helper already returns a null function pointer in this case; the remaining work is to keep that null from flowing into `ori_rc_dec`, which would otherwise leak the allocation when the refcount hits zero.
 
-- [ ] In `get_or_generate_drop_fn()` (`compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs`) and `generate_drop_fn()` (`drop_gen.rs`), return a null function pointer for trivial types
-- [ ] In `ori_rc_dec` call sites, skip the call entirely when drop_fn is null
-- [ ] Verify: `ORI_LOG=ori_llvm=debug ori build` should NOT emit `_ori_drop$` functions for `Option<int>`, `(int, float)`, `Result<int, bool>`, etc.
+**Pre-condition:** `compute_drop_info()` in `compiler/ori_arc/src/drop/mod.rs:130` already returns `None` when `classifier.is_scalar(ty)` is true (line 135). After §02.1 wires `ArcClassifier` to `classify_triviality()`, trivially-composed compound types (like `Option<int>`) will have `is_scalar()` return `true`, and `compute_drop_info()` will return `None` for them automatically. `get_or_generate_drop_fn()` in `compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs` already reflects this by returning `const_null_ptr()`. §02.4's job is to add regression coverage for that behavior and make the RC emission sites honor the null.
+
+- [ ] Add a regression test around `get_or_generate_drop_fn()` (`compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs`) asserting that trivial types return a null drop-function pointer and do not populate `drop_fn_cache`
+- [ ] In `ori_rc_dec` call emission sites, skip the call entirely when the computed drop-fn pointer is null. Audit the shared heap-dec paths in `compiler/ori_llvm/src/codegen/arc_emitter/rc_ops.rs` and `compiler/ori_llvm/src/codegen/arc_emitter/rc_value_traversal.rs`
+- [ ] Verify: `ORI_DUMP_AFTER_LLVM=1 ori build trivial_test.ori` should NOT contain `_ori_drop$` functions for `Option<int>`, `(int, float)`, `Result<int, bool>`
+- [ ] Verify: `ORI_LOG=ori_llvm=debug ori build trivial_test.ori 2>&1 | grep "drop"` shows no drop function generation for trivial types
 
 ---
 
@@ -465,13 +492,23 @@ Generic types interact with triviality classification in a specific way: trivial
 - [ ] Consistency test: `ArcClassifier` and `ReprPlan` agree on every type in the Pool
 - [ ] Consistency test: for a Pool with 50+ diverse types, no classification disagreement between old and new code paths
 
+**TDD ordering (MANDATORY):**
+1. Write ALL tests in `compiler/ori_types/src/triviality/tests.rs` first (see §02.2 test list — all 40+ cases)
+2. Run `cargo test -p ori_types` — all new tests must FAIL (unimplemented module)
+3. Implement `classify_triviality()` in `triviality/mod.rs`
+4. Verify tests pass without modification
+5. Only then proceed to wiring delegation in §02.1 consumers
+
+**Test matrix dimensions:** Type tag (all 34 Tag variants) × Classification outcome (Trivial / NonTrivial / Unknown) × Resolution path (primitive fast-path / compound recursive / Named resolution / cycle detection)
+
 **Test suites:**
 - [ ] Unit tests in `compiler/ori_types/src/triviality/tests.rs` — all tag variants covered
-- [ ] Integration tests in `compiler/ori_arc/src/classify/tests.rs` — ArcClassifier delegation verified
-- [ ] Integration tests in `compiler/ori_llvm/tests/aot/` — LLVM IR verified for trivial compound types
+- [ ] Integration tests in `compiler/ori_arc/src/classify/tests.rs` — ArcClassifier delegation verified; specifically add a test asserting `Iterator<int>` classified as `Scalar` (regression guard for the live drift)
+- [ ] Integration tests in `compiler/ori_llvm/tests/aot/` — LLVM IR verified for trivial compound types; verify `ORI_DUMP_AFTER_LLVM=1` shows zero `ori_rc_*` calls for `Option<int>`, `(int, float)`, `struct Point { x: int, y: int }`
+- [ ] Semantic pin test: write a test that creates 100K `Option<int>` values in a loop and verifies (via `ORI_CHECK_LEAKS=1`) exactly 0 RC allocations — this test ONLY passes with the new semantics
 - [ ] Ori spec tests in `tests/spec/` — at least one `.ori` file exercising trivial compound types end-to-end
 - [ ] `./test-all.sh` green
-- [ ] `./llvm-test.sh` green
+- [ ] `./llvm-test.sh` green (run after debug build AND release build — `cargo b --release`)
 - [ ] `./diagnostics/valgrind-aot.sh` clean (no leaks introduced by elision)
 - [ ] `./clippy-all.sh` green
 
@@ -484,7 +521,7 @@ Generic types interact with triviality classification in a specific way: trivial
 - [ ] Modified: `compiler/ori_arc/src/classify/tests.rs` (add delegation consistency tests)
 - [ ] Modified: `compiler/ori_arc/src/ir/repr.rs` (`compute_var_reprs` uses unified classification)
 - [ ] Modified: `compiler/ori_arc/src/drop/mod.rs` (`compute_drop_info` returns None for trivial)
-- [ ] Modified: `compiler/ori_arc/src/rc_insert/mod.rs` (skip RC for trivial types) — only if §01 ReprPlan is available; otherwise ArcClassifier delegation alone achieves RC elision
+- [ ] NOT modified: `compiler/ori_arc/src/rc_insert/mod.rs` — this module only handles arg ownership annotation; RC insertion is the AIMS pipeline's job via `ArcClassification::is_scalar()`
 - [ ] Modified: `compiler/ori_llvm/src/codegen/type_info/store.rs` (delegate `is_trivial` to ReprPlan — deferred until §01 complete)
 - [ ] Modified: `compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs` (null drop fn for trivial)
 - [ ] Modified: `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs` (skip generation for trivial)

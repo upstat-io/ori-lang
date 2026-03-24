@@ -24,7 +24,7 @@ order: 2
 
 Use `/benchmark short` after modifying hot paths.
 
-**When to benchmark:** §01 (pipeline integration), §04 (integer narrowing codegen), §06 (struct layout), §08 (escape analysis), §11 (SSO/SVO)
+**When to benchmark:** §01 (pipeline integration), §04 (integer narrowing codegen), §06 (struct layout), §08 (escape analysis), §11 (SSO audit / SVO / packed collections)
 **Skip benchmarks for:** §02 (triviality — correctness only), §03 (range analysis — analysis time, not runtime), §12 (verification itself)
 
 ---
@@ -32,7 +32,7 @@ Use `/benchmark short` after modifying hot paths.
 ## Keyword Clusters by Section
 
 ### Section 01: Representation IR & Decision Framework
-**File:** `section-01-repr-ir.md` | **Status:** Not Started
+**File:** `section-01-repr-ir.md` | **Status:** In Progress
 
 ```
 MachineRepr, ReprPlan, ReprDecision, DecisionSource, DecisionReason
@@ -47,6 +47,15 @@ Salsa integration, incremental, invalidation, JIT hot-reload
 #repr("c"), #repr("packed"), #repr("transparent"), #repr("aligned", N)
 migration, TypeInfoStore → ReprPlan, Phase A/B/C
 Lean4 LCNF, Zig InternPool, Roc STLayoutInterner
+--no-repr-opt flag, ORI_NO_REPR_OPT, NarrowingPolicy, Aggressive Conservative Disabled
+ori_repr workspace registration, Cargo.toml members
+set_var_ranges, function_var_ranges, var_range, ArcVarId ValueRange
+float_width, int_width, is_trivial, escapes, rc_strategy, RcStrategy
+set_escape_info, set_rc_strategy, EscapeInfo placeholder, ValueRange placeholder
+FieldRepr name field, debug symbols, C-ABI reorder verification
+compute_repr_plan arc_functions pool policy, pass stubs, stub functions
+range/mod.rs, escape/mod.rs, placeholder module, immediate compilation
+ori_repr tracing, ORI_LOG=ori_repr, tracing_setup
 ```
 
 ---
@@ -149,6 +158,8 @@ invalid bit pattern, spare bits, niche_value
 tagged pointer, low bits, alignment bits
 payload compression, variant layout, shared prefix
 Rust niche, Swift GenEnum, Zig optional
+f32 niche, float niche, NaN bit pattern, f32-typed field niche
+depends §04 integer narrowing, depends §05 float narrowing
 ```
 
 ---
@@ -205,11 +216,11 @@ Rust Rc/Arc, Swift isUniquelyReferenced, CPython GIL
 **File:** `section-11-collection-spec.md` | **Status:** Not Started
 
 ```
-SSO, small string optimization, inline string, 22 byte
+SSO, small string optimization, inline string, 23 byte
 SVO, small vector optimization, inline vector, SmallVec
 packed bool, bit packing, 1 bit per bool, PackedBoolArray
 narrow element, backing store, [i8], [i16], [f32]
-ori_str_new, ori_str_is_inline, OriStr
+ori_str_len, ori_str_data, OriStr, OriStr::is_sso, SSO_FLAG, SLICE_FLAG
 collection narrowing, element narrowing, map key narrowing
 C++ basic_string, Rust SmallVec, Swift Array COW
 ```

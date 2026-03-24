@@ -26,11 +26,6 @@ fn test_nounwind_program_has_no_unreachable_blocks() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
     // No invoke instructions — all calls are nounwind
@@ -75,11 +70,6 @@ fn test_nounwind_generic_call_no_unreachable() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
     assert!(
@@ -111,11 +101,6 @@ fn test_mixed_calls_no_dead_unreachable() {
 }
 "#,
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
@@ -150,11 +135,6 @@ fn test_constant_main_minimal_ir() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let main_ir = extract_function_ir(&ir, "_ori_main");
 
     assert!(
@@ -187,11 +167,6 @@ fn test_trivial_main_wrapper_has_nounwind() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     assert_fn_has_attr(&ir, "main", "nounwind");
 }
 
@@ -210,11 +185,6 @@ fn test_panicking_main_wrapper_lacks_nounwind() {
 }
 "#,
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     assert_fn_lacks_attr(&ir, "main", "nounwind");
 }
@@ -248,11 +218,6 @@ fn test_function_calling_builtin_method_gets_nounwind() {
 "#,
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     assert_fn_has_attr(&ir, "_ori_count_chars", "nounwind");
     assert_fn_has_attr(&ir, "_ori_total_items", "nounwind");
     assert_fn_has_attr(&ir, "_ori_main", "nounwind");
@@ -280,11 +245,6 @@ fn test_closure_call_gets_nounwind_via_posthoc() {
 @main () -> int = check_capture();
 "#,
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     assert_fn_has_attr(&ir, "_ori_check_capture", "nounwind");
     assert_fn_has_attr(&ir, "_ori_main", "nounwind");
@@ -314,11 +274,6 @@ fn test_generic_call_with_builtin_arg_not_treated_as_intercepted() {
 }
 "#,
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     // `might_panic` contains `panic()` — it MUST NOT be nounwind.
     // Before the fix, mono_dispatch was not checked, so `might_panic(x: "hello")`
@@ -351,11 +306,6 @@ type Shape = { sides: int, area: float };
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     assert_fn_has_attr(&ir, "_ori_Shape$eq", "nounwind");
     assert_fn_has_attr(&ir, "_ori_Shape$compare", "nounwind");
     assert_fn_has_attr(&ir, "_ori_Shape$hash", "nounwind");
@@ -379,11 +329,6 @@ type Point = { x: int, y: int };
 }
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     assert_fn_lacks_attr(&ir, "_ori_Point$to_str", "nounwind");
     assert_fn_lacks_attr(&ir, "_ori_Point$debug", "nounwind");
@@ -413,12 +358,6 @@ fn test_panic_declarations_have_noreturn() {
 }
 "#,
     );
-
-    // Skip if release binary (no IR output)
-    if !ir.contains("declare ") && !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     // Check ori_panic_cstr has noreturn via its attribute group
     assert_fn_has_attr(&ir, "ori_panic_cstr", "noreturn");
@@ -450,11 +389,6 @@ fn test_scalar_params_have_noundef() {
 }
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     // _ori_add: both int params and int return should have noundef
     let add_decl = ir
@@ -497,11 +431,6 @@ fn test_indirect_params_have_noundef() {
 "#,
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     // _ori_greet: str param (Indirect → ptr noundef), str return (Sret → void).
     // The pointer param gets noundef; the sret pointer does NOT get noundef
     // (sret is a special ABI parameter, not a user value).
@@ -538,11 +467,6 @@ fn test_indirect_params_have_nonnull() {
 "#,
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let greet_decl = ir
         .lines()
         .find(|l| {
@@ -575,11 +499,6 @@ fn test_indirect_params_have_dereferenceable() {
 "#,
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let greet_decl = ir
         .lines()
         .find(|l| {
@@ -605,11 +524,6 @@ fn test_direct_params_lack_nonnull() {
 @main () -> int = add(a: 1, b: 2);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let add_decl = ir
         .lines()
@@ -708,11 +622,6 @@ fn test_iter_next_no_wrapper_struct() {
 @main () -> int = count(words: ["hello", "world", "test"]);
 "#,
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let count_ir = extract_function_ir(&ir, "_ori_count");
 
@@ -985,4 +894,64 @@ fn test_iter_for_yield_semantic_pin() {
 "#,
     );
     assert_eq!(exit, 6, "expected 6 (1+2+3) — for-yield semantic pin");
+}
+
+// TPR-02-001 regression: closure wrappers returning >16-byte types via sret
+// must NOT add `noundef` on the hidden sret pointer parameter. The sret
+// pointer is a compiler-managed ABI parameter, not a user value.
+
+/// Verify that a capturing closure wrapper returning `str` (sret) does not
+/// mark the sret pointer `noundef`. Regular params should still have `noundef`.
+#[test]
+fn test_closure_wrapper_sret_no_noundef() {
+    let ir = crate::util::compile_and_capture_ir(
+        r#"
+@apply_transform (items: [str], transform: (str) -> str) -> [str] =
+    for item in items yield transform(item);
+
+@main () -> void = {
+    let $prefix = "hello-prefix-over-twenty-three!";
+    let $result = apply_transform(
+        items: ["world"],
+        transform: (s: str) -> str = `{prefix}: {s}`,
+    );
+    print(msg: result[0])
+}
+"#,
+    );
+
+    // Find any _ori_partial_* wrapper declaration — these are closure wrappers.
+    // The test program captures `prefix` in a lambda returning `str` (>16 bytes),
+    // which must produce an `_ori_partial_*` wrapper with an sret parameter.
+    let wrapper_decl = ir.lines().find(|l| {
+        (l.contains("_ori_partial_") || l.contains("\"_ori_partial_"))
+            && l.contains("define ")
+            && l.contains("sret(")
+    });
+
+    // Semantic pin: the wrapper MUST be emitted. If this assert fires, the test
+    // program no longer produces a closure wrapper — fix the program or the
+    // compiler, don't weaken the test to a no-op.
+    let decl = wrapper_decl.expect(
+        "expected at least one _ori_partial_* wrapper with sret in IR — \
+         the capturing closure returning str must emit a wrapper",
+    );
+
+    // The sret pointer (param 0) should NOT have noundef.
+    // Parse: "define void @_ori_partial_N(ptr noalias sret(...) <NO noundef here>, ptr noundef ...)"
+    // Split at sret(...) and check the text BEFORE the next comma doesn't contain noundef
+    // after the sret attribute.
+    let sret_pos = decl
+        .find("sret(")
+        .expect("wrapper matched sret( in search but not here");
+    // Text from sret( to next comma is the sret param
+    let after_sret = &decl[sret_pos..];
+    let sret_param_end = after_sret
+        .find(',')
+        .unwrap_or(after_sret.find(')').unwrap_or(after_sret.len()));
+    let sret_param_text = &after_sret[..sret_param_end];
+    assert!(
+        !sret_param_text.contains("noundef"),
+        "sret pointer parameter should NOT have noundef attribute:\n{decl}"
+    );
 }

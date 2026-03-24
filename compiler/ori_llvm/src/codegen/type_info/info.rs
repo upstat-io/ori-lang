@@ -61,9 +61,9 @@ pub enum TypeInfo {
     Set { element: Idx },
     /// `(A, B, ...)` -> {A, B, ...}
     Tuple { elements: Vec<Idx> },
-    /// `option[T]` -> {i8 tag, T payload}
+    /// `option[T]` -> {i64 tag, T payload}
     Option { inner: Idx },
-    /// `result[T, E]` -> {i8 tag, max(T, E) payload}
+    /// `result[T, E]` -> {i64 tag, max(T, E) payload}
     Result { ok: Idx, err: Idx },
     /// `range` -> {i64 start, i64 end, i64 step, i64 inclusive}
     Range,

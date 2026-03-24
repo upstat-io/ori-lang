@@ -1,9 +1,10 @@
 ---
-parallel: false
+reroute: true
 name: "macOS AOT Fixes"
 full_name: "macOS AOT Failure Investigation"
-status: active
+status: resolved
 reviewed: false
+order: 1
 ---
 
 # macOS AOT Failure Investigation
@@ -22,6 +23,6 @@ reviewed: false
 
 | Section | Title | Status | Severity |
 |---------|-------|--------|----------|
-| 01 | ARC merge-edge scoped cleanup (exit 1) | in-progress | Major |
-| 02 | Trampoline map str identity SIGSEGV (exit -139) | in-progress | Critical |
+| 01 | ARC merge-edge scoped cleanup (exit 1) | complete | Major |
+| 02 | Trampoline map str identity SIGSEGV (exit -139) | complete | Critical |
 | 03 | CI cross-platform timeout | complete | Minor |

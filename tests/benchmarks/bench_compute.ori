@@ -1,0 +1,90 @@
+// Benchmark: Compute-heavy (scaled for meaningful runtime)
+// Pure integer computation — no allocation, no strings, no collections.
+// Measures raw codegen quality: loop optimization, register allocation, inlining.
+
+@fibonacci (n: int) -> int = {
+    let a = 0;
+    let b = 1;
+    for _ in 0..n do {
+        let next = a + b;
+        a = b;
+        b = next;
+    };
+    a
+}
+
+@gcd (a: int, b: int) -> int =
+    if b == 0 then a
+    else gcd(a: b, b: a % b);
+
+@collatz_steps (n: int) -> int = {
+    let steps = 0;
+    let val = n;
+    for _ in 0..10000000 do {
+        if val == 1 then break;
+        if val % 2 == 0 then val = val / 2
+        else val = val * 3 + 1;
+        steps = steps + 1;
+    };
+    steps
+}
+
+@sum_of_gcds (limit: int) -> int = {
+    let total = 0;
+    for i in 1..limit do {
+        for j in 1..limit do {
+            total = total + gcd(a: i, b: j);
+        };
+    };
+    total
+}
+
+@is_prime (n: int) -> bool = {
+    if n < 2 then false
+    else if n < 4 then true
+    else if n % 2 == 0 then false
+    else {
+        let i = 3;
+        let result = true;
+        loop {
+            if i * i > n then break;
+            if n % i == 0 then {
+                result = false;
+                break;
+            };
+            i = i + 2;
+        };
+        result
+    }
+}
+
+@count_primes (limit: int) -> int = {
+    let count = 0;
+    for n in 2..limit do {
+        if is_prime(n: n) then count = count + 1;
+    };
+    count
+}
+
+@main () -> int = {
+    // Run fibonacci many times
+    let fib_sum = 0;
+    for i in 0..1000000 do {
+        fib_sum = fib_sum + fibonacci(n: 40);
+    };
+
+    // GCD grid — nested loops, recursion, modulo (3000x3000 = 9M calls)
+    let gcds = sum_of_gcds(limit: 3000);
+
+    // Collatz — branch-heavy loop on a long sequence
+    let collatz_sum = 0;
+    for n in 1..100000 do {
+        collatz_sum = collatz_sum + collatz_steps(n: n);
+    };
+
+    // Prime counting — trial division up to 500K
+    let primes = count_primes(limit: 500000);
+
+    // Validate (prevents dead code elimination)
+    if fib_sum > 0 && gcds > 0 && collatz_sum > 0 && primes > 9000 then 0 else 1
+}

@@ -19,11 +19,6 @@ fn test_branching_my_abs_no_bridge_blocks() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_my_abs");
     let bridges = count_bridge_blocks(fn_ir);
 
@@ -45,11 +40,6 @@ fn test_branching_my_sign_no_bridge_blocks() {
 @main () -> int = my_sign(n: 0);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_my_sign");
     let bridges = count_bridge_blocks(fn_ir);
@@ -81,11 +71,6 @@ fn test_j2_branching_correct_output_and_clean_cfg() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     // Verify no bridge blocks in any function.
     for func_name in ["_ori_my_abs", "_ori_my_max", "_ori_my_sign", "_ori_main"] {
         let fn_ir = extract_function_ir(&ir, func_name);
@@ -108,11 +93,6 @@ fn test_select_lowering_preserved() {
 @main () -> int = my_max(a: 3, b: 10);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_my_max");
 

@@ -1047,6 +1047,104 @@ fn seh_indirect_call_with_funclet() {
     drop(irb);
 }
 
+#[test]
+fn seh_indirect_call_with_sret_and_funclet() {
+    // Verifies: invoke → catchpad → call_indirect_with_sret_and_funclet → catchret → ret
+    // This pins TPR-02-002 and TPR-02-003: an indirect closure call returning a large
+    // type (sret) inside a SEH funclet must carry BOTH the "funclet" operand bundle
+    // AND param-0 sret/noalias attributes.
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = IrBuilder::new_aot(&scx, EhModel::Seh);
+    let (func, _entry) = setup_seh_builder(&mut irb);
+
+    let i32_ty = irb.i32_type();
+    let ptr_ty = irb.ptr_type();
+
+    // Create a struct type representing a large return (e.g. str = {ptr, i64, i64}).
+    let struct_ty = irb.register_type(
+        scx.type_struct(
+            &[
+                scx.type_ptr().into(),
+                scx.type_i64().into(),
+                scx.type_i64().into(),
+            ],
+            false,
+        )
+        .into(),
+    );
+
+    // Declare a callee that may throw.
+    let callee = irb.declare_function("may_throw", &[i32_ty], i32_ty);
+
+    let normal = irb.append_block(func, "normal");
+    let unwind = irb.append_block(func, "unwind");
+
+    // Entry: invoke → normal or unwind.
+    let arg = irb.const_i32(7);
+    let result = irb.invoke(callee, &[arg], normal, unwind, "result");
+
+    // Normal: return.
+    irb.position_at_end(normal);
+    let ret_val = result.unwrap_or_else(|| irb.const_i32(0));
+    irb.ret(ret_val);
+
+    // Unwind: catchswitch → handler → catchpad.
+    irb.position_at_end(unwind);
+    let handler_bb = irb.append_block(func, "handler");
+    let cs = irb.catchswitch(None, &[handler_bb], None);
+
+    irb.position_at_end(handler_bb);
+    let null_ptr = irb.const_null_ptr();
+    let i32_64 = irb.const_i32(64);
+    let null_ptr2 = irb.const_null_ptr();
+    let pad = irb.catchpad(cs, &[null_ptr, i32_64, null_ptr2]);
+
+    // Indirect call with sret inside the funclet: simulates a closure returning
+    // a large type (>16 bytes) being called via function pointer inside catch(expr:).
+    let target = irb.declare_function("closure_returning_str", &[ptr_ty, ptr_ty], i32_ty);
+    let fn_ptr = irb.get_function_ptr(target);
+    let sret_alloca = irb.alloca(struct_ty, "sret.alloca");
+    let env_ptr = irb.const_null_ptr();
+    irb.call_indirect_with_sret_and_funclet(
+        struct_ty,
+        &[ptr_ty],
+        fn_ptr,
+        sret_alloca,
+        &[env_ptr],
+        pad,
+    );
+
+    // Exit via catchret.
+    let continue_bb = irb.append_block(func, "continue");
+    irb.catchret(pad, continue_bb);
+
+    irb.position_at_end(continue_bb);
+    let zero = irb.const_i32(0);
+    irb.ret(zero);
+
+    let ir = scx.llmod.print_to_string().to_string();
+    assert!(
+        scx.llmod.verify().is_ok(),
+        "LLVM verification failed for SEH indirect sret call test:\n{ir}"
+    );
+
+    // Verify the indirect call has BOTH the funclet bundle AND sret/noalias attributes.
+    assert!(
+        ir.contains(r#"[ "funclet"#),
+        "Missing funclet bundle on indirect sret call:\n{ir}"
+    );
+    assert!(
+        ir.contains("sret("),
+        "Missing sret attribute on indirect call param 0:\n{ir}"
+    );
+    assert!(
+        ir.contains("noalias"),
+        "Missing noalias attribute on indirect call param 0:\n{ir}"
+    );
+    drop(irb);
+}
+
 // -- Alignment --
 
 /// Helper: set up a builder with a specific target DataLayout.
