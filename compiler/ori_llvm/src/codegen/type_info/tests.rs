@@ -718,7 +718,7 @@ fn resolver_primitive_types() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     assert_eq!(resolver.resolve(Idx::INT), scx.type_i64().into());
     assert_eq!(resolver.resolve(Idx::FLOAT), scx.type_f64().into());
@@ -739,7 +739,7 @@ fn resolver_simple_struct() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(struct_idx);
     // Should be a named struct with 2 fields
@@ -769,7 +769,7 @@ fn resolver_nested_struct() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(outer_idx);
     match ty {
@@ -815,7 +815,7 @@ fn resolver_recursive_enum() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     // Should not infinite loop!
     let ty = resolver.resolve(tree_enum);
@@ -863,7 +863,7 @@ fn resolver_enum_all_unit() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(enum_idx);
     match ty {
@@ -884,7 +884,7 @@ fn resolver_option_with_recursive_resolve() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(opt_int);
     match ty {
@@ -904,7 +904,7 @@ fn resolver_tuple() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(tup);
     match ty {
@@ -921,7 +921,7 @@ fn resolver_caches_results() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty1 = resolver.resolve(Idx::INT);
     let ty2 = resolver.resolve(Idx::INT);
@@ -1228,7 +1228,7 @@ fn integration_compile_through_type_system() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "integration_test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     // Verify all types resolve without panic
     let all_types = [

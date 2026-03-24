@@ -46,12 +46,16 @@ pub struct TypeInfoStore<'tcx> {
     /// Cache for transitive triviality classification.
     ///
     /// `true` = type has no ARC semantics (all fields transitively trivial).
+    // TODO(repr-opt §02): remove triviality_cache when §02 is complete —
+    // triviality migrates to ReprPlan.is_trivial()
     triviality_cache: RefCell<FxHashMap<Idx, bool>>,
 
     /// Types currently being classified for triviality (cycle detection).
     ///
     /// Recursive types are conservatively non-trivial since they require
     /// heap indirection (pointers).
+    // TODO(repr-opt §02): remove classifying_trivial when §02 is complete —
+    // cycle detection migrates to ori_repr triviality analysis
     classifying_trivial: RefCell<FxHashSet<Idx>>,
 
     /// Types currently being computed in `compute_type_info()` (cycle detection).

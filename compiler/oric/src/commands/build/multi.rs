@@ -129,6 +129,7 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         base_dir: &dep_result.base_dir,
         obj_dir: &obj_dir,
         verbose: options.verbose,
+        no_repr_opt: options.no_repr_opt,
         arc_cache,
         module_hash: None, // Per-module hashes computed below if needed
     };
@@ -258,6 +259,8 @@ struct ModuleCompileContext<'a> {
     base_dir: &'a Path,
     obj_dir: &'a Path,
     verbose: bool,
+    /// Disable representation optimization (`--no-repr-opt`).
+    no_repr_opt: bool,
     /// Optional ARC IR cache for incremental compilation.
     arc_cache: Option<ori_llvm::aot::incremental::ArcIrCache>,
     /// Per-module content hashes for ARC cache keying.
@@ -359,6 +362,7 @@ fn compile_single_module(
             .as_ref()
             .and_then(|hashes| hashes.get(source_path).copied()),
         Some(ctx.target.triple()),
+        ctx.no_repr_opt,
     ) {
         Ok(m) => m,
         Err(e) => {

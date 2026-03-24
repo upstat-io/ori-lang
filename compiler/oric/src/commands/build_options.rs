@@ -12,7 +12,7 @@ use std::path::PathBuf;
 /// output, etc.). These are not state machine candidates as they are
 /// independent orthogonal settings.
 #[derive(Debug, Clone)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "independent orthogonal CLI flags, not a state machine"
 )]
@@ -61,6 +61,12 @@ pub struct BuildOptions {
     pub wasm_opt: bool,
     /// Verbose output (-v, --verbose)
     pub verbose: bool,
+    /// Disable representation optimization (`--no-repr-opt` / `ORI_NO_REPR_OPT=1`).
+    ///
+    /// When true, `compute_repr_plan()` returns canonical-only representations
+    /// (zero behavioral change vs pre-repr-opt pipeline). Used by §12 for
+    /// dual-execution comparison and as a debugging kill switch.
+    pub no_repr_opt: bool,
 }
 
 impl Default for BuildOptions {
@@ -88,6 +94,7 @@ impl Default for BuildOptions {
             js_bindings: false,
             wasm_opt: false,
             verbose: false,
+            no_repr_opt: false,
         }
     }
 }
@@ -384,7 +391,14 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
             options.wasm_opt = true;
         } else if arg == "-v" || arg == "--verbose" {
             options.verbose = true;
+        } else if arg == "--no-repr-opt" {
+            options.no_repr_opt = true;
         }
+    }
+
+    // Also check ORI_NO_REPR_OPT environment variable.
+    if std::env::var("ORI_NO_REPR_OPT").is_ok() {
+        options.no_repr_opt = true;
     }
 
     // Handle -o without = (next arg is the path)

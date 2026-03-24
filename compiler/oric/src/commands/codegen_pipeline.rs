@@ -234,6 +234,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     symbol_prefix: &str,
     import_sigs: &[(Name, FunctionSig)],
     target_triple: Option<&str>,
+    no_repr_opt: bool,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     use ori_llvm::codegen::eh_model::EhModel;
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
@@ -260,16 +261,12 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
         let store = TypeInfoStore::new(pool);
-        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
         let eh_model = target_triple.map_or(EhModel::Itanium, EhModel::from_triple);
         let mut builder = IrBuilder::new_aot(scx_ref, eh_model);
 
         // Runtime functions are declared lazily via `builder.runtime_fn(name)`.
         // No eager `declare_runtime()` call needed — each function is declared
         // on first use during codegen and cached thereafter.
-
-        // 1. Register user-defined types
-        type_registration::register_user_types(&resolver, &type_result.typed.types);
 
         // 3. Run ARC borrow inference pipeline (per-SCC Salsa queries)
         // Returns both annotated sigs and pre-lowered ARC functions to
@@ -307,6 +304,28 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
             crate::arc_dot::emit_arc_dot(&arc_cache, &annotated_sigs, &classifier, pool, interner);
         });
+
+        // 3a. Compute representation plan (§01 — canonical reprs only).
+        // Must run AFTER borrow inference (signature accepts ArcFunctions for
+        // §03 range analysis and §08 escape analysis) and BEFORE codegen
+        // (TypeLayoutResolver reads the plan for LLVM type decisions).
+        let all_arc_funcs: Vec<ori_arc::ArcFunction> = arc_cache
+            .values()
+            .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+            .cloned()
+            .collect();
+        let narrowing_policy = if no_repr_opt {
+            ori_repr::NarrowingPolicy::Disabled
+        } else {
+            ori_repr::NarrowingPolicy::Aggressive
+        };
+        let repr_plan = ori_repr::compute_repr_plan(pool, &all_arc_funcs, narrowing_policy);
+
+        // Create type resolver with the repr plan.
+        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
+
+        // Register user-defined types (creates named LLVM struct types).
+        type_registration::register_user_types(&resolver, &type_result.typed.types);
 
         // 3b. Interprocedural uniqueness analysis (COW check elimination).
         // Runs AFTER borrow inference (needs ownership annotations) and BEFORE
