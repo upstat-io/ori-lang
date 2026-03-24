@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-24
-  note: "TPR-01-036 and TPR-01-037 accepted on 2026-03-24. Fix tasks integrated into §01.9 (canonical() visibility narrowing) and §01.10 (narrowing_policy_explicit bit). Status transitions to resolved when these implementation tasks are complete."
+  note: "All TPR findings triaged. TPR-01-038/039 accepted on 2026-03-24 with implementation tasks in §01.10. Status transitions to resolved when all accepted implementation tasks are complete."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -31,7 +31,7 @@ sections:
     status: complete
   - id: "01.6"
     title: "Salsa Integration Strategy"
-    status: not-started
+    status: complete
   - id: "01.7"
     title: "#repr Attribute Integration"
     status: not-started
@@ -821,28 +821,32 @@ ReprPlan operates on **monomorphized** types only. Generic types (containing `Va
 
 The ReprPlan must integrate with the existing Salsa-based compilation model.
 
-- [ ] **ReprPlan is NOT a Salsa tracked struct** — it is computed imperatively:
+- [x] **ReprPlan is NOT a Salsa tracked struct** — it is computed imperatively:
   - Salsa works best for demand-driven, memoizable queries (parsing, type checking)
   - ReprPlan computation is a forward pass that mutates state across multiple analysis phases (triviality → range → narrowing → layout)
   - Making each phase a Salsa query would create artificial dependencies and complicate the multi-pass mutation pattern
   - Instead: compute ReprPlan once, pass it as `&ReprPlan` to codegen (same model as how `TypeInfoStore` works today)
+  - Verified: `compute_repr_plan()` is a pure function in `lib.rs:52`, not `#[salsa::tracked]`. AOT path at `codegen_pipeline.rs:317`, JIT path at `evaluator/compile.rs:169`. (2026-03-24)
 
-- [ ] **Invalidation model:**
+- [x] **Invalidation model:**
   - ReprPlan is invalidated when the Pool changes (new/modified types)
   - In the current compilation model, this means: recompute ReprPlan on every compilation
   - Future optimization: if Pool didn't change (Salsa cache hit on type checking), reuse previous ReprPlan
   - This can be implemented as a Salsa query that takes Pool hash → ReprPlan, memoized by Pool identity
+  - Verified: both AOT and JIT paths call `compute_repr_plan()` fresh on each compilation — no caching. Documented in `plan.rs` and `lib.rs` module docs. (2026-03-24)
 
-- [ ] **JIT hot-reload compatibility:**
+- [x] **JIT hot-reload compatibility:**
   - JIT recompiles individual functions — the ReprPlan for unchanged functions is stable
   - When a function's type signature changes, only that function's entries need recomputation
   - For now: recompute entire ReprPlan per JIT invocation (same as TypeInfoStore today)
   - Future: incremental ReprPlan updates keyed by function-level Merkle hashes
+  - Verified: `OwnedLLVMEvaluator::compile_module_with_tests()` at `evaluator/compile.rs:169` recomputes `ReprPlan` per invocation. (2026-03-24)
 
-- [ ] **Thread safety:**
+- [x] **Thread safety:**
   - ReprPlan is immutable after computation — `&ReprPlan` is `Send + Sync`
   - No interior mutability needed (unlike TypeInfoStore which uses RefCell for lazy population)
   - All analysis passes write to a `&mut ReprPlan` during computation, then freeze it for codegen
+  - Verified: compile-time `Send + Sync` assertion added to `plan.rs`. All fields are `FxHashMap`/`Vec` — zero `RefCell`/`Mutex`. Contrasts with `TypeInfoStore` which has 4 `RefCell` fields. (2026-03-24)
 
 ---
 
@@ -1201,6 +1205,18 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Track whether a narrowing policy was explicitly set, preserve last-write-wins semantics in `merge()`, and add regression tests covering `ORI_NO_REPR_OPT=1 + --repr-opt=aggressive` plus mixed-order CLI sequences such as `--no-repr-opt --repr-opt=aggressive`.
   Resolved: Accepted on 2026-03-24. Validated — `narrowing_policy` has no explicitness bit, so `Aggressive` (default) is indistinguishable from “not set”. Env var always wins. Fix: add `narrowing_policy_explicit: bool` to `BuildOptions` (matching `opt_level_explicit`/`debug_level_explicit`/`lto_explicit` pattern), use last-write-wins in `merge()`, and only apply env fallback when policy was not explicitly set. Implementation tasks added to §01.10.
 
+- [x] `[TPR-01-038][medium]` `compiler/oric/src/commands/build_options/mod.rs:158` — The per-argument `ori build` accumulation path still cannot represent explicit default-valued `--link=static` and `--jobs=auto` selections.
+  Evidence: `main.rs` folds one CLI token at a time through `BuildOptions::merge()` (`compiler/oric/src/main.rs:79-89`). `parse_build_options()` correctly parses `--link=static` to `LinkMode::Static` and `--jobs=auto` / `-j` to `None` (`compiler/oric/src/commands/build_options/mod.rs:373-396`), but `merge()` only copies `jobs` when `other.jobs.is_some()` and only copies `link_mode` when `other.link_mode != LinkMode::default()` (`compiler/oric/src/commands/build_options/mod.rs:158-165`). By inspection, `ori build foo.ori --link=dynamic --link=static` leaves `Dynamic`, and `ori build foo.ori --jobs=4 -j` leaves `Some(4)`.
+  Impact: The real CLI is still not last-write-wins for two documented scalar options, so users cannot explicitly return to the default values after setting a non-default one later in the same command line.
+  Required plan update: Add explicitness tracking (or equivalent last-write-wins handling) for `link_mode` and `jobs`, and add regression coverage for mixed-order sequences including `--link=dynamic --link=static`, `--link=static --link=dynamic`, `--jobs=4 -j`, and `-j --jobs=4`.
+  Resolved: Accepted on 2026-03-24. Validated — `merge()` uses `is_some()`/`!= default()` guards that cannot represent explicit default values. Implementation task at §01.10 [TPR-01-038].
+
+- [x] `[TPR-01-039][low]` `compiler/ori_repr/src/canonical.rs:1` — `canonical.rs` has drifted back above the repo's 500-line production-file limit.
+  Evidence: Fresh verification with `wc -l compiler/ori_repr/src/canonical.rs` reports `508` lines. `CLAUDE.md` and `.claude/rules/impl-hygiene.md` still require production Rust files to stay under 500 lines, and this section currently marks the earlier oversize-file finding (TPR-01-031) resolved.
+  Impact: The core canonicalization module is again outside the repo's hygiene boundary, and the plan history now overstates the current tree by treating the split as fully complete.
+  Required plan update: Extract enough logic or helpers from `canonical.rs` to bring it back under 500 lines, then revalidate the prior TPR-01-031 closure in the same edit pass.
+  Resolved: Accepted on 2026-03-24. Validated — `canonical.rs` is 508 lines, over the 500-line limit. Implementation task at §01.10 [TPR-01-039].
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1264,6 +1280,8 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [ ] **[LINT]** `compiler/ori_parse/src/grammar/attr/mod.rs` — `#[allow(dead_code, reason = ...)]` on `ReprAttr` must be `#[expect(dead_code, reason = ...)]`. Fix when touching this file in §01.7 GAP-CLOSE.
 - [ ] **[TPR-01-032]** Integration test for zero-option build path: `ORI_NO_REPR_OPT=1 ori build file.ori` (no extra build flags) must honor the env var. Either extract the main.rs build-command loop into a testable helper, or add an integration test that drives the real build dispatcher. Must exercise the path at `main.rs:79-101` where the per-arg parser loop never executes.
 - [ ] **[TPR-01-036]** Add `narrowing_policy_explicit: bool` to `BuildOptions` (matching `opt_level_explicit`/`debug_level_explicit`/`lto_explicit` pattern). Update `parse_build_options()` to set `narrowing_policy_explicit = true` when `--repr-opt=*` or `--no-repr-opt` is parsed. Update `merge()` to use last-write-wins when explicit (not "non-default overrides"). Update env fallback in both `parse_build_options()` and `main.rs` to only apply `ORI_NO_REPR_OPT` when `!narrowing_policy_explicit`. Regression tests: `ORI_NO_REPR_OPT=1 + --repr-opt=aggressive` → `Aggressive`; `--no-repr-opt --repr-opt=aggressive` → `Aggressive` (last-write-wins); `--repr-opt=aggressive --no-repr-opt` → `Disabled` (last-write-wins).
+- [ ] **[TPR-01-038]** Add explicitness tracking (or equivalent last-write-wins handling) for `link_mode` and `jobs` in `BuildOptions`. Regression tests: `--link=dynamic --link=static` → `Static`; `--link=static --link=dynamic` → `Dynamic`; `--jobs=4 -j` → auto (`None`); `-j --jobs=4` → `Some(4)`.
+- [ ] **[TPR-01-039]** Re-split `compiler/ori_repr/src/canonical.rs` after the mutual-recursion changes so the production file is back under the 500-line limit, then revalidate the old TPR-01-031 closure against the current tree.
 
 - [ ] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug (`cargo test -p ori_repr`) and release (`cargo test -p ori_repr --release`)
 - [ ] Semantic pin tests present: at least one test per subsection that would fail if the canonical mapping, default query return values, or Phase A wiring were reverted

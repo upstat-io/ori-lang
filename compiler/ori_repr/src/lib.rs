@@ -12,6 +12,20 @@
 //! ```
 //!
 //! `ori_repr` reads from `ori_types` and `ori_arc` but neither depends on it.
+//!
+//! # Salsa Integration (§01.6)
+//!
+//! [`compute_repr_plan()`] is **not** a Salsa query. It is a pure function
+//! that runs imperatively after type checking and ARC borrow inference:
+//!
+//! - **AOT path** (`codegen_pipeline.rs`): called once, result passed as
+//!   `&ReprPlan` to `TypeLayoutResolver` and then to codegen.
+//! - **JIT path** (`evaluator/compile.rs`): called per compilation unit,
+//!   same ownership model.
+//!
+//! The `ReprPlan` is recomputed on every compilation. It has no interior
+//! mutability (`Send + Sync` by construction), unlike `TypeInfoStore`
+//! which uses `RefCell` for lazy population.
 
 #![deny(unsafe_code)]
 
