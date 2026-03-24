@@ -94,8 +94,11 @@ fn real_main() {
             // loop above may never execute (zero CLI options), so the env var check
             // inside parse_build_options() would be skipped. (TPR-01-028)
             // Uses strict value parsing: only "1"/"true"/"yes". (TPR-01-030)
-            if NarrowingPolicy::env_disabled() {
-                options.no_repr_opt = true;
+            // Only applies if no explicit policy was set via CLI flags.
+            if options.narrowing_policy == NarrowingPolicy::Aggressive
+                && NarrowingPolicy::env_disabled()
+            {
+                options.narrowing_policy = NarrowingPolicy::Disabled;
             }
 
             build_file(&args[2], &options);

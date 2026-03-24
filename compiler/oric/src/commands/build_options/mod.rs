@@ -61,12 +61,12 @@ pub struct BuildOptions {
     pub wasm_opt: bool,
     /// Verbose output (-v, --verbose)
     pub verbose: bool,
-    /// Disable representation optimization (`--no-repr-opt` / `ORI_NO_REPR_OPT=1`).
+    /// Representation optimization policy (`--no-repr-opt` / `--repr-opt=` / `ORI_NO_REPR_OPT=1`).
     ///
-    /// When true, `compute_repr_plan()` returns canonical-only representations
-    /// (zero behavioral change vs pre-repr-opt pipeline). Used by §12 for
-    /// dual-execution comparison and as a debugging kill switch.
-    pub no_repr_opt: bool,
+    /// Controls how aggressively the representation optimizer narrows types.
+    /// `Aggressive` (default): all safe narrowing. `Conservative`: provably-safe only.
+    /// `Disabled` (`--no-repr-opt`): canonical representations only.
+    pub narrowing_policy: ori_repr::NarrowingPolicy,
 }
 
 impl Default for BuildOptions {
@@ -94,7 +94,7 @@ impl Default for BuildOptions {
             js_bindings: false,
             wasm_opt: false,
             verbose: false,
-            no_repr_opt: false,
+            narrowing_policy: ori_repr::NarrowingPolicy::Aggressive,
         }
     }
 }
@@ -155,6 +155,19 @@ impl BuildOptions {
         if other.features.is_some() {
             self.features.clone_from(&other.features);
         }
+        if other.jobs.is_some() {
+            self.jobs = other.jobs;
+        }
+
+        // Enum fields: override if non-default (TPR-01-034)
+        if other.link_mode != LinkMode::default() {
+            self.link_mode = other.link_mode;
+        }
+
+        // Narrowing policy: non-default overrides (TPR-01-035)
+        if other.narrowing_policy != ori_repr::NarrowingPolicy::Aggressive {
+            self.narrowing_policy = other.narrowing_policy;
+        }
 
         // Boolean flags: OR (true wins)
         self.lib |= other.lib;
@@ -163,7 +176,6 @@ impl BuildOptions {
         self.js_bindings |= other.js_bindings;
         self.wasm_opt |= other.wasm_opt;
         self.verbose |= other.verbose;
-        self.no_repr_opt |= other.no_repr_opt;
     }
 }
 
@@ -393,14 +405,28 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
         } else if arg == "-v" || arg == "--verbose" {
             options.verbose = true;
         } else if arg == "--no-repr-opt" {
-            options.no_repr_opt = true;
+            options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
+        } else if let Some(policy) = arg.strip_prefix("--repr-opt=") {
+            match policy {
+                "aggressive" => options.narrowing_policy = ori_repr::NarrowingPolicy::Aggressive,
+                "conservative" => {
+                    options.narrowing_policy = ori_repr::NarrowingPolicy::Conservative;
+                }
+                "disabled" => options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled,
+                _ => eprintln!(
+                    "warning: unknown repr-opt policy '{policy}', options: aggressive, conservative, disabled"
+                ),
+            }
         }
     }
 
     // Also check ORI_NO_REPR_OPT environment variable.
     // Uses strict value parsing: only "1"/"true"/"yes". (TPR-01-030)
-    if ori_repr::NarrowingPolicy::env_disabled() {
-        options.no_repr_opt = true;
+    // Only applies if no explicit policy was set via CLI flags.
+    if options.narrowing_policy == ori_repr::NarrowingPolicy::Aggressive
+        && ori_repr::NarrowingPolicy::env_disabled()
+    {
+        options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
     }
 
     // Handle -o without = (next arg is the path)

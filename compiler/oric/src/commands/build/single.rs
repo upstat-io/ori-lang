@@ -61,7 +61,7 @@ pub(super) fn build_file_single(
         &canon_result,
         path,
         Some(target.triple()),
-        options.no_repr_opt,
+        options.narrowing_policy,
     )
     .unwrap_or_else(|e| report_codegen_error(CodegenProblem::VerificationFailed { message: e }));
 
