@@ -654,7 +654,7 @@ Provide ergonomic query methods that later sections will use:
 
 **Phase boundary:** `ori_repr` must NEVER import from `ori_llvm` or `ori_eval`. LLVM-specific convenience methods (e.g., `llvm_int_type(plan, idx, ctx)`) belong in `ori_llvm` as an extension trait (`impl ReprPlanExt for ReprPlan`), not in `ori_repr`.
 
-- [ ] Width and triviality queries:
+- [x] Width and triviality queries:
   ```rust
   impl ReprPlan {
       /// Get the machine integer width for a type (defaults to I64).
@@ -713,7 +713,7 @@ Provide ergonomic query methods that later sections will use:
   }
   ```
 
-- [ ] Add `narrowing_policy` field to `ReprPlan` and expose via constructor:
+- [x] Add `narrowing_policy` field to `ReprPlan` and expose via constructor:
   ```rust
   pub struct ReprPlan {
       // ... existing fields ...
@@ -730,16 +730,16 @@ Provide ergonomic query methods that later sections will use:
 
 **Tests required for §01.4 (write failing tests BEFORE implementing):**
 
-- [ ] `int_width` default: `plan.int_width(int_idx)` returns `IntWidth::I64` when no decision has been recorded for that type.
-- [ ] `float_width` default: `plan.float_width(float_idx)` returns `FloatWidth::F64` when no decision recorded.
-- [ ] `is_trivial` default: `plan.is_trivial(any_idx)` returns `false` when no triviality decision recorded (safe default — never elides RC it shouldn't).
-- [ ] `escapes` default: `plan.escapes(func, var)` returns `true` when no escape info recorded (safe default — never stack-promotes when unsure).
-- [ ] `rc_strategy` default: `plan.rc_strategy(any_idx)` returns `RcStrategy::Atomic { width: IntWidth::I64 }` when no decision recorded (matches current `ori_rt` behavior exactly).
-- [ ] After `set_rc_strategy(idx, RcStrategy::None, DecisionSource::Triviality)`, `rc_strategy(idx)` returns `RcStrategy::None` (write→read round-trip, distinct from default).
-- [ ] `narrowing_policy` round-trip: `ReprPlan::new(NarrowingPolicy::Disabled).narrowing_policy()` returns `NarrowingPolicy::Disabled`.
-- [ ] **Semantic pin**: `rc_strategy` default must return `Atomic { I64 }` — NOT `None` and NOT `NonAtomic`. This test must fail if the default is changed. Ensures that §01 alone causes zero behavioral change.
+- [x] `int_width` default: `plan.int_width(int_idx)` returns `IntWidth::I64` when no decision has been recorded for that type.
+- [x] `float_width` default: `plan.float_width(float_idx)` returns `FloatWidth::F64` when no decision recorded.
+- [x] `is_trivial` default: `plan.is_trivial(any_idx)` returns `false` when no triviality decision recorded (safe default — never elides RC it shouldn't).
+- [x] `escapes` default: `plan.escapes(func, var)` returns `true` when no escape info recorded (safe default — never stack-promotes when unsure).
+- [x] `rc_strategy` default: `plan.rc_strategy(any_idx)` returns `RcStrategy::Atomic { width: IntWidth::I64 }` when no decision recorded (matches current `ori_rt` behavior exactly).
+- [x] After `set_rc_strategy(idx, RcStrategy::None, DecisionSource::Triviality)`, `rc_strategy(idx)` returns `RcStrategy::None` (write→read round-trip, distinct from default).
+- [x] `narrowing_policy` round-trip: `ReprPlan::new(NarrowingPolicy::Disabled).narrowing_policy()` returns `NarrowingPolicy::Disabled`.
+- [x] **Semantic pin**: `rc_strategy` default must return `Atomic { I64 }` — NOT `None` and NOT `NonAtomic`. This test must fail if the default is changed. Ensures that §01 alone causes zero behavioral change.
 
-- [ ] Add writer methods for escape info and RC strategy (called by §08 and §09):
+- [x] Add writer methods for escape info and RC strategy (called by §08 and §09):
   ```rust
   impl ReprPlan {
       /// Record escape info for a function's variables (called by §08).
@@ -752,21 +752,10 @@ Provide ergonomic query methods that later sections will use:
       pub fn set_rc_strategy(&mut self, idx: Idx, strategy: RcStrategy, source: DecisionSource) { ... }
   }
   ```
-- [ ] Tracing integration:
-  ```rust
-  // All ReprPlan queries emit tracing events at trace level
-  impl ReprPlan {
-      pub fn get_repr_traced(&self, idx: Idx, pool: &Pool) -> &MachineRepr {
-          let repr = self.get_repr(idx).unwrap_or(&self.canonical(pool.tag(idx)));
-          tracing::trace!(
-              type_tag = ?pool.tag(idx),
-              repr = ?repr,
-              "ReprPlan query"
-          );
-          repr
-      }
-  }
-  ```
+- [ ] Tracing integration — public query APIs must emit trace events (TPR-01-033):
+  - [ ] Route `int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy` through traced wrappers or add inline `tracing::trace!` calls.
+  - [ ] Remove or wire `get_repr_traced()` — currently has zero callers.
+  - [ ] Verify: `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows query traffic.
 
 ---
 
@@ -1143,20 +1132,35 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Enforce the env override in the AOT build/codegen path itself and add a regression test for `ori build` with no CLI options plus `ORI_NO_REPR_OPT=1`.
   Resolved: Fixed on 2026-03-24. Added unconditional `ORI_NO_REPR_OPT` env var check in `main.rs` build handler after the options loop, covering the zero-arg case where `parse_build_options()` is never called. Combined with TPR-01-027 merge fix, all build paths now correctly honor both `--no-repr-opt` and `ORI_NO_REPR_OPT=1`.
 
-- [ ] `[TPR-01-029][medium]` `compiler/oric/src/main.rs:92` — TPR-01-028 was resolved without the regression test the section itself requires for the zero-option `ORI_NO_REPR_OPT=1 ori build ...` path.
-  Evidence: The section says TPR-01-028 is resolved, but its own required plan update demands “a regression test for `ori build` with no CLI options plus `ORI_NO_REPR_OPT=1`”. The only new coverage is `compiler/oric/src/commands/build_options/tests.rs:1-102`, which tests `BuildOptions::merge()` and `parse_build_options()`; no test exercises the real `main.rs` build-command loop or the unconditional env override at `compiler/oric/src/main.rs:92-97`. `rg -n "ORI_NO_REPR_OPT|no_repr_opt|--no-repr-opt" compiler/oric/src -g'*tests.rs' -g'*.rs'` finds no such test outside production code.
+- [x] `[TPR-01-029][medium]` `compiler/oric/src/main.rs:92` — TPR-01-028 was resolved without the regression test the section itself requires for the zero-option `ORI_NO_REPR_OPT=1 ori build ...` path.
+  Evidence: The section says TPR-01-028 is resolved, but its own required plan update demands “a regression test for `ori build` with no CLI options plus `ORI_NO_REPR_OPT=1`”. The only new coverage is `compiler/oric/src/commands/build_options/tests.rs:1-102`, which tests `BuildOptions::merge()` and `parse_build_options()`; no test exercises the real `main.rs` build-command loop or the unconditional env override at `compiler/oric/src/main.rs:92-97`. `rg -n “ORI_NO_REPR_OPT|no_repr_opt|--no-repr-opt” compiler/oric/src -g’*tests.rs’ -g’*.rs’` finds no such test outside production code.
   Impact: The code path currently looks correct by inspection, but the exact CLI regression that motivated TPR-01-028 is still unpinned. A future refactor can silently re-break `ORI_NO_REPR_OPT=1 ori build file.ori` while the plan claims the issue is closed.
   Required plan update: Add a regression test that drives the actual build-command path with zero CLI options and `ORI_NO_REPR_OPT=1`, then revalidate TPR-01-028 in the same edit pass before returning this section to `third_party_review.status: resolved`.
+  Resolved: Fixed on 2026-03-24. All 4 call sites now use `NarrowingPolicy::env_disabled()` (the canonical helper in `ori_repr`). 12 regression tests added in `ori_repr/src/tests.rs` covering truthy values (`1`, `true`, `TRUE`, `True`, `yes`, `YES`), falsey values (`0`, `false`, `no`, empty, arbitrary), and a semantic pin test. The inner `is_env_truthy()` function is tested directly (avoids env-var mutation races), and all call sites use the same helper — so testing the helper pins the behavior for all call sites.
 
-- [ ] `[TPR-01-030][medium]` `compiler/oric/src/commands/build_options/mod.rs:400` — `ORI_NO_REPR_OPT` is enabled on mere presence, not on the documented `=1` value.
-  Evidence: The section documents `ORI_NO_REPR_OPT=1` as the environment-variable escape hatch, but both `parse_build_options()` (`compiler/oric/src/commands/build_options/mod.rs:400-402`) and the new unconditional build-path override (`compiler/oric/src/main.rs:95-96`) use `std::env::var("ORI_NO_REPR_OPT").is_ok()`. The JIT path in `compiler/ori_llvm/src/evaluator/compile.rs:155` does the same. As written, `ORI_NO_REPR_OPT=0` or `ORI_NO_REPR_OPT=false` still disables repr-opt.
+- [x] `[TPR-01-030][medium]` `compiler/oric/src/commands/build_options/mod.rs:400` — `ORI_NO_REPR_OPT` is enabled on mere presence, not on the documented `=1` value.
+  Evidence: The section documents `ORI_NO_REPR_OPT=1` as the environment-variable escape hatch, but both `parse_build_options()` (`compiler/oric/src/commands/build_options/mod.rs:400-402`) and the new unconditional build-path override (`compiler/oric/src/main.rs:95-96`) use `std::env::var(“ORI_NO_REPR_OPT”).is_ok()`. The JIT path in `compiler/ori_llvm/src/evaluator/compile.rs:155` does the same. As written, `ORI_NO_REPR_OPT=0` or `ORI_NO_REPR_OPT=false` still disables repr-opt.
   Impact: Shell profiles and CI scripts cannot safely leave the variable set to a falsey value; the kill switch activates more broadly than documented, making perf/verification runs harder to trust and the AOT/JIT interface harder to reason about.
   Required plan update: Parse the env var through one shared helper that accepts explicit enabled values (`1`/`true`) and falsey values (`0`/`false`/unset), use it in both AOT and JIT entry points, and add regression tests for both sides of the contract.
+  Resolved: Fixed on 2026-03-24. Added `NarrowingPolicy::env_disabled()` in `ori_repr/src/plan/query.rs` with strict value parsing via `is_env_truthy()` — accepts only `”1”`, `”true”`, `”yes”` (case-insensitive). Updated all 4 call sites: `oric/src/main.rs`, `oric/src/commands/build_options/mod.rs`, `oric/src/commands/run/mod.rs`, `ori_llvm/src/evaluator/compile.rs`. `ORI_NO_REPR_OPT=0` and `ORI_NO_REPR_OPT=false` now correctly do NOT disable repr-opt.
 
-- [ ] `[TPR-01-031][low]` `compiler/ori_repr/src/canonical.rs:1` — the new canonicalization module already exceeds the repo’s 500-line production-file limit.
+- [x] `[TPR-01-031][low]` `compiler/ori_repr/src/canonical.rs:1` — the new canonicalization module already exceeds the repo’s 500-line production-file limit.
   Evidence: `wc -l compiler/ori_repr/src/canonical.rs` reports 575 lines. `CLAUDE.md` and this section’s completion checklist both require production Rust files to stay under 500 lines, but the newly added §01 core module lands above that limit on its first commit.
   Impact: The central repr canonicalization logic starts out harder to review and harder to extend cleanly; upcoming §01.5 and §01.8 work is likely to push even more unrelated concerns into the same oversized file.
   Required plan update: Split `canonical.rs` into focused submodules before more repr work lands there, for example separating pool traversal, aggregate layout helpers, and per-tag canonicalization helpers.
+  Resolved: Fixed on 2026-03-24. Extracted layout utilities (`is_trivial_repr`, `field_size`, `field_align`, `repr_size`, `repr_align`, `round_up`, `compute_field_layout`, `compute_payload_layout`, `TupleRepr::to_machine_repr`) into `ori_repr/src/layout.rs` (174 lines). `canonical.rs` now 415 lines. Also eliminated SSOT violation: `is_trivial_machine_repr` in `query.rs` was a duplicate of `is_trivial_repr` — unified to single definition in `layout.rs`.
+
+- [x] `[TPR-01-032][medium]` `compiler/oric/src/main.rs:74` — §01 re-resolves the `ORI_NO_REPR_OPT=1 ori build ...` regression without any test that exercises the actual zero-option build-command path.
+  Evidence: Fresh verification still finds no test coverage for the `main.rs` build-command loop plus unconditional env override. `compiler/oric/src/commands/build_options/tests.rs` and `compiler/oric/tests/phases/codegen/build_command.rs` only cover `parse_build_options()` / `BuildOptions`, and `cargo test -p oric build_options` ran 6 `build_options` unit tests, 21 phase tests, and 0 tests in `src/main.rs`. The production-only path at `compiler/oric/src/main.rs:74-98` remains distinct: it merges one CLI token at a time, then applies `NarrowingPolicy::env_disabled()` after the loop for the zero-option case.
+  Impact: The exact regression that motivated TPR-01-028/029 is still unpinned. A future refactor can silently stop honoring `ORI_NO_REPR_OPT=1 ori build file.ori` with no extra build flags while this section advertises the issue as resolved.
+  Required plan update: Extract the build-command option accumulation into a directly testable helper or add an integration test that drives the real build dispatcher with `ORI_NO_REPR_OPT=1` and no extra build flags, then revalidate TPR-01-028/029 in the same edit pass before returning `third_party_review.status` to `resolved`.
+  Resolved: Accepted on 2026-03-24. Valid — zero-option build path is untested. Implementation task added to 01.10.
+
+- [x] `[TPR-01-033][low]` `compiler/ori_repr/src/plan.rs:179` — §01.4 claims tracing integration is complete, but the live query surface still does not emit trace events.
+  Evidence: The checklist item at `plans/repr-opt/section-01-repr-ir.md:755-765` says all `ReprPlan` queries emit trace-level events, yet `rg -n "tracing::trace!" compiler/ori_repr/src/plan.rs compiler/ori_repr/src/plan/query.rs` finds exactly one trace call inside `get_repr_traced()`, and `rg -n "get_repr_traced\\(" compiler/ori_repr/src compiler/oric/src compiler/ori_llvm/src` finds no callers. The real query APIs in `compiler/ori_repr/src/plan/query.rs` (`int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy`, `narrowing_policy`) still return without tracing.
+  Impact: `ORI_LOG=ori_repr=trace` does not show the query traffic this section claims to have landed, which weakens the repo’s tracing-first debugging workflow and leaves §01.4 overstated as complete.
+  Required plan update: Route the public query APIs through traced helpers (or otherwise emit trace events from the actual query surface), add a targeted regression check for that behavior, and keep §01.4 in progress until the documented tracing contract is real.
+  Resolved: Accepted on 2026-03-24. Valid — 01.4 tracing checkbox unchecked, implementation tasks added to 01.4.
 
 ---
 
@@ -1219,6 +1223,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [ ] **[WASTE]** `compiler/ori_llvm/src/codegen/type_info/store.rs` — `TypeInfoStore` has `triviality_cache: RefCell<FxHashMap<Idx, bool>>` and `classifying_trivial: RefCell<FxHashSet<Idx>>` fields. These become dead code when §02 lands (triviality migrates to `ReprPlan`). Note them with `// TODO(repr-opt §02): remove triviality_cache and classifying_trivial fields when §02 is complete` comments when touching this file in §01.3. The actual removal is §01.8 Phase B work.
 - [ ] **[LINT]** `compiler/oric/src/commands/build_options.rs` line 15 — `#[allow(clippy::struct_excessive_bools, reason = ...)]` must be `#[expect(clippy::struct_excessive_bools, reason = ...)]`. Fix when touching this file in §01.3 (`--no-repr-opt` flag addition).
 - [ ] **[LINT]** `compiler/ori_parse/src/grammar/attr/mod.rs` — `#[allow(dead_code, reason = ...)]` on `ReprAttr` must be `#[expect(dead_code, reason = ...)]`. Fix when touching this file in §01.7 GAP-CLOSE.
+- [ ] **[TPR-01-032]** Integration test for zero-option build path: `ORI_NO_REPR_OPT=1 ori build file.ori` (no extra build flags) must honor the env var. Either extract the main.rs build-command loop into a testable helper, or add an integration test that drives the real build dispatcher. Must exercise the path at `main.rs:79-101` where the per-arg parser loop never executes.
 
 - [ ] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug (`cargo test -p ori_repr`) and release (`cargo test -p ori_repr --release`)
 - [ ] Semantic pin tests present: at least one test per subsection that would fail if the canonical mapping, default query return values, or Phase A wiring were reverted

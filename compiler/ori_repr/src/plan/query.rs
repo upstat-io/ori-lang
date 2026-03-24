@@ -4,6 +4,7 @@
 //! escape, RC strategy) and the `NarrowingPolicy` enum controlling
 //! optimization aggressiveness.
 
+use crate::layout::is_trivial_repr;
 use crate::repr::{FloatWidth, IntWidth, MachineRepr};
 
 use super::ReprPlan;
@@ -17,6 +18,33 @@ pub enum NarrowingPolicy {
     Conservative,
     /// No narrowing — canonical representations only (`--no-repr-opt`).
     Disabled,
+}
+
+impl NarrowingPolicy {
+    /// Check if `ORI_NO_REPR_OPT` env var is explicitly enabled.
+    ///
+    /// Accepts `"1"`, `"true"`, `"yes"` (case-insensitive for string values).
+    /// Does NOT activate on mere presence — `ORI_NO_REPR_OPT=0` and
+    /// `ORI_NO_REPR_OPT=false` are treated as disabled. Unset variable
+    /// returns `false`.
+    ///
+    /// This is the **single canonical check** for the env var — all call
+    /// sites in `oric`, `ori_llvm`, etc. must use this method rather than
+    /// checking the env var directly. (TPR-01-030)
+    #[must_use]
+    pub fn env_disabled() -> bool {
+        std::env::var("ORI_NO_REPR_OPT")
+            .ok()
+            .is_some_and(|v| is_env_truthy(&v))
+    }
+}
+
+/// Check if an environment variable value is explicitly truthy.
+///
+/// Accepts `"1"`, `"true"`, `"yes"` (case-insensitive for string values).
+/// Returns `false` for `"0"`, `"false"`, `"no"`, empty, or any other value.
+pub(crate) fn is_env_truthy(val: &str) -> bool {
+    val == "1" || val.eq_ignore_ascii_case("true") || val.eq_ignore_ascii_case("yes")
 }
 
 /// RC strategy for a type — how its reference count is managed.
@@ -58,10 +86,12 @@ impl ReprPlan {
     /// Check if a type is trivial (no RC needed).
     ///
     /// Returns `false` by default — safe (never elides RC it shouldn't).
+    /// Uses [`crate::layout::is_trivial_repr`] — the single canonical
+    /// triviality check at the `MachineRepr` level.
     #[must_use]
     pub fn is_trivial(&self, idx: ori_types::Idx) -> bool {
         match self.get_repr(idx) {
-            Some(repr) => is_trivial_machine_repr(repr),
+            Some(repr) => is_trivial_repr(repr),
             None => false,
         }
     }
@@ -96,33 +126,5 @@ impl ReprPlan {
     #[must_use]
     pub fn narrowing_policy(&self) -> NarrowingPolicy {
         self.narrowing_policy
-    }
-}
-
-/// Check if a `MachineRepr` is trivial (no RC operations needed).
-fn is_trivial_machine_repr(repr: &MachineRepr) -> bool {
-    match repr {
-        MachineRepr::Int { .. }
-        | MachineRepr::Float { .. }
-        | MachineRepr::Bool
-        | MachineRepr::Char
-        | MachineRepr::Byte
-        | MachineRepr::Duration
-        | MachineRepr::Size
-        | MachineRepr::Ordering
-        | MachineRepr::Unit
-        | MachineRepr::Never
-        | MachineRepr::Range => true,
-        MachineRepr::Struct(s) => s.trivial,
-        MachineRepr::Tuple(t) => t.trivial,
-        MachineRepr::Enum(e) => e
-            .variants
-            .iter()
-            .all(|v| v.fields.iter().all(is_trivial_machine_repr)),
-        MachineRepr::FatPointer(_)
-        | MachineRepr::Closure(_)
-        | MachineRepr::RcPointer(_)
-        | MachineRepr::OpaquePtr
-        | MachineRepr::StackPromoted { .. } => false,
     }
 }
