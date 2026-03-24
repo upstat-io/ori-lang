@@ -2,6 +2,7 @@
 //!
 //! Salsa-first incremental compiler.
 
+use ori_repr::NarrowingPolicy;
 use oric::commands::{
     add_target, build_file, check_file, demangle_symbol, explain_error, lex_file,
     list_installed_targets, list_targets, parse_build_options, parse_file, remove_target, run_file,
@@ -92,7 +93,8 @@ fn real_main() {
             // Check ORI_NO_REPR_OPT env var unconditionally — the per-arg parser
             // loop above may never execute (zero CLI options), so the env var check
             // inside parse_build_options() would be skipped. (TPR-01-028)
-            if std::env::var("ORI_NO_REPR_OPT").is_ok() {
+            // Uses strict value parsing: only "1"/"true"/"yes". (TPR-01-030)
+            if NarrowingPolicy::env_disabled() {
                 options.no_repr_opt = true;
             }
 

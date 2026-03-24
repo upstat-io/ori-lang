@@ -398,7 +398,8 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
     }
 
     // Also check ORI_NO_REPR_OPT environment variable.
-    if std::env::var("ORI_NO_REPR_OPT").is_ok() {
+    // Uses strict value parsing: only "1"/"true"/"yes". (TPR-01-030)
+    if ori_repr::NarrowingPolicy::env_disabled() {
         options.no_repr_opt = true;
     }
 

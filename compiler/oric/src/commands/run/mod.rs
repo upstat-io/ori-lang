@@ -257,7 +257,7 @@ fn compile_and_cache(
         &canon_result,
         path,
         Some(target.triple()),
-        std::env::var("ORI_NO_REPR_OPT").is_ok(),
+        ori_repr::NarrowingPolicy::env_disabled(),
     )
     .unwrap_or_else(|e| {
         eprintln!("{e}");

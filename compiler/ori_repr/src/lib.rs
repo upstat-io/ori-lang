@@ -18,6 +18,7 @@
 mod canonical;
 mod enum_repr;
 pub mod escape;
+mod layout;
 mod plan;
 pub mod range;
 mod repr;

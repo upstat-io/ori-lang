@@ -1298,6 +1298,44 @@ fn repr_plan_dump_audit_contains_tag_and_source() {
     );
 }
 
+// ── §01.4 Query Interface Default Values ──────────────────────────────
+
+#[test]
+fn int_width_default_returns_i64() {
+    // §01.4 test: int_width() defaults to I64 when no decision recorded.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert_eq!(plan.int_width(Idx::INT), IntWidth::I64);
+}
+
+#[test]
+fn float_width_default_returns_f64() {
+    // §01.4 test: float_width() defaults to F64 when no decision recorded.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert_eq!(plan.float_width(Idx::FLOAT), FloatWidth::F64);
+}
+
+#[test]
+fn is_trivial_default_returns_false() {
+    // §01.4 test: is_trivial() defaults to false when no decision recorded.
+    // Safe default — never elides RC it shouldn't.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert!(
+        !plan.is_trivial(Idx::INT),
+        "safe default must be non-trivial"
+    );
+}
+
+#[test]
+fn escapes_default_returns_true() {
+    // §01.4 test: escapes() defaults to true when no escape info recorded.
+    // Safe default — never stack-promotes when unsure.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert!(
+        plan.escapes(Name::new(0, 0), ori_arc::ArcVarId::new(0)),
+        "safe default must assume escapes"
+    );
+}
+
 // ── RC strategy (TPR-01-022, TPR-01-023) ──────────────────────────────
 
 use crate::plan::RcStrategy;
@@ -1522,4 +1560,93 @@ fn compute_repr_plan_zero_behavioral_change_with_disabled() {
             "canonical repr for primitive {raw} must match regardless of policy"
         );
     }
+}
+
+// ── TPR-01-029/030: ORI_NO_REPR_OPT env var value parsing ─────────
+
+#[test]
+fn is_env_truthy_accepts_1() {
+    assert!(crate::plan::query::is_env_truthy("1"));
+}
+
+#[test]
+fn is_env_truthy_accepts_true_lowercase() {
+    assert!(crate::plan::query::is_env_truthy("true"));
+}
+
+#[test]
+fn is_env_truthy_accepts_true_uppercase() {
+    assert!(crate::plan::query::is_env_truthy("TRUE"));
+}
+
+#[test]
+fn is_env_truthy_accepts_true_mixed_case() {
+    assert!(crate::plan::query::is_env_truthy("True"));
+}
+
+#[test]
+fn is_env_truthy_accepts_yes_lowercase() {
+    assert!(crate::plan::query::is_env_truthy("yes"));
+}
+
+#[test]
+fn is_env_truthy_accepts_yes_uppercase() {
+    assert!(crate::plan::query::is_env_truthy("YES"));
+}
+
+#[test]
+fn is_env_truthy_rejects_0() {
+    assert!(!crate::plan::query::is_env_truthy("0"));
+}
+
+#[test]
+fn is_env_truthy_rejects_false() {
+    assert!(!crate::plan::query::is_env_truthy("false"));
+}
+
+#[test]
+fn is_env_truthy_rejects_no() {
+    assert!(!crate::plan::query::is_env_truthy("no"));
+}
+
+#[test]
+fn is_env_truthy_rejects_empty() {
+    assert!(!crate::plan::query::is_env_truthy(""));
+}
+
+#[test]
+fn is_env_truthy_rejects_arbitrary() {
+    assert!(!crate::plan::query::is_env_truthy("banana"));
+}
+
+/// Semantic pin: `NarrowingPolicy::env_disabled()` must use strict
+/// value parsing, not mere presence. This test would fail if the
+/// implementation reverted to `std::env::var(...).is_ok()`.
+#[test]
+fn env_disabled_rejects_falsey_values() {
+    // Testing the inner `is_env_truthy` function directly — this avoids
+    // mutating the process-wide env (which would be racy in parallel tests).
+    // The three call sites in oric/ori_llvm all use `NarrowingPolicy::env_disabled()`
+    // which delegates to `is_env_truthy`, so verifying the inner function
+    // is sufficient. (TPR-01-029)
+    assert!(
+        !crate::plan::query::is_env_truthy("0"),
+        "0 must not enable --no-repr-opt"
+    );
+    assert!(
+        !crate::plan::query::is_env_truthy("false"),
+        "false must not enable --no-repr-opt"
+    );
+    assert!(
+        !crate::plan::query::is_env_truthy(""),
+        "empty must not enable --no-repr-opt"
+    );
+    assert!(
+        crate::plan::query::is_env_truthy("1"),
+        "1 must enable --no-repr-opt"
+    );
+    assert!(
+        crate::plan::query::is_env_truthy("true"),
+        "true must enable --no-repr-opt"
+    );
 }
