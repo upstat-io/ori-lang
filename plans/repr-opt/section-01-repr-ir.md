@@ -28,7 +28,7 @@ sections:
     status: in-progress
   - id: "01.5"
     title: "Generic Type Handling"
-    status: not-started
+    status: complete
   - id: "01.6"
     title: "Salsa Integration Strategy"
     status: not-started
@@ -782,38 +782,36 @@ Provide ergonomic query methods that later sections will use:
 
 ReprPlan operates on **monomorphized** types only. Generic types (containing `Var`, `BoundVar`, `RigidVar`) cannot be mapped to concrete machine representations.
 
-- [ ] Enforce monomorphization precondition:
+- [x] Enforce monomorphization precondition (2026-03-24, pre-existing):
   - `compute_repr_plan()` must be called AFTER monomorphization (all type variables resolved)
   - `canonical()` must assert/panic on `Tag::Var`, `Tag::BoundVar`, `Tag::RigidVar`, `Tag::Scheme`, `Tag::Infer`
   - For `Tag::Named`/`Tag::Applied`/`Tag::Alias`: always resolve via `pool.resolve_fully()` first — if resolution yields a type variable, it's a monomorphization bug
 
-- [ ] Handle `Option<T>` and `Result<T, E>` generically:
+- [x] Handle `Option<T>` and `Result<T, E>` generically (2026-03-24, pre-existing):
   - After monomorphization, `Option<int>` is a concrete type with `Tag::Option` and inner `Idx` pointing to `Tag::Int`
   - The `canonical()` function recurses: `Option<int>` → `Enum(EnumRepr { variants: [Some(Int{I64}), None] })`
   - This works because Pool interning deduplicates: `Option<int>` at two call sites shares the same `Idx`
 
-- [ ] Monomorphization boundary:
+- [x] Monomorphization boundary (2026-03-24, pre-existing):
   - Currently, Ori does NOT have explicit monomorphization pass — type checker infers concrete types, and Pool stores them
   - The `pool.resolve_fully()` chain handles substitution transparently
   - ReprPlan must call `pool.resolve_fully(idx)` before computing canonical for ANY type to ensure all variables are resolved
   - If `resolve_fully()` returns a variable → skip this type (it's dead code or a typeck bug)
 
-- [ ] **[TPR-01-021]** Fix `canonical()` mutual recursion contract violation:
-  - Current: `canonical()` uses a per-call `FxHashSet` for cycle detection (line 28). For mutually recursive SCCs (A→B→A), the nested representation of B inside A's result differs from standalone `canonical(B)`, violating the "one `MachineRepr` per `Idx`" contract.
-  - Fix: Refactor `canonical()` to accept a shared memoization cache (`&mut FxHashMap<Idx, MachineRepr>`) that persists across `populate_canonical()`. When `canonical(A)` resolves B's inner type, the result is cached. When `canonical(B)` is called later (or B is encountered as a nested type from a different root), the cache returns the same representation. Back-edge detection still uses the `visiting` set, but completed types are stored in the cache.
-  - Alternative: SCC detection + fixpoint — detect SCCs in the type graph (via Tarjan's), canonicalize all types in an SCC together using uniform back-edge handling so every Idx in the SCC gets the same representation regardless of traversal order.
-  - Verify: §01.9 mutual recursion canonical-consistency test (line 1000) must pass — nested B extracted from A's result must match standalone `canonical(B)`.
+- [x] **[TPR-01-021]** Fix `canonical()` mutual recursion contract violation (2026-03-24):
+  - Fixed: Added shared memoization cache (`FxHashMap<Idx, MachineRepr>`) to `canonical_inner()` that persists across `populate_canonical()`. Completed types are cached; subsequent calls return the cached result regardless of traversal order. `try_canonical_cached()` snapshots cache before `catch_unwind` to prevent partial entries on panic.
+  - Verify: `canonical_mutual_recursion_consistent` test passes — nested B inside A matches standalone B.
 
 **Tests required for §01.5 (write failing tests BEFORE implementing):**
 
-- [ ] `canonical()` on `Tag::Var` (unresolved) panics with a message identifying it as a typeck bug (not a silent incorrect result).
-- [ ] `canonical()` on `Tag::BoundVar` panics (should never reach codegen).
-- [ ] `canonical()` on `Tag::RigidVar` panics (should never reach codegen).
-- [ ] `canonical()` on `Tag::Scheme` panics.
-- [ ] `canonical()` on `Tag::Infer` panics (unresolved inference variable).
-- [ ] `pool.resolve_fully()` round-trip: a `Tag::Named` pointing to `Tag::Int` resolves to `Int { I64, true }` — same as calling `canonical(Tag::Int)` directly.
-- [ ] `Option<int>` after resolution produces a 2-variant `Enum` repr with the inner variant holding `Int { I64, true }` — verifies that `pool.resolve_fully()` is called recursively into container inner types.
-- [ ] **Edge case**: a `Tag::Named` with a chain of two aliases (`A = B = int`) resolves to `Int { I64, true }` (not `Named` or `Alias`).
+- [x] `canonical()` on `Tag::Var` (unresolved) panics with a message identifying it as a typeck bug (pre-existing: `canonical_panics_on_var`).
+- [x] `canonical()` on `Tag::BoundVar` panics (pre-existing: `canonical_panics_on_bound_var`).
+- [x] `canonical()` on `Tag::RigidVar` panics (pre-existing: `canonical_panics_on_rigid_var`).
+- [x] `canonical()` on `Tag::Scheme` panics (2026-03-24: `canonical_panics_on_scheme`).
+- [x] `canonical()` on `Tag::Infer` panics (2026-03-24: `canonical_panics_on_infer`).
+- [x] `pool.resolve_fully()` round-trip: Named→Int resolves to `Int { I64, true }` (2026-03-24: `canonical_named_resolves_to_int`).
+- [x] `Option<int>` after resolution produces a 2-variant `Enum` repr (pre-existing: `canonical_option_int`).
+- [x] **Edge case**: Named chain A→B→Int resolves to `Int { I64, true }` (2026-03-24: `canonical_alias_chain_resolves`).
 
 ---
 
