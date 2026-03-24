@@ -1097,7 +1097,7 @@ impl<'old> AstCopier<'old> {
             span: self.adjust_span(decl.span),
             visibility: decl.visibility,
             derives: decl.derives.clone(),
-            repr: decl.repr,
+            repr_attrs: decl.repr_attrs.clone(),
         }
     }
 

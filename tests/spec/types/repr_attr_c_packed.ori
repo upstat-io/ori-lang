@@ -1,0 +1,6 @@
+// Invalid: #repr("c") + #repr("packed") — contradictory combination.
+#compile_fail(code: "E2041", message: "cannot combine")
+
+#repr("c")
+#repr("packed")
+type CPacked = { x: int, y: int }

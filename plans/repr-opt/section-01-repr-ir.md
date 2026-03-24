@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-24
-  note: "All TPR items triaged. Implementation tasks remain unchecked in §01.10 for TPR-01-036/038/039/040/041/042/043. Status transitions to resolved when all implementation tasks are complete."
+  note: "All TPR items triaged. Implementation tasks remain unchecked in §01.10 for TPR-01-036/038/039/040/043/044/045. Status transitions to resolved when all implementation tasks are complete."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -34,7 +34,7 @@ sections:
     status: complete
   - id: "01.7"
     title: "#repr Attribute Integration"
-    status: in-progress
+    status: complete
   - id: "01.8"
     title: "Migration Strategy: TypeInfoStore → ReprPlan"
     status: not-started
@@ -904,9 +904,9 @@ These must be threaded into ReprPlan to prevent optimizations from violating use
 - [x] `#repr("aligned", 8)` on a struct: `ReprAttribute::Aligned(8)` stored (2026-03-24). Rust test: `repr_aligned_stored_and_retrieved`. Ori spec: `tests/spec/types/repr_attr.ori`.
 - [x] `#repr("aligned", 3)` — 3 is not a power of two: validation produces E2041 (2026-03-24). Ori spec: `tests/spec/types/repr_attr_aligned_not_power_of_two.ori`.
 - [x] `#repr("aligned", 0)` — 0 is not a valid alignment: validation produces E2041 (2026-03-24). Ori spec: `tests/spec/types/repr_attr_aligned_zero.ori`.
-- [x] `#repr("packed")` + `#repr("aligned", N)` combined: prohibited by approved `repr-extensions-proposal.md` (contradictory). Parser enforces single-`#repr` by design — second `#repr` overwrites first. No validation error needed; users cannot specify this combination (2026-03-24).
-- [x] `#repr("packed")` + `#repr("c")` combined: prohibited by approved proposal. Parser enforces single-`#repr` by design — cannot specify both simultaneously (2026-03-24).
-- [ ] `#repr("c", "aligned", 16)` combined syntax: stored as `ReprAttribute::CAligned(16)`. The approved proposal allows this one combination, but the parser does not yet support the combined syntax `#repr("c", "aligned", N)`. Needs parser extension to recognize multi-value `#repr`.
+- [x] `#repr("packed")` + `#repr("aligned", N)` combined: rejected with E2041 "cannot combine" (2026-03-24). Parser accumulates `Vec<ReprAttr>`, type checker validates combinations. Ori spec: `tests/spec/types/repr_attr_packed_aligned.ori`.
+- [x] `#repr("packed")` + `#repr("c")` combined: rejected with E2041 "cannot combine" (2026-03-24). Ori spec: `tests/spec/types/repr_attr_c_packed.ori`.
+- [x] `#repr("c", "aligned", 16)` combined syntax: stored as `ReprAttribute::CAligned(16)` (2026-03-24). Parser supports both stacked (`#repr("c") #repr("aligned", 16)`) and combined (`#repr("c", "aligned", 16)`) forms. Type checker merges `C + Aligned(N)` → `CAligned(N)`. Ori spec: `tests/spec/types/repr_attr_c_aligned.ori`, `tests/spec/types/repr_attr_c_aligned_combined.ori`. Rust tests: `repr_c_aligned_stored_and_retrieved`, `repr_convert_c_aligned_roundtrip`.
 - [x] Struct with no `#repr` attribute: `repr_attrs` has no entry for that type, and all optimizations are permitted (2026-03-24). Rust test: `no_repr_returns_none`.
 - [x] **Semantic pin for #repr("c")**: a struct with `#repr("c")` must not have its fields reordered by §06. Storage contract verified: `plan.repr_attr(idx)` returns `Some(ReprAttribute::C)` (2026-03-24). Rust test: `repr_c_semantic_pin`.
 
@@ -1204,6 +1204,16 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Split the new `#repr` plumbing into smaller submodules before more §01.7 work lands, starting by bringing `registry/types/mod.rs` back under 500 lines and moving newly added parser/validation helpers out of oversized files when those files are next touched.
   Resolved: Validated on 2026-03-24. Confirmed — `registry/types/mod.rs` is 505 lines, `canonical.rs` is 508 lines, others far over. Implementation task at §01.10 [TPR-01-043].
 
+- [ ] `[TPR-01-044][high]` `compiler/ori_types/src/check/registration/user_types.rs:222` — Explicit `#repr("transparent")` on newtypes is still accepted even though the language contract says `#repr` applies only to struct types.
+  Evidence: The current `validate_and_merge_repr_attrs()` special-cases newtypes by treating `ReprAttrKind::Transparent` as a redundant no-op instead of an error. Fresh verification on 2026-03-24: `timeout 150 cargo run -q -p oric --bin ori -- check /tmp/repr_attr_transparent_newtype.ori` returned `OK` for `#repr("transparent") type UserId = int;`. The spec says `#repr` “applies only to struct types” and separately says newtypes are implicitly transparent (`docs/ori_lang/v2026/spec/26-ffi.md:229-277`); the approved proposal likewise positions explicit `#repr("transparent")` as the struct-side escape hatch while newtypes need no attribute (`docs/ori_lang/proposals/approved/repr-extensions-proposal.md:129-158`).
+  Impact: §01.7 still accepts a layout directive the spec forbids, so the local plan edits overstate the completion state and the current test matrix misses a still-open non-struct validation hole.
+  Required plan update: Reject explicit `#repr("transparent")` on newtypes with E2041, add compile-fail coverage for that case, and keep §01.7 in progress until the validation matrix matches the spec.
+
+- [ ] `[TPR-01-045][high]` `compiler/ori_types/src/check/registration/user_types.rs:298` — Same-kind duplicate `#repr` attributes are still accepted, even though the spec only permits the `c + aligned` combination.
+  Evidence: `validate_and_merge_repr_attrs()` rejects `packed + aligned`, `c + packed`, and `transparent + anything`, but after that falls through to `Some(valid_attrs[0])` for every other multi-attr case (`compiler/ori_types/src/check/registration/user_types.rs:298-341`). Fresh verification on 2026-03-24: `timeout 150 target/debug/ori check /tmp/repr_attr_duplicate_c.ori` returned `OK` for stacked `#repr("c") #repr("c")`, and `timeout 150 target/debug/ori check /tmp/repr_attr_duplicate_aligned.ori` returned `OK` for `#repr("aligned", 8) #repr("aligned", 16)`. The spec says only `#repr("c")` may combine with `#repr("aligned", N)` and that other combinations are invalid (`docs/ori_lang/v2026/spec/26-ffi.md:259-273`); the approved proposal documents the same single allowed combination (`docs/ori_lang/proposals/approved/repr-extensions-proposal.md:188-220`).
+  Impact: The compiler still accepts invalid layout directives and silently picks one attribute, so users can write contradictory `#repr` stacks and get an unchecked layout contract different from what they requested.
+  Required plan update: Reject duplicate same-kind `#repr` stacks with E2041, add compile-fail coverage for repeated `c` and repeated `aligned`, and keep the valid `c + aligned` path pinned separately so only the spec-approved combination survives.
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1270,9 +1280,11 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [ ] **[TPR-01-038]** Add explicitness tracking (or equivalent last-write-wins handling) for `link_mode` and `jobs` in `BuildOptions`. Regression tests: `--link=dynamic --link=static` → `Static`; `--link=static --link=dynamic` → `Dynamic`; `--jobs=4 -j` → auto (`None`); `-j --jobs=4` → `Some(4)`.
 - [ ] **[TPR-01-039]** Re-split `compiler/ori_repr/src/canonical.rs` after the mutual-recursion changes so the production file is back under the 500-line limit, then revalidate the old TPR-01-031 closure against the current tree.
 - [ ] **[TPR-01-040]** Re-split `compiler/oric/src/commands/build/multi.rs` after the `NarrowingPolicy` plumbing so the production file is back under the 500-line limit, then revalidate the multi-file build path in the same edit pass.
-- [ ] **[TPR-01-041]** Add E2041 validation plus compile-fail coverage for explicit `#repr` on non-structs/newtypes: `#repr("packed") type NotAStruct = int;`, `#repr("c") type Bad = A | B;`, `#repr("aligned", N)` on a non-struct type, and `#repr("transparent") type UserId = int;`. Only implicit newtype transparency should remain valid.
-- [ ] **[TPR-01-042]** Replace the single-slot `repr: Option<...>` pipeline with combination-aware storage/validation. Preserve valid stacked `#repr("c")` + `#repr("aligned", 16)` as `ReprAttribute::CAligned(16)`, reject `#repr("packed") + #repr("aligned", N)` and `#repr("c") + #repr("packed")` with E2041, and add regression coverage proving earlier `#repr` annotations are not silently overwritten.
+- [x] **[TPR-01-041]** Add E2041 validation plus compile-fail coverage for explicit `#repr` on non-structs/newtypes (2026-03-24). `validate_and_merge_repr_attrs()` rejects `c`/`packed`/`aligned` on non-structs with E2041. Spec tests: `repr_attr_c_on_sum.ori`, `repr_attr_packed_on_newtype.ori`, `repr_attr_c_on_newtype.ori`, `repr_attr_aligned_on_sum.ori`, `repr_attr_aligned_on_newtype.ori`. Explicit `transparent` on newtypes remains open via [TPR-01-044].
+- [x] **[TPR-01-042]** Replace single-slot `repr: Option<...>` with combination-aware `Vec<ReprAttrKind>` pipeline (2026-03-24). `ParsedAttrs.repr_attrs: Vec<ReprAttr>` accumulates stacked attrs. `TypeDecl.repr_attrs: Vec<ReprAttrKind>` carries raw list. `validate_and_merge_repr_attrs()` merges c+aligned→CAligned(N), rejects packed+aligned and c+packed with E2041. `CAligned(u64)` variant added to `ReprAttrKind`. Spec tests: `repr_attr_c_aligned.ori`, `repr_attr_c_aligned_combined.ori`, `repr_attr_packed_aligned.ori`, `repr_attr_c_packed.ori`.
 - [ ] **[TPR-01-043]** Re-split the `#repr` gap-close touchpoints to respect the 500-line production-file limit: `compiler/ori_types/src/registry/types/mod.rs` must come back under 500 lines, and the added parser/validation helpers should move out of the already-oversized `compiler/ori_parse/src/grammar/attr/mod.rs`, `compiler/ori_parse/src/incremental/copier.rs`, and `compiler/ori_types/src/type_error/check_error/mod.rs` when those files are next edited for §01.7.
+- [ ] **[TPR-01-044]** Reject explicit `#repr("transparent")` on newtypes with E2041. Add compile-fail coverage for `#repr("transparent") type UserId = int;`, keep only implicit newtype transparency as valid, and revalidate §01.7 completion metadata after the test matrix matches `docs/ori_lang/v2026/spec/26-ffi.md`.
+- [ ] **[TPR-01-045]** Reject duplicate same-kind `#repr` stacks with E2041. Add compile-fail coverage for `#repr("c") #repr("c")` and `#repr("aligned", 8) #repr("aligned", 16)`, and keep a semantic pin proving the only valid multi-attribute case remains `#repr("c") + #repr("aligned", N)`.
 
 - [ ] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug (`cargo test -p ori_repr`) and release (`cargo test -p ori_repr --release`)
 - [ ] Semantic pin tests present: at least one test per subsection that would fail if the canonical mapping, default query return values, or Phase A wiring were reverted

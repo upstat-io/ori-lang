@@ -337,6 +337,24 @@ impl TypeRegistry {
         self.types_by_idx.contains_key(&idx)
     }
 
+    /// Set the resolved repr attribute for a registered type.
+    ///
+    /// Called after `validate_and_merge_repr_attrs` merges stacked `#repr`
+    /// attributes into a single resolved value.
+    pub fn set_repr(&mut self, idx: Idx, repr: Option<ori_ir::ReprAttrKind>) {
+        if let Some(entry) = self.types_by_idx.get_mut(&idx) {
+            entry.repr = repr;
+        }
+        // Also update the by-name entry (same allocation via insert_entry).
+        // TypeEntry is stored in both maps, so we need to update both.
+        for entry in self.types_by_name.values_mut() {
+            if entry.idx == idx {
+                entry.repr = repr;
+                break;
+            }
+        }
+    }
+
     /// Look up an enum variant constructor by name.
     ///
     /// Returns `Some((type_idx, variant_index))` if found.

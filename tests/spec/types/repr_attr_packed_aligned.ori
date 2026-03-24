@@ -1,0 +1,6 @@
+// Invalid: #repr("packed") + #repr("aligned", 16) — contradictory combination.
+#compile_fail(code: "E2041", message: "cannot combine")
+
+#repr("packed")
+#repr("aligned", 16)
+type PackedAligned = { x: int, y: int }
