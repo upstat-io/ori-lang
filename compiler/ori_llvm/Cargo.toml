@@ -14,6 +14,7 @@ repository = "https://github.com/upstat-io/ori-lang"
 ori_arc = { path = "../ori_arc", features = ["cache"] }
 ori_ir = { path = "../ori_ir", features = ["cache"] }
 ori_registry = { path = "../ori_registry" }
+ori_repr.workspace = true
 ori_rt = { path = "../ori_rt" }
 ori_stack.workspace = true
 ori_types = { path = "../ori_types", features = ["cache"] }

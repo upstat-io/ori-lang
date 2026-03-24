@@ -67,6 +67,18 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// When present, struct/enum types get meaningful LLVM names like `%ori.Point`.
     /// When absent (e.g., in unit tests), falls back to numeric IDs like `%ori.3`.
     interner: Option<&'a StringInterner>,
+    /// Representation plan from `ori_repr` (Phase A migration).
+    ///
+    /// When present, type lookups consult the `ReprPlan` first. When absent
+    /// (or when the plan has no entry for a type), falls back to `TypeInfoStore`.
+    /// This enables incremental migration: §01 passes `Some(&plan)` with
+    /// canonical-only decisions (zero behavioral change), later sections add
+    /// narrowed representations.
+    #[expect(
+        dead_code,
+        reason = "Phase A: wired through but not yet read — §01.8 adds the routing logic"
+    )]
+    repr_plan: Option<&'a ori_repr::ReprPlan>,
     /// Types currently being resolved (cycle detection).
     ///
     /// When we encounter an `Idx` already in this set, we've found a cycle
@@ -94,11 +106,13 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         store: &'a TypeInfoStore<'tcx>,
         scx: &'a SimpleCx<'ll>,
         interner: Option<&'a StringInterner>,
+        repr_plan: Option<&'a ori_repr::ReprPlan>,
     ) -> Self {
         Self {
             store,
             scx,
             interner,
+            repr_plan,
             resolving: RefCell::new(FxHashSet::default()),
             cache: RefCell::new(FxHashMap::default()),
             named_structs: RefCell::new(FxHashMap::default()),

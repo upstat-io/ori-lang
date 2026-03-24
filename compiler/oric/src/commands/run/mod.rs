@@ -257,6 +257,7 @@ fn compile_and_cache(
         &canon_result,
         path,
         Some(target.triple()),
+        std::env::var("ORI_NO_REPR_OPT").is_ok(),
     )
     .unwrap_or_else(|e| {
         eprintln!("{e}");

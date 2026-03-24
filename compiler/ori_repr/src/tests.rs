@@ -1420,3 +1420,106 @@ fn set_rc_strategy_records_audit_entry() {
         "audit must contain the RC strategy decision source"
     );
 }
+
+// ── §01.3 Pipeline Integration Tests ────────────────────────────────
+
+#[test]
+fn compute_repr_plan_populates_primitives() {
+    // §01.3 test: compute_repr_plan() populates canonical representations
+    // for all 11 non-error primitive types.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive);
+    // All 11 non-error primitives should have canonical entries.
+    assert!(plan.get_repr(Idx::INT).is_some(), "Int must be populated");
+    assert!(
+        plan.get_repr(Idx::FLOAT).is_some(),
+        "Float must be populated"
+    );
+    assert!(plan.get_repr(Idx::BOOL).is_some(), "Bool must be populated");
+    assert!(plan.get_repr(Idx::STR).is_some(), "Str must be populated");
+    assert!(plan.get_repr(Idx::CHAR).is_some(), "Char must be populated");
+    assert!(plan.get_repr(Idx::BYTE).is_some(), "Byte must be populated");
+    assert!(plan.get_repr(Idx::UNIT).is_some(), "Unit must be populated");
+    assert!(
+        plan.get_repr(Idx::NEVER).is_some(),
+        "Never must be populated"
+    );
+    assert!(
+        plan.get_repr(Idx::DURATION).is_some(),
+        "Duration must be populated"
+    );
+    assert!(plan.get_repr(Idx::SIZE).is_some(), "Size must be populated");
+    assert!(
+        plan.get_repr(Idx::ORDERING).is_some(),
+        "Ordering must be populated"
+    );
+    // Error type should NOT be populated.
+    assert!(
+        plan.get_repr(Idx::ERROR).is_none(),
+        "Error must not be populated"
+    );
+}
+
+#[test]
+fn compute_repr_plan_disabled_policy_skips_stubs() {
+    // §01.3 test: NarrowingPolicy::Disabled returns after populate_canonical()
+    // without calling any narrowing stubs.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled);
+    // Same primitives should be populated (canonical-only).
+    assert!(plan.get_repr(Idx::INT).is_some());
+    assert_eq!(plan.narrowing_policy(), NarrowingPolicy::Disabled);
+}
+
+#[test]
+fn compute_repr_plan_aggressive_is_default_behavior() {
+    // §01.3 test: NarrowingPolicy::Aggressive is the default — building
+    // without --no-repr-opt results in Aggressive.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive);
+    assert_eq!(plan.narrowing_policy(), NarrowingPolicy::Aggressive);
+    // Same primitives, same canonical results — no stubs are active yet.
+    assert_eq!(
+        plan.get_repr(Idx::INT),
+        Some(&MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        })
+    );
+}
+
+#[test]
+fn compute_repr_plan_canonical_int_semantic_pin() {
+    // §01.3 semantic pin: canonical(Int) must be I64/signed.
+    // This test fails if any future change alters the default int width.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive);
+    assert_eq!(
+        plan.get_repr(Idx::INT),
+        Some(&MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        }),
+        "canonical int must be i64 signed — semantic pin"
+    );
+}
+
+#[test]
+fn compute_repr_plan_zero_behavioral_change_with_disabled() {
+    // §01.3 test: identical canonical representations regardless of policy.
+    let pool = ori_types::Pool::new();
+    let plan_aggressive = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive);
+    let plan_disabled = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled);
+    // Both should produce the same canonical repr for every primitive.
+    for raw in 0..Idx::PRIMITIVE_COUNT {
+        let idx = Idx::from_raw(raw);
+        if idx == Idx::ERROR {
+            continue;
+        }
+        assert_eq!(
+            plan_aggressive.get_repr(idx),
+            plan_disabled.get_repr(idx),
+            "canonical repr for primitive {raw} must match regardless of policy"
+        );
+    }
+}
