@@ -7,15 +7,17 @@
 
 use ori_ir::Name;
 use ori_types::{Idx, Pool, Tag};
+use rustc_hash::FxHashSet;
 
 use crate::enum_repr::{EnumRepr, EnumTag, VariantRepr};
 use crate::repr::{FloatWidth, IntWidth, MachineRepr};
-use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, StructRepr, TupleRepr};
+use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
 
 /// Compute the canonical machine representation for a type.
 ///
-/// This follows `pool.resolve_fully()` to resolve Named/Applied/Alias
-/// and Var links, then dispatches on the resolved `Tag`.
+/// Handles recursive types (e.g., `type Tree = Leaf(int) | Node(Tree, Tree)`)
+/// via cycle detection — recursive positions are represented as
+/// [`MachineRepr::RcPointer`] since they are always heap-allocated in Ori.
 ///
 /// # Panics
 ///
@@ -23,10 +25,31 @@ use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, StructRepr, TupleRepr}
 /// `Scheme`, `Projection`, `ModuleNs`, `Infer`, `SelfType`) reaches
 /// this function — these indicate a type checker bug.
 pub fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
+    canonical_inner(pool, idx, &mut FxHashSet::default())
+}
+
+/// Inner canonicalization with cycle detection via `visiting` set.
+///
+/// When a type is encountered that is already being canonicalized
+/// (i.e., present in `visiting`), we return an `RcPointer` — recursive
+/// positions in Ori are always behind ARC pointers at runtime.
+fn canonical_inner(pool: &Pool, idx: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
     let resolved = pool.resolve_fully(idx);
+
+    // Cycle detection: if already canonicalizing this type, it's a recursive
+    // reference — return an RC pointer (recursive fields are heap-allocated).
+    if !visiting.insert(resolved) {
+        return MachineRepr::RcPointer(RcRepr {
+            rc_width: IntWidth::I64,
+            atomic: true,
+            inner: Box::new(MachineRepr::OpaquePtr),
+            stack_promotable: false,
+        });
+    }
+
     let tag = pool.tag(resolved);
 
-    match tag {
+    let result = match tag {
         // Primitives
         Tag::Int => MachineRepr::Int {
             width: IntWidth::I64,
@@ -48,21 +71,23 @@ pub fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
         Tag::Iterator | Tag::DoubleEndedIterator | Tag::Channel => MachineRepr::OpaquePtr,
 
         // Collections — fat pointer {len, cap, data}
-        Tag::List => canonical_collection(pool, pool.list_elem(resolved)),
-        Tag::Set => canonical_collection(pool, pool.set_elem(resolved)),
-        Tag::Map => canonical_map(pool, resolved),
+        Tag::List => canonical_collection(pool, pool.list_elem(resolved), visiting),
+        Tag::Set => canonical_collection(pool, pool.set_elem(resolved), visiting),
+        Tag::Map => canonical_map(pool, resolved, visiting),
 
         // Composite types
-        Tag::Option => canonical_option(canonical(pool, pool.option_inner(resolved))),
+        Tag::Option => {
+            canonical_option(canonical_inner(pool, pool.option_inner(resolved), visiting))
+        }
         Tag::Result => {
-            let ok = canonical(pool, pool.result_ok(resolved));
-            let err = canonical(pool, pool.result_err(resolved));
+            let ok = canonical_inner(pool, pool.result_ok(resolved), visiting);
+            let err = canonical_inner(pool, pool.result_err(resolved), visiting);
             canonical_result(ok, err)
         }
-        Tag::Function => canonical_function(pool, resolved),
-        Tag::Tuple => canonical_tuple(pool, resolved),
-        Tag::Struct => canonical_struct(pool, resolved),
-        Tag::Enum => canonical_enum(pool, resolved),
+        Tag::Function => canonical_function(pool, resolved, visiting),
+        Tag::Tuple => canonical_tuple(pool, resolved, visiting),
+        Tag::Struct => canonical_struct(pool, resolved, visiting),
+        Tag::Enum => canonical_enum(pool, resolved, visiting),
 
         // Types that must not reach canonical — compiler bugs
         Tag::Named | Tag::Applied | Tag::Alias => panic!(
@@ -79,32 +104,35 @@ pub fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
         Tag::Scheme | Tag::Projection | Tag::ModuleNs | Tag::Infer | Tag::SelfType => {
             panic!("canonical: special type {tag:?} at idx {resolved:?} should never reach codegen")
         }
-    }
+    };
+
+    visiting.remove(&resolved);
+    result
 }
 
 /// Canonicalize a collection element into a fat pointer.
-fn canonical_collection(pool: &Pool, elem_idx: Idx) -> MachineRepr {
+fn canonical_collection(pool: &Pool, elem_idx: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
     MachineRepr::FatPointer(FatRepr::Collection {
-        element_repr: Box::new(canonical(pool, elem_idx)),
+        element_repr: Box::new(canonical_inner(pool, elem_idx, visiting)),
     })
 }
 
 /// Canonicalize a map into a fat pointer with key and value reprs.
-fn canonical_map(pool: &Pool, resolved: Idx) -> MachineRepr {
+fn canonical_map(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
     MachineRepr::FatPointer(FatRepr::Map {
-        key_repr: Box::new(canonical(pool, pool.map_key(resolved))),
-        value_repr: Box::new(canonical(pool, pool.map_value(resolved))),
+        key_repr: Box::new(canonical_inner(pool, pool.map_key(resolved), visiting)),
+        value_repr: Box::new(canonical_inner(pool, pool.map_value(resolved), visiting)),
     })
 }
 
 /// Canonicalize a function type into a closure representation.
-fn canonical_function(pool: &Pool, resolved: Idx) -> MachineRepr {
+fn canonical_function(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
     let params: Vec<MachineRepr> = pool
         .function_params(resolved)
         .into_iter()
-        .map(|p| canonical(pool, p))
+        .map(|p| canonical_inner(pool, p, visiting))
         .collect();
-    let ret = canonical(pool, pool.function_return(resolved));
+    let ret = canonical_inner(pool, pool.function_return(resolved), visiting);
     MachineRepr::Closure(ClosureRepr {
         params,
         ret: Box::new(ret),
@@ -112,13 +140,13 @@ fn canonical_function(pool: &Pool, resolved: Idx) -> MachineRepr {
 }
 
 /// Canonicalize a tuple into an anonymous struct with positional fields.
-fn canonical_tuple(pool: &Pool, resolved: Idx) -> MachineRepr {
+fn canonical_tuple(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
     let fields: Vec<FieldRepr> = pool
         .tuple_elems(resolved)
         .into_iter()
         .enumerate()
         .map(|(i, elem_idx)| {
-            let repr = canonical(pool, elem_idx);
+            let repr = canonical_inner(pool, elem_idx, visiting);
             let idx_u32 = u32::try_from(i).unwrap_or(u32::MAX);
             FieldRepr {
                 name: Name::new(0, idx_u32),
@@ -133,13 +161,13 @@ fn canonical_tuple(pool: &Pool, resolved: Idx) -> MachineRepr {
 }
 
 /// Canonicalize a struct type with named fields.
-fn canonical_struct(pool: &Pool, resolved: Idx) -> MachineRepr {
+fn canonical_struct(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
     let fields: Vec<FieldRepr> = pool
         .struct_fields(resolved)
         .into_iter()
         .enumerate()
         .map(|(i, (name, field_idx))| {
-            let repr = canonical(pool, field_idx);
+            let repr = canonical_inner(pool, field_idx, visiting);
             let idx_u32 = u32::try_from(i).unwrap_or(u32::MAX);
             FieldRepr {
                 name,
@@ -160,14 +188,14 @@ fn canonical_struct(pool: &Pool, resolved: Idx) -> MachineRepr {
 }
 
 /// Canonicalize an enum type with explicit i64 tag.
-fn canonical_enum(pool: &Pool, resolved: Idx) -> MachineRepr {
+fn canonical_enum(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
     let variants: Vec<VariantRepr> = pool
         .enum_variants(resolved)
         .into_iter()
         .map(|(name, field_idxs)| {
             let fields: Vec<MachineRepr> = field_idxs
                 .into_iter()
-                .map(|fi| canonical(pool, fi))
+                .map(|fi| canonical_inner(pool, fi, visiting))
                 .collect();
             let (size, alignment) = compute_payload_layout(&fields);
             VariantRepr {
@@ -206,8 +234,8 @@ fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
         size: 0,
         alignment: 1,
     };
-    let some_size = repr_size(&inner_repr);
-    let some_align = repr_align(&inner_repr);
+    let some_size = field_size(&inner_repr);
+    let some_align = field_align(&inner_repr);
     let some_variant = VariantRepr {
         name: Name::new(0, 1), // "Some"
         fields: vec![inner_repr],
@@ -231,8 +259,8 @@ fn canonical_option(inner_repr: MachineRepr) -> MachineRepr {
 
 /// Build canonical `Result<T, E>` as a 2-variant enum: Ok(T) + Err(E).
 fn canonical_result(ok_repr: MachineRepr, err_repr: MachineRepr) -> MachineRepr {
-    let ok_size = repr_size(&ok_repr);
-    let ok_align = repr_align(&ok_repr);
+    let ok_size = field_size(&ok_repr);
+    let ok_align = field_align(&ok_repr);
     let ok_variant = VariantRepr {
         name: Name::new(0, 0), // "Ok"
         fields: vec![ok_repr],
@@ -240,8 +268,8 @@ fn canonical_result(ok_repr: MachineRepr, err_repr: MachineRepr) -> MachineRepr 
         alignment: ok_align,
     };
 
-    let err_size = repr_size(&err_repr);
-    let err_align = repr_align(&err_repr);
+    let err_size = field_size(&err_repr);
+    let err_align = field_align(&err_repr);
     let err_variant = VariantRepr {
         name: Name::new(0, 1), // "Err"
         fields: vec![err_repr],
@@ -264,24 +292,66 @@ fn canonical_result(ok_repr: MachineRepr, err_repr: MachineRepr) -> MachineRepr 
 }
 
 /// Whether a repr is trivial (no RC operations needed).
+///
+/// Recursively checks compound types: a struct/tuple is trivial if all
+/// fields are trivial; an enum is trivial if all variant fields are trivial.
 fn is_trivial_repr(repr: &MachineRepr) -> bool {
-    matches!(
-        repr,
+    match repr {
         MachineRepr::Int { .. }
-            | MachineRepr::Float { .. }
-            | MachineRepr::Bool
-            | MachineRepr::Char
-            | MachineRepr::Byte
-            | MachineRepr::Duration
-            | MachineRepr::Size
-            | MachineRepr::Ordering
-            | MachineRepr::Unit
-            | MachineRepr::Never
-            | MachineRepr::Range
-    )
+        | MachineRepr::Float { .. }
+        | MachineRepr::Bool
+        | MachineRepr::Char
+        | MachineRepr::Byte
+        | MachineRepr::Duration
+        | MachineRepr::Size
+        | MachineRepr::Ordering
+        | MachineRepr::Unit
+        | MachineRepr::Never
+        | MachineRepr::Range => true,
+        // Compound types: delegate to precomputed flag or check recursively
+        MachineRepr::Struct(s) => s.trivial,
+        MachineRepr::Tuple(t) => t.trivial,
+        MachineRepr::Enum(e) => e
+            .variants
+            .iter()
+            .all(|v| v.fields.iter().all(is_trivial_repr)),
+        // Pointers, closures, collections — all need RC
+        MachineRepr::FatPointer(_)
+        | MachineRepr::Closure(_)
+        | MachineRepr::RcPointer(_)
+        | MachineRepr::OpaquePtr
+        | MachineRepr::StackPromoted { .. } => false,
+    }
 }
 
-/// Estimate size of a repr in bytes (canonical, before layout optimization).
+/// Size of a repr when used as a field in an aggregate (struct/tuple/enum).
+///
+/// Unit and Never are zero-sized in aggregates — they contribute no bytes
+/// to the containing struct/tuple/enum layout. For standalone by-value
+/// lowering (LLVM i64 materialization), use [`repr_size`] instead.
+fn field_size(repr: &MachineRepr) -> u32 {
+    match repr {
+        MachineRepr::Unit | MachineRepr::Never => 0,
+        other => repr_size(other),
+    }
+}
+
+/// Alignment of a repr when used as a field in an aggregate.
+///
+/// Unit and Never have alignment 1 (minimum) in aggregates — they don't
+/// inflate the containing type's alignment requirement.
+fn field_align(repr: &MachineRepr) -> u32 {
+    match repr {
+        MachineRepr::Unit | MachineRepr::Never => 1,
+        other => repr_align(other),
+    }
+}
+
+/// ABI size of a repr in bytes (for by-value lowering).
+///
+/// Unit and Never are 8 bytes here (LLVM i64 representation) because
+/// they must be materializable as standalone values. For aggregate field
+/// sizing, use [`field_size`] instead.
 fn repr_size(repr: &MachineRepr) -> u32 {
     match repr {
         MachineRepr::Int { width, .. } => width.size_bytes(),
@@ -304,7 +374,7 @@ fn repr_size(repr: &MachineRepr) -> u32 {
     }
 }
 
-/// Estimate alignment of a repr in bytes.
+/// ABI alignment of a repr in bytes.
 fn repr_align(repr: &MachineRepr) -> u32 {
     match repr {
         MachineRepr::Int { width, .. } => width.alignment(),
@@ -342,20 +412,19 @@ fn round_up(size: u32, align: u32) -> u32 {
 
 /// Compute ABI-correct layout (size, alignment) for named/tuple fields.
 ///
-/// Walks fields in order, inserting alignment padding between each field,
-/// then adds trailing padding to reach the struct's overall alignment.
-/// This matches C/LLVM struct layout rules.
+/// Uses [`field_size`]/[`field_align`] so that zero-sized types (Unit, Never)
+/// don't inflate the containing aggregate.
 fn compute_field_layout(fields: &[FieldRepr]) -> (u32, u32) {
     let align = fields
         .iter()
-        .map(|f| repr_align(&f.repr))
+        .map(|f| field_align(&f.repr))
         .max()
         .unwrap_or(1);
     let mut offset = 0u32;
     for f in fields {
-        let field_align = repr_align(&f.repr);
-        offset = round_up(offset, field_align);
-        offset += repr_size(&f.repr);
+        let fa = field_align(&f.repr);
+        offset = round_up(offset, fa);
+        offset += field_size(&f.repr);
     }
     (round_up(offset, align), align)
 }
@@ -363,12 +432,12 @@ fn compute_field_layout(fields: &[FieldRepr]) -> (u32, u32) {
 /// Compute ABI-correct layout (size, alignment) for bare repr fields
 /// (used by enum variant payloads which store `Vec<MachineRepr>`).
 fn compute_payload_layout(fields: &[MachineRepr]) -> (u32, u32) {
-    let align = fields.iter().map(repr_align).max().unwrap_or(1);
+    let align = fields.iter().map(field_align).max().unwrap_or(1);
     let mut offset = 0u32;
     for f in fields {
-        let field_align = repr_align(f);
-        offset = round_up(offset, field_align);
-        offset += repr_size(f);
+        let fa = field_align(f);
+        offset = round_up(offset, fa);
+        offset += field_size(f);
     }
     (round_up(offset, align), align)
 }

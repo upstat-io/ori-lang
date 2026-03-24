@@ -15,7 +15,7 @@ depends_on: []
 sections:
   - id: "01.1"
     title: "MachineRepr Enum & ReprPlan Data Structure"
-    status: in-progress
+    status: complete
   - id: "01.2"
     title: "ReprDecision Tracking"
     status: not-started
@@ -184,7 +184,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   **Two-child containers (32-34):**
   | Tag | Canonical MachineRepr | LLVM Type | Notes |
   |-----|----------------------|-----------|-------|
-  | `Map` | `FatPointer(FatRepr::Collection)` | `{i64, i64, ptr}` | len + cap + data |
+  | `Map` | `FatPointer(FatRepr::Map)` | `{i64, i64, ptr}` | len + cap + data; retains key/value reprs |
   | `Result` | `Enum(...)` | `{i64, max(ok,err)}` | Recurse into ok/err |
   | `Borrowed` | Reserved — error if reached | — | Future use |
 
@@ -250,26 +250,23 @@ The `MachineRepr` enum captures the physical representation chosen for each type
   }
   ```
 
-- [ ] **[TPR-01-005]** Fix `repr_size()`/`repr_align()` for Unit/Never in aggregate layouts:
-  - Split `repr_size()` into `field_size()` (for aggregate layout — Unit/Never = 0 bytes, align = 1) and `abi_size()` (for by-value lowering — Unit/Never = 8 bytes for LLVM i64 materialization)
-  - Update `compute_field_layout()` and `compute_payload_layout()` to use `field_size()`/`field_align()` instead of `repr_size()`/`repr_align()`
-  - Update `TupleRepr::to_machine_repr()` and enum variant sizing to use the field-layout variants
-  - Semantic pin tests: `((), bool)` size = 1 (not 16), `(bool, (), int)` size = 16 (Unit contributes 0), `Option<()>` tag + 0 payload, struct with Unit field doesn't inflate size
-  - Verify existing tests still pass (primitives where Unit is passed by-value should still use i64)
+- [x] **[TPR-01-005]** Fix `repr_size()`/`repr_align()` for Unit/Never in aggregate layouts (2026-03-23):
+  - Split into `field_size()`/`field_align()` (Unit/Never = 0/1) and `repr_size()`/`repr_align()` (Unit/Never = 8/8 for ABI)
+  - `compute_field_layout()`, `compute_payload_layout()`, `canonical_option()`, `canonical_result()` all use `field_size`/`field_align`
+  - Semantic pin tests: `((), bool)` = 1 byte, `(bool, (), int)` = 16 bytes, `Option<()>` = 8 bytes, struct(bool, unit) = 1 byte, `(int, Never)` = 8 bytes
 
-- [ ] **[TPR-01-007]** Fix `canonical_panics_on_bound_var` test: rename to `canonical_panics_on_rigid_var` (matches what it actually tests), add a separate `canonical_panics_on_bound_var` test that constructs a real `BoundVar` via `pool.scheme()` extraction and passes it to `canonical()` with `#[should_panic]`
+- [x] **[TPR-01-007]** Fix `canonical_panics_on_bound_var` test (2026-03-23): constructs a real `BoundVar` via `pool.intern(Tag::BoundVar, 0)` and asserts panic. Separate `canonical_panics_on_rigid_var` test already existed.
 
-- [ ] **[TPR-01-015]** Add cycle detection to `canonical()` for recursive user types:
-  - Add `visiting: &mut FxHashSet<Idx>` parameter (or internal wrapper) to track types currently being canonicalized
-  - When a type is encountered that is already in `visiting`, return `MachineRepr::RcPointer(RcRepr { ... })` — recursive positions are always heap-allocated behind a pointer in Ori's ARC model
-  - Insert resolved idx into `visiting` before recursing into struct fields / enum variant payloads, remove after
-  - Add semantic-pin tests: `type Tree = Leaf(int) | Node(Tree, Tree)` canonicalizes without stack overflow; recursive position yields `RcPointer`; non-recursive sibling fields are canonicalized normally
+- [x] **[TPR-01-015]** Add cycle detection to `canonical()` for recursive user types (2026-03-23):
+  - Public `canonical()` wraps `canonical_inner()` with `visiting: &mut FxHashSet<Idx>` cycle detection
+  - Recursive positions return `MachineRepr::RcPointer(RcRepr { rc_width: I64, atomic: true, inner: OpaquePtr, stack_promotable: false })`
+  - All helper functions (`canonical_collection`, `canonical_map`, `canonical_function`, `canonical_tuple`, `canonical_struct`, `canonical_enum`) thread the visiting set
+  - Tests: `type Tree = Leaf(int) | Node(Tree, Tree)` — no stack overflow, Node fields are RcPointer; `type IntList = Nil | Cons(int, IntList)` — semantic pin on RcPointer properties; repeated non-recursive type is NOT treated as cycle
 
-- [ ] **[TPR-01-016]** Make `is_trivial_repr()` recursive for compound types:
-  - `MachineRepr::Struct(s)` → return `s.trivial` (already computed for the inner struct)
-  - `MachineRepr::Tuple(t)` → return `t.trivial`
-  - `MachineRepr::Enum(e)` → return `e.variants.iter().all(|v| v.fields.iter().all(is_trivial_repr))`
-  - Semantic-pin tests: struct containing `(int, bool)` is trivial; struct containing `(int, str)` is not; struct containing `Option<int>` (enum of all-scalar variants) — triviality depends on enum analysis (conservatively false until §02)
+- [x] **[TPR-01-016]** Make `is_trivial_repr()` recursive for compound types (2026-03-23):
+  - `Struct(s)` → `s.trivial`, `Tuple(t)` → `t.trivial`, `Enum(e)` → check all variant fields recursively
+  - `FatPointer`, `Closure`, `RcPointer`, `OpaquePtr`, `StackPromoted` → always false
+  - Tests: struct containing `(int, bool)` is trivial; struct containing `(int, str)` is not; all-unit enum trivial; scalar-payload enum in struct trivial
 
 **Derive requirement:** ALL sub-repr types (`StructRepr`, `EnumRepr`, `TupleRepr`, `FieldRepr`, `EnumTag`, `VariantRepr`, `RcRepr`, `FatRepr`, `ClosureRepr`) MUST derive `Debug, Clone, PartialEq, Eq, Hash` to match `MachineRepr`'s derives. Code blocks below include them explicitly.
 
@@ -795,6 +792,12 @@ ReprPlan operates on **monomorphized** types only. Generic types (containing `Va
   - ReprPlan must call `pool.resolve_fully(idx)` before computing canonical for ANY type to ensure all variables are resolved
   - If `resolve_fully()` returns a variable → skip this type (it's dead code or a typeck bug)
 
+- [ ] **[TPR-01-021]** Fix `canonical()` mutual recursion contract violation:
+  - Current: `canonical()` uses a per-call `FxHashSet` for cycle detection (line 28). For mutually recursive SCCs (A→B→A), the nested representation of B inside A's result differs from standalone `canonical(B)`, violating the "one `MachineRepr` per `Idx`" contract.
+  - Fix: Refactor `canonical()` to accept a shared memoization cache (`&mut FxHashMap<Idx, MachineRepr>`) that persists across `populate_canonical()`. When `canonical(A)` resolves B's inner type, the result is cached. When `canonical(B)` is called later (or B is encountered as a nested type from a different root), the cache returns the same representation. Back-edge detection still uses the `visiting` set, but completed types are stored in the cache.
+  - Alternative: SCC detection + fixpoint — detect SCCs in the type graph (via Tarjan's), canonicalize all types in an SCC together using uniform back-edge handling so every Idx in the SCC gets the same representation regardless of traversal order.
+  - Verify: §01.9 mutual recursion canonical-consistency test (line 1000) must pass — nested B extracted from A's result must match standalone `canonical(B)`.
+
 **Tests required for §01.5 (write failing tests BEFORE implementing):**
 
 - [ ] `canonical()` on `Tag::Var` (unresolved) panics with a message identifying it as a typeck bug (not a silent incorrect result).
@@ -948,7 +951,7 @@ The existing `TypeInfoStore` and `TypeInfo` enum must coexist with `ReprPlan` du
   - `TypeLayoutResolver` accepts optional `&ReprPlan`
   - When `ReprPlan` is `Some`, consult it first; if no decision exists for a type, fall back to `TypeInfoStore`
   - When `ReprPlan` is `None` (e.g., in tests that don't create one), use `TypeInfoStore` exclusively
-  - This ensures zero behavioral change: ReprPlan returns canonical representations, which match TypeInfoStore exactly
+  - This ensures zero behavioral change for the fallback path: when ReprPlan has no entry, TypeLayoutResolver delegates to TypeInfoStore as before. Note: `canonical()` intentionally diverges from TypeInfoStore for Unit/Never in aggregates (zero-sized vs i64) — this divergence only surfaces when ReprPlan decisions are actively consulted, not via the fallback path
 
 - [ ] **Phase B — Triviality unification (§02 scope):**
   - `TypeInfoStore::is_trivial()` delegates to `ReprPlan::is_trivial()` when available
@@ -962,9 +965,9 @@ The existing `TypeInfoStore` and `TypeInfo` enum must coexist with `ReprPlan` du
   - Eventually, `TypeInfo` becomes `#[cfg(test)]` only
 
 - [ ] **Validation at each phase:**
-  - Phase A: `assert_eq!(repr_plan.canonical(tag).to_llvm_type(), type_info.storage_type())` for all types
-  - Phase B: same assertion + `assert_eq!(repr_plan.is_trivial(idx), type_info_store.is_trivial(idx))`
-  - Phase C: remove TypeInfoStore from production; tests use ReprPlan directly
+  - Phase A: `assert_eq!(repr_plan.canonical(tag).to_llvm_type(), type_info.storage_type())` for all types WITHOUT Unit/Never in aggregates. For ZST-containing composites (`Option<()>`, `((), bool)`, structs with Unit fields), `canonical()` intentionally produces smaller layouts (zero-sized fields) — verify the canonical layout is correct per §01.9's ZST aggregate tests, and document the divergence from TypeInfoStore.
+  - Phase B: same split + `assert_eq!(repr_plan.is_trivial(idx), type_info_store.is_trivial(idx))`
+  - Phase C: remove TypeInfoStore from production; tests use ReprPlan directly — divergence disappears
 
 **Tests required for §01.8 Phase A (write failing tests BEFORE implementing):**
 
@@ -1000,13 +1003,18 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 - [ ] **Named type resolution test:** Create a `Named` type pointing to a `Struct`, verify `canonical()` resolves through to the struct's repr.
 
-- [ ] **Storage type equivalence test:** For a Pool containing a representative sample of ALL constructible types, verify that `canonical(tag).to_llvm_type(ctx)` produces the same LLVM type as the existing `TypeInfo::storage_type()`. This is the gold standard: new system must match old system exactly before any optimizations run.
+- [ ] **Mutual recursion canonical-consistency test (TPR-01-021):** Build a mutually recursive SCC such as `type A = WrapA(B)` / `type B = WrapB(A)` (or equivalent struct/enum wrappers), call `canonical()` for both roots, and assert each `Idx` has one stable representation regardless of which root was canonicalized first. The nested `B` reached from `canonical(A)` must match the standalone `canonical(B)` shape, and vice versa — a DFS-local back-edge placeholder is not sufficient.
+
+- [ ] **Storage type equivalence test:** For a Pool containing a representative sample of ALL constructible types, verify `canonical(tag)` matches expectations. Split into two groups:
+  - **Exact-match group** (types without Unit/Never in aggregates): verify `canonical(tag).to_llvm_type(ctx)` produces the same LLVM type as `TypeInfo::storage_type()`. This is the gold standard for the majority of types.
+  - **Expected-divergence group** (composites with Unit/Never fields — `Option<()>`, `((), bool)`, `Result<(), int>`, struct with Unit field): verify `canonical()` produces the correct zero-sized layout per the ZST aggregate model (§01.9 ZST tests), and document that TypeInfoStore produces larger i64-based layouts for these. The divergence is intentional — `canonical()` is correct, TypeInfoStore is legacy.
   The minimum required coverage matrix (29 types — must cover ALL rows or the test is incomplete):
   - Primitives (12): `Int`, `Float`, `Bool`, `Str`, `Char`, `Byte`, `Unit`, `Never`, `Duration`, `Size`, `Ordering`, `Error`
   - Simple containers (7): `List`, `Option`, `Set`, `Channel`, `Range`, `Iterator`, `DoubleEndedIterator`
   - Two-child containers (3): `Map`, `Result`, `Borrowed`
   - Complex types (4): `Function`, `Tuple`, `Struct` (with fields), `Enum` (with variants)
   - Named/resolved (3): `Named`→`Struct`, `Applied`→`Struct`, `Alias`→`Int`
+  - ZST-divergence cases (4+): `Option<()>`, `((), bool)`, `Result<(), int>`, `Struct { x: (), y: int }` — assert correct zero-sized layout, note divergence from TypeInfoStore
 
 - [ ] **Zero-sized type aggregate tests (TPR-01-005):** Verify aggregates containing Unit/Never use zero-sized field layout:
   - `((), bool)` → Tuple with size 1 (Unit contributes 0 bytes)
@@ -1015,6 +1023,8 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   - `Option<()>` → Enum tag + 0 payload (Unit variant has no data)
   - `(Never, int)` → Never variant is zero-sized in aggregate context
   - **Semantic pin**: `((), bool)` size must NOT be 16 — this test fails if Unit is treated as 8-byte in aggregates
+
+- [ ] **Enum triviality semantic pin (TPR-01-017):** Replace or augment `trivial_all_unit_enum` with a wrapper-aggregate test: create a struct containing an all-unit enum, call `canonical()`, assert the struct's `trivial` flag is `true`. This exercises `is_trivial_repr()` on the `MachineRepr::Enum` path. A regression in the enum branch would make the struct non-trivial, failing this test. Keep in debug/release matrix.
 
 - [ ] **BoundVar test fix (TPR-01-007):** Rename `canonical_panics_on_bound_var` to `canonical_panics_on_rigid_var` (matches what it actually tests). Add a new `canonical_panics_on_bound_var` test that constructs a real `BoundVar` fixture via `pool.scheme()` extraction and asserts `canonical()` panics on it.
 
@@ -1079,6 +1089,23 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 - [x] `[TPR-01-016][medium]` `compiler/ori_repr/src/canonical.rs:126` — Nested trivial aggregates are marked non-trivial because `is_trivial_repr()` only recognizes primitive leaves.
   Resolved: Accepted on 2026-03-23. Validated against codebase — `is_trivial_repr()` only matches primitive variants, so nested `Struct`/`Tuple`/`Enum` fields always yield `false` even when all-scalar. Fix: make `is_trivial_repr()` recursive. Implementation tasks added to §01.1 (recursive triviality) and §01.9 (nested trivial aggregate tests).
+
+- [x] `[TPR-01-017][medium]` `compiler/ori_repr/src/tests.rs:1039` — `trivial_all_unit_enum` is not a semantic pin for enum triviality.
+  Resolved: Validated and accepted on 2026-03-23. The test manually checks variant fields against pointer types but never exercises `is_trivial_repr()` or wraps the enum in a struct to test the struct's `trivial` flag. Implementation task added to §01.9 (enum triviality semantic pin test).
+
+- [x] `[TPR-01-018][medium]` `compiler/ori_repr/src/canonical.rs:247` — The accepted zero-sized aggregate model for `Unit`/`Never` no longer matches the current `TypeInfoStore` / `TypeLayoutResolver` fallback, so §01.8's "empty ReprPlan = zero behavioral change" migration cannot pass as written.
+  Resolved: Accepted on 2026-03-23. Validated against codebase — `canonical()` uses `field_size(Unit)=0` while `TypeInfoStore` lowers Unit/Never to i64 (8 bytes) in all contexts. Divergence is intentional: zero-sized aggregate layout is the correct model. Plan updates applied to §01.8 (Phase A validation split into exact-match and expected-divergence groups) and §01.9 (storage type equivalence test split to document ZST aggregate divergence).
+
+- [x] `[TPR-01-019][medium]` `plans/repr-opt/section-01-repr-ir.md:6` — The section re-resolves third-party review even though the enum triviality semantic pin is still missing in the current tree.
+  Resolved: Validated on 2026-03-23. The concern is correct — `third_party_review.status` is already `findings` (not `resolved`), and the enum triviality semantic pin implementation task is tracked at §01.9 (line 1019). The TPR status correctly reflects that accepted work remains. No additional plan changes needed.
+
+- [x] `[TPR-01-020][low]` `plans/repr-opt/section-01-repr-ir.md:187` — §01.1 still documents `Tag::Map` as `FatPointer(FatRepr::Collection)` after the implementation and prior TPR changed it to `FatRepr::Map`.
+  Resolved: Validated and fixed on 2026-03-23. Updated §01.1 canonical mapping table: `Map` row now reads `FatPointer(FatRepr::Map)` with note about key/value repr retention, matching `canonical.rs:131`.
+
+- [x] `[TPR-01-021][high]` `compiler/ori_repr/src/canonical.rs:36` — `canonical()` still violates its own “one `MachineRepr` per `Idx`” contract for mutually recursive types because cycle handling is scoped to the current DFS path.
+  Evidence: `canonical()` starts every root query with a fresh `FxHashSet` and `canonical_inner()` only substitutes `RcPointer` when it hits the current traversal’s back-edge. For a mutually recursive SCC `A -> B -> A`, `canonical(A)` embeds `B { a: RcPointer }`, while a separate `canonical(B)` query embeds `A { b: RcPointer }`; that means the shape of `B` depends on which root was canonicalized, contradicting `repr.rs:34`.
+  Impact: ReprPlan population over a mutually recursive component can cache root-dependent layouts, breaking equality/hash stability and any later pass that assumes nested uses of an `Idx` match its standalone canonical form.
+  Resolved: Accepted on 2026-03-23. Finding validated — `canonical()` at line 28 creates fresh `FxHashSet` per root call, so nested representations of the same Idx differ depending on DFS entry point. Implementation task added to §01.5 (SCC-aware memoization fix). Regression test already tracked at §01.9 line 1000.
 
 ---
 

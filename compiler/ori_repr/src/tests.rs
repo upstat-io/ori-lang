@@ -646,24 +646,16 @@ fn canonical_panics_on_var() {
     canonical(&pool, var_idx);
 }
 
-/// Test that `BoundVar` panics.
+/// Test that `BoundVar` panics — constructs a real `BoundVar` via `pool.intern`.
 #[test]
 #[should_panic(expected = "unresolved type variable")]
 fn canonical_panics_on_bound_var() {
+    use ori_types::Tag;
+
     let mut pool = Pool::new();
-    let body = Idx::INT;
-    let scheme_idx = pool.scheme(&[0], body);
-    // Access the BoundVar inside the scheme
-    let bound_var_idx = Idx::from_raw(pool.data(scheme_idx) + 1);
-    // BoundVar should be at the first var slot
-    // Actually, BoundVar is constructed differently — let's just test Var
-    // since BoundVar would need scheme instantiation context.
-    // For now, the Var test is sufficient.
-    let _ = bound_var_idx;
-    let _ = scheme_idx;
-    // Use a RigidVar instead
-    let rigid = pool.rigid_var(Name::new(0, 999));
-    canonical(&pool, rigid);
+    let bound_var_idx = pool.intern(Tag::BoundVar, 0);
+    // BoundVar must never reach codegen
+    canonical(&pool, bound_var_idx);
 }
 
 /// Test that `RigidVar` panics.
@@ -789,5 +781,340 @@ fn canonical_map_retains_value_repr() {
         );
     } else {
         panic!("expected FatPointer(Map), got {repr:?}");
+    }
+}
+
+// ── TPR-01-015: Cycle Detection for Recursive Types ─────────────
+
+/// Recursive enum `type Tree = Leaf(int) | Node(Tree, Tree)` must not
+/// stack overflow. Recursive positions yield `RcPointer`.
+#[test]
+fn canonical_recursive_enum_no_stack_overflow() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let tree_name = Name::new(0, 400);
+    let leaf_name = Name::new(0, 401);
+    let node_name = Name::new(0, 402);
+
+    // Forward reference for Tree
+    let tree_named = pool.named(tree_name);
+
+    let tree_enum = pool.enum_type(
+        tree_name,
+        &[
+            EnumVariant {
+                name: leaf_name,
+                field_types: vec![Idx::INT],
+            },
+            EnumVariant {
+                name: node_name,
+                field_types: vec![tree_named, tree_named],
+            },
+        ],
+    );
+
+    // Link Named → Enum
+    pool.set_resolution(tree_named, tree_enum);
+
+    // Must not infinite loop
+    let repr = canonical(&pool, tree_enum);
+    if let MachineRepr::Enum(ref e) = repr {
+        assert_eq!(e.variants.len(), 2);
+        // Leaf variant: one Int field
+        assert_eq!(e.variants[0].fields.len(), 1);
+        assert_eq!(
+            e.variants[0].fields[0],
+            MachineRepr::Int {
+                width: IntWidth::I64,
+                signed: true
+            }
+        );
+        // Node variant: two RcPointer fields (recursive positions)
+        assert_eq!(e.variants[1].fields.len(), 2);
+        assert!(
+            matches!(e.variants[1].fields[0], MachineRepr::RcPointer(_)),
+            "recursive field must be RcPointer, got {:?}",
+            e.variants[1].fields[0]
+        );
+        assert!(
+            matches!(e.variants[1].fields[1], MachineRepr::RcPointer(_)),
+            "recursive field must be RcPointer, got {:?}",
+            e.variants[1].fields[1]
+        );
+    } else {
+        panic!("expected Enum for recursive Tree, got {repr:?}");
+    }
+}
+
+/// Semantic pin: recursive type MUST return `RcPointer` at recursive position,
+/// not `OpaquePtr` or infinite recursion.
+#[test]
+fn semantic_pin_recursive_field_is_rc_pointer() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let list_name = Name::new(0, 500);
+    let nil_name = Name::new(0, 501);
+    let cons_name = Name::new(0, 502);
+    let list_named = pool.named(list_name);
+
+    // type IntList = Nil | Cons(int, IntList)
+    let list_enum = pool.enum_type(
+        list_name,
+        &[
+            EnumVariant {
+                name: nil_name,
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: cons_name,
+                field_types: vec![Idx::INT, list_named],
+            },
+        ],
+    );
+    pool.set_resolution(list_named, list_enum);
+
+    let repr = canonical(&pool, list_enum);
+    if let MachineRepr::Enum(ref e) = repr {
+        // Cons variant's second field is the recursive ref
+        let cons = &e.variants[1];
+        assert_eq!(cons.fields.len(), 2);
+        if let MachineRepr::RcPointer(ref rc) = cons.fields[1] {
+            assert_eq!(rc.rc_width, IntWidth::I64);
+            assert!(rc.atomic);
+            assert!(!rc.stack_promotable);
+        } else {
+            panic!(
+                "recursive field must be RcPointer, got {:?}",
+                cons.fields[1]
+            );
+        }
+    } else {
+        panic!("expected Enum, got {repr:?}");
+    }
+}
+
+/// Non-recursive type appearing multiple times is NOT treated as a cycle.
+#[test]
+fn canonical_non_recursive_repeated_type() {
+    let mut pool = Pool::new();
+    // (int, int) — int appears twice but is not recursive
+    let tuple_idx = pool.pair(Idx::INT, Idx::INT);
+    let repr = canonical(&pool, tuple_idx);
+    if let MachineRepr::Tuple(ref t) = repr {
+        assert_eq!(t.elements.len(), 2);
+        // Both should be Int, NOT RcPointer
+        assert!(
+            matches!(t.elements[0].repr, MachineRepr::Int { .. }),
+            "repeated non-recursive type must not be RcPointer"
+        );
+        assert!(
+            matches!(t.elements[1].repr, MachineRepr::Int { .. }),
+            "repeated non-recursive type must not be RcPointer"
+        );
+    } else {
+        panic!("expected Tuple, got {repr:?}");
+    }
+}
+
+// ── TPR-01-005: Unit/Never Zero-Size in Aggregates ──────────────
+
+/// Semantic pin: ((), bool) size = 1 — Unit contributes 0 bytes in aggregates.
+#[test]
+fn canonical_tuple_unit_zero_sized() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.pair(Idx::UNIT, Idx::BOOL);
+    let repr = canonical(&pool, tuple_idx);
+    if let MachineRepr::Tuple(ref t) = repr {
+        assert_eq!(
+            t.size, 1,
+            "(unit, bool) must be 1 byte — Unit is zero-sized"
+        );
+        assert_eq!(t.align, 1);
+    } else {
+        panic!("expected Tuple, got {repr:?}");
+    }
+}
+
+/// (bool, (), int) size = 16 — Unit in the middle contributes 0 bytes.
+#[test]
+fn canonical_tuple_unit_middle() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.triple(Idx::BOOL, Idx::UNIT, Idx::INT);
+    let repr = canonical(&pool, tuple_idx);
+    if let MachineRepr::Tuple(ref t) = repr {
+        // bool(1) + padding(7) + int(8) = 16. Unit adds 0.
+        assert_eq!(
+            t.size, 16,
+            "(bool, unit, int) must be 16 — Unit contributes 0"
+        );
+        assert_eq!(t.align, 8);
+    } else {
+        panic!("expected Tuple, got {repr:?}");
+    }
+}
+
+/// Struct with Unit field doesn't inflate size.
+#[test]
+fn canonical_struct_unit_field() {
+    let mut pool = Pool::new();
+    let name_a = Name::new(0, 100);
+    let name_b = Name::new(0, 101);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_a, Idx::BOOL), (name_b, Idx::UNIT)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert_eq!(s.size, 1, "struct(bool, unit) must be 1 byte");
+        assert_eq!(s.align, 1);
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+/// `Option<()>` — tag + 0 payload. Size = 8 (just the i64 tag).
+#[test]
+fn canonical_option_unit_zero_payload() {
+    let mut pool = Pool::new();
+    let opt_idx = pool.option(Idx::UNIT);
+    let repr = canonical(&pool, opt_idx);
+    if let MachineRepr::Enum(ref e) = repr {
+        assert_eq!(
+            e.size, 8,
+            "Option<()> must be 8 bytes — tag only, zero payload"
+        );
+    } else {
+        panic!("expected Enum for Option<()>, got {repr:?}");
+    }
+}
+
+/// Never-typed field contributes 0 bytes in aggregates.
+#[test]
+fn canonical_tuple_never_zero_sized() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.pair(Idx::INT, Idx::NEVER);
+    let repr = canonical(&pool, tuple_idx);
+    if let MachineRepr::Tuple(ref t) = repr {
+        assert_eq!(
+            t.size, 8,
+            "(int, Never) must be 8 bytes — Never is zero-sized"
+        );
+        assert_eq!(t.align, 8);
+    } else {
+        panic!("expected Tuple, got {repr:?}");
+    }
+}
+
+// ── TPR-01-016: Recursive Triviality for Compound Types ─────────
+
+/// Struct containing a trivial tuple `(int, bool)` must itself be trivial.
+#[test]
+fn trivial_struct_containing_trivial_tuple() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.pair(Idx::INT, Idx::BOOL);
+    let name_t = Name::new(0, 100);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_t, tuple_idx)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert!(
+            s.trivial,
+            "struct containing (int, bool) must be trivial — all scalars"
+        );
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+/// Struct containing a non-trivial tuple `(int, str)` must be non-trivial.
+#[test]
+fn nontrivial_struct_containing_nontrivial_tuple() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.pair(Idx::INT, Idx::STR);
+    let name_t = Name::new(0, 100);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_t, tuple_idx)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert!(
+            !s.trivial,
+            "struct containing (int, str) must NOT be trivial — str has RC"
+        );
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+/// All-unit enum (like `type Color = Red | Green | Blue`) is trivial.
+#[test]
+fn trivial_all_unit_enum() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let enum_name = Name::new(0, 300);
+    let enum_idx = pool.enum_type(
+        enum_name,
+        &[
+            EnumVariant {
+                name: Name::new(0, 301),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 302),
+                field_types: vec![],
+            },
+        ],
+    );
+    let repr = canonical(&pool, enum_idx);
+    if let MachineRepr::Enum(ref e) = repr {
+        let all_trivial = e.variants.iter().all(|v| {
+            v.fields.iter().all(|f| {
+                !matches!(
+                    f,
+                    MachineRepr::FatPointer(_)
+                        | MachineRepr::RcPointer(_)
+                        | MachineRepr::Closure(_)
+                        | MachineRepr::OpaquePtr
+                )
+            })
+        });
+        assert!(all_trivial, "all-unit enum must be trivial");
+    } else {
+        panic!("expected Enum, got {repr:?}");
+    }
+}
+
+/// Enum with scalar payloads `Shape = Circle(float) | Rect(float, float)` is trivial.
+#[test]
+fn trivial_scalar_payload_enum() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let enum_name = Name::new(0, 300);
+    let enum_idx = pool.enum_type(
+        enum_name,
+        &[
+            EnumVariant {
+                name: Name::new(0, 301),
+                field_types: vec![Idx::FLOAT],
+            },
+            EnumVariant {
+                name: Name::new(0, 302),
+                field_types: vec![Idx::FLOAT, Idx::FLOAT],
+            },
+        ],
+    );
+    // Wrap in a struct to test nested triviality
+    let name_s = Name::new(0, 100);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_s, enum_idx)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert!(
+            s.trivial,
+            "struct containing all-scalar enum must be trivial"
+        );
+    } else {
+        panic!("expected Struct, got {repr:?}");
     }
 }

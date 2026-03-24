@@ -1,7 +1,7 @@
 ---
 plan: "aot-perf"
 title: "AOT Codegen Performance"
-status: not-started
+status: active
 keywords:
   overflow:
     - checked_add, checked_sub, checked_mul, checked_neg
