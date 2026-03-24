@@ -26,6 +26,10 @@ Use `plans/roadmap/index.md` to find sections by keyword. The index contains sea
 
 ## Workflow
 
+### ABSOLUTE RULE: Commits via /commit-push ONLY
+
+**NEVER run `git add`, `git commit`, or any direct git commit command.** All commits MUST go through the `/commit-push` skill. This applies everywhere in this workflow: clean-tree gates, subsection pauses, after-work commits, final commits. Invoke `/commit-push` via the Skill tool.
+
 ### Step -1: Read CLAUDE.md (ABSOLUTE FIRST — NO EXCEPTIONS)
 
 **Before doing ANYTHING else**, use the Read tool to read the ENTIRE CLAUDE.md file — every single line, top to bottom:
@@ -323,8 +327,8 @@ Use AskUserQuestion with options. The options depend on the blocker state:
 
 If the user chose "Full section", proceed through all subsections without stopping. If "Subsection-by-subsection", after completing each subsection's work (all its checkboxes), present a brief status update and use AskUserQuestion with:
 1. **Continue to next subsection** — Proceed to the next incomplete subsection
-2. **Commit and continue** — Commit current work, then proceed
-3. **Stop here** — End work for now (commit first if there are changes)
+2. **Run /commit-push and continue** — Commit current work via `/commit-push` skill, then proceed
+3. **Stop here** — End work for now (run `/commit-push` first if there are changes)
 
 ### Step 6: Execute Work
 
@@ -417,7 +421,7 @@ This applies to ALL skills: `/code-journey`, `/review-plan`, `/sync-spec`, etc.
    - Run `./fmt-all.sh` to ensure formatter still works
 5. **Update section file** — Check off completed items with `[x]`
 6. **Update YAML frontmatter** — See "Updating Section File Frontmatter" below
-7. **Commit with clear message** — Reference the section and task
+7. **Run `/commit-push`** — NEVER commit directly with `git commit`. Always use the `/commit-push` skill.
 
 ---
 
@@ -574,7 +578,7 @@ When completing a roadmap item:
   - [ ] Update `00-overview.md` effort table and Quick Reference table
   - [ ] Update `index.md` section status and Quick Reference table
   - [ ] If plan complete: update plan-level `status:` frontmatter in both files
-- [ ] Commit with section reference in message
+- [ ] Run `/commit-push` — NEVER commit directly with `git commit`
 
 ---
 

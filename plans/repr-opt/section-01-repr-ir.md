@@ -6,6 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-24
+  note: "All TPR items triaged. TPR-01-034 and TPR-01-035 accepted — implementation tasks in 01.4. Status stays findings until those tasks are complete."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -756,6 +757,22 @@ Provide ergonomic query methods that later sections will use:
   - [ ] Route `int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy` through traced wrappers or add inline `tracing::trace!` calls.
   - [ ] Remove or wire `get_repr_traced()` — currently has zero callers.
   - [ ] Verify: `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows query traffic.
+- [ ] **[TPR-01-034]** Fix `BuildOptions::merge()` dropping `link_mode` and `jobs`:
+  - [ ] Add `link_mode` merge logic to `BuildOptions::merge()` — only override if parsed value differs from default (`LinkMode::Static`).
+  - [ ] Add `jobs` merge logic to `BuildOptions::merge()` — `if other.jobs.is_some() { self.jobs = other.jobs; }`.
+  - [ ] Regression tests: `ori build foo.ori --link=dynamic` → verify `link_mode == Dynamic` survives merge.
+  - [ ] Regression tests: `ori build foo.ori --jobs=4` → verify `jobs == Some(4)` survives merge.
+  - [ ] Regression tests: multi-arg accumulation: `ori build foo.ori --link=dynamic --jobs=4 --release` → all three fields survive.
+- [ ] **[TPR-01-035]** Replace `no_repr_opt: bool` with `NarrowingPolicy` end-to-end:
+  - [ ] Replace `BuildOptions.no_repr_opt: bool` with `BuildOptions.narrowing_policy: NarrowingPolicy` (default `Aggressive`).
+  - [ ] Update `parse_build_options()`: `--no-repr-opt` → `NarrowingPolicy::Disabled`, add `--repr-opt=aggressive|conservative|disabled`.
+  - [ ] Update `BuildOptions::merge()`: merge `narrowing_policy` field (non-default overrides).
+  - [ ] Update `compile_to_llvm()` in `compile_common.rs`: accept `NarrowingPolicy` instead of `bool`.
+  - [ ] Update `run_codegen_pipeline()` in `codegen_pipeline.rs`: accept `NarrowingPolicy` directly (remove bool→enum conversion).
+  - [ ] Update JIT path `compile_module_with_tests()` in `ori_llvm/src/evaluator/compile.rs`: accept optional `NarrowingPolicy` parameter.
+  - [ ] Update env var fallback: `NarrowingPolicy::env_disabled()` remains for JIT when no parameter provided.
+  - [ ] Regression tests: `--no-repr-opt` → `Disabled`, `--repr-opt=conservative` → `Conservative`, default → `Aggressive`.
+  - [ ] Regression tests: `NarrowingPolicy` survives the full AOT path from CLI to `compute_repr_plan()`.
 
 ---
 
@@ -1161,6 +1178,18 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Impact: `ORI_LOG=ori_repr=trace` does not show the query traffic this section claims to have landed, which weakens the repo’s tracing-first debugging workflow and leaves §01.4 overstated as complete.
   Required plan update: Route the public query APIs through traced helpers (or otherwise emit trace events from the actual query surface), add a targeted regression check for that behavior, and keep §01.4 in progress until the documented tracing contract is real.
   Resolved: Accepted on 2026-03-24. Valid — 01.4 tracing checkbox unchecked, implementation tasks added to 01.4.
+
+- [x] `[TPR-01-034][medium]` `compiler/oric/src/commands/build_options/mod.rs:109` — The real `ori build` per-argument parser still drops non-boolean scalar options like `--link=` and `--jobs=`.
+  Evidence: `main.rs:79-90` parses one CLI token at a time and merges each temporary `BuildOptions`. `parse_build_options()` sets `link_mode` and `jobs` (`compiler/oric/src/commands/build_options/mod.rs:361-384`), but `BuildOptions::merge()` never copies either field (`compiler/oric/src/commands/build_options/mod.rs:109-167`). The direct parser tests at `compiler/oric/tests/phases/codegen/build_command.rs:259-292` therefore do not exercise the actual accumulation path used by `ori build`.
+  Impact: `ori build foo.ori --link=dynamic` is reset back to `LinkMode::Static`, and `--jobs=4` is reset to `None`, before the build pipeline sees them. The current tests give false confidence about the user-facing CLI path.
+  Required plan update: Add regression tests for the real per-arg accumulation flow covering scalar fields, then make `merge()` preserve every supported build option or replace the one-arg reparse loop with direct accumulation logic.
+  Resolved: Accepted on 2026-03-24. Validated — `merge()` silently drops `link_mode` and `jobs`. Implementation tasks added to 01.4 (fix merge + regression tests).
+
+- [x] `[TPR-01-035][medium]` `compiler/oric/src/commands/build_options/mod.rs:64` — §01.3’s repr-opt policy plumbing landed as a boolean kill switch instead of the planned `NarrowingPolicy` API boundary.
+  Evidence: The section explicitly requires threading `NarrowingPolicy` end-to-end and says “Do NOT use `repr_opt_disabled: bool`” (`plans/repr-opt/section-01-repr-ir.md:623-630`), but the implementation stores `pub no_repr_opt: bool` (`compiler/oric/src/commands/build_options/mod.rs:64-69`) and threads `no_repr_opt: bool` through the AOT entry points (`compiler/oric/src/commands/compile_common.rs:133-143`, `compiler/oric/src/commands/compile_common.rs:182-196`, `compiler/oric/src/commands/codegen_pipeline.rs:225-238`). The JIT path likewise never accepts a policy parameter; it hardcodes `env_disabled() ? Disabled : Aggressive` inside `compiler/ori_llvm/src/evaluator/compile.rs:130-160`.
+  Impact: Conservative mode cannot be expressed through the current CLI/codegen surface without another round of signature churn, and the new boolean parameters violate the repo’s “no boolean flags” API rule on already-overloaded compilation entry points. §01.3 is marked complete even though the promised policy-shaped boundary was not actually established.
+  Required plan update: Replace `no_repr_opt` with `NarrowingPolicy` across `BuildOptions`, the JIT/AOT compilation entry points, and their tests, then add regression coverage proving Aggressive, Disabled, and Conservative survive the real CLI and codegen plumbing.
+  Resolved: Accepted on 2026-03-24. Validated — `BuildOptions` uses `bool` instead of `NarrowingPolicy`, violating plan mandate. Implementation tasks added to 01.4 (replace bool with NarrowingPolicy end-to-end).
 
 ---
 
