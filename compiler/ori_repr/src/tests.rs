@@ -677,6 +677,71 @@ fn canonical_panics_on_error() {
     canonical(&pool, Idx::ERROR);
 }
 
+/// §01.5: Scheme type must panic (should never reach codegen).
+#[test]
+#[should_panic(expected = "should never reach codegen")]
+fn canonical_panics_on_scheme() {
+    use ori_types::Tag;
+
+    let mut pool = Pool::new();
+    let scheme_idx = pool.scheme(&[0], Idx::INT);
+    // Verify it's actually a Scheme tag
+    assert_eq!(pool.tag(scheme_idx), Tag::Scheme);
+    canonical(&pool, scheme_idx);
+}
+
+/// §01.5: Infer type must panic (should never reach codegen).
+#[test]
+#[should_panic(expected = "should never reach codegen")]
+fn canonical_panics_on_infer() {
+    use ori_types::Tag;
+
+    let mut pool = Pool::new();
+    let infer_idx = pool.intern(Tag::Infer, 0);
+    canonical(&pool, infer_idx);
+}
+
+/// §01.5: Named→Int resolves to same canonical as Int directly.
+#[test]
+fn canonical_named_resolves_to_int() {
+    let mut pool = Pool::new();
+    let named_idx = pool.named(Name::new(0, 42));
+    pool.set_resolution(named_idx, Idx::INT);
+
+    let repr = canonical(&pool, named_idx);
+    assert_eq!(
+        repr,
+        MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true
+        },
+        "Named→Int must resolve to same repr as Int"
+    );
+}
+
+/// §01.5: Alias chain A = B = int resolves to Int.
+#[test]
+fn canonical_alias_chain_resolves() {
+    let mut pool = Pool::new();
+    // A is a Named type
+    let a_idx = pool.named(Name::new(0, 100));
+    // B is another Named type
+    let b_idx = pool.named(Name::new(0, 200));
+    // A → B → Int
+    pool.set_resolution(a_idx, b_idx);
+    pool.set_resolution(b_idx, Idx::INT);
+
+    let repr = canonical(&pool, a_idx);
+    assert_eq!(
+        repr,
+        MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true
+        },
+        "Named chain A→B→Int must resolve to Int"
+    );
+}
+
 // ── ABI Layout Tests ──────────────────────────────────────────────
 
 /// Semantic pin: (int, bool) must be 16 bytes with ABI padding, not 9.
@@ -895,6 +960,77 @@ fn semantic_pin_recursive_field_is_rc_pointer() {
     } else {
         panic!("expected Enum, got {repr:?}");
     }
+}
+
+/// TPR-01-021: Mutual recursion canonical-consistency test.
+///
+/// `type A = WrapA { b: B }`
+/// `type B = WrapB { a: A }`
+///
+/// `canonical(A)` and `canonical(B)` must each produce consistent representations:
+/// mutual recursive fields are `RcPointer` and cached representations are stable.
+#[test]
+fn canonical_mutual_recursion_consistent() {
+    let mut pool = Pool::new();
+
+    // Forward references
+    let a_name = Name::new(0, 600);
+    let b_name = Name::new(0, 601);
+    let a_named = pool.named(a_name);
+    let b_named = pool.named(b_name);
+
+    let b_field_name = Name::new(0, 602);
+    let a_field_name = Name::new(0, 603);
+
+    // type A = struct { b: B }
+    let a_struct = pool.struct_type(a_name, &[(b_field_name, b_named)]);
+    // type B = struct { a: A }
+    let b_struct = pool.struct_type(b_name, &[(a_field_name, a_named)]);
+
+    pool.set_resolution(a_named, a_struct);
+    pool.set_resolution(b_named, b_struct);
+
+    // Compute both via shared cache (simulating populate_canonical)
+    let mut cache = rustc_hash::FxHashMap::default();
+    let a_repr = crate::canonical::canonical_cached(&pool, a_struct, &mut cache);
+    let b_repr = crate::canonical::canonical_cached(&pool, b_struct, &mut cache);
+
+    // Both should be Struct types
+    let MachineRepr::Struct(ref a_s) = a_repr else {
+        panic!("expected Struct for A, got {a_repr:?}");
+    };
+    let MachineRepr::Struct(ref b_s) = b_repr else {
+        panic!("expected Struct for B, got {b_repr:?}");
+    };
+
+    // A has one field (b), B has one field (a)
+    assert_eq!(a_s.fields.len(), 1, "A should have 1 field");
+    assert_eq!(b_s.fields.len(), 1, "B should have 1 field");
+
+    // A's B field = full B struct (B is first-visited from A, not a cycle).
+    // B's A field = RcPointer (A was being visited when B encountered it).
+    assert!(
+        matches!(a_s.fields[0].repr, MachineRepr::Struct(_)),
+        "A's B field should be full Struct (first visit), got {:?}",
+        a_s.fields[0].repr
+    );
+    assert!(
+        matches!(b_s.fields[0].repr, MachineRepr::RcPointer(_)),
+        "B's A field should be RcPointer (back-edge), got {:?}",
+        b_s.fields[0].repr
+    );
+
+    // Key consistency check (TPR-01-021): B nested inside A must equal standalone B.
+    // With the shared cache, both resolve to the same representation.
+    let b_inside_a = &a_s.fields[0].repr;
+    assert_eq!(
+        b_inside_a, &b_repr,
+        "B nested inside A must equal standalone B (cache consistency)"
+    );
+
+    // Semantic pin: calling canonical_cached again returns the same result (cache hit)
+    let a_repr2 = crate::canonical::canonical_cached(&pool, a_struct, &mut cache);
+    assert_eq!(a_repr, a_repr2, "cached result must be stable");
 }
 
 /// Non-recursive type appearing multiple times is NOT treated as a cycle.

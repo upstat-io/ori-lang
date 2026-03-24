@@ -7,7 +7,7 @@
 
 use ori_ir::Name;
 use ori_types::{Idx, Pool, Tag};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::enum_repr::{EnumRepr, EnumTag, VariantRepr};
 use crate::layout::{
@@ -27,13 +27,18 @@ use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, Tu
 pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
     let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
 
+    // Shared memoization cache — persists across all canonical() calls so that
+    // mutually recursive types (A→B→A) get the same MachineRepr regardless of
+    // which root was canonicalized first (TPR-01-021).
+    let mut cache = FxHashMap::default();
+
     // Canonicalize primitives (0–11).
     for raw in 0..Idx::PRIMITIVE_COUNT {
         let idx = Idx::from_raw(raw);
         if idx == Idx::ERROR {
             continue;
         }
-        let repr = canonical(pool, idx);
+        let repr = canonical_cached(pool, idx, &mut cache);
         plan.set_repr(
             idx,
             ReprDecision {
@@ -99,11 +104,11 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
             continue;
         }
 
-        // Use try_canonical() to gracefully handle composite types whose
+        // Use try_canonical_cached() to gracefully handle composite types whose
         // children contain unresolvable type-checker artifacts (Error, Borrowed,
         // Var inside generic struct fields, etc.). These types won't reach
         // codegen — the TypeInfoStore fallback handles them.
-        if let Some(repr) = try_canonical(pool, idx) {
+        if let Some(repr) = try_canonical_cached(pool, idx, &mut cache) {
             plan.set_repr(
                 idx,
                 ReprDecision {
@@ -127,13 +132,28 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
     );
 }
 
-/// Try to compute the canonical representation, returning `None` if the type
-/// contains unresolvable children (type variables, error types, etc.).
+/// Try to compute the canonical representation with a shared cache, returning
+/// `None` if the type contains unresolvable children (type variables, etc.).
 ///
 /// Used by [`populate_canonical()`] which iterates ALL pool types, including
 /// type-checker artifacts that `canonical()` would panic on.
-fn try_canonical(pool: &Pool, idx: Idx) -> Option<MachineRepr> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| canonical(pool, idx))).ok()
+fn try_canonical_cached(
+    pool: &Pool,
+    idx: Idx,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> Option<MachineRepr> {
+    // Clone the cache before catch_unwind so a panicking computation doesn't
+    // leave partial entries. The cache is cheap to clone (small during §01).
+    let snapshot = cache.clone();
+    if let Ok(repr) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        canonical_cached(pool, idx, cache)
+    })) {
+        Some(repr)
+    } else {
+        // Restore cache to pre-panic state.
+        *cache = snapshot;
+        None
+    }
 }
 
 /// Compute the canonical machine representation for a type.
@@ -148,16 +168,44 @@ fn try_canonical(pool: &Pool, idx: Idx) -> Option<MachineRepr> {
 /// `Scheme`, `Projection`, `ModuleNs`, `Infer`, `SelfType`) reaches
 /// this function — these indicate a type checker bug.
 pub fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
-    canonical_inner(pool, idx, &mut FxHashSet::default())
+    canonical_cached(pool, idx, &mut FxHashMap::default())
 }
 
-/// Inner canonicalization with cycle detection via `visiting` set.
+/// Compute the canonical representation with a shared memoization cache.
+///
+/// The cache ensures that mutually recursive types (A→B→A) produce the
+/// same `MachineRepr` for each `Idx` regardless of traversal order
+/// (TPR-01-021). Once a type is computed, it is cached and returned
+/// for all future lookups.
+pub(crate) fn canonical_cached(
+    pool: &Pool,
+    idx: Idx,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> MachineRepr {
+    canonical_inner(pool, idx, &mut FxHashSet::default(), cache)
+}
+
+/// Inner canonicalization with cycle detection via `visiting` set and
+/// cross-call memoization via `cache`.
 ///
 /// When a type is encountered that is already being canonicalized
 /// (i.e., present in `visiting`), we return an `RcPointer` — recursive
 /// positions in Ori are always behind ARC pointers at runtime.
-fn canonical_inner(pool: &Pool, idx: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
+///
+/// The `cache` persists across calls in `populate_canonical()` so that
+/// mutually recursive types get consistent representations (TPR-01-021).
+fn canonical_inner(
+    pool: &Pool,
+    idx: Idx,
+    visiting: &mut FxHashSet<Idx>,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> MachineRepr {
     let resolved = pool.resolve_fully(idx);
+
+    // Cache hit — return previously computed representation.
+    if let Some(repr) = cache.get(&resolved) {
+        return repr.clone();
+    }
 
     // Cycle detection: if already canonicalizing this type, it's a recursive
     // reference — return an RC pointer (recursive fields are heap-allocated).
@@ -194,23 +242,26 @@ fn canonical_inner(pool: &Pool, idx: Idx, visiting: &mut FxHashSet<Idx>) -> Mach
         Tag::Iterator | Tag::DoubleEndedIterator | Tag::Channel => MachineRepr::OpaquePtr,
 
         // Collections — fat pointer {len, cap, data}
-        Tag::List => canonical_collection(pool, pool.list_elem(resolved), visiting),
-        Tag::Set => canonical_collection(pool, pool.set_elem(resolved), visiting),
-        Tag::Map => canonical_map(pool, resolved, visiting),
+        Tag::List => canonical_collection(pool, pool.list_elem(resolved), visiting, cache),
+        Tag::Set => canonical_collection(pool, pool.set_elem(resolved), visiting, cache),
+        Tag::Map => canonical_map(pool, resolved, visiting, cache),
 
         // Composite types
-        Tag::Option => {
-            canonical_option(canonical_inner(pool, pool.option_inner(resolved), visiting))
-        }
+        Tag::Option => canonical_option(canonical_inner(
+            pool,
+            pool.option_inner(resolved),
+            visiting,
+            cache,
+        )),
         Tag::Result => {
-            let ok = canonical_inner(pool, pool.result_ok(resolved), visiting);
-            let err = canonical_inner(pool, pool.result_err(resolved), visiting);
+            let ok = canonical_inner(pool, pool.result_ok(resolved), visiting, cache);
+            let err = canonical_inner(pool, pool.result_err(resolved), visiting, cache);
             canonical_result(ok, err)
         }
-        Tag::Function => canonical_function(pool, resolved, visiting),
-        Tag::Tuple => canonical_tuple(pool, resolved, visiting),
-        Tag::Struct => canonical_struct(pool, resolved, visiting),
-        Tag::Enum => canonical_enum(pool, resolved, visiting),
+        Tag::Function => canonical_function(pool, resolved, visiting, cache),
+        Tag::Tuple => canonical_tuple(pool, resolved, visiting, cache),
+        Tag::Struct => canonical_struct(pool, resolved, visiting, cache),
+        Tag::Enum => canonical_enum(pool, resolved, visiting, cache),
 
         // Types that must not reach canonical — compiler bugs
         Tag::Named | Tag::Applied | Tag::Alias => panic!(
@@ -230,32 +281,59 @@ fn canonical_inner(pool: &Pool, idx: Idx, visiting: &mut FxHashSet<Idx>) -> Mach
     };
 
     visiting.remove(&resolved);
+    // Cache the result for cross-call consistency (TPR-01-021).
+    cache.insert(resolved, result.clone());
     result
 }
 
 /// Canonicalize a collection element into a fat pointer.
-fn canonical_collection(pool: &Pool, elem_idx: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
+fn canonical_collection(
+    pool: &Pool,
+    elem_idx: Idx,
+    visiting: &mut FxHashSet<Idx>,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> MachineRepr {
     MachineRepr::FatPointer(FatRepr::Collection {
-        element_repr: Box::new(canonical_inner(pool, elem_idx, visiting)),
+        element_repr: Box::new(canonical_inner(pool, elem_idx, visiting, cache)),
     })
 }
 
 /// Canonicalize a map into a fat pointer with key and value reprs.
-fn canonical_map(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
+fn canonical_map(
+    pool: &Pool,
+    resolved: Idx,
+    visiting: &mut FxHashSet<Idx>,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> MachineRepr {
     MachineRepr::FatPointer(FatRepr::Map {
-        key_repr: Box::new(canonical_inner(pool, pool.map_key(resolved), visiting)),
-        value_repr: Box::new(canonical_inner(pool, pool.map_value(resolved), visiting)),
+        key_repr: Box::new(canonical_inner(
+            pool,
+            pool.map_key(resolved),
+            visiting,
+            cache,
+        )),
+        value_repr: Box::new(canonical_inner(
+            pool,
+            pool.map_value(resolved),
+            visiting,
+            cache,
+        )),
     })
 }
 
 /// Canonicalize a function type into a closure representation.
-fn canonical_function(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
+fn canonical_function(
+    pool: &Pool,
+    resolved: Idx,
+    visiting: &mut FxHashSet<Idx>,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> MachineRepr {
     let params: Vec<MachineRepr> = pool
         .function_params(resolved)
         .into_iter()
-        .map(|p| canonical_inner(pool, p, visiting))
+        .map(|p| canonical_inner(pool, p, visiting, cache))
         .collect();
-    let ret = canonical_inner(pool, pool.function_return(resolved), visiting);
+    let ret = canonical_inner(pool, pool.function_return(resolved), visiting, cache);
     MachineRepr::Closure(ClosureRepr {
         params,
         ret: Box::new(ret),
@@ -263,13 +341,18 @@ fn canonical_function(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>)
 }
 
 /// Canonicalize a tuple into an anonymous struct with positional fields.
-fn canonical_tuple(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
+fn canonical_tuple(
+    pool: &Pool,
+    resolved: Idx,
+    visiting: &mut FxHashSet<Idx>,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> MachineRepr {
     let fields: Vec<FieldRepr> = pool
         .tuple_elems(resolved)
         .into_iter()
         .enumerate()
         .map(|(i, elem_idx)| {
-            let repr = canonical_inner(pool, elem_idx, visiting);
+            let repr = canonical_inner(pool, elem_idx, visiting, cache);
             let idx_u32 = u32::try_from(i).unwrap_or(u32::MAX);
             FieldRepr {
                 name: Name::new(0, idx_u32),
@@ -284,13 +367,18 @@ fn canonical_tuple(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) ->
 }
 
 /// Canonicalize a struct type with named fields.
-fn canonical_struct(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
+fn canonical_struct(
+    pool: &Pool,
+    resolved: Idx,
+    visiting: &mut FxHashSet<Idx>,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> MachineRepr {
     let fields: Vec<FieldRepr> = pool
         .struct_fields(resolved)
         .into_iter()
         .enumerate()
         .map(|(i, (name, field_idx))| {
-            let repr = canonical_inner(pool, field_idx, visiting);
+            let repr = canonical_inner(pool, field_idx, visiting, cache);
             let idx_u32 = u32::try_from(i).unwrap_or(u32::MAX);
             FieldRepr {
                 name,
@@ -311,14 +399,19 @@ fn canonical_struct(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -
 }
 
 /// Canonicalize an enum type with explicit i64 tag.
-fn canonical_enum(pool: &Pool, resolved: Idx, visiting: &mut FxHashSet<Idx>) -> MachineRepr {
+fn canonical_enum(
+    pool: &Pool,
+    resolved: Idx,
+    visiting: &mut FxHashSet<Idx>,
+    cache: &mut FxHashMap<Idx, MachineRepr>,
+) -> MachineRepr {
     let variants: Vec<VariantRepr> = pool
         .enum_variants(resolved)
         .into_iter()
         .map(|(name, field_idxs)| {
             let fields: Vec<MachineRepr> = field_idxs
                 .into_iter()
-                .map(|fi| canonical_inner(pool, fi, visiting))
+                .map(|fi| canonical_inner(pool, fi, visiting, cache))
                 .collect();
             let (size, alignment) = compute_payload_layout(&fields);
             VariantRepr {
