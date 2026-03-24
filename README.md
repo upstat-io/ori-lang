@@ -2,9 +2,9 @@
 
 # Ori
 
-**Functional Code. Imperative Speed.**
+**Functional Code. Imperative Speed. Native Binaries.**
 
-No garbage collector. No borrow checker. Eight compiler optimizations turn functional code into in-place mutations — automatically.
+Ori compiles to standalone native executables on Windows, Linux, and macOS. No garbage collector. No borrow checker. No runtime or VM required. Ship a single binary — your users don't need Ori installed.
 
 A statically-typed, expression-based language with value semantics, explicit effects, and smart testing.
 
@@ -185,23 +185,33 @@ curl -fsSL https://raw.githubusercontent.com/upstat-io/ori-lang/master/install.s
 Write your first program (`hello.ori`):
 
 ```ori
-@main () -> void = print("Hello, Ori!")
+@main () -> void = print(msg: "Hello, Ori!");
 ```
 
-Run it:
+Run it instantly:
 
 ```bash
 ori run hello.ori
+# Hello, Ori!
 ```
+
+Or compile it to a native executable:
+
+```bash
+ori build hello.ori -o hello
+./hello
+# Hello, Ori!
+```
+
+That `hello` binary is a standalone native executable. It runs on any machine with the same OS — no Ori installation, no runtime, no VM required. On Windows it's a `.exe`, on Linux an ELF binary, on macOS a Mach-O binary.
 
 ## Usage
 
 ```bash
-ori run program.ori      # Run a program
-ori test                 # Run all tests (parallel)
-ori test file.test.ori   # Run specific test file
-ori build program.ori    # Compile to native binary
+ori run program.ori      # Run a program (interpreter)
+ori build program.ori    # Compile to native executable
 ori check program.ori    # Type-check and verify
+ori test                 # Run all tests (parallel)
 ori fmt src/             # Format source files
 ```
 
@@ -246,7 +256,7 @@ Requires Rust 1.70+.
 
 ## Design Philosophy
 
-**Functional code that runs fast.** Value semantics that compile to in-place mutations. Effects you can see. Testing that knows your code. Every allocation optimized.
+**Functional code that runs fast.** Write clean, value-oriented code. The compiler produces optimized native binaries that run without a runtime, VM, or garbage collector.
 
 Ori makes performance and verification automatic — the compiler does what discipline alone cannot.
 

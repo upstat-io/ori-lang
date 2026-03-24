@@ -419,7 +419,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             ArcInstr::SetTag { base, tag } => {
                 // In-place tag update for enum variants.
-                // Tag is field 0 of the enum representation: { i8 tag, ... }
+                // Tag is field 0 of the enum representation: { i64 tag, ... }
                 let base_val = self.var(*base);
                 let base_ty = func.var_type(*base);
                 let llvm_ty = self.resolve_type(base_ty);

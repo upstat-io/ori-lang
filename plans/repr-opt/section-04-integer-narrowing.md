@@ -3,6 +3,9 @@ section: "04"
 title: "Integer Narrowing Pipeline"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -64,11 +67,13 @@ Given a `ValueRange`, select the minimum integer width that preserves the semant
 
 - [ ] Apply conservatism rules:
   - **Local variables**: narrow aggressively (widening is free in registers)
-  - **Struct fields**: narrow aggressively (saves memory per instance)
+  - **Struct fields**: narrow aggressively, but ONLY from §03's field-summary table built from `Construct` sites (not from the join of unrelated `int` variables)
   - **Function parameters**: narrow only if ALL call sites agree on the range
   - **Function returns**: narrow only if ALL callers can handle the narrow type
   - **Collection elements**: narrow aggressively (savings multiply by element count)
   - **Public API types**: do NOT narrow (external callers may pass full-range values)
+  - **Address-taken functions / indirect-call targets**: do NOT narrow parameters or returns; any function stored in a value of function type, passed as an argument, or returned uses canonical widths at the callable boundary
+  - **Closure captures**: captured values remain at canonical width in the closure environment unless and until a dedicated closure-environment layout contract is implemented and verified
 
 - [ ] Implement `NarrowingPolicy`:
   ```rust
@@ -111,6 +116,7 @@ At function boundaries and FFI, narrowed integers must be widened back to canoni
   - Before FFI call arguments: widen to C-ABI width
   - At module import boundaries: widen to canonical
   - When storing to generic collection: widen if collection is exported
+  - Closure environments: treat capture slots as canonical-width storage for this section; do not narrow captured `int` fields in the initial implementation
 
 - [ ] Cross-module narrowing via Merkle hashes:
   - If both modules agree on the range (via function signature annotations), use narrow type
@@ -162,7 +168,7 @@ When a value is narrowed, arithmetic operations might overflow the narrow type e
 
 ## 04.4 LLVM Codegen Integration
 
-**File(s):** `compiler/ori_llvm/src/codegen/type_info/info.rs`, `compiler/ori_llvm/src/codegen/expr_compiler.rs`
+**File(s):** `compiler/ori_llvm/src/codegen/type_info/info.rs` (where `storage_type()` maps types to LLVM types), `compiler/ori_llvm/src/codegen/arc_emitter/value_emission.rs` (where integer literals are emitted — must emit narrowed constants), `compiler/ori_llvm/src/codegen/arc_emitter/construction.rs` (where struct fields are stored — must insert `trunc`/`sext` at field boundaries)
 
 The LLVM backend must emit narrowed types and insert sign-extension/truncation at boundaries.
 
@@ -194,15 +200,49 @@ The LLVM backend must emit narrowed types and insert sign-extension/truncation a
 
 ## 04.5 Completion Checklist
 
-- [ ] `select_int_width()` returns correct width for all test ranges
+**Test matrix for §04 (write failing tests FIRST, verify they fail, then implement):**
+
+| Input pattern | Expected narrowing | Semantic pin |
+|---|---|---|
+| `for i in 0..100` — loop counter | `i8` in LLVM IR | Yes — zero `i64` variable for `i` |
+| `struct Pixel { r: int, g: int, b: int, a: int }` with fields `0..255` | `{ i8, i8, i8, i8 }` (4 bytes) | Yes — `sizeof(Pixel) == 4` |
+| `struct Pair { x: int, y: int }` with fields `-32768..32767` | `{ i16, i16 }` (4 bytes) | Yes — `sizeof(Pair) == 4` |
+| Internal function `@f (n: int) -> int` where only call site passes `5` | parameter `n` uses `i8` | Yes — `sext` visible at call boundary |
+| `pub @f (n: int) -> int` — public API | parameter `n` stays `i64` | Yes — no narrowing at public boundary |
+| `let g = f; g(300)` / function passed as value | parameter stays `i64` | Yes — address-taken callables disabled |
+| Narrowed local captured by closure | capture storage stays canonical `i64` | Yes — no closure ABI mismatch |
+| Arithmetic `a + b` where `a, b ∈ [0, 100]` → result `[0, 200]` | `i16` or wider for result | Yes — overflow safety preserved |
+| Range `Top` (no analysis) | `i64` (canonical, no narrowing) | Yes — fallback is safe |
+| Trait method parameter | `i64` (no narrowing — unknown callers) | Yes — no narrowing |
+| Cross-module call with agreed-upon range | narrow type if both sides agree | Yes — `sext` at module boundary |
+
+- [ ] Write failing test matrix BEFORE implementation (verify tests fail with current `i64` codegen)
+- [ ] `select_int_width()` returns correct width for all test ranges: `[-128,127]`→I8, `[-32768,32767]`→I16, `[-2^31,2^31-1]`→I32, `Top`/`Bottom`→I64
+- [ ] `select_int_width()` boundary cases: `[-128,128]`→I16 (not I8 — hi exceeds I8 max), `[-32769, 0]`→I32
 - [ ] Loop counters in `for i in 0..100` use `i8` in generated LLVM IR
 - [ ] Struct field `x: int` in `struct Pair { x: int, y: int }` uses narrowed type when constructor values are bounded
-- [ ] ABI boundaries correctly widen: `sext` visible in LLVM IR at function boundaries
+- [ ] Public function parameters are NOT narrowed (policy: `Disabled`)
+- [ ] Trait method parameters are NOT narrowed (unknown callers)
+- [ ] Address-taken / indirectly-called functions are NOT narrowed at their callable boundary
+- [ ] ABI boundaries correctly widen: `sext` visible in LLVM IR at function entry and return
+- [ ] Closure-captured ints stay canonical-width in the closure environment unless a separate closure-layout contract lands with its own tests
+- [ ] Struct field store/load inserts `trunc`/`sext` at boundaries (visible in LLVM IR)
 - [ ] Overflow guards inserted where narrowed arithmetic might overflow
+- [ ] Add semantic pin test: `struct Pixel { r: int, g: int, b: int, a: int }` with `0..255` fields → struct LLVM type is `{ i8, i8, i8, i8 }`, NOT `{ i64, i64, i64, i64 }`. This test can ONLY pass with narrowing enabled.
 - [ ] No semantic change: `./diagnostics/dual-exec-verify.sh` passes (eval and AOT produce identical results)
-- [ ] `./test-all.sh` green
+- [ ] `./test-all.sh` green in both debug (`cargo b`) and release (`cargo b --release`) builds
 - [ ] `./clippy-all.sh` green
 - [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Performance: struct sizes measurably smaller for bounded-range fields
 
 **Exit Criteria:** Compiling a program with `struct Pixel { r: int, g: int, b: int, a: int }` where all fields are `0..255` produces a 4-byte struct (4 × i8) instead of 32-byte struct (4 × i64), verified by checking LLVM IR struct definitions.
+
+---
+
+## 04.R Third Party Review Findings
+
+- [ ] `[TPR-04-001][major]` `section-04-integer-narrowing.md:105` — **`AbiBoundary::ClosureCapture` listed but unspecified.** The variant appears in the `AbiBoundary` enum (§04.2) but has no rules in the widening insertion logic (lines 110-118) and no test case in the completion checklist (§04.5). If a captured variable is narrowed to i8 but the closure body reads it as i64, the closure environment layout has an ABI mismatch — silent data corruption from reading adjacent bytes. **Action:** Specify closure capture narrowing rules. Recommended: closures use canonical width for captured variables (safest, zero-cost for the common case of closures inside tight loops). Add test case for narrowed variable in closure capture. Consensus: 3/3 reviewers.
+
+- [ ] `[TPR-04-002][major]` `section-04-integer-narrowing.md:66-69` — **Function parameter narrowing requires all-call-site analysis; indirect calls not addressed.** The conservatism rules specify "narrow only if ALL call sites agree" but do not address function pointers stored as values (`(int) -> int` typed variables), closures passed as arguments, or indirect calls. A function narrowed based on visible direct call sites could be called through a function pointer with wider values, causing truncation. Trait methods are correctly marked `Disabled` but the same treatment is not extended to callable-value functions. **Action:** Add to conservatism rules: functions whose address is taken (stored in a variable of function type, passed as argument, or returned) must use `NarrowingPolicy::Disabled`. Consensus: 3/3 reviewers.
+
+- [ ] `[TPR-04-003][major]` `section-04-integer-narrowing.md:67` + `section-03-range-analysis.md:265-270,579` — **Struct field narrowing is unachievable with the specified range analysis.** §04.1 says "Struct fields: narrow aggressively" and the exit criteria requires `Pixel { r,g,b,a: int }` with 0..255 → 4-byte struct. However, §03's range analysis returns `Top` for all `Project` instructions (line 267-270: "Top unless we track per-field ranges") and `Top` for all `Construct` instructions (line 272-273). The type-level aggregation at §03 line 579 joins ALL int-typed variable ranges across ALL functions — which yields `Top` for any non-trivial program. There is no mechanism for per-field range tracking. **Action:** The plan needs either (a) per-field range tracking via `Construct` argument ranges aggregated by struct type and field position across all construction sites, or (b) a separate field-level analysis pass not covered by §03. The Pixel exit criteria is unachievable without this. Consensus: Agent 3 found, verified against plan text.

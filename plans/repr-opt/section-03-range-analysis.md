@@ -3,6 +3,9 @@ section: "03"
 title: "Value Range Analysis Framework"
 status: not-started
 reviewed: false
+third_party_review:
+  status: findings
+  updated: 2026-03-23
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -49,7 +52,16 @@ sections:
 
 **Crate dependency:** Range analysis operates on `ArcFunction` (from `ori_arc::ir`). This means `ori_repr` depends on `ori_arc`. The dependency chain is `ori_types → ori_arc → ori_repr → ori_llvm`. This is correct: `ori_repr` reads from `ori_arc` IR but `ori_arc` does NOT depend on `ori_repr` (no cycle). The lattice types (`ValueRange`, `IntWidth`) live in `ori_repr` and do NOT reference `ori_arc` — only `fixpoint.rs` (which takes `&ArcFunction`) requires the `ori_arc` dependency.
 
-**Visibility prerequisite:** `compute_postorder()` in `ori_arc::graph` is currently `pub(crate)`. It must be made `pub` (or a `pub` wrapper added) so `ori_repr` can compute RPO over `ArcFunction` blocks. This is a one-line visibility change in `ori_arc/src/graph/mod.rs`. Similarly, `successor_block_ids()` is `pub(crate)` and must be made `pub` for `ori_repr` to build the predecessor map.
+**Visibility prerequisite:** `compute_postorder()` in `ori_arc::graph` is currently `pub(crate)`. It must be made `pub` (or a `pub` wrapper added) so `ori_repr` can compute RPO over `ArcFunction` blocks. This is a one-line visibility change in `ori_arc/src/graph/mod.rs:122`. Similarly, `successor_block_ids()` at line 53 is `pub(crate)` and must be made `pub` for `ori_repr` to build the predecessor map. Also `compute_predecessors()` at line 32 is `pub(crate)` and may be needed.
+
+**Field-range prerequisite (required for §04, not optional):** The range engine cannot stop at per-variable intervals. §04's struct-field narrowing target (`Pixel { r, g, b, a: int }` with 0..255 fields → 4 bytes) requires a field-level summary keyed by `(struct type, field index)` (and the analogous tuple path). This summary must be populated from `Construct` argument ranges and queried by `Project`; otherwise all field loads remain `Top` and §04's field-narrowing exit criteria are unachievable.
+
+> **FIRST STEP of §03:** Before any analysis code is written, make the three `pub(crate)` functions in `compiler/ori_arc/src/graph/mod.rs` into `pub`:
+> - Line 32: `pub(crate) fn compute_predecessors` → `pub fn compute_predecessors`
+> - Line 53: `pub(crate) fn successor_block_ids` → `pub fn successor_block_ids`
+> - Line 122: `pub(crate) fn compute_postorder` → `pub fn compute_postorder`
+>
+> Verify with `cargo c` that no existing callers within `ori_arc` are broken (they won't be — pub is a superset of pub(crate)). This unblocks all §03 file creation.
 
 **File organization:** 5 files in `compiler/ori_repr/src/range/` submodule — `mod.rs` (lattice + re-exports), `transfer.rs`, `fixpoint.rs`, `conditional.rs`, `signatures.rs`, plus `tests.rs` (sibling test convention, at `range/tests.rs` per `mod.rs` → sibling convention).
 
@@ -255,14 +267,18 @@ Transfer functions describe how each operation transforms value ranges.
           // Partial application: produces closure, not int. Always Top.
           ArcInstr::PartialApply { .. } => Top,
 
-          // Field projection: Top unless we track per-field ranges
-          // (future enhancement — could propagate struct field ranges).
+          // Field projection: query field-summary state when available.
+          // Returning Top here is acceptable only before the field-summary
+          // pass exists; §04 must NOT ship while Project remains an
+          // unconditional Top for struct/tuple fields.
           ArcInstr::Project { ty, .. } => {
               if !is_int_typed(*ty, pool) { return Top; }
               Top
           }
 
-          // Construction: produces composite value, not int. Always Top.
+          // Construction: updates field-summary state out-of-band. The
+          // instruction itself still produces a composite value, so the
+          // direct transfer result is Top.
           ArcInstr::Construct { .. } => Top,
 
           // --- RC operations (no dst — never produce a value) ---
@@ -389,6 +405,11 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   //
   // IMPORTANT: ArcTerminator::Invoke also defines a variable (dst).
   // The fixpoint loop must process terminators, not just body instructions.
+  //
+  // NOTE: ori_ir::Name does NOT implement Display or Debug — use
+  // func.name.raw() in tracing macros (not %func.name or ?func.name).
+  // The interner is needed for string lookup: config.interner.lookup(func.name).
+  // Example: tracing::warn!(func = func.name.raw(), ...);
 
   /// Widening threshold — start widening after this many iterations.
   /// Named constant, not a magic number.
@@ -402,7 +423,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
       // Budget check: skip analysis for very large functions
       if func.blocks.len() > config.max_blocks {
           tracing::warn!(
-              func = %func.name,
+              func = func.name.raw(),
               blocks = func.blocks.len(),
               "skipping range analysis — function too large"
           );
@@ -533,7 +554,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
       }
 
       tracing::debug!(
-          func = %func.name,
+          func = func.name.raw(),
           iterations = iteration,
           non_top = ranges.values().filter(|r| !matches!(r, Top)).count(),
           "range analysis complete"
@@ -564,7 +585,10 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
      /// Populated by §03, consumed by §04 (integer narrowing).
      function_var_ranges: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
      ```
-  2. **Type-level range aggregation:** For struct field narrowing and collection element narrowing, §04 aggregates per-variable ranges into per-type ranges. For each `Idx` that is `Tag::Int`, the type-level range is the join of all variable ranges for variables of that type across all functions. This aggregation is §04's responsibility, not §03's — §03 only stores the raw per-variable results.
+  2. **Structured summaries for downstream narrowing:** §03 must also expose summaries that preserve where a range came from:
+     - **Field summary:** `(struct_or_tuple_idx, field_index) -> ValueRange`, populated by joining `Construct` argument ranges across all construction sites.
+     - **Collection-element summary:** collection site / backing-store summaries used by §11 when element narrowing lands.
+     A raw "join all `int`-typed variables across all functions" summary is insufficient for §04 and would collapse most non-trivial programs to `Top`.
   3. **Query method:**
      ```rust
      impl ReprPlan {
@@ -651,7 +675,7 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
 
 **File(s):** `compiler/ori_repr/src/range/signatures.rs`
 
-**Complexity warning:** This subsection is the most complex part of §03 and can be DEFERRED to a later iteration. §03.1-§03.4 provide useful intraprocedural ranges (loop counters, literal propagation, conditional refinement) without any cross-function analysis. Implement §03.5 only after §03.1-§03.4 are stable and tested. The intraprocedural analysis alone enables §04 integer narrowing for local variables and loop counters — the highest-value use cases.
+**Implementation order:** §03.5 MUST be implemented after §03.1-§03.4 are stable and passing all tests. The intraprocedural analysis (§03.1-§03.4) is a required prerequisite and should be fully verified before interprocedural propagation is added. However, §03.5 is not optional — without it, function parameters can never be narrowed (since their ranges are always `Top` intraprocedurally), and struct field narrowing across module boundaries is impossible. Both of these are core mission goals.
 
 **Risk:** Interprocedural fixpoint over SCCs is quadratic in the worst case (SCC size x iterations x function size). The budget caps mitigate this, but testing with real programs is essential before merging.
 
@@ -701,23 +725,46 @@ For cross-function narrowing, we need to propagate range information through fun
 
 ## 03.6 Completion Checklist
 
-**Implementation order:** 03.1 (lattice) → 03.2 (transfer functions) → 03.4 (conditional refinement) → 03.3 (fixpoint loop) → 03.5 (interprocedural, DEFERRABLE). Each step must pass tests before proceeding.
+**FIRST:** Change `pub(crate)` → `pub` for `compute_postorder`, `successor_block_ids`, `compute_predecessors` in `compiler/ori_arc/src/graph/mod.rs` (lines 32, 53, 122). Run `cargo c`. Only then proceed.
+
+**Implementation order:** 03.1 (lattice) → 03.2 (transfer functions) → 03.4 (conditional refinement) → 03.3 (fixpoint loop) → 03.5 (interprocedural — implement after 03.1-03.4 are stable and passing tests). Each step must pass tests before proceeding to the next.
+
+**Test matrix for §03 (required — write tests first, verify they fail, then implement):**
+
+| Input pattern | Expected non-Top result | Semantic pin |
+|---------------|------------------------|--------------|
+| `let x = 42` | `Bounded(42, 42)` | Yes — exact constant |
+| `let x = -1` | `Bounded(-1, -1)` | Yes — negative constant |
+| `for i in 0..100` | `Bounded(0, 99)` | Yes — loop counter |
+| `for i in 0..=100` | `Bounded(0, 100)` | Yes — inclusive range |
+| `let n = len(list)` | `Bounded(0, i64::MAX)` | Yes — len is non-negative |
+| `let b = byte_to_int(b'A')` | `Bounded(0, 255)` | Yes — byte range |
+| `let c = char_to_int('A')` | `Bounded(0, 0x10FFFF)` | Yes — char range |
+| `let x = a + b` where a,b in `[0,10]` | `Bounded(0, 20)` | Yes — add propagation |
+| `let x = a * b` where a in `[2,3]`, b in `[4,5]` | `Bounded(8, 15)` | Yes — mul propagation |
+| `let x = a / 0` | `Top` (don't panic) | Yes — division safety |
+| `if x < 100 then { x ... }` branch | x refined to `Bounded(.., 99)` in true branch | Yes — conditional |
+| Function parameter at non-public call site with constant arg | `Bounded(const, const)` | Yes — §03.5 interprocedural |
+| `pub` function parameter | `Top` (cannot narrow) | Yes — ABI boundary |
 
 - [ ] `ValueRange` lattice correctly implements join, meet, fits_in, min_width, is_constant, overlaps (in `range/mod.rs`); `widen` and `narrow` free functions correct (in `range/fixpoint.rs`)
 - [ ] Arithmetic transfer functions implemented: `range_add`, `range_sub`, `range_mul`, `range_div`, `range_mod`, `range_floordiv`, `range_neg` (PrimOp dispatched); bitwise: `range_bitand`, `range_bitor`, `range_bitxor`, `range_shl`, `range_shr`, `range_bitnot`; built-in function ranges: `range_len`, `range_count`, `range_byte_to_int`, `range_char_to_int`, `range_abs`
-- [ ] Top-level `transfer()` dispatcher has an arm for every `ArcInstr` variant (15 variants: `Let`, `Apply`, `ApplyIndirect`, `PartialApply`, `Project`, `Construct`, `RcInc`, `RcDec`, `IsShared`, `Set`, `SetTag`, `Reset`, `Reuse`, `CollectionReuse`, `Select`). Add a compile-time exhaustiveness test: the match must be non-`_` so new variants cause a build failure.
+- [ ] Top-level `transfer()` dispatcher has an arm for every `ArcInstr` variant (15+ variants: `Let`, `Apply`, `ApplyIndirect`, `PartialApply`, `Project`, `Construct`, `RcInc`, `RcDec`, `IsShared`, `Set`, `SetTag`, `Reset`, `Reuse`, `CollectionReuse`, `Select`; verify against `ori_arc/src/ir/instr.rs` at implementation time for any new variants). Add a compile-time exhaustiveness test: the match must be non-`_` so new variants cause a build failure.
 - [ ] Fixpoint loop handles all `ArcTerminator` variants (7: `Return`, `Jump`, `Branch`, `Switch`, `Invoke`, `Resume`, `Unreachable`). `Invoke` computes a range for `dst`; `Branch`/`Switch` produce refinements; others are no-ops. Use exhaustive match (no `_` arm) so new terminator variants cause a compile error.
-- [ ] `transfer_primop()` has an arm for every `BinaryOp` variant (23: `Add`, `Sub`, `Mul`, `Div`, `Mod`, `FloorDiv`, `MatMul`, `Eq`, `NotEq`, `Lt`, `LtEq`, `Gt`, `GtEq`, `And`, `Or`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`, `Range`, `RangeInclusive`, `Coalesce`) and every `UnaryOp` variant (4: `Neg`, `Not`, `BitNot`, `Try`). Non-`_` match for exhaustiveness.
+- [ ] `transfer_primop()` has an arm for every `BinaryOp` variant (22: `Add`, `Sub`, `Mul`, `Div`, `Mod`, `FloorDiv`, `MatMul`, `Eq`, `NotEq`, `Lt`, `LtEq`, `Gt`, `GtEq`, `And`, `Or`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`, `Range`, `RangeInclusive`, `Coalesce`) and every `UnaryOp` variant (4: `Neg`, `Not`, `BitNot`, `Try`). Non-`_` match for exhaustiveness. NOTE: `Pow`/`**` is a language operator but is NOT a `BinaryOp` variant — it desugars before reaching ARC IR. Verify against `ori_ir/src/ast/operators.rs` at implementation time.
 - [ ] Fixed-point iteration terminates within `max_iterations` for all test programs
 - [ ] Block parameters (`ArcBlock::params`) are processed at the start of each block in the fixpoint loop, joining ranges from all predecessor `Jump` instructions
 - [ ] Block terminators (`Branch`, `Switch`) propagate conditional range refinements to successor blocks
 - [ ] `ArcTerminator::Invoke` handled in fixpoint loop — it defines a `dst` variable (same as `Apply`) and must have its range computed
 - [ ] Conditional refinement extracts ranges from `if x < N` patterns
 - [ ] Function signature propagation narrows parameters from call sites
+- [ ] `Construct` instructions populate a field-summary table keyed by `(struct_or_tuple_idx, field_index)` so downstream field narrowing is based on construction-site evidence, not on the join of unrelated `int` variables
+- [ ] `Project` instructions consult that field-summary table for struct/tuple fields; field projections are not left as unconditional `Top` when §04 field narrowing is enabled
 - [ ] Recursive functions handled via SCC-based fixpoint with bounded iterations (max 10 per SCC, max 50 total)
 - [ ] For `let x = 42`: range is exactly `[42, 42]`
 - [ ] For `for i in 0..100`: range of `i` is `[0, 99]`
 - [ ] For `let n = len(list)`: range is `[0, i64::MAX]`
+- [ ] For a constructor-only workload like `struct Pixel { r: int, g: int, b: int, a: int }` with all construction sites in `0..255`, the field-summary table records `[0, 255]` for all four fields (semantic pin for §03 → §04 handoff)
 - [ ] `./test-all.sh` green (range analysis is additive — no behavioral changes)
 - [ ] `./clippy-all.sh` green
 - [ ] Tracing: `ORI_LOG=ori_repr=debug` shows range computations for each function
@@ -758,3 +805,9 @@ For cross-function narrowing, we need to propagate range information through fun
 - Division by range spanning zero: return Top (not panic). Shift by negative: return Top.
 
 **Exit Criteria:** Running range analysis on `tests/benchmarks/bench_small.ori` and other `tests/benchmarks/` programs produces non-trivial ranges (not all `Top`) for loop counters, index variables, and function parameters. Results logged at `debug` level.
+
+---
+
+## 03.R Third Party Review Findings
+
+- [ ] `[TPR-03-001][minor]` `section-03-range-analysis.md:458` — **Block parameter merging only handles `Jump` predecessors; `Invoke` normal successor may pass args.** The fixpoint loop at lines 430-458 only matches `ArcTerminator::Jump` when collecting predecessor arguments. Line 458 notes "Invoke normal successor also passes args — handle if needed" but leaves it unimplemented. Missing `Invoke` predecessor args default to `Bottom` (the join identity), which is conservative — no unsound narrowing occurs. However, values defined by function calls in loop bodies would never receive non-Top ranges for their block parameter contributions, reducing narrowing opportunities. **Action:** Add `Invoke` handling to the block parameter merge loop, or add an explicit checklist item to implement this as a follow-up.

@@ -1,17 +1,17 @@
 ---
 title: "Memory Model"
-description: "Automatic Reference Counting, value semantics, and cycle prevention."
+description: "AIMS memory management — value semantics, reference counting, copy-on-write, and cycle prevention."
 order: 20
 part: "Advanced Patterns"
 ---
 
 # Memory Model
 
-Ori uses Automatic Reference Counting (ARC) for memory management — no garbage collector pauses, no manual memory management, and no borrow checker.
+Ori uses **AIMS** (ARC Intelligent Memory System) for memory management — no garbage collector pauses, no manual memory management, and no borrow checker. You write code with value semantics (every assignment is a logical copy), and AIMS makes it fast by automatically managing reference counts, reusing allocations, and applying copy-on-write.
 
-## How ARC Works
+## How It Works
 
-Every value has a reference count. When you assign a value, the count increases. When a reference goes out of scope, the count decreases. When it hits zero, the memory is freed.
+Under the hood, AIMS uses reference counting. Every heap-allocated value has a reference count. When you assign a value, the count increases. When a reference goes out of scope, the count decreases. When it hits zero, the memory is freed.
 
 ```ori
 let a = [1, 2, 3];      // ref count = 1
@@ -34,28 +34,29 @@ Unlike garbage collection, ARC frees memory immediately when the last reference 
 
 This predictability is valuable for resource-constrained environments and real-time applications.
 
-## Why No Garbage Collector?
+## Why Not a Garbage Collector?
 
-| Feature | GC | ARC |
+| Feature | GC | AIMS |
 |---------|----|----|
 | Pause times | Unpredictable | None |
 | Memory overhead | Higher | Lower |
 | Cleanup timing | Eventually | Immediate |
 | Performance | Variable | Consistent |
+| In-place mutation | Requires barriers | COW (automatic) |
 
-Ori chose ARC for:
-- Predictable performance
-- Lower memory overhead
-- Immediate cleanup
-- Simpler runtime
+Ori chose AIMS for:
+- Predictable performance — no stop-the-world pauses
+- Lower memory overhead — no GC headroom needed
+- Immediate cleanup — resources freed when last reference drops
+- Copy-on-write — value semantics at near-mutating performance
 
 ## Preventing Reference Cycles
 
-ARC can't handle reference cycles. If A references B and B references A, neither can ever be freed. Ori's design prevents cycles:
+Reference counting can't handle reference cycles. If A references B and B references A, neither can ever be freed. Ori's design prevents cycles structurally — no cycle detector needed:
 
 ### 1. Sequential Data Flow
 
-Data flows forward through `run`/`try`:
+Data flows forward through blocks:
 
 ```ori
 {
@@ -74,7 +75,7 @@ Closures capture variables by value, not reference:
 let x = 10;
 let f = () -> x + 1;  // f captures a COPY of x = 10
 
-// Even if we could reassign x, f still has 10
+// Even if we reassign x, f still has 10
 f();  // Always returns 11
 ```
 
@@ -97,26 +98,24 @@ Instead, use:
 - Separate parent/child structures
 - Tree patterns where children don't reference parents
 
-## Value vs Reference Types
+## Value Types vs Reference Types
 
-Ori distinguishes between value types (copied) and reference types (reference counted):
+Ori classifies every type as either _scalar_ (no reference counting) or _reference_ (reference counted).
 
-### Value Types
+### Scalar Types
 
-Copied when assigned:
+Copied directly — no reference counting overhead:
 
 ```ori
 let x = 42;
-let y = x;  // y is a copy, independent of x
-
-// Modifying y doesn't affect x
+let y = x;  // y is an independent copy
 ```
 
-Value types include:
-- `int`, `float`, `bool`
-- `char`, `byte`
-- `Duration`, `Size`
-- Small structs (≤32 bytes, containing only primitives)
+Scalar types include:
+- `int`, `float`, `bool`, `char`, `byte`
+- `Duration`, `Size`, `Ordering`
+- `void`, `Never`
+- Structs/enums/tuples where ALL fields are scalar
 
 ### Reference Types
 
@@ -124,56 +123,90 @@ Shared with reference counting:
 
 ```ori
 let a = [1, 2, 3];
-let b = a;  // b and a share the same data
-
-// Both refer to the same underlying list
+let b = a;  // b and a share the same underlying data
 ```
 
 Reference types include:
-- `str`
-- `[T]` (lists)
-- `{K: V}` (maps)
-- `Set<T>`
-- Large structs or those containing references
+- `str` (heap strings; short strings ≤23 bytes use Small String Optimization)
+- `[T]` (lists), `{K: V}` (maps), `Set<T>`
+- Function types, iterator types
+- Any struct/enum containing at least one reference field
+
+### The Value Trait
+
+Types that implement `Value` are stored inline with bitwise copy — no heap allocation, no reference counting, no `Drop`. All fields must also be `Value`:
+
+```ori
+type Point: Value, Eq = { x: float, y: float }
+
+let a = Point { x: 1.0, y: 2.0 };
+let b = a;  // Bitwise copy, zero overhead
+```
+
+All primitives implicitly satisfy `Value`. User types opt in via the type declaration. Maximum size: 512 bytes (warning above 256).
 
 ### How to Know Which Is Which
 
-General rule:
-- Primitives and small fixed-size types → value
-- Collections and dynamically-sized types → reference
+| Type | Classification | Reason |
+|------|---------------|--------|
+| `int`, `float`, `bool` | Scalar | Primitive |
+| `(int, float)` | Scalar | All fields scalar |
+| `{ x: int, y: int }` | Scalar | All fields scalar |
+| `str` | Reference | Heap-allocated (or SSO) |
+| `{ id: int, name: str }` | Reference | `name` is reference |
+| `Option<str>` | Reference | Inner type is reference |
+| `Option<int>` | Scalar | Inner type is scalar |
+| `[int]` | Reference | List is heap-allocated |
 
-When in doubt, the compiler optimizes appropriately.
+## Copy-on-Write (COW)
+
+Ori has value semantics — every assignment is a logical copy. But the compiler optimizes this via copy-on-write: when you "modify" a shared collection, the runtime checks if the reference count is 1. If unique, it mutates in place. If shared, it copies first.
+
+```ori
+let a = [1, 2, 3];
+let b = a;           // a and b share data (ref count = 2)
+
+// This triggers a copy because a is shared
+a = a.push(value: 4);  // a gets its own copy: [1, 2, 3, 4]
+                        // b still has [1, 2, 3]
+```
+
+COW is transparent — you write code as if every value is independent, and the compiler avoids copies when it can prove safety.
+
+### Seamless Slices
+
+Slice operations (`take`, `skip`, `slice`, `substring`, `trim`) return zero-copy views into the original allocation:
+
+```ori
+let text = "hello world";
+let word = text.substring(start: 0, end: 5);  // "hello" — no copy
+```
+
+The slice shares the parent's reference count. When the parent is dropped and only the slice remains, subsequent mutations materialize the slice into an independent allocation.
+
+### Small String Optimization (SSO)
+
+Strings of 23 bytes or fewer are stored inline — no heap allocation, no reference counting. This covers most identifiers, short messages, and single-line strings.
+
+```ori
+let short = "hello";  // Stored inline (5 bytes ≤ 23)
+let long = "this is a string that definitely exceeds twenty-three bytes";  // Heap allocated
+```
 
 ## The Clone Trait
 
-To get an independent copy of a reference type, use `.clone()`:
+To get an explicit independent copy of a reference type, use `.clone()`:
 
 ```ori
 let a = [1, 2, 3];
 let b = a.clone();  // b has its own copy of the data
-
-// Modifying b doesn't affect a
 ```
 
-### Clone Is Explicit
-
-Ori requires explicit cloning to avoid hidden performance costs:
+Clone is recursive — cloning a container clones its elements:
 
 ```ori
-// This shares data (cheap)
-let shared = expensive_data;
-
-// This copies data (potentially expensive)
-let copy = expensive_data.clone();
-
-```
-
-### Clone Trait Definition
-
-```ori
-trait Clone {
-    @clone (self) -> Self
-}
+let lists = [[1, 2], [3, 4]];
+let copy = lists.clone();  // Both outer and inner lists are cloned
 ```
 
 ### What Implements Clone
@@ -181,23 +214,61 @@ trait Clone {
 - All primitives
 - All collections (when element types implement Clone)
 - `Option<T>` and `Result<T, E>` (when inner types implement Clone)
-- Derivable for user types
+- Derivable for user types:
 
 ```ori
-#derive(Clone)
-type Point = { x: int, y: int }
+type Point: Clone, Eq = { x: int, y: int }
 
 let p1 = Point { x: 10, y: 20 };
 let p2 = p1.clone();  // Independent copy
 ```
 
-### Deep Clone
+## The Drop Trait
 
-Cloning is recursive — cloning a container clones its elements:
+Custom cleanup logic when a value's reference count reaches zero:
 
 ```ori
-let lists = [[1, 2], [3, 4]];
-let copy = lists.clone();  // Both outer and inner lists are cloned
+trait Drop {
+    @drop (self) -> void
+}
+```
+
+Drop is called before memory is reclaimed. Destructors cannot be async — for async cleanup, use explicit methods.
+
+### Destruction Order
+
+Values are destroyed in reverse creation order within a scope:
+
+```ori
+{
+    let a = create_a();  // Destroyed 3rd
+    let b = create_b();  // Destroyed 2nd
+    let c = create_c();  // Destroyed 1st
+}
+```
+
+Struct fields: reverse declaration order. List elements: back-to-front. Map entries: no guaranteed order.
+
+### Early Drop
+
+The compiler may drop a value before scope end when it is provably unreferenced:
+
+```ori
+@example () -> int = {
+    let big_data = load_data();
+    let result = process(data: big_data);
+    // big_data may be freed here (no longer used)
+    expensive_computation(input: result)
+}
+```
+
+You can also request early drop explicitly:
+
+```ori
+let data = load_data();
+let result = process(data: data);
+drop_early(value: data);  // Free now, don't wait for scope end
+expensive_computation(input: result)
 ```
 
 ## Closures and Capture
@@ -225,272 +296,25 @@ The closure sees a snapshot of values at creation:
 let x = 10;
 let f = () -> x;  // Captures x = 10
 
-// Later changes don't affect f's captured value
 let x = 20;  // Shadowing, creates new binding
 f();  // Still returns 10 (captured value)
 ```
 
-### No Outer Mutation
+For reference types (lists, maps, strings), the closure stores the reference (incrementing the reference count), not a deep copy. This is efficient — you share the data, and COW ensures independence if either side mutates.
 
-Closures cannot mutate outer scope:
+## AIMS Safety Invariants
 
-```ori
-// This won't work as you might expect
-let counter = 0;
-let increment = () -> {
-    counter = counter + 1;  // ERROR: can't mutate outer scope
-};
-```
+The Ori language maintains these invariants to ensure memory safety without a garbage collector:
 
-Instead, return the new value or use explicit state:
-
-```ori
-@make_counter () -> () -> int = {
-    let count = { value: 0 };
-    () -> {
-        count.value = count.value + 1;
-        count.value
-    }
-}
-```
-
-## Tail Call Optimization
-
-Ori guarantees tail call optimization (TCO) for recursive functions:
-
-```ori
-@countdown (n: int) -> void =
-    if n <= 0 then () else countdown(n: n - 1)
-
-countdown(n: 1000000);  // No stack overflow
-```
-
-A call is in tail position if it's the last thing before the function returns.
-
-### Tail Position Examples
-
-```ori
-// Tail call — optimized
-@factorial (n: int, acc: int) -> int =
-    if n <= 1 then acc else factorial(n: n - 1, acc: n * acc)
-
-// NOT tail call — multiplication happens after the recursive call
-@factorial_not_tail (n: int) -> int =
-    if n <= 1 then 1 else n * factorial_not_tail(n: n - 1)
-```
-
-### Converting to Tail Recursive
-
-Use an accumulator parameter:
-
-```ori
-// Not tail recursive
-@sum (numbers: [int]) -> int =
-    if is_empty(collection: numbers) then
-        0
-    else
-        numbers[0] + sum(numbers: numbers.skip(count: 1))
-
-// Tail recursive (with accumulator)
-@sum_tail (numbers: [int], acc: int) -> int =
-    if is_empty(collection: numbers) then
-        acc
-    else
-        sum_tail(numbers: numbers.skip(count: 1), acc: acc + numbers[0])
-```
-
-## ARC Safety Invariants
-
-The Ori language maintains these invariants to ensure ARC safety:
-
-### 1. No Shared Mutable References
-
-Only one reference can mutate data at a time:
-
-```ori
-let a = [1, 2, 3];
-let b = a;        // Shares data
-a[0] = 10;        // Creates new list for a, b still has [1, 2, 3]
-```
-
-### 2. Closures Capture by Value
-
-No closure can hold a mutable reference to outer scope:
-
-```ori
-let x = 10;
-let f = () -> x;  // Copies x, doesn't reference it
-```
-
-### 3. No Self-Referential Structures
-
-Types cannot contain references to their own instances:
-
-```ori
-// Not allowed: Node can't point to itself
-type Node = { value: int, next: Option<Node> }
-
-// Allowed: Indices instead of references
-type NodeIndex = int
-type Graph = { nodes: [Node], edges: [(NodeIndex, NodeIndex)] }
-```
-
-### 4. Immutable by Default
-
-Module-level bindings must use `$`:
-
-```ori
-pub let $CONFIG = { ... };  // Immutable, safe to share
-```
-
-## Memory Patterns
-
-### Avoid Unnecessary Cloning
-
-```ori
-// Expensive: clones for each iteration
-for item in items.clone() do
-    process(item: item)
-
-// Cheap: iterates without cloning
-for item in items do
-    process(item: item)
-```
-
-### Share Immutable Data
-
-```ori
-// If you don't need to modify, share
-let shared = large_data;
-use_data(data: shared);
-use_data_again(data: shared);
-
-// Only clone when you need independence
-let modified = large_data.clone();
-modified[0] = new_value;
-```
-
-### Use Structural Sharing
-
-Ori collections use structural sharing internally:
-
-```ori
-let a = [1, 2, 3, 4, 5];
-let b = [...a, 6];  // Shares structure with a where possible
-```
-
-## Complete Example
-
-```ori
-// Immutable tree using indices instead of references
-type NodeId = int
-
-type TreeNode<T> = {
-    id: NodeId,
-    value: T,
-    children: [NodeId],
-}
-
-type Tree<T> = {
-    nodes: {NodeId: TreeNode<T>},
-    root: Option<NodeId>,
-    next_id: NodeId,
-}
-
-impl<T> Tree<T> {
-    @new () -> Tree<T> =
-        Tree { nodes: {}, root: None, next_id: 0 }
-
-    @add_node (self, value: T, parent: Option<NodeId>) -> (Tree<T>, NodeId) = {
-        let id = self.next_id;
-        let node = TreeNode { id, value, children: [] };
-
-        // Add node to nodes map
-        let nodes = { ...self.nodes, id: node };
-
-        // Update parent's children if parent exists
-        let nodes = match parent {
-            Some(parent_id) -> {
-                let parent_node = nodes[parent_id];
-                match parent_node {
-                    Some(p) -> {
-                        ...nodes
-                        parent_id: TreeNode { ...p, children: [...p.children, id] }
-                    }
-                    None -> nodes
-                }
-            }
-            None -> nodes
-        };
-
-        // Set root if this is first node
-        let root = if is_none(option: self.root) then Some(id) else self.root;
-
-        (Tree { nodes, root, next_id: id + 1 }, id)
-    }
-
-    @get_node (self, id: NodeId) -> Option<TreeNode<T>> =
-        self.nodes[id]
-
-    @children (self, id: NodeId) -> [TreeNode<T>] = {
-        let node = self.nodes[id];
-        match node {
-            Some(n) -> for child_id in n.children yield match self.nodes[child_id] {
-                Some(c) -> c
-                None -> continue
-            }
-            None -> []
-        }
-    }
-}
-
-@test_tree tests _ () -> void = {
-    let tree = Tree<str>.new();
-
-    let (tree, root) = tree.add_node(value: "root", parent: None);
-    let (tree, child1) = tree.add_node(value: "child1", parent: Some(root));
-    let (tree, child2) = tree.add_node(value: "child2", parent: Some(root));
-
-    assert_some(option: tree.get_node(id: root));
-    assert_eq(actual: len(collection: tree.children(id: root)), expected: 2)
-}
-
-// Demonstrates safe closure capture
-@make_processor<T: Clone> (config: Config) -> (T) -> Result<T, Error> = {
-    // config is captured by value
-    let process = item -> {
-        if config.validate then
-            validate(item: item)?;
-        Ok(transform(item: item, config: config))
-    };
-    process
-}
-
-// Tail recursive processing
-@process_list<T> (items: [T], processor: (T) -> T, acc: [T]) -> [T] =
-    if is_empty(collection: items) then
-        acc
-    else
-        process_list(
-            items: items.iter().skip(count: 1).collect(),
-            processor: processor,
-            acc: [...acc, processor(items[0])],
-        )
-
-@test_process_list tests @process_list () -> void = {
-    let items = [1, 2, 3, 4, 5];
-    let result = process_list(
-        items: items
-        processor: x -> x * 2
-        acc: []
-    );
-    assert_eq(actual: result, expected: [2, 4, 6, 8, 10])
-}
-```
+1. **No shared mutable references** — Only one reference can mutate data at a time. COW enforces this at runtime.
+2. **Closures capture by value** — No closure can hold a mutable reference to outer scope.
+3. **No self-referential structures** — Types cannot contain references to their own instances.
+4. **Immutable module-level bindings** — Module-level bindings must use `$` (immutable).
+5. **Value semantics by default** — Assignment is a logical copy; the compiler optimizes via COW.
 
 ## Quick Reference
 
-### Reference Counting
+### AIMS Reference Counting
 
 ```ori
 let a = value;         // ref count = 1
@@ -507,11 +331,20 @@ let copy = original.clone();  // Independent copy
 
 ### Value vs Reference
 
-| Value Types | Reference Types |
-|-------------|-----------------|
+| Scalar (no RC) | Reference (RC) |
+|----------------|----------------|
 | `int`, `float`, `bool` | `str`, `[T]`, `{K: V}` |
-| `char`, `byte` | `Set<T>` |
-| Small structs | Large structs |
+| `char`, `byte`, `Duration` | `Set<T>`, function types |
+| All-scalar structs/tuples | Structs with any ref field |
+| `Value` trait types | Iterator types |
+
+### Copy-on-Write
+
+```ori
+let a = [1, 2, 3];
+let b = a;                    // Shared (cheap)
+a = a.push(value: 4);        // COW: copies because shared
+```
 
 ### Closure Capture
 
@@ -520,24 +353,16 @@ let x = 10;
 let f = () -> x;  // Captures x by value (snapshot)
 ```
 
-### Tail Call
+### AIMS Safety Invariants
 
-```ori
-// Tail position — optimized
-@fn (n: int, acc: int) -> int =
-    if done then acc else fn(n: n - 1, acc: acc + n)
-```
-
-### Safety Invariants
-
-1. No shared mutable references
+1. No shared mutable references (COW enforces)
 2. Closures capture by value
 3. No self-referential structures
 4. Immutable module-level bindings
+5. Value semantics by default
 
 ## What's Next
 
 Now that you understand the memory model:
 
 - **[Formatting Rules](/guide/21-formatting)** — Code style guidelines
-

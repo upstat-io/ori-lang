@@ -9,7 +9,7 @@
 
 use std::ffi::CString;
 
-use inkwell::types::{AsTypeRef, BasicType};
+use inkwell::types::{AnyType, AsTypeRef, BasicType};
 use inkwell::values::{AnyValueEnum, AsValueRef, InstructionValue};
 use llvm_sys::core::{
     LLVMAddHandler, LLVMBuildCallWithOperandBundles, LLVMBuildCatchPad, LLVMBuildCatchRet,
@@ -353,5 +353,88 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .try_as_basic_value()
             .basic()
             .map(|v| self.arena.push_value(v))
+    }
+
+    /// Build an indirect function call with both `sret` return and a `"funclet"`
+    /// operand bundle.
+    ///
+    /// Combines `call_indirect_with_sret` (void return, sret pointer as first
+    /// arg with sret+noalias attributes) with `call_indirect_with_funclet`
+    /// (funclet operand bundle for SEH). Required when a closure returning a
+    /// large type (>16 bytes) is called inside a SEH catchpad or cleanuppad.
+    pub fn call_indirect_with_sret_and_funclet(
+        &mut self,
+        sret_type: LLVMTypeId,
+        param_types: &[LLVMTypeId],
+        fn_ptr: ValueId,
+        sret_ptr: ValueId,
+        args: &[ValueId],
+        pad: TokenId,
+    ) {
+        let raw = self.arena.get_value(fn_ptr);
+        if !raw.is_pointer_value() {
+            tracing::error!(
+                val_type = ?raw.get_type(),
+                "call_indirect_with_sret_and_funclet on non-pointer"
+            );
+            self.record_codegen_error();
+            return;
+        }
+
+        // Build full param list: sret_ptr + remaining args
+        let mut all_args: Vec<LLVMValueRef> = Vec::with_capacity(1 + args.len());
+        all_args.push(self.arena.get_value(sret_ptr).as_value_ref());
+        for &id in args {
+            all_args.push(self.arena.get_value(id).as_value_ref());
+        }
+
+        // Build function type: void(ptr, param_types...)
+        let ptr_ty: inkwell::types::BasicMetadataTypeEnum<'ctx> = self.scx.type_ptr().into();
+        let mut all_param_tys: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> =
+            Vec::with_capacity(1 + param_types.len());
+        all_param_tys.push(ptr_ty);
+        for &id in param_types {
+            all_param_tys.push(self.arena.get_type(id).into());
+        }
+        let fn_type = self.scx.type_void_func(&all_param_tys);
+
+        // Build funclet operand bundle
+        let pad_inst = self.arena.get_token(pad);
+        let pad_any: AnyValueEnum<'ctx> = pad_inst.into();
+        let bundle = inkwell::values::OperandBundle::create("funclet", &[pad_any]);
+        let mut bundles = [bundle.as_mut_ptr()];
+
+        let c_name = CString::new("").unwrap_or_default();
+
+        // SAFETY: Builder is positioned, fn_type/fn_ptr/args/pad are valid LLVM refs.
+        let call_val = unsafe {
+            LLVMBuildCallWithOperandBundles(
+                self.builder.as_mut_ptr(),
+                fn_type.as_type_ref(),
+                raw.as_value_ref(),
+                all_args.as_mut_ptr(),
+                all_args.len().try_into().unwrap_or(0),
+                bundles.as_mut_ptr(),
+                1,
+                c_name.as_ptr(),
+            )
+        };
+
+        // SAFETY: call_val is a non-null call instruction.
+        let call_site = unsafe { inkwell::values::CallSiteValue::new(call_val) };
+        self.last_call_site = Some(call_site);
+
+        // Add sret + noalias attributes on the first parameter.
+        let sret_ty = self.arena.get_type(sret_type);
+        let sret_kind = inkwell::attributes::Attribute::get_named_enum_kind_id("sret");
+        let sret_attr = self
+            .scx
+            .llcx
+            .create_type_attribute(sret_kind, sret_ty.as_any_type_enum());
+        call_site.add_attribute(inkwell::attributes::AttributeLoc::Param(0), sret_attr);
+
+        let noalias_kind = inkwell::attributes::Attribute::get_named_enum_kind_id("noalias");
+        let noalias_attr = self.scx.llcx.create_enum_attribute(noalias_kind, 0);
+        call_site.add_attribute(inkwell::attributes::AttributeLoc::Param(0), noalias_attr);
     }
 }

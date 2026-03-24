@@ -946,10 +946,6 @@ fn test_main_args_wrapper_uses_invoke_ir() {
 }
 "#,
     );
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
     let main_fn = ir
         .split("define ")
         .find(|s| s.contains("@main("))
@@ -996,10 +992,6 @@ fn test_main_args_wrapper_uses_invoke_ir() {
 #[test]
 fn test_main_args_nounwind_uses_call_ir() {
     let ir = compile_and_capture_ir(r#"@main (args: [str]) -> void = print(msg: "hi");"#);
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
     let main_fn = ir
         .split("define ")
         .find(|s| s.contains("@main("))
@@ -1020,10 +1012,6 @@ fn test_main_args_nounwind_uses_call_ir() {
 #[test]
 fn test_main_no_args_wrapper_uses_call_ir() {
     let ir = compile_and_capture_ir(r#"@main () -> void = print(msg: "hi");"#);
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
     let main_fn = ir
         .split("define ")
         .find(|s| s.contains("@main("))
@@ -1216,10 +1204,6 @@ fn test_main_args_owned_wrapper_ir_no_normal_cleanup() {
 }
 "#,
     );
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
     let main_fn = ir
         .split("define ")
         .find(|s| s.contains("@main("))

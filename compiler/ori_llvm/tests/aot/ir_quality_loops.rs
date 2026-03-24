@@ -27,11 +27,6 @@ fn test_range_ascending_exclusive_single_icmp() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_count_up");
 
     // Header block: exactly 1 icmp (the `slt` condition), not 8 boolean ops.
@@ -72,11 +67,6 @@ fn test_range_ascending_inclusive_single_icmp() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_count_incl");
     let header = find_loop_header(fn_ir);
     let icmp_count = header.matches("icmp").count();
@@ -107,11 +97,6 @@ fn test_range_descending_exclusive_single_icmp() {
 @main () -> int = count_down(n: 10);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_count_down");
     let header = find_loop_header(fn_ir);
@@ -144,11 +129,6 @@ fn test_range_descending_inclusive_single_icmp() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_count_down_incl");
     let header = find_loop_header(fn_ir);
     let icmp_count = header.matches("icmp").count();
@@ -179,11 +159,6 @@ fn test_range_variable_step_general_condition() {
 @main () -> int = count_step(n: 10, s: 2);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_count_step");
     let header = find_loop_header(fn_ir);
@@ -230,11 +205,6 @@ fn test_cse_loop_duplicate_add_eliminated() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
     // Count `@llvm.sadd.with.overflow.i64` calls in the function body.
@@ -267,11 +237,6 @@ fn test_cse_different_operands_not_eliminated() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_three_adds");
 
     // All 5 additions are distinct: a+b, a+c, b+c, (a+b)+(a+c), result+(b+c).
@@ -301,11 +266,6 @@ fn test_cse_different_intrinsics_not_merged() {
 @main () -> int = add_and_sub(a: 10, b: 3);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_add_and_sub");
 
@@ -339,11 +299,6 @@ fn test_cse_identical_constant_operands() {
 @main () -> int = inc_twice(x: 5);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_inc_twice");
 
@@ -385,11 +340,6 @@ fn test_loop_invariant_binding_no_phi() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_use_loop");
     let header = find_loop_header(fn_ir);
 
@@ -424,11 +374,6 @@ fn test_loop_modified_binding_keeps_phi() {
 @main () -> int = sum_to(n: 10);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_to");
     let header = find_loop_header(fn_ir);
@@ -466,11 +411,6 @@ fn test_multiple_invariant_bindings_no_phi() {
 ",
     );
 
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
-
     let fn_ir = extract_function_ir(&ir, "_ori_multi_inv");
     let header = find_loop_header(fn_ir);
 
@@ -505,11 +445,6 @@ fn test_range_constant_inclusive_skips_proj3() {
 @main () -> int = sum_incl(n: 5);
 ",
     );
-
-    if !ir.contains("define ") {
-        eprintln!("skipping: release binary does not emit IR");
-        return;
-    }
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_incl");
     // Count range-related extractvalues in bb0 (before the loop header).
