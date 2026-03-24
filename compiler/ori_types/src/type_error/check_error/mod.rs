@@ -613,6 +613,9 @@ impl TypeCheckError {
             TypeErrorKind::UnsupportedFeature { feature } => {
                 format!("`{feature}` is not yet supported")
             }
+            TypeErrorKind::InvalidReprAttribute { reason, .. } => {
+                format!("invalid `#repr` attribute: {reason}")
+            }
         }
     }
 
@@ -843,6 +846,9 @@ impl TypeCheckError {
             TypeErrorKind::UnsupportedFeature { feature } => {
                 format!("`{feature}` is not yet supported")
             }
+            TypeErrorKind::InvalidReprAttribute { reason, .. } => {
+                format!("invalid `#repr` attribute: {reason}")
+            }
         }
     }
 
@@ -955,6 +961,9 @@ impl TypeCheckError {
 
             // E2040: Feature not yet supported
             TypeErrorKind::UnsupportedFeature { .. } => ErrorCode::E2040,
+
+            // E2041: Invalid #repr attribute
+            TypeErrorKind::InvalidReprAttribute { .. } => ErrorCode::E2041,
         }
     }
 
@@ -1657,6 +1666,22 @@ impl TypeCheckError {
         }
     }
 
+    /// Create an "invalid #repr attribute" error (E2041).
+    ///
+    /// Emitted when a `#repr(...)` attribute is malformed, applied to a
+    /// non-struct type, or has invalid parameters (e.g., non-power-of-two alignment).
+    pub fn invalid_repr_attribute(span: Span, type_name: Name, reason: impl Into<String>) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::InvalidReprAttribute {
+                type_name,
+                reason: reason.into(),
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![],
+        }
+    }
+
     /// Create a "format type mismatch" error (E2035).
     ///
     /// Emitted when a format type (e.g., `x`, `b`) is used with an
@@ -1995,6 +2020,14 @@ pub enum TypeErrorKind {
     UnsupportedFeature {
         /// Human-readable feature name (e.g., "parallel", "spawn").
         feature: &'static str,
+    },
+
+    /// Invalid `#repr` attribute (E2041).
+    InvalidReprAttribute {
+        /// The type name this attribute was applied to.
+        type_name: Name,
+        /// Human-readable reason (e.g., "alignment must be a power of two").
+        reason: String,
     },
 }
 

@@ -145,6 +145,7 @@ define_error_codes! {
     E2038, "Type does not implement Printable";
     E2039, "Cannot assign to immutable binding";
     E2040, "Feature not yet supported";
+    E2041, "Invalid #repr attribute";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";

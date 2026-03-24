@@ -9,6 +9,7 @@ use crate::{
     EnumVariant, FieldDef, Idx, ModuleChecker, TypeCheckError, VariantDef, VariantFields,
     Visibility,
 };
+use ori_ir::ReprAttrKind;
 
 /// Register user-defined types (structs, enums, newtypes).
 pub fn register_user_types(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) {
@@ -74,6 +75,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 decl.span,
                 visibility,
                 hash,
+                decl.repr,
             );
         }
 
@@ -138,6 +140,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 decl.span,
                 visibility,
                 hash,
+                decl.repr,
             );
         }
 
@@ -152,7 +155,79 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 decl.span,
                 visibility,
                 hash,
+                decl.repr,
             );
+        }
+    }
+
+    // Validate #repr attribute constraints (E2041).
+    if let Some(repr) = &decl.repr {
+        validate_repr_attr(checker, decl, repr);
+    }
+}
+
+/// Validate semantic constraints on `#repr` attributes.
+///
+/// - `#repr("transparent")` requires exactly one field (structs only).
+/// - `#repr("aligned", N)` requires N > 0 and N is a power of two.
+/// - `#repr("c")` / `#repr("packed")` are valid on structs only.
+fn validate_repr_attr(
+    checker: &mut ModuleChecker<'_>,
+    decl: &ori_ir::TypeDecl,
+    repr: &ReprAttrKind,
+) {
+    match repr {
+        ReprAttrKind::Transparent => {
+            let field_count = match &decl.kind {
+                ori_ir::TypeDeclKind::Struct(fields) => fields.len(),
+                ori_ir::TypeDeclKind::Sum(_) => {
+                    checker.push_error(TypeCheckError::invalid_repr_attribute(
+                        decl.span,
+                        decl.name,
+                        "`#repr(\"transparent\")` can only be applied to structs, not sum types",
+                    ));
+                    return;
+                }
+                ori_ir::TypeDeclKind::Newtype(_) => {
+                    // Newtypes are inherently transparent — #repr("transparent") is redundant
+                    // but not an error. Just return.
+                    return;
+                }
+            };
+            if field_count == 0 {
+                checker.push_error(TypeCheckError::invalid_repr_attribute(
+                    decl.span,
+                    decl.name,
+                    "`#repr(\"transparent\")` requires exactly one field, but this struct has none",
+                ));
+            } else if field_count > 1 {
+                checker.push_error(TypeCheckError::invalid_repr_attribute(
+                    decl.span,
+                    decl.name,
+                    format!(
+                        "`#repr(\"transparent\")` requires exactly one field, but this struct has {field_count}"
+                    ),
+                ));
+            }
+        }
+        ReprAttrKind::Aligned(n) => {
+            if *n == 0 {
+                checker.push_error(TypeCheckError::invalid_repr_attribute(
+                    decl.span,
+                    decl.name,
+                    "alignment must be greater than zero",
+                ));
+            } else if !n.is_power_of_two() {
+                checker.push_error(TypeCheckError::invalid_repr_attribute(
+                    decl.span,
+                    decl.name,
+                    format!("alignment must be a power of two, but got {n}"),
+                ));
+            }
+        }
+        ReprAttrKind::C | ReprAttrKind::Packed => {
+            // Valid on structs. On sum types, emit a warning (could be valid in future).
+            // For now, no validation needed — these are layout directives.
         }
     }
 }

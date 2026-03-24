@@ -58,6 +58,7 @@ fn make_type_entry(name: Name, idx: Idx, kind: TypeKind) -> TypeEntry {
         type_params: vec![],
         visibility: Visibility::Public,
         merkle_hash: 0,
+        repr: None,
     }
 }
 
@@ -129,6 +130,7 @@ fn generic_types_are_skipped() {
         type_params: vec![Name::from_raw(301)], // generic param T
         visibility: Visibility::Public,
         merkle_hash: 0,
+        repr: None,
     };
 
     // Should not panic — generic types are skipped

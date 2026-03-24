@@ -67,11 +67,9 @@ pub struct ParsedAttrs {
 }
 
 /// Representation attribute values.
+///
+/// Converted to [`ori_ir::ReprAttrKind`] during type declaration parsing.
 #[derive(Clone, Debug)]
-#[allow(
-    dead_code,
-    reason = "variants used when codegen consumes repr attributes"
-)]
 pub enum ReprAttr {
     /// `#repr("c")` - C-compatible layout
     C,
