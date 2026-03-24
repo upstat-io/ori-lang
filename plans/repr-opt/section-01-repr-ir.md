@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-24
-  note: "All TPR findings triaged. TPR-01-038/039 accepted on 2026-03-24 with implementation tasks in §01.10. Status transitions to resolved when all accepted implementation tasks are complete."
+  note: "All TPR findings triaged. TPR-01-036/038/039/040 accepted with implementation tasks in §01.10. Status transitions to resolved when all accepted implementation tasks are complete."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1217,6 +1217,12 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Extract enough logic or helpers from `canonical.rs` to bring it back under 500 lines, then revalidate the prior TPR-01-031 closure in the same edit pass.
   Resolved: Accepted on 2026-03-24. Validated — `canonical.rs` is 508 lines, over the 500-line limit. Implementation task at §01.10 [TPR-01-039].
 
+- [x] `[TPR-01-040][low]` `compiler/oric/src/commands/build/multi.rs:1` — §01.3’s repr-opt plumbing touched the multi-file build pipeline without bringing that production Rust file back under the repo’s 500-line limit.
+  Evidence: Fresh verification with `wc -l compiler/oric/src/commands/build/multi.rs` reports `563` lines. The reviewed range (`HEAD~5..HEAD`) modified this file in commit `5b38395a` to thread `NarrowingPolicy` through the multi-file build path, so the current section re-entered the file while `CLAUDE.md` and `.claude/rules/impl-hygiene.md` still require touched production Rust files to stay under 500 lines.
+  Impact: The real §01.3 build-path implementation now carries the same reviewability and maintenance drift that TPR-01-039 called out for `canonical.rs`. Leaving the oversized multi-file pipeline in place after touching it normalizes a repo-rule violation in a user-facing build entry point.
+  Required plan update: Split `compiler/oric/src/commands/build/multi.rs` into focused helpers or submodules while keeping the repr-opt plumbing intact, then revalidate the multi-file build path in the same edit pass.
+  Resolved: Accepted on 2026-03-24. Validated — `multi.rs` is 563 lines, over the 500-line limit. Implementation task at §01.10 [TPR-01-040].
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1282,6 +1288,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [ ] **[TPR-01-036]** Add `narrowing_policy_explicit: bool` to `BuildOptions` (matching `opt_level_explicit`/`debug_level_explicit`/`lto_explicit` pattern). Update `parse_build_options()` to set `narrowing_policy_explicit = true` when `--repr-opt=*` or `--no-repr-opt` is parsed. Update `merge()` to use last-write-wins when explicit (not "non-default overrides"). Update env fallback in both `parse_build_options()` and `main.rs` to only apply `ORI_NO_REPR_OPT` when `!narrowing_policy_explicit`. Regression tests: `ORI_NO_REPR_OPT=1 + --repr-opt=aggressive` → `Aggressive`; `--no-repr-opt --repr-opt=aggressive` → `Aggressive` (last-write-wins); `--repr-opt=aggressive --no-repr-opt` → `Disabled` (last-write-wins).
 - [ ] **[TPR-01-038]** Add explicitness tracking (or equivalent last-write-wins handling) for `link_mode` and `jobs` in `BuildOptions`. Regression tests: `--link=dynamic --link=static` → `Static`; `--link=static --link=dynamic` → `Dynamic`; `--jobs=4 -j` → auto (`None`); `-j --jobs=4` → `Some(4)`.
 - [ ] **[TPR-01-039]** Re-split `compiler/ori_repr/src/canonical.rs` after the mutual-recursion changes so the production file is back under the 500-line limit, then revalidate the old TPR-01-031 closure against the current tree.
+- [ ] **[TPR-01-040]** Re-split `compiler/oric/src/commands/build/multi.rs` after the `NarrowingPolicy` plumbing so the production file is back under the 500-line limit, then revalidate the multi-file build path in the same edit pass.
 
 - [ ] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug (`cargo test -p ori_repr`) and release (`cargo test -p ori_repr --release`)
 - [ ] Semantic pin tests present: at least one test per subsection that would fail if the canonical mapping, default query return values, or Phase A wiring were reverted
