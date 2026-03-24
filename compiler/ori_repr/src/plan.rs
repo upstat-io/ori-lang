@@ -36,6 +36,36 @@ mod repr_attr;
 ///
 /// Computed after type checking and before LLVM codegen. The type checker
 /// never sees `ReprPlan`; codegen reads from it but never writes.
+///
+/// # Salsa Integration (§01.6)
+///
+/// `ReprPlan` is **not** a Salsa tracked struct. It is computed imperatively
+/// by [`compute_repr_plan()`] as a forward pass that mutates state across
+/// multiple analysis phases (triviality → range → narrowing → layout).
+/// Making each phase a Salsa query would create artificial dependencies and
+/// complicate the multi-pass mutation pattern.
+///
+/// Instead, `ReprPlan` is computed once per compilation and passed as
+/// `&ReprPlan` to codegen — the same model as [`TypeInfoStore`] in
+/// `ori_llvm`, but without interior mutability.
+///
+/// **Invalidation:** Recomputed on every compilation. Future optimization:
+/// if the Pool is unchanged (Salsa cache hit on type checking), the
+/// previous `ReprPlan` can be reused via a Salsa query keyed on Pool
+/// identity.
+///
+/// **JIT compatibility:** The JIT path recomputes the entire `ReprPlan`
+/// per invocation, matching `TypeInfoStore`'s current behavior. Future
+/// optimization: incremental updates keyed by function-level changes.
+///
+/// **Thread safety:** All fields are plain `FxHashMap`/`Vec` — no
+/// `RefCell`, `Mutex`, or interior mutability. After construction,
+/// `&ReprPlan` is `Send + Sync` by the implicit auto-trait rules.
+/// This contrasts with `TypeInfoStore` which uses `RefCell` for lazy
+/// population.
+///
+/// [`compute_repr_plan()`]: crate::compute_repr_plan
+/// [`TypeInfoStore`]: https://docs.rs/ori_llvm (internal)
 #[derive(Debug)]
 #[expect(
     clippy::zero_sized_map_values,
@@ -183,3 +213,12 @@ impl ReprPlan {
         out
     }
 }
+
+// §01.6 Thread safety: compile-time assertion that ReprPlan is Send + Sync.
+// ReprPlan has no interior mutability (no RefCell, no Mutex), so &ReprPlan
+// can be safely shared across threads. This assertion catches regressions
+// if a future field introduces non-Send/Sync types.
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<ReprPlan>();
+};
