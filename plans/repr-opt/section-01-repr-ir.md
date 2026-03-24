@@ -4,7 +4,7 @@ title: "Representation IR & Decision Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-23
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
@@ -18,13 +18,13 @@ sections:
     status: complete
   - id: "01.2"
     title: "ReprDecision Tracking"
-    status: not-started
+    status: complete
   - id: "01.3"
     title: "Pipeline Integration Point"
     status: not-started
   - id: "01.4"
     title: "ReprPlan Query Interface"
-    status: not-started
+    status: in-progress
   - id: "01.5"
     title: "Generic Type Handling"
     status: not-started
@@ -392,7 +392,7 @@ Each narrowing decision should be recorded with its justification, so that:
 2. Bugs can be traced to the specific analysis that made the decision
 3. Later passes can query upstream decisions
 
-- [ ] Define `ReprDecision`:
+- [x] Define `ReprDecision`:
   ```rust
   #[derive(Debug, Clone)]
   pub struct ReprDecision {
@@ -459,7 +459,7 @@ Each narrowing decision should be recorded with its justification, so that:
   }
   ```
 
-- [ ] Define `ReprPlan` — the central data structure:
+- [x] Define `ReprPlan` — the central data structure:
   ```rust
   // FxHashMap from `rustc-hash` crate (workspace dep): `use rustc_hash::FxHashMap;`
   // Functions are identified by Name (from ori_ir), not FunctionId (ori_llvm-specific).
@@ -485,7 +485,7 @@ Each narrowing decision should be recorded with its justification, so that:
   }
   ```
 
-- [ ] Implement builder pattern for populating ReprPlan:
+- [x] Implement builder pattern for populating ReprPlan:
   ```rust
   impl ReprPlan {
       pub fn new() -> Self { ... }
@@ -521,13 +521,13 @@ Each narrowing decision should be recorded with its justification, so that:
 
 **Tests required for §01.2 (add to `tests.rs`, write failing tests BEFORE implementing):**
 
-- [ ] `set_repr` / `get_repr` round-trip: set a decision for `Tag::Int`, retrieve it, assert the `MachineRepr` matches.
-- [ ] Override behavior: call `set_repr` twice for the same `Idx`; verify `get_repr` returns the second decision's repr.
-- [ ] Audit trail preservation: after the override above, verify `dump_audit()` contains BOTH entries in insertion order.
-- [ ] `get_repr` on unknown `Idx` returns `None` (not a panic, not a default).
-- [ ] `var_range` on a function with no recorded ranges returns the default/top value (not a panic).
-- [ ] `set_var_ranges` / `var_range` round-trip: record ranges for two functions, verify each function's `var_range` query is isolated.
-- [ ] `dump_audit` output is non-empty after decisions are recorded and contains the type tag and source in its string representation.
+- [x] `set_repr` / `get_repr` round-trip: set a decision for `Tag::Int`, retrieve it, assert the `MachineRepr` matches.
+- [x] Override behavior: call `set_repr` twice for the same `Idx`; verify `get_repr` returns the second decision's repr.
+- [x] Audit trail preservation: after the override above, verify `dump_audit()` contains BOTH entries in insertion order.
+- [x] `get_repr` on unknown `Idx` returns `None` (not a panic, not a default).
+- [x] `var_range` on a function with no recorded ranges returns the default/top value (not a panic).
+- [x] `set_var_ranges` / `var_range` round-trip: record ranges for two functions, verify each function's `var_range` query is isolated.
+- [x] `dump_audit` output is non-empty after decisions are recorded and contains the type tag and source in its string representation.
 
 ---
 
@@ -1106,6 +1106,24 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Evidence: `canonical()` starts every root query with a fresh `FxHashSet` and `canonical_inner()` only substitutes `RcPointer` when it hits the current traversal’s back-edge. For a mutually recursive SCC `A -> B -> A`, `canonical(A)` embeds `B { a: RcPointer }`, while a separate `canonical(B)` query embeds `A { b: RcPointer }`; that means the shape of `B` depends on which root was canonicalized, contradicting `repr.rs:34`.
   Impact: ReprPlan population over a mutually recursive component can cache root-dependent layouts, breaking equality/hash stability and any later pass that assumes nested uses of an `Idx` match its standalone canonical form.
   Resolved: Accepted on 2026-03-23. Finding validated — `canonical()` at line 28 creates fresh `FxHashSet` per root call, so nested representations of the same Idx differ depending on DFS entry point. Implementation task added to §01.5 (SCC-aware memoization fix). Regression test already tracked at §01.9 line 1000.
+
+- [x] `[TPR-01-022][high]` `compiler/ori_repr/src/plan.rs:129` — `set_rc_strategy()` overwrites the type’s representation with a placeholder RC shell and discards the original layout.
+  Resolved: Fixed on 2026-03-23. Added `rc_strategies: FxHashMap<Idx, RcStrategy>` to `ReprPlan` as separate metadata. `set_rc_strategy()` now writes to `rc_strategies` map and records audit entry without calling `set_repr()`. Removed dead `RcStrategy::to_machine_repr()`. 7 tests added: round-trip, repr preservation semantic pin, and audit trail verification.
+
+- [x] `[TPR-01-023][high]` `compiler/ori_repr/src/plan/query.rs:109` — `rc_strategy()` silently reports `RcStrategy::None` for any stored `MachineRepr::OpaquePtr`, including canonical iterator/channel types with no RC decision.
+  Resolved: Fixed on 2026-03-23. `rc_strategy()` now reads from the dedicated `rc_strategies` map instead of pattern-matching on `MachineRepr`. Returns `Atomic { I64 }` default when no explicit RC decision exists. Semantic pin test `rc_strategy_default_for_canonical_opaque_ptr` verifies canonical OpaquePtr types get the safe default.
+
+- [x] `[TPR-01-024][medium]` `compiler/ori_repr/src/plan/query.rs:39` — §01.4 query defaults landed without the section’s required regression tests for `int_width`, `float_width`, `is_trivial`, `escapes`, or `narrowing_policy`.
+  Evidence: `compiler/ori_repr/src/plan/query.rs` defines all five APIs, but `compiler/ori_repr/src/tests.rs` only adds the `rc_strategy` subset of the §01.4 test matrix. The required checks at `plans/repr-opt/section-01-repr-ir.md:731-740` remain unchecked, and `rg` over `compiler/ori_repr/src/tests.rs` finds no coverage for `plan.int_width(...)`, `plan.float_width(...)`, `plan.is_trivial(...)`, `plan.escapes(...)`, or `plan.narrowing_policy()`.
+  Impact: These methods encode the crate’s zero-behavior-change safety defaults for later narrowing and ARC passes. Without the promised pins, a future refactor can silently change canonical widths or escape/triviality fallbacks without any direct test failure.
+  Required plan update: Add the missing §01.4 failing-first tests before treating the query interface as landed, then check the corresponding checklist items.
+  Resolved: Accepted on 2026-03-23. Validated — `tests.rs` only tests `IntWidth`/`FloatWidth` enum sizes and `rc_strategy` round-trips, not the `ReprPlan` query interface defaults. The missing tests are already tracked at §01.4 checklist items (lines 733-740). These tests are required before §01.4 can be marked complete.
+
+- [x] `[TPR-01-025][low]` `plans/repr-opt/section-01-repr-ir.md:25` — The section metadata still marks §01.4 as `not-started` even though its query API and policy surface are already in the tree.
+  Evidence: `plans/repr-opt/section-01-repr-ir.md:25-27` keeps `01.4` at `not-started`, but `compiler/ori_repr/src/plan/query.rs` already implements `NarrowingPolicy`, `RcStrategy`, `int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy`, and `narrowing_policy`, while `compiler/ori_repr/src/plan.rs` already stores `narrowing_policy` and `rc_strategies`.
+  Impact: The plan no longer matches the repository state, which hides cross-section work already landed and makes the remaining §01.4 scope harder to reason about during later review and implementation.
+  Required plan update: Mark §01.4 `in-progress` (or split out the already-landed items) and reconcile its checklist against the current code before more section work proceeds.
+  Resolved: Accepted on 2026-03-23. Updated §01.4 frontmatter to `in-progress` to match codebase reality.
 
 ---
 
