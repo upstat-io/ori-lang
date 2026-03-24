@@ -89,6 +89,13 @@ fn real_main() {
                 }
             }
 
+            // Check ORI_NO_REPR_OPT env var unconditionally — the per-arg parser
+            // loop above may never execute (zero CLI options), so the env var check
+            // inside parse_build_options() would be skipped. (TPR-01-028)
+            if std::env::var("ORI_NO_REPR_OPT").is_ok() {
+                options.no_repr_opt = true;
+            }
+
             build_file(&args[2], &options);
         }
         "run" => {

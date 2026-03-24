@@ -1125,10 +1125,38 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Mark §01.4 `in-progress` (or split out the already-landed items) and reconcile its checklist against the current code before more section work proceeds.
   Resolved: Accepted on 2026-03-23. Updated §01.4 frontmatter to `in-progress` to match codebase reality.
 
-- [ ] `[TPR-01-026][medium]` `plans/repr-opt/section-01-repr-ir.md:6` — The section frontmatter re-resolves third-party review even though accepted TPR follow-up work is still open in this section.
+- [x] `[TPR-01-026][medium]` `plans/repr-opt/section-01-repr-ir.md:6` — The section frontmatter re-resolves third-party review even though accepted TPR follow-up work is still open in this section.
   Evidence: `third_party_review.status` is currently `resolved`, but §01.5 still carries unchecked TPR-01-021 follow-up work (`Fix canonical() mutual recursion contract violation`), the matching §01.9 regression test is still unchecked, and the §01.4 test checklist items that TPR-01-024 accepted remain unchecked.
   Impact: `/continue-roadmap` now relies on `third_party_review.status: findings` to surface accepted-but-incomplete review work before new implementation proceeds. Marking the section `resolved` hides active review debt and makes the section look cleaner than the tree actually is.
   Required plan update: Keep `third_party_review.status: findings` until the accepted TPR-01-021 and TPR-01-024 follow-up work lands and is revalidated, then resolve the review state in the same edit pass.
+  Resolved: Validated on 2026-03-24. Current frontmatter already shows `third_party_review.status: findings` — the evidence referenced stale state. No change needed.
+
+- [x] `[TPR-01-027][high]` `compiler/oric/src/commands/build_options.rs:109` — `ori build --no-repr-opt ...` never preserves the new flag through the actual CLI parsing path.
+  Evidence: `parse_build_options()` sets `options.no_repr_opt = true` for `--no-repr-opt` at `compiler/oric/src/commands/build_options.rs:394-395`, but `main()` parses build arguments one token at a time and merges them (`compiler/oric/src/main.rs:81-88`). `BuildOptions::merge()` only ORs `lib`, `dylib`, `wasm`, `js_bindings`, `wasm_opt`, and `verbose` (`compiler/oric/src/commands/build_options.rs:159-165`); it never merges `no_repr_opt`, so the parsed flag is dropped before `compile_to_llvm()` / `run_codegen_pipeline()` see it.
+  Impact: The advertised AOT kill switch for §12 dual-exec baselines is nonfunctional: `ori build --no-repr-opt file.ori` still computes `NarrowingPolicy::Aggressive`, so future repr-opt regressions cannot be bisected or compared against the canonical-only path.
+  Required plan update: Merge `no_repr_opt` alongside the other boolean build flags and add a regression test that exercises the real one-arg-at-a-time `ori build` parsing flow.
+  Resolved: Fixed on 2026-03-24. Added `self.no_repr_opt |= other.no_repr_opt;` to `BuildOptions::merge()`. 6 regression tests added in `build_options/tests.rs` including per-arg merge loop simulation and exhaustive boolean flag coverage.
+
+- [x] `[TPR-01-028][medium]` `compiler/oric/src/commands/codegen_pipeline.rs:317` — `ORI_NO_REPR_OPT=1` is not reliably honored by the AOT build path.
+  Evidence: The env var is only read inside `parse_build_options()` (`compiler/oric/src/commands/build_options.rs:399-401`), but `ori build file.ori` with no extra CLI flags never calls that parser loop (`compiler/oric/src/main.rs:79-88`). Even when the parser does run, `run_codegen_pipeline()` derives the policy solely from the merged `no_repr_opt` boolean (`compiler/oric/src/commands/codegen_pipeline.rs:317-321`) and never re-checks `ORI_NO_REPR_OPT`, contrary to the section's documented requirement.
+  Impact: The documented environment-variable escape hatch works for the compiled-run path but not for plain AOT builds, so scripts and manual verification cannot rely on `ORI_NO_REPR_OPT=1 ori build ...` to force the canonical-only baseline.
+  Required plan update: Enforce the env override in the AOT build/codegen path itself and add a regression test for `ori build` with no CLI options plus `ORI_NO_REPR_OPT=1`.
+  Resolved: Fixed on 2026-03-24. Added unconditional `ORI_NO_REPR_OPT` env var check in `main.rs` build handler after the options loop, covering the zero-arg case where `parse_build_options()` is never called. Combined with TPR-01-027 merge fix, all build paths now correctly honor both `--no-repr-opt` and `ORI_NO_REPR_OPT=1`.
+
+- [ ] `[TPR-01-029][medium]` `compiler/oric/src/main.rs:92` — TPR-01-028 was resolved without the regression test the section itself requires for the zero-option `ORI_NO_REPR_OPT=1 ori build ...` path.
+  Evidence: The section says TPR-01-028 is resolved, but its own required plan update demands “a regression test for `ori build` with no CLI options plus `ORI_NO_REPR_OPT=1`”. The only new coverage is `compiler/oric/src/commands/build_options/tests.rs:1-102`, which tests `BuildOptions::merge()` and `parse_build_options()`; no test exercises the real `main.rs` build-command loop or the unconditional env override at `compiler/oric/src/main.rs:92-97`. `rg -n "ORI_NO_REPR_OPT|no_repr_opt|--no-repr-opt" compiler/oric/src -g'*tests.rs' -g'*.rs'` finds no such test outside production code.
+  Impact: The code path currently looks correct by inspection, but the exact CLI regression that motivated TPR-01-028 is still unpinned. A future refactor can silently re-break `ORI_NO_REPR_OPT=1 ori build file.ori` while the plan claims the issue is closed.
+  Required plan update: Add a regression test that drives the actual build-command path with zero CLI options and `ORI_NO_REPR_OPT=1`, then revalidate TPR-01-028 in the same edit pass before returning this section to `third_party_review.status: resolved`.
+
+- [ ] `[TPR-01-030][medium]` `compiler/oric/src/commands/build_options/mod.rs:400` — `ORI_NO_REPR_OPT` is enabled on mere presence, not on the documented `=1` value.
+  Evidence: The section documents `ORI_NO_REPR_OPT=1` as the environment-variable escape hatch, but both `parse_build_options()` (`compiler/oric/src/commands/build_options/mod.rs:400-402`) and the new unconditional build-path override (`compiler/oric/src/main.rs:95-96`) use `std::env::var("ORI_NO_REPR_OPT").is_ok()`. The JIT path in `compiler/ori_llvm/src/evaluator/compile.rs:155` does the same. As written, `ORI_NO_REPR_OPT=0` or `ORI_NO_REPR_OPT=false` still disables repr-opt.
+  Impact: Shell profiles and CI scripts cannot safely leave the variable set to a falsey value; the kill switch activates more broadly than documented, making perf/verification runs harder to trust and the AOT/JIT interface harder to reason about.
+  Required plan update: Parse the env var through one shared helper that accepts explicit enabled values (`1`/`true`) and falsey values (`0`/`false`/unset), use it in both AOT and JIT entry points, and add regression tests for both sides of the contract.
+
+- [ ] `[TPR-01-031][low]` `compiler/ori_repr/src/canonical.rs:1` — the new canonicalization module already exceeds the repo’s 500-line production-file limit.
+  Evidence: `wc -l compiler/ori_repr/src/canonical.rs` reports 575 lines. `CLAUDE.md` and this section’s completion checklist both require production Rust files to stay under 500 lines, but the newly added §01 core module lands above that limit on its first commit.
+  Impact: The central repr canonicalization logic starts out harder to review and harder to extend cleanly; upcoming §01.5 and §01.8 work is likely to push even more unrelated concerns into the same oversized file.
+  Required plan update: Split `canonical.rs` into focused submodules before more repr work lands there, for example separating pool traversal, aggregate layout helpers, and per-tag canonicalization helpers.
 
 ---
 

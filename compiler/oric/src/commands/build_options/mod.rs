@@ -163,6 +163,7 @@ impl BuildOptions {
         self.js_bindings |= other.js_bindings;
         self.wasm_opt |= other.wasm_opt;
         self.verbose |= other.verbose;
+        self.no_repr_opt |= other.no_repr_opt;
     }
 }
 
@@ -406,3 +407,6 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
 
     options
 }
+
+#[cfg(test)]
+mod tests;
