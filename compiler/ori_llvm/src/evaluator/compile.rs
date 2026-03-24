@@ -73,6 +73,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         mono_instances: &[ori_types::MonoInstance],
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
         mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+        narrowing_policy: Option<ori_repr::NarrowingPolicy>,
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // --- V2 pipeline ---
 
@@ -109,6 +110,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 mono_instances,
                 annotated_sigs,
                 &mut arc_cache,
+                narrowing_policy,
             )
         };
 
@@ -127,6 +129,10 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         clippy::too_many_arguments,
         reason = "JIT compilation — all params are required data flow inputs"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "sequential JIT pipeline — splitting would fragment the compilation flow"
+    )]
     fn compile_all_functions(
         &self,
         scx_ref: &'tcx SimpleCx<'tcx>,
@@ -141,6 +147,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         mono_instances: &[ori_types::MonoInstance],
         annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
         arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+        narrowing_policy: Option<ori_repr::NarrowingPolicy>,
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
         let store = TypeInfoStore::new(self.pool);
@@ -152,12 +159,14 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
             .cloned()
             .collect();
-        let narrowing_policy = if ori_repr::NarrowingPolicy::env_disabled() {
-            ori_repr::NarrowingPolicy::Disabled
-        } else {
-            ori_repr::NarrowingPolicy::Aggressive
-        };
-        let repr_plan = ori_repr::compute_repr_plan(self.pool, &all_arc_funcs, narrowing_policy);
+        let policy = narrowing_policy.unwrap_or_else(|| {
+            if ori_repr::NarrowingPolicy::env_disabled() {
+                ori_repr::NarrowingPolicy::Disabled
+            } else {
+                ori_repr::NarrowingPolicy::Aggressive
+            }
+        });
+        let repr_plan = ori_repr::compute_repr_plan(self.pool, &all_arc_funcs, policy);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
         let mut builder = IrBuilder::new_jit(scx_ref);
         type_registration::register_user_types(&resolver, user_types);

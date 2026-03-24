@@ -257,7 +257,11 @@ fn compile_and_cache(
         &canon_result,
         path,
         Some(target.triple()),
-        ori_repr::NarrowingPolicy::env_disabled(),
+        if ori_repr::NarrowingPolicy::env_disabled() {
+            ori_repr::NarrowingPolicy::Disabled
+        } else {
+            ori_repr::NarrowingPolicy::Aggressive
+        },
     )
     .unwrap_or_else(|e| {
         eprintln!("{e}");

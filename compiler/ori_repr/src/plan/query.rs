@@ -68,19 +68,23 @@ impl ReprPlan {
     /// Get the integer width for a type (default: `I64`).
     #[must_use]
     pub fn int_width(&self, idx: ori_types::Idx) -> IntWidth {
-        match self.get_repr(idx) {
+        let width = match self.get_repr(idx) {
             Some(MachineRepr::Int { width, .. }) => *width,
             _ => IntWidth::I64,
-        }
+        };
+        tracing::trace!(?idx, ?width, "int_width query");
+        width
     }
 
     /// Get the float width for a type (default: `F64`).
     #[must_use]
     pub fn float_width(&self, idx: ori_types::Idx) -> FloatWidth {
-        match self.get_repr(idx) {
+        let width = match self.get_repr(idx) {
             Some(MachineRepr::Float { width }) => *width,
             _ => FloatWidth::F64,
-        }
+        };
+        tracing::trace!(?idx, ?width, "float_width query");
+        width
     }
 
     /// Check if a type is trivial (no RC needed).
@@ -90,19 +94,23 @@ impl ReprPlan {
     /// triviality check at the `MachineRepr` level.
     #[must_use]
     pub fn is_trivial(&self, idx: ori_types::Idx) -> bool {
-        match self.get_repr(idx) {
+        let trivial = match self.get_repr(idx) {
             Some(repr) => is_trivial_repr(repr),
             None => false,
-        }
+        };
+        tracing::trace!(?idx, trivial, "is_trivial query");
+        trivial
     }
 
     /// Check if a variable escapes its function scope.
     ///
     /// Returns `true` by default — safe (never stack-promotes when unsure).
     #[must_use]
-    pub fn escapes(&self, _func: ori_ir::Name, _var: ori_arc::ArcVarId) -> bool {
+    pub fn escapes(&self, func: ori_ir::Name, var: ori_arc::ArcVarId) -> bool {
         // Until §08 populates escape_info, assume everything escapes.
-        true
+        let result = true;
+        tracing::trace!(?func, ?var, escapes = result, "escapes query");
+        result
     }
 
     /// Get the RC strategy for a type.
@@ -114,12 +122,15 @@ impl ReprPlan {
     /// (TPR-01-023).
     #[must_use]
     pub fn rc_strategy(&self, idx: ori_types::Idx) -> RcStrategy {
-        self.rc_strategies
+        let strategy = self
+            .rc_strategies
             .get(&idx)
             .copied()
             .unwrap_or(RcStrategy::Atomic {
                 width: IntWidth::I64,
-            })
+            });
+        tracing::trace!(?idx, ?strategy, "rc_strategy query");
+        strategy
     }
 
     /// Get the narrowing policy.

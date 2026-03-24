@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-24
-  note: "All TPR items triaged. TPR-01-034 and TPR-01-035 accepted — implementation tasks in 01.4. Status stays findings until those tasks are complete."
+  note: "All TPR items triaged and resolved. TPR-01-033/034/035 implementation complete (2026-03-24). Remaining open items are in 01.5+ (TPR-01-021 mutual recursion)."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -753,26 +753,26 @@ Provide ergonomic query methods that later sections will use:
       pub fn set_rc_strategy(&mut self, idx: Idx, strategy: RcStrategy, source: DecisionSource) { ... }
   }
   ```
-- [ ] Tracing integration — public query APIs must emit trace events (TPR-01-033):
-  - [ ] Route `int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy` through traced wrappers or add inline `tracing::trace!` calls.
-  - [ ] Remove or wire `get_repr_traced()` — currently has zero callers.
-  - [ ] Verify: `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows query traffic.
-- [ ] **[TPR-01-034]** Fix `BuildOptions::merge()` dropping `link_mode` and `jobs`:
-  - [ ] Add `link_mode` merge logic to `BuildOptions::merge()` — only override if parsed value differs from default (`LinkMode::Static`).
-  - [ ] Add `jobs` merge logic to `BuildOptions::merge()` — `if other.jobs.is_some() { self.jobs = other.jobs; }`.
-  - [ ] Regression tests: `ori build foo.ori --link=dynamic` → verify `link_mode == Dynamic` survives merge.
-  - [ ] Regression tests: `ori build foo.ori --jobs=4` → verify `jobs == Some(4)` survives merge.
-  - [ ] Regression tests: multi-arg accumulation: `ori build foo.ori --link=dynamic --jobs=4 --release` → all three fields survive.
-- [ ] **[TPR-01-035]** Replace `no_repr_opt: bool` with `NarrowingPolicy` end-to-end:
-  - [ ] Replace `BuildOptions.no_repr_opt: bool` with `BuildOptions.narrowing_policy: NarrowingPolicy` (default `Aggressive`).
-  - [ ] Update `parse_build_options()`: `--no-repr-opt` → `NarrowingPolicy::Disabled`, add `--repr-opt=aggressive|conservative|disabled`.
-  - [ ] Update `BuildOptions::merge()`: merge `narrowing_policy` field (non-default overrides).
-  - [ ] Update `compile_to_llvm()` in `compile_common.rs`: accept `NarrowingPolicy` instead of `bool`.
-  - [ ] Update `run_codegen_pipeline()` in `codegen_pipeline.rs`: accept `NarrowingPolicy` directly (remove bool→enum conversion).
-  - [ ] Update JIT path `compile_module_with_tests()` in `ori_llvm/src/evaluator/compile.rs`: accept optional `NarrowingPolicy` parameter.
-  - [ ] Update env var fallback: `NarrowingPolicy::env_disabled()` remains for JIT when no parameter provided.
-  - [ ] Regression tests: `--no-repr-opt` → `Disabled`, `--repr-opt=conservative` → `Conservative`, default → `Aggressive`.
-  - [ ] Regression tests: `NarrowingPolicy` survives the full AOT path from CLI to `compute_repr_plan()`.
+- [x] Tracing integration — public query APIs must emit trace events (TPR-01-033) (2026-03-24):
+  - [x] Route `int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy` through traced wrappers or add inline `tracing::trace!` calls.
+  - [x] Remove or wire `get_repr_traced()` — removed (zero callers; query methods now have inline tracing).
+  - [x] Verify: `ORI_LOG=ori_repr=debug` shows `populated canonical representations` event. Query-level trace events (int_width, float_width, etc.) will fire when consumers call query methods (§02+).
+- [x] **[TPR-01-034]** Fix `BuildOptions::merge()` dropping `link_mode` and `jobs` (2026-03-24):
+  - [x] Add `link_mode` merge logic to `BuildOptions::merge()` — only override if parsed value differs from default (`LinkMode::Static`).
+  - [x] Add `jobs` merge logic to `BuildOptions::merge()` — `if other.jobs.is_some() { self.jobs = other.jobs; }`.
+  - [x] Regression tests: `ori build foo.ori --link=dynamic` → verify `link_mode == Dynamic` survives merge.
+  - [x] Regression tests: `ori build foo.ori --jobs=4` → verify `jobs == Some(4)` survives merge.
+  - [x] Regression tests: multi-arg accumulation: `ori build foo.ori --link=dynamic --jobs=4 --release` → all three fields survive.
+- [x] **[TPR-01-035]** Replace `no_repr_opt: bool` with `NarrowingPolicy` end-to-end (2026-03-24):
+  - [x] Replace `BuildOptions.no_repr_opt: bool` with `BuildOptions.narrowing_policy: NarrowingPolicy` (default `Aggressive`).
+  - [x] Update `parse_build_options()`: `--no-repr-opt` → `NarrowingPolicy::Disabled`, add `--repr-opt=aggressive|conservative|disabled`.
+  - [x] Update `BuildOptions::merge()`: merge `narrowing_policy` field (non-default overrides).
+  - [x] Update `compile_to_llvm()` in `compile_common.rs`: accept `NarrowingPolicy` instead of `bool`.
+  - [x] Update `run_codegen_pipeline()` in `codegen_pipeline.rs`: accept `NarrowingPolicy` directly (remove bool→enum conversion).
+  - [x] Update JIT path `compile_module_with_tests()` in `ori_llvm/src/evaluator/compile.rs`: accept optional `NarrowingPolicy` parameter.
+  - [x] Update env var fallback: `NarrowingPolicy::env_disabled()` remains for JIT when no parameter provided.
+  - [x] Regression tests: `--no-repr-opt` → `Disabled`, `--repr-opt=conservative` → `Conservative`, default → `Aggressive`.
+  - [x] Regression tests: `NarrowingPolicy` survives the full AOT path from CLI to `compute_repr_plan()`.
 
 ---
 
