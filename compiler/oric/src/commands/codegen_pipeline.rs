@@ -314,7 +314,15 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
             .cloned()
             .collect();
-        let repr_plan = ori_repr::compute_repr_plan(pool, &all_arc_funcs, narrowing_policy);
+        // Extract #repr attributes from typed module for the repr plan.
+        let repr_attrs: Vec<(ori_types::Idx, ori_ir::ReprAttrKind)> = type_result
+            .typed
+            .types
+            .iter()
+            .filter_map(|te| te.repr.map(|r| (te.idx, r)))
+            .collect();
+        let repr_plan =
+            ori_repr::compute_repr_plan(pool, &all_arc_funcs, narrowing_policy, &repr_attrs);
 
         // Create type resolver with the repr plan.
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));

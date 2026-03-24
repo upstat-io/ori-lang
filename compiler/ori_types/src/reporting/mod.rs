@@ -268,6 +268,12 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::UnsupportedFeature { feature } => {
                 format!("`{feature}` is not yet supported")
             }
+            TypeErrorKind::InvalidReprAttribute { type_name, reason } => {
+                format!(
+                    "invalid `#repr` on `{}`: {reason}",
+                    self.format_name(*type_name)
+                )
+            }
         }
     }
 

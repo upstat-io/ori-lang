@@ -1,0 +1,5 @@
+// #repr("aligned", 3) — 3 is not a power of two: must produce E2041.
+#compile_fail(code: "E2041", message: "alignment must be a power of two")
+
+#repr("aligned", 3)
+type BadAlign = { value: int }

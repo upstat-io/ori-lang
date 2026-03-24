@@ -6,6 +6,7 @@ use crate::plan::{DecisionReason, DecisionSource, NarrowingPolicy, ReprDecision}
 use crate::range::ValueRange;
 use crate::repr::{FloatWidth, IntWidth, MachineRepr};
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
+use crate::ReprAttribute;
 use crate::ReprPlan;
 
 use ori_ir::Name;
@@ -1602,7 +1603,7 @@ fn compute_repr_plan_populates_primitives() {
     // §01.3 test: compute_repr_plan() populates canonical representations
     // for all 11 non-error primitive types.
     let pool = ori_types::Pool::new();
-    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive);
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
     // All 11 non-error primitives should have canonical entries.
     assert!(plan.get_repr(Idx::INT).is_some(), "Int must be populated");
     assert!(
@@ -1639,7 +1640,7 @@ fn compute_repr_plan_disabled_policy_skips_stubs() {
     // §01.3 test: NarrowingPolicy::Disabled returns after populate_canonical()
     // without calling any narrowing stubs.
     let pool = ori_types::Pool::new();
-    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled);
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
     // Same primitives should be populated (canonical-only).
     assert!(plan.get_repr(Idx::INT).is_some());
     assert_eq!(plan.narrowing_policy(), NarrowingPolicy::Disabled);
@@ -1650,7 +1651,7 @@ fn compute_repr_plan_aggressive_is_default_behavior() {
     // §01.3 test: NarrowingPolicy::Aggressive is the default — building
     // without --no-repr-opt results in Aggressive.
     let pool = ori_types::Pool::new();
-    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive);
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
     assert_eq!(plan.narrowing_policy(), NarrowingPolicy::Aggressive);
     // Same primitives, same canonical results — no stubs are active yet.
     assert_eq!(
@@ -1667,7 +1668,7 @@ fn compute_repr_plan_canonical_int_semantic_pin() {
     // §01.3 semantic pin: canonical(Int) must be I64/signed.
     // This test fails if any future change alters the default int width.
     let pool = ori_types::Pool::new();
-    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive);
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
     assert_eq!(
         plan.get_repr(Idx::INT),
         Some(&MachineRepr::Int {
@@ -1682,8 +1683,8 @@ fn compute_repr_plan_canonical_int_semantic_pin() {
 fn compute_repr_plan_zero_behavioral_change_with_disabled() {
     // §01.3 test: identical canonical representations regardless of policy.
     let pool = ori_types::Pool::new();
-    let plan_aggressive = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive);
-    let plan_disabled = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled);
+    let plan_aggressive = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    let plan_disabled = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
     // Both should produce the same canonical repr for every primitive.
     for raw in 0..Idx::PRIMITIVE_COUNT {
         let idx = Idx::from_raw(raw);
@@ -1785,4 +1786,85 @@ fn env_disabled_rejects_falsey_values() {
         crate::plan::query::is_env_truthy("true"),
         "true must enable --no-repr-opt"
     );
+}
+
+// ── §01.7: #repr Attribute Integration tests ──────────────────────
+
+#[test]
+fn repr_c_stored_and_retrieved() {
+    // §01.7: #repr("c") on a struct → ReprAttribute::C in repr_attrs.
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(100), &[]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        Some(&ReprAttribute::C),
+        "#repr(\"c\") must be stored as ReprAttribute::C"
+    );
+}
+
+#[test]
+fn repr_packed_stored_and_retrieved() {
+    // §01.7: #repr("packed") → ReprAttribute::Packed stored and retrieved.
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(101), &[]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::Packed)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(plan.repr_attr(struct_idx), Some(&ReprAttribute::Packed),);
+}
+
+#[test]
+fn repr_transparent_stored_and_retrieved() {
+    // §01.7: #repr("transparent") on a single-field struct → ReprAttribute::Transparent.
+    let mut pool = ori_types::Pool::new();
+    let field = (ori_ir::Name::from_raw(200), Idx::INT);
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(102), &[field]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::Transparent)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        Some(&ReprAttribute::Transparent),
+    );
+}
+
+#[test]
+fn repr_aligned_stored_and_retrieved() {
+    // §01.7: #repr("aligned", 8) → ReprAttribute::Aligned(8).
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(103), &[]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::Aligned(8))];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(plan.repr_attr(struct_idx), Some(&ReprAttribute::Aligned(8)),);
+}
+
+#[test]
+fn no_repr_returns_none() {
+    // §01.7: Struct with no #repr → repr_attrs has no entry.
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(104), &[]);
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        None,
+        "no #repr → None from query"
+    );
+}
+
+#[test]
+fn repr_c_semantic_pin() {
+    // §01.7 semantic pin: #repr("c") stored as ReprAttribute::C.
+    // This test establishes the contract: populate_canonical() stores C
+    // in repr_attrs, and a subsequent check returns Some(ReprAttribute::C).
+    // Fails if the conversion or storage logic is reverted.
+    let mut pool = ori_types::Pool::new();
+    let name = ori_ir::Name::from_raw(105);
+    let f1 = (ori_ir::Name::from_raw(201), Idx::INT);
+    let f2 = (ori_ir::Name::from_raw(202), Idx::FLOAT);
+    let struct_idx = pool.struct_type(name, &[f1, f2]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(plan.repr_attr(struct_idx), Some(&ReprAttribute::C));
+    // Other types should still have None.
+    assert_eq!(plan.repr_attr(Idx::INT), None);
 }
