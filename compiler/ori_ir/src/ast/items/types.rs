@@ -28,6 +28,11 @@ pub enum ReprAttrKind {
     Transparent,
     /// `#repr("aligned", N)` — minimum alignment (power of two).
     Aligned(u64),
+    /// `#repr("c")` + `#repr("aligned", N)` — C layout with enforced alignment.
+    ///
+    /// Produced by type checking when stacked `#repr("c")` and `#repr("aligned", N)`
+    /// are combined. Not directly parseable — always merged from two separate attrs.
+    CAligned(u64),
 }
 
 /// A user-defined type declaration.
@@ -52,8 +57,11 @@ pub struct TypeDecl {
     pub visibility: Visibility,
     /// Derived traits: `#[derive(Eq, Clone)]`
     pub derives: Vec<Name>,
-    /// Representation attribute: `#repr("c")`, `#repr("packed")`, etc.
-    pub repr: Option<ReprAttrKind>,
+    /// Representation attributes: `#repr("c")`, `#repr("packed")`, etc.
+    ///
+    /// Multiple `#repr` attributes may be stacked (e.g., `#repr("c") #repr("aligned", 16)`).
+    /// Combination validation and merging happens in type checking, not parsing.
+    pub repr_attrs: Vec<ReprAttrKind>,
 }
 
 impl Spanned for TypeDecl {

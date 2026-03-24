@@ -1,0 +1,5 @@
+// Invalid: #repr("packed") on a newtype — only valid on structs.
+#compile_fail(code: "E2041", message: "can only be applied to structs")
+
+#repr("packed")
+type BadNewtype = int;

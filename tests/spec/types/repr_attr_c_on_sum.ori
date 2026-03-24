@@ -1,0 +1,5 @@
+// Invalid: #repr("c") on a sum type — only valid on structs.
+#compile_fail(code: "E2041", message: "can only be applied to structs")
+
+#repr("c")
+type BadSum = A | B | C;

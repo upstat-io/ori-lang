@@ -152,5 +152,6 @@ fn convert_repr_attr_kind(kind: &ReprAttrKind) -> ReprAttribute {
         ReprAttrKind::Packed => ReprAttribute::Packed,
         ReprAttrKind::Transparent => ReprAttribute::Transparent,
         ReprAttrKind::Aligned(n) => ReprAttribute::Aligned(u32::try_from(n).unwrap_or(u32::MAX)),
+        ReprAttrKind::CAligned(n) => ReprAttribute::CAligned(u32::try_from(n).unwrap_or(u32::MAX)),
     }
 }
