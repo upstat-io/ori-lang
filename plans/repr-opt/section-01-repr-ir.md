@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-24
-  note: "All TPR items triaged and resolved. TPR-01-033/034/035 implementation complete (2026-03-24). Remaining open items are in 01.5+ (TPR-01-021 mutual recursion)."
+  note: "TPR-01-036 and TPR-01-037 accepted on 2026-03-24. Fix tasks integrated into §01.9 (canonical() visibility narrowing) and §01.10 (narrowing_policy_explicit bit). Status transitions to resolved when these implementation tasks are complete."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -25,7 +25,7 @@ sections:
     status: complete
   - id: "01.4"
     title: "ReprPlan Query Interface"
-    status: in-progress
+    status: complete
   - id: "01.5"
     title: "Generic Type Handling"
     status: complete
@@ -1007,7 +1007,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 - [ ] **Named type resolution test:** Create a `Named` type pointing to a `Struct`, verify `canonical()` resolves through to the struct's repr.
 
-- [ ] **Mutual recursion canonical-consistency test (TPR-01-021):** Build a mutually recursive SCC such as `type A = WrapA(B)` / `type B = WrapB(A)` (or equivalent struct/enum wrappers), call `canonical()` for both roots, and assert each `Idx` has one stable representation regardless of which root was canonicalized first. The nested `B` reached from `canonical(A)` must match the standalone `canonical(B)` shape, and vice versa — a DFS-local back-edge placeholder is not sufficient.
+- [ ] **Mutual recursion canonical-consistency test (TPR-01-021, TPR-01-037):** Build a mutually recursive SCC such as `type A = WrapA(B)` / `type B = WrapB(A)` (or equivalent struct/enum wrappers). Test via `canonical_cached()` with shared cache (the production contract). Assert each `Idx` has one stable representation regardless of which root was canonicalized first. Also: narrow `canonical()` from `pub` to `pub(crate)` — standalone calls without shared cache are not part of the public contract, only `compute_repr_plan()`/`populate_canonical()` guarantees SCC consistency. Update doc comments to clarify this. The existing test at `tests.rs:973-1033` already uses `canonical_cached()` — verify it is a true semantic pin (would fail if shared memoization were removed).
 
 - [ ] **Storage type equivalence test:** For a Pool containing a representative sample of ALL constructible types, verify `canonical(tag)` matches expectations. Split into two groups:
   - **Exact-match group** (types without Unit/Never in aggregates): verify `canonical(tag).to_llvm_type(ctx)` produces the same LLVM type as `TypeInfo::storage_type()`. This is the gold standard for the majority of types.
@@ -1189,6 +1189,18 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Replace `no_repr_opt` with `NarrowingPolicy` across `BuildOptions`, the JIT/AOT compilation entry points, and their tests, then add regression coverage proving Aggressive, Disabled, and Conservative survive the real CLI and codegen plumbing.
   Resolved: Accepted on 2026-03-24. Validated — `BuildOptions` uses `bool` instead of `NarrowingPolicy`, violating plan mandate. Implementation tasks added to 01.4 (replace bool with NarrowingPolicy end-to-end).
 
+- [x] `[TPR-01-037][high]` `compiler/ori_repr/src/canonical.rs:170` — TPR-01-021 is not actually fixed at the public API boundary: standalone `canonical()` calls for a mutually recursive SCC still produce root-dependent shapes, and the new regression test only passes because it switched to `canonical_cached()`.
+  Evidence: `canonical()` still allocates a fresh cache per call (`compiler/ori_repr/src/canonical.rs:170-171`), so it does not share memoized results across standalone root queries. The new test at `compiler/ori_repr/src/tests.rs:973-1033` claims to validate `canonical(A)`/`canonical(B)` consistency, but it computes both roots through `canonical_cached()` with a manually shared cache instead (`lines 993-996`). Fresh verification with a standalone probe against the built crate produced `equal=false` for `b_inside_a == canonical(B)`, confirming the public contract still fails.
+  Impact: The section now marks TPR-01-021 complete even though the exported `canonical()` helper still returns different `MachineRepr` values for the same `Idx` depending on traversal entry point. That leaves callers outside `populate_canonical()` with unstable equality/hash behavior and gives false confidence because the regression test no longer exercises the documented contract.
+  Required plan update: Either make public `canonical()` preserve SCC-wide memoization across standalone roots or narrow the documented contract to `populate_canonical()`/`compute_repr_plan()` only. In the same edit pass, replace the current mutual-recursion test with a semantic pin that compares public `canonical(A)`/`canonical(B)` results, not just `canonical_cached()`.
+  Resolved: Accepted on 2026-03-24. Validated — public `canonical()` creates fresh cache per call, so SCC mutual recursion produces root-dependent shapes. The production path (`populate_canonical()`) is correct via shared cache. Fix: narrow `canonical()` to `pub(crate)`, document that only `compute_repr_plan()`/`populate_canonical()` guarantees SCC consistency, and update the mutual-recursion test to be a true semantic pin testing `canonical_cached()` explicitly (which is the actual contract). Implementation tasks added to §01.9.
+
+- [x] `[TPR-01-036][medium]` `compiler/oric/src/commands/build_options/mod.rs:167` — Explicit `NarrowingPolicy::Aggressive` is still not representable through the real CLI accumulation path, so `--repr-opt=aggressive` cannot override `ORI_NO_REPR_OPT=1` and cannot win after a previous disabling flag.
+  Evidence: `BuildOptions` stores only `narrowing_policy` with no explicitness bit (`compiler/oric/src/commands/build_options/mod.rs:64-69`), `merge()` only copies non-default policies (`lines 167-169`), and both `parse_build_options()` and `main.rs` reapply the env kill switch whenever the merged policy is `Aggressive` (`compiler/oric/src/commands/build_options/mod.rs:426-429`, `compiler/oric/src/main.rs:98-101`). Fresh verification: `timeout 150 env ORI_NO_REPR_OPT=1 cargo test -p oric commands::build_options::tests::parse_recognizes_repr_opt_aggressive -- --exact` fails with `left: Disabled right: Aggressive`, while the conservative-path tests still pass.
+  Impact: The documented “CLI flag overrides env fallback” behavior is false for the default policy, and the per-arg `ori build` loop cannot express “re-enable aggressive” after `--no-repr-opt` or a globally-set env var. This makes the new policy surface asymmetric: `Conservative` and `Disabled` survive, but `Aggressive` is only a default, not a real explicit choice.
+  Required plan update: Track whether a narrowing policy was explicitly set, preserve last-write-wins semantics in `merge()`, and add regression tests covering `ORI_NO_REPR_OPT=1 + --repr-opt=aggressive` plus mixed-order CLI sequences such as `--no-repr-opt --repr-opt=aggressive`.
+  Resolved: Accepted on 2026-03-24. Validated — `narrowing_policy` has no explicitness bit, so `Aggressive` (default) is indistinguishable from “not set”. Env var always wins. Fix: add `narrowing_policy_explicit: bool` to `BuildOptions` (matching `opt_level_explicit`/`debug_level_explicit`/`lto_explicit` pattern), use last-write-wins in `merge()`, and only apply env fallback when policy was not explicitly set. Implementation tasks added to §01.10.
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1251,6 +1263,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [ ] **[LINT]** `compiler/oric/src/commands/build_options.rs` line 15 — `#[allow(clippy::struct_excessive_bools, reason = ...)]` must be `#[expect(clippy::struct_excessive_bools, reason = ...)]`. Fix when touching this file in §01.3 (`--no-repr-opt` flag addition).
 - [ ] **[LINT]** `compiler/ori_parse/src/grammar/attr/mod.rs` — `#[allow(dead_code, reason = ...)]` on `ReprAttr` must be `#[expect(dead_code, reason = ...)]`. Fix when touching this file in §01.7 GAP-CLOSE.
 - [ ] **[TPR-01-032]** Integration test for zero-option build path: `ORI_NO_REPR_OPT=1 ori build file.ori` (no extra build flags) must honor the env var. Either extract the main.rs build-command loop into a testable helper, or add an integration test that drives the real build dispatcher. Must exercise the path at `main.rs:79-101` where the per-arg parser loop never executes.
+- [ ] **[TPR-01-036]** Add `narrowing_policy_explicit: bool` to `BuildOptions` (matching `opt_level_explicit`/`debug_level_explicit`/`lto_explicit` pattern). Update `parse_build_options()` to set `narrowing_policy_explicit = true` when `--repr-opt=*` or `--no-repr-opt` is parsed. Update `merge()` to use last-write-wins when explicit (not "non-default overrides"). Update env fallback in both `parse_build_options()` and `main.rs` to only apply `ORI_NO_REPR_OPT` when `!narrowing_policy_explicit`. Regression tests: `ORI_NO_REPR_OPT=1 + --repr-opt=aggressive` → `Aggressive`; `--no-repr-opt --repr-opt=aggressive` → `Aggressive` (last-write-wins); `--repr-opt=aggressive --no-repr-opt` → `Disabled` (last-write-wins).
 
 - [ ] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug (`cargo test -p ori_repr`) and release (`cargo test -p ori_repr --release`)
 - [ ] Semantic pin tests present: at least one test per subsection that would fail if the canonical mapping, default query return values, or Phase A wiring were reverted
