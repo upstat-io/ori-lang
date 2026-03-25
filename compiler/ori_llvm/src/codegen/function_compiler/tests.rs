@@ -395,6 +395,8 @@ fn compile_impls_populates_method_functions_map() {
         }],
         assoc_types: vec![],
         span: Span::new(0, 0),
+        target_attr: None,
+        cfg_attr: None,
     };
 
     let impl_line = ImplDef {
@@ -416,6 +418,8 @@ fn compile_impls_populates_method_functions_map() {
         }],
         assoc_types: vec![],
         span: Span::new(0, 0),
+        target_attr: None,
+        cfg_attr: None,
     };
 
     // Signatures: distance(self: Point) -> float, distance(self: Line) -> float

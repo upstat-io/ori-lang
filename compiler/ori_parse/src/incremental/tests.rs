@@ -21,6 +21,8 @@ fn test_collect_declarations_sorted() {
         value: ExprId::INVALID,
         span: Span::new(100, 150),
         visibility: ori_ir::Visibility::Private,
+        target_attr: None,
+        cfg_attr: None,
     });
 
     module.functions.push(Function {

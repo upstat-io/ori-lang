@@ -1292,6 +1292,8 @@ impl<'old> AstCopier<'old> {
             methods: new_methods,
             assoc_types: new_assoc_types,
             span: self.adjust_span(impl_def.span),
+            target_attr: impl_def.target_attr.clone(),
+            cfg_attr: impl_def.cfg_attr.clone(),
         }
     }
 
@@ -1382,6 +1384,8 @@ impl<'old> AstCopier<'old> {
             value: self.copy_expr(const_def.value, new_arena),
             span: self.adjust_span(const_def.span),
             visibility: const_def.visibility,
+            target_attr: const_def.target_attr.clone(),
+            cfg_attr: const_def.cfg_attr.clone(),
         }
     }
 
@@ -1462,6 +1466,8 @@ impl<'old> AstCopier<'old> {
             module_alias: use_def.module_alias,
             visibility: use_def.visibility,
             span: self.adjust_span(use_def.span),
+            target_attr: use_def.target_attr.clone(),
+            cfg_attr: use_def.cfg_attr.clone(),
         }
     }
 

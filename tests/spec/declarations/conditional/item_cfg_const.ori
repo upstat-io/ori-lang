@@ -1,0 +1,5 @@
+// Spec §25.4: Item-level #cfg on constants
+#cfg(debug)
+let $log_level = "debug";
+
+@main () -> void = print(msg: "item-level cfg on constant accepted");

@@ -13,6 +13,13 @@ use super::ModuleFormatter;
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format an impl block (trait impl or inherent impl).
     pub fn format_impl(&mut self, impl_def: &ImplDef) {
+        // Item-level conditional attributes (Spec §25.4)
+        if let Some(ref target) = impl_def.target_attr {
+            self.emit_item_target_attr(target);
+        }
+        if let Some(ref cfg) = impl_def.cfg_attr {
+            self.emit_item_cfg_attr(cfg);
+        }
         self.ctx.emit("impl");
 
         // Generic parameters

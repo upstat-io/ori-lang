@@ -1,0 +1,9 @@
+// Spec §25.4: Item-level #target on trait implementations
+type Handle = { fd: int };
+
+#target(os: "linux")
+impl Handle {
+    @close (self) -> void = ();
+}
+
+@main () -> void = print(msg: "item-level target on impl accepted");

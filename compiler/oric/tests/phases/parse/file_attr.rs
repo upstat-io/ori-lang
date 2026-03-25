@@ -454,3 +454,128 @@ fn test_item_target_multifield_on_function() {
     assert!(target.os.is_some(), "os should be set");
     assert!(target.arch.is_some(), "arch should be set");
 }
+
+// TPR-01-056: Item-level conditional attrs on constants (Spec §25.4)
+
+#[test]
+fn test_item_target_on_const() {
+    let output = parse_ok("#target(os: \"linux\")\nlet $log_path = \"/var/log/app\";");
+    assert_eq!(output.module.consts.len(), 1);
+    let c = &output.module.consts[0];
+    assert!(c.target_attr.is_some(), "constant should have target_attr");
+    let target = c.target_attr.as_ref().unwrap();
+    assert!(target.os.is_some(), "target os should be set");
+}
+
+#[test]
+fn test_item_cfg_on_const() {
+    let output = parse_ok("#cfg(debug)\nlet $log_level = \"debug\";");
+    assert_eq!(output.module.consts.len(), 1);
+    let c = &output.module.consts[0];
+    assert!(c.cfg_attr.is_some(), "constant should have cfg_attr");
+    let cfg = c.cfg_attr.as_ref().unwrap();
+    assert!(cfg.debug, "cfg debug should be true");
+}
+
+#[test]
+fn test_const_without_conditional_attrs() {
+    let output = parse_ok("let $answer = 42;");
+    assert_eq!(output.module.consts.len(), 1);
+    let c = &output.module.consts[0];
+    assert!(c.target_attr.is_none(), "no target_attr expected");
+    assert!(c.cfg_attr.is_none(), "no cfg_attr expected");
+}
+
+// TPR-01-056: Item-level conditional attrs on impl blocks (Spec §25.4)
+
+#[test]
+fn test_item_target_on_impl() {
+    let output = parse_ok(
+        "type Sock = { fd: int };\n#target(os: \"linux\")\nimpl Sock {\n    @close (self) -> void = ();\n}",
+    );
+    assert_eq!(output.module.impls.len(), 1);
+    let imp = &output.module.impls[0];
+    assert!(imp.target_attr.is_some(), "impl should have target_attr");
+    let target = imp.target_attr.as_ref().unwrap();
+    assert!(target.os.is_some(), "target os should be set");
+}
+
+#[test]
+fn test_item_cfg_on_impl() {
+    let output = parse_ok(
+        "type Logger = { verbose: bool };\n#cfg(debug)\nimpl Logger {\n    @dump (self) -> void = ();\n}",
+    );
+    assert_eq!(output.module.impls.len(), 1);
+    let imp = &output.module.impls[0];
+    assert!(imp.cfg_attr.is_some(), "impl should have cfg_attr");
+    let cfg = imp.cfg_attr.as_ref().unwrap();
+    assert!(cfg.debug, "cfg debug should be true");
+}
+
+#[test]
+fn test_impl_without_conditional_attrs() {
+    let output = parse_ok("type P = { x: int };\nimpl P {\n    @get (self) -> int = self.x;\n}");
+    assert_eq!(output.module.impls.len(), 1);
+    let imp = &output.module.impls[0];
+    assert!(imp.target_attr.is_none(), "no target_attr expected");
+    assert!(imp.cfg_attr.is_none(), "no cfg_attr expected");
+}
+
+// TPR-01-056: Item-level conditional attrs on imports (Spec §25.4)
+
+#[test]
+fn test_item_target_on_use() {
+    let output =
+        parse_ok("#target(os: \"linux\")\nuse \"./linux_io\" { epoll };\n@main () -> void = ();");
+    assert_eq!(output.module.imports.len(), 1);
+    let imp = &output.module.imports[0];
+    assert!(imp.target_attr.is_some(), "import should have target_attr");
+    let target = imp.target_attr.as_ref().unwrap();
+    assert!(target.os.is_some(), "target os should be set");
+}
+
+#[test]
+fn test_item_cfg_on_use() {
+    let output = parse_ok("#cfg(debug)\nuse \"./debug_utils\" { trace };\n@main () -> void = ();");
+    assert_eq!(output.module.imports.len(), 1);
+    let imp = &output.module.imports[0];
+    assert!(imp.cfg_attr.is_some(), "import should have cfg_attr");
+    let cfg = imp.cfg_attr.as_ref().unwrap();
+    assert!(cfg.debug, "cfg debug should be true");
+}
+
+#[test]
+fn test_use_without_conditional_attrs() {
+    let output = parse_ok("use \"./utils\" { helper };\n@main () -> void = ();");
+    assert_eq!(output.module.imports.len(), 1);
+    let imp = &output.module.imports[0];
+    assert!(imp.target_attr.is_none(), "no target_attr expected");
+    assert!(imp.cfg_attr.is_none(), "no cfg_attr expected");
+}
+
+/// Semantic pin: attrs parsed before a non-import declaration are correctly
+/// forwarded as leftover attrs to the first declaration. This test would fail
+/// if the leftover-attrs plumbing in `parse_imports()` were removed.
+#[test]
+fn test_attrs_before_first_declaration_not_lost() {
+    // #target before a function (no imports) — attrs should be forwarded via leftover
+    let output = parse_ok("#target(os: \"linux\")\n@f () -> void = ();");
+    assert_eq!(output.module.functions.len(), 1);
+    let func = &output.module.functions[0];
+    assert!(
+        func.target_attr.is_some(),
+        "function should have target_attr from leftover attrs"
+    );
+}
+
+/// Mixed: conditional import followed by conditional function.
+#[test]
+fn test_conditional_import_then_conditional_function() {
+    let output = parse_ok(
+        "#cfg(debug)\nuse \"./debug\" { trace };\n#target(os: \"linux\")\n@f () -> void = ();",
+    );
+    assert_eq!(output.module.imports.len(), 1);
+    assert!(output.module.imports[0].cfg_attr.is_some());
+    assert_eq!(output.module.functions.len(), 1);
+    assert!(output.module.functions[0].target_attr.is_some());
+}
