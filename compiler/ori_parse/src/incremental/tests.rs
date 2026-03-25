@@ -230,6 +230,160 @@ fn test_parse_incremental_insert() {
     assert_eq!(new_result.module.functions.len(), 2);
 }
 
+// TPR-01-060: Incremental parsing must preserve file-level attributes.
+#[test]
+fn test_incremental_preserves_file_attr_target() {
+    use crate::{parse, parse_incremental};
+    use ori_ir::StringInterner;
+
+    let interner = StringInterner::new();
+
+    // Source with file-level #!target attribute
+    // "#!target(os: \"linux\")\n\n@first () -> int = 42;\n\n@second () -> int = 100;"
+    //                                                                          ^pos 68
+    let source = "#!target(os: \"linux\")\n\n@first () -> int = 42;\n\n@second () -> int = 100;";
+    let tokens = ori_lexer::lex(source, &interner);
+    let old_result = parse(&tokens, &interner);
+
+    assert!(!old_result.has_errors());
+    assert!(
+        old_result.module.file_attr.is_some(),
+        "full parse must preserve file_attr"
+    );
+    assert_eq!(old_result.module.functions.len(), 2);
+
+    // Modify second function body: change 100 to 200
+    let new_source =
+        "#!target(os: \"linux\")\n\n@first () -> int = 42;\n\n@second () -> int = 200;";
+    let new_tokens = ori_lexer::lex(new_source, &interner);
+
+    // "100" is at position 68, 3 chars, replaced with "200" (3 chars)
+    let change = TextChange::new(68, 71, 3);
+
+    let new_result = parse_incremental(&new_tokens, &interner, &old_result, change);
+
+    assert!(!new_result.has_errors());
+    assert!(
+        new_result.module.file_attr.is_some(),
+        "incremental parse must preserve file_attr (TPR-01-060)"
+    );
+    assert_eq!(new_result.module.functions.len(), 2);
+}
+
+#[test]
+fn test_incremental_preserves_file_attr_cfg() {
+    use crate::{parse, parse_incremental};
+    use ori_ir::StringInterner;
+
+    let interner = StringInterner::new();
+
+    // Source with file-level #!cfg attribute
+    // "#!cfg(debug)\n\n@f () -> int = 1;"
+    //                               ^pos 29
+    let source = "#!cfg(debug)\n\n@f () -> int = 1;";
+    let tokens = ori_lexer::lex(source, &interner);
+    let old_result = parse(&tokens, &interner);
+
+    assert!(!old_result.has_errors());
+    assert!(
+        old_result.module.file_attr.is_some(),
+        "full parse must preserve file_attr"
+    );
+
+    // Change function body: 1 to 2
+    let new_source = "#!cfg(debug)\n\n@f () -> int = 2;";
+    let new_tokens = ori_lexer::lex(new_source, &interner);
+
+    // "1" at position 29, 1 char, replaced with "2" (1 char)
+    let change = TextChange::new(29, 30, 1);
+
+    let new_result = parse_incremental(&new_tokens, &interner, &old_result, change);
+
+    assert!(!new_result.has_errors());
+    assert!(
+        new_result.module.file_attr.is_some(),
+        "incremental parse must preserve #!cfg file_attr (TPR-01-060)"
+    );
+}
+
+// TPR-01-061: Incremental parsing must thread leftover attrs to first declaration.
+#[test]
+fn test_incremental_preserves_first_decl_target_attr() {
+    use crate::{parse, parse_incremental};
+    use ori_ir::StringInterner;
+
+    let interner = StringInterner::new();
+
+    // Source with #target on the first (and only) function — no imports
+    // "#target(os: \"linux\")\n@platform_f () -> int = 42;"
+    //                                                 ^pos 45
+    let source = "#target(os: \"linux\")\n@platform_f () -> int = 42;";
+    let tokens = ori_lexer::lex(source, &interner);
+    let old_result = parse(&tokens, &interner);
+
+    assert!(!old_result.has_errors());
+    assert_eq!(old_result.module.functions.len(), 1);
+    assert!(
+        old_result.module.functions[0].target_attr.is_some(),
+        "full parse must preserve target_attr on first function"
+    );
+
+    // Change function body: 42 to 99
+    let new_source = "#target(os: \"linux\")\n@platform_f () -> int = 99;";
+    let new_tokens = ori_lexer::lex(new_source, &interner);
+
+    // "42" at position 45, 2 chars, replaced with "99" (2 chars)
+    let change = TextChange::new(45, 47, 2);
+
+    let new_result = parse_incremental(&new_tokens, &interner, &old_result, change);
+
+    assert!(!new_result.has_errors());
+    assert_eq!(new_result.module.functions.len(), 1);
+    assert!(
+        new_result.module.functions[0].target_attr.is_some(),
+        "incremental parse must preserve target_attr on first function (TPR-01-061)"
+    );
+}
+
+#[test]
+fn test_incremental_preserves_first_decl_cfg_attr_after_import() {
+    use crate::{parse, parse_incremental};
+    use ori_ir::StringInterner;
+
+    let interner = StringInterner::new();
+
+    // Source with import, then #cfg on the first function
+    // "use std.math { sqrt };\n\n#cfg(debug)\n@debug_f () -> int = 42;"
+    //                                                             ^pos 59
+    let source = "use std.math { sqrt };\n\n#cfg(debug)\n@debug_f () -> int = 42;";
+    let tokens = ori_lexer::lex(source, &interner);
+    let old_result = parse(&tokens, &interner);
+
+    assert!(!old_result.has_errors());
+    assert_eq!(old_result.module.imports.len(), 1);
+    assert_eq!(old_result.module.functions.len(), 1);
+    assert!(
+        old_result.module.functions[0].cfg_attr.is_some(),
+        "full parse must preserve cfg_attr on first function after imports"
+    );
+
+    // Change function body: 42 to 99
+    let new_source = "use std.math { sqrt };\n\n#cfg(debug)\n@debug_f () -> int = 99;";
+    let new_tokens = ori_lexer::lex(new_source, &interner);
+
+    // "42" at position 59, 2 chars, replaced with "99" (2 chars)
+    let change = TextChange::new(59, 61, 2);
+
+    let new_result = parse_incremental(&new_tokens, &interner, &old_result, change);
+
+    assert!(!new_result.has_errors());
+    assert_eq!(new_result.module.functions.len(), 1);
+    assert!(
+        new_result.module.functions[0].cfg_attr.is_some(),
+        "incremental parse must preserve cfg_attr on first function (TPR-01-061)"
+    );
+}
+
 #[test]
 fn test_parse_incremental_fresh_parse_on_overlap() {
     use crate::{parse, parse_incremental};

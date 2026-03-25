@@ -4,9 +4,9 @@ title: "Representation IR & Decision Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-25
-  note: "Open parser review findings: extension-import attr handling and incremental parse attr/file-attr drift."
+  note: "All TPR findings resolved. TPR-01-059 (extension import attr validation), TPR-01-060 (incremental file-attr), TPR-01-061 (incremental leftover attrs) fixed 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1247,20 +1247,14 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `[TPR-01-058][high]` `compiler/ori_fmt/src/declarations/impls.rs:105` — `ori fmt` is still destructive for the conditional-attribute follow-up: impl attrs are dropped on the comment-preserving path, and type formatting still strips `#repr`.
   Resolved: Fixed on 2026-03-25. (1) Added `#target`/`#cfg` emission to `format_impl_with_comments()` mirroring `format_impl()`. (2) Added `emit_repr_attr()` helper to `ModuleFormatter` that formats all `ReprAttrKind` variants (`C`, `Packed`, `Transparent`, `Aligned(N)`, `CAligned(N)`). (3) Added `#repr` emission to `format_type_decl()` between `#cfg` and `#derive` per canonical attr order. 4 golden test files added: `types/repr_attr.ori`, `types/repr_with_target.ori`, `impls/conditional_attrs.ori`, `comments/edge/impl_conditional_attrs.ori`. All 36 golden tests pass. 13,933 tests pass.
 
-- [ ] `[TPR-01-059][medium]` `compiler/ori_parse/src/lib.rs:647` — Attributes on `extension ...` imports are silently accepted and dropped.
-  Evidence: `parse_imports()` parses `ParsedAttrs` before both `use` and `extension` imports, but only the `use` branch validates unsupported attrs. The `extension` branch calls `parse_extension_import(visibility)` with no attrs, and [`imports.rs`](/home/eric/projects/ori_lang/compiler/ori_ir/src/ast/items/imports.rs) shows `ExtensionImport` has no `target_attr`/`cfg_attr` fields. As a result, `#target`, `#cfg`, and even invalid attrs like `#repr` placed before `extension ...` disappear without any diagnostic.
-  Impact: The parser now violates the same attr-placement contract that TPR-01-057 just fixed for other item kinds: invalid syntax is accepted silently, and any future conditional-import support for `extension` imports has no AST surface to preserve it.
-  Required plan update: Either reject all attrs on extension imports with E1006 and add phase coverage, or explicitly extend `ExtensionImport` plus parser/formatter support if spec work decides they are valid.
+- [x] `[TPR-01-059][medium]` `compiler/ori_parse/src/lib.rs:647` — Attributes on `extension ...` imports are silently accepted and dropped.
+  Resolved: Fixed on 2026-03-25. Added E1006 validation in the extension branch of `parse_imports()` that rejects ALL attributes on extension imports (per spec §25.4, extension imports are not in the supported item kinds list). 5 phase tests in `attr_validation.rs`: reject #target, reject #cfg, reject #repr, reject #derive, semantic pin for plain extension import. 13,942 tests pass.
 
-- [ ] `[TPR-01-060][high]` `compiler/ori_parse/src/lib.rs:1007` — Incremental parsing skips file-attribute parsing entirely, so `#!target`/`#!cfg` files do not round-trip through the incremental path.
-  Evidence: `parse_module()` sets `module.file_attr = self.parse_file_attribute(&mut errors)` before imports/declarations, but `parse_module_incremental()` starts directly with `self.parse_imports(&mut module, &mut errors)`. [`attr/mod.rs`](/home/eric/projects/ori_lang/compiler/ori_parse/src/grammar/attr/mod.rs) confirms file attrs are recognized only by `parse_file_attribute()` on `TokenKind::HashBang`.
-  Impact: Any editor or incremental-compile flow that reparses a file beginning with `#!target(...)` or `#!cfg(...)` can diverge from the full-parse AST, turning valid files into incremental-only parse errors or dropping the module-level conditional state entirely.
-  Required plan update: Parse and preserve `module.file_attr` in `parse_module_incremental()` before the import loop, then add an incremental regression test covering both `#!target` and `#!cfg`.
+- [x] `[TPR-01-060][high]` `compiler/ori_parse/src/lib.rs:1007` — Incremental parsing skips file-attribute parsing entirely, so `#!target`/`#!cfg` files do not round-trip through the incremental path.
+  Resolved: Fixed on 2026-03-25. Added `module.file_attr = self.parse_file_attribute(&mut errors)` before `parse_imports()` in `parse_module_incremental()`, mirroring the full parser. 2 incremental regression tests: `test_incremental_preserves_file_attr_target` and `test_incremental_preserves_file_attr_cfg`. 13,942 tests pass.
 
-- [ ] `[TPR-01-061][high]` `compiler/ori_parse/src/lib.rs:1008` — Incremental parsing drops the `parse_imports()` leftover attrs, so item-level attrs before the first declaration are lost on the incremental path.
-  Evidence: The full parser captures `let mut leftover_attrs = self.parse_imports(&mut module, &mut errors);` and feeds them into the first declaration loop iteration, but `parse_module_incremental()` ignores the `Option<ParsedAttrs>` result from the same helper. `parse_imports()` explicitly documents that it returns attrs consumed before the first non-import token, and the current incremental tests in [`incremental/tests.rs`](/home/eric/projects/ori_lang/compiler/ori_parse/src/incremental/tests.rs) never cover a source file that starts with `#target`/`#cfg` on the first declaration.
-  Impact: After the recent §25.4 work, incremental reparsing can silently strip `target_attr` / `cfg_attr` from the first function, type, constant, import, or impl in a file even though a clean parse preserves them, creating AST drift between full and incremental compilation.
-  Required plan update: Thread `leftover_attrs` through the incremental declaration loop exactly like the full parser and add regression tests for first-item conditional attrs, including the no-import case that motivated the helper in the first place.
+- [x] `[TPR-01-061][high]` `compiler/ori_parse/src/lib.rs:1008` — Incremental parsing drops the `parse_imports()` leftover attrs, so item-level attrs before the first declaration are lost on the incremental path.
+  Resolved: Fixed on 2026-03-25. Captured `parse_imports()` return as `leftover_attrs` and threaded through the incremental declaration loop via `.take().unwrap_or_else()`, exactly mirroring the full parser pattern. 2 incremental regression tests: `test_incremental_preserves_first_decl_target_attr` (no imports) and `test_incremental_preserves_first_decl_cfg_attr_after_import` (with imports). 13,942 tests pass.
 
 ---
 
