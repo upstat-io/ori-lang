@@ -41,7 +41,6 @@ mod struct_repr;
 #[cfg(test)]
 mod tests;
 
-pub use canonical::canonical;
 pub use enum_repr::{EnumRepr, EnumTag, VariantRepr};
 pub use plan::{
     DecisionReason, DecisionSource, NarrowingPolicy, RcStrategy, ReprAttribute, ReprDecision,

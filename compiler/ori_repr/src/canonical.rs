@@ -162,12 +162,21 @@ fn try_canonical_cached(
 /// via cycle detection — recursive positions are represented as
 /// [`MachineRepr::RcPointer`] since they are always heap-allocated in Ori.
 ///
+/// # Visibility
+///
+/// This function is test-only because standalone calls without a shared
+/// cache do NOT guarantee SCC consistency for mutually recursive types.
+/// The production contract is [`compute_repr_plan()`](crate::compute_repr_plan),
+/// which calls [`populate_canonical()`] with a shared cache to ensure each
+/// `Idx` gets one stable representation regardless of traversal order.
+///
 /// # Panics
 ///
 /// Panics if an unresolved type variable (`Var`, `BoundVar`, `RigidVar`,
 /// `Scheme`, `Projection`, `ModuleNs`, `Infer`, `SelfType`) reaches
 /// this function — these indicate a type checker bug.
-pub fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
+#[cfg(test)]
+pub(crate) fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
     canonical_cached(pool, idx, &mut FxHashMap::default())
 }
 
