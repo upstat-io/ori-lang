@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use super::multi_emission::{emit_module_artifact, lto_merge};
 use super::{
     build_optimization_config, configure_target, determine_output_path, link_and_finish,
     BuildOptions, LtoMode,
@@ -170,101 +171,23 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
     drop(temp_dir);
 }
 
-/// Merge bitcode files via LTO pipeline, returning a single object file path.
-///
-/// All error paths diverge via `report_codegen_error` (which exits the process).
-fn lto_merge(
-    object_files: &[PathBuf],
-    obj_dir: &Path,
-    target: &ori_llvm::aot::TargetConfig,
-    opt_config: &ori_llvm::aot::OptimizationConfig,
-    options: &BuildOptions,
-) -> Vec<PathBuf> {
-    use ori_llvm::aot::ObjectEmitter;
-    use ori_llvm::inkwell::context::Context;
-    use ori_llvm::inkwell::module::Module;
-
-    use crate::problem::codegen::{report_codegen_error, CodegenProblem};
-
-    if options.verbose {
-        eprintln!("  Running LTO merge ({} modules)...", object_files.len());
-    }
-
-    let lto_context = Context::create();
-    // Load first bitcode as the base module
-    let merged_module = Module::parse_bitcode_from_path(&object_files[0], &lto_context)
-        .unwrap_or_else(|e| {
-            report_codegen_error(CodegenProblem::EmissionFailed {
-                format: "bitcode".into(),
-                path: object_files[0].display().to_string(),
-                message: format!("failed to load: {e}"),
-            });
-        });
-
-    // Link remaining bitcode modules into the base
-    for bc_path in &object_files[1..] {
-        let other = Module::parse_bitcode_from_path(bc_path, &lto_context).unwrap_or_else(|e| {
-            report_codegen_error(CodegenProblem::EmissionFailed {
-                format: "bitcode".into(),
-                path: bc_path.display().to_string(),
-                message: format!("failed to load: {e}"),
-            });
-        });
-        if let Err(e) = merged_module.link_in_module(other) {
-            report_codegen_error(CodegenProblem::OptimizationFailed {
-                pipeline: "LTO module linking".into(),
-                message: e.to_string(),
-            });
-        }
-    }
-
-    // Configure merged module for target
-    let emitter = ObjectEmitter::new(target).unwrap_or_else(|e| report_codegen_error(e));
-
-    if let Err(e) = emitter.configure_module(&merged_module) {
-        report_codegen_error(CodegenProblem::ModuleConfigFailed {
-            message: e.to_string(),
-        });
-    }
-
-    // Run LTO pipeline on merged module
-    if let Err(e) = ori_llvm::aot::run_lto_pipeline(&merged_module, emitter.machine(), opt_config) {
-        report_codegen_error(e);
-    }
-
-    // Emit final object
-    let final_obj = obj_dir.join("merged_lto.o");
-    if let Err(e) = emitter.emit_object(&merged_module, &final_obj) {
-        report_codegen_error(CodegenProblem::EmissionFailed {
-            format: "LTO object".into(),
-            path: final_obj.display().to_string(),
-            message: e.to_string(),
-        });
-    }
-
-    if options.verbose {
-        eprintln!("  LTO merge complete -> {}", final_obj.display());
-    }
-
-    vec![final_obj]
-}
-
 /// Context for compiling a single module in multi-file compilation.
-struct ModuleCompileContext<'a> {
-    db: &'a oric::CompilerDb,
-    target: &'a ori_llvm::aot::TargetConfig,
-    opt_config: &'a ori_llvm::aot::OptimizationConfig,
-    mangler: &'a ori_llvm::aot::Mangler,
-    graph: &'a ori_llvm::aot::incremental::deps::DependencyGraph,
-    base_dir: &'a Path,
-    obj_dir: &'a Path,
-    verbose: bool,
+pub(super) struct ModuleCompileContext<'a> {
+    pub(super) db: &'a oric::CompilerDb,
+    pub(super) target: &'a ori_llvm::aot::TargetConfig,
+    pub(super) opt_config: &'a ori_llvm::aot::OptimizationConfig,
+    pub(super) mangler: &'a ori_llvm::aot::Mangler,
+    pub(super) graph: &'a ori_llvm::aot::incremental::deps::DependencyGraph,
+    pub(super) base_dir: &'a Path,
+    pub(super) obj_dir: &'a Path,
+    pub(super) verbose: bool,
     /// Representation optimization policy.
-    narrowing_policy: ori_repr::NarrowingPolicy,
+    pub(super) narrowing_policy: ori_repr::NarrowingPolicy,
     /// Optional ARC IR cache for incremental compilation.
-    arc_cache: Option<ori_llvm::aot::incremental::ArcIrCache>,
+    pub(super) arc_cache: Option<ori_llvm::aot::incremental::ArcIrCache>,
     /// Per-module content hashes for ARC cache keying.
-    module_hash: Option<rustc_hash::FxHashMap<PathBuf, ori_llvm::aot::incremental::ContentHash>>,
+    pub(super) module_hash:
+        Option<rustc_hash::FxHashMap<PathBuf, ori_llvm::aot::incremental::ContentHash>>,
 }
 
 /// Information about a compiled module, including its function signatures.
@@ -383,85 +306,6 @@ fn compile_single_module(
     };
 
     Some((obj_path, module_info))
-}
-
-/// Configure, optimize, and emit a compiled LLVM module to an object or bitcode file.
-///
-/// Handles both LTO (pre-link + bitcode emit) and non-LTO (verify + optimize + emit)
-/// pipelines. Returns the output file path on success.
-fn emit_module_artifact(
-    ctx: &ModuleCompileContext<'_>,
-    llvm_module: &ori_llvm::inkwell::module::Module<'_>,
-    module_name: &str,
-) -> Option<PathBuf> {
-    use ori_llvm::aot::ObjectEmitter;
-
-    use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
-
-    let emitter = match ObjectEmitter::new(ctx.target) {
-        Ok(e) => e,
-        Err(e) => {
-            let mut acc = CodegenDiagnostics::new();
-            acc.push(e.into());
-            emit_codegen_diagnostics(acc);
-            return None;
-        }
-    };
-
-    if let Err(e) = emitter.configure_module(llvm_module) {
-        let mut acc = CodegenDiagnostics::new();
-        acc.push(CodegenProblem::ModuleConfigFailed {
-            message: e.to_string(),
-        });
-        emit_codegen_diagnostics(acc);
-        return None;
-    }
-
-    let is_lto = !matches!(ctx.opt_config.lto, ori_llvm::aot::LtoMode::Off);
-    let safe_name = module_name.replace('$', "_");
-
-    if is_lto {
-        // LTO: run pre-link pipeline and emit bitcode
-        let bc_path = ctx.obj_dir.join(format!("{safe_name}.bc"));
-        if ctx.verbose {
-            eprintln!(
-                "    Emitting bitcode to {} (LTO pre-link)",
-                bc_path.display()
-            );
-        }
-        if let Err(e) = ori_llvm::aot::prelink_and_emit_bitcode(
-            llvm_module,
-            emitter.machine(),
-            ctx.opt_config,
-            &bc_path,
-        ) {
-            let mut acc = CodegenDiagnostics::new();
-            acc.push(e.into());
-            emit_codegen_diagnostics(acc);
-            return None;
-        }
-        return Some(bc_path);
-    }
-
-    // Non-LTO: verify, optimize, emit object
-    let obj_path = ctx.obj_dir.join(format!("{safe_name}.o"));
-    if ctx.verbose {
-        eprintln!("    Emitting object to {}", obj_path.display());
-    }
-
-    if let Err(e) = emitter.verify_optimize_emit(
-        llvm_module,
-        ctx.opt_config,
-        &obj_path,
-        ori_llvm::aot::OutputFormat::Object,
-    ) {
-        let mut acc = CodegenDiagnostics::new();
-        acc.push(e.into());
-        emit_codegen_diagnostics(acc);
-        return None;
-    }
-
-    Some(obj_path)
 }
 
 /// Extract public function signatures with actual types from a type-checked module.

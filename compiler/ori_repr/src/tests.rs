@@ -332,7 +332,7 @@ fn semantic_pin_canonical_float_is_f64() {
 
 // ── Canonical Mapping Tests ─────────────────────────────────────────
 
-use crate::canonical::canonical;
+use crate::canonical::{canonical, canonical_cached};
 use ori_types::{Idx, Pool};
 
 /// Test canonical mapping for all 12 primitive types.
@@ -640,66 +640,88 @@ fn canonical_enum() {
     }
 }
 
-/// Test that unresolved Var panics.
+/// Test that unresolved Var returns None (not panic).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "unresolved type variable")]
-fn canonical_panics_on_var() {
+fn canonical_returns_none_for_var() {
     let mut pool = Pool::new();
     let var_idx = pool.fresh_var();
-    canonical(&pool, var_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, var_idx, &mut cache).is_none(),
+        "Var must return None, not panic"
+    );
 }
 
-/// Test that `BoundVar` panics — constructs a real `BoundVar` via `pool.intern`.
+/// Test that `BoundVar` returns None — constructs a real `BoundVar` via `pool.intern`.
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "unresolved type variable")]
-fn canonical_panics_on_bound_var() {
+fn canonical_returns_none_for_bound_var() {
     use ori_types::Tag;
 
     let mut pool = Pool::new();
     let bound_var_idx = pool.intern(Tag::BoundVar, 0);
-    // BoundVar must never reach codegen
-    canonical(&pool, bound_var_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, bound_var_idx, &mut cache).is_none(),
+        "BoundVar must return None, not panic"
+    );
 }
 
-/// Test that `RigidVar` panics.
+/// Test that `RigidVar` returns None.
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "unresolved type variable")]
-fn canonical_panics_on_rigid_var() {
+fn canonical_returns_none_for_rigid_var() {
     let mut pool = Pool::new();
     let rigid = pool.rigid_var(Name::new(0, 999));
-    canonical(&pool, rigid);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, rigid, &mut cache).is_none(),
+        "RigidVar must return None, not panic"
+    );
 }
 
-/// Test that Error type panics (should not reach codegen).
+/// Test that Error type returns None (should not reach codegen).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "should not reach codegen")]
-fn canonical_panics_on_error() {
+fn canonical_returns_none_for_error() {
     let pool = Pool::new();
-    canonical(&pool, Idx::ERROR);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, Idx::ERROR, &mut cache).is_none(),
+        "Error must return None, not panic"
+    );
 }
 
-/// §01.5: Scheme type must panic (should never reach codegen).
+/// §01.5: Scheme type returns None (should never reach codegen).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "should never reach codegen")]
-fn canonical_panics_on_scheme() {
+fn canonical_returns_none_for_scheme() {
     use ori_types::Tag;
 
     let mut pool = Pool::new();
     let scheme_idx = pool.scheme(&[0], Idx::INT);
-    // Verify it's actually a Scheme tag
     assert_eq!(pool.tag(scheme_idx), Tag::Scheme);
-    canonical(&pool, scheme_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, scheme_idx, &mut cache).is_none(),
+        "Scheme must return None, not panic"
+    );
 }
 
-/// §01.5: Infer type must panic (should never reach codegen).
+/// §01.5: Infer type returns None (should never reach codegen).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "should never reach codegen")]
-fn canonical_panics_on_infer() {
+fn canonical_returns_none_for_infer() {
     use ori_types::Tag;
 
     let mut pool = Pool::new();
     let infer_idx = pool.intern(Tag::Infer, 0);
-    canonical(&pool, infer_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, infer_idx, &mut cache).is_none(),
+        "Infer must return None, not panic"
+    );
 }
 
 /// §01.5: Named→Int resolves to same canonical as Int directly.
@@ -993,8 +1015,12 @@ fn canonical_mutual_recursion_consistent() {
 
     // Compute both via shared cache (simulating populate_canonical)
     let mut cache = rustc_hash::FxHashMap::default();
-    let a_repr = crate::canonical::canonical_cached(&pool, a_struct, &mut cache);
-    let b_repr = crate::canonical::canonical_cached(&pool, b_struct, &mut cache);
+    let Some(a_repr) = crate::canonical::canonical_cached(&pool, a_struct, &mut cache) else {
+        panic!("A should canonicalize");
+    };
+    let Some(b_repr) = crate::canonical::canonical_cached(&pool, b_struct, &mut cache) else {
+        panic!("B should canonicalize");
+    };
 
     // Both should be Struct types
     let MachineRepr::Struct(ref a_s) = a_repr else {
@@ -1030,8 +1056,75 @@ fn canonical_mutual_recursion_consistent() {
     );
 
     // Semantic pin: calling canonical_cached again returns the same result (cache hit)
-    let a_repr2 = crate::canonical::canonical_cached(&pool, a_struct, &mut cache);
+    let Some(a_repr2) = crate::canonical::canonical_cached(&pool, a_struct, &mut cache) else {
+        panic!("cached A should canonicalize");
+    };
     assert_eq!(a_repr, a_repr2, "cached result must be stable");
+}
+
+/// TPR-01-047 semantic pin: a struct containing an Error-typed field returns
+/// None (not panic) because the child type cannot be canonicalized.
+/// This is the key regression test — if the fallible path is reverted to
+/// panics, this test detects it.
+#[test]
+fn canonical_returns_none_for_struct_with_error_child() {
+    let mut pool = Pool::new();
+    let field_name = Name::new(0, 42);
+    // Create a struct with one field of type Error
+    let struct_idx = pool.struct_type(Name::new(0, 100), &[(field_name, Idx::ERROR)]);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, struct_idx, &mut cache).is_none(),
+        "struct with Error child must return None, not panic"
+    );
+}
+
+/// TPR-01-047 semantic pin: an Option wrapping an Error type returns None.
+#[test]
+fn canonical_returns_none_for_option_of_error() {
+    let mut pool = Pool::new();
+    let option_idx = pool.option(Idx::ERROR);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, option_idx, &mut cache).is_none(),
+        "Option<Error> must return None, not panic"
+    );
+}
+
+/// TPR-01-047 semantic pin: a list of Error-typed elements returns None.
+#[test]
+fn canonical_returns_none_for_list_of_error() {
+    let mut pool = Pool::new();
+    let list_idx = pool.list(Idx::ERROR);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, list_idx, &mut cache).is_none(),
+        "[Error] must return None, not panic"
+    );
+}
+
+/// TPR-01-047 semantic pin: `populate_canonical` does not panic on pools
+/// that contain Error and type-variable types.
+#[test]
+fn populate_canonical_no_panics_with_error_types() {
+    use crate::plan::NarrowingPolicy;
+
+    let mut pool = Pool::new();
+    // Add some valid types
+    let _list_int = pool.list(Idx::INT);
+    let _option_str = pool.option(Idx::STR);
+    // Add some invalid types that should be silently skipped
+    let _list_error = pool.list(Idx::ERROR);
+    let _var = pool.fresh_var();
+
+    // This must NOT panic — the fix eliminates catch_unwind
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+
+    // Valid types should be populated
+    assert!(
+        plan.get_repr(Idx::INT).is_some(),
+        "Int should have a canonical repr"
+    );
 }
 
 /// Non-recursive type appearing multiple times is NOT treated as a cycle.
@@ -1891,6 +1984,66 @@ fn repr_convert_c_aligned_roundtrip() {
     assert_eq!(attr, ReprAttribute::CAligned(32));
 }
 
+// ── TPR-01-046: Named-type Idx storage contract ────────────────────
+
+#[test]
+fn repr_attr_stored_via_named_idx() {
+    // TPR-01-046: The live pipeline stores #repr attrs keyed by the Named Idx
+    // from TypeEntry, not by a concrete struct_type Idx. This test pins that
+    // the storage and retrieval contract works with Named Idx values, matching
+    // the production codegen_pipeline path.
+    let mut pool = ori_types::Pool::new();
+
+    // Create a Named Idx (as the type registry and codegen pipeline would produce).
+    let named_idx = pool.named(ori_ir::Name::from_raw(500));
+
+    // Store #repr("c") under the Named Idx.
+    let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+
+    // Verify retrieval works via the same Named Idx.
+    assert_eq!(
+        plan.repr_attr(named_idx),
+        Some(&ReprAttribute::C),
+        "Named Idx must store and retrieve #repr attrs — this is the production path"
+    );
+
+    // Also verify that a different Named Idx returns None.
+    let other_named = pool.named(ori_ir::Name::from_raw(501));
+    assert_eq!(
+        plan.repr_attr(other_named),
+        None,
+        "repr_attr on unrelated Named Idx must return None"
+    );
+}
+
+#[test]
+fn repr_attr_named_vs_struct_idx_independent() {
+    // TPR-01-046 semantic pin: Named Idx and struct_type Idx for the same name
+    // are DIFFERENT pool entries. A #repr stored on one must NOT be visible on
+    // the other. This verifies the storage contract uses exact Idx equality.
+    let mut pool = ori_types::Pool::new();
+    let name = ori_ir::Name::from_raw(600);
+
+    let named_idx = pool.named(name);
+    let struct_idx = pool.struct_type(name, &[]);
+
+    // Store #repr("packed") on the Named Idx only.
+    let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::Packed)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+
+    assert_eq!(
+        plan.repr_attr(named_idx),
+        Some(&ReprAttribute::Packed),
+        "Named Idx should have the attr"
+    );
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        None,
+        "struct_type Idx should NOT have the attr — different pool entry"
+    );
+}
+
 // ── §01.9: Canonical Representation Tests ──────────────────────────
 
 /// §01.9 Item 4: Named→Struct resolution. Previous tests only covered
@@ -1962,15 +2115,19 @@ fn trivial_struct_containing_all_unit_enum() {
     }
 }
 
-/// §01.9 Item 10: `SelfType` must panic (should never reach codegen).
+/// §01.9 Item 10: `SelfType` returns None (should never reach codegen).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "should never reach codegen")]
-fn canonical_panics_on_self_type() {
+fn canonical_returns_none_for_self_type() {
     use ori_types::Tag;
 
     let mut pool = Pool::new();
     let self_idx = pool.intern(Tag::SelfType, 0);
-    canonical(&pool, self_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, self_idx, &mut cache).is_none(),
+        "SelfType must return None, not panic"
+    );
 }
 
 /// §01.9 Item 11: `FatPointer` structural layout assertion.
@@ -2197,4 +2354,343 @@ fn storage_equivalence_zst_divergence() {
     } else {
         panic!("Struct with Unit field must be Struct");
     }
+}
+
+/// §01.9: `Borrowed` returns None — reserved type, not a codegen type.
+#[test]
+fn canonical_returns_none_for_borrowed() {
+    use ori_types::{LifetimeId, Tag};
+
+    let mut pool = Pool::new();
+    let borrowed_idx = pool.borrowed(Idx::INT, LifetimeId::from_raw(1));
+    assert_eq!(pool.tag(borrowed_idx), Tag::Borrowed);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, borrowed_idx, &mut cache).is_none(),
+        "Borrowed must return None, not panic"
+    );
+}
+
+/// §01.9: `Projection` returns None — type-checker artifact.
+#[test]
+fn canonical_returns_none_for_projection() {
+    use ori_types::Tag;
+
+    let mut pool = Pool::new();
+    let proj_idx = pool.intern(Tag::Projection, 0);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, proj_idx, &mut cache).is_none(),
+        "Projection must return None, not panic"
+    );
+}
+
+/// §01.9: `ModuleNs` returns None — module namespace, not a runtime type.
+#[test]
+fn canonical_returns_none_for_module_ns() {
+    use ori_types::Tag;
+
+    let mut pool = Pool::new();
+    let ns_idx = pool.intern(Tag::ModuleNs, 0);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, ns_idx, &mut cache).is_none(),
+        "ModuleNs must return None, not panic"
+    );
+}
+
+/// §01.10: Storage type equivalence — comprehensive 29-type matrix.
+///
+/// Verifies that `canonical()` produces the correct `MachineRepr` for every
+/// type kind in the matrix from §01.9. Each assertion documents the expected
+/// LLVM storage type that `TypeInfo::storage_type()` or `TypeLayoutResolver`
+/// would produce for the same type. This is the parity contract between
+/// `ori_repr` (representation-agnostic) and `ori_llvm` (LLVM-specific).
+///
+/// Matrix:
+///   Primitives (12) | Containers (7) | Two-child (3) | Complex (4)
+///   Named (3)       | Variables (3)  | Scheme/Special (5)
+///
+/// Divergences from `TypeInfoStore` are documented inline.
+#[test]
+#[expect(
+    clippy::cognitive_complexity,
+    clippy::too_many_lines,
+    reason = "Exhaustive 29-type matrix test — splitting would obscure the complete coverage contract"
+)]
+fn storage_type_equivalence_full_29_type_matrix() {
+    use ori_types::{EnumVariant, LifetimeId, Tag};
+
+    let mut pool = Pool::new();
+
+    // ── Primitives (12) ──
+    // TypeInfo::Int → i64 | canonical: Int { I64, signed: true }
+    assert_eq!(
+        canonical(&pool, Idx::INT),
+        MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true
+        },
+        "[1/29] Int → i64"
+    );
+    // TypeInfo::Float → f64 | canonical: Float { F64 }
+    assert_eq!(
+        canonical(&pool, Idx::FLOAT),
+        MachineRepr::Float {
+            width: FloatWidth::F64
+        },
+        "[2/29] Float → f64"
+    );
+    // TypeInfo::Bool → i1
+    assert_eq!(
+        canonical(&pool, Idx::BOOL),
+        MachineRepr::Bool,
+        "[3/29] Bool → i1"
+    );
+    // TypeInfo::Str → {i64, i64, ptr}
+    assert_eq!(
+        canonical(&pool, Idx::STR),
+        MachineRepr::FatPointer(FatRepr::Str),
+        "[4/29] Str → {{i64, i64, ptr}}"
+    );
+    // TypeInfo::Char → i32
+    assert_eq!(
+        canonical(&pool, Idx::CHAR),
+        MachineRepr::Char,
+        "[5/29] Char → i32"
+    );
+    // TypeInfo::Byte → i8
+    assert_eq!(
+        canonical(&pool, Idx::BYTE),
+        MachineRepr::Byte,
+        "[6/29] Byte → i8"
+    );
+    // TypeInfo::Unit → i64 (DIVERGENCE: canonical uses zero-sized Unit)
+    assert_eq!(
+        canonical(&pool, Idx::UNIT),
+        MachineRepr::Unit,
+        "[7/29] Unit → ZST"
+    );
+    // TypeInfo::Never → i64 (DIVERGENCE: canonical uses zero-sized Never)
+    assert_eq!(
+        canonical(&pool, Idx::NEVER),
+        MachineRepr::Never,
+        "[8/29] Never → ZST"
+    );
+    // Error → i64 in TypeInfo, None in canonical (non-codegen)
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, Idx::ERROR, &mut cache).is_none(),
+        "[9/29] Error → None"
+    );
+    // TypeInfo::Duration → i64
+    assert_eq!(
+        canonical(&pool, Idx::DURATION),
+        MachineRepr::Duration,
+        "[10/29] Duration → i64"
+    );
+    // TypeInfo::Size → i64
+    assert_eq!(
+        canonical(&pool, Idx::SIZE),
+        MachineRepr::Size,
+        "[11/29] Size → i64"
+    );
+    // TypeInfo::Ordering → i8
+    assert_eq!(
+        canonical(&pool, Idx::ORDERING),
+        MachineRepr::Ordering,
+        "[12/29] Ordering → i8"
+    );
+
+    // ── Simple containers (7) ──
+    // TypeInfo::List → {i64, i64, ptr}
+    let list_idx = pool.list(Idx::INT);
+    assert!(
+        matches!(
+            canonical(&pool, list_idx),
+            MachineRepr::FatPointer(FatRepr::Collection { .. })
+        ),
+        "[13/29] List → {{i64, i64, ptr}}"
+    );
+    // TypeInfo::Option → Enum (via TypeLayoutResolver)
+    let opt_idx = pool.option(Idx::INT);
+    assert!(
+        matches!(canonical(&pool, opt_idx), MachineRepr::Enum(_)),
+        "[14/29] Option → Enum (tagged union)"
+    );
+    // TypeInfo::Set → {i64, i64, ptr}
+    let set_idx = pool.set(Idx::STR);
+    assert!(
+        matches!(
+            canonical(&pool, set_idx),
+            MachineRepr::FatPointer(FatRepr::Collection { .. })
+        ),
+        "[15/29] Set → {{i64, i64, ptr}}"
+    );
+    // TypeInfo::Channel → ptr
+    let chan_idx = pool.channel(Idx::INT);
+    assert_eq!(
+        canonical(&pool, chan_idx),
+        MachineRepr::OpaquePtr,
+        "[16/29] Channel → ptr"
+    );
+    // TypeInfo::Range → {i64, i64, i64, i64}
+    let range_idx = pool.range(Idx::INT);
+    assert_eq!(
+        canonical(&pool, range_idx),
+        MachineRepr::Range,
+        "[17/29] Range → {{i64, i64, i64, i64}}"
+    );
+    // TypeInfo::Iterator → ptr
+    let iter_idx = pool.iterator(Idx::INT);
+    assert_eq!(
+        canonical(&pool, iter_idx),
+        MachineRepr::OpaquePtr,
+        "[18/29] Iterator → ptr"
+    );
+    // DoubleEndedIterator → ptr (same as Iterator)
+    let deiter_idx = pool.double_ended_iterator(Idx::INT);
+    assert_eq!(
+        canonical(&pool, deiter_idx),
+        MachineRepr::OpaquePtr,
+        "[19/29] DoubleEndedIterator → ptr"
+    );
+
+    // ── Two-child types (3) ──
+    // TypeInfo::Map → {i64, i64, ptr}
+    let map_idx = pool.map(Idx::STR, Idx::INT);
+    assert!(
+        matches!(
+            canonical(&pool, map_idx),
+            MachineRepr::FatPointer(FatRepr::Map { .. })
+        ),
+        "[20/29] Map → {{i64, i64, ptr}}"
+    );
+    // TypeInfo::Result → Enum (via TypeLayoutResolver)
+    let result_idx = pool.result(Idx::INT, Idx::STR);
+    assert!(
+        matches!(canonical(&pool, result_idx), MachineRepr::Enum(_)),
+        "[21/29] Result → Enum (tagged union)"
+    );
+    // Borrowed → None (reserved, non-codegen)
+    let borrowed_idx = pool.borrowed(Idx::INT, LifetimeId::from_raw(1));
+    cache.clear();
+    assert!(
+        canonical_cached(&pool, borrowed_idx, &mut cache).is_none(),
+        "[22/29] Borrowed → None"
+    );
+
+    // ── Complex types (4) ──
+    // TypeInfo::Function → {ptr, ptr}
+    let fn_idx = pool.function1(Idx::INT, Idx::BOOL);
+    assert!(
+        matches!(canonical(&pool, fn_idx), MachineRepr::Closure(_)),
+        "[23/29] Function → {{ptr, ptr}}"
+    );
+    // Tuple → struct of element types (via TypeLayoutResolver)
+    let tuple_idx = pool.pair(Idx::INT, Idx::BOOL);
+    assert!(
+        matches!(canonical(&pool, tuple_idx), MachineRepr::Tuple(_)),
+        "[24/29] Tuple → struct (element types)"
+    );
+    // Struct → struct of field types
+    let struct_name = Name::new(0, 500);
+    let struct_idx = pool.struct_type(struct_name, &[(Name::new(0, 501), Idx::INT)]);
+    assert!(
+        matches!(canonical(&pool, struct_idx), MachineRepr::Struct(_)),
+        "[25/29] Struct → struct (field types)"
+    );
+    // Enum → {tag, max(variant payloads)}
+    let enum_idx = pool.enum_type(
+        Name::new(0, 600),
+        &[
+            EnumVariant {
+                name: Name::new(0, 601),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 602),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    assert!(
+        matches!(canonical(&pool, enum_idx), MachineRepr::Enum(_)),
+        "[26/29] Enum → {{i64 tag, payload}}"
+    );
+
+    // ── Named/resolved types (3) ──
+    // Named → resolves through to underlying type
+    let named_idx = pool.named(Name::new(0, 700));
+    pool.set_resolution(named_idx, struct_idx);
+    assert!(
+        matches!(canonical(&pool, named_idx), MachineRepr::Struct(_)),
+        "[27/29] Named → Struct (resolved)"
+    );
+    // Applied → resolves through to underlying type
+    let applied_idx = pool.applied(Name::new(0, 800), &[Idx::INT]);
+    pool.set_resolution(applied_idx, Idx::INT);
+    assert_eq!(
+        canonical(&pool, applied_idx),
+        MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true
+        },
+        "[28/29] Applied → Int (resolved)"
+    );
+    // Alias → resolves through chain
+    let alias_idx = pool.named(Name::new(0, 900));
+    pool.set_resolution(alias_idx, Idx::FLOAT);
+    assert_eq!(
+        canonical(&pool, alias_idx),
+        MachineRepr::Float {
+            width: FloatWidth::F64
+        },
+        "[29/29] Alias → Float (resolved)"
+    );
+
+    // ── Non-codegen types (all return None) ──
+    // Variables (3): Var, BoundVar, RigidVar
+    cache.clear();
+    let var_idx = pool.fresh_var();
+    assert!(
+        canonical_cached(&pool, var_idx, &mut cache).is_none(),
+        "Var → None"
+    );
+    let bound_idx = pool.intern(Tag::BoundVar, 0);
+    assert!(
+        canonical_cached(&pool, bound_idx, &mut cache).is_none(),
+        "BoundVar → None"
+    );
+    let rigid_idx = pool.rigid_var(Name::new(0, 999));
+    assert!(
+        canonical_cached(&pool, rigid_idx, &mut cache).is_none(),
+        "RigidVar → None"
+    );
+    // Scheme/Special (5): Scheme, Projection, ModuleNs, Infer, SelfType
+    let scheme_idx = pool.scheme(&[0], Idx::INT);
+    assert!(
+        canonical_cached(&pool, scheme_idx, &mut cache).is_none(),
+        "Scheme → None"
+    );
+    let proj_idx = pool.intern(Tag::Projection, 0);
+    assert!(
+        canonical_cached(&pool, proj_idx, &mut cache).is_none(),
+        "Projection → None"
+    );
+    let ns_idx = pool.intern(Tag::ModuleNs, 0);
+    assert!(
+        canonical_cached(&pool, ns_idx, &mut cache).is_none(),
+        "ModuleNs → None"
+    );
+    let infer_idx = pool.intern(Tag::Infer, 0);
+    assert!(
+        canonical_cached(&pool, infer_idx, &mut cache).is_none(),
+        "Infer → None"
+    );
+    let self_idx = pool.intern(Tag::SelfType, 0);
+    assert!(
+        canonical_cached(&pool, self_idx, &mut cache).is_none(),
+        "SelfType → None"
+    );
 }
