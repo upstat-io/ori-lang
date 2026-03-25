@@ -42,6 +42,7 @@ fn register_and_lookup_struct() {
         test_span(),
         Visibility::Public,
         0,
+        None,
     );
 
     // Lookup by name
@@ -90,6 +91,7 @@ fn register_and_lookup_enum() {
         test_span(),
         Visibility::Public,
         0,
+        None,
     );
 
     // Lookup by name
@@ -131,6 +133,7 @@ fn register_newtype() {
         test_span(),
         Visibility::Public,
         0,
+        None,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -212,6 +215,7 @@ fn iteration_is_sorted() {
         test_span(),
         Visibility::Public,
         0,
+        None,
     );
     registry.register_struct(
         name_a,
@@ -221,6 +225,7 @@ fn iteration_is_sorted() {
         test_span(),
         Visibility::Public,
         0,
+        None,
     );
     registry.register_struct(
         name_m,
@@ -230,6 +235,7 @@ fn iteration_is_sorted() {
         test_span(),
         Visibility::Public,
         0,
+        None,
     );
 
     // Iteration should be in sorted order (by Name's Ord impl)
@@ -260,6 +266,7 @@ fn generic_type_params() {
         test_span(),
         Visibility::Public,
         0,
+        None,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -297,6 +304,7 @@ fn struct_field_lookup() {
         test_span(),
         Visibility::Public,
         0,
+        None,
     );
 
     // Find field x

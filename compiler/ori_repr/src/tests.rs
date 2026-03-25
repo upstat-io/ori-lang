@@ -2,9 +2,12 @@
 
 use crate::enum_repr::{EnumTag, VariantRepr};
 use crate::escape::EscapeInfo;
+use crate::plan::{DecisionReason, DecisionSource, NarrowingPolicy, ReprDecision};
 use crate::range::ValueRange;
 use crate::repr::{FloatWidth, IntWidth, MachineRepr};
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
+use crate::ReprAttribute;
+use crate::ReprPlan;
 
 use ori_ir::Name;
 
@@ -646,24 +649,16 @@ fn canonical_panics_on_var() {
     canonical(&pool, var_idx);
 }
 
-/// Test that `BoundVar` panics.
+/// Test that `BoundVar` panics — constructs a real `BoundVar` via `pool.intern`.
 #[test]
 #[should_panic(expected = "unresolved type variable")]
 fn canonical_panics_on_bound_var() {
+    use ori_types::Tag;
+
     let mut pool = Pool::new();
-    let body = Idx::INT;
-    let scheme_idx = pool.scheme(&[0], body);
-    // Access the BoundVar inside the scheme
-    let bound_var_idx = Idx::from_raw(pool.data(scheme_idx) + 1);
-    // BoundVar should be at the first var slot
-    // Actually, BoundVar is constructed differently — let's just test Var
-    // since BoundVar would need scheme instantiation context.
-    // For now, the Var test is sufficient.
-    let _ = bound_var_idx;
-    let _ = scheme_idx;
-    // Use a RigidVar instead
-    let rigid = pool.rigid_var(Name::new(0, 999));
-    canonical(&pool, rigid);
+    let bound_var_idx = pool.intern(Tag::BoundVar, 0);
+    // BoundVar must never reach codegen
+    canonical(&pool, bound_var_idx);
 }
 
 /// Test that `RigidVar` panics.
@@ -681,6 +676,71 @@ fn canonical_panics_on_rigid_var() {
 fn canonical_panics_on_error() {
     let pool = Pool::new();
     canonical(&pool, Idx::ERROR);
+}
+
+/// §01.5: Scheme type must panic (should never reach codegen).
+#[test]
+#[should_panic(expected = "should never reach codegen")]
+fn canonical_panics_on_scheme() {
+    use ori_types::Tag;
+
+    let mut pool = Pool::new();
+    let scheme_idx = pool.scheme(&[0], Idx::INT);
+    // Verify it's actually a Scheme tag
+    assert_eq!(pool.tag(scheme_idx), Tag::Scheme);
+    canonical(&pool, scheme_idx);
+}
+
+/// §01.5: Infer type must panic (should never reach codegen).
+#[test]
+#[should_panic(expected = "should never reach codegen")]
+fn canonical_panics_on_infer() {
+    use ori_types::Tag;
+
+    let mut pool = Pool::new();
+    let infer_idx = pool.intern(Tag::Infer, 0);
+    canonical(&pool, infer_idx);
+}
+
+/// §01.5: Named→Int resolves to same canonical as Int directly.
+#[test]
+fn canonical_named_resolves_to_int() {
+    let mut pool = Pool::new();
+    let named_idx = pool.named(Name::new(0, 42));
+    pool.set_resolution(named_idx, Idx::INT);
+
+    let repr = canonical(&pool, named_idx);
+    assert_eq!(
+        repr,
+        MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true
+        },
+        "Named→Int must resolve to same repr as Int"
+    );
+}
+
+/// §01.5: Alias chain A = B = int resolves to Int.
+#[test]
+fn canonical_alias_chain_resolves() {
+    let mut pool = Pool::new();
+    // A is a Named type
+    let a_idx = pool.named(Name::new(0, 100));
+    // B is another Named type
+    let b_idx = pool.named(Name::new(0, 200));
+    // A → B → Int
+    pool.set_resolution(a_idx, b_idx);
+    pool.set_resolution(b_idx, Idx::INT);
+
+    let repr = canonical(&pool, a_idx);
+    assert_eq!(
+        repr,
+        MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true
+        },
+        "Named chain A→B→Int must resolve to Int"
+    );
 }
 
 // ── ABI Layout Tests ──────────────────────────────────────────────
@@ -789,5 +849,1352 @@ fn canonical_map_retains_value_repr() {
         );
     } else {
         panic!("expected FatPointer(Map), got {repr:?}");
+    }
+}
+
+// ── TPR-01-015: Cycle Detection for Recursive Types ─────────────
+
+/// Recursive enum `type Tree = Leaf(int) | Node(Tree, Tree)` must not
+/// stack overflow. Recursive positions yield `RcPointer`.
+#[test]
+fn canonical_recursive_enum_no_stack_overflow() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let tree_name = Name::new(0, 400);
+    let leaf_name = Name::new(0, 401);
+    let node_name = Name::new(0, 402);
+
+    // Forward reference for Tree
+    let tree_named = pool.named(tree_name);
+
+    let tree_enum = pool.enum_type(
+        tree_name,
+        &[
+            EnumVariant {
+                name: leaf_name,
+                field_types: vec![Idx::INT],
+            },
+            EnumVariant {
+                name: node_name,
+                field_types: vec![tree_named, tree_named],
+            },
+        ],
+    );
+
+    // Link Named → Enum
+    pool.set_resolution(tree_named, tree_enum);
+
+    // Must not infinite loop
+    let repr = canonical(&pool, tree_enum);
+    if let MachineRepr::Enum(ref e) = repr {
+        assert_eq!(e.variants.len(), 2);
+        // Leaf variant: one Int field
+        assert_eq!(e.variants[0].fields.len(), 1);
+        assert_eq!(
+            e.variants[0].fields[0],
+            MachineRepr::Int {
+                width: IntWidth::I64,
+                signed: true
+            }
+        );
+        // Node variant: two RcPointer fields (recursive positions)
+        assert_eq!(e.variants[1].fields.len(), 2);
+        assert!(
+            matches!(e.variants[1].fields[0], MachineRepr::RcPointer(_)),
+            "recursive field must be RcPointer, got {:?}",
+            e.variants[1].fields[0]
+        );
+        assert!(
+            matches!(e.variants[1].fields[1], MachineRepr::RcPointer(_)),
+            "recursive field must be RcPointer, got {:?}",
+            e.variants[1].fields[1]
+        );
+    } else {
+        panic!("expected Enum for recursive Tree, got {repr:?}");
+    }
+}
+
+/// Semantic pin: recursive type MUST return `RcPointer` at recursive position,
+/// not `OpaquePtr` or infinite recursion.
+#[test]
+fn semantic_pin_recursive_field_is_rc_pointer() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let list_name = Name::new(0, 500);
+    let nil_name = Name::new(0, 501);
+    let cons_name = Name::new(0, 502);
+    let list_named = pool.named(list_name);
+
+    // type IntList = Nil | Cons(int, IntList)
+    let list_enum = pool.enum_type(
+        list_name,
+        &[
+            EnumVariant {
+                name: nil_name,
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: cons_name,
+                field_types: vec![Idx::INT, list_named],
+            },
+        ],
+    );
+    pool.set_resolution(list_named, list_enum);
+
+    let repr = canonical(&pool, list_enum);
+    if let MachineRepr::Enum(ref e) = repr {
+        // Cons variant's second field is the recursive ref
+        let cons = &e.variants[1];
+        assert_eq!(cons.fields.len(), 2);
+        if let MachineRepr::RcPointer(ref rc) = cons.fields[1] {
+            assert_eq!(rc.rc_width, IntWidth::I64);
+            assert!(rc.atomic);
+            assert!(!rc.stack_promotable);
+        } else {
+            panic!(
+                "recursive field must be RcPointer, got {:?}",
+                cons.fields[1]
+            );
+        }
+    } else {
+        panic!("expected Enum, got {repr:?}");
+    }
+}
+
+/// TPR-01-021: Mutual recursion canonical-consistency test.
+///
+/// `type A = WrapA { b: B }`
+/// `type B = WrapB { a: A }`
+///
+/// `canonical(A)` and `canonical(B)` must each produce consistent representations:
+/// mutual recursive fields are `RcPointer` and cached representations are stable.
+#[test]
+fn canonical_mutual_recursion_consistent() {
+    let mut pool = Pool::new();
+
+    // Forward references
+    let a_name = Name::new(0, 600);
+    let b_name = Name::new(0, 601);
+    let a_named = pool.named(a_name);
+    let b_named = pool.named(b_name);
+
+    let b_field_name = Name::new(0, 602);
+    let a_field_name = Name::new(0, 603);
+
+    // type A = struct { b: B }
+    let a_struct = pool.struct_type(a_name, &[(b_field_name, b_named)]);
+    // type B = struct { a: A }
+    let b_struct = pool.struct_type(b_name, &[(a_field_name, a_named)]);
+
+    pool.set_resolution(a_named, a_struct);
+    pool.set_resolution(b_named, b_struct);
+
+    // Compute both via shared cache (simulating populate_canonical)
+    let mut cache = rustc_hash::FxHashMap::default();
+    let a_repr = crate::canonical::canonical_cached(&pool, a_struct, &mut cache);
+    let b_repr = crate::canonical::canonical_cached(&pool, b_struct, &mut cache);
+
+    // Both should be Struct types
+    let MachineRepr::Struct(ref a_s) = a_repr else {
+        panic!("expected Struct for A, got {a_repr:?}");
+    };
+    let MachineRepr::Struct(ref b_s) = b_repr else {
+        panic!("expected Struct for B, got {b_repr:?}");
+    };
+
+    // A has one field (b), B has one field (a)
+    assert_eq!(a_s.fields.len(), 1, "A should have 1 field");
+    assert_eq!(b_s.fields.len(), 1, "B should have 1 field");
+
+    // A's B field = full B struct (B is first-visited from A, not a cycle).
+    // B's A field = RcPointer (A was being visited when B encountered it).
+    assert!(
+        matches!(a_s.fields[0].repr, MachineRepr::Struct(_)),
+        "A's B field should be full Struct (first visit), got {:?}",
+        a_s.fields[0].repr
+    );
+    assert!(
+        matches!(b_s.fields[0].repr, MachineRepr::RcPointer(_)),
+        "B's A field should be RcPointer (back-edge), got {:?}",
+        b_s.fields[0].repr
+    );
+
+    // Key consistency check (TPR-01-021): B nested inside A must equal standalone B.
+    // With the shared cache, both resolve to the same representation.
+    let b_inside_a = &a_s.fields[0].repr;
+    assert_eq!(
+        b_inside_a, &b_repr,
+        "B nested inside A must equal standalone B (cache consistency)"
+    );
+
+    // Semantic pin: calling canonical_cached again returns the same result (cache hit)
+    let a_repr2 = crate::canonical::canonical_cached(&pool, a_struct, &mut cache);
+    assert_eq!(a_repr, a_repr2, "cached result must be stable");
+}
+
+/// Non-recursive type appearing multiple times is NOT treated as a cycle.
+#[test]
+fn canonical_non_recursive_repeated_type() {
+    let mut pool = Pool::new();
+    // (int, int) — int appears twice but is not recursive
+    let tuple_idx = pool.pair(Idx::INT, Idx::INT);
+    let repr = canonical(&pool, tuple_idx);
+    if let MachineRepr::Tuple(ref t) = repr {
+        assert_eq!(t.elements.len(), 2);
+        // Both should be Int, NOT RcPointer
+        assert!(
+            matches!(t.elements[0].repr, MachineRepr::Int { .. }),
+            "repeated non-recursive type must not be RcPointer"
+        );
+        assert!(
+            matches!(t.elements[1].repr, MachineRepr::Int { .. }),
+            "repeated non-recursive type must not be RcPointer"
+        );
+    } else {
+        panic!("expected Tuple, got {repr:?}");
+    }
+}
+
+// ── TPR-01-005: Unit/Never Zero-Size in Aggregates ──────────────
+
+/// Semantic pin: ((), bool) size = 1 — Unit contributes 0 bytes in aggregates.
+#[test]
+fn canonical_tuple_unit_zero_sized() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.pair(Idx::UNIT, Idx::BOOL);
+    let repr = canonical(&pool, tuple_idx);
+    if let MachineRepr::Tuple(ref t) = repr {
+        assert_eq!(
+            t.size, 1,
+            "(unit, bool) must be 1 byte — Unit is zero-sized"
+        );
+        assert_eq!(t.align, 1);
+    } else {
+        panic!("expected Tuple, got {repr:?}");
+    }
+}
+
+/// (bool, (), int) size = 16 — Unit in the middle contributes 0 bytes.
+#[test]
+fn canonical_tuple_unit_middle() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.triple(Idx::BOOL, Idx::UNIT, Idx::INT);
+    let repr = canonical(&pool, tuple_idx);
+    if let MachineRepr::Tuple(ref t) = repr {
+        // bool(1) + padding(7) + int(8) = 16. Unit adds 0.
+        assert_eq!(
+            t.size, 16,
+            "(bool, unit, int) must be 16 — Unit contributes 0"
+        );
+        assert_eq!(t.align, 8);
+    } else {
+        panic!("expected Tuple, got {repr:?}");
+    }
+}
+
+/// Struct with Unit field doesn't inflate size.
+#[test]
+fn canonical_struct_unit_field() {
+    let mut pool = Pool::new();
+    let name_a = Name::new(0, 100);
+    let name_b = Name::new(0, 101);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_a, Idx::BOOL), (name_b, Idx::UNIT)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert_eq!(s.size, 1, "struct(bool, unit) must be 1 byte");
+        assert_eq!(s.align, 1);
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+/// `Option<()>` — tag + 0 payload. Size = 8 (just the i64 tag).
+#[test]
+fn canonical_option_unit_zero_payload() {
+    let mut pool = Pool::new();
+    let opt_idx = pool.option(Idx::UNIT);
+    let repr = canonical(&pool, opt_idx);
+    if let MachineRepr::Enum(ref e) = repr {
+        assert_eq!(
+            e.size, 8,
+            "Option<()> must be 8 bytes — tag only, zero payload"
+        );
+    } else {
+        panic!("expected Enum for Option<()>, got {repr:?}");
+    }
+}
+
+/// Never-typed field contributes 0 bytes in aggregates.
+#[test]
+fn canonical_tuple_never_zero_sized() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.pair(Idx::INT, Idx::NEVER);
+    let repr = canonical(&pool, tuple_idx);
+    if let MachineRepr::Tuple(ref t) = repr {
+        assert_eq!(
+            t.size, 8,
+            "(int, Never) must be 8 bytes — Never is zero-sized"
+        );
+        assert_eq!(t.align, 8);
+    } else {
+        panic!("expected Tuple, got {repr:?}");
+    }
+}
+
+// ── TPR-01-016: Recursive Triviality for Compound Types ─────────
+
+/// Struct containing a trivial tuple `(int, bool)` must itself be trivial.
+#[test]
+fn trivial_struct_containing_trivial_tuple() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.pair(Idx::INT, Idx::BOOL);
+    let name_t = Name::new(0, 100);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_t, tuple_idx)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert!(
+            s.trivial,
+            "struct containing (int, bool) must be trivial — all scalars"
+        );
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+/// Struct containing a non-trivial tuple `(int, str)` must be non-trivial.
+#[test]
+fn nontrivial_struct_containing_nontrivial_tuple() {
+    let mut pool = Pool::new();
+    let tuple_idx = pool.pair(Idx::INT, Idx::STR);
+    let name_t = Name::new(0, 100);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_t, tuple_idx)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert!(
+            !s.trivial,
+            "struct containing (int, str) must NOT be trivial — str has RC"
+        );
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+/// All-unit enum (like `type Color = Red | Green | Blue`) is trivial.
+#[test]
+fn trivial_all_unit_enum() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let enum_name = Name::new(0, 300);
+    let enum_idx = pool.enum_type(
+        enum_name,
+        &[
+            EnumVariant {
+                name: Name::new(0, 301),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 302),
+                field_types: vec![],
+            },
+        ],
+    );
+    let repr = canonical(&pool, enum_idx);
+    if let MachineRepr::Enum(ref e) = repr {
+        let all_trivial = e.variants.iter().all(|v| {
+            v.fields.iter().all(|f| {
+                !matches!(
+                    f,
+                    MachineRepr::FatPointer(_)
+                        | MachineRepr::RcPointer(_)
+                        | MachineRepr::Closure(_)
+                        | MachineRepr::OpaquePtr
+                )
+            })
+        });
+        assert!(all_trivial, "all-unit enum must be trivial");
+    } else {
+        panic!("expected Enum, got {repr:?}");
+    }
+}
+
+/// Enum with scalar payloads `Shape = Circle(float) | Rect(float, float)` is trivial.
+#[test]
+fn trivial_scalar_payload_enum() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let enum_name = Name::new(0, 300);
+    let enum_idx = pool.enum_type(
+        enum_name,
+        &[
+            EnumVariant {
+                name: Name::new(0, 301),
+                field_types: vec![Idx::FLOAT],
+            },
+            EnumVariant {
+                name: Name::new(0, 302),
+                field_types: vec![Idx::FLOAT, Idx::FLOAT],
+            },
+        ],
+    );
+    // Wrap in a struct to test nested triviality
+    let name_s = Name::new(0, 100);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_s, enum_idx)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert!(
+            s.trivial,
+            "struct containing all-scalar enum must be trivial"
+        );
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+// ── §01.2: ReprDecision Tracking ────────────────────────────────
+
+#[test]
+fn repr_plan_set_get_round_trip() {
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let decision = ReprDecision {
+        source: DecisionSource::Canonical,
+        type_idx: Idx::INT,
+        repr: MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        },
+        reason: DecisionReason::Canonical,
+    };
+    plan.set_repr(Idx::INT, decision);
+    assert_eq!(
+        plan.get_repr(Idx::INT),
+        Some(&MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        })
+    );
+}
+
+#[test]
+fn repr_plan_override_returns_second_decision() {
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let d1 = ReprDecision {
+        source: DecisionSource::Canonical,
+        type_idx: Idx::INT,
+        repr: MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        },
+        reason: DecisionReason::Canonical,
+    };
+    let d2 = ReprDecision {
+        source: DecisionSource::IntegerNarrowing,
+        type_idx: Idx::INT,
+        repr: MachineRepr::Int {
+            width: IntWidth::I32,
+            signed: true,
+        },
+        reason: DecisionReason::RangeFits {
+            range: ValueRange,
+            min_width: IntWidth::I32,
+        },
+    };
+    plan.set_repr(Idx::INT, d1);
+    plan.set_repr(Idx::INT, d2);
+    assert_eq!(
+        plan.get_repr(Idx::INT),
+        Some(&MachineRepr::Int {
+            width: IntWidth::I32,
+            signed: true,
+        })
+    );
+}
+
+#[test]
+fn repr_plan_audit_trail_preserves_both_decisions() {
+    use ori_types::Pool;
+
+    let pool = Pool::new();
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let d1 = ReprDecision {
+        source: DecisionSource::Canonical,
+        type_idx: Idx::INT,
+        repr: MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        },
+        reason: DecisionReason::Canonical,
+    };
+    let d2 = ReprDecision {
+        source: DecisionSource::IntegerNarrowing,
+        type_idx: Idx::INT,
+        repr: MachineRepr::Int {
+            width: IntWidth::I32,
+            signed: true,
+        },
+        reason: DecisionReason::RangeFits {
+            range: ValueRange,
+            min_width: IntWidth::I32,
+        },
+    };
+    plan.set_repr(Idx::INT, d1);
+    plan.set_repr(Idx::INT, d2);
+    let audit = plan.dump_audit(&pool);
+    assert!(!audit.is_empty());
+    // Both entries should be present in order
+    assert!(audit.contains("Canonical"), "audit must contain Canonical");
+    assert!(
+        audit.contains("IntegerNarrowing"),
+        "audit must contain IntegerNarrowing"
+    );
+    // Canonical should appear before IntegerNarrowing (insertion order).
+    // Both were asserted present above; Option<usize> ordering is safe here.
+    assert!(
+        audit.find("Canonical") < audit.find("IntegerNarrowing"),
+        "Canonical must appear before IntegerNarrowing in audit trail"
+    );
+}
+
+#[test]
+fn repr_plan_get_unknown_idx_returns_none() {
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert!(plan.get_repr(Idx::INT).is_none());
+}
+
+#[test]
+fn repr_plan_var_range_no_recorded_ranges_returns_default() {
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let func = Name::new(0, 1);
+    let var = ori_arc::ArcVarId::new(0);
+    let range = plan.var_range(func, var);
+    assert_eq!(range, ValueRange);
+}
+
+#[test]
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "ValueRange is a placeholder ZST — replaced by §03"
+)]
+fn repr_plan_set_var_ranges_round_trip_isolated() {
+    use rustc_hash::FxHashMap;
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let func_a = Name::new(0, 1);
+    let func_b = Name::new(0, 2);
+    let var_0 = ori_arc::ArcVarId::new(0);
+    let var_1 = ori_arc::ArcVarId::new(1);
+
+    let mut ranges_a = FxHashMap::default();
+    ranges_a.insert(var_0, ValueRange);
+    plan.set_var_ranges(func_a, ranges_a);
+
+    let mut ranges_b = FxHashMap::default();
+    ranges_b.insert(var_1, ValueRange);
+    plan.set_var_ranges(func_b, ranges_b);
+
+    // func_a has var_0 but not var_1
+    assert_eq!(plan.var_range(func_a, var_0), ValueRange);
+    assert_eq!(plan.var_range(func_a, var_1), ValueRange); // default — no panic
+
+    // func_b has var_1 but not var_0
+    assert_eq!(plan.var_range(func_b, var_1), ValueRange);
+    assert_eq!(plan.var_range(func_b, var_0), ValueRange); // default — no panic
+}
+
+#[test]
+fn repr_plan_dump_audit_contains_tag_and_source() {
+    use ori_types::Pool;
+
+    let pool = Pool::new();
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    plan.set_repr(
+        Idx::INT,
+        ReprDecision {
+            source: DecisionSource::Triviality,
+            type_idx: Idx::INT,
+            repr: MachineRepr::Int {
+                width: IntWidth::I64,
+                signed: true,
+            },
+            reason: DecisionReason::TransitivelyTrivial,
+        },
+    );
+    let audit = plan.dump_audit(&pool);
+    assert!(!audit.is_empty());
+    assert!(audit.contains("int"), "audit must contain type tag 'int'");
+    assert!(
+        audit.contains("Triviality"),
+        "audit must contain source 'Triviality'"
+    );
+}
+
+// ── §01.4 Query Interface Default Values ──────────────────────────────
+
+#[test]
+fn int_width_default_returns_i64() {
+    // §01.4 test: int_width() defaults to I64 when no decision recorded.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert_eq!(plan.int_width(Idx::INT), IntWidth::I64);
+}
+
+#[test]
+fn float_width_default_returns_f64() {
+    // §01.4 test: float_width() defaults to F64 when no decision recorded.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert_eq!(plan.float_width(Idx::FLOAT), FloatWidth::F64);
+}
+
+#[test]
+fn is_trivial_default_returns_false() {
+    // §01.4 test: is_trivial() defaults to false when no decision recorded.
+    // Safe default — never elides RC it shouldn't.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert!(
+        !plan.is_trivial(Idx::INT),
+        "safe default must be non-trivial"
+    );
+}
+
+#[test]
+fn escapes_default_returns_true() {
+    // §01.4 test: escapes() defaults to true when no escape info recorded.
+    // Safe default — never stack-promotes when unsure.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert!(
+        plan.escapes(Name::new(0, 0), ori_arc::ArcVarId::new(0)),
+        "safe default must assume escapes"
+    );
+}
+
+// ── RC strategy (TPR-01-022, TPR-01-023) ──────────────────────────────
+
+use crate::plan::RcStrategy;
+
+#[test]
+fn rc_strategy_default_is_atomic_i64() {
+    // Semantic pin: rc_strategy() must return Atomic { I64 } when no decision
+    // has been recorded. This is the documented §01 contract — §01 alone
+    // causes zero behavioral change.
+    let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    assert_eq!(
+        plan.rc_strategy(Idx::INT),
+        RcStrategy::Atomic {
+            width: IntWidth::I64,
+        },
+    );
+}
+
+#[test]
+fn rc_strategy_default_for_canonical_opaque_ptr() {
+    // TPR-01-023: After populate_canonical(), Iterator/Channel are stored as
+    // OpaquePtr. rc_strategy() must still return Atomic { I64 } (the safe
+    // default) — NOT RcStrategy::None.
+    let mut pool = Pool::new();
+    let iter_idx = pool.iterator(Idx::INT);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    // Simulate populate_canonical() storing an OpaquePtr for an iterator type.
+    plan.set_repr(
+        iter_idx,
+        ReprDecision {
+            source: DecisionSource::Canonical,
+            type_idx: iter_idx,
+            repr: MachineRepr::OpaquePtr,
+            reason: DecisionReason::Canonical,
+        },
+    );
+    // Must still report Atomic { I64 } — no §09/§10 decision has been made.
+    assert_eq!(
+        plan.rc_strategy(iter_idx),
+        RcStrategy::Atomic {
+            width: IntWidth::I64,
+        },
+    );
+}
+
+#[test]
+fn set_rc_strategy_preserves_original_repr() {
+    // TPR-01-022: set_rc_strategy() must NOT overwrite the type's
+    // MachineRepr. The original layout must be preserved for codegen.
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let original_repr = MachineRepr::Struct(StructRepr {
+        fields: vec![FieldRepr {
+            repr: MachineRepr::Int {
+                width: IntWidth::I64,
+                signed: true,
+            },
+            original_index: 0,
+            offset: 0,
+            name: Name::new(0, 1),
+        }],
+        size: 8,
+        align: 8,
+        trivial: false,
+    });
+    plan.set_repr(
+        Idx::INT,
+        ReprDecision {
+            source: DecisionSource::Canonical,
+            type_idx: Idx::INT,
+            repr: original_repr.clone(),
+            reason: DecisionReason::Canonical,
+        },
+    );
+    // Set RC strategy — must NOT destroy the struct layout.
+    plan.set_rc_strategy(Idx::INT, RcStrategy::None, DecisionSource::Triviality);
+    // The repr must still be the original struct, not OpaquePtr.
+    assert_eq!(plan.get_repr(Idx::INT), Some(&original_repr));
+}
+
+#[test]
+fn set_rc_strategy_write_read_round_trip() {
+    // §01.4 test: After set_rc_strategy(idx, RcStrategy::None, ...),
+    // rc_strategy(idx) returns RcStrategy::None.
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    plan.set_rc_strategy(Idx::INT, RcStrategy::None, DecisionSource::Triviality);
+    assert_eq!(plan.rc_strategy(Idx::INT), RcStrategy::None);
+}
+
+#[test]
+fn set_rc_strategy_non_atomic_round_trip() {
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let strategy = RcStrategy::NonAtomic {
+        width: IntWidth::I16,
+    };
+    plan.set_rc_strategy(Idx::INT, strategy, DecisionSource::ThreadLocal);
+    assert_eq!(plan.rc_strategy(Idx::INT), strategy);
+}
+
+#[test]
+fn set_rc_strategy_atomic_narrow_round_trip() {
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let strategy = RcStrategy::Atomic {
+        width: IntWidth::I8,
+    };
+    plan.set_rc_strategy(Idx::INT, strategy, DecisionSource::ArcHeader);
+    assert_eq!(plan.rc_strategy(Idx::INT), strategy);
+}
+
+#[test]
+fn set_rc_strategy_records_audit_entry() {
+    use ori_types::Pool;
+
+    let pool = Pool::new();
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    plan.set_rc_strategy(Idx::INT, RcStrategy::None, DecisionSource::Triviality);
+    let audit = plan.dump_audit(&pool);
+    assert!(
+        audit.contains("Triviality"),
+        "audit must contain the RC strategy decision source"
+    );
+}
+
+// ── §01.3 Pipeline Integration Tests ────────────────────────────────
+
+#[test]
+fn compute_repr_plan_populates_primitives() {
+    // §01.3 test: compute_repr_plan() populates canonical representations
+    // for all 11 non-error primitive types.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    // All 11 non-error primitives should have canonical entries.
+    assert!(plan.get_repr(Idx::INT).is_some(), "Int must be populated");
+    assert!(
+        plan.get_repr(Idx::FLOAT).is_some(),
+        "Float must be populated"
+    );
+    assert!(plan.get_repr(Idx::BOOL).is_some(), "Bool must be populated");
+    assert!(plan.get_repr(Idx::STR).is_some(), "Str must be populated");
+    assert!(plan.get_repr(Idx::CHAR).is_some(), "Char must be populated");
+    assert!(plan.get_repr(Idx::BYTE).is_some(), "Byte must be populated");
+    assert!(plan.get_repr(Idx::UNIT).is_some(), "Unit must be populated");
+    assert!(
+        plan.get_repr(Idx::NEVER).is_some(),
+        "Never must be populated"
+    );
+    assert!(
+        plan.get_repr(Idx::DURATION).is_some(),
+        "Duration must be populated"
+    );
+    assert!(plan.get_repr(Idx::SIZE).is_some(), "Size must be populated");
+    assert!(
+        plan.get_repr(Idx::ORDERING).is_some(),
+        "Ordering must be populated"
+    );
+    // Error type should NOT be populated.
+    assert!(
+        plan.get_repr(Idx::ERROR).is_none(),
+        "Error must not be populated"
+    );
+}
+
+#[test]
+fn compute_repr_plan_disabled_policy_skips_stubs() {
+    // §01.3 test: NarrowingPolicy::Disabled returns after populate_canonical()
+    // without calling any narrowing stubs.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
+    // Same primitives should be populated (canonical-only).
+    assert!(plan.get_repr(Idx::INT).is_some());
+    assert_eq!(plan.narrowing_policy(), NarrowingPolicy::Disabled);
+}
+
+#[test]
+fn compute_repr_plan_aggressive_is_default_behavior() {
+    // §01.3 test: NarrowingPolicy::Aggressive is the default — building
+    // without --no-repr-opt results in Aggressive.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    assert_eq!(plan.narrowing_policy(), NarrowingPolicy::Aggressive);
+    // Same primitives, same canonical results — no stubs are active yet.
+    assert_eq!(
+        plan.get_repr(Idx::INT),
+        Some(&MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        })
+    );
+}
+
+#[test]
+fn compute_repr_plan_canonical_int_semantic_pin() {
+    // §01.3 semantic pin: canonical(Int) must be I64/signed.
+    // This test fails if any future change alters the default int width.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    assert_eq!(
+        plan.get_repr(Idx::INT),
+        Some(&MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        }),
+        "canonical int must be i64 signed — semantic pin"
+    );
+}
+
+#[test]
+fn compute_repr_plan_zero_behavioral_change_with_disabled() {
+    // §01.3 test: identical canonical representations regardless of policy.
+    let pool = ori_types::Pool::new();
+    let plan_aggressive = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    let plan_disabled = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
+    // Both should produce the same canonical repr for every primitive.
+    for raw in 0..Idx::PRIMITIVE_COUNT {
+        let idx = Idx::from_raw(raw);
+        if idx == Idx::ERROR {
+            continue;
+        }
+        assert_eq!(
+            plan_aggressive.get_repr(idx),
+            plan_disabled.get_repr(idx),
+            "canonical repr for primitive {raw} must match regardless of policy"
+        );
+    }
+}
+
+// ── TPR-01-029/030: ORI_NO_REPR_OPT env var value parsing ─────────
+
+#[test]
+fn is_env_truthy_accepts_1() {
+    assert!(crate::plan::query::is_env_truthy("1"));
+}
+
+#[test]
+fn is_env_truthy_accepts_true_lowercase() {
+    assert!(crate::plan::query::is_env_truthy("true"));
+}
+
+#[test]
+fn is_env_truthy_accepts_true_uppercase() {
+    assert!(crate::plan::query::is_env_truthy("TRUE"));
+}
+
+#[test]
+fn is_env_truthy_accepts_true_mixed_case() {
+    assert!(crate::plan::query::is_env_truthy("True"));
+}
+
+#[test]
+fn is_env_truthy_accepts_yes_lowercase() {
+    assert!(crate::plan::query::is_env_truthy("yes"));
+}
+
+#[test]
+fn is_env_truthy_accepts_yes_uppercase() {
+    assert!(crate::plan::query::is_env_truthy("YES"));
+}
+
+#[test]
+fn is_env_truthy_rejects_0() {
+    assert!(!crate::plan::query::is_env_truthy("0"));
+}
+
+#[test]
+fn is_env_truthy_rejects_false() {
+    assert!(!crate::plan::query::is_env_truthy("false"));
+}
+
+#[test]
+fn is_env_truthy_rejects_no() {
+    assert!(!crate::plan::query::is_env_truthy("no"));
+}
+
+#[test]
+fn is_env_truthy_rejects_empty() {
+    assert!(!crate::plan::query::is_env_truthy(""));
+}
+
+#[test]
+fn is_env_truthy_rejects_arbitrary() {
+    assert!(!crate::plan::query::is_env_truthy("banana"));
+}
+
+/// Semantic pin: `NarrowingPolicy::env_disabled()` must use strict
+/// value parsing, not mere presence. This test would fail if the
+/// implementation reverted to `std::env::var(...).is_ok()`.
+#[test]
+fn env_disabled_rejects_falsey_values() {
+    // Testing the inner `is_env_truthy` function directly — this avoids
+    // mutating the process-wide env (which would be racy in parallel tests).
+    // The three call sites in oric/ori_llvm all use `NarrowingPolicy::env_disabled()`
+    // which delegates to `is_env_truthy`, so verifying the inner function
+    // is sufficient. (TPR-01-029)
+    assert!(
+        !crate::plan::query::is_env_truthy("0"),
+        "0 must not enable --no-repr-opt"
+    );
+    assert!(
+        !crate::plan::query::is_env_truthy("false"),
+        "false must not enable --no-repr-opt"
+    );
+    assert!(
+        !crate::plan::query::is_env_truthy(""),
+        "empty must not enable --no-repr-opt"
+    );
+    assert!(
+        crate::plan::query::is_env_truthy("1"),
+        "1 must enable --no-repr-opt"
+    );
+    assert!(
+        crate::plan::query::is_env_truthy("true"),
+        "true must enable --no-repr-opt"
+    );
+}
+
+// ── §01.7: #repr Attribute Integration tests ──────────────────────
+
+#[test]
+fn repr_c_stored_and_retrieved() {
+    // §01.7: #repr("c") on a struct → ReprAttribute::C in repr_attrs.
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(100), &[]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        Some(&ReprAttribute::C),
+        "#repr(\"c\") must be stored as ReprAttribute::C"
+    );
+}
+
+#[test]
+fn repr_packed_stored_and_retrieved() {
+    // §01.7: #repr("packed") → ReprAttribute::Packed stored and retrieved.
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(101), &[]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::Packed)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(plan.repr_attr(struct_idx), Some(&ReprAttribute::Packed),);
+}
+
+#[test]
+fn repr_transparent_stored_and_retrieved() {
+    // §01.7: #repr("transparent") on a single-field struct → ReprAttribute::Transparent.
+    let mut pool = ori_types::Pool::new();
+    let field = (ori_ir::Name::from_raw(200), Idx::INT);
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(102), &[field]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::Transparent)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        Some(&ReprAttribute::Transparent),
+    );
+}
+
+#[test]
+fn repr_aligned_stored_and_retrieved() {
+    // §01.7: #repr("aligned", 8) → ReprAttribute::Aligned(8).
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(103), &[]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::Aligned(8))];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(plan.repr_attr(struct_idx), Some(&ReprAttribute::Aligned(8)),);
+}
+
+#[test]
+fn no_repr_returns_none() {
+    // §01.7: Struct with no #repr → repr_attrs has no entry.
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(104), &[]);
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        None,
+        "no #repr → None from query"
+    );
+}
+
+#[test]
+fn repr_c_semantic_pin() {
+    // §01.7 semantic pin: #repr("c") stored as ReprAttribute::C.
+    // This test establishes the contract: populate_canonical() stores C
+    // in repr_attrs, and a subsequent check returns Some(ReprAttribute::C).
+    // Fails if the conversion or storage logic is reverted.
+    let mut pool = ori_types::Pool::new();
+    let name = ori_ir::Name::from_raw(105);
+    let f1 = (ori_ir::Name::from_raw(201), Idx::INT);
+    let f2 = (ori_ir::Name::from_raw(202), Idx::FLOAT);
+    let struct_idx = pool.struct_type(name, &[f1, f2]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(plan.repr_attr(struct_idx), Some(&ReprAttribute::C));
+    // Other types should still have None.
+    assert_eq!(plan.repr_attr(Idx::INT), None);
+}
+
+#[test]
+fn repr_c_aligned_stored_and_retrieved() {
+    // §01.7: CAligned(16) from merged c + aligned → ReprAttribute::CAligned(16).
+    let mut pool = ori_types::Pool::new();
+    let struct_idx = pool.struct_type(ori_ir::Name::from_raw(106), &[]);
+    let repr_attrs = [(struct_idx, ori_ir::ReprAttrKind::CAligned(16))];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        Some(&ReprAttribute::CAligned(16)),
+        "#repr(\"c\") + #repr(\"aligned\", 16) must be stored as ReprAttribute::CAligned(16)"
+    );
+}
+
+#[test]
+fn repr_convert_c_aligned_roundtrip() {
+    // §01.7 semantic pin: CAligned survives the ReprAttrKind → ReprAttribute conversion.
+    let kind = ori_ir::ReprAttrKind::CAligned(32);
+    let attr = crate::convert_repr_attr_kind(&kind);
+    assert_eq!(attr, ReprAttribute::CAligned(32));
+}
+
+// ── §01.9: Canonical Representation Tests ──────────────────────────
+
+/// §01.9 Item 4: Named→Struct resolution. Previous tests only covered
+/// Named→Int; this verifies Named types pointing to structs resolve
+/// through to the struct's representation including field layout.
+#[test]
+fn canonical_named_resolves_to_struct() {
+    let mut pool = Pool::new();
+    let name_x = Name::new(0, 100);
+    let name_y = Name::new(0, 101);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_x, Idx::INT), (name_y, Idx::FLOAT)]);
+
+    let named_idx = pool.named(Name::new(0, 42));
+    pool.set_resolution(named_idx, struct_idx);
+
+    let repr = canonical(&pool, named_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert_eq!(s.fields.len(), 2, "Named→Struct must resolve to 2 fields");
+        assert_eq!(s.fields[0].name, name_x);
+        assert_eq!(s.fields[1].name, name_y);
+        assert!(s.trivial, "struct of (int, float) must be trivial");
+        assert_eq!(s.size, 16);
+    } else {
+        panic!("expected Struct for Named→Struct, got {repr:?}");
+    }
+}
+
+/// §01.9 Item 8 (TPR-01-017): Struct containing an all-unit enum must be
+/// trivial. This exercises `is_trivial_repr()` on the `MachineRepr::Enum`
+/// path through a wrapper aggregate. A regression in the enum triviality
+/// branch would make the struct non-trivial, failing this test.
+#[test]
+fn trivial_struct_containing_all_unit_enum() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let enum_name = Name::new(0, 300);
+    let enum_idx = pool.enum_type(
+        enum_name,
+        &[
+            EnumVariant {
+                name: Name::new(0, 301),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 302),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 303),
+                field_types: vec![],
+            },
+        ],
+    );
+    // Wrap in struct to exercise nested triviality
+    let name_e = Name::new(0, 100);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_e, enum_idx)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert!(
+            s.trivial,
+            "struct containing all-unit enum must be trivial — \
+             semantic pin for TPR-01-017"
+        );
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+/// §01.9 Item 10: `SelfType` must panic (should never reach codegen).
+#[test]
+#[should_panic(expected = "should never reach codegen")]
+fn canonical_panics_on_self_type() {
+    use ori_types::Tag;
+
+    let mut pool = Pool::new();
+    let self_idx = pool.intern(Tag::SelfType, 0);
+    canonical(&pool, self_idx);
+}
+
+/// §01.9 Item 11: `FatPointer` structural layout assertion.
+/// Both `FatRepr::Str` and `FatRepr::Collection` are `FatPointer` variants
+/// that produce `{i64, i64, ptr}` in LLVM. This test verifies the `ori_repr`
+/// level structure — the LLVM equivalence is covered by Phase A tests in
+/// `ori_llvm` (`try_repr_to_llvm_type` handles both identically).
+#[test]
+fn fat_pointer_str_and_collection_same_llvm_shape() {
+    let mut pool = Pool::new();
+
+    // Str → FatPointer(Str)
+    let str_repr = canonical(&pool, Idx::STR);
+    assert!(
+        matches!(str_repr, MachineRepr::FatPointer(FatRepr::Str)),
+        "str must be FatPointer(Str)"
+    );
+
+    // [int] → FatPointer(Collection { element_repr: Int })
+    let list_idx = pool.list(Idx::INT);
+    let list_repr = canonical(&pool, list_idx);
+    assert!(
+        matches!(
+            list_repr,
+            MachineRepr::FatPointer(FatRepr::Collection { .. })
+        ),
+        "list must be FatPointer(Collection)"
+    );
+
+    // {str: int} → FatPointer(Map { key, value })
+    let map_idx = pool.map(Idx::STR, Idx::INT);
+    let map_repr = canonical(&pool, map_idx);
+    assert!(
+        matches!(map_repr, MachineRepr::FatPointer(FatRepr::Map { .. })),
+        "map must be FatPointer(Map)"
+    );
+
+    // Semantic pin: all three are FatPointer variants, ensuring identical
+    // LLVM lowering ({i64, i64, ptr}) via try_repr_to_llvm_type.
+}
+
+/// §01.9 Item 6: Storage type equivalence — containers and opaque types.
+///
+/// Covers 7 simple containers + 2 two-child containers + `DoubleEndedIterator`.
+/// (Borrowed panics in `canonical()` — not a codegen type.)
+#[test]
+fn storage_equivalence_containers() {
+    let mut pool = Pool::new();
+
+    // Simple containers (7)
+    let list_idx = pool.list(Idx::INT);
+    assert!(
+        matches!(
+            canonical(&pool, list_idx),
+            MachineRepr::FatPointer(FatRepr::Collection { .. })
+        ),
+        "List canonical"
+    );
+    let opt_idx = pool.option(Idx::INT);
+    assert!(
+        matches!(canonical(&pool, opt_idx), MachineRepr::Enum(_)),
+        "Option canonical"
+    );
+    let set_idx = pool.set(Idx::STR);
+    assert!(
+        matches!(
+            canonical(&pool, set_idx),
+            MachineRepr::FatPointer(FatRepr::Collection { .. })
+        ),
+        "Set canonical"
+    );
+    let chan_idx = pool.channel(Idx::INT);
+    assert_eq!(
+        canonical(&pool, chan_idx),
+        MachineRepr::OpaquePtr,
+        "Channel canonical"
+    );
+    let range_idx = pool.range(Idx::INT);
+    assert_eq!(
+        canonical(&pool, range_idx),
+        MachineRepr::Range,
+        "Range canonical"
+    );
+    let iter_idx = pool.iterator(Idx::INT);
+    assert_eq!(
+        canonical(&pool, iter_idx),
+        MachineRepr::OpaquePtr,
+        "Iterator canonical"
+    );
+    let deiter_idx = pool.double_ended_iterator(Idx::INT);
+    assert_eq!(
+        canonical(&pool, deiter_idx),
+        MachineRepr::OpaquePtr,
+        "DoubleEndedIterator"
+    );
+
+    // Two-child containers (2 of 3 — Borrowed is non-codegen)
+    let map_idx = pool.map(Idx::STR, Idx::INT);
+    assert!(
+        matches!(
+            canonical(&pool, map_idx),
+            MachineRepr::FatPointer(FatRepr::Map { .. })
+        ),
+        "Map canonical"
+    );
+    let result_idx = pool.result(Idx::INT, Idx::STR);
+    assert!(
+        matches!(canonical(&pool, result_idx), MachineRepr::Enum(_)),
+        "Result canonical"
+    );
+}
+
+/// §01.9 Item 6: Storage type equivalence — complex types and resolved names.
+///
+/// Covers Function, Tuple, Struct, Enum + Named/Applied/Alias resolution.
+#[test]
+fn storage_equivalence_complex_and_resolved() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+
+    // Complex types (4)
+    let fn_idx = pool.function1(Idx::INT, Idx::BOOL);
+    assert!(
+        matches!(canonical(&pool, fn_idx), MachineRepr::Closure(_)),
+        "Function canonical"
+    );
+    let tuple_idx = pool.pair(Idx::INT, Idx::BOOL);
+    assert!(
+        matches!(canonical(&pool, tuple_idx), MachineRepr::Tuple(_)),
+        "Tuple canonical"
+    );
+    let struct_name = Name::new(0, 500);
+    let struct_idx = pool.struct_type(struct_name, &[(Name::new(0, 501), Idx::INT)]);
+    assert!(
+        matches!(canonical(&pool, struct_idx), MachineRepr::Struct(_)),
+        "Struct canonical"
+    );
+    let enum_idx = pool.enum_type(
+        Name::new(0, 600),
+        &[
+            EnumVariant {
+                name: Name::new(0, 601),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 602),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    assert!(
+        matches!(canonical(&pool, enum_idx), MachineRepr::Enum(_)),
+        "Enum canonical"
+    );
+
+    // Named/resolved (3)
+    let named_idx = pool.named(Name::new(0, 700));
+    pool.set_resolution(named_idx, struct_idx);
+    assert!(
+        matches!(canonical(&pool, named_idx), MachineRepr::Struct(_)),
+        "Named→Struct"
+    );
+    let applied_idx = pool.applied(Name::new(0, 800), &[Idx::INT]);
+    pool.set_resolution(applied_idx, struct_idx);
+    assert!(
+        matches!(canonical(&pool, applied_idx), MachineRepr::Struct(_)),
+        "Applied→Struct"
+    );
+    let alias_named = pool.named(Name::new(0, 900));
+    pool.set_resolution(alias_named, Idx::INT);
+    assert_eq!(
+        canonical(&pool, alias_named),
+        MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true
+        },
+        "Alias→Int canonical"
+    );
+}
+
+/// §01.9 Item 6: Storage type equivalence — ZST-divergence cases.
+///
+/// `canonical()` correctly uses zero-sized fields for `Unit`/`Never` in
+/// aggregates. `TypeInfoStore` uses `i64` for these — the divergence is
+/// intentional (canonical is correct, `TypeInfoStore` is legacy).
+#[test]
+fn storage_equivalence_zst_divergence() {
+    let mut pool = Pool::new();
+
+    let opt_unit = pool.option(Idx::UNIT);
+    if let MachineRepr::Enum(ref e) = canonical(&pool, opt_unit) {
+        assert_eq!(e.size, 8, "Option<()> = 8 bytes (tag only, zero payload)");
+    } else {
+        panic!("Option<()> must be Enum");
+    }
+
+    let tup_unit_bool = pool.pair(Idx::UNIT, Idx::BOOL);
+    if let MachineRepr::Tuple(ref t) = canonical(&pool, tup_unit_bool) {
+        assert_eq!(
+            t.size, 1,
+            "((), bool) = 1 byte — Unit zero-sized in aggregates"
+        );
+    } else {
+        panic!("((), bool) must be Tuple");
+    }
+
+    let result_unit_int = pool.result(Idx::UNIT, Idx::INT);
+    if let MachineRepr::Enum(ref e) = canonical(&pool, result_unit_int) {
+        assert_eq!(e.size, 16, "Result<(), int> = 16 bytes");
+    } else {
+        panic!("Result<(), int> must be Enum");
+    }
+
+    let struct_unit_idx = pool.struct_type(
+        Name::new(0, 1000),
+        &[
+            (Name::new(0, 1001), Idx::UNIT),
+            (Name::new(0, 1002), Idx::INT),
+        ],
+    );
+    if let MachineRepr::Struct(ref s) = canonical(&pool, struct_unit_idx) {
+        assert_eq!(s.size, 8, "Struct(unit, int) = 8 bytes — Unit zero-sized");
+    } else {
+        panic!("Struct with Unit field must be Struct");
     }
 }

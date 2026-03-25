@@ -49,8 +49,10 @@ pub struct ParsedAttrs {
     pub fail_expected: Option<Name>,
     /// Derived traits for `#derive(Trait1, Trait2)`.
     pub derive_traits: Vec<Name>,
-    /// Repr attribute for `#repr("c")`, `#repr("packed")`, etc.
-    pub repr: Option<ReprAttr>,
+    /// Repr attributes for `#repr("c")`, `#repr("packed")`, etc.
+    ///
+    /// Multiple `#repr` may be stacked (e.g., `#repr("c") #repr("aligned", 16)`).
+    pub repr_attrs: Vec<ReprAttr>,
     /// Target conditional compilation for `#target(os: "linux")`.
     pub target: Option<TargetAttr>,
     /// Config conditional compilation for `#cfg(debug)`.
@@ -67,11 +69,9 @@ pub struct ParsedAttrs {
 }
 
 /// Representation attribute values.
+///
+/// Converted to [`ori_ir::ReprAttrKind`] during type declaration parsing.
 #[derive(Clone, Debug)]
-#[allow(
-    dead_code,
-    reason = "variants used when codegen consumes repr attributes"
-)]
 pub enum ReprAttr {
     /// `#repr("c")` - C-compatible layout
     C,
@@ -96,7 +96,7 @@ impl ParsedAttrs {
             && self.expected_errors.is_empty()
             && self.fail_expected.is_none()
             && self.derive_traits.is_empty()
-            && self.repr.is_none()
+            && self.repr_attrs.is_empty()
             && self.target.is_none()
             && self.cfg.is_none()
             && !self.is_fbip
@@ -574,6 +574,69 @@ impl Parser<'_> {
         }
     }
 
+    /// Parse a single repr value string, advancing past it.
+    ///
+    /// Handles `"c"`, `"packed"`, `"transparent"`, and `"aligned", N` (consuming the
+    /// comma and integer for aligned). Returns `None` on error (already pushed).
+    fn parse_repr_value(&mut self, errors: &mut Vec<ParseError>) -> Option<ReprAttr> {
+        let TokenKind::String(string_name) = *self.cursor.current_kind() else {
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected repr value string",
+                self.cursor.current_span(),
+            ));
+            return None;
+        };
+        let repr_str = self.cursor.interner().lookup(string_name);
+        match repr_str {
+            "c" => {
+                self.cursor.advance();
+                Some(ReprAttr::C)
+            }
+            "packed" => {
+                self.cursor.advance();
+                Some(ReprAttr::Packed)
+            }
+            "transparent" => {
+                self.cursor.advance();
+                Some(ReprAttr::Transparent)
+            }
+            "aligned" => {
+                self.cursor.advance(); // consume "aligned"
+                if self.cursor.check(&TokenKind::Comma) {
+                    self.cursor.advance();
+                    if let TokenKind::Int(n) = *self.cursor.current_kind() {
+                        self.cursor.advance();
+                        Some(ReprAttr::Aligned(n))
+                    } else {
+                        errors.push(ParseError::new(
+                            ErrorCode::E1006,
+                            "expected alignment value after 'aligned'",
+                            self.cursor.current_span(),
+                        ));
+                        None
+                    }
+                } else {
+                    errors.push(ParseError::new(
+                        ErrorCode::E1006,
+                        "expected ',' after 'aligned'",
+                        self.cursor.current_span(),
+                    ));
+                    None
+                }
+            }
+            s => {
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    format!("unknown repr value '{s}'"),
+                    self.cursor.current_span(),
+                ));
+                self.cursor.advance();
+                None
+            }
+        }
+    }
+
     /// Parse a `repr` attribute like `#repr("c")` or `#repr("aligned", 16)`.
     fn parse_repr_attr(
         &mut self,
@@ -597,60 +660,17 @@ impl Parser<'_> {
         }
         self.cursor.advance(); // consume (
 
-        // Parse repr value
-        if let TokenKind::String(string_name) = *self.cursor.current_kind() {
-            let repr_str = self.cursor.interner().lookup(string_name);
-            let repr = match repr_str {
-                "c" => Some(ReprAttr::C),
-                "packed" => Some(ReprAttr::Packed),
-                "transparent" => Some(ReprAttr::Transparent),
-                "aligned" => {
-                    self.cursor.advance(); // consume "aligned"
-                                           // Expect comma and alignment value
-                    if self.cursor.check(&TokenKind::Comma) {
-                        self.cursor.advance();
-                        if let TokenKind::Int(n) = *self.cursor.current_kind() {
-                            self.cursor.advance();
-                            Some(ReprAttr::Aligned(n))
-                        } else {
-                            errors.push(ParseError::new(
-                                ErrorCode::E1006,
-                                "expected alignment value after 'aligned'",
-                                self.cursor.current_span(),
-                            ));
-                            None
-                        }
-                    } else {
-                        errors.push(ParseError::new(
-                            ErrorCode::E1006,
-                            "expected ',' after 'aligned'",
-                            self.cursor.current_span(),
-                        ));
-                        None
-                    }
-                }
-                s => {
-                    errors.push(ParseError::new(
-                        ErrorCode::E1006,
-                        format!("unknown repr value '{s}'"),
-                        self.cursor.previous_span(),
-                    ));
-                    None
-                }
-            };
+        // Parse first repr value.
+        if let Some(r) = self.parse_repr_value(errors) {
+            attrs.repr_attrs.push(r);
+        }
 
-            // For non-aligned repr, advance past the string
-            if !matches!(repr, Some(ReprAttr::Aligned(_)) | None) {
-                self.cursor.advance();
+        // Support combined syntax: #repr("c", "aligned", 16)
+        if self.cursor.check(&TokenKind::Comma) {
+            self.cursor.advance();
+            if let Some(r) = self.parse_repr_value(errors) {
+                attrs.repr_attrs.push(r);
             }
-
-            attrs.repr = repr;
-        } else {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected repr value string",
-                self.cursor.current_span(),
-            ));
         }
 
         self.finish_attr_paren(uses_brackets, errors);

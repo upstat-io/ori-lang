@@ -450,6 +450,7 @@ fn derive_hashable_without_eq_emits_error() {
         span: ori_ir::Span::DUMMY,
         visibility: ori_ir::Visibility::Public,
         derives: vec![hashable], // only Hashable, no Eq
+        repr_attrs: vec![],
     };
 
     register_derived_impl(&mut checker, &type_decl, hashable);
@@ -477,6 +478,7 @@ fn derive_eq_and_hashable_succeeds() {
         span: ori_ir::Span::DUMMY,
         visibility: ori_ir::Visibility::Public,
         derives: vec![eq, hashable], // both Eq and Hashable
+        repr_attrs: vec![],
     };
 
     // Register Eq first (as the derive processor would)

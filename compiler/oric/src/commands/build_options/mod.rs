@@ -12,7 +12,7 @@ use std::path::PathBuf;
 /// output, etc.). These are not state machine candidates as they are
 /// independent orthogonal settings.
 #[derive(Debug, Clone)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "independent orthogonal CLI flags, not a state machine"
 )]
@@ -61,6 +61,12 @@ pub struct BuildOptions {
     pub wasm_opt: bool,
     /// Verbose output (-v, --verbose)
     pub verbose: bool,
+    /// Representation optimization policy (`--no-repr-opt` / `--repr-opt=` / `ORI_NO_REPR_OPT=1`).
+    ///
+    /// Controls how aggressively the representation optimizer narrows types.
+    /// `Aggressive` (default): all safe narrowing. `Conservative`: provably-safe only.
+    /// `Disabled` (`--no-repr-opt`): canonical representations only.
+    pub narrowing_policy: ori_repr::NarrowingPolicy,
 }
 
 impl Default for BuildOptions {
@@ -88,6 +94,7 @@ impl Default for BuildOptions {
             js_bindings: false,
             wasm_opt: false,
             verbose: false,
+            narrowing_policy: ori_repr::NarrowingPolicy::Aggressive,
         }
     }
 }
@@ -147,6 +154,19 @@ impl BuildOptions {
         }
         if other.features.is_some() {
             self.features.clone_from(&other.features);
+        }
+        if other.jobs.is_some() {
+            self.jobs = other.jobs;
+        }
+
+        // Enum fields: override if non-default (TPR-01-034)
+        if other.link_mode != LinkMode::default() {
+            self.link_mode = other.link_mode;
+        }
+
+        // Narrowing policy: non-default overrides (TPR-01-035)
+        if other.narrowing_policy != ori_repr::NarrowingPolicy::Aggressive {
+            self.narrowing_policy = other.narrowing_policy;
         }
 
         // Boolean flags: OR (true wins)
@@ -384,7 +404,29 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
             options.wasm_opt = true;
         } else if arg == "-v" || arg == "--verbose" {
             options.verbose = true;
+        } else if arg == "--no-repr-opt" {
+            options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
+        } else if let Some(policy) = arg.strip_prefix("--repr-opt=") {
+            match policy {
+                "aggressive" => options.narrowing_policy = ori_repr::NarrowingPolicy::Aggressive,
+                "conservative" => {
+                    options.narrowing_policy = ori_repr::NarrowingPolicy::Conservative;
+                }
+                "disabled" => options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled,
+                _ => eprintln!(
+                    "warning: unknown repr-opt policy '{policy}', options: aggressive, conservative, disabled"
+                ),
+            }
         }
+    }
+
+    // Also check ORI_NO_REPR_OPT environment variable.
+    // Uses strict value parsing: only "1"/"true"/"yes". (TPR-01-030)
+    // Only applies if no explicit policy was set via CLI flags.
+    if options.narrowing_policy == ori_repr::NarrowingPolicy::Aggressive
+        && ori_repr::NarrowingPolicy::env_disabled()
+    {
+        options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
     }
 
     // Handle -o without = (next arg is the path)
@@ -392,3 +434,6 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
 
     options
 }
+
+#[cfg(test)]
+mod tests;

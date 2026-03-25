@@ -1,0 +1,23 @@
+// Spec tests for #repr attribute parsing.
+//
+// Tests that #repr attributes are parsed without error on structs.
+
+// Valid: #repr("c") on a struct
+#repr("c")
+type CPoint = { x: int, y: int }
+
+// Valid: #repr("packed") on a struct
+#repr("packed")
+type PackedData = { a: int, b: float }
+
+// Valid: #repr("transparent") on a single-field struct
+#repr("transparent")
+type Wrapper = { inner: int }
+
+// Valid: #repr("aligned", 8) on a struct
+#repr("aligned", 8)
+type AlignedData = { value: int }
+
+@main () -> void = {
+    print(msg: "repr attrs parsed OK")
+}

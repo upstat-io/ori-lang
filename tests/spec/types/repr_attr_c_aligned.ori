@@ -1,0 +1,10 @@
+// Valid: stacked #repr("c") + #repr("aligned", 16) on a struct.
+// The spec allows this one combination (C layout with enforced alignment).
+
+#repr("c")
+#repr("aligned", 16)
+type CAligned = { x: int, y: int }
+
+@main () -> void = {
+    print(msg: "c+aligned OK")
+}

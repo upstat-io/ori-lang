@@ -265,6 +265,7 @@ impl TestRunner {
                 &type_result.typed.mono_instances,
                 &annotated_sigs,
                 arc_cache,
+                None, // JIT: use env var fallback for narrowing policy
             )
         }));
 
