@@ -177,6 +177,8 @@ Information flow — each stage enriches the ReprPlan:
 - **§01.7 + §06**: `#repr` attributes (c, packed, transparent, aligned) are stored in ReprPlan by §01 but consumed by §06's layout algorithm. The layout pass must check `repr_attrs` before reordering fields. If §01 stores attrs but §06 ignores them, C-ABI structs get silently reordered → FFI bugs.
 - **§02 + ori_eval**: The evaluator (`ori_eval`) does NOT use triviality classification and is NOT affected by §02 or any other section in this plan. `ori_eval` uses Rust-native reference counting (no `ori_rc_*` calls). The implementation pipeline is `ori_types → ori_arc → ori_repr → ori_llvm/ori_rt`; `ori_repr` was introduced by §01 and is now a live workspace crate.
 - **§02 standalone viability**: The core algorithm (`classify_triviality()` in `ori_types`) and the `ArcClassifier` delegation can be implemented and tested independently. `ReprPlan::is_trivial()` (§01.4) is live and delegates to `is_trivial_repr()`. The only remaining §01 dependency for §02 is §01.8 Phase B (TypeInfoStore→ReprPlan triviality delegation), which §02 itself unblocks. §02 can begin implementation now.
+- **§02 + ori_repr (analyze_triviality)**: The `analyze_triviality()` stub in `ori_repr/src/lib.rs:118` is a §02 deliverable. However, it is a **validation pass** rather than a primary computation: `populate_canonical()` already embeds triviality into `MachineRepr::Struct/Tuple { trivial }` and `MachineRepr::Enum` (via `is_trivial_repr()` variant field walk), so `ReprPlan::is_trivial()` already returns the correct answer for all canonicalized types. The `analyze_triviality()` pass asserts consistency between `classify_triviality()` (Pool-level) and `is_trivial_repr()` (MachineRepr-level). Any mismatch is a bug.
+- **§02 completes §01.8 Phase B**: §02 is explicitly responsible for completing §01.8 Phase B (TypeInfoStore::is_trivial() → ReprPlan delegation, removal of classify_trivial() and cache fields from TypeInfoStore). This is not optional — it is a concrete deliverable.
 - **§03 + §01 (function_var_ranges field)**: §03's range analysis outputs `FxHashMap<ArcVarId, ValueRange>` per function. This is stored in `ReprPlan::function_var_ranges` via `ReprPlan::set_var_ranges()` (live in `plan.rs:146`). §04 reads results via `var_range(func, var)` (live in `plan.rs:155`). §03 must also make three `ori_arc::graph` functions `pub` (currently `pub(crate)`): `compute_predecessors`, `successor_block_ids`, `compute_postorder` — see [NOTE] in Codebase Findings above.
 - **§04 + §07**: Integer narrowing (§04) reduces field sizes, which changes what invalid bit patterns are available as niches. §07's `find_niches()` must query `ReprPlan` for the narrowed `MachineRepr` of each field, not the canonical one. If §07 runs niche analysis on canonical (pre-narrowing) types, it will miss niches created by narrowing (e.g., a field narrowed to `i8` with range `[0, 2]` has 253 niche values that the canonical `i64` version does not).
 - **§05 + §07**: Float narrowing (§05) may produce `f32`-typed fields. `f32` NaN bit patterns (quiet NaN: `0x7FC00000` through `0x7FFFFFFF` and `0xFFC00000` through `0xFFFFFFFF`) are technically invalid "values" but IEEE 754 semantics make them complex to use as niches. §07 must conservatively skip NaN-based niches for `f32` fields unless it has verified the platform's NaN handling (leave as `vec![]` for `MachineRepr::Float { width: F32 }`).
@@ -276,9 +278,10 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 | Section | Est. Lines | Complexity | Depends On |
 |---------|-----------|------------|------------|
 | 01 ReprPlan IR | 1,674 actual (13 files, all <500L) + 2,696 tests | Medium-High | — |
-| 02 Transitive Triviality | ~500 | Medium | §01 |
+| 02 Transitive Triviality | ~550 | Medium | §01 |
 |   ↳ 02.1 Unify triviality classification | ~100 | Low | §01 |
 |   ↳ 02.2 Transitive walk with cycle detection | ~150 | Medium | §01 |
+|   ↳ 02.2b analyze_triviality() stub + §01.8 Phase B | ~50 | Low | §01 |
 |   ↳ 02.3 ARC elision in ori_arc pipeline | ~100 | Medium | §01 |
 |   ↳ 02.4 Drop function elision | ~50 | Low | §01 |
 |   ↳ 02.5 Newtype & FFI types | ~30 | Low | §01 |
@@ -314,7 +317,7 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |   ↳ 11.2 Small vector optimization | ~300 | High | §04 |
 |   ↳ 11.3 Packed bool arrays | ~300 | Medium | — |
 | 12 Verification | ~800 | Medium | ALL |
-| **Total new** | **~10,874** | | |
+| **Total new** | **~10,924** | | |
 | **Total deleted** | **~200** | | |
 
 ## Quick Reference
