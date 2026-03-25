@@ -93,13 +93,19 @@ pub(super) fn parse_single_arg(options: &mut BuildOptions, arg: &str) {
         options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
         options.narrowing_policy_explicit = true;
     } else if let Some(policy) = arg.strip_prefix("--repr-opt=") {
-        options.narrowing_policy_explicit = true;
         match policy {
-            "aggressive" => options.narrowing_policy = ori_repr::NarrowingPolicy::Aggressive,
+            "aggressive" => {
+                options.narrowing_policy = ori_repr::NarrowingPolicy::Aggressive;
+                options.narrowing_policy_explicit = true;
+            }
             "conservative" => {
                 options.narrowing_policy = ori_repr::NarrowingPolicy::Conservative;
+                options.narrowing_policy_explicit = true;
             }
-            "disabled" => options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled,
+            "disabled" => {
+                options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
+                options.narrowing_policy_explicit = true;
+            }
             _ => eprintln!(
                 "warning: unknown repr-opt policy '{policy}', options: aggressive, conservative, disabled"
             ),
