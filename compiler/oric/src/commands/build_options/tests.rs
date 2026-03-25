@@ -4,7 +4,7 @@ use ori_repr::NarrowingPolicy;
 
 use super::*;
 
-// TPR-01-035: merge() preserves Disabled narrowing policy
+// TPR-01-035/048: merge() preserves explicit Disabled narrowing policy
 #[test]
 fn merge_preserves_disabled_policy() {
     let mut base = BuildOptions::default();
@@ -14,8 +14,11 @@ fn merge_preserves_disabled_policy() {
         "default should be Aggressive"
     );
 
+    // Non-default policies must have narrowing_policy_explicit: true
+    // (they only come from explicit CLI flags like --no-repr-opt).
     let other = BuildOptions {
         narrowing_policy: NarrowingPolicy::Disabled,
+        narrowing_policy_explicit: true,
         ..Default::default()
     };
 
@@ -23,33 +26,35 @@ fn merge_preserves_disabled_policy() {
     assert_eq!(
         base.narrowing_policy,
         NarrowingPolicy::Disabled,
-        "merge must preserve non-default policy"
+        "merge must preserve explicit non-default policy"
     );
 }
 
-// TPR-01-035: merge default policy does not override non-default
+// TPR-01-035/048: merging non-explicit default policy does not override existing
 #[test]
 fn merge_default_policy_does_not_override() {
     let mut base = BuildOptions {
         narrowing_policy: NarrowingPolicy::Disabled,
+        narrowing_policy_explicit: true,
         ..Default::default()
     };
-    let other = BuildOptions::default(); // Aggressive (default)
+    let other = BuildOptions::default(); // Aggressive (non-explicit)
 
     base.merge(&other);
     assert_eq!(
         base.narrowing_policy,
         NarrowingPolicy::Disabled,
-        "merging default policy should not override non-default"
+        "merging non-explicit default must not override explicit policy"
     );
 }
 
-// TPR-01-035: merge Conservative policy
+// TPR-01-035/048: merge explicit Conservative policy
 #[test]
 fn merge_preserves_conservative_policy() {
     let mut base = BuildOptions::default();
     let other = BuildOptions {
         narrowing_policy: NarrowingPolicy::Conservative,
+        narrowing_policy_explicit: true,
         ..Default::default()
     };
 
@@ -57,7 +62,7 @@ fn merge_preserves_conservative_policy() {
     assert_eq!(
         base.narrowing_policy,
         NarrowingPolicy::Conservative,
-        "merge must preserve Conservative policy"
+        "merge must preserve explicit Conservative policy"
     );
 }
 
@@ -404,5 +409,98 @@ fn jobs_last_write_wins_auto_then_4() {
         merged.jobs,
         Some(4),
         "-j then --jobs=4 → Some(4) (last wins)"
+    );
+}
+
+// TPR-01-048: --repr-opt=aggressive must survive trailing unrelated flags.
+// This is the exact bug scenario: each unrelated flag parsed via
+// parse_build_options() MUST NOT inject a Disabled policy from the env var.
+
+#[test]
+fn explicit_aggressive_survives_trailing_release() {
+    // Simulates: ori build file.ori --repr-opt=aggressive --release
+    // The env var is NOT applied inside parse_build_options() (TPR-01-048),
+    // so --release produces a default (non-explicit) policy that merge() ignores.
+    let args = vec!["--repr-opt=aggressive".to_string(), "--release".to_string()];
+
+    let mut options = BuildOptions::default();
+    for arg in &args {
+        let parsed = parse_build_options(std::slice::from_ref(arg));
+        options.merge(&parsed);
+    }
+
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "--repr-opt=aggressive must survive trailing --release"
+    );
+    assert!(
+        options.narrowing_policy_explicit,
+        "explicit flag must survive trailing --release"
+    );
+    assert!(options.release, "--release must still be set");
+}
+
+#[test]
+fn explicit_aggressive_survives_trailing_emit_and_verbose() {
+    // Simulates: ori build file.ori --repr-opt=aggressive --emit=llvm-ir -v
+    let args = vec![
+        "--repr-opt=aggressive".to_string(),
+        "--emit=llvm-ir".to_string(),
+        "-v".to_string(),
+    ];
+
+    let mut options = BuildOptions::default();
+    for arg in &args {
+        let parsed = parse_build_options(std::slice::from_ref(arg));
+        options.merge(&parsed);
+    }
+
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "--repr-opt=aggressive must survive trailing --emit and -v"
+    );
+    assert!(options.verbose, "-v must still be set");
+}
+
+#[test]
+fn explicit_disabled_survives_trailing_release() {
+    // Simulates: ori build file.ori --no-repr-opt --release
+    let args = vec!["--no-repr-opt".to_string(), "--release".to_string()];
+
+    let mut options = BuildOptions::default();
+    for arg in &args {
+        let parsed = parse_build_options(std::slice::from_ref(arg));
+        options.merge(&parsed);
+    }
+
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Disabled,
+        "--no-repr-opt must survive trailing --release"
+    );
+    assert!(options.release, "--release must still be set");
+}
+
+/// TPR-01-048 semantic pin: `parse_build_options` does NOT inject env-var
+/// policy. This test verifies that parsing an unrelated flag does NOT
+/// produce a Disabled policy — the env var check was removed from
+/// `parse_build_options()` and moved to the caller.
+#[test]
+fn parse_build_options_does_not_inject_env_policy() {
+    // Parsing --release should yield default policy (Aggressive),
+    // NOT Disabled (even if ORI_NO_REPR_OPT=1 is set in the environment).
+    // We can't set env vars in unit tests safely (race conditions), but
+    // we CAN verify the output has the correct default and explicit flag.
+    let parsed = parse_build_options(&["--release".to_string()]);
+    assert_eq!(
+        parsed.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "parse_build_options must not apply env var — caller handles it"
+    );
+    assert!(
+        !parsed.narrowing_policy_explicit,
+        "--release must not set narrowing_policy_explicit"
     );
 }
