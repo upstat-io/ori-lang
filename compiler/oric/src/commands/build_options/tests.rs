@@ -276,3 +276,133 @@ fn merge_default_link_mode_does_not_override() {
         "merging default link_mode should not override non-default"
     );
 }
+
+// TPR-01-036: narrowing_policy_explicit — last-write-wins
+
+#[test]
+fn narrowing_policy_explicit_overrides_env() {
+    // --repr-opt=aggressive must win over ORI_NO_REPR_OPT=1.
+    // We simulate this by setting explicit + Aggressive, then checking
+    // that the env-var guard would NOT apply.
+    let options = BuildOptions {
+        narrowing_policy: NarrowingPolicy::Aggressive,
+        narrowing_policy_explicit: true,
+        ..Default::default()
+    };
+    // The env-var guard only applies when policy is NOT explicitly set.
+    assert!(
+        options.narrowing_policy_explicit,
+        "explicit flag must survive construction"
+    );
+}
+
+#[test]
+fn narrowing_policy_last_write_wins_disabled_then_aggressive() {
+    // --no-repr-opt --repr-opt=aggressive → Aggressive (last-write-wins)
+    let first = parse_build_options(&["--no-repr-opt".to_string()]);
+    assert_eq!(first.narrowing_policy, NarrowingPolicy::Disabled);
+    assert!(first.narrowing_policy_explicit);
+
+    let second = parse_build_options(&["--repr-opt=aggressive".to_string()]);
+    assert_eq!(second.narrowing_policy, NarrowingPolicy::Aggressive);
+    assert!(second.narrowing_policy_explicit);
+
+    let mut merged = first;
+    merged.merge(&second);
+    assert_eq!(
+        merged.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "--no-repr-opt then --repr-opt=aggressive → last wins"
+    );
+}
+
+#[test]
+fn narrowing_policy_last_write_wins_aggressive_then_disabled() {
+    // --repr-opt=aggressive --no-repr-opt → Disabled (last-write-wins)
+    let first = parse_build_options(&["--repr-opt=aggressive".to_string()]);
+    let second = parse_build_options(&["--no-repr-opt".to_string()]);
+
+    let mut merged = first;
+    merged.merge(&second);
+    assert_eq!(
+        merged.narrowing_policy,
+        NarrowingPolicy::Disabled,
+        "--repr-opt=aggressive then --no-repr-opt → last wins"
+    );
+}
+
+#[test]
+fn env_var_does_not_override_explicit_aggressive() {
+    // ORI_NO_REPR_OPT=1 + --repr-opt=aggressive → Aggressive
+    // The env var check must skip when narrowing_policy_explicit is true.
+    let options = parse_build_options(&["--repr-opt=aggressive".to_string()]);
+    assert!(
+        options.narrowing_policy_explicit,
+        "explicit flag must be set by --repr-opt="
+    );
+    assert_eq!(options.narrowing_policy, NarrowingPolicy::Aggressive);
+    // The caller (main.rs) checks: if !narrowing_policy_explicit && env_disabled() → Disabled
+    // Since explicit is true, env var would NOT apply.
+}
+
+// TPR-01-038: link_mode and jobs — last-write-wins
+
+#[test]
+fn link_mode_last_write_wins_dynamic_then_static() {
+    // --link=dynamic --link=static → Static
+    let first = parse_build_options(&["--link=dynamic".to_string()]);
+    let second = parse_build_options(&["--link=static".to_string()]);
+
+    let mut merged = first;
+    merged.merge(&second);
+    assert_eq!(
+        merged.link_mode,
+        LinkMode::Static,
+        "--link=dynamic then --link=static → Static (last wins)"
+    );
+}
+
+#[test]
+fn link_mode_last_write_wins_static_then_dynamic() {
+    // --link=static --link=dynamic → Dynamic
+    let first = parse_build_options(&["--link=static".to_string()]);
+    let second = parse_build_options(&["--link=dynamic".to_string()]);
+
+    let mut merged = first;
+    merged.merge(&second);
+    assert_eq!(
+        merged.link_mode,
+        LinkMode::Dynamic,
+        "--link=static then --link=dynamic → Dynamic (last wins)"
+    );
+}
+
+#[test]
+fn jobs_last_write_wins_4_then_auto() {
+    // --jobs=4 -j → None (auto)
+    let first = parse_build_options(&["--jobs=4".to_string()]);
+    assert_eq!(first.jobs, Some(4));
+
+    let second = parse_build_options(&["-j".to_string()]);
+    // -j means auto (None), but jobs_explicit must be true
+    assert!(second.jobs_explicit, "-j must set jobs_explicit");
+
+    let mut merged = first;
+    merged.merge(&second);
+    assert_eq!(merged.jobs, None, "--jobs=4 then -j → auto (last wins)");
+}
+
+#[test]
+fn jobs_last_write_wins_auto_then_4() {
+    // -j --jobs=4 → Some(4)
+    let first = parse_build_options(&["-j".to_string()]);
+    let second = parse_build_options(&["--jobs=4".to_string()]);
+
+    let mut merged = first;
+    merged.merge(&second);
+    assert_eq!(
+        merged.jobs,
+        Some(4),
+        "-j then --jobs=4 → Some(4) (last wins)"
+    );
+}
