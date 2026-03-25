@@ -31,11 +31,14 @@
 //! #compile_fail("unknown identifier")
 //! ```
 
+mod compile_fail;
+mod conditional;
 mod repr;
+mod simple;
 
 use crate::{ParseError, Parser};
 use ori_diagnostic::ErrorCode;
-use ori_ir::{CfgAttr, ExpectedError, FileAttr, Name, TargetAttr, TokenCapture, TokenKind};
+use ori_ir::{FileAttr, Name, TokenCapture, TokenKind};
 
 /// Parsed attributes for a function or test.
 ///
@@ -46,7 +49,7 @@ pub struct ParsedAttrs {
     /// Skip reason for `#skip("reason")`.
     pub skip_reason: Option<Name>,
     /// Expected compilation errors (multiple allowed).
-    pub expected_errors: Vec<ExpectedError>,
+    pub expected_errors: Vec<ori_ir::ExpectedError>,
     /// Expected error for `#fail("error")`.
     pub fail_expected: Option<Name>,
     /// Derived traits for `#derive(Trait1, Trait2)`.
@@ -56,9 +59,9 @@ pub struct ParsedAttrs {
     /// Multiple `#repr` may be stacked (e.g., `#repr("c") #repr("aligned", 16)`).
     pub repr_attrs: Vec<ReprAttr>,
     /// Target conditional compilation for `#target(os: "linux")`.
-    pub target: Option<TargetAttr>,
+    pub target: Option<ori_ir::TargetAttr>,
     /// Config conditional compilation for `#cfg(debug)`.
-    pub cfg: Option<CfgAttr>,
+    pub cfg: Option<ori_ir::CfgAttr>,
     /// FBIP enforcement annotation: `#fbip`.
     pub is_fbip: bool,
 
@@ -248,586 +251,6 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse a string-valued attribute like `#skip("reason")`.
-    fn parse_string_attr(
-        &mut self,
-        attr_kind: AttrKind,
-        attrs: &mut ParsedAttrs,
-        errors: &mut Vec<ParseError>,
-        uses_brackets: bool,
-    ) {
-        let attr_name_str = attr_kind.as_str();
-
-        // Expect (
-        if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                format!("expected '(' after attribute name '{attr_name_str}'"),
-                self.cursor.current_span(),
-            ));
-            if uses_brackets {
-                self.skip_to_rbracket();
-            }
-            return;
-        }
-        self.cursor.advance(); // consume (
-
-        // Parse string value
-        let value = if let TokenKind::String(string_name) = *self.cursor.current_kind() {
-            self.cursor.advance();
-            Some(string_name)
-        } else {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                format!("attribute '{attr_name_str}' requires a string argument"),
-                self.cursor.current_span(),
-            ));
-            None
-        };
-
-        // Expect )
-        if self.cursor.check(&TokenKind::RParen) {
-            self.cursor.advance();
-        } else {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected ')' after attribute value",
-                self.cursor.current_span(),
-            ));
-        }
-
-        // Expect ] only if old bracket syntax was used
-        if uses_brackets {
-            if self.cursor.check(&TokenKind::RBracket) {
-                self.cursor.advance();
-            } else {
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    "expected ']' to close attribute",
-                    self.cursor.current_span(),
-                ));
-            }
-        }
-
-        // Store the attribute
-        if let Some(value) = value {
-            match attr_kind {
-                AttrKind::Skip => attrs.skip_reason = Some(value),
-                AttrKind::Fail => attrs.fail_expected = Some(value),
-                AttrKind::CompileFail
-                | AttrKind::Derive
-                | AttrKind::Repr
-                | AttrKind::Target
-                | AttrKind::Cfg
-                | AttrKind::Fbip
-                | AttrKind::Unknown => {}
-            }
-        }
-    }
-
-    /// Parse a `compile_fail` attribute with extended syntax.
-    ///
-    /// Supports:
-    /// - `#compile_fail("message")` - simple format (message substring)
-    /// - `#compile_fail(message: "msg")` - named message
-    /// - `#compile_fail(code: "E2001")` - error code
-    /// - `#compile_fail(message: "msg", code: "E2001", line: 5)` - combined
-    fn parse_compile_fail_attr(
-        &mut self,
-        attrs: &mut ParsedAttrs,
-        errors: &mut Vec<ParseError>,
-        uses_brackets: bool,
-    ) {
-        // Expect (
-        if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected '(' after 'compile_fail'",
-                self.cursor.current_span(),
-            ));
-            self.skip_to_attr_end(uses_brackets);
-            return;
-        }
-        self.cursor.advance(); // consume (
-
-        if let TokenKind::String(string_name) = *self.cursor.current_kind() {
-            // Simple format: #compile_fail("message")
-            self.cursor.advance();
-            attrs
-                .expected_errors
-                .push(ExpectedError::from_message(string_name));
-
-            if self.cursor.check(&TokenKind::RParen) {
-                self.cursor.advance();
-            } else {
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    "expected ')' after compile_fail value",
-                    self.cursor.current_span(),
-                ));
-            }
-        } else {
-            // Extended format: #compile_fail(name: value, ...)
-            self.parse_compile_fail_extended(attrs, errors, uses_brackets);
-        }
-
-        self.finish_attr_bracket(uses_brackets, errors);
-    }
-
-    /// Parse the extended `compile_fail` format with named parameters.
-    ///
-    /// Expects the cursor to be positioned after the opening `(`.
-    /// Handles the parameter while-loop, closing `)`, and error recovery.
-    fn parse_compile_fail_extended(
-        &mut self,
-        attrs: &mut ParsedAttrs,
-        errors: &mut Vec<ParseError>,
-        uses_brackets: bool,
-    ) {
-        let mut expected = ExpectedError::default();
-
-        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
-            let param_name = if let TokenKind::Ident(name) = *self.cursor.current_kind() {
-                self.cursor.advance();
-                name
-            } else {
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    "expected parameter name in compile_fail",
-                    self.cursor.current_span(),
-                ));
-                self.skip_to_attr_end(uses_brackets);
-                return;
-            };
-
-            if !self.cursor.check(&TokenKind::Colon) {
-                let name_str = self.cursor.interner().lookup(param_name);
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    format!("expected ':' after '{name_str}'"),
-                    self.cursor.current_span(),
-                ));
-                self.skip_to_attr_end(uses_brackets);
-                return;
-            }
-            self.cursor.advance();
-
-            self.parse_compile_fail_param(param_name, &mut expected, errors);
-
-            if self.cursor.check(&TokenKind::Comma) {
-                self.cursor.advance();
-            } else if !self.cursor.check(&TokenKind::RParen) {
-                break;
-            }
-        }
-
-        if !expected.is_empty() {
-            attrs.expected_errors.push(expected);
-        }
-
-        if self.cursor.check(&TokenKind::RParen) {
-            self.cursor.advance();
-        } else {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected ')' after compile_fail parameters",
-                self.cursor.current_span(),
-            ));
-        }
-    }
-
-    /// Parse a single named parameter value in the extended `compile_fail` format.
-    fn parse_compile_fail_param(
-        &mut self,
-        param_name: Name,
-        expected: &mut ExpectedError,
-        errors: &mut Vec<ParseError>,
-    ) {
-        let param_str = self.cursor.interner().lookup(param_name);
-        match param_str {
-            "message" | "msg" => {
-                if let TokenKind::String(s) = *self.cursor.current_kind() {
-                    expected.message = Some(s);
-                    self.cursor.advance();
-                } else {
-                    errors.push(ParseError::new(
-                        ErrorCode::E1006,
-                        "expected string for 'message'",
-                        self.cursor.current_span(),
-                    ));
-                }
-            }
-            "code" => {
-                if let TokenKind::String(s) = *self.cursor.current_kind() {
-                    expected.code = Some(s);
-                    self.cursor.advance();
-                } else {
-                    errors.push(ParseError::new(
-                        ErrorCode::E1006,
-                        "expected string for 'code'",
-                        self.cursor.current_span(),
-                    ));
-                }
-            }
-            "line" => {
-                if let TokenKind::Int(n) = *self.cursor.current_kind() {
-                    expected.line = u32::try_from(n).ok();
-                    self.cursor.advance();
-                } else {
-                    errors.push(ParseError::new(
-                        ErrorCode::E1006,
-                        "expected integer for 'line'",
-                        self.cursor.current_span(),
-                    ));
-                }
-            }
-            "column" | "col" => {
-                if let TokenKind::Int(n) = *self.cursor.current_kind() {
-                    expected.column = u32::try_from(n).ok();
-                    self.cursor.advance();
-                } else {
-                    errors.push(ParseError::new(
-                        ErrorCode::E1006,
-                        "expected integer for 'column'",
-                        self.cursor.current_span(),
-                    ));
-                }
-            }
-            _ => {
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    format!("unknown compile_fail parameter '{param_str}'"),
-                    self.cursor.previous_span(),
-                ));
-            }
-        }
-    }
-
-    /// Parse a derive attribute like `#derive(Eq, Clone)`.
-    fn parse_derive_attr(
-        &mut self,
-        attrs: &mut ParsedAttrs,
-        errors: &mut Vec<ParseError>,
-        uses_brackets: bool,
-    ) {
-        // Expect (
-        if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected '(' after 'derive'",
-                self.cursor.current_span(),
-            ));
-            if uses_brackets {
-                self.skip_to_rbracket();
-            } else {
-                self.skip_to_rparen_or_newline();
-            }
-            return;
-        }
-        self.cursor.advance(); // consume (
-
-        // Parse trait list: Trait1, Trait2, ...
-        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
-            match self.cursor.expect_ident() {
-                Ok(name) => {
-                    attrs.derive_traits.push(name);
-                }
-                Err(e) => {
-                    errors.push(e);
-                    if uses_brackets {
-                        self.skip_to_rbracket();
-                    } else {
-                        self.skip_to_rparen_or_newline();
-                    }
-                    return;
-                }
-            }
-
-            // Comma separator (optional before closing paren)
-            if self.cursor.check(&TokenKind::Comma) {
-                self.cursor.advance();
-            } else {
-                break;
-            }
-        }
-
-        // Expect )
-        if self.cursor.check(&TokenKind::RParen) {
-            self.cursor.advance();
-        } else {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected ')' after derive trait list",
-                self.cursor.current_span(),
-            ));
-        }
-
-        // Expect ] only if old bracket syntax was used
-        if uses_brackets {
-            if self.cursor.check(&TokenKind::RBracket) {
-                self.cursor.advance();
-            } else {
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    "expected ']' to close attribute",
-                    self.cursor.current_span(),
-                ));
-            }
-        }
-    }
-
-    /// Parse a `target` attribute body like `(os: "linux")`, returning the `TargetAttr` directly.
-    ///
-    /// Expects the cursor to be positioned at the `(` token.
-    /// Handles the opening `(`, named arguments, closing `)`, and optional `]`.
-    fn parse_target_attr_body(
-        &mut self,
-        errors: &mut Vec<ParseError>,
-        uses_brackets: bool,
-    ) -> Option<TargetAttr> {
-        // Expect (
-        if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected '(' after 'target'",
-                self.cursor.current_span(),
-            ));
-            if uses_brackets {
-                self.skip_to_rbracket();
-            } else {
-                self.skip_to_rparen_or_newline();
-            }
-            return None;
-        }
-        self.cursor.advance(); // consume (
-
-        let mut target = TargetAttr::default();
-
-        // Parse named arguments
-        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
-            let param_name = if let TokenKind::Ident(name) = *self.cursor.current_kind() {
-                self.cursor.advance();
-                name
-            } else {
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    "expected parameter name in target",
-                    self.cursor.current_span(),
-                ));
-                if uses_brackets {
-                    self.skip_to_rbracket();
-                } else {
-                    self.skip_to_rparen_or_newline();
-                }
-                return None;
-            };
-
-            // Expect :
-            if !self.cursor.check(&TokenKind::Colon) {
-                let name_str = self.cursor.interner().lookup(param_name);
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    format!("expected ':' after '{name_str}'"),
-                    self.cursor.current_span(),
-                ));
-                if uses_brackets {
-                    self.skip_to_rbracket();
-                } else {
-                    self.skip_to_rparen_or_newline();
-                }
-                return None;
-            }
-            self.cursor.advance();
-
-            // Parse value
-            let param_str = self.cursor.interner().lookup(param_name);
-            match param_str {
-                "os" => {
-                    if let TokenKind::String(s) = *self.cursor.current_kind() {
-                        target.os = Some(s);
-                        self.cursor.advance();
-                    }
-                }
-                "arch" => {
-                    if let TokenKind::String(s) = *self.cursor.current_kind() {
-                        target.arch = Some(s);
-                        self.cursor.advance();
-                    }
-                }
-                "family" => {
-                    if let TokenKind::String(s) = *self.cursor.current_kind() {
-                        target.family = Some(s);
-                        self.cursor.advance();
-                    }
-                }
-                "not_os" => {
-                    if let TokenKind::String(s) = *self.cursor.current_kind() {
-                        target.not_os = Some(s);
-                        self.cursor.advance();
-                    }
-                }
-                _ => {
-                    errors.push(ParseError::new(
-                        ErrorCode::E1006,
-                        format!("unknown target parameter '{param_str}'"),
-                        self.cursor.previous_span(),
-                    ));
-                }
-            }
-
-            // Comma separator
-            if self.cursor.check(&TokenKind::Comma) {
-                self.cursor.advance();
-            } else if !self.cursor.check(&TokenKind::RParen) {
-                break;
-            }
-        }
-
-        self.finish_attr_paren(uses_brackets, errors);
-        Some(target)
-    }
-
-    /// Parse a `target` attribute like `#target(os: "linux")` into `ParsedAttrs`.
-    fn parse_target_attr(
-        &mut self,
-        attrs: &mut ParsedAttrs,
-        errors: &mut Vec<ParseError>,
-        uses_brackets: bool,
-    ) {
-        attrs.target = self.parse_target_attr_body(errors, uses_brackets);
-    }
-
-    /// Parse a `cfg` attribute body like `(debug)` or `(feature: "name")`, returning `CfgAttr` directly.
-    ///
-    /// Expects the cursor to be positioned at the `(` token.
-    /// Handles the opening `(`, arguments, closing `)`, and optional `]`.
-    fn parse_cfg_attr_body(
-        &mut self,
-        errors: &mut Vec<ParseError>,
-        uses_brackets: bool,
-    ) -> Option<CfgAttr> {
-        // Expect (
-        if !self.cursor.check(&TokenKind::LParen) {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected '(' after 'cfg'",
-                self.cursor.current_span(),
-            ));
-            if uses_brackets {
-                self.skip_to_rbracket();
-            } else {
-                self.skip_to_rparen_or_newline();
-            }
-            return None;
-        }
-        self.cursor.advance(); // consume (
-
-        let mut cfg = CfgAttr::default();
-
-        // Parse arguments - can be bare identifiers or name: value
-        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
-            if let TokenKind::Ident(name) = *self.cursor.current_kind() {
-                self.cursor.advance();
-
-                if self.cursor.check(&TokenKind::Colon) {
-                    // Named parameter
-                    self.cursor.advance();
-                    let param_str = self.cursor.interner().lookup(name);
-                    match param_str {
-                        "feature" => {
-                            if let TokenKind::String(s) = *self.cursor.current_kind() {
-                                cfg.feature = Some(s);
-                                self.cursor.advance();
-                            }
-                        }
-                        "not_feature" => {
-                            if let TokenKind::String(s) = *self.cursor.current_kind() {
-                                cfg.not_feature = Some(s);
-                                self.cursor.advance();
-                            }
-                        }
-                        _ => {
-                            errors.push(ParseError::new(
-                                ErrorCode::E1006,
-                                format!("unknown cfg parameter '{param_str}'"),
-                                self.cursor.previous_span(),
-                            ));
-                        }
-                    }
-                } else {
-                    // Bare identifier
-                    let param_str = self.cursor.interner().lookup(name);
-                    match param_str {
-                        "debug" => cfg.debug = true,
-                        "release" => cfg.release = true,
-                        "not_debug" => cfg.not_debug = true,
-                        _ => {
-                            errors.push(ParseError::new(
-                                ErrorCode::E1006,
-                                format!("unknown cfg flag '{param_str}'"),
-                                self.cursor.previous_span(),
-                            ));
-                        }
-                    }
-                }
-            } else {
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    "expected cfg parameter",
-                    self.cursor.current_span(),
-                ));
-                break;
-            }
-
-            // Comma separator
-            if self.cursor.check(&TokenKind::Comma) {
-                self.cursor.advance();
-            } else if !self.cursor.check(&TokenKind::RParen) {
-                break;
-            }
-        }
-
-        self.finish_attr_paren(uses_brackets, errors);
-        Some(cfg)
-    }
-
-    /// Parse a `cfg` attribute like `#cfg(debug)` or `#cfg(feature: "name")` into `ParsedAttrs`.
-    fn parse_cfg_attr(
-        &mut self,
-        attrs: &mut ParsedAttrs,
-        errors: &mut Vec<ParseError>,
-        uses_brackets: bool,
-    ) {
-        attrs.cfg = self.parse_cfg_attr_body(errors, uses_brackets);
-    }
-
-    /// Helper to finish parsing attribute parentheses and brackets.
-    fn finish_attr_paren(&mut self, uses_brackets: bool, errors: &mut Vec<ParseError>) {
-        // Expect )
-        if self.cursor.check(&TokenKind::RParen) {
-            self.cursor.advance();
-        } else {
-            errors.push(ParseError::new(
-                ErrorCode::E1006,
-                "expected ')' to close attribute",
-                self.cursor.current_span(),
-            ));
-        }
-
-        // Expect ] only if old bracket syntax was used
-        if uses_brackets {
-            if self.cursor.check(&TokenKind::RBracket) {
-                self.cursor.advance();
-            } else {
-                errors.push(ParseError::new(
-                    ErrorCode::E1006,
-                    "expected ']' to close attribute",
-                    self.cursor.current_span(),
-                ));
-            }
-        }
-    }
-
     /// Parse an optional file-level attribute: `#!target(...)` or `#!cfg(...)`.
     ///
     /// Grammar: `file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")" .`
@@ -881,6 +304,8 @@ impl Parser<'_> {
         }
     }
 
+    // Recovery helpers — used by submodules via `self.method()`.
+
     /// Skip to the end of an attribute during error recovery.
     ///
     /// Bracket-style (`#[...]`) skips to `]`; bracketless (`#...`) skips to `)` or newline.
@@ -889,6 +314,33 @@ impl Parser<'_> {
             self.skip_to_rbracket();
         } else {
             self.skip_to_rparen_or_newline();
+        }
+    }
+
+    /// Helper to finish parsing attribute parentheses and brackets.
+    fn finish_attr_paren(&mut self, uses_brackets: bool, errors: &mut Vec<ParseError>) {
+        // Expect )
+        if self.cursor.check(&TokenKind::RParen) {
+            self.cursor.advance();
+        } else {
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected ')' to close attribute",
+                self.cursor.current_span(),
+            ));
+        }
+
+        // Expect ] only if old bracket syntax was used
+        if uses_brackets {
+            if self.cursor.check(&TokenKind::RBracket) {
+                self.cursor.advance();
+            } else {
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected ']' to close attribute",
+                    self.cursor.current_span(),
+                ));
+            }
         }
     }
 
