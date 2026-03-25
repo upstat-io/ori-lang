@@ -77,6 +77,9 @@ generic type, monomorphization, Pair<T>, type variable
 Salsa, caching, RefCell, FxHashMap, incremental
 ori_eval, evaluator, not affected
 merge_triviality, cycle detection, FxHashSet, visiting
+analyze_triviality, validation pass, is_trivial_repr, canonical consistency
+§01.8 Phase B, TypeInfoStore delegation, classify_trivial removal
+§08 feed-forward, §09 feed-forward, RcStrategy::None
 ```
 
 ---
