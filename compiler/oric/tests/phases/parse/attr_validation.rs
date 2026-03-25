@@ -103,6 +103,46 @@ fn accept_target_on_impl() {
     assert!(output.module.impls[0].target_attr.is_some());
 }
 
+// Unsupported attrs on extension imports (no attrs allowed per spec §25.4)
+
+#[test]
+fn reject_target_on_extension_import() {
+    parse_err(
+        "#target(os: \"linux\")\nextension std.iter.extensions { Iterator.count }",
+        "not supported on extension import",
+    );
+}
+
+#[test]
+fn reject_cfg_on_extension_import() {
+    parse_err(
+        "#cfg(debug)\nextension std.iter.extensions { Iterator.count }",
+        "not supported on extension import",
+    );
+}
+
+#[test]
+fn reject_repr_on_extension_import() {
+    parse_err(
+        "#repr(\"c\")\nextension std.iter.extensions { Iterator.count }",
+        "not supported on extension import",
+    );
+}
+
+#[test]
+fn reject_derive_on_extension_import() {
+    parse_err(
+        "#derive(Eq)\nextension std.iter.extensions { Iterator.count }",
+        "not supported on extension import",
+    );
+}
+
+#[test]
+fn semantic_pin_plain_extension_import_still_works() {
+    let output = parse_ok("extension std.iter.extensions { Iterator.count }");
+    assert_eq!(output.module.extension_imports.len(), 1);
+}
+
 // Unsupported attrs on traits, extends, extern (no attrs allowed)
 
 #[test]
