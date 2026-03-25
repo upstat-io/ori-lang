@@ -561,6 +561,9 @@ Generic types interact with triviality classification in a specific way: trivial
 - [x] `[TPR-02-003][medium]` `compiler/ori_repr/src/tests.rs:2701` — `analyze_triviality_validation_zero_mismatches` does not actually test the property named in the title.
   Resolved: Fixed on 2026-03-25. Added `Iterator<int>` and `DoubleEndedIterator<int>` types to the test Pool. Updated assertions to verify `is_trivial()` returns true for both. Updated stale comment to reference the `debug_assert!` that now exists. Test is now a proper semantic pin for the zero-mismatch contract.
 
+- [x] `[TPR-02-004][medium]` `compiler/ori_llvm/src/codegen/type_info/store.rs:219` — §02 is marked complete, but `ori_llvm` still carries and tests stale fallback triviality logic instead of fully converging on the plan-backed path.
+  Resolved: Accepted on 2026-03-25. Finding validated — 121 test sites use `new()` (fallback), 1 production site uses `new_with_plan()`. Remediation tasks added to §02.7 below.
+
 ---
 
 ## 02.7 Completion Checklist
@@ -643,15 +646,21 @@ Generic types interact with triviality classification in a specific way: trivial
 - [x] Created: `compiler/ori_types/src/triviality/mod.rs` (2026-03-25)
 - [x] Created: `compiler/ori_types/src/triviality/tests.rs` — 65 tests (2026-03-25)
 - [x] Modified: `compiler/ori_types/src/lib.rs` — `pub mod triviality;` + re-exports (2026-03-25)
-- [ ] Modified: `compiler/ori_arc/src/classify/mod.rs` (delegate to `ori_types::classify_triviality`)
-- [ ] Modified: `compiler/ori_arc/src/classify/tests.rs` (add delegation consistency tests)
-- [ ] NOT modified: `compiler/ori_arc/src/ir/repr.rs` — `compute_var_reprs()` calls `classifier.arc_class()` which flows through `ArcClassifier::classify()` → `classify_by_tag()`. The delegation change in `classify/mod.rs` is sufficient; `repr.rs` needs no changes. Add regression tests only.
-- [ ] NOT modified: `compiler/ori_arc/src/drop/mod.rs` — `compute_drop_info()` calls `classifier.is_scalar()` which flows through the same ArcClassifier. No changes needed; add regression tests only.
-- [ ] NOT modified: `compiler/ori_arc/src/rc_insert/mod.rs` — this module only handles arg ownership annotation; RC insertion is the AIMS pipeline's job via pre-computed `func.var_reprs` (which derives from `ArcClassifier`)
-- [ ] Modified: `compiler/ori_llvm/src/codegen/type_info/store.rs` (delegate `is_trivial` to ReprPlan — this IS §01.8 Phase B, which is §02's deliverable)
-- [ ] NOT modified: `compiler/ori_llvm/src/codegen/arc_emitter/element_fn_gen.rs` — `get_or_generate_drop_fn()` already returns null for scalar types (via `compute_drop_info()` returning `None`). The AIMS pipeline never emits `RcInc`/`RcDec` for Scalar-classified types, so the LLVM emitter never requests drop functions for them. Add regression tests only.
-- [ ] NOT modified: `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs` — same reasoning; drop functions are only generated for types that have `RcDec` instructions in the ARC IR, which excludes Scalar types.
-- [ ] Modified: `compiler/ori_repr/src/lib.rs` (implement `analyze_triviality()` stub body — validation pass)
-- [ ] Modified: `compiler/ori_repr/src/tests.rs` (add triviality validation tests)
+- [x] Modified: `compiler/ori_arc/src/classify/mod.rs` (delegate to `ori_types::classify_triviality`) (verified 2026-03-25)
+- [x] Modified: `compiler/ori_arc/src/classify/tests.rs` (add delegation consistency tests — `arc_classifier_agrees_with_classify_triviality_for_diverse_pool`) (verified 2026-03-25)
+- [x] Verified: `compiler/ori_arc/src/ir/` — `compute_var_reprs()` flows through delegating ArcClassifier; no changes needed. Regression test `compute_var_reprs_trivial_compounds_are_scalar` exists in `repr/tests.rs` (verified 2026-03-25)
+- [x] Verified: `compiler/ori_arc/src/drop/` — `compute_drop_info()` flows through delegating ArcClassifier; no changes needed. Regression tests in `drop/tests.rs` cover trivial compounds (verified 2026-03-25)
+- [x] Verified: `compiler/ori_arc/src/rc_insert/mod.rs` — only handles arg ownership annotation; no changes needed (verified 2026-03-25)
+- [x] Modified: `compiler/ori_llvm/src/codegen/type_info/store.rs` (added `new_with_plan()` constructor, pre-populates triviality cache from ReprPlan) (verified 2026-03-25)
+- [x] Verified: `compiler/ori_llvm/src/codegen/arc_emitter/` — drop functions only generated for types with `RcDec` in ARC IR, excludes Scalar. Tests in `arc_emitter/tests.rs` cover trivial drop generation (verified 2026-03-25)
+- [x] Verified: `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs` — same reasoning as above; covered by `arc_emitter/tests.rs` (verified 2026-03-25)
+- [x] Modified: `compiler/ori_repr/src/lib.rs` (implemented `analyze_triviality()` validation pass with `debug_assert_eq!(mismatches, 0)`) (verified 2026-03-25)
+- [x] Modified: `compiler/ori_repr/src/tests.rs` (`analyze_triviality_validation_zero_mismatches` test) (verified 2026-03-25)
+
+**TPR-02-004 Remediation (accepted 2026-03-25, completed 2026-03-25):**
+- [x] Align `classify_trivial()` fallback in `store.rs` with `classify_triviality()` — Iterator moved from non-trivial to trivial arm (2026-03-25)
+- [x] Add `ori_llvm` tests that use `TypeInfoStore::new_with_plan()` — 3 tests: `iterator_trivial_via_production_path`, `iterator_trivial_via_fallback_path`, `iterator_triviality_paths_agree` (2026-03-25)
+- [x] Update `TypeInfo::is_trivial()` in `info.rs` to classify Iterator as trivial (Box-allocated, no RC header — `UnmanagedPtr`) (2026-03-25)
+- [x] `./test-all.sh` green — 13,983 passed, 0 failed. Release build clean. (2026-03-25)
 
 **Exit Criteria:** `ori build` on a program using `Option<int>`, `(int, float)`, and `struct Point { x: int, y: int }` produces LLVM IR with zero `ori_rc_*` calls for these types, verified by `grep -c "ori_rc" output.ll` returning 0 for trivial-only programs. Note: this should already pass today (ArcClassifier already handles these types transitively). The exit criteria verify that §02's unification preserves this behavior and adds the iterator classification fix.
