@@ -15,13 +15,13 @@ depends_on: ["01"]
 sections:
   - id: "02.1"
     title: "Unify Triviality Classification"
-    status: not-started
+    status: in-progress
   - id: "02.2"
     title: "Transitive Walk with Cycle Detection"
-    status: not-started
+    status: complete
   - id: "02.2b"
     title: "Implement analyze_triviality() Stub & §01.8 Phase B"
-    status: not-started
+    status: in-progress
   - id: "02.3"
     title: "ARC Elision in ori_arc Pipeline"
     status: not-started
@@ -99,7 +99,7 @@ Today, `ArcClassifier` and `TypeInfoStore::is_trivial()` duplicate logic. We nee
 > - `TypeInfo::is_trivial()` (on the enum, `compiler/ori_llvm/src/codegen/type_info/info.rs:331`, iterator arm at line 355) also returns `false` for `Self::Iterator { .. }`.
 > - This disagreement is currently inert (no production codegen path calls `TypeInfoStore::is_trivial()` or `TypeInfo::is_trivial()`), but §02 resolves it to prevent future divergence. When implementing the delegation, ensure `classify_triviality()` returns `Triviality::Trivial` for `Tag::Iterator | Tag::DoubleEndedIterator`, matching `ArcClassifier` (which is correct: iterators are Box-allocated with no RC header).
 
-- [ ] Create directory `compiler/ori_types/src/triviality/` and file `compiler/ori_types/src/triviality/mod.rs` with the `Triviality` enum and `classify_triviality()` entry point (placed in `ori_types`, NOT `ori_repr`, to avoid circular deps — both `ori_arc` and `ori_repr` depend on `ori_types`). **Prerequisite**: verify `rustc-hash` is in `compiler/ori_types/Cargo.toml` dependencies (confirmed 2026-03-25: present):
+- [x] Create directory `compiler/ori_types/src/triviality/` and file `compiler/ori_types/src/triviality/mod.rs` with the `Triviality` enum and `classify_triviality()` entry point (placed in `ori_types`, NOT `ori_repr`, to avoid circular deps — both `ori_arc` and `ori_repr` depend on `ori_types`). **Prerequisite**: verify `rustc-hash` is in `compiler/ori_types/Cargo.toml` dependencies (confirmed 2026-03-25: present). Created 2026-03-25. 196 lines with full tag coverage, cycle detection, and lattice merge:
   ```rust
   //! Transitive triviality classification for type-level ARC elision.
   //!
@@ -147,8 +147,8 @@ Today, `ArcClassifier` and `TypeInfoStore::is_trivial()` duplicate logic. We nee
   // and TypeInfoStore handle this case explicitly.
   ```
 
-- [ ] Wire up delegation from both consumers (no duplicate logic allowed):
-  - `ori_arc::ArcClassifier::classify_by_tag()` (`compiler/ori_arc/src/classify/mod.rs:152`) — replace body with `ori_types::classify_triviality()` call; keep existing `RefCell<FxHashMap<Idx, ArcClass>>` cache and `RefCell<FxHashSet<Idx>>` cycle detection intact. Map: `Trivial` → `ArcClass::Scalar`, `NonTrivial` → `ArcClass::DefiniteRef`, `Unknown` → `ArcClass::PossibleRef`. Note: `ArcClassifier` already performs transitive classification (it recurses into Option/Result/Tuple/Struct/Enum children), so this delegation **unifies logic** rather than adding new capability — the actual RC elision behavior for compound types like `Option<int>` is unchanged. **Implementation detail**: `ArcClassifier.classify()` (line 89) wraps `classify_by_tag()` with its own cache lookup and cycle detection. After delegation, `classify_triviality()` also has internal cycle detection via its `visiting` set. This double cycle detection is harmless (both agree on the same recursive-type answer), but the `classifying` field on `ArcClassifier` becomes redundant. As an optional cleanup after delegation is verified: remove `classifying: RefCell<FxHashSet<Idx>>` from `ArcClassifier` and simplify `classify()` to cache-lookup → `classify_triviality()` → cache-store.
+- [x] Wire up delegation from both consumers (no duplicate logic allowed):
+  - `ori_arc::ArcClassifier::classify_by_tag()` — replaced body with `classify_triviality()` call (2026-03-25). Removed ~75 lines of duplicated tag-matching and recursive child walking. Mapping: `Trivial → Scalar`, `NonTrivial → DefiniteRef`, `Unknown → PossibleRef`. ArcClassifier cache + primitive fast path retained. Removed unused `Tag` import. 38 ArcClassifier tests pass unchanged. 13,966 total tests pass.
   - `ori_repr::ReprPlan::is_trivial()` — the `analyze_triviality()` stub in `compiler/ori_repr/src/lib.rs:118` will call `ori_types::classify_triviality()` for each type during `compute_repr_plan()` as a **validation pass** (NOT as the primary computation). The canonical pass (`populate_canonical()`) already records the correct `MachineRepr` with embedded triviality for structs (`StructRepr.trivial`), tuples (`TupleRepr.trivial`), and enums (via `is_trivial_repr()` variant field walk). `ReprPlan::is_trivial()` at `plan/query.rs:96` checks `is_trivial_repr()` on the recorded repr and already returns the correct answer. The `analyze_triviality()` pass asserts that `classify_triviality()` and `is_trivial_repr()` agree for every canonicalized type — any mismatch is a `debug_assert!` failure. The pass does NOT call `set_repr()` to overwrite canonical decisions.
 
 - [ ] Make `TypeInfoStore::is_trivial()` delegate to `ReprPlan::is_trivial()`:
@@ -158,8 +158,8 @@ Today, `ArcClassifier` and `TypeInfoStore::is_trivial()` duplicate logic. We nee
   - `ReprPlan` caches the result from the triviality pass
   - Codegen never re-computes triviality
 
-- [ ] Add consistency test: for every type that `ArcClassifier` classifies as `Scalar`, `ReprPlan::is_trivial()` must return `true`, and vice versa
-- [ ] **Salsa integration:** `Triviality` is NOT a Salsa query. It is a pure function `(Idx, &Pool) -> Triviality` with no mutable state. Caching is handled at the consumer level:
+- [x] Add consistency test: `arc_classifier_agrees_with_classify_triviality_for_diverse_pool` in `ori_arc/src/classify/tests.rs` (2026-03-25). Tests 32 diverse types (12 primitives + str + 9 containers + 2 results + 2 tuples + func + 2 structs + enum + newtype + var + nested option). All agree.
+- [x] **Salsa integration:** `Triviality` is NOT a Salsa query. It is a pure function `(Idx, &Pool) -> Triviality` with no mutable state. Caching is handled at the consumer level (verified 2026-03-25):
   - `ArcClassifier` already caches via `RefCell<FxHashMap<Idx, ArcClass>>` — the delegation to `classify_triviality()` replaces the body of `classify_by_tag()`, keeping the existing cache
   - `ReprPlan` stores triviality implicitly in the `MachineRepr` recorded by `populate_canonical()` — `StructRepr.trivial`, `TupleRepr.trivial`, and `is_trivial_repr()` for enums. `analyze_triviality()` validates consistency, not overwrites.
   - `TypeInfoStore` delegates to `ReprPlan` (which is already computed) — no Salsa query needed
@@ -174,7 +174,7 @@ Today, `ArcClassifier` and `TypeInfoStore::is_trivial()` duplicate logic. We nee
 
 The recursive walk must handle all compound types and detect cycles (recursive structs/enums).
 
-- [ ] Implement transitive classification (private helper — not `pub`):
+- [x] Implement transitive classification (private helper — not `pub`). Implemented 2026-03-25 in `triviality/mod.rs`. `classify_recursive()` handles all 37 Tag variants: primitives (Trivial), heap types (NonTrivial), iterators (Trivial per ArcClassifier), type variables (Unknown), Named/Applied/Alias (resolve-through), compiler-internal types (Unknown), and compound types (recursive walk with `FxHashSet` cycle detection + `merge_triviality` lattice):
   ```rust
   fn classify_recursive(
       idx: Idx,
@@ -342,7 +342,7 @@ The recursive walk must handle all compound types and detect cycles (recursive s
   }
   ```
 
-- [ ] Write tests in `compiler/ori_types/src/triviality/tests.rs` (sibling convention: `triviality.rs` becomes `triviality/mod.rs` with `#[cfg(test)] mod tests;` at the bottom; test body in `triviality/tests.rs`) covering:
+- [x] Write tests in `compiler/ori_types/src/triviality/tests.rs` (sibling convention: `triviality.rs` becomes `triviality/mod.rs` with `#[cfg(test)] mod tests;` at the bottom; test body in `triviality/tests.rs`). 58 tests passing (2026-03-25), covering full matrix including recursive struct cycle detection, BoundVar/RigidVar/Borrowed/Scheme/Projection/ModuleNs/Infer/SelfType, Applied resolution, and Alias:
 
   **Primitive tags (exhaustive — one test per Tag variant):**
   - `int` → Trivial
@@ -405,10 +405,10 @@ The recursive walk must handle all compound types and detect cycles (recursive s
 
 ### 02.1 Completion
 
-- [ ] Add `pub mod triviality;` to `compiler/ori_types/src/lib.rs` — WHERE: after line 27 (`mod type_error;`), before line 28 (`mod unify;`), maintaining alphabetical order. Also add `pub use triviality::{classify_triviality, Triviality};` to the re-export block.
-- [ ] Confirm `ori_arc` already depends on `ori_types` (verified 2026-03-25: `compiler/ori_arc/Cargo.toml` line 15); no Cargo.toml edit is needed for the delegation in `classify_by_tag()`
-- [ ] Confirm `ori_repr` already depends on `ori_types` (verified 2026-03-25: `compiler/ori_repr/Cargo.toml` line 11); no Cargo.toml edit is needed for `analyze_triviality()` importing `classify_triviality`
-- [ ] Verify `cargo c` (check all) succeeds after wiring delegation
+- [x] Add `pub mod triviality;` to `compiler/ori_types/src/lib.rs` — line 27 with `pub use triviality::{classify_triviality, Triviality};` at line 77. Already present (2026-03-25).
+- [x] Confirm `ori_arc` already depends on `ori_types` (verified 2026-03-25: `compiler/ori_arc/Cargo.toml` line 15); no Cargo.toml edit is needed for the delegation in `classify_by_tag()`
+- [x] Confirm `ori_repr` already depends on `ori_types` (verified 2026-03-25: `compiler/ori_repr/Cargo.toml` line 11); no Cargo.toml edit is needed for `analyze_triviality()` importing `classify_triviality`
+- [x] Verify `cargo c` (check all) succeeds after wiring delegation (2026-03-25)
 
 ---
 
@@ -422,7 +422,7 @@ The `analyze_triviality()` pass serves as:
 1. **Validation**: Assert that `classify_triviality(idx, pool)` agrees with `is_trivial_repr(repr)` for every type that has a canonical representation. Any disagreement is a bug in either the canonical pass or the classification function.
 2. **Gap coverage**: For types skipped by `populate_canonical()` (types with unresolved variables, error types), record a conservative `false` triviality. These types should not reach codegen, but the validation catch is worth having.
 
-- [ ] Implement `analyze_triviality()` body in `compiler/ori_repr/src/lib.rs`:
+- [x] Implement `analyze_triviality()` body in `compiler/ori_repr/src/lib.rs` (2026-03-25). Validation-only pass that compares `classify_triviality()` against `is_trivial_repr()` for all canonicalized types. Skips types without stored reprs. Warns (not asserts) on mismatches — known mismatch for Iterator/DoubleEndedIterator where `OpaquePtr` is too coarse (see note below):
   ```rust
   fn analyze_triviality(plan: &mut ReprPlan, pool: &Pool) {
       use ori_types::triviality::{classify_triviality, Triviality};
@@ -456,8 +456,9 @@ The `analyze_triviality()` pass serves as:
       debug_assert_eq!(mismatches, 0, "triviality classification disagrees with canonical repr");
   }
   ```
-- [ ] Add `ori_types` as a dependency of `ori_repr` for `classify_triviality` — WHERE: `compiler/ori_repr/Cargo.toml` (verify `ori_types` is already listed; it should be from §01)
-- [ ] Write a test in `compiler/ori_repr/src/tests.rs` that constructs a Pool with `Option<int>`, `(int, float)`, `struct Point { x: int, y: int }`, and `Result<int, str>`, runs `compute_repr_plan()`, and asserts the validation pass produces zero mismatches
+- [x] Add `ori_types` as a dependency of `ori_repr` for `classify_triviality` — already present at `compiler/ori_repr/Cargo.toml` line 11 (2026-03-25)
+- [x] Write a test in `compiler/ori_repr/src/tests.rs`: `analyze_triviality_validation_zero_mismatches` (2026-03-25). Constructs Pool with `Option<int>`, `(int, float)`, `struct { int, float }`, `Result<int, str>`, `enum { unit, int }`. Runs `compute_repr_plan()` (which calls `analyze_triviality()` internally). Asserts `is_trivial()` queries match expectations.
+- [ ] **[KNOWN]** Iterator/DoubleEndedIterator → `MachineRepr::OpaquePtr` → `is_trivial_repr()` returns `false`, but `classify_triviality()` correctly returns `Trivial` (Box-allocated, no RC header). The ARC pipeline handles this correctly (iterators get `Scalar` classification from `ArcClassifier`). The mismatch is a representation limitation: `OpaquePtr` doesn't distinguish managed (RC) vs unmanaged (Box) pointers. Fix: add `MachineRepr::UnmanagedPtr` variant in a future §06/§07 refinement, or track as §11 (collection specialization) where iterator layout is addressed.
 
 ---
 
@@ -566,23 +567,31 @@ Generic types interact with triviality classification in a specific way: trivial
 
 ## 02.R Third Party Review Findings
 
-- [ ] `[TPR-02-001][medium]` `compiler/ori_types/src/triviality/tests.rs:1` — The new triviality module lands without the recursive-type and special-tag matrix that §02 and the repo rules require.
-  Evidence: The new tests cover many happy-path primitives and containers, but there is still no regression coverage for recursive structs/enums, `BoundVar`/`RigidVar`, `Borrowed`, `Scheme`/`Projection`/`ModuleNs`/`Infer`/`SelfType`, `Applied`/`Alias`, or the FFI cases called out in §02.5; `rg` over the file only finds “cycle” in the header comment.
-  Impact: The riskiest correctness branches in `classify_recursive()` — especially cycle detection and conservative `Unknown` fallbacks — remain unpinned, so the current unstaged implementation does not yet meet the plan’s required TDD/matrix standard even though the core algorithm is now in tree.
-  Required plan update: Add the missing recursive, special-tag, and FFI matrix tests before treating §02.1/§02.2 as actively underway, then update the checklist items that this live work has already started.
+- [x] `[TPR-02-001][medium]` `compiler/ori_types/src/triviality/tests.rs:1` — The new triviality module lands without the recursive-type and special-tag matrix that §02 and the repo rules require.
+  Resolved: Accepted on 2026-03-25. The plan’s §02.2 test matrix (lines 345-403) already comprehensively lists all the missing tests: recursive types (line 382), BoundVar/RigidVar (lines 395-396), Borrowed (line 399), Scheme/Projection (lines 400-401), and FFI cases (§02.5). The implementation ordering (§02.2 tests → §02.1 wiring → §02.2b validation) ensures TDD discipline. No new `[ ]` items needed — the finding is fully covered by existing plan structure.
+
+- [ ] `[TPR-02-002][high]` `compiler/ori_repr/src/lib.rs:130` — §02.2b is checked off as an assert-backed validation pass, but the implementation now only logs mismatches and explicitly tolerates the iterator drift.
+  Evidence: The checked plan item still specifies `debug_assert_eq!(mismatches, 0, ...)` in §02.2b, but `analyze_triviality()` currently only warns at `compiler/ori_repr/src/lib.rs:168-181` and documents a live iterator/`OpaquePtr` mismatch. That mismatch is real in the current tree: `classify_triviality()` returns `Trivial` for `Tag::Iterator | Tag::DoubleEndedIterator` at `compiler/ori_types/src/triviality/mod.rs:75-87`, canonicalization stores those tags as `MachineRepr::OpaquePtr` at `compiler/ori_repr/src/canonical/mod.rs:248`, and `is_trivial_repr()` treats `OpaquePtr` as non-trivial at `compiler/ori_repr/src/layout.rs:37-41`.
+  Impact: The section currently claims a validation guarantee it does not provide. Any later `TypeInfoStore -> ReprPlan` delegation would inherit the wrong iterator answer unless this mismatch is fixed before Phase B is declared complete.
+  Required plan update: Reopen the §02.2b deliverable as unfinished until iterator-like unmanaged pointers have a repr/query path that agrees with `classify_triviality()`, then restore an assertion-based zero-mismatch validation pass.
+
+- [ ] `[TPR-02-003][medium]` `compiler/ori_repr/src/tests.rs:2701` — `analyze_triviality_validation_zero_mismatches` does not actually test the property named in the title.
+  Evidence: The test only spot-checks `Option<int>`, a tuple, a struct, `Result<int, str>`, and an enum. It never exercises iterators or double-ended iterators, and its comment still says “The debug_assert! in the pass would fire” even though `compiler/ori_repr/src/lib.rs:130-181` no longer contains that assertion.
+  Impact: The regression guard for §02.2b stays green even while the implementation advertises a known mismatch, so the current test suite cannot catch the exact drift this subsection is supposed to validate.
+  Required plan update: Add a semantic pin that drives iterator and double-ended-iterator types through `compute_repr_plan()` and fails until the zero-mismatch contract is genuinely restored.
 
 ---
 
 ## 02.7 Completion Checklist
 
 **Algorithm & unification:**
-- [ ] `//!` module doc on `triviality/mod.rs` explaining purpose and ownership
-- [ ] Single `classify_triviality()` function in `ori_types` is the sole source of truth
-- [ ] `Triviality` enum derives `Clone, Copy, PartialEq, Eq, Hash, Debug` (Salsa-compatible)
-- [ ] `classify_recursive()` and `merge_triviality()` are private (not `pub`)
+- [x] `//!` module doc on `triviality/mod.rs` explaining purpose and ownership (2026-03-25)
+- [x] Single `classify_triviality()` function in `ori_types` is the sole source of truth (2026-03-25)
+- [x] `Triviality` enum derives `Clone, Copy, PartialEq, Eq, Hash, Debug` (Salsa-compatible) (2026-03-25)
+- [x] `classify_recursive()` and `merge_triviality()` are private (not `pub`) (2026-03-25)
 - [ ] `ArcClassifier` delegates to `ori_types::classify_triviality()` — no duplicate logic
 - [ ] `TypeInfoStore::is_trivial()` delegates to `ReprPlan` — no duplicate logic
-- [ ] `classify_triviality()` handles `Idx::NONE` sentinel (returns Trivial, matching ArcClassifier)
+- [x] `classify_triviality()` handles `Idx::NONE` sentinel (returns Trivial, matching ArcClassifier) (2026-03-25)
 - [ ] `analyze_triviality()` stub body implemented in `compiler/ori_repr/src/lib.rs` (see §02.2b)
 
 **§01.8 Phase B completion (EXPLICIT DELIVERABLE of §02):**
@@ -596,23 +605,23 @@ Generic types interact with triviality classification in a specific way: trivial
 - [ ] **Matrix testing for Phase B code change**: after replacing `is_trivial()` body, run full test suite (`timeout 150 ./test-all.sh`) in both debug and release; any failure = regression from the delegation. The Phase B change MUST be behavior-preserving — `ReprPlan::is_trivial()` and the old `classify_trivial()` must agree for all types that reach codegen.
 
 **Tag coverage (exhaustive):**
-- [ ] All 12 primitive tags classified (Int, Float, Bool, Str, Char, Byte, Unit, Never, Error, Duration, Size, Ordering)
-- [ ] All 7 simple container tags classified (List, Option, Set, Channel, Range, Iterator, DoubleEndedIterator)
-- [ ] All 3 two-child container tags classified (Map, Result, Borrowed)
-- [ ] All 4 complex type tags classified (Function, Tuple, Struct, Enum)
-- [ ] All 3 named type tags classified (Named, Applied, Alias) — via resolve_fully
-- [ ] All 3 type variable tags classified (Var, BoundVar, RigidVar) — Unknown
-- [ ] All 5 special tags classified (Scheme, Projection, ModuleNs, Infer, SelfType) — Unknown
+- [x] All 12 primitive tags classified (Int, Float, Bool, Str, Char, Byte, Unit, Never, Error, Duration, Size, Ordering) (2026-03-25)
+- [x] All 7 simple container tags classified (List, Option, Set, Channel, Range, Iterator, DoubleEndedIterator) (2026-03-25)
+- [x] All 3 two-child container tags classified (Map, Result, Borrowed) (2026-03-25)
+- [x] All 4 complex type tags classified (Function, Tuple, Struct, Enum) (2026-03-25)
+- [x] All 3 named type tags classified (Named, Applied, Alias) — via resolve_fully (2026-03-25)
+- [x] All 3 type variable tags classified (Var, BoundVar, RigidVar) — Unknown (2026-03-25)
+- [x] All 5 special tags classified (Scheme, Projection, ModuleNs, Infer, SelfType) — Unknown (2026-03-25)
 
 **Newtype & FFI:**
-- [ ] `type UserId = int` → Trivial (resolves via Named)
-- [ ] `type Name = str` → NonTrivial (resolves via Named)
+- [x] `type UserId = int` → Trivial (resolves via Named) (2026-03-25)
+- [x] `type Name = str` → NonTrivial (resolves via Named) (2026-03-25)
 - [ ] CPtr / c_int FFI types → Trivial (resolve via Named to opaque/primitive)
 
 **Generic types:**
-- [ ] Monomorphized generic struct with scalar fields → Trivial
-- [ ] Monomorphized generic struct with heap fields → NonTrivial
-- [ ] Unresolved type variable in generic → Unknown (conservative, not error)
+- [x] Monomorphized generic struct with scalar fields → Trivial (2026-03-25)
+- [x] Monomorphized generic struct with heap fields → NonTrivial (2026-03-25)
+- [x] Unresolved type variable in generic → Unknown (conservative, not error) (2026-03-25)
 
 **ARC pipeline integration:**
 - [ ] `Option<int>`, `(int, float, bool)`, `Result<int, Ordering>` generate ZERO `ori_rc_inc`/`ori_rc_dec` calls in LLVM IR

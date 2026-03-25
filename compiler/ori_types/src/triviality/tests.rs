@@ -5,8 +5,9 @@
 
 use ori_ir::Name;
 
+use crate::lifetime::LifetimeId;
 use crate::triviality::{classify_triviality, Triviality};
-use crate::{EnumVariant, Idx, Pool};
+use crate::{EnumVariant, Idx, Pool, Tag};
 
 // Primitive tags — all scalar, all trivial
 
@@ -412,4 +413,146 @@ fn out_of_bounds_idx_is_unknown() {
     let pool = Pool::new();
     let oob = Idx::from_raw(999_999);
     assert_eq!(classify_triviality(oob, &pool), Triviality::Unknown);
+}
+
+// Recursive type — cycle detection (semantic pin for §02.2)
+
+#[test]
+fn recursive_struct_via_option_is_non_trivial() {
+    // Simulate: type Node = { value: int, next: Option<Node> }
+    // Build: Named("Node") → Struct { value: int, next: Option<Named("Node")> }
+    // When classify_recursive walks into Option<Named("Node")>, it resolves
+    // Named("Node") → Struct, which is already in the visiting set → NonTrivial.
+    let mut pool = Pool::new();
+    let node_name = Name::from_raw(1500);
+    let value_field = Name::from_raw(1501);
+    let next_field = Name::from_raw(1502);
+
+    // Create Named("Node") first
+    let node_named = pool.named(node_name);
+    // Create Option<Named("Node")>
+    let opt_node = pool.option(node_named);
+    // Create the struct with fields { value: int, next: Option<Named("Node")> }
+    let node_struct = pool.struct_type(
+        node_name,
+        &[(value_field, Idx::INT), (next_field, opt_node)],
+    );
+    // Resolve Named("Node") → the struct
+    pool.set_resolution(node_named, node_struct);
+
+    assert_eq!(
+        classify_triviality(node_named, &pool),
+        Triviality::NonTrivial,
+        "recursive struct must be NonTrivial (cycle detection)"
+    );
+}
+
+// Newtype wrapping trivial struct
+
+#[test]
+fn newtype_wrapping_trivial_struct_is_trivial() {
+    let mut pool = Pool::new();
+    let point_name = Name::from_raw(1600);
+    let x = Name::from_raw(1601);
+    let y = Name::from_raw(1602);
+    let point = pool.struct_type(point_name, &[(x, Idx::INT), (y, Idx::FLOAT)]);
+    let coord = pool.named(Name::from_raw(1603));
+    pool.set_resolution(coord, point);
+    assert_eq!(classify_triviality(coord, &pool), Triviality::Trivial);
+}
+
+// BoundVar, RigidVar — unresolved type variables → Unknown
+
+#[test]
+fn bound_var_is_unknown() {
+    let mut pool = Pool::new();
+    let bv = pool.intern(Tag::BoundVar, 0);
+    assert_eq!(classify_triviality(bv, &pool), Triviality::Unknown);
+}
+
+#[test]
+fn rigid_var_is_unknown() {
+    let mut pool = Pool::new();
+    let rv = pool.rigid_var(Name::from_raw(1700));
+    assert_eq!(classify_triviality(rv, &pool), Triviality::Unknown);
+}
+
+// Borrowed — reserved for future &T, conservative fallback
+
+#[test]
+fn borrowed_is_unknown() {
+    let mut pool = Pool::new();
+    let b = pool.borrowed(Idx::INT, LifetimeId::from_raw(0));
+    assert_eq!(classify_triviality(b, &pool), Triviality::Unknown);
+}
+
+// Scheme — quantified type, should not reach codegen
+
+#[test]
+fn scheme_is_unknown() {
+    let mut pool = Pool::new();
+    let s = pool.scheme(&[0], Idx::INT);
+    assert_eq!(classify_triviality(s, &pool), Triviality::Unknown);
+}
+
+// Projection, ModuleNs, Infer, SelfType — internal compiler types
+
+#[test]
+fn projection_is_unknown() {
+    let mut pool = Pool::new();
+    let p = pool.intern(Tag::Projection, 0);
+    assert_eq!(classify_triviality(p, &pool), Triviality::Unknown);
+}
+
+#[test]
+fn module_ns_is_unknown() {
+    let mut pool = Pool::new();
+    let m = pool.intern(Tag::ModuleNs, 0);
+    assert_eq!(classify_triviality(m, &pool), Triviality::Unknown);
+}
+
+#[test]
+fn infer_is_unknown() {
+    let mut pool = Pool::new();
+    let i = pool.intern(Tag::Infer, 0);
+    assert_eq!(classify_triviality(i, &pool), Triviality::Unknown);
+}
+
+#[test]
+fn self_type_is_unknown() {
+    let mut pool = Pool::new();
+    let s = pool.intern(Tag::SelfType, 0);
+    assert_eq!(classify_triviality(s, &pool), Triviality::Unknown);
+}
+
+// Applied type — resolves through to inner type
+
+#[test]
+fn applied_with_trivial_args_resolves_to_trivial() {
+    // Applied("Pair", [int, float]) — if Applied resolves to a concrete struct,
+    // it's trivial. If unresolvable → Unknown.
+    let mut pool = Pool::new();
+    let pair_name = Name::from_raw(1800);
+    let applied = pool.applied(pair_name, &[Idx::INT, Idx::FLOAT]);
+    // Without resolution, Applied cannot be resolved further → Unknown
+    assert_eq!(classify_triviality(applied, &pool), Triviality::Unknown);
+}
+
+#[test]
+fn applied_with_resolution_is_trivial() {
+    let mut pool = Pool::new();
+    let wrapper_name = Name::from_raw(1900);
+    let applied = pool.applied(wrapper_name, &[Idx::INT]);
+    // Resolve the Applied type to the underlying int
+    pool.set_resolution(applied, Idx::INT);
+    assert_eq!(classify_triviality(applied, &pool), Triviality::Trivial);
+}
+
+// Alias — resolves through like Named
+
+#[test]
+fn alias_unresolvable_is_unknown() {
+    let mut pool = Pool::new();
+    let a = pool.intern(Tag::Alias, 0);
+    assert_eq!(classify_triviality(a, &pool), Triviality::Unknown);
 }
