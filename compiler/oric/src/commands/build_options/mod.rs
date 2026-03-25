@@ -183,12 +183,12 @@ impl BuildOptions {
             self.link_mode = other.link_mode;
         }
 
-        // Narrowing policy: explicit wins (last-write-wins) (TPR-01-036)
+        // Narrowing policy: only explicit CLI flags override (TPR-01-036/048).
+        // Non-explicit policies (from parsing unrelated flags like --release)
+        // are ignored — they would otherwise clobber earlier explicit flags.
         if other.narrowing_policy_explicit {
             self.narrowing_policy = other.narrowing_policy;
             self.narrowing_policy_explicit = true;
-        } else if other.narrowing_policy != ori_repr::NarrowingPolicy::Aggressive {
-            self.narrowing_policy = other.narrowing_policy;
         }
 
         // Boolean flags: OR (true wins)
@@ -341,22 +341,18 @@ impl LtoMode {
 }
 
 /// Parse build options from command line arguments.
+///
+/// Does NOT check `ORI_NO_REPR_OPT` — the env var fallback is applied by
+/// the caller *after* the full CLI is merged (TPR-01-048). This prevents
+/// the env var from polluting per-arg parses in the `main.rs` build loop,
+/// where each single-arg parse would reapply the env override and clobber
+/// earlier explicit `--repr-opt=` flags.
 pub fn parse_build_options(args: &[String]) -> BuildOptions {
     let mut options = BuildOptions::default();
 
     for arg in args {
         parse_single_arg(&mut options, arg);
     }
-
-    // Also check ORI_NO_REPR_OPT environment variable.
-    // Uses strict value parsing: only "1"/"true"/"yes". (TPR-01-030)
-    // Only applies if no explicit policy was set via CLI flags (TPR-01-036).
-    if !options.narrowing_policy_explicit && ori_repr::NarrowingPolicy::env_disabled() {
-        options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
-    }
-
-    // Handle -o without = (next arg is the path)
-    // This is handled in the caller since it requires peeking ahead
 
     options
 }
