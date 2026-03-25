@@ -1890,3 +1890,311 @@ fn repr_convert_c_aligned_roundtrip() {
     let attr = crate::convert_repr_attr_kind(&kind);
     assert_eq!(attr, ReprAttribute::CAligned(32));
 }
+
+// ── §01.9: Canonical Representation Tests ──────────────────────────
+
+/// §01.9 Item 4: Named→Struct resolution. Previous tests only covered
+/// Named→Int; this verifies Named types pointing to structs resolve
+/// through to the struct's representation including field layout.
+#[test]
+fn canonical_named_resolves_to_struct() {
+    let mut pool = Pool::new();
+    let name_x = Name::new(0, 100);
+    let name_y = Name::new(0, 101);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_x, Idx::INT), (name_y, Idx::FLOAT)]);
+
+    let named_idx = pool.named(Name::new(0, 42));
+    pool.set_resolution(named_idx, struct_idx);
+
+    let repr = canonical(&pool, named_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert_eq!(s.fields.len(), 2, "Named→Struct must resolve to 2 fields");
+        assert_eq!(s.fields[0].name, name_x);
+        assert_eq!(s.fields[1].name, name_y);
+        assert!(s.trivial, "struct of (int, float) must be trivial");
+        assert_eq!(s.size, 16);
+    } else {
+        panic!("expected Struct for Named→Struct, got {repr:?}");
+    }
+}
+
+/// §01.9 Item 8 (TPR-01-017): Struct containing an all-unit enum must be
+/// trivial. This exercises `is_trivial_repr()` on the `MachineRepr::Enum`
+/// path through a wrapper aggregate. A regression in the enum triviality
+/// branch would make the struct non-trivial, failing this test.
+#[test]
+fn trivial_struct_containing_all_unit_enum() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+    let enum_name = Name::new(0, 300);
+    let enum_idx = pool.enum_type(
+        enum_name,
+        &[
+            EnumVariant {
+                name: Name::new(0, 301),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 302),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 303),
+                field_types: vec![],
+            },
+        ],
+    );
+    // Wrap in struct to exercise nested triviality
+    let name_e = Name::new(0, 100);
+    let struct_name = Name::new(0, 200);
+    let struct_idx = pool.struct_type(struct_name, &[(name_e, enum_idx)]);
+    let repr = canonical(&pool, struct_idx);
+    if let MachineRepr::Struct(ref s) = repr {
+        assert!(
+            s.trivial,
+            "struct containing all-unit enum must be trivial — \
+             semantic pin for TPR-01-017"
+        );
+    } else {
+        panic!("expected Struct, got {repr:?}");
+    }
+}
+
+/// §01.9 Item 10: `SelfType` must panic (should never reach codegen).
+#[test]
+#[should_panic(expected = "should never reach codegen")]
+fn canonical_panics_on_self_type() {
+    use ori_types::Tag;
+
+    let mut pool = Pool::new();
+    let self_idx = pool.intern(Tag::SelfType, 0);
+    canonical(&pool, self_idx);
+}
+
+/// §01.9 Item 11: `FatPointer` structural layout assertion.
+/// Both `FatRepr::Str` and `FatRepr::Collection` are `FatPointer` variants
+/// that produce `{i64, i64, ptr}` in LLVM. This test verifies the `ori_repr`
+/// level structure — the LLVM equivalence is covered by Phase A tests in
+/// `ori_llvm` (`try_repr_to_llvm_type` handles both identically).
+#[test]
+fn fat_pointer_str_and_collection_same_llvm_shape() {
+    let mut pool = Pool::new();
+
+    // Str → FatPointer(Str)
+    let str_repr = canonical(&pool, Idx::STR);
+    assert!(
+        matches!(str_repr, MachineRepr::FatPointer(FatRepr::Str)),
+        "str must be FatPointer(Str)"
+    );
+
+    // [int] → FatPointer(Collection { element_repr: Int })
+    let list_idx = pool.list(Idx::INT);
+    let list_repr = canonical(&pool, list_idx);
+    assert!(
+        matches!(
+            list_repr,
+            MachineRepr::FatPointer(FatRepr::Collection { .. })
+        ),
+        "list must be FatPointer(Collection)"
+    );
+
+    // {str: int} → FatPointer(Map { key, value })
+    let map_idx = pool.map(Idx::STR, Idx::INT);
+    let map_repr = canonical(&pool, map_idx);
+    assert!(
+        matches!(map_repr, MachineRepr::FatPointer(FatRepr::Map { .. })),
+        "map must be FatPointer(Map)"
+    );
+
+    // Semantic pin: all three are FatPointer variants, ensuring identical
+    // LLVM lowering ({i64, i64, ptr}) via try_repr_to_llvm_type.
+}
+
+/// §01.9 Item 6: Storage type equivalence — containers and opaque types.
+///
+/// Covers 7 simple containers + 2 two-child containers + `DoubleEndedIterator`.
+/// (Borrowed panics in `canonical()` — not a codegen type.)
+#[test]
+fn storage_equivalence_containers() {
+    let mut pool = Pool::new();
+
+    // Simple containers (7)
+    let list_idx = pool.list(Idx::INT);
+    assert!(
+        matches!(
+            canonical(&pool, list_idx),
+            MachineRepr::FatPointer(FatRepr::Collection { .. })
+        ),
+        "List canonical"
+    );
+    let opt_idx = pool.option(Idx::INT);
+    assert!(
+        matches!(canonical(&pool, opt_idx), MachineRepr::Enum(_)),
+        "Option canonical"
+    );
+    let set_idx = pool.set(Idx::STR);
+    assert!(
+        matches!(
+            canonical(&pool, set_idx),
+            MachineRepr::FatPointer(FatRepr::Collection { .. })
+        ),
+        "Set canonical"
+    );
+    let chan_idx = pool.channel(Idx::INT);
+    assert_eq!(
+        canonical(&pool, chan_idx),
+        MachineRepr::OpaquePtr,
+        "Channel canonical"
+    );
+    let range_idx = pool.range(Idx::INT);
+    assert_eq!(
+        canonical(&pool, range_idx),
+        MachineRepr::Range,
+        "Range canonical"
+    );
+    let iter_idx = pool.iterator(Idx::INT);
+    assert_eq!(
+        canonical(&pool, iter_idx),
+        MachineRepr::OpaquePtr,
+        "Iterator canonical"
+    );
+    let deiter_idx = pool.double_ended_iterator(Idx::INT);
+    assert_eq!(
+        canonical(&pool, deiter_idx),
+        MachineRepr::OpaquePtr,
+        "DoubleEndedIterator"
+    );
+
+    // Two-child containers (2 of 3 — Borrowed is non-codegen)
+    let map_idx = pool.map(Idx::STR, Idx::INT);
+    assert!(
+        matches!(
+            canonical(&pool, map_idx),
+            MachineRepr::FatPointer(FatRepr::Map { .. })
+        ),
+        "Map canonical"
+    );
+    let result_idx = pool.result(Idx::INT, Idx::STR);
+    assert!(
+        matches!(canonical(&pool, result_idx), MachineRepr::Enum(_)),
+        "Result canonical"
+    );
+}
+
+/// §01.9 Item 6: Storage type equivalence — complex types and resolved names.
+///
+/// Covers Function, Tuple, Struct, Enum + Named/Applied/Alias resolution.
+#[test]
+fn storage_equivalence_complex_and_resolved() {
+    use ori_types::EnumVariant;
+
+    let mut pool = Pool::new();
+
+    // Complex types (4)
+    let fn_idx = pool.function1(Idx::INT, Idx::BOOL);
+    assert!(
+        matches!(canonical(&pool, fn_idx), MachineRepr::Closure(_)),
+        "Function canonical"
+    );
+    let tuple_idx = pool.pair(Idx::INT, Idx::BOOL);
+    assert!(
+        matches!(canonical(&pool, tuple_idx), MachineRepr::Tuple(_)),
+        "Tuple canonical"
+    );
+    let struct_name = Name::new(0, 500);
+    let struct_idx = pool.struct_type(struct_name, &[(Name::new(0, 501), Idx::INT)]);
+    assert!(
+        matches!(canonical(&pool, struct_idx), MachineRepr::Struct(_)),
+        "Struct canonical"
+    );
+    let enum_idx = pool.enum_type(
+        Name::new(0, 600),
+        &[
+            EnumVariant {
+                name: Name::new(0, 601),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::new(0, 602),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    assert!(
+        matches!(canonical(&pool, enum_idx), MachineRepr::Enum(_)),
+        "Enum canonical"
+    );
+
+    // Named/resolved (3)
+    let named_idx = pool.named(Name::new(0, 700));
+    pool.set_resolution(named_idx, struct_idx);
+    assert!(
+        matches!(canonical(&pool, named_idx), MachineRepr::Struct(_)),
+        "Named→Struct"
+    );
+    let applied_idx = pool.applied(Name::new(0, 800), &[Idx::INT]);
+    pool.set_resolution(applied_idx, struct_idx);
+    assert!(
+        matches!(canonical(&pool, applied_idx), MachineRepr::Struct(_)),
+        "Applied→Struct"
+    );
+    let alias_named = pool.named(Name::new(0, 900));
+    pool.set_resolution(alias_named, Idx::INT);
+    assert_eq!(
+        canonical(&pool, alias_named),
+        MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true
+        },
+        "Alias→Int canonical"
+    );
+}
+
+/// §01.9 Item 6: Storage type equivalence — ZST-divergence cases.
+///
+/// `canonical()` correctly uses zero-sized fields for `Unit`/`Never` in
+/// aggregates. `TypeInfoStore` uses `i64` for these — the divergence is
+/// intentional (canonical is correct, `TypeInfoStore` is legacy).
+#[test]
+fn storage_equivalence_zst_divergence() {
+    let mut pool = Pool::new();
+
+    let opt_unit = pool.option(Idx::UNIT);
+    if let MachineRepr::Enum(ref e) = canonical(&pool, opt_unit) {
+        assert_eq!(e.size, 8, "Option<()> = 8 bytes (tag only, zero payload)");
+    } else {
+        panic!("Option<()> must be Enum");
+    }
+
+    let tup_unit_bool = pool.pair(Idx::UNIT, Idx::BOOL);
+    if let MachineRepr::Tuple(ref t) = canonical(&pool, tup_unit_bool) {
+        assert_eq!(
+            t.size, 1,
+            "((), bool) = 1 byte — Unit zero-sized in aggregates"
+        );
+    } else {
+        panic!("((), bool) must be Tuple");
+    }
+
+    let result_unit_int = pool.result(Idx::UNIT, Idx::INT);
+    if let MachineRepr::Enum(ref e) = canonical(&pool, result_unit_int) {
+        assert_eq!(e.size, 16, "Result<(), int> = 16 bytes");
+    } else {
+        panic!("Result<(), int> must be Enum");
+    }
+
+    let struct_unit_idx = pool.struct_type(
+        Name::new(0, 1000),
+        &[
+            (Name::new(0, 1001), Idx::UNIT),
+            (Name::new(0, 1002), Idx::INT),
+        ],
+    );
+    if let MachineRepr::Struct(ref s) = canonical(&pool, struct_unit_idx) {
+        assert_eq!(s.size, 8, "Struct(unit, int) = 8 bytes — Unit zero-sized");
+    } else {
+        panic!("Struct with Unit field must be Struct");
+    }
+}
