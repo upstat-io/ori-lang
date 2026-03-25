@@ -19,6 +19,11 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.emit_item_cfg_attr(cfg);
         }
 
+        // Repr attributes (Spec §26 — between #target/#cfg and #derive in canonical order)
+        for repr in &type_decl.repr_attrs {
+            self.emit_repr_attr(repr);
+        }
+
         // Derives
         if !type_decl.derives.is_empty() {
             self.ctx.emit("#derive(");

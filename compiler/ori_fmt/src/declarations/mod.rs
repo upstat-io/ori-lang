@@ -44,7 +44,7 @@ use crate::comments::CommentIndex;
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::WidthCalculator;
-use ori_ir::ast::items::Module;
+use ori_ir::ast::items::{Module, ReprAttrKind};
 use ori_ir::{CommentList, ExprArena, FileAttr, Name, Spanned, StringLookup};
 
 /// Format a complete module to a string with default config.
@@ -328,6 +328,43 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             }
             self.ctx.emit("]");
             *first = false;
+        }
+    }
+
+    /// Emit a `#repr(...)` attribute on its own line.
+    ///
+    /// Spec §26: `#repr("c")`, `#repr("packed")`, `#repr("transparent")`,
+    /// `#repr("aligned", N)`. `CAligned(N)` is emitted as two stacked attrs
+    /// since it's produced by type-checking merge of `#repr("c")` + `#repr("aligned", N)`.
+    pub(super) fn emit_repr_attr(&mut self, repr: &ReprAttrKind) {
+        match repr {
+            ReprAttrKind::C => {
+                self.ctx.emit("#repr(\"c\")");
+                self.ctx.emit_newline_indent();
+            }
+            ReprAttrKind::Packed => {
+                self.ctx.emit("#repr(\"packed\")");
+                self.ctx.emit_newline_indent();
+            }
+            ReprAttrKind::Transparent => {
+                self.ctx.emit("#repr(\"transparent\")");
+                self.ctx.emit_newline_indent();
+            }
+            ReprAttrKind::Aligned(n) => {
+                self.ctx.emit("#repr(\"aligned\", ");
+                self.ctx.emit(&n.to_string());
+                self.ctx.emit(")");
+                self.ctx.emit_newline_indent();
+            }
+            ReprAttrKind::CAligned(n) => {
+                // CAligned is the merged form — emit as two stacked attrs
+                self.ctx.emit("#repr(\"c\")");
+                self.ctx.emit_newline_indent();
+                self.ctx.emit("#repr(\"aligned\", ");
+                self.ctx.emit(&n.to_string());
+                self.ctx.emit(")");
+                self.ctx.emit_newline_indent();
+            }
         }
     }
 

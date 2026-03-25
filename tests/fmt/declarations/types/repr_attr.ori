@@ -1,0 +1,11 @@
+#repr("c")
+type NativeBuffer = { ptr: CPtr, len: c_size }
+
+#repr("packed")
+type PackedData = { a: byte, b: int }
+
+#repr("transparent")
+type Wrapper = { inner: int }
+
+#repr("aligned", 16)
+type AlignedData = { x: float, y: float }
