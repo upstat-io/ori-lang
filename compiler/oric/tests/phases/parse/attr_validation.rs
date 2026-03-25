@@ -225,3 +225,43 @@ fn semantic_pin_orphan_attrs_eof_is_error_not_silent() {
         "TPR-01-062 semantic pin: orphaned attrs at EOF must produce errors, not be silently dropped"
     );
 }
+
+// TPR-01-064: Diagnostic message must list all valid declaration kinds per §25.4,
+// not just "function or test definition". These pins check the FULL message text
+// to prevent future drift as new attribute targets are added.
+
+#[test]
+fn diagnostic_pin_orphan_attr_full_message_full_parse() {
+    // Full-parse EOF path: orphaned #target at end of file.
+    parse_err(
+        "#target(os: \"linux\")\n",
+        "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
+    );
+}
+
+#[test]
+fn diagnostic_pin_orphan_attr_full_message_after_import() {
+    // Full-parse EOF path: orphaned #cfg after an import.
+    parse_err(
+        "use std.math { sqrt };\n\n#cfg(debug)\n",
+        "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
+    );
+}
+
+#[test]
+fn diagnostic_pin_orphan_attr_full_message_before_invalid_token() {
+    // Declaration-error path: attrs followed by an invalid token (number literal).
+    parse_err(
+        "#target(os: \"linux\")\n42\n",
+        "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
+    );
+}
+
+#[test]
+fn diagnostic_pin_orphan_attr_full_message_before_identifier() {
+    // Declaration-error path: attrs followed by an unknown identifier.
+    parse_err(
+        "#cfg(debug)\nfoo\n",
+        "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
+    );
+}

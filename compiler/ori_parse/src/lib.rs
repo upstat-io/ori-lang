@@ -561,7 +561,7 @@ impl<'a> Parser<'a> {
             if !orphan_attrs.is_empty() {
                 errors.push(ParseError::new(
                     ori_diagnostic::ErrorCode::E1006,
-                    "attributes must be followed by a function or test definition",
+                    "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
                     self.cursor.previous_span(),
                 ));
             }
@@ -952,16 +952,16 @@ impl<'a> Parser<'a> {
             } else {
                 errors.push(ParseError::new(
                     ori_diagnostic::ErrorCode::E1006,
-                    "attributes must be followed by a function or test definition",
+                    "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
                     self.cursor.current_span(),
                 ));
             }
             self.cursor.advance();
         } else if !attrs.is_empty() {
-            // Attributes without a following function/test
+            // Attributes without a following declaration
             errors.push(ParseError::new(
                 ori_diagnostic::ErrorCode::E1006,
-                "attributes must be followed by a function or test definition",
+                "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
                 self.cursor.current_span(),
             ));
             self.cursor.advance();
@@ -1096,7 +1096,7 @@ impl<'a> Parser<'a> {
             if !orphan_attrs.is_empty() {
                 errors.push(ParseError::new(
                     ori_diagnostic::ErrorCode::E1006,
-                    "attributes must be followed by a function or test definition",
+                    "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
                     self.cursor.previous_span(),
                 ));
             }
