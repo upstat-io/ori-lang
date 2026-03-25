@@ -1,0 +1,13 @@
+type Handle = { fd: int }
+
+type DebugConfig = { verbose: bool }
+
+#target(os: "linux")
+impl Handle {
+    @close (self) -> int = 0;
+}
+
+#cfg(debug)
+impl DebugConfig {
+    @dump (self) -> str = "debug";
+}

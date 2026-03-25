@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-25
-  note: "All TPR findings resolved. TPR-01-056 (item-level conditional attrs on constants, impls, imports) implemented 2026-03-25."
+  note: "All TPR findings resolved. TPR-01-057 (attr placement validation) and TPR-01-058 (destructive formatter) fixed 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1241,6 +1241,12 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Extend the AST/parser/formatter surface for `UseDef`, `ConstDef`, `TraitDef`/`ImplDef`/`DefImplDef`/`ExtendDef` (or explicitly reject unsupported §25.4 forms), then add phase/spec coverage for constants and imports before re-resolving item-level conditional compilation.
   Resolved: Fixed on 2026-03-25. Spec §25.4 defines 5 item kinds for conditional attrs: functions (done), types (done), trait implementations, constants, and imports. Implementation: (1) Added `target_attr`/`cfg_attr` fields to `ConstDef`, `ImplDef`, `UseDef` in `ori_ir`. (2) Updated `parse_const()` and `parse_impl()` to accept and store attrs from `dispatch_declaration()`. (3) Restructured `parse_imports()` to parse attrs before each import, returning leftover attrs for the declaration loop. (4) Updated formatter (`format_const`, `format_impl`, `format_use`) to emit item-level attrs. (5) Updated incremental copier for all 3 types. (6) 13 new phase tests + 6 new spec tests. Trait declarations, def impls, extends, and extern blocks are correctly unsupported per spec §25.4. 13,914 tests pass.
 
+- [x] `[TPR-01-057][medium]` `compiler/ori_parse/src/lib.rs:610` — The new attr-threading accepts unsupported attributes on imports and constants, then silently drops them instead of rejecting the invalid placement.
+  Resolved: Fixed on 2026-03-25. Added attribute placement validation in `dispatch_declaration()` and `parse_imports()`. Items that only support `#target`/`#cfg` (imports, constants, impls) now emit E1006 with the specific unsupported attr names if non-conditional attrs are present. Items that support no attrs at all (traits, def impls, extends, extern blocks) also reject all attrs. Added `ParsedAttrs::has_non_conditional_attrs()` and `non_conditional_attr_names()` helpers. 19 phase tests in `attr_validation.rs`: 6 reject cases (imports), 4 reject + 2 accept (constants), 3 reject + 1 accept (impls), 3 reject (trait/extend/extern), 2 semantic pins. 13,933 tests pass.
+
+- [x] `[TPR-01-058][high]` `compiler/ori_fmt/src/declarations/impls.rs:105` — `ori fmt` is still destructive for the conditional-attribute follow-up: impl attrs are dropped on the comment-preserving path, and type formatting still strips `#repr`.
+  Resolved: Fixed on 2026-03-25. (1) Added `#target`/`#cfg` emission to `format_impl_with_comments()` mirroring `format_impl()`. (2) Added `emit_repr_attr()` helper to `ModuleFormatter` that formats all `ReprAttrKind` variants (`C`, `Packed`, `Transparent`, `Aligned(N)`, `CAligned(N)`). (3) Added `#repr` emission to `format_type_decl()` between `#cfg` and `#derive` per canonical attr order. 4 golden test files added: `types/repr_attr.ori`, `types/repr_with_target.ori`, `impls/conditional_attrs.ori`, `comments/edge/impl_conditional_attrs.ori`. All 36 golden tests pass. 13,933 tests pass.
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1354,5 +1360,19 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] **Spec tests**: 2 valid-feature-name `.ori` spec tests in `tests/spec/declarations/conditional/` (2026-03-25). Parse-level errors cannot use `#compile_fail` (file-level attribute errors precede test function discovery); negative cases covered by Rust phase tests.
 - [x] `./test-all.sh` green (2026-03-25). 13,896 passed, 0 failed.
 - [x] `./clippy-all.sh` green (2026-03-25).
+
+**[TPR-01-057] Attribute placement validation** — reject unsupported attrs on imports, constants, impls, traits, extends, extern:
+- [x] **Parser**: Add `ParsedAttrs::has_non_conditional_attrs()` and `non_conditional_attr_names()` helpers (2026-03-25).
+- [x] **Parser**: Add E1006 validation in `dispatch_declaration()` for impls, constants, traits, def impls, extends, extern blocks (2026-03-25).
+- [x] **Parser**: Add E1006 validation in `parse_imports()` for import statements (2026-03-25).
+- [x] **Phase tests**: 19 tests in `compiler/oric/tests/phases/parse/attr_validation.rs` (2026-03-25). Covers reject + accept + semantic pin for all item kinds.
+- [x] `./test-all.sh` green (2026-03-25). 13,933 passed, 0 failed.
+
+**[TPR-01-058] Formatter attr preservation** — fix destructive formatting for impl attrs and `#repr`:
+- [x] **Formatter**: Add `#target`/`#cfg` emission to `format_impl_with_comments()` matching `format_impl()` (2026-03-25).
+- [x] **Formatter**: Add `emit_repr_attr()` helper to `ModuleFormatter` for all `ReprAttrKind` variants (2026-03-25).
+- [x] **Formatter**: Add `#repr` emission to `format_type_decl()` between `#cfg` and `#derive` per canonical order (2026-03-25).
+- [x] **Golden tests**: 4 files: `types/repr_attr.ori`, `types/repr_with_target.ori`, `impls/conditional_attrs.ori`, `comments/edge/impl_conditional_attrs.ori` (2026-03-25).
+- [x] `./test-all.sh` green (2026-03-25). 13,933 passed, 0 failed.
 
 **Exit Criteria:** `ori_repr` crate exists, `ReprPlan` is threaded through the entire LLVM codegen pipeline, all existing tests pass with identical behavior, `cargo test -p ori_repr --release` passes, and `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows `ReprPlan query` events for every type in the program.

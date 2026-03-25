@@ -620,6 +620,17 @@ impl<'a> Parser<'a> {
                 && matches!(self.cursor.peek_next_kind(), TokenKind::Extension);
 
             if self.cursor.check(&TokenKind::Use) || is_pub_use {
+                // Spec §25.4: imports support #target/#cfg only.
+                if attrs.has_non_conditional_attrs() {
+                    errors.push(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1006,
+                        format!(
+                            "{} not supported on imports; only #target and #cfg are allowed",
+                            attrs.non_conditional_attr_names()
+                        ),
+                        self.cursor.current_span(),
+                    ));
+                }
                 let visibility = if is_pub_use {
                     self.cursor.advance();
                     Visibility::Public
@@ -698,6 +709,14 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if self.cursor.check(&TokenKind::Trait) {
+            // Spec §25.4: traits do not support item-level attributes.
+            if !attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes are not supported on trait declarations",
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_trait(visibility);
             self.handle_outcome(
                 outcome,
@@ -708,6 +727,14 @@ impl<'a> Parser<'a> {
         } else if self.cursor.check(&TokenKind::Def)
             && matches!(self.cursor.peek_next_kind(), TokenKind::Impl)
         {
+            // Spec §25.4: def impls do not support item-level attributes.
+            if !attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes are not supported on default implementation declarations",
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_def_impl(visibility);
             self.handle_outcome(
                 outcome,
@@ -716,6 +743,17 @@ impl<'a> Parser<'a> {
                 Self::recover_to_function,
             );
         } else if self.cursor.check(&TokenKind::Impl) {
+            // Spec §25.4: impls support #target/#cfg only.
+            if attrs.has_non_conditional_attrs() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    format!(
+                        "{} not supported on impl blocks; only #target and #cfg are allowed",
+                        attrs.non_conditional_attr_names()
+                    ),
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_impl(attrs);
             self.handle_outcome(
                 outcome,
@@ -724,6 +762,14 @@ impl<'a> Parser<'a> {
                 Self::recover_to_function,
             );
         } else if self.cursor.check(&TokenKind::Extend) {
+            // Spec §25.4: extends do not support item-level attributes.
+            if !attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes are not supported on extension declarations",
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_extend();
             self.handle_outcome(
                 outcome,
@@ -741,6 +787,17 @@ impl<'a> Parser<'a> {
             );
         } else if self.cursor.check(&TokenKind::Let) {
             // `let $name = value` — constant declaration (spec §04-constants)
+            // Spec §25.4: constants support #target/#cfg only.
+            if attrs.has_non_conditional_attrs() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    format!(
+                        "{} not supported on constants; only #target and #cfg are allowed",
+                        attrs.non_conditional_attr_names()
+                    ),
+                    self.cursor.current_span(),
+                ));
+            }
             self.cursor.advance(); // consume `let`
             if self.cursor.check(&TokenKind::Dollar) {
                 let outcome = self.parse_const(attrs, visibility);
@@ -767,6 +824,17 @@ impl<'a> Parser<'a> {
             }
         } else if self.cursor.check(&TokenKind::Dollar) {
             // Also accept `$name = value` without `let` for backwards compatibility
+            // Spec §25.4: constants support #target/#cfg only.
+            if attrs.has_non_conditional_attrs() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    format!(
+                        "{} not supported on constants; only #target and #cfg are allowed",
+                        attrs.non_conditional_attr_names()
+                    ),
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_const(attrs, visibility);
             self.handle_outcome(
                 outcome,
@@ -775,6 +843,14 @@ impl<'a> Parser<'a> {
                 Self::recover_to_function,
             );
         } else if self.cursor.check(&TokenKind::Extern) {
+            // Spec §25.4: extern blocks do not support item-level attributes.
+            if !attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes are not supported on extern declarations",
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_extern_block(visibility);
             self.handle_outcome(
                 outcome,

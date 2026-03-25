@@ -1,0 +1,8 @@
+type Handle = { fd: int }
+
+// This impl is platform-specific
+#target(os: "linux")
+impl Handle {
+    // Close the handle
+    @close (self) -> int = 0;
+}
