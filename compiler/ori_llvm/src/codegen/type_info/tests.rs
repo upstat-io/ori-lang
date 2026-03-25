@@ -47,6 +47,17 @@ fn heap_types_not_trivial() {
     .is_trivial());
 }
 
+/// §02 TPR-02-004: Iterator/DoubleEndedIterator are Box-allocated (no RC header),
+/// so TypeInfo::is_trivial() must classify them as trivial — matching
+/// ArcClassifier (Scalar) and classify_triviality() (Trivial).
+#[test]
+fn iterator_types_are_trivial() {
+    assert!(
+        TypeInfo::Iterator { element: Idx::INT }.is_trivial(),
+        "Iterator is Box-allocated (UnmanagedPtr), no RC header — trivial"
+    );
+}
+
 #[test]
 fn tagged_unions_not_trivial() {
     assert!(!TypeInfo::Option { inner: Idx::INT }.is_trivial());
@@ -1816,5 +1827,83 @@ fn repr_plan_canonical_parity_full_matrix() {
     assert!(
         plan.get_repr(enum_idx).is_some(),
         "ReprPlan should have a canonical decision for enum"
+    );
+}
+
+// -- §02 TPR-02-004: Iterator triviality convergence tests --
+
+/// §02 TPR-02-004: classify_trivial() fallback (via TypeInfoStore::new())
+/// must classify Iterator/DoubleEndedIterator as trivial — matching the
+/// production path through ReprPlan.
+#[test]
+fn iterator_trivial_via_fallback_path() {
+    let mut pool = Pool::new();
+    let iter_int = pool.iterator(Idx::INT);
+    let de_iter_int = pool.double_ended_iterator(Idx::INT);
+
+    let store = TypeInfoStore::new(&pool);
+    assert!(
+        store.is_trivial(iter_int),
+        "Iterator<int> should be trivial via fallback (Box-allocated, no RC)"
+    );
+    assert!(
+        store.is_trivial(de_iter_int),
+        "DoubleEndedIterator<int> should be trivial via fallback (Box-allocated, no RC)"
+    );
+}
+
+/// §02 TPR-02-004: Production path (via TypeInfoStore::new_with_plan()) must
+/// classify Iterator/DoubleEndedIterator as trivial through ReprPlan.
+/// This is the semantic pin for the production triviality path.
+#[test]
+fn iterator_trivial_via_production_path() {
+    let mut pool = Pool::new();
+    let iter_int = pool.iterator(Idx::INT);
+    let de_iter_int = pool.double_ended_iterator(Idx::INT);
+
+    let plan = ori_repr::compute_repr_plan(&pool, &[], ori_repr::NarrowingPolicy::Disabled, &[]);
+    let store = TypeInfoStore::new_with_plan(&pool, &plan);
+    assert!(
+        store.is_trivial(iter_int),
+        "Iterator<int> should be trivial via ReprPlan production path"
+    );
+    assert!(
+        store.is_trivial(de_iter_int),
+        "DoubleEndedIterator<int> should be trivial via ReprPlan production path"
+    );
+}
+
+/// §02 TPR-02-004: Both paths must agree on Iterator triviality.
+/// This test creates both a fallback and production store and asserts they
+/// return the same result for Iterator and DoubleEndedIterator.
+#[test]
+fn iterator_triviality_paths_agree() {
+    let mut pool = Pool::new();
+    let iter_int = pool.iterator(Idx::INT);
+    let de_iter_int = pool.double_ended_iterator(Idx::INT);
+    let iter_str = pool.iterator(Idx::STR);
+
+    let plan = ori_repr::compute_repr_plan(&pool, &[], ori_repr::NarrowingPolicy::Disabled, &[]);
+
+    let fallback_store = TypeInfoStore::new(&pool);
+    let production_store = TypeInfoStore::new_with_plan(&pool, &plan);
+
+    // Iterator<int> — both paths agree
+    assert_eq!(
+        fallback_store.is_trivial(iter_int),
+        production_store.is_trivial(iter_int),
+        "fallback and production must agree on Iterator<int>"
+    );
+    // DoubleEndedIterator<int> — both paths agree
+    assert_eq!(
+        fallback_store.is_trivial(de_iter_int),
+        production_store.is_trivial(de_iter_int),
+        "fallback and production must agree on DoubleEndedIterator<int>"
+    );
+    // Iterator<str> — both paths agree (str element doesn't affect iterator triviality)
+    assert_eq!(
+        fallback_store.is_trivial(iter_str),
+        production_store.is_trivial(iter_str),
+        "fallback and production must agree on Iterator<str>"
     );
 }

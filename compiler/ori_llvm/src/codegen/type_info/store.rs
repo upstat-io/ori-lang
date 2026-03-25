@@ -226,7 +226,9 @@ impl<'tcx> TypeInfoStore<'tcx> {
 
         let info = self.get(idx);
         let result = match &info {
-            // Scalar primitives are always trivial.
+            // Scalar primitives and Iterator (Box-allocated, no RC header —
+            // UnmanagedPtr) are always trivial. Iterator matches ArcClassifier
+            // (Scalar) and classify_triviality() (Trivial).
             TypeInfo::Int
             | TypeInfo::Float
             | TypeInfo::Bool
@@ -238,14 +240,14 @@ impl<'tcx> TypeInfoStore<'tcx> {
             | TypeInfo::Size
             | TypeInfo::Ordering
             | TypeInfo::Range
-            | TypeInfo::Error => true,
+            | TypeInfo::Error
+            | TypeInfo::Iterator { .. } => true,
 
-            // Heap-backed types are always non-trivial.
+            // Heap-backed RC-managed types are always non-trivial.
             TypeInfo::Str
             | TypeInfo::List { .. }
             | TypeInfo::Map { .. }
             | TypeInfo::Set { .. }
-            | TypeInfo::Iterator { .. }
             | TypeInfo::Channel { .. }
             | TypeInfo::Function { .. } => false,
 
