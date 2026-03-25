@@ -1,0 +1,6 @@
+// Invalid: #repr("transparent") on a newtype — newtypes are implicitly transparent,
+// explicit #repr attributes only apply to structs.
+#compile_fail(code: "E2041", message: "can only be applied to structs")
+
+#repr("transparent")
+type UserId = int;

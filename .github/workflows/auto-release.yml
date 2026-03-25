@@ -60,7 +60,7 @@ jobs:
       - name: Install Copilot CLI + SDK
         run: |
           npm i -g @github/copilot
-          pip install github-copilot-sdk
+          pip install 'github-copilot-sdk==0.2.0'
 
       - name: Derive release tag
         id: tag

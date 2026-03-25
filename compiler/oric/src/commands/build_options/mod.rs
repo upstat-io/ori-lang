@@ -67,6 +67,15 @@ pub struct BuildOptions {
     /// `Aggressive` (default): all safe narrowing. `Conservative`: provably-safe only.
     /// `Disabled` (`--no-repr-opt`): canonical representations only.
     pub narrowing_policy: ori_repr::NarrowingPolicy,
+    /// Whether `narrowing_policy` was explicitly set via `--repr-opt=` or `--no-repr-opt`.
+    ///
+    /// When true, the `ORI_NO_REPR_OPT` env var fallback does not apply.
+    /// Follows the same pattern as `opt_level_explicit` / `debug_level_explicit` / `lto_explicit`.
+    pub narrowing_policy_explicit: bool,
+    /// Whether `link_mode` was explicitly set via `--link=`.
+    pub link_mode_explicit: bool,
+    /// Whether `jobs` was explicitly set via `--jobs=` or `-j`.
+    pub jobs_explicit: bool,
 }
 
 impl Default for BuildOptions {
@@ -95,6 +104,9 @@ impl Default for BuildOptions {
             wasm_opt: false,
             verbose: false,
             narrowing_policy: ori_repr::NarrowingPolicy::Aggressive,
+            narrowing_policy_explicit: false,
+            link_mode_explicit: false,
+            jobs_explicit: false,
         }
     }
 }
@@ -155,18 +167,28 @@ impl BuildOptions {
         if other.features.is_some() {
             self.features.clone_from(&other.features);
         }
-        if other.jobs.is_some() {
+        // Jobs: explicit wins (last-write-wins) (TPR-01-038)
+        if other.jobs_explicit {
+            self.jobs = other.jobs;
+            self.jobs_explicit = true;
+        } else if other.jobs.is_some() {
             self.jobs = other.jobs;
         }
 
-        // Enum fields: override if non-default (TPR-01-034)
-        if other.link_mode != LinkMode::default() {
+        // Link mode: explicit wins (last-write-wins) (TPR-01-038)
+        if other.link_mode_explicit {
+            self.link_mode = other.link_mode;
+            self.link_mode_explicit = true;
+        } else if other.link_mode != LinkMode::default() {
             self.link_mode = other.link_mode;
         }
 
-        // Narrowing policy: non-default overrides (TPR-01-035)
-        if other.narrowing_policy != ori_repr::NarrowingPolicy::Aggressive {
+        // Narrowing policy: only explicit CLI flags override (TPR-01-036/048).
+        // Non-explicit policies (from parsing unrelated flags like --release)
+        // are ignored — they would otherwise clobber earlier explicit flags.
+        if other.narrowing_policy_explicit {
             self.narrowing_policy = other.narrowing_policy;
+            self.narrowing_policy_explicit = true;
         }
 
         // Boolean flags: OR (true wins)
@@ -319,120 +341,164 @@ impl LtoMode {
 }
 
 /// Parse build options from command line arguments.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "linear if/else CLI flag parser"
-)]
+///
+/// Does NOT check `ORI_NO_REPR_OPT` — the env var fallback is applied by
+/// [`accumulate_build_options`] *after* the full CLI is merged (TPR-01-048).
+/// This prevents the env var from polluting per-arg parses in the build loop,
+/// where each single-arg parse would reapply the env override and clobber
+/// earlier explicit `--repr-opt=` flags.
 pub fn parse_build_options(args: &[String]) -> BuildOptions {
     let mut options = BuildOptions::default();
 
     for arg in args {
-        if arg == "--release" {
-            options.release = true;
-            // --release implies O2 and no debug info
-            options.opt_level = OptLevel::O2;
-            options.debug_level = DebugLevel::None;
-        } else if let Some(target) = arg.strip_prefix("--target=") {
-            options.target = Some(target.to_string());
-        } else if let Some(level) = arg.strip_prefix("--opt=") {
-            if let Some(opt) = OptLevel::parse(level) {
-                options.opt_level = opt;
-                options.opt_level_explicit = true;
-            } else {
-                eprintln!("warning: unknown optimization level '{level}', using O0");
-            }
-        } else if let Some(level) = arg.strip_prefix("--debug=") {
-            if let Some(dbg) = DebugLevel::parse(level) {
-                options.debug_level = dbg;
-                options.debug_level_explicit = true;
-            } else {
-                eprintln!("warning: unknown debug level '{level}', using full");
-            }
-        } else if let Some(output) = arg.strip_prefix("-o=") {
-            options.output = Some(PathBuf::from(output));
-        } else if let Some(output) = arg.strip_prefix("--output=") {
-            options.output = Some(PathBuf::from(output));
-        } else if let Some(dir) = arg.strip_prefix("--out-dir=") {
-            options.out_dir = Some(PathBuf::from(dir));
-        } else if let Some(emit) = arg.strip_prefix("--emit=") {
-            if let Some(e) = EmitType::parse(emit) {
-                options.emit = Some(e);
-            } else {
-                eprintln!(
-                    "warning: unknown emit type '{emit}', options: obj, llvm-ir, llvm-bc, asm"
-                );
-            }
-        } else if arg == "--lib" {
-            options.lib = true;
-        } else if arg == "--dylib" {
-            options.dylib = true;
-        } else if arg == "--wasm" {
-            options.wasm = true;
-        } else if let Some(linker) = arg.strip_prefix("--linker=") {
-            options.linker = Some(linker.to_string());
-        } else if let Some(link) = arg.strip_prefix("--link=") {
-            if let Some(mode) = LinkMode::parse(link) {
-                options.link_mode = mode;
-            } else {
-                eprintln!("warning: unknown link mode '{link}', using static");
-            }
-        } else if let Some(lto) = arg.strip_prefix("--lto=") {
-            if let Some(mode) = LtoMode::parse(lto) {
-                options.lto = mode;
-                options.lto_explicit = true;
-            } else {
-                eprintln!("warning: unknown LTO mode '{lto}', using off");
-            }
-        } else if let Some(jobs) = arg.strip_prefix("--jobs=") {
-            if jobs == "auto" {
-                options.jobs = None; // Will use available cores
-            } else if let Ok(n) = jobs.parse() {
-                options.jobs = Some(n);
-            } else {
-                eprintln!("warning: invalid jobs count '{jobs}', using auto");
-            }
-        } else if arg == "-j" {
-            // Shorthand for --jobs=auto
-            options.jobs = None;
-        } else if let Some(cpu) = arg.strip_prefix("--cpu=") {
-            options.cpu = Some(cpu.to_string());
-        } else if let Some(features) = arg.strip_prefix("--features=") {
-            options.features = Some(features.to_string());
-        } else if arg == "--js-bindings" {
-            options.js_bindings = true;
-        } else if arg == "--wasm-opt" {
-            options.wasm_opt = true;
-        } else if arg == "-v" || arg == "--verbose" {
-            options.verbose = true;
-        } else if arg == "--no-repr-opt" {
-            options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
-        } else if let Some(policy) = arg.strip_prefix("--repr-opt=") {
-            match policy {
-                "aggressive" => options.narrowing_policy = ori_repr::NarrowingPolicy::Aggressive,
-                "conservative" => {
-                    options.narrowing_policy = ori_repr::NarrowingPolicy::Conservative;
-                }
-                "disabled" => options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled,
-                _ => eprintln!(
-                    "warning: unknown repr-opt policy '{policy}', options: aggressive, conservative, disabled"
-                ),
-            }
+        parse_single_arg(&mut options, arg);
+    }
+
+    options
+}
+
+/// Accumulate build options from CLI args using per-arg parse + merge.
+///
+/// This is the canonical build-option accumulation path used by `ori build`.
+/// It handles: (1) per-arg parsing via [`parse_build_options`], (2) `-o` lookahead,
+/// and (3) the `ORI_NO_REPR_OPT` env var fallback *after* full CLI merge
+/// (TPR-01-028/048). Extracted from `main.rs` to enable direct testing
+/// of the zero-option build path (TPR-01-032).
+///
+/// `args` is the full CLI args slice (e.g., `["ori", "build", "file.ori", ...]`).
+/// Build options start at index 3 (after `ori build <file>`).
+pub fn accumulate_build_options(args: &[String]) -> BuildOptions {
+    accumulate_build_options_with_env(args, ori_repr::NarrowingPolicy::env_disabled())
+}
+
+/// Inner implementation with explicit `env_disabled` parameter for testability.
+///
+/// Production callers use [`accumulate_build_options`] (reads the real env var).
+/// Tests call this directly with `env_disabled: true` or `false` to exercise
+/// the env var fallback path deterministically (TPR-01-032).
+pub fn accumulate_build_options_with_env(args: &[String], env_disabled: bool) -> BuildOptions {
+    let mut options = BuildOptions::default();
+    let mut i = 3;
+    while i < args.len() {
+        if args[i] == "-o" && i + 1 < args.len() {
+            options.output = Some(std::path::PathBuf::from(&args[i + 1]));
+            i += 2;
+        } else {
+            let parsed = parse_build_options(&args[i..=i]);
+            options.merge(&parsed);
+            i += 1;
         }
     }
 
-    // Also check ORI_NO_REPR_OPT environment variable.
-    // Uses strict value parsing: only "1"/"true"/"yes". (TPR-01-030)
-    // Only applies if no explicit policy was set via CLI flags.
-    if options.narrowing_policy == ori_repr::NarrowingPolicy::Aggressive
-        && ori_repr::NarrowingPolicy::env_disabled()
-    {
+    // Apply ORI_NO_REPR_OPT env var AFTER full CLI merge (TPR-01-028/048).
+    // Only applies if no explicit policy was set via CLI flags (TPR-01-036).
+    if !options.narrowing_policy_explicit && env_disabled {
         options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
     }
 
-    // Handle -o without = (next arg is the path)
-    // This is handled in the caller since it requires peeking ahead
-
     options
+}
+
+/// Parse a single CLI argument into `BuildOptions`.
+///
+/// Extracted from `parse_build_options` to keep function length under 100 lines.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "linear if/else CLI flag parser — one branch per flag"
+)]
+fn parse_single_arg(options: &mut BuildOptions, arg: &str) {
+    if arg == "--release" {
+        options.release = true;
+        options.opt_level = OptLevel::O2;
+        options.debug_level = DebugLevel::None;
+    } else if let Some(target) = arg.strip_prefix("--target=") {
+        options.target = Some(target.to_string());
+    } else if let Some(level) = arg.strip_prefix("--opt=") {
+        if let Some(opt) = OptLevel::parse(level) {
+            options.opt_level = opt;
+            options.opt_level_explicit = true;
+        } else {
+            eprintln!("warning: unknown optimization level '{level}', using O0");
+        }
+    } else if let Some(level) = arg.strip_prefix("--debug=") {
+        if let Some(dbg) = DebugLevel::parse(level) {
+            options.debug_level = dbg;
+            options.debug_level_explicit = true;
+        } else {
+            eprintln!("warning: unknown debug level '{level}', using full");
+        }
+    } else if let Some(output) = arg.strip_prefix("-o=") {
+        options.output = Some(PathBuf::from(output));
+    } else if let Some(output) = arg.strip_prefix("--output=") {
+        options.output = Some(PathBuf::from(output));
+    } else if let Some(dir) = arg.strip_prefix("--out-dir=") {
+        options.out_dir = Some(PathBuf::from(dir));
+    } else if let Some(emit) = arg.strip_prefix("--emit=") {
+        if let Some(e) = EmitType::parse(emit) {
+            options.emit = Some(e);
+        } else {
+            eprintln!("warning: unknown emit type '{emit}', options: obj, llvm-ir, llvm-bc, asm");
+        }
+    } else if arg == "--lib" {
+        options.lib = true;
+    } else if arg == "--dylib" {
+        options.dylib = true;
+    } else if arg == "--wasm" {
+        options.wasm = true;
+    } else if let Some(linker) = arg.strip_prefix("--linker=") {
+        options.linker = Some(linker.to_string());
+    } else if let Some(link) = arg.strip_prefix("--link=") {
+        if let Some(mode) = LinkMode::parse(link) {
+            options.link_mode = mode;
+            options.link_mode_explicit = true;
+        } else {
+            eprintln!("warning: unknown link mode '{link}', using static");
+        }
+    } else if let Some(lto) = arg.strip_prefix("--lto=") {
+        if let Some(mode) = LtoMode::parse(lto) {
+            options.lto = mode;
+            options.lto_explicit = true;
+        } else {
+            eprintln!("warning: unknown LTO mode '{lto}', using off");
+        }
+    } else if let Some(jobs) = arg.strip_prefix("--jobs=") {
+        options.jobs_explicit = true;
+        if jobs == "auto" {
+            options.jobs = None;
+        } else if let Ok(n) = jobs.parse() {
+            options.jobs = Some(n);
+        } else {
+            eprintln!("warning: invalid jobs count '{jobs}', using auto");
+        }
+    } else if arg == "-j" {
+        options.jobs = None;
+        options.jobs_explicit = true;
+    } else if let Some(cpu) = arg.strip_prefix("--cpu=") {
+        options.cpu = Some(cpu.to_string());
+    } else if let Some(features) = arg.strip_prefix("--features=") {
+        options.features = Some(features.to_string());
+    } else if arg == "--js-bindings" {
+        options.js_bindings = true;
+    } else if arg == "--wasm-opt" {
+        options.wasm_opt = true;
+    } else if arg == "-v" || arg == "--verbose" {
+        options.verbose = true;
+    } else if arg == "--no-repr-opt" {
+        options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
+        options.narrowing_policy_explicit = true;
+    } else if let Some(policy) = arg.strip_prefix("--repr-opt=") {
+        options.narrowing_policy_explicit = true;
+        match policy {
+            "aggressive" => options.narrowing_policy = ori_repr::NarrowingPolicy::Aggressive,
+            "conservative" => {
+                options.narrowing_policy = ori_repr::NarrowingPolicy::Conservative;
+            }
+            "disabled" => options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled,
+            _ => eprintln!(
+                "warning: unknown repr-opt policy '{policy}', options: aggressive, conservative, disabled"
+            ),
+        }
+    }
 }
 
 #[cfg(test)]

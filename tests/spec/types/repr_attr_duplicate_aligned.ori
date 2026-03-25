@@ -1,0 +1,6 @@
+// Invalid: duplicate #repr("aligned", N) with different values — only c + aligned is a valid combination.
+#compile_fail(code: "E2041", message: "duplicate")
+
+#repr("aligned", 8)
+#repr("aligned", 16)
+type DupAligned = { x: int, y: int }

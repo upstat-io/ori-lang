@@ -10,6 +10,8 @@
 #[cfg(feature = "llvm")]
 mod multi;
 #[cfg(feature = "llvm")]
+mod multi_emission;
+#[cfg(feature = "llvm")]
 mod single;
 
 #[cfg(feature = "llvm")]
