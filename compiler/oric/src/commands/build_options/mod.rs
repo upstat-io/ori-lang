@@ -368,6 +368,15 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
 /// `args` is the full CLI args slice (e.g., `["ori", "build", "file.ori", ...]`).
 /// Build options start at index 3 (after `ori build <file>`).
 pub fn accumulate_build_options(args: &[String]) -> BuildOptions {
+    accumulate_build_options_with_env(args, ori_repr::NarrowingPolicy::env_disabled())
+}
+
+/// Inner implementation with explicit `env_disabled` parameter for testability.
+///
+/// Production callers use [`accumulate_build_options`] (reads the real env var).
+/// Tests call this directly with `env_disabled: true` or `false` to exercise
+/// the env var fallback path deterministically (TPR-01-032).
+pub fn accumulate_build_options_with_env(args: &[String], env_disabled: bool) -> BuildOptions {
     let mut options = BuildOptions::default();
     let mut i = 3;
     while i < args.len() {
@@ -383,7 +392,7 @@ pub fn accumulate_build_options(args: &[String]) -> BuildOptions {
 
     // Apply ORI_NO_REPR_OPT env var AFTER full CLI merge (TPR-01-028/048).
     // Only applies if no explicit policy was set via CLI flags (TPR-01-036).
-    if !options.narrowing_policy_explicit && ori_repr::NarrowingPolicy::env_disabled() {
+    if !options.narrowing_policy_explicit && env_disabled {
         options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
     }
 

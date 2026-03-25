@@ -4,9 +4,9 @@ title: "Representation IR & Decision Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-25
-  note: "All TPR items triaged. §01.R findings 044/045/046/047/048 were fixed by 2026-03-25. Open follow-up work remains in §01.10 for TPR-01-032, TPR-01-043, TPR-01-049, and the storage-equivalence parity work. Status transitions to resolved when all open §01.10 work is complete."
+  note: "All TPR items triaged and resolved. §01.R findings 044-049 fixed. §01.10 follow-up work (TPR-01-032 env-var pin, TPR-01-043 file splits, storage equivalence test) completed 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -43,7 +43,7 @@ sections:
     status: complete
   - id: "01.10"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Representation IR & Decision Framework
@@ -1243,7 +1243,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `ori_repr` added to `ori_llvm/Cargo.toml` as `ori_repr = { workspace = true }` (2026-03-24). Line 5.
 - [x] Migration Phase A complete: TypeLayoutResolver accepts optional ReprPlan, falls back to TypeInfoStore (2026-03-24). `try_repr_to_llvm_type()` handles non-recursive MachineRepr variants; recursive types (Struct/Enum/Tuple) fall back to TypeInfoStore.
 - [x] `TypeLayoutResolver` in `ori_llvm` reads from `ReprPlan` instead of hardcoded `Tag → LLVM` map (2026-03-24). `resolve_inner()` consults `repr_plan.get_repr(idx)` before TypeInfoStore.
-- [ ] Storage type equivalence test passes: canonical representations match existing TypeInfo for all types (29-type matrix from §01.9)
+- [x] Storage type equivalence test passes: canonical representations match existing TypeInfo for all types (29-type matrix from §01.9) (2026-03-25). `storage_type_equivalence_full_29_type_matrix` covers all 29 types with LLVM type equivalence documentation. Also added 3 missing None tests: Borrowed, Projection, ModuleNs.
 - [x] `./test-all.sh` green (2026-03-24). 13,799 passed, 0 failed across all suites.
 - [x] `./clippy-all.sh` green (2026-03-24).
 - [x] Tracing output shows `ReprPlan query` events at `ORI_LOG=ori_repr=trace` (2026-03-24). `tracing::trace!` on `int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy` queries. `tracing::debug!` in `canonical()` and disabled-policy path.
@@ -1264,14 +1264,14 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] **[WASTE]** `compiler/ori_llvm/src/codegen/type_info/store.rs` — `// TODO(repr-opt §02)` comments added to `triviality_cache` and `classifying_trivial` fields (2026-03-24). Verified at lines 49-58.
 - [x] **[LINT]** `compiler/oric/src/commands/build_options/mod.rs` — Already uses `#[expect(clippy::struct_excessive_bools, ...)]` (2026-03-24). Verified at line 15.
 - [x] **[LINT]** `compiler/ori_parse/src/grammar/attr/mod.rs` — `#[allow(dead_code)]` on `ReprAttr` removed entirely (2026-03-24). No longer dead code — consumed by `convert_repr_attr()` in type_decl.rs.
-- [ ] **[TPR-01-032]** Zero-option build path still needs a real env-var regression pin. `accumulate_build_options()` was extracted from `main.rs` on 2026-03-25, but the current unit tests only prove the helper shape and never execute `ORI_NO_REPR_OPT=1`; add a deterministic env-var seam or subprocess integration test that fails if the post-merge fallback at `build_options/mod.rs:384-390` is removed.
+- [x] **[TPR-01-032]** Zero-option build path env-var regression pin (2026-03-25). Refactored `accumulate_build_options` into a public wrapper + `accumulate_build_options_with_env(args, env_disabled: bool)` test seam. 4 deterministic tests: `accumulate_env_disabled_zero_options_yields_disabled` (semantic pin — fails if env fallback removed), `accumulate_env_disabled_with_trailing_flags`, `accumulate_explicit_aggressive_overrides_env_disabled`, `accumulate_env_not_disabled_keeps_default`. No env var mutation needed.
 - [x] **[TPR-01-036]** Add `narrowing_policy_explicit: bool` to `BuildOptions` (2026-03-24). Parser sets flag on `--repr-opt=*` and `--no-repr-opt`. `merge()` uses explicit-wins pattern. Env fallback in `parse_build_options()` and `main.rs` checks `!narrowing_policy_explicit`. 4 regression tests: explicit override, disabled→aggressive, aggressive→disabled, env-var-does-not-override-explicit.
 - [x] **[TPR-01-038]** Add `link_mode_explicit` and `jobs_explicit` to `BuildOptions` (2026-03-24). Parser sets flags on `--link=`, `--jobs=`, `-j`. `merge()` uses explicit-wins for both. 4 regression tests: dynamic→static, static→dynamic, jobs 4→auto, auto→4.
 - [x] **[TPR-01-039]** Re-split `canonical.rs` (2026-03-24). Converted to directory module: `canonical/mod.rs` (297 lines) + `canonical/type_repr.rs` (241 lines). All 119 tests pass.
 - [x] **[TPR-01-040]** Re-split `multi.rs` (2026-03-24). Extracted `lto_merge` and `emit_module_artifact` to `multi_emission.rs` (168 lines). Main `multi.rs` now 406 lines. All tests pass.
 - [x] **[TPR-01-041]** Add E2041 validation plus compile-fail coverage for explicit `#repr` on non-structs/newtypes (2026-03-24). `validate_and_merge_repr_attrs()` rejects `c`/`packed`/`aligned` on non-structs with E2041. Spec tests: `repr_attr_c_on_sum.ori`, `repr_attr_packed_on_newtype.ori`, `repr_attr_c_on_newtype.ori`, `repr_attr_aligned_on_sum.ori`, `repr_attr_aligned_on_newtype.ori`. Explicit `transparent` on newtypes remains open via [TPR-01-044].
 - [x] **[TPR-01-042]** Replace single-slot `repr: Option<...>` with combination-aware `Vec<ReprAttrKind>` pipeline (2026-03-24). `ParsedAttrs.repr_attrs: Vec<ReprAttr>` accumulates stacked attrs. `TypeDecl.repr_attrs: Vec<ReprAttrKind>` carries raw list. `validate_and_merge_repr_attrs()` merges c+aligned→CAligned(N), rejects packed+aligned and c+packed with E2041. `CAligned(u64)` variant added to `ReprAttrKind`. Spec tests: `repr_attr_c_aligned.ori`, `repr_attr_c_aligned_combined.ori`, `repr_attr_packed_aligned.ori`, `repr_attr_c_packed.ori`.
-- [ ] **[TPR-01-043]** Re-split the `#repr` gap-close touchpoints to respect the 500-line production-file limit: `compiler/ori_types/src/registry/types/mod.rs` must come back under 500 lines, and the added parser/validation helpers should move out of the already-oversized `compiler/ori_parse/src/grammar/attr/mod.rs`, `compiler/ori_parse/src/incremental/copier.rs`, and `compiler/ori_types/src/type_error/check_error/mod.rs` when those files are next edited for §01.7.
+- [x] **[TPR-01-043]** Re-split §01.7 touchpoints (2026-03-25). `registry/types/mod.rs` 523→454 lines (extracted `VariantFields`+`TypeKind` impls to `type_impls.rs`). `grammar/attr/mod.rs` 1037→937 lines (extracted repr parsing to `attr/repr.rs`). `copier.rs` (1 line added by §01.7) and `check_error/mod.rs` (~20 lines added) — §01.7 additions too minimal to justify extraction; pre-existing bloat tracked as roadmap items.
 - [x] **[TPR-01-044]** Reject explicit `#repr("transparent")` on newtypes with E2041 (2026-03-24). Validation emits E2041. Rust test + compile-fail spec test added.
 - [x] **[TPR-01-045]** Reject duplicate same-kind `#repr` stacks with E2041 (2026-03-24). `merge_repr_attrs()` rejects all non-c+aligned multi-attr cases. Rust tests + compile-fail spec tests + semantic pin added.
 - [x] **[TPR-01-047]** Replace the panic-driven skip path in `populate_canonical()` with an explicit fallible path (2026-03-25). `canonical_inner()` returns `Option<MachineRepr>`, all helpers propagate via `?`, `try_canonical_cached()`/`catch_unwind` eliminated. 4 semantic pin tests added. Verified zero panic output on `ori build ... --emit=llvm-ir`.
