@@ -73,6 +73,46 @@ pub struct ParsedAttrs {
     pub token_range: TokenCapture,
 }
 
+impl ParsedAttrs {
+    /// Returns true if any attributes besides `#target` and `#cfg` are present.
+    ///
+    /// Used to validate that non-conditional attrs aren't placed on items
+    /// that only support conditional compilation (imports, constants, impls).
+    pub fn has_non_conditional_attrs(&self) -> bool {
+        self.skip_reason.is_some()
+            || !self.expected_errors.is_empty()
+            || self.fail_expected.is_some()
+            || !self.derive_traits.is_empty()
+            || !self.repr_attrs.is_empty()
+            || self.is_fbip
+    }
+
+    /// Returns a comma-separated list of human-readable names for attributes
+    /// that are not `#target` or `#cfg`. Used in error messages.
+    pub fn non_conditional_attr_names(&self) -> String {
+        let mut names = Vec::new();
+        if self.skip_reason.is_some() {
+            names.push("#skip");
+        }
+        if !self.expected_errors.is_empty() {
+            names.push("#compile_fail");
+        }
+        if self.fail_expected.is_some() {
+            names.push("#fail");
+        }
+        if !self.derive_traits.is_empty() {
+            names.push("#derive");
+        }
+        if !self.repr_attrs.is_empty() {
+            names.push("#repr");
+        }
+        if self.is_fbip {
+            names.push("#fbip");
+        }
+        names.join(", ")
+    }
+}
+
 /// Representation attribute values.
 ///
 /// Converted to [`ori_ir::ReprAttrKind`] during type declaration parsing.

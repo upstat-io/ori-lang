@@ -108,6 +108,13 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         comments: &CommentList,
         comment_index: &mut CommentIndex,
     ) {
+        // Item-level conditional attributes (Spec §25.4)
+        if let Some(ref target) = impl_def.target_attr {
+            self.emit_item_target_attr(target);
+        }
+        if let Some(ref cfg) = impl_def.cfg_attr {
+            self.emit_item_cfg_attr(cfg);
+        }
         self.ctx.emit("impl");
 
         // Generic parameters
