@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-24
-  note: "All TPR items triaged. §01.R findings fully resolved (044/045/046 fixed 2026-03-24). Implementation tasks remain unchecked in §01.10 for TPR-01-032/036/038/039/040/043. Status transitions to resolved when all §01.10 TPR tasks are complete."
+  note: "All TPR items triaged. §01.R findings 044/045/046 were fixed on 2026-03-24. Implementation tasks remain unchecked in §01.10 for TPR-01-032/043/047/048, plus the storage-equivalence parity work. Status transitions to resolved when all open §01.10 work is complete."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1194,6 +1194,16 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `[TPR-01-046][medium]` `compiler/oric/src/commands/codegen_pipeline.rs:318` — The live `#repr` pipeline stores attributes under the named-type `Idx`, but the new §01.7 tests only exercise concrete `struct_type` / `enum_type` Idxs, so the storage contract is not actually pinned for real typed-module input.
   Resolved: Fixed on 2026-03-24. Added `repr_attr_stored_via_named_idx` and `repr_attr_named_vs_struct_idx_independent` tests in `ori_repr`. These pin that Named Idx storage/retrieval works (matching production path) and that Named vs struct_type Idxs are independent pool entries. The normalization concern (Named vs concrete lookups in codegen) remains a §06/§07 design consideration but the storage contract is now pinned.
 
+- [ ] `[TPR-01-047][high]` `compiler/ori_repr/src/canonical/mod.rs:141` — `populate_canonical()` now filters non-codegen pool artifacts by catching panics, but the default panic hook still prints every caught panic during successful builds.
+  Evidence: `try_canonical_cached()` wraps `canonical_cached()` in `std::panic::catch_unwind()` and returns `None` on panic (`compiler/ori_repr/src/canonical/mod.rs:141-157`), while `canonical_inner()` still panics for `Tag::Error`, unresolved `Named`/`Applied`/`Alias`, and other internal-only types (`compiler/ori_repr/src/canonical/mod.rs:277-286`). Fresh verification on 2026-03-24: `timeout 150 cargo run -q -p oric --bin ori -- build plans/code-journeys/01-arithmetic.ori --emit=llvm-ir -o /tmp/arith2.ll` exited 0 but emitted repeated `thread 'ori-main' panicked` messages for `Idx::ERROR` and unresolved named types before completing the build.
+  Impact: Successful builds look like internal compiler crashes and spam stderr with panic diagnostics, violating the repo’s diagnostics/panic rules and making CLI verification output untrustworthy.
+  Required plan update: Replace the panic-driven skip path with an explicit fallible canonicalization check (or suppress and restore the panic hook around expected skips), then add a regression test that a successful `ori build ... --emit=llvm-ir` run does not print `thread 'ori-main' panicked`.
+
+- [ ] `[TPR-01-048][high]` `compiler/oric/src/commands/build_options/mod.rs:186` — Explicit `--repr-opt=aggressive` still loses to `ORI_NO_REPR_OPT=1` in the real per-argument CLI flow whenever any unrelated flag is parsed after it.
+  Evidence: `main.rs` still folds one CLI token at a time through `parse_build_options(&args[i..=i])` + `merge()` (`compiler/oric/src/main.rs:79-99`). Each single-arg parse reapplies the env fallback when `!narrowing_policy_explicit` (`compiler/oric/src/commands/build_options/mod.rs:343-356`), so later unrelated flags like `--release` or `--emit=llvm-ir` produce `other.narrowing_policy = Disabled`. `merge()` then overwrites the accumulated explicit aggressive selection whenever `other.narrowing_policy != Aggressive`, even though the later arg was not a repr-opt flag (`compiler/oric/src/commands/build_options/mod.rs:186-191`). Fresh verification on 2026-03-24: with `ORI_LOG=ori_repr=debug ORI_NO_REPR_OPT=1`, `timeout 150 cargo run -q -p oric --bin ori -- build plans/code-journeys/01-arithmetic.ori --repr-opt=aggressive` finished normally, but adding a trailing unrelated flag (`--release` or `--emit=llvm-ir -o /tmp/arith.ll`) logged `repr-opt disabled — returning canonical-only plan`.
+  Impact: TPR-01-036 is not actually resolved: explicit aggressive only works when it is the last or only option. Real users still cannot reliably override the env kill-switch, so the build CLI violates the documented last-write-wins contract.
+  Required plan update: Stop applying `ORI_NO_REPR_OPT` inside each single-argument parse, or mark env-derived policy separately so `merge()` can ignore it once an explicit CLI policy has been seen. Add regression coverage for `ORI_NO_REPR_OPT=1` with `--repr-opt=aggressive` followed by unrelated trailing flags (`--release`, `--emit=...`, `-o`).
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1265,6 +1275,8 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [ ] **[TPR-01-043]** Re-split the `#repr` gap-close touchpoints to respect the 500-line production-file limit: `compiler/ori_types/src/registry/types/mod.rs` must come back under 500 lines, and the added parser/validation helpers should move out of the already-oversized `compiler/ori_parse/src/grammar/attr/mod.rs`, `compiler/ori_parse/src/incremental/copier.rs`, and `compiler/ori_types/src/type_error/check_error/mod.rs` when those files are next edited for §01.7.
 - [x] **[TPR-01-044]** Reject explicit `#repr("transparent")` on newtypes with E2041 (2026-03-24). Validation emits E2041. Rust test + compile-fail spec test added.
 - [x] **[TPR-01-045]** Reject duplicate same-kind `#repr` stacks with E2041 (2026-03-24). `merge_repr_attrs()` rejects all non-c+aligned multi-attr cases. Rust tests + compile-fail spec tests + semantic pin added.
+- [ ] **[TPR-01-047]** Replace the panic-driven skip path in `populate_canonical()` with an explicit fallible path (or temporarily suppress the panic hook around expected skips) so successful builds do not print internal panic diagnostics. Add a regression check on `ori build plans/code-journeys/01-arithmetic.ori --emit=llvm-ir`.
+- [ ] **[TPR-01-048]** Rework per-argument build-option accumulation so `ORI_NO_REPR_OPT` fallback is applied only after the full CLI is merged, and add regression tests proving `--repr-opt=aggressive` stays effective with trailing unrelated flags under `ORI_NO_REPR_OPT=1`.
 
 - [x] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug and release (2026-03-24). 119 tests pass in `cargo test -p ori_repr` and `cargo test -p ori_repr --release`.
 - [x] Semantic pin tests present (2026-03-24). `repr_c_semantic_pin`, `repr_attr_named_vs_struct_idx_independent`, `repr_c_plus_aligned_still_valid`, and per-subsection canonical/query tests.
