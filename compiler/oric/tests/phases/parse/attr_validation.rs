@@ -192,3 +192,36 @@ fn semantic_pin_target_on_impl_preserved() {
         "target_attr must be preserved on impls"
     );
 }
+
+// TPR-01-062: Orphaned attrs at EOF must produce errors.
+// When attrs are parsed by parse_imports() but no declaration follows (EOF),
+// the parser must diagnose them instead of silently dropping.
+
+#[test]
+fn reject_orphan_target_at_eof() {
+    parse_err("#target(os: \"linux\")\n", "attributes must be followed by");
+}
+
+#[test]
+fn reject_orphan_cfg_at_eof() {
+    parse_err("#cfg(debug)\n", "attributes must be followed by");
+}
+
+#[test]
+fn reject_orphan_attrs_after_import_at_eof() {
+    parse_err(
+        "use std.math { sqrt };\n\n#target(os: \"linux\")\n",
+        "attributes must be followed by",
+    );
+}
+
+#[test]
+fn semantic_pin_orphan_attrs_eof_is_error_not_silent() {
+    // Semantic pin: this test ONLY passes when orphaned attrs at EOF are
+    // diagnosed. Without the fix, parsing succeeds silently.
+    let output = crate::common::parse_source("#target(os: \"linux\")\n");
+    assert!(
+        output.has_errors(),
+        "TPR-01-062 semantic pin: orphaned attrs at EOF must produce errors, not be silently dropped"
+    );
+}

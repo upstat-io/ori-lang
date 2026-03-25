@@ -384,6 +384,139 @@ fn test_incremental_preserves_first_decl_cfg_attr_after_import() {
     );
 }
 
+// TPR-01-063: Incremental parsing must not leak leftover attrs to reparsed declarations.
+// When the first declaration is reused (outside change region), leftover_attrs from
+// parse_imports() must be consumed on the reuse path so they don't leak to the next
+// fresh-parsed declaration.
+#[test]
+fn test_incremental_reuse_consumes_leftover_target_attrs() {
+    use crate::{parse, parse_incremental};
+    use ori_ir::StringInterner;
+
+    let interner = StringInterner::new();
+
+    // Source: #target on first function, two functions.
+    // Byte positions:
+    //   #target(os: "linux") = bytes 0..20
+    //   \n                    = byte 20
+    //   @first () -> int = 42; = bytes 21..43
+    //   \n\n                  = bytes 43..45
+    //   @second () -> int = 100; = bytes 45..69
+    let source = "#target(os: \"linux\")\n@first () -> int = 42;\n\n@second () -> int = 100;";
+    let tokens = ori_lexer::lex(source, &interner);
+    let old_result = parse(&tokens, &interner);
+
+    assert!(!old_result.has_errors());
+    assert_eq!(old_result.module.functions.len(), 2);
+    assert!(
+        old_result.module.functions[0].target_attr.is_some(),
+        "full parse: first function has target_attr"
+    );
+    assert!(
+        old_result.module.functions[1].target_attr.is_none(),
+        "full parse: second function has NO target_attr"
+    );
+
+    // Edit second function body: 100 -> 200. First function is outside
+    // the change region and will be reused by the incremental parser.
+    let new_source = "#target(os: \"linux\")\n@first () -> int = 42;\n\n@second () -> int = 200;";
+    let new_tokens = ori_lexer::lex(new_source, &interner);
+
+    // "100" is at bytes [65, 68), replaced with "200" (3 bytes, same length)
+    let change = TextChange::new(65, 68, 3);
+
+    let new_result = parse_incremental(&new_tokens, &interner, &old_result, change);
+
+    assert!(!new_result.has_errors());
+    assert_eq!(new_result.module.functions.len(), 2);
+    assert!(
+        new_result.module.functions[0].target_attr.is_some(),
+        "incremental: first function keeps target_attr (reused)"
+    );
+    // Semantic pin: this assertion ONLY passes when leftover_attrs is consumed
+    // on the reuse path. Without the fix, leftover_attrs leaks to @second.
+    assert!(
+        new_result.module.functions[1].target_attr.is_none(),
+        "TPR-01-063: second function must NOT have target_attr — leftover attrs must not leak"
+    );
+}
+
+#[test]
+fn test_incremental_reuse_consumes_leftover_cfg_attrs() {
+    use crate::{parse, parse_incremental};
+    use ori_ir::StringInterner;
+
+    let interner = StringInterner::new();
+
+    // Same pattern with #cfg instead of #target.
+    let source = "#cfg(debug)\n@first () -> int = 42;\n\n@second () -> int = 100;";
+    let tokens = ori_lexer::lex(source, &interner);
+    let old_result = parse(&tokens, &interner);
+
+    assert!(!old_result.has_errors());
+    assert_eq!(old_result.module.functions.len(), 2);
+    assert!(
+        old_result.module.functions[0].cfg_attr.is_some(),
+        "full parse: first function has cfg_attr"
+    );
+    assert!(
+        old_result.module.functions[1].cfg_attr.is_none(),
+        "full parse: second function has NO cfg_attr"
+    );
+
+    // Edit second function body: 100 -> 200.
+    let new_source = "#cfg(debug)\n@first () -> int = 42;\n\n@second () -> int = 200;";
+    let new_tokens = ori_lexer::lex(new_source, &interner);
+
+    // #cfg(debug)\n = 12 bytes, @first () -> int = 42;\n\n = 24 bytes
+    // @second () -> int = = 20 bytes, "100" at [56, 59)
+    let change = TextChange::new(56, 59, 3);
+
+    let new_result = parse_incremental(&new_tokens, &interner, &old_result, change);
+
+    assert!(!new_result.has_errors());
+    assert_eq!(new_result.module.functions.len(), 2);
+    assert!(
+        new_result.module.functions[0].cfg_attr.is_some(),
+        "incremental: first function keeps cfg_attr (reused)"
+    );
+    assert!(
+        new_result.module.functions[1].cfg_attr.is_none(),
+        "TPR-01-063: second function must NOT have cfg_attr — leftover attrs must not leak"
+    );
+}
+
+// TPR-01-062: Orphaned attrs at EOF must produce errors on the incremental path.
+#[test]
+fn test_incremental_orphan_attrs_at_eof_produce_error() {
+    use crate::{parse, parse_incremental};
+    use ori_ir::StringInterner;
+
+    let interner = StringInterner::new();
+
+    // Original: function that will be replaced with orphaned attrs.
+    let source = "@f () -> int = 42;";
+    let tokens = ori_lexer::lex(source, &interner);
+    let old_result = parse(&tokens, &interner);
+
+    assert!(!old_result.has_errors());
+    assert_eq!(old_result.module.functions.len(), 1);
+
+    // New source: replace function with just an orphaned attr at EOF.
+    let new_source = "#target(os: \"linux\")\n";
+    let new_tokens = ori_lexer::lex(new_source, &interner);
+
+    // Replace entire original content (0..18) with new content (21 bytes).
+    let change = TextChange::new(0, 18, 21);
+
+    let new_result = parse_incremental(&new_tokens, &interner, &old_result, change);
+
+    assert!(
+        new_result.has_errors(),
+        "TPR-01-062: orphaned attrs at EOF must produce error on incremental path"
+    );
+}
+
 #[test]
 fn test_parse_incremental_fresh_parse_on_overlap() {
     use crate::{parse, parse_incremental};
