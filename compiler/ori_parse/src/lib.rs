@@ -645,6 +645,16 @@ impl<'a> Parser<'a> {
                     Self::recover_to_next_statement,
                 );
             } else if self.cursor.check(&TokenKind::Extension) || is_pub_extension {
+                // Spec §25.4: extension imports do NOT support any attributes
+                // (only functions, types, trait implementations, constants, and
+                // regular imports support item-level conditional attrs).
+                if has_attr_prefix {
+                    errors.push(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1006,
+                        "attributes not supported on extension imports".to_string(),
+                        self.cursor.current_span(),
+                    ));
+                }
                 let visibility = if is_pub_extension {
                     self.cursor.advance();
                     Visibility::Public
@@ -1004,8 +1014,14 @@ impl<'a> Parser<'a> {
         let mut module = Module::with_capacity_hint(self.estimated_source_len());
         let mut errors = Vec::new();
 
-        // Imports always get re-parsed since they affect resolution
-        self.parse_imports(&mut module, &mut errors);
+        // File-level attribute must appear before imports and declarations.
+        // Grammar: source_file = [ file_attribute ] { import } { declaration } .
+        // (TPR-01-060: was missing from incremental path)
+        module.file_attr = self.parse_file_attribute(&mut errors);
+
+        // Imports always get re-parsed since they affect resolution.
+        // Capture leftover attrs for the first declaration (TPR-01-061).
+        let mut leftover_attrs = self.parse_imports(&mut module, &mut errors);
 
         // Parse remaining declarations with potential reuse
         while !self.cursor.is_at_end() {
@@ -1090,7 +1106,11 @@ impl<'a> Parser<'a> {
             // Cannot reuse: parse fresh
             state.stats.reparsed_count += 1;
 
-            let attrs = self.parse_attributes(&mut errors);
+            // Use leftover attrs from import parsing on the first declaration,
+            // otherwise parse fresh attributes (mirrors full parser behavior).
+            let attrs = leftover_attrs
+                .take()
+                .unwrap_or_else(|| self.parse_attributes(&mut errors));
             let visibility = if self.cursor.check(&TokenKind::Pub) {
                 self.cursor.advance();
                 Visibility::Public
