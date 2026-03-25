@@ -528,7 +528,8 @@ impl<'a> Parser<'a> {
         // Grammar: source_file = [ file_attribute ] { import } { declaration } .
         module.file_attr = self.parse_file_attribute(&mut errors);
 
-        self.parse_imports(&mut module, &mut errors);
+        // parse_imports returns leftover attrs if it consumed attrs before a non-import token.
+        let mut leftover_attrs = self.parse_imports(&mut module, &mut errors);
 
         // Parse declarations (functions, tests, traits, impls, types, etc.)
         while !self.cursor.is_at_end() {
@@ -537,7 +538,11 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let attrs = self.parse_attributes(&mut errors);
+            // Use leftover attrs from import parsing on the first declaration,
+            // otherwise parse fresh attributes.
+            let attrs = leftover_attrs
+                .take()
+                .unwrap_or_else(|| self.parse_attributes(&mut errors));
             let visibility = if self.cursor.check(&TokenKind::Pub) {
                 self.cursor.advance();
                 Visibility::Public
@@ -580,12 +585,33 @@ impl<'a> Parser<'a> {
     ///
     /// Imports must appear at the beginning of the file per spec.
     /// Parses `use`, `pub use`, `extension`, and `pub extension` statements.
-    fn parse_imports(&mut self, module: &mut Module, errors: &mut Vec<ParseError>) {
-        while !self.cursor.is_at_end() {
+    /// Parse the import section at the top of a module.
+    ///
+    /// Returns `Some(attrs)` if attributes were consumed but the next token
+    /// is not an import — the caller should use these as the attrs for the
+    /// first declaration. Returns `None` on normal exit.
+    ///
+    /// Spec §25.4: imports support item-level `#target`/`#cfg` attributes.
+    fn parse_imports(
+        &mut self,
+        module: &mut Module,
+        errors: &mut Vec<ParseError>,
+    ) -> Option<ParsedAttrs> {
+        loop {
             self.cursor.skip_newlines();
             if self.cursor.is_at_end() {
-                break;
+                return None;
             }
+
+            // Spec §25.4: conditional compilation on imports.
+            // Parse any attributes before the import statement.
+            let has_attr_prefix =
+                self.cursor.check(&TokenKind::Hash) || self.cursor.check(&TokenKind::HashBracket);
+            let attrs = if has_attr_prefix {
+                self.parse_attributes(errors)
+            } else {
+                ParsedAttrs::default()
+            };
 
             let is_pub_use = self.cursor.check(&TokenKind::Pub)
                 && matches!(self.cursor.peek_next_kind(), TokenKind::Use);
@@ -600,7 +626,7 @@ impl<'a> Parser<'a> {
                 } else {
                     Visibility::Private
                 };
-                let outcome = self.parse_use(visibility);
+                let outcome = self.parse_use(attrs, visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.imports,
@@ -621,8 +647,12 @@ impl<'a> Parser<'a> {
                     errors,
                     Self::recover_to_next_statement,
                 );
+            } else if has_attr_prefix {
+                // Attributes were parsed but next token is not an import —
+                // these attrs belong to the first declaration.
+                return Some(attrs);
             } else {
-                break;
+                return None;
             }
         }
     }
@@ -686,7 +716,7 @@ impl<'a> Parser<'a> {
                 Self::recover_to_function,
             );
         } else if self.cursor.check(&TokenKind::Impl) {
-            let outcome = self.parse_impl();
+            let outcome = self.parse_impl(attrs);
             self.handle_outcome(
                 outcome,
                 &mut module.impls,
@@ -713,7 +743,7 @@ impl<'a> Parser<'a> {
             // `let $name = value` — constant declaration (spec §04-constants)
             self.cursor.advance(); // consume `let`
             if self.cursor.check(&TokenKind::Dollar) {
-                let outcome = self.parse_const(visibility);
+                let outcome = self.parse_const(attrs, visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.consts,
@@ -737,7 +767,7 @@ impl<'a> Parser<'a> {
             }
         } else if self.cursor.check(&TokenKind::Dollar) {
             // Also accept `$name = value` without `let` for backwards compatibility
-            let outcome = self.parse_const(visibility);
+            let outcome = self.parse_const(attrs, visibility);
             self.handle_outcome(
                 outcome,
                 &mut module.consts,
