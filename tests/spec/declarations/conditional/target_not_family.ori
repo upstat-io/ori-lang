@@ -1,0 +1,4 @@
+// Spec §25.2.6: not_family negates a target family condition
+#!target(not_family: "wasm")
+
+@main () -> void = print(msg: "target not_family parses correctly");
