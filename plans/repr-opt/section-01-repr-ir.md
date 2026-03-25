@@ -4,9 +4,9 @@ title: "Representation IR & Decision Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-25
-  note: "All TPR findings resolved. TPR-01-059 (extension import attr validation), TPR-01-060 (incremental file-attr), TPR-01-061 (incremental leftover attrs) fixed 2026-03-25."
+  note: "Open findings: TPR-01-062 (orphan attrs at EOF) and TPR-01-063 (incremental attr leakage when first decl is reused), validated 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1255,6 +1255,16 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 - [x] `[TPR-01-061][high]` `compiler/ori_parse/src/lib.rs:1008` — Incremental parsing drops the `parse_imports()` leftover attrs, so item-level attrs before the first declaration are lost on the incremental path.
   Resolved: Fixed on 2026-03-25. Captured `parse_imports()` return as `leftover_attrs` and threaded through the incremental declaration loop via `.take().unwrap_or_else()`, exactly mirroring the full parser pattern. 2 incremental regression tests: `test_incremental_preserves_first_decl_target_attr` (no imports) and `test_incremental_preserves_first_decl_cfg_attr_after_import` (with imports). 13,942 tests pass.
+
+- [ ] `[TPR-01-062][medium]` `compiler/ori_parse/src/lib.rs:532` — The new import-leftover plumbing now drops orphaned item attributes at end-of-file instead of diagnosing them.
+  Evidence: `parse_imports()` returns `Some(attrs)` when it sees attributes before a non-import token, but `parse_module()` stores that in `leftover_attrs` and immediately breaks out of the declaration loop on EOF before `dispatch_declaration()` can run. Fresh verification on 2026-03-25 with a direct parser repro (`ori_parse::parse` on `#target(os: "linux")\n`) produced `orphan_errors=0`, whereas the legacy declaration loop would route non-empty attrs through `handle_declaration_error()` and emit E1006.
+  Impact: The parser now silently accepts malformed files that end with orphaned `#target`/`#cfg` item attributes, so users lose the expected placement diagnostic and the full/incremental parsers drift from the existing declaration-error contract.
+  Required plan update: Preserve the leftover-attr fast path for real declarations, but explicitly diagnose any remaining `leftover_attrs` when the module ends before a declaration starts; add a semantic-pin parser test for orphan attrs at EOF on both full and incremental paths.
+
+- [ ] `[TPR-01-063][high]` `compiler/ori_parse/src/lib.rs:1032` — Incremental parsing leaks the first declaration’s leftover attrs onto a later reparsed declaration when that first declaration is reused.
+  Evidence: `parse_module_incremental()` captures `leftover_attrs` once, but the reuse branch copies an unchanged declaration and `continue`s without consuming that option. Fresh verification on 2026-03-25 with a direct incremental repro (`#target(os: "linux")` on `@first`, edit only `@second`) yielded `first_target=true second_target=true`: the reused first function kept its original attr via `AstCopier`, and the freshly reparsed second function incorrectly received the same leftover attr on the next loop iteration.
+  Impact: Incremental parsing can synthesize target/cfg attrs onto unrelated declarations, producing an AST that disagrees with the full parser and can miscompile editor / LSP / hot-reload workflows whenever the first attributed declaration is outside the edit span.
+  Required plan update: Consume `leftover_attrs` as soon as the first declaration slot is satisfied, including the reuse path, and add an incremental regression test where the first attributed declaration is reused while a later declaration is reparsed.
 
 ---
 
