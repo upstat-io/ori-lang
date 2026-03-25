@@ -2,12 +2,11 @@
 //!
 //! Salsa-first incremental compiler.
 
-use ori_repr::NarrowingPolicy;
 use oric::commands::{
-    add_target, build_file, check_file, demangle_symbol, explain_error, lex_file,
-    list_installed_targets, list_targets, parse_build_options, parse_file, remove_target, run_file,
-    run_file_compiled, run_format, run_tests, watch_file, BuildOptions, TargetFilter,
-    TargetSubcommand, TestEnforcement,
+    accumulate_build_options, add_target, build_file, check_file, demangle_symbol, explain_error,
+    lex_file, list_installed_targets, list_targets, parse_file, remove_target, run_file,
+    run_file_compiled, run_format, run_tests, watch_file, TargetFilter, TargetSubcommand,
+    TestEnforcement,
 };
 use oric::test::TestRunnerConfig;
 
@@ -76,29 +75,7 @@ fn real_main() {
                 std::process::exit(1);
             }
 
-            // Parse options, handling -o specially (needs lookahead)
-            let mut options = BuildOptions::default();
-            let mut i = 3;
-            while i < args.len() {
-                if args[i] == "-o" && i + 1 < args.len() {
-                    options.output = Some(std::path::PathBuf::from(&args[i + 1]));
-                    i += 2;
-                } else {
-                    let parsed = parse_build_options(&args[i..=i]);
-                    options.merge(&parsed);
-                    i += 1;
-                }
-            }
-
-            // Check ORI_NO_REPR_OPT env var unconditionally — the per-arg parser
-            // loop above may never execute (zero CLI options), so the env var check
-            // inside parse_build_options() would be skipped. (TPR-01-028)
-            // Uses strict value parsing: only "1"/"true"/"yes". (TPR-01-030)
-            // Only applies if no explicit policy was set via CLI flags (TPR-01-036).
-            if !options.narrowing_policy_explicit && NarrowingPolicy::env_disabled() {
-                options.narrowing_policy = NarrowingPolicy::Disabled;
-            }
-
+            let options = accumulate_build_options(&args);
             build_file(&args[2], &options);
         }
         "run" => {
