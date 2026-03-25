@@ -332,7 +332,7 @@ fn semantic_pin_canonical_float_is_f64() {
 
 // ── Canonical Mapping Tests ─────────────────────────────────────────
 
-use crate::canonical::canonical;
+use crate::canonical::{canonical, canonical_cached};
 use ori_types::{Idx, Pool};
 
 /// Test canonical mapping for all 12 primitive types.
@@ -640,66 +640,88 @@ fn canonical_enum() {
     }
 }
 
-/// Test that unresolved Var panics.
+/// Test that unresolved Var returns None (not panic).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "unresolved type variable")]
-fn canonical_panics_on_var() {
+fn canonical_returns_none_for_var() {
     let mut pool = Pool::new();
     let var_idx = pool.fresh_var();
-    canonical(&pool, var_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, var_idx, &mut cache).is_none(),
+        "Var must return None, not panic"
+    );
 }
 
-/// Test that `BoundVar` panics — constructs a real `BoundVar` via `pool.intern`.
+/// Test that `BoundVar` returns None — constructs a real `BoundVar` via `pool.intern`.
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "unresolved type variable")]
-fn canonical_panics_on_bound_var() {
+fn canonical_returns_none_for_bound_var() {
     use ori_types::Tag;
 
     let mut pool = Pool::new();
     let bound_var_idx = pool.intern(Tag::BoundVar, 0);
-    // BoundVar must never reach codegen
-    canonical(&pool, bound_var_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, bound_var_idx, &mut cache).is_none(),
+        "BoundVar must return None, not panic"
+    );
 }
 
-/// Test that `RigidVar` panics.
+/// Test that `RigidVar` returns None.
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "unresolved type variable")]
-fn canonical_panics_on_rigid_var() {
+fn canonical_returns_none_for_rigid_var() {
     let mut pool = Pool::new();
     let rigid = pool.rigid_var(Name::new(0, 999));
-    canonical(&pool, rigid);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, rigid, &mut cache).is_none(),
+        "RigidVar must return None, not panic"
+    );
 }
 
-/// Test that Error type panics (should not reach codegen).
+/// Test that Error type returns None (should not reach codegen).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "should not reach codegen")]
-fn canonical_panics_on_error() {
+fn canonical_returns_none_for_error() {
     let pool = Pool::new();
-    canonical(&pool, Idx::ERROR);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, Idx::ERROR, &mut cache).is_none(),
+        "Error must return None, not panic"
+    );
 }
 
-/// §01.5: Scheme type must panic (should never reach codegen).
+/// §01.5: Scheme type returns None (should never reach codegen).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "should never reach codegen")]
-fn canonical_panics_on_scheme() {
+fn canonical_returns_none_for_scheme() {
     use ori_types::Tag;
 
     let mut pool = Pool::new();
     let scheme_idx = pool.scheme(&[0], Idx::INT);
-    // Verify it's actually a Scheme tag
     assert_eq!(pool.tag(scheme_idx), Tag::Scheme);
-    canonical(&pool, scheme_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, scheme_idx, &mut cache).is_none(),
+        "Scheme must return None, not panic"
+    );
 }
 
-/// §01.5: Infer type must panic (should never reach codegen).
+/// §01.5: Infer type returns None (should never reach codegen).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "should never reach codegen")]
-fn canonical_panics_on_infer() {
+fn canonical_returns_none_for_infer() {
     use ori_types::Tag;
 
     let mut pool = Pool::new();
     let infer_idx = pool.intern(Tag::Infer, 0);
-    canonical(&pool, infer_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, infer_idx, &mut cache).is_none(),
+        "Infer must return None, not panic"
+    );
 }
 
 /// §01.5: Named→Int resolves to same canonical as Int directly.
@@ -993,8 +1015,12 @@ fn canonical_mutual_recursion_consistent() {
 
     // Compute both via shared cache (simulating populate_canonical)
     let mut cache = rustc_hash::FxHashMap::default();
-    let a_repr = crate::canonical::canonical_cached(&pool, a_struct, &mut cache);
-    let b_repr = crate::canonical::canonical_cached(&pool, b_struct, &mut cache);
+    let Some(a_repr) = crate::canonical::canonical_cached(&pool, a_struct, &mut cache) else {
+        panic!("A should canonicalize");
+    };
+    let Some(b_repr) = crate::canonical::canonical_cached(&pool, b_struct, &mut cache) else {
+        panic!("B should canonicalize");
+    };
 
     // Both should be Struct types
     let MachineRepr::Struct(ref a_s) = a_repr else {
@@ -1030,8 +1056,75 @@ fn canonical_mutual_recursion_consistent() {
     );
 
     // Semantic pin: calling canonical_cached again returns the same result (cache hit)
-    let a_repr2 = crate::canonical::canonical_cached(&pool, a_struct, &mut cache);
+    let Some(a_repr2) = crate::canonical::canonical_cached(&pool, a_struct, &mut cache) else {
+        panic!("cached A should canonicalize");
+    };
     assert_eq!(a_repr, a_repr2, "cached result must be stable");
+}
+
+/// TPR-01-047 semantic pin: a struct containing an Error-typed field returns
+/// None (not panic) because the child type cannot be canonicalized.
+/// This is the key regression test — if the fallible path is reverted to
+/// panics, this test detects it.
+#[test]
+fn canonical_returns_none_for_struct_with_error_child() {
+    let mut pool = Pool::new();
+    let field_name = Name::new(0, 42);
+    // Create a struct with one field of type Error
+    let struct_idx = pool.struct_type(Name::new(0, 100), &[(field_name, Idx::ERROR)]);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, struct_idx, &mut cache).is_none(),
+        "struct with Error child must return None, not panic"
+    );
+}
+
+/// TPR-01-047 semantic pin: an Option wrapping an Error type returns None.
+#[test]
+fn canonical_returns_none_for_option_of_error() {
+    let mut pool = Pool::new();
+    let option_idx = pool.option(Idx::ERROR);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, option_idx, &mut cache).is_none(),
+        "Option<Error> must return None, not panic"
+    );
+}
+
+/// TPR-01-047 semantic pin: a list of Error-typed elements returns None.
+#[test]
+fn canonical_returns_none_for_list_of_error() {
+    let mut pool = Pool::new();
+    let list_idx = pool.list(Idx::ERROR);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, list_idx, &mut cache).is_none(),
+        "[Error] must return None, not panic"
+    );
+}
+
+/// TPR-01-047 semantic pin: `populate_canonical` does not panic on pools
+/// that contain Error and type-variable types.
+#[test]
+fn populate_canonical_no_panics_with_error_types() {
+    use crate::plan::NarrowingPolicy;
+
+    let mut pool = Pool::new();
+    // Add some valid types
+    let _list_int = pool.list(Idx::INT);
+    let _option_str = pool.option(Idx::STR);
+    // Add some invalid types that should be silently skipped
+    let _list_error = pool.list(Idx::ERROR);
+    let _var = pool.fresh_var();
+
+    // This must NOT panic — the fix eliminates catch_unwind
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+
+    // Valid types should be populated
+    assert!(
+        plan.get_repr(Idx::INT).is_some(),
+        "Int should have a canonical repr"
+    );
 }
 
 /// Non-recursive type appearing multiple times is NOT treated as a cycle.
@@ -2022,15 +2115,19 @@ fn trivial_struct_containing_all_unit_enum() {
     }
 }
 
-/// §01.9 Item 10: `SelfType` must panic (should never reach codegen).
+/// §01.9 Item 10: `SelfType` returns None (should never reach codegen).
+/// TPR-01-047: canonical must be fallible, not panic-driven.
 #[test]
-#[should_panic(expected = "should never reach codegen")]
-fn canonical_panics_on_self_type() {
+fn canonical_returns_none_for_self_type() {
     use ori_types::Tag;
 
     let mut pool = Pool::new();
     let self_idx = pool.intern(Tag::SelfType, 0);
-    canonical(&pool, self_idx);
+    let mut cache = rustc_hash::FxHashMap::default();
+    assert!(
+        canonical_cached(&pool, self_idx, &mut cache).is_none(),
+        "SelfType must return None, not panic"
+    );
 }
 
 /// §01.9 Item 11: `FatPointer` structural layout assertion.
