@@ -48,7 +48,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "2026.3.24-alpha.1"
+version = "2026.3.25-alpha.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/upstat-io/ori-lang"
