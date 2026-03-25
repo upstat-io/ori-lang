@@ -4,9 +4,9 @@ title: "Representation IR & Decision Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-25
-  note: "TPR-01-054 (item-level conditional attrs) and TPR-01-055 (feature name validation) accepted 2026-03-25 — implementation tasks added to §01.10."
+  note: "All TPR findings resolved. TPR-01-054 (item-level conditional attrs) and TPR-01-055 (feature name validation) implemented 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1331,22 +1331,22 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `./clippy-all.sh` green after conditional-attribute matrix completion (2026-03-25). Refactored `format_file_attr()` into helpers `emit_attr_string_param()` and `emit_attr_string_list()` to stay under 100-line limit.
 
 **[TPR-01-054] Item-level conditional attributes** — thread `#target`/`#cfg` through AST nodes, formatter, and tests:
-- [ ] **IR**: Add `target: Option<TargetAttr>` and `cfg: Option<CfgAttr>` fields to `Function` in `ori_ir/src/ast/items/function.rs`
-- [ ] **IR**: Add `target: Option<TargetAttr>` and `cfg: Option<CfgAttr>` fields to `TypeDecl` in `ori_ir/src/ast/items/types.rs`
-- [ ] **Parser**: Copy `attrs.target` and `attrs.cfg` into `Function` during construction in `compiler/ori_parse/src/grammar/item/function/mod.rs`
-- [ ] **Parser**: Copy `attrs.target` and `attrs.cfg` into `TypeDecl` during construction in `compiler/ori_parse/src/grammar/item/type_decl.rs`
-- [ ] **Formatter**: Emit item-level `#target`/`#cfg` in `format_function()` and `format_type_decl()` (before other attrs like `#derive`)
-- [ ] **Phase tests**: Add parse round-trip tests for item-level `#target`/`#cfg` on functions and types
-- [ ] **Spec tests**: Add `.ori` spec tests for item-level conditional attributes on functions and types
-- [ ] `./test-all.sh` green after item-level conditional attribute support
-- [ ] `./clippy-all.sh` green
+- [x] **IR**: Add `target_attr: Option<TargetAttr>` and `cfg_attr: Option<CfgAttr>` fields to `Function` in `ori_ir/src/ast/items/function.rs` (2026-03-25). Spec §25.4 docs added.
+- [x] **IR**: Add `target_attr: Option<TargetAttr>` and `cfg_attr: Option<CfgAttr>` fields to `TypeDecl` in `ori_ir/src/ast/items/types.rs` (2026-03-25). Import `TargetAttr`/`CfgAttr` added.
+- [x] **Parser**: Copy `attrs.target` and `attrs.cfg` into `Function` during construction in `compiler/ori_parse/src/grammar/item/function/mod.rs` (2026-03-25). Also updated incremental copier.
+- [x] **Parser**: Copy `attrs.target` and `attrs.cfg` into `TypeDecl` during construction in `compiler/ori_parse/src/grammar/item/type_decl.rs` (2026-03-25). Also updated incremental copier.
+- [x] **Formatter**: Emit item-level `#target`/`#cfg` in `format_function()` and `format_type_decl()` (2026-03-25). Added `emit_item_target_attr()`/`emit_item_cfg_attr()` helpers in `mod.rs`. Emitted before `#derive`/`pub` per canonical attr order.
+- [x] **Phase tests**: 7 new tests in `compiler/oric/tests/phases/parse/file_attr.rs` (2026-03-25). Item-level `#target` and `#cfg` on functions and types, multi-field target, no-attrs baseline.
+- [x] **Spec tests**: 3 `.ori` spec tests in `tests/spec/declarations/conditional/` (2026-03-25): item_target_function, item_cfg_function, item_target_type.
+- [x] `./test-all.sh` green (2026-03-25). 13,903 passed, 0 failed.
+- [x] `./clippy-all.sh` green (2026-03-25).
 
 **[TPR-01-055] Feature name identifier validation** — enforce spec §25.3.2 identifier constraint:
-- [ ] **Parser**: Add `is_valid_feature_name()` validator in `compiler/ori_parse/src/grammar/attr/conditional.rs` — check first char is letter/underscore, rest are letters/digits/underscores
-- [ ] **Parser**: Validate feature names in `parse_attr_string_value()` and `parse_attr_string_list()` when parsing `feature:`, `not_feature:`, and `any_feature:` params. Emit error on invalid names.
-- [ ] **Phase tests**: Add negative parse tests for invalid feature names (e.g., `"invalid-name"`, `"123start"`, `"feat!@#"`)
-- [ ] **Spec tests**: Add compile-fail `.ori` spec tests for invalid feature names
-- [ ] `./test-all.sh` green after feature name validation
-- [ ] `./clippy-all.sh` green
+- [x] **Parser**: Add `is_valid_feature_name()` validator in `compiler/ori_parse/src/grammar/attr/conditional.rs` (2026-03-25). Checks first char is ASCII alphabetic/underscore, rest are ASCII alphanumeric/underscore. Empty strings rejected.
+- [x] **Parser**: Add `parse_feature_name_value()` and `parse_feature_name_list()` in `conditional.rs` (2026-03-25). These wrap `parse_attr_string_value`/`parse_attr_string_list` with identifier validation. `feature:`, `not_feature:`, `any_feature:` now route through these. Emit E0932 on invalid names.
+- [x] **Phase tests**: 11 new tests in `compiler/oric/tests/phases/parse/file_attr.rs` (2026-03-25). Valid names: `ssl`, `_private_feat`, `Feature123`. Invalid names: hyphen, digit-start, special chars, dot, empty string. Coverage for `feature:`, `not_feature:`, `any_feature:` contexts.
+- [x] **Spec tests**: 2 valid-feature-name `.ori` spec tests in `tests/spec/declarations/conditional/` (2026-03-25). Parse-level errors cannot use `#compile_fail` (file-level attribute errors precede test function discovery); negative cases covered by Rust phase tests.
+- [x] `./test-all.sh` green (2026-03-25). 13,896 passed, 0 failed.
+- [x] `./clippy-all.sh` green (2026-03-25).
 
 **Exit Criteria:** `ori_repr` crate exists, `ReprPlan` is threaded through the entire LLVM codegen pipeline, all existing tests pass with identical behavior, `cargo test -p ori_repr --release` passes, and `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows `ReprPlan query` events for every type in the program.
