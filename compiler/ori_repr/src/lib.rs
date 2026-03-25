@@ -166,19 +166,10 @@ fn analyze_triviality(plan: &mut ReprPlan, pool: &Pool) {
     }
 
     tracing::debug!(validated, mismatches, "triviality validation complete");
-    // NOTE: Known mismatch exists for Iterator/DoubleEndedIterator:
-    // classify_triviality() correctly classifies them as Trivial (Box-allocated,
-    // no RC header), but populate_canonical() maps them to MachineRepr::OpaquePtr
-    // which is_trivial_repr() classifies as non-trivial. This is a representation
-    // limitation — OpaquePtr doesn't distinguish managed (RC) vs unmanaged (Box)
-    // pointers. Tracked for resolution in a future MachineRepr refinement.
-    if mismatches > 0 {
-        tracing::warn!(
-            mismatches,
-            "triviality classification disagrees with canonical repr — \
-             likely Iterator/OpaquePtr coarseness (see §02.2b note)"
-        );
-    }
+    debug_assert_eq!(
+        mismatches, 0,
+        "triviality classification disagrees with canonical repr for {mismatches} type(s)"
+    );
 }
 
 /// §03: Value range analysis (interval propagation per function).

@@ -150,7 +150,6 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         narrowing_policy: Option<ori_repr::NarrowingPolicy>,
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
-        let store = TypeInfoStore::new(self.pool);
         let classifier = ori_arc::ArcClassifier::new(self.pool);
 
         // Compute representation plan (§01 — canonical reprs only).
@@ -172,6 +171,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .filter_map(|te| te.repr.map(|r| (te.idx, r)))
             .collect();
         let repr_plan = ori_repr::compute_repr_plan(self.pool, &all_arc_funcs, policy, &repr_attrs);
+        let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
         let mut builder = IrBuilder::new_jit(scx_ref);
         type_registration::register_user_types(&resolver, user_types);

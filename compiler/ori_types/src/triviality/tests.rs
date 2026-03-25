@@ -406,6 +406,21 @@ fn option_of_generic_trivial_struct_is_trivial() {
     assert_eq!(classify_triviality(opt, &pool), Triviality::Trivial);
 }
 
+// §02.6: Result<Pair<int>, Pair<float>> → both arms trivial → Trivial
+
+#[test]
+fn result_of_two_trivial_structs_is_trivial() {
+    let mut pool = Pool::new();
+    let a = Name::from_raw(2300);
+    let b = Name::from_raw(2301);
+    let pair_int = pool.struct_type(Name::from_raw(2302), &[(a, Idx::INT), (b, Idx::INT)]);
+    let c = Name::from_raw(2303);
+    let d = Name::from_raw(2304);
+    let pair_float = pool.struct_type(Name::from_raw(2305), &[(c, Idx::FLOAT), (d, Idx::FLOAT)]);
+    let res = pool.result(pair_int, pair_float);
+    assert_eq!(classify_triviality(res, &pool), Triviality::Trivial);
+}
+
 // Out-of-bounds index
 
 #[test]
@@ -555,4 +570,72 @@ fn alias_unresolvable_is_unknown() {
     let mut pool = Pool::new();
     let a = pool.intern(Tag::Alias, 0);
     assert_eq!(classify_triviality(a, &pool), Triviality::Unknown);
+}
+
+// §02.5: Newtype wrapping list → NonTrivial
+
+#[test]
+fn newtype_wrapping_list_is_non_trivial() {
+    let mut pool = Pool::new();
+    let list_int = pool.list(Idx::INT);
+    let wrapper = pool.named(Name::from_raw(2000));
+    pool.set_resolution(wrapper, list_int);
+    assert_eq!(classify_triviality(wrapper, &pool), Triviality::NonTrivial);
+}
+
+// §02.5: Simulated FFI types — Named types resolved to primitives/opaques
+
+#[test]
+fn simulated_cptr_resolved_to_int_is_trivial() {
+    // CPtr in the real compiler resolves to an opaque pointer at the Pool level.
+    // In this test, we simulate it as resolving to Int (both are trivial).
+    let mut pool = Pool::new();
+    let cptr = pool.named(Name::from_raw(2100));
+    pool.set_resolution(cptr, Idx::INT);
+    assert_eq!(classify_triviality(cptr, &pool), Triviality::Trivial);
+}
+
+#[test]
+fn simulated_c_int_resolved_to_int_is_trivial() {
+    let mut pool = Pool::new();
+    let c_int = pool.named(Name::from_raw(2101));
+    pool.set_resolution(c_int, Idx::INT);
+    assert_eq!(classify_triviality(c_int, &pool), Triviality::Trivial);
+}
+
+#[test]
+fn option_of_simulated_cptr_is_trivial() {
+    let mut pool = Pool::new();
+    let cptr = pool.named(Name::from_raw(2102));
+    pool.set_resolution(cptr, Idx::INT);
+    let opt_cptr = pool.option(cptr);
+    assert_eq!(classify_triviality(opt_cptr, &pool), Triviality::Trivial);
+}
+
+#[test]
+fn simulated_ffi_struct_all_c_types_is_trivial() {
+    let mut pool = Pool::new();
+    // Simulate c_int and c_float as Named types resolving to primitives.
+    let c_int_ty = pool.named(Name::from_raw(2103));
+    pool.set_resolution(c_int_ty, Idx::INT);
+    let c_float_ty = pool.named(Name::from_raw(2104));
+    pool.set_resolution(c_float_ty, Idx::FLOAT);
+    // FFI struct containing only C types.
+    let sn = Name::from_raw(2105);
+    let f1 = Name::from_raw(2106);
+    let f2 = Name::from_raw(2107);
+    let ffi_struct = pool.struct_type(sn, &[(f1, c_int_ty), (f2, c_float_ty)]);
+    assert_eq!(classify_triviality(ffi_struct, &pool), Triviality::Trivial);
+}
+
+// §02.5: Unresolved generic newtype → Unknown
+
+#[test]
+fn unresolved_generic_newtype_is_unknown() {
+    // Simulate: `type Wrapper<T> = T` where T hasn't been monomorphized yet.
+    // The Named type doesn't resolve (no set_resolution) → Unknown.
+    let mut pool = Pool::new();
+    let wrapper = pool.named(Name::from_raw(2200));
+    // No resolution set — simulates unresolved generic parameter.
+    assert_eq!(classify_triviality(wrapper, &pool), Triviality::Unknown);
 }

@@ -48,7 +48,6 @@ Establish a reproducible methodology for measuring test suite performance. Resul
 
 - [ ] Create `scripts/bench-tests.sh` that:
   1. Builds all crates first (`cargo b --workspace`) to isolate compilation from test execution
-<!-- reviewed: accuracy fix — hyperfine is available -->
   2. Runs `cargo t --workspace` with `hyperfine` (available at `~/.cargo/bin/hyperfine`)
   3. Reports wall time, user time, system time
   4. Runs 3-5 times and reports mean + stddev
@@ -87,7 +86,6 @@ Establish a reproducible methodology for measuring test suite performance. Resul
     System time: ??? +/- ???
   ```
 
-<!-- reviewed: accuracy fix — added oric to crate list, noted that ori_llvm --test aot should be measured separately -->
 - [ ] Record per-crate timing by running individual crate tests:
   ```bash
   for crate in ori_arc ori_types ori_eval ori_parse ori_lexer ori_patterns ori_registry ori_ir ori_llvm ori_diagnostic ori_rt oric; do
@@ -112,7 +110,6 @@ Establish a reproducible methodology for measuring test suite performance. Resul
 
 Generate flamegraphs that show WHERE CPU time is spent during test execution. This reveals which compiler functions are hot paths.
 
-<!-- reviewed: accuracy fix — perf, cargo-flamegraph, and hyperfine are all available on this system -->
 - [ ] Check if `perf` is available:
   ```bash
   perf --version  # Linux perf_events — available at /usr/local/bin/perf on this WSL2 system
@@ -122,15 +119,22 @@ Generate flamegraphs that show WHERE CPU time is spent during test execution. Th
 - [ ] Create `scripts/flamegraph-tests.sh` that generates flamegraphs for specific test suites:
   ```bash
   #!/bin/bash
-  # Usage: ./scripts/flamegraph-tests.sh [crate]
+  # Usage: ./scripts/flamegraph-tests.sh [crate] [--output dir]
   # Examples:
   #   ./scripts/flamegraph-tests.sh ori_llvm    # AOT tests flamegraph
-  #   ./scripts/flamegraph-tests.sh ori_arc     # ARC analysis flamegraph
+  #   ./scripts/flamegraph-tests.sh ori_eval    # Evaluator tests flamegraph
   #   ./scripts/flamegraph-tests.sh             # Full workspace flamegraph
+  #
+  # Requires: cargo-flamegraph (at ~/.cargo/bin/cargo-flamegraph), perf (at /usr/local/bin/perf)
+  #
+  # Implementation:
+  #   cargo flamegraph --test <test_binary> -p <crate> -o <output.svg>
+  #   For workspace: cargo flamegraph -- test --workspace -o <output.svg>
+  #
+  # Note: cargo-flamegraph wraps perf record + flamegraph.pl. On WSL2,
+  # perf may require kernel.perf_event_paranoid=1 (check /proc/sys/kernel/perf_event_paranoid).
   ```
 
-<!-- reviewed: feasibility fix — clarified that AOT flamegraph will show test harness, not compiler internals -->
-<!-- reviewed: cohesion fix — corrected ranking: ori_eval (4.5s) is bigger than ori_arc (3.4s) per overview table -->
 - [ ] Generate flamegraphs for the top 3 time consumers:
   1. **ori_llvm AOT tests** (`cargo test -p ori_llvm --test aot`) — 35.6s, the biggest target
   2. **ori_eval tests** (`cargo test -p ori_eval`) — 4.5s, second biggest (includes compilation time)
@@ -152,7 +156,7 @@ Generate flamegraphs that show WHERE CPU time is spent during test execution. Th
     - Time spent in the Ori compiler pipeline (`ori_types::*`, `ori_parse::*`, `ori_arc::*`) — compiler overhead
     - Time spent in I/O (`write`, `read`, `open`, `close`) — filesystem overhead
 
-- [ ] Save flamegraph SVGs to `diagnostics/flamegraphs/` (gitignored — these are local profiling artifacts, not committed):
+- [ ] Save flamegraph SVGs to `diagnostics/flamegraphs/` (must be gitignored — add `diagnostics/flamegraphs/` to `.gitignore` before creating this directory):
   ```
   diagnostics/flamegraphs/
   ├── aot-tests.svg
@@ -176,7 +180,6 @@ Generate flamegraphs that show WHERE CPU time is spent during test execution. Th
 
 **File(s):** `compiler/ori_llvm/tests/aot/` (test harness)
 
-<!-- reviewed: accuracy/feasibility fix — corrected test count, documented actual file structure -->
 The AOT test harness runs ~1,950 `#[test]` functions, each doing: write source → spawn `ori build` subprocess (compile+link) → spawn binary subprocess → check output. Add per-phase timing to understand which phase dominates.
 
 **Actual file structure** (verified):
@@ -188,13 +191,12 @@ The AOT test harness runs ~1,950 `#[test]` functions, each doing: write source �
 **Key**: The compilation pipeline runs inside the `ori build` subprocess — NOT in the test process. This means per-phase timing must be added to the `ori build` command path, not to the test harness itself.
 
 - [ ] Read the AOT test harness to understand the current flow:
-  - `compiler/ori_llvm/tests/aot/util/aot.rs` — `compile_and_run_capture()` is the core function (line 149)
-  - `compiler/ori_llvm/tests/aot/util/mod.rs` — re-exports all utilities
-  - `compiler/ori_llvm/Cargo.toml` — `ori_rt` is a path dependency (line 18); `ori_rt` is pre-built as a static lib that the `ori build` linker step links into each test binary
-  - Document the actual file paths of the harness, not just assumed locations
+  - `compiler/ori_llvm/tests/aot/util/aot.rs` — `compile_and_run_capture()` is the core function (line 149); creates `TempDir`, writes source, spawns `ori build`, spawns binary with `ORI_CHECK_LEAKS=1` (line 178)
+  - `compiler/ori_llvm/tests/aot/util/aot.rs` — `ori_binary()` (line 56) discovers the `ori` binary by build profile
+  - `compiler/ori_llvm/tests/aot/util/mod.rs` — re-exports `aot`, `object`, `wasm` submodules
+  - `compiler/ori_llvm/Cargo.toml` — `ori_rt` is a path dependency; `ori_rt` is pre-built as a static lib that the `ori build` linker step links into each test binary
+  - `compiler/oric/src/commands/build/mod.rs` — `build_file()` entry point (line 56), routes to single-file or multi-file based on `has_imports()`
 
-<!-- reviewed: feasibility fix — per-phase timing requires changes to `ori build` command, not the test harness -->
-<!-- reviewed: accuracy fix — corrected build command file paths -->
 - [ ] Map the actual Ori compiler pipeline phases by reading the `ori build` entry point:
   - `compiler/oric/src/commands/build/mod.rs` — the `ori build` command entry point
   - `compiler/oric/src/commands/build/single.rs` — single-file build path
@@ -205,22 +207,28 @@ The AOT test harness runs ~1,950 `#[test]` functions, each doing: write source �
 - [ ] **Two-level timing**: Because each AOT test spawns `ori build` as a subprocess, timing must be split:
 
   **(a) Per-test timing in the test harness** (`compiler/ori_llvm/tests/aot/util/aot.rs`):
-  When `ORI_TEST_TIMING=1` is set, wrap `compile_and_run_capture()` to time:
-  1. **source write time** (write `.ori` file to temp dir)
-  2. **compile time** (`ori build` subprocess — total wall time)
-  3. **exec time** (binary execution subprocess — total wall time)
-  4. **cleanup time** (temp dir teardown)
-  At the end of all tests, report aggregate totals and percentages.
+  When `ORI_TEST_TIMING=1` is set, wrap `compile_and_run_capture()` (line 149) to time:
+  1. **source write time** — wrap `fs::write()` at line 159 with `Instant::now()`
+  2. **compile time** — wrap `Command::new(ori_binary())...output()` at lines 161-170
+  3. **exec time** — wrap `Command::new(&binary_path)...output()` at lines 177-180
+  4. **cleanup time** — `TempDir` drop is implicit; measure by wrapping the `drop(temp_dir)` call
+  Aggregate totals in a `static Mutex<TimingStats>` and report in a test fixture or `atexit` handler. Use `std::sync::OnceLock` to check `ORI_TEST_TIMING` once (not per-test).
 
   **(b) Per-phase timing in `ori build`** (compiler-side):
-  When `ORI_BUILD_TIMING=1` is set, `ori build` emits per-phase timing to stderr:
-  1. **parse time** (lexer + parser)
-  2. **typeck time** (type checking)
-  3. **arc time** (ARC lowering)
-  4. **codegen time** (LLVM IR generation)
-  5. **object time** (LLVM compilation to object file)
-  6. **link time** (linker invocation)
-  The test harness can set this env var and aggregate across all tests.
+  When `ORI_BUILD_TIMING=1` is set, `ori build` emits per-phase timing to stderr. Implementation locations:
+  1. **parse time**: `compiler/oric/src/commands/build/single.rs` (wraps the lex+parse call)
+  2. **typeck time**: same file (wraps the type-check call)
+  3. **arc time**: `compiler/oric/src/commands/codegen_pipeline.rs` `run_borrow_inference()` (line ~60)
+  4. **codegen time**: same file, `run_codegen_pipeline()` (wraps `compile_module()` or similar)
+  5. **object time**: `compiler/ori_llvm/src/aot/object.rs` (wraps `emit_object()`)
+  6. **link time**: `compiler/ori_llvm/src/aot/linker/driver.rs` (wraps `LinkerDriver::link()`)
+  Precise insertion points in `compiler/oric/src/commands/build/single.rs`:
+  - **parse+typeck**: wrap `check_source()` call at line 38 (this covers lex+parse+typeck together — further splitting requires instrumenting inside `check_source` in `compile_common.rs`)
+  - **codegen**: wrap `compile_to_llvm()` call at lines 55-66 (covers ARC lowering + LLVM IR generation)
+  - **object emission**: wrap `emitter.verify_optimize_emit()` at lines 123-130
+  - **linking**: wrap `link_and_finish()` call at line 134
+  Output format: `ORI_BUILD_TIMING: phase=parse time_ms=12` (one line per phase to stderr, machine-parseable).
+  The test harness can set this env var and aggregate across all tests by parsing stderr.
 
   Output format:
   ```
@@ -240,16 +248,25 @@ The AOT test harness runs ~1,950 `#[test]` functions, each doing: write source �
 
 - [ ] Implement the timing as lightweight as possible — `std::time::Instant` around each phase. Do NOT use `tracing` for this (too much overhead for ~1,950 tests x 7 phases).
 
+  **WARNING**: `compiler/oric/src/commands/codegen_pipeline.rs` is 485 lines (limit 500). Adding timing instrumentation may push it over. If it does, extract timing logic into a separate `compiler/oric/src/commands/build_timing.rs` helper module rather than inlining timing code into `codegen_pipeline.rs`.
+
 - [ ] Verify the per-phase totals sum to approximately the overall wall time (within 5% — any larger gap indicates uncaptured overhead like process spawn/teardown).
 
 - [ ] Run with `ORI_TEST_TIMING=1 ORI_BUILD_TIMING=1` and record the phase breakdown. This data directly informs Section 04 (which phase to optimize first).
 
 ### Test Strategy
 
-- **Matrix**: N/A — this is instrumentation, not behavioral code.
-<!-- reviewed: accuracy fix — updated command to include both env vars -->
+This subsection adds code to both the test harness (`aot.rs`) and the compiler (`single.rs`, `codegen_pipeline.rs`). Although the code is instrumentation, it touches hot paths and must not break existing behavior.
+
+- **TDD ordering**: Write tests for the timing instrumentation BEFORE implementing it:
+  - [ ] Write a Rust unit test in `compiler/oric/src/commands/build/tests.rs` that verifies `ORI_BUILD_TIMING=1` produces parseable timing output on stderr (format: `ORI_BUILD_TIMING: phase=X time_ms=N`)
+  - [ ] Write a Rust unit test that verifies `ORI_BUILD_TIMING` is OFF by default (no timing output without the env var)
+- **Matrix**: The instrumentation is not type- or pattern-dependent, but it affects ALL AOT tests. The matrix dimension is "with instrumentation" vs "without instrumentation":
+  - `ORI_TEST_TIMING=0` (or unset): all ~1,950 AOT tests pass identically to pre-change behavior
+  - `ORI_TEST_TIMING=1 ORI_BUILD_TIMING=1`: all ~1,950 AOT tests pass AND timing output is produced
+- **Semantic pin**: A test that verifies timing output is produced ONLY when `ORI_BUILD_TIMING=1` is set. This test fails if the env var check is broken.
+- **Debug and release**: `timeout 150 cargo t` (debug) AND `timeout 150 cargo t --release` (release) must pass after changes.
 - **Validation**: `ORI_TEST_TIMING=1 ORI_BUILD_TIMING=1 cargo test -p ori_llvm --test aot 2>&1 | grep "AOT Test Pipeline Timing"` produces a valid timing breakdown. Phase totals sum to within 5% of overall time.
-- **Semantic pin**: The timing instrumentation must not change test behavior — all tests must still pass identically with and without `ORI_TEST_TIMING=1`.
 
 ---
 
@@ -265,7 +282,6 @@ The AOT test harness runs ~1,950 `#[test]` functions, each doing: write source �
 - [ ] Canonical baseline recorded (wall time mean +/- stddev, user time, system time)
 - [ ] Per-crate timing breakdown recorded
 - [ ] Flamegraph generation script works (`scripts/flamegraph-tests.sh`)
-<!-- reviewed: cohesion fix — corrected to match Section 03.2 (ori_eval, not ori_arc) -->
 - [ ] Flamegraphs generated for: AOT tests, ori_eval, full workspace
 - [ ] Top 10 hottest functions identified from flamegraph analysis
 - [ ] AOT test harness has per-phase timing (`ORI_TEST_TIMING=1`)
