@@ -158,6 +158,8 @@ impl Parser<'_> {
                 span,
                 visibility,
                 is_fbip: attrs.is_fbip,
+                target_attr: attrs.target,
+                cfg_attr: attrs.cfg,
             }))
         }
     }

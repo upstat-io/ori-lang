@@ -244,6 +244,58 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
         self.ctx.emit_newline();
     }
 
+    /// Emit an item-level `#target(...)` attribute if present.
+    ///
+    /// Spec §25.4: Conditional compilation on functions, types, trait impls, constants.
+    pub(super) fn emit_item_target_attr(&mut self, target: &ori_ir::TargetAttr) {
+        self.ctx.emit("#target(");
+        let mut first = true;
+        for (key, val) in [
+            ("os", target.os),
+            ("arch", target.arch),
+            ("family", target.family),
+            ("not_os", target.not_os),
+            ("not_arch", target.not_arch),
+            ("not_family", target.not_family),
+        ] {
+            self.emit_attr_string_param(key, val, &mut first);
+        }
+        for (key, list) in [("any_os", &target.any_os), ("any_arch", &target.any_arch)] {
+            self.emit_attr_string_list(key, list, &mut first);
+        }
+        let _ = first;
+        self.ctx.emit(")");
+        self.ctx.emit_newline_indent();
+    }
+
+    /// Emit an item-level `#cfg(...)` attribute if present.
+    ///
+    /// Spec §25.4: Conditional compilation on functions, types, trait impls, constants.
+    pub(super) fn emit_item_cfg_attr(&mut self, cfg: &ori_ir::CfgAttr) {
+        self.ctx.emit("#cfg(");
+        let mut first = true;
+        for (flag, set) in [
+            ("debug", &cfg.debug),
+            ("release", &cfg.release),
+            ("not_debug", &cfg.not_debug),
+        ] {
+            if *set {
+                if !first {
+                    self.ctx.emit(", ");
+                }
+                self.ctx.emit(flag);
+                first = false;
+            }
+        }
+        for (key, val) in [("feature", cfg.feature), ("not_feature", cfg.not_feature)] {
+            self.emit_attr_string_param(key, val, &mut first);
+        }
+        self.emit_attr_string_list("any_feature", &cfg.any_feature, &mut first);
+        let _ = first;
+        self.ctx.emit(")");
+        self.ctx.emit_newline_indent();
+    }
+
     /// Emit a `key: "value"` attribute parameter if the value is present.
     fn emit_attr_string_param(&mut self, key: &str, val: Option<Name>, first: &mut bool) {
         if let Some(name) = val {

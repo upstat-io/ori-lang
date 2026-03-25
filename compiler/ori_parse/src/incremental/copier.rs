@@ -1048,6 +1048,8 @@ impl<'old> AstCopier<'old> {
             span: self.adjust_span(func.span),
             visibility: func.visibility,
             is_fbip: func.is_fbip,
+            target_attr: func.target_attr.clone(),
+            cfg_attr: func.cfg_attr.clone(),
         }
     }
 
@@ -1098,6 +1100,8 @@ impl<'old> AstCopier<'old> {
             visibility: decl.visibility,
             derives: decl.derives.clone(),
             repr_attrs: decl.repr_attrs.clone(),
+            target_attr: decl.target_attr.clone(),
+            cfg_attr: decl.cfg_attr.clone(),
         }
     }
 

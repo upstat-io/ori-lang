@@ -37,6 +37,8 @@ fn test_collect_declarations_sorted() {
         span: Span::new(50, 80),
         visibility: ori_ir::Visibility::Private,
         is_fbip: false,
+        target_attr: None,
+        cfg_attr: None,
     });
 
     let decls = collect_declarations(&module);
@@ -64,6 +66,8 @@ fn test_syntax_cursor_find_at() {
         span: Span::new(0, 50),
         visibility: ori_ir::Visibility::Private,
         is_fbip: false,
+        target_attr: None,
+        cfg_attr: None,
     });
 
     module.functions.push(Function {
@@ -80,6 +84,8 @@ fn test_syntax_cursor_find_at() {
         span: Span::new(100, 150),
         visibility: ori_ir::Visibility::Private,
         is_fbip: false,
+        target_attr: None,
+        cfg_attr: None,
     });
 
     let arena = ExprArena::new();
@@ -132,6 +138,8 @@ fn test_cursor_stats() {
             span: Span::new(start, end),
             visibility: ori_ir::Visibility::Private,
             is_fbip: false,
+            target_attr: None,
+            cfg_attr: None,
         });
     }
 

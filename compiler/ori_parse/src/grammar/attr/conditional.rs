@@ -10,6 +10,20 @@ use ori_ir::{CfgAttr, Name, TargetAttr, TokenKind};
 
 use super::ParsedAttrs;
 
+/// Check whether a string is a valid Ori identifier (feature name).
+///
+/// Spec §25.3.2: Feature names shall start with a letter or underscore,
+/// contain only letters, digits, and underscores, and be non-empty.
+fn is_valid_feature_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {
+            chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        }
+        _ => false,
+    }
+}
+
 impl Parser<'_> {
     /// Parse a `target` attribute body like `(os: "linux")`, returning the `TargetAttr` directly.
     ///
@@ -155,12 +169,12 @@ impl Parser<'_> {
                     self.cursor.advance();
                     let param_str = self.cursor.interner().lookup(name);
                     match param_str {
-                        "feature" => self.parse_attr_string_value(&mut cfg.feature, errors),
+                        "feature" => self.parse_feature_name_value(&mut cfg.feature, errors),
                         "not_feature" => {
-                            self.parse_attr_string_value(&mut cfg.not_feature, errors);
+                            self.parse_feature_name_value(&mut cfg.not_feature, errors);
                         }
                         "any_feature" => {
-                            self.parse_attr_string_list(&mut cfg.any_feature, errors);
+                            self.parse_feature_name_list(&mut cfg.any_feature, errors);
                         }
                         _ => {
                             errors.push(ParseError::new(
@@ -228,6 +242,97 @@ impl Parser<'_> {
             errors.push(ParseError::new(
                 ErrorCode::E1006,
                 "expected string value",
+                self.cursor.current_span(),
+            ));
+        }
+    }
+
+    /// Parse a single feature name string, validating it as a valid Ori identifier.
+    ///
+    /// Spec §25.3.2: Feature names shall be valid Ori identifiers (start with
+    /// letter or underscore, contain only letters, digits, and underscores).
+    fn parse_feature_name_value(&mut self, dest: &mut Option<Name>, errors: &mut Vec<ParseError>) {
+        if let TokenKind::String(s) = *self.cursor.current_kind() {
+            let name_str = self.cursor.interner().lookup(s);
+            if is_valid_feature_name(name_str) {
+                *dest = Some(s);
+            } else {
+                errors.push(ParseError::new(
+                    ErrorCode::E0932,
+                    format!(
+                        "invalid feature name `{name_str}` — feature names must be \
+                         valid identifiers (start with letter or underscore, contain \
+                         only letters, digits, and underscores)"
+                    ),
+                    self.cursor.current_span(),
+                ));
+            }
+            self.cursor.advance();
+        } else {
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected string value",
+                self.cursor.current_span(),
+            ));
+        }
+    }
+
+    /// Parse a list of feature name strings, validating each as a valid Ori identifier.
+    ///
+    /// Spec §25.3.2: Feature names shall be valid Ori identifiers.
+    fn parse_feature_name_list(&mut self, dest: &mut Vec<Name>, errors: &mut Vec<ParseError>) {
+        // Expect [
+        if !self.cursor.check(&TokenKind::LBracket) {
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected '[' for list value",
+                self.cursor.current_span(),
+            ));
+            return;
+        }
+        self.cursor.advance();
+
+        // Parse comma-separated feature name strings
+        while !self.cursor.check(&TokenKind::RBracket) && !self.cursor.is_at_end() {
+            if let TokenKind::String(s) = *self.cursor.current_kind() {
+                let name_str = self.cursor.interner().lookup(s);
+                if is_valid_feature_name(name_str) {
+                    dest.push(s);
+                } else {
+                    errors.push(ParseError::new(
+                        ErrorCode::E0932,
+                        format!(
+                            "invalid feature name `{name_str}` — feature names must be \
+                             valid identifiers (start with letter or underscore, contain \
+                             only letters, digits, and underscores)"
+                        ),
+                        self.cursor.current_span(),
+                    ));
+                }
+                self.cursor.advance();
+            } else {
+                errors.push(ParseError::new(
+                    ErrorCode::E1006,
+                    "expected string in list",
+                    self.cursor.current_span(),
+                ));
+                break;
+            }
+
+            if self.cursor.check(&TokenKind::Comma) {
+                self.cursor.advance();
+            } else if !self.cursor.check(&TokenKind::RBracket) {
+                break;
+            }
+        }
+
+        // Expect ]
+        if self.cursor.check(&TokenKind::RBracket) {
+            self.cursor.advance();
+        } else {
+            errors.push(ParseError::new(
+                ErrorCode::E1006,
+                "expected ']' to close list",
                 self.cursor.current_span(),
             ));
         }

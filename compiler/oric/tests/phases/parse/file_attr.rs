@@ -273,7 +273,184 @@ fn test_file_attr_target_not_arch_with_os() {
     }
 }
 
+// TPR-01-055: Feature name identifier validation (Spec §25.3.2)
+
+#[test]
+fn test_cfg_feature_valid_identifier() {
+    let output = parse_ok("#!cfg(feature: \"ssl\")\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert!(cfg.feature.is_some(), "feature should be set");
+        }
+        FileAttr::Target { .. } => panic!("expected Cfg"),
+    }
+}
+
+#[test]
+fn test_cfg_feature_valid_with_underscore() {
+    let output = parse_ok("#!cfg(feature: \"_private_feat\")\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert!(cfg.feature.is_some(), "feature should be set");
+        }
+        FileAttr::Target { .. } => panic!("expected Cfg"),
+    }
+}
+
+#[test]
+fn test_cfg_feature_valid_with_digits() {
+    let output = parse_ok("#!cfg(feature: \"Feature123\")\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert!(cfg.feature.is_some(), "feature should be set");
+        }
+        FileAttr::Target { .. } => panic!("expected Cfg"),
+    }
+}
+
+#[test]
+fn test_cfg_feature_invalid_hyphen() {
+    parse_err(
+        "#!cfg(feature: \"invalid-name\")\n@main () -> void = ();",
+        "invalid feature name",
+    );
+}
+
+#[test]
+fn test_cfg_feature_invalid_starts_with_digit() {
+    parse_err(
+        "#!cfg(feature: \"123start\")\n@main () -> void = ();",
+        "invalid feature name",
+    );
+}
+
+#[test]
+fn test_cfg_feature_invalid_special_chars() {
+    parse_err(
+        "#!cfg(feature: \"feat!@#\")\n@main () -> void = ();",
+        "invalid feature name",
+    );
+}
+
+#[test]
+fn test_cfg_feature_invalid_dot() {
+    parse_err(
+        "#!cfg(feature: \"my.feature\")\n@main () -> void = ();",
+        "invalid feature name",
+    );
+}
+
+#[test]
+fn test_cfg_feature_invalid_empty() {
+    parse_err(
+        "#!cfg(feature: \"\")\n@main () -> void = ();",
+        "invalid feature name",
+    );
+}
+
+#[test]
+fn test_cfg_not_feature_invalid() {
+    parse_err(
+        "#!cfg(not_feature: \"bad-name\")\n@main () -> void = ();",
+        "invalid feature name",
+    );
+}
+
+#[test]
+fn test_cfg_any_feature_invalid_in_list() {
+    parse_err(
+        "#!cfg(any_feature: [\"good\", \"bad-name\"])\n@main () -> void = ();",
+        "invalid feature name",
+    );
+}
+
+#[test]
+fn test_cfg_any_feature_all_valid() {
+    let output =
+        parse_ok("#!cfg(any_feature: [\"ssl\", \"tls\", \"_internal\"])\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert_eq!(cfg.any_feature.len(), 3, "all 3 valid features accepted");
+        }
+        FileAttr::Target { .. } => panic!("expected Cfg"),
+    }
+}
+
 #[test]
 fn test_file_attr_unknown_name() {
     parse_err("#!foobar()\n@main () -> void = ();", "unknown attribute");
+}
+
+// TPR-01-054: Item-level conditional attributes (Spec §25.4)
+
+#[test]
+fn test_item_target_on_function() {
+    let output = parse_ok("#target(os: \"linux\")\n@platform_func () -> void = ();");
+    assert_eq!(output.module.functions.len(), 1);
+    let func = &output.module.functions[0];
+    assert!(
+        func.target_attr.is_some(),
+        "function should have target_attr"
+    );
+    let target = func.target_attr.as_ref().unwrap();
+    assert!(target.os.is_some(), "target os should be set");
+}
+
+#[test]
+fn test_item_cfg_on_function() {
+    let output = parse_ok("#cfg(debug)\n@debug_func () -> void = ();");
+    assert_eq!(output.module.functions.len(), 1);
+    let func = &output.module.functions[0];
+    assert!(func.cfg_attr.is_some(), "function should have cfg_attr");
+    let cfg = func.cfg_attr.as_ref().unwrap();
+    assert!(cfg.debug, "cfg debug should be true");
+}
+
+#[test]
+fn test_item_cfg_feature_on_function() {
+    let output = parse_ok("#cfg(feature: \"ssl\")\n@ssl_func () -> void = ();");
+    assert_eq!(output.module.functions.len(), 1);
+    let func = &output.module.functions[0];
+    assert!(func.cfg_attr.is_some(), "function should have cfg_attr");
+    let cfg = func.cfg_attr.as_ref().unwrap();
+    assert!(cfg.feature.is_some(), "cfg feature should be set");
+}
+
+#[test]
+fn test_item_target_on_type() {
+    let output = parse_ok("#target(os: \"windows\")\ntype Handle = int;");
+    assert_eq!(output.module.types.len(), 1);
+    let ty = &output.module.types[0];
+    assert!(ty.target_attr.is_some(), "type should have target_attr");
+    let target = ty.target_attr.as_ref().unwrap();
+    assert!(target.os.is_some(), "target os should be set");
+}
+
+#[test]
+fn test_item_cfg_on_type() {
+    let output = parse_ok("#cfg(debug)\ntype DebugConfig = { verbose: bool };");
+    assert_eq!(output.module.types.len(), 1);
+    let ty = &output.module.types[0];
+    assert!(ty.cfg_attr.is_some(), "type should have cfg_attr");
+    let cfg = ty.cfg_attr.as_ref().unwrap();
+    assert!(cfg.debug, "cfg debug should be true");
+}
+
+#[test]
+fn test_function_without_conditional_attrs() {
+    let output = parse_ok("@main () -> void = ();");
+    assert_eq!(output.module.functions.len(), 1);
+    let func = &output.module.functions[0];
+    assert!(func.target_attr.is_none(), "no target_attr expected");
+    assert!(func.cfg_attr.is_none(), "no cfg_attr expected");
+}
+
+#[test]
+fn test_item_target_multifield_on_function() {
+    let output = parse_ok("#target(os: \"linux\", arch: \"x86_64\")\n@f () -> void = ();");
+    assert_eq!(output.module.functions.len(), 1);
+    let func = &output.module.functions[0];
+    let target = func.target_attr.as_ref().unwrap();
+    assert!(target.os.is_some(), "os should be set");
+    assert!(target.arch.is_some(), "arch should be set");
 }
