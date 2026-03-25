@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-25
-  note: "All TPR findings resolved. TPR-01-062 (orphan attrs at EOF) and TPR-01-063 (incremental attr leakage) fixed 2026-03-25."
+  note: "All 64 TPR findings resolved. TPR-01-064 (stale orphan-attribute diagnostic) fixed 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1261,6 +1261,9 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 - [x] `[TPR-01-063][high]` `compiler/ori_parse/src/lib.rs:1032` — Incremental parsing leaks the first declaration’s leftover attrs onto a later reparsed declaration when that first declaration is reused.
   Resolved: Fixed on 2026-03-25. Added `leftover_attrs.take()` on the reuse path in `parse_module_incremental()` so leftover attrs are consumed when the first declaration slot is satisfied by reuse (the reused declaration already has its attrs baked into the AST node from the original full parse). 2 incremental regression tests: `test_incremental_reuse_consumes_leftover_target_attrs` and `test_incremental_reuse_consumes_leftover_cfg_attrs`. 13,949 tests pass.
+
+- [x] `[TPR-01-064][medium]` `compiler/ori_parse/src/lib.rs:564` — The orphan-attribute diagnostic still says attrs must be followed by a function or test definition even though §25.4 now allows additional declaration kinds.
+  Resolved: Fixed on 2026-03-25. Updated diagnostic message at all 4 sites (full-parse EOF, incremental EOF, declaration-error with attrs+identifier, declaration-error with attrs+non-declaration token) from "function or test definition" to "declaration (function, type, impl, constant, import, or test)" matching spec §25.4. Also fixed stale comment at declaration-error branch. 4 diagnostic pin tests added to `attr_validation.rs` checking full message text across all code paths. 13,953 tests pass.
 
 ---
 
