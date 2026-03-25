@@ -43,7 +43,6 @@ sections:
 
 Verify that the LCFail audit and roadmap reprioritization are complete and accurate.
 
-<!-- reviewed: accuracy fix — clarified that release binary must be pre-built -->
 - [ ] Run the LLVM spec tests and verify the count matches what's recorded in the updated Section 21A:
   ```bash
   # Requires release binary: cargo build --release
@@ -53,7 +52,8 @@ Verify that the LCFail audit and roadmap reprioritization are complete and accur
 
 - [ ] Verify Section 21A's test results table has been updated (from Section 01.1):
   - Old stale number (1,985) does NOT appear anywhere in the roadmap
-  - New number matches reality
+  - Old stale `assert_eq` count (2,472) does NOT appear anywhere in the roadmap (3 occurrences existed at lines 93, 371, 1084)
+  - New numbers match reality (run `./scripts/lcfail-report.sh` and `grep -r "assert_eq" tests/spec/ | wc -l`)
   - "Last Updated" annotation present
 
 - [ ] Verify Section 21A has priority annotations (from Section 02.1):
@@ -111,7 +111,6 @@ Verify that the 30s target is met.
 
 Install mechanisms to prevent both LCFail count and test performance from regressing.
 
-<!-- reviewed: cohesion fix — explicitly reference lcfail-report.sh from Section 01.3 -->
 - [ ] **LCFail regression guard**: Extend `scripts/lcfail-report.sh` (from Section 01.3) with a `--check` mode that:
   - Reads current LCFail count (via LLVM backend spec tests)
   - Compares against stored baseline (`test-baselines/lcfail-count.txt`)
@@ -123,29 +122,38 @@ Install mechanisms to prevent both LCFail count and test performance from regres
   - Warn if wall time increases by more than 15% from baseline
   - Implementation: store baseline in `test-baselines/perf-baseline.json`
 
-- [ ] **Create `test-baselines/` directory** with:
+- [ ] **Create `test-baselines/` directory** (does not currently exist — verified 2026-03-25):
+  ```bash
+  mkdir -p test-baselines
   ```
-  test-baselines/
-  ├── lcfail-count.txt      # Current LCFail count
-  ├── perf-baseline.json    # Performance baseline (wall/user/system times)
-  └── README.md             # How to update baselines
-  ```
+  Populate with:
+  - `test-baselines/lcfail-count.txt` — single integer: the current LCFail count (e.g., `3956`)
+  - `test-baselines/perf-baseline.json` — JSON: `{"wall_time_s": 59.0, "user_time_s": 323.0, "system_time_s": 537.0, "date": "2026-03-25", "runs": 5}`
+  - `test-baselines/README.md` — update instructions (see below)
+  Add `test-baselines/` to `.gitignore`? **No** — baselines should be committed so CI and other developers can compare.
 
-- [ ] **Document the update process** in README.md:
-  - When to update baselines (after intentional changes that affect counts/timing)
-  - How to update: `./scripts/bench-tests.sh --update-baseline`
-  - How to check: `./scripts/bench-tests.sh --check` (compare against baseline)
+- [ ] **Document the update process** in `test-baselines/README.md`:
+  - When to update: after intentional changes that affect LCFail count (new codegen features) or timing (performance optimizations)
+  - How to update LCFail: `./scripts/lcfail-report.sh --update-baseline`
+  - How to update perf: `./scripts/bench-tests.sh --update-baseline`
+  - How to check: `./scripts/lcfail-report.sh --check` and `./scripts/bench-tests.sh --check`
+  - **Format**: Keep `lcfail-count.txt` as a single integer for easy `cat` + comparison. Keep `perf-baseline.json` as structured JSON for programmatic access.
 
 ### Test Strategy
 
-- **Validation**: The regression guards themselves must work correctly:
-  - Intentionally increase LCFail count (temporarily break a test) → guard fires
-  - Intentionally slow down a test (add sleep) → guard fires
-  - Revert → guards stop firing
-<!-- reviewed: cohesion fix — strengthened regression guard policy. Informational-only guards invite regression. -->
-- **LCFail guard behavior**: The LCFail regression guard MUST fail (non-zero exit) if LCFail count increases from baseline. This is blocking — an LCFail regression means a previously-compiling codegen path broke. The guard script (`scripts/lcfail-report.sh`) returns non-zero on regression.
+- **TDD ordering**: The regression guard scripts are new code that must be tested:
+  - [ ] Write the regression guard scripts with `--check` mode BEFORE creating the baselines
+  - [ ] Verify `--check` returns non-zero when no baseline file exists (expected: fails gracefully with helpful message)
+  - [ ] Create baseline files
+  - [ ] Verify `--check` returns 0 with matching baselines
+- **Matrix**: The regression guards are tested across these scenarios:
+  - LCFail guard: (a) baseline matches reality: exit 0, (b) count increased: exit 1, (c) count decreased: exit 0 with "improved" message, (d) no baseline file: exit 1 with instructions
+  - Performance guard: (a) within 15%: exit 0, (b) regression >15%: exit 0 with warning, (c) no baseline file: exit 0 with "no baseline" note
+- **Semantic pin**: Intentionally increase LCFail count (temporarily break a test) and verify guard fires. Revert and verify guard stops firing. This is the semantic pin for the LCFail guard.
+- **LCFail guard behavior**: The LCFail regression guard MUST fail (non-zero exit) if LCFail count increases from baseline. This is blocking -- an LCFail regression means a previously-compiling codegen path broke. The guard script (`scripts/lcfail-report.sh`) returns non-zero on regression.
 - **Performance guard behavior**: The performance regression guard warns (exit 0) if wall time increases by >15%. Performance regressions have legitimate causes (new tests, new features) and require human judgment. The guard produces a clear warning message but does not block.
 - **Baseline update**: Both guards support `--update-baseline` to record a new baseline after intentional changes.
+- **Debug and release**: `timeout 150 cargo t` (debug) AND `timeout 150 cargo t --release` (release) must pass after all verification section changes. `./test-all.sh` must also pass.
 
 ---
 

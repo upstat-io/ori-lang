@@ -34,7 +34,6 @@ sections:
 **Status:** Not Started
 **Goal:** AOT integration test execution drops from 35.6s to ≤15s. All ~1,950 tests pass identically. No test code modified.
 
-<!-- reviewed: accuracy/feasibility fix — corrected test count, clarified subprocess architecture -->
 **Context:** The AOT integration tests (`compiler/ori_llvm/tests/aot/`) account for 60% of `cargo t` wall time. Each of the ~1,950 tests spawns TWO subprocesses: (1) `ori build` (full compile pipeline: lex→parse→typeck→ARC→LLVM→link) and (2) the compiled binary. Each test also creates a `TempDir`, writes source to disk, and cleans up afterward. At ~18ms/test average, the per-test cost is already lean, but the cumulative effect of ~1,950 cycles (with ~3,900 process spawns) is the dominant bottleneck. Section 03's per-phase timing will reveal which phase (compile/link/execute/overhead) to attack first.
 
 **Feasibility analysis:**
@@ -51,7 +50,6 @@ sections:
 
 ## 04.1 Linker Optimization
 
-<!-- reviewed: accuracy fix — corrected file paths to actual linker module location -->
 **File(s):** `compiler/ori_llvm/src/aot/linker/` (linker drivers: `gcc.rs`, `msvc.rs`, `wasm/`), `compiler/ori_llvm/src/aot/linker/driver.rs` (linker driver selection)
 
 Linking is often the slowest phase in compile→link→execute cycles. Switching from the system linker (`ld`/`cc`) to a faster alternative can yield dramatic improvements.
@@ -66,27 +64,30 @@ Linking is often the slowest phase in compile→link→execute cycles. Switching
   ```
   The `GccLinker` (in `gcc.rs`) is used on Linux/macOS and invokes `cc` by default.
 
-<!-- reviewed: accuracy fix — verified tool availability on this system -->
 - [ ] Check if `mold` (fastest linker for Linux) is available:
   ```bash
-  mold --version  # Not currently installed. Install: sudo apt install mold
+  mold --version  # NOT installed as of 2026-03-25. Install: sudo apt install mold
   ```
 
 - [ ] Check if `lld` (LLVM's linker, faster than system ld) is available:
   ```bash
-  /usr/lib/llvm-21/bin/ld.lld --version  # Available via LLVM 21 (not in PATH by default)
+  /usr/lib/llvm-21/bin/ld.lld --version  # AVAILABLE via LLVM 21 at /usr/lib/llvm-21/bin/ld.lld
   ```
+  **Recommendation**: Start with `lld` since it is already available. Only install `mold` if `lld` provides <10% improvement over system `ld`.
 
-<!-- reviewed: feasibility fix — clarified that ORI_LINKER must be implemented in the linker driver code -->
-- [ ] If `mold` or `lld` is available, configure the AOT pipeline to use it. This requires adding `ORI_LINKER` env var support to `compiler/ori_llvm/src/aot/linker/driver.rs`:
-  - Option A: Set linker via environment variable (most flexible — requires code change to read `ORI_LINKER` in the linker driver)
+- [ ] Implement `ORI_LINKER` env var support. Currently `compiler/ori_llvm/src/aot/linker/driver.rs` line 30 selects flavor via `LinkerFlavor::for_target()` with no env var override. Implementation:
+  1. **WHERE**: `compiler/ori_llvm/src/aot/linker/driver.rs`, in `LinkerDriver::link()` (line 30), before the `input.linker.unwrap_or_else(...)` call
+  2. **WHAT**: Read `std::env::var("ORI_LINKER")`. If set:
+     - If value is `"lld"` or path ends in `ld.lld`: set `flavor = LinkerFlavor::Lld`
+     - If value is `"mold"`: create `GccLinker::with_path(target, "cc")` and add `-fuse-ld=mold` arg
+     - If value is a path: create `GccLinker::with_path(target, &value)` (custom linker binary)
+  3. **TEST**: Add a test in `compiler/ori_llvm/src/aot/linker/tests.rs` that verifies `ORI_LINKER` env var is respected
+  4. **Usage**:
     ```bash
-    ORI_LINKER=mold cargo test -p ori_llvm --test aot
-    # Or with lld from LLVM 21:
+    ORI_LINKER=lld cargo test -p ori_llvm --test aot
+    # Or with explicit path:
     ORI_LINKER=/usr/lib/llvm-21/bin/ld.lld cargo test -p ori_llvm --test aot
     ```
-  - Option B: Add `--linker=<path>` flag to `ori build` CLI
-  - Option C: Set via `.cargo/config.toml` for test builds (affects all builds — but this only affects the Rust linker, not the Ori AOT linker)
 
 - [ ] Measure the improvement:
   ```bash
@@ -101,18 +102,27 @@ Linking is often the slowest phase in compile→link→execute cycles. Switching
 
 ### Test Strategy
 
-- **Matrix**: All ~1,950 AOT tests must pass identically with the new linker. No behavioral changes.
-- **Semantic pin**: `timeout 150 cargo test -p ori_llvm --test aot` passes with 0 failures before and after.
+- **TDD ordering**:
+  - [ ] Write a Rust unit test in `compiler/ori_llvm/src/aot/linker/tests.rs` that verifies `ORI_LINKER` env var selects the correct linker flavor BEFORE implementing the feature
+  - [ ] Verify test fails (since `ORI_LINKER` support does not exist yet)
+  - [ ] Implement `ORI_LINKER` support
+  - [ ] Verify test passes unchanged
+- **Matrix**: The linker change is not type-dependent but path-dependent. Test matrix:
+  - `ORI_LINKER` unset: default linker selected (existing behavior preserved)
+  - `ORI_LINKER=lld`: `lld` linker selected
+  - `ORI_LINKER=/usr/lib/llvm-21/bin/ld.lld`: explicit path accepted
+  - `ORI_LINKER=invalid`: graceful error (not a panic)
+  - All ~1,950 AOT tests pass identically with each valid linker. No behavioral changes.
+- **Semantic pin**: The `ORI_LINKER=lld` unit test ONLY passes with the new env var support -- reverting the change makes it fail.
+- **Debug and release**: `timeout 150 cargo test -p ori_llvm --test aot` passes in both debug and release builds.
 - **Measurement**: Compare link-phase timing before and after. Record in this section.
 
 ---
 
 ## 04.2 Compilation Pipeline Optimization
 
-<!-- reviewed: accuracy fix — corrected file references to reflect that optimizations target `ori build`, not the test harness -->
 **File(s):** `compiler/oric/src/commands/build/` (build command — `mod.rs`, `single.rs`, `multi.rs`), `compiler/oric/src/commands/codegen_pipeline.rs` (compilation pipeline), `compiler/ori_llvm/src/aot/` (AOT pipeline), `compiler/ori_llvm/tests/aot/util/aot.rs` (test harness)
 
-<!-- reviewed: feasibility fix — corrected fundamental misunderstanding about AOT test architecture. Each test spawns `ori build` as a separate process — no in-process LLVM Context or Salsa DB sharing is possible without architectural change. -->
 Each AOT test spawns `ori build` as a separate subprocess via `Command::new(ori_binary())`. The full compilation pipeline (lex→parse→typeck→ARC→LLVM→object→link) runs inside that subprocess. This means:
 - Each test starts a fresh process with fresh LLVM Context, fresh Salsa DB, etc.
 - There is no cross-test caching or context reuse
@@ -122,12 +132,7 @@ Each AOT test spawns `ori build` as a separate subprocess via `Command::new(ori_
 
 - [ ] **Shared runtime pre-compilation**: The `ori_rt` runtime library (`libori_rt.a`) is linked into every AOT binary. It is a pre-built static library discovered by `ori_llvm/src/aot/runtime.rs` (checked at `<exe>/../lib/libori_rt.a` or `$ORI_WORKSPACE_DIR/target/`). Verify it is NOT being rebuilt per test — the linker just reads it. If the linker re-reads `libori_rt.a` from disk for each of ~1,950 tests, the I/O overhead adds up. Check if the OS page cache handles this effectively.
 
-- [ ] **LLVM optimization level for tests**: Check what optimization level the `ori build` command uses by default:
-  ```bash
-  grep -r "OptimizationLevel\|opt_level\|O0\|O1\|O2" compiler/ori_llvm/src/aot/
-  grep -r "OptimizationLevel\|opt_level" compiler/oric/src/commands/
-  ```
-  Tests should use `-O0` (no optimization) for fastest compilation. If `ori build` defaults to `-O1` or higher, adding a `--opt-level=0` flag (or defaulting to `-O0` when no flag is given) will speed up LLVM's internal optimization passes.
+- [ ] **LLVM optimization level for tests**: Verify `ori build` defaults to `-O0`. Checked: `compiler/oric/src/commands/build_options/mod.rs` line 88 sets `opt_level: OptLevel::O0` as the default. The `--release` flag applies `O2`. AOT tests call `ori build` without `--release`, so they already use `-O0`. **This optimization is already in place -- skip unless profiling reveals LLVM optimization passes are still a bottleneck.**
 
 - [ ] **LLVM Context creation overhead**: Each `ori build` invocation creates a fresh LLVM Context. This happens ~1,950 times. Context creation involves LLVM target initialization. This is NOT optimizable within the current subprocess architecture — it would require an in-process compilation mode (see 04.3 batch test execution).
 
@@ -135,7 +140,12 @@ Each AOT test spawns `ori build` as a separate subprocess via `Command::new(ori_
   ```bash
   grep -r "write_to_file\|write_bitcode\|object_file\|emit_object" compiler/ori_llvm/src/aot/
   ```
-  The TempDir is typically on `/tmp` which may be `tmpfs` (in-memory) on Linux, reducing disk I/O. Verify this on the target system.
+  The TempDir is on `/tmp` which is ext4 on this WSL2 system (NOT tmpfs). This means object file writes hit the real filesystem. Consider mounting a tmpfs at a custom location and setting `TMPDIR` for AOT tests to reduce I/O overhead:
+  ```bash
+  # Option: mount tmpfs for test builds
+  sudo mount -t tmpfs -o size=512m tmpfs /tmp/ori-test-builds
+  TMPDIR=/tmp/ori-test-builds cargo test -p ori_llvm --test aot
+  ```
 
 - [ ] **Salsa query caching**: NOT applicable for AOT tests — each test spawns a separate `ori build` process with a fresh Salsa DB. There is no cross-test Salsa caching. This is a fundamental limitation of the subprocess architecture. The only way to get Salsa caching benefits would be an in-process compilation mode or a persistent compiler server.
 
@@ -143,7 +153,13 @@ Each AOT test spawns `ori build` as a separate subprocess via `Command::new(ori_
 
 ### Test Strategy
 
-- **Matrix**: All ~1,950 AOT tests pass identically after each optimization.
+- **TDD ordering**: These are optimization changes, not bug fixes. The "test" is that all existing tests continue passing with identical results. Before each optimization:
+  - [ ] Record the full AOT test output (pass/fail/stdout per test) as a before-snapshot
+  - [ ] Apply the optimization
+  - [ ] Verify the after-output is identical to the before-snapshot
+- **Matrix**: All ~1,950 AOT tests pass identically after each optimization. No test code modified.
+- **Semantic pin**: The before/after output comparison IS the semantic pin -- any output difference indicates a behavioral change, not just a performance change.
+- **Debug and release**: `timeout 150 cargo t` (debug) passes after each change. Release build (`timeout 150 cargo t --release`) verified at end of subsection.
 - **Measurement**: Record per-phase timing before and after each optimization.
 
 ---
@@ -152,23 +168,22 @@ Each AOT test spawns `ori build` as a separate subprocess via `Command::new(ori_
 
 **File(s):** `compiler/ori_llvm/tests/aot/`
 
-<!-- reviewed: feasibility fix — corrected parallelism analysis, documented actual ORI_CHECK_LEAKS behavior -->
 Each AOT test spawns TWO child processes: (1) `ori build` for compilation and (2) the compiled binary for execution. Process creation (fork+exec) and teardown has overhead that multiplies across ~1,950 tests (~3,900 total process spawns).
 
 - [ ] Check Section 03's per-phase timing for the "execute" and "overhead" components.
 
 - [ ] **Temp file management**: Each test creates a new `TempDir` (via the `tempfile` crate) with a unique source file and binary:
   ```rust
-  // From compiler/ori_llvm/tests/aot/util/aot.rs:compile_and_run_capture()
+  // From compiler/ori_llvm/tests/aot/util/aot.rs:compile_and_run_capture() (line 149)
   let temp_dir = TempDir::new().expect("Failed to create temp dir");
   let source_path = temp_dir.path().join(format!("test_{id}.ori"));
-  let binary_path = temp_dir.path().join(format!("test_{id}"));
+  let binary_path = temp_dir.path().join(format!("test_{id}{}", std::env::consts::EXE_SUFFIX));
   ```
   The filesystem overhead (mkdir + write source + write object + write binary + unlink all) adds up over ~1,950 tests. Consider:
   - Reusing a single temp directory across tests (with unique filenames via the `AtomicU64` counter already in place)
   - Verifying `/tmp` is `tmpfs` on the target system (reduces disk I/O)
 
-- [ ] **Binary execution overhead**: Each test runs a compiled binary with `ORI_CHECK_LEAKS=1` **always enabled** (hardcoded in `compile_and_run_capture()` at line 178):
+- [ ] **Binary execution overhead**: Each test runs a compiled binary with `ORI_CHECK_LEAKS=1` **always enabled** (hardcoded in `compile_and_run_capture()` at line 178, and also in `compile_and_run_with_args()` at line 221):
   ```rust
   let run_result = Command::new(&binary_path)
       .env("ORI_CHECK_LEAKS", "1")
@@ -185,7 +200,6 @@ Each AOT test spawns TWO child processes: (1) `ori build` for compilation and (2
   - Investigate whether the current parallelism level is optimal or if system I/O saturation limits gains
   - There is NO LLVM Context thread-safety concern — the LLVM Context lives inside the `ori build` subprocess, not the test process
 
-<!-- reviewed: cohesion fix — removed deferral language ("significant architectural change" + "Evaluate ROI"), made tasks concrete -->
 - [ ] **Batch test execution**: Instead of one `ori build` invocation per test, group multiple small tests into a single compilation unit. Concrete approach:
   1. **Prototype with 10 tests**: Pick 10 independent AOT tests. Concatenate their Ori source into a single `.ori` file with distinct `@main`-like functions selected by a command-line argument. Measure compile+link+run time for the batch vs 10 individual runs.
   2. **Measure overhead split**: From the prototype, determine what fraction of per-test cost is fixed overhead (process spawn, LLVM Context init, `ori_rt` linkage, temp dir creation) vs variable (source-proportional compilation). If fixed overhead is >60% of per-test time, batching will have significant ROI.
@@ -197,10 +211,17 @@ Each AOT test spawns TWO child processes: (1) `ori build` for compilation and (2
   4. **Failure isolation**: If a batch compilation fails, re-run each test individually to identify the failing test. This preserves test granularity for error reporting.
   - **Fallback alternative**: If batching is insufficient (target still not met after steps 1-4), implement a persistent `ori build --server` mode that accepts multiple compilation requests without process restart. This amortizes LLVM Context creation, Salsa DB initialization, and `ori_rt` linkage across many tests. Only pursue if batching alone is insufficient and profiling confirms LLVM Context creation is a major cost.
 
+- [ ] **Hygiene: split `compiler/ori_llvm/tests/aot/util/aot.rs`** (569 lines, exceeds 500-line limit). Extract IR inspection helpers (`extract_function_ir`, `count_bridge_blocks`, `count_single_pred_phis`, `count_dead_phis`, `is_ssa_var_used_in`, `is_bridge_only`) into a sibling `compiler/ori_llvm/tests/aot/util/ir_inspect.rs`. The compile-and-run functions stay in `aot.rs`. Re-export from `util/mod.rs`. This brings `aot.rs` to ~385 lines and `ir_inspect.rs` to ~185 lines.
+
 ### Test Strategy
 
-- **Matrix**: All ~1,950 AOT tests produce identical results.
-- **Semantic pin**: No test passes that previously failed, no test fails that previously passed.
+- **TDD ordering**: For the `aot.rs` split (hygiene task), write a list of all public functions currently exported from `util/aot.rs`, then verify each is still accessible after extraction:
+  - [ ] Before split: `cargo test -p ori_llvm --test aot --no-run` compiles successfully
+  - [ ] After split: same command compiles successfully, proving re-exports are correct
+  - [ ] All ~1,950 AOT tests produce identical results
+- **Matrix**: All ~1,950 AOT tests produce identical results after each change in this subsection (temp dir reuse, leak detection opt-in, batch execution).
+- **Semantic pin**: No test passes that previously failed, no test fails that previously passed. If `ORI_CHECK_LEAKS` is made opt-in, a specific test must verify that `ORI_AOT_CHECK_LEAKS=1` still enables leak detection.
+- **Debug and release**: `timeout 150 cargo t` (debug) AND `timeout 150 cargo t --release` (release) must pass after all changes.
 - **Measurement**: Per-test overhead (ms/test) before and after. Target: reduce from ~18ms/test to <8ms/test.
 
 ---
@@ -216,12 +237,11 @@ Each AOT test spawns TWO child processes: (1) `ori build` for compilation and (2
 - [ ] Linker optimization evaluated and applied if beneficial (>10% improvement)
 - [ ] Compilation pipeline optimizations applied based on per-phase profiling
 - [ ] Process overhead reduced (temp files, leak detection, parallelism evaluated)
-<!-- reviewed: cohesion fix — added batch test evaluation to checklist since it's now a concrete task in 04.3 -->
 - [ ] Batch test execution prototype measured (10-test batch vs 10 individual runs)
+- [ ] `compiler/ori_llvm/tests/aot/util/aot.rs` split: IR inspection helpers extracted to `ir_inspect.rs` (569→~385 lines)
 - [ ] AOT test execution time measured: ??? (target: <=15s)
 - [ ] All ~1,950 AOT tests pass identically (no behavioral changes)
 - [ ] Optimizations documented (what was changed, why, measured impact)
 - [ ] `timeout 150 cargo t` passes with all tests green
 
-<!-- reviewed: accuracy fix — corrected test count -->
 **Exit Criteria:** `ORI_TEST_TIMING=1 cargo test -p ori_llvm --test aot` reports total time ≤15s. All ~1,950 tests pass. No test code was modified. The link-phase, compile-phase, and execute-phase timings are all recorded and show measurable improvement from baseline.

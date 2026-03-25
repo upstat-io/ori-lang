@@ -456,7 +456,7 @@ fn canonical_range() {
 fn canonical_iterator() {
     let mut pool = Pool::new();
     let iter_idx = pool.iterator(Idx::INT);
-    assert_eq!(canonical(&pool, iter_idx), MachineRepr::OpaquePtr);
+    assert_eq!(canonical(&pool, iter_idx), MachineRepr::UnmanagedPtr);
 }
 
 /// Test canonical mapping for Channel — opaque pointer.
@@ -1593,13 +1593,13 @@ fn rc_strategy_default_for_canonical_opaque_ptr() {
     let iter_idx = pool.iterator(Idx::INT);
 
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
-    // Simulate populate_canonical() storing an OpaquePtr for an iterator type.
+    // Simulate populate_canonical() storing an UnmanagedPtr for an iterator type.
     plan.set_repr(
         iter_idx,
         ReprDecision {
             source: DecisionSource::Canonical,
             type_idx: iter_idx,
-            repr: MachineRepr::OpaquePtr,
+            repr: MachineRepr::UnmanagedPtr,
             reason: DecisionReason::Canonical,
         },
     );
@@ -2214,13 +2214,13 @@ fn storage_equivalence_containers() {
     let iter_idx = pool.iterator(Idx::INT);
     assert_eq!(
         canonical(&pool, iter_idx),
-        MachineRepr::OpaquePtr,
+        MachineRepr::UnmanagedPtr,
         "Iterator canonical"
     );
     let deiter_idx = pool.double_ended_iterator(Idx::INT);
     assert_eq!(
         canonical(&pool, deiter_idx),
-        MachineRepr::OpaquePtr,
+        MachineRepr::UnmanagedPtr,
         "DoubleEndedIterator"
     );
 
@@ -2541,19 +2541,19 @@ fn storage_type_equivalence_full_29_type_matrix() {
         MachineRepr::Range,
         "[17/29] Range → {{i64, i64, i64, i64}}"
     );
-    // TypeInfo::Iterator → ptr
+    // TypeInfo::Iterator → unmanaged ptr (Box-allocated, no RC header)
     let iter_idx = pool.iterator(Idx::INT);
     assert_eq!(
         canonical(&pool, iter_idx),
-        MachineRepr::OpaquePtr,
-        "[18/29] Iterator → ptr"
+        MachineRepr::UnmanagedPtr,
+        "[18/29] Iterator → unmanaged ptr"
     );
-    // DoubleEndedIterator → ptr (same as Iterator)
+    // DoubleEndedIterator → unmanaged ptr (same as Iterator)
     let deiter_idx = pool.double_ended_iterator(Idx::INT);
     assert_eq!(
         canonical(&pool, deiter_idx),
-        MachineRepr::OpaquePtr,
-        "[19/29] DoubleEndedIterator → ptr"
+        MachineRepr::UnmanagedPtr,
+        "[19/29] DoubleEndedIterator → unmanaged ptr"
     );
 
     // ── Two-child types (3) ──
@@ -2725,13 +2725,18 @@ fn analyze_triviality_validation_zero_mismatches() {
         ],
     );
 
+    // Iterator and DoubleEndedIterator: Box-allocated, no RC header → trivial.
+    // These are the types that previously triggered a known mismatch when
+    // mapped to OpaquePtr (non-trivial). Now mapped to UnmanagedPtr (trivial).
+    let iter_int = pool.iterator(Idx::INT);
+    let deiter_int = pool.double_ended_iterator(Idx::INT);
+
     // compute_repr_plan canonicalizes all reachable types and runs
     // analyze_triviality() internally. The debug_assert! in the pass
-    // would fire on any mismatch.
+    // fires on any mismatch between classify_triviality() and is_trivial_repr().
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
 
-    // Also verify the plan's is_trivial() queries match expectations
-    // for the types we built.
+    // Verify the plan's is_trivial() queries match expectations.
     assert!(plan.is_trivial(opt_int), "Option<int> should be trivial");
     assert!(
         plan.is_trivial(tuple_trivial),
@@ -2744,6 +2749,14 @@ fn analyze_triviality_validation_zero_mismatches() {
     assert!(
         !plan.is_trivial(result_nontrivial),
         "Result<int, str> should be non-trivial"
+    );
+    assert!(
+        plan.is_trivial(iter_int),
+        "Iterator<int> should be trivial (UnmanagedPtr)"
+    );
+    assert!(
+        plan.is_trivial(deiter_int),
+        "DoubleEndedIterator<int> should be trivial (UnmanagedPtr)"
     );
     assert!(
         plan.is_trivial(enum_trivial),

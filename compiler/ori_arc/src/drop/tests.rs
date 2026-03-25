@@ -715,3 +715,35 @@ fn result_of_scalars_returns_none() {
     // result[int, float] is Scalar → no drop needed.
     assert!(compute_drop_info(res, &c, &pool).is_none());
 }
+
+// §02.3 regression: trivial compound types get no drop after triviality unification.
+
+#[test]
+fn result_int_ordering_returns_none() {
+    let mut pool = Pool::new();
+    let res = pool.result(Idx::INT, Idx::ORDERING);
+    let c = cls(&pool);
+
+    // Result<int, Ordering> is trivially composed → Scalar → no drop.
+    assert!(compute_drop_info(res, &c, &pool).is_none());
+}
+
+#[test]
+fn iterator_returns_none() {
+    let mut pool = Pool::new();
+    let iter = pool.iterator(Idx::INT);
+    let c = cls(&pool);
+
+    // Iterator<int> is Box-allocated (Scalar in ArcClassifier) → no drop.
+    assert!(compute_drop_info(iter, &c, &pool).is_none());
+}
+
+#[test]
+fn double_ended_iterator_returns_none() {
+    let mut pool = Pool::new();
+    let deiter = pool.double_ended_iterator(Idx::INT);
+    let c = cls(&pool);
+
+    // DoubleEndedIterator<int> is Box-allocated (Scalar) → no drop.
+    assert!(compute_drop_info(deiter, &c, &pool).is_none());
+}

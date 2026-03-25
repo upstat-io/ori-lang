@@ -59,12 +59,10 @@ The "Current Test Results" table at line 72-76 of `section-21A-llvm.md` is wrong
   ```
   Note: The evaluator test count grew from 3,035→4,181 (new spec tests added). The LLVM pass count *dropped* from 1,082→257 (likely due to changes in codegen that broke previously-passing files, or test reorganization).
 
-<!-- reviewed: accuracy fix — actual count is 3,946, not 2,472 -->
-- [ ] Update Section 21A line 93 which references "2,472 test call sites" for `assert_eq` — this number is stale. Actual count is **3,946** (as of 2026-03-25). Update both the roadmap and the `assert_eq` call site count:
-  ```bash
-  grep -r "assert_eq" tests/spec/ | wc -l
-  # Expected: ~3,946 (was 2,472 when roadmap was written)
-  ```
+- [ ] Update ALL occurrences of the stale "2,472" `assert_eq` count in Section 21A. Actual count is **3,946** (verified 2026-03-25 via `grep -r "assert_eq" tests/spec/ | wc -l`). Three locations to update:
+  - Line 93: `"used in 2,472 test call sites"` → `"used in 3,946 test call sites"`
+  - Line 371: `"affects 2,472+ assert_eq call sites"` → `"affects 3,946+ assert_eq call sites"`
+  - Line 1084: `"blocks 2,472+ test call sites"` → `"blocks 3,946+ test call sites"`
 
 - [ ] Add a "Last Updated" annotation to the test results table so staleness is visible.
 
@@ -81,7 +79,6 @@ LCFail is a **file-level** failure: when LLVM codegen fails on a module, ALL tes
   ./target/release/ori test --verbose --backend=llvm tests/ 2>&1 | tee lcfail-audit.log
   ```
 
-<!-- reviewed: accuracy fix — corrected error message patterns to match actual codegen error format -->
 - [ ] Parse `lcfail-audit.log` to extract per-file error messages. The LLVM backend reports errors in two forms:
   - `"LLVM compilation failed: <msg>"` — from `compile_module_with_tests()` returning `Err` (codegen error with structured message)
   - `"LLVM backend error: <msg>"` — from `catch_unwind` catching a panic (LLVM fatal error, assertion failure, etc.)
@@ -93,7 +90,6 @@ LCFail is a **file-level** failure: when LLVM codegen fails on a module, ALL tes
 
 - [ ] Categorize each failing file into one of these root cause buckets (mapped to 21A subsections):
 
-  <!-- reviewed: accuracy fix — corrected 21A subsection references to match actual titles -->
   | Category | 21A Subsection | Typical Error |
   |----------|---------------|---------------|
   | Generic monomorphization | 21.7 (Function Sequences & Expressions) | `sig.is_generic()` skips in `declare_all`/`define_all` — any file calling `assert_eq<T>` |
@@ -135,7 +131,6 @@ LCFail is a **file-level** failure: when LLVM codegen fails on a module, ALL tes
 
 **File(s):** Analysis of `compiler/oric/src/test/runner/llvm_backend.rs`
 
-<!-- reviewed: accuracy fix — corrected LCFail mechanism description to match actual code -->
 Understanding HOW LCFail works is essential for tracking. Key facts from `llvm_backend.rs`:
 
 1. The JIT test runner (`run_file_llvm`) compiles all functions in a file into a single JIT module via `compile_module_with_tests()`.
@@ -147,21 +142,29 @@ Understanding HOW LCFail works is essential for tracking. Key facts from `llvm_b
 
 - [ ] Check whether the current error messages are specific enough to categorize root causes. If error messages are too generic (e.g., just "LLVM compilation failed"), we may need to enhance the error reporting in `llvm_backend.rs` to include which function/expression caused the failure.
 
-<!-- reviewed: accuracy fix — verified all file paths and line numbers against actual codebase -->
 - [ ] Document the LCFail tracking infrastructure:
   - Where LCFail is defined: `compiler/oric/src/test/result/mod.rs:20` (`TestOutcome::LlvmCompileFail(String)`)
-  <!-- reviewed: cohesion fix — corrected line numbers to match actual code -->
   - Where LCFail is produced: `compiler/oric/src/test/runner/llvm_backend.rs` (lines 272-314, in `Ok(Err(e))` and `Err(panic_info)` arms of `compile_result` match)
-  - Where LCFail is counted: `FileSummary.llvm_compile_fail` (line 121), `TestSummary.llvm_compile_fail` (line 178)
+  - Where LCFail is counted: `FileSummary.llvm_compile_fail` (line 121 of `result/mod.rs`), `TestSummary.llvm_compile_fail` (line 178 of `result/mod.rs`)
   - Where LCFail is displayed: `compiler/oric/src/commands/test.rs` (lines 171-172 for test count, lines 179/201-202 for file count)
-  <!-- reviewed: cohesion fix — added nuance about exit code 2 when ONLY LCFail tests exist -->
-  - How LCFail interacts with exit codes: `TestSummary::exit_code()` (line 226) — LCFail does NOT cause exit code 1 (failure); `has_failures()` only checks `failed > 0 || error_files > 0`. However, if the ONLY results are LCFail (total passed+failed+skipped == 0 AND error_files == 0), `exit_code()` returns 2 ("no tests found") because the `total() == 0` guard fires first. This means running LLVM-only on a fully-failing suite returns exit code 2, not 0.
+  - How LCFail interacts with exit codes: `TestSummary::exit_code()` (line 226 of `result/mod.rs`) — LCFail does NOT cause exit code 1 (failure); `has_failures()` only checks `failed > 0 || error_files > 0`. However, if the ONLY results are LCFail (total passed+failed+skipped == 0 AND error_files == 0), `exit_code()` returns 2 ("no tests found") because the `total() == 0` guard fires first — note the guard also checks `llvm_compile_fail == 0 && llvm_compile_fail_files == 0`, so a fully-LCFail suite returns exit code 0, NOT 2. Only truly empty runs return 2.
 
 - [ ] **Tracking mechanism decision**: For automated LCFail tracking, choose one:
   - **(a) Parse existing verbose output** (recommended for now): The `--verbose` flag already shows per-file errors. A shell script can parse `./target/release/ori test --verbose --backend=llvm tests/` output to extract per-file error messages and counts. No code changes needed.
   - **(b) Add `--lcfail-details` flag** (better long-term): Machine-readable JSON output of per-file LCFail errors. Requires changes to the test runner. Only pursue if (a) proves insufficient for Section 02's milestone tracking.
 
-  Implement option (a) as a script in `scripts/lcfail-report.sh`. Section 02.2 and Section 06.1 will use this script for tracking.
+  Implement option (a) as a script in `scripts/lcfail-report.sh`:
+  ```bash
+  #!/bin/bash
+  # scripts/lcfail-report.sh — LCFail tracking and regression detection
+  # Usage: ./scripts/lcfail-report.sh [--check] [--update-baseline]
+  #
+  # Default: prints current LCFail count and per-category breakdown
+  # --check: compare against test-baselines/lcfail-count.txt, exit 1 if regression
+  # --update-baseline: write current count to test-baselines/lcfail-count.txt
+  ```
+  The script runs `./target/release/ori test --backend=llvm tests/` (requires pre-built release binary), parses the summary line for the LCFail count, and optionally parses `--verbose` output for per-file error categories. Exit 0 for informational mode, exit 1 for `--check` mode when count increased.
+  Section 02.2 and Section 06.1 will use this script for tracking.
 
 ### Test Strategy
 
@@ -186,7 +189,6 @@ Understanding HOW LCFail works is essential for tracking. Key facts from `llvm_b
 - [ ] Categorization table includes file counts and test function counts per category
 - [ ] Cascade files (multiple blockers) identified and tracked separately
 - [ ] LCFail infrastructure documented (where defined, produced, counted, displayed)
-<!-- reviewed: cohesion fix — lcfail-report.sh is described in 01.3 but was missing from completion checklist -->
 - [ ] `scripts/lcfail-report.sh` implemented and produces counts matching the test runner's summary line
 - [ ] `./test-all.sh` green (no regressions from roadmap updates)
 
