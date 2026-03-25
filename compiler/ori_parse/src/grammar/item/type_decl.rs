@@ -1,10 +1,22 @@
 //! Type declaration parsing (struct, enum, newtype).
 
+use crate::grammar::attr::ReprAttr;
 use crate::{committed, ParseError, ParseOutcome, ParsedAttrs, Parser};
 use ori_ir::{
-    GenericParamRange, Name, ParsedType, ParsedTypeId, ParsedTypeRange, Span, StructField,
-    TokenKind, TypeDecl, TypeDeclKind, Variant, VariantField, Visibility,
+    GenericParamRange, Name, ParsedType, ParsedTypeId, ParsedTypeRange, ReprAttrKind, Span,
+    StructField, TokenKind, TypeDecl, TypeDeclKind, Variant, VariantField, Visibility,
 };
+
+/// Convert parser-level `ReprAttr` to IR-level `ReprAttrKind`.
+fn convert_repr_attr(attr: &ReprAttr) -> ReprAttrKind {
+    match *attr {
+        ReprAttr::C => ReprAttrKind::C,
+        ReprAttr::Packed => ReprAttrKind::Packed,
+        ReprAttr::Transparent => ReprAttrKind::Transparent,
+        // CAligned is never produced by the parser — it's merged in type checking
+        ReprAttr::Aligned(n) => ReprAttrKind::Aligned(n),
+    }
+}
 
 impl Parser<'_> {
     /// Parse a type declaration.
@@ -85,6 +97,7 @@ impl Parser<'_> {
             span: start_span.merge(end_span),
             visibility,
             derives: attrs.derive_traits,
+            repr_attrs: attrs.repr_attrs.iter().map(convert_repr_attr).collect(),
         })
     }
 

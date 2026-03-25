@@ -1,0 +1,8 @@
+// Valid: combined syntax #repr("c", "aligned", 16) as sugar for stacked form.
+
+#repr("c", "aligned", 16)
+type CAlignedCombined = { x: int, y: int }
+
+@main () -> void = {
+    print(msg: "c+aligned combined OK")
+}

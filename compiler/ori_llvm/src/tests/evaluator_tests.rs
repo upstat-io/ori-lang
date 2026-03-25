@@ -110,6 +110,7 @@ fn test_compile_module_with_tests_empty() {
         &[],
         &empty_sigs,
         rustc_hash::FxHashMap::default(),
+        None, // JIT: use env var fallback for narrowing policy
     );
 
     assert!(

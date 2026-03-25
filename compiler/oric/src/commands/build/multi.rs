@@ -129,6 +129,7 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         base_dir: &dep_result.base_dir,
         obj_dir: &obj_dir,
         verbose: options.verbose,
+        narrowing_policy: options.narrowing_policy,
         arc_cache,
         module_hash: None, // Per-module hashes computed below if needed
     };
@@ -258,6 +259,8 @@ struct ModuleCompileContext<'a> {
     base_dir: &'a Path,
     obj_dir: &'a Path,
     verbose: bool,
+    /// Representation optimization policy.
+    narrowing_policy: ori_repr::NarrowingPolicy,
     /// Optional ARC IR cache for incremental compilation.
     arc_cache: Option<ori_llvm::aot::incremental::ArcIrCache>,
     /// Per-module content hashes for ARC cache keying.
@@ -359,6 +362,7 @@ fn compile_single_module(
             .as_ref()
             .and_then(|hashes| hashes.get(source_path).copied()),
         Some(ctx.target.triple()),
+        ctx.narrowing_policy,
     ) {
         Ok(m) => m,
         Err(e) => {

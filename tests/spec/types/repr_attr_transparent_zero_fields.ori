@@ -1,0 +1,5 @@
+// #repr("transparent") on a zero-field struct must produce E2041.
+#compile_fail(code: "E2041", message: "requires exactly one field")
+
+#repr("transparent")
+type Empty = { }

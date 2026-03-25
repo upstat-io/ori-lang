@@ -20,4 +20,4 @@ pub use traits::{
     DefImplDef, ExtendDef, GenericParam, ImplAssocType, ImplDef, ImplMethod, TraitAssocType,
     TraitBound, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, WhereClause,
 };
-pub use types::{StructField, TypeDecl, TypeDeclKind, Variant, VariantField};
+pub use types::{ReprAttrKind, StructField, TypeDecl, TypeDeclKind, Variant, VariantField};

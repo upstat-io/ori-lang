@@ -83,6 +83,7 @@ fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
         Span::DUMMY,
         Visibility::Public,
         hash,
+        None,
     );
 }
 
@@ -148,6 +149,7 @@ fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
         Span::DUMMY,
         Visibility::Public,
         hash,
+        None,
     );
 }
 
@@ -204,6 +206,7 @@ fn register_alignment_type(checker: &mut ModuleChecker<'_>) {
         Span::DUMMY,
         Visibility::Public,
         hash,
+        None,
     );
 }
 
@@ -260,6 +263,7 @@ fn register_sign_type(checker: &mut ModuleChecker<'_>) {
         Span::DUMMY,
         Visibility::Public,
         hash,
+        None,
     );
 }
 
@@ -306,6 +310,7 @@ fn register_format_type_type(checker: &mut ModuleChecker<'_>) {
         Span::DUMMY,
         Visibility::Public,
         hash,
+        None,
     );
 }
 
@@ -396,5 +401,6 @@ fn register_format_spec_type(checker: &mut ModuleChecker<'_>) {
         Span::DUMMY,
         Visibility::Public,
         hash,
+        None,
     );
 }
