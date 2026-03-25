@@ -4,9 +4,9 @@ title: "Representation IR & Decision Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-25
-  note: "TPR-01-053 keeps §01.10 open: the conditional-attribute matrix is still incomplete across parser, IR, and formatter."
+  note: "All TPR findings resolved. TPR-01-053 (conditional-attribute matrix) implemented 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -43,7 +43,7 @@ sections:
     status: complete
   - id: "01.10"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 01: Representation IR & Decision Framework
@@ -1220,10 +1220,8 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `[TPR-01-052][medium]` `compiler/oric/src/commands/build_options/parse_args.rs:95` — Invalid `--repr-opt=` values are treated as explicit policy selections and can silently re-enable repr-opt.
   Resolved: Fixed on 2026-03-25. Moved `narrowing_policy_explicit = true` from before the match into each valid arm, matching the pattern used by `--opt=`, `--debug=`, `--link=`, `--lto=`. Invalid values now only print a warning without setting the explicit flag. Added 4 regression tests: `invalid_repr_opt_value_does_not_set_explicit`, `invalid_repr_opt_does_not_override_disabled`, `accumulate_invalid_repr_opt_allows_env_fallback`, `per_arg_merge_invalid_policy_preserves_prior_disabled`. 13,832 tests pass.
 
-- [ ] `[TPR-01-053][high]` `compiler/ori_parse/src/grammar/attr/conditional.rs:78` — The reopened attr-parser split still rejects spec-defined conditional-compilation forms and leaves the conditional-attribute surface internally inconsistent.
-  Evidence: `parse_target_attr_body()` only accepts `os|arch|family|not_os`, and `parse_cfg_attr_body()` only accepts `debug|release|not_debug|feature|not_feature`. The spec and quick reference also define `any_os`, `any_arch`, `not_arch`, `not_family`, and `any_feature` in `docs/ori_lang/v2026/spec/25-conditional-compilation.md` and `.claude/rules/ori-syntax.md`. The IR/formatter surface is only partially aligned: `compiler/ori_ir/src/ast/items/function.rs` has storage for `any_os` and `any_feature`, but none for `any_arch`, `not_arch`, or `not_family`, while `compiler/ori_fmt/src/declarations/mod.rs` already formats `any_os` and `any_feature`. Fresh verification on 2026-03-25: `timeout 150 cargo run -p oric --bin ori -- check /tmp/review_any_os.ori` reports `unknown target parameter 'any_os'`; the same command also rejects `any_arch`, `not_arch`, `not_family`, and `any_feature`.
-  Impact: documented Ori syntax currently hard-errors at parse time, and §01.10 overstates the state of the touched parser split by marking the attr work resolved while parser, IR, formatter, and spec disagree about the supported matrix.
-  Required plan update: Keep §01.10 reopened and implement the full conditional-attribute matrix (`any_os`, `any_arch`, `not_arch`, `not_family`, `any_feature`) across parser, IR, formatter, and phase tests before resolving the attr-split work again.
+- [x] `[TPR-01-053][high]` `compiler/ori_parse/src/grammar/attr/conditional.rs:78` — The reopened attr-parser split still rejects spec-defined conditional-compilation forms and leaves the conditional-attribute surface internally inconsistent.
+  Resolved: Fixed on 2026-03-25. Added 3 missing IR fields (`any_arch`, `not_arch`, `not_family`) to `TargetAttr`. Implemented full parser support for all 8 target params and 4 cfg params with extracted `parse_attr_string_value()`/`parse_attr_string_list()` helpers. Updated formatter with `emit_attr_string_param()`/`emit_attr_string_list()` helpers. 8 phase tests + 5 spec tests added. 13,840 tests pass.
 
 ---
 
@@ -1308,16 +1306,16 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `./clippy-all.sh` green (2026-03-24).
 
 **[TPR-01-053] Full conditional-attribute matrix** — parser/IR/formatter completeness for spec §25:
-- [ ] **IR**: Add missing fields to `TargetAttr` in `ori_ir/src/ast/items/function.rs`: `any_arch: Vec<Name>`, `not_arch: Option<Name>`, `not_family: Option<Name>`
-- [ ] **Parser**: Add `any_os` match arm in `parse_target_attr_body()` — parse `any_os: ["v1", "v2"]` list syntax into `target.any_os: Vec<Name>`
-- [ ] **Parser**: Add `any_arch` match arm — parse list syntax into `target.any_arch: Vec<Name>`
-- [ ] **Parser**: Add `not_arch` match arm — parse string into `target.not_arch: Option<Name>`
-- [ ] **Parser**: Add `not_family` match arm — parse string into `target.not_family: Option<Name>`
-- [ ] **Parser**: Add `any_feature` match arm in `parse_cfg_attr_body()` — parse `any_feature: ["v1", "v2"]` list syntax into `cfg.any_feature: Vec<Name>`
-- [ ] **Formatter**: Add formatting for `any_arch`, `not_arch`, `not_family` in `format_file_attr()` target branch
-- [ ] **Phase tests**: Add parse round-trip tests for all 5 new forms in `compiler/oric/tests/phases/parse/file_attr.rs`
-- [ ] **Spec tests**: Add `.ori` spec tests for `any_os`, `any_arch`, `not_arch`, `not_family`, `any_feature`
-- [ ] `./test-all.sh` green after conditional-attribute matrix completion
-- [ ] `./clippy-all.sh` green after conditional-attribute matrix completion
+- [x] **IR**: Add missing fields to `TargetAttr` in `ori_ir/src/ast/items/function.rs`: `any_arch: Vec<Name>`, `not_arch: Option<Name>`, `not_family: Option<Name>` (2026-03-25)
+- [x] **Parser**: Add `any_os` match arm in `parse_target_attr_body()` — parse `any_os: ["v1", "v2"]` list syntax into `target.any_os: Vec<Name>` (2026-03-25). Extracted `parse_attr_string_value()` and `parse_attr_string_list()` helpers.
+- [x] **Parser**: Add `any_arch` match arm — parse list syntax into `target.any_arch: Vec<Name>` (2026-03-25)
+- [x] **Parser**: Add `not_arch` match arm — parse string into `target.not_arch: Option<Name>` (2026-03-25)
+- [x] **Parser**: Add `not_family` match arm — parse string into `target.not_family: Option<Name>` (2026-03-25)
+- [x] **Parser**: Add `any_feature` match arm in `parse_cfg_attr_body()` — parse `any_feature: ["v1", "v2"]` list syntax into `cfg.any_feature: Vec<Name>` (2026-03-25)
+- [x] **Formatter**: Add formatting for `any_arch`, `not_arch`, `not_family` in `format_file_attr()` target branch (2026-03-25)
+- [x] **Phase tests**: Add parse round-trip tests for all 5 new forms in `compiler/oric/tests/phases/parse/file_attr.rs` (2026-03-25). 8 new tests: any_os, any_arch, not_arch, not_family, any_feature, single-element list, trailing comma, combined params.
+- [x] **Spec tests**: Add `.ori` spec tests for `any_os`, `any_arch`, `not_arch`, `not_family`, `any_feature` (2026-03-25). 5 tests in `tests/spec/declarations/conditional/`.
+- [x] `./test-all.sh` green after conditional-attribute matrix completion (2026-03-25). 13,840 passed, 0 failed.
+- [x] `./clippy-all.sh` green after conditional-attribute matrix completion (2026-03-25). Refactored `format_file_attr()` into helpers `emit_attr_string_param()` and `emit_attr_string_list()` to stay under 100-line limit.
 
 **Exit Criteria:** `ori_repr` crate exists, `ReprPlan` is threaded through the entire LLVM codegen pipeline, all existing tests pass with identical behavior, `cargo test -p ori_repr --release` passes, and `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows `ReprPlan query` events for every type in the program.

@@ -295,6 +295,9 @@ impl Spanned for ConstDef {
 /// #!target(os: "linux")
 /// #!target(os: "linux", arch: "x86_64")
 /// #target(not_os: "windows")
+/// #target(any_os: ["linux", "macos"])
+/// #target(not_arch: "wasm32")
+/// #target(not_family: "wasm")
 /// ```
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct TargetAttr {
@@ -302,7 +305,10 @@ pub struct TargetAttr {
     pub arch: Option<Name>,
     pub family: Option<Name>,
     pub any_os: Vec<Name>,
+    pub any_arch: Vec<Name>,
     pub not_os: Option<Name>,
+    pub not_arch: Option<Name>,
+    pub not_family: Option<Name>,
 }
 
 /// Config conditional compilation attribute.
