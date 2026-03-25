@@ -89,6 +89,13 @@ pub enum MachineRepr {
         /// Whether the original allocation had an RC header.
         had_rc: bool,
     },
-    /// Opaque pointer (iterator, channel — runtime-managed).
+    /// Opaque pointer to a runtime-managed RC object (channel).
     OpaquePtr,
+    /// Unmanaged pointer (Box-allocated, no RC header — iterator).
+    ///
+    /// Unlike `OpaquePtr`, unmanaged pointers have no reference counting
+    /// overhead. They are trivial from an ARC perspective (no `ori_rc_inc`
+    /// or `ori_rc_dec` needed). This distinction is critical for triviality
+    /// classification: `is_trivial_repr(UnmanagedPtr)` returns `true`.
+    UnmanagedPtr,
 }

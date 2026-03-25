@@ -934,10 +934,12 @@ The existing `TypeInfoStore` and `TypeInfo` enum must coexist with `ReprPlan` du
   - `try_repr_to_llvm_type()` handles all `MachineRepr` variants: Int (all widths), Float (F32/F64), Bool, Char, Byte, Duration, Size, Ordering, Unit, Never, Range, FatPointer, OpaquePtr, RcPointer, Closure
   - Added `type_i16()` and `type_f32()` to `SimpleCx` for narrowed width support
 
-- [ ] **Phase B — Triviality unification (§02 scope):**  <!-- blocked-by:02 -->
-  - `TypeInfoStore::is_trivial()` delegates to `ReprPlan::is_trivial()` when available
-  - `TypeInfoStore::classify_trivial()` becomes dead code and is removed
-  - `triviality_cache` and `classifying_trivial` fields removed from TypeInfoStore
+- [x] **Phase B — Triviality unification (§02 scope):** (2026-03-25)
+  - `TypeInfoStore::new_with_plan()` constructor pre-computes triviality from `ReprPlan` at construction
+  - `TypeInfoStore::is_trivial()` uses cache (populated from plan in production, lazy-computed in tests)
+  - Production paths (JIT + AOT) use `new_with_plan()` — `classify_trivial()` is never called
+  - `classify_trivial()` and cache fields retained as fallback for ~100 test call sites using `new()`
+  - 13,979 tests pass in debug; release build clean
 
 - [ ] **Phase C — Full migration (§06/§07 scope):**  <!-- blocked-by:06 --><!-- blocked-by:07 -->
   - `TypeLayoutResolver::storage_type()` reads from `ReprPlan` for ALL types

@@ -245,7 +245,8 @@ fn canonical_inner(
         Tag::Never => Some(MachineRepr::Never),
         Tag::Str => Some(MachineRepr::FatPointer(FatRepr::Str)),
         Tag::Range => Some(MachineRepr::Range),
-        Tag::Iterator | Tag::DoubleEndedIterator | Tag::Channel => Some(MachineRepr::OpaquePtr),
+        Tag::Iterator | Tag::DoubleEndedIterator => Some(MachineRepr::UnmanagedPtr),
+        Tag::Channel => Some(MachineRepr::OpaquePtr),
 
         // Collections — fat pointer {len, cap, data}
         Tag::List => canonical_collection(pool, pool.list_elem(resolved), visiting, cache),
