@@ -553,6 +553,20 @@ impl<'a> Parser<'a> {
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
         }
 
+        // TPR-01-062: Diagnose orphaned attrs at EOF. If parse_imports() returned
+        // leftover attrs but the declaration loop never consumed them (file ended
+        // before any declaration), emit E1006 so users get the expected placement
+        // diagnostic instead of silent acceptance.
+        if let Some(orphan_attrs) = leftover_attrs {
+            if !orphan_attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes must be followed by a function or test definition",
+                    self.cursor.previous_span(),
+                ));
+            }
+        }
+
         // Drain deferred errors/warnings from sub-parsers.
         errors.append(&mut self.deferred_errors);
         let warnings = self.deferred_warnings;
@@ -1009,7 +1023,7 @@ impl<'a> Parser<'a> {
         mut state: incremental::IncrementalState<'_>,
         old_arena: &ExprArena,
     ) -> ParseOutput {
-        use incremental::{AstCopier, DeclKind};
+        use incremental::AstCopier;
 
         let mut module = Module::with_capacity_hint(self.estimated_source_len());
         let mut errors = Vec::new();
@@ -1037,68 +1051,24 @@ impl<'a> Parser<'a> {
                 // Check if this declaration is outside the change region
                 if !state.cursor.marker().intersects(decl_ref.span) {
                     let copier = AstCopier::new(old_arena, state.cursor.marker().clone());
-
-                    match decl_ref.kind {
-                        DeclKind::Function => {
-                            let old_func = &state.cursor.module().functions[decl_ref.index];
-                            let new_func = copier.copy_function(old_func, &mut self.arena);
-                            module.functions.push(new_func);
-                        }
-                        DeclKind::Test => {
-                            let old_test = &state.cursor.module().tests[decl_ref.index];
-                            let new_test = copier.copy_test(old_test, &mut self.arena);
-                            module.tests.push(new_test);
-                        }
-                        DeclKind::Type => {
-                            let old_type = &state.cursor.module().types[decl_ref.index];
-                            let new_type = copier.copy_type_decl(old_type, &mut self.arena);
-                            module.types.push(new_type);
-                        }
-                        DeclKind::Trait => {
-                            let old_trait = &state.cursor.module().traits[decl_ref.index];
-                            let new_trait = copier.copy_trait(old_trait, &mut self.arena);
-                            module.traits.push(new_trait);
-                        }
-                        DeclKind::Impl => {
-                            let old_impl = &state.cursor.module().impls[decl_ref.index];
-                            let new_impl = copier.copy_impl(old_impl, &mut self.arena);
-                            module.impls.push(new_impl);
-                        }
-                        DeclKind::DefImpl => {
-                            let old_def_impl = &state.cursor.module().def_impls[decl_ref.index];
-                            let new_def_impl = copier.copy_def_impl(old_def_impl, &mut self.arena);
-                            module.def_impls.push(new_def_impl);
-                        }
-                        DeclKind::Extend => {
-                            let old_extend = &state.cursor.module().extends[decl_ref.index];
-                            let new_extend = copier.copy_extend(old_extend, &mut self.arena);
-                            module.extends.push(new_extend);
-                        }
-                        DeclKind::Const => {
-                            let old_const = &state.cursor.module().consts[decl_ref.index];
-                            let new_const = copier.copy_const(old_const, &mut self.arena);
-                            module.consts.push(new_const);
-                        }
-                        DeclKind::ExtensionImport => {
-                            let old_ext = &state.cursor.module().extension_imports[decl_ref.index];
-                            let new_ext = copier.copy_extension_import(old_ext);
-                            module.extension_imports.push(new_ext);
-                        }
-                        DeclKind::ExternBlock => {
-                            let old_block = &state.cursor.module().extern_blocks[decl_ref.index];
-                            let new_block = copier.copy_extern_block(old_block, &mut self.arena);
-                            module.extern_blocks.push(new_block);
-                        }
-                        DeclKind::Import => {
-                            unreachable!("imports should not appear in declaration list");
-                        }
-                    }
+                    copier.copy_declaration_to_module(
+                        decl_ref,
+                        state.cursor.module(),
+                        &mut module,
+                        &mut self.arena,
+                    );
 
                     state.stats.reused_count += 1;
                     self.skip_to_span_end(decl_ref.span);
                     // Consume trailing `;` that was eaten by the original parse
                     // but not included in the declaration span.
                     self.eat_optional_semicolon();
+                    // TPR-01-063: Consume leftover attrs when the first declaration
+                    // slot is satisfied by reuse. The reused declaration already has
+                    // its attrs baked into the AST node from the original full parse.
+                    // Without this, leftover_attrs leaks to the next fresh-parsed
+                    // declaration, synthesizing attrs onto unrelated declarations.
+                    leftover_attrs.take();
                     continue;
                 }
             }
@@ -1119,6 +1089,17 @@ impl<'a> Parser<'a> {
             };
 
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
+        }
+
+        // TPR-01-062: Diagnose orphaned attrs at EOF on incremental path too.
+        if let Some(orphan_attrs) = leftover_attrs {
+            if !orphan_attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes must be followed by a function or test definition",
+                    self.cursor.previous_span(),
+                ));
+            }
         }
 
         // Drain deferred errors/warnings from sub-parsers.
