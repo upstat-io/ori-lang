@@ -61,7 +61,7 @@ ori_repr tracing, ORI_LOG=ori_repr, tracing_setup
 ---
 
 ### Section 02: Transitive Triviality & ARC Elision
-**File:** `section-02-transitive-triviality.md` | **Status:** Not Started
+**File:** `section-02-transitive-triviality.md` | **Status:** In Progress
 
 ```
 Triviality, trivial, non-trivial, ARC elision, RC elision
