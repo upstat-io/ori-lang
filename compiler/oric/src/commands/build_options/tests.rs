@@ -677,3 +677,86 @@ fn accumulate_env_not_disabled_keeps_default() {
         "env_disabled=false must keep default Aggressive"
     );
 }
+
+// TPR-01-052: Invalid --repr-opt= values must NOT set narrowing_policy_explicit.
+
+/// TPR-01-052: `--repr-opt=bogus` must NOT set `narrowing_policy_explicit`.
+/// An invalid policy value is not an explicit policy selection.
+#[test]
+fn invalid_repr_opt_value_does_not_set_explicit() {
+    let opts = parse_build_options(&["--repr-opt=bogus".to_string()]);
+    assert!(
+        !opts.narrowing_policy_explicit,
+        "--repr-opt=bogus must NOT set narrowing_policy_explicit"
+    );
+    assert_eq!(
+        opts.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "--repr-opt=bogus must leave default Aggressive (non-explicit)"
+    );
+}
+
+/// TPR-01-052 semantic pin: `--no-repr-opt --repr-opt=bogus` must preserve Disabled.
+/// This is the critical scenario: a typo in a later flag must NOT silently
+/// re-enable repr-opt by overriding the earlier explicit Disabled policy.
+#[test]
+fn invalid_repr_opt_does_not_override_disabled() {
+    let first = parse_build_options(&["--no-repr-opt".to_string()]);
+    assert_eq!(first.narrowing_policy, NarrowingPolicy::Disabled);
+    assert!(first.narrowing_policy_explicit);
+
+    let second = parse_build_options(&["--repr-opt=bogus".to_string()]);
+    // Invalid value must NOT be treated as explicit
+    assert!(!second.narrowing_policy_explicit);
+
+    let mut merged = first;
+    merged.merge(&second);
+    assert_eq!(
+        merged.narrowing_policy,
+        NarrowingPolicy::Disabled,
+        "--no-repr-opt then --repr-opt=bogus must preserve Disabled"
+    );
+}
+
+/// TPR-01-052: invalid `--repr-opt=` via accumulation path must not block env var.
+/// With `env_disabled=true` and `--repr-opt=typo`, the env var should still apply
+/// because the invalid value is not a valid explicit policy.
+#[test]
+fn accumulate_invalid_repr_opt_allows_env_fallback() {
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "--repr-opt=typo".to_string(),
+    ];
+    let options = accumulate_build_options_with_env(&args, true);
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Disabled,
+        "--repr-opt=typo must not block env_disabled=true fallback"
+    );
+}
+
+/// TPR-01-052: per-arg merge with invalid trailing policy preserves earlier explicit.
+/// Simulates: ori build file.ori --no-repr-opt --repr-opt=TYPO --release
+#[test]
+fn per_arg_merge_invalid_policy_preserves_prior_disabled() {
+    let args = vec![
+        "--no-repr-opt".to_string(),
+        "--repr-opt=TYPO".to_string(),
+        "--release".to_string(),
+    ];
+
+    let mut options = BuildOptions::default();
+    for arg in &args {
+        let parsed = parse_build_options(std::slice::from_ref(arg));
+        options.merge(&parsed);
+    }
+
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Disabled,
+        "--no-repr-opt must survive trailing --repr-opt=TYPO"
+    );
+    assert!(options.release, "--release must still be set");
+}
