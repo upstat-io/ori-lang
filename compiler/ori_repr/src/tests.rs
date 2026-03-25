@@ -1891,6 +1891,66 @@ fn repr_convert_c_aligned_roundtrip() {
     assert_eq!(attr, ReprAttribute::CAligned(32));
 }
 
+// ── TPR-01-046: Named-type Idx storage contract ────────────────────
+
+#[test]
+fn repr_attr_stored_via_named_idx() {
+    // TPR-01-046: The live pipeline stores #repr attrs keyed by the Named Idx
+    // from TypeEntry, not by a concrete struct_type Idx. This test pins that
+    // the storage and retrieval contract works with Named Idx values, matching
+    // the production codegen_pipeline path.
+    let mut pool = ori_types::Pool::new();
+
+    // Create a Named Idx (as the type registry and codegen pipeline would produce).
+    let named_idx = pool.named(ori_ir::Name::from_raw(500));
+
+    // Store #repr("c") under the Named Idx.
+    let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+
+    // Verify retrieval works via the same Named Idx.
+    assert_eq!(
+        plan.repr_attr(named_idx),
+        Some(&ReprAttribute::C),
+        "Named Idx must store and retrieve #repr attrs — this is the production path"
+    );
+
+    // Also verify that a different Named Idx returns None.
+    let other_named = pool.named(ori_ir::Name::from_raw(501));
+    assert_eq!(
+        plan.repr_attr(other_named),
+        None,
+        "repr_attr on unrelated Named Idx must return None"
+    );
+}
+
+#[test]
+fn repr_attr_named_vs_struct_idx_independent() {
+    // TPR-01-046 semantic pin: Named Idx and struct_type Idx for the same name
+    // are DIFFERENT pool entries. A #repr stored on one must NOT be visible on
+    // the other. This verifies the storage contract uses exact Idx equality.
+    let mut pool = ori_types::Pool::new();
+    let name = ori_ir::Name::from_raw(600);
+
+    let named_idx = pool.named(name);
+    let struct_idx = pool.struct_type(name, &[]);
+
+    // Store #repr("packed") on the Named Idx only.
+    let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::Packed)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+
+    assert_eq!(
+        plan.repr_attr(named_idx),
+        Some(&ReprAttribute::Packed),
+        "Named Idx should have the attr"
+    );
+    assert_eq!(
+        plan.repr_attr(struct_idx),
+        None,
+        "struct_type Idx should NOT have the attr — different pool entry"
+    );
+}
+
 // ── §01.9: Canonical Representation Tests ──────────────────────────
 
 /// §01.9 Item 4: Named→Struct resolution. Previous tests only covered

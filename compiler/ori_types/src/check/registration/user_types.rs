@@ -220,8 +220,13 @@ fn validate_and_merge_repr_attrs(
                     }
                     valid_attrs.push(*attr);
                 } else if is_newtype {
-                    // Newtypes are inherently transparent — redundant but not an error.
-                    // Don't add to valid_attrs since it's a no-op.
+                    // Spec §26.4.9: "#repr applies only to struct types."
+                    // Newtypes are implicitly transparent; explicit #repr is an error.
+                    checker.push_error(TypeCheckError::invalid_repr_attribute(
+                        decl.span,
+                        decl.name,
+                        "`#repr(\"transparent\")` can only be applied to structs, not newtypes (newtypes are implicitly transparent)",
+                    ));
                 } else {
                     checker.push_error(TypeCheckError::invalid_repr_attribute(
                         decl.span,
@@ -347,9 +352,24 @@ fn merge_repr_attrs(
 
     // Valid combination: c + aligned(N) → CAligned(N).
     if let (true, Some(n)) = (has_c, aligned_n) {
+        // Reject if there are extra attrs beyond the c+aligned pair.
+        if valid_attrs.len() > 2 {
+            checker.push_error(TypeCheckError::invalid_repr_attribute(
+                decl.span,
+                decl.name,
+                "only `#repr(\"c\")` + `#repr(\"aligned\", N)` is a valid combination — extra `#repr` attributes are not permitted",
+            ));
+            return None;
+        }
         return Some(ReprAttrKind::CAligned(n));
     }
 
-    // Duplicate of same kind — take first.
-    Some(valid_attrs[0])
+    // Reject duplicate same-kind attrs. The only valid multi-attr case is c+aligned
+    // (handled above). Any other multi-attr combination reaching here is a duplicate.
+    checker.push_error(TypeCheckError::invalid_repr_attribute(
+        decl.span,
+        decl.name,
+        "duplicate `#repr` attributes are not permitted — each `#repr` kind may only appear once",
+    ));
+    None
 }

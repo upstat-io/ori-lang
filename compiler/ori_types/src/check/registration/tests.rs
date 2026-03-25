@@ -1,6 +1,8 @@
 use super::*;
 use crate::{Idx, ModuleChecker, ObjectSafetyViolation};
-use ori_ir::{DerivedTrait, ExprArena, Module, Name, ParsedType, Span, StringInterner};
+use ori_ir::{
+    DerivedTrait, ExprArena, Module, Name, ParsedType, ReprAttrKind, Span, StringInterner,
+};
 
 #[test]
 fn register_builtin_ordering() {
@@ -755,4 +757,142 @@ fn all_derived_traits_have_well_known_names() {
             trait_kind.trait_name()
         );
     }
+}
+
+// ============================================================================
+// #repr attribute validation (TPR-01-044, TPR-01-045)
+// ============================================================================
+
+/// Helper: create a Module with a single type declaration for repr validation tests.
+fn make_module_with_repr(
+    interner: &StringInterner,
+    name: &str,
+    kind: ori_ir::TypeDeclKind,
+    repr_attrs: Vec<ReprAttrKind>,
+) -> Module {
+    let mut module = Module::default();
+    module.types.push(ori_ir::TypeDecl {
+        name: interner.intern(name),
+        kind,
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![],
+        repr_attrs,
+    });
+    module
+}
+
+/// TPR-01-044: Explicit `#repr("transparent")` on newtypes must be rejected with E2041.
+///
+/// The spec says `#repr` applies only to struct types. Newtypes are implicitly
+/// transparent. Explicit `#repr("transparent")` on a newtype is an error, not
+/// a redundant no-op.
+#[test]
+fn repr_transparent_on_newtype_rejected() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    let module = make_module_with_repr(
+        &interner,
+        "UserId",
+        ori_ir::TypeDeclKind::Newtype(ParsedType::Primitive(ori_ir::TypeId::from_raw(0))),
+        vec![ReprAttrKind::Transparent],
+    );
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected E2041 for transparent on newtype, got: {errors:?}"
+    );
+    assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2041);
+}
+
+/// TPR-01-045: Duplicate same-kind `#repr` attributes must be rejected with E2041.
+///
+/// The spec only permits `c + aligned` as a valid multi-attribute combination.
+/// Same-kind duplicates like `#repr("c") #repr("c")` are invalid.
+#[test]
+fn repr_duplicate_c_rejected() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    let module = make_module_with_repr(
+        &interner,
+        "DupC",
+        ori_ir::TypeDeclKind::Struct(vec![ori_ir::StructField {
+            name: interner.intern("x"),
+            ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)),
+            span: Span::DUMMY,
+        }]),
+        vec![ReprAttrKind::C, ReprAttrKind::C],
+    );
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected E2041 for duplicate #repr(\"c\"), got: {errors:?}"
+    );
+    assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2041);
+}
+
+/// TPR-01-045: Duplicate `#repr("aligned", N)` with different N must be rejected.
+#[test]
+fn repr_duplicate_aligned_rejected() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    let module = make_module_with_repr(
+        &interner,
+        "DupAligned",
+        ori_ir::TypeDeclKind::Struct(vec![ori_ir::StructField {
+            name: interner.intern("x"),
+            ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)),
+            span: Span::DUMMY,
+        }]),
+        vec![ReprAttrKind::Aligned(8), ReprAttrKind::Aligned(16)],
+    );
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected E2041 for duplicate #repr(\"aligned\"), got: {errors:?}"
+    );
+    assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2041);
+}
+
+/// TPR-01-045 semantic pin: the ONLY valid multi-attribute case is `c + aligned(N)`.
+#[test]
+fn repr_c_plus_aligned_still_valid() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    let module = make_module_with_repr(
+        &interner,
+        "CAligned",
+        ori_ir::TypeDeclKind::Struct(vec![ori_ir::StructField {
+            name: interner.intern("x"),
+            ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)),
+            span: Span::DUMMY,
+        }]),
+        vec![ReprAttrKind::C, ReprAttrKind::Aligned(16)],
+    );
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    assert!(
+        errors.is_empty(),
+        "c + aligned should be valid, got errors: {errors:?}"
+    );
 }
