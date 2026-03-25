@@ -116,16 +116,17 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
         import asyncio
 
         async def _generate():
-            from copilot import CopilotClient, PermissionHandler
+            from copilot import CopilotClient
+            from copilot.session import PermissionHandler
 
             client = CopilotClient()
             await client.start()
             try:
-                session = await client.create_session({
-                    "model": "claude-sonnet-4.6",
-                    "streaming": False,
-                    "on_permission_request": PermissionHandler.approve_all,
-                })
+                session = await client.create_session(
+                    model="claude-sonnet-4.6",
+                    streaming=False,
+                    on_permission_request=PermissionHandler.approve_all,
+                )
                 done = asyncio.Event()
                 result = []
 
