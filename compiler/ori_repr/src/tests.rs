@@ -2694,3 +2694,59 @@ fn storage_type_equivalence_full_29_type_matrix() {
         "SelfType → None"
     );
 }
+
+// §02.2b: analyze_triviality() validation pass produces zero mismatches
+
+#[test]
+fn analyze_triviality_validation_zero_mismatches() {
+    use ori_types::{EnumVariant, Idx, Pool};
+
+    let mut pool = Pool::new();
+
+    // Build diverse types: trivial + non-trivial + compound
+    let opt_int = pool.option(Idx::INT);
+    let tuple_trivial = pool.tuple(&[Idx::INT, Idx::FLOAT]);
+    let sn = Name::from_raw(8000);
+    let f1 = Name::from_raw(8001);
+    let f2 = Name::from_raw(8002);
+    let struct_trivial = pool.struct_type(sn, &[(f1, Idx::INT), (f2, Idx::FLOAT)]);
+    let result_nontrivial = pool.result(Idx::INT, Idx::STR);
+    let enum_trivial = pool.enum_type(
+        Name::from_raw(8010),
+        &[
+            EnumVariant {
+                name: Name::from_raw(8011),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(8012),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+
+    // compute_repr_plan canonicalizes all reachable types and runs
+    // analyze_triviality() internally. The debug_assert! in the pass
+    // would fire on any mismatch.
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+
+    // Also verify the plan's is_trivial() queries match expectations
+    // for the types we built.
+    assert!(plan.is_trivial(opt_int), "Option<int> should be trivial");
+    assert!(
+        plan.is_trivial(tuple_trivial),
+        "(int, float) should be trivial"
+    );
+    assert!(
+        plan.is_trivial(struct_trivial),
+        "struct {{int, float}} should be trivial"
+    );
+    assert!(
+        !plan.is_trivial(result_nontrivial),
+        "Result<int, str> should be non-trivial"
+    );
+    assert!(
+        plan.is_trivial(enum_trivial),
+        "enum {{unit, int}} should be trivial"
+    );
+}
