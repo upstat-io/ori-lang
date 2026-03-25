@@ -66,8 +66,8 @@ impl TestEnforcement {
 
 // Public types and functions for external use (tests, library consumers)
 pub use build_options::{
-    accumulate_build_options, parse_build_options, BuildOptions, DebugLevel, EmitType, LinkMode,
-    LtoMode, OptLevel,
+    accumulate_build_options, accumulate_build_options_with_env, parse_build_options, BuildOptions,
+    DebugLevel, EmitType, LinkMode, LtoMode, OptLevel,
 };
 
 // Internal re-exports for use by the CLI binary via oric::commands::*

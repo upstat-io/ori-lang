@@ -592,3 +592,88 @@ fn accumulate_zero_options_has_non_explicit_policy() {
         "zero options must leave policy non-explicit so env var can apply"
     );
 }
+
+// TPR-01-032: Deterministic env-var regression tests via _with_env seam.
+// These exercise the actual env var fallback code path without mutating
+// the process-global environment (which is racy in parallel tests).
+
+/// TPR-01-032 regression pin: zero CLI options + `env_disabled=true` → Disabled.
+/// This is the exact scenario that fails silently if the env var fallback
+/// is accidentally removed from `accumulate_build_options_with_env`.
+#[test]
+fn accumulate_env_disabled_zero_options_yields_disabled() {
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+    ];
+    let options = accumulate_build_options_with_env(&args, true);
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Disabled,
+        "env_disabled=true with zero CLI options must yield Disabled"
+    );
+    assert!(
+        !options.narrowing_policy_explicit,
+        "env var fallback does not set explicit flag"
+    );
+}
+
+/// TPR-01-032: `env_disabled=true` with trailing flags (no explicit policy).
+/// The env var must still apply after parsing unrelated flags like --release.
+#[test]
+fn accumulate_env_disabled_with_trailing_flags() {
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "--release".to_string(),
+        "--emit=llvm-ir".to_string(),
+    ];
+    let options = accumulate_build_options_with_env(&args, true);
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Disabled,
+        "env_disabled=true must apply even with trailing non-policy flags"
+    );
+    assert!(options.release, "--release must still be honored");
+}
+
+/// TPR-01-032: explicit `--repr-opt=aggressive` overrides `env_disabled=true`.
+/// CLI explicit flags always win over the env var (TPR-01-036/048).
+#[test]
+fn accumulate_explicit_aggressive_overrides_env_disabled() {
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "--repr-opt=aggressive".to_string(),
+    ];
+    let options = accumulate_build_options_with_env(&args, true);
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "explicit --repr-opt=aggressive must override env_disabled=true"
+    );
+    assert!(
+        options.narrowing_policy_explicit,
+        "explicit flag must set narrowing_policy_explicit"
+    );
+}
+
+/// TPR-01-032: `env_disabled=false` does NOT override default Aggressive.
+/// When the env var is not set, the default policy must remain.
+#[test]
+fn accumulate_env_not_disabled_keeps_default() {
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+    ];
+    let options = accumulate_build_options_with_env(&args, false);
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "env_disabled=false must keep default Aggressive"
+    );
+}
