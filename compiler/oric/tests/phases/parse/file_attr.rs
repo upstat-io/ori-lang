@@ -172,6 +172,107 @@ fn test_file_attr_invalid_repr() {
     );
 }
 
+// TPR-01-053: Full conditional-attribute matrix (Spec §25)
+
+#[test]
+fn test_file_attr_target_any_os() {
+    let output = parse_ok("#!target(any_os: [\"linux\", \"macos\"])\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Target { attr: target, .. } => {
+            assert_eq!(target.any_os.len(), 2, "any_os should have 2 entries");
+            assert!(target.os.is_none(), "os should not be set");
+        }
+        FileAttr::Cfg { .. } => panic!("expected Target"),
+    }
+}
+
+#[test]
+fn test_file_attr_target_any_arch() {
+    let output = parse_ok("#!target(any_arch: [\"x86_64\", \"aarch64\"])\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Target { attr: target, .. } => {
+            assert_eq!(target.any_arch.len(), 2, "any_arch should have 2 entries");
+            assert!(target.arch.is_none(), "arch should not be set");
+        }
+        FileAttr::Cfg { .. } => panic!("expected Target"),
+    }
+}
+
+#[test]
+fn test_file_attr_target_not_arch() {
+    let output = parse_ok("#!target(not_arch: \"wasm32\")\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Target { attr: target, .. } => {
+            assert!(target.not_arch.is_some(), "not_arch should be set");
+        }
+        FileAttr::Cfg { .. } => panic!("expected Target"),
+    }
+}
+
+#[test]
+fn test_file_attr_target_not_family() {
+    let output = parse_ok("#!target(not_family: \"wasm\")\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Target { attr: target, .. } => {
+            assert!(target.not_family.is_some(), "not_family should be set");
+        }
+        FileAttr::Cfg { .. } => panic!("expected Target"),
+    }
+}
+
+#[test]
+fn test_file_attr_cfg_any_feature() {
+    let output = parse_ok("#!cfg(any_feature: [\"ssl\", \"tls\"])\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Cfg { attr: cfg, .. } => {
+            assert_eq!(
+                cfg.any_feature.len(),
+                2,
+                "any_feature should have 2 entries"
+            );
+        }
+        FileAttr::Target { .. } => panic!("expected Cfg"),
+    }
+}
+
+// Edge cases for list parsing
+
+#[test]
+fn test_file_attr_target_any_os_single_element() {
+    let output = parse_ok("#!target(any_os: [\"linux\"])\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Target { attr: target, .. } => {
+            assert_eq!(target.any_os.len(), 1, "any_os should have 1 entry");
+        }
+        FileAttr::Cfg { .. } => panic!("expected Target"),
+    }
+}
+
+#[test]
+fn test_file_attr_target_any_os_trailing_comma() {
+    let output = parse_ok("#!target(any_os: [\"linux\", \"macos\",])\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Target { attr: target, .. } => {
+            assert_eq!(target.any_os.len(), 2, "trailing comma should be allowed");
+        }
+        FileAttr::Cfg { .. } => panic!("expected Target"),
+    }
+}
+
+// Combined: new params alongside existing params
+
+#[test]
+fn test_file_attr_target_not_arch_with_os() {
+    let output = parse_ok("#!target(os: \"linux\", not_arch: \"wasm32\")\n@main () -> void = ();");
+    match output.module.file_attr.unwrap() {
+        FileAttr::Target { attr: target, .. } => {
+            assert!(target.os.is_some(), "os should be set");
+            assert!(target.not_arch.is_some(), "not_arch should be set");
+        }
+        FileAttr::Cfg { .. } => panic!("expected Target"),
+    }
+}
+
 #[test]
 fn test_file_attr_unknown_name() {
     parse_err("#!foobar()\n@main () -> void = ();", "unknown attribute");

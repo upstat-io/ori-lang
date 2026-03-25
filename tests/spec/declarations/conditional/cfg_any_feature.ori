@@ -1,0 +1,4 @@
+// Spec §25.3.3: any_feature takes a list of feature names (OR condition)
+#!cfg(any_feature: ["ssl", "tls"])
+
+@main () -> void = print(msg: "cfg any_feature parses correctly");
