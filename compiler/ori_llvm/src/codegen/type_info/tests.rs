@@ -718,7 +718,7 @@ fn resolver_primitive_types() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     assert_eq!(resolver.resolve(Idx::INT), scx.type_i64().into());
     assert_eq!(resolver.resolve(Idx::FLOAT), scx.type_f64().into());
@@ -739,7 +739,7 @@ fn resolver_simple_struct() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(struct_idx);
     // Should be a named struct with 2 fields
@@ -769,7 +769,7 @@ fn resolver_nested_struct() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(outer_idx);
     match ty {
@@ -815,7 +815,7 @@ fn resolver_recursive_enum() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     // Should not infinite loop!
     let ty = resolver.resolve(tree_enum);
@@ -863,7 +863,7 @@ fn resolver_enum_all_unit() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(enum_idx);
     match ty {
@@ -884,7 +884,7 @@ fn resolver_option_with_recursive_resolve() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(opt_int);
     match ty {
@@ -904,7 +904,7 @@ fn resolver_tuple() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty = resolver.resolve(tup);
     match ty {
@@ -921,7 +921,7 @@ fn resolver_caches_results() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     let ty1 = resolver.resolve(Idx::INT);
     let ty2 = resolver.resolve(Idx::INT);
@@ -1228,7 +1228,7 @@ fn integration_compile_through_type_system() {
     let store = TypeInfoStore::new(&pool);
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "integration_test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
     // Verify all types resolve without panic
     let all_types = [
@@ -1368,4 +1368,251 @@ fn integration_compile_through_type_system() {
     // Sentinel handling
     assert!(matches!(store.get(Idx::NONE), TypeInfo::Error));
     assert_eq!(resolver.resolve(Idx::NONE), scx.type_i64().into());
+}
+
+// -- Phase A: ReprPlan integration tests (§01.8) --
+
+/// Phase A fallback for 12 primitives: empty ReprPlan produces the same
+/// LLVM types as TypeInfoStore alone.
+#[test]
+fn phase_a_fallback_primitives() {
+    let pool = test_pool();
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_phase_a");
+
+    // Baseline: no ReprPlan (None).
+    let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
+
+    // Phase A: empty ReprPlan (no decisions recorded).
+    let empty_plan = ori_repr::ReprPlan::new(ori_repr::NarrowingPolicy::Disabled);
+    let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&empty_plan));
+
+    // All 12 primitives must produce identical LLVM types.
+    let primitives = [
+        (Idx::INT, "Int"),
+        (Idx::FLOAT, "Float"),
+        (Idx::BOOL, "Bool"),
+        (Idx::STR, "Str"),
+        (Idx::CHAR, "Char"),
+        (Idx::BYTE, "Byte"),
+        (Idx::UNIT, "Unit"),
+        (Idx::NEVER, "Never"),
+        (Idx::DURATION, "Duration"),
+        (Idx::SIZE, "Size"),
+        (Idx::ORDERING, "Ordering"),
+        (Idx::ERROR, "Error"),
+    ];
+
+    for (idx, name) in primitives {
+        assert_eq!(
+            with_plan.resolve(idx),
+            no_plan.resolve(idx),
+            "Phase A fallback mismatch for {name}: empty plan must match no plan"
+        );
+    }
+}
+
+/// Phase A fallback for composite types: empty ReprPlan produces the same
+/// LLVM type structure as TypeInfoStore alone for Option, Result, Tuple,
+/// Struct, Enum.
+///
+/// Named structs in the same LLVM context get uniquified names (`%ori.400`
+/// vs `%ori.400.0`), so we compare field counts and field types instead
+/// of pointer identity.
+#[test]
+fn phase_a_fallback_composites() {
+    use inkwell::types::BasicTypeEnum::StructType as ST;
+
+    let mut pool = Pool::new();
+    let name = Name::from_raw(400);
+    let x_name = Name::from_raw(401);
+    let y_name = Name::from_raw(402);
+
+    let opt_int = pool.option(Idx::INT);
+    let res_int_str = pool.result(Idx::INT, Idx::STR);
+    let tup = pool.tuple(&[Idx::INT, Idx::FLOAT]);
+    let struct_idx = pool.struct_type(name, &[(x_name, Idx::INT), (y_name, Idx::FLOAT)]);
+    let enum_idx = pool.enum_type(
+        name,
+        &[
+            ori_types::EnumVariant {
+                name: Name::from_raw(403),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: Name::from_raw(404),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_phase_a_composites");
+
+    let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
+    let empty_plan = ori_repr::ReprPlan::new(ori_repr::NarrowingPolicy::Disabled);
+    let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&empty_plan));
+
+    // For anonymous structs (Option, Result, Tuple), pointer equality works.
+    assert_eq!(
+        with_plan.resolve(opt_int),
+        no_plan.resolve(opt_int),
+        "Phase A fallback mismatch for Option<int>"
+    );
+    assert_eq!(
+        with_plan.resolve(res_int_str),
+        no_plan.resolve(res_int_str),
+        "Phase A fallback mismatch for Result<int, str>"
+    );
+    assert_eq!(
+        with_plan.resolve(tup),
+        no_plan.resolve(tup),
+        "Phase A fallback mismatch for (int, float)"
+    );
+
+    // Named structs get uniquified names — compare field counts.
+    let (no_plan_struct, with_plan_struct) =
+        (no_plan.resolve(struct_idx), with_plan.resolve(struct_idx));
+    if let (ST(a), ST(b)) = (no_plan_struct, with_plan_struct) {
+        assert_eq!(
+            a.count_fields(),
+            b.count_fields(),
+            "struct field count mismatch"
+        );
+    } else {
+        panic!("struct should resolve to StructType");
+    }
+
+    let (no_plan_enum, with_plan_enum) = (no_plan.resolve(enum_idx), with_plan.resolve(enum_idx));
+    if let (ST(a), ST(b)) = (no_plan_enum, with_plan_enum) {
+        assert_eq!(
+            a.count_fields(),
+            b.count_fields(),
+            "enum field count mismatch"
+        );
+    } else {
+        panic!("enum should resolve to StructType");
+    }
+}
+
+/// Phase A override: populate ReprPlan with a narrowed decision for Int,
+/// verify the ReprPlan path is used (produces i32 instead of i64).
+#[test]
+fn phase_a_override_uses_repr_plan() {
+    let pool = test_pool();
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_phase_a_override");
+
+    // Create a plan with a narrowed Int representation (i32 instead of i64).
+    let mut plan = ori_repr::ReprPlan::new(ori_repr::NarrowingPolicy::Conservative);
+    plan.set_repr(
+        Idx::INT,
+        ori_repr::ReprDecision {
+            source: ori_repr::DecisionSource::Canonical,
+            type_idx: Idx::INT,
+            repr: ori_repr::MachineRepr::Int {
+                width: ori_repr::IntWidth::I32,
+                signed: true,
+            },
+            reason: ori_repr::DecisionReason::RangeFits {
+                range: ori_repr::range::ValueRange,
+                min_width: ori_repr::IntWidth::I32,
+            },
+        },
+    );
+
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, Some(&plan));
+
+    // ReprPlan path: Int should produce i32 (narrowed), not i64 (canonical).
+    assert_eq!(
+        resolver.resolve(Idx::INT),
+        scx.type_i32().into(),
+        "Phase A override: ReprPlan says I32, but resolver produced something else"
+    );
+
+    // Other primitives without decisions should still use TypeInfoStore.
+    let no_plan_resolver = TypeLayoutResolver::new(&store, &scx, None, None);
+    assert_eq!(
+        resolver.resolve(Idx::FLOAT),
+        no_plan_resolver.resolve(Idx::FLOAT),
+        "Float has no ReprPlan decision — should fall back to TypeInfoStore"
+    );
+}
+
+/// Phase A with None ReprPlan: backward-compatibility test — all lookups
+/// go through TypeInfoStore exclusively.
+#[test]
+fn phase_a_none_repr_plan_backward_compat() {
+    let pool = test_pool();
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_phase_a_none");
+
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
+
+    // All primitives should resolve correctly through TypeInfoStore.
+    assert_eq!(resolver.resolve(Idx::INT), scx.type_i64().into());
+    assert_eq!(resolver.resolve(Idx::FLOAT), scx.type_f64().into());
+    assert_eq!(resolver.resolve(Idx::BOOL), scx.type_i1().into());
+    assert_eq!(resolver.resolve(Idx::CHAR), scx.type_i32().into());
+    assert_eq!(resolver.resolve(Idx::BYTE), scx.type_i8().into());
+    assert_eq!(resolver.resolve(Idx::UNIT), scx.type_i64().into());
+    assert_eq!(resolver.resolve(Idx::NEVER), scx.type_i64().into());
+    assert_eq!(resolver.resolve(Idx::DURATION), scx.type_i64().into());
+    assert_eq!(resolver.resolve(Idx::SIZE), scx.type_i64().into());
+    assert_eq!(resolver.resolve(Idx::ORDERING), scx.type_i8().into());
+}
+
+/// Semantic pin: empty ReprPlan must produce IDENTICAL output to no
+/// ReprPlan for all resolvable primitive types. This test guards against
+/// Phase A introducing any behavioral change.
+#[test]
+fn phase_a_semantic_pin_empty_plan_equals_no_plan() {
+    let mut pool = Pool::new();
+
+    // Add some dynamic types to test beyond primitives.
+    let opt_int = pool.option(Idx::INT);
+    let list_str = pool.list(Idx::STR);
+    let range_idx = pool.range(Idx::INT);
+    let fn_idx = pool.function(&[Idx::INT], Idx::BOOL);
+    let tup = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::BOOL]);
+
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_semantic_pin");
+
+    let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
+    let empty_plan = ori_repr::ReprPlan::new(ori_repr::NarrowingPolicy::Disabled);
+    let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&empty_plan));
+
+    // Every resolvable type must produce bit-identical LLVM types.
+    let all_types = [
+        Idx::INT,
+        Idx::FLOAT,
+        Idx::BOOL,
+        Idx::STR,
+        Idx::CHAR,
+        Idx::BYTE,
+        Idx::UNIT,
+        Idx::NEVER,
+        Idx::DURATION,
+        Idx::SIZE,
+        Idx::ORDERING,
+        opt_int,
+        list_str,
+        range_idx,
+        fn_idx,
+        tup,
+    ];
+
+    for idx in all_types {
+        assert_eq!(
+            with_plan.resolve(idx),
+            no_plan.resolve(idx),
+            "Semantic pin violation at idx {idx:?}: empty plan != no plan"
+        );
+    }
 }

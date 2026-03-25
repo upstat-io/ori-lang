@@ -1,7 +1,7 @@
 ---
 plan: "aot-perf"
 title: "AOT Codegen Performance: Overflow Elision & String Indexing"
-status: not-started
+status: in-progress
 reviewed: false
 references:
   - "compiler/ori_llvm/src/codegen/ir_builder/checked_ops.rs"
@@ -127,5 +127,5 @@ repr-opt §03 (Range Analysis) will implement a full abstract-interpretation eng
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Overflow Check Elision | `section-01-overflow-elision.md` | Not Started |
+| 01 | Overflow Check Elision | `section-01-overflow-elision.md` | In Progress |
 | 02 | String Indexing Codegen | `section-02-string-indexing.md` | Not Started |

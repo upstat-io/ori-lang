@@ -63,6 +63,13 @@ pub struct TypeEntry {
     ///
     /// Zero when constructed without pool access (e.g., test helpers).
     pub merkle_hash: u64,
+
+    /// Representation attribute from `#repr("c")`, `#repr("packed")`, etc.
+    ///
+    /// `None` means default layout (all optimizations permitted).
+    /// Populated from `TypeDecl.repr` during type registration.
+    /// Consumed by `ori_repr` during representation planning.
+    pub repr: Option<ori_ir::ReprAttrKind>,
 }
 
 /// The kind of a user-defined type.
@@ -180,6 +187,7 @@ impl TypeRegistry {
         span: Span,
         visibility: Visibility,
         merkle_hash: u64,
+        repr: Option<ori_ir::ReprAttrKind>,
     ) {
         let entry = TypeEntry {
             name,
@@ -192,6 +200,7 @@ impl TypeRegistry {
             type_params,
             visibility,
             merkle_hash,
+            repr,
         };
 
         self.insert_entry(entry);
@@ -213,6 +222,7 @@ impl TypeRegistry {
         span: Span,
         visibility: Visibility,
         merkle_hash: u64,
+        repr: Option<ori_ir::ReprAttrKind>,
     ) {
         // Index variants for O(1) lookup
         for (variant_idx, variant) in variants.iter().enumerate() {
@@ -228,6 +238,7 @@ impl TypeRegistry {
             type_params,
             visibility,
             merkle_hash,
+            repr,
         };
 
         self.insert_entry(entry);
@@ -247,6 +258,7 @@ impl TypeRegistry {
         span: Span,
         visibility: Visibility,
         merkle_hash: u64,
+        repr: Option<ori_ir::ReprAttrKind>,
     ) {
         let entry = TypeEntry {
             name,
@@ -256,6 +268,7 @@ impl TypeRegistry {
             type_params,
             visibility,
             merkle_hash,
+            repr,
         };
 
         self.insert_entry(entry);
@@ -284,6 +297,7 @@ impl TypeRegistry {
             type_params,
             visibility,
             merkle_hash,
+            repr: None, // aliases don't have repr attributes
         };
 
         self.insert_entry(entry);
@@ -321,6 +335,24 @@ impl TypeRegistry {
     #[inline]
     pub fn contains_idx(&self, idx: Idx) -> bool {
         self.types_by_idx.contains_key(&idx)
+    }
+
+    /// Set the resolved repr attribute for a registered type.
+    ///
+    /// Called after `validate_and_merge_repr_attrs` merges stacked `#repr`
+    /// attributes into a single resolved value.
+    pub fn set_repr(&mut self, idx: Idx, repr: Option<ori_ir::ReprAttrKind>) {
+        if let Some(entry) = self.types_by_idx.get_mut(&idx) {
+            entry.repr = repr;
+        }
+        // Also update the by-name entry (same allocation via insert_entry).
+        // TypeEntry is stored in both maps, so we need to update both.
+        for entry in self.types_by_name.values_mut() {
+            if entry.idx == idx {
+                entry.repr = repr;
+                break;
+            }
+        }
     }
 
     /// Look up an enum variant constructor by name.

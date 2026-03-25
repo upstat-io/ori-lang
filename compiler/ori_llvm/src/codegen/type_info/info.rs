@@ -134,11 +134,19 @@ impl TypeInfo {
             // type (with correct max(ok, err) payload) is computed by
             // TypeInfoStore::resolve() which has access to inner types.
             Self::Option { inner } => {
+                debug_assert!(
+                    false,
+                    "TypeInfo::storage_type() called on Option — use TypeLayoutResolver instead"
+                );
                 let _ = inner;
                 scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
                     .into()
             }
             Self::Result { ok, err } => {
+                debug_assert!(
+                    false,
+                    "TypeInfo::storage_type() called on Result — use TypeLayoutResolver instead"
+                );
                 let _ = (ok, err);
                 scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
                     .into()
@@ -149,6 +157,10 @@ impl TypeInfo {
             // placeholder — actual tuple lowering uses TypeInfoStore which
             // has access to resolve element types via the Pool.
             Self::Tuple { elements } => {
+                debug_assert!(
+                    false,
+                    "TypeInfo::storage_type() called on Tuple — use TypeLayoutResolver instead"
+                );
                 // Placeholder: tuple of N i64s. Real lowering via store.
                 let fields: Vec<BasicTypeEnum<'ll>> =
                     elements.iter().map(|_| scx.type_i64().into()).collect();
@@ -168,11 +180,19 @@ impl TypeInfo {
 
             // User-defined types (placeholder — resolved via TypeInfoStore)
             Self::Struct { fields } => {
+                debug_assert!(
+                    false,
+                    "TypeInfo::storage_type() called on Struct — use TypeLayoutResolver instead"
+                );
                 let field_types: Vec<BasicTypeEnum<'ll>> =
                     fields.iter().map(|_| scx.type_i64().into()).collect();
                 scx.type_struct(&field_types, false).into()
             }
             Self::Enum { .. } => {
+                debug_assert!(
+                    false,
+                    "TypeInfo::storage_type() called on Enum — use TypeLayoutResolver instead"
+                );
                 // Default: {i64 tag, i64 payload} — real layout computed by store
                 scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
                     .into()

@@ -1,14 +1,14 @@
 ---
 section: 1
 title: "Overflow Check Elision"
-status: not-started
+status: in-progress
 reviewed: true
 goal: "Reduce unnecessary overflow checks from 19 to ≤8 for the compute benchmark, matching Rust with -C overflow-checks=yes"
 depends_on: []
 inspired_by:
   - "Rust MIR→LLVM lowering: uses `add nsw` for post-guard arithmetic and loop counters"
   - "LLVM `range()` metadata on function parameters"
-third_party_review: { status: none, updated: null }
+third_party_review: { status: findings, updated: 2026-03-23 }
 ---
 
 # §01 Overflow Check Elision
@@ -187,7 +187,10 @@ No changes needed in this file — the elision happens inside `checked_add`/`che
 
 ## §01.R Third Party Review Findings
 
-- None.
+- [ ] `[TPR-01-001][high]` `plans/aot-perf/section-01-overflow-elision.md:125` — Step 3 treats `nsw` as a hint LLVM can validate later instead of a frontend correctness promise.
+  Evidence: `can_elide_sub_overflow()` returns `true` for any subtraction by `0..=2` without proving the left operand's range, and the note at line 144 says LLVM will "verify and either keep the `nsw` or lower it." LLVM does not validate `nsw`; it optimizes under that assumption.
+  Impact: Implementing the section as written can silently remove required overflow panics and introduce wrong-code in checked arithmetic paths, violating the plan's "Correctness Preserved" requirement.
+  Required plan update: Restrict §01 to cases with an actual proof in hand (for example compile-time constant folding only), or spell out the exact guard-to-range facts that must be recovered before emitting `add/sub nsw`. Do not describe speculative `nsw` as something LLVM will sanitize.
 
 ## Completion Checklist
 

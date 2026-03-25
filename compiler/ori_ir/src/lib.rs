@@ -132,6 +132,8 @@ pub use ast::{
     PostContract,
     // Function contract types
     PreContract,
+    // Repr attribute (for #repr("c"), etc.)
+    ReprAttrKind,
     Stmt,
     StmtKind,
     StructField,
