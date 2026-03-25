@@ -453,6 +453,8 @@ fn derive_hashable_without_eq_emits_error() {
         visibility: ori_ir::Visibility::Public,
         derives: vec![hashable], // only Hashable, no Eq
         repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
     };
 
     register_derived_impl(&mut checker, &type_decl, hashable);
@@ -481,6 +483,8 @@ fn derive_eq_and_hashable_succeeds() {
         visibility: ori_ir::Visibility::Public,
         derives: vec![eq, hashable], // both Eq and Hashable
         repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
     };
 
     // Register Eq first (as the derive processor would)
@@ -780,6 +784,8 @@ fn make_module_with_repr(
         visibility: ori_ir::Visibility::Public,
         derives: vec![],
         repr_attrs,
+        target_attr: None,
+        cfg_attr: None,
     });
     module
 }

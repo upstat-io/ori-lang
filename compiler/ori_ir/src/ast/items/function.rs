@@ -135,6 +135,12 @@ pub struct Function {
     pub visibility: Visibility,
     /// Whether this function is annotated `#fbip` for constructor-reuse enforcement.
     pub is_fbip: bool,
+    /// Item-level target attribute: `#target(os: "linux") @f () -> void = ...`
+    /// Spec §25.4: Conditional compilation on functions.
+    pub target_attr: Option<TargetAttr>,
+    /// Item-level cfg attribute: `#cfg(debug) @f () -> void = ...`
+    /// Spec §25.4: Conditional compilation on functions.
+    pub cfg_attr: Option<CfgAttr>,
 }
 
 impl fmt::Debug for Function {

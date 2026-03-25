@@ -1,0 +1,5 @@
+// Spec §25.3.2: Feature names must be valid Ori identifiers
+// Valid: starts with letter, contains letters/digits/underscores
+#!cfg(feature: "ssl_support")
+
+@main () -> void = print(msg: "valid feature name accepted");

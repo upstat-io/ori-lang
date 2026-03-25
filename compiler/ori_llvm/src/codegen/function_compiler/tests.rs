@@ -266,6 +266,8 @@ fn generic_functions_are_skipped() {
         span: ori_ir::Span::new(0, 0),
         visibility: ori_ir::Visibility::Private,
         is_fbip: false,
+        target_attr: None,
+        cfg_attr: None,
     };
 
     let classifier = ArcClassifier::new(&pool);
