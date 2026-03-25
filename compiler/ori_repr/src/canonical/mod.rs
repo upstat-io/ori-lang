@@ -22,7 +22,7 @@ use type_repr::{
 /// Populate the `ReprPlan` with canonical representations for all types in the pool.
 ///
 /// Iterates over the 12 primitive indices and all dynamically allocated types,
-/// calling [`canonical()`] for each. Skips error types and the reserved
+/// calling [`canonical_cached()`] for each. Skips error types and the reserved
 /// primitive range (12–63). Each canonical decision is recorded in the plan
 /// with `DecisionSource::Canonical`.
 pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
@@ -39,7 +39,12 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
         if idx == Idx::ERROR {
             continue;
         }
-        let repr = canonical_cached(pool, idx, &mut cache);
+        // Primitives always have a canonical representation.
+        let Some(repr) = canonical_cached(pool, idx, &mut cache) else {
+            // Should never happen — primitives are always canonicalizeable.
+            tracing::error!(?idx, "primitive type has no canonical representation");
+            continue;
+        };
         plan.set_repr(
             idx,
             ReprDecision {
@@ -105,11 +110,11 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
             continue;
         }
 
-        // Use try_canonical_cached() to gracefully handle composite types whose
-        // children contain unresolvable type-checker artifacts (Error, Borrowed,
-        // Var inside generic struct fields, etc.). These types won't reach
-        // codegen — the TypeInfoStore fallback handles them.
-        if let Some(repr) = try_canonical_cached(pool, idx, &mut cache) {
+        // canonical_cached() returns None for types whose children contain
+        // unresolvable type-checker artifacts (Error, Borrowed, Var inside
+        // generic struct fields, etc.). These types won't reach codegen —
+        // the TypeInfoStore fallback handles them.
+        if let Some(repr) = canonical_cached(pool, idx, &mut cache) {
             plan.set_repr(
                 idx,
                 ReprDecision {
@@ -133,31 +138,11 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
     );
 }
 
-/// Try to compute the canonical representation with a shared cache, returning
-/// `None` if the type contains unresolvable children (type variables, etc.).
-///
-/// Used by [`populate_canonical()`] which iterates ALL pool types, including
-/// type-checker artifacts that `canonical()` would panic on.
-fn try_canonical_cached(
-    pool: &Pool,
-    idx: Idx,
-    cache: &mut FxHashMap<Idx, MachineRepr>,
-) -> Option<MachineRepr> {
-    // Clone the cache before catch_unwind so a panicking computation doesn't
-    // leave partial entries. The cache is cheap to clone (small during §01).
-    let snapshot = cache.clone();
-    if let Ok(repr) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        canonical_cached(pool, idx, cache)
-    })) {
-        Some(repr)
-    } else {
-        // Restore cache to pre-panic state.
-        *cache = snapshot;
-        None
-    }
-}
-
 /// Compute the canonical machine representation for a type.
+///
+/// Returns `None` for types that cannot be canonicalized (unresolved type
+/// variables, error types, internal-only types). This is the expected path
+/// for type-checker artifacts that won't reach codegen.
 ///
 /// Handles recursive types (e.g., `type Tree = Leaf(int) | Node(Tree, Tree)`)
 /// via cycle detection — recursive positions are represented as
@@ -173,15 +158,21 @@ fn try_canonical_cached(
 ///
 /// # Panics
 ///
-/// Panics if an unresolved type variable (`Var`, `BoundVar`, `RigidVar`,
-/// `Scheme`, `Projection`, `ModuleNs`, `Infer`, `SelfType`) reaches
-/// this function — these indicate a type checker bug.
+/// Panics if the type returns `None` — this indicates a test bug
+/// (invalid type passed to a test that expects valid input).
 #[cfg(test)]
 pub(crate) fn canonical(pool: &Pool, idx: Idx) -> MachineRepr {
-    canonical_cached(pool, idx, &mut FxHashMap::default())
+    let Some(repr) = canonical_cached(pool, idx, &mut FxHashMap::default()) else {
+        panic!("canonical: test input at {idx:?} has no valid representation");
+    };
+    repr
 }
 
 /// Compute the canonical representation with a shared memoization cache.
+///
+/// Returns `None` for types that cannot be canonicalized (unresolved
+/// variables, error types, internal-only types, or composite types whose
+/// children contain such types).
 ///
 /// The cache ensures that mutually recursive types (A→B→A) produce the
 /// same `MachineRepr` for each `Idx` regardless of traversal order
@@ -191,12 +182,17 @@ pub(crate) fn canonical_cached(
     pool: &Pool,
     idx: Idx,
     cache: &mut FxHashMap<Idx, MachineRepr>,
-) -> MachineRepr {
+) -> Option<MachineRepr> {
     canonical_inner(pool, idx, &mut FxHashSet::default(), cache)
 }
 
 /// Inner canonicalization with cycle detection via `visiting` set and
 /// cross-call memoization via `cache`.
+///
+/// Returns `None` for types that cannot be canonicalized: unresolved
+/// type variables, error types, internal-only types (Scheme, Projection,
+/// etc.), and unresolved Named/Applied/Alias. Composite types whose
+/// children return `None` also return `None` (fallibility propagates).
 ///
 /// When a type is encountered that is already being canonicalized
 /// (i.e., present in `visiting`), we return an `RcPointer` — recursive
@@ -209,47 +205,47 @@ fn canonical_inner(
     idx: Idx,
     visiting: &mut FxHashSet<Idx>,
     cache: &mut FxHashMap<Idx, MachineRepr>,
-) -> MachineRepr {
+) -> Option<MachineRepr> {
     let resolved = pool.resolve_fully(idx);
 
     // Cache hit — return previously computed representation.
     if let Some(repr) = cache.get(&resolved) {
-        return repr.clone();
+        return Some(repr.clone());
     }
 
     // Cycle detection: if already canonicalizing this type, it's a recursive
     // reference — return an RC pointer (recursive fields are heap-allocated).
     if !visiting.insert(resolved) {
-        return MachineRepr::RcPointer(RcRepr {
+        return Some(MachineRepr::RcPointer(RcRepr {
             rc_width: IntWidth::I64,
             atomic: true,
             inner: Box::new(MachineRepr::OpaquePtr),
             stack_promotable: false,
-        });
+        }));
     }
 
     let tag = pool.tag(resolved);
 
     let result = match tag {
         // Primitives
-        Tag::Int => MachineRepr::Int {
+        Tag::Int => Some(MachineRepr::Int {
             width: IntWidth::I64,
             signed: true,
-        },
-        Tag::Float => MachineRepr::Float {
+        }),
+        Tag::Float => Some(MachineRepr::Float {
             width: FloatWidth::F64,
-        },
-        Tag::Bool => MachineRepr::Bool,
-        Tag::Char => MachineRepr::Char,
-        Tag::Byte => MachineRepr::Byte,
-        Tag::Duration => MachineRepr::Duration,
-        Tag::Size => MachineRepr::Size,
-        Tag::Ordering => MachineRepr::Ordering,
-        Tag::Unit => MachineRepr::Unit,
-        Tag::Never => MachineRepr::Never,
-        Tag::Str => MachineRepr::FatPointer(FatRepr::Str),
-        Tag::Range => MachineRepr::Range,
-        Tag::Iterator | Tag::DoubleEndedIterator | Tag::Channel => MachineRepr::OpaquePtr,
+        }),
+        Tag::Bool => Some(MachineRepr::Bool),
+        Tag::Char => Some(MachineRepr::Char),
+        Tag::Byte => Some(MachineRepr::Byte),
+        Tag::Duration => Some(MachineRepr::Duration),
+        Tag::Size => Some(MachineRepr::Size),
+        Tag::Ordering => Some(MachineRepr::Ordering),
+        Tag::Unit => Some(MachineRepr::Unit),
+        Tag::Never => Some(MachineRepr::Never),
+        Tag::Str => Some(MachineRepr::FatPointer(FatRepr::Str)),
+        Tag::Range => Some(MachineRepr::Range),
+        Tag::Iterator | Tag::DoubleEndedIterator | Tag::Channel => Some(MachineRepr::OpaquePtr),
 
         // Collections — fat pointer {len, cap, data}
         Tag::List => canonical_collection(pool, pool.list_elem(resolved), visiting, cache),
@@ -257,41 +253,46 @@ fn canonical_inner(
         Tag::Map => canonical_map(pool, resolved, visiting, cache),
 
         // Composite types
-        Tag::Option => canonical_option(canonical_inner(
-            pool,
-            pool.option_inner(resolved),
-            visiting,
-            cache,
-        )),
+        Tag::Option => {
+            let inner = canonical_inner(pool, pool.option_inner(resolved), visiting, cache)?;
+            Some(canonical_option(inner))
+        }
         Tag::Result => {
-            let ok = canonical_inner(pool, pool.result_ok(resolved), visiting, cache);
-            let err = canonical_inner(pool, pool.result_err(resolved), visiting, cache);
-            canonical_result(ok, err)
+            let ok = canonical_inner(pool, pool.result_ok(resolved), visiting, cache)?;
+            let err = canonical_inner(pool, pool.result_err(resolved), visiting, cache)?;
+            Some(canonical_result(ok, err))
         }
         Tag::Function => canonical_function(pool, resolved, visiting, cache),
         Tag::Tuple => canonical_tuple(pool, resolved, visiting, cache),
         Tag::Struct => canonical_struct(pool, resolved, visiting, cache),
         Tag::Enum => canonical_enum(pool, resolved, visiting, cache),
 
-        // Types that must not reach canonical — compiler bugs
-        Tag::Named | Tag::Applied | Tag::Alias => panic!(
-            "canonical: Named/Applied/Alias should be resolved by resolve_fully, \
-             got {tag:?} at idx {resolved:?}"
-        ),
-        Tag::Borrowed | Tag::Error => {
-            panic!("canonical: {tag:?} at idx {resolved:?} should not reach codegen")
-        }
-        Tag::Var | Tag::BoundVar | Tag::RigidVar => panic!(
-            "canonical: unresolved type variable {tag:?} at idx {resolved:?} — \
-             all variables must be resolved before codegen"
-        ),
-        Tag::Scheme | Tag::Projection | Tag::ModuleNs | Tag::Infer | Tag::SelfType => {
-            panic!("canonical: special type {tag:?} at idx {resolved:?} should never reach codegen")
+        // Types that cannot be canonicalized — return None.
+        // These are type-checker artifacts or error types that should not
+        // reach codegen. The caller (populate_canonical) skips them.
+        Tag::Named
+        | Tag::Applied
+        | Tag::Alias
+        | Tag::Borrowed
+        | Tag::Error
+        | Tag::Var
+        | Tag::BoundVar
+        | Tag::RigidVar
+        | Tag::Scheme
+        | Tag::Projection
+        | Tag::ModuleNs
+        | Tag::Infer
+        | Tag::SelfType => {
+            // Clean up visiting set before returning None.
+            visiting.remove(&resolved);
+            return None;
         }
     };
 
     visiting.remove(&resolved);
     // Cache the result for cross-call consistency (TPR-01-021).
-    cache.insert(resolved, result.clone());
+    if let Some(ref repr) = result {
+        cache.insert(resolved, repr.clone());
+    }
     result
 }
