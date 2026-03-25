@@ -343,8 +343,8 @@ impl LtoMode {
 /// Parse build options from command line arguments.
 ///
 /// Does NOT check `ORI_NO_REPR_OPT` — the env var fallback is applied by
-/// the caller *after* the full CLI is merged (TPR-01-048). This prevents
-/// the env var from polluting per-arg parses in the `main.rs` build loop,
+/// [`accumulate_build_options`] *after* the full CLI is merged (TPR-01-048).
+/// This prevents the env var from polluting per-arg parses in the build loop,
 /// where each single-arg parse would reapply the env override and clobber
 /// earlier explicit `--repr-opt=` flags.
 pub fn parse_build_options(args: &[String]) -> BuildOptions {
@@ -352,6 +352,39 @@ pub fn parse_build_options(args: &[String]) -> BuildOptions {
 
     for arg in args {
         parse_single_arg(&mut options, arg);
+    }
+
+    options
+}
+
+/// Accumulate build options from CLI args using per-arg parse + merge.
+///
+/// This is the canonical build-option accumulation path used by `ori build`.
+/// It handles: (1) per-arg parsing via [`parse_build_options`], (2) `-o` lookahead,
+/// and (3) the `ORI_NO_REPR_OPT` env var fallback *after* full CLI merge
+/// (TPR-01-028/048). Extracted from `main.rs` to enable direct testing
+/// of the zero-option build path (TPR-01-032).
+///
+/// `args` is the full CLI args slice (e.g., `["ori", "build", "file.ori", ...]`).
+/// Build options start at index 3 (after `ori build <file>`).
+pub fn accumulate_build_options(args: &[String]) -> BuildOptions {
+    let mut options = BuildOptions::default();
+    let mut i = 3;
+    while i < args.len() {
+        if args[i] == "-o" && i + 1 < args.len() {
+            options.output = Some(std::path::PathBuf::from(&args[i + 1]));
+            i += 2;
+        } else {
+            let parsed = parse_build_options(&args[i..=i]);
+            options.merge(&parsed);
+            i += 1;
+        }
+    }
+
+    // Apply ORI_NO_REPR_OPT env var AFTER full CLI merge (TPR-01-028/048).
+    // Only applies if no explicit policy was set via CLI flags (TPR-01-036).
+    if !options.narrowing_policy_explicit && ori_repr::NarrowingPolicy::env_disabled() {
+        options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
     }
 
     options

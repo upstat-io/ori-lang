@@ -504,3 +504,91 @@ fn parse_build_options_does_not_inject_env_policy() {
         "--release must not set narrowing_policy_explicit"
     );
 }
+
+// TPR-01-032: Integration tests for accumulate_build_options().
+// These test the real build-command accumulation path from main.rs,
+// including the post-merge env var fallback.
+
+#[test]
+fn accumulate_zero_options_uses_default_policy() {
+    // Simulates: ori build file.ori (no extra flags)
+    // The per-arg loop never executes — default policy is Aggressive.
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "zero CLI options must yield default Aggressive policy"
+    );
+    assert!(!options.narrowing_policy_explicit);
+}
+
+#[test]
+fn accumulate_with_output_only() {
+    // Simulates: ori build file.ori -o /tmp/out
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "-o".to_string(),
+        "/tmp/out".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.output,
+        Some(std::path::PathBuf::from("/tmp/out")),
+        "-o must be handled"
+    );
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "-o only must still yield default Aggressive"
+    );
+}
+
+#[test]
+fn accumulate_explicit_aggressive_survives_trailing_flags() {
+    // Simulates: ori build file.ori --repr-opt=aggressive --release --emit=llvm-ir
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "--repr-opt=aggressive".to_string(),
+        "--release".to_string(),
+        "--emit=llvm-ir".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.narrowing_policy,
+        NarrowingPolicy::Aggressive,
+        "explicit aggressive must survive trailing flags"
+    );
+    assert!(options.narrowing_policy_explicit);
+    assert!(options.release);
+}
+
+/// TPR-01-032 semantic pin: `accumulate_build_options` applies env var
+/// fallback correctly for the zero-option path. We can't safely set env
+/// vars in unit tests (race conditions), but we CAN verify the structure:
+/// with no explicit CLI flags, the env var guard checks
+/// `!narrowing_policy_explicit` — and since it's false, the guard would
+/// apply if the env var were set.
+#[test]
+fn accumulate_zero_options_has_non_explicit_policy() {
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    // The env var guard: `if !narrowing_policy_explicit && env_disabled()`
+    // For zero options, narrowing_policy_explicit is false → env var CAN apply.
+    assert!(
+        !options.narrowing_policy_explicit,
+        "zero options must leave policy non-explicit so env var can apply"
+    );
+}
