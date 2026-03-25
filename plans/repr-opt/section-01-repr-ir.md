@@ -63,21 +63,24 @@ sections:
 
 **File(s):** `compiler/ori_repr/src/lib.rs` (NEW crate), `compiler/ori_repr/src/repr.rs`
 
-**File layout** (~1,230 production lines across 10 files, all under the 500-line limit):
+**File layout** (~1,674 production lines across 13 files, all under the 500-line limit):
 
-| File | Contents | Est. Lines |
-|------|----------|-----------|
-| `lib.rs` | Module declarations, `pub use` re-exports, `compute_repr_plan()`, pass stubs | ~60 |
-| `repr.rs` | `MachineRepr` enum, `IntWidth`, `FloatWidth` | ~120 |
-| `struct_repr.rs` | `StructRepr`, `TupleRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` | ~200 |
-| `enum_repr.rs` | `EnumRepr`, `EnumTag`, `VariantRepr` (+ `VariantRepr::is_pointer`) | ~100 |
-| `plan.rs` | `ReprPlan` struct + builder + writer methods (`set_repr`, `set_var_ranges`, `set_escape_info`, `set_rc_strategy`) + `NarrowingPolicy` | ~320 |
-| `query.rs` | Ergonomic query interface (`int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy`, `RcStrategy`) + tracing | ~200 |
-| `repr_attrs.rs` | `ReprAttribute` enum + validation | ~100 |
-| `canonical.rs` | `canonical(tag)` mapping for all `Tag` variants | ~200 |
-| `range/mod.rs` | **Placeholder only in §01** — exports `pub struct ValueRange;` so `DecisionReason::RangeFits` compiles. Replaced in §03. | ~10 |
-| `escape/mod.rs` | **Placeholder only in §01** — exports `pub struct EscapeInfo;` so `ReprPlan::escape_info` compiles. Replaced in §08. | ~10 |
-| `tests.rs` | All tests (sibling to `lib.rs` — tests exempt from 500-line limit) | unlimited |
+| File | Contents | Lines |
+|------|----------|-------|
+| `lib.rs` | Module declarations, `pub use` re-exports, `compute_repr_plan()`, pass stubs | 156 |
+| `repr.rs` | `MachineRepr` enum, `IntWidth`, `FloatWidth` | 94 |
+| `struct_repr.rs` | `StructRepr`, `TupleRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` | 134 |
+| `enum_repr.rs` | `EnumRepr`, `EnumTag`, `VariantRepr` (+ `VariantRepr::is_pointer`) | 67 |
+| `plan.rs` | `ReprPlan` struct + builder + writer methods (`set_repr`, `set_var_ranges`, `set_escape_info`, `set_rc_strategy`) | 224 |
+| `plan/query.rs` | `NarrowingPolicy`, `RcStrategy`, ergonomic query methods (`int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy`) + tracing | 141 |
+| `plan/decision.rs` | `ReprDecision`, `DecisionSource`, `DecisionReason` | 83 |
+| `plan/repr_attr.rs` | `ReprAttribute` enum | 24 |
+| `canonical/mod.rs` | `populate_canonical()`, `canonical_cached()`, pool traversal | 298 |
+| `canonical/type_repr.rs` | Per-tag canonical mapping helpers (`canonical_collection`, `canonical_map`, etc.) | 257 |
+| `layout.rs` | Layout utilities (`is_trivial_repr`, `field_size`, `field_align`, `compute_field_layout`, etc.) | 174 |
+| `range/mod.rs` | **Placeholder only in §01** — exports `pub struct ValueRange;` so `DecisionReason::RangeFits` compiles. Replaced in §03. | 11 |
+| `escape/mod.rs` | **Placeholder only in §01** — exports `pub struct EscapeInfo;` so `ReprPlan::escape_info` compiles. Replaced in §08. | 11 |
+| `tests.rs` | All tests (sibling to `lib.rs` — tests exempt from 500-line limit) | 2696 |
 
 The `MachineRepr` enum captures the physical representation chosen for each type. It must be rich enough to express all optimizations in §02-§11 but simple enough that codegen can pattern-match exhaustively.
 
@@ -271,7 +274,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
 
 **Derive requirement:** ALL sub-repr types (`StructRepr`, `EnumRepr`, `TupleRepr`, `FieldRepr`, `EnumTag`, `VariantRepr`, `RcRepr`, `FatRepr`, `ClosureRepr`) MUST derive `Debug, Clone, PartialEq, Eq, Hash` to match `MachineRepr`'s derives. Code blocks below include them explicitly.
 
-**File placement:** `TupleRepr`, `StructRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` → `compiler/ori_repr/src/struct_repr.rs`. `EnumRepr`, `EnumTag`, `VariantRepr` → `compiler/ori_repr/src/enum_repr.rs`. `MachineRepr`, `IntWidth`, `FloatWidth` → `compiler/ori_repr/src/repr.rs`. This matches the file layout table above and keeps all files under 500 lines.
+**File placement:** `TupleRepr`, `StructRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` → `compiler/ori_repr/src/struct_repr.rs`. `EnumRepr`, `EnumTag`, `VariantRepr` → `compiler/ori_repr/src/enum_repr.rs`. `MachineRepr`, `IntWidth`, `FloatWidth` → `compiler/ori_repr/src/repr.rs`. `ReprPlan` + builders → `plan.rs` with sub-modules `plan/query.rs`, `plan/decision.rs`, `plan/repr_attr.rs`. Canonical mapping split into `canonical/mod.rs` (pool traversal) + `canonical/type_repr.rs` (per-tag helpers). Layout utilities in `layout.rs`. All files under 500 lines.
 
 - [x] Define `TupleRepr`:
   ```rust
@@ -534,7 +537,7 @@ Each narrowing decision should be recorded with its justification, so that:
 
 ## 01.3 Pipeline Integration Point
 
-**File(s):** `compiler/ori_llvm/src/codegen/type_info/mod.rs` (TypeLayoutResolver), `compiler/ori_llvm/src/codegen/type_info/store.rs` (TypeInfoStore — Tag→TypeInfo mapping), `compiler/ori_llvm/src/codegen/function_compiler/mod.rs` (FunctionCompiler), `compiler/ori_llvm/src/evaluator/compile.rs` (JIT entry point), `compiler/oric/src/commands/codegen_pipeline.rs` (AOT entry point — `run_codegen_pipeline()`), `compiler/oric/src/commands/build_options.rs`, `compiler/oric/src/commands/build/mod.rs` (for `--no-repr-opt` CLI flag)
+**File(s):** `compiler/ori_llvm/src/codegen/type_info/mod.rs` (TypeLayoutResolver), `compiler/ori_llvm/src/codegen/type_info/store.rs` (TypeInfoStore — Tag→TypeInfo mapping), `compiler/ori_llvm/src/codegen/function_compiler/mod.rs` (FunctionCompiler), `compiler/ori_llvm/src/evaluator/compile.rs` (JIT entry point), `compiler/oric/src/commands/codegen_pipeline.rs` (AOT entry point — `run_codegen_pipeline()`), `compiler/oric/src/commands/build_options/mod.rs` + `build_options/parse_args.rs`, `compiler/oric/src/commands/build/mod.rs` (for `--no-repr-opt` CLI flag)
 
 The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The codegen must consume ReprPlan instead of computing representations inline.
 
@@ -618,10 +621,9 @@ The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The c
 - [x] Wire `ReprPlan` through the LLVM codegen entry points:
   - JIT path: `OwnedLLVMEvaluator::compile_module_with_tests()` (in `evaluator/compile.rs`) creates `ReprPlan`. Add `narrowing_policy: NarrowingPolicy` as a new last parameter (after `arc_cache`) — callers pass `NarrowingPolicy::Aggressive` by default or `NarrowingPolicy::Disabled` when the test runner sets `ORI_NO_REPR_OPT`.
   - AOT path: `run_codegen_pipeline()` in `compiler/oric/src/commands/codegen_pipeline.rs` creates `ReprPlan` before constructing `FunctionCompiler`. Add `narrowing_policy: NarrowingPolicy` as a new last parameter. This function is called from `compile_common.rs::compile_to_llvm()` and `compile_to_llvm_with_imports()` — both callers must thread the policy through from `BuildOptions.narrowing_policy`.
-  - `ReprPlan` is passed to `FunctionCompiler::new()` (there is no `ModuleCompiler` — `FunctionCompiler` is the two-pass declare/define orchestrator). Currently `FunctionCompiler::new()` takes: `builder`, `type_info`, `type_resolver`, `interner`, `pool`, `module_path`, `annotated_sigs`, `arc_classifier`, `debug_context`, `uniqueness_summaries`, `aims_contracts`, `verify_arc` — add `repr_plan: &'a ReprPlan` immediately before `verify_arc` (last position before the boolean flag, following the config-struct convention that booleans come last).
-  - `FunctionCompiler` stores `repr_plan` and passes it to `TypeLayoutResolver`
+  - `codegen_pipeline.rs` creates `TypeLayoutResolver` with `Some(&repr_plan)` before constructing `FunctionCompiler`. `FunctionCompiler` accesses the plan indirectly via its `type_resolver: &TypeLayoutResolver` field — no direct `repr_plan` field was added to `FunctionCompiler`. Same pattern in the JIT path.
 
-- [x] Add `--no-repr-opt` flag to the `ori build` CLI (`compiler/oric/src/commands/build_options.rs` for the flag definition and `parse_build_options()`, `compiler/oric/src/commands/build/mod.rs` for CLI integration, `compiler/oric/src/commands/codegen_pipeline.rs` for enforcement):
+- [x] Add `--no-repr-opt` flag to the `ori build` CLI (`compiler/oric/src/commands/build_options/mod.rs` for the flag definition, `build_options/parse_args.rs` for `parse_single_arg()`, `compiler/oric/src/commands/build/mod.rs` for CLI integration, `compiler/oric/src/commands/codegen_pipeline.rs` for enforcement):
   - Add `narrowing_policy: NarrowingPolicy` field to `BuildOptions` (import `NarrowingPolicy` from `ori_repr`); default to `NarrowingPolicy::Aggressive`
   - Parse `--no-repr-opt` in `parse_build_options()` → set `options.narrowing_policy = NarrowingPolicy::Disabled`
   - Thread `BuildOptions.narrowing_policy` through `compile_common.rs` → `run_codegen_pipeline()` (the new last parameter added above)
@@ -649,7 +651,7 @@ The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The c
 
 ## 01.4 ReprPlan Query Interface
 
-**File(s):** `compiler/ori_repr/src/query.rs`
+**File(s):** `compiler/ori_repr/src/plan/query.rs`
 
 Provide ergonomic query methods that later sections will use:
 
@@ -678,6 +680,12 @@ Provide ergonomic query methods that later sections will use:
       /// `var` is an `ArcVarId` from `ori_arc::ir` — `ori_repr` depends on
       /// `ori_arc` already (for ArcFunction), so this import is clean.
       /// Used by §08 (escape analysis) and §09 (header compression).
+      ///
+      /// NOTE: §01 implementation hardcodes `true` (safe default — never
+      /// stack-promotes). §08 MUST update the query body to consult
+      /// `self.escape_info` — calling `set_escape_info()` alone is NOT
+      /// sufficient; the query method itself must be changed to read from
+      /// the stored data.
       pub fn escapes(&self, func: Name, var: ArcVarId) -> bool { ... }
 
       /// What RC strategy should be used for this allocation?
@@ -852,7 +860,7 @@ The ReprPlan must integrate with the existing Salsa-based compilation model.
 
 ## 01.7 `#repr` Attribute Integration
 
-**File(s):** `compiler/ori_repr/src/repr_attrs.rs`, `compiler/ori_ir/src/ast/items/types.rs` (TypeDecl — needs new field), `compiler/ori_parse/src/grammar/item/type_decl.rs` (parser — needs to wire attrs.repr), `compiler/ori_types/src/check/registration/user_types.rs` (needs to propagate repr through type registration)
+**File(s):** `compiler/ori_repr/src/plan/repr_attr.rs`, `compiler/ori_ir/src/ast/items/types.rs` (TypeDecl — needs new field), `compiler/ori_parse/src/grammar/item/type_decl.rs` (parser — needs to wire attrs.repr), `compiler/ori_types/src/check/registration/user_types.rs` (needs to propagate repr through type registration)
 
 The spec (Clause 26 — FFI) defines layout attributes that override the canonical representation:
 - `#repr("c")` — C-compatible layout, no field reordering
@@ -988,7 +996,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 - [x] **Semantic pin test (zero behavioral change):** (2026-03-24). Verified manually: `ORI_DUMP_AFTER_LLVM=1` with and without `--no-repr-opt` on `bench_small.ori` produces byte-identical LLVM IR. Unit-level coverage: `compute_repr_plan_zero_behavioral_change_with_disabled()` (ori_repr), Phase A fallback tests (ori_llvm) verify empty-plan = no-plan equivalence.
 
-- [x] **Verify tests pass in debug AND release:** (2026-03-24). `cargo test -p ori_repr`: 115 passed (debug). `cargo test -p ori_repr --release`: 115 passed. `cargo test -p ori_llvm --lib`: 461 passed. `./test-all.sh`: 13,791 passed, 0 failed.
+- [x] **Verify tests pass in debug AND release:** (2026-03-25). `cargo test -p ori_repr --lib`: 127 passed (debug). `cargo test -p ori_repr --lib --release`: 127 passed. `cargo test -p ori_llvm --lib`: 461+ passed. `./test-all.sh`: 13,828+ passed, 0 failed.
 
 ---
 
@@ -1215,7 +1223,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 **TDD ordering:** Write ALL tests from §01.2, §01.3, §01.4, §01.5, §01.7, §01.8, and §01.9 BEFORE creating the `ori_repr` crate. All tests must fail (crate does not exist). Create the crate, implement the types, verify tests pass unchanged. Only then proceed to wiring into the pipeline (§01.3). If any test requires modification to pass, the implementation is wrong — fix the implementation, not the test.
 
-- [x] Write failing tests BEFORE implementation (2026-03-24). 119 tests in `ori_repr/src/tests.rs` covering §01.2–§01.9 subsections. All pass in debug and release.
+- [x] Write failing tests BEFORE implementation (2026-03-24). 127 tests in `ori_repr/src/tests.rs` covering §01.2–§01.9 subsections (grew from initial 119 as TPR-01-044 through TPR-01-051 fixes added regression tests). All pass in debug and release.
 - [x] `ori_repr` added to workspace `Cargo.toml` `[members]` list (2026-03-24). Line 15.
 - [x] `ori_repr` added to root workspace `Cargo.toml` `[workspace.dependencies]` as a path dep (2026-03-24). Line 89: `ori_repr = { path = "compiler/ori_repr" }`.
 - [x] `ori_repr` crate compiles with `cargo check -p ori_repr` (2026-03-24). Verified.
@@ -1283,7 +1291,10 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] **[TPR-01-047]** Replace the panic-driven skip path in `populate_canonical()` with an explicit fallible path (2026-03-25). `canonical_inner()` returns `Option<MachineRepr>`, all helpers propagate via `?`, `try_canonical_cached()`/`catch_unwind` eliminated. 4 semantic pin tests added. Verified zero panic output on `ori build ... --emit=llvm-ir`.
 - [x] **[TPR-01-048]** Rework per-argument build-option accumulation (2026-03-25). Removed env var check from `parse_build_options()` — applied only post-merge in `main.rs`. Simplified `merge()` to only copy explicit policies. 4 regression tests added. Verified `--repr-opt=aggressive` survives trailing flags under `ORI_NO_REPR_OPT=1`.
 
-- [x] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug and release (2026-03-24). 119 tests pass in `cargo test -p ori_repr` and `cargo test -p ori_repr --release`.
+- [x] **[NOTE]** `populate_canonical()` in `canonical/mod.rs` is 112 lines (over the 100-line target). Bulk is two `matches!(tag, ...)` filter blocks (lines 67-79 and 94-111) — exempt per the dispatch-table/exhaustive-match exemption. Logic itself is linear and clear. Acceptable as-is; will shrink when §02+ replaces the tag-skip filters with a shared `is_codegen_reachable()` predicate.
+- [x] **[NOTE]** `lib.rs` contains function bodies (`compute_repr_plan`, 10 stubs, `convert_repr_attr_kind`). Plan §01.3 explicitly approves stubs in `lib.rs`. `compute_repr_plan` is the crate's primary public API — when §02+ replaces stubs with real module calls, this function will be the pipeline orchestrator. Acceptable as the crate's entry-point dispatch hub.
+
+- [x] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug and release (2026-03-25). 127 tests pass in `cargo test -p ori_repr --lib` and `cargo test -p ori_repr --lib --release`.
 - [x] Semantic pin tests present (2026-03-24). `repr_c_semantic_pin`, `repr_attr_named_vs_struct_idx_independent`, `repr_c_plus_aligned_still_valid`, and per-subsection canonical/query tests.
 - [x] `./test-all.sh` green (2026-03-24). 13,799 passed, 0 failed.
 - [x] `./clippy-all.sh` green (2026-03-24).
