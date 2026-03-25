@@ -114,8 +114,72 @@ pub fn compute_repr_plan(
 // Stubs — replaced by real implementations in §02–§11.
 // Each stub is a no-op today; the corresponding section fills it in.
 
-/// §02: Transitive triviality analysis and ARC elision.
-fn analyze_triviality(_plan: &mut ReprPlan, _pool: &Pool) {}
+/// §02: Transitive triviality validation pass.
+///
+/// Validates that `classify_triviality()` (the canonical source of truth in
+/// `ori_types`) agrees with `is_trivial_repr()` for every type that has a
+/// stored canonical representation in the `ReprPlan`. Types without a stored
+/// repr are skipped (they weren't canonicalized — typically unresolved or
+/// error types that don't reach codegen).
+///
+/// This is a **validation-only** pass — it does not modify the `ReprPlan`.
+/// The canonical pass (`populate_canonical()`) already embeds the correct
+/// triviality into `StructRepr.trivial`, `TupleRepr.trivial`, and enum
+/// variant walks. Any mismatch is a bug in either `classify_triviality()`
+/// or `populate_canonical()`.
+fn analyze_triviality(plan: &mut ReprPlan, pool: &Pool) {
+    use ori_types::triviality::{classify_triviality, Triviality};
+
+    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+    let mut validated: u32 = 0;
+    let mut mismatches: u32 = 0;
+
+    for raw in 0..pool_len {
+        let idx = ori_types::Idx::from_raw(raw);
+
+        // Skip types without a stored repr — they weren't canonicalized.
+        let Some(repr) = plan.get_repr(idx) else {
+            continue;
+        };
+
+        let pool_triviality = classify_triviality(idx, pool);
+        let repr_trivial = crate::layout::is_trivial_repr(repr);
+
+        match pool_triviality {
+            Triviality::Trivial if !repr_trivial => {
+                tracing::warn!(
+                    ?idx,
+                    "triviality mismatch: classify_triviality says Trivial, ReprPlan says non-trivial"
+                );
+                mismatches += 1;
+            }
+            Triviality::NonTrivial if repr_trivial => {
+                tracing::warn!(
+                    ?idx,
+                    "triviality mismatch: classify_triviality says NonTrivial, ReprPlan says trivial"
+                );
+                mismatches += 1;
+            }
+            _ => {} // Agrees, or Unknown (can't validate — conservative OK)
+        }
+        validated += 1;
+    }
+
+    tracing::debug!(validated, mismatches, "triviality validation complete");
+    // NOTE: Known mismatch exists for Iterator/DoubleEndedIterator:
+    // classify_triviality() correctly classifies them as Trivial (Box-allocated,
+    // no RC header), but populate_canonical() maps them to MachineRepr::OpaquePtr
+    // which is_trivial_repr() classifies as non-trivial. This is a representation
+    // limitation — OpaquePtr doesn't distinguish managed (RC) vs unmanaged (Box)
+    // pointers. Tracked for resolution in a future MachineRepr refinement.
+    if mismatches > 0 {
+        tracing::warn!(
+            mismatches,
+            "triviality classification disagrees with canonical repr — \
+             likely Iterator/OpaquePtr coarseness (see §02.2b note)"
+        );
+    }
+}
 
 /// §03: Value range analysis (interval propagation per function).
 fn analyze_ranges(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunction]) {}
