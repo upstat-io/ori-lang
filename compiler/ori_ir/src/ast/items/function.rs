@@ -282,6 +282,12 @@ pub struct ConstDef {
     pub span: Span,
     /// Visibility of this constant (`pub let $name = ...` or private).
     pub visibility: Visibility,
+    /// Item-level target attribute: `#target(os: "linux") let $name = ...`
+    /// Spec §25.4: Conditional compilation on constants.
+    pub target_attr: Option<TargetAttr>,
+    /// Item-level cfg attribute: `#cfg(debug) let $name = ...`
+    /// Spec §25.4: Conditional compilation on constants.
+    pub cfg_attr: Option<CfgAttr>,
 }
 
 impl Spanned for ConstDef {

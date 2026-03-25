@@ -1,0 +1,5 @@
+// Spec §25.4: Item-level #cfg on imports
+#cfg(feature: "nonexistent_feature_for_testing")
+use std.testing { assert_eq };
+
+@main () -> void = print(msg: "item-level cfg on use accepted");

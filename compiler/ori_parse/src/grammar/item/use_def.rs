@@ -1,5 +1,6 @@
 //! Import/use statement parsing.
 
+use crate::grammar::attr::ParsedAttrs;
 use crate::{committed, ParseOutcome, Parser};
 use ori_ir::{ImportPath, TokenKind, UseDef, UseItem, Visibility};
 
@@ -39,7 +40,11 @@ impl Parser<'_> {
     /// Returns `EmptyErr` if no `use` keyword is present.
     ///
     /// The `visibility` parameter tracks whether this is a public re-export (`pub use`).
-    pub(crate) fn parse_use(&mut self, visibility: Visibility) -> ParseOutcome<UseDef> {
+    pub(crate) fn parse_use(
+        &mut self,
+        attrs: ParsedAttrs,
+        visibility: Visibility,
+    ) -> ParseOutcome<UseDef> {
         if !self.cursor.check(&TokenKind::Use) {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Use,
@@ -47,10 +52,14 @@ impl Parser<'_> {
             );
         }
 
-        self.parse_use_body(visibility)
+        self.parse_use_body(attrs, visibility)
     }
 
-    fn parse_use_body(&mut self, visibility: Visibility) -> ParseOutcome<UseDef> {
+    fn parse_use_body(
+        &mut self,
+        attrs: ParsedAttrs,
+        visibility: Visibility,
+    ) -> ParseOutcome<UseDef> {
         let start_span = self.cursor.current_span();
         committed!(self.cursor.expect(&TokenKind::Use));
 
@@ -68,6 +77,8 @@ impl Parser<'_> {
                 module_alias: Some(alias),
                 visibility,
                 span: start_span.merge(end_span),
+                target_attr: attrs.target,
+                cfg_attr: attrs.cfg,
             });
         }
 
@@ -144,6 +155,8 @@ impl Parser<'_> {
             module_alias: None,
             visibility,
             span: start_span.merge(end_span),
+            target_attr: attrs.target,
+            cfg_attr: attrs.cfg,
         })
     }
 }

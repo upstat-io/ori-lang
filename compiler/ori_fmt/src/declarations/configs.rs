@@ -47,6 +47,13 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     }
 
     fn format_const(&mut self, const_def: &ConstDef) {
+        // Item-level conditional attributes (Spec §25.4)
+        if let Some(ref target) = const_def.target_attr {
+            self.emit_item_target_attr(target);
+        }
+        if let Some(ref cfg) = const_def.cfg_attr {
+            self.emit_item_cfg_attr(cfg);
+        }
         if const_def.visibility == Visibility::Public {
             self.ctx.emit("pub ");
         }

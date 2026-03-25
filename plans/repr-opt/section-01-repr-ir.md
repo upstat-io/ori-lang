@@ -4,9 +4,9 @@ title: "Representation IR & Decision Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-25
-  note: "TPR-01-056 reopened item-level conditional-compilation coverage beyond functions/types on 2026-03-25."
+  note: "All TPR findings resolved. TPR-01-056 (item-level conditional attrs on constants, impls, imports) implemented 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1235,10 +1235,11 @@ Canonical representations are the foundation — if they're wrong, every optimiz
   Required plan update: Validate cfg feature names against the Ori identifier rules for both singleton and list forms, then add negative parser/spec tests before re-resolving TPR-01-053.
   Resolved: Accepted on 2026-03-25. Validated against codebase — `parse_attr_string_value()` and `parse_attr_string_list()` accept any string literal without checking identifier spelling. Spec §25.3.2 requires feature names to be valid Ori identifiers. Error E0932 is defined in spec but not implemented. Implementation task added to §01.10.
 
-- [ ] `[TPR-01-056][high]` `compiler/ori_parse/src/lib.rs:531` — Item-level `#target`/`#cfg` support still excludes imports, constants, and impl-owned items, so §25.4 remains only partially implemented.
+- [x] `[TPR-01-056][high]` `compiler/ori_parse/src/lib.rs:531` — Item-level `#target`/`#cfg` support still excludes imports, constants, and impl-owned items, so §25.4 remains only partially implemented.
   Evidence: `parse_imports()` consumes `use`/`extension` statements before `parse_attributes()` runs, and `dispatch_declaration()` only forwards `attrs` to `parse_function_or_test()` and `parse_type_decl()`. `parse_const()`, `parse_trait()`, `parse_impl()`, `parse_def_impl()`, and `parse_extend()` accept no attrs. Fresh verification on 2026-03-25: `ORI_DUMP_AFTER_PARSE=1 ori check` on a temp file containing `#cfg(debug)` before `let $answer = 42;` emitted `Const $answer = 42` with no attached attr, while the same command with `#target(os: "linux")` before `use std.testing { assert }` failed with `import statements must appear at the beginning of the file`.
   Impact: The section frontmatter and §01.10 checklist overstate TPR-01-054 as resolved. The compiler still cannot preserve spec-defined conditional attrs on imports, constants, and impl-related items, and it silently miscompiles `#cfg`-guarded constants as unconditional declarations.
   Required plan update: Extend the AST/parser/formatter surface for `UseDef`, `ConstDef`, `TraitDef`/`ImplDef`/`DefImplDef`/`ExtendDef` (or explicitly reject unsupported §25.4 forms), then add phase/spec coverage for constants and imports before re-resolving item-level conditional compilation.
+  Resolved: Fixed on 2026-03-25. Spec §25.4 defines 5 item kinds for conditional attrs: functions (done), types (done), trait implementations, constants, and imports. Implementation: (1) Added `target_attr`/`cfg_attr` fields to `ConstDef`, `ImplDef`, `UseDef` in `ori_ir`. (2) Updated `parse_const()` and `parse_impl()` to accept and store attrs from `dispatch_declaration()`. (3) Restructured `parse_imports()` to parse attrs before each import, returning leftover attrs for the declaration loop. (4) Updated formatter (`format_const`, `format_impl`, `format_use`) to emit item-level attrs. (5) Updated incremental copier for all 3 types. (6) 13 new phase tests + 6 new spec tests. Trait declarations, def impls, extends, and extern blocks are correctly unsupported per spec §25.4. 13,914 tests pass.
 
 ---
 

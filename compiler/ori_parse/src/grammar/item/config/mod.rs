@@ -1,5 +1,6 @@
 //! Constant parsing.
 
+use crate::grammar::attr::ParsedAttrs;
 use crate::{committed, require, ParseOutcome, Parser};
 use ori_ir::{ConstDef, TokenKind, Visibility};
 
@@ -13,7 +14,11 @@ impl Parser<'_> {
     /// (ensuring only const-compatible constructs) happens in later phases.
     ///
     /// Returns `EmptyErr` if no `$` is present.
-    pub(crate) fn parse_const(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
+    pub(crate) fn parse_const(
+        &mut self,
+        attrs: ParsedAttrs,
+        visibility: Visibility,
+    ) -> ParseOutcome<ConstDef> {
         if !self.cursor.check(&TokenKind::Dollar) {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Dollar,
@@ -21,10 +26,14 @@ impl Parser<'_> {
             );
         }
 
-        self.parse_const_body(visibility)
+        self.parse_const_body(attrs, visibility)
     }
 
-    fn parse_const_body(&mut self, visibility: Visibility) -> ParseOutcome<ConstDef> {
+    fn parse_const_body(
+        &mut self,
+        attrs: ParsedAttrs,
+        visibility: Visibility,
+    ) -> ParseOutcome<ConstDef> {
         let start_span = self.cursor.current_span();
 
         // $
@@ -58,6 +67,8 @@ impl Parser<'_> {
             value,
             span,
             visibility,
+            target_attr: attrs.target,
+            cfg_attr: attrs.cfg,
         })
     }
 }
