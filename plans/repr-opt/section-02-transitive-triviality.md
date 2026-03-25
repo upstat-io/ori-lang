@@ -1,8 +1,11 @@
 ---
 section: "02"
 title: "Transitive Triviality & ARC Elision"
-status: not-started
+status: in-progress
 reviewed: true
+third_party_review:
+  status: findings
+  updated: 2026-03-25
 goal: "Classify compound types as trivial when all transitive children are scalar, eliding all ARC operations for these types"
 inspired_by:
   - "Swift SIL trivial type classification (lib/SIL/SILType.cpp)"
@@ -558,6 +561,15 @@ Generic types interact with triviality classification in a specific way: trivial
 - [ ] Verify: `Result<Pair<int>, Pair<float>>` → Trivial (both arms trivial)
 
 **No monomorphization-time specialization needed:** Unlike integer narrowing (§04) which may produce different MachineRepr for `Pair<int>` vs `Pair<float>` (field widths differ), triviality is a simple binary property that falls out naturally from the recursive walk. Each concrete instantiation gets its own `Idx` and its own triviality result. No special handling required.
+
+---
+
+## 02.R Third Party Review Findings
+
+- [ ] `[TPR-02-001][medium]` `compiler/ori_types/src/triviality/tests.rs:1` — The new triviality module lands without the recursive-type and special-tag matrix that §02 and the repo rules require.
+  Evidence: The new tests cover many happy-path primitives and containers, but there is still no regression coverage for recursive structs/enums, `BoundVar`/`RigidVar`, `Borrowed`, `Scheme`/`Projection`/`ModuleNs`/`Infer`/`SelfType`, `Applied`/`Alias`, or the FFI cases called out in §02.5; `rg` over the file only finds “cycle” in the header comment.
+  Impact: The riskiest correctness branches in `classify_recursive()` — especially cycle detection and conservative `Unknown` fallbacks — remain unpinned, so the current unstaged implementation does not yet meet the plan’s required TDD/matrix standard even though the core algorithm is now in tree.
+  Required plan update: Add the missing recursive, special-tag, and FFI matrix tests before treating §02.1/§02.2 as actively underway, then update the checklist items that this live work has already started.
 
 ---
 
