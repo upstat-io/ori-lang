@@ -5,8 +5,8 @@ status: in-progress
 reviewed: true
 third_party_review:
   status: findings
-  updated: 2026-03-24
-  note: "All TPR items triaged. §01.R findings 044/045/046 were fixed on 2026-03-24. Implementation tasks remain unchecked in §01.10 for TPR-01-032/043/047/048, plus the storage-equivalence parity work. Status transitions to resolved when all open §01.10 work is complete."
+  updated: 2026-03-25
+  note: "All TPR items triaged. §01.R findings 044/045/046/047/048 were fixed by 2026-03-25. Open follow-up work remains in §01.10 for TPR-01-032, TPR-01-043, TPR-01-049, and the storage-equivalence parity work. Status transitions to resolved when all open §01.10 work is complete."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -1200,6 +1200,9 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `[TPR-01-048][high]` `compiler/oric/src/commands/build_options/mod.rs:186` — Explicit `--repr-opt=aggressive` still loses to `ORI_NO_REPR_OPT=1` in the real per-argument CLI flow whenever any unrelated flag is parsed after it.
   Resolved: Fixed on 2026-03-25. Root cause: `parse_build_options()` applied the `ORI_NO_REPR_OPT` env var on every single-arg parse, polluting unrelated flags with `Disabled` policy. Fix: (1) removed env var check from `parse_build_options()` — env var is only checked once after full CLI merge in `main.rs:98-100`; (2) simplified `merge()` to only copy policy when `other.narrowing_policy_explicit` is true — non-explicit policies from unrelated flags are ignored entirely. 4 regression tests added: explicit-aggressive-survives-trailing-release, explicit-aggressive-survives-trailing-emit-and-verbose, explicit-disabled-survives-trailing-release, parse-does-not-inject-env-policy. Verified: `ORI_NO_REPR_OPT=1 --repr-opt=aggressive --release --emit=llvm-ir` produces no "disabled" messages. 13,815 tests pass.
 
+- [x] `[TPR-01-049][medium]` `compiler/oric/src/commands/build_options/tests.rs:512` — §01 still does not have an automated regression test that exercises `ORI_NO_REPR_OPT=1` through the zero-option build path it claims to have pinned.
+  Resolved: Validated and integrated into §01.10 as TPR-01-032 on 2026-03-25. The implementation task (env-var regression pin) is tracked there.
+
 ---
 
 ## 01.10 Completion Checklist
@@ -1261,7 +1264,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] **[WASTE]** `compiler/ori_llvm/src/codegen/type_info/store.rs` — `// TODO(repr-opt §02)` comments added to `triviality_cache` and `classifying_trivial` fields (2026-03-24). Verified at lines 49-58.
 - [x] **[LINT]** `compiler/oric/src/commands/build_options/mod.rs` — Already uses `#[expect(clippy::struct_excessive_bools, ...)]` (2026-03-24). Verified at line 15.
 - [x] **[LINT]** `compiler/ori_parse/src/grammar/attr/mod.rs` — `#[allow(dead_code)]` on `ReprAttr` removed entirely (2026-03-24). No longer dead code — consumed by `convert_repr_attr()` in type_decl.rs.
-- [ ] **[TPR-01-032]** Integration test for zero-option build path: `ORI_NO_REPR_OPT=1 ori build file.ori` (no extra build flags) must honor the env var. Either extract the main.rs build-command loop into a testable helper, or add an integration test that drives the real build dispatcher. Must exercise the path at `main.rs:79-101` where the per-arg parser loop never executes.
+- [ ] **[TPR-01-032]** Zero-option build path still needs a real env-var regression pin. `accumulate_build_options()` was extracted from `main.rs` on 2026-03-25, but the current unit tests only prove the helper shape and never execute `ORI_NO_REPR_OPT=1`; add a deterministic env-var seam or subprocess integration test that fails if the post-merge fallback at `build_options/mod.rs:384-390` is removed.
 - [x] **[TPR-01-036]** Add `narrowing_policy_explicit: bool` to `BuildOptions` (2026-03-24). Parser sets flag on `--repr-opt=*` and `--no-repr-opt`. `merge()` uses explicit-wins pattern. Env fallback in `parse_build_options()` and `main.rs` checks `!narrowing_policy_explicit`. 4 regression tests: explicit override, disabled→aggressive, aggressive→disabled, env-var-does-not-override-explicit.
 - [x] **[TPR-01-038]** Add `link_mode_explicit` and `jobs_explicit` to `BuildOptions` (2026-03-24). Parser sets flags on `--link=`, `--jobs=`, `-j`. `merge()` uses explicit-wins for both. 4 regression tests: dynamic→static, static→dynamic, jobs 4→auto, auto→4.
 - [x] **[TPR-01-039]** Re-split `canonical.rs` (2026-03-24). Converted to directory module: `canonical/mod.rs` (297 lines) + `canonical/type_repr.rs` (241 lines). All 119 tests pass.
