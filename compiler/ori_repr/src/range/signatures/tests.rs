@@ -376,3 +376,382 @@ fn empty_functions_no_panic() {
     propagate_ranges(&mut plan, &pool, &[], &config);
     // No assertions needed — just verifying it doesn't panic.
 }
+
+// ─── TPR-03-026: Transitive A→B→C propagation ──────
+
+/// Semantic pin: A calls B(42), B calls C(x). C's parameter should narrow to
+/// [42, 42] even though C is only called by B. This ONLY passes with parameter
+/// seeding in the SCC pipeline — without seeds, C's param stays Top.
+#[test]
+fn transitive_propagation_a_b_c() {
+    // C: receives x, returns x
+    let v_cx = ArcVarId::new(0);
+    let func_c = build_simple_func(
+        300,
+        &[(0, ori_types::Idx::INT)],
+        vec![],
+        v_cx,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // B: receives x, calls C(x), returns result
+    let v_bx = ArcVarId::new(0);
+    let v_br = ArcVarId::new(1);
+    let func_b = build_simple_func(
+        200,
+        &[(0, ori_types::Idx::INT)],
+        vec![ArcInstr::Apply {
+            dst: v_br,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(300),
+            args: vec![v_bx],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        v_br,
+        ori_types::Idx::INT,
+        2,
+    );
+
+    // A: calls B(42)
+    let v_a42 = ArcVarId::new(0);
+    let v_ar = ArcVarId::new(1);
+    let func_a = build_simple_func(
+        100,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_a42,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            },
+            ArcInstr::Apply {
+                dst: v_ar,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(200),
+                args: vec![v_a42],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        v_ar,
+        ori_types::Idx::INT,
+        2,
+    );
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+
+    // Order matters: C, B, A — topological leaf-first processing.
+    propagate_ranges(&mut plan, &pool, &[func_c, func_b, func_a], &config);
+
+    // B's param should be [42, 42] (called with constant 42 from A).
+    let b_name = ori_ir::Name::from_raw(200);
+    let b_param = plan.var_range(b_name, v_bx);
+    assert_eq!(
+        b_param,
+        ValueRange::Bounded { lo: 42, hi: 42 },
+        "Semantic pin: B(42) → B's param should be [42, 42], got {b_param:?}"
+    );
+
+    // C's param should be [42, 42] (B passes its param x=42 to C).
+    let c_name = ori_ir::Name::from_raw(300);
+    let c_param = plan.var_range(c_name, v_cx);
+    assert_eq!(
+        c_param,
+        ValueRange::Bounded { lo: 42, hi: 42 },
+        "Semantic pin: transitive A→B→C, C's param should be [42, 42], got {c_param:?}"
+    );
+}
+
+// ─── TPR-03-027: Caller/callee return-range narrowing ──────
+
+/// Semantic pin: callee returns constant 99, caller's Apply dst should narrow
+/// to [99, 99] from the callee's return range. This ONLY passes with Phase 6
+/// return-range propagation.
+#[test]
+fn caller_dst_narrows_from_callee_return_range() {
+    // callee: returns constant 99
+    let v_ret = ArcVarId::new(0);
+    let callee = build_simple_func(
+        400,
+        &[],
+        vec![ArcInstr::Let {
+            dst: v_ret,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        v_ret,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // caller: calls callee() and returns the result
+    let v_dst = ArcVarId::new(0);
+    let caller = build_simple_func(
+        500,
+        &[],
+        vec![ArcInstr::Apply {
+            dst: v_dst,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(400),
+            args: vec![],
+            arg_ownership: vec![],
+        }],
+        v_dst,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+
+    propagate_ranges(&mut plan, &pool, &[callee, caller], &config);
+
+    // Caller's dst (result of calling callee) should be [99, 99].
+    let caller_name = ori_ir::Name::from_raw(500);
+    let dst_range = plan.var_range(caller_name, v_dst);
+    assert_eq!(
+        dst_range,
+        ValueRange::Bounded { lo: 99, hi: 99 },
+        "Semantic pin: caller's Apply dst should narrow to callee's return [99, 99], got {dst_range:?}"
+    );
+}
+
+// ─── TPR-03-026: Mutually recursive SCC tightening ──────
+
+/// Two mutually recursive functions with an external seed. When seeded with
+/// a constant call, parameter ranges should converge tighter than Top.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "constructing ARC IR for two mutually recursive functions is inherently verbose"
+)]
+fn mutually_recursive_scc_tightens_from_seed() {
+    use ori_arc::ir::PrimOp;
+    use ori_ir::BinaryOp;
+
+    // F: if x > 0 then G(x - 1) else 0
+    let v_fx = ArcVarId::new(0);
+    let v_fzero = ArcVarId::new(1);
+    let v_fcond = ArcVarId::new(2);
+    let v_fone = ArcVarId::new(3);
+    let v_fsub = ArcVarId::new(4);
+    let v_frec = ArcVarId::new(5);
+
+    let f_block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![(v_fx, ori_types::Idx::INT)],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_fzero,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_fcond,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Gt),
+                    args: vec![v_fx, v_fzero],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: v_fcond,
+            then_block: ArcBlockId::new(1),
+            else_block: ArcBlockId::new(2),
+        },
+    };
+    let f_block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_fone,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_fsub,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Sub),
+                    args: vec![v_fx, v_fone],
+                },
+            },
+            // Call G(x - 1) instead of F(x - 1) — mutually recursive
+            ArcInstr::Apply {
+                dst: v_frec,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(601),
+                args: vec![v_fsub],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_frec },
+    };
+    let f_block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_fzero },
+    };
+
+    let func_f = ArcFunction {
+        name: ori_ir::Name::from_raw(600),
+        params: vec![ArcParam {
+            var: v_fx,
+            ty: ori_types::Idx::INT,
+            ownership: Ownership::Owned,
+        }],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![f_block0, f_block1, f_block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; 6],
+        var_reprs: vec![ValueRepr::Scalar; 6],
+        spans: vec![vec![None; 2], vec![None; 3], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    // G: same structure as F but calls F(x - 1)
+    let v_gx = ArcVarId::new(0);
+    let v_gzero = ArcVarId::new(1);
+    let v_gcond = ArcVarId::new(2);
+    let v_gone = ArcVarId::new(3);
+    let v_gsub = ArcVarId::new(4);
+    let v_grec = ArcVarId::new(5);
+
+    let g_block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![(v_gx, ori_types::Idx::INT)],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_gzero,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_gcond,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Gt),
+                    args: vec![v_gx, v_gzero],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: v_gcond,
+            then_block: ArcBlockId::new(1),
+            else_block: ArcBlockId::new(2),
+        },
+    };
+    let g_block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_gone,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_gsub,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Sub),
+                    args: vec![v_gx, v_gone],
+                },
+            },
+            // Call F(x - 1) — mutually recursive back to F
+            ArcInstr::Apply {
+                dst: v_grec,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(600),
+                args: vec![v_gsub],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_grec },
+    };
+    let g_block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_gzero },
+    };
+
+    let func_g = ArcFunction {
+        name: ori_ir::Name::from_raw(601),
+        params: vec![ArcParam {
+            var: v_gx,
+            ty: ori_types::Idx::INT,
+            ownership: Ownership::Owned,
+        }],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![g_block0, g_block1, g_block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; 6],
+        var_reprs: vec![ValueRepr::Scalar; 6],
+        spans: vec![vec![None; 2], vec![None; 3], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    // External caller: main calls F(10)
+    let v_m10 = ArcVarId::new(0);
+    let v_mr = ArcVarId::new(1);
+    let func_main = build_simple_func(
+        700,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_m10,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(10)),
+            },
+            ArcInstr::Apply {
+                dst: v_mr,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(600),
+                args: vec![v_m10],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        v_mr,
+        ori_types::Idx::INT,
+        2,
+    );
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+
+    propagate_ranges(&mut plan, &pool, &[func_f, func_g, func_main], &config);
+
+    // F's parameter should be tighter than Top — seeded from main(F(10)).
+    // The SCC iteration should produce a bounded range (at minimum [10, 10]
+    // from the direct call, likely wider due to recursive calls with x-1).
+    let f_name = ori_ir::Name::from_raw(600);
+    let f_param = plan.var_range(f_name, v_fx);
+    assert!(
+        !matches!(f_param, ValueRange::Top),
+        "Mutually recursive SCC with external seed: F's param should not be Top, got {f_param:?}"
+    );
+
+    // G's parameter should also be non-Top (called by F with x-1).
+    let g_name = ori_ir::Name::from_raw(601);
+    let g_param = plan.var_range(g_name, v_gx);
+    assert!(
+        !matches!(g_param, ValueRange::Top),
+        "Mutually recursive SCC with external seed: G's param should not be Top, got {g_param:?}"
+    );
+}

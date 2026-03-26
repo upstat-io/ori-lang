@@ -691,3 +691,232 @@ fn is_int_typed_unresolved_applied() {
         "Unresolved Applied must NOT be int-typed (avoids infinite recursion)"
     );
 }
+
+// ─── Property-based tests (proptest) ──────────────────────────
+
+#[expect(
+    clippy::disallowed_types,
+    reason = "proptest macros internally use Arc"
+)]
+mod proptest_range {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Strategy that generates arbitrary `ValueRange` values.
+    fn arb_range() -> impl Strategy<Value = ValueRange> {
+        prop_oneof![
+            1 => Just(ValueRange::Bottom),
+            1 => Just(ValueRange::Top),
+            8 => (i64::MIN..=i64::MAX, i64::MIN..=i64::MAX).prop_map(|(a, b)| {
+                let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                ValueRange::Bounded { lo, hi }
+            }),
+        ]
+    }
+
+    /// Helper: does range `r` contain the concrete value `v`?
+    fn contains(r: ValueRange, v: i64) -> bool {
+        match r {
+            ValueRange::Bottom => false,
+            ValueRange::Top => true,
+            ValueRange::Bounded { lo, hi } => v >= lo && v <= hi,
+        }
+    }
+
+    /// Helper: is `sub` a subset of (or equal to) `sup`?
+    fn is_subset(sub: ValueRange, sup: ValueRange) -> bool {
+        match (sub, sup) {
+            (ValueRange::Bottom, _) | (_, ValueRange::Top) => true,
+            (ValueRange::Top, _) | (_, ValueRange::Bottom) => false,
+            (ValueRange::Bounded { lo: a, hi: b }, ValueRange::Bounded { lo: c, hi: d }) => {
+                a >= c && b <= d
+            }
+        }
+    }
+
+    // Lattice law tests
+
+    proptest! {
+        #[test]
+        fn join_commutative(a in arb_range(), b in arb_range()) {
+            prop_assert_eq!(a.join(b), b.join(a));
+        }
+
+        #[test]
+        fn join_associative(a in arb_range(), b in arb_range(), c in arb_range()) {
+            prop_assert_eq!(a.join(b).join(c), a.join(b.join(c)));
+        }
+
+        #[test]
+        fn join_idempotent(a in arb_range()) {
+            prop_assert_eq!(a.join(a), a);
+        }
+
+        #[test]
+        fn join_bottom_identity(a in arb_range()) {
+            prop_assert_eq!(a.join(ValueRange::Bottom), a);
+            prop_assert_eq!(ValueRange::Bottom.join(a), a);
+        }
+
+        #[test]
+        fn join_top_absorbing(a in arb_range()) {
+            prop_assert_eq!(a.join(ValueRange::Top), ValueRange::Top);
+        }
+
+        #[test]
+        fn join_contains_both(a in arb_range(), b in arb_range()) {
+            let j = a.join(b);
+            prop_assert!(is_subset(a, j), "join must contain left: {a:?} ⊆ {j:?}");
+            prop_assert!(is_subset(b, j), "join must contain right: {b:?} ⊆ {j:?}");
+        }
+
+        #[test]
+        fn meet_commutative(a in arb_range(), b in arb_range()) {
+            prop_assert_eq!(a.meet(b), b.meet(a));
+        }
+
+        #[test]
+        fn meet_associative(a in arb_range(), b in arb_range(), c in arb_range()) {
+            prop_assert_eq!(a.meet(b).meet(c), a.meet(b.meet(c)));
+        }
+
+        #[test]
+        fn meet_idempotent(a in arb_range()) {
+            prop_assert_eq!(a.meet(a), a);
+        }
+
+        #[test]
+        fn meet_top_identity(a in arb_range()) {
+            prop_assert_eq!(a.meet(ValueRange::Top), a);
+            prop_assert_eq!(ValueRange::Top.meet(a), a);
+        }
+
+        #[test]
+        fn meet_bottom_absorbing(a in arb_range()) {
+            prop_assert_eq!(a.meet(ValueRange::Bottom), ValueRange::Bottom);
+        }
+
+        #[test]
+        fn absorption_join_meet(a in arb_range(), b in arb_range()) {
+            prop_assert_eq!(a.join(a.meet(b)), a, "join(a, meet(a, b)) == a");
+        }
+    }
+
+    // Transfer function soundness
+
+    proptest! {
+        #[test]
+        fn add_soundness(
+            a in arb_range(),
+            b in arb_range(),
+        ) {
+            let result = range_add(a, b);
+            // Pick concrete values and verify containment.
+            if let (ValueRange::Bounded { lo: a_lo, hi: a_hi }, ValueRange::Bounded { lo: b_lo, hi: b_hi }) = (a, b) {
+                // Only test with corner values to avoid huge ranges.
+                for &av in &[a_lo, a_hi] {
+                    for &bv in &[b_lo, b_hi] {
+                        if let Some(sum) = av.checked_add(bv) {
+                            prop_assert!(contains(result, sum),
+                                "add({av}, {bv}) = {sum} must be in {result:?}");
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn sub_soundness(
+            a in arb_range(),
+            b in arb_range(),
+        ) {
+            let result = range_sub(a, b);
+            if let (ValueRange::Bounded { lo: a_lo, hi: a_hi }, ValueRange::Bounded { lo: b_lo, hi: b_hi }) = (a, b) {
+                for &av in &[a_lo, a_hi] {
+                    for &bv in &[b_lo, b_hi] {
+                        if let Some(diff) = av.checked_sub(bv) {
+                            prop_assert!(contains(result, diff),
+                                "sub({av}, {bv}) = {diff} must be in {result:?}");
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn mul_soundness(
+            a in arb_range(),
+            b in arb_range(),
+        ) {
+            let result = range_mul(a, b);
+            if let (ValueRange::Bounded { lo: a_lo, hi: a_hi }, ValueRange::Bounded { lo: b_lo, hi: b_hi }) = (a, b) {
+                for &av in &[a_lo, a_hi] {
+                    for &bv in &[b_lo, b_hi] {
+                        if let Some(prod) = av.checked_mul(bv) {
+                            prop_assert!(contains(result, prod),
+                                "mul({av}, {bv}) = {prod} must be in {result:?}");
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn neg_soundness(a in arb_range()) {
+            let result = range_neg(a);
+            if let ValueRange::Bounded { lo, hi } = a {
+                for &v in &[lo, hi] {
+                    if let Some(neg) = v.checked_neg() {
+                        prop_assert!(contains(result, neg),
+                            "neg({v}) = {neg} must be in {result:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    // Widening and narrowing properties
+
+    proptest! {
+        #[test]
+        fn widen_contains_current(prev in arb_range(), curr in arb_range()) {
+            let w = super::super::fixpoint::widen(prev, curr);
+            prop_assert!(is_subset(curr, w), "widen must contain current: {curr:?} ⊆ {w:?}");
+        }
+
+        /// Widening a value with itself produces itself (stability).
+        #[test]
+        fn widen_self_stable(a in arb_range()) {
+            use super::super::fixpoint::widen;
+            prop_assert_eq!(widen(a, a), a, "widen(a, a) must be stable");
+        }
+
+        /// Widening an expanding chain reaches Top within 3 steps.
+        /// Simulates fixpoint behavior: each step expands by 1 in both directions.
+        #[test]
+        fn widen_expanding_chain_terminates(
+            lo in -1000i64..=1000i64,
+            hi in -1000i64..=1000i64,
+        ) {
+            use super::super::fixpoint::widen;
+            let (lo, hi) = if lo <= hi { (lo, hi) } else { (hi, lo) };
+            let mut prev = ValueRange::Bounded { lo, hi };
+            for _ in 0..5 {
+                let ValueRange::Bounded { lo: cur_lo, hi: cur_hi } = prev else { break };
+                let expanded = ValueRange::Bounded {
+                    lo: cur_lo.saturating_sub(1),
+                    hi: cur_hi.saturating_add(1),
+                };
+                prev = widen(prev, expanded);
+            }
+            // After ≤5 widenings of an expanding chain, must be Top.
+            prop_assert_eq!(prev, ValueRange::Top, "expanding chain must reach Top");
+        }
+
+        #[test]
+        fn narrow_tightens(widened in arb_range(), computed in arb_range()) {
+            let n = super::super::fixpoint::narrow(widened, computed);
+            prop_assert!(is_subset(n, widened), "narrow must tighten: {n:?} ⊆ {widened:?}");
+        }
+    }
+}

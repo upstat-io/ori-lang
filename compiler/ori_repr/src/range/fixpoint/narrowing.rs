@@ -23,6 +23,10 @@ use ValueRange::{Bottom, Top};
 /// TPR-03-019: also re-merges block parameters from predecessors, applies
 /// block refinements (branch/switch), and narrows invoke terminators.
 /// This allows widened loop-header parameters to recover bounded ranges.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "fixpoint infrastructure passes — bundling would add indirection"
+)]
 pub(super) fn run_narrowing_pass(
     rpo: &[usize],
     func: &ArcFunction,
@@ -31,12 +35,19 @@ pub(super) fn run_narrowing_pass(
     field_summary_table: &FieldSummaryTable,
     predecessors: &[Vec<usize>],
     block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
+    known_builtins: &super::super::KnownBuiltins,
 ) {
     for &block_idx in rpo {
         let block = &func.blocks[block_idx];
 
         // Narrow block parameters from predecessor jump args.
+        // Skip entry block parameters with no predecessors — they may be seeded
+        // from interprocedural analysis (§03.5), and narrowing against Bottom
+        // (which means "no info from predecessors") would destroy those seeds.
         for (param_idx, (param_var, _)) in block.params.iter().enumerate() {
+            if predecessors[block_idx].is_empty() {
+                continue; // Entry block — preserve interprocedural seeds.
+            }
             let mut merged = Bottom;
             for &pred_idx in &predecessors[block_idx] {
                 let pred = &func.blocks[pred_idx];
@@ -70,6 +81,7 @@ pub(super) fn run_narrowing_pass(
                 pool,
                 var_types: &func.var_types,
                 field_summaries: field_summary_table.as_map(),
+                known_builtins,
             };
             for instr in &block.body {
                 let computed = transfer(instr, &ctx);
@@ -100,7 +112,7 @@ pub(super) fn run_narrowing_pass(
         } = &block.terminator
         {
             if is_int_typed(*ty, pool) {
-                let computed = transfer_known_call(*callee, pool).unwrap_or(Top);
+                let computed = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
                 if let Some(&widened) = ranges.get(dst) {
                     let narrowed = narrow(widened, computed);
                     if narrowed != widened {

@@ -102,10 +102,10 @@ pub fn propagate_ranges(
     let func_map: FxHashMap<Name, &ArcFunction> =
         arc_functions.iter().map(|f| (f.name, f)).collect();
 
-    // Phase 1: Intraprocedural analysis for each function.
+    // Phase 1: Intraprocedural analysis for each function (no seeds).
     let mut results: FxHashMap<Name, super::fixpoint::RangeFixpointResult> = FxHashMap::default();
     for func in arc_functions {
-        let result = range_fixpoint(func, pool, config);
+        let result = range_fixpoint(func, pool, config, None);
         results.insert(func.name, result);
     }
 
@@ -113,11 +113,15 @@ pub fn propagate_ranges(
     let call_graph = CallGraph::build(arc_functions);
     let sccs = compute_sccs(&call_graph);
 
-    // Phase 3: Process SCCs in topological order (leaves first).
+    // Phase 3: Process SCCs in reverse topological order (callers first).
+    // Parameter ranges flow top-down (caller → callee), so callers must be
+    // processed first: when we seed callee C's fixpoint, all callers of C
+    // must already have their final ranges so C's param seed is accurate.
+    // `compute_sccs()` returns forward order (leaves first); we reverse it.
     let mut func_infos: FxHashMap<Name, FunctionRangeInfo> = FxHashMap::default();
     let mut total_scc_iters: usize = 0;
 
-    for scc in &sccs {
+    for scc in sccs.iter().rev() {
         if total_scc_iters >= config.max_total_scc_iterations {
             tracing::warn!(
                 remaining_sccs = sccs.len(),
@@ -133,24 +137,28 @@ pub fn propagate_ranges(
         }
 
         if scc.is_recursive(&call_graph) {
-            // Recursive SCC: iterate to fixpoint.
+            // Recursive SCC: iterate to fixpoint with parameter seeding.
             total_scc_iters +=
                 process_recursive_scc(scc, &func_map, pool, config, &mut results, &mut func_infos);
         } else {
-            // Non-recursive SCC (single function): single pass.
+            // Non-recursive SCC (single function): collect param ranges, then
+            // re-run fixpoint with seeds so interprocedural facts propagate.
             debug_assert_eq!(scc.members.len(), 1);
             let name = scc.members[0];
             if let Some(func) = func_map.get(&name) {
                 let info = collect_param_ranges(func, &results, &func_infos, &func_map, pool);
-                if let Some(result) = results.get(&name) {
-                    func_infos.insert(
-                        name,
-                        FunctionRangeInfo {
-                            param_ranges: info.param_ranges,
-                            return_range: result.return_range,
-                        },
-                    );
-                }
+                // Build seed map from collected param ranges.
+                let seeds = build_param_seed_map(func, &info);
+                // Re-run fixpoint with seeded parameters.
+                let result = range_fixpoint(func, pool, config, Some(&seeds));
+                func_infos.insert(
+                    name,
+                    FunctionRangeInfo {
+                        param_ranges: info.param_ranges,
+                        return_range: result.return_range,
+                    },
+                );
+                results.insert(name, result);
             }
             total_scc_iters += 1;
         }
@@ -183,6 +191,12 @@ pub fn propagate_ranges(
             }
         }
     }
+
+    // Phase 6: Propagate callee return ranges to caller call-result variables.
+    // For each Apply/Invoke targeting a callee with a bounded return range,
+    // narrow the caller's dst variable range. This is the second half of
+    // TPR-03-026: callers benefit from callee return-range analysis.
+    propagate_return_ranges(plan, arc_functions, &func_infos);
 
     tracing::debug!(
         functions = arc_functions.len(),
@@ -305,6 +319,84 @@ fn join_arg_ranges(
     }
 }
 
+/// Propagate callee return ranges to caller call-result variables.
+///
+/// For each `Apply`/`Invoke` instruction in each function, if the callee has a
+/// bounded return range (from intraprocedural analysis), narrow the caller's
+/// `dst` variable in `ReprPlan` via `meet`. This enables callers to benefit
+/// from callee return-range analysis (TPR-03-026/TPR-03-027).
+fn propagate_return_ranges(
+    plan: &mut ReprPlan,
+    arc_functions: &[ArcFunction],
+    func_infos: &FxHashMap<Name, FunctionRangeInfo>,
+) {
+    for caller_func in arc_functions {
+        for block in &caller_func.blocks {
+            // Check body instructions for Apply.
+            for instr in &block.body {
+                if let ArcInstr::Apply {
+                    dst,
+                    func: callee_name,
+                    ..
+                } = instr
+                {
+                    narrow_dst_from_return(plan, caller_func.name, *dst, *callee_name, func_infos);
+                }
+            }
+            // Check terminator for Invoke.
+            if let ArcTerminator::Invoke {
+                dst,
+                func: callee_name,
+                ..
+            } = &block.terminator
+            {
+                narrow_dst_from_return(plan, caller_func.name, *dst, *callee_name, func_infos);
+            }
+        }
+    }
+}
+
+/// Narrow a caller's call-result variable from the callee's return range.
+fn narrow_dst_from_return(
+    plan: &mut ReprPlan,
+    caller_name: Name,
+    dst: ArcVarId,
+    callee_name: Name,
+    func_infos: &FxHashMap<Name, FunctionRangeInfo>,
+) {
+    let Some(callee_info) = func_infos.get(&callee_name) else {
+        return;
+    };
+    if matches!(callee_info.return_range, ValueRange::Top) {
+        return; // No useful info to propagate.
+    }
+    let existing = plan.var_range(caller_name, dst);
+    let narrowed = existing.meet(callee_info.return_range);
+    if narrowed != existing {
+        if let Some(ranges) = plan.function_var_ranges_mut(caller_name) {
+            ranges.insert(dst, narrowed);
+        }
+    }
+}
+
+/// Build a seed map from `FunctionRangeInfo::param_ranges` for `range_fixpoint()`.
+///
+/// Maps each function parameter's `ArcVarId` to its interprocedural range
+/// (from call-site analysis). The fixpoint loop uses this to initialize
+/// entry block parameter variables instead of starting at `Bottom`.
+fn build_param_seed_map(
+    func: &ArcFunction,
+    info: &FunctionRangeInfo,
+) -> FxHashMap<ArcVarId, ValueRange> {
+    let mut seeds = FxHashMap::default();
+    for pr in &info.param_ranges {
+        if pr.param_index < func.params.len() {
+            seeds.insert(func.params[pr.param_index].var, pr.range);
+        }
+    }
+    seeds
+}
+
 /// Process a recursive SCC: iterate fixpoint until parameter + return ranges stabilize.
 ///
 /// Returns the number of SCC iterations consumed.
@@ -359,11 +451,13 @@ fn process_recursive_scc(
                 changed = true;
             }
 
-            func_infos.insert(*name, new_info);
+            func_infos.insert(*name, new_info.clone());
 
-            // Re-run intraprocedural analysis with updated parameter constraints.
-            // (Future: could seed parameter ranges into the fixpoint to get tighter results.)
-            let result = range_fixpoint(func, pool, config);
+            // Re-run intraprocedural analysis with parameter seeds from call sites.
+            // This is the key TPR-03-026 fix: the fixpoint starts with
+            // interprocedural parameter constraints, enabling tighter results.
+            let seeds = build_param_seed_map(func, &new_info);
+            let result = range_fixpoint(func, pool, config, Some(&seeds));
             results.insert(*name, result);
         }
 
