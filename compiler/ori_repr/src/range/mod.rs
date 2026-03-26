@@ -223,6 +223,9 @@ pub struct RangeAnalysisConfig {
     pub max_scc_iterations: usize,
     /// Maximum total SCC iterations across all SCCs.
     pub max_total_scc_iterations: usize,
+    /// Pre-interned names for known builtin functions.
+    /// When populated, `transfer_known_call()` can match builtins by `Name`.
+    pub known_builtins: KnownBuiltins,
 }
 
 impl Default for RangeAnalysisConfig {
@@ -232,6 +235,39 @@ impl Default for RangeAnalysisConfig {
             max_blocks: 500,
             max_scc_iterations: 10,
             max_total_scc_iterations: 50,
+            known_builtins: KnownBuiltins::default(),
+        }
+    }
+}
+
+/// Pre-interned names for builtin functions whose return ranges are known.
+///
+/// Constructed via `KnownBuiltins::from_interner()` when the interner is
+/// available. When names are `None` (default), `transfer_known_call()`
+/// returns `None` for all calls (safe conservative behavior).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct KnownBuiltins {
+    /// `len()` — returns `[0, i64::MAX]`.
+    pub len: Option<ori_ir::Name>,
+    /// `count()` — returns `[0, i64::MAX]`.
+    pub count: Option<ori_ir::Name>,
+    /// `byte_to_int()` — returns `[0, 255]`.
+    pub byte_to_int: Option<ori_ir::Name>,
+    /// `char_to_int()` — returns `[0, 0x10FFFF]`.
+    pub char_to_int: Option<ori_ir::Name>,
+    /// `abs()` — returns via `range_abs()`.
+    pub abs: Option<ori_ir::Name>,
+}
+
+impl KnownBuiltins {
+    /// Build from a string interner (used in the real compiler pipeline).
+    pub fn from_interner(interner: &ori_ir::StringInterner) -> Self {
+        Self {
+            len: Some(interner.intern("len")),
+            count: Some(interner.intern("count")),
+            byte_to_int: Some(interner.intern("byte_to_int")),
+            char_to_int: Some(interner.intern("char_to_int")),
+            abs: Some(interner.intern("abs")),
         }
     }
 }

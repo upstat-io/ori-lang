@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4803ab53fa74a2fa727c6a97424f5aa90160621ddaea607639ef033c09b7d070 # shrinks to a0 = Bounded { lo: 0, hi: 0 }, a1 = Bounded { lo: 0, hi: 0 }, a2 = Bounded { lo: 0, hi: 1 }, a3 = Bounded { lo: -1, hi: 0 }, a4 = Bounded { lo: 0, hi: 1 }

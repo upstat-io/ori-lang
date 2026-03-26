@@ -35,6 +35,7 @@ pub struct BranchRefinement {
 ///
 /// Returns refinements for variables that can be narrowed in each branch.
 /// An empty vec means no refinement could be extracted (safe — no narrowing).
+#[tracing::instrument(skip_all)]
 pub fn refine_from_branch<S: std::hash::BuildHasher>(
     cond_var: ArcVarId,
     ranges: &std::collections::HashMap<ArcVarId, ValueRange, S>,

@@ -19,6 +19,7 @@
 //! Results stored in `ReprPlan` via `set_var_ranges()` and `flush_to_repr_plan()`.
 
 mod narrowing;
+mod terminator;
 
 use ori_arc::graph::{compute_postorder, compute_predecessors};
 use ori_arc::ir::{ArcBlock, ArcFunction, ArcTerminator};
@@ -26,11 +27,11 @@ use ori_arc::{ArcBlockId, ArcVarId};
 use ori_types::Pool;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::conditional::refine_from_branch;
 use super::field_summary::{update_field_summaries, FieldSummaryTable};
-use super::transfer::{transfer, transfer_known_call, TransferContext};
-use super::{is_int_typed, RangeAnalysisConfig, ValueRange};
+use super::transfer::{transfer, TransferContext};
+use super::{RangeAnalysisConfig, ValueRange};
 use narrowing::{recompute_field_summaries, recompute_return_range, run_narrowing_pass};
+use terminator::process_terminator;
 use ValueRange::{Bottom, Bounded, Top};
 
 /// Widening threshold — start widening after this many iterations.
@@ -95,6 +96,7 @@ fn update_range(
     if merged == old {
         false
     } else {
+        tracing::trace!(var = var.index(), ?old, ?merged, "range updated");
         ranges.insert(var, merged);
         true
     }
@@ -175,148 +177,6 @@ pub(super) fn restore_block_refinements(
     }
 }
 
-/// Compute the complement range for a Switch default block.
-///
-/// Trims contiguous case values from the lo/hi edges of the scrutinee range.
-/// For example: scrutinee `[0, 10]` with cases `{0, 1, 2}` → `[3, 10]`.
-/// Middle gaps (non-contiguous cases) cannot be excluded with a single
-/// interval, so they are conservatively kept.
-fn switch_default_complement(
-    scrutinee_range: ValueRange,
-    cases: &[(u64, ArcBlockId)],
-) -> ValueRange {
-    let Bounded { lo, hi } = scrutinee_range else {
-        return scrutinee_range;
-    };
-
-    let mut case_vals: Vec<i64> = cases
-        .iter()
-        .filter_map(|&(v, _)| i64::try_from(v).ok())
-        .filter(|&v| v >= lo && v <= hi)
-        .collect();
-
-    if case_vals.is_empty() {
-        return scrutinee_range;
-    }
-    case_vals.sort_unstable();
-    case_vals.dedup();
-
-    // Trim contiguous cases from the low edge.
-    let mut new_lo = lo;
-    for &v in &case_vals {
-        if v == new_lo {
-            match new_lo.checked_add(1) {
-                Some(next) => new_lo = next,
-                None => return Top,
-            }
-        } else {
-            break;
-        }
-    }
-
-    // Trim contiguous cases from the high edge.
-    let mut new_hi = hi;
-    for &v in case_vals.iter().rev() {
-        if v == new_hi {
-            match new_hi.checked_sub(1) {
-                Some(prev) => new_hi = prev,
-                None => return Top,
-            }
-        } else {
-            break;
-        }
-    }
-
-    if new_lo > new_hi {
-        Bottom
-    } else {
-        Bounded {
-            lo: new_lo,
-            hi: new_hi,
-        }
-    }
-}
-
-/// Process a block's terminator: `Invoke` defines a variable,
-/// `Branch`/`Switch` produce refinements, `Return` accumulates return range.
-fn process_terminator(
-    block: &ArcBlock,
-    func: &ArcFunction,
-    pool: &Pool,
-    ranges: &mut FxHashMap<ArcVarId, ValueRange>,
-    block_refinements: &mut FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
-    return_range: &mut ValueRange,
-    iteration: usize,
-) -> bool {
-    let mut changed = false;
-    match &block.terminator {
-        ArcTerminator::Invoke {
-            dst,
-            ty,
-            func: callee,
-            ..
-        } => {
-            if is_int_typed(*ty, pool) {
-                let new_range = transfer_known_call(*callee, pool).unwrap_or(Top);
-                changed |= update_range(ranges, *dst, new_range, iteration);
-            }
-        }
-        ArcTerminator::Branch {
-            cond,
-            then_block,
-            else_block,
-        } => {
-            // TPR-03-020: JOIN refinements per (block, var) — not overwrite.
-            // Multiple predecessors may target the same block with different
-            // refinements; joining is the sound over-approximation.
-            let refinements = refine_from_branch(*cond, ranges, &block.body);
-            for r in &refinements {
-                block_refinements
-                    .entry((*then_block, r.var))
-                    .and_modify(|existing| *existing = existing.join(r.true_range))
-                    .or_insert(r.true_range);
-                block_refinements
-                    .entry((*else_block, r.var))
-                    .and_modify(|existing| *existing = existing.join(r.false_range))
-                    .or_insert(r.false_range);
-            }
-        }
-        ArcTerminator::Switch {
-            scrutinee,
-            cases,
-            default,
-        } => {
-            // TPR-03-017: JOIN case values per (block, scrutinee) — not overwrite.
-            for &(case_val, case_block) in cases {
-                if let Ok(val) = i64::try_from(case_val) {
-                    let exact = Bounded { lo: val, hi: val };
-                    block_refinements
-                        .entry((case_block, *scrutinee))
-                        .and_modify(|existing| *existing = existing.join(exact))
-                        .or_insert(exact);
-                }
-            }
-            // TPR-03-018: default block gets complement refinement.
-            let scr_range = ranges.get(scrutinee).copied().unwrap_or(Top);
-            let complement = switch_default_complement(scr_range, cases);
-            if complement != scr_range {
-                block_refinements
-                    .entry((*default, *scrutinee))
-                    .and_modify(|existing| *existing = existing.meet(complement))
-                    .or_insert(complement);
-            }
-        }
-        ArcTerminator::Return { value } => {
-            if is_int_typed(func.return_type, pool) {
-                let ret_range = ranges.get(value).copied().unwrap_or(Top);
-                *return_range = return_range.join(ret_range);
-            }
-        }
-        ArcTerminator::Jump { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {}
-    }
-    changed
-}
-
 /// Mutable state threaded through the fixpoint loop.
 struct FixpointState {
     ranges: FxHashMap<ArcVarId, ValueRange>,
@@ -335,6 +195,7 @@ fn run_forward_iteration(
     predecessors: &[Vec<usize>],
     state: &mut FixpointState,
     iteration: usize,
+    known_builtins: &super::KnownBuiltins,
 ) -> bool {
     // TPR-03-020: Clear stale refinements from prior iterations.
     // Refinements are recomputed fresh each iteration from the current ranges,
@@ -371,6 +232,7 @@ fn run_forward_iteration(
                 pool,
                 var_types: &func.var_types,
                 field_summaries: state.field_summary_table.as_map(),
+                known_builtins,
             };
             let new_range = transfer(instr, &ctx);
             if let Some(var) = instr.defined_var() {
@@ -388,6 +250,7 @@ fn run_forward_iteration(
             &mut state.block_refinements,
             &mut state.return_range,
             iteration,
+            known_builtins,
         );
     }
     changed
@@ -400,10 +263,23 @@ fn run_forward_iteration(
 /// Uses widening to guarantee termination for loops, then narrowing
 /// passes to recover precision.
 #[tracing::instrument(skip_all)]
+/// Run intraprocedural range analysis on a single function.
+///
+/// When `initial_param_ranges` is `Some`, entry block parameters are seeded
+/// from the provided map instead of starting at `Bottom`. This enables
+/// interprocedural propagation: call-site argument ranges (collected by §03.5)
+/// constrain the callee's parameters, yielding tighter results than the
+/// standalone intraprocedural pass.
+#[tracing::instrument(skip_all)]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "FxHashMap is the only hasher used in range analysis"
+)]
 pub fn range_fixpoint(
     func: &ArcFunction,
     pool: &Pool,
     config: &RangeAnalysisConfig,
+    initial_param_ranges: Option<&FxHashMap<ArcVarId, ValueRange>>,
 ) -> RangeFixpointResult {
     if func.blocks.len() > config.max_blocks {
         tracing::warn!(
@@ -431,9 +307,27 @@ pub fn range_fixpoint(
         return_range: Bottom,
     };
 
+    // Seed entry block parameters from interprocedural constraints if provided.
+    // This is the key mechanism for TPR-03-026: when §03.5 collects call-site
+    // argument ranges and passes them here, the fixpoint starts with tighter
+    // initial bounds instead of Bottom, enabling transitive propagation.
+    if let Some(seeds) = initial_param_ranges {
+        for (var, &range) in seeds {
+            state.ranges.insert(*var, range);
+        }
+    }
+
     let mut iteration = 0;
     loop {
-        let changed = run_forward_iteration(&rpo, func, pool, &predecessors, &mut state, iteration);
+        let changed = run_forward_iteration(
+            &rpo,
+            func,
+            pool,
+            &predecessors,
+            &mut state,
+            iteration,
+            &config.known_builtins,
+        );
         iteration += 1;
         if !changed || iteration >= config.max_iterations {
             break;
@@ -459,6 +353,7 @@ pub fn range_fixpoint(
             &state.field_summary_table,
             &predecessors,
             &state.block_refinements,
+            &config.known_builtins,
         );
     }
 
@@ -483,6 +378,7 @@ pub fn range_fixpoint(
         &state.field_summary_table,
         &predecessors,
         &state.block_refinements,
+        &config.known_builtins,
     );
 
     // TPR-03-021: Recompute return_range from final narrowed ranges.
