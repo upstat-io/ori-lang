@@ -1221,3 +1221,274 @@ fn fixpoint_projection_refreshed_after_field_summary_recompute() {
         result.return_range
     );
 }
+
+// ─── TPR-03-023: return_range must not include unreachable blocks ──────
+
+/// Semantic pin: a function with an unreachable return block must NOT have
+/// its `return_range` polluted by the dead block's return variable.
+///
+/// CFG:
+///   B0: let v0 = 42; jump B2
+///   B1: (unreachable) return v1 (never analyzed, so v1 has no range → Top)
+///   B2: return v0 (42)
+///
+/// Without the fix, `recompute_return_range()` walks all blocks including B1,
+/// finds v1 with no range entry, falls back to Top, and joins [42,42] ∨ Top = Top.
+/// With the fix, only reachable blocks (B0, B2) are visited; `return_range` = [42,42].
+#[test]
+fn fixpoint_return_range_excludes_unreachable_blocks() {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue};
+    use ori_arc::ArcBlockId;
+
+    let v0 = ArcVarId::new(0);
+    let v1 = ArcVarId::new(1);
+
+    // Block 0: let v0 = 42; jump B2
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![ArcInstr::Let {
+            dst: v0,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(42)),
+        }],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(2),
+            args: vec![],
+        },
+    };
+
+    // Block 1: unreachable — no predecessor ever jumps here.
+    // Has a Return terminator whose variable (v1) was never defined in the
+    // forward pass, so `ranges.get(v1)` returns None → unwrap_or(Top).
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v1 },
+    };
+
+    // Block 2: return v0 (42)
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v0 },
+    };
+
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(50),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT, ori_types::Idx::INT],
+        var_reprs: vec![
+            ori_arc::ir::ValueRepr::Scalar,
+            ori_arc::ir::ValueRepr::Scalar,
+        ],
+        spans: vec![vec![None], vec![], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // Reachable return is only B2 returning v0=42, so return_range should be [42,42].
+    // Bug: without the fix, B1's return (v1 → Top fallback) widens return_range to Top.
+    assert_eq!(
+        result.return_range,
+        ValueRange::Bounded { lo: 42, hi: 42 },
+        "TPR-03-023: unreachable block B1 should NOT pollute return_range. \
+         Expected [42, 42], got {:?}. The unreachable Return's variable (v1) \
+         was never analyzed, so it gets Top via unwrap_or, joining to Top.",
+        result.return_range
+    );
+}
+
+/// Edge case: ALL blocks are reachable, each with a Return — `return_range` is the join.
+/// This verifies the fix doesn't accidentally exclude reachable return blocks.
+#[test]
+fn fixpoint_return_range_includes_all_reachable_returns() {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue};
+    use ori_arc::ArcBlockId;
+
+    let v0 = ArcVarId::new(0);
+    let v1 = ArcVarId::new(1);
+    let v_cond = ArcVarId::new(2);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v0,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(5)),
+            },
+            ArcInstr::Let {
+                dst: v1,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(100)),
+            },
+            ArcInstr::Let {
+                dst: v_cond,
+                ty: ori_types::Idx::BOOL,
+                value: ArcValue::Literal(LitValue::Bool(true)),
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: v_cond,
+            then_block: ArcBlockId::new(1),
+            else_block: ArcBlockId::new(2),
+        },
+    };
+
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v0 },
+    };
+
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v1 },
+    };
+
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(51),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::BOOL,
+        ],
+        var_reprs: vec![
+            ori_arc::ir::ValueRepr::Scalar,
+            ori_arc::ir::ValueRepr::Scalar,
+            ori_arc::ir::ValueRepr::Scalar,
+        ],
+        spans: vec![vec![None; 3], vec![], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // Both blocks reachable: join of [5,5] and [100,100] = [5,100].
+    assert_eq!(
+        result.return_range,
+        ValueRange::Bounded { lo: 5, hi: 100 },
+        "All reachable returns should contribute to return_range"
+    );
+}
+
+// ─── TPR-03-024: Invoke terminator must define dst variable range ──────
+
+/// Semantic pin: an Invoke terminator defines a `dst` variable and its
+/// range must appear in the fixpoint result. For an unknown function,
+/// the range should be Top (conservative).
+#[test]
+fn fixpoint_invoke_defines_dst_variable() {
+    use ori_arc::ir::{
+        ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, LitValue,
+    };
+    use ori_arc::ArcBlockId;
+
+    let v_arg = ArcVarId::new(0);
+    let v_dst = ArcVarId::new(1);
+
+    // Block 0: let v_arg = 10; invoke v_dst = unknown_fn(v_arg), normal→B1, unwind→B2
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![ArcInstr::Let {
+            dst: v_arg,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(10)),
+        }],
+        terminator: ArcTerminator::Invoke {
+            dst: v_dst,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(99), // unknown function
+            args: vec![v_arg],
+            arg_ownership: vec![ArgOwnership::Owned],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    };
+
+    // Block 1 (normal): return v_dst
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_dst },
+    };
+
+    // Block 2 (unwind): resume
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Resume,
+    };
+
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(52),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT, ori_types::Idx::INT],
+        var_reprs: vec![
+            ori_arc::ir::ValueRepr::Scalar,
+            ori_arc::ir::ValueRepr::Scalar,
+        ],
+        spans: vec![vec![None], vec![], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // v_dst should be defined in the result (Top for unknown function).
+    let dst_range = result
+        .var_ranges
+        .get(&v_dst)
+        .copied()
+        .unwrap_or(ValueRange::Bottom);
+    assert_eq!(
+        dst_range,
+        ValueRange::Top,
+        "TPR-03-024: Invoke dst variable should have a range (Top for unknown fn), got {dst_range:?}"
+    );
+
+    // return_range should also be Top (returns v_dst which is Top).
+    assert_eq!(
+        result.return_range,
+        ValueRange::Top,
+        "TPR-03-024: return_range should be Top when returning Invoke dst of unknown fn"
+    );
+}

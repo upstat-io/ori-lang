@@ -489,7 +489,7 @@ pub fn range_fixpoint(
     // Forward-pass accumulation uses pre-narrowing values; the recomputation
     // ensures §03.5 gets the tightened ranges (e.g., loop counter narrowed
     // from [0, MAX] to [0, 10] should also narrow the return summary).
-    let return_range = recompute_return_range(func, pool, &state.ranges);
+    let return_range = recompute_return_range(&rpo, func, pool, &state.ranges);
 
     RangeFixpointResult {
         var_ranges: state.ranges,
