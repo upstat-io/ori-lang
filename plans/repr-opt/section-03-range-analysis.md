@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-26
-  triage_note: "All resolved. TPR-03-017/018/019 fixed on 2026-03-26. Prior: TPR-03-014 accepted (already tracked in §03.6), TPR-03-015 fixed, TPR-03-016 fixed, TPR-03-012 fixed, TPR-03-013 fixed, TPR-03-011 accepted."
+  triage_note: "All TPR items resolved as of 2026-03-26. TPR-03-020/021 accepted and implemented. TPR-03-017/018/019/015/016/012/013 fixed. TPR-03-014/011 accepted (tracked). TPR-03-001/002/003 rejected. All 21 findings triaged and closed."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -835,6 +835,10 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 
 - [x] **[TPR-03-019] Extend narrowing pass to revisit block parameters and terminators** (2026-03-26). Extended `run_narrowing_pass()` to: (1) re-merge block params from predecessor Jump args with `narrow(widened, merged)`, (2) apply block refinements temporarily during narrowing body processing, (3) narrow Invoke terminator dst variables. Run 2 narrowing passes for loop variable recovery. Extracted `FixpointState` struct, `run_forward_iteration()`, and `recompute_field_summaries()` to keep functions under line limits. Semantic-pin test: `fixpoint_narrowing_recovers_loop_bound` — bounded loop `for i in 0..<10` narrows from `[0, MAX]` to `[0, 10]`. Debug + release green.
 
+- [x] **[TPR-03-020] Fix Branch refinement overwrite and stale cross-iteration refinements** (2026-03-26). Two bugs fixed: (1) `process_terminator()` Branch arm changed from `insert()` to `.entry().and_modify(|e| *e = e.join(new)).or_insert(new)` — same pattern as Switch cases (TPR-03-017). (2) `block_refinements` map cleared at start of each `run_forward_iteration()` to prevent stale refinements from prior iterations. Semantic-pin test: `fixpoint_branch_multi_predecessor_refinement_joins` — two predecessors refine same variable for same block via different Branch terminators, verifies joined range covers both paths. Also extracted `narrowing.rs` submodule from `fixpoint/mod.rs` (486→486+157 lines, under 500 limit). Debug + release green, 14,155 tests pass.
+
+- [x] **[TPR-03-021] Recompute `return_range` from final narrowed variable ranges** (2026-03-26). Added `recompute_return_range()` helper in `fixpoint/narrowing.rs` — walks all `Return` terminators and joins final narrowed variable ranges. Called after the 2 narrowing passes in `range_fixpoint()`. Semantic-pin test: `fixpoint_return_range_recomputed_after_narrowing` — bounded loop returning loop variable verifies `return_range` narrows to `[0, 10]` (not `[0, MAX]`). Debug + release green, 14,155 tests pass.
+
 - [x] **Handoff to ReprPlan (§01 integration)** (2026-03-26): `range_fixpoint()` returns `RangeFixpointResult { var_ranges, field_summaries, return_range }`. The caller must flush all three into `ReprPlan`. The integration requires three storage additions:
   1. **Per-function range storage** (already live in `plan.rs`):
      ```rust
@@ -1149,6 +1153,18 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-020][high]` `compiler/ori_repr/src/range/fixpoint/mod.rs:265` — Successor refinements are merged by `(block, var)` in a way that under-approximates paths from multiple predecessors and stale iterations.
+  Evidence: `process_terminator()` stores branch refinements with plain `insert()` and switch-default refinements with `.meet()` into a single `block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>` that lives for the whole fixpoint. That key has no predecessor or iteration component, so distinct incoming facts are overwritten or monotonically narrowed instead of joined/recomputed. Fresh validation with an external probe CFG (`x < 0` on one predecessor, `x > 10` on another, both flowing to the same successor) produced `join var: Some(Bounded { lo: 11, hi: 9223372036854775807 })`, dropping the negative path entirely.
+  Impact: join blocks can observe impossible scrutinee/variable ranges, which is an unsound under-approximation once §04 consumes these facts for narrowing decisions. The same map-lifetime bug can also preserve overly-tight switch-default complements from earlier iterations after a scrutinee range widens.
+  Required plan update: make successor refinements edge-sensitive or recompute the table per iteration, and join incoming refinements across predecessors before applying them at block entry. Add semantic-pin tests for multi-predecessor branch refinement and for switch-default refinement after a widening iteration.
+  Resolved: Validated and accepted on 2026-03-26. Two bugs confirmed: (1) Branch refinements use `insert()` instead of `join`, dropping refinements from earlier predecessors; (2) `block_refinements` map never cleared between iterations, preserving stale refinements. Implementation tasks added to §03.3.
+
+- [x] `[TPR-03-021][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:296` — `return_range` is accumulated before narrowing and never recomputed from the final narrowed ranges.
+  Evidence: `process_terminator()` only ever does `*return_range = return_range.join(ret_range)` during the forward iterations, while `range_fixpoint()` runs two narrowing passes and returns `state.return_range` unchanged. Fresh validation with the bounded-loop probe from `fixpoint_narrowing_recovers_loop_bound` produced `loop var: Some(Bounded { lo: 0, hi: 10 })` but `loop return_range: Bounded { lo: 0, hi: 9223372036854775807 }`.
+  Impact: the §03.5 return-summary handoff will export widened summaries even when intraprocedural narrowing recovered precise loop bounds, which blocks downstream call-signature narrowing and makes the checked-off `RangeFixpointResult.return_range` contract inaccurate.
+  Required plan update: recompute `return_range` from the final narrowed ranges (or include returns in the narrowing pass) and add a bounded-loop regression test that asserts both the loop variable and `return_range` narrow together.
+  Resolved: Validated and accepted on 2026-03-26. Confirmed: `state.return_range` at line 571 is returned unchanged after narrowing passes. Implementation task added to §03.3.
 
 - [x] `[TPR-03-017][high]` `compiler/ori_repr/src/range/fixpoint/mod.rs:214` — `Switch` case refinements overwrite earlier cases targeting the same successor block instead of joining them.
   Evidence: `process_terminator()` stores each case with `block_refinements.insert((case_block, *scrutinee), ...)`, so a switch like `{0 -> b1, 1 -> b1}` leaves only the last exact value in the map. The IR uses `Vec<(u64, ArcBlockId)>` for cases and this implementation does not assert or document any unique-target invariant.
