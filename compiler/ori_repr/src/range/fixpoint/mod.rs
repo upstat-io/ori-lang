@@ -269,6 +269,7 @@ fn run_forward_iteration(
             &mut state.return_range,
             iteration,
             known_builtins,
+            call_result_narrowings,
         );
     }
     changed
@@ -379,6 +380,7 @@ pub fn range_fixpoint(
             &predecessors,
             &state.block_refinements,
             &config.known_builtins,
+            crn,
         );
     }
 
@@ -404,6 +406,7 @@ pub fn range_fixpoint(
         &predecessors,
         &state.block_refinements,
         &config.known_builtins,
+        crn,
     );
 
     // TPR-03-021: Recompute return_range from final narrowed ranges.
