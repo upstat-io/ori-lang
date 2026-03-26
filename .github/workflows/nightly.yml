@@ -50,13 +50,14 @@ jobs:
 
       - name: Create nightly PR
         if: steps.check.outputs.ahead != '0' && steps.existing.outputs.exists == 'false'
+        id: create
         env:
           GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
         run: |
           DATE=$(date -u +"%Y-%m-%d")
           AHEAD=${{ steps.check.outputs.ahead }}
 
-          gh pr create \
+          PR_URL=$(gh pr create \
             --base master \
             --head dev \
             --title "nightly: $DATE" \
@@ -67,12 +68,12 @@ jobs:
 
           This PR will auto-merge once CI passes, triggering a nightly release.
           EOF
-          )"
+          )")
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
 
       - name: Enable auto-merge
         if: steps.check.outputs.ahead != '0' && steps.existing.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
         run: |
-          PR=$(gh pr list --base master --head dev --state open --json number --jq '.[0].number')
-          gh pr merge "$PR" --auto --merge --delete-branch=false
+          gh pr merge "${{ steps.create.outputs.pr_url }}" --auto --merge --delete-branch=false
