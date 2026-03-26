@@ -170,7 +170,13 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             .iter()
             .filter_map(|te| te.repr.map(|r| (te.idx, r)))
             .collect();
-        let repr_plan = ori_repr::compute_repr_plan(self.pool, &all_arc_funcs, policy, &repr_attrs);
+        let repr_plan = ori_repr::compute_repr_plan_with_interner(
+            self.pool,
+            &all_arc_funcs,
+            policy,
+            &repr_attrs,
+            Some(interner),
+        );
         let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
         let mut builder = IrBuilder::new_jit(scx_ref);
