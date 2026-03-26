@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-26
-  triage_note: "All TPR items resolved as of 2026-03-26. TPR-03-020/021 accepted and implemented. TPR-03-017/018/019/015/016/012/013 fixed. TPR-03-014/011 accepted (tracked). TPR-03-001/002/003 rejected. All 21 findings triaged and closed."
+  triage_note: "TPR-03-022 accepted on 2026-03-26 — implementation task added to §03.3 (post-recompute projection refresh pass). Status stays findings until implementation complete."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -23,7 +23,7 @@ sections:
     status: complete
   - id: "03.2b"
     title: "Field-Summary Infrastructure"
-    status: in-progress
+    status: complete
   - id: "03.3"
     title: "Widening & Narrowing Operators"
     status: in-progress
@@ -480,11 +480,11 @@ Transfer functions describe how each operation transforms value ranges.
   }
   ```
 
-- [ ] Integrate `FieldSummaryTable` into the fixpoint loop (§03.3): <!-- blocked-by:03.3 -->
+- [x] Integrate `FieldSummaryTable` into the fixpoint loop (§03.3) (2026-03-26):
   - Create `FieldSummaryTable::new()` before the fixpoint loop starts
   - After processing each `Construct` instruction in the body loop, call `update_field_summaries()`
   - Pass `table.as_map()` as `field_summaries` in `TransferContext` so `Project` can query it
-  - After the fixpoint completes, call `table.flush_to_repr_plan(repr_plan)` to persist results
+  - `flush_to_repr_plan()` called from `analyze_ranges()` (§03.6) after fixpoint returns
 
 - [x] Handle enum variant constructors:
   - `CtorKind::EnumVariant { enum_name, variant }` — add variant payload fields to the field-summary table keyed by `(variant_type_idx, field)` where `variant_type_idx` is the variant's own `Idx` (from `Construct.ty`). This enables §07's niche analysis to see narrowed payload ranges. The `update_field_summaries` match should include `EnumVariant` alongside `Struct` and `Tuple`.
@@ -839,6 +839,11 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 
 - [x] **[TPR-03-021] Recompute `return_range` from final narrowed variable ranges** (2026-03-26). Added `recompute_return_range()` helper in `fixpoint/narrowing.rs` — walks all `Return` terminators and joins final narrowed variable ranges. Called after the 2 narrowing passes in `range_fixpoint()`. Semantic-pin test: `fixpoint_return_range_recomputed_after_narrowing` — bounded loop returning loop variable verifies `return_range` narrows to `[0, 10]` (not `[0, MAX]`). Debug + release green, 14,155 tests pass.
 
+- [ ] **[TPR-03-022] Post-recompute projection refresh pass** — after `recompute_field_summaries()` produces the tightened field_summary_table, run a final narrowing pass that re-transfers `Project` instructions against the updated table. This ensures projection-derived variables (and downstream `return_range`) reflect the post-narrowing field summaries, not the pre-recompute widened values. Implementation:
+  1. In `range_fixpoint()`, after `recompute_field_summaries()` and before `recompute_return_range()`, call `run_narrowing_pass()` one more time with the updated `state.field_summary_table`
+  2. `recompute_return_range()` then uses the tightened projection ranges
+  3. Add semantic-pin regression test: bounded loop (`i in 0..<10`), exit block does `Construct { args: [i] }` then `Project field 0`, returns the projection. Verify: field summary = `[0, 10]`, projection variable = `[0, 10]` (not `[0, MAX]`), return_range = `[0, 10]`
+
 - [x] **Handoff to ReprPlan (§01 integration)** (2026-03-26): `range_fixpoint()` returns `RangeFixpointResult { var_ranges, field_summaries, return_range }`. The caller must flush all three into `ReprPlan`. The integration requires three storage additions:
   1. **Per-function range storage** (already live in `plan.rs`):
      ```rust
@@ -1153,6 +1158,12 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-022][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:452` — Field summaries are recomputed after narrowing, but projection-derived variables never get a second pass over the repaired summaries, so `Project` results and `return_range` can stay widened.
+  Evidence: `run_narrowing_pass()` narrows body instructions against the pre-recompute `field_summary_table` (`compiler/ori_repr/src/range/fixpoint/narrowing.rs:65-88`), then `range_fixpoint()` calls `recompute_field_summaries()` and immediately finalizes `return_range` without rerunning any projection-dependent transfer (`compiler/ori_repr/src/range/fixpoint/mod.rs:452-476`). Fresh validation with an external bounded-loop probe (`i` narrows to `[0, 10]`, exit block does `Construct { args: [i] }` then `Project field 0`) produced `field = Bounded { lo: 0, hi: 10 }` but `y = Bounded { lo: 10, hi: 9223372036854775807 }` and matching widened `return_range`.
+  Impact: §03 still loses the narrowed value on common `Construct` → `Project` paths, so §04 field consumers and the §03.5 return-summary handoff can observe pre-narrowing ranges even after TPR-03-016/021 landed. The current fixpoint tests only check the repaired field summary table itself; they do not pin projection or return propagation through that table.
+  Required plan update: after `recompute_field_summaries()`, rerun a projection-dependent narrowing/recompute pass (or iterate field-summary rebuild and projection transfer to a fixed point) before finalizing `var_ranges` and `return_range`. Add a semantic-pin regression test for a bounded loop whose exit block constructs a value, projects the narrowed field, and returns the projection.
+  Resolved: Validated and accepted on 2026-03-26. Implementation tasks added to §03.3.
 
 - [x] `[TPR-03-020][high]` `compiler/ori_repr/src/range/fixpoint/mod.rs:265` — Successor refinements are merged by `(block, var)` in a way that under-approximates paths from multiple predecessors and stale iterations.
   Evidence: `process_terminator()` stores branch refinements with plain `insert()` and switch-default refinements with `.meet()` into a single `block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>` that lives for the whole fixpoint. That key has no predecessor or iteration component, so distinct incoming facts are overwritten or monotonically narrowed instead of joined/recomputed. Fresh validation with an external probe CFG (`x < 0` on one predecessor, `x > 10` on another, both flowing to the same successor) produced `join var: Some(Bounded { lo: 11, hi: 9223372036854775807 })`, dropping the negative path entirely.
