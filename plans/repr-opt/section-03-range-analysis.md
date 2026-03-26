@@ -19,7 +19,7 @@ sections:
     status: in-progress
   - id: "03.2"
     title: "Transfer Functions"
-    status: in-progress
+    status: complete
   - id: "03.2b"
     title: "Field-Summary Infrastructure"
     status: complete
@@ -376,8 +376,8 @@ Transfer functions describe how each operation transforms value ranges.
   - **Semantic pin**: `range_add(Bounded(0, 10), Bounded(0, 10))` == `Bounded(0, 20)` — this test ONLY passes with correct add propagation (not Top, not Bottom)
   - **Both debug and release**: `cargo test -p ori_repr` (debug) and `cargo test -p ori_repr --release` (release) must both pass
 - [x] **File size check** (470 lines, under 500 limit): if `transfer.rs` exceeds ~450 lines during implementation, proactively split into `compiler/ori_repr/src/range/transfer/mod.rs` (dispatcher + `transfer_primop`), `transfer/arithmetic.rs` (`range_add` through `range_neg`, `range_floordiv`, `range_abs`), and `transfer/bitwise.rs` (`range_bitand` through `range_shr`, `range_bitnot`). Update `range/mod.rs` module declarations accordingly.
-- [ ] **[TPR-03-004] Fix `range_div()` / `range_floordiv()` panic on `i64::MIN / -1`** — replace raw `/` division on interval corners with `checked_div()`. If any of the 4 corner divisions returns `None` (overflow), return `Top`. Add regression tests: `range_div(Bounded(i64::MIN, i64::MIN), Bounded(-1, -1))` → `Top`, `range_div(Bounded(i64::MIN, -1), Bounded(-5, -1))` → `Top`, `range_floordiv` same cases. Verify no panic in debug or release.
-- [ ] **[TPR-03-005] Fix `range_bitnot()` panic on `i64::MIN` endpoints** — replace unchecked negation `(-hi).checked_sub(1)` with `hi.checked_neg().and_then(|v| v.checked_sub(1))` (same for `lo`). This matches the correct pattern already used by `range_neg()`. Add regression tests: `range_bitnot(Bounded(i64::MIN, -1))` → `Top`, `range_bitnot(Bounded(i64::MIN, i64::MIN))` → `Top`, `range_bitnot(Bounded(i64::MIN, i64::MAX))` → `Top`.
+- [x] **[TPR-03-004] Fix `range_div()` / `range_floordiv()` panic on `i64::MIN / -1`** (2026-03-25) — replaced raw `/` with `checked_div()` for all 4 corners; any `None` → `Top`. 4 regression tests: exact MIN/-1, range containing MIN/-1, MIN/positive (no overflow), floordiv delegation. Debug + release green.
+- [x] **[TPR-03-005] Fix `range_bitnot()` panic on `i64::MIN` endpoints** (2026-03-25) — replaced unchecked `(-hi).checked_sub(1)` with `hi.checked_neg().and_then(|v| v.checked_sub(1))` (matches `range_neg()` pattern). 4 regression tests: exact MIN, range containing MIN, i64::MAX (valid), negative range. Debug + release green.
 
 ---
 
@@ -1151,11 +1151,11 @@ For cross-function narrowing, we need to propagate range information through fun
 - [ ] `[TPR-03-003][low]` `compiler/ori_repr/src/tests.rs:291` — The new `ValueRange` smoke test hard-codes `std::mem::size_of::<ValueRange>() == 24`, but enum layout is not part of the section's semantic contract and is not stable enough to pin this exactly.
   Resolved: Validated and integrated into §03.1 on 2026-03-25. Task added to replace exact-size assertion with semantic-only checks.
 
-- [ ] `[TPR-03-004][high]` `compiler/ori_repr/src/range/transfer/mod.rs:248` — `range_div()` and `range_floordiv()` can panic on the valid corner case `i64::MIN / -1` instead of conservatively returning `Top`.
-  Resolved: Validated and integrated into §03.2 on 2026-03-25. Bugfix and regression test tasks added.
+- [x] `[TPR-03-004][high]` `compiler/ori_repr/src/range/transfer/mod.rs:248` — `range_div()` and `range_floordiv()` can panic on the valid corner case `i64::MIN / -1` instead of conservatively returning `Top`.
+  Resolved: Validated and fixed on 2026-03-25. Replaced raw `/` with `checked_div()` for all 4 corners. 4 regression tests added (debug + release green).
 
-- [ ] `[TPR-03-005][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:435` — `range_bitnot()` can panic on ranges containing `i64::MIN` because it negates the endpoints before any checked operation runs.
-  Resolved: Validated and integrated into §03.2 on 2026-03-25. Bugfix and regression test tasks added.
+- [x] `[TPR-03-005][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:435` — `range_bitnot()` can panic on ranges containing `i64::MIN` because it negates the endpoints before any checked operation runs.
+  Resolved: Validated and fixed on 2026-03-25. Replaced unchecked negation with `checked_neg().and_then()`. 4 regression tests added (debug + release green).
 
 - [ ] `[TPR-03-006][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:71` — Builtin-call propagation is still effectively disabled, so `Apply` never yields the fixed ranges that §03.2 says are complete.
   Resolved: Validated and integrated into §03.5 on 2026-03-25. The §03.2 `transfer_known_call()` stub was explicitly planned as a two-phase approach (stub in §03.2, implementation in §03.5 which provides interner access). Concrete implementation task added to §03.5.
