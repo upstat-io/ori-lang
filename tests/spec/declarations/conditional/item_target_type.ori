@@ -1,0 +1,5 @@
+// Spec §25.4: Item-level #target on type declarations
+#target(os: "windows")
+type Handle = int;
+
+@main () -> void = print(msg: "item-level target on type accepted");

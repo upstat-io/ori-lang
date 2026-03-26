@@ -1,0 +1,7 @@
+// Spec §25.4: Item-level #target on imports
+// Uses a relative import that won't resolve, but the parser should accept the attrs.
+// This file exercises parse-level attr threading; semantic resolution is separate.
+#target(os: "nonexistent_os_for_testing")
+use std.testing { assert_eq };
+
+@main () -> void = print(msg: "item-level target on use accepted");

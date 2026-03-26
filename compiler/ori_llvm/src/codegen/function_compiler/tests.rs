@@ -266,6 +266,8 @@ fn generic_functions_are_skipped() {
         span: ori_ir::Span::new(0, 0),
         visibility: ori_ir::Visibility::Private,
         is_fbip: false,
+        target_attr: None,
+        cfg_attr: None,
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -393,6 +395,8 @@ fn compile_impls_populates_method_functions_map() {
         }],
         assoc_types: vec![],
         span: Span::new(0, 0),
+        target_attr: None,
+        cfg_attr: None,
     };
 
     let impl_line = ImplDef {
@@ -414,6 +418,8 @@ fn compile_impls_populates_method_functions_map() {
         }],
         assoc_types: vec![],
         span: Span::new(0, 0),
+        target_attr: None,
+        cfg_attr: None,
     };
 
     // Signatures: distance(self: Point) -> float, distance(self: Line) -> float

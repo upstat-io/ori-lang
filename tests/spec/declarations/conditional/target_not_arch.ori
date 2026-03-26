@@ -1,0 +1,4 @@
+// Spec §25.2.6: not_arch negates an architecture condition
+#!target(not_arch: "wasm32")
+
+@main () -> void = print(msg: "target not_arch parses correctly");

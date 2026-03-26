@@ -328,9 +328,16 @@ impl TypeInfo {
     /// Trivial types are passed by value and don't participate in
     /// reference counting. This is the codegen-level triviality check;
     /// the ARC-level classification lives in `ori_arc`.
+    ///
+    /// Note: This is a conservative per-variant check (no transitive walk).
+    /// For precise classification of compound types (Option/Result/Tuple/
+    /// Struct/Enum), use `TypeInfoStore::is_trivial()` which does transitive
+    /// field analysis.
     pub fn is_trivial(&self) -> bool {
         match self {
-            // Scalar primitives and error fallback are trivial
+            // Scalar primitives, error fallback, and Iterator (Box-allocated,
+            // no RC header — UnmanagedPtr) are trivial. Iterator matches
+            // ArcClassifier (Scalar) and classify_triviality() (Trivial).
             Self::Int
             | Self::Float
             | Self::Bool
@@ -342,17 +349,17 @@ impl TypeInfo {
             | Self::Size
             | Self::Ordering
             | Self::Range
-            | Self::Error => true,
+            | Self::Error
+            | Self::Iterator { .. } => true,
 
-            // Everything else has heap data or may contain heap data.
-            // Tagged unions (Option/Result) and composites (Tuple/Struct/Enum)
-            // are conservatively non-trivial — precise classification requires
-            // transitive field analysis (future: ori_arc ArcClassification).
+            // Everything else: heap-backed RC-managed types and compound types
+            // (conservatively non-trivial per-variant — precise compound
+            // classification requires transitive field analysis via
+            // TypeInfoStore::is_trivial() or classify_triviality()).
             Self::Str
             | Self::List { .. }
             | Self::Map { .. }
             | Self::Set { .. }
-            | Self::Iterator { .. }
             | Self::Channel { .. }
             | Self::Function { .. }
             | Self::Option { .. }

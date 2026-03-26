@@ -528,7 +528,8 @@ impl<'a> Parser<'a> {
         // Grammar: source_file = [ file_attribute ] { import } { declaration } .
         module.file_attr = self.parse_file_attribute(&mut errors);
 
-        self.parse_imports(&mut module, &mut errors);
+        // parse_imports returns leftover attrs if it consumed attrs before a non-import token.
+        let mut leftover_attrs = self.parse_imports(&mut module, &mut errors);
 
         // Parse declarations (functions, tests, traits, impls, types, etc.)
         while !self.cursor.is_at_end() {
@@ -537,7 +538,11 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let attrs = self.parse_attributes(&mut errors);
+            // Use leftover attrs from import parsing on the first declaration,
+            // otherwise parse fresh attributes.
+            let attrs = leftover_attrs
+                .take()
+                .unwrap_or_else(|| self.parse_attributes(&mut errors));
             let visibility = if self.cursor.check(&TokenKind::Pub) {
                 self.cursor.advance();
                 Visibility::Public
@@ -546,6 +551,20 @@ impl<'a> Parser<'a> {
             };
 
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
+        }
+
+        // TPR-01-062: Diagnose orphaned attrs at EOF. If parse_imports() returned
+        // leftover attrs but the declaration loop never consumed them (file ended
+        // before any declaration), emit E1006 so users get the expected placement
+        // diagnostic instead of silent acceptance.
+        if let Some(orphan_attrs) = leftover_attrs {
+            if !orphan_attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
+                    self.cursor.previous_span(),
+                ));
+            }
         }
 
         // Drain deferred errors/warnings from sub-parsers.
@@ -580,12 +599,33 @@ impl<'a> Parser<'a> {
     ///
     /// Imports must appear at the beginning of the file per spec.
     /// Parses `use`, `pub use`, `extension`, and `pub extension` statements.
-    fn parse_imports(&mut self, module: &mut Module, errors: &mut Vec<ParseError>) {
-        while !self.cursor.is_at_end() {
+    /// Parse the import section at the top of a module.
+    ///
+    /// Returns `Some(attrs)` if attributes were consumed but the next token
+    /// is not an import — the caller should use these as the attrs for the
+    /// first declaration. Returns `None` on normal exit.
+    ///
+    /// Spec §25.4: imports support item-level `#target`/`#cfg` attributes.
+    fn parse_imports(
+        &mut self,
+        module: &mut Module,
+        errors: &mut Vec<ParseError>,
+    ) -> Option<ParsedAttrs> {
+        loop {
             self.cursor.skip_newlines();
             if self.cursor.is_at_end() {
-                break;
+                return None;
             }
+
+            // Spec §25.4: conditional compilation on imports.
+            // Parse any attributes before the import statement.
+            let has_attr_prefix =
+                self.cursor.check(&TokenKind::Hash) || self.cursor.check(&TokenKind::HashBracket);
+            let attrs = if has_attr_prefix {
+                self.parse_attributes(errors)
+            } else {
+                ParsedAttrs::default()
+            };
 
             let is_pub_use = self.cursor.check(&TokenKind::Pub)
                 && matches!(self.cursor.peek_next_kind(), TokenKind::Use);
@@ -594,13 +634,24 @@ impl<'a> Parser<'a> {
                 && matches!(self.cursor.peek_next_kind(), TokenKind::Extension);
 
             if self.cursor.check(&TokenKind::Use) || is_pub_use {
+                // Spec §25.4: imports support #target/#cfg only.
+                if attrs.has_non_conditional_attrs() {
+                    errors.push(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1006,
+                        format!(
+                            "{} not supported on imports; only #target and #cfg are allowed",
+                            attrs.non_conditional_attr_names()
+                        ),
+                        self.cursor.current_span(),
+                    ));
+                }
                 let visibility = if is_pub_use {
                     self.cursor.advance();
                     Visibility::Public
                 } else {
                     Visibility::Private
                 };
-                let outcome = self.parse_use(visibility);
+                let outcome = self.parse_use(attrs, visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.imports,
@@ -608,6 +659,16 @@ impl<'a> Parser<'a> {
                     Self::recover_to_next_statement,
                 );
             } else if self.cursor.check(&TokenKind::Extension) || is_pub_extension {
+                // Spec §25.4: extension imports do NOT support any attributes
+                // (only functions, types, trait implementations, constants, and
+                // regular imports support item-level conditional attrs).
+                if has_attr_prefix {
+                    errors.push(ParseError::new(
+                        ori_diagnostic::ErrorCode::E1006,
+                        "attributes not supported on extension imports".to_string(),
+                        self.cursor.current_span(),
+                    ));
+                }
                 let visibility = if is_pub_extension {
                     self.cursor.advance();
                     Visibility::Public
@@ -621,8 +682,12 @@ impl<'a> Parser<'a> {
                     errors,
                     Self::recover_to_next_statement,
                 );
+            } else if has_attr_prefix {
+                // Attributes were parsed but next token is not an import —
+                // these attrs belong to the first declaration.
+                return Some(attrs);
             } else {
-                break;
+                return None;
             }
         }
     }
@@ -668,6 +733,14 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if self.cursor.check(&TokenKind::Trait) {
+            // Spec §25.4: traits do not support item-level attributes.
+            if !attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes are not supported on trait declarations",
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_trait(visibility);
             self.handle_outcome(
                 outcome,
@@ -678,6 +751,14 @@ impl<'a> Parser<'a> {
         } else if self.cursor.check(&TokenKind::Def)
             && matches!(self.cursor.peek_next_kind(), TokenKind::Impl)
         {
+            // Spec §25.4: def impls do not support item-level attributes.
+            if !attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes are not supported on default implementation declarations",
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_def_impl(visibility);
             self.handle_outcome(
                 outcome,
@@ -686,7 +767,18 @@ impl<'a> Parser<'a> {
                 Self::recover_to_function,
             );
         } else if self.cursor.check(&TokenKind::Impl) {
-            let outcome = self.parse_impl();
+            // Spec §25.4: impls support #target/#cfg only.
+            if attrs.has_non_conditional_attrs() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    format!(
+                        "{} not supported on impl blocks; only #target and #cfg are allowed",
+                        attrs.non_conditional_attr_names()
+                    ),
+                    self.cursor.current_span(),
+                ));
+            }
+            let outcome = self.parse_impl(attrs);
             self.handle_outcome(
                 outcome,
                 &mut module.impls,
@@ -694,6 +786,14 @@ impl<'a> Parser<'a> {
                 Self::recover_to_function,
             );
         } else if self.cursor.check(&TokenKind::Extend) {
+            // Spec §25.4: extends do not support item-level attributes.
+            if !attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes are not supported on extension declarations",
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_extend();
             self.handle_outcome(
                 outcome,
@@ -711,9 +811,20 @@ impl<'a> Parser<'a> {
             );
         } else if self.cursor.check(&TokenKind::Let) {
             // `let $name = value` — constant declaration (spec §04-constants)
+            // Spec §25.4: constants support #target/#cfg only.
+            if attrs.has_non_conditional_attrs() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    format!(
+                        "{} not supported on constants; only #target and #cfg are allowed",
+                        attrs.non_conditional_attr_names()
+                    ),
+                    self.cursor.current_span(),
+                ));
+            }
             self.cursor.advance(); // consume `let`
             if self.cursor.check(&TokenKind::Dollar) {
-                let outcome = self.parse_const(visibility);
+                let outcome = self.parse_const(attrs, visibility);
                 self.handle_outcome(
                     outcome,
                     &mut module.consts,
@@ -737,7 +848,18 @@ impl<'a> Parser<'a> {
             }
         } else if self.cursor.check(&TokenKind::Dollar) {
             // Also accept `$name = value` without `let` for backwards compatibility
-            let outcome = self.parse_const(visibility);
+            // Spec §25.4: constants support #target/#cfg only.
+            if attrs.has_non_conditional_attrs() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    format!(
+                        "{} not supported on constants; only #target and #cfg are allowed",
+                        attrs.non_conditional_attr_names()
+                    ),
+                    self.cursor.current_span(),
+                ));
+            }
+            let outcome = self.parse_const(attrs, visibility);
             self.handle_outcome(
                 outcome,
                 &mut module.consts,
@@ -745,6 +867,14 @@ impl<'a> Parser<'a> {
                 Self::recover_to_function,
             );
         } else if self.cursor.check(&TokenKind::Extern) {
+            // Spec §25.4: extern blocks do not support item-level attributes.
+            if !attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes are not supported on extern declarations",
+                    self.cursor.current_span(),
+                ));
+            }
             let outcome = self.parse_extern_block(visibility);
             self.handle_outcome(
                 outcome,
@@ -822,16 +952,16 @@ impl<'a> Parser<'a> {
             } else {
                 errors.push(ParseError::new(
                     ori_diagnostic::ErrorCode::E1006,
-                    "attributes must be followed by a function or test definition",
+                    "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
                     self.cursor.current_span(),
                 ));
             }
             self.cursor.advance();
         } else if !attrs.is_empty() {
-            // Attributes without a following function/test
+            // Attributes without a following declaration
             errors.push(ParseError::new(
                 ori_diagnostic::ErrorCode::E1006,
-                "attributes must be followed by a function or test definition",
+                "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
                 self.cursor.current_span(),
             ));
             self.cursor.advance();
@@ -893,13 +1023,19 @@ impl<'a> Parser<'a> {
         mut state: incremental::IncrementalState<'_>,
         old_arena: &ExprArena,
     ) -> ParseOutput {
-        use incremental::{AstCopier, DeclKind};
+        use incremental::AstCopier;
 
         let mut module = Module::with_capacity_hint(self.estimated_source_len());
         let mut errors = Vec::new();
 
-        // Imports always get re-parsed since they affect resolution
-        self.parse_imports(&mut module, &mut errors);
+        // File-level attribute must appear before imports and declarations.
+        // Grammar: source_file = [ file_attribute ] { import } { declaration } .
+        // (TPR-01-060: was missing from incremental path)
+        module.file_attr = self.parse_file_attribute(&mut errors);
+
+        // Imports always get re-parsed since they affect resolution.
+        // Capture leftover attrs for the first declaration (TPR-01-061).
+        let mut leftover_attrs = self.parse_imports(&mut module, &mut errors);
 
         // Parse remaining declarations with potential reuse
         while !self.cursor.is_at_end() {
@@ -915,68 +1051,24 @@ impl<'a> Parser<'a> {
                 // Check if this declaration is outside the change region
                 if !state.cursor.marker().intersects(decl_ref.span) {
                     let copier = AstCopier::new(old_arena, state.cursor.marker().clone());
-
-                    match decl_ref.kind {
-                        DeclKind::Function => {
-                            let old_func = &state.cursor.module().functions[decl_ref.index];
-                            let new_func = copier.copy_function(old_func, &mut self.arena);
-                            module.functions.push(new_func);
-                        }
-                        DeclKind::Test => {
-                            let old_test = &state.cursor.module().tests[decl_ref.index];
-                            let new_test = copier.copy_test(old_test, &mut self.arena);
-                            module.tests.push(new_test);
-                        }
-                        DeclKind::Type => {
-                            let old_type = &state.cursor.module().types[decl_ref.index];
-                            let new_type = copier.copy_type_decl(old_type, &mut self.arena);
-                            module.types.push(new_type);
-                        }
-                        DeclKind::Trait => {
-                            let old_trait = &state.cursor.module().traits[decl_ref.index];
-                            let new_trait = copier.copy_trait(old_trait, &mut self.arena);
-                            module.traits.push(new_trait);
-                        }
-                        DeclKind::Impl => {
-                            let old_impl = &state.cursor.module().impls[decl_ref.index];
-                            let new_impl = copier.copy_impl(old_impl, &mut self.arena);
-                            module.impls.push(new_impl);
-                        }
-                        DeclKind::DefImpl => {
-                            let old_def_impl = &state.cursor.module().def_impls[decl_ref.index];
-                            let new_def_impl = copier.copy_def_impl(old_def_impl, &mut self.arena);
-                            module.def_impls.push(new_def_impl);
-                        }
-                        DeclKind::Extend => {
-                            let old_extend = &state.cursor.module().extends[decl_ref.index];
-                            let new_extend = copier.copy_extend(old_extend, &mut self.arena);
-                            module.extends.push(new_extend);
-                        }
-                        DeclKind::Const => {
-                            let old_const = &state.cursor.module().consts[decl_ref.index];
-                            let new_const = copier.copy_const(old_const, &mut self.arena);
-                            module.consts.push(new_const);
-                        }
-                        DeclKind::ExtensionImport => {
-                            let old_ext = &state.cursor.module().extension_imports[decl_ref.index];
-                            let new_ext = copier.copy_extension_import(old_ext);
-                            module.extension_imports.push(new_ext);
-                        }
-                        DeclKind::ExternBlock => {
-                            let old_block = &state.cursor.module().extern_blocks[decl_ref.index];
-                            let new_block = copier.copy_extern_block(old_block, &mut self.arena);
-                            module.extern_blocks.push(new_block);
-                        }
-                        DeclKind::Import => {
-                            unreachable!("imports should not appear in declaration list");
-                        }
-                    }
+                    copier.copy_declaration_to_module(
+                        decl_ref,
+                        state.cursor.module(),
+                        &mut module,
+                        &mut self.arena,
+                    );
 
                     state.stats.reused_count += 1;
                     self.skip_to_span_end(decl_ref.span);
                     // Consume trailing `;` that was eaten by the original parse
                     // but not included in the declaration span.
                     self.eat_optional_semicolon();
+                    // TPR-01-063: Consume leftover attrs when the first declaration
+                    // slot is satisfied by reuse. The reused declaration already has
+                    // its attrs baked into the AST node from the original full parse.
+                    // Without this, leftover_attrs leaks to the next fresh-parsed
+                    // declaration, synthesizing attrs onto unrelated declarations.
+                    leftover_attrs.take();
                     continue;
                 }
             }
@@ -984,7 +1076,11 @@ impl<'a> Parser<'a> {
             // Cannot reuse: parse fresh
             state.stats.reparsed_count += 1;
 
-            let attrs = self.parse_attributes(&mut errors);
+            // Use leftover attrs from import parsing on the first declaration,
+            // otherwise parse fresh attributes (mirrors full parser behavior).
+            let attrs = leftover_attrs
+                .take()
+                .unwrap_or_else(|| self.parse_attributes(&mut errors));
             let visibility = if self.cursor.check(&TokenKind::Pub) {
                 self.cursor.advance();
                 Visibility::Public
@@ -993,6 +1089,17 @@ impl<'a> Parser<'a> {
             };
 
             self.dispatch_declaration(attrs, visibility, &mut module, &mut errors);
+        }
+
+        // TPR-01-062: Diagnose orphaned attrs at EOF on incremental path too.
+        if let Some(orphan_attrs) = leftover_attrs {
+            if !orphan_attrs.is_empty() {
+                errors.push(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1006,
+                    "attributes must be followed by a declaration (function, type, impl, constant, import, or test)",
+                    self.cursor.previous_span(),
+                ));
+            }
         }
 
         // Drain deferred errors/warnings from sub-parsers.

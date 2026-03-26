@@ -6,7 +6,7 @@
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
 use super::super::Visibility;
-use crate::{Name, Span};
+use crate::{CfgAttr, Name, Span, TargetAttr};
 
 /// A use/import statement.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -26,6 +26,12 @@ pub struct UseDef {
     pub visibility: Visibility,
     /// Source span
     pub span: Span,
+    /// Item-level target attribute: `#target(os: "linux") use "./linux/io" { epoll_create }`
+    /// Spec §25.4: Conditional compilation on imports.
+    pub target_attr: Option<TargetAttr>,
+    /// Item-level cfg attribute: `#cfg(debug) use std.debug { trace }`
+    /// Spec §25.4: Conditional compilation on imports.
+    pub cfg_attr: Option<CfgAttr>,
 }
 
 /// Import path type.

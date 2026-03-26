@@ -1,0 +1,12 @@
+#target(os: "linux")
+#repr("c")
+type NativeBuffer = { ptr: CPtr, len: c_size }
+
+#cfg(debug)
+#repr("packed")
+type DebugLayout = { tag: byte, data: int }
+
+#target(os: "windows")
+#repr("c")
+#derive(Eq, Clone)
+type WinHandle = { handle: CPtr, flags: int }

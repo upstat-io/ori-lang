@@ -1,0 +1,4 @@
+// Spec §25.2.5: any_os takes a list of OS names (OR condition)
+#!target(any_os: ["linux", "macos", "windows"])
+
+@main () -> void = print(msg: "target any_os parses correctly");
