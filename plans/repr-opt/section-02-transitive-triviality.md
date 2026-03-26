@@ -567,6 +567,9 @@ Generic types interact with triviality classification in a specific way: trivial
 - [x] `[TPR-02-005][medium]` `compiler/ori_llvm/src/codegen/type_info/store.rs:101` — The plan-backed `TypeInfoStore` cache still diverges from `classify_triviality()` for pool entries with no canonical `ReprPlan` entry, so §02 is not fully single-source-of-truth yet.
   Resolved: Fixed on 2026-03-25. `populate_canonical()` now inserts `MachineRepr::Unit` for `Idx::ERROR` instead of skipping it. `Unit` is trivial (`is_trivial_repr` returns `true`), matching `classify_triviality()` and `ArcClassifier`. Three parity tests added: `repr_plan_error_type_is_trivial`, `repr_plan_error_type_has_canonical_repr`, `repr_plan_error_triviality_matches_classify_triviality`. 13,986 tests pass, 0 failures.
 
+- [x] `[TPR-02-006][medium]` `plans/repr-opt/section-01-repr-ir.md:40` — §02 is marked complete, but the dependency it claims to have finished, §01.8 Phase B, still remains `in-progress` in the current plan metadata.
+  Resolved: Rejected on 2026-03-25. No contradiction exists. §01.8 has three phases (A, B, C). Phase A `[x]` and Phase B `[x]` are complete. Phase C `[ ]` is blocked by §06/§07. §01.8's subsection status is correctly `in-progress` because Phase C remains open. §02 completed its deliverable (Phase B checkbox) and the metadata is consistent. Clarified §02 line 595 wording to say “Phase B checkbox marked complete” to prevent future ambiguity.
+
 ---
 
 ## 02.7 Completion Checklist
@@ -587,7 +590,7 @@ Generic types interact with triviality classification in a specific way: trivial
 - [x] `classify_trivial()` retained as fallback for test paths only — never called in production (2026-03-25)
 - [x] `triviality_cache` and `classifying_trivial` fields retained for test fallback path — no dead code (2026-03-25)
 - [x] TODO comments at store.rs updated to reflect fallback-only status (2026-03-25)
-- [x] §01.8 Phase B status updated to complete in section-01-repr-ir.md (2026-03-25)
+- [x] §01.8 Phase B checkbox marked complete `[x]` in section-01-repr-ir.md (2026-03-25). Note: §01.8 subsection remains `in-progress` because Phase C (§06/§07 scope) is still open.
 - [x] Validation: `analyze_triviality()` in `ori_repr` validates `classify_triviality() == is_trivial_repr()` with `debug_assert_eq!(mismatches, 0)` — zero mismatches confirmed (2026-03-25)
 - [x] **Matrix testing**: `./test-all.sh` green (13,979 tests, 0 failures). Release build clean. Phase B is behavior-preserving (2026-03-25).
 
