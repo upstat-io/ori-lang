@@ -20,6 +20,7 @@ use ori_types::{Idx, Pool, Tag};
 
 use crate::repr::IntWidth;
 
+pub mod conditional;
 pub mod field_summary;
 pub mod transfer;
 
