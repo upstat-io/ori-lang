@@ -1,10 +1,15 @@
 # Proposal: std.json API Design (FFI Revision)
 
-**Status:** Approved
+**Status:** Superseded
+**Superseded by:** `approved/compile-time-reflection-proposal.md` (2026-03-26)
 **Created:** 2026-01-30
 **Approved:** 2026-01-30
 **Affects:** Standard library
 **Depends on:** Platform FFI proposal, Computed Map Keys proposal
+
+## Errata (added 2026-03-26)
+
+> **Superseded by [compile-time-reflection-proposal](../approved/compile-time-reflection-proposal.md)**: The yyjson C FFI approach described in this proposal is superseded by a pure Ori JSON parser using compile-time reflection + SIMD intrinsics. No external C libraries are needed. A separate `stdlib-json-native-parser-proposal` will define the new implementation.
 
 ---
 

@@ -539,8 +539,9 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
 
 ## 7D.7 std.json Module
 
-**Proposal**: `proposals/approved/stdlib-json-api-proposal.md`
-**FFI Implementation**: `proposals/approved/stdlib-json-api-ffi-revision.md`
+**Proposal**: `proposals/superseded/stdlib-json-api-proposal.md` (superseded 2026-03-26)
+**FFI Implementation**: `proposals/superseded/stdlib-json-api-ffi-revision.md` (superseded 2026-03-26)
+**New direction**: Pure Ori JSON library using compile-time reflection (`$for` + `fields_of(T)`) + SIMD intrinsics. See `proposals/approved/compile-time-reflection-proposal.md`. A separate `stdlib-json-native-parser-proposal` will define the full library design.
 
 JSON parsing, serialization, and manipulation.
 
