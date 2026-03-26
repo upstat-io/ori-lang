@@ -284,9 +284,11 @@ fn variant_repr_two_fields_not_pointer() {
 // ── Placeholder types ───────────────────────────────────────────────
 
 #[test]
-fn value_range_placeholder_exists() {
-    // Verify the placeholder type compiles — replaced by §03.
-    assert_eq!(std::mem::size_of::<ValueRange>(), 0);
+fn value_range_is_interval_lattice() {
+    // §03: ValueRange is now a 3-variant enum (Bottom, Bounded, Top).
+    // Default is Top (conservative). Size is 24 bytes (tag + 2x i64).
+    assert_eq!(ValueRange::default(), ValueRange::Top);
+    assert_eq!(std::mem::size_of::<ValueRange>(), 24);
 }
 
 #[test]
@@ -1395,7 +1397,7 @@ fn repr_plan_override_returns_second_decision() {
             signed: true,
         },
         reason: DecisionReason::RangeFits {
-            range: ValueRange,
+            range: ValueRange::Bounded { lo: 0, hi: 1000 },
             min_width: IntWidth::I32,
         },
     };
@@ -1433,7 +1435,7 @@ fn repr_plan_audit_trail_preserves_both_decisions() {
             signed: true,
         },
         reason: DecisionReason::RangeFits {
-            range: ValueRange,
+            range: ValueRange::Bounded { lo: 0, hi: 1000 },
             min_width: IntWidth::I32,
         },
     };
@@ -1467,14 +1469,10 @@ fn repr_plan_var_range_no_recorded_ranges_returns_default() {
     let func = Name::new(0, 1);
     let var = ori_arc::ArcVarId::new(0);
     let range = plan.var_range(func, var);
-    assert_eq!(range, ValueRange);
+    assert_eq!(range, ValueRange::default());
 }
 
 #[test]
-#[expect(
-    clippy::zero_sized_map_values,
-    reason = "ValueRange is a placeholder ZST — replaced by §03"
-)]
 fn repr_plan_set_var_ranges_round_trip_isolated() {
     use rustc_hash::FxHashMap;
 
@@ -1484,21 +1482,24 @@ fn repr_plan_set_var_ranges_round_trip_isolated() {
     let var_0 = ori_arc::ArcVarId::new(0);
     let var_1 = ori_arc::ArcVarId::new(1);
 
+    let range_0_100 = ValueRange::Bounded { lo: 0, hi: 100 };
+    let range_neg = ValueRange::Bounded { lo: -50, hi: 50 };
+
     let mut ranges_a = FxHashMap::default();
-    ranges_a.insert(var_0, ValueRange);
+    ranges_a.insert(var_0, range_0_100);
     plan.set_var_ranges(func_a, ranges_a);
 
     let mut ranges_b = FxHashMap::default();
-    ranges_b.insert(var_1, ValueRange);
+    ranges_b.insert(var_1, range_neg);
     plan.set_var_ranges(func_b, ranges_b);
 
     // func_a has var_0 but not var_1
-    assert_eq!(plan.var_range(func_a, var_0), ValueRange);
-    assert_eq!(plan.var_range(func_a, var_1), ValueRange); // default — no panic
+    assert_eq!(plan.var_range(func_a, var_0), range_0_100);
+    assert_eq!(plan.var_range(func_a, var_1), ValueRange::Top); // default — no panic
 
     // func_b has var_1 but not var_0
-    assert_eq!(plan.var_range(func_b, var_1), ValueRange);
-    assert_eq!(plan.var_range(func_b, var_0), ValueRange); // default — no panic
+    assert_eq!(plan.var_range(func_b, var_1), range_neg);
+    assert_eq!(plan.var_range(func_b, var_0), ValueRange::Top); // default — no panic
 }
 
 #[test]
