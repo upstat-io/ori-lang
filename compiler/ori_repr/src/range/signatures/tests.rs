@@ -1282,3 +1282,145 @@ fn callee_return_derived_local_forwards_to_callee_param() {
         "Semantic pin: callee(helper() + 1) → callee's param should be [100, 100], got {p_range:?}"
     );
 }
+
+// ─── TPR-03-033: refresh_return_ranges must skip unreachable blocks ──────
+
+/// Build a function that calls `callee_id`, has an unreachable Return block,
+/// and returns the call result. CFG: B0 → Apply → Jump B2, B1 (unreachable
+/// Return), B2 (Return call result).
+fn build_func_with_unreachable_return(name: u32, callee_id: u32) -> ArcFunction {
+    use ori_arc::ir::{ArcBlock, ArcTerminator, ValueRepr};
+    use ori_arc::ArcBlockId;
+
+    let v0 = ArcVarId::new(0);
+    let v1 = ArcVarId::new(1);
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![ArcInstr::Apply {
+            dst: v0,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(callee_id),
+            args: vec![],
+            arg_ownership: vec![],
+        }],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(2),
+            args: vec![],
+        },
+    };
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v1 },
+    };
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v0 },
+    };
+    ArcFunction {
+        name: ori_ir::Name::from_raw(name),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT, ori_types::Idx::INT],
+        var_reprs: vec![ValueRepr::Scalar, ValueRepr::Scalar],
+        spans: vec![vec![None], vec![], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    }
+}
+
+/// Build a caller that calls `callee_a` (no args) then passes the result
+/// to `callee_b`. Returns `callee_b`'s result.
+fn build_two_call_caller(name: u32, callee_a: u32, callee_b: u32) -> ArcFunction {
+    let v_ca = ArcVarId::new(0);
+    let v_cb = ArcVarId::new(1);
+    build_simple_func(
+        name,
+        &[],
+        vec![
+            ArcInstr::Apply {
+                dst: v_ca,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(callee_a),
+                args: vec![],
+                arg_ownership: vec![],
+            },
+            ArcInstr::Apply {
+                dst: v_cb,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(callee_b),
+                args: vec![v_ca],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        v_cb,
+        ori_types::Idx::INT,
+        2,
+    )
+}
+
+/// Semantic pin: feedback narrowing accumulation across iterations.
+///
+/// Chain: `helper()` returns 99, `func_a()` calls helper and returns
+/// the result (with unreachable Return block), `caller()` calls `func_a`
+/// then passes the result to `func_b(x)`. Verifies both: (1) unreachable
+/// blocks are skipped in return-range refresh, (2) accumulated narrowings
+/// across feedback iterations prevent oscillation when a function makes
+/// multiple calls to different callees.
+#[test]
+fn feedback_refresh_skips_unreachable_return_blocks() {
+    use ori_arc::ir::{ArcValue, LitValue};
+
+    let v_ret = ArcVarId::new(0);
+    let helper = build_simple_func(
+        900,
+        &[],
+        vec![ArcInstr::Let {
+            dst: v_ret,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        v_ret,
+        ori_types::Idx::INT,
+        1,
+    );
+    let func_a = build_func_with_unreachable_return(902, 900);
+    let v_bx = ArcVarId::new(0);
+    let func_b = build_simple_func(
+        901,
+        &[(0, ori_types::Idx::INT)],
+        vec![],
+        v_bx,
+        ori_types::Idx::INT,
+        1,
+    );
+    let caller = build_two_call_caller(903, 902, 901);
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+    propagate_ranges(&mut plan, &pool, &[helper, func_a, func_b, caller], &config);
+
+    let v0 = ArcVarId::new(0);
+    let a_ret = plan.var_range(ori_ir::Name::from_raw(902), v0);
+    assert_eq!(
+        a_ret,
+        ValueRange::Bounded { lo: 99, hi: 99 },
+        "func_a's return var should be [99, 99] despite unreachable block, got {a_ret:?}"
+    );
+    let b_param = plan.var_range(ori_ir::Name::from_raw(901), v_bx);
+    assert_eq!(
+        b_param,
+        ValueRange::Bounded { lo: 99, hi: 99 },
+        "func_b's param should be [99, 99] via accumulated feedback, got {b_param:?}"
+    );
+}

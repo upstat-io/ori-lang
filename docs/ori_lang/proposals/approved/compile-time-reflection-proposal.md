@@ -1149,7 +1149,7 @@ The reflection proposal and the JSON dependencies are **independent tracks** tha
 - A `$build<T>` expression that takes a block of field assignments
 - Named tuple construction: `T.from_fields(...)` auto-generated
 
-**Decision**: Struct construction from `$for` is deferred to a separate **`compile-time-construction-proposal`** to be drafted immediately after this proposal's approval. This proposal is independently useful without construction — serialization, debug formatting, schema generation, diff, and validation all work with read-only field access. Construction is critical for deserialization and will be designed as a follow-up that builds on this proposal's primitives.
+**Decision**: ~~Deferred to a separate proposal.~~ **Resolved** by `approved/compile-time-construction-proposal.md` (approved 2026-03-26). The `$construct<T>` intrinsic builds a struct from `($FieldMeta, value)` pairs produced by `$for...yield`, with zero-cost expansion to a direct struct literal. `$construct_partial<T: Default>` handles partial construction with defaults for missing fields.
 
 ### Q2: Variant Pattern Generation
 
