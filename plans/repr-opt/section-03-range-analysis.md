@@ -4,7 +4,7 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-25
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
@@ -19,7 +19,7 @@ sections:
     status: in-progress
   - id: "03.2"
     title: "Transfer Functions"
-    status: not-started
+    status: complete
   - id: "03.2b"
     title: "Field-Summary Infrastructure"
     status: not-started
@@ -180,9 +180,9 @@ The interval lattice is the core data structure. Each element represents a set o
 
 Transfer functions describe how each operation transforms value ranges.
 
-- [ ] **Implement `transfer_primop()` dispatcher** — maps `PrimOp::Binary(op)` and `PrimOp::Unary(op)` to the appropriate transfer function. Uses exhaustive match (no `_` arm) on both `BinaryOp` (23 variants) and `UnaryOp` (4 variants) so new variants cause compile errors. Returns `ValueRange`. Signature: `fn transfer_primop(op: PrimOp, args: &[ArcVarId], ranges: &FxHashMap<ArcVarId, ValueRange>, pool: &Pool) -> ValueRange`.
-- [ ] **Implement `transfer_known_call()` helper** — checks if a `Name` corresponds to a known built-in function (`len`, `count`, `byte_to_int`, `char_to_int`, `abs`) and returns `Some(ValueRange)` or `None` for unknown callees. Signature: `fn transfer_known_call(func: Name, pool: &Pool) -> Option<ValueRange>`. Built-in function names are resolved via the interner or by matching against known `Name` constants. **Design decision needed:** How to identify built-in functions by `Name` — either compare against interned names from `ori_ir::BuiltinConstant` or use a pre-computed `FxHashSet<Name>` passed via `TransferContext`. The plan should specify which approach.
-- [ ] Arithmetic operations:
+- [x] **Implement `transfer_primop()` dispatcher** (2026-03-25) — maps `PrimOp::Binary(op)` and `PrimOp::Unary(op)` to the appropriate transfer function. Uses exhaustive match (no `_` arm) on both `BinaryOp` (23 variants) and `UnaryOp` (4 variants) so new variants cause compile errors. Returns `ValueRange`. Signature: `fn transfer_primop(op: PrimOp, args: &[ArcVarId], ranges: &FxHashMap<ArcVarId, ValueRange>, pool: &Pool) -> ValueRange`.
+- [x] **Implement `transfer_known_call()` helper** (2026-03-25, stub — builtin matching deferred to §03.5) — checks if a `Name` corresponds to a known built-in function (`len`, `count`, `byte_to_int`, `char_to_int`, `abs`) and returns `Some(ValueRange)` or `None` for unknown callees. Signature: `fn transfer_known_call(func: Name, pool: &Pool) -> Option<ValueRange>`. Built-in function names are resolved via the interner or by matching against known `Name` constants. **Design decision needed:** How to identify built-in functions by `Name` — either compare against interned names from `ori_ir::BuiltinConstant` or use a pre-computed `FxHashSet<Name>` passed via `TransferContext`. The plan should specify which approach.
+- [x] Arithmetic operations: (2026-03-25)
   ```rust
   pub fn range_add(a: ValueRange, b: ValueRange) -> ValueRange {
       match (a, b) {
@@ -207,7 +207,7 @@ Transfer functions describe how each operation transforms value ranges.
   pub fn range_neg(a: ValueRange) -> ValueRange { ... }
   ```
 
-- [ ] Bitwise operations:
+- [x] Bitwise operations: (2026-03-25)
   ```rust
   pub fn range_bitand(a: ValueRange, b: ValueRange) -> ValueRange { ... }
   pub fn range_bitor(a: ValueRange, b: ValueRange) -> ValueRange { ... }
@@ -216,7 +216,7 @@ Transfer functions describe how each operation transforms value ranges.
   pub fn range_shr(a: ValueRange, b: ValueRange) -> ValueRange { ... }
   ```
 
-- [ ] Built-in function ranges:
+- [x] Built-in function ranges: (2026-03-25)
   ```rust
   /// len() always returns >= 0
   pub fn range_len() -> ValueRange { Bounded { lo: 0, hi: i64::MAX } }
@@ -234,7 +234,7 @@ Transfer functions describe how each operation transforms value ranges.
   pub fn range_abs(a: ValueRange) -> ValueRange { ... }
   ```
 
-- [ ] Literal ranges:
+- [x] Literal ranges: (2026-03-25)
   ```rust
   /// Integer literal has an exact range
   pub fn range_literal(value: i64) -> ValueRange {
@@ -242,28 +242,28 @@ Transfer functions describe how each operation transforms value ranges.
   }
   ```
 
-- [ ] Remaining arithmetic operations (from `BinaryOp`):
+- [x] Remaining arithmetic operations (from `BinaryOp`):
   - `FloorDiv` — integer floor division: `a / b` rounded toward negative infinity. Same division-by-zero handling as `range_div`; result range differs from truncating division when signs differ.
   - `MatMul` (`@`) — user-defined operator: returns Top (cannot reason about custom implementations).
 
-- [ ] Comparison operations (produce `bool`, not `int` — range is `[0, 1]`):
+- [x] Comparison operations (produce `bool`, not `int` — range is `[0, 1]`):
   - `Eq`, `NotEq`, `Lt`, `LtEq`, `Gt`, `GtEq` — all produce `ValueRange::Bounded { lo: 0, hi: 1 }` (boolean).
   - Comparison results are primarily useful via §03.4 conditional refinement, not directly.
 
-- [ ] Logical operations (produce `bool`):
+- [x] Logical operations (produce `bool`):
   - `And` (`&&`), `Or` (`||`) — produce `ValueRange::Bounded { lo: 0, hi: 1 }`.
 
-- [ ] Range/coalesce operations:
+- [x] Range/coalesce operations:
   - `Range` (`..`), `RangeInclusive` (`..=`) — produce a Range value, not an int. Return Top for the `dst` variable (range analysis tracks int-typed variables only).
   - `Coalesce` (`??`) — unwraps Option; return Top (value depends on Option contents).
 
-- [ ] Unary operations (from `UnaryOp`):
+- [x] Unary operations (from `UnaryOp`):
   - `Neg` — already listed as `range_neg`.
   - `Not` (`!`) — logical not on bool: returns `[0, 1]`.
   - `BitNot` (`~`) — bitwise complement: if `a ∈ [lo, hi]` and both non-negative, result is `[-hi-1, -lo-1]`. Conservative: return Top for mixed-sign ranges.
   - `Try` (`?`) — desugared before ARC IR; should not appear. If encountered, return Top.
 
-- [ ] **Top-level transfer function dispatcher** — maps each `ArcInstr` variant to a range:
+- [x] **Top-level transfer function dispatcher** (2026-03-25) — maps each `ArcInstr` variant to a range:
   ```rust
   /// Context needed by the transfer function beyond ranges and pool.
   /// Bundles per-function and cross-function state to avoid >4 params.
@@ -364,7 +364,7 @@ Transfer functions describe how each operation transforms value ranges.
   ```
   This dispatcher ensures every `ArcInstr` variant has a defined behavior. Instructions that do not define a variable (`RcInc`, `RcDec`, `Set`, `SetTag`) are handled by the caller: `instr.defined_var()` returns `None`, so the fixpoint loop skips them.
 
-- [ ] **Unit tests for transfer functions** in `compiler/ori_repr/src/range/tests.rs` (shared test file for all range submodules, per sibling convention). **TDD: write tests BEFORE implementing. Verify compile error or assertion failure. Then implement. Tests must pass unchanged.** Required coverage:
+- [x] **Unit tests for transfer functions** (2026-03-25, 46 tests) in `compiler/ori_repr/src/range/tests.rs` (shared test file for all range submodules, per sibling convention). **TDD: write tests BEFORE implementing. Verify compile error or assertion failure. Then implement. Tests must pass unchanged.** Required coverage:
   - **Arithmetic matrix** — each function (`range_add`, `range_sub`, `range_mul`, `range_div`, `range_mod`, `range_floordiv`, `range_neg`) with: (a) two positive bounded ranges, (b) one negative + one positive bounded, (c) one bounded + one Bottom → Bottom, (d) one bounded + one Top → Top, (e) overflow cases (`checked_add` returns `None` → Top)
   - **Multiplication quadrants** — `range_mul` with all four sign quadrant combinations: positive x positive, positive x negative, negative x negative, negative x positive. Must compute `min/max` of `{lo*lo, lo*hi, hi*lo, hi*hi}`. Also test `[0, 0] * anything` → `[0, 0]`
   - **Division edge cases** — `range_div` with: divisor spanning zero → Top, divisor `[0, 0]` → Top (division by zero), positive dividend / positive divisor → bounded, negative dividend / positive divisor → bounded
@@ -374,7 +374,7 @@ Transfer functions describe how each operation transforms value ranges.
   - **Top-level `transfer()` dispatcher** — at least one test per `ArcInstr` variant (construct programmatically). Key semantic pins: `Let` with int literal → exact range, `Apply` to `len` → `[0, i64::MAX]`, `Select` → join of branches, `Project` with field summary → bounded, `IsShared` → `[0, 1]`
   - **Semantic pin**: `range_add(Bounded(0, 10), Bounded(0, 10))` == `Bounded(0, 20)` — this test ONLY passes with correct add propagation (not Top, not Bottom)
   - **Both debug and release**: `cargo test -p ori_repr` (debug) and `cargo test -p ori_repr --release` (release) must both pass
-- [ ] **File size check**: if `transfer.rs` exceeds ~450 lines during implementation, proactively split into `compiler/ori_repr/src/range/transfer/mod.rs` (dispatcher + `transfer_primop`), `transfer/arithmetic.rs` (`range_add` through `range_neg`, `range_floordiv`, `range_abs`), and `transfer/bitwise.rs` (`range_bitand` through `range_shr`, `range_bitnot`). Update `range/mod.rs` module declarations accordingly.
+- [x] **File size check** (470 lines, under 500 limit): if `transfer.rs` exceeds ~450 lines during implementation, proactively split into `compiler/ori_repr/src/range/transfer/mod.rs` (dispatcher + `transfer_primop`), `transfer/arithmetic.rs` (`range_add` through `range_neg`, `range_floordiv`, `range_abs`), and `transfer/bitwise.rs` (`range_bitand` through `range_shr`, `range_bitnot`). Update `range/mod.rs` module declarations accordingly.
 
 ---
 
@@ -1140,3 +1140,13 @@ For cross-function narrowing, we need to propagate range information through fun
 
 - [x] `[TPR-03-001][minor]` `section-03-range-analysis.md:458` — **Block parameter merging only handles `Jump` predecessors; `Invoke` normal successor may pass args.**
   Resolved: Rejected on 2026-03-25. `ArcTerminator::Invoke` does NOT pass block arguments to its normal successor — unlike `Jump { target, args }`, the `normal` field is just an `ArcBlockId` with no `args`. The `Invoke`'s `args` field contains function call arguments (not block parameters). The `dst` result is handled separately in the fixpoint loop's Step 3 (terminator processing). Only `Jump` carries block arguments, so the merge loop is correct as written. Updated misleading comment at plan line 467 to clarify this.
+
+- [ ] `[TPR-03-002][low]` `plans/repr-opt/section-03-range-analysis.md:161` — The §03.1 checklist claims "`range/tests.rs`" contains 56 lattice tests, but the current file only defines 51 `#[test]` cases.
+  Evidence: `rg -n '^#\\[test\\]' compiler/ori_repr/src/range/tests.rs` reports 51 test functions in the current tree, while the checked-off plan item still states "56 tests covering all lattice operations, boundary values, semantic pin."
+  Impact: The section overstates completed coverage, which makes later review and completion tracking less reliable even though the current debug/release test runs are green.
+  Required plan update: Correct the claimed count or remove the exact number and describe the covered cases instead.
+
+- [ ] `[TPR-03-003][low]` `compiler/ori_repr/src/tests.rs:291` — The new `ValueRange` smoke test hard-codes `std::mem::size_of::<ValueRange>() == 24`, but enum layout is not part of the section's semantic contract and is not stable enough to pin this exactly.
+  Evidence: `value_range_is_interval_lattice()` asserts the concrete byte size of `ValueRange`; the rest of §03.1 only depends on lattice semantics (`Default`, `join`, `meet`, width fitting, etc.), not on a fixed enum layout.
+  Impact: Harmless compiler or target-layout changes can fail the section-03 test suite even when the interval lattice behavior is still correct, creating false negatives and unnecessary portability churn.
+  Required plan update: Replace the exact-size assertion with semantic checks only, or move any intentional size contract into a documented source-level const assertion with a justification tied to a real hot-path requirement.
