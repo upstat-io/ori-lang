@@ -93,6 +93,12 @@ pub struct ReprPlan {
     /// Key: function `Name` → (`ArcVarId` → `ValueRange`).
     /// Populated by §03, consumed by §04.
     function_var_ranges: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
+    /// Per-type-field range summaries from §03 field-summary analysis.
+    ///
+    /// Key: `(struct/tuple Idx, field_index)` → joined `ValueRange`.
+    /// Populated by §03.2b (`FieldSummaryTable::flush_to_repr_plan`),
+    /// consumed by §04 (struct field narrowing).
+    field_range_summaries: FxHashMap<(Idx, u32), ValueRange>,
     /// Audit trail — all decisions in insertion order.
     audit: Vec<ReprDecision>,
     /// Narrowing policy controlling optimization aggressiveness.
@@ -113,6 +119,7 @@ impl ReprPlan {
             rc_strategies: FxHashMap::default(),
             escape_info: FxHashMap::default(),
             function_var_ranges: FxHashMap::default(),
+            field_range_summaries: FxHashMap::default(),
             audit: Vec::new(),
             narrowing_policy: policy,
         }
@@ -152,6 +159,29 @@ impl ReprPlan {
         self.function_var_ranges
             .get(&func)
             .and_then(|m| m.get(&var))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Join a field range into the persistent summary.
+    ///
+    /// Called by `FieldSummaryTable::flush_to_repr_plan()` after the
+    /// fixpoint completes for each function. Multiple functions accumulate
+    /// evidence by joining (not overwriting).
+    pub fn join_field_range(&mut self, idx: Idx, field: u32, range: ValueRange) {
+        self.field_range_summaries
+            .entry((idx, field))
+            .and_modify(|existing| *existing = existing.join(range))
+            .or_insert(range);
+    }
+
+    /// Query the aggregated field range for a struct/tuple field.
+    ///
+    /// Returns `Top` if no construction sites were observed for this field.
+    #[must_use]
+    pub fn field_range(&self, idx: Idx, field: u32) -> ValueRange {
+        self.field_range_summaries
+            .get(&(idx, field))
             .copied()
             .unwrap_or_default()
     }

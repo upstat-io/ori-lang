@@ -20,6 +20,7 @@ use ori_types::{Idx, Pool, Tag};
 
 use crate::repr::IntWidth;
 
+pub mod field_summary;
 pub mod transfer;
 
 /// A closed interval [lo, hi] over i64 values.

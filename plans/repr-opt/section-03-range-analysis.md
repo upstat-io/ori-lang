@@ -22,7 +22,7 @@ sections:
     status: complete
   - id: "03.2b"
     title: "Field-Summary Infrastructure"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Widening & Narrowing Operators"
     status: not-started
@@ -387,7 +387,7 @@ Transfer functions describe how each operation transforms value ranges.
 
 **Implementation order:** Build alongside §03.2 (before fixpoint). The fixpoint loop (§03.3) calls `update_field_summaries()` when processing `Construct` instructions.
 
-- [ ] Define the `FieldSummaryTable` type:
+- [x] Define the `FieldSummaryTable` type:
   ```rust
   /// Aggregates field ranges across all Construct sites for struct/tuple types.
   ///
@@ -442,7 +442,7 @@ Transfer functions describe how each operation transforms value ranges.
   }
   ```
 
-- [ ] Implement `update_field_summaries()` — called from the fixpoint loop after each `Construct`:
+- [x] Implement `update_field_summaries()` — called from the fixpoint loop after each `Construct`:
   ```rust
   /// Update the field-summary table when a Construct instruction is encountered.
   /// Only processes Struct and Tuple constructors with int-typed fields.
@@ -473,16 +473,16 @@ Transfer functions describe how each operation transforms value ranges.
   }
   ```
 
-- [ ] Integrate `FieldSummaryTable` into the fixpoint loop (§03.3):
+- [x] Integrate `FieldSummaryTable` into the fixpoint loop (§03.3):
   - Create `FieldSummaryTable::new()` before the fixpoint loop starts
   - After processing each `Construct` instruction in the body loop, call `update_field_summaries()`
   - Pass `table.as_map()` as `field_summaries` in `TransferContext` so `Project` can query it
   - After the fixpoint completes, call `table.flush_to_repr_plan(repr_plan)` to persist results
 
-- [ ] Handle enum variant constructors:
+- [x] Handle enum variant constructors:
   - `CtorKind::EnumVariant { enum_name, variant }` — add variant payload fields to the field-summary table keyed by `(variant_type_idx, field)` where `variant_type_idx` is the variant's own `Idx` (from `Construct.ty`). This enables §07's niche analysis to see narrowed payload ranges. The `update_field_summaries` match should include `EnumVariant` alongside `Struct` and `Tuple`.
 
-- [ ] **Unit tests for `FieldSummaryTable`** in `compiler/ori_repr/src/range/tests.rs`. **TDD: write tests BEFORE implementing. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
+- [x] **Unit tests for `FieldSummaryTable`** in `compiler/ori_repr/src/range/tests.rs`. **TDD: write tests BEFORE implementing. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
   - Single construction site with constant args → exact ranges
   - Multiple construction sites → join produces correct widened range (e.g., `observe_construct` with `[0, 0]` then with `[255, 255]` → field range is `[0, 255]`)
   - Non-int fields → stored as Top (not missing)
