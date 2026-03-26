@@ -1125,3 +1125,99 @@ fn fixpoint_return_range_recomputed_after_narrowing() {
         result.return_range
     );
 }
+
+// ─── TPR-03-022: projection refresh after field-summary recompute ──────
+
+/// Build a bounded loop where the exit block constructs a struct from the
+/// loop variable, projects field 0, and returns the projection.
+/// Extends `build_bounded_loop_func` with Construct + Project in the exit block.
+/// Returns `(func, v_projected, struct_type_idx)`.
+fn build_loop_construct_project_func(
+    limit: i64,
+) -> (ori_arc::ir::ArcFunction, ArcVarId, ori_types::Idx) {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, CtorKind};
+    use ori_arc::ArcBlockId;
+
+    let (mut func, v_i) = build_bounded_loop_func(limit);
+
+    // Add 2 new variables: v_struct and v_projected.
+    // v_i is var 3 in the base loop; next free slots are 6 and 7.
+    let v_struct = ArcVarId::new(6);
+    let v_projected = ArcVarId::new(7);
+    let struct_name = ori_ir::Name::from_raw(200);
+    let struct_type_idx = ori_types::Idx::BOOL; // distinct from INT field type
+
+    func.var_types.push(struct_type_idx); // v_struct
+    func.var_types.push(ori_types::Idx::INT); // v_projected
+    func.var_reprs.push(ori_arc::ir::ValueRepr::Scalar);
+    func.var_reprs.push(ori_arc::ir::ValueRepr::Scalar);
+    func.return_type = ori_types::Idx::INT;
+
+    // Replace exit block (block 3): add Construct + Project, return projection.
+    func.blocks[3] = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![],
+        body: vec![
+            ArcInstr::Construct {
+                dst: v_struct,
+                ty: struct_type_idx,
+                ctor: CtorKind::Struct(struct_name),
+                args: vec![v_i],
+            },
+            ArcInstr::Project {
+                dst: v_projected,
+                ty: ori_types::Idx::INT,
+                value: v_struct,
+                field: 0,
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_projected },
+    };
+    func.spans[3] = vec![None; 2];
+
+    (func, v_projected, struct_type_idx)
+}
+
+/// Semantic pin: a bounded loop's exit block constructs a struct from the
+/// narrowed loop variable, projects field 0, and returns the projection.
+/// Without the post-recompute projection refresh, the projection variable
+/// and `return_range` stay widened to [0, MAX] even though the field summary
+/// correctly shows [0, 10].
+#[test]
+fn fixpoint_projection_refreshed_after_field_summary_recompute() {
+    let (func, v_projected, struct_type_idx) = build_loop_construct_project_func(10);
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // Field summary should be tight: recompute uses narrowed global v_i = [0, 10].
+    let field_range = result.field_summaries.field_range(struct_type_idx, 0);
+    assert!(
+        matches!(field_range, ValueRange::Bounded { lo: 0, hi } if hi <= 10),
+        "TPR-03-022: field summary should be [0, 10] after recompute, got {field_range:?}"
+    );
+
+    // Projection variable must be bounded — at the exit point, branch refinement gives
+    // i ∈ [10, MAX], intersected with field summary [0, 10] → [10, 10]. This is the
+    // correct precise answer. Before the fix, it was [10, MAX] (no re-transfer).
+    let proj_range = result
+        .var_ranges
+        .get(&v_projected)
+        .copied()
+        .unwrap_or(ValueRange::Top);
+    assert_eq!(
+        proj_range,
+        ValueRange::Bounded { lo: 10, hi: 10 },
+        "TPR-03-022: projected variable should narrow to [10, 10] \
+         (exit-block i refined to [10, 10] ∩ field summary [0, 10]), got {proj_range:?}. \
+         Without post-recompute projection refresh, it stays at [10, MAX]."
+    );
+
+    // Return range must also be [10, 10] since it returns the projection.
+    assert_eq!(
+        result.return_range,
+        ValueRange::Bounded { lo: 10, hi: 10 },
+        "TPR-03-022: return_range should narrow with projection to [10, 10], got {:?}",
+        result.return_range
+    );
+}
