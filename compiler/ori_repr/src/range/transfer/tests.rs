@@ -4,6 +4,7 @@
 //! built-in ranges, and the primop dispatcher.
 
 use super::*;
+use crate::range::ValueRange::Bottom;
 
 // ─── range_add ─────────────────────────────────────────────────
 
@@ -519,4 +520,122 @@ fn primop_try_returns_top() {
     let ranges = FxHashMap::default();
     let result = transfer_primop(PrimOp::Unary(UnaryOp::Try), &[], &ranges);
     assert_eq!(result, Top);
+}
+
+// ─── range_floordiv soundness (TPR-03-008) ────────────────────
+
+#[test]
+fn floordiv_mixed_sign_exact() {
+    // -1 div 2: floor = -1, trunc = 0. Range must contain -1.
+    // Semantic pin: ONLY passes with floor division (not truncating).
+    assert_eq!(
+        range_floordiv(Bounded { lo: -1, hi: -1 }, Bounded { lo: 2, hi: 2 }),
+        Bounded { lo: -1, hi: -1 }
+    );
+}
+
+#[test]
+fn floordiv_mixed_sign_exact_2() {
+    // -7 div 2: floor = -4, trunc = -3.
+    assert_eq!(
+        range_floordiv(Bounded { lo: -7, hi: -7 }, Bounded { lo: 2, hi: 2 }),
+        Bounded { lo: -4, hi: -4 }
+    );
+}
+
+#[test]
+fn floordiv_same_sign_matches_truncating() {
+    // 7 div 2: floor = 3, trunc = 3 — same for same-sign.
+    assert_eq!(
+        range_floordiv(Bounded { lo: 7, hi: 7 }, Bounded { lo: 2, hi: 2 }),
+        Bounded { lo: 3, hi: 3 }
+    );
+}
+
+#[test]
+fn floordiv_negative_by_negative_same_sign() {
+    // -7 div -2: floor = 3, trunc = 3 — same for same-sign.
+    assert_eq!(
+        range_floordiv(Bounded { lo: -7, hi: -7 }, Bounded { lo: -2, hi: -2 }),
+        Bounded { lo: 3, hi: 3 }
+    );
+}
+
+#[test]
+fn floordiv_mixed_sign_range() {
+    // [-7, -1] div [2, 5]:
+    // Corners: -7 div 2=-4, -7 div 5=-2, -1 div 2=-1, -1 div 5=-1
+    // min=-4, max=-1
+    assert_eq!(
+        range_floordiv(Bounded { lo: -7, hi: -1 }, Bounded { lo: 2, hi: 5 }),
+        Bounded { lo: -4, hi: -1 }
+    );
+}
+
+#[test]
+fn floordiv_by_zero_range_returns_top() {
+    assert_eq!(
+        range_floordiv(Bounded { lo: 1, hi: 10 }, Bounded { lo: -1, hi: 1 }),
+        Top
+    );
+}
+
+#[test]
+fn floordiv_positive_by_positive_range() {
+    // [10, 20] div [2, 5]: same as truncating for positive/positive.
+    // 10 div 5=2, 10 div 2=5, 20 div 5=4, 20 div 2=10 → [2, 10]
+    assert_eq!(
+        range_floordiv(Bounded { lo: 10, hi: 20 }, Bounded { lo: 2, hi: 5 }),
+        Bounded { lo: 2, hi: 10 }
+    );
+}
+
+#[test]
+fn floordiv_bottom_propagates() {
+    assert_eq!(range_floordiv(Bottom, Bounded { lo: 1, hi: 2 }), Bottom);
+    assert_eq!(range_floordiv(Bounded { lo: 1, hi: 2 }, Bottom), Bottom);
+}
+
+// ─── range_shr sign-aware monotonicity (TPR-03-009) ───────────
+
+#[test]
+fn shr_negative_range_with_shift_range() {
+    // [-8, -1] >> [1, 2]:
+    // -8>>1=-4, -8>>2=-2, -1>>1=-1, -1>>2=-1
+    // min=-4, max=-1
+    // Semantic pin: ONLY passes with sign-aware corner computation.
+    assert_eq!(
+        range_shr(Bounded { lo: -8, hi: -1 }, Bounded { lo: 1, hi: 2 }),
+        Bounded { lo: -4, hi: -1 }
+    );
+}
+
+#[test]
+fn shr_mixed_sign_range() {
+    // [-8, 16] >> [1, 2]:
+    // -8>>1=-4, -8>>2=-2, 16>>1=8, 16>>2=4
+    // min=-4, max=8
+    assert_eq!(
+        range_shr(Bounded { lo: -8, hi: 16 }, Bounded { lo: 1, hi: 2 }),
+        Bounded { lo: -4, hi: 8 }
+    );
+}
+
+#[test]
+fn shr_negative_exact_shift() {
+    // -16 >> 2 = -4 (arithmetic)
+    assert_eq!(
+        range_shr(Bounded { lo: -16, hi: -16 }, Bounded { lo: 2, hi: 2 }),
+        Bounded { lo: -4, hi: -4 }
+    );
+}
+
+#[test]
+fn shr_positive_range_unchanged() {
+    // Positive ranges: existing behavior should be preserved.
+    // [8, 16] >> [1, 2]: 8>>2=2, 16>>1=8 → [2, 8]
+    assert_eq!(
+        range_shr(Bounded { lo: 8, hi: 16 }, Bounded { lo: 1, hi: 2 }),
+        Bounded { lo: 2, hi: 8 }
+    );
 }
