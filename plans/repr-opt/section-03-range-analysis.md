@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-26
-  triage_note: "TPR-03-031 accepted and implemented on 2026-03-26 — iterated feedback loop with refresh_return_ranges() and reverse-topo Step 2. All TPR items resolved."
+  triage_note: "TPR-03-032 accepted and implemented on 2026-03-26 — added call_result_narrowings to range_fixpoint() so callee return ranges propagate through derived locals. All TPR items resolved."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -1020,6 +1020,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] **[TPR-03-030] Feed callee return ranges back into `results` before parameter collection** (2026-03-26): Added Phase 3.5 return-range feedback pass (`feedback.rs`). Step 1: narrows caller dst vars from callee return ranges in `results`. Step 2: re-collects params and re-runs fixpoint for functions with changed seeds (forward topo order). Removed redundant Phase 6 (`propagate_return_ranges`). Semantic pin test `return_range_feeds_downstream_parameter_collection`: A calls helper() (returns [99,99]), passes to C — C's param narrows to [99,99]. Debug + release green.
 - [x] **[TPR-03-031] Iterate return-range feedback to multi-hop fixpoint** (2026-03-26): Rewrote `feed_return_ranges_and_reprocess()` in `feedback.rs` with three fixes: (1) Outer loop iterates Steps 1+2 until convergence, bounded by `config.max_feedback_iterations` (default 5). (2) Step 1b (`refresh_return_ranges()`) recomputes `func_infos` return ranges from updated `results` after dst var narrowing — without this, narrowed return values don't propagate back up the call chain. (3) Step 2 iterates SCCs in reverse topological order (callers first), matching Phase 3's order, so parameter seeds cascade from callers to callees in one pass. Added `max_feedback_iterations` field to `RangeAnalysisConfig`. 336/336 debug + release green, 14,191 total green.
 - [x] **[TPR-03-031] Add semantic-pin test: multi-hop return-range chain** (2026-03-26): `multi_hop_return_range_chain` — 4-hop chain: `helper(800)` returns [99,99], `A(804)` calls helper and passes to `B(803)`, B passes to `C(802)`, C passes to `D(801)`. Asserts D's param = [99,99], C's param = [99,99], B's param = [99,99]. Semantic pin: ONLY passes with iterated feedback — fails with single-pass (D gets Top).
+- [x] **[TPR-03-032] Propagate callee return ranges through derived locals** (2026-03-26): Added `call_result_narrowings: Option<&FxHashMap<ArcVarId, ValueRange>>` to `range_fixpoint()`. In `run_forward_iteration()`, Apply/Invoke dst vars are narrowed via `meet` with callee return range after transfer. `inject_callee_return_ranges()` returns per-caller narrowing maps. `reprocess_changed_functions()` reruns fixpoint for dst-narrowed callers with narrowings, even if params unchanged. Two semantic-pin tests: `callee_return_derived_local_propagates` (y = x + 1 from helper()), `callee_return_derived_local_forwards_to_callee_param` (forwarded to callee param). 338/338 debug + release green, 14,193 total green.
 - [ ] Handle boundary cases for parameter ranges:
   - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip) — **currently handled: non-int params are skipped by `is_int_typed()` check**
   - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch) — **blocked: ARC IR lacks visibility/trait info; currently all functions treated as narrowable (conservative — §04 ignores Top anyway)**
@@ -1039,7 +1040,9 @@ For cross-function narrowing, we need to propagate range information through fun
   - [x] Transitive A→B→C propagation — `transitive_propagation_a_b_c` (semantic pin)
   - [x] Budget exceeded: >50 total SCC iterations → remaining SCCs get Top (not hang, not panic) — `budget_exceeded_gives_top`
   - [x] **Semantic pin**: private function `@helper(x: int)` called only as `helper(x: 42)` → parameter range `[42, 42]` — `single_call_site_constant_arg`
-  - [x] **Both debug and release**: 313/313 debug + release green
+  - [x] Derived local from call-result narrowing → `[100, 100]` — `callee_return_derived_local_propagates` (TPR-03-032 semantic pin)
+  - [x] Derived local forwarded to callee param → `[100, 100]` — `callee_return_derived_local_forwards_to_callee_param` (TPR-03-032 semantic pin)
+  - [x] **Both debug and release**: 338/338 debug + release green
   - [x] Empty function list → no panic — `empty_functions_no_panic`
 
 ---
@@ -1148,6 +1151,11 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-032][high]` `compiler/ori_repr/src/range/signatures/feedback.rs:96` — Return-range feedback still stops at the call-result variable, so derived locals and return summaries can stay `Top`.
+  Evidence: Step 1 only meets the direct call-result `dst` with the callee `return_range` (`feedback.rs:78-105`). Step 2 reruns `range_fixpoint()` only when `param_ranges` changed (`feedback.rs:149-184`). If a caller transforms that narrowed `dst` before returning or forwarding it, no rerun happens unless parameter seeds also changed, so the stale `results` from before Step 1 are what Phase 4 persists into `ReprPlan` (`signatures/mod.rs:183-205`).
+  Impact: common shapes like `let x = helper(); let y = x + 1; return y` or `callee(x + 1)` still lose the callee-return fact after the direct `dst` variable. That leaves §03.5 unable to summarize or forward non-trivial call-result computations even though the current TPR-03-030/031 tests are green.
+  Resolved: Validated and implemented on 2026-03-26. Added `call_result_narrowings` parameter to `range_fixpoint()` — callee return ranges applied as `meet` after Apply/Invoke transfer, so derived locals propagate naturally. `inject_callee_return_ranges()` now returns per-caller narrowing maps. `reprocess_changed_functions()` reruns fixpoint for dst-narrowed callers even if params unchanged. Two semantic-pin tests: `callee_return_derived_local_propagates` (y = x + 1 from helper()), `callee_return_derived_local_forwards_to_callee_param` (forwarded to callee param). 338/338 debug + release green, 14,193 total green.
 
 - [x] `[TPR-03-031][medium]` `compiler/ori_repr/src/range/signatures/feedback.rs:61` — The new return-range feedback pass still stops after one hop and can discard injected call-result facts when a function is reprocessed.
   Evidence: Step 1 only narrows immediate caller `dst` variables once (`compiler/ori_repr/src/range/signatures/feedback.rs:33-55`). Step 2 then does a single pass over `sccs` and reruns only functions whose parameter seeds changed (`compiler/ori_repr/src/range/signatures/feedback.rs:61-84`). When that rerun happens, `results.insert(*name, result)` overwrites the earlier injected `dst` ranges with a fresh `range_fixpoint()` result that has no callee-return propagation path. There is no outer loop that reapplies Step 1 after those reruns, even though `propagate_ranges()` now persists `results` directly into `ReprPlan` (`compiler/ori_repr/src/range/signatures/mod.rs:169-205`).

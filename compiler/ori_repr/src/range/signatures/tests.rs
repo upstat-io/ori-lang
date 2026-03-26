@@ -1094,3 +1094,191 @@ fn multi_hop_return_range_chain() {
         );
     }
 }
+
+// ─── TPR-03-032: Derived locals from call-result narrowing ──────
+
+/// Semantic pin: `helper()` returns 99. Caller does:
+///   `let x = helper()`   — dst var, narrowed by return-range feedback
+///   `let y = x + 1`      — derived local, must propagate narrowing
+///   `return y`
+///
+/// Caller's `y` should be `[100, 100]`, NOT `Top`. This ONLY passes when
+/// the feedback loop reruns the caller's fixpoint with call-result
+/// narrowings, so `x + 1` can compute from the narrowed `x = [99, 99]`.
+#[test]
+fn callee_return_derived_local_propagates() {
+    use ori_arc::ir::PrimOp;
+    use ori_ir::BinaryOp;
+
+    // helper: returns constant 99
+    let v_ret = ArcVarId::new(0);
+    let helper = build_simple_func(
+        900,
+        &[],
+        vec![ArcInstr::Let {
+            dst: v_ret,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        v_ret,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // caller: let x = helper(); let one = 1; let y = x + one; return y
+    let v_x = ArcVarId::new(0);
+    let v_one = ArcVarId::new(1);
+    let v_y = ArcVarId::new(2);
+    let caller = build_simple_func(
+        901,
+        &[],
+        vec![
+            ArcInstr::Apply {
+                dst: v_x,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(900),
+                args: vec![],
+                arg_ownership: vec![],
+            },
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_y,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![v_x, v_one],
+                },
+            },
+        ],
+        v_y,
+        ori_types::Idx::INT,
+        3,
+    );
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+
+    propagate_ranges(&mut plan, &pool, &[helper, caller], &config);
+
+    let caller_name = ori_ir::Name::from_raw(901);
+
+    // x (dst of Apply) should be narrowed to [99, 99] from helper's return range.
+    let x_range = plan.var_range(caller_name, v_x);
+    assert_eq!(
+        x_range,
+        ValueRange::Bounded { lo: 99, hi: 99 },
+        "caller's x (Apply dst) should be [99, 99], got {x_range:?}"
+    );
+
+    // y = x + 1 should be [100, 100] — this is the derived local.
+    // Before fix: y stays Top because fixpoint isn't rerun after dst narrowing.
+    // After fix: fixpoint reruns with call_result_narrowings, so y propagates.
+    let y_range = plan.var_range(caller_name, v_y);
+    assert_eq!(
+        y_range,
+        ValueRange::Bounded { lo: 100, hi: 100 },
+        "Semantic pin: derived local y = x + 1 should be [100, 100], got {y_range:?}"
+    );
+}
+
+/// Semantic pin: `helper()` returns 99, caller transforms and forwards to callee.
+///   `let x = helper()`
+///   `let y = x + 1`
+///   `callee(y)`           — callee's param should be `[100, 100]`
+///
+/// This tests that call-result narrowing propagates through derived locals
+/// AND into downstream parameter collection.
+#[test]
+fn callee_return_derived_local_forwards_to_callee_param() {
+    use ori_arc::ir::PrimOp;
+    use ori_ir::BinaryOp;
+
+    // helper: returns constant 99
+    let v_hret = ArcVarId::new(0);
+    let helper = build_simple_func(
+        910,
+        &[],
+        vec![ArcInstr::Let {
+            dst: v_hret,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        v_hret,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // callee: receives p, returns p
+    let v_p = ArcVarId::new(0);
+    let callee = build_simple_func(
+        911,
+        &[(0, ori_types::Idx::INT)],
+        vec![],
+        v_p,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // caller: let x = helper(); let one = 1; let y = x + one; let r = callee(y); return r
+    let v_x = ArcVarId::new(0);
+    let v_one = ArcVarId::new(1);
+    let v_y = ArcVarId::new(2);
+    let v_r = ArcVarId::new(3);
+    let caller = build_simple_func(
+        912,
+        &[],
+        vec![
+            ArcInstr::Apply {
+                dst: v_x,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(910),
+                args: vec![],
+                arg_ownership: vec![],
+            },
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_y,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![v_x, v_one],
+                },
+            },
+            ArcInstr::Apply {
+                dst: v_r,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(911),
+                args: vec![v_y],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        v_r,
+        ori_types::Idx::INT,
+        4,
+    );
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+
+    propagate_ranges(&mut plan, &pool, &[helper, callee, caller], &config);
+
+    // callee's parameter should be [100, 100] — forwarded from helper's
+    // return [99, 99] + 1.
+    let callee_name = ori_ir::Name::from_raw(911);
+    let p_range = plan.var_range(callee_name, v_p);
+    assert_eq!(
+        p_range,
+        ValueRange::Bounded { lo: 100, hi: 100 },
+        "Semantic pin: callee(helper() + 1) → callee's param should be [100, 100], got {p_range:?}"
+    );
+}
