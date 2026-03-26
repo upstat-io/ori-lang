@@ -24,6 +24,15 @@ pub mod conditional;
 pub mod field_summary;
 pub mod transfer;
 
+// Re-export key types for downstream consumers.
+pub use conditional::BranchRefinement;
+pub use field_summary::FieldSummaryTable;
+pub use transfer::{
+    range_abs, range_add, range_bitand, range_bitnot, range_bitor, range_bitxor, range_div,
+    range_floordiv, range_literal, range_mod, range_mul, range_neg, range_shl, range_shr,
+    range_sub, TransferContext,
+};
+
 /// A closed interval [lo, hi] over i64 values.
 ///
 /// Invariant: `lo <= hi` for `Bounded` (empty sets are `Bottom`).
@@ -226,8 +235,8 @@ impl Default for RangeAnalysisConfig {
 /// Check if a type is integer-typed (the only type range analysis tracks).
 ///
 /// Returns `false` for `Idx::ERROR`, newtypes that resolve to non-int,
-/// and all non-int types. Handles newtypes by resolving through `Named`
-/// and `Alias` tags.
+/// and all non-int types. Handles newtypes and applied types by resolving
+/// through `Named`, `Alias`, and `Applied` tags via `pool.resolve_fully()`.
 #[must_use]
 pub fn is_int_typed(ty: Idx, pool: &Pool) -> bool {
     if ty == Idx::ERROR {
@@ -235,10 +244,20 @@ pub fn is_int_typed(ty: Idx, pool: &Pool) -> bool {
     }
     match pool.tag(ty) {
         Tag::Int => true,
-        // Newtypes resolve through Named/Alias to their inner type.
-        Tag::Named | Tag::Alias => {
+        // Newtypes and applied types resolve through to their inner type.
+        // Applied handles instantiated generics (e.g., `UserId` as `Applied("UserId", [])`).
+        Tag::Named | Tag::Alias | Tag::Applied => {
             let resolved = pool.resolve_fully(ty);
-            resolved != ty && is_int_typed(resolved, pool)
+            if resolved == ty {
+                return false;
+            }
+            let result = is_int_typed(resolved, pool);
+            tracing::trace!(
+                target: "ori_repr",
+                ?ty, ?resolved, result, tag = ?pool.tag(ty),
+                "is_int_typed: resolved through indirection"
+            );
+            result
         }
         _ => false,
     }
