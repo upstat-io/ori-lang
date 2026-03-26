@@ -476,3 +476,125 @@ fn config_default_values() {
     assert_eq!(c.max_scc_iterations, 10);
     assert_eq!(c.max_total_scc_iterations, 50);
 }
+
+// ─── FieldSummaryTable ─────────────────────────────────────────
+
+use super::field_summary::FieldSummaryTable;
+use crate::plan::{NarrowingPolicy, ReprPlan};
+use ori_types::Idx;
+
+#[test]
+fn field_summary_single_construction_site() {
+    let mut table = FieldSummaryTable::new();
+    let idx = Idx::INT; // reuse an Idx as a stand-in for a struct type
+    table.observe_construct(
+        idx,
+        &[
+            ValueRange::Bounded { lo: 0, hi: 0 },
+            ValueRange::Bounded { lo: 128, hi: 128 },
+            ValueRange::Bounded { lo: 255, hi: 255 },
+        ],
+    );
+    assert_eq!(
+        table.field_range(idx, 0),
+        ValueRange::Bounded { lo: 0, hi: 0 }
+    );
+    assert_eq!(
+        table.field_range(idx, 1),
+        ValueRange::Bounded { lo: 128, hi: 128 }
+    );
+    assert_eq!(
+        table.field_range(idx, 2),
+        ValueRange::Bounded { lo: 255, hi: 255 }
+    );
+}
+
+/// Semantic pin: two construction sites produce joined ranges.
+/// This is the §03→§04 contract for struct field narrowing.
+#[test]
+fn field_summary_pixel_semantic_pin() {
+    let mut table = FieldSummaryTable::new();
+    let pixel_idx = Idx::INT; // stand-in
+
+    // Site 1: Pixel { r: 0, g: 0, b: 0, a: 0 }
+    table.observe_construct(
+        pixel_idx,
+        &[
+            ValueRange::Bounded { lo: 0, hi: 0 },
+            ValueRange::Bounded { lo: 0, hi: 0 },
+            ValueRange::Bounded { lo: 0, hi: 0 },
+            ValueRange::Bounded { lo: 0, hi: 0 },
+        ],
+    );
+    // Site 2: Pixel { r: 255, g: 255, b: 255, a: 255 }
+    table.observe_construct(
+        pixel_idx,
+        &[
+            ValueRange::Bounded { lo: 255, hi: 255 },
+            ValueRange::Bounded { lo: 255, hi: 255 },
+            ValueRange::Bounded { lo: 255, hi: 255 },
+            ValueRange::Bounded { lo: 255, hi: 255 },
+        ],
+    );
+
+    // All four fields should have range [0, 255]
+    for field in 0..4 {
+        assert_eq!(
+            table.field_range(pixel_idx, field),
+            ValueRange::Bounded { lo: 0, hi: 255 },
+            "field {field} should be [0, 255]"
+        );
+    }
+}
+
+#[test]
+fn field_summary_unknown_field_returns_top() {
+    let table = FieldSummaryTable::new();
+    assert_eq!(table.field_range(Idx::INT, 99), ValueRange::Top);
+}
+
+#[test]
+fn field_summary_empty_args() {
+    let mut table = FieldSummaryTable::new();
+    table.observe_construct(Idx::INT, &[]);
+    // No entries should exist
+    assert_eq!(table.field_range(Idx::INT, 0), ValueRange::Top);
+}
+
+#[test]
+fn field_summary_flush_to_repr_plan() {
+    let mut table = FieldSummaryTable::new();
+    let idx = Idx::INT;
+    table.observe_construct(idx, &[ValueRange::Bounded { lo: 0, hi: 100 }]);
+
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    table.flush_to_repr_plan(&mut plan);
+
+    assert_eq!(
+        plan.field_range(idx, 0),
+        ValueRange::Bounded { lo: 0, hi: 100 }
+    );
+    assert_eq!(plan.field_range(idx, 1), ValueRange::Top); // not observed
+}
+
+#[test]
+fn field_summary_flush_joins_across_functions() {
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    let idx = Idx::INT;
+
+    // Function A sees field 0 as [0, 50]
+    let mut table_a = FieldSummaryTable::new();
+    table_a.observe_construct(idx, &[ValueRange::Bounded { lo: 0, hi: 50 }]);
+    table_a.flush_to_repr_plan(&mut plan);
+
+    // Function B sees field 0 as [100, 200]
+    let mut table_b = FieldSummaryTable::new();
+    table_b.observe_construct(idx, &[ValueRange::Bounded { lo: 100, hi: 200 }]);
+    table_b.flush_to_repr_plan(&mut plan);
+
+    // join: [0, 50] ∪ [100, 200] = [0, 200]
+    assert_eq!(
+        plan.field_range(idx, 0),
+        ValueRange::Bounded { lo: 0, hi: 200 }
+    );
+}
