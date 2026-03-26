@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Value Range Analysis Framework"
-status: not-started
+status: in-progress
 reviewed: true
 third_party_review:
   status: resolved
@@ -16,7 +16,7 @@ depends_on: ["01"]
 sections:
   - id: "03.1"
     title: "Interval Lattice"
-    status: not-started
+    status: in-progress
   - id: "03.2"
     title: "Transfer Functions"
     status: not-started
@@ -82,9 +82,9 @@ sections:
 
 The interval lattice is the core data structure. Each element represents a set of possible integer values.
 
-- [ ] **Remove the placeholder `ValueRange` ZST** from `compiler/ori_repr/src/range/mod.rs` (lines 1-12). The current file defines `pub struct ValueRange;` with `#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]`. Replace it entirely with the enum below. Also update the `//!` module doc to describe the full interval lattice, not "Placeholder only in §01".
-- [ ] **Remove `#[expect(clippy::zero_sized_map_values)]` from `plan.rs`** — two sites: `ReprPlan` struct (line 70-73) and `ReprPlan::new()` (line 105-108). Once `ValueRange` is no longer a ZST, these suppressions become dead. `EscapeInfo` is still a ZST, so change the `reason` text from "EscapeInfo and ValueRange" to "EscapeInfo is placeholder ZST — replaced by §08". The `set_var_ranges()` method (line 142-145) also has its own `#[expect(clippy::zero_sized_map_values)]` — remove it entirely.
-- [ ] Define the `ValueRange` lattice:
+- [x] **Remove the placeholder `ValueRange` ZST** from `compiler/ori_repr/src/range/mod.rs` (lines 1-12). The current file defines `pub struct ValueRange;` with `#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]`. Replace it entirely with the enum below. Also update the `//!` module doc to describe the full interval lattice, not "Placeholder only in §01". (2026-03-25)
+- [x] **Remove `#[expect(clippy::zero_sized_map_values)]` from `plan.rs`** — two sites: `ReprPlan` struct (line 70-73) and `ReprPlan::new()` (line 105-108). Once `ValueRange` is no longer a ZST, these suppressions become dead. `EscapeInfo` is still a ZST, so change the `reason` text from "EscapeInfo and ValueRange" to "EscapeInfo is placeholder ZST — replaced by §08". The `set_var_ranges()` method (line 142-145) also has its own `#[expect(clippy::zero_sized_map_values)]` — remove it entirely. Also fixed `.cloned()` → `.copied()` on `var_range()`. (2026-03-25)
+- [x] Define the `ValueRange` lattice: (2026-03-25)
   ```rust
   /// A closed interval [lo, hi] over i64 values.
   /// Invariant: lo <= hi (empty represented as Bottom).
@@ -108,7 +108,7 @@ The interval lattice is the core data structure. Each element represents a set o
   }
   ```
 
-- [ ] Implement lattice operations:
+- [x] Implement lattice operations: (2026-03-25)
   ```rust
   impl ValueRange {
       /// Lattice join (union of possible values)
@@ -133,7 +133,7 @@ The interval lattice is the core data structure. Each element represents a set o
   ```
   **Note:** `widen` and `narrow` are defined as free functions in §03.3 (`fixpoint.rs`), not as methods on `ValueRange`. The lattice module (`mod.rs`) only defines join/meet/fits_in/min_width/is_constant/overlaps.
 
-- [ ] Implement width-specific range constants:
+- [x] Implement width-specific range constants: (2026-03-25)
   ```rust
   impl IntWidth {
       pub fn signed_range(self) -> ValueRange {
@@ -156,9 +156,9 @@ The interval lattice is the core data structure. Each element represents a set o
   }
   ```
 
-- [ ] **Add `RangeAnalysisConfig` struct** to `mod.rs` (defined in §03.6 but needed by §03.3 fixpoint — define here so §03.3 can reference it). Include `Default` impl with the documented defaults (`max_iterations: 20`, `max_blocks: 500`, `max_scc_iterations: 10`, `max_total_scc_iterations: 50`).
+- [x] **Add `RangeAnalysisConfig` struct** to `mod.rs` (defined in §03.6 but needed by §03.3 fixpoint — define here so §03.3 can reference it). Include `Default` impl with the documented defaults (`max_iterations: 20`, `max_blocks: 500`, `max_scc_iterations: 10`, `max_total_scc_iterations: 50`). (2026-03-25)
 - [ ] **Implement `is_int_typed(ty: Idx, pool: &Pool) -> bool`** helper in `mod.rs` — checks `pool.tag(ty) == Tag::Int`. This is used pervasively by `transfer()`, `update_field_summaries()`, and the fixpoint loop but is never defined in any checklist item. Must also handle edge cases: `Idx::ERROR` returns false, resolved newtypes delegate to inner type.
-- [ ] Comprehensive unit tests for lattice operations in `compiler/ori_repr/src/range/tests.rs` (sibling test file per convention — `mod.rs` → `tests.rs`). **TDD: write these tests BEFORE implementing the lattice operations. Verify they fail (compile error or assertion). Then implement. Tests must pass unchanged.** Tests must cover:
+- [x] Comprehensive unit tests for lattice operations in `compiler/ori_repr/src/range/tests.rs` (2026-03-25). 56 tests covering all lattice operations, boundary values, semantic pin. (sibling test file per convention — `mod.rs` → `tests.rs`). **TDD: write these tests BEFORE implementing the lattice operations. Verify they fail (compile error or assertion). Then implement. Tests must pass unchanged.** Tests must cover:
   - **join**: commutative, associative, idempotent, Bottom identity (`join(x, Bottom) == x`), Top absorbing (`join(x, Top) == Top`), disjoint ranges produce enclosing range, overlapping ranges produce union
   - **meet**: commutative, associative, idempotent, Top identity (`meet(x, Top) == x`), Bottom absorbing (`meet(x, Bottom) == Bottom`), disjoint ranges produce Bottom, overlapping ranges produce intersection
   - **fits_in**: all 4 widths (I8/I16/I32/I64) x representative ranges (exact boundary: `[-128, 127]` fits I8, `[-129, 127]` does not; `[0, 255]` fits I16 signed but not I8 signed), Top returns false for I8/I16/I32 and true for I64, Bottom returns true for all widths
@@ -1105,7 +1105,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [ ] `ReprPlan::join_field_range(type_idx, field, range)` writer method added for field-summary flush
 - [ ] `transfer()` uses `TransferContext` struct (not loose params) — carries `ranges`, `pool`, `var_types`, `field_summaries`
 - [ ] Unknown or unsupported ArcInstr patterns gracefully degrade to `Top` (never panic, never return `Bottom` for reachable code). Explicit `tracing::debug!` when falling back to Top for a pattern that could be tightened.
-- [ ] `compute_postorder()`, `successor_block_ids()`, and `compute_predecessors()` in `ori_arc::graph::mod.rs` changed from `pub(crate)` to `pub` (or `pub` wrappers added)
+- [x] `compute_postorder()`, `successor_block_ids()`, and `compute_predecessors()` in `ori_arc::graph::mod.rs` changed from `pub(crate)` to `pub` (2026-03-25)
 - [ ] **Fill in the `analyze_ranges()` stub** in `compiler/ori_repr/src/lib.rs` (line 176, currently `fn analyze_ranges(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunction]) {}`). The implementation must: (1) create a `RangeAnalysisConfig::default()`, (2) for each `ArcFunction` in `arc_functions`, call `range_fixpoint(func, pool, &config)`, (3) store the `var_ranges` result via `plan.set_var_ranges(func.name, result.var_ranges)`, (4) flush field summaries via `result.field_summaries.flush_to_repr_plan(plan)`, (5) store return ranges for §03.5 interprocedural use. Remove the `_` prefixes on all parameters.
 - [ ] **Add `field_range_summaries` field to `ReprPlan`** in `compiler/ori_repr/src/plan.rs` — add `field_range_summaries: FxHashMap<(Idx, u32), ValueRange>` after `function_var_ranges` (line 95), initialize in `ReprPlan::new()`, and add `field_range()` and `join_field_range()` methods. The `#[expect(clippy::zero_sized_map_values)]` does NOT apply to this field (ValueRange is now an enum, not a ZST).
 - [ ] **Fix `.cloned()` → `.copied()` in `ReprPlan::var_range()`** (`plan.rs` line 159). Once `ValueRange` is `Copy` (the enum derives `Copy`), `.cloned()` triggers `clippy::cloned_instead_of_copied`. Change to `.copied()`.
