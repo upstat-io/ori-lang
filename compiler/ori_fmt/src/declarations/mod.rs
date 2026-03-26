@@ -44,8 +44,8 @@ use crate::comments::CommentIndex;
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::WidthCalculator;
-use ori_ir::ast::items::Module;
-use ori_ir::{CommentList, ExprArena, FileAttr, Spanned, StringLookup};
+use ori_ir::ast::items::{Module, ReprAttrKind};
+use ori_ir::{CommentList, ExprArena, FileAttr, Name, Spanned, StringLookup};
 
 /// Format a complete module to a string with default config.
 pub fn format_module<I: StringLookup>(module: &Module, arena: &ExprArena, interner: &I) -> String {
@@ -202,37 +202,17 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                 self.ctx.emit("#!target(");
                 let mut first = true;
                 for (key, val) in [
-                    ("os", &target.os),
-                    ("arch", &target.arch),
-                    ("family", &target.family),
-                    ("not_os", &target.not_os),
+                    ("os", target.os),
+                    ("arch", target.arch),
+                    ("family", target.family),
+                    ("not_os", target.not_os),
+                    ("not_arch", target.not_arch),
+                    ("not_family", target.not_family),
                 ] {
-                    if let Some(name) = val {
-                        if !first {
-                            self.ctx.emit(", ");
-                        }
-                        self.ctx.emit(key);
-                        self.ctx.emit(": \"");
-                        self.ctx.emit(self.interner.lookup(*name));
-                        self.ctx.emit("\"");
-                        first = false;
-                    }
+                    self.emit_attr_string_param(key, val, &mut first);
                 }
-                if !target.any_os.is_empty() {
-                    if !first {
-                        self.ctx.emit(", ");
-                    }
-                    self.ctx.emit("any_os: [");
-                    for (i, name) in target.any_os.iter().enumerate() {
-                        if i > 0 {
-                            self.ctx.emit(", ");
-                        }
-                        self.ctx.emit("\"");
-                        self.ctx.emit(self.interner.lookup(*name));
-                        self.ctx.emit("\"");
-                    }
-                    self.ctx.emit("]");
-                    first = false;
+                for (key, list) in [("any_os", &target.any_os), ("any_arch", &target.any_arch)] {
+                    self.emit_attr_string_list(key, list, &mut first);
                 }
                 let _ = first;
                 self.ctx.emit(")");
@@ -253,39 +233,139 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
                         first = false;
                     }
                 }
-                for (key, val) in [("feature", &cfg.feature), ("not_feature", &cfg.not_feature)] {
-                    if let Some(name) = val {
-                        if !first {
-                            self.ctx.emit(", ");
-                        }
-                        self.ctx.emit(key);
-                        self.ctx.emit(": \"");
-                        self.ctx.emit(self.interner.lookup(*name));
-                        self.ctx.emit("\"");
-                        first = false;
-                    }
+                for (key, val) in [("feature", cfg.feature), ("not_feature", cfg.not_feature)] {
+                    self.emit_attr_string_param(key, val, &mut first);
                 }
-                if !cfg.any_feature.is_empty() {
-                    if !first {
-                        self.ctx.emit(", ");
-                    }
-                    self.ctx.emit("any_feature: [");
-                    for (i, name) in cfg.any_feature.iter().enumerate() {
-                        if i > 0 {
-                            self.ctx.emit(", ");
-                        }
-                        self.ctx.emit("\"");
-                        self.ctx.emit(self.interner.lookup(*name));
-                        self.ctx.emit("\"");
-                    }
-                    self.ctx.emit("]");
-                    first = false;
-                }
+                self.emit_attr_string_list("any_feature", &cfg.any_feature, &mut first);
                 let _ = first;
                 self.ctx.emit(")");
             }
         }
         self.ctx.emit_newline();
+    }
+
+    /// Emit an item-level `#target(...)` attribute if present.
+    ///
+    /// Spec §25.4: Conditional compilation on functions, types, trait impls, constants.
+    pub(super) fn emit_item_target_attr(&mut self, target: &ori_ir::TargetAttr) {
+        self.ctx.emit("#target(");
+        let mut first = true;
+        for (key, val) in [
+            ("os", target.os),
+            ("arch", target.arch),
+            ("family", target.family),
+            ("not_os", target.not_os),
+            ("not_arch", target.not_arch),
+            ("not_family", target.not_family),
+        ] {
+            self.emit_attr_string_param(key, val, &mut first);
+        }
+        for (key, list) in [("any_os", &target.any_os), ("any_arch", &target.any_arch)] {
+            self.emit_attr_string_list(key, list, &mut first);
+        }
+        let _ = first;
+        self.ctx.emit(")");
+        self.ctx.emit_newline_indent();
+    }
+
+    /// Emit an item-level `#cfg(...)` attribute if present.
+    ///
+    /// Spec §25.4: Conditional compilation on functions, types, trait impls, constants.
+    pub(super) fn emit_item_cfg_attr(&mut self, cfg: &ori_ir::CfgAttr) {
+        self.ctx.emit("#cfg(");
+        let mut first = true;
+        for (flag, set) in [
+            ("debug", &cfg.debug),
+            ("release", &cfg.release),
+            ("not_debug", &cfg.not_debug),
+        ] {
+            if *set {
+                if !first {
+                    self.ctx.emit(", ");
+                }
+                self.ctx.emit(flag);
+                first = false;
+            }
+        }
+        for (key, val) in [("feature", cfg.feature), ("not_feature", cfg.not_feature)] {
+            self.emit_attr_string_param(key, val, &mut first);
+        }
+        self.emit_attr_string_list("any_feature", &cfg.any_feature, &mut first);
+        let _ = first;
+        self.ctx.emit(")");
+        self.ctx.emit_newline_indent();
+    }
+
+    /// Emit a `key: "value"` attribute parameter if the value is present.
+    fn emit_attr_string_param(&mut self, key: &str, val: Option<Name>, first: &mut bool) {
+        if let Some(name) = val {
+            if !*first {
+                self.ctx.emit(", ");
+            }
+            self.ctx.emit(key);
+            self.ctx.emit(": \"");
+            self.ctx.emit(self.interner.lookup(name));
+            self.ctx.emit("\"");
+            *first = false;
+        }
+    }
+
+    /// Emit a `key: ["v1", "v2"]` attribute list parameter if non-empty.
+    fn emit_attr_string_list(&mut self, key: &str, list: &[Name], first: &mut bool) {
+        if !list.is_empty() {
+            if !*first {
+                self.ctx.emit(", ");
+            }
+            self.ctx.emit(key);
+            self.ctx.emit(": [");
+            for (i, name) in list.iter().enumerate() {
+                if i > 0 {
+                    self.ctx.emit(", ");
+                }
+                self.ctx.emit("\"");
+                self.ctx.emit(self.interner.lookup(*name));
+                self.ctx.emit("\"");
+            }
+            self.ctx.emit("]");
+            *first = false;
+        }
+    }
+
+    /// Emit a `#repr(...)` attribute on its own line.
+    ///
+    /// Spec §26: `#repr("c")`, `#repr("packed")`, `#repr("transparent")`,
+    /// `#repr("aligned", N)`. `CAligned(N)` is emitted as two stacked attrs
+    /// since it's produced by type-checking merge of `#repr("c")` + `#repr("aligned", N)`.
+    pub(super) fn emit_repr_attr(&mut self, repr: &ReprAttrKind) {
+        match repr {
+            ReprAttrKind::C => {
+                self.ctx.emit("#repr(\"c\")");
+                self.ctx.emit_newline_indent();
+            }
+            ReprAttrKind::Packed => {
+                self.ctx.emit("#repr(\"packed\")");
+                self.ctx.emit_newline_indent();
+            }
+            ReprAttrKind::Transparent => {
+                self.ctx.emit("#repr(\"transparent\")");
+                self.ctx.emit_newline_indent();
+            }
+            ReprAttrKind::Aligned(n) => {
+                self.ctx.emit("#repr(\"aligned\", ");
+                self.ctx.emit(&n.to_string());
+                self.ctx.emit(")");
+                self.ctx.emit_newline_indent();
+            }
+            ReprAttrKind::CAligned(n) => {
+                // CAligned is the merged form — emit as two stacked attrs
+                self.ctx.emit("#repr(\"c\")");
+                self.ctx.emit_newline_indent();
+                self.ctx.emit("#repr(\"aligned\", ");
+                self.ctx.emit(&n.to_string());
+                self.ctx.emit(")");
+                self.ctx.emit_newline_indent();
+            }
+        }
     }
 
     /// Format a complete module.

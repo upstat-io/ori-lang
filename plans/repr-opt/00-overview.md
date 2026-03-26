@@ -114,9 +114,10 @@ Information flow — each stage enriches the ReprPlan:
         → §02 Triviality (marks trivial types — recursive Pool walk)
 
   Phase B — Function-level analysis (after ARC lowering, on ArcFunction):
-    ArcFunction → §03 Range analysis (adds interval bounds per ArcVarId)
-      → §04 Integer narrowing (sets MachineInt variants for struct fields/locals)
+    ArcFunction → §03 Range analysis (adds interval bounds per ArcVarId + field summaries per struct/tuple type)
+      → §04 Integer narrowing (sets MachineInt variants for struct fields/locals — reads field summaries)
         → §05 Float narrowing (sets MachineFloat variants)
+
 
   Phase C — Layout decisions (uses narrowed types from Phase B):
     ReprPlan (with narrowed types) →
@@ -158,9 +159,9 @@ Information flow — each stage enriches the ReprPlan:
   §12 Verification ◄─────────────────── (ALL)             │   │
 ```
 
-- **§01** is the foundation — everything depends on it; includes `--no-repr-opt` flag and `ori_repr` workspace registration. §01 also establishes the complete query surface (`int_width`, `float_width`, `is_trivial`, `escapes(ArcVarId)`, `rc_strategy`), `NarrowingPolicy` enum, `FieldRepr.name` field, `range/mod.rs` and `escape/mod.rs` placeholder modules, and `compute_repr_plan(pool, arc_functions, policy)` signature with empty pass stubs — all needed so §02–§11 can be developed without changing §01's API.
+- **§01** is the foundation — everything depends on it; includes `--no-repr-opt` flag and `ori_repr` workspace registration. §01 establishes the complete query surface (`int_width`, `float_width`, `is_trivial`, `escapes(ArcVarId)`, `rc_strategy`, `var_range`, `repr_attr`, `narrowing_policy`) and writer surface (`set_repr`, `set_var_ranges`, `set_escape_info`, `set_rc_strategy`, `set_repr_attr`), `NarrowingPolicy` and `RcStrategy` enums, `FieldRepr.name` field, `range/mod.rs` and `escape/mod.rs` placeholder modules, and `compute_repr_plan(pool, arc_functions, policy, repr_attrs)` signature with 10 empty pass stubs — all needed so §02–§11 can be developed without changing §01's API.
 - **§02, §03** are independent of each other and can be developed in parallel
-- **§03** subsections have an internal sequencing requirement: §03.1→§03.2→§03.4→§03.3→§03.5 (see §03.3 for why §03.4 must precede §03.3)
+- **§03** subsections have an internal sequencing requirement: §03.1→§03.2→§03.2b→§03.4→§03.3→§03.5 (see §03.3 for why §03.4 must precede §03.3; §03.2b provides field-summary types consumed by §03.3's fixpoint loop)
 - **§04, §05** both depend on §03 (range analysis) and can be developed in parallel
 - **§06** depends on §04/§05 (needs to know narrowed field types for layout)
 - **§07** depends on §04 and §05 (integer narrowing affects discriminant sizing; float narrowing may affect niche patterns in f32-typed fields)
@@ -175,14 +176,18 @@ Information flow — each stage enriches the ReprPlan:
 - **§08 + §09**: Escape analysis determines which allocations are stack-local (no RC header) vs heap (need RC header). If escape analysis lands without header compression, heap allocations still use i64 headers unnecessarily.
 - **§02 + ori_arc pipeline**: Transitive triviality must agree with `ori_arc::ArcClassifier` (defined in `ori_arc/src/classify/mod.rs`, re-exported at crate root via `pub use classify::ArcClassifier`). The ARC pipeline uses the `ArcClassification` trait (`ori_arc/src/lib.rs`) as the abstraction; `compute_drop_info()` and `run_arc_pipeline()` accept `&dyn ArcClassification`. If triviality and ArcClassifier disagree, codegen either emits unnecessary RC ops or skips needed ones. Both must use the same classification — `ori_types::triviality::classify_triviality()` is the single source of truth.
 - **§01.7 + §06**: `#repr` attributes (c, packed, transparent, aligned) are stored in ReprPlan by §01 but consumed by §06's layout algorithm. The layout pass must check `repr_attrs` before reordering fields. If §01 stores attrs but §06 ignores them, C-ABI structs get silently reordered → FFI bugs.
-- **§02 + ori_eval**: The evaluator (`ori_eval`) does NOT use triviality classification and is NOT affected by §02 or any other section in this plan. `ori_eval` uses Rust-native reference counting (no `ori_rc_*` calls). The current implementation pipeline is `ori_types → ori_arc → ori_llvm/ori_rt`; `ori_repr` is a planned new layer introduced by §01, not an existing crate today.
-- **§02 standalone viability**: The core algorithm (`classify_triviality()` in `ori_types`) and the `ArcClassifier` delegation can be implemented and tested before §01 (ReprPlan) is complete. Only the `TypeInfoStore::is_trivial()` delegation to `ReprPlan` blocks on §01. This means §02 can begin implementation in parallel with §01.
-- **§03 + §01 (function_var_ranges field)**: §03's range analysis outputs `FxHashMap<ArcVarId, ValueRange>` per function. This must be stored in `ReprPlan::function_var_ranges` via `ReprPlan::set_var_ranges()`. Both the field and the method are defined in §01.2's `ReprPlan` struct. If §01.2 lands without this field, §03 has nowhere to write its results — §04 (which reads the results) cannot proceed.
+- **§02 + ori_eval**: The evaluator (`ori_eval`) does NOT use triviality classification and is NOT affected by §02 or any other section in this plan. `ori_eval` uses Rust-native reference counting (no `ori_rc_*` calls). The implementation pipeline is `ori_types → ori_arc → ori_repr → ori_llvm/ori_rt`; `ori_repr` was introduced by §01 and is now a live workspace crate.
+- **§02 standalone viability**: The core algorithm (`classify_triviality()` in `ori_types`) and the `ArcClassifier` delegation can be implemented and tested independently. `ReprPlan::is_trivial()` (§01.4) is live and delegates to `is_trivial_repr()`. The only remaining §01 dependency for §02 is §01.8 Phase B (TypeInfoStore→ReprPlan triviality delegation), which §02 itself unblocks. §02 can begin implementation now.
+- **§02 + ori_repr (analyze_triviality)**: The `analyze_triviality()` stub in `ori_repr/src/lib.rs:118` is a §02 deliverable. However, it is a **validation pass** rather than a primary computation: `populate_canonical()` already embeds triviality into `MachineRepr::Struct/Tuple { trivial }` and `MachineRepr::Enum` (via `is_trivial_repr()` variant field walk), so `ReprPlan::is_trivial()` already returns the correct answer for all canonicalized types. The `analyze_triviality()` pass asserts consistency between `classify_triviality()` (Pool-level) and `is_trivial_repr()` (MachineRepr-level). Any mismatch is a bug.
+- **§02 completes §01.8 Phase B**: §02 is explicitly responsible for completing §01.8 Phase B (TypeInfoStore::is_trivial() → ReprPlan delegation, removal of classify_trivial() and cache fields from TypeInfoStore). This is not optional — it is a concrete deliverable.
+- **§03 + §01 (function_var_ranges + field_range_summaries)**: §03's range analysis outputs per-variable ranges AND per-field summaries. Per-variable: stored in `ReprPlan::function_var_ranges` via `set_var_ranges()` (live in `plan.rs:146`), queried via `var_range(func, var)` (live in `plan.rs:155`). Per-field: stored in `ReprPlan::field_range_summaries` via `join_field_range()` (new — §03.2b deliverable), queried via `field_range(type_idx, field)` (new). The field-summary is the critical §03→§04 contract for struct field narrowing — without it, §04's `Pixel { r, g, b, a: int }` target is unachievable. §03 must also make three `ori_arc::graph` functions `pub` (currently `pub(crate)`): `compute_predecessors`, `successor_block_ids`, `compute_postorder` — see [NOTE] in Codebase Findings above.
 - **§04 + §07**: Integer narrowing (§04) reduces field sizes, which changes what invalid bit patterns are available as niches. §07's `find_niches()` must query `ReprPlan` for the narrowed `MachineRepr` of each field, not the canonical one. If §07 runs niche analysis on canonical (pre-narrowing) types, it will miss niches created by narrowing (e.g., a field narrowed to `i8` with range `[0, 2]` has 253 niche values that the canonical `i64` version does not).
 - **§05 + §07**: Float narrowing (§05) may produce `f32`-typed fields. `f32` NaN bit patterns (quiet NaN: `0x7FC00000` through `0x7FFFFFFF` and `0xFFC00000` through `0xFFFFFFFF`) are technically invalid "values" but IEEE 754 semantics make them complex to use as niches. §07 must conservatively skip NaN-based niches for `f32` fields unless it has verified the platform's NaN handling (leave as `vec![]` for `MachineRepr::Float { width: F32 }`).
-- **§05 + §01 (float_width query)**: §05's float narrowing writes `Float { width: F32 }` into `ReprPlan` and needs to query `ReprPlan::float_width(idx)` to read it back. `float_width()` is analogous to `int_width()` for §04. §01.4 must define `float_width()` returning `FloatWidth` (default `F64`) — without it, §05 implementers must call `get_repr()` and pattern-match, which is fragile and error-prone.
-- **§09 + §01 (set_rc_strategy writer)**: §09 computes `SharingBound` per allocation and needs to store the resulting `RcStrategy` in `ReprPlan`. §01.4 must define `set_rc_strategy(idx, strategy, source)` as a `pub` writer method. Without it, §09 has no API surface to commit its decisions — and §10's `rc_strategy()` query would always return the default `Atomic { I64 }`.
-- **§08 + §01 (set_escape_info writer)**: §08 computes `EscapeInfo` per function and needs to store it in `ReprPlan::escape_info`. §01.2 has the field, but without `set_escape_info(func, info)` as a `pub` writer, §08 has no API surface to write its results. §09 reads `escape_info` via `escapes(func, var)` — if §08 cannot write, §09 always sees `NoEscape = false` and cannot compress headers.
+- **§05 + §01 (float_width query)**: §05's float narrowing writes `Float { width: F32 }` into `ReprPlan` and reads it back via `ReprPlan::float_width(idx)` (live in `plan/query.rs:81`, default `F64`). Analogous to `int_width()` for §04.
+- **§09 + §01 (set_rc_strategy writer)**: §09 computes `SharingBound` per allocation and stores the resulting `RcStrategy` in `ReprPlan` via `set_rc_strategy(idx, strategy, source)` (live in `plan.rs:183`). Stored in a **separate** `rc_strategies` map (not merged into `MachineRepr` — TPR-01-022). §10's `rc_strategy()` query reads from this map; default is `Atomic { I64 }`.
+- **§08 + §01 (set_escape_info writer + escapes query body)**: §08 computes `EscapeInfo` per function and needs to store it in `ReprPlan::escape_info`. §01.2 has the field, and `set_escape_info(func, info)` is a `pub` writer. However, §08 must ALSO update the `escapes()` query body in `plan/query.rs` — it currently hardcodes `true` (safe default: "everything escapes") and does not consult `escape_info`. §08 must replace the hardcoded `true` with an actual lookup into `self.escape_info` for the given function and variable. Without both the writer AND the query body update, §09 always sees `escapes = true` and cannot compress headers.
+- **§10 + §01 (thread-locality via RcStrategy)**: §10's thread-locality analysis result is expressed through `RcStrategy::NonAtomic` (vs `Atomic`). There is no separate `ThreadLocality` storage field — the RC strategy IS the thread-locality decision. §10 writes via `set_rc_strategy(idx, NonAtomic { width }, ThreadLocal)` and §10/codegen reads via `rc_strategy(idx)`. This is architecturally correct: thread-locality and RC width are a single decision.
+- **§11 + §01 (collection specialization via decisions map)**: §11's collection specialization (SSO audit, SVO, packed arrays, element narrowing) writes its decisions via `set_repr(idx, decision)` with `DecisionSource::CollectionSpec`. There is no separate collection-specific storage field — narrowed collections are expressed as modified `MachineRepr::FatPointer(FatRepr::Collection { element_repr })` entries in the main decisions map.
 - **§01 + §12 (--no-repr-opt)**: The `--no-repr-opt` flag is defined in §01.3 (pipeline integration). §12.2 (dual-execution verification) depends on it to generate an unoptimized baseline for comparison. §01.3 must land before §12.2 can run comparison tests.
 - **§10 + §12 (helgrind)**: §10.4 adds `--helgrind` passthrough to `diagnostics/valgrind-aot.sh`. §12.3 uses this flag for threading stress tests. §10 must land before §12.3 can complete the threading verification checklist.
 - **§09 + §12 (memory claims)**: §09 must not claim per-object memory reduction unless it first chooses a header layout that is actually smaller than the current 32-byte V5 header. If §09 keeps a fixed 32-byte footprint, §12 benchmarks it as a throughput/verification optimization only and all memory-saving claims stay disabled.
@@ -244,9 +249,9 @@ The following issues were found during the pre-implementation review. Each secti
 
 ### [DRIFT] `compiler/ori_arc/src/classify/mod.rs` vs `compiler/ori_llvm/src/codegen/type_info/store.rs` — Iterator triviality disagreement
 
-`ArcClassifier::classify_by_tag()` (line 169) returns `ArcClass::Scalar` for `Tag::Iterator | Tag::DoubleEndedIterator`. `TypeInfoStore::classify_trivial()` (line 205) returns `false` for `TypeInfo::Iterator { .. }`. These are live disagreements that cause codegen to emit unnecessary RC ops for iterator-typed values.
+`ArcClassifier::classify_by_tag()` (line ~152) returns `ArcClass::Scalar` for `Tag::Iterator | Tag::DoubleEndedIterator`. `TypeInfoStore::classify_trivial()` returns `false` for `TypeInfo::Iterator { .. }`. These are live disagreements that cause codegen to emit unnecessary RC ops for iterator-typed values.
 
-- [ ] **[DRIFT]** Fixed by §02.1 when `classify_triviality()` becomes the single source of truth. Until §02 lands, no separate fix — just note the drift exists and that §02 resolves it.
+- [x] **[DRIFT]** Fixed by §02.1 — `classify_triviality()` is now the single source of truth. `ArcClassifier` delegates to it, and `TypeInfoStore` pre-computes from `ReprPlan` (which embeds `UnmanagedPtr` for iterators, trivial). Completed 2026-03-25.
 
 ### [NOTE] `compiler/ori_arc/src/pipeline/aims_pipeline.rs:43` — `AimsPipelineConfig` is `pub(crate)`
 
@@ -266,24 +271,27 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 | `ori_llvm` (type_info) | ~1,160 | ~1,360 | ~2,520 |
 | `ori_llvm` (arc_emitter) | ~12,070 | ~1,890 | ~13,960 |
 | `ori_rt` | ~9,620 | ~9,710 | ~19,330 |
-| **Total existing** | **~40,550** | **~34,060** | **~74,610** |
+| `ori_repr` (§01 — live) | 1,674 | 2,696 | 4,370 |
+| **Total existing** | **~42,224** | **~36,756** | **~78,980** |
 
 ## Estimated Effort
 
 | Section | Est. Lines | Complexity | Depends On |
 |---------|-----------|------------|------------|
-| 01 ReprPlan IR | ~1,130 (6 files, all <500 lines) | Medium-High | — |
-| 02 Transitive Triviality | ~500 | Medium | §01 |
+| 01 ReprPlan IR | 1,674 actual (13 files, all <500L) + 2,696 tests | Medium-High | — |
+| 02 Transitive Triviality | ~550 | Medium | §01 |
 |   ↳ 02.1 Unify triviality classification | ~100 | Low | §01 |
 |   ↳ 02.2 Transitive walk with cycle detection | ~150 | Medium | §01 |
+|   ↳ 02.2b analyze_triviality() stub + §01.8 Phase B | ~50 | Low | §01 |
 |   ↳ 02.3 ARC elision in ori_arc pipeline | ~100 | Medium | §01 |
 |   ↳ 02.4 Drop function elision | ~50 | Low | §01 |
 |   ↳ 02.5 Newtype & FFI types | ~30 | Low | §01 |
 |   ↳ 02.6 Generic type interaction | ~20 | Low | §01 |
 |   ↳ 02.7 Completion checklist & tests | ~50 | Low | §01 |
-| 03 Range Analysis | ~1,400 (5 files in `range/` submodule) | **High** | §01 |
+| 03 Range Analysis | ~1,550 (6 files in `range/` submodule) | **High** | §01 |
 |   ↳ 03.1 Interval lattice | ~250 | Medium | §01 |
 |   ↳ 03.2 Transfer functions | ~450 | **High** — mul/div corner cases | §01 |
+|   ↳ 03.2b Field-summary infrastructure | ~150 | Medium — §04 handoff contract | §01 |
 |   ↳ 03.3 Widening/narrowing + fixpoint | ~350 | **High** — block params, terminators, termination | §01 |
 |   ↳ 03.4 Conditional refinement | ~150 | Medium — 6 comparison operators | §01 |
 |   ↳ 03.5 Interprocedural (implement after 03.1-03.4) | ~150 | **High** — SCC fixpoint | §01 |
@@ -311,15 +319,15 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |   ↳ 11.2 Small vector optimization | ~300 | High | §04 |
 |   ↳ 11.3 Packed bool arrays | ~300 | Medium | — |
 | 12 Verification | ~800 | Medium | ALL |
-| **Total new** | **~10,330** | | |
+| **Total new** | **~11,074** | | |
 | **Total deleted** | **~200** | | |
 
 ## Quick Reference
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Representation IR & Decision Framework | `section-01-repr-ir.md` | Not Started |
-| 02 | Transitive Triviality & ARC Elision | `section-02-transitive-triviality.md` | Not Started |
+| 01 | Representation IR & Decision Framework | `section-01-repr-ir.md` | In Progress (99%) |
+| 02 | Transitive Triviality & ARC Elision | `section-02-transitive-triviality.md` | Complete |
 | 03 | Value Range Analysis Framework | `section-03-range-analysis.md` | Not Started |
 | 04 | Integer Narrowing Pipeline | `section-04-integer-narrowing.md` | Not Started |
 | 05 | Float Narrowing Pipeline | `section-05-float-narrowing.md` | Not Started |

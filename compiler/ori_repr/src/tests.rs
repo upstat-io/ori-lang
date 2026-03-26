@@ -456,7 +456,7 @@ fn canonical_range() {
 fn canonical_iterator() {
     let mut pool = Pool::new();
     let iter_idx = pool.iterator(Idx::INT);
-    assert_eq!(canonical(&pool, iter_idx), MachineRepr::OpaquePtr);
+    assert_eq!(canonical(&pool, iter_idx), MachineRepr::UnmanagedPtr);
 }
 
 /// Test canonical mapping for Channel — opaque pointer.
@@ -1593,13 +1593,13 @@ fn rc_strategy_default_for_canonical_opaque_ptr() {
     let iter_idx = pool.iterator(Idx::INT);
 
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
-    // Simulate populate_canonical() storing an OpaquePtr for an iterator type.
+    // Simulate populate_canonical() storing an UnmanagedPtr for an iterator type.
     plan.set_repr(
         iter_idx,
         ReprDecision {
             source: DecisionSource::Canonical,
             type_idx: iter_idx,
-            repr: MachineRepr::OpaquePtr,
+            repr: MachineRepr::UnmanagedPtr,
             reason: DecisionReason::Canonical,
         },
     );
@@ -1721,10 +1721,10 @@ fn compute_repr_plan_populates_primitives() {
         plan.get_repr(Idx::ORDERING).is_some(),
         "Ordering must be populated"
     );
-    // Error type should NOT be populated.
+    // Error type IS populated as Unit (TPR-02-005: trivial sentinel).
     assert!(
-        plan.get_repr(Idx::ERROR).is_none(),
-        "Error must not be populated"
+        plan.get_repr(Idx::ERROR).is_some(),
+        "Error must be populated as Unit (TPR-02-005)"
     );
 }
 
@@ -1778,12 +1778,10 @@ fn compute_repr_plan_zero_behavioral_change_with_disabled() {
     let pool = ori_types::Pool::new();
     let plan_aggressive = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
     let plan_disabled = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
-    // Both should produce the same canonical repr for every primitive.
+    // Both should produce the same canonical repr for every primitive
+    // (including ERROR, which is canonicalized as Unit — TPR-02-005).
     for raw in 0..Idx::PRIMITIVE_COUNT {
         let idx = Idx::from_raw(raw);
-        if idx == Idx::ERROR {
-            continue;
-        }
         assert_eq!(
             plan_aggressive.get_repr(idx),
             plan_disabled.get_repr(idx),
@@ -2214,13 +2212,13 @@ fn storage_equivalence_containers() {
     let iter_idx = pool.iterator(Idx::INT);
     assert_eq!(
         canonical(&pool, iter_idx),
-        MachineRepr::OpaquePtr,
+        MachineRepr::UnmanagedPtr,
         "Iterator canonical"
     );
     let deiter_idx = pool.double_ended_iterator(Idx::INT);
     assert_eq!(
         canonical(&pool, deiter_idx),
-        MachineRepr::OpaquePtr,
+        MachineRepr::UnmanagedPtr,
         "DoubleEndedIterator"
     );
 
@@ -2541,19 +2539,19 @@ fn storage_type_equivalence_full_29_type_matrix() {
         MachineRepr::Range,
         "[17/29] Range → {{i64, i64, i64, i64}}"
     );
-    // TypeInfo::Iterator → ptr
+    // TypeInfo::Iterator → unmanaged ptr (Box-allocated, no RC header)
     let iter_idx = pool.iterator(Idx::INT);
     assert_eq!(
         canonical(&pool, iter_idx),
-        MachineRepr::OpaquePtr,
-        "[18/29] Iterator → ptr"
+        MachineRepr::UnmanagedPtr,
+        "[18/29] Iterator → unmanaged ptr"
     );
-    // DoubleEndedIterator → ptr (same as Iterator)
+    // DoubleEndedIterator → unmanaged ptr (same as Iterator)
     let deiter_idx = pool.double_ended_iterator(Idx::INT);
     assert_eq!(
         canonical(&pool, deiter_idx),
-        MachineRepr::OpaquePtr,
-        "[19/29] DoubleEndedIterator → ptr"
+        MachineRepr::UnmanagedPtr,
+        "[19/29] DoubleEndedIterator → unmanaged ptr"
     );
 
     // ── Two-child types (3) ──
@@ -2692,5 +2690,118 @@ fn storage_type_equivalence_full_29_type_matrix() {
     assert!(
         canonical_cached(&pool, self_idx, &mut cache).is_none(),
         "SelfType → None"
+    );
+}
+
+// §02.2b: analyze_triviality() validation pass produces zero mismatches
+
+#[test]
+fn analyze_triviality_validation_zero_mismatches() {
+    use ori_types::{EnumVariant, Idx, Pool};
+
+    let mut pool = Pool::new();
+
+    // Build diverse types: trivial + non-trivial + compound
+    let opt_int = pool.option(Idx::INT);
+    let tuple_trivial = pool.tuple(&[Idx::INT, Idx::FLOAT]);
+    let sn = Name::from_raw(8000);
+    let f1 = Name::from_raw(8001);
+    let f2 = Name::from_raw(8002);
+    let struct_trivial = pool.struct_type(sn, &[(f1, Idx::INT), (f2, Idx::FLOAT)]);
+    let result_nontrivial = pool.result(Idx::INT, Idx::STR);
+    let enum_trivial = pool.enum_type(
+        Name::from_raw(8010),
+        &[
+            EnumVariant {
+                name: Name::from_raw(8011),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(8012),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+
+    // Iterator and DoubleEndedIterator: Box-allocated, no RC header → trivial.
+    // These are the types that previously triggered a known mismatch when
+    // mapped to OpaquePtr (non-trivial). Now mapped to UnmanagedPtr (trivial).
+    let iter_int = pool.iterator(Idx::INT);
+    let deiter_int = pool.double_ended_iterator(Idx::INT);
+
+    // compute_repr_plan canonicalizes all reachable types and runs
+    // analyze_triviality() internally. The debug_assert! in the pass
+    // fires on any mismatch between classify_triviality() and is_trivial_repr().
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+
+    // Verify the plan's is_trivial() queries match expectations.
+    assert!(plan.is_trivial(opt_int), "Option<int> should be trivial");
+    assert!(
+        plan.is_trivial(tuple_trivial),
+        "(int, float) should be trivial"
+    );
+    assert!(
+        plan.is_trivial(struct_trivial),
+        "struct {{int, float}} should be trivial"
+    );
+    assert!(
+        !plan.is_trivial(result_nontrivial),
+        "Result<int, str> should be non-trivial"
+    );
+    assert!(
+        plan.is_trivial(iter_int),
+        "Iterator<int> should be trivial (UnmanagedPtr)"
+    );
+    assert!(
+        plan.is_trivial(deiter_int),
+        "DoubleEndedIterator<int> should be trivial (UnmanagedPtr)"
+    );
+    assert!(
+        plan.is_trivial(enum_trivial),
+        "enum {{unit, int}} should be trivial"
+    );
+}
+
+// §02 TPR-02-005: Idx::ERROR must be trivial in ReprPlan (parity with classify_triviality)
+
+#[test]
+fn repr_plan_error_type_is_trivial() {
+    // TPR-02-005 semantic pin: ReprPlan::is_trivial(Idx::ERROR) must return true,
+    // matching classify_triviality(Idx::ERROR) which returns Triviality::Trivial.
+    // ERROR is a sentinel type that should never trigger RC operations.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    assert!(
+        plan.is_trivial(Idx::ERROR),
+        "Idx::ERROR must be trivial — matches classify_triviality() and ArcClassifier"
+    );
+}
+
+#[test]
+fn repr_plan_error_type_has_canonical_repr() {
+    // TPR-02-005: ERROR must have a canonical repr so is_trivial() doesn't
+    // fall through to the None->false default.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    assert!(
+        plan.get_repr(Idx::ERROR).is_some(),
+        "Idx::ERROR must have a canonical representation"
+    );
+}
+
+#[test]
+fn repr_plan_error_triviality_matches_classify_triviality() {
+    // TPR-02-005 parity test: ReprPlan and classify_triviality() must agree
+    // for the ERROR sentinel.
+    use ori_types::triviality::{classify_triviality, Triviality};
+
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+
+    let plan_trivial = plan.is_trivial(Idx::ERROR);
+    let classify_trivial = classify_triviality(Idx::ERROR, &pool) == Triviality::Trivial;
+    assert_eq!(
+        plan_trivial, classify_trivial,
+        "ReprPlan::is_trivial(ERROR) = {plan_trivial}, classify_triviality(ERROR) = {classify_trivial} — must agree"
     );
 }

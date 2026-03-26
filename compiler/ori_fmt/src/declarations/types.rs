@@ -11,6 +11,19 @@ use super::ModuleFormatter;
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a type declaration (struct, sum type, or newtype).
     pub fn format_type_decl(&mut self, type_decl: &TypeDecl) {
+        // Item-level conditional attributes (Spec §25.4) — before #repr and #derive
+        if let Some(ref target) = type_decl.target_attr {
+            self.emit_item_target_attr(target);
+        }
+        if let Some(ref cfg) = type_decl.cfg_attr {
+            self.emit_item_cfg_attr(cfg);
+        }
+
+        // Repr attributes (Spec §26 — between #target/#cfg and #derive in canonical order)
+        for repr in &type_decl.repr_attrs {
+            self.emit_repr_attr(repr);
+        }
+
         // Derives
         if !type_decl.derives.is_empty() {
             self.ctx.emit("#derive(");

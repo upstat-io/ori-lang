@@ -499,3 +499,112 @@ fn export_empty_cache_returns_empty_map() {
     let exported = cls.export_cache();
     assert!(exported.is_empty());
 }
+
+// §02.1 consistency: ArcClassifier agrees with classify_triviality() for all types.
+// This semantic pin ensures the delegation does not diverge.
+
+#[test]
+fn arc_classifier_agrees_with_classify_triviality_for_diverse_pool() {
+    use ori_ir::Name;
+    use ori_types::triviality::{classify_triviality, Triviality};
+
+    let mut pool = Pool::new();
+
+    // Build a diverse pool: primitives, containers, compounds, newtypes, variables
+    let list_int = pool.list(Idx::INT);
+    let opt_int = pool.option(Idx::INT);
+    let opt_str = pool.option(Idx::STR);
+    let set_int = pool.set(Idx::INT);
+    let map_str_int = pool.map(Idx::STR, Idx::INT);
+    let chan = pool.channel(Idx::INT);
+    let range = pool.range(Idx::INT);
+    let iter = pool.iterator(Idx::INT);
+    let diter = pool.double_ended_iterator(Idx::INT);
+    let result_ok = pool.result(Idx::INT, Idx::ORDERING);
+    let result_err = pool.result(Idx::INT, Idx::STR);
+    let tuple_trivial = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::BOOL]);
+    let tuple_nontrivial = pool.pair(Idx::INT, Idx::STR);
+    let func = pool.function1(Idx::INT, Idx::INT);
+    let n = Name::from_raw(9000);
+    let f1 = Name::from_raw(9001);
+    let f2 = Name::from_raw(9002);
+    let struct_trivial = pool.struct_type(n, &[(f1, Idx::INT), (f2, Idx::FLOAT)]);
+    let struct_nontrivial =
+        pool.struct_type(Name::from_raw(9010), &[(f1, Idx::STR), (f2, Idx::INT)]);
+    let enum_trivial = pool.enum_type(
+        Name::from_raw(9020),
+        &[
+            EnumVariant {
+                name: Name::from_raw(9021),
+                field_types: vec![],
+            },
+            EnumVariant {
+                name: Name::from_raw(9022),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    let newtype_int = pool.named(Name::from_raw(9030));
+    pool.set_resolution(newtype_int, Idx::INT);
+    let var = pool.fresh_var();
+    let opt_opt_int = pool.option(opt_int);
+
+    let types = [
+        Idx::INT,
+        Idx::FLOAT,
+        Idx::BOOL,
+        Idx::CHAR,
+        Idx::BYTE,
+        Idx::UNIT,
+        Idx::NEVER,
+        Idx::ERROR,
+        Idx::DURATION,
+        Idx::SIZE,
+        Idx::ORDERING,
+        Idx::STR,
+        list_int,
+        opt_int,
+        opt_str,
+        set_int,
+        map_str_int,
+        chan,
+        range,
+        iter,
+        diter,
+        result_ok,
+        result_err,
+        tuple_trivial,
+        tuple_nontrivial,
+        func,
+        struct_trivial,
+        struct_nontrivial,
+        enum_trivial,
+        newtype_int,
+        var,
+        opt_opt_int,
+    ];
+
+    let cls = ArcClassifier::new(&pool);
+    let mut mismatches = Vec::new();
+
+    for &idx in &types {
+        let arc = cls.arc_class(idx);
+        let triv = classify_triviality(idx, &pool);
+
+        let expected_arc = match triv {
+            Triviality::Trivial => ArcClass::Scalar,
+            Triviality::NonTrivial => ArcClass::DefiniteRef,
+            Triviality::Unknown => ArcClass::PossibleRef,
+        };
+
+        if arc != expected_arc {
+            mismatches.push((idx, arc, triv));
+        }
+    }
+
+    assert!(
+        mismatches.is_empty(),
+        "ArcClassifier/classify_triviality disagreement on {} types: {mismatches:?}",
+        mismatches.len()
+    );
+}

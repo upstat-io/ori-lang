@@ -47,6 +47,17 @@ fn heap_types_not_trivial() {
     .is_trivial());
 }
 
+/// §02 TPR-02-004: Iterator/DoubleEndedIterator are Box-allocated (no RC header),
+/// so TypeInfo::is_trivial() must classify them as trivial — matching
+/// ArcClassifier (Scalar) and classify_triviality() (Trivial).
+#[test]
+fn iterator_types_are_trivial() {
+    assert!(
+        TypeInfo::Iterator { element: Idx::INT }.is_trivial(),
+        "Iterator is Box-allocated (UnmanagedPtr), no RC header — trivial"
+    );
+}
+
 #[test]
 fn tagged_unions_not_trivial() {
     assert!(!TypeInfo::Option { inner: Idx::INT }.is_trivial());
@@ -1615,4 +1626,284 @@ fn phase_a_semantic_pin_empty_plan_equals_no_plan() {
             "Semantic pin violation at idx {idx:?}: empty plan != no plan"
         );
     }
+}
+
+/// Cross-crate parity: `compute_repr_plan()` canonical representations
+/// must produce the same LLVM types as the legacy TypeInfoStore path
+/// for all codegen-reachable types in the 29-type matrix.
+///
+/// This is the live verification for the `ori_repr` ↔ `ori_llvm` contract.
+/// Unlike the empty-plan semantic pins above, this test exercises the
+/// *populated* ReprPlan (canonical decisions from `populate_canonical()`)
+/// and verifies parity against TypeInfoStore for every type that reaches
+/// LLVM codegen.
+///
+/// Covers: 12 primitives, 7 simple containers (Option, List, Set, Channel,
+/// Range, Iterator, DoubleEndedIterator), 2 two-child (Map, Result),
+/// 3 complex (Function, Tuple, Struct, Enum).
+#[test]
+fn repr_plan_canonical_parity_full_matrix() {
+    use inkwell::types::BasicTypeEnum::StructType as ST;
+
+    let mut pool = Pool::new();
+    let name = Name::from_raw(500);
+    let x_name = Name::from_raw(501);
+    let y_name = Name::from_raw(502);
+
+    // Simple containers (7)
+    let opt_int = pool.option(Idx::INT);
+    let list_str = pool.list(Idx::STR);
+    let set_int = pool.set(Idx::INT);
+    let chan_int = pool.channel(Idx::INT);
+    let range_int = pool.range(Idx::INT);
+    let iter_int = pool.iterator(Idx::INT);
+    let de_iter_int = pool.double_ended_iterator(Idx::INT);
+
+    // Two-child (2)
+    let map_str_int = pool.map(Idx::STR, Idx::INT);
+    let res_int_str = pool.result(Idx::INT, Idx::STR);
+
+    // Complex (4)
+    let fn_idx = pool.function(&[Idx::INT, Idx::FLOAT], Idx::BOOL);
+    let tup_idx = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::BOOL]);
+    let struct_idx = pool.struct_type(name, &[(x_name, Idx::INT), (y_name, Idx::FLOAT)]);
+    let enum_idx = pool.enum_type(
+        name,
+        &[
+            ori_types::EnumVariant {
+                name: Name::from_raw(503),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: Name::from_raw(504),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+
+    // Populate a ReprPlan via the real compute_repr_plan() pipeline.
+    let plan = ori_repr::compute_repr_plan(
+        &pool,
+        &[], // no arc_functions for canonical-only
+        ori_repr::NarrowingPolicy::Disabled,
+        &[], // no repr_attrs
+    );
+
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_parity_matrix");
+
+    // Baseline: TypeInfoStore only (no ReprPlan).
+    let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
+
+    // Under test: populated ReprPlan from compute_repr_plan().
+    let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&plan));
+
+    // Primitives (12) — direct LLVM type comparison.
+    let primitives = [
+        (Idx::INT, "Int"),
+        (Idx::FLOAT, "Float"),
+        (Idx::BOOL, "Bool"),
+        (Idx::STR, "Str"),
+        (Idx::CHAR, "Char"),
+        (Idx::BYTE, "Byte"),
+        (Idx::UNIT, "Unit"),
+        (Idx::NEVER, "Never"),
+        (Idx::DURATION, "Duration"),
+        (Idx::SIZE, "Size"),
+        (Idx::ORDERING, "Ordering"),
+        (Idx::ERROR, "Error"),
+    ];
+
+    for (idx, name) in primitives {
+        assert_eq!(
+            with_plan.resolve(idx),
+            no_plan.resolve(idx),
+            "Canonical parity failed for primitive {name} (idx {idx:?})"
+        );
+    }
+
+    // Simple containers — direct comparison (all are anonymous struct types or ptr).
+    let containers = [
+        (opt_int, "Option<int>"),
+        (list_str, "List<str>"),
+        (set_int, "Set<int>"),
+        (chan_int, "Channel<int>"),
+        (range_int, "Range<int>"),
+        (iter_int, "Iterator<int>"),
+        (de_iter_int, "DoubleEndedIterator<int>"),
+    ];
+
+    for (idx, name) in containers {
+        assert_eq!(
+            with_plan.resolve(idx),
+            no_plan.resolve(idx),
+            "Canonical parity failed for container {name} (idx {idx:?})"
+        );
+    }
+
+    // Two-child types.
+    let two_child = [
+        (map_str_int, "Map<str, int>"),
+        (res_int_str, "Result<int, str>"),
+    ];
+
+    for (idx, name) in two_child {
+        assert_eq!(
+            with_plan.resolve(idx),
+            no_plan.resolve(idx),
+            "Canonical parity failed for {name} (idx {idx:?})"
+        );
+    }
+
+    // Function and tuple — direct comparison.
+    assert_eq!(
+        with_plan.resolve(fn_idx),
+        no_plan.resolve(fn_idx),
+        "Canonical parity failed for Function"
+    );
+    assert_eq!(
+        with_plan.resolve(tup_idx),
+        no_plan.resolve(tup_idx),
+        "Canonical parity failed for Tuple"
+    );
+
+    // Named struct/enum — compare field counts (uniquified names prevent pointer equality).
+    let (np_struct, wp_struct) = (no_plan.resolve(struct_idx), with_plan.resolve(struct_idx));
+    if let (ST(a), ST(b)) = (np_struct, wp_struct) {
+        assert_eq!(
+            a.count_fields(),
+            b.count_fields(),
+            "Canonical parity: struct field count mismatch"
+        );
+        for i in 0..a.count_fields() {
+            assert_eq!(
+                a.get_field_type_at_index(i),
+                b.get_field_type_at_index(i),
+                "Canonical parity: struct field {i} type mismatch"
+            );
+        }
+    } else {
+        panic!("Struct should resolve to StructType, got {np_struct:?} / {wp_struct:?}");
+    }
+
+    let (np_enum, wp_enum) = (no_plan.resolve(enum_idx), with_plan.resolve(enum_idx));
+    if let (ST(a), ST(b)) = (np_enum, wp_enum) {
+        assert_eq!(
+            a.count_fields(),
+            b.count_fields(),
+            "Canonical parity: enum field count mismatch"
+        );
+        for i in 0..a.count_fields() {
+            assert_eq!(
+                a.get_field_type_at_index(i),
+                b.get_field_type_at_index(i),
+                "Canonical parity: enum field {i} type mismatch"
+            );
+        }
+    } else {
+        panic!("Enum should resolve to StructType, got {np_enum:?} / {wp_enum:?}");
+    }
+
+    // Verify the ReprPlan actually has decisions for the key types.
+    // This guards against the test passing vacuously because
+    // populate_canonical() silently skipped all types.
+    assert!(
+        plan.get_repr(Idx::INT).is_some(),
+        "ReprPlan should have a canonical decision for Int"
+    );
+    assert!(
+        plan.get_repr(Idx::STR).is_some(),
+        "ReprPlan should have a canonical decision for Str"
+    );
+    assert!(
+        plan.get_repr(opt_int).is_some(),
+        "ReprPlan should have a canonical decision for Option<int>"
+    );
+    assert!(
+        plan.get_repr(struct_idx).is_some(),
+        "ReprPlan should have a canonical decision for struct"
+    );
+    assert!(
+        plan.get_repr(enum_idx).is_some(),
+        "ReprPlan should have a canonical decision for enum"
+    );
+}
+
+// -- §02 TPR-02-004: Iterator triviality convergence tests --
+
+/// §02 TPR-02-004: classify_trivial() fallback (via TypeInfoStore::new())
+/// must classify Iterator/DoubleEndedIterator as trivial — matching the
+/// production path through ReprPlan.
+#[test]
+fn iterator_trivial_via_fallback_path() {
+    let mut pool = Pool::new();
+    let iter_int = pool.iterator(Idx::INT);
+    let de_iter_int = pool.double_ended_iterator(Idx::INT);
+
+    let store = TypeInfoStore::new(&pool);
+    assert!(
+        store.is_trivial(iter_int),
+        "Iterator<int> should be trivial via fallback (Box-allocated, no RC)"
+    );
+    assert!(
+        store.is_trivial(de_iter_int),
+        "DoubleEndedIterator<int> should be trivial via fallback (Box-allocated, no RC)"
+    );
+}
+
+/// §02 TPR-02-004: Production path (via TypeInfoStore::new_with_plan()) must
+/// classify Iterator/DoubleEndedIterator as trivial through ReprPlan.
+/// This is the semantic pin for the production triviality path.
+#[test]
+fn iterator_trivial_via_production_path() {
+    let mut pool = Pool::new();
+    let iter_int = pool.iterator(Idx::INT);
+    let de_iter_int = pool.double_ended_iterator(Idx::INT);
+
+    let plan = ori_repr::compute_repr_plan(&pool, &[], ori_repr::NarrowingPolicy::Disabled, &[]);
+    let store = TypeInfoStore::new_with_plan(&pool, &plan);
+    assert!(
+        store.is_trivial(iter_int),
+        "Iterator<int> should be trivial via ReprPlan production path"
+    );
+    assert!(
+        store.is_trivial(de_iter_int),
+        "DoubleEndedIterator<int> should be trivial via ReprPlan production path"
+    );
+}
+
+/// §02 TPR-02-004: Both paths must agree on Iterator triviality.
+/// This test creates both a fallback and production store and asserts they
+/// return the same result for Iterator and DoubleEndedIterator.
+#[test]
+fn iterator_triviality_paths_agree() {
+    let mut pool = Pool::new();
+    let iter_int = pool.iterator(Idx::INT);
+    let de_iter_int = pool.double_ended_iterator(Idx::INT);
+    let iter_str = pool.iterator(Idx::STR);
+
+    let plan = ori_repr::compute_repr_plan(&pool, &[], ori_repr::NarrowingPolicy::Disabled, &[]);
+
+    let fallback_store = TypeInfoStore::new(&pool);
+    let production_store = TypeInfoStore::new_with_plan(&pool, &plan);
+
+    // Iterator<int> — both paths agree
+    assert_eq!(
+        fallback_store.is_trivial(iter_int),
+        production_store.is_trivial(iter_int),
+        "fallback and production must agree on Iterator<int>"
+    );
+    // DoubleEndedIterator<int> — both paths agree
+    assert_eq!(
+        fallback_store.is_trivial(de_iter_int),
+        production_store.is_trivial(de_iter_int),
+        "fallback and production must agree on DoubleEndedIterator<int>"
+    );
+    // Iterator<str> — both paths agree (str element doesn't affect iterator triviality)
+    assert_eq!(
+        fallback_store.is_trivial(iter_str),
+        production_store.is_trivial(iter_str),
+        "fallback and production must agree on Iterator<str>"
+    );
 }

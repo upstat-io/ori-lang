@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-25
-  note: "All TPR items triaged and resolved. §01.R findings 044-049 fixed. §01.10 follow-up work (TPR-01-032 env-var pin, TPR-01-043 file splits, storage equivalence test) completed 2026-03-25."
+  note: "All 64 TPR findings resolved. TPR-01-064 (stale orphan-attribute diagnostic) fixed 2026-03-25."
 goal: "Create the ReprPlan data structure that records all narrowing decisions, integrated into the compilation pipeline between type checking and LLVM codegen"
 inspired_by:
   - "Lean4 LCNF phase separation (src/Lean/Compiler/LCNF/)"
@@ -63,21 +63,24 @@ sections:
 
 **File(s):** `compiler/ori_repr/src/lib.rs` (NEW crate), `compiler/ori_repr/src/repr.rs`
 
-**File layout** (~1,230 production lines across 10 files, all under the 500-line limit):
+**File layout** (~1,674 production lines across 13 files, all under the 500-line limit):
 
-| File | Contents | Est. Lines |
-|------|----------|-----------|
-| `lib.rs` | Module declarations, `pub use` re-exports, `compute_repr_plan()`, pass stubs | ~60 |
-| `repr.rs` | `MachineRepr` enum, `IntWidth`, `FloatWidth` | ~120 |
-| `struct_repr.rs` | `StructRepr`, `TupleRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` | ~200 |
-| `enum_repr.rs` | `EnumRepr`, `EnumTag`, `VariantRepr` (+ `VariantRepr::is_pointer`) | ~100 |
-| `plan.rs` | `ReprPlan` struct + builder + writer methods (`set_repr`, `set_var_ranges`, `set_escape_info`, `set_rc_strategy`) + `NarrowingPolicy` | ~320 |
-| `query.rs` | Ergonomic query interface (`int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy`, `RcStrategy`) + tracing | ~200 |
-| `repr_attrs.rs` | `ReprAttribute` enum + validation | ~100 |
-| `canonical.rs` | `canonical(tag)` mapping for all `Tag` variants | ~200 |
-| `range/mod.rs` | **Placeholder only in §01** — exports `pub struct ValueRange;` so `DecisionReason::RangeFits` compiles. Replaced in §03. | ~10 |
-| `escape/mod.rs` | **Placeholder only in §01** — exports `pub struct EscapeInfo;` so `ReprPlan::escape_info` compiles. Replaced in §08. | ~10 |
-| `tests.rs` | All tests (sibling to `lib.rs` — tests exempt from 500-line limit) | unlimited |
+| File | Contents | Lines |
+|------|----------|-------|
+| `lib.rs` | Module declarations, `pub use` re-exports, `compute_repr_plan()`, pass stubs | 156 |
+| `repr.rs` | `MachineRepr` enum, `IntWidth`, `FloatWidth` | 94 |
+| `struct_repr.rs` | `StructRepr`, `TupleRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` | 134 |
+| `enum_repr.rs` | `EnumRepr`, `EnumTag`, `VariantRepr` (+ `VariantRepr::is_pointer`) | 67 |
+| `plan.rs` | `ReprPlan` struct + builder + writer methods (`set_repr`, `set_var_ranges`, `set_escape_info`, `set_rc_strategy`) | 224 |
+| `plan/query.rs` | `NarrowingPolicy`, `RcStrategy`, ergonomic query methods (`int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy`) + tracing | 141 |
+| `plan/decision.rs` | `ReprDecision`, `DecisionSource`, `DecisionReason` | 83 |
+| `plan/repr_attr.rs` | `ReprAttribute` enum | 24 |
+| `canonical/mod.rs` | `populate_canonical()`, `canonical_cached()`, pool traversal | 298 |
+| `canonical/type_repr.rs` | Per-tag canonical mapping helpers (`canonical_collection`, `canonical_map`, etc.) | 257 |
+| `layout.rs` | Layout utilities (`is_trivial_repr`, `field_size`, `field_align`, `compute_field_layout`, etc.) | 174 |
+| `range/mod.rs` | **Placeholder only in §01** — exports `pub struct ValueRange;` so `DecisionReason::RangeFits` compiles. Replaced in §03. | 11 |
+| `escape/mod.rs` | **Placeholder only in §01** — exports `pub struct EscapeInfo;` so `ReprPlan::escape_info` compiles. Replaced in §08. | 11 |
+| `tests.rs` | All tests (sibling to `lib.rs` — tests exempt from 500-line limit) | 2696 |
 
 The `MachineRepr` enum captures the physical representation chosen for each type. It must be rich enough to express all optimizations in §02-§11 but simple enough that codegen can pattern-match exhaustively.
 
@@ -271,7 +274,7 @@ The `MachineRepr` enum captures the physical representation chosen for each type
 
 **Derive requirement:** ALL sub-repr types (`StructRepr`, `EnumRepr`, `TupleRepr`, `FieldRepr`, `EnumTag`, `VariantRepr`, `RcRepr`, `FatRepr`, `ClosureRepr`) MUST derive `Debug, Clone, PartialEq, Eq, Hash` to match `MachineRepr`'s derives. Code blocks below include them explicitly.
 
-**File placement:** `TupleRepr`, `StructRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` → `compiler/ori_repr/src/struct_repr.rs`. `EnumRepr`, `EnumTag`, `VariantRepr` → `compiler/ori_repr/src/enum_repr.rs`. `MachineRepr`, `IntWidth`, `FloatWidth` → `compiler/ori_repr/src/repr.rs`. This matches the file layout table above and keeps all files under 500 lines.
+**File placement:** `TupleRepr`, `StructRepr`, `FieldRepr`, `RcRepr`, `FatRepr`, `ClosureRepr` → `compiler/ori_repr/src/struct_repr.rs`. `EnumRepr`, `EnumTag`, `VariantRepr` → `compiler/ori_repr/src/enum_repr.rs`. `MachineRepr`, `IntWidth`, `FloatWidth` → `compiler/ori_repr/src/repr.rs`. `ReprPlan` + builders → `plan.rs` with sub-modules `plan/query.rs`, `plan/decision.rs`, `plan/repr_attr.rs`. Canonical mapping split into `canonical/mod.rs` (pool traversal) + `canonical/type_repr.rs` (per-tag helpers). Layout utilities in `layout.rs`. All files under 500 lines.
 
 - [x] Define `TupleRepr`:
   ```rust
@@ -534,7 +537,7 @@ Each narrowing decision should be recorded with its justification, so that:
 
 ## 01.3 Pipeline Integration Point
 
-**File(s):** `compiler/ori_llvm/src/codegen/type_info/mod.rs` (TypeLayoutResolver), `compiler/ori_llvm/src/codegen/type_info/store.rs` (TypeInfoStore — Tag→TypeInfo mapping), `compiler/ori_llvm/src/codegen/function_compiler/mod.rs` (FunctionCompiler), `compiler/ori_llvm/src/evaluator/compile.rs` (JIT entry point), `compiler/oric/src/commands/codegen_pipeline.rs` (AOT entry point — `run_codegen_pipeline()`), `compiler/oric/src/commands/build_options.rs`, `compiler/oric/src/commands/build/mod.rs` (for `--no-repr-opt` CLI flag)
+**File(s):** `compiler/ori_llvm/src/codegen/type_info/mod.rs` (TypeLayoutResolver), `compiler/ori_llvm/src/codegen/type_info/store.rs` (TypeInfoStore — Tag→TypeInfo mapping), `compiler/ori_llvm/src/codegen/function_compiler/mod.rs` (FunctionCompiler), `compiler/ori_llvm/src/evaluator/compile.rs` (JIT entry point), `compiler/oric/src/commands/codegen_pipeline.rs` (AOT entry point — `run_codegen_pipeline()`), `compiler/oric/src/commands/build_options/mod.rs` + `build_options/parse_args.rs`, `compiler/oric/src/commands/build/mod.rs` (for `--no-repr-opt` CLI flag)
 
 The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The codegen must consume ReprPlan instead of computing representations inline.
 
@@ -618,10 +621,9 @@ The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The c
 - [x] Wire `ReprPlan` through the LLVM codegen entry points:
   - JIT path: `OwnedLLVMEvaluator::compile_module_with_tests()` (in `evaluator/compile.rs`) creates `ReprPlan`. Add `narrowing_policy: NarrowingPolicy` as a new last parameter (after `arc_cache`) — callers pass `NarrowingPolicy::Aggressive` by default or `NarrowingPolicy::Disabled` when the test runner sets `ORI_NO_REPR_OPT`.
   - AOT path: `run_codegen_pipeline()` in `compiler/oric/src/commands/codegen_pipeline.rs` creates `ReprPlan` before constructing `FunctionCompiler`. Add `narrowing_policy: NarrowingPolicy` as a new last parameter. This function is called from `compile_common.rs::compile_to_llvm()` and `compile_to_llvm_with_imports()` — both callers must thread the policy through from `BuildOptions.narrowing_policy`.
-  - `ReprPlan` is passed to `FunctionCompiler::new()` (there is no `ModuleCompiler` — `FunctionCompiler` is the two-pass declare/define orchestrator). Currently `FunctionCompiler::new()` takes: `builder`, `type_info`, `type_resolver`, `interner`, `pool`, `module_path`, `annotated_sigs`, `arc_classifier`, `debug_context`, `uniqueness_summaries`, `aims_contracts`, `verify_arc` — add `repr_plan: &'a ReprPlan` immediately before `verify_arc` (last position before the boolean flag, following the config-struct convention that booleans come last).
-  - `FunctionCompiler` stores `repr_plan` and passes it to `TypeLayoutResolver`
+  - `codegen_pipeline.rs` creates `TypeLayoutResolver` with `Some(&repr_plan)` before constructing `FunctionCompiler`. `FunctionCompiler` accesses the plan indirectly via its `type_resolver: &TypeLayoutResolver` field — no direct `repr_plan` field was added to `FunctionCompiler`. Same pattern in the JIT path.
 
-- [x] Add `--no-repr-opt` flag to the `ori build` CLI (`compiler/oric/src/commands/build_options.rs` for the flag definition and `parse_build_options()`, `compiler/oric/src/commands/build/mod.rs` for CLI integration, `compiler/oric/src/commands/codegen_pipeline.rs` for enforcement):
+- [x] Add `--no-repr-opt` flag to the `ori build` CLI (`compiler/oric/src/commands/build_options/mod.rs` for the flag definition, `build_options/parse_args.rs` for `parse_single_arg()`, `compiler/oric/src/commands/build/mod.rs` for CLI integration, `compiler/oric/src/commands/codegen_pipeline.rs` for enforcement):
   - Add `narrowing_policy: NarrowingPolicy` field to `BuildOptions` (import `NarrowingPolicy` from `ori_repr`); default to `NarrowingPolicy::Aggressive`
   - Parse `--no-repr-opt` in `parse_build_options()` → set `options.narrowing_policy = NarrowingPolicy::Disabled`
   - Thread `BuildOptions.narrowing_policy` through `compile_common.rs` → `run_codegen_pipeline()` (the new last parameter added above)
@@ -649,7 +651,7 @@ The ReprPlan must be computed AFTER type checking and BEFORE LLVM codegen. The c
 
 ## 01.4 ReprPlan Query Interface
 
-**File(s):** `compiler/ori_repr/src/query.rs`
+**File(s):** `compiler/ori_repr/src/plan/query.rs`
 
 Provide ergonomic query methods that later sections will use:
 
@@ -678,6 +680,12 @@ Provide ergonomic query methods that later sections will use:
       /// `var` is an `ArcVarId` from `ori_arc::ir` — `ori_repr` depends on
       /// `ori_arc` already (for ArcFunction), so this import is clean.
       /// Used by §08 (escape analysis) and §09 (header compression).
+      ///
+      /// NOTE: §01 implementation hardcodes `true` (safe default — never
+      /// stack-promotes). §08 MUST update the query body to consult
+      /// `self.escape_info` — calling `set_escape_info()` alone is NOT
+      /// sufficient; the query method itself must be changed to read from
+      /// the stored data.
       pub fn escapes(&self, func: Name, var: ArcVarId) -> bool { ... }
 
       /// What RC strategy should be used for this allocation?
@@ -852,7 +860,7 @@ The ReprPlan must integrate with the existing Salsa-based compilation model.
 
 ## 01.7 `#repr` Attribute Integration
 
-**File(s):** `compiler/ori_repr/src/repr_attrs.rs`, `compiler/ori_ir/src/ast/items/types.rs` (TypeDecl — needs new field), `compiler/ori_parse/src/grammar/item/type_decl.rs` (parser — needs to wire attrs.repr), `compiler/ori_types/src/check/registration/user_types.rs` (needs to propagate repr through type registration)
+**File(s):** `compiler/ori_repr/src/plan/repr_attr.rs`, `compiler/ori_ir/src/ast/items/types.rs` (TypeDecl — needs new field), `compiler/ori_parse/src/grammar/item/type_decl.rs` (parser — needs to wire attrs.repr), `compiler/ori_types/src/check/registration/user_types.rs` (needs to propagate repr through type registration)
 
 The spec (Clause 26 — FFI) defines layout attributes that override the canonical representation:
 - `#repr("c")` — C-compatible layout, no field reordering
@@ -926,10 +934,12 @@ The existing `TypeInfoStore` and `TypeInfo` enum must coexist with `ReprPlan` du
   - `try_repr_to_llvm_type()` handles all `MachineRepr` variants: Int (all widths), Float (F32/F64), Bool, Char, Byte, Duration, Size, Ordering, Unit, Never, Range, FatPointer, OpaquePtr, RcPointer, Closure
   - Added `type_i16()` and `type_f32()` to `SimpleCx` for narrowed width support
 
-- [ ] **Phase B — Triviality unification (§02 scope):**  <!-- blocked-by:02 -->
-  - `TypeInfoStore::is_trivial()` delegates to `ReprPlan::is_trivial()` when available
-  - `TypeInfoStore::classify_trivial()` becomes dead code and is removed
-  - `triviality_cache` and `classifying_trivial` fields removed from TypeInfoStore
+- [x] **Phase B — Triviality unification (§02 scope):** (2026-03-25)
+  - `TypeInfoStore::new_with_plan()` constructor pre-computes triviality from `ReprPlan` at construction
+  - `TypeInfoStore::is_trivial()` uses cache (populated from plan in production, lazy-computed in tests)
+  - Production paths (JIT + AOT) use `new_with_plan()` — `classify_trivial()` is never called
+  - `classify_trivial()` and cache fields retained as fallback for ~100 test call sites using `new()`
+  - 13,979 tests pass in debug; release build clean
 
 - [ ] **Phase C — Full migration (§06/§07 scope):**  <!-- blocked-by:06 --><!-- blocked-by:07 -->
   - `TypeLayoutResolver::storage_type()` reads from `ReprPlan` for ALL types
@@ -988,7 +998,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 
 - [x] **Semantic pin test (zero behavioral change):** (2026-03-24). Verified manually: `ORI_DUMP_AFTER_LLVM=1` with and without `--no-repr-opt` on `bench_small.ori` produces byte-identical LLVM IR. Unit-level coverage: `compute_repr_plan_zero_behavioral_change_with_disabled()` (ori_repr), Phase A fallback tests (ori_llvm) verify empty-plan = no-plan equivalence.
 
-- [x] **Verify tests pass in debug AND release:** (2026-03-24). `cargo test -p ori_repr`: 115 passed (debug). `cargo test -p ori_repr --release`: 115 passed. `cargo test -p ori_llvm --lib`: 461 passed. `./test-all.sh`: 13,791 passed, 0 failed.
+- [x] **Verify tests pass in debug AND release:** (2026-03-25). `cargo test -p ori_repr --lib`: 127 passed (debug). `cargo test -p ori_repr --lib --release`: 127 passed. `cargo test -p ori_llvm --lib`: 461+ passed. `./test-all.sh`: 13,828+ passed, 0 failed.
 
 ---
 
@@ -1203,20 +1213,74 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `[TPR-01-049][medium]` `compiler/oric/src/commands/build_options/tests.rs:512` — §01 still does not have an automated regression test that exercises `ORI_NO_REPR_OPT=1` through the zero-option build path it claims to have pinned.
   Resolved: Validated and integrated into §01.10 as TPR-01-032 on 2026-03-25. The implementation task (env-var regression pin) is tracked there.
 
+- [x] `[TPR-01-050][medium]` `plans/repr-opt/section-01-repr-ir.md:1219` — §01.10 still claims the 500-line production-file hygiene gate is satisfied, but the current tree keeps two touched production files over the hard limit.
+  Resolved: Fixed on 2026-03-25. Split `attr/mod.rs` (937→389L) into 4 submodules: `compile_fail.rs` (190L), `conditional.rs` (237L), `simple.rs` (163L), and existing `repr.rs` (114L). Split `build_options/mod.rs` (505→405L) by extracting `parse_single_arg()` to `parse_args.rs` (108L). All files under 500 lines. 13,827 tests pass.
+
+- [x] `[TPR-01-051][medium]` `compiler/ori_repr/src/tests.rs:2402` — The new `storage_type_equivalence_full_29_type_matrix` does not mechanically compare `ori_repr` against the live LLVM lowering path it claims to validate.
+  Resolved: Fixed on 2026-03-25. Added `repr_plan_canonical_parity_full_matrix` test in `ori_llvm/src/codegen/type_info/tests.rs`. This test calls `compute_repr_plan()` to populate canonical representations, then compares LLVM types produced via the populated ReprPlan against the legacy TypeInfoStore path for all 24 codegen-reachable types: 12 primitives, 7 containers (Option, List, Set, Channel, Range, Iterator, DoubleEndedIterator), 2 two-child (Map, Result), and 3 complex (Function, Tuple, Struct+Enum with field-by-field comparison). Also verifies the plan has non-vacuous decisions for key types. 13,828 tests pass.
+
+- [x] `[TPR-01-052][medium]` `compiler/oric/src/commands/build_options/parse_args.rs:95` — Invalid `--repr-opt=` values are treated as explicit policy selections and can silently re-enable repr-opt.
+  Resolved: Fixed on 2026-03-25. Moved `narrowing_policy_explicit = true` from before the match into each valid arm, matching the pattern used by `--opt=`, `--debug=`, `--link=`, `--lto=`. Invalid values now only print a warning without setting the explicit flag. Added 4 regression tests: `invalid_repr_opt_value_does_not_set_explicit`, `invalid_repr_opt_does_not_override_disabled`, `accumulate_invalid_repr_opt_allows_env_fallback`, `per_arg_merge_invalid_policy_preserves_prior_disabled`. 13,832 tests pass.
+
+- [x] `[TPR-01-053][high]` `compiler/ori_parse/src/grammar/attr/conditional.rs:78` — The reopened attr-parser split still rejects spec-defined conditional-compilation forms and leaves the conditional-attribute surface internally inconsistent.
+  Resolved: Fixed on 2026-03-25. Added 3 missing IR fields (`any_arch`, `not_arch`, `not_family`) to `TargetAttr`. Implemented full parser support for all 8 target params and 4 cfg params with extracted `parse_attr_string_value()`/`parse_attr_string_list()` helpers. Updated formatter with `emit_attr_string_param()`/`emit_attr_string_list()` helpers. 8 phase tests + 5 spec tests added. 13,840 tests pass.
+
+- [x] `[TPR-01-054][high]` `compiler/ori_parse/src/grammar/item/function/mod.rs:198` — The conditional-attribute “full matrix” fix still does not carry item-level `#target`/`#cfg` attributes through the AST or formatter, so §25 coverage remains file-level only.
+  Evidence: `ParsedAttrs` stores `target`/`cfg`, but function/test/type parsing only copies `skip_reason`, `expected_errors`, `fail_expected`, `derive_traits`, and `repr_attrs` into AST nodes; `Function`/`TypeDecl` have no fields for conditional attributes; the formatter only emits `FileAttr` via `format_file_attr()`.
+  Impact: Item-level conditional attributes can be parsed but are dropped before any later pass sees them, so the section’s “TPR-01-053 resolved” note is materially overstated and future semantic work still has no IR surface to consume.
+  Required plan update: Reopen the conditional-attribute work to thread item-level `#target`/`#cfg` through the relevant AST nodes, formatter paths, and tests, or narrow the section claim explicitly to file-level attributes only.
+  Resolved: Accepted on 2026-03-25. Validated against codebase — `Function` and `TypeDecl` AST nodes have no `target`/`cfg` fields; parser copies only `is_fbip`/`derive_traits`/`repr_attrs`; formatter only handles `FileAttr`. Spec §25.4 explicitly requires item-level support on functions, types, trait impls, and constants. Implementation tasks added to §01.10.
+
+- [x] `[TPR-01-055][medium]` `compiler/ori_parse/src/grammar/attr/conditional.rs:223` — `feature`, `not_feature`, and `any_feature` still accept arbitrary string literals, violating the spec’s identifier constraint.
+  Evidence: `parse_attr_string_value()` and `parse_attr_string_list()` only check for string tokens and never validate identifier spelling, while spec §25.3.2 says feature names shall be valid Ori identifiers. No negative tests cover invalid single-feature or list-feature names.
+  Impact: The parser still accepts spec-invalid cfg attributes, so the section closes out “full spec §25 coverage” without actually enforcing one of the normative grammar constraints on feature flags.
+  Required plan update: Validate cfg feature names against the Ori identifier rules for both singleton and list forms, then add negative parser/spec tests before re-resolving TPR-01-053.
+  Resolved: Accepted on 2026-03-25. Validated against codebase — `parse_attr_string_value()` and `parse_attr_string_list()` accept any string literal without checking identifier spelling. Spec §25.3.2 requires feature names to be valid Ori identifiers. Error E0932 is defined in spec but not implemented. Implementation task added to §01.10.
+
+- [x] `[TPR-01-056][high]` `compiler/ori_parse/src/lib.rs:531` — Item-level `#target`/`#cfg` support still excludes imports, constants, and impl-owned items, so §25.4 remains only partially implemented.
+  Evidence: `parse_imports()` consumes `use`/`extension` statements before `parse_attributes()` runs, and `dispatch_declaration()` only forwards `attrs` to `parse_function_or_test()` and `parse_type_decl()`. `parse_const()`, `parse_trait()`, `parse_impl()`, `parse_def_impl()`, and `parse_extend()` accept no attrs. Fresh verification on 2026-03-25: `ORI_DUMP_AFTER_PARSE=1 ori check` on a temp file containing `#cfg(debug)` before `let $answer = 42;` emitted `Const $answer = 42` with no attached attr, while the same command with `#target(os: "linux")` before `use std.testing { assert }` failed with `import statements must appear at the beginning of the file`.
+  Impact: The section frontmatter and §01.10 checklist overstate TPR-01-054 as resolved. The compiler still cannot preserve spec-defined conditional attrs on imports, constants, and impl-related items, and it silently miscompiles `#cfg`-guarded constants as unconditional declarations.
+  Required plan update: Extend the AST/parser/formatter surface for `UseDef`, `ConstDef`, `TraitDef`/`ImplDef`/`DefImplDef`/`ExtendDef` (or explicitly reject unsupported §25.4 forms), then add phase/spec coverage for constants and imports before re-resolving item-level conditional compilation.
+  Resolved: Fixed on 2026-03-25. Spec §25.4 defines 5 item kinds for conditional attrs: functions (done), types (done), trait implementations, constants, and imports. Implementation: (1) Added `target_attr`/`cfg_attr` fields to `ConstDef`, `ImplDef`, `UseDef` in `ori_ir`. (2) Updated `parse_const()` and `parse_impl()` to accept and store attrs from `dispatch_declaration()`. (3) Restructured `parse_imports()` to parse attrs before each import, returning leftover attrs for the declaration loop. (4) Updated formatter (`format_const`, `format_impl`, `format_use`) to emit item-level attrs. (5) Updated incremental copier for all 3 types. (6) 13 new phase tests + 6 new spec tests. Trait declarations, def impls, extends, and extern blocks are correctly unsupported per spec §25.4. 13,914 tests pass.
+
+- [x] `[TPR-01-057][medium]` `compiler/ori_parse/src/lib.rs:610` — The new attr-threading accepts unsupported attributes on imports and constants, then silently drops them instead of rejecting the invalid placement.
+  Resolved: Fixed on 2026-03-25. Added attribute placement validation in `dispatch_declaration()` and `parse_imports()`. Items that only support `#target`/`#cfg` (imports, constants, impls) now emit E1006 with the specific unsupported attr names if non-conditional attrs are present. Items that support no attrs at all (traits, def impls, extends, extern blocks) also reject all attrs. Added `ParsedAttrs::has_non_conditional_attrs()` and `non_conditional_attr_names()` helpers. 19 phase tests in `attr_validation.rs`: 6 reject cases (imports), 4 reject + 2 accept (constants), 3 reject + 1 accept (impls), 3 reject (trait/extend/extern), 2 semantic pins. 13,933 tests pass.
+
+- [x] `[TPR-01-058][high]` `compiler/ori_fmt/src/declarations/impls.rs:105` — `ori fmt` is still destructive for the conditional-attribute follow-up: impl attrs are dropped on the comment-preserving path, and type formatting still strips `#repr`.
+  Resolved: Fixed on 2026-03-25. (1) Added `#target`/`#cfg` emission to `format_impl_with_comments()` mirroring `format_impl()`. (2) Added `emit_repr_attr()` helper to `ModuleFormatter` that formats all `ReprAttrKind` variants (`C`, `Packed`, `Transparent`, `Aligned(N)`, `CAligned(N)`). (3) Added `#repr` emission to `format_type_decl()` between `#cfg` and `#derive` per canonical attr order. 4 golden test files added: `types/repr_attr.ori`, `types/repr_with_target.ori`, `impls/conditional_attrs.ori`, `comments/edge/impl_conditional_attrs.ori`. All 36 golden tests pass. 13,933 tests pass.
+
+- [x] `[TPR-01-059][medium]` `compiler/ori_parse/src/lib.rs:647` — Attributes on `extension ...` imports are silently accepted and dropped.
+  Resolved: Fixed on 2026-03-25. Added E1006 validation in the extension branch of `parse_imports()` that rejects ALL attributes on extension imports (per spec §25.4, extension imports are not in the supported item kinds list). 5 phase tests in `attr_validation.rs`: reject #target, reject #cfg, reject #repr, reject #derive, semantic pin for plain extension import. 13,942 tests pass.
+
+- [x] `[TPR-01-060][high]` `compiler/ori_parse/src/lib.rs:1007` — Incremental parsing skips file-attribute parsing entirely, so `#!target`/`#!cfg` files do not round-trip through the incremental path.
+  Resolved: Fixed on 2026-03-25. Added `module.file_attr = self.parse_file_attribute(&mut errors)` before `parse_imports()` in `parse_module_incremental()`, mirroring the full parser. 2 incremental regression tests: `test_incremental_preserves_file_attr_target` and `test_incremental_preserves_file_attr_cfg`. 13,942 tests pass.
+
+- [x] `[TPR-01-061][high]` `compiler/ori_parse/src/lib.rs:1008` — Incremental parsing drops the `parse_imports()` leftover attrs, so item-level attrs before the first declaration are lost on the incremental path.
+  Resolved: Fixed on 2026-03-25. Captured `parse_imports()` return as `leftover_attrs` and threaded through the incremental declaration loop via `.take().unwrap_or_else()`, exactly mirroring the full parser pattern. 2 incremental regression tests: `test_incremental_preserves_first_decl_target_attr` (no imports) and `test_incremental_preserves_first_decl_cfg_attr_after_import` (with imports). 13,942 tests pass.
+
+- [x] `[TPR-01-062][medium]` `compiler/ori_parse/src/lib.rs:532` — The new import-leftover plumbing now drops orphaned item attributes at end-of-file instead of diagnosing them.
+  Resolved: Fixed on 2026-03-25. Added orphan-attr check after the declaration loop in both `parse_module()` and `parse_module_incremental()`: if `leftover_attrs` is still `Some(non-empty)` when the module ends, emit E1006. 4 phase tests in `attr_validation.rs` (3 reject cases + 1 semantic pin) + 1 incremental regression test in `incremental/tests.rs`. 13,949 tests pass.
+
+- [x] `[TPR-01-063][high]` `compiler/ori_parse/src/lib.rs:1032` — Incremental parsing leaks the first declaration’s leftover attrs onto a later reparsed declaration when that first declaration is reused.
+  Resolved: Fixed on 2026-03-25. Added `leftover_attrs.take()` on the reuse path in `parse_module_incremental()` so leftover attrs are consumed when the first declaration slot is satisfied by reuse (the reused declaration already has its attrs baked into the AST node from the original full parse). 2 incremental regression tests: `test_incremental_reuse_consumes_leftover_target_attrs` and `test_incremental_reuse_consumes_leftover_cfg_attrs`. 13,949 tests pass.
+
+- [x] `[TPR-01-064][medium]` `compiler/ori_parse/src/lib.rs:564` — The orphan-attribute diagnostic still says attrs must be followed by a function or test definition even though §25.4 now allows additional declaration kinds.
+  Resolved: Fixed on 2026-03-25. Updated diagnostic message at all 4 sites (full-parse EOF, incremental EOF, declaration-error with attrs+identifier, declaration-error with attrs+non-declaration token) from "function or test definition" to "declaration (function, type, impl, constant, import, or test)" matching spec §25.4. Also fixed stale comment at declaration-error branch. 4 diagnostic pin tests added to `attr_validation.rs` checking full message text across all code paths. 13,953 tests pass.
+
 ---
 
 ## 01.10 Completion Checklist
 
 **TDD ordering:** Write ALL tests from §01.2, §01.3, §01.4, §01.5, §01.7, §01.8, and §01.9 BEFORE creating the `ori_repr` crate. All tests must fail (crate does not exist). Create the crate, implement the types, verify tests pass unchanged. Only then proceed to wiring into the pipeline (§01.3). If any test requires modification to pass, the implementation is wrong — fix the implementation, not the test.
 
-- [x] Write failing tests BEFORE implementation (2026-03-24). 119 tests in `ori_repr/src/tests.rs` covering §01.2–§01.9 subsections. All pass in debug and release.
+- [x] Write failing tests BEFORE implementation (2026-03-24). 127 tests in `ori_repr/src/tests.rs` covering §01.2–§01.9 subsections (grew from initial 119 as TPR-01-044 through TPR-01-051 fixes added regression tests). All pass in debug and release.
 - [x] `ori_repr` added to workspace `Cargo.toml` `[members]` list (2026-03-24). Line 15.
 - [x] `ori_repr` added to root workspace `Cargo.toml` `[workspace.dependencies]` as a path dep (2026-03-24). Line 89: `ori_repr = { path = "compiler/ori_repr" }`.
 - [x] `ori_repr` crate compiles with `cargo check -p ori_repr` (2026-03-24). Verified.
 - [x] `#![deny(unsafe_code)]` in `ori_repr/src/lib.rs` (2026-03-24). Line 30.
 - [x] `//!` module doc on every `.rs` file in `ori_repr/src/` (2026-03-24). All 7 source files have module docs.
 - [x] `///` doc on all `pub` types and functions (2026-03-24). Verified via audit.
-- [x] No production source file exceeds 500 lines (tests.rs exempt) (2026-03-24). `canonical.rs` (517 lines) split into `canonical/mod.rs` (297) + `canonical/type_repr.rs` (241).
+- [x] No production source file exceeds 500 lines (tests.rs exempt) (2026-03-25). `attr/mod.rs` split: 937→389L (+ 3 submodules). `build_options/mod.rs` split: 505→405L (+ `parse_args.rs` 108L).
 - [x] Tests in sibling `tests.rs` with `#[cfg(test)] mod tests;` in `lib.rs` (2026-03-24). Lines 41-42.
 - [x] `MachineRepr` enum has variants for ALL type kinds (2026-03-24): Int, Float, Bool, Char, Byte, Duration, Size, Ordering, Unit, Never, Struct, Enum, Tuple, RcPointer, FatPointer, Closure, Range, StackPromoted, OpaquePtr.
 - [x] `ReprPlan` populates canonical representations for all reachable `Tag` variants (2026-03-24). §01.9 tests cover the 29-type matrix:
@@ -1243,7 +1307,7 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] `ori_repr` added to `ori_llvm/Cargo.toml` as `ori_repr = { workspace = true }` (2026-03-24). Line 5.
 - [x] Migration Phase A complete: TypeLayoutResolver accepts optional ReprPlan, falls back to TypeInfoStore (2026-03-24). `try_repr_to_llvm_type()` handles non-recursive MachineRepr variants; recursive types (Struct/Enum/Tuple) fall back to TypeInfoStore.
 - [x] `TypeLayoutResolver` in `ori_llvm` reads from `ReprPlan` instead of hardcoded `Tag → LLVM` map (2026-03-24). `resolve_inner()` consults `repr_plan.get_repr(idx)` before TypeInfoStore.
-- [x] Storage type equivalence test passes: canonical representations match existing TypeInfo for all types (29-type matrix from §01.9) (2026-03-25). `storage_type_equivalence_full_29_type_matrix` covers all 29 types with LLVM type equivalence documentation. Also added 3 missing None tests: Borrowed, Projection, ModuleNs.
+- [x] Storage type equivalence test passes: canonical representations match existing TypeInfo for all types (29-type matrix from §01.9) (2026-03-25). Live cross-crate parity test `repr_plan_canonical_parity_full_matrix` in `ori_llvm` mechanically compares `compute_repr_plan()` output against TypeInfoStore/TypeLayoutResolver for 24 codegen-reachable types.
 - [x] `./test-all.sh` green (2026-03-24). 13,799 passed, 0 failed across all suites.
 - [x] `./clippy-all.sh` green (2026-03-24).
 - [x] Tracing output shows `ReprPlan query` events at `ORI_LOG=ori_repr=trace` (2026-03-24). `tracing::trace!` on `int_width`, `float_width`, `is_trivial`, `escapes`, `rc_strategy` queries. `tracing::debug!` in `canonical()` and disabled-policy path.
@@ -1277,9 +1341,58 @@ Canonical representations are the foundation — if they're wrong, every optimiz
 - [x] **[TPR-01-047]** Replace the panic-driven skip path in `populate_canonical()` with an explicit fallible path (2026-03-25). `canonical_inner()` returns `Option<MachineRepr>`, all helpers propagate via `?`, `try_canonical_cached()`/`catch_unwind` eliminated. 4 semantic pin tests added. Verified zero panic output on `ori build ... --emit=llvm-ir`.
 - [x] **[TPR-01-048]** Rework per-argument build-option accumulation (2026-03-25). Removed env var check from `parse_build_options()` — applied only post-merge in `main.rs`. Simplified `merge()` to only copy explicit policies. 4 regression tests added. Verified `--repr-opt=aggressive` survives trailing flags under `ORI_NO_REPR_OPT=1`.
 
-- [x] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug and release (2026-03-24). 119 tests pass in `cargo test -p ori_repr` and `cargo test -p ori_repr --release`.
+- [x] **[NOTE]** `populate_canonical()` in `canonical/mod.rs` is 112 lines (over the 100-line target). Bulk is two `matches!(tag, ...)` filter blocks (lines 67-79 and 94-111) — exempt per the dispatch-table/exhaustive-match exemption. Logic itself is linear and clear. Acceptable as-is; will shrink when §02+ replaces the tag-skip filters with a shared `is_codegen_reachable()` predicate.
+- [x] **[NOTE]** `lib.rs` contains function bodies (`compute_repr_plan`, 10 stubs, `convert_repr_attr_kind`). Plan §01.3 explicitly approves stubs in `lib.rs`. `compute_repr_plan` is the crate's primary public API — when §02+ replaces stubs with real module calls, this function will be the pipeline orchestrator. Acceptable as the crate's entry-point dispatch hub.
+
+- [x] All tests from §01.2, §01.4, §01.5, §01.7, §01.8, §01.9 written and passing in both debug and release (2026-03-25). 127 tests pass in `cargo test -p ori_repr --lib` and `cargo test -p ori_repr --lib --release`.
 - [x] Semantic pin tests present (2026-03-24). `repr_c_semantic_pin`, `repr_attr_named_vs_struct_idx_independent`, `repr_c_plus_aligned_still_valid`, and per-subsection canonical/query tests.
 - [x] `./test-all.sh` green (2026-03-24). 13,799 passed, 0 failed.
 - [x] `./clippy-all.sh` green (2026-03-24).
+
+**[TPR-01-053] Full conditional-attribute matrix** — parser/IR/formatter completeness for spec §25:
+- [x] **IR**: Add missing fields to `TargetAttr` in `ori_ir/src/ast/items/function.rs`: `any_arch: Vec<Name>`, `not_arch: Option<Name>`, `not_family: Option<Name>` (2026-03-25)
+- [x] **Parser**: Add `any_os` match arm in `parse_target_attr_body()` — parse `any_os: ["v1", "v2"]` list syntax into `target.any_os: Vec<Name>` (2026-03-25). Extracted `parse_attr_string_value()` and `parse_attr_string_list()` helpers.
+- [x] **Parser**: Add `any_arch` match arm — parse list syntax into `target.any_arch: Vec<Name>` (2026-03-25)
+- [x] **Parser**: Add `not_arch` match arm — parse string into `target.not_arch: Option<Name>` (2026-03-25)
+- [x] **Parser**: Add `not_family` match arm — parse string into `target.not_family: Option<Name>` (2026-03-25)
+- [x] **Parser**: Add `any_feature` match arm in `parse_cfg_attr_body()` — parse `any_feature: ["v1", "v2"]` list syntax into `cfg.any_feature: Vec<Name>` (2026-03-25)
+- [x] **Formatter**: Add formatting for `any_arch`, `not_arch`, `not_family` in `format_file_attr()` target branch (2026-03-25)
+- [x] **Phase tests**: Add parse round-trip tests for all 5 new forms in `compiler/oric/tests/phases/parse/file_attr.rs` (2026-03-25). 8 new tests: any_os, any_arch, not_arch, not_family, any_feature, single-element list, trailing comma, combined params.
+- [x] **Spec tests**: Add `.ori` spec tests for `any_os`, `any_arch`, `not_arch`, `not_family`, `any_feature` (2026-03-25). 5 tests in `tests/spec/declarations/conditional/`.
+- [x] `./test-all.sh` green after conditional-attribute matrix completion (2026-03-25). 13,840 passed, 0 failed.
+- [x] `./clippy-all.sh` green after conditional-attribute matrix completion (2026-03-25). Refactored `format_file_attr()` into helpers `emit_attr_string_param()` and `emit_attr_string_list()` to stay under 100-line limit.
+
+**[TPR-01-054] Item-level conditional attributes** — thread `#target`/`#cfg` through AST nodes, formatter, and tests:
+- [x] **IR**: Add `target_attr: Option<TargetAttr>` and `cfg_attr: Option<CfgAttr>` fields to `Function` in `ori_ir/src/ast/items/function.rs` (2026-03-25). Spec §25.4 docs added.
+- [x] **IR**: Add `target_attr: Option<TargetAttr>` and `cfg_attr: Option<CfgAttr>` fields to `TypeDecl` in `ori_ir/src/ast/items/types.rs` (2026-03-25). Import `TargetAttr`/`CfgAttr` added.
+- [x] **Parser**: Copy `attrs.target` and `attrs.cfg` into `Function` during construction in `compiler/ori_parse/src/grammar/item/function/mod.rs` (2026-03-25). Also updated incremental copier.
+- [x] **Parser**: Copy `attrs.target` and `attrs.cfg` into `TypeDecl` during construction in `compiler/ori_parse/src/grammar/item/type_decl.rs` (2026-03-25). Also updated incremental copier.
+- [x] **Formatter**: Emit item-level `#target`/`#cfg` in `format_function()` and `format_type_decl()` (2026-03-25). Added `emit_item_target_attr()`/`emit_item_cfg_attr()` helpers in `mod.rs`. Emitted before `#derive`/`pub` per canonical attr order.
+- [x] **Phase tests**: 7 new tests in `compiler/oric/tests/phases/parse/file_attr.rs` (2026-03-25). Item-level `#target` and `#cfg` on functions and types, multi-field target, no-attrs baseline.
+- [x] **Spec tests**: 3 `.ori` spec tests in `tests/spec/declarations/conditional/` (2026-03-25): item_target_function, item_cfg_function, item_target_type.
+- [x] `./test-all.sh` green (2026-03-25). 13,903 passed, 0 failed.
+- [x] `./clippy-all.sh` green (2026-03-25).
+
+**[TPR-01-055] Feature name identifier validation** — enforce spec §25.3.2 identifier constraint:
+- [x] **Parser**: Add `is_valid_feature_name()` validator in `compiler/ori_parse/src/grammar/attr/conditional.rs` (2026-03-25). Checks first char is ASCII alphabetic/underscore, rest are ASCII alphanumeric/underscore. Empty strings rejected.
+- [x] **Parser**: Add `parse_feature_name_value()` and `parse_feature_name_list()` in `conditional.rs` (2026-03-25). These wrap `parse_attr_string_value`/`parse_attr_string_list` with identifier validation. `feature:`, `not_feature:`, `any_feature:` now route through these. Emit E0932 on invalid names.
+- [x] **Phase tests**: 11 new tests in `compiler/oric/tests/phases/parse/file_attr.rs` (2026-03-25). Valid names: `ssl`, `_private_feat`, `Feature123`. Invalid names: hyphen, digit-start, special chars, dot, empty string. Coverage for `feature:`, `not_feature:`, `any_feature:` contexts.
+- [x] **Spec tests**: 2 valid-feature-name `.ori` spec tests in `tests/spec/declarations/conditional/` (2026-03-25). Parse-level errors cannot use `#compile_fail` (file-level attribute errors precede test function discovery); negative cases covered by Rust phase tests.
+- [x] `./test-all.sh` green (2026-03-25). 13,896 passed, 0 failed.
+- [x] `./clippy-all.sh` green (2026-03-25).
+
+**[TPR-01-057] Attribute placement validation** — reject unsupported attrs on imports, constants, impls, traits, extends, extern:
+- [x] **Parser**: Add `ParsedAttrs::has_non_conditional_attrs()` and `non_conditional_attr_names()` helpers (2026-03-25).
+- [x] **Parser**: Add E1006 validation in `dispatch_declaration()` for impls, constants, traits, def impls, extends, extern blocks (2026-03-25).
+- [x] **Parser**: Add E1006 validation in `parse_imports()` for import statements (2026-03-25).
+- [x] **Phase tests**: 19 tests in `compiler/oric/tests/phases/parse/attr_validation.rs` (2026-03-25). Covers reject + accept + semantic pin for all item kinds.
+- [x] `./test-all.sh` green (2026-03-25). 13,933 passed, 0 failed.
+
+**[TPR-01-058] Formatter attr preservation** — fix destructive formatting for impl attrs and `#repr`:
+- [x] **Formatter**: Add `#target`/`#cfg` emission to `format_impl_with_comments()` matching `format_impl()` (2026-03-25).
+- [x] **Formatter**: Add `emit_repr_attr()` helper to `ModuleFormatter` for all `ReprAttrKind` variants (2026-03-25).
+- [x] **Formatter**: Add `#repr` emission to `format_type_decl()` between `#cfg` and `#derive` per canonical order (2026-03-25).
+- [x] **Golden tests**: 4 files: `types/repr_attr.ori`, `types/repr_with_target.ori`, `impls/conditional_attrs.ori`, `comments/edge/impl_conditional_attrs.ori` (2026-03-25).
+- [x] `./test-all.sh` green (2026-03-25). 13,933 passed, 0 failed.
 
 **Exit Criteria:** `ori_repr` crate exists, `ReprPlan` is threaded through the entire LLVM codegen pipeline, all existing tests pass with identical behavior, `cargo test -p ori_repr --release` passes, and `ORI_LOG=ori_repr=trace ori build tests/benchmarks/bench_small.ori` shows `ReprPlan query` events for every type in the program.

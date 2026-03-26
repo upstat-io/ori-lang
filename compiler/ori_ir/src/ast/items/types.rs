@@ -5,7 +5,7 @@
 //! # Salsa Compatibility
 //! All types have Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.
 
-use crate::{Name, ParsedType, Span, Spanned};
+use crate::{CfgAttr, Name, ParsedType, Span, Spanned, TargetAttr};
 
 use super::super::ranges::GenericParamRange;
 use super::super::Visibility;
@@ -62,6 +62,12 @@ pub struct TypeDecl {
     /// Multiple `#repr` attributes may be stacked (e.g., `#repr("c") #repr("aligned", 16)`).
     /// Combination validation and merging happens in type checking, not parsing.
     pub repr_attrs: Vec<ReprAttrKind>,
+    /// Item-level target attribute: `#target(os: "linux") type Handle = int`
+    /// Spec §25.4: Conditional compilation on types.
+    pub target_attr: Option<TargetAttr>,
+    /// Item-level cfg attribute: `#cfg(debug) type DebugConfig = { ... }`
+    /// Spec §25.4: Conditional compilation on types.
+    pub cfg_attr: Option<CfgAttr>,
 }
 
 impl Spanned for TypeDecl {

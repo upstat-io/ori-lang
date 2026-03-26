@@ -1,0 +1,4 @@
+// Spec §25.3.2: Feature names may start with underscore
+#!cfg(feature: "_private_feature")
+
+@main () -> void = print(msg: "underscore-start feature name accepted");

@@ -24,6 +24,7 @@ mod pool;
 mod registry;
 pub mod reporting;
 mod tag;
+pub mod triviality;
 mod type_error;
 mod unify;
 mod value_category;
@@ -73,6 +74,7 @@ pub use registry::{
 };
 pub use reporting::{render_type_errors, TypeErrorRenderer};
 pub use tag::Tag;
+pub use triviality::{classify_triviality, Triviality};
 pub use type_error::{
     diff_types, edit_distance, find_closest_field, suggest_field_typo, ArityMismatchKind,
     ContextKind, ErrorContext, Expected, ExpectedOrigin, ImportErrorKind, SequenceKind, Severity,

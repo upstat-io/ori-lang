@@ -43,19 +43,22 @@ pub struct TypeInfoStore<'tcx> {
     /// Pool reference for type property queries.
     pool: &'tcx Pool,
 
+    /// Whether triviality was pre-computed from a `ReprPlan` (§02 Phase B).
+    ///
+    /// When true, `triviality_cache` was populated from the plan at
+    /// construction time and `classify_trivial()` is never called.
+    has_repr_plan: bool,
+
     /// Cache for transitive triviality classification.
     ///
-    /// `true` = type has no ARC semantics (all fields transitively trivial).
-    // TODO(repr-opt §02): remove triviality_cache when §02 is complete —
-    // triviality migrates to ReprPlan.is_trivial()
+    /// When `has_repr_plan` is true, pre-populated from `ReprPlan::is_trivial()`
+    /// for all Pool types at construction. When false, populated lazily via
+    /// `classify_trivial()`.
     triviality_cache: RefCell<FxHashMap<Idx, bool>>,
 
-    /// Types currently being classified for triviality (cycle detection).
+    /// Types currently being classified for triviality (fallback path).
     ///
-    /// Recursive types are conservatively non-trivial since they require
-    /// heap indirection (pointers).
-    // TODO(repr-opt §02): remove classifying_trivial when §02 is complete —
-    // cycle detection migrates to ori_repr triviality analysis
+    /// Only used when `has_repr_plan` is false (test context).
     classifying_trivial: RefCell<FxHashSet<Idx>>,
 
     /// Types currently being computed in `compute_type_info()` (cycle detection).
@@ -67,9 +70,11 @@ pub struct TypeInfoStore<'tcx> {
 }
 
 impl<'tcx> TypeInfoStore<'tcx> {
-    /// Create a new store, pre-populating primitive type entries.
+    /// Create a new store without a `ReprPlan` (test/fallback path).
     ///
-    /// Indices 0-11 are real primitives; 12-63 are reserved (Error padding).
+    /// Triviality uses the local `classify_trivial()` walk. For production
+    /// paths, prefer [`new_with_plan()`] which pre-computes triviality from
+    /// `ReprPlan` — the single source of truth from repr-opt §02.
     pub fn new(pool: &'tcx Pool) -> Self {
         let mut entries = Vec::with_capacity(64);
         for i in 0..64u32 {
@@ -80,7 +85,39 @@ impl<'tcx> TypeInfoStore<'tcx> {
         Self {
             entries: RefCell::new(entries),
             pool,
+            has_repr_plan: false,
             triviality_cache: RefCell::new(FxHashMap::default()),
+            classifying_trivial: RefCell::new(FxHashSet::default()),
+            computing: RefCell::new(FxHashSet::default()),
+        }
+    }
+
+    /// Create a new store with triviality pre-computed from a `ReprPlan`.
+    ///
+    /// Production call sites (JIT + AOT) should use this constructor.
+    /// Queries `ReprPlan::is_trivial()` for all Pool types at construction
+    /// time, populating the triviality cache. After construction, `is_trivial()`
+    /// is O(1) cache lookup — no lazy walk needed.
+    pub fn new_with_plan(pool: &'tcx Pool, repr_plan: &ori_repr::ReprPlan) -> Self {
+        let mut entries = Vec::with_capacity(64);
+        for i in 0..64u32 {
+            let idx = Idx::from_raw(i);
+            let info = Self::primitive_type_info(pool, idx);
+            entries.push(Some(info));
+        }
+        // Pre-compute triviality for all Pool types from the plan.
+        let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+        let mut cache =
+            FxHashMap::with_capacity_and_hasher(pool_len as usize, rustc_hash::FxBuildHasher);
+        for raw in 0..pool_len {
+            let idx = Idx::from_raw(raw);
+            cache.insert(idx, repr_plan.is_trivial(idx));
+        }
+        Self {
+            entries: RefCell::new(entries),
+            pool,
+            has_repr_plan: true,
+            triviality_cache: RefCell::new(cache),
             classifying_trivial: RefCell::new(FxHashSet::default()),
             computing: RefCell::new(FxHashSet::default()),
         }
@@ -154,24 +191,26 @@ impl<'tcx> TypeInfoStore<'tcx> {
     /// Transitive triviality check: true if this type (and all its children)
     /// have no ARC semantics.
     ///
-    /// Unlike `TypeInfo::is_trivial()` which is conservative (all compound
-    /// types are non-trivial), this method walks child types transitively:
-    /// - `option[int]` → trivial (inner is scalar)
-    /// - `option[str]` → non-trivial (str has heap data)
-    /// - `(int, float)` → trivial (all elements scalar)
-    /// - `struct Point { x: int, y: int }` → trivial (all fields scalar)
-    /// - Recursive types → non-trivial (require heap indirection)
+    /// When a `ReprPlan` is available (production paths), delegates to
+    /// `ReprPlan::is_trivial()` — the single source of truth from §02.
+    /// Falls back to the local `classify_trivial()` walk when no plan
+    /// is available (test context).
     pub fn is_trivial(&self, idx: Idx) -> bool {
         // Sentinel
         if idx == Idx::NONE {
             return true;
         }
 
-        // Fast path: cache hit
+        // Fast path: cache hit (always populated when has_repr_plan is true).
         if let Some(&cached) = self.triviality_cache.borrow().get(&idx) {
             return cached;
         }
 
+        // Fallback path (tests without ReprPlan): local walk with cache.
+        debug_assert!(
+            !self.has_repr_plan,
+            "ReprPlan cache miss for {idx:?} — should have been pre-computed"
+        );
         let result = self.classify_trivial(idx);
         self.triviality_cache.borrow_mut().insert(idx, result);
         result
@@ -187,7 +226,9 @@ impl<'tcx> TypeInfoStore<'tcx> {
 
         let info = self.get(idx);
         let result = match &info {
-            // Scalar primitives are always trivial.
+            // Scalar primitives and Iterator (Box-allocated, no RC header —
+            // UnmanagedPtr) are always trivial. Iterator matches ArcClassifier
+            // (Scalar) and classify_triviality() (Trivial).
             TypeInfo::Int
             | TypeInfo::Float
             | TypeInfo::Bool
@@ -199,14 +240,14 @@ impl<'tcx> TypeInfoStore<'tcx> {
             | TypeInfo::Size
             | TypeInfo::Ordering
             | TypeInfo::Range
-            | TypeInfo::Error => true,
+            | TypeInfo::Error
+            | TypeInfo::Iterator { .. } => true,
 
-            // Heap-backed types are always non-trivial.
+            // Heap-backed RC-managed types are always non-trivial.
             TypeInfo::Str
             | TypeInfo::List { .. }
             | TypeInfo::Map { .. }
             | TypeInfo::Set { .. }
-            | TypeInfo::Iterator { .. }
             | TypeInfo::Channel { .. }
             | TypeInfo::Function { .. } => false,
 

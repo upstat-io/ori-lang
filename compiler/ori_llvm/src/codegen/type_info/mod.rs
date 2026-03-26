@@ -209,7 +209,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                     )
                     .into(),
             ),
-            MachineRepr::OpaquePtr | MachineRepr::RcPointer(_) => Some(self.scx.type_ptr().into()),
+            MachineRepr::OpaquePtr | MachineRepr::UnmanagedPtr | MachineRepr::RcPointer(_) => {
+                Some(self.scx.type_ptr().into())
+            }
             MachineRepr::Closure(_) => Some(
                 self.scx
                     .type_struct(

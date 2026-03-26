@@ -406,3 +406,64 @@ fn rc_strategy_set_is_heap_pointer() {
         RcStrategy::HeapPointer,
     );
 }
+
+// §02.3 regression: trivial compound types get Scalar repr after triviality unification.
+
+#[test]
+fn compute_var_reprs_trivial_compounds_are_scalar() {
+    let mut pool = Pool::new();
+    let opt_int = pool.option(Idx::INT);
+    let tuple_trivial = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::BOOL]);
+    let result_trivial = pool.result(Idx::INT, Idx::ORDERING);
+
+    let func = ArcFunction {
+        name: Name::from_raw(100),
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: opt_int,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(1),
+                ty: tuple_trivial,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(2),
+                ty: result_trivial,
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: Idx::UNIT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![opt_int, tuple_trivial, result_trivial],
+        var_reprs: Vec::new(),
+        spans: vec![Vec::new()],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
+        tail_calls: Vec::new(),
+    };
+
+    let classifier = ArcClassifier::new(&pool);
+    let reprs = compute_var_reprs(&func, &classifier, &pool);
+
+    assert_eq!(reprs.len(), 3);
+    assert_eq!(reprs[0], ValueRepr::Scalar, "Option<int> → Scalar");
+    assert_eq!(reprs[1], ValueRepr::Scalar, "(int, float, bool) → Scalar");
+    assert_eq!(
+        reprs[2],
+        ValueRepr::Scalar,
+        "Result<int, Ordering> → Scalar"
+    );
+}

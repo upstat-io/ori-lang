@@ -1,6 +1,7 @@
 //! Impl block parsing.
 
 use crate::context::ParseContext;
+use crate::grammar::attr::ParsedAttrs;
 use crate::{committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     DefImplDef, GenericParamRange, ImplAssocType, ImplDef, ImplMethod, ParsedTypeRange, TokenKind,
@@ -13,7 +14,7 @@ impl Parser<'_> {
     /// Syntax: impl [<T>] Type { methods } or impl [<T>] Trait for Type { methods }
     ///
     /// Returns `EmptyErr` if no `impl` keyword is present.
-    pub(crate) fn parse_impl(&mut self) -> ParseOutcome<ImplDef> {
+    pub(crate) fn parse_impl(&mut self, attrs: ParsedAttrs) -> ParseOutcome<ImplDef> {
         if !self.cursor.check(&TokenKind::Impl) {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Impl,
@@ -21,10 +22,10 @@ impl Parser<'_> {
             );
         }
 
-        self.in_error_context(crate::ErrorContext::ImplBlock, Self::parse_impl_body)
+        self.in_error_context(crate::ErrorContext::ImplBlock, |p| p.parse_impl_body(attrs))
     }
 
-    fn parse_impl_body(&mut self) -> ParseOutcome<ImplDef> {
+    fn parse_impl_body(&mut self, attrs: ParsedAttrs) -> ParseOutcome<ImplDef> {
         let start_span = self.cursor.current_span();
         committed!(self.cursor.expect(&TokenKind::Impl));
 
@@ -108,6 +109,8 @@ impl Parser<'_> {
             methods,
             assoc_types,
             span: start_span.merge(end_span),
+            target_attr: attrs.target,
+            cfg_attr: attrs.cfg,
         })
     }
 

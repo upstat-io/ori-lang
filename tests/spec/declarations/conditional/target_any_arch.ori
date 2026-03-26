@@ -1,0 +1,4 @@
+// Spec §25.2.5: any_arch takes a list of architecture names (OR condition)
+#!target(any_arch: ["x86_64", "aarch64"])
+
+@main () -> void = print(msg: "target any_arch parses correctly");

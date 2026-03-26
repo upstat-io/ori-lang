@@ -135,6 +135,12 @@ pub struct Function {
     pub visibility: Visibility,
     /// Whether this function is annotated `#fbip` for constructor-reuse enforcement.
     pub is_fbip: bool,
+    /// Item-level target attribute: `#target(os: "linux") @f () -> void = ...`
+    /// Spec §25.4: Conditional compilation on functions.
+    pub target_attr: Option<TargetAttr>,
+    /// Item-level cfg attribute: `#cfg(debug) @f () -> void = ...`
+    /// Spec §25.4: Conditional compilation on functions.
+    pub cfg_attr: Option<CfgAttr>,
 }
 
 impl fmt::Debug for Function {
@@ -276,6 +282,12 @@ pub struct ConstDef {
     pub span: Span,
     /// Visibility of this constant (`pub let $name = ...` or private).
     pub visibility: Visibility,
+    /// Item-level target attribute: `#target(os: "linux") let $name = ...`
+    /// Spec §25.4: Conditional compilation on constants.
+    pub target_attr: Option<TargetAttr>,
+    /// Item-level cfg attribute: `#cfg(debug) let $name = ...`
+    /// Spec §25.4: Conditional compilation on constants.
+    pub cfg_attr: Option<CfgAttr>,
 }
 
 impl Spanned for ConstDef {
@@ -295,6 +307,9 @@ impl Spanned for ConstDef {
 /// #!target(os: "linux")
 /// #!target(os: "linux", arch: "x86_64")
 /// #target(not_os: "windows")
+/// #target(any_os: ["linux", "macos"])
+/// #target(not_arch: "wasm32")
+/// #target(not_family: "wasm")
 /// ```
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct TargetAttr {
@@ -302,7 +317,10 @@ pub struct TargetAttr {
     pub arch: Option<Name>,
     pub family: Option<Name>,
     pub any_os: Vec<Name>,
+    pub any_arch: Vec<Name>,
     pub not_os: Option<Name>,
+    pub not_arch: Option<Name>,
+    pub not_family: Option<Name>,
 }
 
 /// Config conditional compilation attribute.
