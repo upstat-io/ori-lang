@@ -37,6 +37,20 @@ pub(crate) fn populate_canonical(plan: &mut ReprPlan, pool: &Pool) {
     for raw in 0..Idx::PRIMITIVE_COUNT {
         let idx = Idx::from_raw(raw);
         if idx == Idx::ERROR {
+            // ERROR is a sentinel type — not a real type that reaches codegen.
+            // Canonicalize as Unit (zero-size, trivial) so ReprPlan::is_trivial()
+            // returns true, matching classify_triviality() and ArcClassifier.
+            // Without this, is_trivial(ERROR) falls through to None→false,
+            // creating triviality drift (TPR-02-005).
+            plan.set_repr(
+                idx,
+                ReprDecision {
+                    source: DecisionSource::Canonical,
+                    type_idx: idx,
+                    repr: MachineRepr::Unit,
+                    reason: DecisionReason::Canonical,
+                },
+            );
             continue;
         }
         // Primitives always have a canonical representation.

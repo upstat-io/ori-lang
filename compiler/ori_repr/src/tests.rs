@@ -1721,10 +1721,10 @@ fn compute_repr_plan_populates_primitives() {
         plan.get_repr(Idx::ORDERING).is_some(),
         "Ordering must be populated"
     );
-    // Error type should NOT be populated.
+    // Error type IS populated as Unit (TPR-02-005: trivial sentinel).
     assert!(
-        plan.get_repr(Idx::ERROR).is_none(),
-        "Error must not be populated"
+        plan.get_repr(Idx::ERROR).is_some(),
+        "Error must be populated as Unit (TPR-02-005)"
     );
 }
 
@@ -1778,12 +1778,10 @@ fn compute_repr_plan_zero_behavioral_change_with_disabled() {
     let pool = ori_types::Pool::new();
     let plan_aggressive = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
     let plan_disabled = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
-    // Both should produce the same canonical repr for every primitive.
+    // Both should produce the same canonical repr for every primitive
+    // (including ERROR, which is canonicalized as Unit — TPR-02-005).
     for raw in 0..Idx::PRIMITIVE_COUNT {
         let idx = Idx::from_raw(raw);
-        if idx == Idx::ERROR {
-            continue;
-        }
         assert_eq!(
             plan_aggressive.get_repr(idx),
             plan_disabled.get_repr(idx),
@@ -2761,5 +2759,49 @@ fn analyze_triviality_validation_zero_mismatches() {
     assert!(
         plan.is_trivial(enum_trivial),
         "enum {{unit, int}} should be trivial"
+    );
+}
+
+// §02 TPR-02-005: Idx::ERROR must be trivial in ReprPlan (parity with classify_triviality)
+
+#[test]
+fn repr_plan_error_type_is_trivial() {
+    // TPR-02-005 semantic pin: ReprPlan::is_trivial(Idx::ERROR) must return true,
+    // matching classify_triviality(Idx::ERROR) which returns Triviality::Trivial.
+    // ERROR is a sentinel type that should never trigger RC operations.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    assert!(
+        plan.is_trivial(Idx::ERROR),
+        "Idx::ERROR must be trivial — matches classify_triviality() and ArcClassifier"
+    );
+}
+
+#[test]
+fn repr_plan_error_type_has_canonical_repr() {
+    // TPR-02-005: ERROR must have a canonical repr so is_trivial() doesn't
+    // fall through to the None->false default.
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+    assert!(
+        plan.get_repr(Idx::ERROR).is_some(),
+        "Idx::ERROR must have a canonical representation"
+    );
+}
+
+#[test]
+fn repr_plan_error_triviality_matches_classify_triviality() {
+    // TPR-02-005 parity test: ReprPlan and classify_triviality() must agree
+    // for the ERROR sentinel.
+    use ori_types::triviality::{classify_triviality, Triviality};
+
+    let pool = ori_types::Pool::new();
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
+
+    let plan_trivial = plan.is_trivial(Idx::ERROR);
+    let classify_trivial = classify_triviality(Idx::ERROR, &pool) == Triviality::Trivial;
+    assert_eq!(
+        plan_trivial, classify_trivial,
+        "ReprPlan::is_trivial(ERROR) = {plan_trivial}, classify_triviality(ERROR) = {classify_trivial} — must agree"
     );
 }

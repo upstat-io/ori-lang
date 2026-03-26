@@ -564,6 +564,9 @@ Generic types interact with triviality classification in a specific way: trivial
 - [x] `[TPR-02-004][medium]` `compiler/ori_llvm/src/codegen/type_info/store.rs:219` — §02 is marked complete, but `ori_llvm` still carries and tests stale fallback triviality logic instead of fully converging on the plan-backed path.
   Resolved: Accepted on 2026-03-25. Finding validated — 121 test sites use `new()` (fallback), 1 production site uses `new_with_plan()`. Remediation tasks added to §02.7 below.
 
+- [x] `[TPR-02-005][medium]` `compiler/ori_llvm/src/codegen/type_info/store.rs:101` — The plan-backed `TypeInfoStore` cache still diverges from `classify_triviality()` for pool entries with no canonical `ReprPlan` entry, so §02 is not fully single-source-of-truth yet.
+  Resolved: Fixed on 2026-03-25. `populate_canonical()` now inserts `MachineRepr::Unit` for `Idx::ERROR` instead of skipping it. `Unit` is trivial (`is_trivial_repr` returns `true`), matching `classify_triviality()` and `ArcClassifier`. Three parity tests added: `repr_plan_error_type_is_trivial`, `repr_plan_error_type_has_canonical_repr`, `repr_plan_error_triviality_matches_classify_triviality`. 13,986 tests pass, 0 failures.
+
 ---
 
 ## 02.7 Completion Checklist
