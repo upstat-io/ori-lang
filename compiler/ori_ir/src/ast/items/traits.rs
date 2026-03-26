@@ -7,7 +7,7 @@
 
 use super::super::ranges::{GenericParamRange, ParamRange};
 use super::super::Visibility;
-use crate::{ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned};
+use crate::{CfgAttr, ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned, TargetAttr};
 
 /// Generic parameter: type param (`T`, `T: Bound`) or const param (`$N: int`).
 ///
@@ -272,6 +272,12 @@ pub struct ImplDef {
     /// Associated type definitions (e.g., `type Item = T`).
     pub assoc_types: Vec<ImplAssocType>,
     pub span: Span,
+    /// Item-level target attribute: `#target(os: "linux") impl Socket: FileDescriptor { ... }`
+    /// Spec §25.4: Conditional compilation on trait implementations.
+    pub target_attr: Option<TargetAttr>,
+    /// Item-level cfg attribute: `#cfg(debug) impl Logger: Verbose { ... }`
+    /// Spec §25.4: Conditional compilation on trait implementations.
+    pub cfg_attr: Option<CfgAttr>,
 }
 
 impl ImplDef {

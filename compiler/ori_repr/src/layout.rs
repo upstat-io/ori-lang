@@ -27,7 +27,8 @@ pub(crate) fn is_trivial_repr(repr: &MachineRepr) -> bool {
         | MachineRepr::Ordering
         | MachineRepr::Unit
         | MachineRepr::Never
-        | MachineRepr::Range => true,
+        | MachineRepr::Range
+        | MachineRepr::UnmanagedPtr => true,
         MachineRepr::Struct(s) => s.trivial,
         MachineRepr::Tuple(t) => t.trivial,
         MachineRepr::Enum(e) => e
@@ -81,7 +82,8 @@ pub(crate) fn repr_size(repr: &MachineRepr) -> u32 {
         | MachineRepr::Unit
         | MachineRepr::Never
         | MachineRepr::RcPointer(_)
-        | MachineRepr::OpaquePtr => 8,
+        | MachineRepr::OpaquePtr
+        | MachineRepr::UnmanagedPtr => 8,
         MachineRepr::Struct(s) => s.size,
         MachineRepr::Enum(e) => e.size,
         MachineRepr::Tuple(t) => t.size,
@@ -107,7 +109,8 @@ pub(crate) fn repr_align(repr: &MachineRepr) -> u32 {
         | MachineRepr::Closure(_)
         | MachineRepr::Range
         | MachineRepr::RcPointer(_)
-        | MachineRepr::OpaquePtr => 8,
+        | MachineRepr::OpaquePtr
+        | MachineRepr::UnmanagedPtr => 8,
         MachineRepr::Struct(s) => s.align,
         MachineRepr::Enum(e) => e.align,
         MachineRepr::Tuple(t) => t.align,

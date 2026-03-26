@@ -13,6 +13,14 @@ use super::ModuleFormatter;
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a function declaration including signature and body.
     pub fn format_function(&mut self, func: &Function) {
+        // Item-level conditional attributes (Spec §25.4)
+        if let Some(ref target) = func.target_attr {
+            self.emit_item_target_attr(target);
+        }
+        if let Some(ref cfg) = func.cfg_attr {
+            self.emit_item_cfg_attr(cfg);
+        }
+
         // Visibility
         if func.visibility == Visibility::Public {
             self.ctx.emit("pub ");

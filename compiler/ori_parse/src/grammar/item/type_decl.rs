@@ -98,6 +98,8 @@ impl Parser<'_> {
             visibility,
             derives: attrs.derive_traits,
             repr_attrs: attrs.repr_attrs.iter().map(convert_repr_attr).collect(),
+            target_attr: attrs.target,
+            cfg_attr: attrs.cfg,
         })
     }
 

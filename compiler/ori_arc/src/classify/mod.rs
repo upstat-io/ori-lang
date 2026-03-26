@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use ori_types::{Idx, Pool, Tag};
+use ori_types::{Idx, Pool};
 
 use crate::{ArcClass, ArcClassification};
 
@@ -148,108 +148,21 @@ impl<'pool> ArcClassifier<'pool> {
         }
     }
 
-    /// Classify a non-primitive type by its Pool tag.
+    /// Classify a non-primitive type by delegating to the canonical
+    /// `classify_triviality()` in `ori_types`.
+    ///
+    /// This is the single-source-of-truth unification (§02.1): all
+    /// classification logic lives in `ori_types::triviality`, and
+    /// `ArcClassifier` maps the result to `ArcClass`.
+    ///
+    /// Mapping: `Trivial → Scalar`, `NonTrivial → DefiniteRef`,
+    /// `Unknown → PossibleRef`.
     fn classify_by_tag(&self, idx: Idx) -> ArcClass {
-        match self.pool.tag(idx) {
-            // Scalars: primitives (caught by fast path, but handle gracefully)
-            // and iterators (runtime-managed lifecycle — heap-allocated with
-            // Box::new, NOT ori_rc_alloc, so they lack RC headers).
-            Tag::Int
-            | Tag::Float
-            | Tag::Bool
-            | Tag::Char
-            | Tag::Byte
-            | Tag::Unit
-            | Tag::Never
-            | Tag::Error
-            | Tag::Duration
-            | Tag::Size
-            | Tag::Ordering
-            | Tag::Iterator
-            | Tag::DoubleEndedIterator => ArcClass::Scalar,
-
-            // DefiniteRef: heap-allocated or closure types
-            Tag::Str | Tag::List | Tag::Map | Tag::Set | Tag::Channel | Tag::Function => {
-                ArcClass::DefiniteRef
-            }
-
-            // Transitive: single child
-            Tag::Option => self.classify(self.pool.option_inner(idx)),
-            Tag::Range => self.classify(self.pool.range_elem(idx)),
-
-            // Transitive: two children
-            Tag::Result => {
-                self.classify_children(&[self.pool.result_ok(idx), self.pool.result_err(idx)])
-            }
-
-            // Transitive: variable children
-            Tag::Tuple => self.classify_children(&self.pool.tuple_elems(idx)),
-
-            Tag::Struct => {
-                let fields = self.pool.struct_fields(idx);
-                let field_types: Vec<Idx> = fields.into_iter().map(|(_, ty)| ty).collect();
-                self.classify_children(&field_types)
-            }
-
-            Tag::Enum => {
-                let variants = self.pool.enum_variants(idx);
-                let all_field_types: Vec<Idx> = variants
-                    .into_iter()
-                    .flat_map(|(_, fields)| fields)
-                    .collect();
-                self.classify_children(&all_field_types)
-            }
-
-            // Named type resolution: use resolve_fully() to handle
-            // Applied types with Var args (from monomorphization) and
-            // Named types that need Applied→Named fallback.
-            Tag::Named | Tag::Applied | Tag::Alias => {
-                let resolved = self.pool.resolve_fully(idx);
-                if resolved == idx {
-                    // Unresolved named type — conservative fallback.
-                    ArcClass::PossibleRef
-                } else {
-                    self.classify(resolved)
-                }
-            }
-
-            // Type variables, borrowed references, schemes, and special types (conservative)
-            Tag::Var
-            | Tag::BoundVar
-            | Tag::RigidVar
-            | Tag::Borrowed
-            | Tag::Scheme
-            | Tag::Projection
-            | Tag::ModuleNs
-            | Tag::Infer
-            | Tag::SelfType => ArcClass::PossibleRef,
-        }
-    }
-
-    /// Classify a compound type by its children.
-    ///
-    /// The transitive rule: if ANY child is `DefiniteRef`, the compound is
-    /// `DefiniteRef`. If ANY child is `PossibleRef` (and none is `DefiniteRef`),
-    /// the compound is `PossibleRef`. Otherwise `Scalar`.
-    ///
-    /// After monomorphization, all children should be concrete, so the result
-    /// is always either `Scalar` or `DefiniteRef`.
-    fn classify_children(&self, children: &[Idx]) -> ArcClass {
-        let mut has_possible = false;
-
-        for &child in children {
-            match self.classify(child) {
-                ArcClass::Scalar => {}
-                // Short-circuit: DefiniteRef is the "strongest" classification.
-                ArcClass::DefiniteRef => return ArcClass::DefiniteRef,
-                ArcClass::PossibleRef => has_possible = true,
-            }
-        }
-
-        if has_possible {
-            ArcClass::PossibleRef
-        } else {
-            ArcClass::Scalar
+        use ori_types::triviality::{classify_triviality, Triviality};
+        match classify_triviality(idx, self.pool) {
+            Triviality::Trivial => ArcClass::Scalar,
+            Triviality::NonTrivial => ArcClass::DefiniteRef,
+            Triviality::Unknown => ArcClass::PossibleRef,
         }
     }
 }

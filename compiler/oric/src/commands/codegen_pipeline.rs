@@ -260,7 +260,6 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // SAFETY: Detached reference to scx — see comment above.
         let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
-        let store = TypeInfoStore::new(pool);
         let eh_model = target_triple.map_or(EhModel::Itanium, EhModel::from_triple);
         let mut builder = IrBuilder::new_aot(scx_ref, eh_model);
 
@@ -308,7 +307,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // 3a. Compute representation plan (§01 — canonical reprs only).
         // Must run AFTER borrow inference (signature accepts ArcFunctions for
         // §03 range analysis and §08 escape analysis) and BEFORE codegen
-        // (TypeLayoutResolver reads the plan for LLVM type decisions).
+        // (TypeLayoutResolver and TypeInfoStore read the plan).
         let all_arc_funcs: Vec<ori_arc::ArcFunction> = arc_cache
             .values()
             .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
@@ -324,6 +323,8 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         let repr_plan =
             ori_repr::compute_repr_plan(pool, &all_arc_funcs, narrowing_policy, &repr_attrs);
 
+        // Create type store with repr plan for triviality delegation (§02 Phase B).
+        let store = TypeInfoStore::new_with_plan(pool, &repr_plan);
         // Create type resolver with the repr plan.
         let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
 

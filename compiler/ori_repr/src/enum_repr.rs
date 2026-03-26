@@ -61,7 +61,10 @@ impl VariantRepr {
         self.fields.len() == 1
             && matches!(
                 &self.fields[0],
-                MachineRepr::RcPointer(_) | MachineRepr::FatPointer(_) | MachineRepr::OpaquePtr
+                MachineRepr::RcPointer(_)
+                    | MachineRepr::FatPointer(_)
+                    | MachineRepr::OpaquePtr
+                    | MachineRepr::UnmanagedPtr
             )
     }
 }

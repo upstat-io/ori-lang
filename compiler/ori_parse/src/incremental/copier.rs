@@ -1,14 +1,15 @@
 //! Deep copier for AST nodes with span adjustment.
 
+use super::decl::{DeclKind, DeclRef};
 use ori_ir::incremental::ChangeMarker;
 use ori_ir::{
     ast::{BindingPattern, FunctionExp, FunctionSeq, MatchArm, MatchPattern},
     CallArg, CapabilityRef, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef,
     ExternBlock, ExternItem, ExternParam, FieldInit, Function, GenericParam, ImplAssocType,
-    ImplDef, ImplMethod, MapEntry, MatchPatternId, MatchPatternRange, Name, NamedExpr, Param,
-    ParsedType, ParsedTypeId, ParsedTypeRange, PostContract, PreContract, Span, Stmt, StmtKind,
-    TemplatePart, TemplatePartRange, TestDef, TraitAssocType, TraitDef, TraitDefaultMethod,
-    TraitItem, TraitMethodSig, TypeDecl, UseDef, WhereClause,
+    ImplDef, ImplMethod, MapEntry, MatchPatternId, MatchPatternRange, Module, Name, NamedExpr,
+    Param, ParsedType, ParsedTypeId, ParsedTypeRange, PostContract, PreContract, Span, Stmt,
+    StmtKind, TemplatePart, TemplatePartRange, TestDef, TraitAssocType, TraitDef,
+    TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, UseDef, WhereClause,
 };
 
 /// Deep copier for AST nodes with span adjustment.
@@ -29,6 +30,72 @@ impl<'old> AstCopier<'old> {
     /// Adjust a span from old positions to new positions.
     fn adjust_span(&self, span: Span) -> Span {
         self.marker.adjust_span(span).unwrap_or(span)
+    }
+
+    /// Copy a reusable declaration from the old module to the new module.
+    ///
+    /// Dispatches by `DeclKind`, copying the declaration and adjusting spans
+    /// via the change marker. Used by the incremental parser's reuse path.
+    pub fn copy_declaration_to_module(
+        &self,
+        decl_ref: DeclRef,
+        old_module: &Module,
+        new_module: &mut Module,
+        new_arena: &mut ExprArena,
+    ) {
+        match decl_ref.kind {
+            DeclKind::Function => {
+                let old = &old_module.functions[decl_ref.index];
+                new_module
+                    .functions
+                    .push(self.copy_function(old, new_arena));
+            }
+            DeclKind::Test => {
+                let old = &old_module.tests[decl_ref.index];
+                new_module.tests.push(self.copy_test(old, new_arena));
+            }
+            DeclKind::Type => {
+                let old = &old_module.types[decl_ref.index];
+                new_module.types.push(self.copy_type_decl(old, new_arena));
+            }
+            DeclKind::Trait => {
+                let old = &old_module.traits[decl_ref.index];
+                new_module.traits.push(self.copy_trait(old, new_arena));
+            }
+            DeclKind::Impl => {
+                let old = &old_module.impls[decl_ref.index];
+                new_module.impls.push(self.copy_impl(old, new_arena));
+            }
+            DeclKind::DefImpl => {
+                let old = &old_module.def_impls[decl_ref.index];
+                new_module
+                    .def_impls
+                    .push(self.copy_def_impl(old, new_arena));
+            }
+            DeclKind::Extend => {
+                let old = &old_module.extends[decl_ref.index];
+                new_module.extends.push(self.copy_extend(old, new_arena));
+            }
+            DeclKind::Const => {
+                let old = &old_module.consts[decl_ref.index];
+                new_module.consts.push(self.copy_const(old, new_arena));
+            }
+            DeclKind::ExtensionImport => {
+                let old = &old_module.extension_imports[decl_ref.index];
+                new_module
+                    .extension_imports
+                    .push(self.copy_extension_import(old));
+            }
+            DeclKind::ExternBlock => {
+                let old = &old_module.extern_blocks[decl_ref.index];
+                new_module
+                    .extern_blocks
+                    .push(self.copy_extern_block(old, new_arena));
+            }
+            DeclKind::Import => {
+                unreachable!("imports should not appear in declaration list");
+            }
+        }
     }
 
     /// Copy an expression tree recursively, allocating in the new arena.
@@ -1048,6 +1115,8 @@ impl<'old> AstCopier<'old> {
             span: self.adjust_span(func.span),
             visibility: func.visibility,
             is_fbip: func.is_fbip,
+            target_attr: func.target_attr.clone(),
+            cfg_attr: func.cfg_attr.clone(),
         }
     }
 
@@ -1098,6 +1167,8 @@ impl<'old> AstCopier<'old> {
             visibility: decl.visibility,
             derives: decl.derives.clone(),
             repr_attrs: decl.repr_attrs.clone(),
+            target_attr: decl.target_attr.clone(),
+            cfg_attr: decl.cfg_attr.clone(),
         }
     }
 
@@ -1288,6 +1359,8 @@ impl<'old> AstCopier<'old> {
             methods: new_methods,
             assoc_types: new_assoc_types,
             span: self.adjust_span(impl_def.span),
+            target_attr: impl_def.target_attr.clone(),
+            cfg_attr: impl_def.cfg_attr.clone(),
         }
     }
 
@@ -1378,6 +1451,8 @@ impl<'old> AstCopier<'old> {
             value: self.copy_expr(const_def.value, new_arena),
             span: self.adjust_span(const_def.span),
             visibility: const_def.visibility,
+            target_attr: const_def.target_attr.clone(),
+            cfg_attr: const_def.cfg_attr.clone(),
         }
     }
 
@@ -1458,6 +1533,8 @@ impl<'old> AstCopier<'old> {
             module_alias: use_def.module_alias,
             visibility: use_def.visibility,
             span: self.adjust_span(use_def.span),
+            target_attr: use_def.target_attr.clone(),
+            cfg_attr: use_def.cfg_attr.clone(),
         }
     }
 

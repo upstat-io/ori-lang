@@ -1,0 +1,5 @@
+// Spec §25.4: Item-level #target on functions
+#target(os: "linux")
+@platform_func () -> void = print(msg: "linux only");
+
+@main () -> void = print(msg: "item-level target on function accepted");

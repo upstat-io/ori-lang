@@ -1,0 +1,5 @@
+// Spec §25.4: Item-level #cfg on functions
+#cfg(debug)
+@debug_func () -> void = print(msg: "debug only");
+
+@main () -> void = print(msg: "item-level cfg on function accepted");

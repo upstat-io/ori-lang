@@ -85,6 +85,7 @@ define_error_codes! {
     E0014, "Decimal not representable as whole base units";
     E0015, "Reserved-future keyword used as identifier";
     E0911, "Floating-point duration/size literal not supported";
+    E0932, "Invalid feature name";
 
     // Parser Errors (E1xxx)
     E1001, "Unexpected token";
