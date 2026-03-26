@@ -103,6 +103,7 @@ For each bullet:
 - Never say "Internal improvements and maintenance" — every change gets a meaningful description
 - Skip "nightly" automation PRs — focus on substantive changes
 - Do not reproduce test plan checklists — focus on what changed, not how it was tested
+- **TPR (Third-Party Review) findings are NOT bug fixes.** TPR items are proactive quality discoveries from structured code review during development — they are hardening, not corrections to shipped behavior. Classify TPR findings as **Improvements** (tightened validation, hardened edge cases, better diagnostics) or **Compiler Internals** (structural fixes, code quality). Only classify a TPR as a Bug Fix if it reveals actually broken user-visible behavior that existed in a prior release.
 
 ## Input
 
