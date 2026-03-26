@@ -21,7 +21,7 @@ use ori_arc::graph::{compute_postorder, compute_predecessors};
 use ori_arc::ir::{ArcBlock, ArcFunction, ArcTerminator};
 use ori_arc::{ArcBlockId, ArcVarId};
 use ori_types::Pool;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::conditional::refine_from_branch;
 use super::field_summary::{update_field_summaries, FieldSummaryTable};
@@ -127,6 +127,48 @@ fn merge_block_params(
         changed |= update_range(ranges, *param_var, merged, iteration);
     }
     changed
+}
+
+/// Apply block-entry refinements to non-parameter variables as a temporary
+/// overlay. Returns a vec of `(var, original_range)` pairs for later restoration.
+///
+/// Branch/Switch terminators produce refinements for specific variables in
+/// successor blocks. Block parameters get refined during `merge_block_params`,
+/// but non-parameter variables that are live across the branch also need
+/// refinement during body processing. Since non-param variables share a
+/// single global range entry, we apply the refinement temporarily and restore
+/// afterward. See TPR-03-015.
+fn apply_block_refinements(
+    block: &ArcBlock,
+    ranges: &mut FxHashMap<ArcVarId, ValueRange>,
+    block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
+) -> Vec<(ArcVarId, ValueRange)> {
+    let mut saved: Vec<(ArcVarId, ValueRange)> = Vec::new();
+    let param_vars: FxHashSet<ArcVarId> = block.params.iter().map(|(v, _)| *v).collect();
+
+    for (&(ref_block, ref_var), &refinement) in block_refinements {
+        if ref_block != block.id || param_vars.contains(&ref_var) {
+            continue;
+        }
+        if let Some(&current) = ranges.get(&ref_var) {
+            let refined = current.meet(refinement);
+            if refined != current {
+                saved.push((ref_var, current));
+                ranges.insert(ref_var, refined);
+            }
+        }
+    }
+    saved
+}
+
+/// Restore ranges that were temporarily refined for a block.
+fn restore_block_refinements(
+    ranges: &mut FxHashMap<ArcVarId, ValueRange>,
+    saved: Vec<(ArcVarId, ValueRange)>,
+) {
+    for (var, original) in saved {
+        ranges.insert(var, original);
+    }
 }
 
 /// Process a block's terminator: `Invoke` defines a variable,
@@ -278,6 +320,9 @@ pub fn range_fixpoint(
                 iteration,
             );
 
+            // Step 1.5: Temporarily apply refinements to non-parameter vars.
+            let saved = apply_block_refinements(block, &mut ranges, &block_refinements);
+
             for instr in &block.body {
                 update_field_summaries(
                     instr,
@@ -297,6 +342,9 @@ pub fn range_fixpoint(
                     changed |= update_range(&mut ranges, var, new_range, iteration);
                 }
             }
+
+            // Restore pre-refinement ranges for non-parameter variables.
+            restore_block_refinements(&mut ranges, saved);
 
             changed |= process_terminator(
                 block,
@@ -323,6 +371,22 @@ pub fn range_fixpoint(
     );
 
     run_narrowing_pass(&rpo, func, pool, &mut ranges, &field_summary_table);
+
+    // Recompute field summaries from final (post-narrowing) ranges.
+    // During the fixpoint loop, field summaries may accumulate wider
+    // ranges from pre-convergence iterations. See TPR-03-016.
+    field_summary_table.clear();
+    for &block_idx in &rpo {
+        for instr in &func.blocks[block_idx].body {
+            update_field_summaries(
+                instr,
+                &ranges,
+                &func.var_types,
+                pool,
+                &mut field_summary_table,
+            );
+        }
+    }
 
     RangeFixpointResult {
         var_ranges: ranges,
