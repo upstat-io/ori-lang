@@ -1906,13 +1906,18 @@ fn trim_all_whitespace() {
 #[test]
 fn replace_same_length_heap_inplace() {
     let _g = lock_rc();
-    let before = ori_rc_live_count();
     let s = OriStr::from_heap(b"hello world, hello earth!");
+    let original_data = unsafe { s.heap.data };
     let from = OriStr::from_sso(b"hello");
     let to = OriStr::from_sso(b"HELLO");
     let result = ori_str_replace(&s, &from, &to);
     assert_eq!(unsafe { result.as_str() }, "HELLO world, HELLO earth!");
-    assert_eq!(ori_rc_live_count(), before + 1);
+    // In-place: result reuses the same buffer (pointer equality)
+    assert_eq!(
+        unsafe { result.heap.data },
+        original_data,
+        "expected in-place replacement (same data pointer)"
+    );
     free_heap_str(&result);
 }
 
