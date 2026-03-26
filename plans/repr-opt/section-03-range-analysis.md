@@ -6,6 +6,7 @@ reviewed: true
 third_party_review:
   status: findings
   updated: 2026-03-25
+  triage_note: "TPR-03-008/009/010 validated and accepted on 2026-03-25. Implementation tasks added to §03.2."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -19,7 +20,7 @@ sections:
     status: in-progress
   - id: "03.2"
     title: "Transfer Functions"
-    status: complete
+    status: in-progress
   - id: "03.2b"
     title: "Field-Summary Infrastructure"
     status: complete
@@ -378,6 +379,9 @@ Transfer functions describe how each operation transforms value ranges.
 - [x] **File size check** (470 lines, under 500 limit): if `transfer.rs` exceeds ~450 lines during implementation, proactively split into `compiler/ori_repr/src/range/transfer/mod.rs` (dispatcher + `transfer_primop`), `transfer/arithmetic.rs` (`range_add` through `range_neg`, `range_floordiv`, `range_abs`), and `transfer/bitwise.rs` (`range_bitand` through `range_shr`, `range_bitnot`). Update `range/mod.rs` module declarations accordingly.
 - [x] **[TPR-03-004] Fix `range_div()` / `range_floordiv()` panic on `i64::MIN / -1`** (2026-03-25) — replaced raw `/` with `checked_div()` for all 4 corners; any `None` → `Top`. 4 regression tests: exact MIN/-1, range containing MIN/-1, MIN/positive (no overflow), floordiv delegation. Debug + release green.
 - [x] **[TPR-03-005] Fix `range_bitnot()` panic on `i64::MIN` endpoints** (2026-03-25) — replaced unchecked `(-hi).checked_sub(1)` with `hi.checked_neg().and_then(|v| v.checked_sub(1))` (matches `range_neg()` pattern). 4 regression tests: exact MIN, range containing MIN, i64::MAX (valid), negative range. Debug + release green.
+- [ ] **[TPR-03-008] Fix `range_floordiv()` soundness** — current implementation delegates to truncating `range_div()`, but Ori `div` rounds toward negative infinity. For mixed-sign operands, floor division can produce results strictly below the truncating range (e.g., `-1 div 2`: floor = -1, trunc = 0). Must compute all 4 corners using `checked_floor_div()` analog (trunc + adjustment when signs differ and remainder != 0). Add regression tests: exact mixed-sign values, mixed-sign ranges, same-sign (should match truncating), debug + release.
+- [ ] **[TPR-03-009] Fix `range_shr()` sign-dependent monotonicity** — for negative values, arithmetic right shift `x >> n` is monotonically increasing in `n` (less negative with more shift). Current code uses `al >> bh` for lo, but for negative `al` the minimum is `al >> bl` (least shift = most negative). Must handle sign-dependent monotonicity: `lo = min(al >> bl, al >> bh)`, `hi = max(ah >> bl, ah >> bh)`. Add regression tests: negative range with shift range, positive range (unchanged), mixed-sign range, debug + release.
+- [ ] **[TPR-03-010] Split `transfer/mod.rs` into submodules** — file is 509 lines, exceeding the 500-line limit. Split into: `transfer/mod.rs` (dispatcher, `TransferContext`, `transfer()`, `transfer_primop()`, `transfer_known_call()`, `is_int_typed()`), `transfer/arithmetic.rs` (`range_add` through `range_neg`, `range_floordiv`, `range_abs`, `range_literal`), `transfer/bitwise.rs` (`range_bitand` through `range_shr`, `range_bitnot`, `shift_amount()`). Update `mod.rs` to re-export public functions. Verify all tests still pass.
 
 ---
 
@@ -1162,3 +1166,21 @@ For cross-function narrowing, we need to propagate range information through fun
 
 - [ ] `[TPR-03-007][medium]` `compiler/ori_repr/src/range/mod.rs:232` — `is_int_typed()` skips `Tag::Applied`, so instantiated aliases/newtypes over `int` are treated as non-int and never enter the range pipeline.
   Resolved: Validated and integrated into §03.1 `is_int_typed()` task on 2026-03-25. The existing unchecked item now includes `Tag::Applied` handling.
+
+- [ ] `[TPR-03-008][high]` `compiler/ori_repr/src/range/transfer/mod.rs:303` — `range_floordiv()` is unsound because it delegates to truncating division even though Ori floor division rounds toward negative infinity.
+  Evidence: `ScalarInt::checked_floor_div()` and the evaluator tests define `-7 div 2 == -4`, but `range_floordiv(Bounded { lo: -1, hi: -1 }, Bounded { lo: 2, hi: 2 })` currently returns the truncating result `[0, 0]`, excluding the only concrete floor-division result `-1`.
+  Impact: Any narrowing that trusts `FloorDiv` ranges can under-approximate valid negative results and choose an integer width that is too small or otherwise incorrect.
+  Required plan update: Implement real floor-division bounds (or conservatively widen to include the floor-adjusted cases), then add regression tests for mixed-sign exact values and mixed-sign ranges in both debug and release.
+  Resolved: Validated on 2026-03-25. Confirmed: Ori `div` rounds toward -inf (see `ScalarInt::checked_floor_div`). Delegating to truncating `range_div` is unsound for mixed-sign operands. Implementation task added to §03.2.
+
+- [ ] `[TPR-03-009][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:431` — `range_shr()` under-approximates negative right shifts when the shift amount is a range.
+  Evidence: Ori integer right shift is arithmetic (`ScalarInt::new(-1).checked_shr(ScalarInt::new(63)) == -1`), but `range_shr(Bounded { lo: -8, hi: -1 }, Bounded { lo: 1, hi: 2 })` currently returns `[-2, -1]` even though the concrete result set includes `-4` from `-8 >> 1`.
+  Impact: The transfer function can exclude reachable values, which makes the range lattice unsound and can propagate incorrect narrowing decisions through later passes.
+  Required plan update: Rework `range_shr()` to account for sign-sensitive monotonicity across both operand ranges, and add regression tests covering negative ranges with varying shift counts.
+  Resolved: Validated on 2026-03-25. Confirmed: for negative values, less shift = more negative result (lo should be `al >> bl`, not `al >> bh`). The current code uses wrong monotonicity direction for negative operands. Implementation task added to §03.2.
+
+- [ ] `[TPR-03-010][low]` `compiler/ori_repr/src/range/transfer/mod.rs:1` — `transfer/mod.rs` is now 509 lines, which violates the repository’s 500-line non-test file limit and contradicts the section note claiming it is still under the cap.
+  Evidence: `wc -l compiler/ori_repr/src/range/transfer/mod.rs` reports 509 lines, while `CLAUDE.md` and `.claude/rules/impl-hygiene.md` require splitting before a production Rust file exceeds 500 lines.
+  Impact: This is a direct hygiene-rule violation in the highest-churn range-analysis file, making future review and follow-up fixes harder exactly where the analysis surface is already subtle.
+  Required plan update: Split `transfer/mod.rs` into the planned arithmetic and bitwise submodules, and update the §03.2 file-size checklist text to match the current state.
+  Resolved: Validated on 2026-03-25. Confirmed: `wc -l` reports 509 lines. Implementation task added to §03.2 — split into transfer/mod.rs (dispatcher), transfer/arithmetic.rs, transfer/bitwise.rs.
