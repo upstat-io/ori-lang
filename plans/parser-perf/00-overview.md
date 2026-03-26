@@ -81,20 +81,18 @@ File hygiene violations (5 files over 500-line limit) must be resolved before pe
 ## Section Dependency Graph
 
 ```
-Section 01 (Baseline)
-    │
-    ├── Section 02 (Hygiene / File Splits) ─────────────────┐
-    │                                                        │
-    ├── Section 03 (Lexer Optimizations) ────────────────┐   │
-    │                                                    │   │
-    ├── Section 04 (Parser Optimizations) ───────────────┤   │
-    │       depends on 02 (clean lib.rs split)           │   │
-    │                                                    │   │
-    ├── Section 05 (Salsa / Incremental) ────────────────┤   │
-    │       depends on 01 (baselines for Salsa overhead) │   │
-    │                                                    │   │
-    └── Section 06 (Verification) ───────────────────────┘   │
-            depends on all above                             │
+Section 01 (Baseline)          Section 02 (Hygiene / File Splits)
+    │                               │
+    ├── Section 03 (Lexer Opt) ─────┤  (03 depends on 01 only)
+    │                               │
+    ├── Section 04 (Parser Opt) ────┤  (04 depends on 01 AND 02)
+    │                               │
+    ├── Section 05 (Salsa) ─────────┤  (05 depends on 01 only)
+    │                               │
+    └───────────────────────────────┘
+                    │
+            Section 06 (Verification)
+              depends on all above
 ```
 
 - **Section 01** is independent — establishes baselines.
@@ -105,6 +103,7 @@ Section 01 (Baseline)
 **Cross-section interactions:**
 - **Section 02 + Section 04**: `lib.rs` split (Section 02) must land before parser optimization (Section 04). Optimizing code that will be moved to new files creates merge conflicts and wastes effort.
 - **Section 01 + Section 06**: Baselines (Section 01) are re-measured in Section 06 to quantify gains. Same benchmark commands, same input sizes.
+- **Section 03.1 + Section 04.1**: Both modify `ori_ir` crate (`TokenList` methods in 03.1, `Expr::new` in 04.1). If working in parallel, coordinate to avoid merge conflicts. Both sections note this dependency.
 
 ## Implementation Sequence
 
@@ -139,10 +138,11 @@ Phase 3 - Verification
 
 | Crate | Production LOC | Test LOC | Total |
 |-------|---------------|----------|-------|
+| `ori_lexer_core` | ~3,100 | ~1,728 | ~4,828 |
 | `ori_lexer` | ~3,120 | ~3,407 | ~6,527 |
 | `ori_parse` | ~14,471 | ~10,230 | ~24,701 |
 | `oric` (parser-related) | ~600 | ~200 | ~800 |
-| **Total** | **~18,191** | **~13,837** | **~32,028** |
+| **Total** | **~21,291** | **~15,565** | **~36,856** |
 
 ### Benchmark Baselines (2026-02-08)
 
@@ -150,7 +150,7 @@ Phase 3 - Verification
 |-----------|-----------|
 | `lexer_core/raw/throughput` | ~720-1020 MiB/s |
 | `lexer/raw/throughput` | ~208-240 MiB/s |
-| `parser/raw/throughput` | ~95-128 MiB/s |
+| `parser/raw` | ~95-128 MiB/s |
 
 ## Estimated Effort
 
@@ -165,27 +165,36 @@ Phase 3 - Verification
 |   ↳ 03.1 Inline audit | ~30 | Low | — |
 |   ↳ 03.2 Arena sizing | ~20 | Low | — |
 |   ↳ 03.3 Cooker fast paths | ~50 | Medium | — |
-| 04 Parser Optimizations | ~150 modified | Medium | 01, 02 |
-|   ↳ 04.1 Inline audit | ~40 | Low | — |
+| 04 Parser Optimizations | ~140 modified | Medium | 01, 02 |
+|   ↳ 04.1 Inline audit | ~30 | Low | — |
 |   ↳ 04.2 Arena pre-alloc | ~30 | Low | — |
 |   ↳ 04.3 Snapshot enhancement | ~30 | Low | — |
 |   ↳ 04.4 Expression parsing | ~50 | Medium | — |
-| 05 Salsa Integration | ~200 modified | High | 01 |
+| 05 Salsa Integration | ~300 modified | High | 01 |
+|   ↳ 05.0 query/mod.rs split (prereq) | ~0 net (split) | Low | — |
 |   ↳ 05.1 Query overhead profiling | ~20 | Low | — |
-|   ↳ 05.2 Incremental parsing activation | ~100 | High | — |
+|   ↳ 05.2 Incremental parsing activation | ~200 | High | — |
 |   ↳ 05.3 Query granularity | ~80 | Medium | — |
 | 06 Verification | ~100 new (benchmarks) | Medium | All |
-| **Total modified** | **~600** | | |
+| **Total modified** | **~700** | | |
 | **Total deleted** | **~0** | | |
 
 ## Known Bugs (Pre-existing)
 
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
-| Compound assignment double evaluation | `ExprKind` copy duplicates target expression | Section 04 (note only — architectural, not perf) | Known, documented |
-| `t.0.1` fails (lexer tokenizes `0.1` as Float) | Lexer merges `0.1` into single token | Out of scope (tracked in roadmap section-05) | Known |
+| Compound assignment double evaluation | `ExprKind` copy duplicates target expression | Architectural fix needed — documented in `grammar/expr/mod.rs:150-159`, tracked in roadmap | Known, documented |
+| `t.0.1` fails (lexer tokenizes `0.1` as Float) | Lexer merges `0.1` into single token | Tracked in roadmap section-05 | Known |
 | `lib.rs` at 1,326 lines | No split performed | Section 02.1 | Not Started |
 | `copier.rs` at 1,595 lines (LEAK) | Manual AST variant copying | Section 02.2 | Not Started |
+| `match_patterns.rs` at 595 lines | Exceeds 500-line limit, not in Section 02 | Section 02.3 | Not Started |
+| `function/mod.rs` at 532 lines | Exceeds 500-line limit, not in Section 02 | Section 02.3 | Not Started |
+| `ori_ir/arena/mod.rs` at 530 lines | Exceeds 500-line limit; touched by S03/S04 | Section 02.3 (noted) | Not Started |
+| `ori_ir/ast/expr.rs` at 510 lines | Exceeds 500-line limit; touched by S04 | Section 02.3 (noted) | Not Started |
+| `oric/query/mod.rs` at 582 lines | Exceeds 500-line limit; touched by S05 | Section 02.3 (noted) | Not Started |
+| Decorative banners in `outcome/mod.rs` | 5 `// ===` banners (hygiene violation) | Section 02.3 | Not Started |
+| Decorative banners in `error/kind.rs` | ~13 `// ===` banners (hygiene violation) | Section 02.3 | Not Started |
+| `#[allow(dead_code)]` in `lib.rs:435` | Should be `#[expect(dead_code)]` per hygiene | Section 02.1 (during split) | Not Started |
 
 ## Quick Reference
 
