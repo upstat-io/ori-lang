@@ -138,7 +138,12 @@ pub(super) fn recompute_field_summaries(
 /// After narrowing recovers precision for loop variables, `return_range` must
 /// be recomputed so the §03.5 interprocedural handoff uses the tightened ranges.
 /// See TPR-03-021.
+///
+/// TPR-03-023: Only iterates reachable blocks (via `rpo`). Unreachable blocks
+/// contain variables that were never analyzed, so `ranges.get()` returns `None`
+/// and the `unwrap_or(Top)` fallback would pollute the return range.
 pub(super) fn recompute_return_range(
+    rpo: &[usize],
     func: &ArcFunction,
     pool: &Pool,
     ranges: &FxHashMap<ArcVarId, ValueRange>,
@@ -147,7 +152,8 @@ pub(super) fn recompute_return_range(
         return Bottom;
     }
     let mut result = Bottom;
-    for block in &func.blocks {
+    for &block_idx in rpo {
+        let block = &func.blocks[block_idx];
         if let ArcTerminator::Return { value } = &block.terminator {
             let ret_range = ranges.get(value).copied().unwrap_or(Top);
             result = result.join(ret_range);
