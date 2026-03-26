@@ -117,7 +117,10 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
 
         async def _generate():
             from copilot import CopilotClient
-            from copilot.session import PermissionHandler
+            from copilot.session import Kind, PermissionRequestResult
+
+            def approve_all(_request, _metadata):
+                return PermissionRequestResult(kind=Kind.APPROVED)
 
             client = CopilotClient()
             await client.start()
@@ -125,23 +128,9 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
                 session = await client.create_session(
                     model="claude-sonnet-4.6",
                     streaming=False,
-                    on_permission_request=PermissionHandler.approve_all,
+                    on_permission_request=approve_all,
                 )
-                done = asyncio.Event()
-                result = []
-
-                def on_event(event):
-                    t = event.type.value if hasattr(event.type, "value") else str(event.type)
-                    if t == "assistant.message":
-                        content = event.data.content if hasattr(event.data, "content") else str(event.data)
-                        result.append(content)
-                    elif t == "session.idle":
-                        done.set()
-
-                session.on(on_event)
-                await session.send({"prompt": prompt})
-                await asyncio.wait_for(done.wait(), timeout=120)
-                return result[-1] if result else None
+                return await session.send(prompt)
             finally:
                 await client.stop()
 
