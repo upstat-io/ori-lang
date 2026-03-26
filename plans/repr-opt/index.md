@@ -91,12 +91,16 @@ analyze_triviality, validation pass, is_trivial_repr, canonical consistency
 ValueRange, interval, range analysis, VRP, value range propagation
 abstract interpretation, lattice, join, meet, widen, narrow
 transfer function, fixed point, fixpoint iteration, range_fixpoint
+TransferContext, var_types, field_summaries
 conditional refinement, branch condition, if x < N
 BranchRefinement, refine_from_branch, conditional.rs
-block parameters, phi handling, predecessor map, build_predecessor_map
+block parameters, phi handling, predecessor map, compute_predecessors
 ArcTerminator, Invoke dst, Switch u64 cases, Branch refinement
 RangeAnalysisConfig, max_iterations, max_blocks, WIDEN_THRESHOLD
 compute_rpo, compute_postorder, successor_block_ids, RPO
+FieldSummaryTable, field_summary, observe_construct, field_range
+field_range_summaries, join_field_range, flush_to_repr_plan
+RangeFixpointResult, return_range, var_ranges
 FunctionRangeInfo, ParamRange, call-site range, signatures.rs
 SCC, CallGraph, compute_sccs, interprocedural fixpoint
 ReprPlan handoff, function_var_ranges, var_range query
