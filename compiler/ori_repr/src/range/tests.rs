@@ -598,3 +598,96 @@ fn field_summary_flush_joins_across_functions() {
         ValueRange::Bounded { lo: 0, hi: 200 }
     );
 }
+
+// ─── is_int_typed regression tests (TPR-03-012) ──────────────
+
+/// Semantic pin: `is_int_typed` returns true for `Idx::INT`.
+#[test]
+fn is_int_typed_primitive_int() {
+    let pool = ori_types::Pool::new();
+    assert!(is_int_typed(Idx::INT, &pool));
+}
+
+/// `is_int_typed` returns false for non-int primitives.
+#[test]
+fn is_int_typed_non_int_primitives() {
+    let pool = ori_types::Pool::new();
+    assert!(!is_int_typed(Idx::FLOAT, &pool));
+    assert!(!is_int_typed(Idx::BOOL, &pool));
+    assert!(!is_int_typed(Idx::STR, &pool));
+    assert!(!is_int_typed(Idx::UNIT, &pool));
+    assert!(!is_int_typed(Idx::NEVER, &pool));
+    assert!(!is_int_typed(Idx::CHAR, &pool));
+    assert!(!is_int_typed(Idx::BYTE, &pool));
+}
+
+/// `is_int_typed` returns false for `Idx::ERROR`.
+#[test]
+fn is_int_typed_error() {
+    let pool = ori_types::Pool::new();
+    assert!(!is_int_typed(Idx::ERROR, &pool));
+}
+
+/// TPR-03-012 semantic pin: Applied type resolving to int IS int-typed.
+/// This is the exact regression test for the `Tag::Applied` bug fix.
+#[test]
+fn is_int_typed_applied_resolving_to_int() {
+    let mut pool = ori_types::Pool::new();
+    // Create an Applied type (e.g., `UserId` instantiated with no args) that resolves to int.
+    let applied_idx = pool.applied(ori_ir::Name::new(0, 5000), &[]);
+    pool.set_resolution(applied_idx, Idx::INT);
+    assert!(
+        is_int_typed(applied_idx, &pool),
+        "Applied type resolving to int must be int-typed"
+    );
+}
+
+/// Applied type resolving to non-int is NOT int-typed.
+#[test]
+fn is_int_typed_applied_resolving_to_non_int() {
+    let mut pool = ori_types::Pool::new();
+    let applied_idx = pool.applied(ori_ir::Name::new(0, 5001), &[Idx::STR]);
+    pool.set_resolution(applied_idx, Idx::STR);
+    assert!(
+        !is_int_typed(applied_idx, &pool),
+        "Applied type resolving to str must NOT be int-typed"
+    );
+}
+
+/// Named type (newtype) resolving to int IS int-typed.
+#[test]
+fn is_int_typed_named_resolving_to_int() {
+    let mut pool = ori_types::Pool::new();
+    let named_idx = pool.named(ori_ir::Name::new(0, 5002));
+    pool.set_resolution(named_idx, Idx::INT);
+    assert!(
+        is_int_typed(named_idx, &pool),
+        "Named type resolving to int must be int-typed"
+    );
+}
+
+/// Chained resolution: Applied → Named → int.
+#[test]
+fn is_int_typed_applied_chain_to_int() {
+    let mut pool = ori_types::Pool::new();
+    let named_idx = pool.named(ori_ir::Name::new(0, 5003));
+    pool.set_resolution(named_idx, Idx::INT);
+    let applied_idx = pool.applied(ori_ir::Name::new(0, 5004), &[]);
+    pool.set_resolution(applied_idx, named_idx);
+    assert!(
+        is_int_typed(applied_idx, &pool),
+        "Applied → Named → int must be int-typed"
+    );
+}
+
+/// Unresolved Applied type (no resolution set) is NOT int-typed.
+#[test]
+fn is_int_typed_unresolved_applied() {
+    let mut pool = ori_types::Pool::new();
+    let applied_idx = pool.applied(ori_ir::Name::new(0, 5005), &[]);
+    // No set_resolution — resolve_fully returns same idx
+    assert!(
+        !is_int_typed(applied_idx, &pool),
+        "Unresolved Applied must NOT be int-typed (avoids infinite recursion)"
+    );
+}

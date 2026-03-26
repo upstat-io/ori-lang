@@ -285,10 +285,17 @@ fn variant_repr_two_fields_not_pointer() {
 
 #[test]
 fn value_range_is_interval_lattice() {
-    // §03: ValueRange is now a 3-variant enum (Bottom, Bounded, Top).
-    // Default is Top (conservative). Size is 24 bytes (tag + 2x i64).
+    // §03: ValueRange is a 3-variant enum (Bottom, Bounded, Top).
+    // Verify semantic contract only — layout is not part of the API.
     assert_eq!(ValueRange::default(), ValueRange::Top);
-    assert_eq!(std::mem::size_of::<ValueRange>(), 24);
+    assert_eq!(
+        ValueRange::Bounded { lo: 0, hi: 10 }.join(ValueRange::Bounded { lo: 5, hi: 20 }),
+        ValueRange::Bounded { lo: 0, hi: 20 }
+    );
+    assert_eq!(
+        ValueRange::Bounded { lo: 0, hi: 10 }.meet(ValueRange::Bounded { lo: 5, hi: 20 }),
+        ValueRange::Bounded { lo: 5, hi: 10 }
+    );
 }
 
 #[test]

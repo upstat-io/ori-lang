@@ -47,12 +47,9 @@ fn lt_boundary_i64_min() {
     // x < i64::MIN → true: Bottom (nothing < MIN), false: full range
     let r = refine_with_op(BinaryOp::Lt, Top, i64::MIN);
     assert_eq!(r.len(), 1);
-    // c - 1 overflows → true_constraint = Top, meet(Top, Top) = Top...
-    // Actually: c = i64::MIN, c.checked_sub(1) = None → true_constraint = Top
-    // true_range = Top.meet(Top) = Top — but that's wrong semantically!
-    // However, our analysis is conservative: returning Top means "no narrowing",
-    // which is safe. The fixpoint meets with existing range.
-    assert_eq!(r[0].true_range, Top);
+    // c = i64::MIN, c-1 overflows → impossible branch → Bottom.
+    // meet(Top, Bottom) = Bottom — correctly marks the branch as unreachable.
+    assert_eq!(r[0].true_range, ValueRange::Bottom);
 }
 
 // ─── LtEq ──────────────────────────────────────────────────────
@@ -67,7 +64,7 @@ fn lteq_basic() {
 
 #[test]
 fn lteq_boundary_i64_max() {
-    // x <= i64::MAX → true: [MIN, MAX] (full bounded range), false: c+1 overflows → Top
+    // x <= i64::MAX → true: [MIN, MAX] (full bounded range), false: c+1 overflows → Bottom
     let r = refine_with_op(BinaryOp::LtEq, Top, i64::MAX);
     assert_eq!(r.len(), 1);
     // meet(Top, Bounded{MIN, MAX}) = Bounded{MIN, MAX} — structurally different from Top
@@ -78,7 +75,8 @@ fn lteq_boundary_i64_max() {
             hi: i64::MAX
         }
     );
-    assert_eq!(r[0].false_range, Top);
+    // c = i64::MAX, c+1 overflows → impossible false branch → Bottom.
+    assert_eq!(r[0].false_range, ValueRange::Bottom);
 }
 
 // ─── Gt ────────────────────────────────────────────────────────
@@ -93,10 +91,10 @@ fn gt_basic() {
 
 #[test]
 fn gt_boundary_i64_max() {
-    // x > i64::MAX → true: c+1 overflows → Top
+    // x > i64::MAX → true: c+1 overflows → Bottom (nothing > MAX)
     let r = refine_with_op(BinaryOp::Gt, Top, i64::MAX);
     assert_eq!(r.len(), 1);
-    assert_eq!(r[0].true_range, Top);
+    assert_eq!(r[0].true_range, ValueRange::Bottom);
 }
 
 // ─── GtEq ──────────────────────────────────────────────────────
@@ -128,6 +126,23 @@ fn gteq_non_negative_check() {
             hi: -1
         }
     );
+}
+
+/// Semantic pin (TPR-03-013): x >= `i64::MIN` → true: full range, false: Bottom
+#[test]
+fn gteq_boundary_i64_min() {
+    // x >= i64::MIN is always true → false branch is impossible → Bottom
+    let r = refine_with_op(BinaryOp::GtEq, Top, i64::MIN);
+    assert_eq!(r.len(), 1);
+    assert_eq!(
+        r[0].true_range,
+        Bounded {
+            lo: i64::MIN,
+            hi: i64::MAX
+        }
+    );
+    // c = i64::MIN, c-1 overflows → impossible false branch → Bottom
+    assert_eq!(r[0].false_range, ValueRange::Bottom);
 }
 
 // ─── Eq ────────────────────────────────────────────────────────

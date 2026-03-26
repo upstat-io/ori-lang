@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
-  updated: 2026-03-25
-  triage_note: "TPR-03-008/009/010 validated and accepted on 2026-03-25. Implementation tasks added to §03.2."
+  status: resolved
+  updated: 2026-03-26
+  triage_note: "All 13 findings triaged. TPR-03-012 fixed (8 regression tests), TPR-03-013 fixed (Bottom for impossible branches), TPR-03-011 accepted (reopened premature §03.2b integration checkbox). TPR-03-006 checkbox corrected."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -17,13 +17,13 @@ depends_on: ["01"]
 sections:
   - id: "03.1"
     title: "Interval Lattice"
-    status: in-progress
+    status: complete
   - id: "03.2"
     title: "Transfer Functions"
     status: complete
   - id: "03.2b"
     title: "Field-Summary Infrastructure"
-    status: complete
+    status: in-progress
   - id: "03.3"
     title: "Widening & Narrowing Operators"
     status: not-started
@@ -158,7 +158,7 @@ The interval lattice is the core data structure. Each element represents a set o
   ```
 
 - [x] **Add `RangeAnalysisConfig` struct** to `mod.rs` (defined in §03.6 but needed by §03.3 fixpoint — define here so §03.3 can reference it). Include `Default` impl with the documented defaults (`max_iterations: 20`, `max_blocks: 500`, `max_scc_iterations: 10`, `max_total_scc_iterations: 50`). (2026-03-25)
-- [ ] **Implement `is_int_typed(ty: Idx, pool: &Pool) -> bool`** helper in `mod.rs` — checks `pool.tag(ty) == Tag::Int`. This is used pervasively by `transfer()`, `update_field_summaries()`, and the fixpoint loop but is never defined in any checklist item. Must also handle edge cases: `Idx::ERROR` returns false, resolved newtypes delegate to inner type. **[TPR-03-007]** Must also handle `Tag::Applied` — resolve through applied types the same way as `Named`/`Alias` (call `pool.resolve_fully()` first, then inspect the resolved tag). Add tests for an applied type that ultimately resolves to `int`.
+- [x] **Implement `is_int_typed(ty: Idx, pool: &Pool) -> bool`** (2026-03-26) helper in `mod.rs` — checks `pool.tag(ty) == Tag::Int`. Handles edge cases: `Idx::ERROR` returns false, resolved newtypes delegate to inner type. **[TPR-03-007]** Also handles `Tag::Applied` — resolves through applied types the same way as `Named`/`Alias` (via `pool.resolve_fully()`). Added `tracing::trace!` for non-obvious Applied resolution path.
 - [x] Comprehensive unit tests for lattice operations in `compiler/ori_repr/src/range/tests.rs` (2026-03-25). 58 tests covering all lattice operations, boundary values, semantic pin. (sibling test file per convention — `mod.rs` → `tests.rs`). **TDD: write these tests BEFORE implementing the lattice operations. Verify they fail (compile error or assertion). Then implement. Tests must pass unchanged.** Tests must cover:
   - **join**: commutative, associative, idempotent, Bottom identity (`join(x, Bottom) == x`), Top absorbing (`join(x, Top) == Top`), disjoint ranges produce enclosing range, overlapping ranges produce union
   - **meet**: commutative, associative, idempotent, Top identity (`meet(x, Top) == x`), Bottom absorbing (`meet(x, Bottom) == Bottom`), disjoint ranges produce Bottom, overlapping ranges produce intersection
@@ -170,9 +170,9 @@ The interval lattice is the core data structure. Each element represents a set o
   - **Semantic pin**: `join(Bounded(0, 99), Bounded(50, 150))` == `Bounded(0, 150)` — this test ONLY passes if join computes the enclosing interval (not intersection, not union of discrete values)
   - Add `#[cfg(test)] mod tests;` at the bottom of `mod.rs`
   - **Both debug and release**: `cargo test -p ori_repr` (debug) and `cargo test -p ori_repr --release` (release) must both pass
-- [ ] **[TPR-03-003]** Replace exact-size assertion in `compiler/ori_repr/src/tests.rs` `value_range_is_interval_lattice()` — remove `assert_eq!(std::mem::size_of::<ValueRange>(), 24)` and replace with semantic-only checks (Default, join, meet). Layout is not part of the section's semantic contract.
-- [ ] Import and use `tracing` crate (never `println!`/`eprintln!`). All diagnostic output through `tracing::debug!`/`tracing::trace!` with target `ori_repr`.
-- [ ] **Re-export key types from `mod.rs`**: `pub use` the types from submodules that downstream consumers need — at minimum `ValueRange`, `IntWidth` (already in `crate::repr`), `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`, `BranchRefinement`. Verify `crate::range::ValueRange` still resolves from `lib.rs`'s `pub mod range`.
+- [x] **[TPR-03-003]** (2026-03-26) Replaced exact-size assertion in `compiler/ori_repr/src/tests.rs` `value_range_is_interval_lattice()` with semantic checks (Default → Top, join, meet). Layout is not part of the section's semantic contract.
+- [x] Import and use `tracing` crate (2026-03-26). `tracing` dependency already in `Cargo.toml`. Added `tracing::trace!` in `is_int_typed()` for Applied resolution path. Further tracing instrumentation added as analysis code is implemented (§03.3+).
+- [x] **Re-export key types from `mod.rs`** (2026-03-26): Added `pub use` for `BranchRefinement`, `FieldSummaryTable`, `TransferContext`, and all transfer functions. `RangeFixpointResult` will be re-exported when §03.3 creates it. `ValueRange` and `RangeAnalysisConfig` already defined in `mod.rs` (not submodules). `IntWidth` is in `crate::repr`.
 
 ---
 
@@ -480,7 +480,7 @@ Transfer functions describe how each operation transforms value ranges.
   }
   ```
 
-- [x] Integrate `FieldSummaryTable` into the fixpoint loop (§03.3):
+- [ ] Integrate `FieldSummaryTable` into the fixpoint loop (§03.3): <!-- blocked-by:03.3 -->
   - Create `FieldSummaryTable::new()` before the fixpoint loop starts
   - After processing each `Construct` instruction in the body loop, call `update_field_summaries()`
   - Pass `table.as_map()` as `field_summaries` in `TransferContext` so `Project` can query it
@@ -1152,8 +1152,8 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] `[TPR-03-002][low]` `plans/repr-opt/section-03-range-analysis.md:161` — The §03.1 checklist claims "`range/tests.rs`" contains 56 lattice tests, but the current file only defines 51 `#[test]` cases.
   Resolved: Rejected on 2026-03-25. TPR's count of 51 is incorrect — actual count is 58 `#[test]` functions. Plan text updated from "56" to "58" to match reality.
 
-- [ ] `[TPR-03-003][low]` `compiler/ori_repr/src/tests.rs:291` — The new `ValueRange` smoke test hard-codes `std::mem::size_of::<ValueRange>() == 24`, but enum layout is not part of the section's semantic contract and is not stable enough to pin this exactly.
-  Resolved: Validated and integrated into §03.1 on 2026-03-25. Task added to replace exact-size assertion with semantic-only checks.
+- [x] `[TPR-03-003][low]` `compiler/ori_repr/src/tests.rs:291` — The new `ValueRange` smoke test hard-codes `std::mem::size_of::<ValueRange>() == 24`, but enum layout is not part of the section's semantic contract and is not stable enough to pin this exactly.
+  Resolved: Fixed on 2026-03-26. Replaced exact-size assertion with semantic checks (Default, join, meet).
 
 - [x] `[TPR-03-004][high]` `compiler/ori_repr/src/range/transfer/mod.rs:248` — `range_div()` and `range_floordiv()` can panic on the valid corner case `i64::MIN / -1` instead of conservatively returning `Top`.
   Resolved: Validated and fixed on 2026-03-25. Replaced raw `/` with `checked_div()` for all 4 corners. 4 regression tests added (debug + release green).
@@ -1161,11 +1161,11 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] `[TPR-03-005][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:435` — `range_bitnot()` can panic on ranges containing `i64::MIN` because it negates the endpoints before any checked operation runs.
   Resolved: Validated and fixed on 2026-03-25. Replaced unchecked negation with `checked_neg().and_then()`. 4 regression tests added (debug + release green).
 
-- [ ] `[TPR-03-006][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:71` — Builtin-call propagation is still effectively disabled, so `Apply` never yields the fixed ranges that §03.2 says are complete.
+- [x] `[TPR-03-006][medium]` `compiler/ori_repr/src/range/transfer/mod.rs:71` — Builtin-call propagation is still effectively disabled, so `Apply` never yields the fixed ranges that §03.2 says are complete.
   Resolved: Validated and integrated into §03.5 on 2026-03-25. The §03.2 `transfer_known_call()` stub was explicitly planned as a two-phase approach (stub in §03.2, implementation in §03.5 which provides interner access). Concrete implementation task added to §03.5.
 
-- [ ] `[TPR-03-007][medium]` `compiler/ori_repr/src/range/mod.rs:232` — `is_int_typed()` skips `Tag::Applied`, so instantiated aliases/newtypes over `int` are treated as non-int and never enter the range pipeline.
-  Resolved: Validated and integrated into §03.1 `is_int_typed()` task on 2026-03-25. The existing unchecked item now includes `Tag::Applied` handling.
+- [x] `[TPR-03-007][medium]` `compiler/ori_repr/src/range/mod.rs:232` — `is_int_typed()` skips `Tag::Applied`, so instantiated aliases/newtypes over `int` are treated as non-int and never enter the range pipeline.
+  Resolved: Fixed on 2026-03-26. Added `Tag::Applied` to the match in `is_int_typed()`, resolves through `pool.resolve_fully()` same as `Named`/`Alias`.
 
 - [x] `[TPR-03-008][high]` `compiler/ori_repr/src/range/transfer/mod.rs:303` — `range_floordiv()` is unsound because it delegates to truncating division even though Ori floor division rounds toward negative infinity.
   Resolved: Fixed on 2026-03-26. Implemented `checked_floor_div()` in `transfer/arithmetic.rs` and rewrote `range_floordiv()` to compute all 4 corners with floor semantics. 8 regression tests added. Debug + release green.
@@ -1175,3 +1175,12 @@ For cross-function narrowing, we need to propagate range information through fun
 
 - [x] `[TPR-03-010][low]` `compiler/ori_repr/src/range/transfer/mod.rs:1` — `transfer/mod.rs` is now 509 lines, which violates the repository’s 500-line non-test file limit.
   Resolved: Fixed on 2026-03-26. Split into `mod.rs` (242), `arithmetic.rs` (218), `bitwise.rs` (124). All within 500-line limit.
+
+- [x] `[TPR-03-011][high]` `compiler/ori_repr/src/lib.rs:95` — `analyze_ranges()` is still a no-op, so the newly added §03 range modules never affect `ReprPlan` even though §03.2b and §03.4 are marked complete.
+  Resolved: Validated on 2026-03-26. The infrastructure in §03.2b and §03.4 is correctly implemented and unit-tested, but the premature integration checkbox in §03.2b has been reopened (line 483). The integration and `analyze_ranges()` wiring are properly tracked in §03.3 (fixpoint loop) and §03.6 (completion checklist, line 1117). The planned build order (03.1→03.2→03.2b→03.4→**03.3**→03.5) makes §03.3 the integration point — not §03.2b.
+
+- [x] `[TPR-03-012][medium]` `compiler/ori_repr/src/range/mod.rs:241` — TPR-03-007 was marked resolved, but the new `Tag::Applied` arm still has no regression test pinning the exact bug that was supposedly fixed.
+  Resolved: Fixed on 2026-03-26. Added 8 regression tests in `range/tests.rs`: `is_int_typed_primitive_int`, `is_int_typed_non_int_primitives`, `is_int_typed_error`, `is_int_typed_applied_resolving_to_int` (semantic pin), `is_int_typed_applied_resolving_to_non_int`, `is_int_typed_named_resolving_to_int`, `is_int_typed_applied_chain_to_int`, `is_int_typed_unresolved_applied`. Debug + release green (277/277).
+
+- [x] `[TPR-03-013][low]` `compiler/ori_repr/src/range/conditional/mod.rs:96` — The checked-off §03.4 boundary cases are still weaker than the plan claims: impossible `x < i64::MIN` / `x > i64::MAX` branches return `Top`, not `Bottom`.
+  Resolved: Fixed on 2026-03-26. Changed all 4 overflow fallbacks in `refine_comparison()` from `Top` to `Bottom`: `Lt` (c=MIN, true), `LtEq` (c=MAX, false), `Gt` (c=MAX, true), `GtEq` (c=MIN, false). Updated 3 existing boundary tests (`lt_boundary_i64_min`, `lteq_boundary_i64_max`, `gt_boundary_i64_max`) to assert `Bottom`. Added new semantic pin `gteq_boundary_i64_min`. Debug + release green (277/277).
