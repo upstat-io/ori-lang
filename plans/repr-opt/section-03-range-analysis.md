@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-26
-  triage_note: "All 22 TPR items resolved as of 2026-03-26. TPR-03-022 fixed: post-recompute projection refresh pass added. All prior findings (TPR-03-001 through TPR-03-021) remain resolved."
+  triage_note: "All TPR items triaged on 2026-03-26. TPR-03-023 and TPR-03-024 accepted with implementation tasks in §03.3. TPR-03-025 rejected (factually incorrect). Status remains findings until implementation tasks complete."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -981,6 +981,10 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
   - **Cross-pattern coverage**: condition is a non-comparison instruction (e.g., `IsShared`) → empty refinement list
   - **Semantic pin**: `x < 100` with `x ∈ [0, 200]` → true: `[0, 99]`, false: `[100, 200]` — this test ONLY passes with correct `Lt` refinement
 
+- [ ] **[TPR-03-023] Fix `recompute_return_range()` to iterate only reachable blocks**: Pass the `rpo` slice (reachable block indices) to `recompute_return_range()` in `narrowing.rs` instead of iterating `func.blocks`. Currently, unreachable `Return` terminators whose variables were never analyzed get `unwrap_or(Top)`, polluting the return range. Fix: change signature to accept `rpo: &[usize]`, iterate `for &block_idx in rpo`, and update the call site in `fixpoint/mod.rs`. Add a regression test with an unreachable return block that would produce `Top` without the fix.
+
+- [ ] **[TPR-03-024] Add `ArcTerminator::Invoke` regression test**: Add an explicit test in `fixpoint/tests.rs` that constructs a function with an `Invoke` terminator and verifies the `dst` variable gets a range (e.g., `Top` for unknown function, or a known range for `len`). Update the §03.3 test summary at line 902 to accurately reflect real coverage.
+
 ---
 
 ## 03.5 Function Signature Range Propagation
@@ -1155,6 +1159,24 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-023][medium]` `compiler/ori_repr/src/range/fixpoint/narrowing.rs:149` — `recompute_return_range()` walks every block in the function, so unreachable `Return` terminators can widen `return_range` back to `Top`.
+  Evidence: `range_fixpoint()` computes RPO from `compute_postorder(func)` (`compiler/ori_repr/src/range/fixpoint/mod.rs:421`), and `compute_postorder()` explicitly visits only blocks reachable from the entry (`compiler/ori_arc/src/graph/mod.rs:114`). But `recompute_return_range()` ignores that reachability set and iterates `for block in &func.blocks`, then falls back to `Top` when a dead block's return value was never analyzed (`compiler/ori_repr/src/range/fixpoint/narrowing.rs:149-154`). That lets dead returns pollute the final summary even though the forward and narrowing passes skipped those blocks.
+  Impact: `RangeFixpointResult::return_range` can become less precise solely because of unreachable code, which undermines the TPR-03-021 fix and will block §03.5 from reusing precise return summaries at call sites.
+  Required plan update: recompute `return_range` over the reachable block set only (for example, reuse the existing RPO indices or a reachable bitset) and add a regression test with an unreachable return block that would currently force `return_range` to `Top`.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.3.
+
+- [x] `[TPR-03-024][low]` `plans/repr-opt/section-03-range-analysis.md:894` — The checked-off §03.3 test inventory still claims Invoke coverage, but `compiler/ori_repr/src/range/fixpoint/tests.rs` contains no `ArcTerminator::Invoke` test at all.
+  Evidence: the completed §03.3 test bullet says the fixpoint test file covers `Invoke terminator` handling (`plans/repr-opt/section-03-range-analysis.md:894-903`), yet a direct search of `compiler/ori_repr/src/range/fixpoint/tests.rs` finds no `ArcTerminator::Invoke` construction. The current suite exercises `Apply`-based `Top` flows, but not the only terminator that defines a value outside the block body.
+  Impact: a core fixpoint path is currently unpinned even though the plan presents that coverage as done, so regressions in terminator-defined range propagation could land silently.
+  Required plan update: add an explicit `Invoke` regression test in `compiler/ori_repr/src/range/fixpoint/tests.rs` and update the §03.3 test summary so it matches the real matrix.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.3.
+
+- [x] `[TPR-03-025][low]` `compiler/ori_repr/src/range/fixpoint/mod.rs:1` — The extracted fixpoint module is still 502 lines, so the recent split did not actually satisfy the repository’s 500-line non-test file limit.
+  Evidence: `wc -l compiler/ori_repr/src/range/fixpoint/mod.rs` reports 502 lines in the current tree, which exceeds the hard limit in `.claude/rules/impl-hygiene.md`.
+  Impact: this is a direct hygiene-rule violation in the file that was just refactored to get back under the limit, so the section history now overstates compliance and future edits will keep accumulating in an already oversized module.
+  Required plan update: extract another small helper or orchestration fragment from `fixpoint/mod.rs` so the module is actually below 500 lines, then keep the plan note aligned with the resulting layout.
+  Resolved: Rejected on 2026-03-26. The 500-line rule explicitly excludes test code. The file has 500 lines of implementation code and 2 lines of `#[cfg(test)] mod tests;` declaration — exactly at the limit but not exceeding it. The finding is factually incorrect about a violation existing.
 
 - [x] `[TPR-03-022][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:452` — Field summaries are recomputed after narrowing, but projection-derived variables never get a second pass over the repaired summaries, so `Project` results and `return_range` can stay widened.
   Evidence: `run_narrowing_pass()` narrows body instructions against the pre-recompute `field_summary_table` (`compiler/ori_repr/src/range/fixpoint/narrowing.rs:65-88`), then `range_fixpoint()` calls `recompute_field_summaries()` and immediately finalizes `return_range` without rerunning any projection-dependent transfer (`compiler/ori_repr/src/range/fixpoint/mod.rs:452-476`). Fresh validation with an external bounded-loop probe (`i` narrows to `[0, 10]`, exit block does `Construct { args: [i] }` then `Project field 0`) produced `field = Bounded { lo: 0, hi: 10 }` but `y = Bounded { lo: 10, hi: 9223372036854775807 }` and matching widened `return_range`.
