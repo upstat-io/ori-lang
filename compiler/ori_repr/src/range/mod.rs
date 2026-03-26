@@ -16,7 +16,11 @@
 //! LLVM codegen. Results are stored in `ReprPlan::function_var_ranges`
 //! and consumed by §04 (integer narrowing) and §05 (float narrowing).
 
+use ori_types::{Idx, Pool, Tag};
+
 use crate::repr::IntWidth;
+
+pub mod transfer;
 
 /// A closed interval [lo, hi] over i64 values.
 ///
@@ -214,6 +218,27 @@ impl Default for RangeAnalysisConfig {
             max_scc_iterations: 10,
             max_total_scc_iterations: 50,
         }
+    }
+}
+
+/// Check if a type is integer-typed (the only type range analysis tracks).
+///
+/// Returns `false` for `Idx::ERROR`, newtypes that resolve to non-int,
+/// and all non-int types. Handles newtypes by resolving through `Named`
+/// and `Alias` tags.
+#[must_use]
+pub fn is_int_typed(ty: Idx, pool: &Pool) -> bool {
+    if ty == Idx::ERROR {
+        return false;
+    }
+    match pool.tag(ty) {
+        Tag::Int => true,
+        // Newtypes resolve through Named/Alias to their inner type.
+        Tag::Named | Tag::Alias => {
+            let resolved = pool.resolve_fully(ty);
+            resolved != ty && is_int_typed(resolved, pool)
+        }
+        _ => false,
     }
 }
 
