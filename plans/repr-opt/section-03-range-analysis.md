@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-26
-  triage_note: "TPR-03-032 accepted and implemented on 2026-03-26 — added call_result_narrowings to range_fixpoint() so callee return ranges propagate through derived locals. All TPR items resolved."
+  triage_note: "All TPR findings triaged and resolved. TPR-03-033 accepted and implemented on 2026-03-26: unreachable-block RPO filtering + feedback narrowing accumulation fix."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -1021,6 +1021,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] **[TPR-03-031] Iterate return-range feedback to multi-hop fixpoint** (2026-03-26): Rewrote `feed_return_ranges_and_reprocess()` in `feedback.rs` with three fixes: (1) Outer loop iterates Steps 1+2 until convergence, bounded by `config.max_feedback_iterations` (default 5). (2) Step 1b (`refresh_return_ranges()`) recomputes `func_infos` return ranges from updated `results` after dst var narrowing — without this, narrowed return values don't propagate back up the call chain. (3) Step 2 iterates SCCs in reverse topological order (callers first), matching Phase 3's order, so parameter seeds cascade from callers to callees in one pass. Added `max_feedback_iterations` field to `RangeAnalysisConfig`. 336/336 debug + release green, 14,191 total green.
 - [x] **[TPR-03-031] Add semantic-pin test: multi-hop return-range chain** (2026-03-26): `multi_hop_return_range_chain` — 4-hop chain: `helper(800)` returns [99,99], `A(804)` calls helper and passes to `B(803)`, B passes to `C(802)`, C passes to `D(801)`. Asserts D's param = [99,99], C's param = [99,99], B's param = [99,99]. Semantic pin: ONLY passes with iterated feedback — fails with single-pass (D gets Top).
 - [x] **[TPR-03-032] Propagate callee return ranges through derived locals** (2026-03-26): Added `call_result_narrowings: Option<&FxHashMap<ArcVarId, ValueRange>>` to `range_fixpoint()`. In `run_forward_iteration()`, Apply/Invoke dst vars are narrowed via `meet` with callee return range after transfer. `inject_callee_return_ranges()` returns per-caller narrowing maps. `reprocess_changed_functions()` reruns fixpoint for dst-narrowed callers with narrowings, even if params unchanged. Two semantic-pin tests: `callee_return_derived_local_propagates` (y = x + 1 from helper()), `callee_return_derived_local_forwards_to_callee_param` (forwarded to callee param). 338/338 debug + release green, 14,193 total green.
+- [x] **[TPR-03-033] Fix feedback loop: unreachable-block filtering + narrowing accumulation** (2026-03-26): Two bugs fixed in `feedback.rs`: (1) `refresh_return_ranges()` now uses `compute_postorder()` RPO to skip unreachable blocks, matching `recompute_return_range()` in `narrowing.rs`. (2) Feedback loop now accumulates `call_result_narrowings` across iterations via `accumulated_narrowings` map. Previously, `reprocess_changed_functions()` received only current-iteration narrowings; when a function was rerun for variable `v_b` in iteration N+1, the `results` overwrite lost `v_a`'s narrowing from iteration N (oscillation bug). Fix: `new_narrowed` (current iteration only) determines WHICH functions to rerun, `accumulated_narrowings` (all iterations) is passed to `range_fixpoint` for correctness. Semantic-pin test `feedback_refresh_skips_unreachable_return_blocks`: helper(99) → func_a(unreachable block) → caller → func_b; func_b's param narrows to [99, 99]. 339/339 debug + release green, 14,194 total green.
 - [ ] Handle boundary cases for parameter ranges:
   - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip) — **currently handled: non-int params are skipped by `is_int_typed()` check**
   - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch) — **blocked: ARC IR lacks visibility/trait info; currently all functions treated as narrowable (conservative — §04 ignores Top anyway)**
@@ -1099,7 +1100,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] `for i in 0..100` → `[0, 99]` — `fixpoint_narrowing_recovers_loop_bound` test (2026-03-26)
 - [x] `len(list)` → `[0, i64::MAX]` — `transfer_apply_len_builtin` test (2026-03-25)
 - [x] Pixel field-summary `[0, 255]` — `field_summary_semantic_pin_pixel` test (2026-03-26)
-- [x] `./test-all.sh` green — 14,188 passed, 0 failed (2026-03-26)
+- [x] `./test-all.sh` green — 14,194 passed, 0 failed (2026-03-26)
 - [x] `./clippy-all.sh` green (2026-03-26)
 - [x] Tracing: `ORI_LOG=ori_repr=debug` shows range computations for each function — `tracing::debug!` in `range_fixpoint()` logs function name, iteration count, non-Top count (2026-03-26)
 - [x] `#[tracing::instrument(skip_all)]` on `range_fixpoint()`, `transfer()`, and `refine_from_branch()` (2026-03-26)
@@ -1151,6 +1152,12 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-033][medium]` `compiler/ori_repr/src/range/signatures/feedback.rs:152` — `refresh_return_ranges()` recomputes feedback summaries from all blocks, so one unreachable `Return` can block downstream propagation from a newly narrowed reachable call result.
+  Evidence: Step 1 narrows reachable caller result vars in `results` (`feedback.rs:103-128`), but Step 1b rebuilds `ret_range` by iterating `for block in &func.blocks` and falling back to `Top` when a dead return value was never analyzed (`feedback.rs:152-161`). Fresh validation with a standalone `propagate_ranges()` repro for `helper() -> A() -> B(x)` shows the bug directly: adding one unreachable `Return` block to `A` leaves `A`'s reachable call-result carrier at `Bounded { lo: 99, hi: 99 }`, but `B`'s parameter stays `Top` instead of narrowing to `[99, 99]`.
+  Impact: return-range feedback still fails on CFGs that contain dead returns, so bounded callee results stop propagating through those functions even after TPR-03-030/031/032. The current §03.5 tests only cover reachable-return chains, so this regression remains unpinned.
+  Required plan update: recompute feedback return ranges over the same reachable block set as `range_fixpoint()` (reuse/rebuild RPO reachability instead of scanning all blocks), then add a semantic-pin regression where a function with an unreachable return block forwards a bounded callee result to a downstream callee.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.5 (fix `refresh_return_ranges()` to use RPO reachability + semantic-pin test).
 
 - [x] `[TPR-03-032][high]` `compiler/ori_repr/src/range/signatures/feedback.rs:96` — Return-range feedback still stops at the call-result variable, so derived locals and return summaries can stay `Top`.
   Evidence: Step 1 only meets the direct call-result `dst` with the callee `return_range` (`feedback.rs:78-105`). Step 2 reruns `range_fixpoint()` only when `param_ranges` changed (`feedback.rs:149-184`). If a caller transforms that narrowed `dst` before returning or forwarding it, no rerun happens unless parameter seeds also changed, so the stale `results` from before Step 1 are what Phase 4 persists into `ReprPlan` (`signatures/mod.rs:183-205`).
