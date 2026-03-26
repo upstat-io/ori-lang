@@ -244,7 +244,7 @@ pub fn range_mul(a: ValueRange, b: ValueRange) -> ValueRange {
     }
 }
 
-/// `a / b` — returns Top if divisor spans zero.
+/// `a / b` — returns Top if divisor spans zero or any corner overflows.
 pub fn range_div(a: ValueRange, b: ValueRange) -> ValueRange {
     match (a, b) {
         (Bottom, _) | (_, Bottom) => Bottom,
@@ -253,10 +253,24 @@ pub fn range_div(a: ValueRange, b: ValueRange) -> ValueRange {
             if bl <= 0 && bh >= 0 {
                 return Top;
             }
-            // All four quotients (truncating division)
-            let quotients = [al / bl, al / bh, ah / bl, ah / bh];
-            let lo = *quotients.iter().min().unwrap_or(&0);
-            let hi = *quotients.iter().max().unwrap_or(&0);
+            // All four quotients — checked to handle i64::MIN / -1 overflow.
+            let quotients = [
+                al.checked_div(bl),
+                al.checked_div(bh),
+                ah.checked_div(bl),
+                ah.checked_div(bh),
+            ];
+            let mut lo = i64::MAX;
+            let mut hi = i64::MIN;
+            for q in &quotients {
+                match q {
+                    Some(v) => {
+                        lo = lo.min(*v);
+                        hi = hi.max(*v);
+                    }
+                    None => return Top,
+                }
+            }
             Bounded { lo, hi }
         }
         _ => Top,
@@ -437,7 +451,10 @@ pub fn range_bitnot(a: ValueRange) -> ValueRange {
         Bottom => Bottom,
         Bounded { lo, hi } => {
             // ~x = -x - 1, so ~[lo, hi] = [-hi-1, -lo-1]
-            match ((-hi).checked_sub(1), (-lo).checked_sub(1)) {
+            // Use checked_neg() to avoid overflow on i64::MIN (same pattern as range_neg).
+            let new_lo = hi.checked_neg().and_then(|v| v.checked_sub(1));
+            let new_hi = lo.checked_neg().and_then(|v| v.checked_sub(1));
+            match (new_lo, new_hi) {
                 (Some(new_lo), Some(new_hi)) => Bounded {
                     lo: new_lo,
                     hi: new_hi,
