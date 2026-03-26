@@ -140,8 +140,20 @@ pub fn propagate_ranges(
 
         if scc.is_recursive(&call_graph) {
             // Recursive SCC: iterate to fixpoint with parameter seeding.
-            total_scc_iters +=
-                process_recursive_scc(scc, &func_map, pool, config, &mut results, &mut func_infos);
+            // TPR-03-035: pass remaining total budget so the SCC doesn't
+            // overshoot max_total_scc_iterations.
+            let remaining_budget = config
+                .max_total_scc_iterations
+                .saturating_sub(total_scc_iters);
+            total_scc_iters += process_recursive_scc(
+                scc,
+                &func_map,
+                pool,
+                config,
+                &mut results,
+                &mut func_infos,
+                remaining_budget,
+            );
         } else {
             // Non-recursive SCC (single function): collect param ranges, then
             // re-run fixpoint with seeds so interprocedural facts propagate.
@@ -353,7 +365,12 @@ fn process_recursive_scc(
     config: &RangeAnalysisConfig,
     results: &mut FxHashMap<Name, super::fixpoint::RangeFixpointResult>,
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
+    remaining_budget: usize,
 ) -> usize {
+    // TPR-03-035: Use the minimum of the per-SCC cap and the remaining total
+    // budget. Without this, one recursive SCC can overshoot max_total_scc_iterations.
+    let effective_cap = config.max_scc_iterations.min(remaining_budget);
+
     // Initialize all members with Bottom params.
     for name in &scc.members {
         if let Some(func) = func_map.get(name) {
@@ -363,7 +380,7 @@ fn process_recursive_scc(
 
     let mut iteration = 0;
     loop {
-        if iteration >= config.max_scc_iterations {
+        if iteration >= effective_cap {
             tracing::warn!(
                 scc_size = scc.members.len(),
                 iterations = iteration,

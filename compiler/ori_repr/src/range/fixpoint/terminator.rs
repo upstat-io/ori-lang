@@ -29,6 +29,7 @@ pub(super) fn process_terminator(
     return_range: &mut ValueRange,
     iteration: usize,
     known_builtins: &KnownBuiltins,
+    call_result_narrowings: &FxHashMap<ArcVarId, ValueRange>,
 ) -> bool {
     let mut changed = false;
     match &block.terminator {
@@ -39,7 +40,13 @@ pub(super) fn process_terminator(
             ..
         } => {
             if is_int_typed(*ty, pool) {
-                let new_range = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
+                let mut new_range = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
+                // TPR-03-034: Apply callee return-range narrowing to Invoke dst,
+                // matching the Apply handling in run_forward_iteration(). Without
+                // this, Invoke dst vars miss interprocedural return-range facts.
+                if let Some(&narrowing) = call_result_narrowings.get(dst) {
+                    new_range = new_range.meet(narrowing);
+                }
                 changed |= update_range(ranges, *dst, new_range, iteration);
             }
         }

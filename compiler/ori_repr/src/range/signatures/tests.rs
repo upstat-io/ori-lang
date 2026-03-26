@@ -1424,3 +1424,400 @@ fn feedback_refresh_skips_unreachable_return_blocks() {
         "func_b's param should be [99, 99] via accumulated feedback, got {b_param:?}"
     );
 }
+
+// ─── TPR-03-035: Total SCC budget must limit recursive SCC iterations ──────
+
+/// Build a self-recursive `rec(x: int)`: if x > 0 then `rec(x - 1)` else 0.
+fn build_self_recursive_func(name: u32) -> ArcFunction {
+    use ori_arc::ir::{ArcBlock, ArcTerminator, PrimOp, ValueRepr};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    let v_x = ArcVarId::new(0);
+    let v_zero = ArcVarId::new(1);
+    let v_cond = ArcVarId::new(2);
+    let v_one = ArcVarId::new(3);
+    let v_sub = ArcVarId::new(4);
+    let v_rec = ArcVarId::new(5);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![(v_x, ori_types::Idx::INT)],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_zero,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_cond,
+                ty: ori_types::Idx::BOOL,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Gt),
+                    args: vec![v_x, v_zero],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: v_cond,
+            then_block: ArcBlockId::new(1),
+            else_block: ArcBlockId::new(2),
+        },
+    };
+
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_sub,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Sub),
+                    args: vec![v_x, v_one],
+                },
+            },
+            ArcInstr::Apply {
+                dst: v_rec,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(name),
+                args: vec![v_sub],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_rec },
+    };
+
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_zero },
+    };
+
+    ArcFunction {
+        name: ori_ir::Name::from_raw(name),
+        params: vec![ori_arc::ir::ArcParam {
+            var: v_x,
+            ty: ori_types::Idx::INT,
+            ownership: Ownership::Owned,
+        }],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; 6],
+        var_reprs: vec![ValueRepr::Scalar; 6],
+        spans: vec![vec![None; 2], vec![None; 3], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    }
+}
+
+/// TPR-03-035 regression: with `max_total_scc_iterations: 2` and
+/// `max_scc_iterations: 10`, `process_recursive_scc` uses
+/// `min(10, remaining_budget=1) = 1` as effective cap.
+#[test]
+fn total_scc_budget_caps_recursive_scc() {
+    let rec = build_self_recursive_func(950);
+
+    let v_arg = ArcVarId::new(0);
+    let v_result = ArcVarId::new(1);
+    let main_func = build_simple_func(
+        951,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_arg,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            },
+            ArcInstr::Apply {
+                dst: v_result,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(950),
+                args: vec![v_arg],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        v_result,
+        ori_types::Idx::INT,
+        2,
+    );
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig {
+        max_scc_iterations: 10,
+        max_total_scc_iterations: 2,
+        ..Default::default()
+    };
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+    propagate_ranges(&mut plan, &pool, &[rec, main_func], &config);
+
+    let rec_param = plan.var_range(ori_ir::Name::from_raw(950), ArcVarId::new(0));
+    assert_eq!(
+        rec_param,
+        ValueRange::Top,
+        "rec should be Top-widened with tight total budget, got {rec_param:?}"
+    );
+}
+
+// ─── TPR-03-034: Invoke dst must receive call_result_narrowings ──────
+
+/// Build a caller that uses `ArcTerminator::Invoke` to call `callee_id`,
+/// then performs `let y = x + 1` and returns y. Three blocks:
+///   B0: [setup] → `Invoke(callee_id)` → normal: B1, unwind: B2
+///   B1: [let one = 1; let y = x + one] → Return(y)
+///   B2: Unreachable
+fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunction {
+    use ori_arc::ir::{ArcBlock, ArcTerminator, PrimOp, ValueRepr};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    let v_x = ArcVarId::new(0);
+    let v_one = ArcVarId::new(1);
+    let v_y = ArcVarId::new(2);
+
+    // B0: invoke helper → normal B1, unwind B2
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Invoke {
+            dst: v_x,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(callee_id),
+            args: vec![],
+            arg_ownership: vec![],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    };
+
+    // B1: let one = 1; let y = x + one; return y
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_y,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![v_x, v_one],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_y },
+    };
+
+    // B2: unwind destination (unreachable)
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Unreachable,
+    };
+
+    ArcFunction {
+        name: ori_ir::Name::from_raw(name),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; num_vars],
+        var_reprs: vec![ValueRepr::Scalar; num_vars],
+        spans: vec![vec![None; 0], vec![None; 2], vec![None; 0]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    }
+}
+
+/// Semantic pin (TPR-03-034): `helper()` returns 99. Caller uses `Invoke` (not
+/// `Apply`) to call helper, then computes `y = x + 1`. After interprocedural
+/// propagation, y should be [100, 100]. ONLY passes when `process_terminator()`
+/// applies `call_result_narrowings` for `Invoke` dst variables.
+#[test]
+fn invoke_dst_derived_local_propagates() {
+    // helper: returns constant 99
+    let v_ret = ArcVarId::new(0);
+    let helper = build_simple_func(
+        930,
+        &[],
+        vec![ArcInstr::Let {
+            dst: v_ret,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        v_ret,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // caller: invoke helper → x; let y = x + 1; return y
+    let caller = build_invoke_caller(931, 930, 3);
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+
+    propagate_ranges(&mut plan, &pool, &[helper, caller], &config);
+
+    let caller_name = ori_ir::Name::from_raw(931);
+    let v_x = ArcVarId::new(0);
+    let v_y = ArcVarId::new(2);
+
+    // x (Invoke dst) should be narrowed to [99, 99] from helper's return range.
+    let x_range = plan.var_range(caller_name, v_x);
+    assert_eq!(
+        x_range,
+        ValueRange::Bounded { lo: 99, hi: 99 },
+        "Invoke dst x should be [99, 99], got {x_range:?}"
+    );
+
+    // y = x + 1 should be [100, 100] — the derived local.
+    // Before fix: y stays Top because Invoke dst doesn't get call_result_narrowings.
+    // After fix: process_terminator applies meet, so y propagates.
+    let y_range = plan.var_range(caller_name, v_y);
+    assert_eq!(
+        y_range,
+        ValueRange::Bounded { lo: 100, hi: 100 },
+        "Semantic pin (TPR-03-034): derived local y = invoke_dst + 1 should be [100, 100], got {y_range:?}"
+    );
+}
+
+/// Semantic pin (TPR-03-034): `helper()` returns 99. Caller uses `Invoke` to
+/// call helper, computes y = x + 1, then calls `callee(y)`. Callee's param
+/// should be [100, 100]. Tests `Invoke` narrowing propagating through to
+/// downstream parameter collection.
+#[test]
+fn invoke_dst_forwards_to_callee_param() {
+    // helper: returns constant 99
+    let v_hret = ArcVarId::new(0);
+    let helper = build_simple_func(
+        940,
+        &[],
+        vec![ArcInstr::Let {
+            dst: v_hret,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        v_hret,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // callee: receives p, returns p
+    let v_p = ArcVarId::new(0);
+    let callee_func = build_simple_func(
+        941,
+        &[(0, ori_types::Idx::INT)],
+        vec![],
+        v_p,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // caller: invoke helper → x; let one = 1; let y = x + one; apply callee(y) → r; return r
+    // Uses Invoke for helper call, Apply for callee call.
+    let v_x = ArcVarId::new(0);
+    let v_one = ArcVarId::new(1);
+    let v_y = ArcVarId::new(2);
+    let v_r = ArcVarId::new(3);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Invoke {
+            dst: v_x,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(940),
+            args: vec![],
+            arg_ownership: vec![],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    };
+
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_y,
+                ty: ori_types::Idx::INT,
+                value: ori_arc::ir::ArcValue::PrimOp {
+                    op: ori_arc::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v_x, v_one],
+                },
+            },
+            ArcInstr::Apply {
+                dst: v_r,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(941),
+                args: vec![v_y],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_r },
+    };
+
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Unreachable,
+    };
+
+    let caller = ArcFunction {
+        name: ori_ir::Name::from_raw(942),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; 4],
+        var_reprs: vec![ori_arc::ir::ValueRepr::Scalar; 4],
+        spans: vec![vec![None; 0], vec![None; 3], vec![None; 0]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+
+    propagate_ranges(&mut plan, &pool, &[helper, callee_func, caller], &config);
+
+    // callee's parameter should be [100, 100] — forwarded from Invoke dst + 1.
+    let callee_name = ori_ir::Name::from_raw(941);
+    let p_range = plan.var_range(callee_name, v_p);
+    assert_eq!(
+        p_range,
+        ValueRange::Bounded { lo: 100, hi: 100 },
+        "Semantic pin (TPR-03-034): callee(invoke_dst + 1) → callee's param should be [100, 100], got {p_range:?}"
+    );
+}

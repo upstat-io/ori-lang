@@ -36,6 +36,7 @@ pub(super) fn run_narrowing_pass(
     predecessors: &[Vec<usize>],
     block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
     known_builtins: &super::super::KnownBuiltins,
+    call_result_narrowings: &FxHashMap<ArcVarId, super::super::ValueRange>,
 ) {
     for &block_idx in rpo {
         let block = &func.blocks[block_idx];
@@ -104,6 +105,8 @@ pub(super) fn run_narrowing_pass(
         restore_block_refinements(ranges, saved);
 
         // Narrow invoke terminator.
+        // TPR-03-034: also apply call_result_narrowings for Invoke dst (same
+        // as forward pass), so return-range feedback reaches Invoke paths.
         if let ArcTerminator::Invoke {
             dst,
             ty,
@@ -112,7 +115,10 @@ pub(super) fn run_narrowing_pass(
         } = &block.terminator
         {
             if is_int_typed(*ty, pool) {
-                let computed = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
+                let mut computed = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
+                if let Some(&crn) = call_result_narrowings.get(dst) {
+                    computed = computed.meet(crn);
+                }
                 if let Some(&widened) = ranges.get(dst) {
                     let narrowed = narrow(widened, computed);
                     if narrowed != widened {
