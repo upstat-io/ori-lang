@@ -11,7 +11,7 @@ use ori_arc::ArcVarId;
 use ori_ir::BinaryOp;
 
 use super::ValueRange;
-use ValueRange::{Bounded, Top};
+use ValueRange::{Bottom, Bounded, Top};
 
 /// Refinement result for a single variable at a branch point.
 ///
@@ -95,7 +95,8 @@ fn refine_comparison(
     let (true_constraint, false_constraint) = match op {
         BinaryOp::Lt => {
             // x < c → true: x ∈ [-∞, c-1], false: x ∈ [c, +∞]
-            let hi = c.checked_sub(1).map_or(Top, |h| Bounded {
+            // When c = i64::MIN, c-1 overflows → true branch is impossible (Bottom).
+            let hi = c.checked_sub(1).map_or(Bottom, |h| Bounded {
                 lo: i64::MIN,
                 hi: h,
             });
@@ -111,7 +112,8 @@ fn refine_comparison(
                 lo: i64::MIN,
                 hi: c,
             };
-            let f = c.checked_add(1).map_or(Top, |l| Bounded {
+            // When c = i64::MAX, c+1 overflows → false branch is impossible (Bottom).
+            let f = c.checked_add(1).map_or(Bottom, |l| Bounded {
                 lo: l,
                 hi: i64::MAX,
             });
@@ -119,7 +121,8 @@ fn refine_comparison(
         }
         BinaryOp::Gt => {
             // x > c → true: x ∈ [c+1, +∞], false: x ∈ [-∞, c]
-            let t = c.checked_add(1).map_or(Top, |l| Bounded {
+            // When c = i64::MAX, c+1 overflows → true branch is impossible (Bottom).
+            let t = c.checked_add(1).map_or(Bottom, |l| Bounded {
                 lo: l,
                 hi: i64::MAX,
             });
@@ -135,7 +138,8 @@ fn refine_comparison(
                 lo: c,
                 hi: i64::MAX,
             };
-            let f = c.checked_sub(1).map_or(Top, |h| Bounded {
+            // When c = i64::MIN, c-1 overflows → false branch is impossible (Bottom).
+            let f = c.checked_sub(1).map_or(Bottom, |h| Bounded {
                 lo: i64::MIN,
                 hi: h,
             });
