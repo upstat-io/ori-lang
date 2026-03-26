@@ -182,6 +182,72 @@ fn div_negative_positive() {
     );
 }
 
+// ─── range_div — i64::MIN / -1 overflow (TPR-03-004) ──────────
+
+#[test]
+fn div_i64_min_by_neg1_returns_top() {
+    // i64::MIN / -1 overflows — must not panic, must return Top.
+    // Semantic pin: this test ONLY passes if checked division is used.
+    assert_eq!(
+        range_div(
+            Bounded {
+                lo: i64::MIN,
+                hi: i64::MIN
+            },
+            Bounded { lo: -1, hi: -1 }
+        ),
+        Top
+    );
+}
+
+#[test]
+fn div_range_containing_i64_min_and_neg1_returns_top() {
+    // Range where one corner hits i64::MIN / -1.
+    assert_eq!(
+        range_div(
+            Bounded {
+                lo: i64::MIN,
+                hi: -1
+            },
+            Bounded { lo: -5, hi: -1 }
+        ),
+        Top
+    );
+}
+
+#[test]
+fn div_i64_min_by_positive_no_overflow() {
+    // i64::MIN / 2 = valid, should produce a bounded result.
+    assert_eq!(
+        range_div(
+            Bounded {
+                lo: i64::MIN,
+                hi: i64::MIN
+            },
+            Bounded { lo: 2, hi: 2 }
+        ),
+        Bounded {
+            lo: i64::MIN / 2,
+            hi: i64::MIN / 2
+        }
+    );
+}
+
+#[test]
+fn floordiv_i64_min_by_neg1_returns_top() {
+    // range_floordiv delegates to range_div — same overflow applies.
+    assert_eq!(
+        range_floordiv(
+            Bounded {
+                lo: i64::MIN,
+                hi: i64::MIN
+            },
+            Bounded { lo: -1, hi: -1 }
+        ),
+        Top
+    );
+}
+
 // ─── range_mod ─────────────────────────────────────────────────
 
 #[test]
@@ -324,6 +390,57 @@ fn bitnot_positive_range() {
 #[test]
 fn bitnot_bottom() {
     assert_eq!(range_bitnot(Bottom), Bottom);
+}
+
+// ─── range_bitnot — i64::MIN overflow (TPR-03-005) ────────────
+
+#[test]
+fn bitnot_i64_min_returns_top() {
+    // ~i64::MIN requires negating i64::MIN which overflows.
+    // Semantic pin: this test ONLY passes if checked negation is used.
+    assert_eq!(
+        range_bitnot(Bounded {
+            lo: i64::MIN,
+            hi: i64::MIN
+        }),
+        Top
+    );
+}
+
+#[test]
+fn bitnot_range_containing_i64_min_returns_top() {
+    // lo = i64::MIN → negation overflows.
+    assert_eq!(
+        range_bitnot(Bounded {
+            lo: i64::MIN,
+            hi: -1
+        }),
+        Top
+    );
+}
+
+#[test]
+fn bitnot_i64_max_returns_bounded() {
+    // ~i64::MAX = -i64::MAX - 1 = i64::MIN. Valid, no overflow.
+    assert_eq!(
+        range_bitnot(Bounded {
+            lo: i64::MAX,
+            hi: i64::MAX
+        }),
+        Bounded {
+            lo: i64::MIN,
+            hi: i64::MIN
+        }
+    );
+}
+
+#[test]
+fn bitnot_negative_range() {
+    // ~[-10, -5] = [4, 9]
+    assert_eq!(
+        range_bitnot(Bounded { lo: -10, hi: -5 }),
+        Bounded { lo: 4, hi: 9 }
+    );
 }
 
 // ─── Literals & built-in ranges ────────────────────────────────
