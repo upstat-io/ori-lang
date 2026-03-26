@@ -85,7 +85,7 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
             if !is_int_typed(*ty, pool) {
                 return Top;
             }
-            transfer_known_call(*func).unwrap_or(Top)
+            transfer_known_call(*func, pool).unwrap_or(Top)
         }
         ArcInstr::ApplyIndirect { .. }
         | ArcInstr::PartialApply { .. }
@@ -131,7 +131,7 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
 /// Returns `Some(range)` for recognized builtins, `None` for unknown callees.
 /// Currently uses `Name::raw()` — a stable numeric identifier. Future:
 /// compare against interned builtin names from `ori_ir::BuiltinConstant`.
-fn transfer_known_call(_func: ori_ir::Name) -> Option<ValueRange> {
+pub fn transfer_known_call(_func: ori_ir::Name, _pool: &ori_types::Pool) -> Option<ValueRange> {
     // TODO(§03.5): Implement builtin name matching once interner is available
     // in the analysis context. For now, return None (conservative: all calls → Top).
     // Known builtins when matched: len → [0, MAX], count → [0, MAX],
