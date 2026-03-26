@@ -22,6 +22,8 @@
 //! - `max_total_scc_iterations` (default 50): cross-SCC cap.
 //! - If either is exceeded, remaining parameters get `Top` (safe fallback).
 
+mod feedback;
+
 use ori_arc::graph::call_graph::CallGraph;
 use ori_arc::graph::scc::compute_sccs;
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator};
@@ -164,6 +166,20 @@ pub fn propagate_ranges(
         }
     }
 
+    // Phase 3.5: Return-range feedback (TPR-03-030).
+    // Phase 3 processes callers first (reverse topo) for parameter propagation,
+    // so callee return ranges aren't in callers' var_ranges. This pass feeds
+    // callee return ranges back into results, then re-collects parameter ranges
+    // and re-runs fixpoints for functions whose seeds changed.
+    feedback::feed_return_ranges_and_reprocess(
+        &sccs,
+        &func_map,
+        pool,
+        config,
+        &mut results,
+        &mut func_infos,
+    );
+
     // Phase 4: Store results in ReprPlan.
     for (name, result) in &results {
         plan.set_var_ranges(*name, result.var_ranges.clone());
@@ -173,9 +189,6 @@ pub fn propagate_ranges(
     }
 
     // Phase 5: Merge interprocedural parameter ranges into ReprPlan.
-    // The intraprocedural fixpoint gives parameter vars Top (no call-site info).
-    // The interprocedural pass narrows them via call-site argument analysis.
-    // Meet the interprocedural range with the intraprocedural range to tighten.
     for (name, info) in &func_infos {
         if let Some(func) = func_map.get(name) {
             for pr in &info.param_ranges {
@@ -183,7 +196,6 @@ pub fn propagate_ranges(
                     let param_var = func.params[pr.param_index].var;
                     let intra_range = plan.var_range(*name, param_var);
                     let narrowed = intra_range.meet(pr.range);
-                    // Update the plan's var_ranges with the narrowed parameter range.
                     if let Some(ranges) = plan.function_var_ranges_mut(*name) {
                         ranges.insert(param_var, narrowed);
                     }
@@ -191,12 +203,6 @@ pub fn propagate_ranges(
             }
         }
     }
-
-    // Phase 6: Propagate callee return ranges to caller call-result variables.
-    // For each Apply/Invoke targeting a callee with a bounded return range,
-    // narrow the caller's dst variable range. This is the second half of
-    // TPR-03-026: callers benefit from callee return-range analysis.
-    propagate_return_ranges(plan, arc_functions, &func_infos);
 
     tracing::debug!(
         functions = arc_functions.len(),
@@ -319,66 +325,6 @@ fn join_arg_ranges(
     }
 }
 
-/// Propagate callee return ranges to caller call-result variables.
-///
-/// For each `Apply`/`Invoke` instruction in each function, if the callee has a
-/// bounded return range (from intraprocedural analysis), narrow the caller's
-/// `dst` variable in `ReprPlan` via `meet`. This enables callers to benefit
-/// from callee return-range analysis (TPR-03-026/TPR-03-027).
-fn propagate_return_ranges(
-    plan: &mut ReprPlan,
-    arc_functions: &[ArcFunction],
-    func_infos: &FxHashMap<Name, FunctionRangeInfo>,
-) {
-    for caller_func in arc_functions {
-        for block in &caller_func.blocks {
-            // Check body instructions for Apply.
-            for instr in &block.body {
-                if let ArcInstr::Apply {
-                    dst,
-                    func: callee_name,
-                    ..
-                } = instr
-                {
-                    narrow_dst_from_return(plan, caller_func.name, *dst, *callee_name, func_infos);
-                }
-            }
-            // Check terminator for Invoke.
-            if let ArcTerminator::Invoke {
-                dst,
-                func: callee_name,
-                ..
-            } = &block.terminator
-            {
-                narrow_dst_from_return(plan, caller_func.name, *dst, *callee_name, func_infos);
-            }
-        }
-    }
-}
-
-/// Narrow a caller's call-result variable from the callee's return range.
-fn narrow_dst_from_return(
-    plan: &mut ReprPlan,
-    caller_name: Name,
-    dst: ArcVarId,
-    callee_name: Name,
-    func_infos: &FxHashMap<Name, FunctionRangeInfo>,
-) {
-    let Some(callee_info) = func_infos.get(&callee_name) else {
-        return;
-    };
-    if matches!(callee_info.return_range, ValueRange::Top) {
-        return; // No useful info to propagate.
-    }
-    let existing = plan.var_range(caller_name, dst);
-    let narrowed = existing.meet(callee_info.return_range);
-    if narrowed != existing {
-        if let Some(ranges) = plan.function_var_ranges_mut(caller_name) {
-            ranges.insert(dst, narrowed);
-        }
-    }
-}
-
 /// Build a seed map from `FunctionRangeInfo::param_ranges` for `range_fixpoint()`.
 ///
 /// Maps each function parameter's `ArcVarId` to its interprocedural range
@@ -423,11 +369,21 @@ fn process_recursive_scc(
                 iterations = iteration,
                 "SCC fixpoint did not converge — widening to Top"
             );
-            // Widen all parameter ranges to Top.
+            // Widen all parameter ranges to Top AND clear stale intermediate
+            // results (TPR-03-028). Without clearing `results`, Phase 4 would
+            // persist partially-converged var_ranges from the last iteration.
             for name in &scc.members {
                 if let Some(func) = func_map.get(name) {
                     func_infos.insert(*name, FunctionRangeInfo::new_top(func.params.len()));
                 }
+                results.insert(
+                    *name,
+                    super::fixpoint::RangeFixpointResult {
+                        var_ranges: FxHashMap::default(),
+                        field_summaries: super::FieldSummaryTable::new(),
+                        return_range: ValueRange::Top,
+                    },
+                );
             }
             break;
         }
