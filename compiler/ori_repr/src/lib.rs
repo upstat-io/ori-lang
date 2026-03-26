@@ -76,6 +76,21 @@ pub fn compute_repr_plan(
     policy: NarrowingPolicy,
     repr_attrs: &[(Idx, ReprAttrKind)],
 ) -> ReprPlan {
+    compute_repr_plan_with_interner(pool, arc_functions, policy, repr_attrs, None)
+}
+
+/// Compute the representation plan with access to the string interner.
+///
+/// When `interner` is `Some`, builtin function names (len, abs, etc.) are
+/// resolved for range analysis, enabling tighter ranges on builtin calls.
+/// When `None`, builtin ranges conservatively degrade to `Top`.
+pub fn compute_repr_plan_with_interner(
+    pool: &Pool,
+    arc_functions: &[ArcFunction],
+    policy: NarrowingPolicy,
+    repr_attrs: &[(Idx, ReprAttrKind)],
+    interner: Option<&ori_ir::StringInterner>,
+) -> ReprPlan {
     let mut plan = ReprPlan::new(policy);
 
     // Phase 0: Store user-specified #repr attributes (§01.7).
@@ -95,7 +110,7 @@ pub fn compute_repr_plan(
     analyze_triviality(&mut plan, pool);
 
     // Phase 3: Range analysis (§03) → Integer narrowing (§04) → Float narrowing (§05)
-    analyze_ranges(&mut plan, pool, arc_functions);
+    analyze_ranges(&mut plan, pool, arc_functions, interner);
     apply_integer_narrowing(&mut plan, pool);
     apply_float_narrowing(&mut plan, pool);
 
@@ -180,8 +195,19 @@ fn analyze_triviality(plan: &mut ReprPlan, pool: &Pool) {
 /// Runs interprocedural range propagation: intraprocedural fixpoint per
 /// function, SCC-based parameter seeding, and return-range propagation.
 /// Results stored in `ReprPlan::function_var_ranges` and `field_range_summaries`.
-fn analyze_ranges(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcFunction]) {
-    let config = range::RangeAnalysisConfig::default();
+///
+/// When `interner` is provided, builtin function names are resolved for
+/// tighter range analysis (TPR-03-029).
+fn analyze_ranges(
+    plan: &mut ReprPlan,
+    pool: &Pool,
+    arc_functions: &[ArcFunction],
+    interner: Option<&ori_ir::StringInterner>,
+) {
+    let mut config = range::RangeAnalysisConfig::default();
+    if let Some(interner) = interner {
+        config.known_builtins = range::KnownBuiltins::from_interner(interner);
+    }
     range::propagate_ranges(plan, pool, arc_functions, &config);
 }
 
