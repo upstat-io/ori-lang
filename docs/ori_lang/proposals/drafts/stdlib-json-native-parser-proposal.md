@@ -5,7 +5,7 @@
 **Created:** 2026-03-26
 **Affects:** Standard library, spec (stdlib modules)
 **Supersedes:** `approved/stdlib-json-api-proposal.md`, `approved/stdlib-json-api-ffi-revision.md`
-**Prerequisites:** `drafts/compile-time-reflection-proposal.md`, `approved/intrinsics-v2-byte-simd-proposal.md`, `approved/const-generics-proposal.md`
+**Prerequisites:** `approved/compile-time-reflection-proposal.md`, `approved/compile-time-construction-proposal.md`, `approved/intrinsics-v2-byte-simd-proposal.md`, `approved/const-generics-proposal.md`
 
 ---
 
@@ -356,15 +356,14 @@ impl str: FromJson {
 pub def impl FromJson {
     @from_json (json: JsonValue) -> Result<Self, JsonError> = match json {
         JsonValue.Object(entries: obj) -> {
-            // Parse each field from the JSON object
-            // (depends on struct construction from $for — Open Question Q1
-            //  in compile-time-reflection-proposal.md)
-            $for field in fields_of(Self) do {
-                let field_json = obj[field.name] ?? JsonValue.Null
-                let parsed = FromJson.from_json(json: field_json)?
-                // ... accumulate into struct construction
-            }
-            todo()  // blocked on Q1: struct construction from $for
+            // Build struct from JSON fields using $construct
+            // (via approved/compile-time-construction-proposal.md)
+            $construct<Self>(
+                $for field in fields_of(Self) yield {
+                    let field_json = obj[field.name] ?? JsonValue.Null
+                    (field, FromJson.from_json(json: field_json)?)
+                }
+            )
         },
         _ -> Err(JsonError {
             kind: TypeMismatch,
@@ -537,8 +536,8 @@ pub def impl FromJsonDirect {
         }
 
         reader.expect_object_end()?
-        // ... construct Self (depends on Q1 from reflection proposal)
-        todo()
+        // Construct Self using $construct (approved/compile-time-construction-proposal.md)
+        $construct<Self>(field_values)
     }
 }
 ```
@@ -674,7 +673,7 @@ let json = to_json_str_pretty(value: user, indent: 4)
 
 **Deliverables:**
 - `pub def impl ToJson` with compile-time reflection
-- `pub def impl FromJson` with compile-time reflection (depends on struct construction Q1)
+- `pub def impl FromJson` with compile-time reflection + `$construct<Self>` (via `compile-time-construction-proposal`)
 - Zero-boilerplate struct serialization
 - Performance tests comparing reflection path vs hand-written
 
@@ -703,7 +702,7 @@ let json = to_json_str_pretty(value: user, indent: 4)
 - `parse_into<T>()` function
 - Performance benchmarks vs DOM path
 
-**Dependencies:** Phase 3 (reflection) + Phase 4 (SIMD scanner) + struct construction Q1.
+**Dependencies:** Phase 3 (reflection + `$construct`) + Phase 4 (SIMD scanner).
 
 ### Phase 6: Optimization
 
@@ -737,7 +736,7 @@ Phase 1-2: No New Dependencies
 Phase 3: Compile-Time Reflection
 ├── $for, $if, fields_of(T), value.[field]
 ├── (from compile-time-reflection-proposal)
-└── Struct construction from $for (Q1)
+└── $construct<T> (approved/compile-time-construction-proposal.md)
 
 Phase 4: SIMD
 ├── Const generics basics (§18.1) — in progress
@@ -852,7 +851,8 @@ JSON numbers are IEEE 754 doubles. Ori's `int` is i64. How to handle integers > 
 
 - **Supersedes**: `approved/stdlib-json-api-proposal.md` (2026-01-30)
 - **Supersedes**: `approved/stdlib-json-api-ffi-revision.md` (2026-01-30)
-- **Depends on**: `drafts/compile-time-reflection-proposal.md` (for Phase 3+)
+- **Depends on**: `approved/compile-time-reflection-proposal.md` (for Phase 3+)
+- **Depends on**: `approved/compile-time-construction-proposal.md` (for Phase 3+ struct construction)
 - **Depends on**: `approved/intrinsics-v2-byte-simd-proposal.md` (for Phase 4+)
 - **Depends on**: `approved/const-generics-proposal.md` (for Phase 4+)
 - **Interacts with**: `approved/const-evaluation-termination-proposal.md` (shared prerequisite)

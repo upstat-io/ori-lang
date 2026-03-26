@@ -572,6 +572,24 @@ E0460, E0461, E0462, E0463, E0464, W0461
 
 ---
 
+### Section 20A: Compile-Time Struct Construction
+**File:** `section-20A-construction.md` | **Tier:** 8 | **Status:** Not Started
+
+```
+$construct, construct, compile-time construction
+$construct_partial, partial construction, Default fill
+struct construction, generic construction, field/value pairs
+$FieldMeta, fields_of, compile-time expansion
+monomorphization, expansion to struct literal
+ExprKind::Construct, expand_construct
+E0470, E0471, E0472, E0473
+FromJson, deserialization, ORM mapping, configuration loading
+zero-cost, zero overhead, identical codegen
+ori_types/infer/expr/calls/monomorphization.rs
+```
+
+---
+
 ### Section 21A: LLVM Backend
 **File:** `section-21A-llvm.md` | **Tier:** 8 | **Status:** Partial
 
@@ -674,6 +692,7 @@ ori publish, registry, cache
 | 18 | Const Generics | 7 | `section-18-const-generics.md` |
 | 19 | Existential Types | 7 | `section-19-existential-types.md` |
 | 20 | Compile-Time Reflection | 8 | `section-20-reflection.md` |
+| 20A | Compile-Time Construction | 8 | `section-20A-construction.md` |
 | 21A | LLVM Backend | 8 | `section-21A-llvm.md` |
 | 21B | AOT Compilation | 8 | `section-21B-aot.md` |
 | 22 | Tooling | 8 | `section-22-tooling.md` |

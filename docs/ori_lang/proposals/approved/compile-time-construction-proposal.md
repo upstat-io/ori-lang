@@ -1,6 +1,7 @@
 # Proposal: Compile-Time Struct Construction
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-03-26
 **Author:** Eric (with AI assistance)
 **Created:** 2026-03-26
 **Affects:** Compiler (parser, type system, monomorphization, evaluator, LLVM codegen)
@@ -66,24 +67,28 @@ Where `field_values` is a compile-time-known list of `($FieldMeta, value)` pairs
 
 ### 3.2 Syntax
 
+```
+$construct<T>(field_values_expr)
+```
+
+The argument to `$construct` is a **single expression** that evaluates to a compile-time sequence of `($FieldMeta, value)` pairs. Typically this is a `$for...yield` expression:
+
 ```ori
-// Full form with $for
 $construct<T>(
     $for field in fields_of(T) yield {
         (field, compute_value(field))
     }
 )
-
-// Direct form (all fields explicit)
-$construct<User>(
-    ($name_field, "Alice"),
-    ($age_field, 30),
-)
 ```
 
-The argument to `$construct` is:
-- A `$for...yield` expression producing `[($FieldMeta, value)]` pairs, OR
-- A compile-time list of `($FieldMeta, value)` tuples
+A list literal also works for concrete types:
+
+```ori
+let [$name, $age] = fields_of(User)
+$construct<User>([($name, "Alice"), ($age, 30)])
+```
+
+> **Note:** For concrete types, a normal struct literal (`User { name: "Alice", age: 30 }`) is preferred. `$construct` is designed for **generic** contexts where `T` is a type parameter.
 
 The `$FieldMeta` in each pair identifies which field to set. The value is the initializer for that field.
 
@@ -155,6 +160,38 @@ After monomorphization, this expands to:
 ```
 
 Identical to hand-written code. Zero overhead.
+
+### 3.7 Visibility Rules
+
+`$construct<T>` follows the same visibility rules as struct literal construction:
+
+- **All-public fields**: Works with any type where all fields are accessible at the call site.
+- **Private fields**: If `T` has private fields (`::` prefix), `$construct<T>` cannot be used from outside the defining module — `fields_of(T)` only returns public fields, so the completeness check (§3.4) will report missing fields (E0470). This is the same restriction as writing `T { ... }` directly.
+- **Types with private fields** must implement construction traits (e.g., `FromJson`) manually, providing access to private fields within the defining module via normal struct literal syntax.
+
+This preserves encapsulation: generic construction only works for types that expose all their structure.
+
+### 3.8 Compile-Time Expansion Semantics
+
+The `$for...yield` expression inside `$construct` is **compile-time expansion**, not a runtime list. Each iteration is independently unrolled and type-checked. For:
+
+```ori
+$construct<User>(
+    $for field in fields_of(User) yield {
+        (field, FromJson.from_json(json: obj[field.name] ?? JsonValue.Null)?)
+    }
+)
+```
+
+The compiler expands this to three independent pairs:
+
+```ori
+($name_meta, FromJson.from_json(json: obj["name"] ?? JsonValue.Null)?)    // type-checked as str
+($age_meta, FromJson.from_json(json: obj["age"] ?? JsonValue.Null)?)       // type-checked as int
+($email_meta, FromJson.from_json(json: obj["email"] ?? JsonValue.Null)?)   // type-checked as Option<str>
+```
+
+Each value expression is checked against its corresponding field type. There is no runtime `[($FieldMeta, value)]` list — the notation is conceptual. This follows the same expansion model as `$for` in the compile-time reflection proposal.
 
 ---
 
@@ -380,6 +417,10 @@ error[E0473]: $construct_partial requires T: Default
 - After monomorphization, `$construct` is already expanded to `ExprKind::Struct`
 - No LLVM changes needed
 
+### Compile-Time Evaluation Limits
+
+`$construct` expansion is subject to the same compile-time evaluation limits as all `$` operations (1M steps, 1000 recursion depth, 100MB memory, 10s time), per the `const-evaluation-termination-proposal`. In practice, struct construction is trivially within limits — a struct with 1000 fields produces 1000 pairs, well under the step limit.
+
 ### Phase 2: `$construct_partial<T: Default>`
 
 - Same as Phase 1 but allows incomplete field lists
@@ -392,11 +433,7 @@ error[E0473]: $construct_partial requires T: Default
 
 ### Q1: Should `$construct` accept the list directly or via `$for`?
 
-**Current design:** `$construct<T>(expr)` where `expr` is any expression producing `[($FieldMeta, value)]`. Typically `$for...yield`, but could be a named const list.
-
-**Alternative:** `$construct<T> { $for field in ... { field: expr } }` — special block syntax. More readable but heavier syntactically.
-
-**Recommendation:** Start with the function-call form. The block syntax could be added as sugar later.
+**Decision:** `$construct<T>(expr)` takes a single expression (§3.2). The function-call form is simpler and more composable. A special block syntax could be explored as sugar in a future proposal.
 
 ### Q2: Should `$construct` work for sum types (variant construction)?
 
