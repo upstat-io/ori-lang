@@ -107,7 +107,7 @@ pub fn propagate_ranges(
     // Phase 1: Intraprocedural analysis for each function (no seeds).
     let mut results: FxHashMap<Name, super::fixpoint::RangeFixpointResult> = FxHashMap::default();
     for func in arc_functions {
-        let result = range_fixpoint(func, pool, config, None);
+        let result = range_fixpoint(func, pool, config, None, None);
         results.insert(func.name, result);
     }
 
@@ -152,7 +152,7 @@ pub fn propagate_ranges(
                 // Build seed map from collected param ranges.
                 let seeds = build_param_seed_map(func, &info);
                 // Re-run fixpoint with seeded parameters.
-                let result = range_fixpoint(func, pool, config, Some(&seeds));
+                let result = range_fixpoint(func, pool, config, Some(&seeds), None);
                 func_infos.insert(
                     name,
                     FunctionRangeInfo {
@@ -413,7 +413,7 @@ fn process_recursive_scc(
             // This is the key TPR-03-026 fix: the fixpoint starts with
             // interprocedural parameter constraints, enabling tighter results.
             let seeds = build_param_seed_map(func, &new_info);
-            let result = range_fixpoint(func, pool, config, Some(&seeds));
+            let result = range_fixpoint(func, pool, config, Some(&seeds), None);
             results.insert(*name, result);
         }
 

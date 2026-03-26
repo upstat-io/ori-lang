@@ -188,6 +188,15 @@ struct FixpointState {
 /// Run one forward iteration of the fixpoint loop over all blocks in RPO.
 ///
 /// Returns `true` if any range changed during this iteration.
+///
+/// When `call_result_narrowings` is non-empty, Apply/Invoke dst variables
+/// are narrowed (via `meet`) with the callee return range after the transfer
+/// function runs. This enables derived locals downstream of call results
+/// to propagate the callee return range through the fixpoint (TPR-03-032).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "fixpoint infrastructure — bundling would add indirection for one extra map ref"
+)]
 fn run_forward_iteration(
     rpo: &[usize],
     func: &ArcFunction,
@@ -196,6 +205,7 @@ fn run_forward_iteration(
     state: &mut FixpointState,
     iteration: usize,
     known_builtins: &super::KnownBuiltins,
+    call_result_narrowings: &FxHashMap<ArcVarId, ValueRange>,
 ) -> bool {
     // TPR-03-020: Clear stale refinements from prior iterations.
     // Refinements are recomputed fresh each iteration from the current ranges,
@@ -234,8 +244,16 @@ fn run_forward_iteration(
                 field_summaries: state.field_summary_table.as_map(),
                 known_builtins,
             };
-            let new_range = transfer(instr, &ctx);
+            let mut new_range = transfer(instr, &ctx);
             if let Some(var) = instr.defined_var() {
+                // TPR-03-032: Apply callee return-range narrowing to call-result
+                // variables. The transfer function for Apply/Invoke returns Top
+                // (unknown function), but we have the callee's return range from
+                // interprocedural analysis. Applying `meet` here lets the narrowed
+                // value propagate to derived locals through subsequent iterations.
+                if let Some(&narrowing) = call_result_narrowings.get(&var) {
+                    new_range = new_range.meet(narrowing);
+                }
                 changed |= update_range(&mut state.ranges, var, new_range, iteration);
             }
         }
@@ -256,20 +274,22 @@ fn run_forward_iteration(
     changed
 }
 
-/// Run range analysis fixpoint on a single function.
+/// Run intraprocedural range analysis on a single function.
 ///
 /// Computes `ValueRange` for every int-typed variable by iterating over
 /// basic blocks in RPO until convergence (or `max_iterations` reached).
 /// Uses widening to guarantee termination for loops, then narrowing
 /// passes to recover precision.
-#[tracing::instrument(skip_all)]
-/// Run intraprocedural range analysis on a single function.
 ///
 /// When `initial_param_ranges` is `Some`, entry block parameters are seeded
 /// from the provided map instead of starting at `Bottom`. This enables
 /// interprocedural propagation: call-site argument ranges (collected by §03.5)
 /// constrain the callee's parameters, yielding tighter results than the
 /// standalone intraprocedural pass.
+///
+/// When `call_result_narrowings` is `Some`, Apply/Invoke dst variables
+/// are narrowed (via `meet`) with callee return ranges after the transfer
+/// function runs, enabling derived locals to propagate (TPR-03-032).
 #[tracing::instrument(skip_all)]
 #[expect(
     clippy::implicit_hasher,
@@ -280,6 +300,7 @@ pub fn range_fixpoint(
     pool: &Pool,
     config: &RangeAnalysisConfig,
     initial_param_ranges: Option<&FxHashMap<ArcVarId, ValueRange>>,
+    call_result_narrowings: Option<&FxHashMap<ArcVarId, ValueRange>>,
 ) -> RangeFixpointResult {
     if func.blocks.len() > config.max_blocks {
         tracing::warn!(
@@ -317,6 +338,9 @@ pub fn range_fixpoint(
         }
     }
 
+    let empty_narrowings = FxHashMap::default();
+    let crn = call_result_narrowings.unwrap_or(&empty_narrowings);
+
     let mut iteration = 0;
     loop {
         let changed = run_forward_iteration(
@@ -327,6 +351,7 @@ pub fn range_fixpoint(
             &mut state,
             iteration,
             &config.known_builtins,
+            crn,
         );
         iteration += 1;
         if !changed || iteration >= config.max_iterations {
