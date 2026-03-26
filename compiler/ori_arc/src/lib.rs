@@ -51,7 +51,7 @@ pub(crate) mod classify;
 pub mod decision_tree;
 pub mod drop;
 pub mod fbip;
-mod graph;
+pub mod graph;
 pub mod ir;
 pub mod liveness;
 pub mod lower;

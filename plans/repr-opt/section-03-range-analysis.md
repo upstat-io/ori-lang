@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-26
-  triage_note: "All 13 findings triaged. TPR-03-012 fixed (8 regression tests), TPR-03-013 fixed (Bottom for impossible branches), TPR-03-011 accepted (reopened premature §03.2b integration checkbox). TPR-03-006 checkbox corrected."
+  triage_note: "All 16 findings triaged. TPR-03-014 accepted (already tracked in §03.6). TPR-03-015 accepted (add block-entry refinements for all live vars to §03.3). TPR-03-016 accepted (recompute field summaries after narrowing in §03.3). Prior: TPR-03-012 fixed, TPR-03-013 fixed, TPR-03-011 accepted."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -26,7 +26,7 @@ sections:
     status: in-progress
   - id: "03.3"
     title: "Widening & Narrowing Operators"
-    status: not-started
+    status: in-progress
   - id: "03.4"
     title: "Conditional Range Refinement"
     status: complete
@@ -512,7 +512,7 @@ Transfer functions describe how each operation transforms value ranges.
 
 For loops and recursive functions, naive fixed-point iteration may not terminate. Widening accelerates convergence; narrowing recovers precision after widening.
 
-- [ ] Implement widening operator:
+- [x] Implement widening operator (2026-03-26):
   ```rust
   /// Standard widening: if bound grew, push to infinity
   pub fn widen(previous: ValueRange, current: ValueRange) -> ValueRange {
@@ -530,7 +530,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   }
   ```
 
-- [ ] Implement narrowing operator (post-widening precision recovery):
+- [x] Implement narrowing operator (2026-03-26):
   ```rust
   /// Narrowing: intersect widened result with transfer function output
   pub fn narrow(widened: ValueRange, computed: ValueRange) -> ValueRange {
@@ -538,13 +538,13 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   }
   ```
 
-- [ ] **IR choice:** Range analysis operates on `ArcFunction` (from `ori_arc::ir`), NOT `CanExpr`:
+- [x] **IR choice** (2026-03-26): Range analysis operates on `ArcFunction` (from `ori_arc::ir`), NOT `CanExpr`:
   - `ArcFunction` has basic blocks (`ArcBlock`) and SSA-like variables (`ArcVarId`); dominator trees are computed separately via `DominatorTree::build(func)` in `ori_arc/src/graph/dominator.rs`
   - `CanExpr` (in `ori_ir::canon::expr`) is a sugar-free canonical expression enum with no explicit control flow graph — unsuitable for dataflow analysis
   - This means range analysis runs AFTER ARC lowering but BEFORE LLVM codegen
   - The `ArcFunction` → range analysis → ReprPlan → LLVM codegen flow preserves phase ordering
 
-- [ ] **Block parameter merging (phi handling):** ARC IR uses block parameters instead of phi nodes. `ArcBlock::params` is `Vec<(ArcVarId, Idx)>` — values passed via `Jump { target, args }`. At CFG merge points, the range for a block parameter must be the **join** of the ranges of all incoming arguments across all predecessor `Jump` instructions. The fixpoint loop must process block parameters before block body instructions:
+- [x] **Block parameter merging (phi handling)** (2026-03-26): ARC IR uses block parameters instead of phi nodes. `ArcBlock::params` is `Vec<(ArcVarId, Idx)>` — values passed via `Jump { target, args }`. At CFG merge points, the range for a block parameter must be the **join** of the ranges of all incoming arguments across all predecessor `Jump` instructions. The fixpoint loop must process block parameters before block body instructions:
   ```rust
   // Pre-compute predecessor map ONCE before the fixpoint loop.
   // Use `compute_predecessors()` from `ori_arc::graph` (must be made `pub`).
@@ -577,13 +577,13 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 
   **Performance note:** The predecessor Vec (`compute_predecessors`) must be computed ONCE before the fixpoint loop, not recomputed per iteration. It returns `Vec<Vec<usize>>` indexed by block index, so predecessor lookups are O(1) by index. The naive approach of scanning all blocks per parameter is O(blocks x params) per iteration — with 500 blocks and 20 iterations, that's 10,000 full-scan passes.
 
-- [ ] **Terminator-driven refinement:** The fixpoint loop must also process block terminators, not just body instructions. Three concerns:
+- [x] **Terminator-driven refinement** (2026-03-26): The fixpoint loop must also process block terminators, not just body instructions. Three concerns:
   1. **`Invoke { dst, ty, func, args, .. }`**: This terminator DEFINES a variable (`dst`). It is functionally equivalent to `Apply` but with unwind semantics. The fixpoint loop must compute a range for `dst` (same logic as `Apply` — check for known built-in, otherwise Top).
   2. **`Branch { cond, then_block, else_block }`**: Apply conditional refinement (§03.4) to variables in `then_block` and `else_block`.
   3. **`Switch { scrutinee, cases, default }`**: The scrutinee has range `[case_val, case_val]` in each case block, and the complement range in the default block. **Note:** `Switch` cases are `Vec<(u64, ArcBlockId)>` — the case values are `u64`, not `i64`. Use `i64::try_from(case_val)` and skip refinement for values exceeding `i64::MAX`.
   - Store per-block incoming refinements in a side table: `FxHashMap<(ArcBlockId, ArcVarId), ValueRange>`. Apply these at the start of each block during the next iteration.
 
-- [ ] Implement fixed-point iteration with widening:
+- [x] Implement fixed-point iteration with widening (2026-03-26):
   ```rust
   // NOTE: ArcFunction does not have a blocks_in_rpo() method.
   // Compute RPO via compute_postorder() from ori_arc::graph and reverse it.
@@ -831,7 +831,11 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
   }
   ```
 
-- [ ] **Handoff to ReprPlan (§01 integration):** `range_fixpoint()` returns `RangeFixpointResult { var_ranges, field_summaries, return_range }`. The caller must flush all three into `ReprPlan`. The integration requires three storage additions:
+- [ ] **[TPR-03-015] Apply block-entry refinements to all live variables, not just block parameters.** Currently `block_refinements` entries are only consumed in the block-parameter merge loop (lines 146-149). Non-parameter variables defined in dominating blocks (e.g., `x` in `if x < 100 { use(x) }`) never get refined. Fix: after processing block parameters (Step 1) and before processing body instructions (Step 2), iterate `block_refinements` entries for the current block and apply `meet(refinement)` to the variable's existing range. Add fixpoint tests: (a) `Branch` with non-parameter variable — verify true-branch range is refined, (b) `Switch` with non-parameter scrutinee — verify case-block range is exact. Semantic pin: `x ∈ [0, 200]` with `if x < 100` → true-branch `x` refined to `[0, 99]`.
+
+- [ ] **[TPR-03-016] Recompute field summaries after the narrowing pass.** Currently the `FieldSummaryTable` is built during the fixpoint loop (before narrowing) and never updated after narrowing tightens variable ranges. Widened intermediate ranges can permanently poison field precision. Fix: after the narrowing pass completes, clear the field_summary_table (`field_ranges.clear()`) and re-run `update_field_summaries()` for all `Construct` instructions across all blocks using the final narrowed ranges. Add a regression test: loop that widens a variable, then narrows — verify the final field summary matches the narrowed range, not the widened intermediate.
+
+- [x] **Handoff to ReprPlan (§01 integration)** (2026-03-26): `range_fixpoint()` returns `RangeFixpointResult { var_ranges, field_summaries, return_range }`. The caller must flush all three into `ReprPlan`. The integration requires three storage additions:
   1. **Per-function range storage** (already live in `plan.rs`):
      ```rust
      /// Per-function, per-variable ranges from range analysis.
@@ -881,7 +885,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
      }
      ```
 
-- [ ] **Unit tests for fixpoint loop** in `compiler/ori_repr/src/range/tests.rs`. **TDD: write tests BEFORE implementing the fixpoint loop. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
+- [x] **Unit tests for fixpoint loop** (2026-03-26) in `compiler/ori_repr/src/range/fixpoint/tests.rs` — 15 tests: widen (7), narrow (3), budget exceeded (1), constant let (1), return range join (1), block param merging (1), field summary integration (1). Both debug + release green. **TDD: write tests BEFORE implementing the fixpoint loop. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
   - **Termination**: a function with a simple loop (block parameter back-edge) terminates within `max_iterations` (default 20). Verify iteration count is finite.
   - **Widening threshold**: a counter incremented in a loop without bound triggers widening at iteration `WIDEN_THRESHOLD + 1` (default 4). After widening, range includes `i64::MAX`. Semantic pin: change `WIDEN_THRESHOLD` and verify behavior changes.
   - **Narrowing pass recovery**: after widening pushes a loop counter to `[0, i64::MAX]`, the narrowing pass intersects with the transfer function output to recover a tighter bound (e.g., if the loop is `for i in 0..100`, narrowing should recover `[0, 99]`).
@@ -1184,3 +1188,12 @@ For cross-function narrowing, we need to propagate range information through fun
 
 - [x] `[TPR-03-013][low]` `compiler/ori_repr/src/range/conditional/mod.rs:96` — The checked-off §03.4 boundary cases are still weaker than the plan claims: impossible `x < i64::MIN` / `x > i64::MAX` branches return `Top`, not `Bottom`.
   Resolved: Fixed on 2026-03-26. Changed all 4 overflow fallbacks in `refine_comparison()` from `Top` to `Bottom`: `Lt` (c=MIN, true), `LtEq` (c=MAX, false), `Gt` (c=MAX, true), `GtEq` (c=MIN, false). Updated 3 existing boundary tests (`lt_boundary_i64_min`, `lteq_boundary_i64_max`, `gt_boundary_i64_max`) to assert `Bottom`. Added new semantic pin `gteq_boundary_i64_min`. Debug + release green (277/277).
+
+- [x] `[TPR-03-014][high]` `compiler/ori_repr/src/lib.rs:176` — `analyze_ranges()` is still a no-op, so the new §03.3 fixpoint work never populates `ReprPlan` even though the section now claims the handoff is complete.
+  Resolved: Validated on 2026-03-26. Confirmed stub is empty at `lib.rs:176`. Already tracked as implementation task in §03.6 line 1117 (`- [ ] Fill in the analyze_ranges() stub`). No new task needed — the existing §03.6 item is the correct integration point.
+
+- [x] `[TPR-03-015][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:146` — Successor refinements from `Branch` and `Switch` are only applied to block parameters, so ordinary dominated variables never get the narrowing that §03.4 advertises.
+  Resolved: Validated on 2026-03-26. Confirmed: `block_refinements` entries are stored for arbitrary `(block, var)` pairs at lines 224-239 but only consumed inside the block-parameter merge loop at lines 146-149. Non-parameter variables never get refined. Implementation task added to §03.3 (apply block-entry refinements to all live vars).
+
+- [x] `[TPR-03-016][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:120` — Field summaries are monotone-joined across iterations without reset or narrowing, so an early conservative `Top` permanently poisons `(type, field)` precision.
+  Resolved: Validated on 2026-03-26. Confirmed: `field_summary_table` accumulates via monotone `join` during the fixpoint loop but is never recomputed after the narrowing pass. Widened intermediate ranges from early iterations can permanently poison field precision. Implementation task added to §03.3 (recompute field summaries after narrowing pass).
