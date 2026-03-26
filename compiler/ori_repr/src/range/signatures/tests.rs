@@ -986,3 +986,111 @@ fn return_range_feeds_downstream_parameter_collection() {
          C's param should be [99, 99], got {c_param:?}"
     );
 }
+
+// ─── Multi-hop return-range chain (TPR-03-031) ──────
+
+/// Build a passthrough function: `f(x) = callee(x)`.
+/// Takes one int param, calls `callee_id` with it, returns the result.
+fn build_passthrough_func(name: u32, callee_id: u32) -> ArcFunction {
+    let v_x = ArcVarId::new(0);
+    let v_r = ArcVarId::new(1);
+    build_simple_func(
+        name,
+        &[(0, ori_types::Idx::INT)],
+        vec![ArcInstr::Apply {
+            dst: v_r,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(callee_id),
+            args: vec![v_x],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        v_r,
+        ori_types::Idx::INT,
+        2,
+    )
+}
+
+/// Semantic pin: multi-hop return-range forwarding requires iterating
+/// feedback to fixpoint. Chain: `helper()` returns `[99,99]`, A calls
+/// `helper()` and passes result to B, B passes to C, C passes to D.
+/// D's parameter should narrow to `[99, 99]`.
+///
+/// This ONLY passes with iterated feedback — single-pass feedback
+/// loses the return-range narrowing after 2 hops.
+#[test]
+fn multi_hop_return_range_chain() {
+    // helper(): returns constant 99
+    let v_ret = ArcVarId::new(0);
+    let helper = build_simple_func(
+        800,
+        &[],
+        vec![ArcInstr::Let {
+            dst: v_ret,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        v_ret,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    // D(x) → x, C(x) → D(x), B(x) → C(x)
+    let func_d = build_simple_func(
+        801,
+        &[(0, ori_types::Idx::INT)],
+        vec![],
+        ArcVarId::new(0),
+        ori_types::Idx::INT,
+        1,
+    );
+    let func_c = build_passthrough_func(802, 801);
+    let func_b = build_passthrough_func(803, 802);
+
+    // A(): calls helper(), passes result to B(), returns B's result
+    let v_h = ArcVarId::new(0);
+    let v_ab = ArcVarId::new(1);
+    let func_a = build_simple_func(
+        804,
+        &[],
+        vec![
+            ArcInstr::Apply {
+                dst: v_h,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(800),
+                args: vec![],
+                arg_ownership: vec![],
+            },
+            ArcInstr::Apply {
+                dst: v_ab,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(803),
+                args: vec![v_h],
+                arg_ownership: vec![ArgOwnership::Owned],
+            },
+        ],
+        v_ab,
+        ori_types::Idx::INT,
+        2,
+    );
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+    propagate_ranges(
+        &mut plan,
+        &pool,
+        &[helper, func_d, func_c, func_b, func_a],
+        &config,
+    );
+
+    // Chain: helper→A→B→C→D. D's param should be [99, 99].
+    let v_param0 = ArcVarId::new(0);
+    for (label, id) in [("D", 801), ("C", 802), ("B", 803)] {
+        let range = plan.var_range(ori_ir::Name::from_raw(id), v_param0);
+        assert_eq!(
+            range,
+            ValueRange::Bounded { lo: 99, hi: 99 },
+            "{label}'s param should be [99, 99] in multi-hop chain, got {range:?}"
+        );
+    }
+}

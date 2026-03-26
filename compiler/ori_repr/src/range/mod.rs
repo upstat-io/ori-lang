@@ -223,6 +223,10 @@ pub struct RangeAnalysisConfig {
     pub max_scc_iterations: usize,
     /// Maximum total SCC iterations across all SCCs.
     pub max_total_scc_iterations: usize,
+    /// Maximum outer iterations for the return-range feedback loop.
+    /// Each iteration pushes callee return ranges one hop deeper.
+    /// Default 5 handles chains up to depth 6.
+    pub max_feedback_iterations: usize,
     /// Pre-interned names for known builtin functions.
     /// When populated, `transfer_known_call()` can match builtins by `Name`.
     pub known_builtins: KnownBuiltins,
@@ -235,6 +239,7 @@ impl Default for RangeAnalysisConfig {
             max_blocks: 500,
             max_scc_iterations: 10,
             max_total_scc_iterations: 50,
+            max_feedback_iterations: 5,
             known_builtins: KnownBuiltins::default(),
         }
     }
