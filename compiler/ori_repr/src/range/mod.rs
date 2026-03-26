@@ -23,12 +23,14 @@ use crate::repr::IntWidth;
 pub mod conditional;
 pub mod field_summary;
 pub mod fixpoint;
+pub mod signatures;
 pub mod transfer;
 
 // Re-export key types for downstream consumers.
 pub use conditional::BranchRefinement;
 pub use field_summary::FieldSummaryTable;
 pub use fixpoint::{narrow, range_fixpoint, widen, RangeFixpointResult};
+pub use signatures::{propagate_ranges, FunctionRangeInfo, ParamRange};
 pub use transfer::{
     range_abs, range_add, range_bitand, range_bitnot, range_bitor, range_bitxor, range_div,
     range_floordiv, range_literal, range_mod, range_mul, range_neg, range_shl, range_shr,
