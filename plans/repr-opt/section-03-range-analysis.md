@@ -1,12 +1,12 @@
 ---
 section: "03"
 title: "Value Range Analysis Framework"
-status: complete
+status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-26
-  triage_note: "All TPR items resolved as of 2026-03-26. TPR-03-026 (high) and TPR-03-027 (medium) implemented: parameter-seeded fixpoint, return-range propagation (Phase 6), reverse topological SCC order, narrowing pass fix for entry block params, 3 semantic-pin regression tests."
+  triage_note: "All findings triaged on 2026-03-26. TPR-03-028/029/030 accepted — implementation tasks added to §03.5 (SCC budget + return-range feedback) and §03.6 (KnownBuiltins wiring). Status stays 'findings' until accepted tasks are implemented."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -32,10 +32,10 @@ sections:
     status: complete
   - id: "03.5"
     title: "Function Signature Range Propagation"
-    status: complete
+    status: in-progress
   - id: "03.6"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 ---
 
 # Section 03: Value Range Analysis Framework
@@ -1016,6 +1016,8 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] **[TPR-03-026] Add regression test: mutually recursive SCC tightening from external seed** (2026-03-26) — `mutually_recursive_scc_tightens_from_seed`: F↔G mutual recursion, main(F(10)). Asserts F and G params are non-Top. Debug + release green.
 - [x] **[TPR-03-027] Add caller/callee return-range narrowing test** (2026-03-26) — `caller_dst_narrows_from_callee_return_range`: callee returns 99, caller's Apply dst narrows to [99, 99]. Semantic pin: ONLY passes with Phase 6 return-range propagation. Debug + release green.
 - [x] **[TPR-03-006] Implement builtin name matching in `transfer_known_call()`** (2026-03-26) — Added `KnownBuiltins` struct (pre-interned `Name` values for len/count/byte_to_int/char_to_int/abs) to `RangeAnalysisConfig`. `transfer_known_call()` now matches against builtins and returns bounded ranges. Added `known_builtins` field to `TransferContext`. Threaded through fixpoint, narrowing, and all callers. `KnownBuiltins::from_interner()` populates from real compiler interner; default is all-None (conservative). Debug + release green, 313 tests pass.
+- [ ] **[TPR-03-028] Clear stale `results` on SCC budget exhaustion**: When `process_recursive_scc()` exceeds `max_scc_iterations`, replace each SCC member's entry in `results` with an all-`Top` `RangeFixpointResult` (empty `var_ranges`, `Top` return_range, empty field_summaries) before returning. Currently only `func_infos` is widened — Phase 4 persists the stale intermediate `results`. Add regression test: force a recursive SCC to hit the budget cap (set `max_scc_iterations = 1`), verify all exported var_ranges are empty/Top and return_range is Top.
+- [ ] **[TPR-03-030] Feed callee return ranges back into `results` before parameter collection**: After Phase 6 (`propagate_return_ranges()`), or inline with Phase 3 SCC processing, update `results[caller].var_ranges[dst]` with the callee's bounded return range (via `meet`). This enables `collect_param_ranges()` to see return-range-narrowed arguments. Add semantic-pin test: A calls `helper()` (returns [99,99]), A passes that result to C — C's parameter should narrow to [99,99]. Currently C sees Top.
 - [ ] Handle boundary cases for parameter ranges:
   - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip) — **currently handled: non-int params are skipped by `is_int_typed()` check**
   - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch) — **blocked: ARC IR lacks visibility/trait info; currently all functions treated as narrowable (conservative — §04 ignores Top anyway)**
@@ -1113,6 +1115,7 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] Unknown/unsupported ArcInstr patterns degrade to `Top` — exhaustive match, no panics (2026-03-25)
 - [x] `compute_postorder()`, `successor_block_ids()`, and `compute_predecessors()` in `ori_arc::graph::mod.rs` changed from `pub(crate)` to `pub` (2026-03-25)
 - [x] **`analyze_ranges()` wired up** in `lib.rs` — calls `propagate_ranges()` with default config (2026-03-26)
+- [ ] **[TPR-03-029] Wire `StringInterner` into `analyze_ranges()` and populate `KnownBuiltins`**: Thread `&StringInterner` through `compute_repr_plan()` → `analyze_ranges()`, call `KnownBuiltins::from_interner(interner)` to populate `config.known_builtins` before passing to `propagate_ranges()`. Currently `KnownBuiltins::default()` (all `None`) is used, so builtin ranges degrade to `Top` in production. Add end-to-end regression test.
 - [x] **`field_range_summaries` field in `ReprPlan`** — `plan.rs:101`, with `field_range()` and `join_field_range()` methods (2026-03-25)
 - [x] **`.copied()` in `ReprPlan::var_range()`** — already uses `.copied()` at `plan.rs:162` (2026-03-25)
 - [x] **`pub use` re-exports in `lib.rs`** — `ValueRange`, `RangeAnalysisConfig`, `FieldSummaryTable`, `RangeFixpointResult`, `KnownBuiltins` (2026-03-26)
@@ -1143,6 +1146,24 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-028][high]` `compiler/ori_repr/src/range/signatures/mod.rs:420` — Recursive-SCC budget exhaustion claims to widen to `Top`, but the last partially converged `results` are still persisted into `ReprPlan`.
+  Evidence: when `iteration >= config.max_scc_iterations`, `process_recursive_scc()` only overwrites `func_infos` with `FunctionRangeInfo::new_top(...)` and then breaks (`compiler/ori_repr/src/range/signatures/mod.rs:420-432`). It never replaces the already-computed `results`. Phase 4 immediately stores those stale `results` in `ReprPlan` (`compiler/ori_repr/src/range/signatures/mod.rs:167-173`), and Phase 5 only rewrites parameter vars, leaving all other vars from the aborted iteration intact (`compiler/ori_repr/src/range/signatures/mod.rs:175-193`).
+  Impact: if an SCC hits the iteration cap, §04 can consume under-converged local/field ranges even though the implementation reports a conservative `Top` fallback. That is an unsafe budget fallback for a shared analysis result.
+  Required plan update: when the SCC budget trips, replace each member's stored `RangeFixpointResult` with a fully conservative result before Phase 4 persists it, and add a regression test that forces a recursive SCC to hit the budget and verifies all exported ranges stay `Top`.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.5 (clear stale `results` on SCC budget exhaustion + regression test).
+
+- [x] `[TPR-03-029][medium]` `compiler/ori_repr/src/lib.rs:183` — The real compiler path never populates `KnownBuiltins`, so builtin call ranges silently degrade to `Top`.
+  Evidence: `analyze_ranges()` constructs `RangeAnalysisConfig::default()` and passes it unchanged into `propagate_ranges()` (`compiler/ori_repr/src/lib.rs:183-185`). The default config sets `known_builtins` to `KnownBuiltins::default()` (`compiler/ori_repr/src/range/mod.rs:231-239`), which leaves every builtin name as `None` (`compiler/ori_repr/src/range/mod.rs:248-270`). `transfer_known_call()` only returns builtin ranges when those names are populated (`compiler/ori_repr/src/range/transfer/mod.rs:138-162`). A repo-wide search shows `KnownBuiltins::from_interner()` is never called.
+  Impact: real `Apply`/`Invoke` calls to `len`, `count`, `byte_to_int`, `char_to_int`, and `abs` lose their known ranges in production even though the helper-level unit tests pass, which weakens §03 and downstream narrowing materially.
+  Required plan update: thread the real interner into the §03 entry point, populate `config.known_builtins` before calling `propagate_ranges()`, and add an end-to-end regression that exercises a builtin call through the actual range-analysis pipeline.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.6 (wire `StringInterner` into `analyze_ranges()` and populate `KnownBuiltins`).
+
+- [x] `[TPR-03-030][medium]` `compiler/ori_repr/src/range/signatures/mod.rs:167` — Callee return-range propagation only patches `ReprPlan` after SCC processing, so downstream parameter collection still misses call-result chains.
+  Evidence: `collect_param_ranges()` reads argument facts only from `results[caller].var_ranges` (`compiler/ori_repr/src/range/signatures/mod.rs:213-319`). `propagate_return_ranges()` runs later and mutates only `ReprPlan`, not `results` (`compiler/ori_repr/src/range/signatures/mod.rs:167-199`, `322-379`). There is therefore no path that lets a narrowed call result in function `B` become the argument fact that `collect_param_ranges()` sees when `B` calls `C`.
+  Impact: the current §03.5 implementation still fails on interprocedural chains where a caller forwards a callee result rather than an incoming parameter. The section's current tests only pin direct-parameter forwarding and direct caller-side narrowing, not this downstream handoff.
+  Required plan update: feed callee return summaries back into the solver state used by `collect_param_ranges()` and add a semantic-pin regression where `A` calls `B`, `B` forwards `helper()`'s bounded return to `C`, and `C`'s parameter narrows accordingly.
+  Resolved: Validated and accepted on 2026-03-26. Implementation task added to §03.5 (feed return ranges into `results` before `collect_param_ranges()` + regression test for A→helper()→C chain).
 
 - [x] `[TPR-03-026][high]` `compiler/ori_repr/src/range/signatures/mod.rs:167` — The checked-off §03.5 SCC pipeline never feeds interprocedural facts back into the analysis, so recursive and transitive range propagation are still inert.
   Evidence: `propagate_ranges()` stores the plain intraprocedural `range_fixpoint()` results in `results` and only mutates `ReprPlan` parameter entries afterward (`compiler/ori_repr/src/range/signatures/mod.rs:159-185`). `collect_param_ranges()` always reads call arguments from `results[caller].var_ranges`, not from the narrowed plan or any seeded parameter state (`compiler/ori_repr/src/range/signatures/mod.rs:219-304`). Inside `process_recursive_scc()`, the rerun step still calls `range_fixpoint(func, pool, config)` with no parameter constraints at all despite the checked-off plan item claiming an SCC fixpoint over parameter and return ranges (`compiler/ori_repr/src/range/signatures/mod.rs:350-367`, `plans/repr-opt/section-03-range-analysis.md:1004-1011`).

@@ -19,7 +19,7 @@
 baseline, benchmark, throughput, criterion, performance measurement
 lexer_core, lexer, parser, raw, salsa, incremental
 MiB/s, tokens/second, bytes/second, regression detection
-cargo bench, lexer_core/raw/throughput, parser/raw/throughput
+cargo bench, lexer_core/raw/throughput, parser/raw
 CompilerDb, SourceFile, black_box, Throughput::Bytes
 ```
 
@@ -30,7 +30,8 @@ CompilerDb, SourceFile, black_box, Throughput::Bytes
 
 ```
 file split, hygiene, bloat, 500-line limit, refactor
-lib.rs, copier.rs, kind.rs, cursor.rs, outcome.rs
+lib.rs, copier.rs, kind.rs, cursor.rs, outcome.rs, match_patterns.rs, function/mod.rs
+arena/mod.rs, ast/expr.rs, query/mod.rs, decorative banners
 Parser, Cursor, ParseOutcome, ParseContext, KnownNames
 parser_driver, parser_state, parse_module, error_handling
 incremental, SyntaxCursor, ChangeMarker, deep_copy_expr
@@ -79,8 +80,8 @@ cursor/mod.rs, outcome/mod.rs, snapshot/mod.rs
 salsa, query, incremental, caching, early cutoff, overhead
 lex_result, tokens, parsed, typed, tokens_with_metadata
 CompilerDb, SourceFile, Db, salsa::tracked
-PoolCache, CanonCache, ImportsCache, CacheGuard
-incremental parsing, parse_incremental, TextChange
+PoolCache, CanonCache, ImportsCache, CacheGuard, ParseCache
+incremental parsing, parse_incremental, TextChange, compute_text_change
 SyntaxCursor, ChangeMarker, copier, deep_copy_expr
 query granularity, per-function, invalidation cascade
 oric/src/query/mod.rs, ori_parse/incremental/
