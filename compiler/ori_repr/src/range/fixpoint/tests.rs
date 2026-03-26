@@ -148,7 +148,7 @@ fn fixpoint_budget_exceeded() {
     };
 
     let pool = ori_types::Pool::new();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // All variables should be Top (no analysis performed).
     assert!(result.var_ranges.is_empty());
@@ -191,7 +191,7 @@ fn fixpoint_constant_let() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     assert_eq!(
         result.var_ranges.get(&v0).copied(),
@@ -280,7 +280,7 @@ fn fixpoint_return_range_join() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // join of [10,10] and [20,20] = [10,20]
     assert_eq!(result.return_range, ValueRange::Bounded { lo: 10, hi: 20 });
@@ -378,7 +378,7 @@ fn fixpoint_block_param_merging() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // v_param should be join of [5,5] and [15,15] = [5,15]
     assert_eq!(
@@ -476,7 +476,7 @@ fn fixpoint_branch_refines_non_param_variable() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // x starts as [50, 50], true-branch refinement intersects with [MIN, 99].
     // Since [50, 50] ∩ [MIN, 99] = [50, 50], the refinement doesn't change x.
@@ -555,7 +555,7 @@ fn fixpoint_switch_refines_non_param_variable() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // x is defined as [42, 42], so the Switch refinement for case 42
     // (meet of [42, 42] and [42, 42]) keeps it at [42, 42].
@@ -624,7 +624,7 @@ fn fixpoint_field_summary_uses_final_ranges() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // Field summary for field 0 of struct_type_idx should be [42, 42]
     // (matching the final variable range, not a wider intermediate).
@@ -720,7 +720,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // Semantic pin: y must be [0, 1] (joined cases), NOT [1, 1] (last-write-wins).
     assert_eq!(
@@ -826,7 +826,7 @@ fn fixpoint_switch_default_gets_complement() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // x is [0, 10]. Cases cover {0, 1, 2} from the low edge.
     // Default complement: [3, 10].
@@ -950,7 +950,7 @@ fn fixpoint_narrowing_recovers_loop_bound() {
     let (func, v_i) = build_bounded_loop_func(10);
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // After widening, i would be [0, MAX]. With proper narrowing
     // (block param re-merging + branch refinements), i should recover
@@ -1082,7 +1082,7 @@ fn fixpoint_branch_multi_predecessor_refinement_joins() {
     let (func, v_y) = build_multi_pred_branch_func();
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // B3 receives x from B1 true (x ∈ [MIN, -1]) and B2 false (x ∈ [100, MAX]).
     // Correct join: [MIN, MAX]. y copies x in B3.
@@ -1112,7 +1112,7 @@ fn fixpoint_return_range_recomputed_after_narrowing() {
     let (func, _v_i) = build_bounded_loop_func(10);
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // The loop variable narrows to [0, 10] (covered by TPR-03-019 test).
     // The Return terminator returns v_i, so return_range should also narrow.
@@ -1188,7 +1188,7 @@ fn fixpoint_projection_refreshed_after_field_summary_recompute() {
     let (func, v_projected, struct_type_idx) = build_loop_construct_project_func(10);
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // Field summary should be tight: recompute uses narrowed global v_i = [0, 10].
     let field_range = result.field_summaries.field_range(struct_type_idx, 0);
@@ -1297,7 +1297,7 @@ fn fixpoint_return_range_excludes_unreachable_blocks() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // Reachable return is only B2 returning v0=42, so return_range should be [42,42].
     // Bug: without the fix, B1's return (v1 → Top fallback) widens return_range to Top.
@@ -1389,7 +1389,7 @@ fn fixpoint_return_range_includes_all_reachable_returns() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // Both blocks reachable: join of [5,5] and [100,100] = [5,100].
     assert_eq!(
@@ -1471,7 +1471,7 @@ fn fixpoint_invoke_defines_dst_variable() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
-    let result = range_fixpoint(&func, &pool, &config);
+    let result = range_fixpoint(&func, &pool, &config, None);
 
     // v_dst should be defined in the result (Top for unknown function).
     let dst_range = result

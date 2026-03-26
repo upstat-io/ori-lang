@@ -46,6 +46,9 @@ pub use plan::{
     DecisionReason, DecisionSource, NarrowingPolicy, RcStrategy, ReprAttribute, ReprDecision,
     ReprPlan,
 };
+pub use range::{
+    FieldSummaryTable, KnownBuiltins, RangeAnalysisConfig, RangeFixpointResult, ValueRange,
+};
 pub use repr::{FloatWidth, IntWidth, MachineRepr};
 pub use struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
 
@@ -173,7 +176,14 @@ fn analyze_triviality(plan: &mut ReprPlan, pool: &Pool) {
 }
 
 /// §03: Value range analysis (interval propagation per function).
-fn analyze_ranges(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunction]) {}
+///
+/// Runs interprocedural range propagation: intraprocedural fixpoint per
+/// function, SCC-based parameter seeding, and return-range propagation.
+/// Results stored in `ReprPlan::function_var_ranges` and `field_range_summaries`.
+fn analyze_ranges(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcFunction]) {
+    let config = range::RangeAnalysisConfig::default();
+    range::propagate_ranges(plan, pool, arc_functions, &config);
+}
 
 /// §04: Integer narrowing (i64 → i32/i16/i8 when range fits).
 fn apply_integer_narrowing(_plan: &mut ReprPlan, _pool: &Pool) {}

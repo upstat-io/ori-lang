@@ -1,6 +1,7 @@
 # Proposal: Compile-Time Reflection
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-03-26
 **Author:** Eric (with AI assistance)
 **Created:** 2026-03-26
 **Affects:** Compiler (parser, type system, monomorphization, evaluator, LLVM codegen), stdlib, spec
@@ -132,11 +133,14 @@ type User = { name: str, age: int, email: str }
 ```
 
 **Rules:**
-- Only valid when `T` is a concrete struct type (resolved by monomorphization)
+- Only valid when `T` is a concrete type (resolved by monomorphization)
 - Returns only **public** fields (private fields with `::` prefix are excluded)
 - Field order matches declaration order (stable, deterministic)
-- Returns empty list `[]` for non-struct types (primitives, sum types, collections)
+- Returns empty list `[]` for non-struct types (primitives, sum types, collections, tuples)
+- **Newtypes**: For newtype declarations (`type UserId = int`), returns `[$FieldMeta { name: "inner", index: 0 }]` — newtypes are structural wrappers with a single public field
+- **Tuples**: Returns `[]` for tuple types — tuple elements are accessed via `.0`, `.1` positional syntax, not via named fields
 - Compile-time error if `T` is an unresolved type variable
+- **Warning W0461**: When called on a known concrete non-struct type (e.g., `fields_of(int)`), the compiler emits a warning suggesting `is_struct(T)` guard. This is NOT an error — the call is valid and returns `[]`
 
 #### `variants_of(T) -> [$VariantMeta]`
 
@@ -371,7 +375,24 @@ is_result(T) -> bool       // true for Result<T, E>
 is_tuple(T) -> bool        // true for (T, U, ...)
 ```
 
-These are compile-time intrinsics — they take a type parameter and return a compile-time boolean. They cannot be called with runtime values.
+These are compile-time intrinsics — they accept either a **type parameter** or an **expression**:
+
+- **Type parameter form**: `is_struct(T)` — checks the type `T` directly
+- **Expression form**: `is_option(value.[field])` — inspects the **static type** of the expression at compile time. The expression is not evaluated — only its compile-time type is inspected.
+
+The expression form is essential inside `$for` over `fields_of`, where each iteration's splice has a different type:
+
+```ori
+$for field in fields_of(T) do {
+    $if is_option(value.[field]) then {
+        // This field's type is Option<_> — handle nullable
+    } else {
+        // Non-optional field
+    }
+}
+```
+
+They cannot be called with values whose type is not statically known at compile time.
 
 ```ori
 @format_value<T>(value: T) -> str = {
@@ -703,7 +724,7 @@ impl str: ToJson {
 impl bool: ToJson {
     @to_json (self) -> JsonValue = JsonValue.Bool(self)
     @write_json (self, writer: JsonWriter) -> void = {
-        writer.write_str(value: $if self then "true" else "false")
+        writer.write_str(value: if self then "true" else "false")
     }
 }
 
@@ -714,7 +735,7 @@ impl<T: ToJson> [T]: ToJson {
     @write_json (self, writer: JsonWriter) -> void = {
         writer.write_byte(value: b'[')
         for item in self.enumerate() do {
-            $if item.0 > 0 then writer.write_byte(value: b',')
+            if item.0 > 0 then writer.write_byte(value: b',')
             item.1.write_json(writer: writer)
         }
         writer.write_byte(value: b']')
@@ -890,12 +911,12 @@ type JsonSchema = {
     required: [str],
 }
 
-@generate_schema<T>() -> JsonSchema = {
+@generate_schema<T>(phantom: T) -> JsonSchema = {
     $if is_struct(T) then {
         let props = $for field in fields_of(T) yield {
-            (field.name, generate_schema_for_field(value.[field]))
+            (field.name, generate_schema(phantom: phantom.[field]))
         }
-        let required = $for field in fields_of(T) if !is_option_field(field) yield {
+        let required = $for field in fields_of(T) if !is_option(phantom.[field]) yield {
             field.name
         }
         JsonSchema {
@@ -904,7 +925,7 @@ type JsonSchema = {
             required: required,
         }
     } else $if is_primitive(T) then {
-        JsonSchema { type_name: primitive_schema_name<T>(), properties: {}, required: [] }
+        JsonSchema { type_name: name_of(T), properties: {}, required: [] }
     } else {
         JsonSchema { type_name: "unknown", properties: {}, required: [] }
     }
@@ -944,7 +965,7 @@ type FieldDiff = { field_name: str, old_value: str, new_value: str }
 
 @diff<T>(old: T, new: T) -> [FieldDiff] = {
     $for field in fields_of(T) yield {
-        $if old.[field] != new.[field] then {
+        if old.[field] != new.[field] then {
             [FieldDiff {
                 field_name: field.name,
                 old_value: old.[field].to_str(),
@@ -1063,7 +1084,7 @@ type FieldDiff = { field_name: str, old_value: str, new_value: str }
 | `reflection-api-proposal.md` | Approved, zero impl | Superseded. Move to `superseded/` |
 | `stdlib-json-api-proposal.md` | Approved, zero impl | Superseded. New native JSON parser proposal needed |
 | `stdlib-json-api-ffi-revision.md` | Approved, zero impl | Superseded. Pure Ori, no FFI |
-| Spec Clause 27 (Reflection) | Written, no impl | Rewrite for compile-time model |
+| Spec Clause 27 (Reflection) | Written, no impl | Rewrite for compile-time model. Runtime `Reflect` trait, `TypeInfo`, `Unknown`, `FieldInfo`, `VariantInfo` types are **removed from the specification**. |
 | Roadmap §20 (Runtime Reflection) | Not started | Replace with §20 (Compile-Time Reflection) |
 
 The JSON proposals are superseded because they were designed around (a) a runtime `Json` trait, and (b) C FFI to yyjson. The new direction is a pure Ori JSON library using compile-time reflection + SIMD intrinsics. A separate **std.json native parser proposal** will define the full library design.
@@ -1128,7 +1149,7 @@ The reflection proposal and the JSON dependencies are **independent tracks** tha
 - A `$build<T>` expression that takes a block of field assignments
 - Named tuple construction: `T.from_fields(...)` auto-generated
 
-**Decision**: Deferred to detailed design phase. This is critical for the pure Ori JSON parser (on-demand deserialization) and will be resolved in the std.json native parser proposal.
+**Decision**: Struct construction from `$for` is deferred to a separate **`compile-time-construction-proposal`** to be drafted immediately after this proposal's approval. This proposal is independently useful without construction — serialization, debug formatting, schema generation, diff, and validation all work with read-only field access. Construction is critical for deserialization and will be designed as a follow-up that builds on this proposal's primitives.
 
 ### Q2: Variant Pattern Generation
 
@@ -1195,7 +1216,7 @@ Both can coexist. Over time, users might prefer writing traits generically using
 
 ## Part VIII: Non-Goals
 
-1. **Runtime reflection** — this proposal is compile-time only. Runtime reflection (type erasure, `Unknown` type, dynamic dispatch) may be added in a separate future proposal for plugin/scripting use cases.
+1. **Runtime reflection** — this proposal is compile-time only. The runtime `Reflect` trait, `Unknown` type, `TypeInfo`, and runtime downcasting from the approved `reflection-api-proposal.md` are **superseded and removed** from the language specification. Runtime type introspection may be reintroduced in a future proposal under a different scope (plugin systems, scripting, hot-reload) but is not part of the v2026 specification. Compile-time reflection provides strictly more capability with zero runtime cost.
 
 2. **Macro system** — `$for` is expansion, not macros. It does not operate on tokens or syntax trees. It operates on typed values (field metadata) and produces typed expressions.
 
@@ -1224,18 +1245,19 @@ error[E0460]: $for requires a compile-time iterable
    = help: if `items` should be const, declare with `let $items = ...`
 ```
 
-### E0461: `fields_of` on non-struct type
+### W0461: `fields_of` on known non-struct type
 
 ```
-error[E0461]: fields_of requires a struct type
+warning[W0461]: fields_of called on non-struct type
   --> src/main.ori:5:22
    |
  5 |     $for f in fields_of(int) yield ...
-   |                         ^^^ `int` is a primitive type, not a struct
+   |                         ^^^ `int` is a primitive type — fields_of returns []
    |
-   = note: fields_of returns [] for non-struct types
    = help: use is_struct(T) with $if to handle non-struct types
 ```
+
+Note: This is a **warning**, not an error. `fields_of(int)` is valid and returns `[]`. The warning only fires when called on a known concrete non-struct type — not on generic `T`.
 
 ### E0462: Splice on non-struct value
 

@@ -56,18 +56,22 @@ pub struct TransferContext<'a> {
     /// Field-summary table: `(struct_idx, field_index)` → joined range.
     /// Populated by `Construct` instructions, queried by `Project`.
     pub field_summaries: &'a FxHashMap<(Idx, u32), ValueRange>,
+    /// Pre-interned builtin names for `transfer_known_call`.
+    pub known_builtins: &'a super::KnownBuiltins,
 }
 
 /// Compute the output range for a single `ArcInstr`.
 ///
 /// Returns `Top` for non-int-typed destinations or unsupported patterns.
 /// Exhaustive match (no `_` arm) ensures new variants cause compile errors.
+#[tracing::instrument(skip_all)]
 pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
     let TransferContext {
         ranges,
         pool,
         var_types,
         field_summaries,
+        known_builtins,
     } = ctx;
     match instr {
         ArcInstr::Let { ty, value, .. } => {
@@ -85,7 +89,7 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
             if !is_int_typed(*ty, pool) {
                 return Top;
             }
-            transfer_known_call(*func, pool).unwrap_or(Top)
+            transfer_known_call(*func, known_builtins).unwrap_or(Top)
         }
         ArcInstr::ApplyIndirect { .. }
         | ArcInstr::PartialApply { .. }
@@ -129,13 +133,32 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
 /// Check if a function name corresponds to a known built-in with a fixed range.
 ///
 /// Returns `Some(range)` for recognized builtins, `None` for unknown callees.
-/// Currently uses `Name::raw()` — a stable numeric identifier. Future:
-/// compare against interned builtin names from `ori_ir::BuiltinConstant`.
-pub fn transfer_known_call(_func: ori_ir::Name, _pool: &ori_types::Pool) -> Option<ValueRange> {
-    // TODO(§03.5): Implement builtin name matching once interner is available
-    // in the analysis context. For now, return None (conservative: all calls → Top).
-    // Known builtins when matched: len → [0, MAX], count → [0, MAX],
-    // byte_to_int → [0, 255], char_to_int → [0, 0x10FFFF].
+/// Matches against pre-interned names from `KnownBuiltins`. When builtins
+/// are not populated (tests without an interner), all calls return `None`.
+pub fn transfer_known_call(
+    func: ori_ir::Name,
+    builtins: &super::KnownBuiltins,
+) -> Option<ValueRange> {
+    if builtins.len == Some(func) {
+        return Some(range_len());
+    }
+    if builtins.count == Some(func) {
+        return Some(range_count());
+    }
+    if builtins.byte_to_int == Some(func) {
+        return Some(range_byte_to_int());
+    }
+    if builtins.char_to_int == Some(func) {
+        return Some(range_char_to_int());
+    }
+    if builtins.abs == Some(func) {
+        // abs with unknown input → return Top (can't compute range_abs without operand range).
+        // The abs transfer function is applied at PrimOp level with operand ranges.
+        return Some(ValueRange::Bounded {
+            lo: 0,
+            hi: i64::MAX,
+        });
+    }
     None
 }
 
