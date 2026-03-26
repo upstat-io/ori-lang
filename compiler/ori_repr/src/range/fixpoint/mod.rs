@@ -10,7 +10,8 @@
 //! 2. For each block: merge block parameters, transfer body instructions,
 //!    process terminator (refinements + invoke)
 //! 3. Apply widening after `WIDEN_THRESHOLD` iterations to guarantee termination
-//! 4. After convergence, run one narrowing pass to recover precision
+//! 4. After convergence: 2 narrowing passes → recompute field summaries →
+//!    projection refresh pass (TPR-03-022) → recompute `return_range` (TPR-03-021)
 //!
 //! # Phase
 //!
@@ -467,6 +468,21 @@ pub fn range_fixpoint(
         pool,
         &state.ranges,
         &mut state.field_summary_table,
+    );
+
+    // TPR-03-022: Run a final narrowing pass with the recomputed field summaries.
+    // The previous narrowing passes used pre-recompute field summaries, so
+    // Project-derived variables still carry widened ranges. This pass re-transfers
+    // Project instructions against the tightened field_summary_table, narrowing
+    // projection variables (and anything downstream) to match.
+    run_narrowing_pass(
+        &rpo,
+        func,
+        pool,
+        &mut state.ranges,
+        &state.field_summary_table,
+        &predecessors,
+        &state.block_refinements,
     );
 
     // TPR-03-021: Recompute return_range from final narrowed ranges.

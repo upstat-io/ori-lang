@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-26
-  triage_note: "TPR-03-022 accepted on 2026-03-26 — implementation task added to §03.3 (post-recompute projection refresh pass). Status stays findings until implementation complete."
+  triage_note: "All 22 TPR items resolved as of 2026-03-26. TPR-03-022 fixed: post-recompute projection refresh pass added. All prior findings (TPR-03-001 through TPR-03-021) remain resolved."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -839,10 +839,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 
 - [x] **[TPR-03-021] Recompute `return_range` from final narrowed variable ranges** (2026-03-26). Added `recompute_return_range()` helper in `fixpoint/narrowing.rs` — walks all `Return` terminators and joins final narrowed variable ranges. Called after the 2 narrowing passes in `range_fixpoint()`. Semantic-pin test: `fixpoint_return_range_recomputed_after_narrowing` — bounded loop returning loop variable verifies `return_range` narrows to `[0, 10]` (not `[0, MAX]`). Debug + release green, 14,155 tests pass.
 
-- [ ] **[TPR-03-022] Post-recompute projection refresh pass** — after `recompute_field_summaries()` produces the tightened field_summary_table, run a final narrowing pass that re-transfers `Project` instructions against the updated table. This ensures projection-derived variables (and downstream `return_range`) reflect the post-narrowing field summaries, not the pre-recompute widened values. Implementation:
-  1. In `range_fixpoint()`, after `recompute_field_summaries()` and before `recompute_return_range()`, call `run_narrowing_pass()` one more time with the updated `state.field_summary_table`
-  2. `recompute_return_range()` then uses the tightened projection ranges
-  3. Add semantic-pin regression test: bounded loop (`i in 0..<10`), exit block does `Construct { args: [i] }` then `Project field 0`, returns the projection. Verify: field summary = `[0, 10]`, projection variable = `[0, 10]` (not `[0, MAX]`), return_range = `[0, 10]`
+- [x] **[TPR-03-022] Post-recompute projection refresh pass** (2026-03-26) — after `recompute_field_summaries()`, added a final `run_narrowing_pass()` with the updated field_summary_table. Project instructions now re-transfer against the tightened field summaries, narrowing projection-derived variables from `[10, MAX]` to `[10, 10]` (precise exit-block range). Semantic-pin test: `fixpoint_projection_refreshed_after_field_summary_recompute` — bounded loop exit constructs struct from narrowed i, projects field 0, returns projection. Verifies: field summary = `[0, 10]`, projection = `[10, 10]`, return_range = `[10, 10]`. Debug + release green, 14,156 tests pass.
 
 - [x] **Handoff to ReprPlan (§01 integration)** (2026-03-26): `range_fixpoint()` returns `RangeFixpointResult { var_ranges, field_summaries, return_range }`. The caller must flush all three into `ReprPlan`. The integration requires three storage additions:
   1. **Per-function range storage** (already live in `plan.rs`):
