@@ -61,7 +61,7 @@ Run the full benchmark suite and verify all benchmarks produce stable results. E
 
 - [ ] Run parser benchmarks (both Salsa and raw) and record results:
   ```bash
-  cargo bench -p oric --bench parser -- "raw/throughput"
+  cargo bench -p oric --bench parser -- "parser/raw"
   ```
 
 - [ ] Verify benchmark stability: run each benchmark 3 times, confirm variance < 5%. If variance exceeds 5%, identify the cause (CPU throttling, background processes) and stabilize before recording baselines.
@@ -98,7 +98,9 @@ Current benchmarks use `generate_n_functions()` which produces simple `@funcN (x
   }
   ```
 
-- [ ] Add Salsa-isolation benchmark to `parser.rs` that measures the delta between `parser/raw/throughput` and `parser/throughput` for the same workload, to quantify Salsa overhead precisely:
+- [ ] Add Salsa-isolation benchmark to `parser.rs` that measures the delta between `parser/raw` and Salsa-mediated `parser/` throughput for the same workload, to quantify Salsa overhead precisely.
+  - **Verified:** `CompilerDb::new()`, `SourceFile::new(&db, PathBuf, String)`, and `parsed(&db, file)` are the correct API signatures (confirmed from existing benchmarks in `parser.rs:74-187`). Required imports already present: `use oric::{CompilerDb, SourceFile}; use oric::query::parsed;`.
+  - **Verified:** `ori_lexer::lex()` and `ori_parse::parse()` are the correct free-function APIs for the raw path. Required imports: `use ori_ir::StringInterner;`.
   ```rust
   fn bench_salsa_overhead(c: &mut Criterion) {
       let interner = StringInterner::new();
@@ -186,4 +188,4 @@ Capture all benchmark results in a structured format for comparison in Section 0
 - [ ] Baseline throughput values within expected ranges
 - [ ] `./test-all.sh` green (no regressions from benchmark additions)
 
-**Exit Criteria:** `cargo bench -p oric --bench lexer_core`, `cargo bench -p oric --bench lexer`, and `cargo bench -p oric --bench parser` all run cleanly. `baselines.json` contains populated results for all metric fields. Results are stable (< 5% variance across 3 runs).
+**Exit Criteria:** `cargo bench -p oric --bench lexer_core -- "lexer_core/raw"`, `cargo bench -p oric --bench lexer -- "lexer/raw"`, and `cargo bench -p oric --bench parser -- "parser/raw"` all run cleanly. `baselines.json` contains populated results for all metric fields. Results are stable (< 5% variance across 3 runs).
