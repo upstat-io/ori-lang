@@ -45,6 +45,12 @@ impl FieldSummaryTable {
         &self.field_ranges
     }
 
+    /// Clear all accumulated field ranges. Used to recompute field summaries
+    /// from final (post-narrowing) variable ranges — see TPR-03-016.
+    pub fn clear(&mut self) {
+        self.field_ranges.clear();
+    }
+
     /// Record one `Construct` site's argument ranges into the summary.
     ///
     /// Each `arg_ranges[i]` is joined with the existing range for `(type_idx, i)`.
