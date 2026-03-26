@@ -965,3 +965,163 @@ fn fixpoint_narrowing_recovers_loop_bound() {
         "TPR-03-019: loop variable should narrow from [0, MAX] to [0, 10], got {i_range:?}"
     );
 }
+
+// ─── TPR-03-020: Branch refinement overwrite + stale iterations ──
+
+/// Build a multi-predecessor Branch refinement CFG. Returns `(func, v_y)`.
+fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, PrimOp};
+    use {ori_arc::ArcBlockId, ori_ir::BinaryOp};
+    let (int, bool_t) = (ori_types::Idx::INT, ori_types::Idx::BOOL);
+    let v = ArcVarId::new;
+    let (v_x, v_cond, v_b1, v_c2, v_b2, v_c3, v_y) = (v(0), v(1), v(2), v(3), v(4), v(5), v(6));
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Apply {
+                dst: v_x,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(99),
+                args: vec![],
+                arg_ownership: vec![],
+            },
+            ArcInstr::IsShared {
+                dst: v_cond,
+                var: v_x,
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: v_cond,
+            then_block: ArcBlockId::new(1),
+            else_block: ArcBlockId::new(2),
+        },
+    };
+
+    let make_lt_branch = |id, bvar, cvar, bound, true_b, false_b| ArcBlock {
+        id: ArcBlockId::new(id),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: bvar,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(ori_arc::ir::LitValue::Int(bound)),
+            },
+            ArcInstr::Let {
+                dst: cvar,
+                ty: ori_types::Idx::BOOL,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Lt),
+                    args: vec![v_x, bvar],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: cvar,
+            then_block: ArcBlockId::new(true_b),
+            else_block: ArcBlockId::new(false_b),
+        },
+    };
+
+    let block1 = make_lt_branch(1, v_b1, v_c2, 0, 3, 4);
+    let block2 = make_lt_branch(2, v_b2, v_c3, 100, 5, 3);
+    let ret_block = |id, var| ArcBlock {
+        id: ArcBlockId::new(id),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: var },
+    };
+    let block3 = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![],
+        body: vec![ArcInstr::Let {
+            dst: v_y,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Var(v_x),
+        }],
+        terminator: ArcTerminator::Return { value: v_y },
+    };
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(30),
+        params: vec![],
+        return_type: int,
+        blocks: vec![
+            block0,
+            block1,
+            block2,
+            block3,
+            ret_block(4, v_x),
+            ret_block(5, v_x),
+        ],
+        entry: ArcBlockId::new(0),
+        var_types: vec![int, bool_t, int, bool_t, int, bool_t, int],
+        var_reprs: vec![ori_arc::ir::ValueRepr::Scalar; 7],
+        spans: vec![
+            vec![None; 2],
+            vec![None; 2],
+            vec![None; 2],
+            vec![None],
+            vec![],
+            vec![],
+        ],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+    (func, v_y)
+}
+
+/// Semantic pin: multi-predecessor Branch refinements must be joined.
+/// Bug: `insert()` overwrites → B3 sees only [100, MAX].
+/// Fix: join → B3 sees full range (sound over-approximation).
+#[test]
+fn fixpoint_branch_multi_predecessor_refinement_joins() {
+    let (func, v_y) = build_multi_pred_branch_func();
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // B3 receives x from B1 true (x ∈ [MIN, -1]) and B2 false (x ∈ [100, MAX]).
+    // Correct join: [MIN, MAX]. y copies x in B3.
+    let y_range = result
+        .var_ranges
+        .get(&v_y)
+        .copied()
+        .unwrap_or(ValueRange::Top);
+    // join([MIN, -1], [100, MAX]) = Bounded { lo: MIN, hi: MAX } — semantically
+    // equivalent to Top but not normalized. Accept either representation.
+    let is_full_range = matches!(y_range, ValueRange::Top)
+        || matches!(y_range, ValueRange::Bounded { lo, hi } if lo == i64::MIN && hi == i64::MAX);
+    assert!(
+        is_full_range,
+        "TPR-03-020: multi-predecessor Branch refinements must be joined, not overwritten. \
+         B3 should see full range (join of [MIN,-1] and [100,MAX]), got {y_range:?}"
+    );
+}
+
+// ─── TPR-03-021: return_range must be recomputed after narrowing ──────
+
+/// Semantic pin: a bounded loop function's `return_range` should narrow along
+/// with the loop variable. The loop returns `v_i` which narrows to [0, 10].
+/// Without recomputation, `return_range` stays at [0, MAX] from forward passes.
+#[test]
+fn fixpoint_return_range_recomputed_after_narrowing() {
+    let (func, _v_i) = build_bounded_loop_func(10);
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // The loop variable narrows to [0, 10] (covered by TPR-03-019 test).
+    // The Return terminator returns v_i, so return_range should also narrow.
+    // Bug: return_range stays at [0, MAX] because it's never recomputed.
+    // Fix: recompute return_range from final narrowed ranges.
+    assert!(
+        matches!(result.return_range, ValueRange::Bounded { lo: 0, hi } if hi <= 10),
+        "TPR-03-021: return_range should narrow with loop variable to [0, 10], \
+         got {:?}",
+        result.return_range
+    );
+}
