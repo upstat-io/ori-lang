@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-26
-  triage_note: "All 30 findings triaged and resolved. TPR-03-028 (SCC budget soundness), TPR-03-029 (KnownBuiltins wiring), TPR-03-030 (return-range feedback) — all accepted and implemented on 2026-03-26."
+  triage_note: "TPR-03-031 accepted and implemented on 2026-03-26 — iterated feedback loop with refresh_return_ranges() and reverse-topo Step 2. All TPR items resolved."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -35,7 +35,7 @@ sections:
     status: in-progress
   - id: "03.6"
     title: "Completion Checklist"
-    status: complete
+    status: in-progress
 ---
 
 # Section 03: Value Range Analysis Framework
@@ -1018,6 +1018,8 @@ For cross-function narrowing, we need to propagate range information through fun
 - [x] **[TPR-03-006] Implement builtin name matching in `transfer_known_call()`** (2026-03-26) — Added `KnownBuiltins` struct (pre-interned `Name` values for len/count/byte_to_int/char_to_int/abs) to `RangeAnalysisConfig`. `transfer_known_call()` now matches against builtins and returns bounded ranges. Added `known_builtins` field to `TransferContext`. Threaded through fixpoint, narrowing, and all callers. `KnownBuiltins::from_interner()` populates from real compiler interner; default is all-None (conservative). Debug + release green, 313 tests pass.
 - [x] **[TPR-03-028] Clear stale `results` on SCC budget exhaustion** (2026-03-26): In `process_recursive_scc()`, when budget trips, now also clears `results` entries for all SCC members (empty var_ranges, Top return_range, empty field_summaries). Semantic pin test `scc_budget_exhaustion_clears_stale_results` forces budget with `max_scc_iterations = 1`, verifies v_c (constant 42) is Top and param is Top. Updated `mutually_recursive_scc_tightens_from_seed` to accept Top (SCC doesn't converge within budget). Debug + release green.
 - [x] **[TPR-03-030] Feed callee return ranges back into `results` before parameter collection** (2026-03-26): Added Phase 3.5 return-range feedback pass (`feedback.rs`). Step 1: narrows caller dst vars from callee return ranges in `results`. Step 2: re-collects params and re-runs fixpoint for functions with changed seeds (forward topo order). Removed redundant Phase 6 (`propagate_return_ranges`). Semantic pin test `return_range_feeds_downstream_parameter_collection`: A calls helper() (returns [99,99]), passes to C — C's param narrows to [99,99]. Debug + release green.
+- [x] **[TPR-03-031] Iterate return-range feedback to multi-hop fixpoint** (2026-03-26): Rewrote `feed_return_ranges_and_reprocess()` in `feedback.rs` with three fixes: (1) Outer loop iterates Steps 1+2 until convergence, bounded by `config.max_feedback_iterations` (default 5). (2) Step 1b (`refresh_return_ranges()`) recomputes `func_infos` return ranges from updated `results` after dst var narrowing — without this, narrowed return values don't propagate back up the call chain. (3) Step 2 iterates SCCs in reverse topological order (callers first), matching Phase 3's order, so parameter seeds cascade from callers to callees in one pass. Added `max_feedback_iterations` field to `RangeAnalysisConfig`. 336/336 debug + release green, 14,191 total green.
+- [x] **[TPR-03-031] Add semantic-pin test: multi-hop return-range chain** (2026-03-26): `multi_hop_return_range_chain` — 4-hop chain: `helper(800)` returns [99,99], `A(804)` calls helper and passes to `B(803)`, B passes to `C(802)`, C passes to `D(801)`. Asserts D's param = [99,99], C's param = [99,99], B's param = [99,99]. Semantic pin: ONLY passes with iterated feedback — fails with single-pass (D gets Top).
 - [ ] Handle boundary cases for parameter ranges:
   - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip) — **currently handled: non-int params are skipped by `is_int_typed()` check**
   - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch) — **blocked: ARC IR lacks visibility/trait info; currently all functions treated as narrowable (conservative — §04 ignores Top anyway)**
@@ -1146,6 +1148,12 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-031][medium]` `compiler/ori_repr/src/range/signatures/feedback.rs:61` — The new return-range feedback pass still stops after one hop and can discard injected call-result facts when a function is reprocessed.
+  Evidence: Step 1 only narrows immediate caller `dst` variables once (`compiler/ori_repr/src/range/signatures/feedback.rs:33-55`). Step 2 then does a single pass over `sccs` and reruns only functions whose parameter seeds changed (`compiler/ori_repr/src/range/signatures/feedback.rs:61-84`). When that rerun happens, `results.insert(*name, result)` overwrites the earlier injected `dst` ranges with a fresh `range_fixpoint()` result that has no callee-return propagation path. There is no outer loop that reapplies Step 1 after those reruns, even though `propagate_ranges()` now persists `results` directly into `ReprPlan` (`compiler/ori_repr/src/range/signatures/mod.rs:169-205`).
+  Impact: the current TPR-03-030 fix only pins the one-hop `helper() -> caller -> callee` case. Longer return-forwarding chains still collapse to conservative `Top`, and the section's current "resolved" TPR framing overstates completion.
+  Required plan update: iterate return-range feedback to a real fixpoint (or fold callee-return propagation into the seeded SCC solver), preserve injected caller `dst` facts across reruns, and add a semantic-pin regression for a multi-hop chain such as `main -> A(helper()) -> C -> D`.
+  Resolved: Validated and accepted on 2026-03-26. Two implementation tasks added to §03.5: iterate feedback to fixpoint + multi-hop semantic-pin test.
 
 - [x] `[TPR-03-028][high]` `compiler/ori_repr/src/range/signatures/mod.rs:420` — Recursive-SCC budget exhaustion claims to widen to `Top`, but the last partially converged `results` are still persisted into `ReprPlan`.
   Evidence: when `iteration >= config.max_scc_iterations`, `process_recursive_scc()` only overwrites `func_infos` with `FunctionRangeInfo::new_top(...)` and then breaks (`compiler/ori_repr/src/range/signatures/mod.rs:420-432`). It never replaces the already-computed `results`. Phase 4 immediately stores those stale `results` in `ReprPlan` (`compiler/ori_repr/src/range/signatures/mod.rs:167-173`), and Phase 5 only rewrites parameter vars, leaving all other vars from the aborted iteration intact (`compiler/ori_repr/src/range/signatures/mod.rs:175-193`).
