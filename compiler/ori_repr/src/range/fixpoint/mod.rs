@@ -171,6 +171,68 @@ fn restore_block_refinements(
     }
 }
 
+/// Compute the complement range for a Switch default block.
+///
+/// Trims contiguous case values from the lo/hi edges of the scrutinee range.
+/// For example: scrutinee `[0, 10]` with cases `{0, 1, 2}` → `[3, 10]`.
+/// Middle gaps (non-contiguous cases) cannot be excluded with a single
+/// interval, so they are conservatively kept.
+fn switch_default_complement(
+    scrutinee_range: ValueRange,
+    cases: &[(u64, ArcBlockId)],
+) -> ValueRange {
+    let Bounded { lo, hi } = scrutinee_range else {
+        return scrutinee_range;
+    };
+
+    let mut case_vals: Vec<i64> = cases
+        .iter()
+        .filter_map(|&(v, _)| i64::try_from(v).ok())
+        .filter(|&v| v >= lo && v <= hi)
+        .collect();
+
+    if case_vals.is_empty() {
+        return scrutinee_range;
+    }
+    case_vals.sort_unstable();
+    case_vals.dedup();
+
+    // Trim contiguous cases from the low edge.
+    let mut new_lo = lo;
+    for &v in &case_vals {
+        if v == new_lo {
+            match new_lo.checked_add(1) {
+                Some(next) => new_lo = next,
+                None => return Top,
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Trim contiguous cases from the high edge.
+    let mut new_hi = hi;
+    for &v in case_vals.iter().rev() {
+        if v == new_hi {
+            match new_hi.checked_sub(1) {
+                Some(prev) => new_hi = prev,
+                None => return Top,
+            }
+        } else {
+            break;
+        }
+    }
+
+    if new_lo > new_hi {
+        Bottom
+    } else {
+        Bounded {
+            lo: new_lo,
+            hi: new_hi,
+        }
+    }
+}
+
 /// Process a block's terminator: `Invoke` defines a variable,
 /// `Branch`/`Switch` produce refinements, `Return` accumulates return range.
 fn process_terminator(
@@ -209,13 +271,26 @@ fn process_terminator(
         ArcTerminator::Switch {
             scrutinee,
             cases,
-            default: _,
+            default,
         } => {
+            // TPR-03-017: JOIN case values per (block, scrutinee) — not overwrite.
             for &(case_val, case_block) in cases {
                 if let Ok(val) = i64::try_from(case_val) {
+                    let exact = Bounded { lo: val, hi: val };
                     block_refinements
-                        .insert((case_block, *scrutinee), Bounded { lo: val, hi: val });
+                        .entry((case_block, *scrutinee))
+                        .and_modify(|existing| *existing = existing.join(exact))
+                        .or_insert(exact);
                 }
+            }
+            // TPR-03-018: default block gets complement refinement.
+            let scr_range = ranges.get(scrutinee).copied().unwrap_or(Top);
+            let complement = switch_default_complement(scr_range, cases);
+            if complement != scr_range {
+                block_refinements
+                    .entry((*default, *scrutinee))
+                    .and_modify(|existing| *existing = existing.meet(complement))
+                    .or_insert(complement);
             }
         }
         ArcTerminator::Return { value } => {
@@ -230,15 +305,50 @@ fn process_terminator(
 }
 
 /// Run one narrowing pass over all blocks to recover precision lost to widening.
+///
+/// TPR-03-019: also re-merges block parameters from predecessors, applies
+/// block refinements (branch/switch), and narrows invoke terminators.
+/// This allows widened loop-header parameters to recover bounded ranges.
 fn run_narrowing_pass(
     rpo: &[usize],
     func: &ArcFunction,
     pool: &Pool,
     ranges: &mut FxHashMap<ArcVarId, ValueRange>,
     field_summary_table: &FieldSummaryTable,
+    predecessors: &[Vec<usize>],
+    block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
 ) {
     for &block_idx in rpo {
         let block = &func.blocks[block_idx];
+
+        // Narrow block parameters from predecessor jump args.
+        for (param_idx, (param_var, _)) in block.params.iter().enumerate() {
+            let mut merged = Bottom;
+            for &pred_idx in &predecessors[block_idx] {
+                let pred = &func.blocks[pred_idx];
+                if let ArcTerminator::Jump { target, args, .. } = &pred.terminator {
+                    if target.index() == block_idx {
+                        if let Some(&arg_var) = args.get(param_idx) {
+                            merged = merged.join(ranges.get(&arg_var).copied().unwrap_or(Bottom));
+                        }
+                    }
+                }
+            }
+            if let Some(&refinement) = block_refinements.get(&(block.id, *param_var)) {
+                merged = merged.meet(refinement);
+            }
+            if let Some(&widened) = ranges.get(param_var) {
+                let narrowed = narrow(widened, merged);
+                if narrowed != widened {
+                    ranges.insert(*param_var, narrowed);
+                }
+            }
+        }
+
+        // Apply block-entry refinements temporarily (same as forward pass).
+        let saved = apply_block_refinements(block, ranges, block_refinements);
+
+        // Narrow body instructions.
         let mut updates: Vec<(ArcVarId, ValueRange)> = Vec::new();
         {
             let ctx = TransferContext {
@@ -263,6 +373,118 @@ fn run_narrowing_pass(
         for (var, narrowed) in updates {
             ranges.insert(var, narrowed);
         }
+
+        // Restore temporary refinements.
+        restore_block_refinements(ranges, saved);
+
+        // Narrow invoke terminator.
+        if let ArcTerminator::Invoke {
+            dst,
+            ty,
+            func: callee,
+            ..
+        } = &block.terminator
+        {
+            if is_int_typed(*ty, pool) {
+                let computed = transfer_known_call(*callee, pool).unwrap_or(Top);
+                if let Some(&widened) = ranges.get(dst) {
+                    let narrowed = narrow(widened, computed);
+                    if narrowed != widened {
+                        ranges.insert(*dst, narrowed);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Mutable state threaded through the fixpoint loop.
+struct FixpointState {
+    ranges: FxHashMap<ArcVarId, ValueRange>,
+    field_summary_table: FieldSummaryTable,
+    block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
+    return_range: ValueRange,
+}
+
+/// Run one forward iteration of the fixpoint loop over all blocks in RPO.
+///
+/// Returns `true` if any range changed during this iteration.
+fn run_forward_iteration(
+    rpo: &[usize],
+    func: &ArcFunction,
+    pool: &Pool,
+    predecessors: &[Vec<usize>],
+    state: &mut FixpointState,
+    iteration: usize,
+) -> bool {
+    let mut changed = false;
+    for &block_idx in rpo {
+        let block = &func.blocks[block_idx];
+
+        changed |= merge_block_params(
+            block,
+            block_idx,
+            predecessors,
+            func,
+            &mut state.ranges,
+            &state.block_refinements,
+            iteration,
+        );
+
+        let saved = apply_block_refinements(block, &mut state.ranges, &state.block_refinements);
+
+        for instr in &block.body {
+            update_field_summaries(
+                instr,
+                &state.ranges,
+                &func.var_types,
+                pool,
+                &mut state.field_summary_table,
+            );
+            let ctx = TransferContext {
+                ranges: &state.ranges,
+                pool,
+                var_types: &func.var_types,
+                field_summaries: state.field_summary_table.as_map(),
+            };
+            let new_range = transfer(instr, &ctx);
+            if let Some(var) = instr.defined_var() {
+                changed |= update_range(&mut state.ranges, var, new_range, iteration);
+            }
+        }
+
+        restore_block_refinements(&mut state.ranges, saved);
+
+        changed |= process_terminator(
+            block,
+            func,
+            pool,
+            &mut state.ranges,
+            &mut state.block_refinements,
+            &mut state.return_range,
+            iteration,
+        );
+    }
+    changed
+}
+
+/// Recompute field summaries from final ranges (post-narrowing).
+///
+/// During the fixpoint loop, field summaries may accumulate wider ranges
+/// from pre-convergence iterations. This clears and recomputes from the
+/// converged ranges. See TPR-03-016.
+fn recompute_field_summaries(
+    rpo: &[usize],
+    func: &ArcFunction,
+    pool: &Pool,
+    ranges: &FxHashMap<ArcVarId, ValueRange>,
+    field_summary_table: &mut FieldSummaryTable,
+) {
+    field_summary_table.clear();
+    for &block_idx in rpo {
+        for instr in &func.blocks[block_idx].body {
+            update_field_summaries(instr, ranges, &func.var_types, pool, field_summary_table);
+        }
     }
 }
 
@@ -270,8 +492,8 @@ fn run_narrowing_pass(
 ///
 /// Computes `ValueRange` for every int-typed variable by iterating over
 /// basic blocks in RPO until convergence (or `max_iterations` reached).
-/// Uses widening to guarantee termination for loops, then one narrowing
-/// pass to recover precision.
+/// Uses widening to guarantee termination for loops, then narrowing
+/// passes to recover precision.
 #[tracing::instrument(skip_all)]
 pub fn range_fixpoint(
     func: &ArcFunction,
@@ -291,72 +513,22 @@ pub fn range_fixpoint(
         };
     }
 
-    let mut ranges: FxHashMap<ArcVarId, ValueRange> = FxHashMap::default();
-    let mut return_range = Bottom;
-    let mut iteration = 0;
-
     let rpo = {
         let mut po = compute_postorder(func);
         po.reverse();
         po
     };
-
     let predecessors = compute_predecessors(func);
-    let mut field_summary_table = FieldSummaryTable::new();
-    let mut block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange> = FxHashMap::default();
+    let mut state = FixpointState {
+        ranges: FxHashMap::default(),
+        field_summary_table: FieldSummaryTable::new(),
+        block_refinements: FxHashMap::default(),
+        return_range: Bottom,
+    };
 
+    let mut iteration = 0;
     loop {
-        let mut changed = false;
-        for &block_idx in &rpo {
-            let block = &func.blocks[block_idx];
-
-            changed |= merge_block_params(
-                block,
-                block_idx,
-                &predecessors,
-                func,
-                &mut ranges,
-                &block_refinements,
-                iteration,
-            );
-
-            // Step 1.5: Temporarily apply refinements to non-parameter vars.
-            let saved = apply_block_refinements(block, &mut ranges, &block_refinements);
-
-            for instr in &block.body {
-                update_field_summaries(
-                    instr,
-                    &ranges,
-                    &func.var_types,
-                    pool,
-                    &mut field_summary_table,
-                );
-                let ctx = TransferContext {
-                    ranges: &ranges,
-                    pool,
-                    var_types: &func.var_types,
-                    field_summaries: field_summary_table.as_map(),
-                };
-                let new_range = transfer(instr, &ctx);
-                if let Some(var) = instr.defined_var() {
-                    changed |= update_range(&mut ranges, var, new_range, iteration);
-                }
-            }
-
-            // Restore pre-refinement ranges for non-parameter variables.
-            restore_block_refinements(&mut ranges, saved);
-
-            changed |= process_terminator(
-                block,
-                func,
-                pool,
-                &mut ranges,
-                &mut block_refinements,
-                &mut return_range,
-                iteration,
-            );
-        }
-
+        let changed = run_forward_iteration(&rpo, func, pool, &predecessors, &mut state, iteration);
         iteration += 1;
         if !changed || iteration >= config.max_iterations {
             break;
@@ -366,32 +538,37 @@ pub fn range_fixpoint(
     tracing::debug!(
         func = func.name.raw(),
         iterations = iteration,
-        non_top = ranges.values().filter(|r| !matches!(r, Top)).count(),
+        non_top = state.ranges.values().filter(|r| !matches!(r, Top)).count(),
         "range analysis complete"
     );
 
-    run_narrowing_pass(&rpo, func, pool, &mut ranges, &field_summary_table);
-
-    // Recompute field summaries from final (post-narrowing) ranges.
-    // During the fixpoint loop, field summaries may accumulate wider
-    // ranges from pre-convergence iterations. See TPR-03-016.
-    field_summary_table.clear();
-    for &block_idx in &rpo {
-        for instr in &func.blocks[block_idx].body {
-            update_field_summaries(
-                instr,
-                &ranges,
-                &func.var_types,
-                pool,
-                &mut field_summary_table,
-            );
-        }
+    // Run 2 narrowing passes: the second allows block-param ranges
+    // (narrowed in pass 1 via body variables) to propagate back through
+    // the predecessor merge. This recovers bounded loop variables.
+    for _ in 0..2 {
+        run_narrowing_pass(
+            &rpo,
+            func,
+            pool,
+            &mut state.ranges,
+            &state.field_summary_table,
+            &predecessors,
+            &state.block_refinements,
+        );
     }
 
+    recompute_field_summaries(
+        &rpo,
+        func,
+        pool,
+        &state.ranges,
+        &mut state.field_summary_table,
+    );
+
     RangeFixpointResult {
-        var_ranges: ranges,
-        field_summaries: field_summary_table,
-        return_range,
+        var_ranges: state.ranges,
+        field_summaries: state.field_summary_table,
+        return_range: state.return_range,
     }
 }
 

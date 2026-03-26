@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-26
-  triage_note: "All 16 findings triaged. TPR-03-014 accepted (already tracked in §03.6). TPR-03-015 accepted (add block-entry refinements for all live vars to §03.3). TPR-03-016 accepted (recompute field summaries after narrowing in §03.3). Prior: TPR-03-012 fixed, TPR-03-013 fixed, TPR-03-011 accepted."
+  triage_note: "All resolved. TPR-03-017/018/019 fixed on 2026-03-26. Prior: TPR-03-014 accepted (already tracked in §03.6), TPR-03-015 fixed, TPR-03-016 fixed, TPR-03-012 fixed, TPR-03-013 fixed, TPR-03-011 accepted."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -762,18 +762,25 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
                       }
                   }
                   ArcTerminator::Switch { scrutinee, cases, default } => {
-                      // Each case block: scrutinee == case_val
+                      // TPR-03-017: JOIN case values per (block, scrutinee).
                       for &(case_val, case_block) in cases {
-                          // u64 → i64 conversion (Switch cases are u64)
                           if let Ok(val) = i64::try_from(case_val) {
-                              block_refinements.insert(
-                                  (case_block, *scrutinee),
-                                  Bounded { lo: val, hi: val },
-                              );
+                              let exact = Bounded { lo: val, hi: val };
+                              block_refinements
+                                  .entry((case_block, *scrutinee))
+                                  .and_modify(|e| *e = e.join(exact))
+                                  .or_insert(exact);
                           }
                       }
-                      // Default block: scrutinee is NOT any case value
-                      // (complement range — complex, conservative: leave as-is)
+                      // TPR-03-018: default gets complement refinement.
+                      let scr_range = ranges.get(scrutinee).copied().unwrap_or(Top);
+                      let complement = switch_default_complement(scr_range, cases);
+                      if complement != scr_range {
+                          block_refinements
+                              .entry((*default, *scrutinee))
+                              .and_modify(|e| *e = e.meet(complement))
+                              .or_insert(complement);
+                      }
                   }
                   // Exhaustive — no `_` arm. Each variant explicitly handled.
                   ArcTerminator::Return { value } => {
@@ -803,24 +810,11 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
           "range analysis complete"
       );
 
-      // Narrowing pass (optional — one iteration to recover precision)
-      //
-      for &block_idx in &rpo {
-          let block = &func.blocks[block_idx];
-          let ctx = TransferContext {
-              ranges: &ranges,
-              pool,
-              var_types: &func.var_types,
-              field_summaries: field_summary_table.as_map(),
-          };
-          for instr in &block.body {
-              let computed = transfer(instr, &ctx);
-              let Some(var) = instr.defined_var() else { continue };
-              if let Some(&widened) = ranges.get(&var) {
-                  let narrowed = narrow(widened, computed);
-                  ranges.insert(var, narrowed);
-              }
-          }
+      // TPR-03-019: Run 2 narrowing passes (block params + refinements + invoke).
+      // Second pass propagates body-narrowed ranges back through block params.
+      for _ in 0..2 {
+          run_narrowing_pass(&rpo, func, pool, &mut ranges, &field_summary_table,
+              &predecessors, &block_refinements);
       }
 
       RangeFixpointResult {
@@ -834,6 +828,12 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 - [x] **[TPR-03-015] Apply block-entry refinements to all live variables, not just block parameters** (2026-03-26). Implemented as a save/restore pattern: `apply_block_refinements()` temporarily intersects non-parameter variable ranges with block refinements, body instructions see the refined ranges, then `restore_block_refinements()` restores originals. This avoids corrupting the global range map (since the same variable can have different refinements in true/false branches). 3 new tests: `fixpoint_branch_refines_non_param_variable`, `fixpoint_switch_refines_non_param_variable`. Added `FieldSummaryTable::clear()` method. Debug + release green.
 
 - [x] **[TPR-03-016] Recompute field summaries after the narrowing pass** (2026-03-26). After `run_narrowing_pass()`, the field_summary_table is cleared and all `Construct` instructions are re-processed with the final narrowed ranges. New test: `fixpoint_field_summary_uses_final_ranges`. Added `FieldSummaryTable::clear()`. Debug + release green.
+
+- [x] **[TPR-03-017] Fix Switch case refinements to join instead of overwriting** (2026-03-26). In `process_terminator()`, replaced `block_refinements.insert()` with `.entry().and_modify(|e| *e = e.join(exact)).or_insert(exact)`. Semantic-pin test: `fixpoint_switch_multi_case_same_block_joins` — cases `{0 -> b1, 1 -> b1}` give b1 range `[0, 1]`, not `[1, 1]`. Debug + release green.
+
+- [x] **[TPR-03-018] Add Switch default-block complement refinement** (2026-03-26). Added `switch_default_complement()` function that trims contiguous case values from scrutinee range edges (e.g., [0, 10] with cases {0, 1, 2} → [3, 10]). Semantic-pin test: `fixpoint_switch_default_gets_complement`. Debug + release green.
+
+- [x] **[TPR-03-019] Extend narrowing pass to revisit block parameters and terminators** (2026-03-26). Extended `run_narrowing_pass()` to: (1) re-merge block params from predecessor Jump args with `narrow(widened, merged)`, (2) apply block refinements temporarily during narrowing body processing, (3) narrow Invoke terminator dst variables. Run 2 narrowing passes for loop variable recovery. Extracted `FixpointState` struct, `run_forward_iteration()`, and `recompute_field_summaries()` to keep functions under line limits. Semantic-pin test: `fixpoint_narrowing_recovers_loop_bound` — bounded loop `for i in 0..<10` narrows from `[0, MAX]` to `[0, 10]`. Debug + release green.
 
 - [x] **Handoff to ReprPlan (§01 integration)** (2026-03-26): `range_fixpoint()` returns `RangeFixpointResult { var_ranges, field_summaries, return_range }`. The caller must flush all three into `ReprPlan`. The integration requires three storage additions:
   1. **Per-function range storage** (already live in `plan.rs`):
@@ -1149,6 +1149,24 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-017][high]` `compiler/ori_repr/src/range/fixpoint/mod.rs:214` — `Switch` case refinements overwrite earlier cases targeting the same successor block instead of joining them.
+  Evidence: `process_terminator()` stores each case with `block_refinements.insert((case_block, *scrutinee), ...)`, so a switch like `{0 -> b1, 1 -> b1}` leaves only the last exact value in the map. The IR uses `Vec<(u64, ArcBlockId)>` for cases and this implementation does not assert or document any unique-target invariant.
+  Impact: successor blocks can see an under-approximated scrutinee range, which becomes unsound once §04 consumes these ranges for narrowing decisions.
+  Required plan update: join repeated case values per `(case_block, scrutinee)` instead of overwriting, and add a semantic-pin test covering a multi-value same-block switch.
+  Resolved: Accepted and integrated into §03.3 on 2026-03-26. Implementation task added.
+
+- [x] `[TPR-03-018][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:209` — `Switch` default successors never receive the complement refinement that §03.3 marks complete.
+  Evidence: `process_terminator()` ignores `default` entirely and only inserts per-case equalities, even though the checked-off §03.3 requirement says the default block should get the complement range. The current switch regression test only checks a constant case path and never inspects the default successor.
+  Impact: code in the default branch loses the primary fact from the switch scrutinee, so the implementation is weaker than the section claims and misses narrowing opportunities on default paths.
+  Required plan update: compute and apply the default complement range, then add a regression test that asserts the default block excludes all explicit case values.
+  Resolved: Accepted and integrated into §03.3 on 2026-03-26. Implementation task added.
+
+- [x] `[TPR-03-019][medium]` `compiler/ori_repr/src/range/fixpoint/mod.rs:232` — The narrowing pass never revisits block parameters or terminators, so widened loop-header parameters cannot recover to bounded ranges.
+  Evidence: `run_narrowing_pass()` only walks `block.body` instructions and never re-runs `merge_block_params()` or terminator refinement/invoke handling. The checked-off §03.3 test note claims narrowing-pass recovery is covered, but the current fixpoint test file has no bounded-loop recovery case and the branch/switch "semantic pin" tests use already-constant values that do not exercise recovery.
+  Impact: the main bounded-loop use case (`for i in 0..100`) can widen to `[0, i64::MAX]` and stay there, which blocks the §03→§04 handoff for loop-counter narrowing.
+  Required plan update: add a narrowing-phase recomputation for block params and terminators, or an equivalent second fixpoint, plus a semantic-pin test on a bounded loop.
+  Resolved: Accepted and integrated into §03.3 on 2026-03-26. Implementation task added.
 
 - [x] `[TPR-03-001][minor]` `section-03-range-analysis.md:458` — **Block parameter merging only handles `Jump` predecessors; `Invoke` normal successor may pass args.**
   Resolved: Rejected on 2026-03-25. `ArcTerminator::Invoke` does NOT pass block arguments to its normal successor — unlike `Jump { target, args }`, the `normal` field is just an `ArcBlockId` with no `args`. The `Invoke`'s `args` field contains function call arguments (not block parameters). The `dst` result is handled separately in the fixpoint loop's Step 3 (terminator processing). Only `Jump` carries block arguments, so the merge loop is correct as written. Updated misleading comment at plan line 467 to clarify this.
