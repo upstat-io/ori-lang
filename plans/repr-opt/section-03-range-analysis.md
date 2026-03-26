@@ -28,7 +28,7 @@ sections:
     status: not-started
   - id: "03.4"
     title: "Conditional Range Refinement"
-    status: not-started
+    status: complete
   - id: "03.5"
     title: "Function Signature Range Propagation"
     status: not-started
@@ -893,7 +893,7 @@ For loops and recursive functions, naive fixed-point iteration may not terminate
 
 When code branches on a comparison (e.g., `if x < 100`), the true branch knows `x ∈ [-2⁶³, 99]` and the false branch knows `x ∈ [100, 2⁶³-1]`. This is the most powerful source of narrowing information.
 
-- [ ] Implement conditional range extraction:
+- [x] Implement conditional range extraction:
   ```rust
   /// Refinement result for a single variable at a branch point.
   pub struct BranchRefinement {
@@ -946,7 +946,7 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
   }
   ```
 
-- [ ] Implement refinement for all 6 comparison operators (`Lt`, `LtEq`, `Gt`, `GtEq`, `Eq`, `NotEq`):
+- [x] Implement refinement for all 6 comparison operators (`Lt`, `LtEq`, `Gt`, `GtEq`, `Eq`, `NotEq`):
   - `x < c` → true: `[lo, c-1]`, false: `[c, hi]`
   - `x <= c` → true: `[lo, c]`, false: `[c+1, hi]`
   - `x > c` → true: `[c+1, hi]`, false: `[lo, c]`
@@ -955,7 +955,7 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
   - `x != c` → true: current range (conservative), false: `[c, c]`
   - Each operator must handle `c - 1` / `c + 1` overflow (checked arithmetic; fallback to Top on overflow)
   - **Bidirectional refinement:** When the comparison is `x < y` and BOTH x and y are variables (not constants), refine both: true branch gets `x ∈ [x_lo, min(x_hi, y_hi - 1)]` and `y ∈ [max(y_lo, x_lo + 1), y_hi]`. Conservative: implement constant-only first, extend to variable-variable in a follow-up if needed.
-- [ ] **Unit tests for conditional refinement** in `range/tests.rs`. **TDD: write tests BEFORE implementing the remaining 5 operators. The `Lt` arm exists in the code sketch — write one test for it first, verify it passes, then write tests for the remaining 5 and verify they fail, then implement.** Required coverage:
+- [x] **Unit tests for conditional refinement** in `range/tests.rs`. **TDD: write tests BEFORE implementing the remaining 5 operators. The `Lt` arm exists in the code sketch — write one test for it first, verify it passes, then write tests for the remaining 5 and verify they fail, then implement.** Required coverage:
   - One test per comparison operator (6 total: `Lt`, `LtEq`, `Gt`, `GtEq`, `Eq`, `NotEq`), each with:
     - (a) x has a bounded range `[0, 200]` and y is constant `100` — verify true and false ranges match the table above
     - (b) x at boundary: `c = i64::MIN` for `x < c` (true_range becomes Bottom since no value < `i64::MIN`), `c = i64::MAX` for `x > c` (true_range becomes Bottom) — verify overflow in `c - 1` / `c + 1` produces Top fallback, not panic
