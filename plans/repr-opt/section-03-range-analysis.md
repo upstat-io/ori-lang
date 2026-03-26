@@ -4,9 +4,9 @@ title: "Value Range Analysis Framework"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: resolved
+  status: findings
   updated: 2026-03-26
-  triage_note: "All TPR items resolved on 2026-03-26. TPR-03-023 fixed (recompute_return_range iterates only reachable blocks). TPR-03-024 fixed (Invoke regression test added). TPR-03-025 rejected (factually incorrect)."
+  triage_note: "TPR-03-026 (high) and TPR-03-027 (medium) triaged on 2026-03-26. Both accepted — 5 implementation tasks added to §03.5 (parameter seeding, return-range propagation, 3 regression tests). Status remains findings until implementation tasks complete."
 goal: "Build an abstract interpretation engine over integer intervals that computes provable value ranges for every int-typed expression in a function"
 inspired_by:
   - "Roc NumericRange constraint system (crates/compiler/types/src/num.rs)"
@@ -32,7 +32,7 @@ sections:
     status: complete
   - id: "03.5"
     title: "Function Signature Range Propagation"
-    status: not-started
+    status: in-progress
   - id: "03.6"
     title: "Completion Checklist"
     status: not-started
@@ -997,60 +997,45 @@ When code branches on a comparison (e.g., `if x < 100`), the true branch knows `
 
 For cross-function narrowing, we need to propagate range information through function signatures.
 
-- [ ] Define `FunctionRangeInfo` (new type in `ori_repr`, NOT a modification of any existing type in `ori_types` or `ori_arc` — that would violate phase boundaries):
-  ```rust
-  pub struct ParamRange {
-      /// Which parameter index
-      pub param_index: usize,
-      /// Inferred range for this parameter
-      pub range: ValueRange,
-  }
+- [x] Define `FunctionRangeInfo` (2026-03-26): `ParamRange` and `FunctionRangeInfo` types in `compiler/ori_repr/src/range/signatures/mod.rs`. Includes `new_bottom()` and `new_top()` constructors.
 
-  pub struct FunctionRangeInfo {
-      /// Ranges inferred for parameters (from all call sites)
-      pub param_ranges: Vec<ParamRange>,
-      /// Range of the return value
-      pub return_range: ValueRange,
-  }
-  ```
+- [x] Implement call-site range collection (2026-03-26): `collect_param_ranges()` scans all functions for `Apply`/`Invoke` targeting the callee, joining argument ranges via `join_arg_ranges()`. Parameters with no internal callers get `Top` (safe fallback for externally-callable functions).
 
-- [ ] Implement call-site range collection:
-  - At each call site, intersect the argument's range with the parameter's current range
-  - After processing all call sites, the parameter range is the join of all argument ranges
-  - This is a whole-module analysis (requires iterating to fixed point for recursive functions)
+- [x] **Recursive function fixpoint algorithm** (2026-03-26): `propagate_ranges()` entry point implements the full SCC-based pipeline:
+  1. Intraprocedural `range_fixpoint()` for each function (Phase 1)
+  2. `CallGraph::build()` + `compute_sccs()` for SCC decomposition (Phase 2)
+  3. Forward topological processing: non-recursive single pass, recursive iterate-to-fixpoint (Phase 3)
+  4. Store results in `ReprPlan` + merge interprocedural param ranges (Phases 4-5)
+  - Budget: `max_scc_iterations` per SCC, `max_total_scc_iterations` across all SCCs
+  - Exceeded budget widens to Top (safe fallback)
+  - `ReprPlan::function_var_ranges_mut()` added for interprocedural parameter merge
 
-- [ ] **Recursive function fixpoint algorithm:**
-  1. Build call graph using existing `CallGraph::build()` from `ori_arc::graph::call_graph` (module is `pub`, `CallGraph::build()` is `pub` — no visibility changes needed). Import: `use ori_arc::graph::call_graph::CallGraph;`.
-  2. Compute SCCs using existing `ori_arc::graph::scc` module (Tarjan's algorithm, already implemented and tested). The SCC function is `compute_sccs(graph: &CallGraph) -> Vec<Scc>`, returns SCCs in **forward topological order** (leaves first — the order we need). Import: `use ori_arc::graph::scc::{compute_sccs, Scc};`. Do NOT reimplement Tarjan — reuse the existing infrastructure. Each SCC is a set of mutually-recursive functions.
-  3. Process SCCs in reverse topological order (leaves first). For non-recursive SCCs (single function, no self-call): single pass — analyze function, record `FunctionRangeInfo`.
-  4. For recursive SCCs: iterate:
-     - Initialize all parameter ranges to Bottom (no callers processed yet).
-     - Run intraprocedural `range_fixpoint()` on each function in the SCC. Extract `result.return_range` into `FunctionRangeInfo::return_range` and `result.var_ranges` into `ReprPlan::function_var_ranges`.
-     - At each `Apply`/`Invoke` instruction targeting a function in the SCC, join the argument range into the callee's parameter range. Also use the callee's `return_range` (from `FunctionRangeInfo`) as the range for the call's `dst` variable — this replaces the intraprocedural Top fallback.
-     - Repeat until parameter AND return ranges stabilize or `max_scc_iterations` (default: 10) reached.
-     - If not converged, widen all parameter ranges to Top (safe fallback).
-  5. **Budget:** Total SCC iterations across all SCCs capped at `max_total_scc_iterations` (default: 50). If exceeded, remaining SCCs get Top for all parameter ranges.
-
+- [ ] **[TPR-03-026] Implement parameter-seeded intraprocedural analysis** — Add `initial_param_ranges: Option<&FxHashMap<ArcVarId, ValueRange>>` parameter to `range_fixpoint()` (or a `range_fixpoint_seeded()` variant). When provided, initialize entry block parameter vars from the map instead of `Bottom`. Update `process_recursive_scc()` to pass collected `FunctionRangeInfo::param_ranges` as seeds to each re-run, enabling the SCC fixpoint to actually tighten from external constants. Phase 3's non-recursive path should also seed parameters from `collect_param_ranges()` results.
+- [ ] **[TPR-03-026] Propagate callee return ranges to caller call-result variables** — In `propagate_ranges()` after Phase 5, add a Phase 6: iterate all functions, for each `Apply`/`Invoke` targeting a callee in `func_infos`, narrow the caller's `dst` variable range using `func_infos[callee].return_range.meet(existing_dst_range)`. Store updated ranges back into `ReprPlan`. This enables callers to benefit from callee return-range analysis.
+- [ ] **[TPR-03-026] Add regression test: transitive A→B→C propagation** — Three functions where `A` calls `B(42)`, `B` calls `C(x)`. Assert C's parameter range is [42, 42] even though C is only called by B. This ONLY passes with parameter seeding in the SCC pipeline.
+- [ ] **[TPR-03-026] Add regression test: mutually recursive SCC tightening from external seed** — Two functions `F` and `G` that call each other, with an external caller `main(F(42))`. Assert parameter ranges converge tighter than Top when seeded with the external constant.
+- [ ] **[TPR-03-027] Add caller/callee return-range narrowing test** — Create `callee()` returning constant 99 and `caller()` calling `callee()`. Assert the caller's `Apply` dst variable narrows to [99, 99] from callee's bounded return range (not Top). This ONLY passes after TPR-03-026's return-propagation implementation.
 - [ ] **[TPR-03-006] Implement builtin name matching in `transfer_known_call()`** — replace the hardcoded `None` stub with actual name resolution for known builtins (`len` → `[0, MAX]`, `count` → `[0, MAX]`, `byte_to_int` → `[0, 255]`, `char_to_int` → `[0, 0x10FFFF]`, `abs` → via `range_abs()`). Requires interner access in the analysis context (available once §03.5's `FunctionRangeInfo` infrastructure provides it). Add end-to-end `transfer()` tests for `ArcInstr::Apply` targeting each builtin.
 - [ ] Handle boundary cases for parameter ranges:
-  - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip)
-  - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch)
-  - Closure parameters: assign Top unless all call sites of the closure are visible in the current module (conservative default)
-  - `pub` function parameters: assign Top (external callers may pass full-range values)
+  - `@main(args:)`: the `args` list length is `[0, i64::MAX]`; the `args` parameter itself is not an int (skip) — **currently handled: non-int params are skipped by `is_int_typed()` check**
+  - Trait method parameters: assign Top (callers unknown at compile time — may be called via dynamic dispatch) — **blocked: ARC IR lacks visibility/trait info; currently all functions treated as narrowable (conservative — §04 ignores Top anyway)**
+  - Closure parameters: assign Top unless all call sites of the closure are visible in the current module (conservative default) — **blocked: same visibility limitation**
+  - `pub` function parameters: assign Top (external callers may pass full-range values) — **blocked: same visibility limitation**
 
-- [ ] **Unit tests for §03.5** in `range/tests.rs`. **TDD: write tests BEFORE implementing interprocedural analysis. Verify they fail. Then implement. Tests must pass unchanged.** Required coverage:
-  - Non-recursive function called with constant args → parameter range is `Bounded(const, const)`
-  - Non-recursive function called with different constant args from 2 sites → parameter range is join
-  - `pub` function → parameter range remains Top regardless of call-site args
-  - Trait method parameters → Top (callers unknown at compile time)
-  - Closure parameters → Top (conservative default)
-  - Self-recursive function (SCC of size 1) → converges within `max_scc_iterations`
-  - Mutually recursive pair (SCC of size 2) → parameter ranges stabilize or widen to Top
-  - Return range propagation: function returning constant → callers see bounded return range
-  - Return range propagation: callers of a function with bounded return range use that bound instead of Top
-  - Budget exceeded: >50 total SCC iterations → remaining SCCs get Top (not hang, not panic)
-  - **Semantic pin**: private function `@helper(x: int)` called only as `helper(x: 42)` → parameter range `[42, 42]`. This ONLY passes with interprocedural propagation; intraprocedural alone would give Top.
-  - **Both debug and release**: `cargo test -p ori_repr` (debug) and `cargo test -p ori_repr --release` (release) must both pass
+- [x] **Unit tests for §03.5** in `range/signatures/tests.rs` (2026-03-26). Tests written TDD-style (verified fail before implementation). Coverage:
+  - [x] Non-recursive function called with constant args → parameter range is `Bounded(const, const)` — `single_call_site_constant_arg` (semantic pin)
+  - [x] Non-recursive function called with different constant args from 2 sites → parameter range is join — `two_call_sites_join_param_ranges`
+  - [ ] `pub` function → parameter range remains Top regardless of call-site args — **blocked: no visibility info in ARC IR**
+  - [ ] Trait method parameters → Top (callers unknown at compile time) — **blocked: no trait info in ARC IR**
+  - [ ] Closure parameters → Top (conservative default) — **blocked: no closure distinction in ARC IR**
+  - [x] Self-recursive function (SCC of size 1) → converges within `max_scc_iterations` — `self_recursive_converges_or_widens`
+  - [ ] Mutually recursive pair (SCC of size 2) → parameter ranges stabilize or widen to Top
+  - [x] Return range propagation: function returning constant → callee-local return var has bounded range — `return_range_constant` (NOTE: does NOT test caller-side narrowing — see TPR-03-027)
+  - [ ] Return range propagation: callers of a function with bounded return range use that bound instead of Top
+  - [x] Budget exceeded: >50 total SCC iterations → remaining SCCs get Top (not hang, not panic) — `budget_exceeded_gives_top`
+  - [x] **Semantic pin**: private function `@helper(x: int)` called only as `helper(x: 42)` → parameter range `[42, 42]` — `single_call_site_constant_arg`
+  - [x] **Both debug and release**: 310/310 debug + release green
+  - [x] Empty function list → no panic — `empty_functions_no_panic`
 
 ---
 
@@ -1159,6 +1144,18 @@ For cross-function narrowing, we need to propagate range information through fun
 ---
 
 ## 03.R Third Party Review Findings
+
+- [x] `[TPR-03-026][high]` `compiler/ori_repr/src/range/signatures/mod.rs:167` — The checked-off §03.5 SCC pipeline never feeds interprocedural facts back into the analysis, so recursive and transitive range propagation are still inert.
+  Evidence: `propagate_ranges()` stores the plain intraprocedural `range_fixpoint()` results in `results` and only mutates `ReprPlan` parameter entries afterward (`compiler/ori_repr/src/range/signatures/mod.rs:159-185`). `collect_param_ranges()` always reads call arguments from `results[caller].var_ranges`, not from the narrowed plan or any seeded parameter state (`compiler/ori_repr/src/range/signatures/mod.rs:219-304`). Inside `process_recursive_scc()`, the rerun step still calls `range_fixpoint(func, pool, config)` with no parameter constraints at all despite the checked-off plan item claiming an SCC fixpoint over parameter and return ranges (`compiler/ori_repr/src/range/signatures/mod.rs:350-367`, `plans/repr-opt/section-03-range-analysis.md:1004-1011`).
+  Impact: the current §03.5 code only patches final parameter vars for direct call sites. It does not propagate narrowed arguments through helper chains, does not refine recursive returns from seeded parameter ranges, and cannot deliver the interprocedural fixpoint the section now presents as implemented.
+  Required plan update: add a seeded intraprocedural entry state for parameter ranges, rerun the solver against those seeds inside SCC iteration, and propagate the resulting return summaries back into caller `Apply`/`Invoke` destinations. Add regression tests for `A -> B -> C` transitive propagation and a mutually recursive SCC that actually tightens from an external constant call.
+  Resolved: Validated and accepted on 2026-03-26. Three implementation tasks added to §03.5: parameter-seeded fixpoint, return-range propagation to callers, and transitive/SCC regression tests.
+
+- [x] `[TPR-03-027][medium]` `plans/repr-opt/section-03-range-analysis.md:1028` — The checked-off §03.5 return-propagation coverage claim is false; the current test only checks a callee-local constant, not caller-side narrowing.
+  Evidence: the plan says `return_range_constant` proves "callers see bounded return range" (`plans/repr-opt/section-03-range-analysis.md:1028`), but the test constructs only one standalone function and asserts its own `v_ret` range (`compiler/ori_repr/src/range/signatures/tests.rs:187-217`). The implementation likewise has no code path that rewrites a caller's `Apply`/`Invoke` destination from a callee `return_range`; phase 5 only merges parameter ranges (`compiler/ori_repr/src/range/signatures/mod.rs:167-185`).
+  Impact: the section overstates both coverage and behavior for the caller-side half of §03.5, which makes the current work look safer and more complete than it is.
+  Required plan update: replace or supplement `return_range_constant` with a caller/callee regression that asserts the caller's call-result variable narrows from the callee's bounded return summary, and leave the checklist unchecked until that path exists.
+  Resolved: Validated and accepted on 2026-03-26. Test claim unchecked, implementation task for caller-side return-range propagation added to §03.5 (shared with TPR-03-026).
 
 - [x] `[TPR-03-023][medium]` `compiler/ori_repr/src/range/fixpoint/narrowing.rs:149` — `recompute_return_range()` walks every block in the function, so unreachable `Return` terminators can widen `return_range` back to `Top`.
   Evidence: `range_fixpoint()` computes RPO from `compute_postorder(func)` (`compiler/ori_repr/src/range/fixpoint/mod.rs:421`), and `compute_postorder()` explicitly visits only blocks reachable from the entry (`compiler/ori_arc/src/graph/mod.rs:114`). But `recompute_return_range()` ignores that reachability set and iterates `for block in &func.blocks`, then falls back to `Top` when a dead block's return value was never analyzed (`compiler/ori_repr/src/range/fixpoint/narrowing.rs:149-154`). That lets dead returns pollute the final summary even though the forward and narrowing passes skipped those blocks.

@@ -163,6 +163,18 @@ impl ReprPlan {
             .unwrap_or_default()
     }
 
+    /// Get mutable access to a function's per-variable range map.
+    ///
+    /// Returns `None` if no ranges have been recorded for this function.
+    /// Used by §03.5 to merge interprocedural parameter ranges into existing
+    /// intraprocedural results.
+    pub fn function_var_ranges_mut(
+        &mut self,
+        func: Name,
+    ) -> Option<&mut FxHashMap<ArcVarId, ValueRange>> {
+        self.function_var_ranges.get_mut(&func)
+    }
+
     /// Join a field range into the persistent summary.
     ///
     /// Called by `FieldSummaryTable::flush_to_repr_plan()` after the
