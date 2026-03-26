@@ -114,9 +114,10 @@ Information flow — each stage enriches the ReprPlan:
         → §02 Triviality (marks trivial types — recursive Pool walk)
 
   Phase B — Function-level analysis (after ARC lowering, on ArcFunction):
-    ArcFunction → §03 Range analysis (adds interval bounds per ArcVarId)
-      → §04 Integer narrowing (sets MachineInt variants for struct fields/locals)
+    ArcFunction → §03 Range analysis (adds interval bounds per ArcVarId + field summaries per struct/tuple type)
+      → §04 Integer narrowing (sets MachineInt variants for struct fields/locals — reads field summaries)
         → §05 Float narrowing (sets MachineFloat variants)
+
 
   Phase C — Layout decisions (uses narrowed types from Phase B):
     ReprPlan (with narrowed types) →
@@ -160,7 +161,7 @@ Information flow — each stage enriches the ReprPlan:
 
 - **§01** is the foundation — everything depends on it; includes `--no-repr-opt` flag and `ori_repr` workspace registration. §01 establishes the complete query surface (`int_width`, `float_width`, `is_trivial`, `escapes(ArcVarId)`, `rc_strategy`, `var_range`, `repr_attr`, `narrowing_policy`) and writer surface (`set_repr`, `set_var_ranges`, `set_escape_info`, `set_rc_strategy`, `set_repr_attr`), `NarrowingPolicy` and `RcStrategy` enums, `FieldRepr.name` field, `range/mod.rs` and `escape/mod.rs` placeholder modules, and `compute_repr_plan(pool, arc_functions, policy, repr_attrs)` signature with 10 empty pass stubs — all needed so §02–§11 can be developed without changing §01's API.
 - **§02, §03** are independent of each other and can be developed in parallel
-- **§03** subsections have an internal sequencing requirement: §03.1→§03.2→§03.4→§03.3→§03.5 (see §03.3 for why §03.4 must precede §03.3)
+- **§03** subsections have an internal sequencing requirement: §03.1→§03.2→§03.2b→§03.4→§03.3→§03.5 (see §03.3 for why §03.4 must precede §03.3; §03.2b provides field-summary types consumed by §03.3's fixpoint loop)
 - **§04, §05** both depend on §03 (range analysis) and can be developed in parallel
 - **§06** depends on §04/§05 (needs to know narrowed field types for layout)
 - **§07** depends on §04 and §05 (integer narrowing affects discriminant sizing; float narrowing may affect niche patterns in f32-typed fields)
@@ -179,7 +180,7 @@ Information flow — each stage enriches the ReprPlan:
 - **§02 standalone viability**: The core algorithm (`classify_triviality()` in `ori_types`) and the `ArcClassifier` delegation can be implemented and tested independently. `ReprPlan::is_trivial()` (§01.4) is live and delegates to `is_trivial_repr()`. The only remaining §01 dependency for §02 is §01.8 Phase B (TypeInfoStore→ReprPlan triviality delegation), which §02 itself unblocks. §02 can begin implementation now.
 - **§02 + ori_repr (analyze_triviality)**: The `analyze_triviality()` stub in `ori_repr/src/lib.rs:118` is a §02 deliverable. However, it is a **validation pass** rather than a primary computation: `populate_canonical()` already embeds triviality into `MachineRepr::Struct/Tuple { trivial }` and `MachineRepr::Enum` (via `is_trivial_repr()` variant field walk), so `ReprPlan::is_trivial()` already returns the correct answer for all canonicalized types. The `analyze_triviality()` pass asserts consistency between `classify_triviality()` (Pool-level) and `is_trivial_repr()` (MachineRepr-level). Any mismatch is a bug.
 - **§02 completes §01.8 Phase B**: §02 is explicitly responsible for completing §01.8 Phase B (TypeInfoStore::is_trivial() → ReprPlan delegation, removal of classify_trivial() and cache fields from TypeInfoStore). This is not optional — it is a concrete deliverable.
-- **§03 + §01 (function_var_ranges field)**: §03's range analysis outputs `FxHashMap<ArcVarId, ValueRange>` per function. This is stored in `ReprPlan::function_var_ranges` via `ReprPlan::set_var_ranges()` (live in `plan.rs:146`). §04 reads results via `var_range(func, var)` (live in `plan.rs:155`). §03 must also make three `ori_arc::graph` functions `pub` (currently `pub(crate)`): `compute_predecessors`, `successor_block_ids`, `compute_postorder` — see [NOTE] in Codebase Findings above.
+- **§03 + §01 (function_var_ranges + field_range_summaries)**: §03's range analysis outputs per-variable ranges AND per-field summaries. Per-variable: stored in `ReprPlan::function_var_ranges` via `set_var_ranges()` (live in `plan.rs:146`), queried via `var_range(func, var)` (live in `plan.rs:155`). Per-field: stored in `ReprPlan::field_range_summaries` via `join_field_range()` (new — §03.2b deliverable), queried via `field_range(type_idx, field)` (new). The field-summary is the critical §03→§04 contract for struct field narrowing — without it, §04's `Pixel { r, g, b, a: int }` target is unachievable. §03 must also make three `ori_arc::graph` functions `pub` (currently `pub(crate)`): `compute_predecessors`, `successor_block_ids`, `compute_postorder` — see [NOTE] in Codebase Findings above.
 - **§04 + §07**: Integer narrowing (§04) reduces field sizes, which changes what invalid bit patterns are available as niches. §07's `find_niches()` must query `ReprPlan` for the narrowed `MachineRepr` of each field, not the canonical one. If §07 runs niche analysis on canonical (pre-narrowing) types, it will miss niches created by narrowing (e.g., a field narrowed to `i8` with range `[0, 2]` has 253 niche values that the canonical `i64` version does not).
 - **§05 + §07**: Float narrowing (§05) may produce `f32`-typed fields. `f32` NaN bit patterns (quiet NaN: `0x7FC00000` through `0x7FFFFFFF` and `0xFFC00000` through `0xFFFFFFFF`) are technically invalid "values" but IEEE 754 semantics make them complex to use as niches. §07 must conservatively skip NaN-based niches for `f32` fields unless it has verified the platform's NaN handling (leave as `vec![]` for `MachineRepr::Float { width: F32 }`).
 - **§05 + §01 (float_width query)**: §05's float narrowing writes `Float { width: F32 }` into `ReprPlan` and reads it back via `ReprPlan::float_width(idx)` (live in `plan/query.rs:81`, default `F64`). Analogous to `int_width()` for §04.
@@ -287,9 +288,10 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |   ↳ 02.5 Newtype & FFI types | ~30 | Low | §01 |
 |   ↳ 02.6 Generic type interaction | ~20 | Low | §01 |
 |   ↳ 02.7 Completion checklist & tests | ~50 | Low | §01 |
-| 03 Range Analysis | ~1,400 (5 files in `range/` submodule) | **High** | §01 |
+| 03 Range Analysis | ~1,550 (6 files in `range/` submodule) | **High** | §01 |
 |   ↳ 03.1 Interval lattice | ~250 | Medium | §01 |
 |   ↳ 03.2 Transfer functions | ~450 | **High** — mul/div corner cases | §01 |
+|   ↳ 03.2b Field-summary infrastructure | ~150 | Medium — §04 handoff contract | §01 |
 |   ↳ 03.3 Widening/narrowing + fixpoint | ~350 | **High** — block params, terminators, termination | §01 |
 |   ↳ 03.4 Conditional refinement | ~150 | Medium — 6 comparison operators | §01 |
 |   ↳ 03.5 Interprocedural (implement after 03.1-03.4) | ~150 | **High** — SCC fixpoint | §01 |
@@ -317,7 +319,7 @@ This is intentional (internal to `ori_arc`). §08.5's option (b) — passing esc
 |   ↳ 11.2 Small vector optimization | ~300 | High | §04 |
 |   ↳ 11.3 Packed bool arrays | ~300 | Medium | — |
 | 12 Verification | ~800 | Medium | ALL |
-| **Total new** | **~10,924** | | |
+| **Total new** | **~11,074** | | |
 | **Total deleted** | **~200** | | |
 
 ## Quick Reference
