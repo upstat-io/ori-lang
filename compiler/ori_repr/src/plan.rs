@@ -69,7 +69,7 @@ mod repr_attr;
 #[derive(Debug)]
 #[expect(
     clippy::zero_sized_map_values,
-    reason = "EscapeInfo and ValueRange are placeholder ZSTs — replaced by §03 and §08"
+    reason = "EscapeInfo is placeholder ZST — replaced by §08"
 )]
 pub struct ReprPlan {
     /// Per-type decisions (indexed by Pool `Idx`).
@@ -104,7 +104,7 @@ impl ReprPlan {
     #[must_use]
     #[expect(
         clippy::zero_sized_map_values,
-        reason = "EscapeInfo and ValueRange are placeholder ZSTs — replaced by §03 and §08"
+        reason = "EscapeInfo is placeholder ZST — replaced by §08"
     )]
     pub fn new(policy: NarrowingPolicy) -> Self {
         Self {
@@ -139,10 +139,6 @@ impl ReprPlan {
     /// Record per-variable range analysis results for a function.
     ///
     /// Called by §03 after `range_fixpoint()` completes for a function.
-    #[expect(
-        clippy::zero_sized_map_values,
-        reason = "ValueRange is a placeholder ZST — replaced by §03"
-    )]
     pub fn set_var_ranges(&mut self, func: Name, ranges: FxHashMap<ArcVarId, ValueRange>) {
         self.function_var_ranges.insert(func, ranges);
     }
@@ -156,7 +152,7 @@ impl ReprPlan {
         self.function_var_ranges
             .get(&func)
             .and_then(|m| m.get(&var))
-            .cloned()
+            .copied()
             .unwrap_or_default()
     }
 
