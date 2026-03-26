@@ -9,26 +9,38 @@
 //! The feedback loop iterates until convergence (no changes) or
 //! `config.max_feedback_iterations` is reached, enabling multi-hop
 //! return-range chains to propagate through arbitrary-depth call chains.
+//!
+//! ## TPR-03-032: Derived-local propagation
+//!
+//! When Step 1 narrows a caller's call-result `dst` variable, derived
+//! locals (e.g., `let y = x + 1` where `x` is the narrowed dst) must
+//! also be updated. This requires re-running the caller's intraprocedural
+//! fixpoint with `call_result_narrowings` — a map of `(dst_var → callee
+//! return range)` that is applied as `meet` after the Apply/Invoke
+//! transfer function runs. This way the narrowed value propagates
+//! naturally through the fixpoint to derived locals.
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator};
 use ori_arc::ArcVarId;
 use ori_ir::Name;
 use ori_types::Pool;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{build_param_seed_map, collect_param_ranges, FunctionRangeInfo};
 use crate::range::fixpoint::range_fixpoint;
 use crate::range::{RangeAnalysisConfig, ValueRange};
 
 /// Feed callee return ranges back into callers' `results` and re-process
-/// downstream functions whose parameter seeds changed.
+/// downstream functions whose parameter seeds or call-result vars changed.
 ///
 /// Iterates to a fixpoint:
 ///
-/// - Step 1: narrows caller call-result `dst` vars from callee `return_range`
+/// - Step 1: narrows caller call-result `dst` vars from callee `return_range`,
+///   collecting per-caller narrowing maps for the fixpoint rerun
 /// - Step 1b: recomputes `func_infos` return ranges from updated var ranges
 /// - Step 2: re-collects parameter ranges (reverse topo: callers first)
-///   and re-runs seeded fixpoint for changed functions
+///   and re-runs seeded fixpoint for functions with changed params or
+///   narrowed call-result vars (TPR-03-032)
 ///
 /// Each iteration pushes return-range information one hop deeper through the
 /// call graph. Bounded by `config.max_feedback_iterations` (default 5).
@@ -42,9 +54,10 @@ pub(super) fn feed_return_ranges_and_reprocess(
 ) {
     for iteration in 0..config.max_feedback_iterations {
         // Step 1: Narrow caller dst vars from callee return ranges.
-        let step1_changed = inject_callee_return_ranges(func_map, results, func_infos);
+        // Returns per-caller narrowing maps for the fixpoint rerun (TPR-03-032).
+        let caller_narrowings = inject_callee_return_ranges(func_map, results, func_infos);
 
-        if !step1_changed {
+        if caller_narrowings.is_empty() {
             tracing::debug!(iteration, "feedback converged — no dst vars changed");
             break;
         }
@@ -57,8 +70,15 @@ pub(super) fn feed_return_ranges_and_reprocess(
         // Step 2: Re-collect params and re-run fixpoint for affected functions.
         // Reverse topological order (callers first) so parameter propagation
         // cascades from callers to callees in a single pass.
-        let step2_changed =
-            reprocess_changed_functions(sccs, func_map, pool, config, results, func_infos);
+        let step2_changed = reprocess_changed_functions(
+            sccs,
+            func_map,
+            pool,
+            config,
+            results,
+            func_infos,
+            &caller_narrowings,
+        );
 
         if !step2_changed {
             tracing::debug!(
@@ -74,13 +94,16 @@ pub(super) fn feed_return_ranges_and_reprocess(
 
 /// Step 1: Narrow caller `dst` vars from callee return ranges in `results`.
 ///
-/// Returns `true` if any `dst` variable was narrowed.
+/// Returns a map from caller name to per-variable narrowings (callee return
+/// ranges for each call-result variable). These narrowings are passed to
+/// `range_fixpoint` in Step 2 so derived locals propagate (TPR-03-032).
 fn inject_callee_return_ranges(
     func_map: &FxHashMap<Name, &ArcFunction>,
     results: &mut FxHashMap<Name, crate::range::fixpoint::RangeFixpointResult>,
     func_infos: &FxHashMap<Name, FunctionRangeInfo>,
-) -> bool {
-    let mut any_changed = false;
+) -> FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>> {
+    let mut caller_narrowings: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>> =
+        FxHashMap::default();
     for caller_func in func_map.values() {
         let Some(cr) = results.get_mut(&caller_func.name) else {
             continue;
@@ -97,12 +120,16 @@ fn inject_callee_return_ranges(
                 let narrowed = old.meet(ret);
                 if narrowed != old {
                     cr.var_ranges.insert(dst, narrowed);
-                    any_changed = true;
+                    // Record narrowing for fixpoint rerun (TPR-03-032).
+                    caller_narrowings
+                        .entry(caller_func.name)
+                        .or_default()
+                        .insert(dst, ret);
                 }
             }
         }
     }
-    any_changed
+    caller_narrowings
 }
 
 /// Step 1b: Recompute `func_infos` return ranges from the updated `results`.
@@ -142,7 +169,8 @@ fn refresh_return_ranges(
 }
 
 /// Step 2: Re-collect parameter ranges and re-run fixpoint for functions
-/// whose parameter seeds changed. Reverse topological order (callers first)
+/// whose parameter seeds changed OR whose call-result variables were narrowed
+/// by Step 1 (TPR-03-032). Reverse topological order (callers first)
 /// so parameter propagation cascades from callers to callees in one pass.
 ///
 /// Returns `true` if any function's results were updated.
@@ -153,8 +181,12 @@ fn reprocess_changed_functions(
     config: &RangeAnalysisConfig,
     results: &mut FxHashMap<Name, crate::range::fixpoint::RangeFixpointResult>,
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
+    caller_narrowings: &FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
 ) -> bool {
     let mut any_changed = false;
+    // Collect names that need reprocessing: either param-changed or dst-narrowed.
+    let dst_narrowed: FxHashSet<Name> = caller_narrowings.keys().copied().collect();
+
     // Reverse iteration: callers first → callees last, so re-computed caller
     // results are available when we collect callee parameter ranges.
     for scc in sccs.iter().rev() {
@@ -166,9 +198,15 @@ fn reprocess_changed_functions(
             let params_changed = func_infos
                 .get(name)
                 .is_none_or(|old| old.param_ranges != info.param_ranges);
-            if params_changed {
+            let has_narrowings = dst_narrowed.contains(name);
+
+            // TPR-03-032: Rerun when call-result vars were narrowed, even if
+            // params didn't change. The fixpoint will apply the narrowings to
+            // produce correct derived-local ranges.
+            if params_changed || has_narrowings {
                 let seeds = build_param_seed_map(func, &info);
-                let result = range_fixpoint(func, pool, config, Some(&seeds));
+                let crn = caller_narrowings.get(name);
+                let result = range_fixpoint(func, pool, config, Some(&seeds), crn);
                 func_infos.insert(
                     *name,
                     FunctionRangeInfo {
