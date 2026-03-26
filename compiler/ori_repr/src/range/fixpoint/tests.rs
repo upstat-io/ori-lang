@@ -633,3 +633,335 @@ fn fixpoint_field_summary_uses_final_ranges() {
         ValueRange::Bounded { lo: 42, hi: 42 }
     );
 }
+
+// ─── TPR-03-017: Switch multi-case same-block must join, not overwrite ───
+
+/// When multiple Switch cases target the same successor block, the scrutinee
+/// refinement should be the JOIN of all case values, not just the last one.
+/// Semantic pin: y = [0, 1] ONLY passes with correct join; overwrite gives [1, 1].
+#[test]
+fn fixpoint_switch_multi_case_same_block_joins() {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue};
+    use ori_arc::ArcBlockId;
+
+    // v_x has range Top (from Apply to unknown function).
+    // v_y copies x in the multi-case successor — its range reveals the refinement.
+    let v_x = ArcVarId::new(0);
+    let v_y = ArcVarId::new(1);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![ArcInstr::Apply {
+            dst: v_x,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(99),
+            args: vec![],
+            arg_ownership: vec![],
+        }],
+        // Cases 0 and 1 both target block 1; case 2 targets block 2.
+        terminator: ArcTerminator::Switch {
+            scrutinee: v_x,
+            cases: vec![
+                (0, ArcBlockId::new(1)),
+                (1, ArcBlockId::new(1)),
+                (2, ArcBlockId::new(2)),
+            ],
+            default: ArcBlockId::new(3),
+        },
+    };
+
+    // Block 1: multi-case successor — copy x into y to observe the refinement.
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![ArcInstr::Let {
+            dst: v_y,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Var(v_x),
+        }],
+        terminator: ArcTerminator::Return { value: v_y },
+    };
+
+    // Block 2: single case (2).
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_x },
+    };
+
+    // Block 3: default.
+    let block3 = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_x },
+    };
+
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(20),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2, block3],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT, ori_types::Idx::INT],
+        var_reprs: vec![
+            ori_arc::ir::ValueRepr::Scalar,
+            ori_arc::ir::ValueRepr::Scalar,
+        ],
+        spans: vec![vec![None], vec![None], vec![], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // Semantic pin: y must be [0, 1] (joined cases), NOT [1, 1] (last-write-wins).
+    assert_eq!(
+        result.var_ranges.get(&v_y).copied(),
+        Some(ValueRange::Bounded { lo: 0, hi: 1 }),
+        "TPR-03-017: multi-case same-block should JOIN [0,0] and [1,1] into [0,1]"
+    );
+}
+
+// ─── TPR-03-018: Switch default block gets complement refinement ─────
+
+/// The default successor of a Switch should receive a complement refinement
+/// that excludes contiguous case values from the scrutinee's edges.
+/// Semantic pin: default refinement [3, 10] ONLY passes with complement logic.
+#[test]
+fn fixpoint_switch_default_gets_complement() {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue};
+    use ori_arc::ArcBlockId;
+
+    // Build a function where x ∈ [0, 10] via Select(cond, 0, 10).
+    let v_a = ArcVarId::new(0); // 0
+    let v_b = ArcVarId::new(1); // 10
+    let v_c = ArcVarId::new(2); // IsShared → [0, 1]
+    let v_x = ArcVarId::new(3); // Select(c, a, b) → [0, 10]
+    let v_y = ArcVarId::new(4); // copy of x in default block
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_a,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_b,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(10)),
+            },
+            ArcInstr::IsShared { dst: v_c, var: v_a },
+            ArcInstr::Select {
+                dst: v_x,
+                ty: ori_types::Idx::INT,
+                cond: v_c,
+                true_val: v_a,
+                false_val: v_b,
+            },
+        ],
+        // Cases 0, 1, 2 target block1; default → block2.
+        terminator: ArcTerminator::Switch {
+            scrutinee: v_x,
+            cases: vec![
+                (0, ArcBlockId::new(1)),
+                (1, ArcBlockId::new(1)),
+                (2, ArcBlockId::new(1)),
+            ],
+            default: ArcBlockId::new(2),
+        },
+    };
+
+    // Block 1: cases 0/1/2.
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_x },
+    };
+
+    // Block 2 (default): copy x to observe complement refinement.
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![ArcInstr::Let {
+            dst: v_y,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Var(v_x),
+        }],
+        terminator: ArcTerminator::Return { value: v_y },
+    };
+
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(21),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+        ],
+        var_reprs: vec![ori_arc::ir::ValueRepr::Scalar; 5],
+        spans: vec![vec![None; 4], vec![], vec![None]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // x is [0, 10]. Cases cover {0, 1, 2} from the low edge.
+    // Default complement: [3, 10].
+    // y copies x in default block, so y should be [3, 10].
+    assert_eq!(
+        result.var_ranges.get(&v_y).copied(),
+        Some(ValueRange::Bounded { lo: 3, hi: 10 }),
+        "TPR-03-018: default block should exclude contiguous low-edge cases [0,2] from [0,10]"
+    );
+}
+
+// ─── TPR-03-019: Narrowing pass recovers loop-bound block parameters ─
+
+/// Build a simple bounded loop: `for i in 0..<limit` with increment 1.
+/// Returns `(function, loop_var)` for assertion.
+fn build_bounded_loop_func(limit: i64) -> (ori_arc::ir::ArcFunction, ArcVarId) {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    let v_start = ArcVarId::new(0);
+    let v_end = ArcVarId::new(1);
+    let v_one = ArcVarId::new(2);
+    let v_i = ArcVarId::new(3);
+    let v_cond = ArcVarId::new(4);
+    let v_next = ArcVarId::new(5);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_start,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: v_end,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(limit)),
+            },
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![v_start],
+        },
+    };
+
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![(v_i, ori_types::Idx::INT)],
+        body: vec![ArcInstr::Let {
+            dst: v_cond,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Lt),
+                args: vec![v_i, v_end],
+            },
+        }],
+        terminator: ArcTerminator::Branch {
+            cond: v_cond,
+            then_block: ArcBlockId::new(2),
+            else_block: ArcBlockId::new(3),
+        },
+    };
+
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![ArcInstr::Let {
+            dst: v_next,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Add),
+                args: vec![v_i, v_one],
+            },
+        }],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![v_next],
+        },
+    };
+
+    let block3 = ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Return { value: v_i },
+    };
+
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(22),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2, block3],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; 6],
+        var_reprs: vec![ori_arc::ir::ValueRepr::Scalar; 6],
+        spans: vec![vec![None; 3], vec![None], vec![None], vec![]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+    };
+
+    (func, v_i)
+}
+
+/// A bounded loop (i from 0 to <10) widens the loop variable to [0, MAX].
+/// The narrowing pass should recover a tighter bound by re-merging block
+/// params and applying branch refinements.
+/// Semantic pin: i ∈ [0, 10] ONLY passes with block-param-aware narrowing.
+#[test]
+fn fixpoint_narrowing_recovers_loop_bound() {
+    let (func, v_i) = build_bounded_loop_func(10);
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig::default();
+    let result = range_fixpoint(&func, &pool, &config);
+
+    // After widening, i would be [0, MAX]. With proper narrowing
+    // (block param re-merging + branch refinements), i should recover
+    // to [0, 10] (join of start=[0,0] and narrowed-next=[1,10]).
+    let i_range = result
+        .var_ranges
+        .get(&v_i)
+        .copied()
+        .unwrap_or(ValueRange::Top);
+    assert!(
+        matches!(i_range, ValueRange::Bounded { lo: 0, hi } if hi <= 10),
+        "TPR-03-019: loop variable should narrow from [0, MAX] to [0, 10], got {i_range:?}"
+    );
+}
