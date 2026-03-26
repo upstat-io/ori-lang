@@ -1,10 +1,15 @@
 # Proposal: std.json API Design
 
-**Status:** Approved
+**Status:** Superseded
+**Superseded by:** `approved/compile-time-reflection-proposal.md` (2026-03-26)
 **Approved:** 2026-01-30
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-29
 **Affects:** Standard library
+
+## Errata (added 2026-03-26)
+
+> **Superseded by [compile-time-reflection-proposal](../approved/compile-time-reflection-proposal.md)**: The runtime `Json` trait design in this proposal is superseded by a pure Ori JSON library using compile-time reflection (`$for` + `fields_of(T)`) and SIMD intrinsics. A separate `stdlib-json-native-parser-proposal` will define the new library design. The runtime trait-based approach is no longer the direction for Ori's JSON support.
 
 ---
 

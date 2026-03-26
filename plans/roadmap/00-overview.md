@@ -109,7 +109,7 @@ Power-user features and tooling.
 
 | Section | Focus |
 |-------|-------|
-| 20 | Reflection |
+| 20 | Compile-Time Reflection |
 | 21A | LLVM Backend |
 | 21B | AOT Compilation |
 | 22 | Tooling |
@@ -146,7 +146,7 @@ Section 3 (Traits) ──┬──→ Section 19 (Existential Types) [deferred t
                    │
 Section 2 (Inference) ──→ Section 18 (Const Generics) [deferred to Tier 7]
 
-Section 11 (FFI) ──→ Section 20 (Reflection)
+Section 18 (Const Generics) ──→ Section 20 (Compile-Time Reflection)
 
 Core Complete (1-15) ──→ Section 21A-B (Codegen) → Section 22 (Tooling)
 ```
@@ -159,7 +159,7 @@ Core Complete (1-15) ──→ Section 21A-B (Codegen) → Section 22 (Tooling)
 - Section 14 (Testing) requires Section 6 (Capabilities) and Section 7 (Stdlib)
 - Section 18 (Const Generics) requires Section 2 — deferred to Tier 7 as advanced feature
 - Section 19 (Existential Types) requires Section 3 — deferred to Tier 7 as advanced feature
-- Section 20 (Reflection) requires Section 3 (Traits) and Section 11 (FFI)
+- Section 20 (Compile-Time Reflection) requires Section 18 (Const Generics, specifically 18.0 const eval bridge), Section 2 (Type Inference), Section 3 (Traits)
 - **Core Complete** is defined as Sections 1-15
 
 ---
