@@ -16,7 +16,9 @@ set -e
 
 REPO="upstat-io/ori-lang"
 INSTALL_DIR="${ORI_INSTALL_DIR:-$HOME/.local/bin}"
-LIB_DIR="${ORI_LIB_DIR:-$HOME/.local/lib}"
+# Derive LIB_DIR from INSTALL_DIR so <exe>/../lib/ discovery works for custom paths
+# e.g. ORI_INSTALL_DIR=/usr/local/bin → LIB_DIR=/usr/local/lib
+LIB_DIR="${ORI_LIB_DIR:-$(dirname "$INSTALL_DIR")/lib}"
 STDLIB_DIR="${ORI_STDLIB_DIR:-$HOME/.local/share/ori/library}"
 BINARY_NAME="ori"
 
@@ -61,7 +63,7 @@ Options:
 
 Environment:
   ORI_INSTALL_DIR   Binary installation directory (default: ~/.local/bin)
-  ORI_LIB_DIR       Runtime library directory (default: ~/.local/lib)
+  ORI_LIB_DIR       Runtime library directory (default: <ORI_INSTALL_DIR>/../lib)
   ORI_STDLIB_DIR    Standard library directory (default: ~/.local/share/ori/library)
 
 Examples:
