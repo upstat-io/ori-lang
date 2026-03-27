@@ -3057,3 +3057,274 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
         other => panic!("expected Struct repr for resolved idx, got {other:?}"),
     }
 }
+
+// TPR-04-012: Applied → concrete Struct resolutions must inherit repr/pub
+// exemptions from the parent Named type.
+//
+// IMPORTANT: Pool deduplicates struct types with identical (name, fields).
+// Tests use DIFFERENT field types for base vs monomorphized structs to ensure
+// distinct pool indices (mirrors real generic instantiation where type params
+// are substituted with concrete types).
+
+#[test]
+fn repr_attr_propagates_through_applied_to_concrete_struct() {
+    // TPR-04-012: A Named type with #repr("c") whose Applied instantiation
+    // resolves to a monomorphized concrete struct — the concrete struct idx
+    // must also have the repr attr.
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 900);
+    let field_a = Name::new(0, 901);
+    let field_b = Name::new(0, 902);
+
+    // Named type declaration: `type Pair<A, B> = { a: A, b: B }`
+    let named_idx = pool.named(type_name);
+    // Base struct (generic body — uses FLOAT to distinguish from mono)
+    let base_struct_idx =
+        pool.struct_type(type_name, &[(field_a, Idx::FLOAT), (field_b, Idx::FLOAT)]);
+    pool.set_resolution(named_idx, base_struct_idx);
+
+    // Monomorphized: Applied(Pair, [Int, Str]) → concrete Struct with INT/STR fields
+    let applied_idx = pool.applied(type_name, &[Idx::INT, Idx::STR]);
+    let mono_struct_idx = pool.struct_type(type_name, &[(field_a, Idx::INT), (field_b, Idx::STR)]);
+    pool.set_resolution(applied_idx, mono_struct_idx);
+
+    // Ensure distinct indices (Pool may dedup identical content).
+    assert_ne!(
+        base_struct_idx, mono_struct_idx,
+        "test setup: base and mono structs must be distinct pool entries"
+    );
+
+    // #repr("c") on the Named idx (as the parser would emit)
+    let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+
+    // Named and base struct should have the attr (TPR-04-011 path)
+    assert_eq!(plan.repr_attr(named_idx), Some(&ReprAttribute::C));
+    assert_eq!(plan.repr_attr(base_struct_idx), Some(&ReprAttribute::C));
+
+    // TPR-04-012: The monomorphized concrete struct MUST also have it.
+    assert_eq!(
+        plan.repr_attr(mono_struct_idx),
+        Some(&ReprAttribute::C),
+        "TPR-04-012: monomorphized concrete struct must inherit #repr(\"c\") from Named parent"
+    );
+}
+
+#[test]
+fn pub_type_propagates_through_applied_to_concrete_struct() {
+    // TPR-04-012: A Named type marked `pub` whose Applied instantiation
+    // resolves to a monomorphized concrete struct — the concrete struct idx
+    // must also be marked public.
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 910);
+    let field_x = Name::new(0, 911);
+
+    let named_idx = pool.named(type_name);
+    // Base struct with FLOAT field (distinct from INT mono)
+    let base_struct_idx = pool.struct_type(type_name, &[(field_x, Idx::FLOAT)]);
+    pool.set_resolution(named_idx, base_struct_idx);
+
+    // Monomorphized instantiation with INT field
+    let applied_idx = pool.applied(type_name, &[Idx::INT]);
+    let mono_struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+    pool.set_resolution(applied_idx, mono_struct_idx);
+
+    assert_ne!(base_struct_idx, mono_struct_idx);
+
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[named_idx],
+    );
+
+    assert!(plan.is_public_type(named_idx));
+    assert!(plan.is_public_type(base_struct_idx));
+
+    // TPR-04-012: monomorphized concrete struct must also be public.
+    assert!(
+        plan.is_public_type(mono_struct_idx),
+        "TPR-04-012: monomorphized concrete struct must inherit pub from Named parent"
+    );
+}
+
+#[test]
+fn repr_c_applied_concrete_struct_not_narrowed_semantic_pin() {
+    // TPR-04-012 SEMANTIC PIN: A #repr("c") Named type with a monomorphized
+    // Applied → concrete Struct — narrowing must be blocked on the monomorphized
+    // struct. This test ONLY passes with Applied-path propagation.
+    use crate::narrowing::int::narrow_struct_fields;
+
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 920);
+    let field_x = Name::new(0, 921);
+
+    let named_idx = pool.named(type_name);
+    let base_struct_idx = pool.struct_type(type_name, &[(field_x, Idx::FLOAT)]);
+    pool.set_resolution(named_idx, base_struct_idx);
+
+    // Mono struct with INT field — the one that would be narrowed
+    let applied_idx = pool.applied(type_name, &[Idx::INT]);
+    let mono_struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+    pool.set_resolution(applied_idx, mono_struct_idx);
+
+    assert_ne!(base_struct_idx, mono_struct_idx);
+
+    let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
+    let mut plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+
+    // Simulate bounded field ranges from §03.
+    plan.join_field_range(mono_struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_struct_fields(&mut plan, &pool);
+
+    // Monomorphized struct must NOT be narrowed — parent has #repr("c").
+    match plan.get_repr(mono_struct_idx) {
+        Some(MachineRepr::Struct(s)) => {
+            assert_eq!(
+                s.fields[0].repr,
+                MachineRepr::Int {
+                    width: IntWidth::I64,
+                    signed: true,
+                },
+                "TPR-04-012 semantic pin: #repr(\"c\") monomorphized struct must NOT be narrowed"
+            );
+        }
+        other => panic!("expected Struct repr for mono struct idx, got {other:?}"),
+    }
+}
+
+#[test]
+fn pub_applied_concrete_struct_not_narrowed_semantic_pin() {
+    // TPR-04-012 SEMANTIC PIN: A `pub` Named type with a monomorphized
+    // Applied → concrete Struct — narrowing must be blocked on the monomorphized
+    // struct. This test ONLY passes with Applied-path pub propagation.
+    use crate::narrowing::int::narrow_struct_fields;
+
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 930);
+    let field_x = Name::new(0, 931);
+
+    let named_idx = pool.named(type_name);
+    let base_struct_idx = pool.struct_type(type_name, &[(field_x, Idx::FLOAT)]);
+    pool.set_resolution(named_idx, base_struct_idx);
+
+    let applied_idx = pool.applied(type_name, &[Idx::INT]);
+    let mono_struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+    pool.set_resolution(applied_idx, mono_struct_idx);
+
+    assert_ne!(base_struct_idx, mono_struct_idx);
+
+    let mut plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[named_idx],
+    );
+
+    plan.join_field_range(mono_struct_idx, 0, ValueRange::Bounded { lo: 0, hi: 10 });
+
+    narrow_struct_fields(&mut plan, &pool);
+
+    match plan.get_repr(mono_struct_idx) {
+        Some(MachineRepr::Struct(s)) => {
+            assert_eq!(
+                s.fields[0].repr,
+                MachineRepr::Int {
+                    width: IntWidth::I64,
+                    signed: true,
+                },
+                "TPR-04-012 semantic pin: pub monomorphized struct must NOT be narrowed"
+            );
+        }
+        other => panic!("expected Struct repr for mono struct idx, got {other:?}"),
+    }
+}
+
+#[test]
+fn applied_without_resolution_no_propagation() {
+    // TPR-04-012 negative test: An Applied idx without set_resolution() should
+    // NOT propagate repr attrs to an unrelated struct that happens to share a
+    // name but has distinct field types (and thus a distinct pool Idx).
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 940);
+    let field_x = Name::new(0, 941);
+
+    let named_idx = pool.named(type_name);
+    let struct_idx = pool.struct_type(type_name, &[(field_x, Idx::INT)]);
+    pool.set_resolution(named_idx, struct_idx);
+
+    // Applied type with NO resolution link
+    let _applied_idx = pool.applied(type_name, &[Idx::STR]);
+    // Unrelated struct with DIFFERENT fields (STR, not INT) — distinct pool Idx
+    let unrelated_struct = pool.struct_type(type_name, &[(field_x, Idx::STR)]);
+    // No set_resolution! These are independent pool entries.
+
+    assert_ne!(
+        struct_idx, unrelated_struct,
+        "test setup: must be distinct indices"
+    );
+
+    let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
+
+    // Named and its resolved struct have the attr.
+    assert_eq!(plan.repr_attr(named_idx), Some(&ReprAttribute::C));
+    assert_eq!(plan.repr_attr(struct_idx), Some(&ReprAttribute::C));
+
+    // Unlinked struct must NOT have the attr — no resolution chain connects it.
+    assert_eq!(
+        plan.repr_attr(unrelated_struct),
+        None,
+        "Struct without resolution chain must NOT inherit attr"
+    );
+}
+
+#[test]
+fn multiple_applied_instantiations_all_protected() {
+    // TPR-04-012: Multiple monomorphized instantiations of the same pub #repr("c")
+    // type must ALL be protected. Tests Pair<int, int> and Pair<int, str>.
+    let mut pool = ori_types::Pool::new();
+    let type_name = Name::new(0, 950);
+    let field_a = Name::new(0, 951);
+    let field_b = Name::new(0, 952);
+
+    let named_idx = pool.named(type_name);
+    // Base struct with FLOAT fields (generic body, distinct from monos)
+    let base_struct = pool.struct_type(type_name, &[(field_a, Idx::FLOAT), (field_b, Idx::FLOAT)]);
+    pool.set_resolution(named_idx, base_struct);
+
+    // First instantiation: Pair<int, int>
+    let applied_1 = pool.applied(type_name, &[Idx::INT, Idx::INT]);
+    let mono_1 = pool.struct_type(type_name, &[(field_a, Idx::INT), (field_b, Idx::INT)]);
+    pool.set_resolution(applied_1, mono_1);
+
+    // Second instantiation: Pair<int, str>
+    let applied_2 = pool.applied(type_name, &[Idx::INT, Idx::STR]);
+    let mono_2 = pool.struct_type(type_name, &[(field_a, Idx::INT), (field_b, Idx::STR)]);
+    pool.set_resolution(applied_2, mono_2);
+
+    assert_ne!(base_struct, mono_1);
+    assert_ne!(base_struct, mono_2);
+    assert_ne!(mono_1, mono_2);
+
+    let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &[],
+        NarrowingPolicy::Aggressive,
+        &repr_attrs,
+        None,
+        &[named_idx],
+    );
+
+    // Both monomorphized structs must have repr and pub
+    assert_eq!(plan.repr_attr(mono_1), Some(&ReprAttribute::C));
+    assert_eq!(plan.repr_attr(mono_2), Some(&ReprAttribute::C));
+    assert!(plan.is_public_type(mono_1));
+    assert!(plan.is_public_type(mono_2));
+}
