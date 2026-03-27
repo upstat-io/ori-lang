@@ -124,7 +124,7 @@ This architecture means that adding a new syntactic sugar to Ori requires change
 
 ### AIMS (Lean 4 / Koka Inspired)
 
-Ori uses automatic reference counting instead of a garbage collector or borrow checker. The `ori_arc` crate implements a research-grade AIMS pipeline inspired by [Lean 4](https://leanprover.github.io/)'s LCNF IR and Koka's [FBIP](https://www.microsoft.com/en-us/research/publication/fp2-fully-in-place-functional-programming/) (Functional-But-In-Place) analysis.
+Ori uses automatic reference counting instead of a garbage collector or borrow checker. The `ori_arc` crate implements a research-grade AIMS (ARC Intelligent Memory System) pipeline inspired by [Lean 4](https://leanprover.github.io/)'s LCNF IR and Koka's [FBIP](https://www.microsoft.com/en-us/research/publication/fp2-fully-in-place-functional-programming/) (Functional-But-In-Place) analysis.
 
 **Three-way type classification** drives all RC decisions:
 
@@ -134,32 +134,41 @@ Ori uses automatic reference counting instead of a garbage collector or borrow c
 | `DefiniteRef` | Always heap-allocated (`str`, `[T]`, `{K: V}`) | Full RC tracking |
 | `PossibleRef` | Unknown at analysis time (unresolved generics) | Conservative RC |
 
-The AIMS pipeline is a 10-pass transformation with load-bearing ordering:
+AIMS replaces traditional sequential analysis passes (borrow inference → liveness → RC insertion → reset/reuse → RC elimination) with a **unified 7-dimensional product lattice**. A single backward dataflow analysis (`analyze_function()`) converges on an `AimsState` per variable at each program point, encoding all memory decisions simultaneously:
+
+| Dimension | What It Tracks |
+|-----------|---------------|
+| `AccessClass` | How the value is accessed (read, write, project) |
+| `Consumption` | Whether the value is consumed, shared, or dead |
+| `Cardinality` | How many times the value is used downstream |
+| `Uniqueness` | Whether the value has a unique reference |
+| `Locality` | Whether the value escapes the current scope |
+| `ShapeClass` | Structural shape (scalar, aggregate, closure) |
+| `EffectClass` | Side-effect classification (pure, reads, writes) |
+
+All RC, reuse, COW, and drop decisions are **derived from the converged state map** in two emission phases:
 
 ```mermaid
 flowchart TB
     A["CanExpr"] --> B["Lower → ArcFunction"]
-    B --> C["Borrow Inference
-    (Owned/Borrowed params)"]
-    C --> D["Derived Ownership
-    (all locals)"]
-    D --> E["Dominator Tree"]
-    E --> F["Liveness Analysis
-    (standard + refined)"]
-    F --> G["RC Insertion
-    (RcInc / RcDec)"]
-    G --> H["Reset/Reuse Detection
-    (allocation reuse)"]
-    H --> I["Expand Reset/Reuse"]
-    I --> J["RC Elimination
-    (dead RC removal)"]
-    J --> K["Cross-Block Elimination
-    (inc/dec pairs across blocks)"]
+    B --> C["Interprocedural Analysis
+    (MemoryContract per fn, SCC fixpoint)"]
+    C --> D["Per-Function Analysis
+    (backward dataflow → AimsStateMap)"]
+    D --> E["Phase 1: realize_rc_reuse
+    (RC ops + reuse, pre-merge)"]
+    E --> F["Verify + Tail Calls
+    + merge_blocks"]
+    F --> G["Phase 2: realize_annotations
+    (COW + drop hints, post-merge)"]
+    G --> H["Final Verify + FBIP"]
 
     classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
 
-    class A,B,C,D,E,F,G,H,I,J,K native
+    class A,B,C,D,E,F,G,H native
 ```
+
+A critical architectural constraint: Phase 2 runs **after** `merge_blocks()` (CFG cleanup), which invalidates position-keyed state maps. Post-merge steps access the `AimsStateMap` via `ArcVarId`-keyed lookups instead — this works because `merge_blocks()` preserves entry block IDs.
 
 The ARC IR is **backend-independent** — `ori_arc` has no LLVM dependency. The `arc_emitter` in `ori_llvm` translates ARC IR instructions to LLVM IR. This separation means the AIMS analysis can be tested, debugged, and evolved without touching codegen.
 
