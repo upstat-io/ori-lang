@@ -59,6 +59,13 @@ pub fn narrow_struct_fields(plan: &mut ReprPlan, pool: &Pool) {
             continue;
         }
 
+        // Skip public types — their field layout is an ABI contract
+        // with external code (TPR-04-005).
+        if plan.is_public_type(idx) {
+            tracing::trace!(?idx, "skipping narrowing — public type (ABI contract)");
+            continue;
+        }
+
         let Some(repr) = plan.get_repr(idx).cloned() else {
             continue;
         };
@@ -151,13 +158,16 @@ fn is_canonical_int(repr: &MachineRepr) -> bool {
 
 /// Check if a type has a fixed-layout attribute that prevents narrowing.
 ///
-/// `#repr("c")`, `#repr("packed")`, and `#repr("transparent")` all fix
-/// the field layout — narrowing would violate the ABI contract.
+/// `#repr("c")`, `#repr("c", aligned N)`, `#repr("packed")`, and
+/// `#repr("transparent")` all fix the field layout — narrowing would
+/// violate the ABI contract. `#repr("aligned", N)` alone does NOT
+/// prevent narrowing: it sets whole-struct alignment, not field layout.
 fn has_fixed_layout_attr(plan: &ReprPlan, idx: Idx) -> bool {
     plan.repr_attr(idx).is_some_and(|attr| {
         matches!(
             attr,
             crate::plan::ReprAttribute::C
+                | crate::plan::ReprAttribute::CAligned(_)
                 | crate::plan::ReprAttribute::Packed
                 | crate::plan::ReprAttribute::Transparent
         )

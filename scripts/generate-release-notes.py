@@ -148,7 +148,14 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
                     streaming=False,
                     on_permission_request=approve_all,
                 )
-                return await session.send(prompt)
+                reply = await session.send_and_wait(prompt, timeout=120.0)
+                if reply is None:
+                    return None
+                text = reply.data.content
+                if not text or len(text) < 50:
+                    print(f"AI returned suspiciously short response ({text!r}), using fallback", file=sys.stderr)
+                    return None
+                return text
             finally:
                 await client.stop()
 
