@@ -188,6 +188,70 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.def_var(v, EmittedValue::from_repr(repr, val));
     }
 
+    /// §04.4 Phase B: Compute which local variables should use narrow int types.
+    ///
+    /// Scans all variables in the function and checks if their value range
+    /// (from the `ReprPlan`) fits in a narrower integer type. Function
+    /// parameters are excluded (no visibility info in ARC IR — conservative).
+    pub(super) fn compute_narrowed_vars(&mut self, func: &ArcFunction) {
+        use ori_types::Tag;
+
+        self.narrowed_vars.clear();
+
+        let Some(plan) = self.type_resolver.repr_plan() else {
+            return;
+        };
+
+        // Collect parameter variable IDs for exclusion.
+        let param_vars: rustc_hash::FxHashSet<ArcVarId> =
+            func.params.iter().map(|p| p.var).collect();
+
+        // Check each variable in the function.
+        for (raw_idx, &ty_idx) in func.var_types.iter().enumerate() {
+            let var = ArcVarId::new(raw_idx as u32);
+
+            // Skip function parameters (can't distinguish pub from private).
+            if param_vars.contains(&var) {
+                continue;
+            }
+
+            // Only narrow int-typed variables.
+            let resolved = self.pool.resolve_fully(ty_idx);
+            if self.pool.tag(resolved) != Tag::Int {
+                continue;
+            }
+
+            // Query the range analysis for this variable.
+            let range = plan.var_range(func.name, var);
+            let width = range.min_width();
+
+            // Only record if narrower than canonical i64.
+            if width != ori_repr::IntWidth::I64 {
+                self.narrowed_vars.insert(var, width);
+            }
+        }
+
+        if !self.narrowed_vars.is_empty() {
+            tracing::debug!(
+                func = func.name.raw(),
+                count = self.narrowed_vars.len(),
+                "§04.4 Phase B: narrowed local variables"
+            );
+        }
+    }
+
+    /// §04.4 Phase B: Get the LLVM integer type for a given `IntWidth`.
+    pub(super) fn llvm_type_for_int_width(&mut self, width: ori_repr::IntWidth) -> LLVMTypeId {
+        let scx = self.builder.scx();
+        let ty = match width {
+            ori_repr::IntWidth::I8 => scx.type_i8().into(),
+            ori_repr::IntWidth::I16 => scx.type_i16().into(),
+            ori_repr::IntWidth::I32 => scx.type_i32().into(),
+            ori_repr::IntWidth::I64 => scx.type_i64().into(),
+        };
+        self.builder.register_type(ty)
+    }
+
     /// Look up the LLVM block for an ARC block.
     ///
     /// Panics if the block is a dead unwind block (no LLVM block was created).
