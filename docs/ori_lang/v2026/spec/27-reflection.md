@@ -5,6 +5,8 @@ order: 27
 section: "Language"
 ---
 
+> **SUPERSEDED (2026-03-26):** The runtime reflection model described in this clause (`Reflect` trait, `TypeInfo`, `Unknown`, `#derive(Reflect)`) has been superseded by compile-time structural reflection. See `proposals/approved/compile-time-reflection-proposal.md`. This clause will be rewritten to describe the compile-time model (`fields_of(T)`, `variants_of(T)`, `$for`, `$if`, splice access).
+
 # 27 Reflection
 
 Reflection enables runtime type introspection for types that opt in via the `Reflect` trait.

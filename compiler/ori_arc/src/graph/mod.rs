@@ -29,7 +29,7 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 ///
 /// Returns a vector indexed by block index, where each entry is the
 /// list of distinct predecessor block indices.
-pub(crate) fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
+pub fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
     let num_blocks = func.blocks.len();
     let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); num_blocks];
 
@@ -50,7 +50,7 @@ pub(crate) fn compute_predecessors(func: &ArcFunction) -> Vec<Vec<usize>> {
 ///
 /// Returns `SmallVec<[ArcBlockId; 4]>` to avoid heap allocation for the
 /// common case (max 2 successors except Switch with many cases).
-pub(crate) fn successor_block_ids(terminator: &ArcTerminator) -> SmallVec<[ArcBlockId; 4]> {
+pub fn successor_block_ids(terminator: &ArcTerminator) -> SmallVec<[ArcBlockId; 4]> {
     match terminator {
         ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
             SmallVec::new()
@@ -119,7 +119,7 @@ pub(crate) fn compute_pred_counts(func: &ArcFunction) -> Vec<usize> {
 /// Used by liveness analysis (convergence ordering) and the dominator tree
 /// (reverse postorder). Shared here so both consumers use the same
 /// traversal implementation.
-pub(crate) fn compute_postorder(func: &ArcFunction) -> Vec<usize> {
+pub fn compute_postorder(func: &ArcFunction) -> Vec<usize> {
     let num_blocks = func.blocks.len();
     let mut visited = vec![false; num_blocks];
     let mut postorder = Vec::with_capacity(num_blocks);

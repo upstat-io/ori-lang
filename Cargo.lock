@@ -955,6 +955,7 @@ dependencies = [
  "ori_ir",
  "ori_types",
  "pretty_assertions",
+ "proptest",
  "rustc-hash",
  "tracing",
 ]

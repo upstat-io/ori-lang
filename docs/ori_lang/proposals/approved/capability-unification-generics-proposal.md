@@ -1477,7 +1477,7 @@ Phase 2 risks are eliminated entirely because bound syntax is unchanged.
 | `14-capabilities.md` | Conceptual reframing | 1 |
 | `16-formatting.md` | `#derive` examples → `:` syntax | 1 |
 | `21-constant-expressions.md` | Const generic eligibility | 3 |
-| `27-reflection.md` | `#derive(Reflect)` examples → `: Reflect` | 1 |
+| `27-reflection.md` | Superseded — runtime `Reflect` replaced by compile-time reflection (2026-03-26). Clause to be rewritten. | 1 |
 
 ---
 
@@ -1499,7 +1499,7 @@ Since bound syntax (`:`) is unchanged, only proposals containing `#derive(...)` 
 | `comparable-hashable-traits-proposal.md` | `#derive` examples → `:` trait clause |
 | `clone-trait-proposal.md` | `#derive` examples → `:` trait clause |
 | `debug-trait-proposal.md` | `#derive` examples → `:` trait clause |
-| `reflection-api-proposal.md` | `#derive(Reflect)` → `: Reflect` |
+| `reflection-api-proposal.md` | **Superseded** by `compile-time-reflection-proposal.md` (2026-03-26). No syntax update needed. |
 | `capability-composition-proposal.md` | Documentation reframing only |
 | `capset-proposal.md` | Documentation reframing only |
 | `intrinsics-capability-proposal.md` | Documentation reframing only |
