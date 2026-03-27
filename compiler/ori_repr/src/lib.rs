@@ -43,6 +43,10 @@ mod struct_repr;
 mod tests;
 
 pub use enum_repr::{EnumRepr, EnumTag, VariantRepr};
+pub use narrowing::abi::{
+    AbiBoundary, CrossModuleAgreement, FunctionBoundaryInfo, WidthRequirement,
+};
+pub use narrowing::overflow::OverflowStrategy;
 pub use plan::{
     DecisionReason, DecisionSource, NarrowingPolicy, RcStrategy, ReprAttribute, ReprDecision,
     ReprPlan,

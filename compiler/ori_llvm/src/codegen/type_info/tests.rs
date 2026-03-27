@@ -5,6 +5,11 @@
 
 use super::*;
 use inkwell::context::Context;
+use inkwell::types::BasicTypeEnum;
+use ori_ir::Name;
+use ori_types::{Idx, Pool};
+
+use crate::context::SimpleCx;
 
 /// Helper to create a Pool with just the pre-interned primitives.
 fn test_pool() -> Pool {

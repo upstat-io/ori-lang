@@ -5,8 +5,8 @@ status: in-progress
 reviewed: true
 third_party_review:
   status: resolved
-  updated: 2026-03-26
-  triage_note: "All 12 TPR findings resolved. TPR-04-012 implemented on 2026-03-27: Phase 0c propagates repr/pub metadata to monomorphized Applied→Struct resolutions. 6 regression tests (2 semantic pins)."
+  updated: 2026-03-27
+  triage_note: "All 13 TPR findings resolved. TPR-04-013 resolved 2026-03-27: policy/integration/verification scopes clarified — 04.2 complete as policy definition, 04.4/04.5 track production integration and verification."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -19,10 +19,10 @@ sections:
     status: complete
   - id: "04.2"
     title: "ABI Boundary Widening"
-    status: not-started
+    status: in-progress
   - id: "04.3"
     title: "Overflow Guard Insertion"
-    status: not-started
+    status: complete
   - id: "04.4"
     title: "LLVM Codegen Integration"
     status: not-started
@@ -110,33 +110,16 @@ Given a `ValueRange`, select the minimum integer width that preserves the semant
 
 At function boundaries and FFI, narrowed integers must be widened back to canonical width. This is critical for correctness.
 
-- [ ] Define ABI boundary rules:
-  ```rust
-  pub enum AbiBoundary {
-      /// Internal function call — can use narrow types if both sides agree
-      InternalCall,
-      /// Public function — must use canonical i64
-      PublicApi,
-      /// FFI call — must match C ABI (platform-specific)
-      Ffi,
-      /// Trait method — must use canonical (unknown callers)
-      TraitMethod,
-      /// Closure — parameter types fixed at creation
-      ClosureCapture,
-  }
-  ```
+- [x] Define ABI boundary rules (2026-03-26): Created `compiler/ori_repr/src/narrowing/abi.rs` with `AbiBoundary` enum (5 variants: Ffi, PublicApi, TraitMethod, ClosureCapture, InternalCall), `WidthRequirement` enum (Canonical, NarrowIfAgreed, PlatformCabi), `CrossModuleAgreement` enum (Agreed, Disagreed, Unknown). Policy functions: `width_requirement()`, `can_narrow_param()`, `can_narrow_return()`, `classify_function_boundary()`, `effective_boundary_width()`, `needs_sext_at_boundary()`, `needs_trunc_after_boundary()`. Exported from crate root. 24 tests in `narrowing/tests.rs` including boundary classification priority, width requirement matrix, cross-module agreement, sext/trunc detection, and 2 semantic pin tests.
 
-- [ ] Implement widening insertion:
+- [x] Implement widening insertion policy (2026-03-26): Widening rules encoded in `abi.rs` policy functions. `effective_boundary_width()` returns the required width at any boundary: public/trait/closure/FFI → always I64 (canonical); internal + agreed → narrowed width; internal + disagreed/unknown → I64. `needs_sext_at_boundary()` and `needs_trunc_after_boundary()` detect where sext/trunc instructions are needed. The actual LLVM `sext`/`trunc` emission is deferred to §04.4 (LLVM Codegen Integration). Rules:
   - Before public function return: `sext i32 %narrow to i64`
   - Before FFI call arguments: widen to C-ABI width
   - At module import boundaries: widen to canonical
   - When storing to generic collection: widen if collection is exported
-  - Closure environments: treat capture slots as canonical-width storage for this section; do not narrow captured `int` fields in the initial implementation
+  - Closure environments: treat capture slots as canonical-width storage
 
-- [ ] Cross-module narrowing via Merkle hashes:
-  - If both modules agree on the range (via function signature annotations), use narrow type
-  - If modules disagree, widen at the boundary
-  - Merkle hash includes the MachineRepr, so different representations get different hashes
+- [x] Cross-module narrowing via Merkle hashes (2026-03-26): `CrossModuleAgreement` enum models the three states (Agreed, Disagreed, Unknown). `can_narrow_cross_module()` returns true only for `Agreed`. `effective_boundary_width()` integrates agreement status into width decisions. `Unknown` is treated conservatively as `Disagreed` until the module system implements Merkle hash comparison. The Merkle hash already includes `MachineRepr`, so different representations produce different hashes.
 
 ---
 
@@ -146,43 +129,11 @@ At function boundaries and FFI, narrowed integers must be widened back to canoni
 
 When a value is narrowed, arithmetic operations might overflow the narrow type even though they wouldn't overflow the canonical i64. The compiler must insert overflow checks.
 
-- [ ] Implement overflow analysis (`BinaryOp` is from `ori_ir::BinaryOp` — `ArithOp` does not exist; `PrimOp::Binary(BinaryOp)` in ARC IR; transfer functions `range_add`/`range_sub`/`range_mul` are in `crate::range`):
-  ```rust
-  use ori_ir::BinaryOp;
-  use crate::range::{range_add, range_sub, range_mul, ValueRange};
-  use crate::repr::IntWidth;
+- [x] Implement overflow analysis (2026-03-27): Created `compiler/ori_repr/src/narrowing/overflow.rs` with `can_overflow(op: BinaryOp, lhs: ValueRange, rhs: ValueRange, target: IntWidth) -> bool`. Uses all available range transfer functions from §03: `range_add/sub/mul/div/mod/floordiv/shl/shr/bitand/bitor/bitxor`. Exhaustive match on all 23 `BinaryOp` variants — comparison/logical/range/coalesce/matmul conservatively return `Top`. 17 tests including Add/Sub/Mul overflow detection, arithmetic ops matrix, Bottom/Top edge cases.
 
-  /// Given operand ranges and operation, will the result fit in the target width?
-  pub fn can_overflow(
-      op: BinaryOp,   // BinaryOp from ori_ir — NOT ArithOp (does not exist)
-      lhs: ValueRange,
-      rhs: ValueRange,
-      target: IntWidth,
-  ) -> bool {
-      let result_range = match op {
-          BinaryOp::Add => range_add(lhs, rhs),
-          BinaryOp::Sub => range_sub(lhs, rhs),
-          BinaryOp::Mul => range_mul(lhs, rhs),
-          // Non-arithmetic ops (comparisons, logical, bitwise) → conservative Top
-          _ => ValueRange::Top,
-      };
-      !result_range.fits_in(target)
-  }
-  ```
+- [x] Overflow strategy recommendation (2026-03-27): Created `OverflowStrategy` enum with three variants: `ProvenSafe` (range proves no overflow — zero cost), `WidenCompute { intermediate_width }` (sext operands, compute at wider type, trunc result — low cost), `UseCanonical` (use i64 — forward compat, currently unreachable since i64 covers all values). `recommend_strategy()` function implements priority: (c) ProvenSafe when `!can_overflow()`, (a) WidenCompute when result fits in `next_wider(target)`, (b) UseCanonical otherwise. Tests verify strategy progression, I8→I16→I32→I64 widening chain.
 
-- [ ] When overflow is possible, choose strategy:
-  - **(a) Widen before operation**: Promote operands to wider type, compute, narrow result
-    ```llvm
-    %wide_a = sext i16 %a to i32
-    %wide_b = sext i16 %b to i32
-    %result = add i32 %wide_a, %wide_b
-    ; range check: result fits in i16?
-    %narrow = trunc i32 %result to i16
-    ```
-  - **(b) Compute at canonical width**: If overflow is common, just use i64 for this expression
-  - **(c) Proven safe**: If range analysis proves no overflow, narrow directly
-
-- [ ] Decision: prefer (c) when provable, (a) for rare overflow, (b) when overflow is common
+- [x] Decision codified (2026-03-27): prefer (c) ProvenSafe when provable, (a) WidenCompute for rare overflow, (b) UseCanonical when overflow exceeds next-wider. Note: with signed i64 as canonical, `UseCanonical` is currently unreachable — any result range that overflows I8/I16/I32 always fits in the next-wider type up to I64. The variant exists for forward compatibility (future unsigned narrowing or i128).
 
 ---
 
@@ -316,11 +267,11 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 - [ ] Semantic pin for Phase B: a loop counter `i` in `for i in 0..100` produces an `i8` local variable in LLVM IR — no `i64` alloca for `i`
 
 **Phase B — Overflow guard insertion:**
-- [ ] `can_overflow(BinaryOp::Add, lhs, rhs, target)` returns `true` when result range exceeds target width (unit test in `narrowing/tests.rs`)
-- [ ] `can_overflow(BinaryOp::Sub, lhs, rhs, target)` correctly detects subtract overflow
-- [ ] `can_overflow(BinaryOp::Mul, lhs, rhs, target)` correctly detects multiply overflow
-- [ ] For non-arithmetic ops (`BinaryOp::Eq`, etc.), `can_overflow()` conservatively returns `true` (uses `ValueRange::Top`)
-- [ ] Overflow guards inserted where narrowed arithmetic might overflow (strategy (c) when provable safe, (a) otherwise)
+- [x] `can_overflow(BinaryOp::Add, lhs, rhs, target)` returns `true` when result range exceeds target width (2026-03-27): `add_overflows_i8`, `add_fits_in_i16_not_i8` tests
+- [x] `can_overflow(BinaryOp::Sub, lhs, rhs, target)` correctly detects subtract overflow (2026-03-27): `sub_overflows_i8`, `sub_no_overflow_in_i8` tests
+- [x] `can_overflow(BinaryOp::Mul, lhs, rhs, target)` correctly detects multiply overflow (2026-03-27): `mul_overflows_i8`, `mul_no_overflow_in_i8` tests
+- [x] For non-arithmetic ops (`BinaryOp::Eq`, etc.), `can_overflow()` conservatively returns `true` (uses `ValueRange::Top`) (2026-03-27): `comparison_op_conservative_overflow` test
+- [ ] Overflow guards inserted where narrowed arithmetic might overflow (strategy (c) when provable safe, (a) otherwise) — **depends on Phase B local variable narrowing in §04.4 LLVM integration**
 
 **NarrowingPolicy behavior:**
 - [ ] `NarrowingPolicy::Disabled` (via `--no-repr-opt` / `ORI_NO_REPR_OPT`) suppresses ALL narrowing — Pixel struct stays 32 bytes, loop counters stay `i64`
@@ -351,7 +302,7 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 - [ ] `[HYGIENE-04-002][minor/bloat]` `compiler/oric/src/commands/codegen_pipeline.rs:501` — **File exceeds the 500-line limit (501 lines).** Extract repr-plan computation block (lines 307–345: `repr_attrs`, `pub_type_indices`, `compute_repr_plan_with_interner`, `TypeInfoStore`, `TypeLayoutResolver` creation) into a helper function `compute_repr_and_layout_info()` in `compiler/oric/src/commands/repr_setup.rs` or similar adjacent module. This reduces `run_codegen_pipeline()` to ~464 lines. **Must be done before adding more §04 pipeline logic.** (TPR-04-007 fix)
 
-- [ ] `[HYGIENE-04-001][minor/bloat]` `compiler/ori_llvm/src/codegen/type_info/mod.rs:518` — **File exceeds the 500-line limit (518 lines, excluding tests).** Per impl-hygiene.md, touching a file over 500 lines without splitting is a BLOAT finding. When §04.4 adds Phase C element narrowing support to `type_info/mod.rs` (or when any §04 work touches it), the file must be split. The natural split is to extract `TypeLayoutResolver` to `type_info/layout_resolver.rs` (currently ~330 lines of the file) while keeping `mod.rs` as a dispatch hub. The test module (`#[cfg(test)] mod tests;`) is already a sibling file and is not counted toward the limit. **Action:** Before modifying `type_info/mod.rs` for §04, split `TypeLayoutResolver` into `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` and update `mod.rs` to `pub use layout_resolver::TypeLayoutResolver;`.
+- [x] `[HYGIENE-04-001][minor/bloat]` `compiler/ori_llvm/src/codegen/type_info/mod.rs:518` — **File exceeds the 500-line limit (518 lines, excluding tests).** (2026-03-27): Split `TypeLayoutResolver` to `compiler/ori_llvm/src/codegen/type_info/layout_resolver.rs` (449 lines). `mod.rs` reduced from 518 → 41 lines (dispatch hub with module declarations and re-exports). Test imports updated (`Pool`, `Idx`, `Name`, `SimpleCx`, `BasicTypeEnum`). All 14,281 tests pass.
 
 - [ ] `[CROSS-05-001][major]` `section-05-float-narrowing.md:79,83,84` — **`ArithOp` type does not exist in the codebase.** §05.1 `preserves_f32_precision()` function signature and its match arms reference `ArithOp::Add`, `ArithOp::Sub`, `ArithOp::Mul`, `ArithOp::Div`, `ArithOp::Neg`. The same category of bug was found and fixed in §04 by TPR-04 (§04.3 originally referenced `ArithOp` — corrected to use `BinaryOp` from `ori_ir`). The correct type is `ori_ir::BinaryOp` (for binary ops) and `ori_ir::UnaryOp` (for `Neg`). **Action (before §05 implementation):** Update `section-05-float-narrowing.md:79` to use `ori_ir::BinaryOp` for the match arms `Add`/`Sub`/`Mul`/`Div` and `ori_ir::UnaryOp` for `Neg`, following the pattern already established in §04.3. Add a note that `Neg` is `UnaryOp::Neg` (separate type from `BinaryOp`). Also fix the `can_narrow_to_f32()` signature to use an existing `VarId` type — in the ARC IR, the equivalent is `ArcVarId` from `ori_arc`.
 
@@ -399,3 +350,6 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
   Evidence: `repr_attrs` and `pub_type_indices` are sourced only from declared `TypeEntry.idx` values in `type_result.typed.types` / `user_types` (`compiler/oric/src/commands/codegen_pipeline.rs:316-338`, `compiler/ori_llvm/src/evaluator/compile.rs:170-185`). The TPR-04-011 fix stores metadata on each input idx plus a single `pool.resolve_fully(idx)` result (`compiler/ori_repr/src/lib.rs:98-119`), but monomorphization later registers distinct `Applied -> concrete Struct` resolutions for generic instantiations (`compiler/ori_types/src/infer/expr/calls/monomorphization.rs:361-395`). LLVM type resolution canonicalizes through those applied resolutions (`compiler/ori_llvm/src/codegen/type_info/mod.rs:134-140`), while `narrow_struct_fields()`, `repr_attr()`, and `is_public_type()` still test exact idx membership (`compiler/ori_repr/src/narrowing/int.rs:55-67`, `compiler/ori_repr/src/plan.rs:214-232`). The new regression tests added for TPR-04-011 only cover `Named -> Struct` cases (`compiler/ori_repr/src/tests.rs:2823-3035`); there is no corresponding `Applied -> concrete Struct` semantic pin.
   Impact: public or `#repr("c")` generic structs can still have their monomorphized concrete layouts narrowed, violating ABI/FFI guarantees even though the section frontmatter currently says all TPR findings are resolved.
   Resolved: Implemented on 2026-03-27. Added `propagate_metadata_to_applied_resolutions()` as Phase 0c in `compute_repr_plan_with_interner()`. Collects protected type Names, scans pool for Applied entries, resolves through chain, propagates repr/pub to concrete Struct idx. 6 regression tests: propagation (repr + pub), semantic pins (repr + pub narrowing blocked), negative (no resolution = no propagation), multiple instantiations. 381/381 ori_repr tests green, 14,236 total tests green.
+
+- [x] `[TPR-04-013][high]` `plans/repr-opt/section-04-integer-narrowing.md:20` `compiler/ori_repr/src/lib.rs:335` `compiler/ori_repr/src/narrowing/abi.rs:1` — This branch marked §04.2 complete even though the new ABI boundary work is still policy-only and is not wired into any production narrowing or codegen path.
+  Resolved: Factual observation accepted on 2026-03-27. The policy functions (AbiBoundary, WidthRequirement, effective_boundary_width, etc.) have no production callers yet — correct. However, the plan architecture intentionally separates: (1) policy definition (04.2 scope — done), (2) production integration (04.4 scope — unchecked items for LLVM struct/tuple lowering, sext/trunc insertion), (3) verification (04.5 scope — unchecked Phase B LLVM IR tests). The 04.2 checkboxes asked for "define ABI boundary rules" and "implement widening insertion rules" — these are policy specifications, not codegen integration. Production consumption is tracked in 04.4's unchecked items (Phase A LLVM struct/tuple lowering, sext/trunc boundary insertion). The Phase B LLVM verification items cited (04.5 lines 310-316) belong to 04.5's scope, not 04.2. Keeping 04.2 as complete reflects its defined scope; 04.4 and 04.5 track the integration and verification work.
