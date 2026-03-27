@@ -6,7 +6,7 @@ reviewed: true
 third_party_review:
   status: resolved
   updated: 2026-03-27
-  triage_note: "All TPR findings resolved. TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020 resolved 2026-03-27. TPR-04-017→CROSS-04-017 accepted (JIT transitive metadata — implementation task open in §04.X). TPR-04-021 fixed 2026-03-27: added ori_str_drop_buffer runtime function + emit_str_rc_dec uses proper drop fn + RC-dec intermediates in Debug/Str quoting path."
+  triage_note: "All TPR findings resolved. TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020, TPR-04-021 resolved 2026-03-27. TPR-04-017→CROSS-04-017 accepted as follow-up work in §04.X. TPR-04-022 resolved 2026-03-27: removed stale Debug known_gap from enforcement test."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -346,6 +346,12 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 ---
 
 ## 04.R Third Party Review Findings
+
+- [x] `[TPR-04-022][low]` `compiler/ori_llvm/tests/aot/derives.rs:20` `compiler/ori_llvm/src/codegen/derive_codegen/mod.rs:143` `compiler/ori_llvm/tests/aot/derives.rs:787` — The cross-trait sync test still treats `Debug` as a known LLVM-codegen gap even though this branch clearly has live Debug codegen and now depends on it.
+  Evidence: `all_derived_traits_have_codegen()` keeps `DerivedTrait::Debug` in `known_gaps` with the comment "deferred: interpreter-only", so the test still expects only 6 traits to have LLVM codegen. But the current tree compiles Debug derives through `compile_format_fields()` and exercises them in the existing AOT suite, including the new TPR-04-021 leak matrix in `tests/aot/derives.rs`. Fresh verification on 2026-03-27 shows both `cargo test -p ori_llvm all_derived_traits_have_codegen` and the Debug AOT tests pass, which confirms the enforcement test is stale rather than intentionally documenting an unimplemented backend.
+  Impact: the enforcement test no longer guards Debug derive codegen coverage. Future changes could regress or remove LLVM Debug support without tripping the intended "all derived traits have codegen" sync check, leaving only scattered behavior tests to catch it.
+  Required plan update: remove `DerivedTrait::Debug` from `known_gaps` and update the expected count in `all_derived_traits_have_codegen()` so the sync test treats Debug as required LLVM codegen.
+  Resolved: Fixed on 2026-03-27. Removed `DerivedTrait::Debug` from `known_gaps` (now empty) and updated expected codegen count from 6 to 7. `all_derived_traits_have_codegen()` now treats Debug as required LLVM codegen. Test passes.
 
 - [x] `[TPR-04-021][high]` `compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs:127` `compiler/ori_llvm/tests/aot/narrowing.rs:339` `plans/repr-opt/section-04-integer-narrowing.md:200` — The claimed Debug-format leak fix is incomplete: derived `Debug` on a struct with a long `str` field still leaks one heap string allocation.
   Evidence: `emit_field_to_string()` still builds the Debug quoting path as `open + val` then `quoted + close` and returns the final concat without RC-decrementing the abandoned `quoted` intermediate. `open`/`close` are SSO, but `quoted` becomes heap-backed as soon as the field string is long enough, so the new `compile_format_fields()` cleanup does not cover this inner concat chain. Fresh verification on 2026-03-27 with `target/debug/ori build` plus `ORI_CHECK_LEAKS=1` reproduced the leak for `#[derive(Debug)] type Wrap = { msg: str }` and a long string field: the binary exited with `ori: 1 RC allocation(s) not freed`. The new AOT pin at `test_narrowed_derive_debug_negative_values()` only exercises integer fields, so it cannot catch this path.

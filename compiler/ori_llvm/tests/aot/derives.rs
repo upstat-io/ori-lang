@@ -22,9 +22,7 @@ fn all_derived_traits_have_codegen() {
     // Known gaps — traits with documented reasons for missing LLVM codegen.
     // Adding a trait here requires a comment explaining why codegen is deferred.
     // Removing a trait means codegen was implemented — update the count below.
-    let known_gaps: &[DerivedTrait] = &[
-        DerivedTrait::Debug, // deferred: interpreter-only (trait_arch backlog)
-    ];
+    let known_gaps: &[DerivedTrait] = &[];
 
     // Guard: pinned trait count forces this test to be reviewed when a new
     // DerivedTrait variant is added. Update this constant, then either
@@ -53,7 +51,7 @@ fn all_derived_traits_have_codegen() {
 
     assert_eq!(
         should_have_codegen.len(),
-        6,
+        7,
         "Traits expected to have LLVM codegen changed: {should_have_codegen:?}. \
          Update this count after implementing codegen or adding to known_gaps."
     );
