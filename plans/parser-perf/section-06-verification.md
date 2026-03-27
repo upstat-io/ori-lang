@@ -5,7 +5,7 @@ status: not-started
 reviewed: false
 goal: "Prove measurable improvement across all parser frontend benchmarks with zero regressions."
 inspired_by:
-  - "Ori plans/_template/plan.md — Verification Section Template"
+  - "Ori .claude/skills/create-plan/plan-schema.md — Verification Section Schema"
 depends_on: ["01", "02", "03", "04", "05"]
 third_party_review:
   status: none
