@@ -92,15 +92,16 @@ jobs:
       - name: Build with LLVM
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace ori-llvm:latest \
-            sh -c "cargo build --release -p oric && strip /workspace/target/release/ori"
+            sh -c "cargo build --release -p oric -p ori_rt && strip /workspace/target/release/ori"
 
       - name: Package
         run: |
-          mkdir -p staging
+          mkdir -p staging/lib
           cp target/release/ori staging/
+          cp target/release/libori_rt.a staging/lib/
           cp -r library staging/library
           cd staging
-          tar -czvf ../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori library/
+          tar -czvf ../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori lib/ library/
           cd ..
 
       - name: Upload artifact
@@ -159,16 +160,17 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build with LLVM
-        run: cargo build --release -p oric --target ${{ matrix.target }}
+        run: cargo build --release -p oric -p ori_rt --target ${{ matrix.target }}
 
       - name: Package
         run: |
-          mkdir -p staging
+          mkdir -p staging/lib
           cp target/${{ matrix.target }}/release/ori staging/
           strip staging/ori
+          cp target/${{ matrix.target }}/release/libori_rt.a staging/lib/
           cp -r library staging/library
           cd staging
-          tar -czvf ../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori library/
+          tar -czvf ../ori-${{ github.ref_name }}-${{ matrix.name }}.tar.gz ori lib/ library/
           cd ..
 
       - name: Upload artifact
@@ -231,15 +233,17 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Build with LLVM
-        run: cargo build --release -p oric --target x86_64-pc-windows-msvc
+        run: cargo build --release -p oric -p ori_rt --target x86_64-pc-windows-msvc
 
       - name: Package
         run: |
           mkdir staging
+          mkdir staging/lib
           Copy-Item target/x86_64-pc-windows-msvc/release/ori.exe staging/
+          Copy-Item target/x86_64-pc-windows-msvc/release/ori_rt.lib staging/lib/
           Copy-Item -Recurse library staging/library
           cd staging
-          7z a ../ori-${{ github.ref_name }}-windows-x86_64.zip ori.exe library/
+          7z a ../ori-${{ github.ref_name }}-windows-x86_64.zip ori.exe lib/ library/
           cd ..
 
       - name: Upload artifact

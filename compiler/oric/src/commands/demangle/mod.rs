@@ -29,9 +29,7 @@ pub fn demangle_symbol(_symbol: &str) {
     eprintln!("error: the 'demangle' command requires the LLVM backend");
     eprintln!();
     eprintln!("The Ori compiler was built without LLVM support.");
-    eprintln!("To enable demangling, rebuild with the 'llvm' feature:");
-    eprintln!();
-    eprintln!("  cargo build --features llvm");
+    eprintln!("To enable demangling, reinstall Ori with LLVM support.");
     std::process::exit(1);
 }
 
