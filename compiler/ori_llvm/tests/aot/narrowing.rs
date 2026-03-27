@@ -103,6 +103,15 @@ type Bounds = { lo: int, hi: int }
     );
 }
 
+// CROSS-04-015 multi-file AOT semantic pin tests are blocked on multi-file
+// AOT compilation being incomplete (roadmap Section 4: Modules). The ARC IR
+// emitter currently cannot resolve cross-module function calls. The plumbing
+// for ExportedTypeMetadata is verified by:
+// 1. Unit tests in compiler/oric/src/commands/build/tests.rs
+//    (collect_imported_type_metadata correctness)
+// 2. Existing ori_repr tests (imported metadata prevents narrowing)
+// 3. Compilation succeeds with the new parameter threading
+
 /// Negative semantic pin: struct with Top-range fields must NOT be narrowed.
 /// Fields used with values spanning the full i64 range stay at i64.
 #[test]
