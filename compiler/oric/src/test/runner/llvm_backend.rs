@@ -238,6 +238,14 @@ impl TestRunner {
         // Delegates to shared implementation in typeck.
         let function_sigs = crate::typeck::build_function_sigs(parse_result, type_result);
 
+        // Collect exported type metadata from imported modules for repr plan
+        // construction. This ensures imported `pub` and `#repr(...)` types are
+        // correctly exempted from integer narrowing. See CROSS-04-014.
+        let imported_type_metadata: Vec<ori_types::ExportedTypeMetadata> = imported_type_results
+            .iter()
+            .flat_map(|tc| tc.typed.exported_type_metadata.iter().cloned())
+            .collect();
+
         // ARC lowering + borrow inference + compilation, wrapped in catch_unwind
         // to gracefully handle panics in any phase (ARC classification, LLVM codegen,
         // etc.) without aborting the entire test runner.
@@ -266,6 +274,7 @@ impl TestRunner {
                 &annotated_sigs,
                 arc_cache,
                 None, // JIT: use env var fallback for narrowing policy
+                &imported_type_metadata,
             )
         }));
 
