@@ -116,11 +116,17 @@ range_add, range_sub, range_mul, range_literal, transfer_primop
 
 ```
 integer narrowing, int → i32, int → i16, int → i8
-select_int_width, IntWidth, width selection
-ABI boundary, widening, sext, trunc, sign extension
-overflow guard, checked arithmetic, overflow detection
+IntWidth, width selection, min_width, ValueRange::min_width
+ABI boundary, widening, sext, trunc, sign extension, AbiBoundary
+overflow guard, can_overflow, BinaryOp, checked arithmetic, overflow detection
 NarrowingPolicy, aggressive, conservative, disabled
-loop counter narrowing, struct field narrowing
+--no-repr-opt, ORI_NO_REPR_OPT
+loop counter narrowing, struct field narrowing, collection element narrowing
+Phase A, Phase B, Phase C
+apply_integer_narrowing, FieldSummaryTable, element_store_size
+TypeLayoutResolver, try_repr_to_llvm_type, ArcIrEmitter
+§04/§06 interface contract, FieldRepr.repr, FieldRepr.offset placeholder
+narrowing/int.rs, narrowing/abi.rs, narrowing/overflow.rs
 Zig comptime_int, Roc NumericRange, LLVM InstCombine
 ```
 
