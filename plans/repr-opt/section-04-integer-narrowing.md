@@ -4,9 +4,9 @@ title: "Integer Narrowing Pipeline"
 status: in-progress
 reviewed: true
 third_party_review:
-  status: findings
+  status: resolved
   updated: 2026-03-27
-  triage_note: "TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, and TPR-04-020→DERIVE-PIN-04-020 were resolved on 2026-03-27. TPR-04-017→CROSS-04-017 remains open (JIT transitive metadata). TPR-04-021 opened on 2026-03-27 for the remaining Debug str-field leak in derive formatting; triage pending."
+  triage_note: "All TPR findings resolved. TPR-04-018→IR-PIN-04-018, TPR-04-019→MIXED-PIN-04-019, TPR-04-020→DERIVE-PIN-04-020 resolved 2026-03-27. TPR-04-017→CROSS-04-017 accepted (JIT transitive metadata — implementation task open in §04.X). TPR-04-021 fixed 2026-03-27: added ori_str_drop_buffer runtime function + emit_str_rc_dec uses proper drop fn + RC-dec intermediates in Debug/Str quoting path."
 goal: "Lower int (semantic i64) to the smallest machine integer (i8/i16/i32) that preserves correctness, saving memory in struct fields, collections, and stack slots"
 inspired_by:
   - "Zig comptime_int narrowing to runtime types (src/Sema.zig)"
@@ -347,10 +347,11 @@ The LLVM backend type resolution path via `TypeLayoutResolver` handles `MachineR
 
 ## 04.R Third Party Review Findings
 
-- [ ] `[TPR-04-021][high]` `compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs:127` `compiler/ori_llvm/tests/aot/narrowing.rs:339` `plans/repr-opt/section-04-integer-narrowing.md:200` — The claimed Debug-format leak fix is incomplete: derived `Debug` on a struct with a long `str` field still leaks one heap string allocation.
+- [x] `[TPR-04-021][high]` `compiler/ori_llvm/src/codegen/derive_codegen/string_helpers.rs:127` `compiler/ori_llvm/tests/aot/narrowing.rs:339` `plans/repr-opt/section-04-integer-narrowing.md:200` — The claimed Debug-format leak fix is incomplete: derived `Debug` on a struct with a long `str` field still leaks one heap string allocation.
   Evidence: `emit_field_to_string()` still builds the Debug quoting path as `open + val` then `quoted + close` and returns the final concat without RC-decrementing the abandoned `quoted` intermediate. `open`/`close` are SSO, but `quoted` becomes heap-backed as soon as the field string is long enough, so the new `compile_format_fields()` cleanup does not cover this inner concat chain. Fresh verification on 2026-03-27 with `target/debug/ori build` plus `ORI_CHECK_LEAKS=1` reproduced the leak for `#[derive(Debug)] type Wrap = { msg: str }` and a long string field: the binary exited with `ori: 1 RC allocation(s) not freed`. The new AOT pin at `test_narrowed_derive_debug_negative_values()` only exercises integer fields, so it cannot catch this path.
   Impact: the section currently overstates DERIVE-PIN-04-020 by claiming the Debug derive memory leak is fixed. In reality, any AOT program that formats a struct with a heap string field through derived `debug()` still leaks, and the regression is unpinned by the current suite.
   Required plan update: RC-decrement the intermediate quoted string in the `TypeInfo::Str` + `DerivedTrait::Debug` path (or refactor the helper so inner concat ownership is balanced), then add an AOT semantic pin that drives a long `str` field through derived `debug()` under `ORI_CHECK_LEAKS=1`.
+  Resolved: Fixed on 2026-03-27. Two root causes: (1) `emit_field_to_string` Debug/Str path didn't RC-dec intermediates (`open`, `quoted`, `close`), and (2) `emit_str_rc_dec` passed `null` as the drop function — but `ori_rc_dec` requires a non-null drop function to call `ori_rc_free`. Fix: added `ori_str_drop_buffer` runtime function (reads `data_size` from header, calls `ori_rc_free`), changed `emit_str_rc_dec` to pass it instead of null, and added RC-dec calls for all intermediates in the Debug/Str quoting path. 4 matrix tests: long str (heap), short str (SSO), multi-str, mixed str+int. All 14,317 tests pass.
 
 - [x] `[TPR-04-020][medium]` `plans/repr-opt/section-04-integer-narrowing.md:154` `compiler/ori_llvm/tests/aot/derives.rs:174` `compiler/ori_llvm/tests/aot/ir_quality_attributes.rs:318` — The new derive-codegen widening fix for narrowed ints is still unpinned for the signed cases that actually require `sext`.
   Evidence: §04.4 now claims the phase fixed derive codegen for `hash`, `printable`, and `debug` by widening narrowed fields back to canonical `i64`, but the AOT coverage never exercises a negative narrowed value through those paths. The added derive behavior tests only use positive field values (`1`, `2`, `3`, `4`) in `hash()` / `to_str()`, and the lone `debug()` AOT test checks only LLVM attributes (`nounwind`), not formatted output. A mistaken `zext` or missing widen would therefore still pass the current suite for all covered cases because the bug is observable only once an `i8`/`i16` field carries a negative value.

@@ -61,9 +61,10 @@ pub(super) fn emit_str_rc_dec<'a>(
         .builder_mut()
         .extract_value(str_val, 1, &format!("{name}.cap"));
     if let (Some(dp), Some(cp)) = (data, cap) {
-        let null = fc.builder_mut().const_null_ptr();
+        let drop_fn_id = fc.builder_mut().runtime_fn("ori_str_drop_buffer");
+        let drop_fn_ptr = fc.builder_mut().get_function_ptr(drop_fn_id);
         let dec_fn = fc.builder_mut().runtime_fn("ori_str_rc_dec");
-        fc.builder_mut().call(dec_fn, &[dp, cp, null], "");
+        fc.builder_mut().call(dec_fn, &[dp, cp, drop_fn_ptr], "");
     }
 }
 
@@ -129,8 +130,16 @@ pub(super) fn emit_field_to_string<'a>(
                 // Debug quotes string values: "hello" → "\"hello\""
                 let open = emit_str_literal(fc, "\"", &format!("{name}.q1"), str_ty_id);
                 let quoted = emit_str_concat(fc, open, val, &format!("{name}.qcat"), str_ty_id);
+                // open is SSO (1 byte) — dec is a no-op but balances ownership.
+                emit_str_rc_dec(fc, open, &format!("{name}.dec.q1"));
                 let close = emit_str_literal(fc, "\"", &format!("{name}.q2"), str_ty_id);
-                emit_str_concat(fc, quoted, close, &format!("{name}.quoted"), str_ty_id)
+                let result =
+                    emit_str_concat(fc, quoted, close, &format!("{name}.quoted"), str_ty_id);
+                // quoted is heap-backed for long strings — must dec to avoid leak.
+                emit_str_rc_dec(fc, quoted, &format!("{name}.dec.qcat"));
+                // close is SSO (1 byte) — dec is a no-op but balances ownership.
+                emit_str_rc_dec(fc, close, &format!("{name}.dec.q2"));
+                result
             } else {
                 val
             }
