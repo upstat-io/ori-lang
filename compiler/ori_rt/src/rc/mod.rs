@@ -337,6 +337,21 @@ pub extern "C" fn ori_str_rc_dec(
     }
 }
 
+/// Drop function for plain string buffers (no nested elements).
+///
+/// Reads the allocation size from the RC header and calls `ori_rc_free`.
+/// Used as the `drop_fn` argument to `ori_rc_dec` for string intermediates
+/// in derived format codegen, where no compiler-generated per-type drop
+/// function is available.
+#[no_mangle]
+pub extern "C" fn ori_str_drop_buffer(data_ptr: *mut u8) {
+    if data_ptr.is_null() {
+        return;
+    }
+    let size = ori_rc_data_size(data_ptr) as usize;
+    ori_rc_free(data_ptr, size, 8);
+}
+
 /// Call a drop function with abort-on-panic guard.
 ///
 /// `ori_rc_dec` is declared `nounwind` in LLVM IR, meaning unwinding through

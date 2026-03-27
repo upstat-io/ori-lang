@@ -783,3 +783,98 @@ type Shape = Circle(radius: int) | Rect(w: int, h: int);
         "journey_11_derived_eq",
     );
 }
+
+// ---- TPR-04-021: Debug derive str field leak fix ----
+//
+// The `emit_field_to_string` Debug/Str path creates `"\"" + val + "\""`
+// via two concats. The inner concat result (`quoted`) must be RC-decremented
+// after being consumed by the outer concat. Additionally, the `emit_str_rc_dec`
+// helper must pass `ori_str_drop_buffer` (not null) as the drop function, so
+// `ori_rc_dec` can free the buffer when RC reaches 0.
+//
+// These tests form a matrix: {short (SSO) str, long (heap) str} x
+// {single str field, multiple str fields, mixed str+int fields}.
+
+/// Semantic pin: long str field (heap-backed intermediate) — the core
+/// regression case. Without the fix, `ori_str_concat`'s in-place append
+/// reuses the buffer, and the intermediate's RC reaches 0 inside the
+/// derive function with no drop function to free it.
+#[test]
+fn test_aot_derive_debug_str_field_no_leak() {
+    assert_aot_success(
+        r#"
+#[derive(Debug)]
+type Wrapper = { msg: str }
+
+@main () -> int = {
+    // 28 chars — exceeds 23-byte SSO threshold, forces heap allocation
+    let w = Wrapper { msg: "this is a long string value!" };
+    let s = w.debug();
+    if s.contains(substr: "this is a long string value!") then 0 else 1
+}
+"#,
+        "derive_debug_str_field_no_leak",
+    );
+}
+
+/// Short str field (SSO) — the intermediate stays SSO, so no heap
+/// allocation to leak. Verifies the fix doesn't break the SSO path.
+#[test]
+fn test_aot_derive_debug_short_str_no_leak() {
+    assert_aot_success(
+        r#"
+#[derive(Debug)]
+type Tag = { label: str }
+
+@main () -> int = {
+    let t = Tag { label: "ok" };
+    let s = t.debug();
+    if s.contains(substr: "ok") then 0 else 1
+}
+"#,
+        "derive_debug_short_str_no_leak",
+    );
+}
+
+/// Multiple str fields — each field independently creates a quoted
+/// intermediate. All must be properly freed.
+#[test]
+fn test_aot_derive_debug_multi_str_no_leak() {
+    assert_aot_success(
+        r#"
+#[derive(Debug)]
+type Pair = { first: str, second: str }
+
+@main () -> int = {
+    let p = Pair { first: "aaaaaaaaaaaaaaaaaaaaaaaaa", second: "bbbbbbbbbbbbbbbbbbbbbbbbb" };
+    let s = p.debug();
+    let ok = s.contains(substr: "aaaaaaaaaaaaaaaaaaaaaaaaa")
+        && s.contains(substr: "bbbbbbbbbbbbbbbbbbbbbbbbb");
+    if ok then 0 else 1
+}
+"#,
+        "derive_debug_multi_str_no_leak",
+    );
+}
+
+/// Mixed str + int fields — the str field goes through the Debug quoting
+/// path while the int field goes through the sext/format path. Both must
+/// clean up properly without interfering with each other.
+#[test]
+fn test_aot_derive_debug_mixed_str_int_no_leak() {
+    assert_aot_success(
+        r#"
+#[derive(Debug)]
+type Record = { name: str, count: int }
+
+@main () -> int = {
+    let r = Record { name: "a]long]record]name]value!!", count: 42 };
+    let s = r.debug();
+    let ok = s.contains(substr: "a]long]record]name]value!!")
+        && s.contains(substr: "42");
+    if ok then 0 else 1
+}
+"#,
+        "derive_debug_mixed_str_int_no_leak",
+    );
+}
