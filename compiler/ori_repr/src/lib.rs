@@ -55,7 +55,7 @@ pub use struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, Tuple
 
 use ori_arc::ir::ArcFunction;
 use ori_ir::ReprAttrKind;
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
 
 /// Compute the representation plan for all types reachable from the program.
 ///
@@ -96,12 +96,38 @@ pub fn compute_repr_plan_with_interner(
     let mut plan = ReprPlan::new(policy);
 
     // Phase 0: Store user-specified #repr attributes (§01.7).
+    // TPR-04-011: also store under the resolved idx so that narrowing and
+    // codegen (which operate on resolved struct/tuple indices) see the attr.
     for &(idx, ref attr) in repr_attrs {
-        plan.set_repr_attr(idx, convert_repr_attr_kind(attr));
+        let converted = convert_repr_attr_kind(attr);
+        plan.set_repr_attr(idx, converted);
+        let resolved = pool.resolve_fully(idx);
+        if resolved != idx {
+            plan.set_repr_attr(resolved, converted);
+        }
     }
 
     // Phase 0b: Store public type indices for ABI-safe narrowing (§04, TPR-04-005).
-    plan.set_pub_type_indices(pub_type_indices.iter().copied());
+    // TPR-04-011: also store under the resolved idx for the same reason.
+    plan.set_pub_type_indices(pub_type_indices.iter().flat_map(|&idx| {
+        let resolved = pool.resolve_fully(idx);
+        if resolved == idx {
+            vec![idx]
+        } else {
+            vec![idx, resolved]
+        }
+    }));
+
+    // Phase 0c: Propagate repr/pub metadata through Applied → concrete Struct
+    // resolutions for monomorphized generic types (TPR-04-012).
+    //
+    // Phases 0/0b store metadata on the Named idx and its direct resolve_fully()
+    // result. But monomorphization creates additional Applied(Name, [ConcreteArgs])
+    // → Struct resolutions that aren't in the Named chain. We collect the set of
+    // protected type Names, then scan the pool for Applied entries whose name
+    // matches. Each matching Applied is resolved through the pool, and the
+    // concrete Struct idx receives the same repr/pub metadata.
+    propagate_metadata_to_applied_resolutions(&mut plan, pool, repr_attrs, pub_type_indices);
 
     // Phase 1: Set canonical representations for all types (§01).
     canonical::populate_canonical(&mut plan, pool);
@@ -132,6 +158,95 @@ pub fn compute_repr_plan_with_interner(
     specialize_collections(&mut plan, pool);
 
     plan
+}
+
+/// Phase 0c (TPR-04-012): Propagate repr/pub metadata to monomorphized generic
+/// type resolutions.
+///
+/// Monomorphization creates `Applied(Name, [ConcreteArgs]) → Struct` resolutions
+/// that are distinct from the `Named → Struct` chain handled by Phases 0/0b.
+/// This function collects the set of protected type `Name`s, scans the pool for
+/// `Applied` entries whose name matches, resolves each through the pool, and
+/// propagates `repr_attr` / `pub_type` metadata to the resolved concrete `Struct` idx.
+fn propagate_metadata_to_applied_resolutions(
+    plan: &mut ReprPlan,
+    pool: &Pool,
+    repr_attrs: &[(Idx, ReprAttrKind)],
+    pub_type_indices: &[Idx],
+) {
+    use rustc_hash::FxHashMap;
+
+    // Collect protected type names with their metadata.
+    let mut protected: FxHashMap<ori_ir::Name, (Option<ReprAttribute>, bool)> =
+        FxHashMap::default();
+
+    for &(idx, ref attr) in repr_attrs {
+        let tag = pool.tag(idx);
+        let name = match tag {
+            Tag::Named => pool.named_name(idx),
+            Tag::Applied => pool.applied_name(idx),
+            _ => continue,
+        };
+        let entry = protected.entry(name).or_insert((None, false));
+        entry.0 = Some(convert_repr_attr_kind(attr));
+    }
+
+    for &idx in pub_type_indices {
+        let tag = pool.tag(idx);
+        let name = match tag {
+            Tag::Named => pool.named_name(idx),
+            Tag::Applied => pool.applied_name(idx),
+            _ => continue,
+        };
+        let entry = protected.entry(name).or_insert((None, false));
+        entry.1 = true;
+    }
+
+    if protected.is_empty() {
+        return;
+    }
+
+    // Scan all dynamic pool entries for Applied types matching protected names.
+    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+    for raw in Idx::FIRST_DYNAMIC..pool_len {
+        let idx = Idx::from_raw(raw);
+        if pool.tag(idx) != Tag::Applied {
+            continue;
+        }
+
+        let name = pool.applied_name(idx);
+        let Some(&(ref repr_attr, is_pub)) = protected.get(&name) else {
+            continue;
+        };
+
+        // Resolve through the pool to find the concrete Struct/Tuple.
+        let resolved = pool.resolve_fully(idx);
+        if resolved == idx {
+            // No resolution registered for this Applied — skip.
+            continue;
+        }
+
+        if let Some(attr) = repr_attr {
+            if plan.repr_attr(resolved).is_none() {
+                plan.set_repr_attr(resolved, *attr);
+                tracing::trace!(
+                    ?idx,
+                    ?resolved,
+                    ?attr,
+                    "TPR-04-012: propagated repr attr to monomorphized concrete type"
+                );
+            }
+        }
+
+        if is_pub && !plan.is_public_type(resolved) {
+            plan.set_pub_type_indices(std::iter::once(resolved));
+            tracing::trace!(
+                ?idx,
+                ?resolved,
+                "TPR-04-012: propagated pub status to monomorphized concrete type"
+            );
+        }
+    }
 }
 
 // Stubs — replaced by real implementations in §02–§11.

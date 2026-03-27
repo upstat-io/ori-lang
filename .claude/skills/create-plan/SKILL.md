@@ -1,6 +1,14 @@
+---
+name: create-plan
+description: Create a new plan directory with index and section files using the standard schema
+argument-hint: "<name> [description]"
+---
+
 # Create Plan Command
 
-Create a new plan directory with index and section files using the standard template. **Research-first, architecture-second, sections-last**: deeply understand the existing codebase, design the architecture, then write sections sequentially.
+Create a new plan directory with index and section files using the standard plan schema. **Research-first, architecture-second, sections-last**: deeply understand the existing codebase, design the architecture, then write sections sequentially.
+
+**Schema**: `.claude/skills/create-plan/plan-schema.md` — the single source of truth for plan structure, frontmatter fields, section format, status conventions, and writing principles.
 
 ## Usage
 
@@ -66,7 +74,7 @@ Do NOT ask for sections yet. Sections emerge from research, not from guessing.
 
 ### Step 2: Read the Template & Hygiene Rules
 
-Read `plans/_template/plan.md` for the structure reference.
+Read `.claude/skills/create-plan/plan-schema.md` for the structure reference.
 
 The full rule set is embedded below (source of truth files — do not maintain separate copies). Use these rules when structuring plan sections to ensure plans account for registration sync points, file size limits, phase boundary discipline, and other hygiene requirements from the start.
 
@@ -404,7 +412,7 @@ After ALL research passes complete, synthesize findings into a structured archit
 
 The overview is the **load-bearing design document**. It is NOT boilerplate filled in after sections are written — it is the architectural blueprint that DRIVES section content.
 
-Write `00-overview.md` following the template in `plans/_template/plan.md`, grounding every element in research:
+Write `00-overview.md` following the template in `.claude/skills/create-plan/plan-schema.md`, grounding every element in research:
 
 - **Mission**: Based on the actual problem discovered during research — what exists, what's broken, what's missing
 - **Architecture diagram**: Based on the actual data flow map from Pass 2's deep read — show how data enters, transforms, and exits
@@ -460,7 +468,7 @@ For each section, in order from 01 to N:
 - ALL previously written sections (to reference their decisions and avoid contradictions)
 - The relevant research findings for this section's scope
 
-**Write the section** following the template in `plans/_template/plan.md`. Every section must be grounded:
+**Write the section** following the template in `.claude/skills/create-plan/plan-schema.md`. Every section must be grounded:
 
 - **File paths**: Use EXACT paths from research (verified to exist)
 - **Type signatures**: Use EXACT signatures from research (copy from source)
@@ -694,7 +702,7 @@ Use `/benchmark short` after modifying hot paths.
 **Skip benchmarks for:** [list non-perf sections]
 ```
 
-See `plans/_template/plan.md` for full guidance.
+See `.claude/skills/create-plan/plan-schema.md` for full guidance.
 
 ---
 
@@ -744,7 +752,7 @@ Research is identical in rigor, but adds a roadmap-specific dimension:
 - **Step 8**: Instead of writing a new `00-overview.md`:
   - **Update** the existing `00-overview.md` — add the new section to the architecture diagram, dependency graph, implementation sequence, quick reference table, and estimated effort
   - **Update** `index.md` — add keyword clusters for the new section
-  - If the overview or index format has drifted from the current template (`plans/_template/plan.md`), bring them up to date while you're editing them
+  - If the overview or index format has drifted from the current template (`.claude/skills/create-plan/plan-schema.md`), bring them up to date while you're editing them
 
 - **Step 9**: Present to the user:
   - The proposed new section with its goals and scope
@@ -780,7 +788,7 @@ Research is identical in rigor, but adds a roadmap-specific dimension:
 
 **You MUST leave the roadmap in better shape than you found it.** When operating in roadmap mode:
 
-1. **Format drift**: If the roadmap's existing sections don't match the current template format (`plans/_template/plan.md`), update them to match. This includes frontmatter fields, section structure, completion checklists, and third-party review blocks.
+1. **Format drift**: If the roadmap's existing sections don't match the current template format (`.claude/skills/create-plan/plan-schema.md`), update them to match. This includes frontmatter fields, section structure, completion checklists, and third-party review blocks.
 2. **Stale content**: If you encounter stale file paths, outdated type signatures, or references to code that no longer exists, fix them.
 3. **Missing cross-references**: If sections reference each other implicitly but lack explicit `depends_on` or co-implementation callouts, add them.
 4. **Incomplete hygiene**: If sections lack completion checklists, exit criteria, or test strategies, add them.
@@ -810,7 +818,7 @@ This is not optional cleanup — it's a mandatory part of roadmap mode. Every to
 
 ## Template Reference
 
-The command uses `plans/_template/plan.md` as the structure reference. See that file for:
+The command uses `.claude/skills/create-plan/plan-schema.md` as the structure reference. See that file for:
 - Complete index.md template
 - Section file template
 - Status conventions

@@ -77,11 +77,13 @@ The scanner outputs an `=== REROUTES ===` block at the top with `[ACTIVE reroute
 
 **When an ACTIVE reroute completes (promotion protocol):**
 
-1. Update the completed plan's frontmatter: `status: resolved`
-2. If queued reroutes exist, pick the one with the lowest `order` value:
+1. Update the completed plan's frontmatter: `status: resolved` (or `complete`)
+2. **Verify frontmatter consistency** (see "Plan Completion Frontmatter Gate" below)
+3. **Move the plan to `plans/completed/`**: `git mv plans/<plan-dir> plans/completed/<plan-dir>`
+4. If queued reroutes exist, pick the one with the lowest `order` value:
    - Update its frontmatter: `status: active`
    - Inform the user that the next reroute has been promoted to active
-3. If no queued reroute exists, inform the user that normal roadmap work resumes
+5. If no queued reroute exists, inform the user that normal roadmap work resumes
 
 **Active parallel plans** (`parallel: true`) run alongside the roadmap — they don't block normal work. Only `reroute: true` plans with `status: active` take priority.
 
@@ -122,6 +124,34 @@ The scanner detects frontmatter/body mismatches (`!! MISMATCH` annotations) at b
 - If items are marked `[ ]` but have a `<!-- blocked:` or `<!-- deferred:` comment indicating they were intentionally left open, call them out and ask whether to mark complete or leave as-is
 
 After fixing, briefly note what was corrected (e.g., "Fixed stale frontmatter: Section 09 status updated to `complete` (all subsections done)").
+
+### Step 1.6: Schema Compliance Check
+
+The plan schema lives at `.claude/skills/create-plan/plan-schema.md`. When working on a plan (reroute or roadmap section), verify the focus section's frontmatter conforms to the schema:
+
+**Required frontmatter fields for section files:**
+- `section` — section number (string or number)
+- `title` — section title
+- `status` — `not-started | in-progress | complete`
+- `reviewed` — `true | false`
+- `goal` — one-line measurable goal
+- `sections` — array of `{ id, title, status }` subsection entries
+- `third_party_review` — `{ status: none | findings | resolved, updated: date | null }`
+
+**Required frontmatter fields for overview files (`00-overview.md`):**
+- `plan` — plan directory name
+- `title` — full plan title
+- `status` — `not-started | in-progress | complete`
+
+**Required frontmatter fields for index files (`index.md`):**
+- `reroute: true` or `parallel: true` (for website-visible plans)
+- `name` — short display name
+- `full_name` — full display name
+- `status` — `active | queued | resolved`
+
+**Auto-fix:** If a field is missing or uses a non-standard value (e.g., `status: done` instead of `status: complete`), fix it silently. If the structure is fundamentally wrong (e.g., missing `sections` array entirely), note it and fix.
+
+This check is lightweight — only verify the focus section and its parent overview/index. Do not scan all sections on every invocation.
 
 ### Step 1.7: Unreviewed Plan Gate
 
@@ -577,8 +607,32 @@ When completing a roadmap item:
 - [ ] Update parent plan files (if section status changed):
   - [ ] Update `00-overview.md` effort table and Quick Reference table
   - [ ] Update `index.md` section status and Quick Reference table
-  - [ ] If plan complete: update plan-level `status:` frontmatter in both files
+  - [ ] If plan complete: run "Plan Completion Frontmatter Gate" (see below), then move to `plans/completed/`
 - [ ] Run `/commit-push` — NEVER commit directly with `git commit`
+
+---
+
+## Plan Completion Frontmatter Gate
+
+**When ALL sections of a plan are complete**, run this gate before archival:
+
+1. **Verify `00-overview.md` frontmatter**: `status` must be `complete` or `resolved` (not `in-progress` or `not-started`)
+2. **Verify `index.md` frontmatter** (if it exists): `status` must be `complete` or `resolved`
+3. **Verify Quick Reference table**: every section row in the `| ID | Title | File | Status |` table must show `Complete`
+4. **Verify Estimated Effort table** (if it exists): every section row must show `Complete`
+5. **Scan for stale `Not Started` or `In Progress`**: grep the overview and index for these strings — if found in section status columns, fix them
+
+If any check fails, fix the frontmatter/tables first, then proceed.
+
+## Plan Archival Protocol
+
+After the frontmatter gate passes:
+
+1. **Move the plan directory**: `git mv plans/<plan-dir> plans/completed/<plan-dir>`
+2. **Verify the move**: `ls plans/completed/<plan-dir>/` to confirm files are present
+3. **Commit**: use `/commit-push` with a message like `chore: archive completed plan <plan-name>`
+
+Completed plans in `plans/completed/` are still served by the website at the same URLs — no URL changes needed. The `completed/` directory is purely organizational; the website scans both `plans/` and `plans/completed/` for plan content.
 
 ---
 

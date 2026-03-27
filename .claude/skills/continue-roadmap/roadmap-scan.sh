@@ -35,7 +35,7 @@ for plan_index in plans/*/index.md; do
     [[ -f "$plan_index" ]] || continue
     plan_dir=$(dirname "$plan_index")
     plan_name=$(basename "$plan_dir")
-    [[ "$plan_name" == "roadmap" ]] && continue
+    [[ "$plan_name" == "roadmap" || "$plan_name" == "completed" ]] && continue
 
     # Parse frontmatter fields
     fm_type=$(awk '/^---$/{n++; next} n==1 && /^(reroute|parallel):/{sub(/^[a-z]+: */,""); print; exit}' "$plan_index")
